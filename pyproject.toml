@@ -236,7 +236,7 @@ target-version = "py312"
 # The formatter wraps code at 88; E501 (below) only flags lines over 100, which
 # the formatter cannot fix (long comments, docstrings, string literals).
 line-length = 88
-src = ["src", "tests", "scripts"]
+src = ["src", "tests", "scripts", "lab"]
 extend-exclude = ["src/meshforge/common/proto"]
 # Apply excludes even to paths passed explicitly (pre-commit passes filenames).
 force-exclude = true
@@ -282,6 +282,9 @@ ignore = [
     "S603", # dev scripts run fixed tool commands (protoc via grpc_tools)
     "T201", # dev scripts report via print
 ]
+"lab/**" = [
+    "S603", # lab probes run fixed tool commands (argv lists, no shell, resolved via PATH)
+]
 "src/meshforge/controller/store/migrations/**" = [
     "N999", # Alembic revision files are named 0001_*.py
 ]
@@ -304,13 +307,14 @@ mark-parentheses = false
 # ---------------------------------------------------------------------------
 [tool.mypy]
 python_version = "3.12"
-files = ["src", "tests", "scripts"]
+files = ["src", "tests", "scripts", "lab"]
 # tests/ has no __init__.py (pytest prepend import mode); explicit bases give each
 # conftest.py a distinct module name. tests/unit is a base because the unit tests
 # import `_import_guard` as a top-level module; tests/_support likewise for the shared
-# test helpers (`containers`), which tests/conftest.py puts on sys.path. Separator ","
+# test helpers (`containers`), which tests/conftest.py puts on sys.path; lab/ so the
+# lab helper package `_inventory` resolves like at runtime. Separator ","
 # works on Windows too.
-mypy_path = "$MYPY_CONFIG_FILE_DIR/src,$MYPY_CONFIG_FILE_DIR/tests/unit,$MYPY_CONFIG_FILE_DIR/tests/_support"
+mypy_path = "$MYPY_CONFIG_FILE_DIR/src,$MYPY_CONFIG_FILE_DIR/tests/unit,$MYPY_CONFIG_FILE_DIR/tests/_support,$MYPY_CONFIG_FILE_DIR/lab"
 explicit_package_bases = true
 plugins = ["pydantic.mypy"]
 strict = true

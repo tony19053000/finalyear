@@ -1,0 +1,87 @@
+{
+    "processor":  {
+                      "ok":  true,
+                      "data":  {
+                                   "Name":  "Intel(R) Core(TM) i5-8250U CPU @ 1.60GHz",
+                                   "Manufacturer":  "GenuineIntel",
+                                   "NumberOfCores":  4,
+                                   "NumberOfLogicalProcessors":  8,
+                                   "MaxClockSpeed":  1800,
+                                   "CurrentClockSpeed":  1600
+                               }
+                  },
+    "computer_system":  {
+                            "ok":  true,
+                            "data":  [
+                                         {
+                                             "Manufacturer":  "Dell Inc.",
+                                             "Model":  "Inspiron 15 5570",
+                                             "TotalPhysicalMemory":  8480026624,
+                                             "NumberOfProcessors":  1,
+                                             "PCSystemType":  2
+                                         }
+                                     ]
+                        },
+    "operating_system":  {
+                             "ok":  true,
+                             "data":  [
+                                          {
+                                              "Caption":  "Microsoft Windows 10 Pro",
+                                              "Version":  "10.0.19045",
+                                              "BuildNumber":  "19045",
+                                              "OSArchitecture":  "64-bit",
+                                              "TotalVisibleMemorySize":  8281276,
+                                              "FreePhysicalMemory":  2097152
+                                          }
+                                      ]
+                         },
+    "video_controllers":  {
+                              "ok":  true,
+                              "data":  {
+                                           "value":  [
+                                                         {
+                                                             "Name":  "Intel(R) UHD Graphics 620",
+                                                             "AdapterCompatibility":  "Intel Corporation",
+                                                             "AdapterRAM":  1073741824,
+                                                             "DriverVersion":  "31.0.101.2111",
+                                                             "Status":  "OK"
+                                                         }
+                                                     ],
+                                           "Count":  1
+                                       }
+                          },
+    "net_adapters":  {
+                         "ok":  true,
+                         "data":  [
+                                      {
+                                          "Name":  "Wi-Fi",
+                                          "InterfaceDescription":  "Intel(R) Dual Band Wireless-AC 8265",
+                                          "InterfaceIndex":  9,
+                                          "MacAddress":  "34-F6-4B-12-34-56",
+                                          "Status":  "Up",
+                                          "LinkSpeed":  "144.4 Mbps",
+                                          "ReceiveLinkSpeed":  null,
+                                          "TransmitLinkSpeed":  144400000,
+                                          "MediaType":  "Native 802.11",
+                                          "PhysicalMediaType":  "Native 802.11",
+                                          "NdisPhysicalMedium":  9,
+                                          "Virtual":  false,
+                                          "HardwareInterface":  true
+                                      }
+                                  ]
+                     },
+    "net_ip":  {
+                   "ok":  false,
+                   "error":  "The WS-Management service cannot process the request. The class MSFT_NetIPAddress does not exist in the root/standardcimv2 namespace."
+               },
+    "battery":  {
+                    "ok":  true,
+                    "data":  [
+
+                             ]
+                },
+    "secure_boot":  {
+                        "ok":  false,
+                        "error":  "Cmdlet not supported on this platform: 0xC0000002"
+                    }
+}

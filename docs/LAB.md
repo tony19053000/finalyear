@@ -30,7 +30,7 @@
 | AI-agent access (SSH / Claude Code / human relay) | local | TBD (Q5) | TBD (Q5) | TBD (Q5) |
 
 ### How inventory feeds this table
-1. `lab/inventory.py` (task 0.2.2) runs on each laptop and writes one JSON file: `uv run python lab/inventory.py --out lab/reports/inventory/<hostname>.json`. The exact flags are defined by 0.2.2.
+1. `lab/inventory.py` (task 0.2.2) runs on each laptop from the repo root, after a plain `uv sync`, without admin rights, and writes one JSON file. On Linux (bash) run `uv run python lab/inventory.py --out "lab/reports/inventory/$(hostname).json"`. On Windows (PowerShell, native, not WSL) run `uv run python lab/inventory.py --out "lab/reports/inventory/$env:COMPUTERNAME.json"`. The exit code is 0 even when some probes fail, for example a broken NVIDIA driver; the failure is then recorded in the JSON. A short summary is printed to stderr. Its `problems` list names everything a human must fix, for example "NVIDIA GPU present but the driver is not working". The whole run takes at most `--timeout` seconds (default 60). Flags and privacy rules are listed in [`lab/README.md`](../lab/README.md#inventorypy). `LAB_FIELDS` in `lab/_inventory/model.py` maps every row of this table to its JSON fields.
 2. Commit the JSON as it is, without editing it by hand. It is the raw evidence.
 3. Copy the fields into the table above and link the JSON in the "Inventory JSON" row.
 4. When hardware or drivers change, re-run the script, overwrite the JSON, and update the table and the **Last updated** date.

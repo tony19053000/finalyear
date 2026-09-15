@@ -11,11 +11,11 @@
 
 | Field | Value |
 |---|---|
-| **Current version** | V0.1 — in progress (started 2026-09-15) |
-| **Current task** | Closing V0.1: 0.1.8 fix round, 0.1.9–0.1.11 commits; then 🧑 GitHub push + CI proof (criteria 1–2) |
+| **Current version** | V0.2 — in progress (started 2026-09-15); V0.1 code-complete, awaiting 🧑 GitHub CI proof (0.1.4, 0.1.10) |
+| **Current task** | 0.2.2 `lab/inventory.py`; in parallel 🧑 GitHub push + CI proof (V0.1 criteria 1–2) and 🧑 0.2.1 driver fix |
 | **Parallel human tasks** | NVIDIA driver fix (Laptop 1) · hardware inventory of laptops 2–4 · buy Ethernet switch · decide AI-agent access to laptops |
 | **Blockers** | See [Blockers & problems](#blockers--problems-discovered) |
-| **Next recommended task** | 🧑 create private GitHub repo, push, confirm CI green on Linux + Windows; then V0.2 |
+| **Next recommended task** | 0.2.2 inventory → spike harness + S1/S7 scripts; 🧑 GitHub CI proof |
 
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` completed (**only** after tests + success criteria pass, with evidence) · `[-]` dropped (reason logged) · 🧑 = requires a human on physical hardware · 🔬 = spike / measurement.
 
@@ -170,7 +170,7 @@ A version is **complete** only when all apply:
 
 **Tasks**
 - [ ] **0.2.1** 🧑 Fix NVIDIA driver on Laptop 1 (Secure Boot MOK enrollment); verify `nvidia-smi` + `torch.cuda.is_available()`
-- [ ] **0.2.2** `lab/inventory.py` — cross-platform hardware/software inventory → JSON; 🧑 run on all 4 laptops → `docs/LAB.md`
+- [~] **0.2.2** `lab/inventory.py` — cross-platform hardware/software inventory → JSON; 🧑 run on all 4 laptops → `docs/LAB.md` — *code done: commit `feat(0.2.2)`, tester PASS round 2 (798 unit; lab unit+component 234 passed incl. adversarial tree-kill, privacy, 60 s run budget), reviewer APPROVE; stays [~] until 🧑 runs on all 4 laptops (JSON in `lab/reports/inventory/`) incl. Windows tree-kill check*
 - [ ] **0.2.3** 🧑 GPU stack on every NVIDIA laptop: driver, PyTorch CUDA wheel check (decide per-platform torch index via `[tool.uv.sources]` — PyPI Windows torch is CPU-only; add ADR + startup CUDA check), Docker (Desktop on Windows) + GPU container test `docker run --gpus all … nvidia-smi`
 - [ ] **0.2.4** 🧑 Network: switch + cables, DHCP reservations/hostnames, Windows firewall profile set to Private; record link speeds
 - [ ] **0.2.5** 🔬 **S1** network matrix: iperf3 all pairs (Wi-Fi and Ethernet), RTT, jitter, loss → `lab/reports/YYYY-MM-DD-S1-network.md`
@@ -747,6 +747,7 @@ A version is **complete** only when all apply:
 | 2026-09-15 | Carry-over for V0.3/V0.4 (from 0.1.5): Python `AttemptState` + codec + real parity test (skipped placeholder exists); `MAX_TENSOR_CHUNK_BYTES` constant (V0.11); Hello session epoch + request_id (V0.3); GPU session_id bound to mTLS peer (V0.11) | open | V0.3 / V0.11 |
 | 2026-09-15 | Follow-ups from 0.1.6 (non-blocking): pass scan limit into `redaction._quoted_end`; scrub tracebacks per line / keep tail instead of 64 KiB head; sensitive keys with non-ASCII letters not recognised (xfail pinned); `Authorization=Basic` double `[REDACTED]` cosmetic | open | next logging touch |
 | 2026-09-15 | Carry-over for V0.2 (from 0.1.2 review): per-platform torch index — PyPI Windows torch is CPU-only; Linux default pulls CUDA 13 wheels | open | 0.2.3 |
+| 2026-09-15 | Follow-ups from 0.2.2 review (non-blocking): mask UNC / `\\wsl$` user paths in `lab/_inventory/sanitize.py`; `wsl -l -v` decode ignores `WSL_UTF8=1`; runner output cap is post-read (document); pass `_RunState` explicitly if reused as a library (V0.3 agent hardware report); split `probes.py` (801 lines) into hw/sw/collect | open | next lab touch / V0.3 |
 
 ---
 
@@ -766,6 +767,9 @@ A version is **complete** only when all apply:
 | 2026-09-15 | Test tiers = folders (unit component cluster lab e2e soak chaos); `docker`, `gpu`, `slow` are capability markers; optional-extra imports must follow `pytest.importorskip` | agents can't mis-tier tests; Mode 2/4 tests can be component + gpu; plain `uv sync` must always work |
 | 2026-09-15 | Test containers: labelled, atexit + finally cleanup, SIGINT-deferring shield, namespace-safe stale sweep | DEFECT-0.1.8-01 (leak on Ctrl-C); WSL + Windows share one Docker daemon |
 | 2026-09-15 | CI: unit job uses plain `uv sync --locked` on Linux + Windows; required check `ci-ok`; actions pinned by commit SHA; Dependabot weekly | criterion 1 honesty; supply-chain safety |
+| 2026-09-15 | V0.2 agent-side work (lab scripts, spikes) starts while V0.1 criteria 1–2 wait for the 🧑 GitHub CI run; V0.1 closes when that run is green | lab scripts don't depend on CI; the only V0.1 gap is a human push |
+| 2026-09-15 | Lab scripts: stdlib-first, own process group per command + tree kill, one shared run budget (`--timeout`, default 60 s); inventory JSON has a top-level `problems` list for human-actionable issues (probe ok ≠ component healthy) | tester DEFECT-2/3; a broken driver must not hide inside `ok: true` |
+| 2026-09-15 | S1 network spike uses a Python TCP/RTT tool as primary (iperf3 optional cross-check) | iperf3 not installed on Laptop 1 and needs a third-party download on Windows; same code path the V0.3 agent network probe can reuse |
 
 ---
 

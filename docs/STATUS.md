@@ -5,10 +5,11 @@
 **Last updated:** 2026-09-15
 
 ## Current Version
-V0.1 — Foundations & engineering system · **in progress** (started 2026-09-15)
+V0.2 — Lab setup & feasibility validation · **in progress** (started 2026-09-15)
+V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4, 0.1.10)
 
 ## Current Task
-V0.1 is code-complete: 10 of 12 tasks `[x]`. 0.1.4 and 0.1.10 wait only for the 🧑 first real GitHub CI run (see Next Recommended Task).
+0.2.2 `lab/inventory.py` `[~]` (implementer). V0.1: 0.1.4 and 0.1.10 wait only for the 🧑 first real GitHub CI run.
 
 ## Recently Completed
 - All V0.1 tasks implemented, tested and reviewed; committed locally (one commit per task + fix commits). `[x]`: 0.1.1, 0.1.2, 0.1.3, 0.1.5, 0.1.6, 0.1.7, 0.1.8, 0.1.9, 0.1.11, 0.1.12
@@ -16,7 +17,8 @@ V0.1 is code-complete: 10 of 12 tasks `[x]`. 0.1.4 and 0.1.10 wait only for the 
 - Team accepted ARCHITECTURE v1 and ADRs 0001–0010 (2026-09-15)
 
 ## In Progress
-- None (waiting on 🧑 GitHub push + CI proof)
+- 0.2.2 inventory script (implementer → tester → reviewer)
+- 🧑 GitHub push + CI proof (V0.1 criteria 1–2), steps below
 
 ## Blockers
 - 🧑 Private GitHub repo + first push not done → V0.1 criteria 1 (Windows) and 2 (CI green, bad commit rejected) cannot be proven until then
