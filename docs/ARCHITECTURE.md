@@ -640,7 +640,7 @@ Contracts live in `proto/` (source of truth) and OpenAPI generated from FastAPI.
 .
 ├── CLAUDE.md                     agent operating guide
 ├── README.md
-├── pyproject.toml                uv project; extras: controller, agent, gpu, dev
+├── pyproject.toml                uv project; extras: controller, agent, gpu; dependency group: dev
 ├── proto/meshforge/v1/           common.proto · agent.proto · gpu.proto
 ├── src/meshforge/
 │   ├── common/                   config · ids · logging · hashing · errors · generated protos

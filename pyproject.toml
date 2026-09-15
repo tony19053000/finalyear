@@ -1,0 +1,79 @@
+# MeshForge — Intelligent Distributed Compute Fabric (working title).
+# One package, several entry points (ADR-0010). Managed with uv; uv.lock is tracked.
+
+[project]
+name = "meshforge"
+version = "0.1.0.dev0"
+description = "Intelligent distributed compute fabric for heterogeneous personal devices"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+authors = [{ name = "MeshForge team" }]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Private :: Do Not Upload",
+]
+# Core: needed by `common`, `cli` and `sdk` (the SDK must stay installable without
+# controller/agent extras).
+dependencies = [
+    "pydantic>=2.13",
+    "pydantic-settings>=2.15",
+    "structlog>=26.1",
+    "python-ulid>=4.0",
+    "grpcio>=1.84",
+    "protobuf>=7.36",
+    "typer>=0.27",
+    "rich>=15.0",
+]
+
+[project.optional-dependencies]
+controller = [
+    "fastapi>=0.141",
+    "uvicorn[standard]>=0.53",
+    "sqlalchemy[asyncio]>=2.0.53",
+    "asyncpg>=0.31",
+    # Alembic runs through the async engine (asyncpg) via the async env.py template,
+    # so no sync driver (psycopg) is needed.
+    "alembic>=1.20",
+    "zeroconf>=0.151",
+]
+agent = [
+    "psutil>=7.2",
+    "nvidia-ml-py>=13.610",
+    "zeroconf>=0.151",
+    "httpx>=0.28",
+]
+# CPU/CUDA variant selection (PyTorch wheel index per platform) is decided in V0.2;
+# here torch comes from the default index. Only installed with `--extra gpu`.
+gpu = [
+    "torch>=2.14",
+]
+
+# [project.scripts] — entry points `compute`, `meshforge-controller`,
+# `meshforge-agent` are added in task 0.1.3.
+
+[dependency-groups]
+# Roadmap 0.1.2 says "extra dev"; a PEP 735 dependency group is used instead so dev
+# tools are not published as a user-facing extra and `uv sync` installs them by default.
+dev = [
+    "pytest>=9.1",
+    "pytest-asyncio>=1.4",
+    "pytest-cov>=7.1",
+    "testcontainers[postgres]>=4.15",
+    "ruff>=0.16",
+    "mypy>=2.3",
+    "pre-commit>=4.6",
+    "grpcio-tools>=1.84",
+    "mypy-protobuf>=5.1",
+    "types-protobuf>=7.35",
+    "import-linter>=2.15",
+]
+
+[build-system]
+# hatchling: mature, zero-config src layout, and supports build hooks / force-include
+# should generated artefacts (protos, dashboard bundle) need packaging later.
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/meshforge"]

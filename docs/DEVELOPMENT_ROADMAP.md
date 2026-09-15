@@ -134,8 +134,8 @@ A version is **complete** only when all apply:
 **Prerequisites:** team approval of ARCHITECTURE + this roadmap.
 
 **Tasks**
-- [~] **0.1.1** `git init`, `.gitignore`, `.gitattributes` (LF), README, license decision 🧑(team decided 2026-09-15: no license file for now; private GitHub repo, human pushes)
-- [ ] **0.1.2** `pyproject.toml` with uv; extras `controller`, `agent`, `gpu`, `dev`; Python 3.12 pinned
+- [x] **0.1.1** `git init`, `.gitignore`, `.gitattributes` (LF), README, license decision 🧑(team decided 2026-09-15: no license file for now; private GitHub repo, human pushes) — *evidence: commit `chore(0.1.1)`, reviewer APPROVE; git check-ignore/check-attr verified*
+- [x] **0.1.2** `pyproject.toml` with uv; extras `controller`, `agent`, `gpu`; dev tools as uv dependency group `dev`; Python 3.12 pinned — *evidence: commit `build(0.1.2)`, tester PASS (fresh `uv sync --locked`, extras resolve incl. Windows, py3.11/3.13 rejected), reviewer APPROVE*
 - [ ] **0.1.3** package skeleton `src/meshforge/{common,controller,agent,gpu_service,sdk,cli}`; entry points `compute`, `meshforge-controller`, `meshforge-agent`
 - [ ] **0.1.4** import-boundary check (controller ⟂ agent; sdk → common only) enforced in CI
 - [ ] **0.1.5** `proto/meshforge/v1/{common,agent,gpu}.proto` skeletons + codegen script; generated code reproducible
@@ -170,7 +170,7 @@ A version is **complete** only when all apply:
 **Tasks**
 - [ ] **0.2.1** 🧑 Fix NVIDIA driver on Laptop 1 (Secure Boot MOK enrollment); verify `nvidia-smi` + `torch.cuda.is_available()`
 - [ ] **0.2.2** `lab/inventory.py` — cross-platform hardware/software inventory → JSON; 🧑 run on all 4 laptops → `docs/LAB.md`
-- [ ] **0.2.3** 🧑 GPU stack on every NVIDIA laptop: driver, PyTorch CUDA wheel check, Docker (Desktop on Windows) + GPU container test `docker run --gpus all … nvidia-smi`
+- [ ] **0.2.3** 🧑 GPU stack on every NVIDIA laptop: driver, PyTorch CUDA wheel check (decide per-platform torch index via `[tool.uv.sources]` — PyPI Windows torch is CPU-only; add ADR + startup CUDA check), Docker (Desktop on Windows) + GPU container test `docker run --gpus all … nvidia-smi`
 - [ ] **0.2.4** 🧑 Network: switch + cables, DHCP reservations/hostnames, Windows firewall profile set to Private; record link speeds
 - [ ] **0.2.5** 🔬 **S1** network matrix: iperf3 all pairs (Wi-Fi and Ethernet), RTT, jitter, loss → `lab/reports/S1-network.md`
 - [ ] **0.2.6** 🔬 **S2** cross-OS reachability: native Windows Python gRPC + HTTP server reachable from Linux and vice-versa, without WSL
