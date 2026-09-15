@@ -39,6 +39,7 @@ See [`docs/STATUS.md`](docs/STATUS.md) for the current state and
 | [`docs/STATUS.md`](docs/STATUS.md) | Concise current state |
 | [`docs/adr/`](docs/adr/) | Architecture decision records |
 | [`CLAUDE.md`](CLAUDE.md) | Operating guide for AI coding agents |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | Task flow, commit convention, review checklist, evidence rules |
 
 ## Repository layout
 
@@ -49,15 +50,36 @@ most of those directories do not exist yet.
 
 ## Development quickstart
 
-*Available after V0.1.* The intended workflow (Python 3.12, [uv](https://docs.astral.sh/uv/),
-Docker for PostgreSQL) will be:
+Needs Python 3.12 via [uv](https://docs.astral.sh/uv/) and Docker (for PostgreSQL tests).
 
 ```bash
-uv sync                 # install dependencies from uv.lock
-uv run pytest -m unit   # run unit tests
+uv sync --extra controller --extra agent   # install from uv.lock
+uv run pre-commit install                  # commit-time checks
+uv run pytest -m unit                      # unit tests (no Docker needed)
+uv run pytest -m component                 # needs Docker
+docker compose -f deploy/docker-compose.dev.yml up -d --wait   # dev database (see deploy/README.md)
 ```
 
-These commands do not work yet — `pyproject.toml` is added in task 0.1.2.
+Contributor and agent rules: [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## CI
+
+<!-- Badge: add once the GitHub repo URL is known, e.g.
+[![CI](https://github.com/<owner>/<repo>/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/<owner>/<repo>/actions/workflows/ci.yml) -->
+
+GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs on every push
+to `main` and every pull request. Branch protection requires the single `ci-ok` check,
+which passes only if all of these pass (run the same commands locally before pushing):
+
+| Job | Command |
+|---|---|
+| lint | `uv run ruff check .` · `uv run ruff format --check .` · `uv run lint-imports` · `uv run python scripts/gen_protos.py --check` · pre-commit hygiene hooks |
+| types | `uv sync --extra controller --extra agent` then `uv run mypy` |
+| unit (Linux + Windows) | `uv sync` then `uv run pytest -m unit` |
+| component (Linux, Docker) | `uv sync --extra controller --extra agent` then `uv run pytest -m component` |
+
+CI installs with `uv sync --locked`, so a `uv.lock` that is out of date with
+`pyproject.toml` fails the build.
 
 ## License
 
