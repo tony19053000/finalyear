@@ -770,6 +770,7 @@ A version is **complete** only when all apply:
 | 2026-09-15 | V0.2 agent-side work (lab scripts, spikes) starts while V0.1 criteria 1–2 wait for the 🧑 GitHub CI run; V0.1 closes when that run is green | lab scripts don't depend on CI; the only V0.1 gap is a human push |
 | 2026-09-15 | Lab scripts: stdlib-first, own process group per command + tree kill, one shared run budget (`--timeout`, default 60 s); inventory JSON has a top-level `problems` list for human-actionable issues (probe ok ≠ component healthy) | tester DEFECT-2/3; a broken driver must not hide inside `ok: true` |
 | 2026-09-15 | S1 network spike uses a Python TCP/RTT tool as primary (iperf3 optional cross-check) | iperf3 not installed on Laptop 1 and needs a third-party download on Windows; same code path the V0.3 agent network probe can reuse |
+| 2026-09-16 | ADR-0011 (Proposed): torch from the official cu126 index on Linux + Windows via `[tool.uv.sources]`; GPU service refuses to start without working CUDA; confirm or move to cu130 in 0.2.12 from inventory | PyPI Windows torch is CPU-only; cu130 needs driver ≥ 580 and drops pre-Turing GPUs; laptops 2–4 unknown → ADR-0011 |
 
 ---
 

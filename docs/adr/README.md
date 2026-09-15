@@ -14,6 +14,7 @@ Format: Context · Decision · Alternatives · Trade-offs · Consequences. Statu
 | [0008](0008-pairing-and-mtls.md) | Pairing with a fabric CA and mTLS | Accepted |
 | [0009](0009-native-windows-agent.md) | Native Windows agent (not inside WSL) | Accepted |
 | [0010](0010-monorepo-and-stack.md) | Monorepo, single Python package, and core stack | Accepted |
+| [0011](0011-torch-index-per-platform.md) | PyTorch wheels from the official CUDA 12.6 index on Linux and Windows | Proposed |
 
 ## How to write an ADR
 
