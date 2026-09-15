@@ -113,3 +113,6 @@ mlruns/
 
 # ---------- Claude Code (agents are tracked; local settings are not) ----------
 .claude/settings.local.json
+
+# import-linter cache
+.import_linter_cache/

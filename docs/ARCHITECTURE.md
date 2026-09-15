@@ -675,7 +675,7 @@ Contracts live in `proto/` (source of truth) and OpenAPI generated from FastAPI.
 ├── tests/                        unit · component · cluster · lab · gpu · e2e
 └── docs/                         brief · architecture · roadmap · status · adr · LAB.md
 ```
-**One Python package, several entry points** — simpler than a multi-repo, still clean boundaries enforced by import rules (`common` ← everything; `controller` and `agent` never import each other; `sdk` and `gpu_service` import only `common`; `cli` imports `common` + `sdk` and talks to the controller over REST, never importing controller/agent internals).
+**One Python package, several entry points** — simpler than a multi-repo, still clean boundaries enforced by import rules (`common` ← everything; `controller` and `agent` never import each other; `sdk` and `gpu_service` import only `common`; `agent` never imports `gpu_service` — it launches it as a separate process and talks to it over gRPC with stubs from `common`; `cli` imports `common` + `sdk` and talks to the controller over REST, never importing controller/agent internals). Enforced by import-linter contracts in `pyproject.toml` plus the completeness guard `tests/unit/_import_guard.py` (`ALLOWED_DEPS`) — update both when adding a subpackage; `pytest` is the gate, `lint-imports` alone does not check completeness.
 
 ---
 

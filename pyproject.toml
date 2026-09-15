@@ -81,3 +81,93 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/meshforge"]
+
+# ---------------------------------------------------------------------------
+# Import boundaries (roadmap 0.1.4, ARCHITECTURE §21). Run: `uv run lint-imports`.
+# Forbidden contracts also catch *indirect* imports (e.g. cli -> sdk -> controller).
+# Decision: `agent` must NOT import `gpu_service`. The agent supervises the GPU
+# service as a separate process (ARCHITECTURE §3) in its own PyTorch/CUDA
+# environment and talks to it only over the GpuService gRPC API, so the agent
+# never needs (or gets) torch on its import path. Shared message types live in
+# `common` (generated protos).
+# ---------------------------------------------------------------------------
+[tool.importlinter]
+root_package = "meshforge"
+
+[[tool.importlinter.contracts]]
+id = "controller-agent-independent"
+name = "controller and agent never import each other"
+type = "independence"
+modules = ["meshforge.controller", "meshforge.agent"]
+
+[[tool.importlinter.contracts]]
+id = "common-is-bottom-layer"
+name = "common imports no other meshforge subpackage"
+type = "forbidden"
+source_modules = ["meshforge.common"]
+forbidden_modules = [
+    "meshforge.controller",
+    "meshforge.agent",
+    "meshforge.gpu_service",
+    "meshforge.sdk",
+    "meshforge.cli",
+]
+
+[[tool.importlinter.contracts]]
+id = "controller-imports-common-only"
+name = "controller imports only common"
+type = "forbidden"
+source_modules = ["meshforge.controller"]
+forbidden_modules = [
+    "meshforge.agent",
+    "meshforge.gpu_service",
+    "meshforge.sdk",
+    "meshforge.cli",
+]
+
+[[tool.importlinter.contracts]]
+id = "agent-imports-common-only"
+name = "agent imports only common (gpu_service is a supervised process, not a library)"
+type = "forbidden"
+source_modules = ["meshforge.agent"]
+forbidden_modules = [
+    "meshforge.controller",
+    "meshforge.gpu_service",
+    "meshforge.sdk",
+    "meshforge.cli",
+]
+
+[[tool.importlinter.contracts]]
+id = "gpu-service-imports-common-only"
+name = "gpu_service imports only common"
+type = "forbidden"
+source_modules = ["meshforge.gpu_service"]
+forbidden_modules = [
+    "meshforge.controller",
+    "meshforge.agent",
+    "meshforge.sdk",
+    "meshforge.cli",
+]
+
+[[tool.importlinter.contracts]]
+id = "sdk-imports-common-only"
+name = "sdk imports only common"
+type = "forbidden"
+source_modules = ["meshforge.sdk"]
+forbidden_modules = [
+    "meshforge.controller",
+    "meshforge.agent",
+    "meshforge.gpu_service",
+    "meshforge.cli",
+]
+
+[[tool.importlinter.contracts]]
+id = "cli-imports-common-and-sdk-only"
+name = "cli imports only common and sdk"
+type = "forbidden"
+source_modules = ["meshforge.cli"]
+forbidden_modules = [
+    "meshforge.controller",
+    "meshforge.agent",
+    "meshforge.gpu_service",
+]

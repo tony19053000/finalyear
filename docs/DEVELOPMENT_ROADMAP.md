@@ -137,9 +137,9 @@ A version is **complete** only when all apply:
 - [x] **0.1.1** `git init`, `.gitignore`, `.gitattributes` (LF), README, license decision 🧑(team decided 2026-09-15: no license file for now; private GitHub repo, human pushes) — *evidence: commit `chore(0.1.1)`, reviewer APPROVE; git check-ignore/check-attr verified*
 - [x] **0.1.2** `pyproject.toml` with uv; extras `controller`, `agent`, `gpu`; dev tools as uv dependency group `dev`; Python 3.12 pinned — *evidence: commit `build(0.1.2)`, tester PASS (fresh `uv sync --locked`, extras resolve incl. Windows, py3.11/3.13 rejected), reviewer APPROVE*
 - [x] **0.1.3** package skeleton `src/meshforge/{common,controller,agent,gpu_service,sdk,cli}`; entry points `compute`, `meshforge-controller`, `meshforge-agent` — *evidence: commit `feat(0.1.3)`, tester PASS (48 tests incl. clean base-only install), reviewer APPROVE*
-- [ ] **0.1.4** import-boundary check (controller ⟂ agent; sdk → common only) enforced in CI
+- [~] **0.1.4** import-boundary check (controller ⟂ agent; sdk → common only) enforced in CI — *check done (commit `test(0.1.4)`, tester PASS, reviewer APPROVE after fix round); stays [~] until the 0.1.10 CI job runs it*
 - [ ] **0.1.5** `proto/meshforge/v1/{common,agent,gpu}.proto` skeletons + codegen script; generated code reproducible
-- [ ] **0.1.6** `common/`: config (pydantic-settings: TOML + env), IDs (ULID), structlog JSON logging with correlation fields, error base classes, SHA-256 helpers
+- [~] **0.1.6** `common/`: config (pydantic-settings: TOML + env), IDs (ULID), structlog JSON logging with correlation fields, error base classes, SHA-256 helpers
 - [ ] **0.1.7** `deploy/docker-compose.dev.yml` (PostgreSQL 16) + SQLAlchemy base + Alembic baseline migration
 - [ ] **0.1.8** pytest config with markers (`unit component cluster lab gpu e2e`), testcontainers fixture for Postgres
 - [ ] **0.1.9** ruff + mypy (strict on `common`, `controller`, `agent`) + pre-commit
