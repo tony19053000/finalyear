@@ -1,6 +1,6 @@
 # ADR-0005: GPU remoting at the PyTorch level with torch.export
 
-> **Status:** Proposed (2026-09-15) — pending team approval · **Deciders:** team + architect agent
+> **Status:** Accepted (2026-09-15, team approved with roadmap v1) · **Deciders:** team + architect agent
 
 ## Context
 Mode 2 (Remote GPU) and Mode 4 (Combined GPU) need real GPU computation on other laptops. Transparent CUDA-API interception (rCUDA, Cricket, Juice Labs) is research/company-scale work and suffers from per-call network latency.

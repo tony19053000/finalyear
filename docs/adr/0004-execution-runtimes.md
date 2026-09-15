@@ -1,6 +1,6 @@
 # ADR-0004: Execution runtimes: Docker first, uv venv fallback
 
-> **Status:** Proposed (2026-09-15) — pending team approval · **Deciders:** team + architect agent
+> **Status:** Accepted (2026-09-15, team approved with roadmap v1) · **Deciders:** team + architect agent
 
 ## Context
 Workloads must be isolated, reproducible and fast to start repeatedly, on Linux and Windows, with GPU access.

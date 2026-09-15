@@ -1,6 +1,6 @@
 # ADR-0003: Content-addressed data plane over HTTP
 
-> **Status:** Proposed (2026-09-15) — pending team approval · **Deciders:** team + architect agent
+> **Status:** Accepted (2026-09-15, team approved with roadmap v1) · **Deciders:** team + architect agent
 
 ## Context
 Code, datasets, models and outputs range from KB to many GB. Transfers must be resumable, verifiable, cacheable and must not be re-sent when a node already has the data.

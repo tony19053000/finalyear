@@ -1,6 +1,6 @@
 # ADR-0006: Pull-based leased work queue for Task Splitting and Combined-GPU inference
 
-> **Status:** Proposed (2026-09-15) — pending team approval · **Deciders:** team + architect agent
+> **Status:** Accepted (2026-09-15, team approved with roadmap v1) · **Deciders:** team + architect agent
 
 ## Context
 Laptops differ in speed and may slow down or disappear. Static equal splits make everyone wait for the slowest node.

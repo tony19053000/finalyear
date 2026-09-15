@@ -1,6 +1,6 @@
 # ARCHITECTURE — MeshForge Compute Fabric
 
-> **Status:** v1 — *Proposed, pending team approval* (2026-09-15)
+> **Status:** v1 — *Accepted by team* (2026-09-15)
 > **Codename:** `MeshForge` (working name; package `meshforge`, CLI `compute`). Renaming later is a mechanical change.
 > **Reads with:** [`PROJECT_BRIEF.md`](PROJECT_BRIEF.md) (what & why) → **this file** (how) → [`DEVELOPMENT_ROADMAP.md`](DEVELOPMENT_ROADMAP.md) (in which order) → [`STATUS.md`](STATUS.md) (where we are).
 > Diagrams are Mermaid: they render as images on GitHub and remain readable as text for agents.

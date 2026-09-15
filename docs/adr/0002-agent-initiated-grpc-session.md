@@ -1,6 +1,6 @@
 # ADR-0002: Agent-initiated bidirectional gRPC session
 
-> **Status:** Proposed (2026-09-15) — pending team approval · **Deciders:** team + architect agent
+> **Status:** Accepted (2026-09-15, team approved with roadmap v1) · **Deciders:** team + architect agent
 
 ## Context
 Windows firewalls, WSL2 NAT and home routers make inbound connections to laptops unreliable. The controller must push commands and receive heartbeats, metrics and logs.

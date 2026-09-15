@@ -1,6 +1,6 @@
 # ADR-0001: Centralized control plane
 
-> **Status:** Proposed (2026-09-15) — pending team approval · **Deciders:** team + architect agent
+> **Status:** Accepted (2026-09-15, team approved with roadmap v1) · **Deciders:** team + architect agent
 
 ## Context
 A four-person project needs a fabric that is easy to reason about, debug and test. Jobs, placement decisions, telemetry and node state need one consistent view.

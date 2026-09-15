@@ -1,6 +1,6 @@
 # ADR-0007: Planner = candidate generation + cost estimation + policy; ML predicts cost components
 
-> **Status:** Proposed (2026-09-15) — pending team approval · **Deciders:** team + architect agent
+> **Status:** Accepted (2026-09-15, team approved with roadmap v1) · **Deciders:** team + architect agent
 
 ## Context
 The fabric must choose between Local and Modes 1–4, which nodes, and how much work each gets — explainably, with deterministic baselines and a path to ML.

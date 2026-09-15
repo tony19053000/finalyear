@@ -138,14 +138,14 @@ A version is **complete** only when all apply:
 - [x] **0.1.2** `pyproject.toml` with uv; extras `controller`, `agent`, `gpu`; dev tools as uv dependency group `dev`; Python 3.12 pinned — *evidence: commit `build(0.1.2)`, tester PASS (fresh `uv sync --locked`, extras resolve incl. Windows, py3.11/3.13 rejected), reviewer APPROVE*
 - [x] **0.1.3** package skeleton `src/meshforge/{common,controller,agent,gpu_service,sdk,cli}`; entry points `compute`, `meshforge-controller`, `meshforge-agent` — *evidence: commit `feat(0.1.3)`, tester PASS (48 tests incl. clean base-only install), reviewer APPROVE*
 - [~] **0.1.4** import-boundary check (controller ⟂ agent; sdk → common only) enforced in CI — *check done (commit `test(0.1.4)`, tester PASS, reviewer APPROVE after fix round); stays [~] until the 0.1.10 CI job runs it*
-- [ ] **0.1.5** `proto/meshforge/v1/{common,agent,gpu}.proto` skeletons + codegen script; generated code reproducible
+- [~] **0.1.5** `proto/meshforge/v1/{common,agent,gpu}.proto` skeletons + codegen script; generated code reproducible
 - [~] **0.1.6** `common/`: config (pydantic-settings: TOML + env), IDs (ULID), structlog JSON logging with correlation fields, error base classes, SHA-256 helpers
-- [ ] **0.1.7** `deploy/docker-compose.dev.yml` (PostgreSQL 16) + SQLAlchemy base + Alembic baseline migration
+- [~] **0.1.7** `deploy/docker-compose.dev.yml` (PostgreSQL 16) + SQLAlchemy base + Alembic baseline migration
 - [ ] **0.1.8** pytest config with markers (`unit component cluster lab gpu e2e`), testcontainers fixture for Postgres
 - [ ] **0.1.9** ruff + mypy (strict on `common`, `controller`, `agent`) + pre-commit
 - [ ] **0.1.10** GitHub Actions: lint, types, unit (Linux + Windows), component (Linux)
 - [ ] **0.1.11** `CONTRIBUTING.md` for agents: task template, commit convention, PR/review checklist, evidence rules
-- [ ] **0.1.12** docs scaffold: `STATUS.md`, `adr/README.md` + initial ADRs, `LAB.md` template
+- [x] **0.1.12** docs scaffold: `STATUS.md`, `adr/README.md` + initial ADRs, `LAB.md` template — *evidence: commit `docs(0.1.12)`, reviewer APPROVE (docs-only, tester skipped per CLAUDE.md §4b)*
 
 **Testing:** CI pipeline itself; smoke test `compute --version`; migration up/down on empty DB.
 **Success criteria**
@@ -172,7 +172,7 @@ A version is **complete** only when all apply:
 - [ ] **0.2.2** `lab/inventory.py` — cross-platform hardware/software inventory → JSON; 🧑 run on all 4 laptops → `docs/LAB.md`
 - [ ] **0.2.3** 🧑 GPU stack on every NVIDIA laptop: driver, PyTorch CUDA wheel check (decide per-platform torch index via `[tool.uv.sources]` — PyPI Windows torch is CPU-only; add ADR + startup CUDA check), Docker (Desktop on Windows) + GPU container test `docker run --gpus all … nvidia-smi`
 - [ ] **0.2.4** 🧑 Network: switch + cables, DHCP reservations/hostnames, Windows firewall profile set to Private; record link speeds
-- [ ] **0.2.5** 🔬 **S1** network matrix: iperf3 all pairs (Wi-Fi and Ethernet), RTT, jitter, loss → `lab/reports/S1-network.md`
+- [ ] **0.2.5** 🔬 **S1** network matrix: iperf3 all pairs (Wi-Fi and Ethernet), RTT, jitter, loss → `lab/reports/YYYY-MM-DD-S1-network.md`
 - [ ] **0.2.6** 🔬 **S2** cross-OS reachability: native Windows Python gRPC + HTTP server reachable from Linux and vice-versa, without WSL
 - [ ] **0.2.7** 🔬 **S3** transport throughput: gRPC bytes streaming vs raw TCP vs HTTP range, 1 MB → 2 GB → decides tensor/data transport (update ADR-0003/0005)
 - [ ] **0.2.8** 🔬 **S4** `torch.export` round-trip: export ResNet-50 / BERT-base on one laptop, load and run on another laptop's GPU; verify equality; measure per-call latency vs payload
