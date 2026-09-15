@@ -70,8 +70,62 @@ dev = [
     "grpcio-tools>=1.84",
     "mypy-protobuf>=5.1",
     "types-protobuf>=7.35",
+    "types-grpcio>=1.83",
     "import-linter>=2.15",
+    "pytest-timeout>=2.4",
 ]
+
+# ---------------------------------------------------------------------------
+# pytest (roadmap 0.1.8, "Test tiers" in DEVELOPMENT_ROADMAP quality gates).
+# Tier = first directory under tests/ (tests/unit -> `unit`, ...). tests/conftest.py
+# auto-applies the tier marker from the directory and fails collection if a test
+# lives outside a tier directory or carries a different/second tier marker.
+# Hardware/long tiers (lab, gpu, soak, chaos) are skipped unless opted in with
+# --run-lab / --run-gpu / --run-soak / --run-chaos, so a bare `pytest` never fails
+# for missing hardware. Tests needing Docker (the `docker` marker or the shared
+# Postgres fixtures) skip with a reason when no Docker daemon is reachable.
+# Import mode stays `prepend` (pytest's default, set explicitly): tests/ has no
+# __init__.py and tests/unit/_import_guard.py is imported as a top-level module.
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+minversion = "9.0"
+testpaths = ["tests"]
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "--import-mode=prepend",
+    "-ra",
+]
+xfail_strict = true
+# Tier markers (one per test, = its first directory under tests/, auto-applied):
+# unit, component, cluster, lab, e2e, soak, chaos. Capability markers (combine with
+# any tier): docker, gpu, slow. Policy lives in tests/conftest.py.
+markers = [
+    "unit: tier - pure logic, no I/O beyond tmp files; must pass on Linux and Windows",
+    "component: tier - real gRPC/DB/Docker/subprocess, one process each",
+    "cluster: tier - controller + N agents as local processes, Toxiproxy faults",
+    "lab: tier - real laptops on the LAN (human-run); skipped unless --run-lab",
+    "e2e: tier - dashboard UI end-to-end (Playwright)",
+    "soak: tier - long-running stability runs; skipped unless --run-soak",
+    "chaos: tier - long-running randomised fault injection; skipped unless --run-chaos",
+    "docker: capability - needs a reachable Docker daemon; skipped with a reason otherwise",
+    "gpu: capability - needs an NVIDIA GPU with CUDA; skipped unless --run-gpu (and CUDA present)",
+    "slow: capability - takes minutes (network, cold caches, e.g. fresh-clone uv sync); skipped unless --run-slow",
+]
+# Every warning is an error (unknown marks, deprecations, unclosed resources);
+# add targeted `ignore:` entries here with a reason when a dependency forces one.
+filterwarnings = [
+    "error",
+]
+# strict: only tests/fixtures marked for asyncio run on pytest-asyncio's loop, so
+# the anyio pytest plugin (pulled in via httpx/fastapi) never fights over them.
+asyncio_mode = "strict"
+asyncio_default_fixture_loop_scope = "function"
+asyncio_default_test_loop_scope = "function"
+# pytest-timeout: a hung cluster/failure-injection test must fail, not stall CI.
+# Covers setup too, so the first-ever Postgres image pull must fit (hence 300 s);
+# individual tests may tighten it with @pytest.mark.timeout(...).
+timeout = 300
 
 [build-system]
 # hatchling: mature, zero-config src layout, and supports build hooks / force-include
