@@ -48,10 +48,12 @@ class _AgentControlServicer(agent_pb2_grpc.AgentControlServicer):
         self.received_hello: agent_pb2.Hello | None = None
         self.received_ack: agent_pb2.Ack | None = None
 
-    async def Session(
+    async def Session(  # noqa: N802 - name fixed by the gRPC service definition
         self,
         request_iterator: AsyncIterator[agent_pb2.AgentMessage],
-        context: grpc.aio.ServicerContext,
+        context: grpc.aio.ServicerContext[
+            agent_pb2.AgentMessage, agent_pb2.ControllerMessage
+        ],
     ) -> AsyncIterator[agent_pb2.ControllerMessage]:
         async for msg in request_iterator:
             which = msg.WhichOneof("payload")
@@ -69,10 +71,12 @@ class _AgentControlServicer(agent_pb2_grpc.AgentControlServicer):
 
 
 class _GpuServiceServicer(gpu_pb2_grpc.GpuServiceServicer):
-    async def OpenSession(
+    async def OpenSession(  # noqa: N802 - name fixed by the gRPC service definition
         self,
         request: gpu_pb2.OpenSessionRequest,
-        context: grpc.aio.ServicerContext,
+        context: grpc.aio.ServicerContext[
+            gpu_pb2.OpenSessionRequest, gpu_pb2.OpenSessionResponse
+        ],
     ) -> gpu_pb2.OpenSessionResponse:
         if request.protocol_version != common_pb2.PROTOCOL_VERSION_1:
             await context.abort(
@@ -88,7 +92,10 @@ async def running_server() -> AsyncIterator[tuple[str, _AgentControlServicer]]:
     server = grpc.aio.server()
     agent_servicer = _AgentControlServicer()
     agent_pb2_grpc.add_AgentControlServicer_to_server(agent_servicer, server)
-    gpu_pb2_grpc.add_GpuServiceServicer_to_server(_GpuServiceServicer(), server)
+    # The stubs mark every RPC abstract; the generated runtime base class answers
+    # the ones not overridden with UNIMPLEMENTED, which is all this test needs.
+    gpu_servicer = _GpuServiceServicer()  # type: ignore[abstract]
+    gpu_pb2_grpc.add_GpuServiceServicer_to_server(gpu_servicer, server)
     port = server.add_insecure_port("127.0.0.1:0")
     assert port != 0, "server failed to bind an ephemeral localhost port"
     await server.start()
@@ -122,6 +129,7 @@ async def test_agent_control_session_bidi_hello_ack_over_real_socket(
             )
         )
         reply = await call.read()
+        assert isinstance(reply, agent_pb2.ControllerMessage), reply
         assert reply.WhichOneof("payload") == "ack"
         assert reply.ack.acked_message_id == "hello-1"
 

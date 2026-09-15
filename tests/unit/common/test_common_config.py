@@ -1,7 +1,6 @@
 """Task 0.1.6: settings loading (TOML + env), precedence, platform dirs."""
 
 import os
-from collections.abc import Iterator
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
 import pytest
@@ -32,7 +31,7 @@ class _AgentSettings(MeshForgeSettings):
 
 
 @pytest.fixture(autouse=True)
-def isolated_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[None]:
+def isolated_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     for name in list(os.environ):
         if name.upper().startswith("MESHFORGE_"):
             monkeypatch.delenv(name)
@@ -40,7 +39,6 @@ def isolated_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[No
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdg-data"))
     monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "localappdata"))
-    yield
 
 
 def _write(path: Path, text: str) -> Path:
@@ -107,7 +105,7 @@ def test_missing_explicit_file_is_an_error(
     with pytest.raises(ConfigError, match="not found"):
         MeshForgeSettings.load(tmp_path / "missing.toml")
     monkeypatch.setenv("MESHFORGE_CONFIG", str(tmp_path / "missing2.toml"))
-    with pytest.raises(ConfigError, match="missing2.toml"):
+    with pytest.raises(ConfigError, match=r"missing2\.toml"):
         MeshForgeSettings.load()
 
 
@@ -166,7 +164,7 @@ def test_secrets_from_env_are_masked(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_settings_are_immutable() -> None:
     s = MeshForgeSettings.load()
     with pytest.raises(ValidationError, match="frozen"):
-        s.data_dir = Path("/elsewhere")
+        s.data_dir = Path("/elsewhere")  # type: ignore[misc]  # the error under test
 
 
 # ---------------------------------------------------------------- platform dirs

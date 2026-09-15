@@ -1,4 +1,5 @@
-"""Adversarial tests for task 0.1.6 IDs: multiprocessing uniqueness, concurrency, malformed input."""
+"""Adversarial tests for task 0.1.6 IDs: multiprocessing uniqueness, concurrency,
+malformed input."""
 
 from __future__ import annotations
 

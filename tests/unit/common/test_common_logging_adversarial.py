@@ -93,7 +93,7 @@ def test_secret_embedded_in_fstring_message_is_not_leaked(stream: io.StringIO) -
     """
     log = get_logger("t")
     token = "sk-live-VERY-SECRET-TOKEN-abc123"
-    log.info(f"connected with token={token}")
+    log.info(f"connected with token={token}")  # noqa: G004 - the mistake under test
     (record,) = _lines(stream)
     assert token not in record["event"], (
         f"secret token leaked via free-text log message: {record['event']!r}"

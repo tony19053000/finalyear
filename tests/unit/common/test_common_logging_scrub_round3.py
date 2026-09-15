@@ -20,7 +20,7 @@ import time
 
 import pytest
 
-from meshforge.common.logging import MAX_SCRUB_CHARS, REDACTED, scrub_text
+from meshforge.common.logging import MAX_SCRUB_CHARS, scrub_text
 
 pytestmark = pytest.mark.unit
 
@@ -38,7 +38,9 @@ pytestmark = pytest.mark.unit
         ("apikey=x}qzv9 rest", "qzv9"),
     ],
 )
-def test_defect1_special_char_after_value_no_longer_leaks(text: str, secret: str) -> None:
+def test_defect1_special_char_after_value_no_longer_leaks(
+    text: str, secret: str
+) -> None:
     out = scrub_text(text)
     assert secret not in out, f"DEFECT-1 regressed: {text!r} -> {out!r}"
 
@@ -94,7 +96,7 @@ def test_password_plus_concatenation_value_redacted() -> None:
 
 @pytest.mark.parametrize(
     "sep",
-    ["\t", "\n", "\xa0", " ", " "],
+    ["\t", "\n", "\xa0", "\u2003", "\u2028"],
 )
 def test_value_split_by_whitespace_variants_does_not_leak_the_token_itself(
     sep: str,
@@ -109,7 +111,7 @@ def test_zero_width_space_inside_value_is_conservatively_redacted() -> None:
     """A zero-width space is not recognised as whitespace by the scanner, so the
     whole run (including trailing text glued to it) is redacted -- safe
     (over-redaction), not a leak."""
-    out = scrub_text("token=a​secrettail rest")
+    out = scrub_text("token=a\u200bsecrettail rest")
     assert "secrettail" not in out
 
 
@@ -156,7 +158,7 @@ def test_unicode_letter_key_is_recognised_as_sensitive() -> None:
         "MINOR/DEFECT (not blocking, out of documented scope): a JSON-array- or "
         "tuple-shaped ('key', 'value') pair where the sensitive word appears as "
         "an array element rather than via '=' or ':' is not recognised at all, "
-        "e.g. [\"password\", \"topsecretvalue\"] or (\"password\", \"topsecretvalue\"). "
+        'e.g. ["password", "topsecretvalue"] or ("password", "topsecretvalue"). '
         "The module docstring's scope is 'key=value / key: value pairs', so this "
         "is a scope gap, not a regression, but worth tracking."
     ),

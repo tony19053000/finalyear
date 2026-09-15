@@ -1,0 +1,79 @@
+# Pre-commit hooks (roadmap 0.1.9). Install once per clone:
+#   uv run pre-commit install
+# Run everything manually:
+#   uv run pre-commit run --all-files
+#
+# The project's own tools run as LOCAL hooks through `uv run`, so their versions
+# come from uv.lock (one source of truth, same versions as CI) instead of being
+# pinned a second time here. Entries are plain commands (no bash), so the hooks
+# work on Windows, WSL and Linux alike.
+minimum_pre_commit_version: "4.0.0"
+default_install_hook_types: [pre-commit]
+
+# Generated protobuf code is checked by `gen_protos --check`, never hand-edited.
+exclude: ^src/meshforge/common/proto/
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+        args: [--fix=lf]
+        # Windows-native scripts are CRLF by design (.gitattributes).
+        exclude: \.(ps1|psm1|psd1|bat|cmd)$
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=1024]
+      - id: detect-private-key
+
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check (lint, autofix)
+        entry: uv run ruff check --fix --exit-non-zero-on-fix
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+
+      - id: ruff-format
+        name: ruff format
+        entry: uv run ruff format
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+
+      # mypy runs on the whole configured tree ([tool.mypy] files), not only the
+      # staged files: a change in one module can break types in another. The
+      # controller/agent extras are needed so SQLAlchemy, Alembic, psutil, ... are
+      # importable for type checking (a bare `uv sync` omits them); `gpu` (torch)
+      # is deliberately not required.
+      - id: mypy
+        name: mypy (strict)
+        entry: uv run --extra controller --extra agent mypy
+        language: system
+        types_or: [python, pyi, toml]
+        pass_filenames: false
+        require_serial: true
+
+      - id: import-linter
+        name: import boundaries (lint-imports)
+        entry: uv run lint-imports
+        language: system
+        files: ^(src/.*\.py|pyproject\.toml)$
+        pass_filenames: false
+        require_serial: true
+
+      - id: gen-protos-check
+        name: generated protos up to date (gen_protos --check)
+        entry: uv run python scripts/gen_protos.py --check
+        language: system
+        # The generated tree itself is excluded globally above, so hand edits to
+        # it are caught by CI running this hook with --all-files.
+        files: ^(proto/.*\.proto|scripts/gen_protos\.py|pyproject\.toml|uv\.lock)$
+        pass_filenames: false
+        require_serial: true

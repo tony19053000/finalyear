@@ -367,7 +367,7 @@ def test_version_compat_rejects_newer_gencode() -> None:
     gen.check_version_compat("protobuf", (7, 35, 1), (7, 36, 1), (7, 36, 0))  # ok
     with pytest.raises(gen.GenError, match="installed runtime"):
         gen.check_version_compat("protobuf", (7, 37, 0), (7, 36, 1), (7, 36, 0))
-    with pytest.raises(gen.GenError, match="pyproject.toml"):
+    with pytest.raises(gen.GenError, match=r"pyproject\.toml"):
         gen.check_version_compat("grpcio", (1, 85, 0), (1, 85, 0), (1, 84, 0))
 
 

@@ -158,7 +158,7 @@ def test_readinto_and_plain_read_paths_agree(tmp_path: Path) -> None:
 def test_sha256_fileobj_rejects_non_positive_read_size() -> None:
     import io
 
-    with pytest.raises(ValueError):
-        from meshforge.common.hashing import sha256_fileobj
+    from meshforge.common.hashing import sha256_fileobj
 
+    with pytest.raises(ValueError):
         sha256_fileobj(io.BytesIO(b"x"), read_size=0)

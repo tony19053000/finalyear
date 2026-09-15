@@ -20,7 +20,7 @@ Each realistic option and why it was not chosen.
 ## Consequences
 What changes because of this: code, contracts, docs, roadmap tasks, and follow-up work. Also what would make us revisit it.
 
-<!-- Optional: 
+<!-- Optional:
 ## Updates
 - YYYY-MM-DD: <refinement> — evidence: <link>
 -->

@@ -231,7 +231,8 @@ def _redacted_value(text: str, start: int) -> tuple[str, int]:
             return REDACTED, max(line_end, window_end)
         return REDACTED, end
     match = _NON_WS_RE.match(text, start)
-    assert match is not None  # \S* always matches
+    if match is None:  # pragma: no cover - \S* always matches
+        raise AssertionError("unreachable: \\S* always matches")
     return REDACTED, match.end()
 
 

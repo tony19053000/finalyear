@@ -260,6 +260,7 @@ def test_wellknown_timestamp_import_resolves() -> None:
     msg = agent_pb2.AgentMessage()
     assert isinstance(msg.sent_at, Timestamp)
     field = agent_pb2.AgentMessage.DESCRIPTOR.fields_by_name["sent_at"]
+    assert field.message_type is not None
     assert field.message_type.full_name == "google.protobuf.Timestamp"
 
 

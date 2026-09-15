@@ -105,17 +105,19 @@ def boundary_problems(
                 )
             policy[name] = forbidden
 
-    for name in sorted(entries - policy.keys()):
-        problems.append(
-            f"meshforge.{name} exists but no 'forbidden' contract has it as "
-            f"source_modules, so its imports are unconstrained. {HINT}"
-        )
-    for name in sorted(named - entries):
-        problems.append(
-            f"meshforge.{name} is named in [tool.importlinter] but does not exist."
-        )
-    for name in sorted(entries - allowed.keys()):
-        problems.append(f"meshforge.{name} has no ALLOWED_DEPS entry. {HINT}")
+    problems.extend(
+        f"meshforge.{name} exists but no 'forbidden' contract has it as "
+        f"source_modules, so its imports are unconstrained. {HINT}"
+        for name in sorted(entries - policy.keys())
+    )
+    problems.extend(
+        f"meshforge.{name} is named in [tool.importlinter] but does not exist."
+        for name in sorted(named - entries)
+    )
+    problems.extend(
+        f"meshforge.{name} has no ALLOWED_DEPS entry. {HINT}"
+        for name in sorted(entries - allowed.keys())
+    )
 
     for name in sorted(entries & policy.keys() & allowed.keys()):
         not_forbidden = entries - policy[name] - {name}
