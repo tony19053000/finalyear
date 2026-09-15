@@ -1,0 +1,227 @@
+# CI for MeshForge (roadmap 0.1.10).
+#
+# Jobs:  lint · types · unit (Linux + Windows) · component (Linux) ·
+#        fresh-clone (Linux + Windows) · ci-ok
+# Branch protection on `main` should require ONLY the `ci-ok` check: it passes
+# iff every other job passed, so adding/renaming jobs never needs a settings change.
+#
+# Every command here is the same command a developer runs locally (see README
+# "CI" section and .pre-commit-config.yaml); tool versions come from uv.lock.
+#
+# Supply chain: third-party actions are pinned to full commit SHAs (tag noted in
+# the trailing comment); Dependabot (.github/dependabot.yml) bumps them.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Least privilege: the workflow only reads the repository.
+permissions:
+  contents: read
+
+# A newer push to the same PR cancels the superseded run; runs on `main`
+# (push / dispatch) always finish so every main commit gets a full result.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  UV_VERSION: "0.10.12"
+  UV_PYTHON: "3.12"
+  # Never let uv silently pick a system interpreter other than the pinned one.
+  UV_PYTHON_PREFERENCE: only-managed
+  PYTHONUTF8: "1"
+  FORCE_COLOR: "1"
+
+jobs:
+  lint:
+    name: lint (ruff, import boundaries, protos, hygiene)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.UV_PYTHON }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      # --locked: fail if uv.lock is out of date with pyproject.toml.
+      - run: uv sync --locked
+      - name: ruff check
+        run: uv run ruff check --output-format=github .
+      - name: ruff format --check
+        if: ${{ !cancelled() }}
+        run: uv run ruff format --check .
+      - name: import boundaries (lint-imports)
+        if: ${{ !cancelled() }}
+        run: uv run lint-imports
+      # Regenerates from proto/ into a temp dir and byte-compares with the
+      # committed src/meshforge/common/proto/ tree (never overwrites it): a
+      # hand-edited generated file, or a .proto change without regeneration,
+      # fails this step with a diff (exit 1).
+      - name: generated protos up to date
+        if: ${{ !cancelled() }}
+        run: uv run python scripts/gen_protos.py --check
+      - name: cache pre-commit hook environments
+        if: ${{ !cancelled() }}
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml') }}
+      # File hygiene hooks only; the tool hooks above run as their own steps.
+      - name: pre-commit hygiene hooks
+        if: ${{ !cancelled() }}
+        env:
+          SKIP: ruff-check,ruff-format,mypy,import-linter,gen-protos-check
+        run: uv run pre-commit run --all-files --show-diff-on-failure
+
+  types:
+    name: types (mypy strict)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.UV_PYTHON }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      # controller/agent extras make SQLAlchemy, Alembic, psutil, ... importable
+      # for type checking; `gpu` (torch) is deliberately not installed.
+      - run: uv sync --locked --extra controller --extra agent
+      - run: uv run mypy
+
+  unit:
+    name: unit (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.UV_PYTHON }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      # Plain `uv sync` (no extras) on purpose: V0.1 success criterion 1 is
+      # "fresh clone -> uv sync -> pytest -m unit passes on Linux and Windows".
+      - run: uv sync --locked
+      # Explicit (not via pytest markers) so proto generation determinism is
+      # checked on Windows too (V0.1 criterion 4: identical output across OSes).
+      - name: generated protos up to date
+        run: uv run python scripts/gen_protos.py --check
+      - name: pytest -m unit
+        if: ${{ !cancelled() }}
+        run: uv run pytest -m unit --junitxml=reports/junit-unit-${{ matrix.os }}.xml
+      - name: upload junit report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: junit-unit-${{ matrix.os }}
+          path: reports/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  component:
+    name: component (ubuntu-latest, Docker)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.UV_PYTHON }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      # No `gpu` extra: component tests never need torch.
+      - run: uv sync --locked --extra controller --extra agent
+      - name: docker info
+        run: docker info --format '{{.ServerVersion}} {{.OperatingSystem}}'
+      # Postgres comes from testcontainers; Ryuk (enabled by default) reaps
+      # containers even if the test process dies.
+      - name: pytest -m component
+        run: uv run pytest -m component --junitxml=reports/junit-component.xml
+      - name: upload junit report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: junit-component
+          path: reports/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # V0.1 success criterion 1, literally: copy the checkout to a temp dir, run a
+  # plain `uv sync` (no extras, own uv cache) there, then `pytest -m unit` and a
+  # Docker-unreachable bare `pytest -q` inside that clone. The test itself does
+  # the plain sync; this job only needs the dev env to run pytest. Opt-in
+  # (`slow`) locally, so it gets its own job here.
+  fresh-clone:
+    name: fresh-clone (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.UV_PYTHON }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv sync --locked
+      - name: pytest fresh-clone criterion (--run-slow)
+        run: >-
+          uv run pytest -m component --run-slow
+          tests/component/test_fresh_clone_unit_criterion.py
+          --junitxml=reports/junit-fresh-clone-${{ matrix.os }}.xml
+      - name: upload junit report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: junit-fresh-clone-${{ matrix.os }}
+          path: reports/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # Single required status check for branch protection.
+  ci-ok:
+    name: ci-ok
+    if: ${{ always() }}
+    needs: [lint, types, unit, component, fresh-clone]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: all required jobs succeeded
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "job results: $RESULTS"
+          for r in $RESULTS; do
+            if [ "$r" != "success" ]; then
+              echo "::error::a required CI job did not succeed ($r)"
+              exit 1
+            fi
+          done

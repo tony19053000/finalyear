@@ -1,0 +1,28 @@
+# Dependabot (roadmap 0.1.10).
+# - github-actions: CI pins actions to full commit SHAs; without this they would
+#   silently go stale (and miss security fixes). Dependabot updates SHA + tag comment.
+# - uv: proposes uv.lock bumps weekly as PRs that must pass the same CI.
+#   Grouped to keep PR noise low for a four-person team.
+# Only opens PRs; a human reviews and merges. No auto-merge.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: ci
+
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      python-minor-patch:
+        update-types: [minor, patch]
+    commit-message:
+      prefix: build
