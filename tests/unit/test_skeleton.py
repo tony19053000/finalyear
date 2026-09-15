@@ -1,0 +1,135 @@
+"""Task 0.1.3: package skeleton and entry points."""
+
+import importlib
+import shutil
+import subprocess
+import sys
+
+import pytest
+from typer.testing import CliRunner
+
+import meshforge
+from meshforge.agent.main import app as agent_app
+from meshforge.cli.app import app as cli_app
+from meshforge.common.exit_codes import ExitCode
+from meshforge.controller.app import app as controller_app
+
+pytestmark = pytest.mark.unit
+
+SUBPACKAGES = ["common", "controller", "agent", "gpu_service", "sdk", "cli"]
+SCRIPTS = {
+    "compute": "meshforge.cli",
+    "meshforge-controller": "meshforge.controller",
+    "meshforge-agent": "meshforge.agent",
+}
+# Modules from optional extras that must not load when entry points are imported.
+HEAVY_MODULES = [
+    "fastapi",
+    "uvicorn",
+    "sqlalchemy",
+    "asyncpg",
+    "psutil",
+    "pynvml",
+    "torch",
+]
+
+runner = CliRunner()
+
+
+def _run(*args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(args, capture_output=True, text=True, timeout=60, check=False)
+
+
+@pytest.mark.parametrize("name", SUBPACKAGES)
+def test_subpackage_importable_with_docstring(name: str) -> None:
+    module = importlib.import_module(f"meshforge.{name}")
+    assert module.__doc__ and "import" in module.__doc__
+
+
+def test_version_is_real() -> None:
+    assert meshforge.__version__ != "0.0.0+unknown"
+
+
+def test_compute_version_via_runner() -> None:
+    result = runner.invoke(cli_app, ["--version"], prog_name="compute")
+    assert result.exit_code == ExitCode.OK
+    assert result.stdout.strip() == f"compute {meshforge.__version__}"
+
+
+def test_compute_no_args_shows_help() -> None:
+    result = runner.invoke(cli_app, [], prog_name="compute")
+    assert "status" in result.output
+
+
+def test_compute_status_not_implemented() -> None:
+    result = runner.invoke(cli_app, ["status"], prog_name="compute")
+    assert result.exit_code == ExitCode.NOT_IMPLEMENTED
+    assert "not implemented" in result.stderr
+    assert result.stdout == ""
+
+
+def test_compute_unknown_command_is_usage_error() -> None:
+    result = runner.invoke(cli_app, ["no-such-command"], prog_name="compute")
+    assert result.exit_code == ExitCode.USAGE_ERROR
+
+
+@pytest.mark.parametrize(
+    ("app", "prog"),
+    [(controller_app, "meshforge-controller"), (agent_app, "meshforge-agent")],
+)
+def test_process_entry_points_via_runner(app: object, prog: str) -> None:
+    result = runner.invoke(app, ["--version"], prog_name=prog)  # type: ignore[arg-type]
+    assert result.exit_code == ExitCode.OK
+    assert result.stdout.strip() == f"{prog} {meshforge.__version__}"
+
+    result = runner.invoke(app, [], prog_name=prog)  # type: ignore[arg-type]
+    assert result.exit_code == ExitCode.NOT_IMPLEMENTED
+    assert "not yet implemented (planned for V0.3)" in result.stderr
+
+
+@pytest.mark.parametrize("script", list(SCRIPTS))
+def test_installed_script_version(script: str) -> None:
+    path = shutil.which(script)
+    assert path is not None, f"{script} not on PATH; run `uv sync`"
+    result = _run(path, "--version")
+    assert result.returncode == ExitCode.OK, result.stderr
+    assert result.stdout.strip() == f"{script} {meshforge.__version__}"
+
+
+@pytest.mark.parametrize(("script", "module"), list(SCRIPTS.items()))
+def test_python_dash_m(script: str, module: str) -> None:
+    result = _run(sys.executable, "-m", module, "--version")
+    assert result.returncode == ExitCode.OK, result.stderr
+    assert result.stdout.strip() == f"{script} {meshforge.__version__}"
+
+
+@pytest.mark.parametrize(
+    ("script", "expected"),
+    [
+        ("meshforge-controller", "V0.3"),
+        ("meshforge-agent", "V0.3"),
+        ("compute", "V0.8"),
+    ],
+)
+def test_installed_script_placeholder_exits_non_zero(
+    script: str, expected: str
+) -> None:
+    path = shutil.which(script)
+    assert path is not None
+    args = [path, "status"] if script == "compute" else [path]
+    result = _run(*args)
+    assert result.returncode == ExitCode.NOT_IMPLEMENTED
+    assert expected in result.stderr
+
+
+def test_entry_points_do_not_import_extras() -> None:
+    code = (
+        "import sys\n"
+        "import meshforge.cli.app, meshforge.controller.app, meshforge.agent.main\n"
+        "import meshforge.common, meshforge.sdk, meshforge.gpu_service\n"
+        f"heavy = [m for m in {HEAVY_MODULES!r} if m in sys.modules]\n"
+        "print(','.join(heavy))\n"
+    )
+    result = _run(sys.executable, "-c", code)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == ""

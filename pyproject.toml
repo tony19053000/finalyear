@@ -49,8 +49,12 @@ gpu = [
     "torch>=2.14",
 ]
 
-# [project.scripts] — entry points `compute`, `meshforge-controller`,
-# `meshforge-agent` are added in task 0.1.3.
+# All three run `--version` on a base install; controller/agent need their extras
+# only for real operation (heavy imports are kept lazy).
+[project.scripts]
+compute = "meshforge.cli.app:main"
+meshforge-controller = "meshforge.controller.app:main"
+meshforge-agent = "meshforge.agent.main:main"
 
 [dependency-groups]
 # Roadmap 0.1.2 says "extra dev"; a PEP 735 dependency group is used instead so dev

@@ -675,7 +675,7 @@ Contracts live in `proto/` (source of truth) and OpenAPI generated from FastAPI.
 ├── tests/                        unit · component · cluster · lab · gpu · e2e
 └── docs/                         brief · architecture · roadmap · status · adr · LAB.md
 ```
-**One Python package, several entry points** — simpler than a multi-repo, still clean boundaries enforced by import rules (`common` ← everything; `controller` and `agent` never import each other; `sdk` imports only `common`).
+**One Python package, several entry points** — simpler than a multi-repo, still clean boundaries enforced by import rules (`common` ← everything; `controller` and `agent` never import each other; `sdk` and `gpu_service` import only `common`; `cli` imports `common` + `sdk` and talks to the controller over REST, never importing controller/agent internals).
 
 ---
 
