@@ -1,0 +1,154 @@
+// GPU plane: GpuService, hosted by the GPU-service process on NVIDIA-GPU
+// laptops (ARCHITECTURE §3, §10, §11, §20; ADR-0005).
+//
+// Remoting is at the PyTorch level: sessions own remote tensor handles and
+// modules shipped as torch.export ExportedPrograms (never pickled code).
+// Tensors travel as raw bytes + dtype/shape in chunked streams.
+//
+// Errors: RPCs fail with a gRPC status; a typed meshforge.v1.Failure is
+// attached as status details. TODO(V0.11): define the rich-error mapping.
+//
+// Chunking: TensorChunk.data is at most 1 MiB (MAX_TENSOR_CHUNK_BYTES in the
+// client/server code), well below gRPC's 4 MiB default max message size, so no
+// channel option changes are needed and envelope overhead fits comfortably.
+//
+// TODO(V0.11): authenticate every session RPC (bind session_id to the
+// controller-issued session_token / node identity, not just OpenSession) and
+// add a per-request request_id for idempotent retries.
+//
+// SKELETON (roadmap task 0.1.5). TODO(V0.11): Mode 2 fields in full.
+// TODO(V0.13): TrainStep and AllReduce* for Mode 4 training.
+syntax = "proto3";
+
+package meshforge.v1;
+
+import "meshforge/v1/common.proto";
+
+service GpuService {
+  rpc OpenSession(OpenSessionRequest) returns (OpenSessionResponse);
+  // Upload one tensor as a stream of chunks; the first chunk carries metadata.
+  rpc PutTensor(stream TensorChunk) returns (PutTensorResponse);
+  rpc LoadModule(LoadModuleRequest) returns (LoadModuleResponse);
+  rpc Call(CallRequest) returns (CallResponse);
+  // Download one tensor as a stream of chunks; the first chunk carries metadata.
+  rpc GetTensor(GetTensorRequest) returns (stream TensorChunk);
+  rpc Free(FreeRequest) returns (FreeResponse);
+  rpc TrainStep(TrainStepRequest) returns (TrainStepResponse);
+  // TODO(V0.13): AllReduce* collectives (coordinator-reduce, then ring). Their
+  // shape depends on the V0.2 cross-OS collectives spike, so they are not
+  // declared yet.
+  rpc CloseSession(CloseSessionRequest) returns (CloseSessionResponse);
+}
+
+enum ScalarType {
+  SCALAR_TYPE_UNSPECIFIED = 0;
+  SCALAR_TYPE_FLOAT32 = 1;
+  SCALAR_TYPE_FLOAT16 = 2;
+  SCALAR_TYPE_BFLOAT16 = 3;
+  SCALAR_TYPE_FLOAT64 = 4;
+  SCALAR_TYPE_INT64 = 5;
+  SCALAR_TYPE_INT32 = 6;
+  SCALAR_TYPE_INT8 = 7;
+  SCALAR_TYPE_UINT8 = 8;
+  SCALAR_TYPE_BOOL = 9;
+}
+
+// Payload layout: the tensor bytes are the tensor's storage made *contiguous,
+// row-major (C order)*, little-endian, with no strides/offset. Senders call
+// .contiguous() first; size_bytes == prod(shape) * element_size(dtype).
+// TODO(V0.11): revisit if non-contiguous views or big-endian hosts matter.
+message TensorMeta {
+  ScalarType dtype = 1;
+  repeated int64 shape = 2;
+  // Total payload size; lets the receiver pre-allocate and verify completeness.
+  uint64 size_bytes = 3;
+}
+
+// Opaque server-side reference to a tensor or module resident in the session.
+message Handle {
+  string handle_id = 1;
+}
+
+message TensorChunk {
+  string session_id = 1;
+  // Target handle on GetTensor; assigned by the server on PutTensor.
+  string handle_id = 2;
+  // Set on the first chunk only.
+  TensorMeta meta = 3;
+  // Byte offset of `data` within the tensor payload.
+  uint64 offset = 4;
+  // At most 1 MiB per chunk (see file header).
+  bytes data = 5;
+}
+
+message OpenSessionRequest {
+  // Must fall within the GPU service's supported range (see ProtocolVersion).
+  ProtocolVersion protocol_version = 1;
+  // Placement token issued by the controller (ARCHITECTURE §10).
+  // Secret: must never be logged.
+  string session_token = 2;
+  // VRAM reservation requested for admission control.
+  uint64 requested_vram_bytes = 3;
+}
+
+message OpenSessionResponse {
+  string session_id = 1;
+  uint64 granted_vram_bytes = 2;
+  // TODO(V0.11): lease duration / keepalive.
+}
+
+message PutTensorResponse {
+  Handle tensor = 1;
+}
+
+message LoadModuleRequest {
+  string session_id = 1;
+  // The torch.export ExportedProgram blob in the data plane.
+  BlobRef program = 2;
+}
+
+message LoadModuleResponse {
+  Handle module = 1;
+}
+
+message CallRequest {
+  string session_id = 1;
+  Handle module = 2;
+  // Inputs already resident in the session.
+  repeated Handle inputs = 3;
+  // TODO(V0.11): inline small inputs, return-inline vs return-handle choice.
+}
+
+message CallResponse {
+  repeated Handle outputs = 1;
+}
+
+message GetTensorRequest {
+  string session_id = 1;
+  Handle tensor = 2;
+}
+
+message FreeRequest {
+  string session_id = 1;
+  repeated Handle handles = 2;
+}
+
+message FreeResponse {
+  uint64 freed_bytes = 1;
+}
+
+message TrainStepRequest {
+  // TODO(V0.13): replica, batch shard, loss/optimizer config.
+  string session_id = 1;
+}
+
+message TrainStepResponse {
+  // TODO(V0.13): loss, sample count, gradient handle.
+  reserved 1 to 9;
+}
+
+message CloseSessionRequest {
+  string session_id = 1;
+}
+
+message CloseSessionResponse {}

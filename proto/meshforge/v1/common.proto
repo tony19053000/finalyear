@@ -1,0 +1,109 @@
+// MeshForge shared contract types (ARCHITECTURE §12, §13, §20).
+//
+// SKELETON (roadmap task 0.1.5): only the essential shared types exist here.
+// Later versions flesh them out: TODO(V0.3) session/liveness types,
+// TODO(V0.4) attempt execution details, TODO(V0.11) GPU-plane types.
+//
+// Conventions (protobuf style guide):
+// - IDs are strings (ULIDs from meshforge.common.ids).
+// - Times are google.protobuf.Timestamp; durations are google.protobuf.Duration.
+// - Every enum has a *_UNSPECIFIED = 0 value; receivers must treat it as "not set".
+// - Removed fields/values must be listed in `reserved`; never reuse a number.
+syntax = "proto3";
+
+package meshforge.v1;
+
+// Wire-protocol version carried in AgentControl Hello and GpuService OpenSession.
+// Add a new value on any incompatible change; never renumber existing ones.
+// The controller (and GPU service) accept a configured *range* of versions
+// [min_supported, max_supported], not a single value, so agents can be upgraded
+// one laptop at a time. Anything outside the range, or UNSPECIFIED, is rejected.
+enum ProtocolVersion {
+  PROTOCOL_VERSION_UNSPECIFIED = 0;
+  PROTOCOL_VERSION_1 = 1;
+}
+
+// Typed failure classes (ARCHITECTURE §13). Retry policy is per failure type.
+//
+// Mirrors meshforge.common.errors.FailureType 1:1: value FAILURE_TYPE_<NAME>
+// <-> Python member <NAME> (enforced by tests/unit/test_proto_enum_parity.py).
+// Convert only via meshforge.common.proto_codec. Add new failure types to both
+// places at once; never renumber or reuse a number once shipped.
+enum FailureType {
+  FAILURE_TYPE_UNSPECIFIED = 0;
+  // Workload process crashed or exited non-zero. Not retried by default.
+  FAILURE_TYPE_USER_ERROR = 1;
+  // Host RAM exhausted.
+  FAILURE_TYPE_OOM = 2;
+  // GPU VRAM exhausted (CUDA OOM).
+  FAILURE_TYPE_VRAM_OOM = 3;
+  // Execution environment (image/venv) could not be built.
+  FAILURE_TYPE_ENV_ERROR = 4;
+  FAILURE_TYPE_DISK_FULL = 5;
+  // Node vanished (lease expired / stream lost) while the attempt was live.
+  FAILURE_TYPE_NODE_LOST = 6;
+  // Remote/combined GPU session dropped.
+  FAILURE_TYPE_GPU_SESSION_LOST = 7;
+  // Blob/data transfer failed or was interrupted.
+  FAILURE_TYPE_TRANSFER_ERROR = 8;
+  // Content did not match its SHA-256 digest.
+  FAILURE_TYPE_INTEGRITY_ERROR = 9;
+  // Report from a superseded attempt (stale fencing token); rejected.
+  FAILURE_TYPE_FENCED = 10;
+  FAILURE_TYPE_CANCELLED = 11;
+  // An infrastructure operation timed out (RPC, transfer, env build step).
+  FAILURE_TYPE_TIMEOUT = 12;
+  // The workload hit its own configured time limit.
+  FAILURE_TYPE_DEADLINE_EXCEEDED = 13;
+  // Target node/GPU temporarily busy or at capacity.
+  FAILURE_TYPE_RESOURCE_BUSY = 14;
+  // Planner found no node/mode able to run the workload.
+  FAILURE_TYPE_NO_FEASIBLE_PLAN = 15;
+  // Transient connectivity problem.
+  FAILURE_TYPE_NETWORK_ERROR = 16;
+  FAILURE_TYPE_CONFIG_ERROR = 17;
+  // Malformed request/ID/manifest supplied by a caller.
+  FAILURE_TYPE_INVALID_INPUT = 18;
+  FAILURE_TYPE_UNAUTHORIZED = 19;
+  FAILURE_TYPE_NOT_FOUND = 20;
+  // State conflict (illegal state transition, duplicate).
+  FAILURE_TYPE_CONFLICT = 21;
+  // Bug or unexpected condition inside MeshForge itself.
+  FAILURE_TYPE_INTERNAL_ERROR = 22;
+}
+
+// Attempt lifecycle (ARCHITECTURE §12.2).
+// TODO(V0.3/V0.4): a Python AttemptState enum is added with the state machine;
+// it must then mirror this enum 1:1 (parity test + proto_codec mapping).
+enum AttemptState {
+  ATTEMPT_STATE_UNSPECIFIED = 0;
+  ATTEMPT_STATE_ASSIGNED = 1;
+  ATTEMPT_STATE_STAGING = 2;
+  ATTEMPT_STATE_ENV_READY = 3;
+  ATTEMPT_STATE_RUNNING = 4;
+  ATTEMPT_STATE_UPLOADING = 5;
+  ATTEMPT_STATE_DONE = 6;
+  ATTEMPT_STATE_FAILED = 7;
+  // Node vanished; set by the controller, never reported by an agent.
+  ATTEMPT_STATE_LOST = 8;
+  // Superseded by a newer attempt epoch; late reports are rejected.
+  ATTEMPT_STATE_FENCED = 9;
+}
+
+// A typed failure attached to anything that can fail.
+message Failure {
+  FailureType failure_type = 1;
+  // Human-readable detail. Must never contain secrets.
+  string message = 2;
+  // Whether the reporter believes a retry could succeed; the controller's
+  // retry policy has the final say.
+  bool retryable = 3;
+}
+
+// Content address of a blob in the data plane (ADR-0003).
+message BlobRef {
+  // "sha256:<64 lower-hex>", parsed by meshforge.common.hashing.Digest.parse.
+  // The algorithm prefix leaves room for another hash later without a new field.
+  string digest = 1;
+  uint64 size_bytes = 2;
+}

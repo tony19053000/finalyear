@@ -1,0 +1,185 @@
+// Controller <-> agent control plane (ARCHITECTURE §20, ADR-0002).
+//
+// Each agent dials OUT to the controller and holds one long-lived bidirectional
+// stream. Agent -> controller: AgentMessage; controller -> agent:
+// ControllerMessage. Both are envelopes with a `payload` oneof.
+//
+// Delivery semantics (ARCHITECTURE §13): at-least-once, exactly-once effect.
+// Every envelope carries a unique `message_id`; for ControllerMessage it is the
+// command ID the agent deduplicates on. Receipts flow both ways with the same
+// Ack message (ADR-0002): the controller acks agent reports so the agent can
+// drop them from its reconnect buffer, and the agent acks controller commands
+// so the controller stops re-sending them.
+//
+// Fencing: every payload that refers to an attempt (has `attempt_id`) also
+// carries that attempt's `fencing_token` (enforced by tests/unit/test_protos.py).
+//
+// TODO(V0.3): session epoch on the envelope (reject messages from an old
+// stream after reconnect) and a request_id / correlation field for tracing.
+//
+// SKELETON (roadmap task 0.1.5): envelopes, oneofs and essential fields only.
+// TODO(V0.3): session/liveness payloads in full. TODO(V0.4): attempt execution.
+// TODO(V0.5): cache/env payloads. TODO(V0.6): network probes for scheduling.
+syntax = "proto3";
+
+package meshforge.v1;
+
+import "google/protobuf/timestamp.proto";
+import "meshforge/v1/common.proto";
+
+service AgentControl {
+  // One stream per connected agent. Opened by the agent.
+  rpc Session(stream AgentMessage) returns (stream ControllerMessage);
+}
+
+// ---------------------------------------------------------------------------
+// Envelopes
+// ---------------------------------------------------------------------------
+
+// Agent -> controller.
+message AgentMessage {
+  // Unique per message (ULID); echoed back in Ack.acked_message_id.
+  string message_id = 1;
+  google.protobuf.Timestamp sent_at = 2;
+
+  // Payload numbers start at 10 so envelope metadata can grow in 3..9.
+  oneof payload {
+    Hello hello = 10;
+    Reconcile reconcile = 11;
+    Heartbeat heartbeat = 12;
+    ResourceUpdate resource_update = 13;
+    CacheReport cache_report = 14;
+    NetProbeResult net_probe_result = 15;
+    AttemptStatus attempt_status = 16;
+    LogChunk log_chunk = 17;
+    // Receipt for a ControllerMessage command (acked_message_id = its message_id).
+    Ack ack = 18;
+  }
+}
+
+// Controller -> agent.
+message ControllerMessage {
+  // Unique per message (ULID); the command ID the agent deduplicates on.
+  string message_id = 1;
+  google.protobuf.Timestamp sent_at = 2;
+
+  oneof payload {
+    StartAttempt start_attempt = 10;
+    CancelAttempt cancel_attempt = 11;
+    ProbeRequest probe_request = 12;
+    PrepareEnv prepare_env = 13;
+    GcRequest gc = 14;
+    Ack ack = 15;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Agent -> controller payloads
+// ---------------------------------------------------------------------------
+
+// First message on every stream.
+message Hello {
+  string node_id = 1;
+  // Must be set; the controller accepts a configured range of versions and
+  // rejects PROTOCOL_VERSION_UNSPECIFIED and anything outside that range.
+  ProtocolVersion protocol_version = 2;
+  // meshforge package version of the agent (PEP 440 string).
+  string agent_version = 3;
+  string hostname = 4;
+  // TODO(V0.3): OS/platform, hardware inventory summary, capabilities.
+  // TODO(V0.7): node identity is proven by mTLS, not by this field.
+}
+
+// Sent after (re)connect: what the agent is still running, so the controller
+// can rebuild state and fence stale attempts (ARCHITECTURE §13).
+message Reconcile {
+  repeated AttemptStatus running_attempts = 1;
+  // TODO(V0.3): buffered-report replay cursor.
+}
+
+message Heartbeat {
+  // Monotonic per stream; lets the controller detect gaps.
+  uint64 sequence = 1;
+}
+
+message ResourceUpdate {
+  // TODO(V0.3): CPU/RAM/GPU/VRAM/disk utilisation and availability.
+  reserved 1 to 9;
+}
+
+message CacheReport {
+  // TODO(V0.5): digests present in the node's CAS blob cache.
+  reserved 1 to 9;
+}
+
+message NetProbeResult {
+  // TODO(V0.6): measured RTT/bandwidth to peers.
+  string probe_id = 1;
+}
+
+message AttemptStatus {
+  string job_id = 1;
+  string attempt_id = 2;
+  // Monotonic attempt epoch; the controller rejects reports with a stale token.
+  uint64 fencing_token = 3;
+  AttemptState state = 4;
+  // Set only when state == ATTEMPT_STATE_FAILED.
+  Failure failure = 5;
+  google.protobuf.Timestamp observed_at = 6;
+  // TODO(V0.4): exit code, phase timings (ARCHITECTURE §17), output refs.
+}
+
+message LogChunk {
+  string job_id = 1;
+  string attempt_id = 2;
+  enum Stream {
+    STREAM_UNSPECIFIED = 0;
+    STREAM_STDOUT = 1;
+    STREAM_STDERR = 2;
+  }
+  Stream stream = 3;
+  // Byte offset of `data` within the stream, for dedupe after reconnect.
+  uint64 offset = 4;
+  bytes data = 5;
+  // Attempt epoch; logs from a fenced (superseded) attempt are dropped.
+  uint64 fencing_token = 6;
+}
+
+// ---------------------------------------------------------------------------
+// Controller -> agent payloads
+// ---------------------------------------------------------------------------
+
+message StartAttempt {
+  string job_id = 1;
+  string attempt_id = 2;
+  uint64 fencing_token = 3;
+  // TODO(V0.4): execution spec (runtime, command, inputs, limits, env ref).
+}
+
+message CancelAttempt {
+  string attempt_id = 1;
+  uint64 fencing_token = 2;
+  string reason = 3;
+}
+
+message ProbeRequest {
+  // TODO(V0.6): targets and probe kind (RTT, bandwidth).
+  string probe_id = 1;
+}
+
+message PrepareEnv {
+  // TODO(V0.5): environment spec / env hash to pre-build.
+  string env_hash = 1;
+}
+
+message GcRequest {
+  // TODO(V0.5): blob-cache garbage-collection policy (target free bytes, pins).
+  reserved 1 to 9;
+}
+
+// Receipt used in both directions (ADR-0002): in ControllerMessage it acks an
+// AgentMessage; in AgentMessage it acks a ControllerMessage command.
+message Ack {
+  // message_id of the envelope being acknowledged.
+  string acked_message_id = 1;
+}
