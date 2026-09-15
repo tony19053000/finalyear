@@ -8,19 +8,15 @@
 V0.1 — Foundations & engineering system · **in progress** (started 2026-09-15)
 
 ## Current Task
-Closing V0.1 (session 1). Lead = main session; each task runs implementer → tester → reviewer; one local commit per task; agents never push (team pushes to private GitHub).
+V0.1 is code-complete: 10 of 12 tasks `[x]`. 0.1.4 and 0.1.10 wait only for the 🧑 first real GitHub CI run (see Next Recommended Task).
 
 ## Recently Completed
-- Committed locally: 0.1.1 repo init (no license — team decision) · 0.1.2 pyproject/uv · 0.1.3 skeleton + entry points · 0.1.5 protos + deterministic codegen + FailureType codec · 0.1.6 `common/` (config, ULID ids, JSON logging with linear-time secret redaction, 22-value failure taxonomy, SHA-256) · 0.1.12 docs scaffold
-- 0.1.4 import boundaries committed; stays [~] until a real GitHub CI run shows a boundary violation rejected
-- 0.1.7 dev Postgres + SQLAlchemy base + Alembic baseline — tester PASS + reviewer APPROVE; commit pending (its tests were touched by 0.1.8)
+- All V0.1 tasks implemented, tested and reviewed; committed locally (one commit per task + fix commits). `[x]`: 0.1.1, 0.1.2, 0.1.3, 0.1.5, 0.1.6, 0.1.7, 0.1.8, 0.1.9, 0.1.11, 0.1.12
+- `[~]` pending real GitHub run: 0.1.4 (import boundaries enforced in CI), 0.1.10 (CI green incl. Windows)
 - Team accepted ARCHITECTURE v1 and ADRs 0001–0010 (2026-09-15)
 
 ## In Progress
-- 0.1.8 pytest tiers/markers + Postgres fixture — fix round done; re-test + re-review running
-- 0.1.9 ruff/mypy/pre-commit — tester PASS, reviewer APPROVE (conditional on 0.1.8 green, now met); commit pending
-- 0.1.10 GitHub Actions CI — written + review nits applied; local tester running; needs 🧑 real GitHub run
-- 0.1.11 CONTRIBUTING.md — reviewer APPROVE (wording fixes applied); commit pending (shares README with 0.1.10)
+- None (waiting on 🧑 GitHub push + CI proof)
 
 ## Blockers
 - 🧑 Private GitHub repo + first push not done → V0.1 criteria 1 (Windows) and 2 (CI green, bad commit rejected) cannot be proven until then
@@ -28,7 +24,9 @@ Closing V0.1 (session 1). Lead = main session; each task runs implementer → te
 - Hardware of laptops 2–4 unknown; AI-agent access to Windows laptops undecided; Ethernet switch not purchased
 
 ## Known Bugs
-- None open. (Found and fixed this session: secret leak + O(n²) in log scrubber; duplicate IDs after fork; plain-`uv sync` test collection crash; CRLF-dependent codegen output.)
+- None open. DEFECT-0.1.8-01 (test Postgres container leaked on Ctrl-C) fixed: layered cleanup (atexit + finally, SIGINT-deferring shield, labelled containers, namespace-safe stale sweep, Ryuk).
+- Watch: `test_sigkill_during_pg_settings_leaks_no_container` failed once (1 of 8 runs, right after a heavy run) — likely the 20 s Ryuk reap window under load; not reproduced in 7 further runs. If it recurs in CI, widen the deadline or rely on the next-run sweep assertion.
+- Fixed this session: secret leak + O(n²) in log scrubber; duplicate IDs after fork; plain-`uv sync` test collection crash; CRLF-dependent codegen output.
 
 ## Technical Debt
 - Leftover `nvidia-driver-590-open` metapackage alongside 595 on Laptop 1 (clean up after driver fix)
@@ -37,8 +35,8 @@ Closing V0.1 (session 1). Lead = main session; each task runs implementer → te
 - `.venv` on Laptop 1 has all extras incl. torch installed (reviewer ran `uv sync --all-extras`)
 
 ## Test Status
-- Linux: `uv run pytest -q` → 611 passed, 1 skipped (AttemptState parity TODO), 2 xfailed (documented redaction scope gaps); ruff/mypy (strict, 68 files)/lint-imports/gen_protos --check clean
-- Windows: not yet run (needs CI or a laptop)
+- Linux: `uv run pytest -q` → 646 passed, 3 skipped (2 slow opt-in, 1 AttemptState TODO), 2 xfailed (documented redaction scope gaps); ruff, strict mypy (71 files), lint-imports, gen_protos --check all clean; fresh clone + plain `uv sync` → `pytest -m unit` 0 failed
+- Windows: not yet run (first real CI run will cover unit + fresh-clone on windows-latest)
 
 ## Next Recommended Task
 Finish V0.1 commits (0.1.7–0.1.11), then 🧑 **GitHub push + CI proof** (only humans push):

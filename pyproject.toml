@@ -307,8 +307,10 @@ python_version = "3.12"
 files = ["src", "tests", "scripts"]
 # tests/ has no __init__.py (pytest prepend import mode); explicit bases give each
 # conftest.py a distinct module name. tests/unit is a base because the unit tests
-# import `_import_guard` as a top-level module. Separator "," works on Windows too.
-mypy_path = "$MYPY_CONFIG_FILE_DIR/src,$MYPY_CONFIG_FILE_DIR/tests/unit"
+# import `_import_guard` as a top-level module; tests/_support likewise for the shared
+# test helpers (`containers`), which tests/conftest.py puts on sys.path. Separator ","
+# works on Windows too.
+mypy_path = "$MYPY_CONFIG_FILE_DIR/src,$MYPY_CONFIG_FILE_DIR/tests/unit,$MYPY_CONFIG_FILE_DIR/tests/_support"
 explicit_package_bases = true
 plugins = ["pydantic.mypy"]
 strict = true

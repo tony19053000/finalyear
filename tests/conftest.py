@@ -38,16 +38,29 @@ Environment variables read by the suite:
   launches inside its temporary clone, so that module skips itself there instead
   of recursing (clone -> clone -> ...). Never set it by hand: it silently disables
   the fresh-clone test.
+* ``MESHFORGE_TEST_RUN_ID`` — value of the ``meshforge.test.run-id`` label on the
+  test containers this run starts (default: random per process). Set by
+  ``tests/component/test_container_cleanup.py`` on the child pytest runs it
+  launches, to find exactly their containers; see ``tests/component/conftest.py``.
+
+Shared test helpers live in ``tests/_support/`` (no test files); this conftest puts
+that directory on ``sys.path`` so they import as top-level modules (e.g.
+``mf_test_containers``), matching ``mypy_path`` in ``pyproject.toml``.
 """
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import Final
 
 import pytest
 
 TESTS_DIR: Final = Path(__file__).resolve().parent
+
+_SUPPORT_DIR: Final = str(TESTS_DIR / "_support")
+if _SUPPORT_DIR not in sys.path:
+    sys.path.insert(0, _SUPPORT_DIR)
 
 #: Every tier marker; each is also the name of its directory under tests/.
 TIERS: Final = ("unit", "component", "cluster", "lab", "e2e", "soak", "chaos")
