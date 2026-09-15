@@ -22,3 +22,6 @@ class ExitCode(IntEnum):
 
     NOT_IMPLEMENTED = 3
     """The command exists but its functionality lands in a later roadmap version."""
+
+    CONFIG_ERROR = 4
+    """Configuration could not be loaded or failed validation (see ``ConfigError``)."""

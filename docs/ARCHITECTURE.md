@@ -481,7 +481,7 @@ stateDiagram-v2
 | Network partition | lease + stream error | as above; fencing prevents two live copies from both committing |
 | Partial / corrupted transfer | range resume; SHA-256 verify | resume from last good chunk; corrupted blob discarded |
 | Process crash / non-zero exit | exit code | `FAILED(user_error)` — not retried by default |
-| OOM / VRAM OOM | exit signal / CUDA error | `FAILED(oom)`; planner learns; optional retry on larger node |
+| OOM / VRAM OOM | exit signal / CUDA error | `FAILED(oom)` (host RAM) or `FAILED(vram_oom)` (GPU); planner learns; retry on a node with more memory |
 | Env build failure | builder error | `FAILED(env_error)`, cached as known-bad for that env hash |
 | Disk full | pre-check + error | `FAILED(disk_full)`; GC triggered |
 | GPU session loss | stream error / lease | typed exception in SDK; Mode 4 reassigns in-flight batches |
@@ -490,6 +490,33 @@ stateDiagram-v2
 | Zombie attempt after reassignment | **fencing token** (monotonic attempt epoch) | controller rejects stale reports |
 
 Retry policy is per failure type (`retryable` vs not), with max attempts and backoff. All failures carry a typed `failure_type` for telemetry and ML.
+
+**Failure taxonomy** (`meshforge.common.errors.FailureType`; value = lowercase name). Values are permanent — they are DB columns and ML labels, so never rename, only add. The proto `FailureType` mirrors this list 1:1 (parity test in 0.1.5).
+
+| `failure_type` | Meaning | Default retryable |
+|---|---|---|
+| `user_error` | workload crashed / exited non-zero | no |
+| `oom` | host RAM exhausted | no (planner may pick a larger node) |
+| `vram_oom` | GPU memory exhausted | yes (node with more VRAM) |
+| `env_error` | image/venv could not be built | no |
+| `disk_full` | no disk for staging/env/results | no |
+| `node_lost` | node vanished (lease/stream lost) | yes |
+| `gpu_session_lost` | remote/combined GPU session dropped | yes |
+| `transfer_error` | blob/data transfer failed | yes |
+| `integrity_error` | SHA-256 mismatch | yes (re-fetch) |
+| `fenced` | report from a superseded attempt | no |
+| `cancelled` | cancelled by user/controller | no |
+| `timeout` | infrastructure operation timed out | yes |
+| `deadline_exceeded` | workload hit its own time limit | no |
+| `resource_busy` | node/GPU temporarily at capacity | yes |
+| `no_feasible_plan` | no node/mode can run the workload | no |
+| `network_error` | transient connectivity problem | yes |
+| `config_error` | invalid/missing configuration | no |
+| `invalid_input` | malformed request/ID/manifest | no |
+| `unauthorized` | authn/authz failed | no |
+| `not_found` | referenced entity missing | no |
+| `conflict` | illegal state transition / duplicate | no |
+| `internal_error` | bug / unexpected condition | no |
 
 ---
 

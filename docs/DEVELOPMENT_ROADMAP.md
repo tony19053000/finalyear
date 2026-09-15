@@ -138,13 +138,13 @@ A version is **complete** only when all apply:
 - [x] **0.1.2** `pyproject.toml` with uv; extras `controller`, `agent`, `gpu`; dev tools as uv dependency group `dev`; Python 3.12 pinned — *evidence: commit `build(0.1.2)`, tester PASS (fresh `uv sync --locked`, extras resolve incl. Windows, py3.11/3.13 rejected), reviewer APPROVE*
 - [x] **0.1.3** package skeleton `src/meshforge/{common,controller,agent,gpu_service,sdk,cli}`; entry points `compute`, `meshforge-controller`, `meshforge-agent` — *evidence: commit `feat(0.1.3)`, tester PASS (48 tests incl. clean base-only install), reviewer APPROVE*
 - [~] **0.1.4** import-boundary check (controller ⟂ agent; sdk → common only) enforced in CI — *check done (commit `test(0.1.4)`, tester PASS, reviewer APPROVE after fix round); stays [~] until the 0.1.10 CI job runs it*
-- [~] **0.1.5** `proto/meshforge/v1/{common,agent,gpu}.proto` skeletons + codegen script; generated code reproducible
-- [~] **0.1.6** `common/`: config (pydantic-settings: TOML + env), IDs (ULID), structlog JSON logging with correlation fields, error base classes, SHA-256 helpers
-- [~] **0.1.7** `deploy/docker-compose.dev.yml` (PostgreSQL 16) + SQLAlchemy base + Alembic baseline migration
-- [ ] **0.1.8** pytest config with markers (`unit component cluster lab gpu e2e`), testcontainers fixture for Postgres
+- [x] **0.1.5** `proto/meshforge/v1/{common,agent,gpu}.proto` skeletons + codegen script; generated code reproducible — *evidence: commit `feat(0.1.5)`, tester PASS (determinism incl. CRLF/space paths, real grpc.aio bidi session + GPU unary on localhost, base-install import, FailureType parity 22/22), reviewer APPROVE after fix round*
+- [x] **0.1.6** `common/`: config (pydantic-settings: TOML + env), IDs (ULID), structlog JSON logging with correlation fields, error base classes, SHA-256 helpers — *evidence: commit `feat(0.1.6)`, tester PASS round 3 (334 unit tests in tests/unit/common incl. redaction attack + linear-time perf gates), reviewer APPROVE round 3*
+- [x] **0.1.7** `deploy/docker-compose.dev.yml` (PostgreSQL 16) + SQLAlchemy base + Alembic baseline migration — *evidence: commit `feat(0.1.7)`, tester PASS (README flow verbatim, 13 component tests on real PG 16 incl. upgrade→downgrade→re-upgrade, offline --sql, special-char passwords), reviewer APPROVE*
+- [~] **0.1.8** pytest config with markers (`unit component cluster lab gpu e2e`), testcontainers fixture for Postgres
 - [ ] **0.1.9** ruff + mypy (strict on `common`, `controller`, `agent`) + pre-commit
 - [ ] **0.1.10** GitHub Actions: lint, types, unit (Linux + Windows), component (Linux)
-- [ ] **0.1.11** `CONTRIBUTING.md` for agents: task template, commit convention, PR/review checklist, evidence rules
+- [~] **0.1.11** `CONTRIBUTING.md` for agents: task template, commit convention, PR/review checklist, evidence rules
 - [x] **0.1.12** docs scaffold: `STATUS.md`, `adr/README.md` + initial ADRs, `LAB.md` template — *evidence: commit `docs(0.1.12)`, reviewer APPROVE (docs-only, tester skipped per CLAUDE.md §4b)*
 
 **Testing:** CI pipeline itself; smoke test `compute --version`; migration up/down on empty DB.
@@ -741,7 +741,11 @@ A version is **complete** only when all apply:
 | 2026-09-15 | Hardware of laptops 2–4 unknown | open | team |
 | 2026-09-15 | AI-agent access to Windows laptops undecided | open | team |
 | 2026-09-15 | Ethernet switch not yet purchased | open | team |
-| 2026-09-15 | Git repository / GitHub not yet created | open | team |
+| 2026-09-15 | Git repository / GitHub not yet created | local repo created (0.1.1); private GitHub repo + push pending — humans push, agents never push | team |
+| 2026-09-15 | Carry-over for V0.3 (from 0.1.7 review): DB statement/lock timeout (`command_timeout`) via `DatabaseSettings`; rule "all DB writes via SQLAlchemy" or `BEFORE UPDATE` trigger for `updated_at`; every `CheckConstraint` needs `name=`; log `store.migrations.failed` with revision; session-scoped Postgres fixture in `conftest.py` (0.1.8) | open | V0.3 / 0.1.8 |
+| 2026-09-15 | Carry-over for V0.3/V0.4 (from 0.1.5): Python `AttemptState` + codec + real parity test (skipped placeholder exists); `MAX_TENSOR_CHUNK_BYTES` constant (V0.11); Hello session epoch + request_id (V0.3); GPU session_id bound to mTLS peer (V0.11) | open | V0.3 / V0.11 |
+| 2026-09-15 | Follow-ups from 0.1.6 (non-blocking): pass scan limit into `redaction._quoted_end`; scrub tracebacks per line / keep tail instead of 64 KiB head; sensitive keys with non-ASCII letters not recognised (xfail pinned); `Authorization=Basic` double `[REDACTED]` cosmetic | open | next logging touch |
+| 2026-09-15 | Carry-over for V0.2 (from 0.1.2 review): per-platform torch index — PyPI Windows torch is CPU-only; Linux default pulls CUDA 13 wheels | open | 0.2.3 |
 
 ---
 
