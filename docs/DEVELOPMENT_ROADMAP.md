@@ -758,6 +758,14 @@ A version is **complete** only when all apply:
 | 2026-09-15 | Four execution modes (1 Job Offloading, 2 Remote GPU, 3 Task Splitting, 4 Combined GPU) replace earlier "ModelPool" framing | team decision (brief §40) |
 | 2026-09-15 | Roadmap v1 approved by team; one Claude session per version | team decision |
 | 2026-09-15 | Mode 3 and Mode 4-inference share one work-queue abstraction | avoid duplicate logic; natural heterogeneity balancing |
+| 2026-09-15 | Team accepted ARCHITECTURE v1 + ADRs 0001–0010; no license file yet; private GitHub repo, agents commit locally, humans push | team decision |
+| 2026-09-15 | Dev tools are a uv dependency group `dev`, not an extra | uv-native; synced by default |
+| 2026-09-15 | Agent never imports `gpu_service` (separate process, gRPC) — enforced by import-linter + completeness guard `tests/unit/_import_guard.py` | keep torch off the agent; stop silent boundary gaps |
+| 2026-09-15 | FailureType = 22 permanent values (adds `vram_oom`, `resource_busy`, `timeout` vs `deadline_exceeded`), mirrored 1:1 in proto with a parity test; BlobRef digest uses `sha256:<hex>` | DB/ML labels are permanent; one text form for digests |
+| 2026-09-15 | Log redaction: key-based + value scrubbing (URL creds, Bearer/Basic, key=value) with linear-time scanner and 64 KiB cap, in `common/redaction.py` | secrets never in logs (§16) without log-triggered DoS |
+| 2026-09-15 | Test tiers = folders (unit component cluster lab e2e soak chaos); `docker`, `gpu`, `slow` are capability markers; optional-extra imports must follow `pytest.importorskip` | agents can't mis-tier tests; Mode 2/4 tests can be component + gpu; plain `uv sync` must always work |
+| 2026-09-15 | Test containers: labelled, atexit + finally cleanup, SIGINT-deferring shield, namespace-safe stale sweep | DEFECT-0.1.8-01 (leak on Ctrl-C); WSL + Windows share one Docker daemon |
+| 2026-09-15 | CI: unit job uses plain `uv sync --locked` on Linux + Windows; required check `ci-ok`; actions pinned by commit SHA; Dependabot weekly | criterion 1 honesty; supply-chain safety |
 
 ---
 
