@@ -51,10 +51,10 @@ def _run_ascii_env(*args: str) -> subprocess.CompletedProcess[str]:
 def test_exit_code_values_are_stable() -> None:
     """0/1/2/3 are part of the scripting contract; accidental renumbering would
     silently break callers relying on these codes."""
-    assert ExitCode.OK == 0
-    assert ExitCode.FAILURE == 1
-    assert ExitCode.USAGE_ERROR == 2
-    assert ExitCode.NOT_IMPLEMENTED == 3
+    assert int(ExitCode.OK) == 0
+    assert int(ExitCode.FAILURE) == 1
+    assert int(ExitCode.USAGE_ERROR) == 2
+    assert int(ExitCode.NOT_IMPLEMENTED) == 3
 
 
 # --- usage errors on ALL three entry points (not just `compute`) -----------

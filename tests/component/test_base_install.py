@@ -15,7 +15,6 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
@@ -97,12 +96,16 @@ def test_base_install_has_no_heavy_extra_packages(base_install: Path) -> None:
         check=False,
     )
     assert result.returncode == 0, result.stderr
-    installed = {line.split("==")[0].lower() for line in result.stdout.splitlines() if line}
+    installed = {
+        line.split("==")[0].lower() for line in result.stdout.splitlines() if line
+    }
     leaked = installed & {p.lower() for p in HEAVY_PACKAGES}
     assert not leaked, f"controller/agent/gpu extras leaked into base install: {leaked}"
 
 
-@pytest.mark.parametrize("script", ["compute", "meshforge-controller", "meshforge-agent"])
+@pytest.mark.parametrize(
+    "script", ["compute", "meshforge-controller", "meshforge-agent"]
+)
 def test_base_install_script_version_works(base_install: Path, script: str) -> None:
     exe = _venv_bin(base_install, script)
     assert exe.exists(), f"{script} console script missing from base install"
