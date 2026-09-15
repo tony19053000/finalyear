@@ -1,0 +1,50 @@
+# Normalise all text files to LF in the repository and working tree.
+* text=auto eol=lf
+
+# Windows-native scripts need CRLF.
+*.ps1 text eol=crlf
+*.psm1 text eol=crlf
+*.psd1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Shell scripts must stay LF (also on Windows checkouts used from WSL).
+*.sh text eol=lf
+
+# Lockfiles: LF, and treat as generated for diffs.
+uv.lock text eol=lf linguist-generated=true
+package-lock.json text eol=lf linguist-generated=true
+
+# Generated protobuf code.
+src/meshforge/common/proto/** linguist-generated=true
+
+# Binaries: never touch line endings, never diff as text.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.pdf binary
+*.zip binary
+*.gz binary
+*.tgz binary
+*.tar binary
+*.7z binary
+*.whl binary
+*.pt binary
+*.pth binary
+*.ckpt binary
+*.onnx binary
+*.safetensors binary
+*.npy binary
+*.npz binary
+*.pkl binary
+*.parquet binary
+*.bin binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.exe binary
+*.dll binary
+*.so binary

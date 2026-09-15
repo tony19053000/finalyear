@@ -1,0 +1,115 @@
+# =========================================================
+# MeshForge .gitignore
+# NOTE: uv.lock and dashboard lockfiles are intentionally TRACKED.
+# =========================================================
+
+# ---------- Python / uv ----------
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+*.egg
+.eggs/
+/build/
+/dist/
+wheels/
+pip-wheel-metadata/
+.python-version.local
+
+# ---------- Tool caches ----------
+.ruff_cache/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pytest_cache/
+.hypothesis/
+.tox/
+.nox/
+.cache/
+
+# ---------- Coverage ----------
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+*.cover
+junit*.xml
+
+# ---------- Node / Vite (dashboard) ----------
+node_modules/
+dashboard/node_modules/
+dashboard/dist/
+dashboard/.vite/
+dashboard/coverage/
+dashboard/playwright-report/
+dashboard/test-results/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.tsbuildinfo
+
+# ---------- IDE / editor ----------
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+*.swo
+*~
+*.sublime-workspace
+
+# ---------- OS files ----------
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# ---------- Secrets / local env (never commit) ----------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.csr
+*.p12
+*.pfx
+*.jks
+/secrets/
+/certs/
+**/fabric-ca/
+**/pki/
+
+# ---------- Local runtime data (anchored to repo root) ----------
+/data/
+.meshforge/
+*.sqlite
+*.sqlite3
+/logs/
+*.log
+
+# ---------- Lab raw outputs (large); curated reports stay tracked ----------
+lab/raw/
+lab/runs/
+lab/outputs/
+lab/**/*.pcap
+lab/**/*.nsys-rep
+lab/**/*.trace.json
+!lab/reports/
+!lab/reports/**
+# keep large captures out even inside reports
+lab/reports/**/*.pcap
+lab/reports/**/*.nsys-rep
+lab/reports/**/*.trace.json
+
+# ---------- ML artefacts produced locally ----------
+mlruns/
+/checkpoints/
+*.ckpt
+
+# ---------- Claude Code (agents are tracked; local settings are not) ----------
+.claude/settings.local.json
