@@ -126,6 +126,7 @@ The team opens a **new Claude session per roadmap version** (large versions may 
 1. Update roadmap checkboxes (`[~]` / `[x]` with evidence).
 2. Update `docs/STATUS.md`: done, in progress, blockers, exact next task, anything a fresh session must know.
 3. Record new decisions (ADR or brief §40 decision log) and roadmap changes (design change log).
+3b. If the session changed anything `docs/PROJECT_SUMMARY.md` states, update it too.
 4. Tell the user the one-line prompt to start the next session.
 
 ## 5. Project documents (living)
@@ -136,7 +137,9 @@ docs/ARCHITECTURE.md         current architecture
 docs/DEVELOPMENT_ROADMAP.md  versioned plan + checklist (source of truth for progress)
 docs/STATUS.md               concise current state
 docs/adr/NNNN-title.md       architecture decision records
+docs/PROJECT_SUMMARY.md      short plain-language overview for readers outside the team
 ```
+`PROJECT_SUMMARY.md` is written for non-specialist readers (e.g. college evaluation), not for agents. Keep it **up to date**: whenever a decision changes what it states — the execution modes and how they relate, the product shape, platforms, or headline technical claims — update it in the same session, keeping its simple tone and short length. It is derived from the documents above, never a source of truth.
 Hierarchy: `PROJECT_BRIEF → ARCHITECTURE → ROADMAP → STATUS → IMPLEMENTATION`.
 
 ### Roadmap rules
