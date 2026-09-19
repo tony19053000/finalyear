@@ -398,8 +398,10 @@ def cmd_serve(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
     try:
         reason = server.serve()
     except KeyboardInterrupt:
+        # 130, like every other Ctrl-C in this tool (S2.md exit-code table):
+        # an interrupted serve must not be pasted back as a clean completion.
         log("interrupted (Ctrl-C); server stopped")
-        return EXIT_OK
+        return EXIT_INTERRUPTED
     counters = server.counters()
     log(f"server stopped: {reason}. {json.dumps(counters, sort_keys=True)}")
     return EXIT_OK
@@ -440,6 +442,12 @@ def print_summary(run: ClientRun) -> None:
         _say("  what to fix:")
         for fix in fixes:
             _say(f"    - {fix}")
+    notes = verdict.notes()
+    if notes:
+        # warmup-only failures: reported, but they change no verdict
+        _say("  notes (not counted):")
+        for note in notes:
+            _say(f"    - {note}")
 
 
 def _fmt(value: float | None, digits: int = 2) -> str:

@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import errno
 import json
+import math
 import socket
 from enum import StrEnum
 from typing import Any, Final
@@ -95,9 +96,19 @@ def channel_options(keepalive: str) -> list[tuple[str, int]]:
 
 
 def server_options() -> list[tuple[str, int]]:
+    """Server channel options, including the **exclusive bind** setting.
+
+    grpcio binds its listeners with ``SO_REUSEPORT`` by default on Linux, so
+    a second ``serve`` on the same port would bind happily and the kernel
+    would load-balance connections between two unrelated servers - a silently
+    split, unreproducible lab result. ``grpc.so_reuseport = 0`` makes the
+    second bind fail instead, which is the documented "cannot bind" (exit 1).
+    """
     return [
         ("grpc.max_receive_message_length", MAX_MESSAGE_BYTES),
         ("grpc.max_send_message_length", MAX_BLOB_BYTES),
+        # one server per port: a stale `serve` must be refused, never shared
+        ("grpc.so_reuseport", 0),
         *SERVER_KEEPALIVE,
     ]
 
@@ -136,9 +147,18 @@ def decode(body: bytes) -> Message:
 
 
 def blob_size(value: object) -> int:
-    """Validate a requested payload size (raises :class:`ProtocolError`)."""
+    """Validate a requested payload size (raises :class:`ProtocolError`).
+
+    ``json.loads`` accepts the non-standard ``NaN`` / ``Infinity`` literals
+    even though :func:`encode` refuses to emit them, so a peer can send
+    ``{"bytes": NaN}``; ``int(nan)`` would raise a bare ``ValueError`` that
+    the gRPC ``Download`` handler does not catch. Non-finite values are
+    therefore rejected as a :class:`ProtocolError` like any other bad input.
+    """
     if isinstance(value, bool) or not isinstance(value, int | float):
         raise ProtocolError(f"bytes must be a number, got {value!r}")
+    if not math.isfinite(value):
+        raise ProtocolError(f"bytes must be a finite number, got {value!r}")
     size = int(value)
     if not MIN_BLOB_BYTES <= size <= MAX_BLOB_BYTES:
         raise ProtocolError(

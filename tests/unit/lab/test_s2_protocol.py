@@ -74,10 +74,8 @@ def test_blob_size_rejects_out_of_range_or_wrong_type(value: object) -> None:
         p.blob_size(value)
 
 
-def test_defect_blob_size_nan_raises_unclassified_valueerror_not_protocolerror() -> (
-    None
-):
-    """``blob_size``'s docstring promises it "raises :class:`ProtocolError`" for
+def test_blob_size_nan_is_a_protocol_error() -> None:
+    """(Was a defect.) ``blob_size``'s docstring promises it "raises :class:`ProtocolError`" for
     any invalid ``bytes`` value, and callers rely on that: ``grpcsrv._download``
     catches only ``ProtocolError`` around it (``httpsrv._blob`` happens to also
     catch bare ``ValueError``, but the gRPC path does not). ``float('nan')``
@@ -88,9 +86,11 @@ def test_defect_blob_size_nan_raises_unclassified_valueerror_not_protocolerror()
     parses the non-standard ``NaN`` literal even though this module's own
     ``encode()`` forbids emitting it) crashes the RPC handler with an
     unclassified exception instead of a typed ``INVALID_ARGUMENT`` abort.
+    Non-finite values are now rejected as ``ProtocolError`` like any other.
     """
-    with pytest.raises(p.ProtocolError):
-        p.blob_size(float("nan"))
+    for value in (float("nan"), float("inf"), float("-inf")):
+        with pytest.raises(p.ProtocolError, match="finite"):
+            p.blob_size(value)
 
 
 # ------------------------------------------------------------------ keepalive

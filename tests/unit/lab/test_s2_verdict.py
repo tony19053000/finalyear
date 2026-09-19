@@ -94,9 +94,9 @@ def test_case_verdict_min_reps_argument_is_honoured() -> None:
     assert v.case_verdict(case, min_reps=4).value == v.INVALID
 
 
-# ---------------------------------------- DEFECT: warmup errors taint verdict
-def test_defect_warmup_only_error_does_not_demote_a_clean_case() -> None:
-    """``CaseResult.errors`` mixes warmup and measured-rep failures (reps.py
+# ------------------------------------- warmup errors must not taint a verdict
+def test_warmup_only_error_does_not_demote_a_clean_case() -> None:
+    """(Was a defect.) ``CaseResult.errors`` mixes warmup and measured-rep failures (reps.py
     records both with a ``phase`` field), but ``case_verdict`` does not look at
     ``phase`` at all: it treats a warmup hiccup as if a measured repetition had
     failed. A case where every *requested* (measured) repetition succeeded
@@ -104,8 +104,9 @@ def test_defect_warmup_only_error_does_not_demote_a_clean_case() -> None:
     n>=5"); warmup samples are explicitly "kept... but never enter the
     summary" (reps.py docstring), so they must not enter the verdict either.
 
-    This currently fails: real behaviour is 'flaky 5/6', wrongly under-stating
-    an actually-clean result on the reachability table.
+    Before the fix the cell read 'flaky 5/6', wrongly under-stating an
+    actually-clean result on the reachability table; warmup failures are now
+    surfaced as ``warmup_notes`` instead (see the test below).
     """
     case = {
         "samples": _samples(MIN_VALID_REPS),
@@ -125,6 +126,68 @@ def test_defect_warmup_only_error_does_not_demote_a_clean_case() -> None:
         f"warmup rep failed), got {result.value!r} -- see reps.py: warmup "
         "errors are recorded in the same 'errors' list as measured ones"
     )
+
+
+def _warmup_error(rep: int = 0) -> dict[str, Any]:
+    return {
+        "rep": rep,
+        "phase": "warmup",
+        "failure_type": "timeout",
+        "message": "warmup hiccup",
+        "fatal": False,
+    }
+
+
+def test_warmup_failure_is_surfaced_as_a_note_not_a_verdict() -> None:
+    """The warmup failure must not vanish: it is reported once, labelled
+    "(not counted)", in the fixes section and in the JSON, while the cell
+    itself stays ``yes``."""
+    doc = _doc(
+        cases={
+            "http-ping": {
+                "samples": _samples(MIN_VALID_REPS),
+                "errors": [_warmup_error()],
+            }
+        }
+    )
+    dv = v.direction_verdict(doc)
+    assert dv.cases["http-ping"].value == v.YES
+    assert dv.notes() == [
+        "http-ping: warmup repetition 0 failed (timeout: warmup hiccup); "
+        "warmup is excluded from the verdict"
+    ]
+    assert not any("warmup" in fix for fix in dv.fixes())  # a note is not a fix
+    assert dv.to_json()["warmup_notes"] == dv.notes()
+    rendered = v.render_verdicts({"k": dv})
+    assert "(note, not counted)" in rendered and "warmup hiccup" in rendered
+
+
+def test_unlabelled_error_counts_as_measured() -> None:
+    """An error record without ``phase`` is the conservative case: measured."""
+    err = {"rep": 1, "failure_type": "timeout", "message": "no phase"}
+    case = {"samples": _samples(MIN_VALID_REPS), "errors": [err]}
+    assert v.case_verdict(case).value == "flaky 5/6"
+    assert (
+        v.session_verdict(
+            {"samples": _samples(MIN_VALID_REPS, survived=True), "errors": [err]}
+        ).value
+        == "flaky 5/6"
+    )
+
+
+def test_measured_and_warmup_errors_both_present() -> None:
+    """One warmup + one measured failure: the cell counts only the measured one
+    and names it, never the warmup one."""
+    case = {
+        "samples": _samples(MIN_VALID_REPS),
+        "errors": [
+            _warmup_error(),
+            {"rep": 2, "phase": "measure", "failure_type": "refused", "message": "m"},
+        ],
+    }
+    result = v.case_verdict(case)
+    assert result.value == "flaky 5/6"
+    assert result.detail == "refused: m"
 
 
 # ------------------------------------------------------------ session_verdict
@@ -421,16 +484,52 @@ def test_render_verdicts_wifi_and_ethernet_are_separate_rows() -> None:
     assert len(rows) == 2 and rows[0] != rows[1]
 
 
-def test_defect_direction_verdict_crashes_on_schema_valid_but_malformed_case() -> None:
-    """``envelope.validate()`` only checks that ``doc["cases"]`` is a ``dict``
-    overall -- it never checks that each *value* in it is a dict too. A
-    ``report`` run over a schema-valid-but-malformed result file (e.g. one
-    hand-edited, or written by a future, buggier version of the client) with
-    ``cases: {"http-ping": "garbage"}`` crashes ``direction_verdict`` (and
-    transitively ``cmd_report``) with an unhandled ``AttributeError`` instead
-    of a graceful diagnosis, because ``case_verdict()``/``session_verdict()``
-    call ``.get()`` on whatever is stored there without checking its type.
+def test_direction_verdict_survives_a_schema_valid_but_malformed_case() -> None:
+    """(Was a defect.) ``envelope.validate()`` only checks that ``doc["cases"]``
+    is a ``dict`` overall -- it never checks that each *value* in it is a dict
+    too. A ``report`` run over a schema-valid-but-malformed result file (e.g.
+    one hand-edited, or written by a future, buggier version of the client)
+    with ``cases: {"http-ping": "garbage"}`` used to crash ``direction_verdict``
+    (and transitively ``cmd_report``) with an unhandled ``AttributeError``.
+    It must now report the malformed entry instead -- and never as ``yes``.
     """
     doc = _doc(cases={"http-ping": "garbage"})
-    with pytest.raises(AttributeError):
-        v.direction_verdict(doc)
+    dv = v.direction_verdict(doc)
+    cell = dv.cases["http-ping"]
+    assert cell.value == v.MALFORMED
+    assert cell.value != v.YES
+    assert "malformed" in cell.detail
+    # every other fixed case is simply absent -> TBD, and the row still renders
+    assert dv.cases["grpc-unary"].value == v.TBD
+    assert "| L1 -> L2 |" in v.render_verdicts({"k": dv})
+
+
+@pytest.mark.parametrize("garbage", ["garbage", 5, [], 3.5, True])
+def test_case_and_session_verdict_never_yes_on_a_non_object_case(
+    garbage: object,
+) -> None:
+    assert v.case_verdict(garbage).value == v.MALFORMED
+    assert v.session_verdict(garbage).value == v.MALFORMED
+
+
+def test_direction_verdict_survives_malformed_samples_and_errors() -> None:
+    """Neither a non-object sample nor a non-object error record may crash the
+    report, and neither may be silently upgraded to ``yes``."""
+    doc = _doc(
+        cases={
+            "http-ping": {"samples": ["nope"] * MIN_VALID_REPS, "errors": ["bad"]},
+            "grpc-bidi-idle30s-kaon": {"samples": ["nope"], "errors": "not-a-list"},
+        }
+    )
+    dv = v.direction_verdict(doc)
+    # a malformed error record is kept as one opaque failure, never dropped
+    assert dv.cases["http-ping"].value == "flaky 5/6"
+    assert dv.sessions["grpc-bidi-idle30s-kaon"].value != v.YES
+    assert v.render_verdicts({"k": dv})
+
+
+def test_malformed_errors_value_is_never_silently_dropped() -> None:
+    """``errors`` that is not a list at all counts as one failure, so an
+    unreadable result file can never be upgraded to ``yes``."""
+    case = {"samples": _samples(MIN_VALID_REPS), "errors": "kaboom"}
+    assert v.case_verdict(case).value == "flaky 5/6"

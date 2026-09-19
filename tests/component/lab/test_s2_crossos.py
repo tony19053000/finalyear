@@ -206,19 +206,20 @@ def test_grpc_server_stop_is_idempotent_after_start() -> None:
     srv.stop()  # must not raise or hang
 
 
-def test_defect_grpc_server_stop_during_start_races_and_raises() -> None:
-    """``S2GrpcServer.stop()`` is documented "Idempotent" and is meant to
-    tolerate being called from another thread while a legitimate ``start()``
-    is in flight (the nominated "stop-during-start" attack surface). But
-    ``_started``/``_stopped`` are plain booleans with no lock: when a caller's
-    ``start()`` races ``stop()``'s own internal ``self.start()`` (called to
-    "start-to-stop" a never-started server), both can observe
-    ``self._started is False`` and both call the underlying
-    ``grpc.Server.start()`` concurrently. grpcio itself forbids that and
-    raises ``ValueError("Cannot start already-started server!")`` -
-    unhandled, propagating out of ``stop()``. Reproduces reliably (no sleep
-    between spawning the racing thread and calling ``stop()``); if grpcio
-    internals ever make this non-deterministic, run the whole suite with
+def test_grpc_server_stop_during_start_is_safe() -> None:
+    """(Was a defect.) ``S2GrpcServer.stop()`` is documented "Idempotent" and
+    must tolerate being called from another thread while a legitimate
+    ``start()`` is in flight (the nominated "stop-during-start" attack
+    surface). ``_started``/``_stopped`` used to be plain booleans with no
+    lock: a caller's ``start()`` racing ``stop()``'s own internal
+    ``self.start()`` (called to "start-to-stop" a never-started server) let
+    both observe ``self._started is False`` and both call the underlying
+    ``grpc.Server.start()`` concurrently, which grpcio forbids -
+    ``ValueError("Cannot start already-started server!")`` propagated out of
+    ``stop()``. Both are now serialised by a lock, so neither call may raise,
+    in either order. Reproduced reliably before the fix (no sleep between
+    spawning the racing thread and calling ``stop()``); if grpcio internals
+    ever make this non-deterministic, run the whole suite with
     ``pytest --count=20`` (or a shell loop) to catch it.
     """
     failures: list[BaseException] = []
@@ -249,9 +250,10 @@ def test_defect_grpc_server_stop_during_start_races_and_raises() -> None:
             failures.append(exc)
         t.join(timeout=10)
         assert not t.is_alive()
+        failures += errors
     assert not failures, (
-        f"stop() raised during a start()/stop() race in "
-        f"{len(failures)}/5 attempts: {failures[0]!r} -- see docstring above"
+        f"start()/stop() raised during a race in "
+        f"{len(failures)} of 5 attempts: {failures[0]!r} -- see docstring above"
     )
 
 
@@ -283,8 +285,8 @@ def test_grpc_server_busy_port_raises_oserror_not_runtimeerror() -> None:
     """grpcio 1.84 raises ``RuntimeError`` on a taken address; the fixed bug
     (item 4) translates it to ``OSError`` so ``cmd_serve`` prints a clean
     message instead of a traceback. A *plain* listening socket (no
-    ``SO_REUSEPORT``, unlike grpc's own listeners -- see the dedicated defect
-    test below) is what genuinely conflicts and exercises this path."""
+    ``SO_REUSEPORT``, like grpc's own listeners now that ``grpc.so_reuseport``
+    is 0) is what conflicts and exercises this path."""
     port = _free_port()
     with socket.socket() as holder:
         holder.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -302,19 +304,16 @@ def test_grpc_server_busy_port_raises_oserror_not_runtimeerror() -> None:
         assert not isinstance(excinfo.value, RuntimeError)
 
 
-def test_defect_two_grpc_servers_silently_share_the_same_port() -> None:
-    """grpc's own listening sockets use ``SO_REUSEPORT`` (verified against
-    this environment's grpcio build): a *second*, fully independent
-    ``S2GrpcServer`` bound to a port an earlier one is already using -- the
-    exact "operator forgot to stop the previous `serve`" scenario -- binds
-    and starts **without any error**, and the kernel then load-balances
-    incoming connections between the two unrelated processes/objects. This
-    contradicts the documented contract (S2.md exit code ``1``: "cannot
-    bind"; the module docstring's "cannot listen") and the item-4 fix's
-    purpose (clean detection of a taken port): that fix only helps when the
-    other listener on the port is *not* itself a grpc server. A two-laptop
-    lab operator who re-runs ``serve`` without killing the old process would
-    get a silently split, non-reproducible result instead of a clear error.
+def test_second_grpc_server_on_a_live_port_is_refused() -> None:
+    """(Was a defect.) grpc's own listening sockets use ``SO_REUSEPORT`` by
+    default: a *second*, fully independent ``S2GrpcServer`` bound to a port an
+    earlier one was already using -- the exact "operator forgot to stop the
+    previous `serve`" scenario -- used to bind and start **without any
+    error**, after which the kernel load-balanced incoming connections between
+    the two unrelated server objects, i.e. a silently split, non-reproducible
+    lab result. ``server_options()`` now sets ``grpc.so_reuseport = 0``, so
+    the second bind fails and ``_bind`` reports it as the documented "cannot
+    listen" ``OSError`` (S2.md exit code ``1``).
     """
     port = _free_port()
     first = grpcsrv.S2GrpcServer(
@@ -323,20 +322,13 @@ def test_defect_two_grpc_servers_silently_share_the_same_port() -> None:
     )  # fmt: skip
     first.start()
     try:
-        second = grpcsrv.S2GrpcServer(
-            "127.0.0.1", port, name="second",
-            log=lambda _m: None, touch=lambda: None, note_error=lambda _m: None,
-        )  # fmt: skip
-        try:
-            second.start()  # expected (per docs): OSError / "cannot listen"
-            pytest.fail(
-                "a second S2GrpcServer bound to the same port as a live one "
-                "did not raise: the port is now silently shared between two "
-                "independent server objects (SO_REUSEPORT), contradicting "
-                "the documented 'cannot bind' contract"
-            )
-        finally:
-            second.stop()
+        with pytest.raises(OSError) as excinfo:
+            grpcsrv.S2GrpcServer(
+                "127.0.0.1", port, name="second",
+                log=lambda _m: None, touch=lambda: None, note_error=lambda _m: None,
+            )  # fmt: skip
+        assert not isinstance(excinfo.value, RuntimeError)
+        assert "cannot listen" in str(excinfo.value)
     finally:
         first.stop()
 
@@ -386,8 +378,8 @@ def test_open_failure_on_grpc_does_not_leak_the_http_listener() -> None:
     """``S2Server.open()``: if the gRPC bind fails, the HTTP listener it
     already opened must be closed, not leaked for the process's life. Uses a
     plain (non-``SO_REUSEPORT``) socket to genuinely occupy the gRPC port,
-    since two grpc listeners do not conflict at all (see the dedicated
-    defect test)."""
+    since that is the simplest way to occupy the port from the test process
+    (two grpc listeners now conflict too -- see the dedicated test above)."""
     port = _free_port()
     with socket.socket() as blocker:
         blocker.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -796,15 +788,14 @@ def test_ctrl_c_during_client_run_exits_130(tmp_path: Path) -> None:
         assert proc.returncode == cli.EXIT_INTERRUPTED, err
 
 
-def test_defect_serve_sigint_exit_code_contradicts_documented_130(
-    tmp_path: Path,
-) -> None:
-    """Both the module docstring and ``S2.md`` document exit code ``130`` for
-    Ctrl-C generically, but ``cmd_serve`` explicitly catches
-    ``KeyboardInterrupt`` around ``server.serve()`` and returns ``EXIT_OK``
-    (0), not ``EXIT_INTERRUPTED`` (130). An operator following the documented
-    exit-code table when pasting back a serve run's result would misreport a
-    Ctrl-C'd server as a clean, non-interrupted completion.
+def test_serve_sigint_exits_130(tmp_path: Path) -> None:
+    """(Was a defect.) Both the module docstring and ``S2.md`` document exit
+    code ``130`` for Ctrl-C generically, but ``cmd_serve`` used to catch
+    ``KeyboardInterrupt`` around ``server.serve()`` and return ``EXIT_OK``
+    (0). An operator following the documented exit-code table when pasting
+    back a serve run's result would have misreported a Ctrl-C'd server as a
+    clean, non-interrupted completion. ``serve`` now returns 130 like the
+    client does.
     """
     ready = tmp_path / "ready.json"
     argv = _cmd(
@@ -830,10 +821,9 @@ def test_defect_serve_sigint_exit_code_contradicts_documented_130(
         if proc.poll() is None:
             proc.kill()
             proc.communicate(timeout=15)
-    assert proc.returncode == cli.EXIT_OK, (
-        f"expected the *documented* 130 but the code path always returns 0 on "
-        f"SIGINT in serve; got {proc.returncode} (err={err!r}) -- if this ever "
-        "starts returning 130, update/remove this test and the defect report"
+    assert proc.returncode == cli.EXIT_INTERRUPTED, (
+        f"serve must exit with the documented 130 after SIGINT; got "
+        f"{proc.returncode} (err={err!r})"
     )
 
 

@@ -6,7 +6,16 @@ way); a direction nobody ran is reported **TBD**, never guessed.
 
 Verdict values: ``yes`` · ``no`` (with the diagnosis and the fix) ·
 ``flaky k/n`` · ``INVALID (n<5)`` (measured, but not enough repetitions to be
-a lab result) · ``TBD`` (not tested).
+a lab result) · ``INVALID (malformed)`` (the result file's case entry is not a
+usable object) · ``TBD`` (not tested).
+
+Only **measured** repetitions decide a verdict. ``run_reps`` records warmup and
+measured failures in one ``errors`` list, tagged with ``phase``; warmup samples
+"never enter the summary" and warmup failures likewise never demote a case that
+ran every requested repetition cleanly. They are not dropped either: they are
+surfaced as ``warmup_notes`` on the direction, under "Diagnoses and fixes".
+An error with no ``phase`` at all is counted as measured - the conservative
+reading, so no unknown input can buy a ``yes``.
 """
 
 from __future__ import annotations
@@ -18,11 +27,15 @@ from typing import Any, Final
 from spikes._harness import MIN_VALID_REPS
 from spikes._harness.envelope import host_label
 from spikes._harness.report import cell, fmt, link_name
+from spikes._harness.reps import PHASE_WARMUP
 
 YES: Final = "yes"
 NO: Final = "no"
 TBD: Final = "TBD"
 INVALID: Final = f"INVALID (n<{MIN_VALID_REPS})"
+#: A result file whose case entry is not an object at all (hand-edited, or
+#: written by a buggier version): reported, never crashed on, never ``yes``.
+MALFORMED: Final = "INVALID (malformed)"
 
 #: The four fixed cases every direction is judged on, in report order.
 FIXED_CASES: Final[tuple[tuple[str, str], ...]] = (
@@ -49,68 +62,117 @@ class Verdict:
         return {"value": self.value, "detail": self.detail}
 
 
-def _first_failure(case: Mapping[str, Any]) -> str:
-    errors = case.get("errors") or []
-    if not errors:
-        return ""
-    err = errors[0]
+def _error_records(case: Mapping[str, Any]) -> list[Any]:
+    """Every recorded failure of a case, however malformed.
+
+    A malformed ``errors`` value is never *dropped*: it is kept as one opaque
+    failure, so no unreadable result file can buy a ``yes``.
+    """
+    errors = case.get("errors")
+    if errors is None or errors == []:
+        return []
+    if isinstance(errors, Sequence) and not isinstance(errors, str | bytes):
+        return list(errors)
+    return [errors]
+
+
+def _is_warmup(err: Any) -> bool:
+    """Warmup failures do not count; anything unlabelled counts as measured."""
+    return isinstance(err, Mapping) and str(err.get("phase", "")) == PHASE_WARMUP
+
+
+def measured_errors(case: Mapping[str, Any]) -> list[Any]:
+    """The failures of *requested* (measured) repetitions - what a cell judges."""
+    return [e for e in _error_records(case) if not _is_warmup(e)]
+
+
+def warmup_errors(case: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    """Failures of warmup repetitions: reported, but never part of a verdict."""
+    return [e for e in _error_records(case) if _is_warmup(e)]
+
+
+def describe_error(err: Any) -> str:
+    if not isinstance(err, Mapping):
+        return f"malformed error record: {err!r}"
     return f"{err.get('failure_type')}: {err.get('message')}"
 
 
-def case_verdict(
-    case: Mapping[str, Any] | None, *, min_reps: int = MIN_VALID_REPS
-) -> Verdict:
-    """``yes`` when every requested repetition succeeded, else why not."""
+def _first_failure(case: Mapping[str, Any]) -> str:
+    """The first *measured* failure; a warmup-only failure as a last resort."""
+    errors = measured_errors(case) or _error_records(case)
+    return describe_error(errors[0]) if errors else ""
+
+
+def _malformed(case: object) -> Verdict:
+    """A case entry that is not an object at all: say so, never crash on it."""
+    return Verdict(
+        MALFORMED,
+        f"result file is malformed: the case entry is "
+        f"{type(case).__name__}, not an object",
+    )
+
+
+def case_verdict(case: object, *, min_reps: int = MIN_VALID_REPS) -> Verdict:
+    """``yes`` when every requested (measured) repetition succeeded, else why not.
+
+    ``case`` is typed ``object`` on purpose: it comes straight from a JSON
+    result file, and anything that is not a mapping is judged, not crashed on.
+    """
     if case is None:
         return Verdict(TBD, "case not run")
+    if not isinstance(case, Mapping):
+        return _malformed(case)
     samples = case.get("samples") or []
     if not samples:
         return Verdict(NO, _first_failure(case) or "no successful repetition")
-    if case.get("errors"):
+    errors = measured_errors(case)
+    if errors:
         return Verdict(
-            f"flaky {len(samples)}/{len(samples) + len(case['errors'])}",
-            _first_failure(case),
+            f"flaky {len(samples)}/{len(samples) + len(errors)}",
+            describe_error(errors[0]),
         )
     if len(samples) < min_reps:
         return Verdict(INVALID, f"only n={len(samples)} repetitions")
     return Verdict(YES)
 
 
-def session_verdict(
-    case: Mapping[str, Any] | None, *, min_reps: int = MIN_VALID_REPS
-) -> Verdict:
+def session_verdict(case: object, *, min_reps: int = MIN_VALID_REPS) -> Verdict:
     """Did the long-lived bidi stream survive the idle gap, every time?"""
     if case is None:
         return Verdict(TBD, "case not run")
+    if not isinstance(case, Mapping):
+        return _malformed(case)
     samples = case.get("samples") or []
     if not samples:
         return Verdict(NO, _first_failure(case) or "no successful repetition")
-    survived = [s for s in samples if s.get("survived")]
-    dropped = [s for s in samples if not s.get("survived")]
+    survived = [s for s in samples if isinstance(s, Mapping) and s.get("survived")]
+    dropped = [s for s in samples if not (isinstance(s, Mapping) and s.get("survived"))]
     if not survived:
         return Verdict(NO, _drop_detail(dropped))
     if dropped:
         return Verdict(f"flaky {len(survived)}/{len(samples)}", _drop_detail(dropped))
-    if case.get("errors"):
+    errors = measured_errors(case)
+    if errors:
         return Verdict(
-            f"flaky {len(samples)}/{len(samples) + len(case['errors'])}",
-            _first_failure(case),
+            f"flaky {len(samples)}/{len(samples) + len(errors)}",
+            describe_error(errors[0]),
         )
     if len(samples) < min_reps:
         return Verdict(INVALID, f"only n={len(samples)} repetitions")
     return Verdict(YES)
 
 
-def _drop_detail(dropped: Sequence[Mapping[str, Any]]) -> str:
+def _drop_detail(dropped: Sequence[Any]) -> str:
     """Why the idle stream died, and what to change about it."""
-    failure = (dropped[0].get("failure") or {}) if dropped else {}
+    first = dropped[0] if dropped else None
+    failure = (first.get("failure") or {}) if isinstance(first, Mapping) else {}
     message = str(failure.get("message") or "stream did not survive the idle gap")
     fix = failure.get("fix")
     return f"{message} [fix: {fix}]" if fix else message
 
 
-def _mean(case: Mapping[str, Any] | None, metric: str) -> float | None:
-    if case is None:
+def _mean(case: Any, metric: str) -> float | None:
+    if not isinstance(case, Mapping):
         return None
     summary = (case.get("summary") or {}).get(metric) or {}
     value = summary.get("mean")
@@ -138,6 +200,8 @@ class DirectionVerdict:
     outbound_only: Verdict = Verdict(TBD)
     metrics: dict[str, float | None] = field(default_factory=dict)
     run_errors: list[str] = field(default_factory=list)
+    #: warmup-only failures: reported for honesty, never part of a verdict
+    warmup_notes: list[str] = field(default_factory=list)
     sources: list[str] = field(default_factory=list)
 
     @property
@@ -151,6 +215,10 @@ class DirectionVerdict:
             if verdict.value != YES and verdict.detail:
                 out.append(f"{name}: {verdict.detail}")
         return out + self.run_errors
+
+    def notes(self) -> list[str]:
+        """Things worth knowing that do **not** change any verdict."""
+        return list(self.warmup_notes)
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -166,6 +234,7 @@ class DirectionVerdict:
             "outbound_only": self.outbound_only.to_json(),
             "metrics": self.metrics,
             "fixes": self.fixes(),
+            "warmup_notes": self.warmup_notes,
             "sources": self.sources,
         }
 
@@ -201,7 +270,8 @@ def direction_verdict(
     """Judge one result envelope (one direction, one link)."""
     extra = doc.get("extra") or {}
     params = doc.get("params") or {}
-    cases: dict[str, Any] = doc.get("cases") or {}
+    raw_cases = doc.get("cases")
+    cases: dict[str, Any] = dict(raw_cases) if isinstance(raw_cases, Mapping) else {}
     client = relabel(host_label(doc), labels)
     server = relabel(
         str(params.get("server_name") or params.get("server") or "?"), labels
@@ -224,6 +294,7 @@ def direction_verdict(
     for case_id in sorted(cases):
         if case_id.startswith("grpc-bidi-"):
             verdict.sessions[case_id] = session_verdict(cases[case_id])
+    verdict.warmup_notes = _warmup_notes(cases)
     verdict.outbound_only = _outbound_verdict(extra, verdict)
     verdict.metrics = {
         "http_ttfb_ms": _mean(cases.get("http-ping"), "ttfb_ms"),
@@ -232,11 +303,26 @@ def direction_verdict(
         "grpc_mbps": _mean(cases.get("grpc-stream"), "mbps"),
     }
     verdict.run_errors = [
-        f"{e.get('failure_type')}: {e.get('message')}"
-        + (f" [fix: {e['fix']}]" if e.get("fix") else "")
+        describe_error(e) + (f" [fix: {e['fix']}]" if e.get("fix") else "")
         for e in doc.get("errors") or []
+        if isinstance(e, Mapping)
     ]
     return verdict
+
+
+def _warmup_notes(cases: Mapping[str, Any]) -> list[str]:
+    """Warmup failures, per case: never a verdict, but never hidden either."""
+    notes: list[str] = []
+    for case_id in sorted(cases):
+        case = cases[case_id]
+        if not isinstance(case, Mapping):
+            continue
+        notes.extend(
+            f"{case_id}: warmup repetition {err.get('rep')} failed "
+            f"({describe_error(err)}); warmup is excluded from the verdict"
+            for err in warmup_errors(case)
+        )
+    return notes
 
 
 def _outbound_verdict(extra: Mapping[str, Any], verdict: DirectionVerdict) -> Verdict:
@@ -395,6 +481,11 @@ def _render_fixes(rows: Sequence[DirectionVerdict]) -> str:
         for verdict in rows
         for fix in verdict.fixes()
     ]
+    notes = [
+        f"- **{cell(verdict.direction)}** (note, not counted) {cell(note)}"
+        for verdict in rows
+        for note in verdict.notes()
+    ]
     non_native = [
         f"- **{cell(verdict.direction)}**: one side is not native "
         f"({cell(verdict.client_os)} -> {cell(verdict.server_os)}); "
@@ -402,5 +493,5 @@ def _render_fixes(rows: Sequence[DirectionVerdict]) -> str:
         for verdict in rows
         if not verdict.native_pair
     ]
-    body = "\n".join(items + non_native) or "- none"
+    body = "\n".join(items + non_native + notes) or "- none"
     return "#### Diagnoses and fixes\n\n" + body + "\n"

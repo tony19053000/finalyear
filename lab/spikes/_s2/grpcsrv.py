@@ -92,6 +92,9 @@ class S2GrpcServer:
         self.touch = touch
         self.note_error = note_error
         self.stopping = threading.Event()
+        #: guards ``_started`` / ``_stopped``: ``start()`` and ``stop()`` may
+        #: be called from any thread, in any order, any number of times.
+        self._lifecycle = threading.RLock()
         self._started = False
         self._stopped = False
         self.counters: dict[str, int] = {
@@ -114,12 +117,17 @@ class S2GrpcServer:
 
     # ----------------------------------------------------------- lifecycle
     def _bind(self, bind: str, port: int) -> int:
-        """Bind the gRPC listener, reporting a failure as ``OSError``.
+        """Bind the gRPC listener exclusively, reporting failure as ``OSError``.
 
         grpcio raises ``RuntimeError`` (not ``OSError``) when the address is
         taken and older versions returned 0 instead; both are translated, so
         callers - and the CLI's ``serve`` - can handle one exception type and
         print "cannot listen" rather than a traceback.
+
+        Exclusivity comes from ``grpc.so_reuseport = 0`` in
+        :func:`~spikes._s2.protocol.server_options`: without it two gRPC
+        servers share the port through ``SO_REUSEPORT`` and the kernel
+        load-balances connections between them.
         """
         host = f"[{bind}]" if ":" in bind else bind
         try:
@@ -131,6 +139,20 @@ class S2GrpcServer:
         return int(bound)
 
     def start(self) -> None:
+        """Start serving. Idempotent, and a no-op once :meth:`stop` has run.
+
+        Thread-safe: grpcio raises ``ValueError("Cannot start already-started
+        server!")`` if two threads call ``grpc.Server.start()`` at once, which
+        is exactly what a caller's ``start()`` racing ``stop()``'s internal
+        start-to-stop used to do.
+        """
+        with self._lifecycle:
+            if self._stopped:
+                return
+            self._start_locked()
+
+    def _start_locked(self) -> None:
+        """Start the underlying server once. Caller holds ``_lifecycle``."""
         if not self._started:
             self._server.start()
             self._started = True
@@ -142,15 +164,18 @@ class S2GrpcServer:
         **started** server is stopped: stopping (or dropping) a server that was
         never started leaves the port listening for the life of the process.
         So a never-started server is started here purely to be stopped again,
-        which is what ``S2Server.open()``'s failure path needs. Idempotent.
+        which is what ``S2Server.open()``'s failure path needs. Idempotent and
+        thread-safe in any order relative to :meth:`start`; a second ``stop()``
+        waits for the first to finish and then returns.
         """
         self.stopping.set()
-        if self._stopped:
-            return
-        self._stopped = True
-        self.start()
-        self._server.stop(grace_s).wait(timeout=grace_s + 5.0)
-        self._pool.shutdown(wait=True, cancel_futures=True)
+        with self._lifecycle:
+            if self._stopped:
+                return
+            self._stopped = True
+            self._start_locked()
+            self._server.stop(grace_s).wait(timeout=grace_s + 5.0)
+            self._pool.shutdown(wait=True, cancel_futures=True)
 
     # ------------------------------------------------------------ handlers
     def _handlers(self) -> grpc.GenericRpcHandler:
