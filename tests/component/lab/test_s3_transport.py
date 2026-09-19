@@ -217,11 +217,15 @@ def test_tcp_garbage_and_oversized_frames_are_dropped(server: S3Server) -> None:
         b"GET / HTTP/1.0\r\n\r\n",
         b"",
     ):
-        with _raw(server) as sock:
+        # Dropping the peer *is* the behaviour under test, so the server may
+        # already have reset the connection before we finish writing: any of
+        # sendall/shutdown/recv can then raise (ECONNRESET, EPIPE, ENOTCONN).
+        # That is a pass, not a flake - the proof the junk was dropped is the
+        # counters and the still-healthy hello below, never this recv.
+        with _raw(server) as sock, contextlib.suppress(OSError):
             sock.sendall(junk)
             sock.shutdown(socket.SHUT_WR)
-            with contextlib.suppress(OSError):
-                assert sock.recv(100) == b""
+            assert sock.recv(100) == b""
     # slow-loris: no header within header_timeout -> dropped, counted
     with _raw(server) as sock:
         sock.settimeout(10)

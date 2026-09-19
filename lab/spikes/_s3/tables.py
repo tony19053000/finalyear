@@ -376,7 +376,8 @@ def parallel_lines(
     N connections are compared with one HTTP GET (the honest baseline for
     "does splitting into parallel chunks help on this link?") and, for the
     ADR-0003 decision, also placed against raw TCP. A ratio below x1 is called
-    **slower**, never "x0.8 as fast".
+    **slower**, never "x0.8 as fast". Both band edges are inclusive of the
+    "no measurable gain" verdict, so exactly x0.90 is not called slower.
     """
     lines: list[str] = []
     families = sorted({r.family for r in rows if r.family.startswith("http-range")})
@@ -397,7 +398,7 @@ def parallel_lines(
                 f"({mbps} Mbit/s{tcp_text}){invalid} - the parallel chunk fetch of "
                 "ADR-0003 pays on this link."
             )
-        elif speedup > PARALLEL_LOSS_X:
+        elif speedup >= PARALLEL_LOSS_X:
             lines.append(
                 f"- {name}: **x{speedup:.2f}** of a single HTTP GET ({mbps} "
                 f"Mbit/s{tcp_text}){invalid} - no measurable gain: one connection "
@@ -416,6 +417,13 @@ def parallel_lines(
 
 #: A runner-up chunk within this share of the best is "not distinguishable".
 CHUNK_TIE_PCT: Final = 5.0
+
+#: Slack for the tie comparison. ``gap`` is a float division, so a
+#: mathematically exact 5% gap (1000 vs 950) lands one ULP *above* 5.0 and would
+#: silently fall out of the band the docs promise is inclusive. The epsilon is
+#: far below the precision the gap is ever printed or reasoned about at, so it
+#: restores the documented boundary without widening the band.
+CHUNK_TIE_EPS: Final = 1e-9
 
 
 def best_chunk(rows: Sequence[Row]) -> Row | None:
@@ -448,7 +456,7 @@ def chunk_line(rows: Sequence[Row]) -> str | None:
         f"**{format_size(best.chunk)}** ({fmt(best.mbps_mean, 0)} Mbit/s; "
         f"others: {listing})"
     )
-    if gap <= CHUNK_TIE_PCT:
+    if gap <= CHUNK_TIE_PCT + CHUNK_TIE_EPS:
         text += (
             f" - {format_size(runner_up.chunk)} is within {gap:.0f}%, so the two "
             "are not distinguishable at this n"
