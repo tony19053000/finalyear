@@ -214,10 +214,17 @@ class ClientMeter:
     t_first_byte: float | None = None
     t_end: float | None = None
     cpu_end: float | None = None
+    _first_byte_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
     def first_byte(self) -> None:
-        if self.t_first_byte is None:
-            self.t_first_byte = time.perf_counter()
+        # Called from the parallel HTTP Range threads, so the check-then-set is
+        # racy: two threads can both see None and the later timestamp can win.
+        # The values are microseconds apart, but ttfb_s should not depend on
+        # thread scheduling - keep the earliest under a lock.
+        now = time.perf_counter()
+        with self._first_byte_lock:
+            if self.t_first_byte is None or now < self.t_first_byte:
+                self.t_first_byte = now
 
     def stop(self) -> None:
         self.t_end = time.perf_counter()

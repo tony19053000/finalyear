@@ -203,7 +203,8 @@ def test_throughput_matrix_never_shows_a_sweep_row_in_the_default_cell() -> None
     grpc_line = next(ln for ln in text.splitlines() if "gRPC server-stream" in ln)
     assert "900.0 ±" in grpc_line and "500.0" not in grpc_line
     cpu = tables.cpu_tables(tables.collect([doc]))
-    assert "| raw TCP (server -> client) | 1.0 |" in cpu
+    # two decimals: at ~0.4 ms/MiB one decimal loses real resolution
+    assert "| raw TCP (server -> client) | 1.00 |" in cpu
 
 
 def test_matrix_prefers_the_row_with_most_valid_reps_on_rerun() -> None:

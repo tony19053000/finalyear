@@ -17,7 +17,7 @@ from typing import Any, Final
 
 from spikes._harness import MIN_VALID_REPS
 from spikes._harness.envelope import host_label
-from spikes._harness.report import fmt, link_name
+from spikes._harness.report import cell, fmt, link_name
 from spikes._s3.protocol import GRPC_DEFAULT_LIMIT, format_size
 
 #: A transport is "as good as raw TCP" above this share of the baseline.
@@ -108,10 +108,20 @@ def collect(envelopes: Sequence[dict[str, Any]]) -> list[Row]:
     return rows
 
 
-def _cell(row: Row | None, value: float | None, stdev: float | None = None) -> str:
+def _cell(
+    row: Row | None,
+    value: float | None,
+    stdev: float | None = None,
+    *,
+    digits: int = 1,
+) -> str:
     if row is None or value is None:
         return "TBD"
-    text = fmt(value, 1) if stdev is None else f"{value:.1f} ± {fmt(stdev, 1)}"
+    text = (
+        fmt(value, digits)
+        if stdev is None
+        else f"{value:.{digits}f} ± {fmt(stdev, digits)}"
+    )
     return text if row.valid else f"{text} **INVALID (n={row.n})**"
 
 
@@ -155,7 +165,9 @@ def _matrix(
                     )
                 )
             else:
-                cells.append(_cell(row, row.cpu_mean if row else None))
+                # two decimals: at ~0.4 ms/MiB one decimal loses the resolution
+                # of the one metric that does not shrink on a faster link
+                cells.append(_cell(row, row.cpu_mean if row else None, digits=2))
         lines.append(f"| {family_name(family)} | " + " | ".join(cells) + " |")
     return lines
 
@@ -273,7 +285,7 @@ def ceiling_table(envelopes: Sequence[dict[str, Any]]) -> str:
             value = item.get("mean_mbps")
             error = item.get("error")
             if not isinstance(value, int | float):
-                text = f"failed: {error}"
+                text = f"failed: {cell(error)}"
             else:
                 text = f"{fmt(value, 0)} ± {fmt(item.get('stdev_mbps'), 0)}"
                 if error:
@@ -282,7 +294,7 @@ def ceiling_table(envelopes: Sequence[dict[str, Any]]) -> str:
                     # failure. Rendering it bare would let a broken run read as a
                     # confident low ceiling, and the verdict tells the reader a
                     # LAN result near the ceiling is tool-limited. Say so.
-                    text += f" **(incomplete: {error})**"
+                    text += f" **(incomplete: {cell(error)})**"
             blocks.append(f"| {case_id} | {text} | {item.get('n', 0)} |")
         blocks.append("")
     return "\n".join(blocks) + "\n" if found else ""
@@ -506,14 +518,21 @@ def chunk_caveat(rows: Sequence[Row], decision_row: Row | None) -> str:
     )
     if same is None or same is best or not same.mbps_mean:
         return text
-    gain = 100.0 * (best.mbps_mean / same.mbps_mean - 1.0)
-    if gain <= CHUNK_TIE_PCT:
+    # Normalised exactly like chunk_line's tie test - a *gap below the best* -
+    # so the two sentences in one verdict block can never disagree about the
+    # same pair of chunks (a gain-over normalisation makes an exact 5.00% gap
+    # read as a 5.26% gain, firing this caveat while chunk_line calls the two
+    # "not distinguishable"). CHUNK_TIE_EPS keeps the boundary where it is
+    # documented, as it does there.
+    gap = 100.0 * (1 - same.mbps_mean / best.mbps_mean)
+    if gap <= CHUNK_TIE_PCT + CHUNK_TIE_EPS:
         return text
+    gain = 100.0 * (best.mbps_mean / same.mbps_mean - 1.0)
     return (
         f"{text} The chunk sweep at {format_size(best.size)} found "
-        f"{format_size(best.chunk)} **{gain:.0f}% faster** than this chunk, so part "
-        "of this penalty is the message size, not gRPC - re-measure at that chunk "
-        "before revising the ADR."
+        f"{format_size(best.chunk)} **{fmt(gain, 1)}% faster** than this chunk, so "
+        "part of this penalty is the message size, not gRPC - re-measure at that "
+        "chunk before revising the ADR."
     )
 
 

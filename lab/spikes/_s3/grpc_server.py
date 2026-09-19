@@ -157,6 +157,13 @@ class TransportService:
         try:
             for chunk in request_iterator:
                 verifier.update(chunk)
+                if verifier.received >= size:
+                    # As in the raw-TCP receiver: stop at the declared size. A
+                    # peer that keeps streaming past it would otherwise hold a
+                    # worker thread until the RPC timeout. Nothing grows in
+                    # memory either way (the verifier only rolls a CRC), but a
+                    # lying peer must not be able to pin a thread.
+                    break
                 if self.ctx.stopping.is_set():
                     error = "server stopping"
                     break

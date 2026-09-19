@@ -183,7 +183,7 @@ def test_parallel_gain_boundary_just_under_x1_10_is_no_measurable_gain() -> None
     assert "faster" not in line
 
 
-def test_parallel_loss_boundary_is_inclusive_at_exactly_x0_90() -> None:
+def test_parallel_loss_boundary_at_exactly_x0_90_is_still_no_measurable_gain() -> None:
     """The "no measurable gain" band is the half-open interval [x0.90, x1.10):
     S3.md counts a loss as strictly **below** x0.90, so exactly x0.90 is the
     last ratio that still reads "no measurable gain", while exactly x1.10
@@ -424,7 +424,7 @@ def test_adr_0005_penalty_is_qualified_when_the_sweep_found_a_faster_chunk() -> 
         if "ADR-0005" in ln
     )
     assert "too expensive" in line
-    assert "256KiB" in line and "40% faster" in line
+    assert "256KiB" in line and "40.0% faster" in line
     assert "not gRPC" in line and "re-measure at that chunk" in line
 
 
@@ -449,12 +449,18 @@ def test_adr_0005_penalty_is_not_qualified_when_the_default_chunk_is_best() -> N
 
 def test_adr_0005_caveat_ignores_a_sweep_gain_inside_the_tie_band() -> None:
     """A runner-up inside CHUNK_TIE_PCT is "not distinguishable at this n", so
-    it must not be quoted as a reason to doubt the ADR judgement either.
+    it must not be quoted as a reason to doubt the ADR judgement either. Pinned
+    *at* the threshold, not comfortably inside it: the caveat and chunk_line's
+    tie sentence share one normalisation precisely so that a chunk called "not
+    distinguishable" is never also called "faster" in the same block.
     """
     size = 64 * MIB
     rows = full_run(tcp=1000.0, grpc=500.0, size=size)
-    gain_inside_band = 500.0 * (1 + (tables.CHUNK_TIE_PCT - 1.0) / 100.0)
-    rows += _sweep(size, per_chunk={MIB: 500.0, 256 * 1024: gain_inside_band})
+    # exactly at the threshold: a gap of CHUNK_TIE_PCT *below the best*, the
+    # same normalisation chunk_line uses, so the two sentences in one verdict
+    # block can never disagree about this pair of chunks
+    best = 500.0 / (1 - tables.CHUNK_TIE_PCT / 100.0)
+    rows += _sweep(size, per_chunk={MIB: 500.0, 256 * 1024: best})
     doc = envelope("A", "B", "ethernet", rows)
     line = next(
         ln
