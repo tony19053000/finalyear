@@ -14,7 +14,7 @@
 > Order of truth: `PROJECT_BRIEF → ARCHITECTURE → ROADMAP → STATUS → this file`. If this file
 > disagrees with the roadmap, the roadmap wins and this file is stale — fix it.
 
-**Last updated:** 2026-09-20 (later) · **Updated by:** Lead session (account 1)
+**Last updated:** 2026-09-20 (S3 closed) · **Updated by:** Lead session (account 1)
 
 ---
 
@@ -22,44 +22,55 @@
 
 - **Version:** V0.2 (lab setup & feasibility validation). V0.1 is code-complete; its last two
   tasks (0.1.4, 0.1.10) only await the **first real GitHub CI run**, which needs a human push.
-- **Committed and done:** 0.2.11 S7 spike (reviewer APPROVE, commit `feat(0.2.11)`; awaits 🧑 runs incl. a torch+CUDA laptop). 0.2.5 S1 spike + `_harness/` (reviewer APPROVE, commit `feat(0.2.5)`; awaits 🧑 lab runs). 0.2.2 `lab/inventory.py` (commit `75d8df5`) — awaits 🧑 runs on the
+- **Committed and done:** 0.2.7 S3 spike (reviewer APPROVE, commit `81d620f`; awaits 🧑 two-laptop
+  runs). 0.2.11 S7 spike (reviewer APPROVE, commit `feat(0.2.11)`; awaits 🧑 runs incl. a
+  torch+CUDA laptop). 0.2.5 S1 spike + `_harness/` (reviewer APPROVE, commit `feat(0.2.5)`;
+  awaits 🧑 lab runs). 0.2.2 `lab/inventory.py` (commit `75d8df5`) — awaits 🧑 runs on the
   4 laptops. ADR-0011 written (commit `b3ddd4d`), Proposed, awaiting team approval.
 - **0.2.1:** Laptop 1's NVIDIA driver is **fixed** (RTX 3050 Laptop, driver 595.91.07, 4 GiB,
   compute capability 8.6, Secure Boot still enabled). Still `[~]` because
   `torch.cuda.is_available()` cannot be checked until torch is installed (ADR-0011 / 0.2.3).
 
-## 2. In flight right now (uncommitted work in the working tree)
+## 2. In flight right now
 
-**Exact next task: 0.2.7 S3 transport.** On 2026-09-20 the Lead launched an `implementer`
-run for S3 (prompt: read `_s3/`, fix the two known bugs below, write unit + component tests,
-real loopback run, write `lab/spikes/S3.md` + README subsection, all gates). If you find
-uncommitted S3 test files or `S3.md` in the tree, that run was cut off mid-way — check
-`git status`, run the S3 gates, and continue from whatever is missing. If the tree is clean,
-start the implementer run again with the same brief. Then `tester` → `reviewer` → commit
-`feat(0.2.7)` → mark `[~]` in the roadmap with evidence. After S3, do S2 the same way.
+**The working tree is clean.** Nothing is half-written.
 
-Two spikes remain from the 2026-09-19 usage-limit interruption. Their code is in commit
-`b039b0f`; all S1 and S7 work is now finished and committed (`ef065ac`, `8072b9f`).
+**Exact next task: 0.2.6 S2 cross-OS.** It is the last unfinished spike code in V0.2, and the
+only red left in the lab suites. Its code is in commit `b039b0f` (`lab/spikes/s2_crossos.py`,
+`lab/spikes/_s2/`) with most unit tests written; the 2026-09-19 run was interrupted during
+verdict aggregation + CLI tests.
 
-| Task | State | What is missing |
-|---|---|---|
-| **0.2.7 S3 transport** (`s3_transport.py`, `_s3/`) | code written, **no tests yet**, interrupted while fixing the report's "best chunk" bug and the verdict wording for parallel ranges | write unit + component tests, `lab/spikes/S3.md`, finish those two fixes; then tester + reviewer. |
-| **0.2.6 S2 cross-OS** (`s2_crossos.py`, `_s2/`) | code + most unit tests written, interrupted during verdict aggregation + CLI tests | finish those tests, write `lab/spikes/S2.md`; then tester + reviewer. |
+What is missing for S2:
+- finish the verdict-aggregation and CLI unit tests;
+- fix `tests/component/lab/test_s2_crossos.py`: 1 failure
+  (`test_session_counts_server_initiated_beats`: 0 server beats) and 1 error
+  (`test_peer_vanishing_mid_stream_is_recorded_not_hung`: subprocess pids not freed);
+- fix `ruff format --check` on `tests/unit/lab/test_s2_verdict.py`;
+- write `lab/spikes/S2.md` and an S2 subsection in `lab/README.md`, modelled on `S3.md`;
+- do a real loopback run;
+- then `tester` → `reviewer` → commit `feat(0.2.6)` → mark `[~]` with evidence.
 
-**Gate state (measured 2026-09-20 after S7 commit):** `ruff check` clean, `mypy` clean,
-`pytest -m unit` 1315+ passed, `pytest tests/unit/lab -k "s7 or spike"` 280 passed.
-Known pre-existing S2 issues (S2 owner fixes them): `tests/unit/lab/test_s2_verdict.py` fails
-`ruff format --check`; `tests/component/lab/test_s2_crossos.py` has 1 failure
-(`test_session_counts_server_initiated_beats`: 0 server beats) and 1 error
-(`test_peer_vanishing_mid_stream_is_recorded_not_hung`: subprocess pids not freed).
+Run it exactly like the S3 round that just closed: one `implementer` run with a precise brief,
+then `tester`, then `reviewer`, fixing what each returns. Budget roughly one session.
 
-**Harness change from S1 round 3 that S2/S3 must respect:** envelope `link` may be `None`
+**How the S3 round went** (useful precedent): implementer finished the interrupted run →
+tester PASS with 2 minor boundary defects + 1 flake → fix round → reviewer REQUEST_CHANGES
+with 3 blocking findings (all about the report being able to state a *confidently wrong*
+number) → fix round → reviewer APPROVE. Expect the reviewer to be strict about anything the
+generated verdict sentences claim.
+
+**Harness change from S1 round 3 that S2 must respect:** envelope `link` may be `None`
 (n/a); `load_dir` skip reasons carry only `path.name`; use `envelope.sanitize_text()` on any
-extra markdown; `report.cell()` escapes `|`.
+extra markdown; `report.cell()` escapes `|` — use it for *any* interpolated free text in a
+markdown table cell (an S3 reviewer finding).
 
 **File ownership while several agents run:** each spike owns only its own paths
 (`lab/spikes/<sN>_*.py`, `lab/spikes/_sN/`, `tests/**/test_sN_*.py`, `lab/spikes/SN.md`).
 `_harness/**` is shared — only one agent may edit it at a time; others read it.
+
+**Gate state (measured 2026-09-20 after the S3 commit):** `ruff check` clean, `mypy` clean
+(181 files), `pytest tests/unit/lab -k "s3 or spike"` 245 passed, `pytest tests/component/lab
+-k s3` 62 passed (twice, no flake). The only red anywhere is S2's, listed above.
 
 ## 2b. GitHub
 
@@ -69,6 +80,11 @@ Remote `origin` = https://github.com/tony19053000/finalyear.git added 2026-09-20
 
 1. **GitHub push + CI proof** — closes V0.1 (criteria 1–2) and lets laptops 2–4 `git pull`.
    Steps are in `docs/STATUS.md` → Next Recommended Task. **Agents never push.**
+1b. **Run the S3 spike on two laptops**, Wi-Fi **and** Ethernet — procedure in
+   `lab/spikes/S3.md` §2 (firewall TCP 47301–47303; one pair at a time; never together with
+   S1). Until then ADR-0003/ADR-0005 have no real-link evidence and 0.2.12 cannot start.
+   The loopback numbers in `S3.md` §4 bound the tool, **not** the link — never quote them
+   as evidence about the network.
 2. **Team decision on [ADR-0011](adr/0011-torch-index-per-platform.md)** (torch from the cu126
    index). Until it is Accepted and torch is installed, **S4 (0.2.8) and S5 (0.2.9) cannot
    start** and 0.2.1 cannot close.

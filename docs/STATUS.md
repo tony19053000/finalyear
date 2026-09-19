@@ -2,16 +2,17 @@
 
 > Concise current state. Long-term plan: [`DEVELOPMENT_ROADMAP.md`](DEVELOPMENT_ROADMAP.md). Update at the end of every work session.
 
-**Last updated:** 2026-09-20
+**Last updated:** 2026-09-20 (later)
 
 ## Current Version
 V0.2 — Lab setup & feasibility validation · **in progress** (started 2026-09-15)
 V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4, 0.1.10)
 
 ## Current Task
-**0.2.7 S3 transport spike** (implementer run started 2026-09-20; see `SESSION_HANDOFF.md` §2). Then 0.2.6 S2. S1 (0.2.5) and S7 (0.2.11) code is done and committed; both wait for 🧑 runs on the 4 laptops. V0.1: 0.1.4 and 0.1.10 wait only for the 🧑 first real GitHub CI run (remote `origin` added 2026-09-20, push pending).
+**0.2.6 S2 cross-OS spike** — the last unfinished spike code in V0.2. 0.2.7 S3 is done (reviewer APPROVE, commit `81d620f`). S1 (0.2.5), S3 (0.2.7) and S7 (0.2.11) code is done and committed; all three wait for 🧑 runs on the laptops. V0.1: 0.1.4 and 0.1.10 wait only for the 🧑 first real GitHub CI run (remote `origin` added 2026-09-20, push pending).
 
 ## Recently Completed
+- 2026-09-20: **0.2.7 S3 transport spike** — tester PASS (24 adversarial tests), reviewer APPROVE on the second pass after 3 blocking fixes; commit `81d620f`. 245 unit + 62 component S3 tests; real loopback run verified end to end. `[~]` until the 🧑 two-laptop runs.
 - 2026-09-20: 0.2.5 S1 spike + `_harness/` — reviewer APPROVE after fix round 3, commit `ef065ac`; 0.2.11 S7 spike — tester PASS, reviewer APPROVE, commit `8072b9f`; GitHub remote added
 - 0.2.1 (Laptop 1 part): NVIDIA driver fixed by the user — `nvidia-smi` works (RTX 3050 Laptop, 595.91.07, 4 GiB, CC 8.6); `torch.cuda` check still pending ADR-0011/0.2.3
 - 0.2.5 S1 spike: tester PASS round 2; small fix round in progress (host-dependent tests, flaky flood margin, case-insensitive filename collision)
@@ -21,7 +22,8 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 - Team accepted ARCHITECTURE v1 and ADRs 0001–0010 (2026-09-15)
 
 ## In Progress
-- 0.2.7 S3 transport spike (implementer → tester → reviewer); then 0.2.6 S2 cross-OS (2 failing component tests + ruff format)
+- 0.2.6 S2 cross-OS — code + most unit tests written, interrupted during verdict aggregation + CLI tests; 2 known failures + `ruff format` on `tests/unit/lab/test_s2_verdict.py` (see Known Bugs)
+- 🧑 0.2.7 S3 two-laptop runs, Wi-Fi **and** Ethernet (procedure in `lab/spikes/S3.md` §2; firewall TCP 47301–47303)
 - 🧑 0.2.2 inventory runs on all 4 laptops (commands in lab/README.md; Windows: also confirm no leftover processes after `--timeout 5`)
 - 🧑 GitHub push + CI proof (V0.1 criteria 1–2), steps below
 
@@ -30,7 +32,8 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 - Hardware of laptops 2–4 unknown; AI-agent access to Windows laptops undecided; Ethernet switch not purchased
 
 ## Known Bugs
-- None open. DEFECT-0.1.8-01 (test Postgres container leaked on Ctrl-C) fixed: layered cleanup (atexit + finally, SIGINT-deferring shield, labelled containers, namespace-safe stale sweep, Ryuk).
+- **0.2.6 S2 (owned by the S2 task, pre-existing):** `tests/unit/lab/test_s2_verdict.py` fails `ruff format --check`; `tests/component/lab/test_s2_crossos.py` has 1 failure (`test_session_counts_server_initiated_beats`: 0 server beats) and 1 error (`test_peer_vanishing_mid_stream_is_recorded_not_hung`: subprocess pids not freed). These are the only red in the lab suites.
+- No other bugs open. DEFECT-0.1.8-01 (test Postgres container leaked on Ctrl-C) fixed: layered cleanup (atexit + finally, SIGINT-deferring shield, labelled containers, namespace-safe stale sweep, Ryuk).
 - Watch: `test_sigkill_during_pg_settings_leaks_no_container` failed once (1 of 8 runs, right after a heavy run) — likely the 20 s Ryuk reap window under load; not reproduced in 7 further runs. If it recurs in CI, widen the deadline or rely on the next-run sweep assertion.
 - Fixed this session: secret leak + O(n²) in log scrubber; duplicate IDs after fork; plain-`uv sync` test collection crash; CRLF-dependent codegen output.
 
@@ -41,11 +44,14 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 - `.venv` on Laptop 1 has all extras incl. torch installed (reviewer ran `uv sync --all-extras`)
 
 ## Test Status
+- Lab suites (2026-09-20): `ruff check` clean; `ruff format --check` clean except S2's `test_s2_verdict.py`; `mypy` clean (181 files); `pytest tests/unit/lab -k "s3 or spike"` 245 passed; `pytest tests/component/lab -k s3` 62 passed (run twice, no flake)
 - Linux: `uv run pytest -q` → 646 passed, 3 skipped (2 slow opt-in, 1 AttemptState TODO), 2 xfailed (documented redaction scope gaps); ruff, strict mypy (71 files), lint-imports, gen_protos --check all clean; fresh clone + plain `uv sync` → `pytest -m unit` 0 failed
 - Windows: not yet run (first real CI run will cover unit + fresh-clone on windows-latest)
 
 ## Next Recommended Task
-Finish V0.1 commits (0.1.7–0.1.11), then 🧑 **GitHub push + CI proof** (only humans push):
+**0.2.6 S2 cross-OS spike** — finish the interrupted implementer run: verdict aggregation + CLI unit tests, fix the two known component failures and the `ruff format` drift, write `lab/spikes/S2.md` and the `lab/README.md` S2 subsection, then tester → reviewer → commit `feat(0.2.6)`. Same shape as the S3 round that just closed. After S2, V0.2's remaining agent-side work is 0.2.12 (spike follow-ups + ADR-0003/0005 updates), which needs the 🧑 lab data first.
+
+In parallel, 🧑 **GitHub push + CI proof** (only humans push):
 1. Create a **private** GitHub repo (no README/license/.gitignore).
 2. In the project folder: `git remote add origin git@github.com:<owner>/<repo>.git` then `git push -u origin main`.
 3. Actions tab → run "CI" on `main`: expect lint, types, unit (ubuntu + windows), component, fresh-clone (ubuntu + windows), ci-ok all green. Paste back the run URL (and the Windows logs if red).

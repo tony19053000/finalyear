@@ -12,10 +12,10 @@
 | Field | Value |
 |---|---|
 | **Current version** | V0.2 — in progress (started 2026-09-15); V0.1 code-complete, awaiting 🧑 GitHub CI proof (0.1.4, 0.1.10) |
-| **Current task** | 0.2.2 `lab/inventory.py`; in parallel 🧑 GitHub push + CI proof (V0.1 criteria 1–2) and 🧑 0.2.1 driver fix |
+| **Current task** | 0.2.6 S2 cross-OS spike; in parallel 🧑 GitHub push + CI proof (V0.1 criteria 1–2) and 🧑 the lab runs for 0.2.2 / S1 / S3 / S7 |
 | **Parallel human tasks** | NVIDIA driver fix (Laptop 1) · hardware inventory of laptops 2–4 · buy Ethernet switch · decide AI-agent access to laptops |
 | **Blockers** | See [Blockers & problems](#blockers--problems-discovered) |
-| **Next recommended task** | 0.2.2 inventory → spike harness + S1/S7 scripts; 🧑 GitHub CI proof |
+| **Next recommended task** | 0.2.6 S2 cross-OS (finish verdict aggregation + CLI tests, fix 2 known component failures, write `S2.md`); 🧑 GitHub CI proof |
 
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` completed (**only** after tests + success criteria pass, with evidence) · `[-]` dropped (reason logged) · 🧑 = requires a human on physical hardware · 🔬 = spike / measurement.
 
@@ -175,7 +175,7 @@ A version is **complete** only when all apply:
 - [ ] **0.2.4** 🧑 Network: switch + cables, DHCP reservations/hostnames, Windows firewall profile set to Private; record link speeds
 - [~] **0.2.5** 🔬 **S1** network matrix: iperf3 all pairs (Wi-Fi and Ethernet), RTT, jitter, loss → `lab/reports/YYYY-MM-DD-S1-network.md` — *code done: `lab/spikes/s1_network.py` + shared `_harness/` (commit `feat(0.2.5)`); tester PASS round 2, reviewer APPROVE after fix round 3 (312 unit, 52 component S1 tests); stays [~] until 🧑 Wi-Fi + Ethernet matrices are run on all 4 laptops (needs 0.2.4 switch)*
 - [ ] **0.2.6** 🔬 **S2** cross-OS reachability: native Windows Python gRPC + HTTP server reachable from Linux and vice-versa, without WSL
-- [ ] **0.2.7** 🔬 **S3** transport throughput: gRPC bytes streaming vs raw TCP vs HTTP range, 1 MB → 2 GB → decides tensor/data transport (update ADR-0003/0005)
+- [~] **0.2.7** 🔬 **S3** transport throughput: gRPC bytes streaming vs raw TCP vs HTTP range, 1 MB → 2 GB → decides tensor/data transport (update ADR-0003/0005) — *code done: `lab/spikes/s3_transport.py` + `_s3/` + `S3.md` + `lab/README.md` S3 subsection (commits `wip(0.2.7)` ×3, `feat(0.2.7)` `81d620f`); tester PASS (24 adversarial tests), reviewer APPROVE on the second pass after 3 blocking fixes (245 unit, 62 component); real loopback run verified end to end (exit 0, report renders, limit probe correct) — loopback bounds the tool, not the link; stays [~] until 🧑 two-laptop runs on Wi-Fi **and** Ethernet (procedure in `lab/spikes/S3.md` §2; needs 0.2.4 switch for the Ethernet half)*
 - [ ] **0.2.8** 🔬 **S4** `torch.export` round-trip: export ResNet-50 / BERT-base on one laptop, load and run on another laptop's GPU; verify equality; measure per-call latency vs payload
 - [ ] **0.2.9** 🔬 **S5** collectives: `torch.distributed` gloo all-reduce Windows↔Linux; if unusable, minimal TCP ring prototype; measure 10 MB / 100 MB all-reduce
 - [ ] **0.2.10** 🔬 **S6** environments: Docker Desktop GPU PyTorch container on Windows; uv venv creation time with/without cache
@@ -747,6 +747,7 @@ A version is **complete** only when all apply:
 | 2026-09-15 | Carry-over for V0.3/V0.4 (from 0.1.5): Python `AttemptState` + codec + real parity test (skipped placeholder exists); `MAX_TENSOR_CHUNK_BYTES` constant (V0.11); Hello session epoch + request_id (V0.3); GPU session_id bound to mTLS peer (V0.11) | open | V0.3 / V0.11 |
 | 2026-09-15 | Follow-ups from 0.1.6 (non-blocking): pass scan limit into `redaction._quoted_end`; scrub tracebacks per line / keep tail instead of 64 KiB head; sensitive keys with non-ASCII letters not recognised (xfail pinned); `Authorization=Basic` double `[REDACTED]` cosmetic | open | next logging touch |
 | 2026-09-15 | Carry-over for V0.2 (from 0.1.2 review): per-platform torch index — PyPI Windows torch is CPU-only; Linux default pulls CUDA 13 wheels | open | 0.2.3 |
+| 2026-09-20 | Follow-ups from 0.2.7 S3 review (non-blocking): promote `spikes._s1.protocol` (address rules, framing, `ProtocolError`) into `_harness/` — three spikes now import another spike's internals, and these are the pieces V0.3/V0.4 lift into `src/`; prime `payload.crc_of` before `transfers.begin` (a `--warmup 0` run would report a visibly slow first upload); list invalid chunks in `chunk_line`'s "others:" so the sentence and the sweep table agree | open | 0.2.12 |
 | 2026-09-15 | Follow-ups from 0.2.2 review (non-blocking): mask UNC / `\\wsl$` user paths in `lab/_inventory/sanitize.py`; `wsl -l -v` decode ignores `WSL_UTF8=1`; runner output cap is post-read (document); pass `_RunState` explicitly if reused as a library (V0.3 agent hardware report); split `probes.py` (801 lines) into hw/sw/collect | open | next lab touch / V0.3 |
 
 ---
