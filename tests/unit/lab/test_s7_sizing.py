@@ -23,6 +23,8 @@ def test_profiles_never_drop_below_the_lab_repetition_rule() -> None:
     assert sizing.profile(quick=True) is sizing.QUICK
     assert sizing.profile(quick=False) is sizing.FULL
     assert (sizing.QUICK.name, sizing.FULL.name) == ("quick", "full")
+    assert sizing.QUICK.max_gpu_n == sizing.MAX_GPU_N_QUICK < sizing.FULL.max_gpu_n
+    assert sizing.QUICK.mem_target_s < sizing.FULL.mem_target_s
 
 
 def test_gpu_size_fits_three_matrices_in_half_the_free_vram() -> None:
@@ -186,6 +188,6 @@ def test_round_down_to() -> None:
 def test_gpu_size_matches_the_closed_form() -> None:
     free, itemsize = 3 * 2**30, 2
     expected = sizing.round_down_to(
-        int(math.isqrt(int(free * 0.5 // (3 * itemsize)))), sizing.GPU_N_MULTIPLE
+        math.isqrt(int(free * 0.5 // (3 * itemsize))), sizing.GPU_N_MULTIPLE
     )
     assert sizing.gpu_matmul_n(free, itemsize) == expected

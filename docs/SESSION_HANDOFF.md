@@ -22,7 +22,7 @@
 
 - **Version:** V0.2 (lab setup & feasibility validation). V0.1 is code-complete; its last two
   tasks (0.1.4, 0.1.10) only await the **first real GitHub CI run**, which needs a human push.
-- **Committed and done:** 0.2.5 S1 spike + `_harness/` (reviewer APPROVE, commit `feat(0.2.5)`; awaits 🧑 lab runs). 0.2.2 `lab/inventory.py` (commit `75d8df5`) — awaits 🧑 runs on the
+- **Committed and done:** 0.2.11 S7 spike (reviewer APPROVE, commit `feat(0.2.11)`; awaits 🧑 runs incl. a torch+CUDA laptop). 0.2.5 S1 spike + `_harness/` (reviewer APPROVE, commit `feat(0.2.5)`; awaits 🧑 lab runs). 0.2.2 `lab/inventory.py` (commit `75d8df5`) — awaits 🧑 runs on the
   4 laptops. ADR-0011 written (commit `b3ddd4d`), Proposed, awaiting team approval.
 - **0.2.1:** Laptop 1's NVIDIA driver is **fixed** (RTX 3050 Laptop, driver 595.91.07, 4 GiB,
   compute capability 8.6, Secure Boot still enabled). Still `[~]` because
@@ -30,13 +30,12 @@
 
 ## 2. In flight right now (uncommitted work in the working tree)
 
-Three agent tasks were **interrupted by a usage limit** on 2026-09-19 with their code largely
+Two agent tasks were **interrupted by a usage limit** on 2026-09-19 with their code largely
 written but unfinished. Nothing is lost; it is all in the working tree (and in the WIP commit
 that follows this file). Resume them in this order:
 
 | Task | State | What is missing |
 |---|---|---|
-| **0.2.11 S7 hardware scores** (`s7_hardware.py`, `_s7/`) | code + unit tests written, interrupted during CLI tests | drop the `--link` CLI flag (harness now accepts `link=None`; `_s7/run.py` already updated, `s7_hardware.py:164-170` + `test_s7_cli.py` not yet); finish tests; fix `E501` ×2 in `tests/unit/lab/test_s7_report.py` (lines 77, 99) and the mypy error `psutil` stubs in `tests/component/lab/test_s7_hardware.py:53`; write `lab/spikes/S7.md`; then tester + reviewer. |
 | **0.2.7 S3 transport** (`s3_transport.py`, `_s3/`) | code written, **no tests yet**, interrupted while fixing the report's "best chunk" bug and the verdict wording for parallel ranges | write unit + component tests, `lab/spikes/S3.md`, finish those two fixes; then tester + reviewer. |
 | **0.2.6 S2 cross-OS** (`s2_crossos.py`, `_s2/`) | code + most unit tests written, interrupted during verdict aggregation + CLI tests | finish those tests, write `lab/spikes/S2.md`; then tester + reviewer. |
 

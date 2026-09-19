@@ -79,6 +79,11 @@ def _timed(fn: Callable[[], object]) -> float:
     return time.perf_counter() - start
 
 
+def _iters_for(single_s: float, target_s: float) -> int:
+    """Repetitions per timed batch so that one batch lasts about ``target_s``."""
+    return max(1, min(MAX_ITERS, int(target_s / max(single_s, 1e-6))))
+
+
 # --------------------------------------------------------------------- CPU matmul
 class CpuMatmul:
     """``C = A @ B`` in float32/float64 on the CPU, torch or numpy.
@@ -259,15 +264,27 @@ class MemoryBandwidth:
     measurable at memory speed (a ``bytearray`` slice assignment is a memcpy);
     the other kernels would time the interpreter, so they are reported as
     unsupported instead of as a wrong number.
+
+    The score is meant to be the **machine's** bandwidth ceiling, which one core
+    usually cannot saturate. With torch the kernels run on ``threads`` cores
+    (``torch.set_num_threads``, the parent also sets ``OMP_NUM_THREADS``); numpy
+    element-wise kernels and the stdlib memcpy are single-threaded whatever the
+    environment says, so those numbers are a *lower bound* and say so in
+    ``notes``. Each repetition runs every kernel ``iters`` times (calibrated so
+    a batch lasts about ``target_s``), as STREAM recommends.
     """
 
     kind = "mem_bw"
 
     def __init__(self, spec: dict[str, Any]) -> None:
         self.bytes = int(spec.get("bytes", sizing.DEFAULT_MEMORY_BYTES))
+        self.threads = int(spec.get("threads", 1))
+        self.target_s = float(spec.get("target_s", 0.2))
         self.itemsize = 8
         self.elements = max(1, self.bytes // self.itemsize)
+        self.iters = 1
         self.backend = ""
+        self.threads_effective: int | None = None
         self.ops: dict[str, Callable[[], object]] = {}
         self.notes: list[str] = []
 
@@ -276,20 +293,35 @@ class MemoryBandwidth:
         numpy = _module("numpy")
         if torch is not None:
             self.backend = f"torch {torch.__version__}"
+            torch.set_num_threads(self.threads)
+            self.threads_effective = int(torch.get_num_threads())
             self._torch_ops(torch)
         elif numpy is not None:
             self.backend = f"numpy {numpy.__version__}"
+            self.threads_effective = 1
+            self.notes.append(
+                "numpy backend: element-wise kernels are single-threaded, so "
+                "this is a lower bound of the machine's bandwidth"
+            )
             self._numpy_ops(numpy)
         else:
             self.backend = "python_fallback"
+            self.threads_effective = 1
             self._stdlib_ops()
         for run in self.ops.values():  # warm the pages (first touch is page faults)
             run()
+        slowest = max(_timed(run) for run in self.ops.values())
+        self.iters = _iters_for(slowest, self.target_s)
         return {
             "backend": self.backend,
             "bytes_per_buffer": self.elements * self.itemsize,
             "elements": self.elements,
             "itemsize": self.itemsize,
+            "iters": self.iters,
+            "single_pass_s": slowest,
+            "threads_requested": self.threads,
+            "threads_effective": self.threads_effective,
+            "omp_num_threads": os.environ.get("OMP_NUM_THREADS"),
             "ops": sorted(self.ops),
             "unsupported_ops": sorted(set(scores.STREAM_STREAMS) - set(self.ops)),
             "formula": scores.STREAM_FORMULA,
@@ -349,18 +381,29 @@ class MemoryBandwidth:
             "speed; scale/add/triad would measure the interpreter, so they are "
             "not reported"
         )
+        self.notes.append(
+            "python backend: single-threaded memcpy, a lower bound of the "
+            "machine's bandwidth"
+        )
 
     def rep(self) -> dict[str, Any]:
         sample: dict[str, Any] = {}
         total = 0.0
         for name in sorted(self.ops):
-            elapsed = _timed(self.ops[name])
+            run = self.ops[name]
+
+            def batch(run: Callable[[], object] = run) -> None:
+                for _ in range(self.iters):
+                    run()
+
+            elapsed = _timed(batch)
             total += elapsed
             sample[f"{name}_gb_s"] = scores.stream_gb_s(
-                name, self.elements, self.itemsize, elapsed
+                name, self.elements * self.iters, self.itemsize, elapsed
             )
             sample[f"{name}_s"] = elapsed
         sample["elapsed_s"] = total
+        sample["iters"] = self.iters
         return sample
 
 
@@ -385,6 +428,29 @@ def _gpu_dtype(torch: Any, name: str) -> Any:
     if name == "bfloat16" and not bool(torch.cuda.is_bf16_supported()):
         raise BenchError("unsupported_dtype", "this GPU does not support bfloat16")
     return dtype
+
+
+def _pin_precision(torch: Any) -> dict[str, Any]:
+    """Turn TF32 off so ``float32`` really means fp32 (comparable across GPUs).
+
+    Ampere+ cards otherwise run fp32 matmuls on tensor cores at reduced
+    precision when ``allow_tf32`` is on, which would make the fp32 score of
+    one laptop incomparable with an older card's. The state is recorded.
+    """
+    torch.backends.cuda.matmul.allow_tf32 = False
+    torch.backends.cudnn.allow_tf32 = False
+    return {
+        "allow_tf32": bool(torch.backends.cuda.matmul.allow_tf32),
+        "cudnn_allow_tf32": bool(torch.backends.cudnn.allow_tf32),
+        "float32_matmul_precision": str(torch.get_float32_matmul_precision()),
+    }
+
+
+def _max_memory_allocated(torch: Any, index: int) -> int | None:
+    try:
+        return int(torch.cuda.max_memory_allocated(index))
+    except Exception:  # noqa: BLE001 - a missing statistic is not a failure
+        return None
 
 
 def _device_info(torch: Any, index: int) -> dict[str, Any]:
@@ -418,6 +484,7 @@ class GpuMatmul:
         self.index = int(spec.get("device_index", 0))
         self.target_s = float(spec.get("target_s", 0.2))
         self.fraction = float(spec.get("vram_fraction", sizing.VRAM_FRACTION))
+        self.max_n = int(spec.get("max_n", sizing.MAX_GPU_N))
         self.n = 0
         self.iters = 1
         self._torch: Any = None
@@ -430,8 +497,9 @@ class GpuMatmul:
         dtype = _gpu_dtype(torch, self.dtype_name)
         info = _device_info(torch, self.index)
         itemsize = _ITEMSIZE.get(self.dtype_name, 4)
+        precision = _pin_precision(torch)
         self.n = sizing.gpu_matmul_n(
-            info["vram_free_bytes"], itemsize, fraction=self.fraction
+            info["vram_free_bytes"], itemsize, fraction=self.fraction, max_n=self.max_n
         )
         if self.n == 0:
             raise BenchError(
@@ -441,12 +509,10 @@ class GpuMatmul:
             )
         try:
             device = torch.device("cuda", self.index)
-            a = torch.rand((self.n, self.n), dtype=torch.float32, device=device).to(
-                dtype
-            )
-            b = torch.rand((self.n, self.n), dtype=torch.float32, device=device).to(
-                dtype
-            )
+            # Generated directly in the target dtype: no fp32 copy that would
+            # double the peak allocation and could push a small card into OOM.
+            a = torch.rand((self.n, self.n), dtype=dtype, device=device)
+            b = torch.rand((self.n, self.n), dtype=dtype, device=device)
             c = torch.empty((self.n, self.n), dtype=dtype, device=device)
             self._mats = (a, b, c)
             self._events = (
@@ -458,17 +524,20 @@ class GpuMatmul:
             single = _timed(lambda: (torch.mm(a, b, out=c), torch.cuda.synchronize()))
         except Exception as exc:
             raise BenchError("gpu_setup_failed", _describe(exc)) from exc
-        self.iters = max(1, min(MAX_ITERS, int(self.target_s / max(single, 1e-6))))
+        self.iters = _iters_for(single, self.target_s)
         return {
             **info,
+            **precision,
             "dtype": self.dtype_name,
             "n": self.n,
+            "max_n": self.max_n,
             "iters": self.iters,
             "single_matmul_s": single,
             "flops": scores.matmul_flops(self.n, self.iters),
             "formula": scores.MATMUL_FORMULA,
             "vram_fraction": self.fraction,
             "matrix_bytes": 3 * self.n**2 * itemsize,
+            "max_memory_allocated_bytes": _max_memory_allocated(torch, self.index),
         }
 
     def rep(self) -> dict[str, Any]:
@@ -529,13 +598,15 @@ class GpuCopy:
             single = _timed(lambda: (b.copy_(a), torch.cuda.synchronize()))
         except Exception as exc:
             raise BenchError("gpu_setup_failed", _describe(exc)) from exc
-        self.iters = max(1, min(MAX_ITERS, int(self.target_s / max(single, 1e-6))))
+        self.iters = _iters_for(single, self.target_s)
         self.bytes = elements * 4
         return {
             **info,
             "bytes_per_buffer": self.bytes,
             "iters": self.iters,
+            "single_copy_s": single,
             "formula": "2 * bytes * iters / elapsed_s (read + write)",
+            "max_memory_allocated_bytes": _max_memory_allocated(torch, self.index),
         }
 
     def rep(self) -> dict[str, Any]:
@@ -690,10 +761,18 @@ def main(argv: list[str] | None = None) -> int:
         help="print backend/CUDA capabilities as JSON and exit",
     )
     args = parser.parse_args(argv)
-    if args.probe:
-        _reply({"ok": True, "info": capabilities()}, sys.stdout)
-        return 0
-    return serve(sys.stdin, sys.stdout)
+    # The protocol owns the real stdout. Everything else that prints (a torch
+    # warning, a numpy deprecation, a stray print() in a BLAS wrapper) goes to
+    # stderr, where the parent keeps it as diagnostics instead of parsing it.
+    proto = sys.stdout
+    sys.stdout = sys.stderr
+    try:
+        if args.probe:
+            _reply({"ok": True, "info": capabilities()}, proto)
+            return 0
+        return serve(sys.stdin, proto)
+    finally:
+        sys.stdout = proto
 
 
 if __name__ == "__main__":

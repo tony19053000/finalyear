@@ -59,9 +59,13 @@ def host_names(
 
 
 def display_name(doc: Mapping[str, JSON], labels: Mapping[str, str] | None) -> str:
+    """``labels`` (hostname -> short name) wins; the match is case-insensitive
+    because hostnames are (Windows reports ``LAPTOP-1``, the file says
+    ``laptop-1``). Falls back to the label stored in the result."""
     host = doc.get("host") or {}
     hostname = str(host.get("hostname", "")) if isinstance(host, dict) else ""
-    return (labels or {}).get(hostname) or host_label(doc)
+    folded = {k.casefold(): v for k, v in (labels or {}).items()}
+    return folded.get(hostname.casefold()) or host_label(doc)
 
 
 def _summary(case: Mapping[str, JSON], metric: str) -> Summary | None:
@@ -130,15 +134,27 @@ def unit_of(envelopes: Sequence[Mapping[str, JSON]], metric: str) -> str:
 
 
 def ranking(rows: Mapping[str, Mapping[str, Summary]], hosts: Sequence[str]) -> str:
-    """Laptops ordered by their best mean over the cases of one metric."""
-    best: dict[str, float] = {}
-    for per_host in rows.values():
-        for host, summary in per_host.items():
-            if summary.n >= MIN_VALID_REPS and summary.mean is not None:
-                best[host] = max(best.get(host, float("-inf")), summary.mean)
-    ordered = sorted(best.items(), key=lambda kv: -kv[1])
+    """Laptops ordered by their **best valid mean over the cases** of one metric.
+
+    The case that produced the number is named next to it, so it is explicit
+    that e.g. the ``gflops`` ranking is by ``cpu-float32-all`` (all cores,
+    float32), never by the 1-thread or float64 rows, and the ``tflops`` ranking
+    by the fastest dtype the card supports.
+    """
+    best: dict[str, tuple[float, str]] = {}
+    for case_id in sorted(rows):
+        for host, summary in rows[case_id].items():
+            if summary.n < MIN_VALID_REPS or summary.mean is None:
+                continue
+            current = best.get(host)
+            if current is None or summary.mean > current[0]:
+                best[host] = (summary.mean, case_id)
+    ordered = sorted(best.items(), key=lambda kv: (-kv[1][0], kv[0]))
     missing = [h for h in hosts if h not in best]
-    text = " > ".join(f"{h} ({fmt(v, 2)})" for h, v in ordered) or "no valid results"
+    text = (
+        " > ".join(f"{h} ({fmt(v, 2)}, `{case}`)" for h, (v, case) in ordered)
+        or "no valid results"
+    )
     if missing:
         text += f" · no valid result: {', '.join(missing)}"
     return text

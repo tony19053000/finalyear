@@ -46,6 +46,36 @@ def test_memory_bandwidth_stdlib_reports_only_copy() -> None:
     assert "triad_gb_s" not in sample
 
 
+def test_memory_bandwidth_batches_iters_to_the_target_and_reports_them() -> None:
+    bench = child.MemoryBandwidth(
+        {"kind": "mem_bw", "bytes": 2 * 2**20, "target_s": 0.05}
+    )
+    info = bench.setup()
+    assert 1 <= info["iters"] <= child.MAX_ITERS
+    assert info["single_pass_s"] > 0
+    # 2 MiB memcpy is microseconds: the batch must have been grown well past 1.
+    assert info["iters"] > 1
+    sample = bench.rep()
+    assert sample["iters"] == info["iters"]
+    assert sample["copy_gb_s"] == pytest.approx(
+        2 * info["elements"] * info["itemsize"] * info["iters"] / sample["copy_s"] / 1e9
+    )
+
+
+def test_memory_bandwidth_stdlib_is_flagged_single_threaded_lower_bound() -> None:
+    bench = child.MemoryBandwidth({"kind": "mem_bw", "bytes": 2**20, "threads": 8})
+    info = bench.setup()
+    assert info["threads_requested"] == 8
+    assert info["threads_effective"] == 1
+    assert any("single-threaded" in n and "lower bound" in n for n in info["notes"])
+
+
+def test_iters_for_is_bounded() -> None:
+    assert child._iters_for(0.001, 0.2) == 200
+    assert child._iters_for(0.0, 0.2) == child.MAX_ITERS
+    assert child._iters_for(5.0, 0.2) == 1
+
+
 def test_cpu_matmul_without_any_backend_is_a_typed_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -173,25 +203,70 @@ class _FakeCuda:
     def synchronize(self, _device: object = None) -> None:
         self.syncs += 1
 
+    def max_memory_allocated(self, _index: int = 0) -> int:
+        return 123 * 2**20
+
+
+class _FakeMatmulBackend:
+    allow_tf32 = True  # torch's default on Ampere: must be pinned off
+
+
+class _FakeCudnnBackend:
+    allow_tf32 = True
+
+
+class _FakeBackends:
+    def __init__(self) -> None:
+        self.cuda = type("C", (), {"matmul": _FakeMatmulBackend()})()
+        self.cudnn = _FakeCudnnBackend()
+
 
 class _FakeTorch:
     __version__ = "2.14.0+cu126"
     float32 = "fp32"
     float16 = "fp16"
     bfloat16 = "bf16"
+    float64 = "fp64"
 
     def __init__(self, free: int = 3 * 2**30, **kwargs: Any) -> None:
         self.cuda = _FakeCuda(free, **kwargs)
         self.version = type("V", (), {"cuda": "12.6"})()
+        self.backends = _FakeBackends()
         self.mms = 0
+        self.rand_dtypes: list[str] = []
+        self.num_threads = 1
 
     def device(self, kind: str, index: int) -> str:
         return f"{kind}:{index}"
 
+    def set_num_threads(self, n: int) -> None:
+        self.num_threads = n
+
+    def get_num_threads(self) -> int:
+        return self.num_threads
+
+    def get_float32_matmul_precision(self) -> str:
+        return "highest"
+
     def rand(self, shape: tuple[int, int], dtype: str, device: str = "") -> _FakeTensor:
+        self.rand_dtypes.append(dtype)
         return _FakeTensor(shape[0], dtype)
 
-    def empty(self, shape: tuple[int, int], dtype: str, device: str = "") -> _FakeTensor:
+    def full(self, shape: tuple[int], value: float, dtype: str) -> _FakeTensor:
+        return _FakeTensor(shape[0], dtype)
+
+    def mul(self, a: _FakeTensor, q: float, out: _FakeTensor) -> _FakeTensor:
+        return out
+
+    def add(
+        self, a: _FakeTensor, b: _FakeTensor, alpha: float = 1.0, out: Any = None
+    ) -> _FakeTensor:
+        assert isinstance(out, _FakeTensor)  # the fake always passes out=
+        return out
+
+    def empty(
+        self, shape: tuple[int, int], dtype: str, device: str = ""
+    ) -> _FakeTensor:
         return _FakeTensor(shape[0], dtype)
 
     def zeros(self, n: int, dtype: str, device: str = "") -> _FakeTensor:
@@ -203,7 +278,9 @@ class _FakeTorch:
 
 
 def _with_torch(monkeypatch: pytest.MonkeyPatch, torch: _FakeTorch) -> None:
-    monkeypatch.setattr(child, "_module", lambda name: torch if name == "torch" else None)
+    monkeypatch.setattr(
+        child, "_module", lambda name: torch if name == "torch" else None
+    )
 
 
 def test_gpu_matmul_sizes_itself_from_free_vram_and_times_with_events(
@@ -226,6 +303,44 @@ def test_gpu_matmul_sizes_itself_from_free_vram_and_times_with_events(
         2 * info["n"] ** 3 * info["iters"] / 0.002 / 1e12
     )
     assert torch.cuda.syncs >= 2  # synchronised before and after the timed batch
+    assert info["max_memory_allocated_bytes"] == 123 * 2**20
+
+
+def test_gpu_matmul_pins_tf32_off_and_records_the_precision_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    torch = _FakeTorch()
+    _with_torch(monkeypatch, torch)
+    info = child.GpuMatmul({"kind": "gpu_matmul", "dtype": "float32"}).setup()
+    assert torch.backends.cuda.matmul.allow_tf32 is False
+    assert torch.backends.cudnn.allow_tf32 is False
+    assert info["allow_tf32"] is False
+    assert info["cudnn_allow_tf32"] is False
+    assert info["float32_matmul_precision"] == "highest"
+
+
+def test_gpu_half_precision_matrices_are_generated_in_their_dtype(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No fp32 intermediate: the peak allocation is 3 x N^2 x 2 bytes, not more."""
+    torch = _FakeTorch()
+    _with_torch(monkeypatch, torch)
+    child.GpuMatmul({"kind": "gpu_matmul", "dtype": "float16"}).setup()
+    assert torch.rand_dtypes == ["fp16", "fp16"]
+
+
+def test_gpu_matmul_respects_the_quick_size_cap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    torch = _FakeTorch(free=8 * 2**30)  # room for N far above the quick cap
+    _with_torch(monkeypatch, torch)
+    full = child.GpuMatmul({"kind": "gpu_matmul", "dtype": "float32"}).setup()
+    quick = child.GpuMatmul(
+        {"kind": "gpu_matmul", "dtype": "float32", "max_n": sizing.MAX_GPU_N_QUICK}
+    ).setup()
+    assert full["n"] > sizing.MAX_GPU_N_QUICK
+    assert quick["n"] == sizing.MAX_GPU_N_QUICK
+    assert quick["max_n"] == sizing.MAX_GPU_N_QUICK
 
 
 def test_gpu_matmul_refuses_to_run_without_enough_free_vram(
@@ -304,6 +419,25 @@ def test_cuda_reported_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(child.BenchError) as exc:
         child._torch_cuda()
     assert exc.value.failure_type == "cuda_unavailable"
+
+
+def test_memory_bandwidth_with_torch_uses_all_requested_threads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """B1: the STREAM score is the machine's bandwidth, so torch gets every core."""
+    torch = _FakeTorch()
+    _with_torch(monkeypatch, torch)
+    bench = child.MemoryBandwidth(
+        {"kind": "mem_bw", "bytes": 2**20, "threads": 12, "target_s": 0.001}
+    )
+    info = bench.setup()
+    assert torch.num_threads == 12
+    assert info["threads_requested"] == 12
+    assert info["threads_effective"] == 12
+    assert info["ops"] == ["add", "copy", "scale", "triad"]
+    assert not any("single-threaded" in n for n in info["notes"])
+    sample = bench.rep()
+    assert set(sample) >= {"copy_gb_s", "scale_gb_s", "add_gb_s", "triad_gb_s"}
 
 
 # ------------------------------------------------------------- capabilities
@@ -402,6 +536,40 @@ def test_probe_mode_prints_capabilities(capsys: pytest.CaptureFixture[str]) -> N
     answer = json.loads(capsys.readouterr().out)
     assert answer["ok"] is True
     assert "cuda" in answer["info"]
+
+
+class _NoisyBench:
+    """A benchmark whose library prints to stdout (as some BLAS wrappers do)."""
+
+    kind = "noisy"
+
+    def __init__(self, _spec: dict[str, Any]) -> None:
+        pass
+
+    def setup(self) -> dict[str, Any]:
+        print("hello from a chatty library")  # noqa: T201 - the point of the test
+        return {"backend": "noisy"}
+
+    def rep(self) -> dict[str, Any]:
+        print("rep noise")  # noqa: T201
+        return {"elapsed_s": 0.001}
+
+
+def test_main_keeps_stray_prints_off_the_protocol_stream(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setitem(child.KINDS, "noisy", _NoisyBench)
+    monkeypatch.setattr(
+        "sys.stdin",
+        io.StringIO('{"op": "setup", "spec": {"kind": "noisy"}}\n{"op": "rep"}\n'),
+    )
+    assert child.main([]) == 0
+    captured = capsys.readouterr()
+    answers = [json.loads(line) for line in captured.out.splitlines()]
+    assert [a["ok"] for a in answers] == [True, True]
+    assert answers[0]["info"] == {"backend": "noisy"}
+    assert "chatty" in captured.err and "rep noise" in captured.err
+    assert "chatty" not in captured.out
 
 
 def test_unknown_module_import_failure_is_none(monkeypatch: pytest.MonkeyPatch) -> None:

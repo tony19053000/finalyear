@@ -179,7 +179,7 @@ A version is **complete** only when all apply:
 - [ ] **0.2.8** 🔬 **S4** `torch.export` round-trip: export ResNet-50 / BERT-base on one laptop, load and run on another laptop's GPU; verify equality; measure per-call latency vs payload
 - [ ] **0.2.9** 🔬 **S5** collectives: `torch.distributed` gloo all-reduce Windows↔Linux; if unusable, minimal TCP ring prototype; measure 10 MB / 100 MB all-reduce
 - [ ] **0.2.10** 🔬 **S6** environments: Docker Desktop GPU PyTorch container on Windows; uv venv creation time with/without cache
-- [ ] **0.2.11** 🔬 **S7** hardware scores: CPU GFLOPS, memory bandwidth, GPU fp32/fp16 TFLOPS micro-benchmarks per laptop
+- [~] **0.2.11** 🔬 **S7** hardware scores: CPU GFLOPS, memory bandwidth, GPU fp32/fp16 TFLOPS micro-benchmarks per laptop — *code done: `lab/spikes/s7_hardware.py` + `_s7/` + `S7.md` (commit `feat(0.2.11)`); tester PASS (69 adversarial tests), reviewer APPROVE after one fix round (280 unit, 29 component); GPU/torch paths covered only by fake-torch tests until ADR-0011 torch install; stays [~] until 🧑 real runs on all 4 laptops (check `threads_effective == cpu count` for memory-bandwidth and `allow_tf32 == false` for gpu-float32)*
 - [ ] **0.2.12** Consolidate findings: update ADRs, ARCHITECTURE open questions, and *(calibrate)* thresholds in this roadmap; choose controller laptop
 
 **Testing:** every spike is a script under `lab/spikes/` producing a machine-readable result + markdown report; each run ≥ 5 repetitions with mean/stdev.

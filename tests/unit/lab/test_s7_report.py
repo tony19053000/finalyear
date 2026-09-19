@@ -26,9 +26,7 @@ def _case(
     }
 
 
-def _envelope(
-    hostname: str, cases: dict[str, Any], **extra: Any
-) -> dict[str, Any]:
+def _envelope(hostname: str, cases: dict[str, Any], **extra: Any) -> dict[str, Any]:
     return {
         "spike": "S7",
         "host": {"hostname": hostname, "label": hostname, "os": "Linux"},
@@ -61,7 +59,9 @@ def test_is_score_keeps_rates_and_hides_durations() -> None:
 
 
 def test_one_table_per_metric_with_one_column_per_laptop() -> None:
-    a = _envelope("hostA", {"cpu-float32-all": _case({"gflops": "GFLOP/s"}, {"gflops": FIVE})})
+    a = _envelope(
+        "hostA", {"cpu-float32-all": _case({"gflops": "GFLOP/s"}, {"gflops": FIVE})}
+    )
     b = _envelope(
         "hostB",
         {"cpu-float32-all": _case({"gflops": "GFLOP/s"}, {"gflops": [50.0] * 5})},
@@ -70,11 +70,36 @@ def test_one_table_per_metric_with_one_column_per_laptop() -> None:
     assert "#### gflops (GFLOP/s)" in text
     assert "| Case | L1 | L2 |" in text
     assert "| `cpu-float32-all` | 100.00 ± 0.71 | 50.00 ± 0.00 |" in text
-    assert "Ranking: L1 (100.00) > L2 (50.00)" in text
+    expected = "Ranking: L1 (100.00, `cpu-float32-all`) > L2 (50.00, `cpu-float32-all`)"
+    assert expected in text
+
+
+def test_ranking_names_the_all_cores_case_it_is_based_on() -> None:
+    """The gflops ranking is by the best case (``-all``), never the 1t row."""
+    a = _envelope(
+        "hostA",
+        {
+            "cpu-float32-1t": _case({"gflops": "GFLOP/s"}, {"gflops": [30.0] * 5}),
+            "cpu-float32-all": _case({"gflops": "GFLOP/s"}, {"gflops": [200.0] * 5}),
+        },
+    )
+    b = _envelope(
+        "hostB",
+        {
+            "cpu-float32-1t": _case({"gflops": "GFLOP/s"}, {"gflops": [40.0] * 5}),
+            "cpu-float32-all": _case({"gflops": "GFLOP/s"}, {"gflops": [120.0] * 5}),
+        },
+    )
+    text = report.render_scoreboard([a, b], {"hostA": "L1", "hostB": "L2"})
+    expected = (
+        "Ranking: L1 (200.00, `cpu-float32-all`) > L2 (120.00, `cpu-float32-all`)"
+    )
+    assert expected in text
 
 
 def test_a_laptop_without_a_result_file_is_tbd() -> None:
-    a = _envelope("hostA", {"memory-bandwidth": _case({"triad_gb_s": "GB/s"}, {"triad_gb_s": FIVE})})
+    mem = _case({"triad_gb_s": "GB/s"}, {"triad_gb_s": FIVE})
+    a = _envelope("hostA", {"memory-bandwidth": mem})
     text = report.render_scoreboard([a], {"hostA": "L1", "hostD": "L4"})
     assert "| Case | L1 | L4 |" in text
     assert "| `memory-bandwidth` | 100.00 ± 0.71 | TBD |" in text
@@ -96,7 +121,8 @@ def test_a_case_whose_repetitions_all_failed_shows_its_failure_type() -> None:
         {"tflops": []},
         errors=[{"failure_type": "cuda_broken", "message": "boom", "rep": 0}],
     )
-    a = _envelope("hostA", {"gpu-float32": case, "cpu-float32-1t": _case({"gflops": "GFLOP/s"}, {"gflops": FIVE})})
+    cpu = _case({"gflops": "GFLOP/s"}, {"gflops": FIVE})
+    a = _envelope("hostA", {"gpu-float32": case, "cpu-float32-1t": cpu})
     text = report.render_scoreboard([a], {"hostA": "L1"})
     assert "| `gpu-float32` | err: cuda_broken |" in text
 
@@ -107,11 +133,17 @@ def test_mixed_backends_are_visible_and_never_averaged() -> None:
     )
     fallback = _envelope(
         "hostB",
-        {"cpu-python-1t": _case({"python_mflops": "MFLOP/s"}, {"python_mflops": [30.0] * 5})},
+        {
+            "cpu-python-1t": _case(
+                {"python_mflops": "MFLOP/s"}, {"python_mflops": [30.0] * 5}
+            )
+        },
         capabilities={"torch": None, "numpy": None},
         gpu={"available": False, "failure_type": "torch_not_installed"},
     )
-    text = report.render_scoreboard([torch_host, fallback], {"hostA": "L1", "hostB": "L2"})
+    text = report.render_scoreboard(
+        [torch_host, fallback], {"hostA": "L1", "hostB": "L2"}
+    )
     gflops_block = text.split("#### gflops")[1].split("####")[0]
     assert "| `cpu-float32-all` | 100.00 ± 0.71 | TBD |" in gflops_block
     assert "#### python_mflops (MFLOP/s)" in text
@@ -167,9 +199,7 @@ def test_headline_metrics_come_first() -> None:
         },
     )
     text = report.render_scoreboard([doc])
-    order = [
-        line for line in text.splitlines() if line.startswith("#### ")
-    ]
+    order = [line for line in text.splitlines() if line.startswith("#### ")]
     assert order[0].startswith("#### tflops")
     assert order[1].startswith("#### triad_gb_s")
     assert order[2].startswith("#### copy_gb_s")
@@ -179,3 +209,16 @@ def test_unknown_summary_shapes_are_skipped_not_crashed() -> None:
     doc = _envelope("hostA", {"broken": {"metrics": {}, "summary": {"gflops": "??"}}})
     text = report.render_scoreboard([doc])
     assert "Hardware scores per laptop" in text
+
+
+def test_labels_match_hostnames_case_insensitively() -> None:
+    """Windows reports ``LAPTOP-1`` while the file name says ``laptop-1``."""
+    a = _envelope(
+        "LAPTOP-1", {"cpu-float32-all": _case({"gflops": "x"}, {"gflops": FIVE})}
+    )
+    assert report.display_name(a, {"laptop-1": "L1"}) == "L1"
+    assert report.display_name(a, {"Laptop-1": "L1"}) == "L1"
+    assert report.display_name(a, {"other": "L2"}) == "LAPTOP-1"
+    text = report.render_scoreboard([a], {"laptop-1": "L1"})
+    assert "| Case | L1 |" in text
+    assert "LAPTOP-1" not in text.split("### Run conditions")[0]

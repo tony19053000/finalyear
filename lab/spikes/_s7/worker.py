@@ -191,6 +191,10 @@ class Worker:
                 proc.wait(timeout=_EXIT_GRACE_S)
             except subprocess.TimeoutExpired:
                 kill_tree(proc)
+        # The child is gone: let the readers drain what is left (a diagnostic
+        # printed just before exit must reach ``stderr_tail``), then close.
+        for thread in self._threads:
+            thread.join(timeout=_REAP_S)
         for pipe in (proc.stdin, proc.stdout, proc.stderr):
             if pipe is not None:
                 with contextlib.suppress(OSError, ValueError):

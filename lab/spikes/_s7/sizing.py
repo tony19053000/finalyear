@@ -11,7 +11,10 @@ derived score stays comparable:
   data cannot live in cache) and never more than a quarter of the available RAM.
 * **GPU matmul** - the three matrices must fit in a fraction (default half) of
   the *free* VRAM, so a desktop session using the same GPU cannot make the spike
-  fail with out-of-memory.
+  fail with out-of-memory; ``--quick`` also caps ``N`` at
+  :data:`MAX_GPU_N_QUICK` so a smoke run really is short.
+* **Batches** (GPU kernels and STREAM) - ``iters`` repetitions per timed batch
+  are calibrated so one batch lasts about the profile's target.
 """
 
 from __future__ import annotations
@@ -35,6 +38,9 @@ VRAM_FRACTION: Final = 0.5
 GPU_N_MULTIPLE: Final = 256
 MIN_GPU_N: Final = 256
 MAX_GPU_N: Final = 16384
+#: ``--quick`` cap: a 2048^3 matmul is ~17 GFLOP, so a quick GPU case stays in
+#: the tens of milliseconds instead of allocating and multiplying gigabytes.
+MAX_GPU_N_QUICK: Final = 2048
 MIN_CPU_N: Final = 64
 MAX_CPU_N: Final = 8192
 
@@ -50,6 +56,8 @@ class Profile:
     cpu_target_s: float
     #: Calibration target for one GPU repetition (seconds).
     gpu_target_s: float
+    #: Calibration target for one STREAM kernel batch (seconds).
+    mem_target_s: float
     #: Host memory-bandwidth buffer size (bytes, before the RAM cap).
     memory_bytes: int
     #: Per-operation timeouts of a benchmark child (seconds).
@@ -62,6 +70,10 @@ class Profile:
     def name(self) -> str:
         return "quick" if self.quick else "full"
 
+    @property
+    def max_gpu_n(self) -> int:
+        return MAX_GPU_N_QUICK if self.quick else MAX_GPU_N
+
 
 FULL: Final = Profile(
     quick=False,
@@ -69,6 +81,7 @@ FULL: Final = Profile(
     warmup=2,
     cpu_target_s=0.30,
     gpu_target_s=0.20,
+    mem_target_s=0.20,
     memory_bytes=DEFAULT_MEMORY_BYTES,
     setup_timeout_s=300.0,
     rep_timeout_s=120.0,
@@ -80,6 +93,7 @@ QUICK: Final = Profile(
     warmup=1,
     cpu_target_s=0.02,
     gpu_target_s=0.02,
+    mem_target_s=0.02,
     memory_bytes=QUICK_MEMORY_BYTES,
     setup_timeout_s=180.0,
     rep_timeout_s=60.0,

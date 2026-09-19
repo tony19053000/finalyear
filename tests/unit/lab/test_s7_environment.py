@@ -115,7 +115,9 @@ def test_cpu_governors_without_cpufreq(
     assert "no cpufreq" in str(value["error"])
 
 
-def test_cpu_governors_off_linux(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_cpu_governors_off_linux(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     monkeypatch.setattr(env, "IS_LINUX", False)
     assert env.cpu_governors(tmp_path) == {"source": "unavailable", "governors": None}
 

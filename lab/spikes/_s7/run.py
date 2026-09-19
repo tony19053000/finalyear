@@ -61,8 +61,9 @@ PLANNER_FIELDS: Final[dict[str, str]] = {
     "cpu-float64-all.summary.gflops.mean": "fp64 CPU throughput (scientific workloads)",
     "cpu-float32-1t.summary.gflops.mean": "single-core throughput for serial phases",
     "memory-bandwidth.summary.triad_gb_s.mean": (
-        "host memory bandwidth: the ceiling for data-heavy CPU tasks and for "
-        "staging tensors before a transfer"
+        "host memory bandwidth (all cores with torch; single-threaded lower "
+        "bound with numpy/python, see attrs.setup.notes): the ceiling for "
+        "data-heavy CPU tasks and for staging tensors before a transfer"
     ),
     "gpu-float32.summary.tflops.mean": "rate_g for fp32 GPU work (Modes 2 and 4)",
     "gpu-float16.summary.tflops.mean": "rate_g for fp16/mixed-precision inference",
@@ -211,12 +212,20 @@ def plan_cases(
     plans.append(
         CasePlan(
             case_id="memory-bandwidth",
-            label="Host memory bandwidth (STREAM copy/scale/add/triad)",
-            spec={"kind": "mem_bw", "bytes": memory_bytes},
+            label="Host memory bandwidth (STREAM copy/scale/add/triad, all threads)",
+            spec={
+                "kind": "mem_bw",
+                "bytes": memory_bytes,
+                "threads": all_threads,
+                "target_s": profile.mem_target_s,
+            },
             # The exact op list is known only after setup (backend dependent).
             metrics=metric_units(["copy_gb_s", "elapsed_s"]),
-            threads=1,
-            attrs={"bytes_requested": memory_bytes},
+            # One core rarely saturates the memory system: the machine ceiling
+            # needs every core streaming (torch honours this; numpy/python
+            # stay single-threaded and are flagged as a lower bound).
+            threads=all_threads,
+            attrs={"bytes_requested": memory_bytes, "threads": all_threads},
         )
     )
     plans += _gpu_plans(
@@ -266,6 +275,7 @@ def _gpu_plans(
                 "dtype": dtype,
                 "device_index": index,
                 "target_s": profile.gpu_target_s,
+                "max_n": profile.max_gpu_n,
             },
             metrics=metric_units(["tflops", "event_tflops", "elapsed_s"]),
             attrs={"backend_family": "torch-cuda", "dtype": dtype},
@@ -280,7 +290,7 @@ def _gpu_plans(
                 "kind": "gpu_copy",
                 "device_index": index,
                 "target_s": profile.gpu_target_s,
-                "bytes": sizing.DEFAULT_MEMORY_BYTES,
+                "bytes": profile.memory_bytes,
             },
             metrics=metric_units(["device_copy_gb_s", "elapsed_s"]),
             attrs={"backend_family": "torch-cuda"},
@@ -303,6 +313,23 @@ def _failed_case(plan: CasePlan, cfg: RunConfig, exc: RepError) -> CaseResult:
     return result
 
 
+def _budget_aware(
+    exc: WorkerError, budget: Budget, *, fatal: bool | None = None
+) -> RepError:
+    """Turn a worker failure into a ``RepError``, blaming the run budget rather
+    than the benchmark when a timeout only happened because the operator's
+    ``--timeout`` ran out mid-slice (the child got a truncated slice)."""
+    if exc.failure_type == "worker_timeout" and budget.expired():
+        return RepError(
+            "budget_exhausted",
+            f"the run budget of {budget.total_s:g} s ran out: {exc}",
+            fatal=True,
+        )
+    return RepError(
+        exc.failure_type, str(exc), fatal=exc.fatal if fatal is None else fatal
+    )
+
+
 def execute_case(
     plan: CasePlan,
     cfg: RunConfig,
@@ -312,6 +339,21 @@ def execute_case(
 ) -> CaseResult:
     """Run one case in its own child process(es). Never raises on measurement errors."""
     profile = cfg.profile
+    if budget.expired():
+        # Checked here too (not only in run_scores): with no time left, a child
+        # would be started with a zero slice and die as ``worker_timeout``,
+        # which would blame the benchmark for the operator's ``--timeout``.
+        log(f"{plan.case_id}: not started: the run budget ran out")
+        return _failed_case(
+            plan,
+            cfg,
+            RepError(
+                "budget_exhausted",
+                f"{plan.case_id} was not started: the {budget.total_s:g} s run "
+                "budget ran out",
+                fatal=True,
+            ),
+        )
     group = WorkerGroup(plan.workers, threads=plan.threads)
     try:
         with group:
@@ -321,9 +363,7 @@ def execute_case(
                 )
             except WorkerError as exc:
                 log(f"{plan.case_id}: setup failed: {exc.failure_type}: {exc}")
-                return _failed_case(
-                    plan, cfg, RepError(exc.failure_type, str(exc), fatal=True)
-                )
+                return _failed_case(plan, cfg, _budget_aware(exc, budget, fatal=True))
             metrics = dict(plan.metrics)
             ops = infos[0].get("ops") if infos else None
             if isinstance(ops, list):
@@ -339,7 +379,7 @@ def execute_case(
                 try:
                     return group.rep(budget.slice_for(profile.rep_timeout_s))
                 except WorkerError as exc:
-                    raise RepError(exc.failure_type, str(exc), fatal=exc.fatal) from exc
+                    raise _budget_aware(exc, budget) from exc
 
             attrs: dict[str, JSON] = {
                 **plan.attrs,

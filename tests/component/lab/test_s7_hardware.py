@@ -9,9 +9,7 @@ backend has to show up as a typed error, never as a crash or a missing section.
 
 from __future__ import annotations
 
-import importlib.util
 import json
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -46,21 +44,49 @@ def _run(*args: str, timeout: float = 540) -> subprocess.CompletedProcess[str]:
     )
 
 
-def _python_children() -> set[int]:
-    """PIDs of this process's living descendants (empty when psutil is absent)."""
-    if importlib.util.find_spec("psutil") is None:
-        return set()
-    import psutil
+CHILD_SCRIPT: Final = LAB_DIR / "spikes" / "_s7" / "child.py"
 
-    return {p.pid for p in psutil.Process(os.getpid()).children(recursive=True)}
+
+def _benchmark_children() -> set[int]:
+    """PIDs of every running S7 benchmark child (``_s7/child.py``) on this box.
+
+    Standard library only: scans ``/proc/*/cmdline`` on Linux. On other
+    platforms it returns an empty set, so the leak check is simply skipped there.
+    """
+    proc = Path("/proc")
+    if not proc.is_dir():
+        return set()
+    pids: set[int] = set()
+    for entry in proc.iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            cmdline = (entry / "cmdline").read_bytes()
+        except OSError:
+            continue
+        if str(CHILD_SCRIPT).encode() in cmdline:
+            pids.add(int(entry.name))
+    return pids
+
+
+def _process_alive(pid: int) -> bool:
+    """Linux: ``/proc/<pid>`` exists and is not a zombie. Elsewhere: unknown -> False."""
+    stat = Path(f"/proc/{pid}/stat")
+    try:
+        text = stat.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    # "<pid> (<comm>) <state> ..." - comm may contain spaces, so split after ')'.
+    state = text.rpartition(")")[2].split()[0]
+    return state not in {"Z", "X"}
 
 
 @pytest.fixture(scope="module")
 def quick_run(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, Any, Any]:
     out_dir = tmp_path_factory.mktemp("s7") / "raw dir with space"
-    before = _python_children()
+    before = _benchmark_children()
     proc = _run("run", "--quick", "--out-dir", str(out_dir))
-    after = _python_children()
+    after = _benchmark_children()
     files = sorted(out_dir.glob("*.json"))
     assert files, f"no result file written\nstderr:\n{proc.stderr}"
     doc = json.loads(files[0].read_text(encoding="utf-8"))
@@ -126,6 +152,65 @@ def test_every_case_records_its_size_formula_and_stability(
         stability = case["attrs"]["stability"]
         assert stability["n"] == len(case["samples"])
         assert isinstance(stability["thermal_throttling_suspected"], bool)
+
+
+def test_memory_bandwidth_ran_with_every_core_and_batched_iters(
+    quick_run: tuple[Path, Any, Any],
+) -> None:
+    """B1 + N3: the STREAM case is the machine ceiling (all threads requested,
+    torch honours it; numpy/python say they are a lower bound) and each
+    repetition is a calibrated batch, not one pass."""
+    _, doc, _ = quick_run
+    case = doc["cases"]["memory-bandwidth"]
+    setup = case["attrs"]["setup"]
+    cpu_count = doc["extra"]["capabilities"]["cpu_count"]
+    assert case["attrs"]["threads_requested"] == cpu_count
+    assert setup["threads_requested"] == cpu_count
+    assert setup["omp_num_threads"] == str(cpu_count)
+    assert setup["iters"] >= 1
+    assert setup["single_pass_s"] > 0
+    if setup["backend"].startswith("torch"):
+        assert setup["threads_effective"] == cpu_count
+    else:
+        assert setup["threads_effective"] == 1
+        assert any("lower bound" in note for note in setup["notes"])
+    assert all(s["iters"] == setup["iters"] for s in case["samples"])
+
+
+def test_a_child_whose_library_prints_to_stdout_still_speaks_json(
+    tmp_path: Path,
+) -> None:
+    """N6: the child hands the real stdout to the protocol and points
+    ``sys.stdout`` at stderr, so a chatty library cannot corrupt an answer."""
+    script = tmp_path / "noisy_child.py"
+    script.write_text(
+        "import sys\n"
+        f"sys.path.insert(0, {str(LAB_DIR)!r})\n"
+        "from spikes._s7 import child\n"
+        "class Noisy:\n"
+        "    kind = 'noisy'\n"
+        "    def __init__(self, spec): pass\n"
+        "    def setup(self):\n"
+        "        print('library banner on stdout')\n"
+        "        return {'backend': 'noisy'}\n"
+        "    def rep(self):\n"
+        "        print('per-rep chatter')\n"
+        "        return {'elapsed_s': 0.001}\n"
+        "child.KINDS['noisy'] = Noisy\n"
+        "raise SystemExit(child.main([]))\n",
+        encoding="utf-8",
+    )
+    worker = Worker(script=script)
+    worker.start()
+    try:
+        info = worker.setup({"kind": "noisy"}, 30.0)
+        assert info == {"backend": "noisy"}
+        for _ in range(3):
+            assert worker.rep(30.0) == {"elapsed_s": 0.001}
+    finally:
+        worker.close()
+    assert "library banner" in worker.stderr_tail
+    assert "per-rep chatter" in worker.stderr_tail
 
 
 def test_gpu_section_is_present_or_an_explicit_error(
@@ -235,13 +320,8 @@ def test_a_hung_child_is_killed_and_reported(tmp_path: Path) -> None:
         assert exc.value.fatal is True
     finally:
         worker.close()
-    if importlib.util.find_spec("psutil") is not None:
-        import psutil
-
-        assert not psutil.pid_exists(pid) or psutil.Process(pid).status() in {
-            psutil.STATUS_ZOMBIE,
-            psutil.STATUS_DEAD,
-        }
+    assert worker.pid is None
+    assert not _process_alive(pid), f"hung child {pid} is still running"
 
 
 def test_a_child_that_dies_is_reported_as_crashed(tmp_path: Path) -> None:
@@ -270,3 +350,77 @@ def test_a_missing_child_script_is_reported(tmp_path: Path) -> None:
         assert exc.value.fatal is True
     finally:
         worker.close()
+
+
+def test_skip_gpu_and_too_few_reps_are_recorded_honestly(tmp_path: Path) -> None:
+    """``--skip-gpu`` is a typed error, ``--reps 2`` is INVALID, both visible."""
+    out_dir = tmp_path / "raw"
+    proc = _run(
+        "run",
+        "--quick",
+        "--skip-gpu",
+        "--reps",
+        "2",
+        "--warmup",
+        "0",
+        "--pause",
+        "0",
+        "--name",
+        "lab-test",
+        "--out-dir",
+        str(out_dir),
+    )
+    assert proc.returncode == EXIT_INCOMPLETE, proc.stderr
+    assert "--reps 2 < 5: every score will be INVALID" in proc.stderr
+    assert "INVALID (n=2)" in proc.stderr
+    files = sorted(out_dir.glob("*.json"))
+    assert len(files) == 1
+    doc = validate(json.loads(files[0].read_text(encoding="utf-8")))
+    assert doc["link"] is None
+    assert doc["host"]["label"] == "lab-test"
+    assert doc["params"]["reps"] == 2
+    assert doc["params"]["warmup"] == 0
+    assert doc["params"]["skip_gpu"] is True
+    assert not [c for c in doc["cases"] if c.startswith("gpu-")]
+    assert "gpu_skipped" in {e["failure_type"] for e in doc["errors"]}
+    for case in doc["cases"].values():
+        assert len(case["samples"]) == 2
+        assert case["requested_warmup"] == 0
+        assert case["warmup"] == []
+
+
+def test_budget_exhaustion_stops_the_run_and_is_recorded(tmp_path: Path) -> None:
+    """A run that cannot finish in ``--timeout`` still writes a valid result."""
+    out_dir = tmp_path / "raw"
+    proc = _run(
+        "run",
+        "--quick",
+        "--skip-gpu",
+        "--reps",
+        "1000",
+        "--warmup",
+        "0",
+        "--pause",
+        "0",
+        "--timeout",
+        "10",
+        "--out-dir",
+        str(out_dir),
+        timeout=120,
+    )
+    assert proc.returncode == EXIT_INCOMPLETE, proc.stderr
+    files = sorted(out_dir.glob("*.json"))
+    assert len(files) == 1
+    doc = validate(json.loads(files[0].read_text(encoding="utf-8")))
+    assert doc["extra"]["budget_remaining_s"] <= 0
+    run_errors = {e["failure_type"] for e in doc["errors"]}
+    case_errors = {
+        e["failure_type"] for c in doc["cases"].values() for e in c["errors"]
+    }
+    assert "budget_exhausted" in run_errors | case_errors
+    # At least one case did not get its 1000 repetitions, but every sample it
+    # did take is kept, so the partial result is still data.
+    assert any(len(c["samples"]) < 1000 for c in doc["cases"].values())
+    assert any(c["aborted"] for c in doc["cases"].values()) or any(
+        "not started" in e["message"] for e in doc["errors"]
+    )

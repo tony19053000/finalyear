@@ -43,7 +43,6 @@ if str(_LAB_DIR) not in sys.path:
 
 from spikes._harness import MIN_VALID_REPS  # noqa: E402
 from spikes._harness.envelope import (  # noqa: E402
-    LINKS,
     RAW_ROOT,
     ResultCollisionError,
     load_dir,
@@ -162,13 +161,6 @@ def _parser() -> argparse.ArgumentParser:
         help="CUDA device index to measure (default 0)",
     )
     run.add_argument(
-        "--link",
-        choices=LINKS,
-        default="ethernet",
-        help="not used by S7 (no network traffic); recorded only because the "
-        "shared result envelope requires it",
-    )
-    run.add_argument(
         "--name", type=_name, help="identity shown in the report (default: hostname)"
     )
     run.add_argument(
@@ -246,7 +238,7 @@ def cmd_run(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
         )
     cfg = RunConfig(
         profile=profile,
-        link=args.link,
+        link=None,  # S7 sends no network traffic: "n/a" in the envelope
         name=args.name,
         reps=args.reps,
         warmup=args.warmup,

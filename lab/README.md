@@ -10,6 +10,9 @@ lab/
     _harness/       shared by every spike: reps runner, stats, result JSON, report
     s1_network.py   S1 network matrix (serve / client / matrix)
     _s1/            S1 measurement code (plain functions, no CLI)
+    s7_hardware.py  S7 hardware scores (run / report)
+    _s7/            S7 benchmarks (child process), sizing, scores, report
+    S7.md           S7: what is measured, formulas, how to run, limits
   reports/          one markdown report per lab run
     TEMPLATE.md     copy this for every report
     raw/            unedited command output, per run and per host
@@ -108,6 +111,41 @@ The report holds the Results table and both docs/LAB.md §2 matrices per link. C
 - A cell above 50 % of a host's loopback ceiling is flagged as possibly tool-limited. Confirm it with `--iperf3`.
 
 The measurement code in `_s1/` (`client.tcp_throughput`, `client.udp_rtt`, `server.S1Server`) has no CLI coupling, so the V0.3 agent network probe can adopt it.
+
+### s7_hardware.py (spike S7, task 0.2.11)
+
+Measures, on **one laptop at a time**, the hardware scores the planner cost model reads (ARCHITECTURE §7): CPU matmul GFLOP/s (float32/float64, 1 thread and all threads, torch or numpy), a pure-Python SAXPY fallback (`python_mflops`, always available, never comparable with GFLOP/s), host memory bandwidth (STREAM copy/scale/add/triad on all cores with torch — single-threaded lower bound with numpy/stdlib — over buffers larger than the cache), and GPU matmul TFLOP/s in fp32/fp16 (bf16 when supported) plus device copy GB/s (torch + CUDA). Formulas, size rules and limits are in [`spikes/S7.md`](spikes/S7.md). No network traffic: the result's `link` is `null`.
+
+**Before you start:** plugged in, performance power mode, nothing else running. Without torch (ADR-0011) the CPU score is only the Python fallback and the GPU section is a `torch_not_installed` error; the run still succeeds for memory bandwidth and exits `3`.
+
+**1. Run on every laptop** (smoke test first, then the real run, 1–5 minutes):
+```bash
+# Linux / WSL (bash)
+uv run python lab/spikes/s7_hardware.py run --quick
+uv run python lab/spikes/s7_hardware.py run
+```
+```powershell
+# Windows (PowerShell, native, not inside WSL)
+uv run python lab/spikes/s7_hardware.py run --quick
+uv run python lab/spikes/s7_hardware.py run
+```
+Defaults: `--warmup 2 --reps 5 --pause 0.2 --timeout 1800`. `--quick` uses small sizes (32 MiB buffers, GPU N ≤ 2048, 0.02 s batches — about 5 s on a laptop with a GPU) and is marked `quick: true` in the JSON and "quick (smoke)" in the report, so it can never pass as a measurement. `--skip-gpu` for a laptop without a usable NVIDIA GPU (recorded as `gpu_skipped`), `--device N` for a second GPU, `--name L2` to label the column, `--out-dir DIR` to write elsewhere. Every benchmark runs in a child process with its own timeout, so a hung CUDA call or a crash is recorded as a typed error (`worker_timeout`, `child_crashed`, `cuda_broken`, …) and the run continues; a case that no longer fits in `--timeout` is `budget_exhausted`. It writes `lab/reports/raw/<UTC date>-S7-hardware/<host>.json` and prints the scores on stderr; `!! ON BATTERY` or `!! thermal throttling suspected` means: fix it and run again.
+
+**2. Build the report** after copying every laptop's JSON into one folder:
+```bash
+uv run python lab/spikes/s7_hardware.py report --results lab/reports/raw/2026-09-21-S7-hardware --out lab/reports/2026-09-21-S7-hardware.md --labels L1=<host1>,L2=<host2>,L3=<host3>,L4=<host4>
+```
+One table per metric (rows = cases, columns = laptops, `mean ± stdev`), a ranking per headline metric, and a run-conditions table (backends, GPU, power, governor, throttling). `INVALID (n=k)` for n < 5, `TBD` for a laptop without a result, `err: <failure_type>` when every repetition failed. Label matching is case-insensitive (Windows hostnames are upper-case). Then write Goal/Conclusion and copy the headline numbers into `docs/LAB.md` §1.
+
+**Exit codes:** `0` complete · `1` cannot write (or the folder holds another host's file of the same name) · `2` bad usage · `3` result written but incomplete (missing backend, failed case, budget ran out: see `errors` in the JSON) · `130` Ctrl-C.
+
+**How to read the numbers (honesty notes):**
+- Sizes are derived per machine by a fixed rule (CPU N calibrated to ≥ 0.3 s per multiplication; memory buffers = max(256 MiB, 8 × L3), ≤ ¼ of free RAM; GPU N from half the *free* VRAM), and the chosen size, calibration trace and formula are stored under `attrs.setup`, so any number can be recomputed from the JSON.
+- `gflops`/`tflops` are dense-matmul peaks, not the throughput of every workload; the planner corrects them with measured history later.
+- A `python_fallback` backend in the conditions table means that laptop had no torch/numpy: its CPU row is `python_mflops`, in its own table.
+- `extra.planner_fields` lists the JSON paths the planner reads (`cpu-float32-all.summary.gflops.mean`, `gpu-float16.summary.tflops.mean`, `memory-bandwidth.summary.triad_gb_s.mean`, …).
+
+`_s7/child.py` (benchmarks) and `_s7/worker.py` (bounded child protocol) have no CLI coupling; task 0.3.4 reuses them inside the agent at enrollment.
 
 ## Conventions
 - **Report name:** `reports/YYYY-MM-DD-<topic>.md`, e.g. `2026-09-20-S1-network.md`.

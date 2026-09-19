@@ -82,5 +82,9 @@ def test_worker_group_rejects_an_empty_group() -> None:
 
 def test_worker_error_carries_type_and_fatality() -> None:
     exc = WorkerError("worker_timeout", "no answer", fatal=True)
-    assert (exc.failure_type, exc.fatal, str(exc)) == ("worker_timeout", True, "no answer")
+    assert (exc.failure_type, exc.fatal, str(exc)) == (
+        "worker_timeout",
+        True,
+        "no answer",
+    )
     assert WorkerError("bad_answer", "x").fatal is False

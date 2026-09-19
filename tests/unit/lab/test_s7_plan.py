@@ -7,6 +7,8 @@ do. No subprocess and no hardware is involved.
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from spikes._harness.reps import JSON, RepError
@@ -17,9 +19,11 @@ from spikes._s7.run import (
     Budget,
     RunConfig,
     _failed_case,
+    execute_case,
     metric_units,
     plan_cases,
 )
+from spikes._s7.worker import thread_env
 
 CAPS_TORCH_CUDA: dict[str, JSON] = {
     "torch": "2.14.0+cu126",
@@ -43,7 +47,9 @@ CAPS_NO_TORCH: dict[str, JSON] = {
 }
 
 
-def _plan(caps: dict[str, JSON], **kwargs: object) -> tuple[list[str], list[dict[str, JSON]]]:
+def _plan(
+    caps: dict[str, JSON], **kwargs: object
+) -> tuple[list[str], list[dict[str, JSON]]]:
     plans, errors = plan_cases(
         caps,
         sizing.QUICK,
@@ -149,9 +155,7 @@ def test_single_cpu_machine_still_gets_one_worker() -> None:
 
 
 def test_metric_units_are_known_for_every_case() -> None:
-    plans, _ = plan_cases(
-        CAPS_TORCH_CUDA, sizing.FULL, cpu_count=8, memory_bytes=2**20
-    )
+    plans, _ = plan_cases(CAPS_TORCH_CUDA, sizing.FULL, cpu_count=8, memory_bytes=2**20)
     for plan in plans:
         for metric, unit in plan.metrics.items():
             assert unit == METRIC_UNITS[metric], (plan.case_id, metric)
@@ -159,14 +163,63 @@ def test_metric_units_are_known_for_every_case() -> None:
 
 
 def test_planner_fields_are_documented_for_the_real_case_ids() -> None:
-    plans, _ = plan_cases(
-        CAPS_TORCH_CUDA, sizing.FULL, cpu_count=8, memory_bytes=2**20
-    )
+    plans, _ = plan_cases(CAPS_TORCH_CUDA, sizing.FULL, cpu_count=8, memory_bytes=2**20)
     ids = {p.case_id for p in plans}
     for field in PLANNER_FIELDS:
         case = field.split(".", 1)[0]
         if not case.startswith("extra"):
             assert case in ids, field
+
+
+def test_memory_bandwidth_case_asks_for_every_core() -> None:
+    """B1: the STREAM number is sold as the machine ceiling, so it must not be
+    a single-core measurement. The plan requests all threads (child env and
+    ``torch.set_num_threads``) and the calibration target of the profile."""
+    for profile in (sizing.QUICK, sizing.FULL):
+        plans, _ = plan_cases(
+            CAPS_TORCH_CUDA, profile, cpu_count=12, memory_bytes=32 * 2**20
+        )
+        mem = next(p for p in plans if p.case_id == "memory-bandwidth")
+        assert mem.threads == 12
+        assert mem.spec["threads"] == 12
+        assert mem.spec["target_s"] == profile.mem_target_s
+        assert mem.attrs["threads"] == 12
+        assert thread_env(mem.threads)["OMP_NUM_THREADS"] == "12"
+    assert "all cores" in PLANNER_FIELDS["memory-bandwidth.summary.triad_gb_s.mean"]
+    assert "lower bound" in PLANNER_FIELDS["memory-bandwidth.summary.triad_gb_s.mean"]
+
+
+def test_quick_profile_caps_the_gpu_matrix_size() -> None:
+    quick, _ = plan_cases(CAPS_TORCH_CUDA, sizing.QUICK, cpu_count=4, memory_bytes=1)
+    full, _ = plan_cases(CAPS_TORCH_CUDA, sizing.FULL, cpu_count=4, memory_bytes=1)
+    quick_gpu = [p for p in quick if p.spec["kind"] == "gpu_matmul"]
+    full_gpu = [p for p in full if p.spec["kind"] == "gpu_matmul"]
+    assert quick_gpu and full_gpu
+    assert all(p.spec["max_n"] == sizing.MAX_GPU_N_QUICK for p in quick_gpu)
+    assert all(p.spec["max_n"] == sizing.MAX_GPU_N for p in full_gpu)
+    copy = next(p for p in quick if p.case_id == "gpu-copy")
+    assert copy.spec["bytes"] == sizing.QUICK_MEMORY_BYTES
+
+
+def test_expired_budget_before_a_case_is_budget_exhausted_not_a_timeout() -> None:
+    """N5: no child is started and the failure names the real cause."""
+    plans, _ = plan_cases(
+        CAPS_NO_TORCH, sizing.QUICK, cpu_count=2, memory_bytes=2**20, skip_gpu=True
+    )
+    cfg = RunConfig(profile=sizing.QUICK)
+    now = [100.0]
+    budget = Budget(5.0, clock=lambda: now[0])
+    now[0] += 6.0
+    assert budget.expired()
+    messages: list[str] = []
+    case = execute_case(plans[0], cfg, budget, log=messages.append)
+    doc = case.to_json()
+    assert doc["aborted"] is True
+    assert doc["samples"] == []
+    assert [e["failure_type"] for e in doc["errors"]] == ["budget_exhausted"]
+    assert "not started" in doc["errors"][0]["message"]
+    assert "worker_timeout" not in json.dumps(doc)
+    assert messages and "budget" in messages[0]
 
 
 def test_run_config_defaults_come_from_the_profile() -> None:
@@ -207,3 +260,32 @@ def test_failed_case_records_the_setup_error_and_is_aborted() -> None:
     assert doc["errors"][0]["failure_type"] == "cuda_broken"
     assert doc["errors"][0]["phase"] == "setup"
     assert doc["summary"][next(iter(case.metrics))]["n"] == 0
+
+
+def test_worker_timeout_after_budget_ran_out_is_budget_exhausted() -> None:
+    """A child killed by a truncated slice because ``--timeout`` ran out is the
+    operator's budget, not a benchmark hang: the error must say so."""
+    from spikes._s7 import run as run_mod
+    from spikes._s7.worker import WorkerError
+
+    class _Expired:
+        total_s = 1.0
+
+        def expired(self) -> bool:
+            return True
+
+    class _Alive(_Expired):
+        def expired(self) -> bool:
+            return False
+
+    exc = WorkerError("worker_timeout", "no reply within 0.1 s")
+    err = run_mod._budget_aware(exc, _Expired())  # type: ignore[arg-type]
+    assert err.failure_type == "budget_exhausted"
+    assert err.fatal is True
+
+    err = run_mod._budget_aware(exc, _Alive())  # type: ignore[arg-type]
+    assert err.failure_type == "worker_timeout"
+
+    other = WorkerError("bad_answer", "garbage")
+    assert run_mod._budget_aware(other, _Expired()).failure_type == "bad_answer"  # type: ignore[arg-type]
+    assert run_mod._budget_aware(other, _Expired(), fatal=True).fatal is True  # type: ignore[arg-type]
