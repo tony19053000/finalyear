@@ -184,11 +184,11 @@ def test_parallel_gain_boundary_just_under_x1_10_is_no_measurable_gain() -> None
 
 
 def test_parallel_loss_boundary_is_inclusive_at_exactly_x0_90() -> None:
-    """S3.md says ranges count as a loss **below** x0.90, so exactly x0.90 is
-    the last ratio that still reads "no measurable gain" - and the gain edge
-    (``speedup >= PARALLEL_GAIN_X``) is inclusive the same way. Both band edges
-    belong to the "no measurable gain" verdict; only a ratio strictly outside
-    the band is called faster or slower.
+    """The "no measurable gain" band is the half-open interval [x0.90, x1.10):
+    S3.md counts a loss as strictly **below** x0.90, so exactly x0.90 is the
+    last ratio that still reads "no measurable gain", while exactly x1.10
+    already reads "faster" (pinned by
+    ``test_parallel_gain_boundary_is_inclusive_at_exactly_x1_10``).
     """
     http = 1000.0
     ranges = tables.PARALLEL_LOSS_X * http  # exactly x0.90
@@ -376,3 +376,157 @@ def test_http_range_at_1mib_never_appears_in_a_decision_size() -> None:
     doc = envelope("A", "B", "ethernet", rows)
     collected = tables.collect([doc])
     assert tables.decision_size(collected) == size
+
+
+# ------------------------------------------- ADR-0005 line names its chunk
+def _sweep(size: int, *, per_chunk: dict[int, float]) -> list[CaseResult]:
+    label = format_size(size)
+    return [
+        case(
+            f"grpc-down-{label}-chunk{format_size(chunk)}",
+            transport="grpc",
+            size=size,
+            chunk=chunk,
+            mbps=n_reps(mbps, 5),
+            sweep=True,
+        )
+        for chunk, mbps in per_chunk.items()
+    ]
+
+
+def test_adr_0005_line_always_states_the_chunk_it_was_measured_at() -> None:
+    """The ADR-0005 judgement reads the *default-chunk* row. A reader who is
+    about to revise an ADR must be told which message size produced the number,
+    otherwise a chunk-size penalty is indistinguishable from a gRPC penalty.
+    """
+    doc = envelope("A", "B", "ethernet", full_run(tcp=1000.0, grpc=900.0))
+    line = next(
+        ln
+        for ln in tables.verdict(tables.collect([doc])).splitlines()
+        if "ADR-0005" in ln
+    )
+    assert f"Measured at chunk {format_size(MIB)}." in line
+
+
+def test_adr_0005_penalty_is_qualified_when_the_sweep_found_a_faster_chunk() -> None:
+    """A gRPC row that reads "too expensive" at the default chunk, while the
+    sweep already showed a materially faster chunk, must not send the team off
+    to revise ADR-0005: the verdict has to say the message size is implicated
+    and that the run should be repeated at that chunk first.
+    """
+    size = 64 * MIB
+    rows = full_run(tcp=1000.0, grpc=500.0, size=size)  # 50% -> "too expensive"
+    rows += _sweep(size, per_chunk={MIB: 500.0, 256 * 1024: 700.0})
+    doc = envelope("A", "B", "ethernet", rows)
+    line = next(
+        ln
+        for ln in tables.verdict(tables.collect([doc])).splitlines()
+        if "ADR-0005" in ln
+    )
+    assert "too expensive" in line
+    assert "256KiB" in line and "40% faster" in line
+    assert "not gRPC" in line and "re-measure at that chunk" in line
+
+
+def test_adr_0005_penalty_is_not_qualified_when_the_default_chunk_is_best() -> None:
+    """The counterpart: when the sweep confirms the default chunk is the best
+    one, the caveat must stay out of the way - a warning that fires always is
+    a warning nobody reads.
+    """
+    size = 64 * MIB
+    rows = full_run(tcp=1000.0, grpc=500.0, size=size)
+    rows += _sweep(size, per_chunk={MIB: 500.0, 256 * 1024: 480.0})
+    doc = envelope("A", "B", "ethernet", rows)
+    line = next(
+        ln
+        for ln in tables.verdict(tables.collect([doc])).splitlines()
+        if "ADR-0005" in ln
+    )
+    assert "too expensive" in line
+    assert f"Measured at chunk {format_size(MIB)}." in line
+    assert "re-measure at that chunk" not in line
+
+
+def test_adr_0005_caveat_ignores_a_sweep_gain_inside_the_tie_band() -> None:
+    """A runner-up inside CHUNK_TIE_PCT is "not distinguishable at this n", so
+    it must not be quoted as a reason to doubt the ADR judgement either.
+    """
+    size = 64 * MIB
+    rows = full_run(tcp=1000.0, grpc=500.0, size=size)
+    gain_inside_band = 500.0 * (1 + (tables.CHUNK_TIE_PCT - 1.0) / 100.0)
+    rows += _sweep(size, per_chunk={MIB: 500.0, 256 * 1024: gain_inside_band})
+    doc = envelope("A", "B", "ethernet", rows)
+    line = next(
+        ln
+        for ln in tables.verdict(tables.collect([doc])).splitlines()
+        if "ADR-0005" in ln
+    )
+    assert "re-measure at that chunk" not in line
+
+
+# ----------------------------------------------- partial loopback ceiling
+def _ceiling(per_transport: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "ok": True,
+        "size_bytes": 64 * MIB,
+        "crc_rate_mib_s": 6000.0,
+        "per_transport": per_transport,
+    }
+
+
+def test_ceiling_table_marks_a_run_that_failed_part_way_as_incomplete() -> None:
+    """A ceiling that dies on rep 3 of 4 keeps the samples it already took, so
+    ``mean_mbps`` is a real number computed from one or two reps while ``error``
+    is set. Rendering that mean bare would read as a confident *low* ceiling -
+    and the verdict tells the reader that a LAN result near the ceiling is
+    tool-limited. The failure must survive into the table.
+    """
+    doc = envelope(
+        "A",
+        "B",
+        "ethernet",
+        full_run(),
+        extra={
+            "loopback_ceiling": _ceiling(
+                {
+                    "tcp-down": {
+                        "n": 1,
+                        "mean_mbps": 900.0,
+                        "stdev_mbps": 0.0,
+                        "max_mbps": 900.0,
+                        "error": "transport_error: peer went away",
+                    }
+                }
+            )
+        },
+    )
+    table = tables.ceiling_table([doc])
+    row = next(ln for ln in table.splitlines() if ln.startswith("| tcp-down"))
+    assert "900" in row
+    assert "incomplete" in row and "peer went away" in row
+
+
+def test_ceiling_table_renders_a_clean_run_without_an_incomplete_marker() -> None:
+    doc = envelope(
+        "A",
+        "B",
+        "ethernet",
+        full_run(),
+        extra={
+            "loopback_ceiling": _ceiling(
+                {
+                    "tcp-down": {
+                        "n": 3,
+                        "mean_mbps": 900.0,
+                        "stdev_mbps": 10.0,
+                        "max_mbps": 910.0,
+                        "error": None,
+                    }
+                }
+            )
+        },
+    )
+    row = next(
+        ln for ln in tables.ceiling_table([doc]).splitlines() if ln.startswith("| tcp")
+    )
+    assert "900" in row and "incomplete" not in row

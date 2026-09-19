@@ -271,11 +271,18 @@ def ceiling_table(envelopes: Sequence[dict[str, Any]]) -> str:
         blocks.append("|---|---|---|")
         for case_id, item in sorted((ceiling.get("per_transport") or {}).items()):
             value = item.get("mean_mbps")
-            text = (
-                f"{fmt(value, 0)} ± {fmt(item.get('stdev_mbps'), 0)}"
-                if isinstance(value, int | float)
-                else f"failed: {item.get('error')}"
-            )
+            error = item.get("error")
+            if not isinstance(value, int | float):
+                text = f"failed: {error}"
+            else:
+                text = f"{fmt(value, 0)} ± {fmt(item.get('stdev_mbps'), 0)}"
+                if error:
+                    # A ceiling that died part-way still has samples, so a mean
+                    # exists - but it is a mean of the reps that ran before the
+                    # failure. Rendering it bare would let a broken run read as a
+                    # confident low ceiling, and the verdict tells the reader a
+                    # LAN result near the ceiling is tool-limited. Say so.
+                    text += f" **(incomplete: {error})**"
             blocks.append(f"| {case_id} | {text} | {item.get('n', 0)} |")
         blocks.append("")
     return "\n".join(blocks) + "\n" if found else ""
@@ -353,6 +360,8 @@ def _judge(share: float | None, what: str, adr: str) -> str:
 
 
 #: Parallel ranges count as a gain / a loss outside this band around x1.00.
+#: The band is half-open, [PARALLEL_LOSS_X, PARALLEL_GAIN_X): its lower edge is
+#: "no measurable gain", its upper edge is already "faster".
 PARALLEL_GAIN_X: Final = 1.10
 PARALLEL_LOSS_X: Final = 0.90
 
@@ -376,8 +385,9 @@ def parallel_lines(
     N connections are compared with one HTTP GET (the honest baseline for
     "does splitting into parallel chunks help on this link?") and, for the
     ADR-0003 decision, also placed against raw TCP. A ratio below x1 is called
-    **slower**, never "x0.8 as fast". Both band edges are inclusive of the
-    "no measurable gain" verdict, so exactly x0.90 is not called slower.
+    **slower**, never "x0.8 as fast". The "no measurable gain" band is the
+    half-open interval [PARALLEL_LOSS_X, PARALLEL_GAIN_X): exactly x0.90 reads
+    "no measurable gain", exactly x1.10 reads "faster".
     """
     lines: list[str] = []
     families = sorted({r.family for r in rows if r.family.startswith("http-range")})
@@ -470,6 +480,43 @@ def chunk_line(rows: Sequence[Row]) -> str | None:
     return text + "."
 
 
+def chunk_caveat(rows: Sequence[Row], decision_row: Row | None) -> str:
+    """Names the chunk the ADR-0005 judgement was measured at, and warns when the
+    sweep already found a better one.
+
+    :func:`pick` deliberately reads the default-chunk row, but the sweep can show
+    a materially faster message size. Without this, a gRPC penalty caused by the
+    message size reads as a penalty caused by gRPC - and an ADR gets revised for
+    the wrong reason. The comparison is made **inside the sweep**, at the sweep's
+    own size, so it is like for like.
+    """
+    if decision_row is None:
+        return ""
+    text = f" Measured at chunk {format_size(decision_row.chunk)}."
+    best = best_chunk(rows)
+    if best is None or not best.mbps_mean:
+        return text
+    same = next(
+        (
+            r
+            for r in sweep_rows(rows)
+            if r.chunk == decision_row.chunk and r.valid and r.mbps_mean
+        ),
+        None,
+    )
+    if same is None or same is best or not same.mbps_mean:
+        return text
+    gain = 100.0 * (best.mbps_mean / same.mbps_mean - 1.0)
+    if gain <= CHUNK_TIE_PCT:
+        return text
+    return (
+        f"{text} The chunk sweep at {format_size(best.size)} found "
+        f"{format_size(best.chunk)} **{gain:.0f}% faster** than this chunk, so part "
+        "of this penalty is the message size, not gRPC - re-measure at that chunk "
+        "before revising the ADR."
+    )
+
+
 def group_verdict(pair: str, link: str, rows: Sequence[Row]) -> list[str]:
     """The Q2 lines for one pair+link (``TBD`` where data is missing)."""
     title = f"**{pair} · {link_name(link)}**"
@@ -490,7 +537,8 @@ def group_verdict(pair: str, link: str, rows: Sequence[Row]) -> list[str]:
         f"{fmt(http_plain.mbps_mean if http_plain else None, 0)}.\n",
         _judge(
             _share(grpc_row, tcp), "Tensors over gRPC streams (ADR-0005)", "ADR-0005"
-        ),
+        )
+        + chunk_caveat(rows, grpc_row),
         _judge(_share(http_plain, tcp), "Blobs over HTTP (ADR-0003)", "ADR-0003"),
     ]
     lines += parallel_lines(rows, size, http_plain, tcp)

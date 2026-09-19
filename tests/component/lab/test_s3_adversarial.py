@@ -48,6 +48,7 @@ from spikes._s3 import (  # noqa: E402
     grpc_server,
     http_server,
     payload,
+    tables,
     tcp_server,
 )
 from spikes._s3.client import Endpoint, control, hello  # noqa: E402
@@ -462,3 +463,63 @@ def test_loopback_ceiling_bounded_when_child_dies_mid_measurement(
     for item in broken:
         assert item["mean_mbps"] is None
         assert item["n"] == 0
+
+
+def test_ceiling_that_fails_part_way_keeps_its_error_into_the_report(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The harsher half of the ceiling-failure story. When the child dies
+    *before the first sample*, ``mean_mbps`` is ``None`` and the table renders
+    "failed: ..." - that case is already covered. But when it dies after a rep
+    or two, ``_measure`` keeps those samples, so a real mean exists **and**
+    ``error`` is set. That mean is a mean of one or two reps against a dying
+    peer, i.e. an artificially *low* ceiling - and the verdict tells the reader
+    that a LAN result within a few percent of the ceiling is tool-limited. If
+    the table drops the error, a perfectly link-limited transport gets written
+    into an ADR as a Python limitation.
+
+    Driven by replacing the measure callables rather than by racing a timer, so
+    the partial-failure shape is produced deterministically.
+    """
+    calls = {"n": 0}
+
+    def flaky(endpoint: Any, size: int, chunk: int) -> dict[str, Any]:
+        calls["n"] += 1
+        if calls["n"] > 2:  # 1 warmup + 1 counted rep, then the peer "dies"
+            raise TransferError(FailureType.TRANSPORT_ERROR, "peer went away")
+        return {"recv_mbps": 900.0}
+
+    monkeypatch.setattr(ceiling, "CEILING_CASES", (("tcp-down", flaky),))
+    result = ceiling.loopback_ceiling(
+        SCRIPT, size=8 * MIB, chunk=CHUNK, reps=4, timeout_s=60
+    )
+    assert result["ok"] is True
+    item = result["per_transport"]["tcp-down"]
+    # the partial shape the renderer must cope with: a real mean AND an error
+    assert item["mean_mbps"] is not None
+    assert item["n"] < 4
+    assert item["error"] is not None and "peer went away" in item["error"]
+
+    out = tmp_path / "ceiling.json"
+    out.write_text(
+        json.dumps(
+            {
+                "spike": "S3",
+                "schema": 1,
+                "link": "ethernet",
+                "host": {"hostname": "A", "os": "Linux"},
+                "host_label": "A",
+                "cases": {},
+                "extra": {"loopback_ceiling": result},
+            }
+        ),
+        encoding="utf-8",
+    )
+    doc = json.loads(out.read_text(encoding="utf-8"))
+    row = next(
+        ln
+        for ln in tables.ceiling_table([doc]).splitlines()
+        if ln.startswith("| tcp-down")
+    )
+    assert "incomplete" in row, "a partial ceiling must never read as a clean number"
+    assert "peer went away" in row
