@@ -262,3 +262,62 @@ def test_validate_errors(mutate: object, match: str) -> None:
     mutate(doc)  # type: ignore[operator]
     with pytest.raises(EnvelopeError, match=match):
         validate(doc)
+
+
+# ---------------------------------------------------------- link = None (S7)
+def test_link_none_means_not_applicable() -> None:
+    doc = _env(link=None)
+    assert doc["link"] is None
+    assert '"link": null' in dumps(doc)
+    assert validate(json.loads(dumps(doc)))["link"] is None
+
+
+@pytest.mark.parametrize("bad", ["", "LAN", "Ethernet", 0, False])
+def test_make_envelope_rejects_unknown_link(bad: object) -> None:
+    with pytest.raises(ValueError, match="link must be"):
+        _env(link=bad)
+
+
+def test_validate_rejects_false_and_empty_link() -> None:
+    for bad in ("", False, 0):
+        doc = json.loads(dumps(_env()))
+        doc["link"] = bad
+        with pytest.raises(EnvelopeError, match="link"):
+            validate(doc)
+
+
+# ------------------------------------------------ skip reasons never carry a path
+def test_load_dir_reasons_carry_file_name_only(tmp_path: Path) -> None:
+    (tmp_path / "broken.json").write_text("{", encoding="utf-8")
+    (tmp_path / "list.json").write_text("[]", encoding="utf-8")
+    (tmp_path / "latin1.json").write_bytes(b"\xff\xfe{}")
+    _docs, skipped = load_dir(tmp_path)
+    assert len(skipped) == 3
+    for reason in skipped:
+        assert str(tmp_path) not in reason
+        assert reason.split(":")[0] in {"broken.json", "list.json", "latin1.json"}
+
+
+def test_load_dir_unreadable_file_reason_has_no_path(tmp_path: Path) -> None:
+    (tmp_path / "dir.json").mkdir()  # a directory: read_text raises OSError
+    _docs, skipped = load_dir(tmp_path)
+    assert len(skipped) == 1
+    assert skipped[0].startswith("dir.json: cannot read: ")
+    assert str(tmp_path) not in skipped[0]
+
+
+def test_load_envelope_error_names_full_path(tmp_path: Path) -> None:
+    bad = tmp_path / "x.json"
+    bad.write_text("{", encoding="utf-8")
+    with pytest.raises(EnvelopeError, match="invalid JSON") as info:
+        load_envelope(bad)
+    assert str(bad) in str(info.value)
+
+
+def test_sanitize_text_masks_home_and_users() -> None:
+    from spikes._harness.envelope import sanitize_text
+
+    home = str(Path.home())
+    assert home not in sanitize_text(f"skipped {home}/lab/x.json: bad")
+    assert "<user>" in sanitize_text("C:\\Users\\Someone\\x.json: bad")
+    assert sanitize_text("plain text | stays") == "plain text | stays"

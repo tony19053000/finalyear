@@ -1,7 +1,9 @@
 """S1 measurement server: TCP bulk sink/source + UDP echo on one port number.
 
-:class:`S1Server` is usable in-process (the client's loopback ceiling check and
-the tests) and from the CLI. Safety rules (docs/LAB.md §6): LAN peers only,
+:class:`S1Server` is usable in-process (the tests) and from the CLI; the
+client's loopback ceiling check runs it in a separate subprocess (see
+``_s1/ceiling.py``) so that check measures two processes, not one GIL.
+Safety rules (docs/LAB.md §6): LAN peers only,
 bounded operation sizes, a connection cap, and an automatic stop after
 ``idle_s`` without traffic or ``duration_s`` in total. Every socket operation
 has a timeout; :meth:`S1Server.stop` is thread-safe and :meth:`S1Server.serve`
@@ -60,6 +62,9 @@ _UDP_BURST: Final = 256
 _ACCEPT_BURST: Final = 256
 _BIND_RETRIES: Final = 20
 _MAX_ERRORS: Final = 100
+#: Windows: "A message sent on a datagram socket was larger than the buffer"
+_WSAEMSGSIZE: Final = 10040
+UPLOAD_LIMIT_ERROR: Final = "upload exceeded limit"
 
 STOP_REQUESTED: Final = "stop requested"
 STOP_IDLE: Final = "idle limit reached"
@@ -76,6 +81,14 @@ class ServerLimits:
     header_timeout_s: float = 2.0
     io_timeout_s: float = 10.0
     result_wait_s: float = 5.0
+    #: an ``upload`` is cut off this long after its first byte; ``None`` =
+    #: ``MAX_SECONDS + io_timeout_s`` (the longest legitimate test plus slack)
+    max_upload_s: float | None = None
+
+    def upload_limit_s(self) -> float:
+        if self.max_upload_s is None:
+            return MAX_SECONDS + self.io_timeout_s
+        return self.max_upload_s
 
 
 @dataclass(slots=True)
@@ -183,6 +196,12 @@ class S1Server:
     def stopping(self) -> bool:
         return self._stop.is_set()
 
+    @property
+    def open_connections(self) -> int:
+        """Number of open TCP connections (pending + active) right now."""
+        with self._lock:
+            return len(self._conns)
+
     def _touch(self) -> None:
         self._last_activity = time.monotonic()
 
@@ -275,7 +294,12 @@ class S1Server:
                 data, addr = self._udp.recvfrom(MAX_PING_BYTES + 1)
             except (BlockingIOError, InterruptedError):
                 return
-            except OSError:
+            except OSError as exc:
+                if exc.errno == _WSAEMSGSIZE:
+                    # Windows: a datagram larger than the buffer is truncated
+                    # and reported as an error -> it is an oversized ping.
+                    self.counters.udp_dropped += 1
+                    continue
                 # Windows reports an earlier ICMP "port unreachable" here
                 # (WSAECONNRESET); it concerns a previous peer, not this socket.
                 continue
@@ -468,13 +492,19 @@ class S1Server:
             self._results_cond.notify_all()
 
     def _op_upload(self, conn: socket.socket, msg: Message) -> None:
-        """Receiver view: bytes and first/last-byte times on this host's clock."""
+        """Receiver view: bytes and first/last-byte times on this host's clock.
+
+        A peer that never half-closes cannot hold the handler forever: the
+        upload is cut off ``limits.upload_limit_s()`` after its first byte and
+        recorded with ``error`` = :data:`UPLOAD_LIMIT_ERROR`.
+        """
         stream = self._stream_index(msg)
         buf = bytearray(RECV_BUFFER_BYTES)
         received = 0
         t_first: float | None = None
         t_last: float | None = None
         error: str | None = None
+        deadline: float | None = None
         try:
             while not self._stop.is_set():
                 n = conn.recv_into(buf)
@@ -483,8 +513,12 @@ class S1Server:
                 now = time.perf_counter()
                 if t_first is None:
                     t_first = now
+                    deadline = now + self.limits.upload_limit_s()
                 t_last = now
                 received += n
+                if deadline is not None and now >= deadline:
+                    error = UPLOAD_LIMIT_ERROR
+                    break
         except OSError as exc:
             error = f"{type(exc).__name__}: {exc}"
         self._record(

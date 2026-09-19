@@ -101,7 +101,7 @@ def test_connection_flood_is_capped_and_server_stays_responsive(
         while time.monotonic() < deadline and accounted() < len(socks) - backlog:
             time.sleep(0.05)
         # bounded: never more live connections tracked than the configured cap
-        assert len(server._conns) <= server.limits.max_connections
+        assert server.open_connections <= server.limits.max_connections
         assert accounted() >= len(socks) - backlog, (
             f"{len(socks)} established connections, only {accounted()} accounted "
             f"for by the counters: {server.counters}"
@@ -139,9 +139,11 @@ def test_slowloris_connections_time_out_and_do_not_wedge_server(
 
         # Eventually the server's io_timeout reclaims the slow connections.
         deadline = time.monotonic() + server.limits.io_timeout_s + 10
-        while time.monotonic() < deadline and len(server._conns) > 0:
+        while time.monotonic() < deadline and server.open_connections > 0:
             time.sleep(0.1)
-        assert len(server._conns) == 0, "slowloris connections were never reclaimed"
+        assert server.open_connections == 0, (
+            "slowloris connections were never reclaimed"
+        )
     finally:
         for s in lazy:
             with contextlib.suppress(OSError):

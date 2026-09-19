@@ -50,6 +50,7 @@ from spikes._harness.envelope import (  # noqa: E402
     load_dir,
     raw_dir,
     raw_result_path,
+    sanitize_text,
     write_envelope,
 )
 from spikes._harness.report import (  # noqa: E402
@@ -135,6 +136,8 @@ def _labels(text: str) -> dict[str, str]:
         label, sep, host = part.partition("=")
         if not sep or not label.strip() or not host.strip():
             raise argparse.ArgumentTypeError(f"expected LABEL=HOST, got {part!r}")
+        if "|" in part:
+            raise argparse.ArgumentTypeError(f"'|' not allowed in labels: {part!r}")
         out[host.strip()] = label.strip()
     return out
 
@@ -518,6 +521,9 @@ def cmd_matrix(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int
     if not envelopes:
         _say("warning: no S1 result files found; every cell will be TBD")
     day = _report_day(dirs, args.date).isoformat()
+    extra = render_matrix(envelopes, args.labels)
+    if skipped:
+        extra += "\nSkipped result files:\n" + "".join(f"- {s}\n" for s in skipped)
     try:
         template = args.template.read_text(encoding="utf-8")
         text = render_report(
@@ -528,21 +534,15 @@ def cmd_matrix(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int
             day=day,
             task="0.2.5",
             spike="S1",
-            extra_results=render_matrix(envelopes, args.labels)
-            + (
-                "\nSkipped result files:\n"
-                + "\n".join(f"- {s}" for s in skipped)
-                + "\n"
-                if skipped
-                else ""
-            ),
+            # envelopes are sanitised when written; the extra markdown (skip
+            # reasons, labels) is free text, so it goes through the same filter
+            extra_results=sanitize_text(extra),
         )
     except (OSError, TemplateError) as exc:
         _say(f"matrix: cannot build the report: {exc}")
         return EXIT_IO
     try:
-        args.out.parent.mkdir(parents=True, exist_ok=True)
-        args.out.write_text(text, encoding="utf-8", newline="\n")
+        atomic_write_text(args.out, text)
     except OSError as exc:
         _say(f"matrix: cannot write {args.out}: {exc}")
         return EXIT_IO

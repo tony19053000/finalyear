@@ -24,7 +24,7 @@ def _env(host: str, values: list[float], *, dirty: bool = False, **kw: object) -
     return make_envelope(
         spike="S1",
         topic="S1-network",
-        link=str(kw.pop("link", "ethernet")),
+        link=kw.pop("link", "ethernet"),  # type: ignore[arg-type]
         params={},
         cases=[case],
         errors=kw.pop("errors", None),  # type: ignore[arg-type]
@@ -120,3 +120,37 @@ def test_malformed_summary_becomes_invalid_row_not_crash() -> None:
     env["cases"]["tcp"]["summary"]["receiver_mbps"] = {"n": "five"}
     text = _render([env])
     assert "INVALID (n<5)" in text
+
+
+def test_link_none_renders_not_applicable() -> None:
+    text = _render([_env("hostA", [1, 2, 3, 4, 5], link=None)])
+    assert (
+        "| hostA | Windows 11 | see inventory JSON | n/a (speed: TBD) | TBD |" in text
+    )
+    assert "| [n/a] hostA: TCP hostA | receiver_mbps (Mbit/s) | 5 |" in text
+    assert "[None]" not in text and "[ethernet]" not in text
+
+
+def test_link_none_and_ethernet_are_separate_host_rows() -> None:
+    text = _render(
+        [_env("hostA", [1, 2, 3, 4, 5], link=None), _env("hostA", [1, 2, 3, 4, 5])]
+    )
+    assert text.count("| hostA | Windows 11 |") == 2
+
+
+def test_pipe_in_cells_is_escaped() -> None:
+    from spikes._harness.report import cell
+
+    assert cell("a|b") == "a\\|b"
+    assert cell("two\nlines\r\n") == "two lines  "
+    env = _env("host|A", [1, 2, 3, 4, 5])
+    env["cases"]["tcp"]["label"] = "TCP | tricky"
+    env["cases"]["tcp"]["metrics"] = {"receiver_mbps": "Mbit|s"}
+    text = _render([env])
+    assert "| host\\|A | Windows 11 |" in text
+    assert (
+        "| [Ethernet] host\\|A: TCP \\| tricky | receiver_mbps (Mbit\\|s) | 5 |" in text
+    )
+    # every table row of the Results table still has the same number of cells
+    rows = [ln for ln in text.splitlines() if ln.startswith("| [Ethernet]")]
+    assert rows and all(ln.count("|") - ln.count("\\|") == 8 for ln in rows)

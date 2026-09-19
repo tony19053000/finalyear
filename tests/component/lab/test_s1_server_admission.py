@@ -97,7 +97,7 @@ def test_active_measurement_survives_a_flood_of_idle_peers(
             time.sleep(0.02)  # let the accept loop run in order
 
         # the cap holds and the measurement was never the one evicted
-        assert len(small_server._conns) <= small_server.limits.max_connections
+        assert small_server.open_connections <= small_server.limits.max_connections
         assert small_server.counters.tcp_evicted_pending >= 12 - 3
         upload.sendall(b"y" * 1024)  # still connected
         ep = Endpoint("127.0.0.1", small_server.port)
@@ -123,7 +123,7 @@ def test_all_active_means_new_peers_are_refused(small_server: S1Server) -> None:
         deadline = time.monotonic() + 3
         while time.monotonic() < deadline and (
             small_server._pending
-            or len(small_server._conns) < small_server.limits.max_connections
+            or small_server.open_connections < small_server.limits.max_connections
         ):
             time.sleep(0.02)
         before = small_server.counters.tcp_refused_busy

@@ -113,7 +113,8 @@ class RunConfig:
     """Everything the operator chose for this run."""
 
     profile: Profile
-    link: str = "ethernet"
+    #: S7 sends no network traffic: ``None`` = "not applicable" in the envelope
+    link: str | None = None
     name: str | None = None
     reps: int = 0
     warmup: int = -1
@@ -476,7 +477,6 @@ def run_scores(
             "warnings": warnings,
             "budget_remaining_s": round(budget.remaining(), 3),
             "planner_fields": PLANNER_FIELDS,
-            "link_not_applicable": True,
             "metric_units": METRIC_UNITS,
         },
         tool={"script": "lab/spikes/s7_hardware.py", "spike": SPIKE},

@@ -24,6 +24,7 @@ from spikes._harness.stats import Summary
 
 TEMPLATE_PATH: Final = LAB_DIR / "reports" / "TEMPLATE.md"
 LINK_NAMES: Final = {"wifi": "Wi-Fi", "ethernet": "Ethernet"}
+LINK_NOT_APPLICABLE: Final = "n/a"
 
 _TITLE: Final = "# <Topic> — <YYYY-MM-DD>"
 _FILE: Final = "`lab/reports/YYYY-MM-DD-<topic>.md`"
@@ -58,8 +59,17 @@ def fmt(value: float | None, digits: int = 2) -> str:
     return "—" if value is None else f"{value:.{digits}f}"
 
 
-def link_name(link: str) -> str:
+def link_name(link: str | None) -> str:
+    """Display name of a link; ``None`` (spike sends no traffic) -> ``n/a``."""
+    if link is None:
+        return LINK_NOT_APPLICABLE
     return LINK_NAMES.get(link, link)
+
+
+def cell(text: object) -> str:
+    """Make ``text`` safe inside a markdown table cell: a literal ``|`` would
+    otherwise start a new column, and a newline would end the row."""
+    return str(text).replace("|", "\\|").replace("\r", " ").replace("\n", " ")
 
 
 def result_rows(envelopes: Sequence[dict[str, JSON]]) -> list[ResultRow]:
@@ -78,9 +88,9 @@ def result_rows(envelopes: Sequence[dict[str, JSON]]) -> list[ResultRow]:
                     summary = Summary(0, None, None, None, None, None, None)
                 rows.append(
                     ResultRow(
-                        case=f"[{link_name(doc['link'])}] {host}: {label}",
-                        metric=metric,
-                        unit=units.get(metric, ""),
+                        case=cell(f"[{link_name(doc['link'])}] {host}: {label}"),
+                        metric=cell(metric),
+                        unit=cell(units.get(metric, "")),
                         summary=summary,
                     )
                 )
@@ -149,14 +159,14 @@ def _host_rows(envelopes: Sequence[dict[str, JSON]]) -> str:
     for doc in envelopes:
         host = doc["host"]
         label = host_label(doc)
-        key = (label, doc["link"])
+        key = (label, link_name(doc["link"]))
         if key not in seen:
             os_text = f"{host.get('os', '?')} {host.get('os_release', '')}".strip()
             name = (
                 label if label == host["hostname"] else f"{label} ({host['hostname']})"
             )
             seen[key] = (
-                f"| {name} | {os_text} | see inventory JSON | "
+                f"| {cell(name)} | {cell(os_text)} | see inventory JSON | "
                 f"{link_name(doc['link'])} (speed: TBD) | TBD |\n"
             )
     return "".join(seen[k] for k in sorted(seen)) or _HOSTS_ROW.lstrip("\n")

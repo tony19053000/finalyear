@@ -5,13 +5,14 @@ Shape (``schema_version`` 1)::
     {
       "schema_version": 1, "spike": "S1", "topic": "S1-network",
       "tool": {...}, "git": {"commit", "dirty", ...}, "host": {"hostname", "os", ...},
-      "timestamp_utc": "2026-09-15T10:00:00Z", "link": "wifi" | "ethernet",
+      "timestamp_utc": "2026-09-15T10:00:00Z", "link": "wifi" | "ethernet" | null,
       "params": {...}, "cases": {<case_id>: CaseResult.to_json()},
       "errors": [...run-level errors...], "extra": {...spike specific...}
     }
 
 ``link`` is given by the operator (the tool cannot know which physical link a
-route uses). Raw files go to ``lab/reports/raw/<YYYY-MM-DD>-<topic>/<host>.json``
+route uses); it is ``null`` for spikes that send no network traffic (S7), and
+reports then show "n/a". Raw files go to ``lab/reports/raw/<YYYY-MM-DD>-<topic>/<host>.json``
 (``<host>__<suffix>.json`` when one host writes several runs, e.g. one per peer).
 The ``<host>`` part is case-folded and hash-suffixed when that changes it (see
 :func:`safe_name`) so hosts cannot collide on Windows; the original spelling
@@ -99,7 +100,7 @@ def make_envelope(
     *,
     spike: str,
     topic: str,
-    link: str,
+    link: str | None,
     params: Mapping[str, JSON],
     cases: list[CaseResult],
     errors: list[dict[str, JSON]] | None = None,
@@ -113,10 +114,11 @@ def make_envelope(
     """Build (and sanitise) an envelope. ``git``/``host``/``now`` are test seams.
 
     ``host_label`` is the identity reports use for this host (e.g. ``--name``);
-    it defaults to the hostname and is stored as ``host.label``.
+    it defaults to the hostname and is stored as ``host.label``. ``link=None``
+    means "not applicable" (the spike sends no network traffic).
     """
-    if link not in LINKS:
-        raise ValueError(f"link must be one of {LINKS}, got {link!r}")
+    if link is not None and link not in LINKS:
+        raise ValueError(f"link must be one of {LINKS} or None, got {link!r}")
     ids = [c.case_id for c in cases]
     if len(set(ids)) != len(ids):
         raise ValueError(f"duplicate case ids: {ids}")
@@ -139,13 +141,23 @@ def make_envelope(
     return sanitize(doc)
 
 
-def sanitize(doc: dict[str, JSON]) -> dict[str, JSON]:
+def _sanitizer() -> Sanitizer:
     try:
         home: Path | None = Path.home()
     except (RuntimeError, KeyError):
         home = None
-    clean: dict[str, JSON] = Sanitizer(home).tree(doc)
+    return Sanitizer(home)
+
+
+def sanitize(doc: dict[str, JSON]) -> dict[str, JSON]:
+    clean: dict[str, JSON] = _sanitizer().tree(doc)
     return clean
+
+
+def sanitize_text(text: str) -> str:
+    """Apply the privacy sanitizer to free text (e.g. markdown a spike appends
+    to a report): home directory -> ``~``, user names, public IPs, secrets."""
+    return _sanitizer().text(text)
 
 
 def dumps(doc: Mapping[str, JSON]) -> str:
@@ -262,8 +274,8 @@ def validate(doc: JSON, *, source: str = "<doc>") -> dict[str, JSON]:
         raise EnvelopeError(
             f"{source}: schema_version {doc['schema_version']!r} != {SCHEMA_VERSION}"
         )
-    if doc["link"] not in LINKS:
-        raise EnvelopeError(f"{source}: link {doc['link']!r} not in {LINKS}")
+    if doc["link"] is not None and doc["link"] not in LINKS:
+        raise EnvelopeError(f"{source}: link {doc['link']!r} not in {LINKS} or null")
     if not isinstance(doc["cases"], dict) or not isinstance(doc["host"], dict):
         raise EnvelopeError(f"{source}: 'cases' and 'host' must be objects")
     if not isinstance(doc["host"].get("hostname"), str):
@@ -271,26 +283,39 @@ def validate(doc: JSON, *, source: str = "<doc>") -> dict[str, JSON]:
     return doc
 
 
-def load_envelope(path: Path) -> dict[str, JSON]:
+def _load_named(path: Path, source: str) -> dict[str, JSON]:
     try:
         text = path.read_text(encoding="utf-8")
     except OSError as exc:
-        raise EnvelopeError(f"{path}: cannot read: {exc}") from exc
+        # strerror only: str(exc) would repeat the (possibly absolute) path
+        detail = exc.strerror or type(exc).__name__
+        raise EnvelopeError(f"{source}: cannot read: {detail}") from exc
+    except UnicodeDecodeError as exc:
+        raise EnvelopeError(f"{source}: not UTF-8: {exc.reason}") from exc
     try:
         doc = json.loads(text)
     except json.JSONDecodeError as exc:
-        raise EnvelopeError(f"{path}: invalid JSON: {exc}") from exc
-    return validate(doc, source=str(path))
+        raise EnvelopeError(f"{source}: invalid JSON: {exc}") from exc
+    return validate(doc, source=source)
+
+
+def load_envelope(path: Path) -> dict[str, JSON]:
+    """Load one envelope; error messages name the full ``path``."""
+    return _load_named(path, str(path))
 
 
 def load_dir(directory: Path) -> tuple[list[dict[str, JSON]], list[str]]:
     """Every ``*.json`` envelope in ``directory`` (sorted by name), plus a list of
-    ``"<file>: <reason>"`` for files that were skipped as invalid."""
+    ``"<file name>: <reason>"`` for files that were skipped as invalid.
+
+    Reasons carry only the file *name* (never the directory), because they end
+    up in the markdown report and an absolute path would leak the user name.
+    """
     docs: list[dict[str, JSON]] = []
     skipped: list[str] = []
     for path in sorted(directory.glob("*.json")):
         try:
-            doc = load_envelope(path)
+            doc = _load_named(path, path.name)
         except EnvelopeError as exc:
             skipped.append(str(exc))
             continue

@@ -62,6 +62,8 @@ def _usage_error(argv: list[str], capsys: pytest.CaptureFixture[str]) -> str:
         ),
         (["matrix", "--results", "does-not-exist-xyz", "--out", "x.md"], "not found"),
         (["matrix", "--results", ".", "--out", "x.md", "--labels", "L1"], "LABEL=HOST"),
+        (["matrix", "--results", ".", "--out", "x.md", "--labels", "L|1=h"], "'|'"),
+        (["client", "--server", "10.0.0.2", "--link", "none"], "invalid choice"),
         (["bogus"], "invalid choice"),
     ],
 )
@@ -156,3 +158,45 @@ def test_matrix_unwritable_output_exits_1(tmp_path: Path) -> None:
         ["matrix", "--results", str(tmp_path), "--out", str(blocker / "r.md")]
     )
     assert code == 1
+
+
+def test_matrix_report_never_contains_results_path(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Skip reasons go into the report: they must name the file, not its
+    (absolute) folder, or the user name leaks (reviewer round 3, B1)."""
+    results = tmp_path / "2026-09-20-S1-network"
+    results.mkdir()
+    (results / "junk.json").write_text("{", encoding="utf-8")
+    out = tmp_path / "r.md"
+    assert results.is_absolute()
+    code = cli.main(["matrix", "--results", str(results), "--out", str(out)])
+    assert code == 0
+    text = out.read_text(encoding="utf-8")
+    assert "Skipped result files:" in text and "- junk.json: invalid JSON" in text
+    assert str(results) not in text and str(tmp_path) not in text
+    assert str(Path.home()) not in text
+    # the stderr line may name the file only as well
+    err = capsys.readouterr().err
+    assert "skipped invalid result file: junk.json" in err
+
+
+def test_matrix_extra_markdown_is_sanitised(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Belt and braces: even if some future skip reason carried the home
+    directory, the extra markdown passes the privacy filter."""
+    home = str(Path.home())
+    monkeypatch.setattr(
+        cli, "render_matrix", lambda *_a, **_k: f"leak {home}/lab/reports/x.json"
+    )
+    out = tmp_path / "r.md"
+    assert cli.main(["matrix", "--results", str(tmp_path), "--out", str(out)]) == 0
+    text = out.read_text(encoding="utf-8")
+    assert home not in text and "leak ~/lab/reports/x.json" in text
+
+
+def test_matrix_writes_report_atomically(tmp_path: Path) -> None:
+    out = tmp_path / "r.md"
+    assert cli.main(["matrix", "--results", str(tmp_path), "--out", str(out)]) == 0
+    assert [p.name for p in tmp_path.iterdir()] == ["r.md"]  # no .tmp left behind

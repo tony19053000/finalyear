@@ -14,7 +14,7 @@
 > Order of truth: `PROJECT_BRIEF → ARCHITECTURE → ROADMAP → STATUS → this file`. If this file
 > disagrees with the roadmap, the roadmap wins and this file is stale — fix it.
 
-**Last updated:** 2026-09-20 · **Updated by:** Lead session (account 1)
+**Last updated:** 2026-09-20 (later) · **Updated by:** Lead session (account 1)
 
 ---
 
@@ -22,7 +22,7 @@
 
 - **Version:** V0.2 (lab setup & feasibility validation). V0.1 is code-complete; its last two
   tasks (0.1.4, 0.1.10) only await the **first real GitHub CI run**, which needs a human push.
-- **Committed and done:** 0.2.2 `lab/inventory.py` (commit `75d8df5`) — awaits 🧑 runs on the
+- **Committed and done:** 0.2.5 S1 spike + `_harness/` (reviewer APPROVE, commit `feat(0.2.5)`; awaits 🧑 lab runs). 0.2.2 `lab/inventory.py` (commit `75d8df5`) — awaits 🧑 runs on the
   4 laptops. ADR-0011 written (commit `b3ddd4d`), Proposed, awaiting team approval.
 - **0.2.1:** Laptop 1's NVIDIA driver is **fixed** (RTX 3050 Laptop, driver 595.91.07, 4 GiB,
   compute capability 8.6, Secure Boot still enabled). Still `[~]` because
@@ -30,14 +30,13 @@
 
 ## 2. In flight right now (uncommitted work in the working tree)
 
-Four agent tasks were **interrupted by a usage limit** on 2026-09-19 with their code largely
+Three agent tasks were **interrupted by a usage limit** on 2026-09-19 with their code largely
 written but unfinished. Nothing is lost; it is all in the working tree (and in the WIP commit
 that follows this file). Resume them in this order:
 
 | Task | State | What is missing |
 |---|---|---|
-| **0.2.5 S1 network** (`lab/spikes/s1_network.py`, `_s1/`, `_harness/`) | tester PASS round 2; a fix round was interrupted | 3 small fixes: (A) two tests in `tests/component/lab/test_inventory_acceptance.py` assert this machine's NVIDIA driver is broken — it now works, so they must be made host-independent; (B) `test_s1_network_adversarial.py::test_connection_flood_is_capped_and_server_stays_responsive` is flaky in full-suite runs (margin too tight for evict-oldest-pending); (C) `safe_name` in `_harness/envelope.py` must casefold so hosts "Lab1"/"lab1" don't collide on Windows NTFS. Then **reviewer**, then commit. |
-| **0.2.11 S7 hardware scores** (`s7_hardware.py`, `_s7/`) | code + unit tests written, interrupted during CLI tests | finish tests; fix `E501` ×2 in `tests/unit/lab/test_s7_report.py` (lines 77, 99) and the mypy error `psutil` stubs in `tests/component/lab/test_s7_hardware.py:53`; write `lab/spikes/S7.md`; then tester + reviewer. |
+| **0.2.11 S7 hardware scores** (`s7_hardware.py`, `_s7/`) | code + unit tests written, interrupted during CLI tests | drop the `--link` CLI flag (harness now accepts `link=None`; `_s7/run.py` already updated, `s7_hardware.py:164-170` + `test_s7_cli.py` not yet); finish tests; fix `E501` ×2 in `tests/unit/lab/test_s7_report.py` (lines 77, 99) and the mypy error `psutil` stubs in `tests/component/lab/test_s7_hardware.py:53`; write `lab/spikes/S7.md`; then tester + reviewer. |
 | **0.2.7 S3 transport** (`s3_transport.py`, `_s3/`) | code written, **no tests yet**, interrupted while fixing the report's "best chunk" bug and the verdict wording for parallel ranges | write unit + component tests, `lab/spikes/S3.md`, finish those two fixes; then tester + reviewer. |
 | **0.2.6 S2 cross-OS** (`s2_crossos.py`, `_s2/`) | code + most unit tests written, interrupted during verdict aggregation + CLI tests | finish those tests, write `lab/spikes/S2.md`; then tester + reviewer. |
 
@@ -48,6 +47,10 @@ that follows this file). Resume them in this order:
 **File ownership while several agents run:** each spike owns only its own paths
 (`lab/spikes/<sN>_*.py`, `lab/spikes/_sN/`, `tests/**/test_sN_*.py`, `lab/spikes/SN.md`).
 `_harness/**` is shared — only one agent may edit it at a time; others read it.
+
+## 2b. GitHub
+
+Remote `origin` = https://github.com/tony19053000/finalyear.git added 2026-09-20; the **first push is the user's job** (in progress).
 
 ## 3. Blocked on humans (nothing agent-side unblocks these)
 

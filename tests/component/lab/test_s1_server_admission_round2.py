@@ -251,9 +251,9 @@ def test_rapid_connect_rst_storm_does_not_crash_or_leak(server: S1Server) -> Non
             s.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, linger)
             s.close()  # sends RST, not FIN
     deadline = time.monotonic() + 5
-    while time.monotonic() < deadline and len(server._conns) > 0:
+    while time.monotonic() < deadline and server.open_connections > 0:
         time.sleep(0.05)
-    assert len(server._conns) <= server.limits.max_connections
+    assert server.open_connections <= server.limits.max_connections
     assert _still_answers(server.port)
 
 
