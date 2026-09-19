@@ -10,6 +10,9 @@ lab/
     _harness/       shared by every spike: reps runner, stats, result JSON, report
     s1_network.py   S1 network matrix (serve / client / matrix)
     _s1/            S1 measurement code (plain functions, no CLI)
+    s3_transport.py S3 transport throughput (serve / client / report)
+    _s3/            S3 senders (raw TCP, gRPC, HTTP) + client, payload, report tables
+    S3.md           S3: what is measured, how to run, how to read it, limits
     s7_hardware.py  S7 hardware scores (run / report)
     _s7/            S7 benchmarks (child process), sizing, scores, report
     S7.md           S7: what is measured, formulas, how to run, limits
@@ -111,6 +114,66 @@ The report holds the Results table and both docs/LAB.md §2 matrices per link. C
 - A cell above 50 % of a host's loopback ceiling is flagged as possibly tool-limited. Confirm it with `--iperf3`.
 
 The measurement code in `_s1/` (`client.tcp_throughput`, `client.udp_rtt`, `server.S1Server`) has no CLI coupling, so the V0.3 agent network probe can adopt it.
+
+### s3_transport.py (spike S3, task 0.2.7)
+
+Measures, for one pair of laptops, how much of a plain TCP connection survives when bytes travel over **gRPC byte streams** (ADR-0005, tensors) or over **HTTP `GET`/`Range`** (ADR-0003, blobs), from 1 MiB to 2 GiB — the numbers that answer ARCHITECTURE §27 Q2. Per payload size it runs six transfers (raw TCP down/up as the baseline, gRPC server-stream/client-stream, HTTP GET, `N` parallel HTTP `Range` requests), plus a gRPC message-size sweep, a one-shot probe of gRPC's default 4 MB message limit, and this laptop's loopback ceiling per transport. Every transfer is CRC-32 verified against a deterministic generated payload, so a transport that loses bytes fails instead of winning. Standard library + `grpcio`; without `grpcio` the gRPC rows become typed `grpc_unavailable` errors and the rest of the run still works. Details, formulas and limits: [`spikes/S3.md`](spikes/S3.md).
+
+**Before you start:** both laptops on the same link (unplug Ethernet for the Wi-Fi matrix; Wi-Fi off for the Ethernet matrix), plugged in, performance mode, nothing else running. **Never run S1 and S3 at the same time**, and never two S3 clients at once — they would share the link.
+
+**1. Firewall on the server laptop (only for the spike, remove it afterwards).** One `serve` process opens **TCP 47301 (raw TCP + control), 47302 (gRPC) and 47303 (HTTP)** — three TCP ports, no UDP, unlike S1's single 47201. Replace `192.168.1.0/24` with the lab subnet.
+
+```powershell
+# Windows, PowerShell as Administrator. Network profile must be Private (task 0.2.4).
+New-NetFirewallRule -DisplayName "MeshForge S3" -Group "MeshForge lab" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 47301-47303 -RemoteAddress 192.168.1.0/24 -Profile Private
+# afterwards:
+Remove-NetFirewallRule -DisplayName "MeshForge S3"
+```
+```bash
+# Linux: only needed if ufw is active (sudo ufw status)
+sudo ufw allow from 192.168.1.0/24 to any port 47301:47303 proto tcp
+# afterwards:
+sudo ufw delete allow from 192.168.1.0/24 to any port 47301:47303 proto tcp
+```
+The same "Windows Security Alert" warning as for S1 applies: tick **Private networks** and **Allow**, never Cancel.
+
+**2. Start the server** on the laptop that sends the bytes, bound to its lab IP on the link being measured:
+```bash
+uv run python lab/spikes/s3_transport.py serve --bind 192.168.1.20
+```
+It refuses `0.0.0.0`/`::` and public addresses (override: `--allow-any`), answers private/loopback/link-local clients only, caps connections per transport, drops a connection without a complete request header within `--header-timeout`, and stops by itself after `--idle` seconds without traffic (default 900) or `--duration` seconds in total (default 7200), or on Ctrl-C / SIGTERM.
+
+**3. Run the client** on the other laptop (one pair at a time; one run measures both directions):
+```bash
+# Ethernet, full size ladder (~20 min)
+uv run python lab/spikes/s3_transport.py client --server 192.168.1.20 --link ethernet
+# Wi-Fi: stop at 256 MiB, otherwise 1 GiB and 2 GiB dominate the run
+uv run python lab/spikes/s3_transport.py client --server 192.168.1.20 --link wifi --max-size 256MiB
+```
+```powershell
+# Windows (PowerShell, native, not inside WSL) — same commands
+uv run python lab/spikes/s3_transport.py client --server 192.168.1.20 --link ethernet
+```
+Defaults: `--reps 5 --warmup 1 --pause 0.5 --sizes 1MiB,8MiB,64MiB,256MiB,1GiB,2GiB --chunk 1MiB --chunk-sweep 64KiB,256KiB,1MiB,4MiB --chunk-sweep-size 64MiB --range-parts 4 --ceiling-size 64MiB --ceiling-reps 3 --transfer-timeout 600`. `--server` can be repeated (servers are measured one after another), `--no-uploads` halves the run time, `--ceiling-size 0` skips the loopback check, `--name L2` labels the column, `--out-dir DIR` writes elsewhere. `--reps` below 5 makes every row INVALID and the client says so. Before measuring the peer it starts a second `serve` process on `127.0.0.1` to record this laptop's **loopback ceiling** per transport. It writes `lab/reports/raw/<UTC date>-S3-transport/<client>__to-<server>_<link>.json`.
+
+**4. Build the report** after copying every laptop's JSON into one folder:
+```bash
+uv run python lab/spikes/s3_transport.py report --results lab/reports/raw/2026-09-21-S3-transport --out lab/reports/2026-09-21-S3-transport.md
+```
+Tables: throughput per transport × payload size, the gRPC chunk sweep, CPU ms per MiB, the loopback ceiling, the gRPC limit probe, and a **Q2 answer generated from the data** (gRPC and HTTP as a percentage of the raw-TCP baseline, the parallel-range judgement, the best chunk). `INVALID (n=k)` for n < 5, `TBD` where nobody measured. Then write Goal/Conclusion and update ADR-0003 / ADR-0005 and ARCHITECTURE §27 Q2.
+
+**Exit codes:** `0` complete · `1` cannot bind/write · `2` bad usage (wildcard bind, public server address, bad size) · `3` results written but incomplete (server lost, failed repetitions, no grpcio: see `errors` in the JSON) · `130` Ctrl-C.
+
+**How to read the numbers (honesty notes):**
+- Throughput is counted **at the receiver**, over *request sent → last byte* (downloads) or the server's *request seen → last byte* (uploads). Connection setup is excluded for all three transports alike; request latency is included.
+- Compare every LAN cell with the **loopback ceiling** table: a result within a few percent of its transport's ceiling is limited by this tool (Python, framing, CRC verification), not by the link.
+- `cpu_ms_per_mib` (client + server) is the part of the overhead that does not disappear on a faster link — it is the honest cost of gRPC/HTTP framing.
+- Verdict thresholds: ≥ 85 % of raw TCP = acceptable, 60–85 % = usable with a recorded penalty, < 60 % = the ADR needs revision. Parallel ranges count as a gain above ×1.10 and as **slower** below ×0.90 of a single HTTP GET.
+- Numbers from different pairs or links are never mixed; the best gRPC chunk is chosen inside one pair+link group, and a runner-up within 5 % is reported as not distinguishable.
+- `http-range4` at 1 MiB is dominated by connection setup and is noisy by design; read parallel ranges at ≥ 64 MiB.
+- No TLS anywhere in this spike, and the payload is generated, not read from disk: mTLS (ADR-0008) and storage cost are not included.
+
+`_s3/client.py`, `_s3/payload.py`, `_s3/meters.py` and `_s3/protocol.py` have no CLI coupling, so V0.4's blob transfer and V0.6's tensor transport can adopt them (by moving them under `src/`, never importing `lab/`).
 
 ### s7_hardware.py (spike S7, task 0.2.11)
 
