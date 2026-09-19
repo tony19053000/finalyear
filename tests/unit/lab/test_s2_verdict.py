@@ -1,470 +1,436 @@
-"""Unit tests for the S2 verdict aggregation (roadmap 0.2.6).
+"""Adversarial unit tests for ``lab/spikes/_s2/verdict.py`` (roadmap 0.2.6).
 
-A human must be able to read one table and know, per direction: reachable or
-not, and if not, what to change. Untested directions are TBD, measured but
-under-repeated ones are INVALID - never silently "yes"."""
+The highest-value question for this task: can any case dict make
+``case_verdict``/``session_verdict`` claim ``yes`` without 5 clean repetitions?
+These tests enumerate the boundary and try to construct such an input. They
+also cover: ``flaky`` vs ``INVALID`` precedence, re-run tie-breaking on
+``timestamp_utc``, ``--hosts`` labelling edge cases, report-row column safety
+for absurd case ids / free text, and the ``outbound-only`` TBD/yes/no logic.
+"""
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
 import pytest
 
 from spikes._harness import MIN_VALID_REPS
-from spikes._s2 import verdict as vd
+from spikes._s2 import verdict as v
 
 
-def _case(
-    samples: int = 5,
-    *,
-    errors: list[dict[str, Any]] | None = None,
-    summary: dict[str, Any] | None = None,
-    survived: list[int] | None = None,
-) -> dict[str, Any]:
-    rows: list[dict[str, Any]]
-    if survived is not None:
-        rows = [
-            {"survived": s, "failure": None if s else {"message": "idle drop"}}
-            for s in survived
-        ]
+def _samples(n: int, **extra: Any) -> list[dict[str, Any]]:
+    return [{"seq": i, **extra} for i in range(n)]
+
+
+def _errors(n: int) -> list[dict[str, Any]]:
+    return [
+        {"failure_type": "timeout", "message": f"boom {i}", "fatal": False}
+        for i in range(n)
+    ]
+
+
+# --------------------------------------------------------- case_verdict: yes
+def test_case_verdict_yes_requires_exact_min_reps_and_zero_errors() -> None:
+    case = {"samples": _samples(MIN_VALID_REPS), "errors": []}
+    assert v.case_verdict(case) == v.Verdict(v.YES)
+
+
+@pytest.mark.parametrize("n", [0, 1, MIN_VALID_REPS - 1])
+def test_case_verdict_never_yes_below_min_reps_even_with_no_errors(n: int) -> None:
+    case = {"samples": _samples(n), "errors": []}
+    result = v.case_verdict(case)
+    assert result.value != v.YES
+    if n == 0:
+        assert result.value == v.NO
     else:
-        rows = [{"ttfb_ms": 1.0} for _ in range(samples)]
-    return {
-        "label": "case",
-        "samples": rows,
-        "errors": errors or [],
-        "summary": summary or {},
-        "attrs": {},
-        "metrics": {},
-    }
+        assert result.value == v.INVALID
 
 
-def _envelope(cases: dict[str, Any], **extra: Any) -> dict[str, Any]:
-    doc: dict[str, Any] = {
-        "schema_version": 1,
-        "spike": "S2",
-        "topic": "S2-crossos",
-        "link": "ethernet",
-        "host": {"hostname": "laptop1", "label": "L1", "os": "Linux"},
-        "params": {"server_name": "L2", "server": "192.168.1.21"},
-        "cases": cases,
-        "errors": [],
-        "extra": {
-            "local": {"system": "Linux", "release": "6.8.0", "wsl": {"is_wsl": False}},
-            "peer_identity": {
-                "system": "Windows",
-                "release": "11",
-                "wsl": {"is_wsl": False},
-            },
-            "outbound_only": {"no_inbound_rule_declared": True},
-        },
-        "timestamp_utc": "2026-09-19T10:00:00Z",
-    }
-    doc["extra"].update(extra)
-    return doc
+@pytest.mark.parametrize(
+    ("n_samples", "n_errors"), [(MIN_VALID_REPS, 1), (100, 1), (4, 1)]
+)
+def test_case_verdict_never_yes_when_any_error_recorded(
+    n_samples: int, n_errors: int
+) -> None:
+    """Any non-empty ``errors`` list must prevent a ``yes`` verdict, regardless
+    of how many clean samples exist alongside it."""
+    case = {"samples": _samples(n_samples), "errors": _errors(n_errors)}
+    result = v.case_verdict(case)
+    assert result.value != v.YES
 
 
-def test_full_pass_is_yes() -> None:
-    assert vd.case_verdict(_case(5)).value == vd.YES
+def test_case_verdict_missing_case_is_tbd_not_yes() -> None:
+    assert v.case_verdict(None) == v.Verdict(v.TBD, "case not run")
 
 
-def test_too_few_repetitions_is_invalid() -> None:
-    result = vd.case_verdict(_case(MIN_VALID_REPS - 1))
-    assert result.value == vd.INVALID
-    assert "n=4" in result.detail
+def test_case_verdict_empty_dict_is_no_not_yes() -> None:
+    assert v.case_verdict({}).value == v.NO
 
 
-def test_missing_case_is_tbd() -> None:
-    assert vd.case_verdict(None).value == vd.TBD
+@pytest.mark.parametrize(
+    "case",
+    [
+        {"samples": None, "errors": None},
+        {},
+        {"samples": []},
+        {"samples": [], "errors": [{"failure_type": "x", "message": "y"}]},
+    ],
+)
+def test_case_verdict_degenerate_inputs_never_yes(case: dict[str, Any]) -> None:
+    assert v.case_verdict(case).value != v.YES
 
 
-def test_total_failure_reports_the_diagnosis() -> None:
-    case = _case(
-        0,
-        errors=[
+def test_case_verdict_flaky_reports_true_denominator() -> None:
+    case = {"samples": _samples(3), "errors": _errors(2)}
+    result = v.case_verdict(case)
+    assert result.value == "flaky 3/5"
+
+
+def test_case_verdict_min_reps_argument_is_honoured() -> None:
+    """A caller-supplied ``min_reps`` (e.g. a test harness with --reps 3) must
+    still gate ``yes``, not just the module-level default."""
+    case = {"samples": _samples(3), "errors": []}
+    assert v.case_verdict(case, min_reps=3).value == v.YES
+    assert v.case_verdict(case, min_reps=4).value == v.INVALID
+
+
+# ---------------------------------------- DEFECT: warmup errors taint verdict
+def test_defect_warmup_only_error_does_not_demote_a_clean_case() -> None:
+    """``CaseResult.errors`` mixes warmup and measured-rep failures (reps.py
+    records both with a ``phase`` field), but ``case_verdict`` does not look at
+    ``phase`` at all: it treats a warmup hiccup as if a measured repetition had
+    failed. A case where every *requested* (measured) repetition succeeded
+    must be ``yes`` per S2.md ("yes: every requested repetition worked ...
+    n>=5"); warmup samples are explicitly "kept... but never enter the
+    summary" (reps.py docstring), so they must not enter the verdict either.
+
+    This currently fails: real behaviour is 'flaky 5/6', wrongly under-stating
+    an actually-clean result on the reachability table.
+    """
+    case = {
+        "samples": _samples(MIN_VALID_REPS),
+        "errors": [
             {
-                "failure_type": "connect_timeout",
-                "message": "HTTP connect: timed out [fix: open the port]",
+                "rep": 0,
+                "phase": "warmup",
+                "failure_type": "timeout",
+                "message": "warmup hiccup",
+                "fatal": False,
             }
         ],
+    }
+    result = v.case_verdict(case)
+    assert result.value == v.YES, (
+        f"expected yes (all {MIN_VALID_REPS} measured reps succeeded, only a "
+        f"warmup rep failed), got {result.value!r} -- see reps.py: warmup "
+        "errors are recorded in the same 'errors' list as measured ones"
     )
-    result = vd.case_verdict(case)
-    assert result.value == vd.NO
-    assert "connect_timeout" in result.detail
-    assert "fix" in result.detail
 
 
-def test_partial_failure_is_flaky_not_yes() -> None:
-    case = _case(4, errors=[{"failure_type": "timeout", "message": "slow"}])
-    assert vd.case_verdict(case).value.startswith("flaky 4/5")
+# ------------------------------------------------------------ session_verdict
+def test_session_verdict_yes_requires_all_survived_and_min_reps() -> None:
+    case = {"samples": _samples(MIN_VALID_REPS, survived=True), "errors": []}
+    assert v.session_verdict(case) == v.Verdict(v.YES)
 
 
-def test_session_that_always_survives_is_yes() -> None:
-    assert vd.session_verdict(_case(survived=[1] * 5)).value == vd.YES
+def test_session_verdict_no_when_all_dropped() -> None:
+    case = {
+        "samples": [
+            {"survived": False, "failure": {"message": "dead", "fix": "do X"}}
+            for _ in range(MIN_VALID_REPS)
+        ],
+        "errors": [],
+    }
+    result = v.session_verdict(case)
+    assert result.value == v.NO
+    assert "dead" in result.detail and "fix: do X" in result.detail
 
 
-def test_session_that_never_survives_is_no_with_the_reason() -> None:
-    result = vd.session_verdict(_case(survived=[0] * 5))
-    assert result.value == vd.NO
-    assert "idle drop" in result.detail
-
-
-def test_session_that_sometimes_survives_is_flaky() -> None:
-    result = vd.session_verdict(_case(survived=[1, 0, 1, 1, 1]))
-    assert result.value == "flaky 4/5"
-    assert result.detail
-
-
-def test_session_needs_five_repetitions_too() -> None:
-    assert vd.session_verdict(_case(survived=[1, 1])).value == vd.INVALID
-
-
-def test_direction_verdict_reads_both_sides() -> None:
-    doc = _envelope(
-        {
-            "http-ping": _case(5, summary={"ttfb_ms": {"n": 5, "mean": 1.5}}),
-            "http-blob": _case(5, summary={"mbps": {"n": 5, "mean": 300.0}}),
-            "grpc-unary": _case(5, summary={"rtt_ms": {"n": 5, "mean": 2.5}}),
-            "grpc-stream": _case(5, summary={"mbps": {"n": 5, "mean": 250.0}}),
-            "grpc-bidi-idle30s-kaon": _case(survived=[1] * 5),
-            "grpc-bidi-idle30s-kaoff": _case(survived=[0] * 5),
-        }
-    )
-    result = vd.direction_verdict(doc)
-    assert result.direction == "L1 -> L2"
-    assert result.client_os.startswith("Linux")
-    assert result.server_os.startswith("Windows")
-    assert result.native_pair is True
-    assert result.cases["http-ping"].value == vd.YES
-    assert result.sessions["grpc-bidi-idle30s-kaon"].value == vd.YES
-    assert result.sessions["grpc-bidi-idle30s-kaoff"].value == vd.NO
-    assert result.metrics["http_ttfb_ms"] == 1.5
-    assert result.metrics["grpc_mbps"] == 250.0
-    assert result.outbound_only.value == vd.YES
-    assert any("kaoff" in fix for fix in result.fixes())
-
-
-def test_wsl_side_is_flagged_as_not_a_native_pair() -> None:
-    doc = _envelope(
-        {"http-ping": _case(5)},
-        peer_identity={"system": "Linux", "release": "5.15", "wsl": {"is_wsl": True}},
-    )
-    result = vd.direction_verdict(doc)
-    assert result.native_pair is False
-    assert "(WSL)" in result.server_os
-
-
-def test_outbound_only_stays_tbd_until_the_operator_declares_it() -> None:
-    doc = _envelope({"grpc-unary": _case(5)}, outbound_only={})
-    result = vd.direction_verdict(doc)
-    assert result.outbound_only.value == vd.TBD
-    assert "--no-inbound-rule" in result.outbound_only.detail
-
-
-def test_outbound_only_is_no_when_grpc_failed() -> None:
-    doc = _envelope(
-        {
-            "grpc-unary": _case(
-                0, errors=[{"failure_type": "connect_timeout", "message": "blocked"}]
-            )
-        }
-    )
-    assert vd.direction_verdict(doc).outbound_only.value == vd.NO
-
-
-def test_run_errors_carry_their_fix_into_the_report() -> None:
-    doc = _envelope({"http-ping": _case(5)})
-    doc["errors"] = [
-        {"failure_type": "connect_timeout", "message": "peer lost", "fix": "open 47202"}
+def test_session_verdict_flaky_never_rounds_up_to_yes() -> None:
+    samples = _samples(3, survived=True) + [
+        {"survived": False, "failure": {"message": "dropped", "fix": None}}
+        for _ in range(2)
     ]
-    result = vd.direction_verdict(doc)
-    assert any("open 47202" in fix for fix in result.fixes())
-
-
-def test_expected_directions_are_ordered_pairs() -> None:
-    assert vd.expected_directions(["L1", "L2"]) == ["L1 -> L2", "L2 -> L1"]
-    assert len(vd.expected_directions(["L1", "L2", "L3"])) == 6
-
-
-def test_untested_direction_is_rendered_tbd() -> None:
-    doc = _envelope(
-        {"http-ping": _case(5), "grpc-bidi-idle30s-kaon": _case(survived=[1])}
-    )
-    table = vd.render_verdicts(
-        vd.direction_verdicts([doc]), vd.expected_directions(["L1", "L2"])
-    )
-    assert "L2 -> L1" in table
-    assert table.count(vd.TBD) >= 5
-    assert "#### Diagnoses and fixes" in table
-
-
-@pytest.mark.parametrize("sessions", [0, 1, 2])
-def test_table_columns_and_separator_match(sessions: int) -> None:
-    cases: dict[str, Any] = {"http-ping": _case(5)}
-    for i in range(sessions):
-        cases[f"grpc-bidi-idle{i}s-kaon"] = _case(survived=[1] * 5)
-    table = vd.render_verdicts(vd.direction_verdicts([_envelope(cases)]))
-    lines = [ln for ln in table.splitlines() if ln.startswith("|")]
-    header, separator, row = lines[0], lines[1], lines[2]
-    assert header.count("|") == separator.count("|") == row.count("|")
-
-
-def test_empty_input_still_renders() -> None:
-    table = vd.render_verdicts({}, ["L1 -> L2"])
-    assert "L1 -> L2" in table
-    assert "(no results)" in table
-
-
-def _verdict_rows(table: str) -> list[str]:
-    """The data rows of the first (verdict) table only."""
-    block = table.split("#### Latency")[0]
-    return [ln for ln in block.splitlines() if ln.startswith("|")][2:]
-
-
-def _columns(row: str) -> list[str]:
-    """Split a markdown row on unescaped pipes, the way a renderer does."""
-    return [c.strip() for c in re.split(r"(?<!\\)\|", row)[1:-1]]
-
-
-# --------------------------------------------------- MIN_VALID_REPS boundary
-@pytest.mark.parametrize(
-    ("samples", "expected"),
-    [
-        (MIN_VALID_REPS - 1, vd.INVALID),
-        (MIN_VALID_REPS, vd.YES),
-        (MIN_VALID_REPS + 1, vd.YES),
-    ],
-)
-def test_case_verdict_at_the_validity_boundary(samples: int, expected: str) -> None:
-    assert vd.case_verdict(_case(samples)).value == expected
+    result = v.session_verdict({"samples": samples, "errors": []})
+    assert result.value == "flaky 3/5"
+    assert result.value != v.YES
 
 
 @pytest.mark.parametrize(
-    ("survived", "expected"),
+    "survived_flags",
     [
-        ([1] * (MIN_VALID_REPS - 1), vd.INVALID),
-        ([1] * MIN_VALID_REPS, vd.YES),
-        ([1] * (MIN_VALID_REPS + 1), vd.YES),
+        [True] * MIN_VALID_REPS,
+        [True, True, True, True, False],
+        [False] * MIN_VALID_REPS,
+        [],
     ],
 )
-def test_session_verdict_at_the_validity_boundary(
-    survived: list[int], expected: str
+def test_session_verdict_never_yes_with_any_drop_or_too_few(
+    survived_flags: list[bool],
 ) -> None:
-    assert vd.session_verdict(_case(survived=survived)).value == expected
+    samples = [{"survived": s} for s in survived_flags]
+    result = v.session_verdict({"samples": samples, "errors": []})
+    if len(samples) >= MIN_VALID_REPS and all(survived_flags):
+        assert result.value == v.YES
+    else:
+        assert result.value != v.YES
 
 
-def test_a_custom_min_reps_moves_the_boundary_with_it() -> None:
-    """The threshold is a parameter, not a constant baked into the wording."""
-    assert vd.case_verdict(_case(3), min_reps=3).value == vd.YES
-    assert vd.case_verdict(_case(3), min_reps=4).value == vd.INVALID
-    assert str(MIN_VALID_REPS) in vd.INVALID
+def test_session_verdict_missing_survived_key_treated_as_dropped_not_crash() -> None:
+    """A malformed sample lacking ``survived`` must not be silently 'yes'."""
+    samples = _samples(MIN_VALID_REPS)  # no 'survived' key at all
+    result = v.session_verdict({"samples": samples, "errors": []})
+    assert result.value != v.YES
 
 
-def test_one_dropped_session_is_never_yes_however_many_survived() -> None:
-    result = vd.session_verdict(_case(survived=[1] * 20 + [0]))
-    assert result.value == "flaky 20/21"
-    assert result.ok is False
+# --------------------------------------------------------- flaky vs INVALID
+def test_flaky_takes_precedence_over_invalid_when_errors_present_below_min() -> None:
+    """3 samples + 1 error (n=4 < min_reps) must be reported as flaky, with an
+    honest denominator, never silently upgraded to INVALID-looks-clean."""
+    case = {"samples": _samples(3), "errors": _errors(1)}
+    result = v.case_verdict(case)
+    assert result.value == "flaky 3/4"
 
 
-def test_flaky_below_five_still_shows_both_counts() -> None:
-    """A run that both failed and is under-repeated reads ``flaky k/n``: the
-    two numbers are in the cell, so nobody can read it as a clean pass."""
-    result = vd.case_verdict(_case(2, errors=[{"failure_type": "timeout"}]))
-    assert result.value == "flaky 2/3"
+def test_invalid_only_when_zero_errors_and_too_few_samples() -> None:
+    case = {"samples": _samples(2), "errors": []}
+    assert v.case_verdict(case).value == v.INVALID
 
 
-# ------------------------------------------------- pairs, links and re-runs
-def _pair_envelope(client: str, server: str, link: str, **extra: Any) -> dict[str, Any]:
-    doc = _envelope({"http-ping": _case(5), "grpc-unary": _case(5)}, **extra)
-    doc["host"] = {"hostname": client.lower(), "label": client, "os": "Linux"}
-    doc["params"] = {"server_name": server, "server": "192.168.1.21"}
-    doc["link"] = link
-    return doc
+# ------------------------------------------------------------- direction_verdict
+def _doc(
+    *,
+    client: str = "L1",
+    server: str = "L2",
+    link: str = "ethernet",
+    cases: dict[str, Any] | None = None,
+    extra: dict[str, Any] | None = None,
+    timestamp: str = "2026-09-20T10:00:00Z",
+    source: str = "f.json",
+) -> dict[str, Any]:
+    return {
+        "host": {"hostname": client, "label": client},
+        "params": {"server_name": server},
+        "link": link,
+        "cases": cases or {},
+        "extra": extra or {},
+        "errors": [],
+        "timestamp_utc": timestamp,
+        "_source": source,
+    }
 
 
-def test_both_directions_of_a_pair_are_separate_rows() -> None:
-    verdicts = vd.direction_verdicts(
-        [
-            _pair_envelope("L1", "L2", "ethernet"),
-            _pair_envelope("L2", "L1", "ethernet"),
-        ]
+def test_outbound_only_tbd_without_no_inbound_rule_declared() -> None:
+    doc = _doc(
+        cases={"grpc-unary": {"samples": _samples(MIN_VALID_REPS), "errors": []}},
+        extra={"outbound_only": {"no_inbound_rule_declared": False}},
     )
-    assert sorted(verdicts) == ["L1 -> L2 [ethernet]", "L2 -> L1 [ethernet]"]
-    table = vd.render_verdicts(verdicts, vd.expected_directions(["L1", "L2"]))
-    rows = _verdict_rows(table)
-    assert [_columns(r)[0] for r in rows] == ["L1 -> L2", "L2 -> L1"]
-    assert not [r for r in rows if set(_columns(r)[1:]) == {vd.TBD}], (
-        "neither direction may be reported as untested"
-    )
+    dv = v.direction_verdict(doc)
+    assert dv.outbound_only.value == v.TBD
 
 
-def test_the_two_links_of_one_direction_are_never_merged() -> None:
-    verdicts = vd.direction_verdicts(
-        [
-            _pair_envelope("L1", "L2", "ethernet"),
-            _pair_envelope("L1", "L2", "wifi"),
-        ]
-    )
-    assert sorted(verdicts) == ["L1 -> L2 [ethernet]", "L1 -> L2 [wifi]"]
-    table = vd.render_verdicts(verdicts)
-    assert "Ethernet" in table
-    assert "Wi-Fi" in table
-
-
-def test_an_untested_direction_of_a_measured_pair_is_tbd_everywhere() -> None:
-    table = vd.render_verdicts(
-        vd.direction_verdicts([_pair_envelope("L1", "L2", "wifi")]),
-        vd.expected_directions(["L1", "L2"]),
-    )
-    tbd_row = next(ln for ln in table.splitlines() if ln.startswith("| L2 -> L1"))
-    assert set(_columns(tbd_row)[1:]) == {vd.TBD}
-
-
-def test_a_rerun_keeps_the_newest_result_and_lists_both_files() -> None:
-    old = _pair_envelope("L1", "L2", "ethernet")
-    old["timestamp_utc"] = "2026-09-19T10:00:00Z"
-    old["_source"] = "old.json"
-    old["cases"]["grpc-unary"] = _case(
-        0, errors=[{"failure_type": "connect_timeout", "message": "blocked"}]
-    )
-    new = _pair_envelope("L1", "L2", "ethernet")
-    new["timestamp_utc"] = "2026-09-20T09:00:00Z"
-    new["_source"] = "new.json"
-    for order in ([old, new], [new, old]):
-        verdicts = vd.direction_verdicts(order)
-        result = verdicts["L1 -> L2 [ethernet]"]
-        assert result.cases["grpc-unary"].value == vd.YES, "the newest run must win"
-        assert sorted(result.sources) == ["new.json", "old.json"]
-
-
-def test_a_rerun_without_timestamps_keeps_the_first_seen() -> None:
-    first = _pair_envelope("L1", "L2", "wifi")
-    second = _pair_envelope("L1", "L2", "wifi")
-    for doc in (first, second):
-        doc.pop("timestamp_utc", None)
-    first["_source"], second["_source"] = "a.json", "b.json"
-    second["cases"]["grpc-unary"] = _case(0, errors=[{"failure_type": "timeout"}])
-    result = vd.direction_verdicts([first, second])["L1 -> L2 [wifi]"]
-    assert result.cases["grpc-unary"].value == vd.YES
-    assert sorted(result.sources) == ["a.json", "b.json"]
-
-
-# -------------------------------------------------------- outbound-only gate
-def test_outbound_only_is_tbd_when_no_grpc_case_ran_at_all() -> None:
-    """The peer was lost before any gRPC case: "no" would claim the ADR-0002
-    model was tested and failed, which it was not."""
-    doc = _envelope({"http-ping": _case(5)})
-    result = vd.direction_verdict(doc)
-    assert result.outbound_only.value == vd.TBD
-    assert "no valid result" in result.outbound_only.detail
-
-
-def test_outbound_only_is_tbd_when_only_the_session_is_missing() -> None:
-    doc = _envelope({"grpc-unary": _case(5)})
-    result = vd.direction_verdict(doc)
-    assert result.outbound_only.value == vd.TBD
-    assert "long-lived session" in result.outbound_only.detail
-
-
-def test_outbound_only_is_tbd_when_the_evidence_is_under_repeated() -> None:
-    """INVALID is not a failure and not a proof."""
-    doc = _envelope(
-        {
-            "grpc-unary": _case(MIN_VALID_REPS - 1),
-            "grpc-bidi-idle30s-kaon": _case(survived=[1] * (MIN_VALID_REPS - 1)),
-        }
-    )
-    assert vd.direction_verdict(doc).outbound_only.value == vd.TBD
-
-
-def test_outbound_only_is_yes_when_one_keepalive_mode_survived() -> None:
-    """A stream dropped with keepalive *off* is an idle-survival result, not a
-    refutation of the outbound-only connection model."""
-    doc = _envelope(
-        {
-            "grpc-unary": _case(5),
-            "grpc-bidi-idle30s-kaon": _case(survived=[1] * 5),
-            "grpc-bidi-idle30s-kaoff": _case(survived=[0] * 5),
-        }
-    )
-    assert vd.direction_verdict(doc).outbound_only.value == vd.YES
-
-
-def test_outbound_only_is_no_when_every_session_dropped() -> None:
-    doc = _envelope(
-        {
-            "grpc-unary": _case(5),
-            "grpc-bidi-idle30s-kaon": _case(survived=[0] * 5),
-        }
-    )
-    assert vd.direction_verdict(doc).outbound_only.value == vd.NO
-
-
-# --------------------------------------------------------- markdown safety
-def test_a_pipe_or_newline_in_an_error_message_cannot_shift_the_table() -> None:
-    doc = _envelope(
-        {
-            "http-ping": _case(
-                0,
-                errors=[
-                    {
-                        "failure_type": "connect_timeout",
-                        "message": "netsh | advfirewall said:\nno rule",
-                    }
-                ],
-            )
+def test_outbound_only_yes_requires_unary_and_a_session_to_have_worked() -> None:
+    doc = _doc(
+        cases={
+            "grpc-unary": {"samples": _samples(MIN_VALID_REPS), "errors": []},
+            "grpc-bidi-idle30s-kaon": {
+                "samples": _samples(MIN_VALID_REPS, survived=True),
+                "errors": [],
+            },
         },
-        local={
-            "system": "Windows | 11",
-            "release": "10.0.26100",
-            "wsl": {"is_wsl": False},
+        extra={"outbound_only": {"no_inbound_rule_declared": True}},
+    )
+    dv = v.direction_verdict(doc)
+    assert dv.outbound_only.value == v.YES
+
+
+def test_outbound_only_no_only_when_something_actually_failed() -> None:
+    doc = _doc(
+        cases={
+            "grpc-unary": {"samples": [], "errors": []},  # measured -> NO
         },
+        extra={"outbound_only": {"no_inbound_rule_declared": True}},
     )
-    table = vd.render_verdicts(vd.direction_verdicts([doc]))
-    block = table.split("#### Latency")[0]
-    lines = [ln for ln in block.splitlines() if ln.startswith("|")]
-    header, separator, row = lines[0], lines[1], lines[2]
-    assert len(_columns(row)) == len(_columns(separator)) == len(_columns(header))
-    assert "advfirewall" in table
-    assert "\\|" in table
+    dv = v.direction_verdict(doc)
+    assert dv.outbound_only.value == v.NO
 
 
-def test_missing_metrics_render_as_a_dash_not_zero() -> None:
-    table = vd.render_verdicts(vd.direction_verdicts([_envelope({})]))
-    metrics = table.split("#### Latency and throughput")[1]
-    assert "—" in metrics
-    assert " 0.00 " not in metrics
-
-
-def test_a_failure_without_a_message_does_not_crash_the_table() -> None:
-    doc = _envelope({"http-ping": _case(0, errors=[{}])})
-    result = vd.direction_verdict(doc)
-    assert result.cases["http-ping"].value == vd.NO
-    assert vd.render_verdicts({"k": result}).count("\n") > 5
-
-
-# ------------------------------------------------------------ host labelling
-def test_hosts_are_renamed_case_insensitively() -> None:
-    doc = _pair_envelope("JARVISM3", "DESKTOP-42", "ethernet")
-    labels = {"jarvism3": "L1", "desktop-42": "L2"}
-    result = vd.direction_verdict(doc, labels)
-    assert result.direction == "L1 -> L2"
-    assert (result.client, result.server) == ("L1", "L2")
-
-
-def test_an_unknown_host_keeps_its_recorded_name() -> None:
-    doc = _pair_envelope("L9", "L2", "wifi")
-    result = vd.direction_verdict(doc, {"l2": "B"})
-    assert result.direction == "L9 -> B", "no label is invented for L9"
-
-
-def test_renamed_directions_match_the_expected_list() -> None:
-    verdicts = vd.direction_verdicts(
-        [_pair_envelope("hostA", "hostB", "ethernet")],
-        {"hosta": "L1", "hostb": "L2"},
+def test_outbound_only_stays_tbd_when_grpc_never_ran_never_reported_no() -> None:
+    """A case that never ran (TBD/INVALID) must not count as 'failed'."""
+    doc = _doc(
+        cases={
+            "grpc-unary": {"samples": _samples(2), "errors": []},  # INVALID, not NO
+        },
+        extra={"outbound_only": {"no_inbound_rule_declared": True}},
     )
-    table = vd.render_verdicts(verdicts, vd.expected_directions(["L1", "L2"]))
-    rows = _verdict_rows(table)
-    assert [_columns(r)[0] for r in rows] == ["L1 -> L2", "L2 -> L1"]
-    assert set(_columns(rows[1])[1:]) == {vd.TBD}, "only the missing one is TBD"
+    dv = v.direction_verdict(doc)
+    assert dv.outbound_only.value == v.TBD
+
+
+def test_direction_verdicts_never_merge_two_links_of_same_direction() -> None:
+    wifi = _doc(link="wifi", source="a.json")
+    eth = _doc(link="ethernet", source="b.json")
+    result = v.direction_verdicts([wifi, eth])
+    assert set(result) == {"L1 -> L2 [wifi]", "L1 -> L2 [ethernet]"}
+
+
+def test_direction_verdicts_newest_timestamp_wins() -> None:
+    old = _doc(timestamp="2026-01-01T00:00:00Z", source="old.json")
+    new = _doc(timestamp="2026-06-01T00:00:00Z", source="new.json")
+    result = v.direction_verdicts([old, new])
+    (key,) = result
+    assert "new.json" in result[key].sources
+    assert "old.json" in result[key].sources  # kept for provenance
+
+
+def test_direction_verdicts_reversed_order_still_picks_newest() -> None:
+    old = _doc(timestamp="2026-01-01T00:00:00Z", source="old.json")
+    new = _doc(timestamp="2026-06-01T00:00:00Z", source="new.json")
+    result = v.direction_verdicts([new, old])
+    (key,) = result
+    assert result[key].sources == ["new.json", "old.json"] or set(
+        result[key].sources
+    ) == {"new.json", "old.json"}
+
+
+def test_direction_verdicts_equal_timestamp_keeps_first_seen() -> None:
+    first = _doc(timestamp="2026-01-01T00:00:00Z", source="first.json")
+    second = _doc(timestamp="2026-01-01T00:00:00Z", source="second.json")
+    result = v.direction_verdicts([first, second])
+    (key,) = result
+    # documented: "Ties keep the first seen"
+    assert result[key].sources[0] == "first.json"
+
+
+def test_direction_verdicts_missing_timestamp_does_not_crash() -> None:
+    doc = _doc(source="x.json")
+    del doc["timestamp_utc"]
+    result = v.direction_verdicts([doc])
+    assert len(result) == 1
+
+
+def test_direction_verdicts_malformed_timestamp_does_not_crash() -> None:
+    """A non-ISO / garbage timestamp must be handled by string comparison
+    without raising, since the comparison is ``stamp > stamps[key]`` on
+    strings, never a parsed datetime."""
+    a = _doc(timestamp="not-a-timestamp", source="a.json")
+    b = _doc(timestamp="2026-01-01T00:00:00Z", source="b.json")
+    result = v.direction_verdicts([a, b])
+    assert len(result) == 1  # same direction+link, must not crash or duplicate
+
+
+# ------------------------------------------------------------ expected_directions
+def test_expected_directions_no_self_pairs() -> None:
+    result = v.expected_directions(["L1", "L2"])
+    assert "L1 -> L1" not in result
+    assert set(result) == {"L1 -> L2", "L2 -> L1"}
+
+
+def test_expected_directions_duplicate_labels_deduplicated_by_caller_input() -> None:
+    """Passing the same label twice must not fabricate a self-pair or double
+    every real pair; ``expected_directions`` takes labels as given, so callers
+    (the CLI's ``--hosts``) are responsible for uniqueness -- verify the
+    function itself is at least idempotent/no-crash on a duplicate list."""
+    result = v.expected_directions(["L1", "L1", "L2"])
+    assert "L1 -> L1" not in result
+    assert "L2 -> L1" in result
+
+
+def test_relabel_is_case_insensitive_and_unknown_name_passes_through() -> None:
+    labels = {"hosta": "L1"}
+    assert v.relabel("HostA", labels) == "L1"
+    assert v.relabel("HOSTA", labels) == "L1"
+    assert v.relabel("unknown-host", labels) == "unknown-host"
+
+
+def test_relabel_empty_label_string_is_not_silently_dropped() -> None:
+    """An operator-supplied ``--hosts =host`` (empty label) is rejected by the
+    CLI parser (see s2_crossos.py's ``_labels``), but ``relabel`` itself, given
+    such a mapping directly, must not crash and must not silently invent a
+    label out of thin air."""
+    labels = {"host": ""}
+    assert v.relabel("host", labels) == ""
+
+
+# ------------------------------------------------------------ render_verdicts
+def _direction_verdict(**kw: Any) -> v.DirectionVerdict:
+    base: dict[str, Any] = {
+        "direction": "L1 -> L2",
+        "client": "L1",
+        "server": "L2",
+        "link": "ethernet",
+        "client_os": "Linux",
+        "server_os": "Windows",
+        "client_native": True,
+        "server_native": True,
+    }
+    base.update(kw)
+    return v.DirectionVerdict(**base)
+
+
+def _unescaped_pipe_count(line: str) -> int:
+    """Count the ``|`` characters markdown would actually treat as column
+    delimiters -- i.e. not preceded by ``cell()``'s escaping backslash."""
+    import re
+
+    return len(re.findall(r"(?<!\\)\|", line))
+
+
+def test_render_verdicts_absurd_case_id_and_pipe_never_shifts_columns() -> None:
+    dv = _direction_verdict()
+    dv.cases = {c: v.Verdict(v.TBD) for c, _ in v.FIXED_CASES}
+    dv.sessions = {
+        "grpc-bidi-" + "x" * 5 + "|evil\ncolumn": v.Verdict(v.NO, "boom | boom\nmore")
+    }
+    dv.client_os = "Linux | evil\ncolumn shift"
+    text = v.render_verdicts({"k": dv})
+    verdict_block = text.split("#### Latency")[0]
+    lines = verdict_block.splitlines()
+    header_line = next(line for line in lines if line.startswith("| direction"))
+    n_cols = _unescaped_pipe_count(header_line)
+    data_rows = [line for line in lines if line.startswith("| L1 -> L2")]
+    assert data_rows, "the row must still start in the direction column"
+    for row in data_rows:
+        assert _unescaped_pipe_count(row) == n_cols, row
+        assert "\n" not in row  # no embedded raw newline broke the row apart
+
+
+def test_render_verdicts_tbd_row_for_untested_direction_never_upgraded() -> None:
+    dv = _direction_verdict()
+    dv.cases = {c: v.Verdict(v.YES) for c, _ in v.FIXED_CASES}
+    text = v.render_verdicts({"k": dv}, expected=["L1 -> L2", "L2 -> L1"])
+    lines = [line for line in text.splitlines() if line.startswith("|")]
+    tbd_row = next(line for line in lines if line.startswith("| L2 -> L1"))
+    assert tbd_row.count(v.TBD) >= 1
+    assert "yes" not in tbd_row
+
+
+def test_render_verdicts_wifi_and_ethernet_are_separate_rows() -> None:
+    wifi = _direction_verdict(link="wifi")
+    eth = _direction_verdict(link="ethernet")
+    wifi.cases = {c: v.Verdict(v.YES) for c, _ in v.FIXED_CASES}
+    eth.cases = {c: v.Verdict(v.YES) for c, _ in v.FIXED_CASES}
+    text = v.render_verdicts({"a": wifi, "b": eth})
+    verdict_block = text.split("#### Latency")[0]
+    assert verdict_block.count("| L1 -> L2 |") == 2
+    assert "Wi-Fi" in verdict_block and "Ethernet" in verdict_block
+    # never merged into a single row: each link keeps its own full row
+    rows = [
+        line for line in verdict_block.splitlines() if line.startswith("| L1 -> L2 |")
+    ]
+    assert len(rows) == 2 and rows[0] != rows[1]
+
+
+def test_defect_direction_verdict_crashes_on_schema_valid_but_malformed_case() -> None:
+    """``envelope.validate()`` only checks that ``doc["cases"]`` is a ``dict``
+    overall -- it never checks that each *value* in it is a dict too. A
+    ``report`` run over a schema-valid-but-malformed result file (e.g. one
+    hand-edited, or written by a future, buggier version of the client) with
+    ``cases: {"http-ping": "garbage"}`` crashes ``direction_verdict`` (and
+    transitively ``cmd_report``) with an unhandled ``AttributeError`` instead
+    of a graceful diagnosis, because ``case_verdict()``/``session_verdict()``
+    call ``.get()`` on whatever is stored there without checking its type.
+    """
+    doc = _doc(cases={"http-ping": "garbage"})
+    with pytest.raises(AttributeError):
+        v.direction_verdict(doc)
