@@ -2,16 +2,17 @@
 
 > Concise current state. Long-term plan: [`DEVELOPMENT_ROADMAP.md`](DEVELOPMENT_ROADMAP.md). Update at the end of every work session.
 
-**Last updated:** 2026-09-15
+**Last updated:** 2026-09-20
 
 ## Current Version
 V0.2 — Lab setup & feasibility validation · **in progress** (started 2026-09-15)
 V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4, 0.1.10)
 
 ## Current Task
-0.2.5 S1 network spike + shared spike harness `[~]` (implementer). 0.2.2 inventory code done (commit `feat(0.2.2)`), waiting for 🧑 runs on all 4 laptops. V0.1: 0.1.4 and 0.1.10 wait only for the 🧑 first real GitHub CI run.
+**0.2.7 S3 transport spike** (implementer run started 2026-09-20; see `SESSION_HANDOFF.md` §2). Then 0.2.6 S2. S1 (0.2.5) and S7 (0.2.11) code is done and committed; both wait for 🧑 runs on the 4 laptops. V0.1: 0.1.4 and 0.1.10 wait only for the 🧑 first real GitHub CI run (remote `origin` added 2026-09-20, push pending).
 
 ## Recently Completed
+- 2026-09-20: 0.2.5 S1 spike + `_harness/` — reviewer APPROVE after fix round 3, commit `ef065ac`; 0.2.11 S7 spike — tester PASS, reviewer APPROVE, commit `8072b9f`; GitHub remote added
 - 0.2.1 (Laptop 1 part): NVIDIA driver fixed by the user — `nvidia-smi` works (RTX 3050 Laptop, 595.91.07, 4 GiB, CC 8.6); `torch.cuda` check still pending ADR-0011/0.2.3
 - 0.2.5 S1 spike: tester PASS round 2; small fix round in progress (host-dependent tests, flaky flood margin, case-insensitive filename collision)
 - 0.2.2 inventory script: tester PASS (round 2), reviewer APPROVE, committed; `[~]` until real 4-laptop runs
@@ -20,7 +21,7 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 - Team accepted ARCHITECTURE v1 and ADRs 0001–0010 (2026-09-15)
 
 ## In Progress
-- 0.2.5 S1 network spike + `lab/spikes/` harness (implementer → tester → reviewer)
+- 0.2.7 S3 transport spike (implementer → tester → reviewer); then 0.2.6 S2 cross-OS (2 failing component tests + ruff format)
 - 🧑 0.2.2 inventory runs on all 4 laptops (commands in lab/README.md; Windows: also confirm no leftover processes after `--timeout 5`)
 - 🧑 GitHub push + CI proof (V0.1 criteria 1–2), steps below
 

@@ -18,7 +18,7 @@ from typing import Any, Final
 from spikes._harness import MIN_VALID_REPS
 from spikes._harness.envelope import host_label
 from spikes._harness.report import fmt, link_name
-from spikes._s3.protocol import format_size
+from spikes._s3.protocol import GRPC_DEFAULT_LIMIT, format_size
 
 #: A transport is "as good as raw TCP" above this share of the baseline.
 GOOD_PCT: Final = 85.0
@@ -115,6 +115,21 @@ def _cell(row: Row | None, value: float | None, stdev: float | None = None) -> s
     return text if row.valid else f"{text} **INVALID (n={row.n})**"
 
 
+def _index(rows: Sequence[Row]) -> dict[tuple[str, int], Row]:
+    """One row per (family, size) for the matrices: never a sweep row (those
+    share the family of the default-chunk row and would overwrite it), and the
+    row with the most valid repetitions when a pair+link was measured twice."""
+    index: dict[tuple[str, int], Row] = {}
+    for row in rows:
+        if row.sweep:
+            continue
+        key = (row.family, row.size)
+        current = index.get(key)
+        if current is None or (row.valid, row.n) > (current.valid, current.n):
+            index[key] = row
+    return index
+
+
 def _matrix(
     rows: Sequence[Row],
     *,
@@ -122,7 +137,7 @@ def _matrix(
     sizes: Sequence[int],
     value: str,
 ) -> list[str]:
-    index = {(r.family, r.size): r for r in rows}
+    index = _index(rows)
     lines = [
         "| transport | " + " | ".join(format_size(s) for s in sizes) + " |",
         "|---" * (len(sizes) + 1) + "|",
@@ -260,25 +275,43 @@ def ceiling_table(envelopes: Sequence[dict[str, Any]]) -> str:
     return "\n".join(blocks) + "\n" if found else ""
 
 
-def _best(rows: Sequence[Row], family: str, size: int) -> Row | None:
+def pick(rows: Sequence[Row], family: str, size: int) -> Row | None:
+    """The *single* row of ``family`` at ``size`` that the verdict reads.
+
+    Sweep rows are excluded (they vary the chunk, so they are not comparable
+    with the raw-TCP baseline measured at the default chunk). If the same
+    pair+link was measured more than once, the row with the most valid
+    repetitions is used - never the best-looking one - and ties keep the first
+    in case-id order.
+    """
     candidates = [
         r
         for r in rows
-        if r.family == family and r.size == size and r.mbps_mean is not None
+        if r.family == family
+        and r.size == size
+        and not r.sweep
+        and r.mbps_mean is not None
     ]
-    return max(candidates, key=lambda r: r.mbps_mean or 0.0) if candidates else None
+    if not candidates:
+        return None
+    return max(candidates, key=lambda r: (r.valid, r.n))
 
 
 def decision_size(rows: Sequence[Row]) -> int:
-    """Largest payload measured for raw TCP, gRPC and HTTP alike (0 if none)."""
+    """Largest payload with a **valid** raw TCP, gRPC and HTTP download (0 if none).
+
+    Only single-stream, non-sweep download rows count: the decision compares
+    one connection of each transport at the same chunk and payload.
+    """
     per_family: dict[str, set[int]] = {}
     for row in rows:
-        if row.sweep or row.mbps_mean is None:
+        if row.sweep or row.mbps_mean is None or not row.valid:
             continue
-        per_family.setdefault(row.family.split("-")[0], set()).add(row.size)
-    if not {"tcp", "grpc", "http"} <= per_family.keys():
+        if row.family in {"tcp-down", "grpc-down", "http-get"}:
+            per_family.setdefault(row.family, set()).add(row.size)
+    if not {"tcp-down", "grpc-down", "http-get"} <= per_family.keys():
         return 0
-    common = per_family["tcp"] & per_family["grpc"] & per_family["http"]
+    common = per_family["tcp-down"] & per_family["grpc-down"] & per_family["http-get"]
     return max(common) if common else 0
 
 
@@ -313,66 +346,9 @@ def _judge(share: float | None, what: str, adr: str) -> str:
     )
 
 
-def verdict(rows: Sequence[Row]) -> str:
-    """The generated answer to ARCHITECTURE §27 Q2 (never hard-coded).
-
-    Single-stream transports are compared with the single-stream raw-TCP
-    baseline; HTTP's parallel ranges are reported separately as a speed-up over
-    a single HTTP GET, because comparing N connections with one would flatter
-    them.
-    """
-    out = ["### Q2 answer (generated from the data above)\n"]
-    size = decision_size(rows)
-    if size == 0:
-        out.append(
-            "TBD: results for raw TCP, gRPC and HTTP at one common payload size are "
-            "missing, so no transport decision can be made yet.\n"
-        )
-        return "\n".join(out)
-    tcp = _best(rows, "tcp-down", size)
-    grpc_row = _best(rows, "grpc-down", size)
-    http_plain = _best(rows, "http-get", size)
-    parallel = _http_parallel_best(rows, size)
-    out.append(
-        f"At {format_size(size)}, receiver throughput (one connection): raw TCP "
-        f"{fmt(tcp.mbps_mean if tcp else None, 0)} Mbit/s (baseline), gRPC "
-        f"{fmt(grpc_row.mbps_mean if grpc_row else None, 0)}, HTTP GET "
-        f"{fmt(http_plain.mbps_mean if http_plain else None, 0)}.\n"
-    )
-    out.append(
-        _judge(
-            _share(grpc_row, tcp), "Tensors over gRPC streams (ADR-0005)", "ADR-0005"
-        )
-    )
-    out.append(
-        _judge(_share(http_plain, tcp), "Blobs over HTTP (ADR-0003)", "ADR-0003")
-    )
-    speedup = _speedup(parallel, http_plain)
-    if speedup is not None and parallel is not None:
-        out.append(
-            f"- {family_name(parallel.family)} move the same payload "
-            f"**x{speedup:.2f}** as fast as a single HTTP GET "
-            f"({fmt(parallel.mbps_mean, 0)} Mbit/s) - this is the parallel, "
-            "resumable chunk fetch ADR-0003 describes."
-        )
-    best_chunk = _best_chunk(rows)
-    if best_chunk is not None:
-        out.append(
-            f"- Best gRPC chunk (message) size measured: **{format_size(best_chunk)}**; "
-            "gRPC's default 4 MB receive limit must be raised for chunks near it."
-        )
-    out.append(
-        "\nRead every number against the loopback ceiling above: where the LAN result "
-        "is within a few percent of the ceiling, the tool (Python, framing, CRC "
-        "verification), not the link, is the limit.\n"
-    )
-    return "\n".join(out)
-
-
-def _http_parallel_best(rows: Sequence[Row], size: int) -> Row | None:
-    families = {r.family for r in rows if r.family.startswith("http-range")}
-    best = [b for b in (_best(rows, f, size) for f in sorted(families)) if b]
-    return max(best, key=lambda r: r.mbps_mean or 0.0) if best else None
+#: Parallel ranges count as a gain / a loss outside this band around x1.00.
+PARALLEL_GAIN_X: Final = 1.10
+PARALLEL_LOSS_X: Final = 0.90
 
 
 def _speedup(row: Row | None, baseline: Row | None) -> float | None:
@@ -386,14 +362,206 @@ def _speedup(row: Row | None, baseline: Row | None) -> float | None:
     return row.mbps_mean / baseline.mbps_mean
 
 
-def _best_chunk(rows: Sequence[Row]) -> int | None:
-    """The fastest gRPC chunk size across every measured pair."""
-    candidates: list[Row] = []
-    for group in _groups(rows).values():
-        candidates += [r for r in sweep_rows(group) if r.mbps_mean is not None]
-    if not candidates:
+def parallel_lines(
+    rows: Sequence[Row], size: int, http_plain: Row | None, tcp: Row | None
+) -> list[str]:
+    """One judgement per HTTP parallel-range family at ``size``.
+
+    N connections are compared with one HTTP GET (the honest baseline for
+    "does splitting into parallel chunks help on this link?") and, for the
+    ADR-0003 decision, also placed against raw TCP. A ratio below x1 is called
+    **slower**, never "x0.8 as fast".
+    """
+    lines: list[str] = []
+    families = sorted({r.family for r in rows if r.family.startswith("http-range")})
+    for family in families:
+        row = pick(rows, family, size)
+        speedup = _speedup(row, http_plain)
+        name = family_name(family)
+        if row is None or speedup is None:
+            lines.append(f"- {name}: TBD (not measured at {format_size(size)}).")
+            continue
+        mbps = fmt(row.mbps_mean, 0)
+        vs_tcp = _share(row, tcp)
+        tcp_text = f"; {vs_tcp:.0f}% of raw TCP" if vs_tcp is not None else ""
+        invalid = "" if row.valid else f" **INVALID (n={row.n})**"
+        if speedup >= PARALLEL_GAIN_X:
+            lines.append(
+                f"- {name}: **x{speedup:.2f} faster** than a single HTTP GET "
+                f"({mbps} Mbit/s{tcp_text}){invalid} - the parallel chunk fetch of "
+                "ADR-0003 pays on this link."
+            )
+        elif speedup > PARALLEL_LOSS_X:
+            lines.append(
+                f"- {name}: **x{speedup:.2f}** of a single HTTP GET ({mbps} "
+                f"Mbit/s{tcp_text}){invalid} - no measurable gain: one connection "
+                "already fills this link; ADR-0003's parallel fetch is worth keeping "
+                "for resumability and multi-holder fetches, not for speed here."
+            )
+        else:
+            lines.append(
+                f"- {name}: **x{speedup:.2f} - slower** than a single HTTP GET "
+                f"({mbps} Mbit/s{tcp_text}){invalid} - the extra connections cost "
+                "more than they gain; ADR-0003 should default to one connection "
+                "per holder on links like this."
+            )
+    return lines
+
+
+#: A runner-up chunk within this share of the best is "not distinguishable".
+CHUNK_TIE_PCT: Final = 5.0
+
+
+def best_chunk(rows: Sequence[Row]) -> Row | None:
+    """The fastest **valid** gRPC chunk of one pair+link's sweep, or ``None``.
+
+    Judged inside one group only: mixing pairs or links would let the fastest
+    link, not the best chunk, win. Needs at least two valid chunks to compare.
+    """
+    valid = [r for r in sweep_rows(rows) if r.valid and r.mbps_mean is not None]
+    if len(valid) < 2:
         return None
-    return max(candidates, key=lambda r: r.mbps_mean or 0.0).chunk
+    return max(valid, key=lambda r: r.mbps_mean or 0.0)
+
+
+def chunk_line(rows: Sequence[Row]) -> str | None:
+    """The generated "best gRPC chunk" sentence for one pair+link (or ``None``)."""
+    best = best_chunk(rows)
+    if best is None:
+        return None
+    others = [
+        r
+        for r in sweep_rows(rows)
+        if r is not best and r.valid and r.mbps_mean is not None
+    ]
+    listing = ", ".join(f"{format_size(r.chunk)} {fmt(r.mbps_mean, 0)}" for r in others)
+    runner_up = max(others, key=lambda r: r.mbps_mean or 0.0)
+    gap = 100.0 * (1 - (runner_up.mbps_mean or 0.0) / (best.mbps_mean or 1.0))
+    text = (
+        f"- Best gRPC chunk (message) size at {format_size(best.size)}: "
+        f"**{format_size(best.chunk)}** ({fmt(best.mbps_mean, 0)} Mbit/s; "
+        f"others: {listing})"
+    )
+    if gap <= CHUNK_TIE_PCT:
+        text += (
+            f" - {format_size(runner_up.chunk)} is within {gap:.0f}%, so the two "
+            "are not distinguishable at this n"
+        )
+    if best.chunk >= GRPC_DEFAULT_LIMIT:
+        text += (
+            "; this is exactly gRPC's default 4 MB message limit - anything larger "
+            "needs `max_receive_message_length` raised on the receiver (see the "
+            "limit probe)"
+        )
+    return text + "."
+
+
+def group_verdict(pair: str, link: str, rows: Sequence[Row]) -> list[str]:
+    """The Q2 lines for one pair+link (``TBD`` where data is missing)."""
+    title = f"**{pair} · {link_name(link)}**"
+    size = decision_size(rows)
+    if size == 0:
+        return [
+            f"{title}: TBD - no payload size has a valid (n >= {MIN_VALID_REPS}) raw "
+            "TCP, gRPC and HTTP download alike, so no transport decision can be "
+            "made from this run.\n"
+        ]
+    tcp = pick(rows, "tcp-down", size)
+    grpc_row = pick(rows, "grpc-down", size)
+    http_plain = pick(rows, "http-get", size)
+    lines = [
+        f"{title} - at {format_size(size)}, receiver throughput over one connection: "
+        f"raw TCP {fmt(tcp.mbps_mean if tcp else None, 0)} Mbit/s (baseline), gRPC "
+        f"{fmt(grpc_row.mbps_mean if grpc_row else None, 0)}, HTTP GET "
+        f"{fmt(http_plain.mbps_mean if http_plain else None, 0)}.\n",
+        _judge(
+            _share(grpc_row, tcp), "Tensors over gRPC streams (ADR-0005)", "ADR-0005"
+        ),
+        _judge(_share(http_plain, tcp), "Blobs over HTTP (ADR-0003)", "ADR-0003"),
+    ]
+    lines += parallel_lines(rows, size, http_plain, tcp)
+    chunk = chunk_line(rows)
+    if chunk is not None:
+        lines.append(chunk)
+    lines.append("")
+    return lines
+
+
+def verdict(rows: Sequence[Row]) -> str:
+    """The generated answer to ARCHITECTURE §27 Q2 (never hard-coded).
+
+    One block per measured pair and link: numbers from different laptops or
+    links are never mixed into one "best". Single-stream transports are
+    compared with the single-stream raw-TCP baseline at the same payload and
+    chunk; HTTP's parallel ranges are judged against a single HTTP GET
+    (faster / no gain / slower) and placed against raw TCP; the gRPC chunk
+    sweep names the best chunk per group, valid rows only.
+    """
+    out = ["### Q2 answer (generated from the data above)\n"]
+    groups = _groups(rows)
+    if not groups:
+        out.append("TBD: no S3 results, so no transport decision can be made yet.\n")
+        return "\n".join(out)
+    for (pair, link), group in groups.items():
+        out += group_verdict(pair, link, group)
+    out.append(
+        "Read every number against the loopback ceiling above: where the LAN result "
+        "is within a few percent of the ceiling, the tool (Python, framing, CRC "
+        "verification), not the link, is the limit.\n"
+    )
+    return "\n".join(out)
+
+
+def _probe_outcome(shot: dict[str, Any] | None, expected_ok: bool) -> str:
+    if not isinstance(shot, dict):
+        return "TBD"
+    if shot.get("ok"):
+        return "passed" + ("" if expected_ok else " (unexpected)")
+    text = f"refused - {shot.get('failure_type')}: {shot.get('error')}"
+    return text if not expected_ok else text + " (unexpected)"
+
+
+def probe_table(envelopes: Sequence[dict[str, Any]]) -> str:
+    """4 MiB gRPC messages at, and one byte over, gRPC's default 4 MB limit."""
+    lines: list[str] = []
+    for doc in envelopes:
+        probe = (doc.get("extra") or {}).get("grpc_default_limit_probe")
+        if not isinstance(probe, dict):
+            continue
+        params = doc.get("params") or {}
+        who = f"{host_label(doc)} -> {params.get('server_name', '?')}"
+        at_limit = probe.get("at_default_limit") or {
+            k: probe.get(k) for k in ("ok", "failure_type", "error")
+        }
+        lines.append(
+            f"| {who} | {format_size(int(probe.get('chunk_bytes') or 0))} | "
+            f"{probe.get('default_limit_bytes')} (default) | "
+            f"{_probe_outcome(at_limit, expected_ok=True)} |"
+        )
+        over = probe.get("over_limit")
+        if isinstance(over, dict):
+            lines.append(
+                f"| {who} | {format_size(int(probe.get('chunk_bytes') or 0))} | "
+                f"{over.get('limit_bytes')} (one byte under) | "
+                f"{_probe_outcome(over, expected_ok=False)} |"
+            )
+    if not lines:
+        return ""
+    return (
+        "\n".join(
+            [
+                "### gRPC message-limit probe (one shot each, not a measurement)\n",
+                "gRPC's default `max_receive_message_length` is 4 MB = 4194304 bytes "
+                "and inclusive, so a 4 MiB message is expected to pass; the second "
+                "row records the exact refusal for a message larger than the limit.\n",
+                "| client -> server | message | receiver limit (bytes) | outcome |",
+                "|---|---|---|---|",
+                *lines,
+                "",
+            ]
+        )
+        + "\n"
+    )
 
 
 def render_tables(envelopes: Sequence[dict[str, Any]]) -> str:
@@ -404,6 +572,7 @@ def render_tables(envelopes: Sequence[dict[str, Any]]) -> str:
         sweep_table(rows),
         cpu_tables(rows),
         ceiling_table(envelopes),
+        probe_table(envelopes),
         verdict(rows),
     ]
     return "\n".join(part for part in parts if part)

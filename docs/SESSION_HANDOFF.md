@@ -30,18 +30,32 @@
 
 ## 2. In flight right now (uncommitted work in the working tree)
 
-Two agent tasks were **interrupted by a usage limit** on 2026-09-19 with their code largely
-written but unfinished. Nothing is lost; it is all in the working tree (and in the WIP commit
-that follows this file). Resume them in this order:
+**Exact next task: 0.2.7 S3 transport.** On 2026-09-20 the Lead launched an `implementer`
+run for S3 (prompt: read `_s3/`, fix the two known bugs below, write unit + component tests,
+real loopback run, write `lab/spikes/S3.md` + README subsection, all gates). If you find
+uncommitted S3 test files or `S3.md` in the tree, that run was cut off mid-way — check
+`git status`, run the S3 gates, and continue from whatever is missing. If the tree is clean,
+start the implementer run again with the same brief. Then `tester` → `reviewer` → commit
+`feat(0.2.7)` → mark `[~]` in the roadmap with evidence. After S3, do S2 the same way.
+
+Two spikes remain from the 2026-09-19 usage-limit interruption. Their code is in commit
+`b039b0f`; all S1 and S7 work is now finished and committed (`ef065ac`, `8072b9f`).
 
 | Task | State | What is missing |
 |---|---|---|
 | **0.2.7 S3 transport** (`s3_transport.py`, `_s3/`) | code written, **no tests yet**, interrupted while fixing the report's "best chunk" bug and the verdict wording for parallel ranges | write unit + component tests, `lab/spikes/S3.md`, finish those two fixes; then tester + reviewer. |
 | **0.2.6 S2 cross-OS** (`s2_crossos.py`, `_s2/`) | code + most unit tests written, interrupted during verdict aggregation + CLI tests | finish those tests, write `lab/spikes/S2.md`; then tester + reviewer. |
 
-**Gate state of the working tree (measured 2026-09-20):** `pytest -m unit` → 1229 passed,
-1 skipped, 2 xfailed. `ruff check` → 3 errors (2 × E501 above + 1 fixable). `mypy` → 1 error
-(psutil stubs). `lint-imports` → clean. So the tree is close to green, not green.
+**Gate state (measured 2026-09-20 after S7 commit):** `ruff check` clean, `mypy` clean,
+`pytest -m unit` 1315+ passed, `pytest tests/unit/lab -k "s7 or spike"` 280 passed.
+Known pre-existing S2 issues (S2 owner fixes them): `tests/unit/lab/test_s2_verdict.py` fails
+`ruff format --check`; `tests/component/lab/test_s2_crossos.py` has 1 failure
+(`test_session_counts_server_initiated_beats`: 0 server beats) and 1 error
+(`test_peer_vanishing_mid_stream_is_recorded_not_hung`: subprocess pids not freed).
+
+**Harness change from S1 round 3 that S2/S3 must respect:** envelope `link` may be `None`
+(n/a); `load_dir` skip reasons carry only `path.name`; use `envelope.sanitize_text()` on any
+extra markdown; `report.cell()` escapes `|`.
 
 **File ownership while several agents run:** each spike owns only its own paths
 (`lab/spikes/<sN>_*.py`, `lab/spikes/_sN/`, `tests/**/test_sN_*.py`, `lab/spikes/SN.md`).

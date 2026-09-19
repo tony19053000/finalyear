@@ -112,6 +112,8 @@ class FailureType(StrEnum):
     SHORT_TRANSFER = "short_transfer"
     CHECKSUM_MISMATCH = "checksum_mismatch"
     NO_STATS = "no_stats"
+    #: grpcio is not importable on this side (or the server runs without it)
+    GRPC_UNAVAILABLE = "grpc_unavailable"
 
 
 #: After one of these the rest of the case is skipped and the server re-checked.
@@ -227,13 +229,15 @@ def peer_host(peer: str) -> str | None:
     """Host part of a gRPC ``context.peer()`` string, or ``None`` if unknown.
 
     ``ipv4:10.0.0.2:53422`` -> ``10.0.0.2``; ``ipv6:[::1]:53422`` -> ``::1``.
+    gRPC percent-encodes the ``%`` of an IPv6 scope id (``%25eth0``), which is
+    undone so ``ipaddress`` can parse a link-local peer.
     """
     scheme, _, rest = peer.partition(":")
     if scheme not in {"ipv4", "ipv6"} or not rest:
         return None
     if rest.startswith("["):
         host, sep, _ = rest[1:].partition("]")
-        return host if sep else None
+        return host.replace("%25", "%") if sep else None
     if ":" not in rest:
         return rest
     host, _, _port = rest.rpartition(":")

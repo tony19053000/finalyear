@@ -37,12 +37,13 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any, Final
 
-import grpc
-
 from spikes._s3 import payload
+from spikes._s3.grpc_server import GRPC_IMPORT_ERROR, identity_bytes, require_grpc
 from spikes._s3.grpc_server import decode as decode_json
 from spikes._s3.grpc_server import encode as encode_json
-from spikes._s3.grpc_server import identity_bytes
+
+if GRPC_IMPORT_ERROR is None:
+    import grpc
 from spikes._s3.meters import ClientMeter, peak_rss_mib
 from spikes._s3.protocol import (
     GRPC_DOWNLOAD,
@@ -311,6 +312,12 @@ def tcp_upload(ep: Endpoint, size: int, chunk: int) -> dict[str, Any]:
 
 # ----------------------------------------------------------------- gRPC
 def _grpc_channel(ep: Endpoint, limit: int) -> grpc.Channel:
+    """A channel to the server's gRPC port; typed failure when either side lacks gRPC."""
+    require_grpc("grpc client")
+    if ep.grpc_port <= 0:
+        raise TransferError(
+            FailureType.GRPC_UNAVAILABLE, "server does not serve gRPC (port 0 in hello)"
+        )
     return grpc.insecure_channel(
         grpc_target(ep.host, ep.grpc_port),
         options=[
@@ -551,7 +558,6 @@ def http_download(
                 thread.start()
             for thread in threads:
                 thread.join(timeout=ep.transfer_timeout_s + ep.io_timeout_s)
-            meter.stop()
             alive = [t for t in threads if t.is_alive()]
             if alive:
                 raise TransferError(

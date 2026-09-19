@@ -219,7 +219,10 @@ class S3HttpServer(ThreadingHTTPServer):
     def __init__(self, bind: str, port: int, ctx: ServerContext) -> None:
         self.ctx = ctx
         self.address_family = family_of(bind)
-        self._active = 0
+        #: sockets admitted by :meth:`verify_request` and not yet shut down; the
+        #: cap counts these, so a *refused* connection (which socketserver also
+        #: passes to ``shutdown_request``) never frees a slot it never held
+        self._active: set[int] = set()
         self._active_lock = threading.Lock()
         bound_ctx = ctx
 
@@ -241,17 +244,22 @@ class S3HttpServer(ThreadingHTTPServer):
             self.ctx.say(f"http: refused non-LAN peer {peer}")
             return False
         with self._active_lock:
-            if self._active >= self.ctx.limits.max_connections:
+            if len(self._active) >= self.ctx.limits.max_connections:
                 self.ctx.count("refused_busy")
                 return False
-            self._active += 1
+            self._active.add(id(request))
         self.ctx.count("accepted")
         self.ctx.touch()
         return True
 
+    @property
+    def active_connections(self) -> int:
+        with self._active_lock:
+            return len(self._active)
+
     def shutdown_request(self, request: Any) -> None:
         with self._active_lock:
-            self._active = max(0, self._active - 1)
+            self._active.discard(id(request))
         super().shutdown_request(request)
 
     def handle_error(self, request: Any, client_address: Any) -> None:

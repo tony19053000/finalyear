@@ -20,16 +20,17 @@ import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Final
+from typing import Final
 
 from spikes._harness.atomic import atomic_write_text
 from spikes._s3.context import ServerContext, ServerLimits
-from spikes._s3.grpc_server import build_grpc_server, stop_grpc_server
+from spikes._s3.grpc_server import GRPC_IMPORT_ERROR, GrpcHost, build_grpc_server
 from spikes._s3.http_server import S3HttpServer
 from spikes._s3.protocol import (
     GRPC_PORT_OFFSET,
     HTTP_PORT_OFFSET,
     MAX_CHUNK_BYTES,
+    TransferError,
     grpc_limit,
 )
 from spikes._s3.tcp_server import TcpServer
@@ -60,8 +61,10 @@ class S3Server:
         )
         self.tcp = TcpServer(bind, port, self.ctx)
         self._http: S3HttpServer | None = None
-        self._grpc: Any = None
+        self._grpc: GrpcHost | None = None
         self.ports: dict[str, int] = {}
+        #: why gRPC is not served (``None`` when it is); reported in ``hello``
+        self.grpc_error: str | None = GRPC_IMPORT_ERROR
         self.stop_reason: str | None = None
         self._opened = False
 
@@ -70,27 +73,33 @@ class S3Server:
         """Bind all three transports. Raises ``OSError``; nothing leaks on failure.
 
         With ``--port 0`` each transport gets an arbitrary free port (the +1/+2
-        convention only applies to an explicit port).
+        convention only applies to an explicit port); clients read the real
+        ports from ``hello``. Without grpcio the gRPC port is ``0`` and
+        :attr:`grpc_error` says why; raw TCP and HTTP are served regardless.
         """
-        opened: list[Any] = []
         try:
             tcp_port = self.tcp.open()
-            opened.append(self.tcp)
             grpc_port = 0 if self.requested_port == 0 else tcp_port + GRPC_PORT_OFFSET
             http_port = 0 if self.requested_port == 0 else tcp_port + HTTP_PORT_OFFSET
-            self._grpc, grpc_port = build_grpc_server(
-                self.bind,
-                grpc_port,
-                self.ctx,
-                max_message_bytes=grpc_limit(MAX_CHUNK_BYTES),
-            )
+            try:
+                self._grpc = build_grpc_server(
+                    self.bind,
+                    grpc_port,
+                    self.ctx,
+                    max_message_bytes=grpc_limit(MAX_CHUNK_BYTES),
+                )
+                grpc_port = self._grpc.port
+            except TransferError as exc:
+                self.grpc_error = str(exc)
+                self.ctx.note_error(str(exc))
+                grpc_port = 0
             self._http = S3HttpServer(self.bind, http_port, self.ctx)
-            opened.append(self._http)
         except OSError:
             self._close_all()
             raise
         self.ports = {"tcp": tcp_port, "grpc": grpc_port, "http": self._http.port}
         self.tcp.ports = dict(self.ports)
+        self.tcp.grpc_error = self.grpc_error
         self._opened = True
         return dict(self.ports)
 
@@ -137,7 +146,7 @@ class S3Server:
         self.ctx.stopping.set()
         if self._grpc is not None:
             with contextlib.suppress(OSError, RuntimeError):
-                stop_grpc_server(self._grpc)
+                self._grpc.stop()
             self._grpc = None
         if self._http is not None:
             self._http.close()

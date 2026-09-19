@@ -10,6 +10,11 @@ measuring is gRPC's HTTP/2 framing, flow control and copies, not protobuf.
 
 Requests and results are UTF-8 JSON in a single ``bytes`` message, matching the
 raw-TCP control protocol, so all three transports answer the same questions.
+
+``grpcio`` is a core dependency, but the spike must never *crash* without it: the
+import is optional, :data:`GRPC_IMPORT_ERROR` records why it failed, and the
+server then runs raw TCP + HTTP only while every gRPC case on the client is a
+typed ``grpc_unavailable`` failure.
 """
 
 from __future__ import annotations
@@ -19,22 +24,46 @@ from collections.abc import Iterator
 from concurrent import futures
 from typing import Any, Final
 
-import grpc
-
 from spikes._s3 import payload
 from spikes._s3.context import ServerContext
 from spikes._s3.protocol import (
     GRPC_SERVICE,
+    FailureType,
     Message,
     ProtocolError,
+    TransferError,
     grpc_target,
     is_lan_address,
     peer_host,
     transfer_request,
 )
 
+#: ``None`` when grpcio imported; otherwise the reason (a short, path-free text).
+GRPC_IMPORT_ERROR: str | None = None
+try:
+    import grpc
+except ImportError as _exc:  # pragma: no cover - grpcio is a core dependency
+    GRPC_IMPORT_ERROR = f"grpcio is not installed ({type(_exc).__name__}: {_exc})"
+
 MAX_WORKERS: Final = 8
 _GRACE_S: Final = 2.0
+
+
+def grpc_available() -> bool:
+    return GRPC_IMPORT_ERROR is None
+
+
+def grpc_version() -> str | None:
+    """Installed grpcio version, ``None`` without grpcio."""
+    return None if GRPC_IMPORT_ERROR else str(grpc.__version__)
+
+
+def require_grpc(doing: str) -> None:
+    """Raise the typed, non-fatal ``grpc_unavailable`` failure without grpcio."""
+    if GRPC_IMPORT_ERROR is not None:
+        raise TransferError(
+            FailureType.GRPC_UNAVAILABLE, f"{doing}: {GRPC_IMPORT_ERROR}"
+        )
 
 
 def identity_bytes(value: bytes) -> bytes:
@@ -93,6 +122,10 @@ class TransportService:
                     break
                 yield bytes(view)
                 sent += len(view)
+        except GeneratorExit:
+            # the peer cancelled or vanished: gRPC closes the response generator
+            error = "cancelled by the peer"
+            raise
         except grpc.RpcError as exc:  # pragma: no cover - peer vanished
             error = f"RpcError: {exc}"
         finally:
@@ -145,13 +178,38 @@ class TransportService:
         )
 
 
+class GrpcHost:
+    """A bound gRPC server plus the worker pool it runs on (stopped together).
+
+    ``grpc.server`` does not own its executor, so stopping the server alone
+    would leave the pool's threads alive; :meth:`stop` shuts both down and
+    joins, which is what "no leftover threads" tests check.
+    """
+
+    def __init__(
+        self, server: grpc.Server, executor: futures.ThreadPoolExecutor, port: int
+    ) -> None:
+        self.server = server
+        self.executor = executor
+        self.port = port
+
+    def start(self) -> None:
+        self.server.start()
+
+    def stop(self, grace_s: float = _GRACE_S) -> None:
+        self.server.stop(grace_s).wait(timeout=grace_s + 1.0)
+        self.executor.shutdown(wait=True, cancel_futures=True)
+
+
 def build_grpc_server(
     bind: str, port: int, ctx: ServerContext, *, max_message_bytes: int
-) -> tuple[grpc.Server, int]:
-    """A bound (not started) gRPC server and the port it listens on.
+) -> GrpcHost:
+    """A bound (not started) gRPC server on the port it listens on.
 
-    Raises ``OSError`` when the port cannot be bound, like the other transports.
+    Raises ``OSError`` when the port cannot be bound, like the other transports,
+    and :class:`TransferError` (``grpc_unavailable``) without grpcio.
     """
+    require_grpc("grpc server")
     service = TransportService(ctx)
     handlers: dict[str, grpc.RpcMethodHandler[Any, Any]] = {
         "Download": grpc.unary_stream_rpc_method_handler(
@@ -165,8 +223,11 @@ def build_grpc_server(
             response_serializer=identity_bytes,
         ),
     }
+    executor = futures.ThreadPoolExecutor(
+        max_workers=MAX_WORKERS, thread_name_prefix="s3-grpc"
+    )
     server = grpc.server(
-        futures.ThreadPoolExecutor(max_workers=MAX_WORKERS),
+        executor,
         handlers=[grpc.method_handlers_generic_handler(GRPC_SERVICE, handlers)],
         options=[
             ("grpc.max_receive_message_length", max_message_bytes),
@@ -177,9 +238,6 @@ def build_grpc_server(
     )
     bound = server.add_insecure_port(grpc_target(bind, port))
     if bound == 0:
+        executor.shutdown(wait=False)
         raise OSError(f"cannot bind gRPC to {grpc_target(bind, port)}")
-    return server, bound
-
-
-def stop_grpc_server(server: grpc.Server, grace_s: float = _GRACE_S) -> None:
-    server.stop(grace_s).wait(timeout=grace_s + 1.0)
+    return GrpcHost(server, executor, bound)

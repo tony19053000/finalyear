@@ -21,8 +21,6 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Final
 
-import grpc
-
 from spikes._harness import MIN_VALID_REPS
 from spikes._harness.envelope import interpreter, make_envelope
 from spikes._harness.reps import CaseResult, RepError, Sample, run_reps
@@ -36,6 +34,7 @@ from spikes._s3.client import (
     tcp_download,
     tcp_upload,
 )
+from spikes._s3.grpc_server import grpc_version
 from spikes._s3.protocol import (
     CHUNK_SWEEP,
     DEFAULT_CHUNK_BYTES,
@@ -47,6 +46,7 @@ from spikes._s3.protocol import (
     MIB,
     PROTOCOL,
     FailureType,
+    Message,
     TransferError,
     format_size,
     select_sizes,
@@ -92,6 +92,7 @@ class ClientConfig:
 
     @property
     def endpoint(self) -> Endpoint:
+        """The endpoint before ``hello``: the +1/+2 port convention."""
         return Endpoint(
             self.server,
             self.port,
@@ -102,9 +103,36 @@ class ClientConfig:
             self.transfer_timeout_s,
         )
 
+    def endpoint_from_hello(self, reply: Message) -> Endpoint:
+        """The endpoint with the ports the server *actually* listens on.
+
+        A server started with ``--port 0`` (tests, the loopback ceiling) has
+        arbitrary gRPC/HTTP ports, and a server without grpcio reports ``0`` for
+        gRPC; the ``hello`` reply is the truth, the +1/+2 convention the default.
+        """
+        ports = reply.get("ports")
+        base = self.endpoint
+        if not isinstance(ports, dict):
+            return base
+        return Endpoint(
+            base.host,
+            base.tcp_port,
+            _port_or(ports.get("grpc"), base.grpc_port),
+            _port_or(ports.get("http"), base.http_port),
+            base.connect_timeout_s,
+            base.io_timeout_s,
+            base.transfer_timeout_s,
+        )
+
     @property
     def selected_sizes(self) -> tuple[int, ...]:
         return select_sizes(self.sizes, self.max_size)
+
+
+def _port_or(value: object, default: int) -> int:
+    if isinstance(value, int) and not isinstance(value, bool) and 0 <= value < 65536:
+        return value
+    return default
 
 
 @dataclass(slots=True)
@@ -227,19 +255,10 @@ def _chunk_sweep_cases(cfg: ClientConfig) -> list[Case]:
     return out
 
 
-def grpc_default_limit_probe(cfg: ClientConfig) -> dict[str, Any]:
-    """Does a 4 MiB gRPC message pass with gRPC's *default* limits? (Expected: no.)
-
-    One shot, not a measurement: it records the exact error the fabric would hit
-    if it streamed tensor chunks larger than 4 MB without raising the limit.
-    """
-    chunk = 4 * MIB
-    result: dict[str, Any] = {
-        "chunk_bytes": chunk,
-        "default_limit_bytes": GRPC_DEFAULT_LIMIT,
-    }
+def _probe_shot(endpoint: Endpoint, chunk: int, limit: int) -> dict[str, Any]:
+    result: dict[str, Any] = {"limit_bytes": limit}
     try:
-        grpc_download(cfg.endpoint, 8 * MIB, chunk, limit=GRPC_DEFAULT_LIMIT)
+        grpc_download(endpoint, 2 * chunk, chunk, limit=limit)
     except TransferError as exc:
         return {
             **result,
@@ -247,14 +266,38 @@ def grpc_default_limit_probe(cfg: ClientConfig) -> dict[str, Any]:
             "failure_type": str(exc.failure_type),
             "error": str(exc),
         }
-    except grpc.RpcError as exc:  # pragma: no cover - defensive
-        return {
-            **result,
-            "ok": False,
-            "failure_type": "transport_error",
-            "error": str(exc),
-        }
-    return {**result, "ok": True, "error": None}
+    return {**result, "ok": True, "failure_type": None, "error": None}
+
+
+def grpc_default_limit_probe(endpoint: Endpoint) -> dict[str, Any]:
+    """What gRPC's *default* 4 MB message limit does to 4 MiB messages.
+
+    One shot each, not a measurement. gRPC's default
+    ``max_receive_message_length`` is 4 MB = 4 MiB = 4194304 bytes and the check
+    is inclusive, so ``at_default_limit`` is expected to **pass** (the largest
+    chunk this spike sends is exactly 4 MiB); ``over_limit`` lowers the client's
+    limit by one byte to record the exact error the fabric would hit when a
+    tensor chunk is larger than the receiver's limit (expected: refused with
+    ``transport_error`` / RESOURCE_EXHAUSTED). ``ok`` is the first shot's result;
+    ``failure_type``/``error`` belong to it as well (``grpc_unavailable`` when
+    either side has no gRPC).
+    """
+    chunk = 4 * MIB
+    at_limit = _probe_shot(endpoint, chunk, GRPC_DEFAULT_LIMIT)
+    over = (
+        _probe_shot(endpoint, chunk, GRPC_DEFAULT_LIMIT - 1)
+        if at_limit["failure_type"] != str(FailureType.GRPC_UNAVAILABLE)
+        else {**at_limit, "limit_bytes": GRPC_DEFAULT_LIMIT - 1}
+    )
+    return {
+        "chunk_bytes": chunk,
+        "default_limit_bytes": GRPC_DEFAULT_LIMIT,
+        "ok": at_limit["ok"],
+        "failure_type": at_limit["failure_type"],
+        "error": at_limit["error"],
+        "at_default_limit": at_limit,
+        "over_limit": over,
+    }
 
 
 def _progress(log: Log, case_id: str) -> Callable[[str, int, Sample | RepError], None]:
@@ -273,9 +316,9 @@ def _progress(log: Log, case_id: str) -> Callable[[str, int, Sample | RepError],
     return on_rep
 
 
-def _still_there(cfg: ClientConfig) -> TransferError | None:
+def _still_there(endpoint: Endpoint) -> TransferError | None:
     try:
-        hello(cfg.endpoint)
+        hello(endpoint)
     except TransferError as exc:
         return exc
     return None
@@ -314,17 +357,25 @@ def run_client(
     if reply is not None:
         server_name = str(reply.get("name") or reply["hostname"])
         server_info = {
-            k: reply.get(k) for k in ("hostname", "name", "os", "peer", "ports")
+            k: reply.get(k)
+            for k in ("hostname", "name", "os", "peer", "ports", "grpc_error")
         }
+        endpoint = cfg.endpoint_from_hello(reply)
         log(
             f"server {cfg.server}:{cfg.port} is {server_name} ({reply.get('os')}), "
-            f"ports {reply.get('ports')}"
+            f"ports tcp {endpoint.tcp_port}, grpc {endpoint.grpc_port}, "
+            f"http {endpoint.http_port}"
         )
-        cases = _run_cases(cfg, plan, errors, log)
-        probe = grpc_default_limit_probe(cfg)
+        if reply.get("grpc_error"):
+            log(f"server has no gRPC: {reply['grpc_error']}")
+        cases = _run_cases(cfg, plan, endpoint, errors, log)
+        probe = grpc_default_limit_probe(endpoint)
+        over = probe["over_limit"]
         log(
-            "gRPC default 4 MB limit probe: "
-            + ("passed (unexpected)" if probe["ok"] else f"refused: {probe['error']}")
+            "gRPC 4 MiB message at the default 4 MB limit: "
+            + ("passed" if probe["ok"] else f"refused: {probe['error']}")
+            + "; one byte over the limit: "
+            + ("passed (unexpected)" if over["ok"] else f"refused: {over['error']}")
         )
     complete = (
         not errors
@@ -375,7 +426,7 @@ def run_client(
             "name": "lab/spikes/s3_transport.py",
             "protocol": PROTOCOL,
             "interpreter": interpreter(),
-            "grpc": grpc.__version__,
+            "grpc": grpc_version(),
         },
         now=now,
     )
@@ -383,10 +434,13 @@ def run_client(
 
 
 def _run_cases(
-    cfg: ClientConfig, plan: list[Case], errors: list[dict[str, Any]], log: Log
+    cfg: ClientConfig,
+    plan: list[Case],
+    endpoint: Endpoint,
+    errors: list[dict[str, Any]],
+    log: Log,
 ) -> list[CaseResult]:
     cases: list[CaseResult] = []
-    endpoint = cfg.endpoint
     for index, case in enumerate(plan):
         log(f"{case.case_id}: {case.label} ({cfg.warmup} warmup + {cfg.reps} reps)")
         result = run_reps(
@@ -403,7 +457,7 @@ def _run_cases(
         cases.append(result)
         if not result.aborted:
             continue
-        gone = _still_there(cfg)
+        gone = _still_there(endpoint)
         if gone is None:
             log(f"{case.case_id} aborted after a fatal error; server still answers")
             continue

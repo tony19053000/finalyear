@@ -45,6 +45,8 @@ class TcpServer:
         self.ctx = ctx
         #: filled in by :class:`~spikes._s3.server.S3Server` once all ports are known
         self.ports: dict[str, int] = {}
+        #: why gRPC is not served on this host (``None`` when it is)
+        self.grpc_error: str | None = None
         self._sock: socket.socket | None = None
         self._threads: list[threading.Thread] = []
         self._conns: set[socket.socket] = set()
@@ -194,6 +196,7 @@ class TcpServer:
             "os": platform.system(),
             "peer": peer,
             "ports": dict(self.ports),
+            "grpc_error": self.grpc_error,
         }
 
     def _download(self, conn: socket.socket, msg: Message) -> None:
