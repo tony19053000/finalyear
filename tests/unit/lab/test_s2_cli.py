@@ -6,14 +6,18 @@ invocation exits before a socket is opened."""
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
 
 from spikes import s2_crossos as cli
+from spikes._harness import MIN_VALID_REPS
 from spikes._harness.envelope import make_envelope, write_envelope
 from spikes._harness.reps import CaseResult
+from spikes._s2.run import ClientRun
+from spikes._s2.verdict import INVALID
 
 _NATIVE = {
     "platform": "linux",
@@ -327,3 +331,254 @@ def test_client_config_estimate_is_sane() -> None:
     )
     minutes = cfg.estimated_seconds() / 60
     assert 15 < minutes < 45
+
+
+# ------------------------------------------- report: pairs, links, re-runs
+def _result(
+    directory: Path,
+    client: str,
+    server: str,
+    *,
+    link: str = "ethernet",
+    survived: int = 1,
+    reps: int = 5,
+    when: datetime = datetime(2026, 9, 19, tzinfo=UTC),
+    file_name: str | None = None,
+) -> Path:
+    """One S2 result file, written the way ``client`` writes it."""
+    cases = [
+        CaseResult(
+            case_id="http-ping",
+            label="ping",
+            metrics={"ttfb_ms": "ms"},
+            requested_reps=reps,
+            samples=[{"ttfb_ms": 1.0} for _ in range(reps)],
+        ),
+        CaseResult(
+            case_id="grpc-unary",
+            label="unary",
+            metrics={"rtt_ms": "ms"},
+            requested_reps=reps,
+            samples=[{"rtt_ms": 2.0} for _ in range(reps)],
+        ),
+        CaseResult(
+            case_id="grpc-bidi-idle30s-kaon",
+            label="bidi",
+            metrics={"survived": "0/1"},
+            requested_reps=reps,
+            samples=[
+                {
+                    "survived": survived,
+                    "failure": None
+                    if survived
+                    else {"message": "idle drop", "fix": "keepalive on"},
+                }
+                for _ in range(reps)
+            ],
+        ),
+    ]
+    doc = make_envelope(
+        spike="S2",
+        topic="S2-crossos",
+        link=link,
+        params={"server_name": server, "server": "192.168.1.21"},
+        cases=cases,
+        extra={
+            "local": {"system": "Linux", "release": "6.8", "wsl": {"is_wsl": False}},
+            "peer_identity": {
+                "system": "Windows",
+                "release": "11",
+                "wsl": {"is_wsl": False},
+            },
+            "outbound_only": {"no_inbound_rule_declared": True},
+        },
+        host={"hostname": client, "os": "Linux", "os_release": "6.8"},
+        host_label=client,
+        git={"commit": "abc1234", "dirty": False},
+        now=when,
+    )
+    path = directory / (file_name or f"{client}__to-{server}_{link}.json")
+    write_envelope(doc, path)
+    return path
+
+
+def _verdict_rows(text: str) -> list[str]:
+    block = text.split("#### Reachability verdicts")[1].split("#### Latency")[0]
+    return [ln for ln in block.splitlines() if ln.startswith("|")][2:]
+
+
+def _build(tmp_path: Path, results: Path, *extra: str) -> str:
+    out = tmp_path / "report.md"
+    assert (
+        cli.main(["report", "--results", str(results), "--out", str(out), *extra]) == 0
+    )
+    return out.read_text(encoding="utf-8")
+
+
+def test_report_holds_both_directions_of_a_pair(tmp_path: Path) -> None:
+    results = tmp_path / "2026-09-19-S2-crossos"
+    results.mkdir()
+    _result(results, "L1", "L2")
+    _result(results, "L2", "L1")
+    rows = _verdict_rows(_build(tmp_path, results, "--hosts", "L1=L1,L2=L2"))
+    assert [r.split("|")[1].strip() for r in rows] == ["L1 -> L2", "L2 -> L1"]
+    assert not [r for r in rows if r.count("TBD") == r.count("|") - 2], (
+        "a direction that was measured must not be rendered as untested"
+    )
+
+
+def test_report_keeps_the_two_links_apart(tmp_path: Path) -> None:
+    results = tmp_path / "2026-09-19-S2-crossos"
+    results.mkdir()
+    _result(results, "L1", "L2", link="ethernet")
+    _result(results, "L1", "L2", link="wifi", survived=0)
+    rows = _verdict_rows(_build(tmp_path, results, "--hosts", "L1=L1,L2=L2"))
+    by_link = {r.split("|")[2].strip(): r for r in rows if "L1 -> L2" in r}
+    assert set(by_link) == {"Ethernet", "Wi-Fi"}
+    assert "idle drop" in by_link["Wi-Fi"]
+    assert "idle drop" not in by_link["Ethernet"]
+
+
+def test_report_prefers_the_newest_of_two_runs_in_one_folder(tmp_path: Path) -> None:
+    results = tmp_path / "2026-09-19-S2-crossos"
+    results.mkdir()
+    _result(
+        results,
+        "L1",
+        "L2",
+        survived=0,
+        when=datetime(2026, 9, 19, tzinfo=UTC),
+        file_name="a-first.json",
+    )
+    _result(
+        results,
+        "L1",
+        "L2",
+        survived=1,
+        when=datetime(2026, 9, 20, tzinfo=UTC),
+        file_name="b-second.json",
+    )
+    rows = _verdict_rows(_build(tmp_path, results))
+    measured = [r for r in rows if r.split("|")[1].strip() == "L1 -> L2"]
+    assert len(measured) == 1, "one row per direction and link, never one per file"
+    assert "idle drop" not in measured[0], "the older, failed run must not win"
+
+
+def test_report_marks_an_under_repeated_direction_invalid(tmp_path: Path) -> None:
+    results = tmp_path / "2026-09-19-S2-crossos"
+    results.mkdir()
+    _result(results, "L1", "L2", reps=MIN_VALID_REPS - 1)
+    text = _build(tmp_path, results)
+    row = _verdict_rows(text)[0]
+    assert row.count(INVALID) >= 3
+    assert "| yes " not in row
+
+
+def test_report_without_hosts_labels_uses_the_measured_ones(tmp_path: Path) -> None:
+    results = tmp_path / "2026-09-19-S2-crossos"
+    results.mkdir()
+    _result(results, "L1", "L2")
+    rows = _verdict_rows(_build(tmp_path, results))
+    assert len(rows) == 2, "the reverse direction is still reported TBD"
+    assert rows[1].split("|")[1].strip() == "L2 -> L1"
+
+
+def test_report_reads_two_result_folders(tmp_path: Path) -> None:
+    one, two = tmp_path / "wifi-run", tmp_path / "eth-run"
+    one.mkdir()
+    two.mkdir()
+    _result(one, "L1", "L2", link="wifi")
+    _result(two, "L1", "L2", link="ethernet")
+    out = tmp_path / "report.md"
+    assert (
+        cli.main(
+            [
+                "report",
+                "--results",
+                str(one),
+                "--results",
+                str(two),
+                "--out",
+                str(out),
+                "--date",
+                "2026-09-21",
+            ]
+        )
+        == cli.EXIT_OK
+    )
+    text = out.read_text(encoding="utf-8")
+    assert "2026-09-21" in text
+    assert len(_verdict_rows(text)) == 3  # both links + the untested direction
+
+
+def test_report_ignores_another_spikes_results(tmp_path: Path) -> None:
+    results = tmp_path / "2026-09-19-mixed"
+    results.mkdir()
+    _result(results, "L1", "L2")
+    other = make_envelope(
+        spike="S3",
+        topic="S3-transport",
+        link="ethernet",
+        params={},
+        cases=[],
+        host={"hostname": "L9", "os": "Linux"},
+        host_label="L9",
+        git={"commit": "abc1234", "dirty": False},
+        now=datetime(2026, 9, 19, tzinfo=UTC),
+    )
+    write_envelope(other, results / "s3.json")
+    text = _build(tmp_path, results)
+    assert "L9" not in text
+
+
+def test_report_reports_an_unwritable_output_as_exit_one(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    results = tmp_path / "2026-09-19-S2-crossos"
+    results.mkdir()
+    _result(results, "L1", "L2")
+    blocked = tmp_path / "file.md" / "report.md"
+    blocked.parent.write_text("not a folder", encoding="utf-8")
+    code = cli.main(["report", "--results", str(results), "--out", str(blocked)])
+    assert code == cli.EXIT_IO
+    assert "cannot write" in capsys.readouterr().err
+
+
+def test_report_fails_loudly_on_a_broken_template(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    results = tmp_path / "2026-09-19-S2-crossos"
+    results.mkdir()
+    _result(results, "L1", "L2")
+    template = tmp_path / "broken.md"
+    template.write_text("# nothing to fill\n", encoding="utf-8")
+    code = cli.main(
+        [
+            "report",
+            "--results",
+            str(results),
+            "--out",
+            str(tmp_path / "r.md"),
+            "--template",
+            str(template),
+        ]
+    )
+    assert code == cli.EXIT_IO
+    assert "cannot build the report" in capsys.readouterr().err
+    assert not (tmp_path / "r.md").exists()
+
+
+# ------------------------------------------------------------ client summary
+def test_print_summary_names_every_case_and_the_fixes(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = _result(tmp_path, "L1", "L2", survived=0)
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    run = ClientRun(envelope=doc, client_name="L1", server_name="L2", complete=False)
+    cli.print_summary(run)
+    err = capsys.readouterr().err
+    assert "S2 verdict" in err
+    assert "http-ping" in err
+    assert "outbound-only" in err
+    assert "what to fix" in err
+    assert "idle drop" in err

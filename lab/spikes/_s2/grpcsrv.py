@@ -92,6 +92,8 @@ class S2GrpcServer:
         self.touch = touch
         self.note_error = note_error
         self.stopping = threading.Event()
+        self._started = False
+        self._stopped = False
         self.counters: dict[str, int] = {
             "echo": 0,
             "download": 0,
@@ -104,22 +106,49 @@ class S2GrpcServer:
         )
         self._server = grpc.server(self._pool, options=server_options())
         self._server.add_generic_rpc_handlers((self._handlers(),))
-        self.port = self._bind(bind, port)
+        try:
+            self.port = self._bind(bind, port)
+        except OSError:
+            self._pool.shutdown(wait=False, cancel_futures=True)
+            raise
 
     # ----------------------------------------------------------- lifecycle
     def _bind(self, bind: str, port: int) -> int:
+        """Bind the gRPC listener, reporting a failure as ``OSError``.
+
+        grpcio raises ``RuntimeError`` (not ``OSError``) when the address is
+        taken and older versions returned 0 instead; both are translated, so
+        callers - and the CLI's ``serve`` - can handle one exception type and
+        print "cannot listen" rather than a traceback.
+        """
         host = f"[{bind}]" if ":" in bind else bind
-        bound = self._server.add_insecure_port(f"{host}:{port}")
+        try:
+            bound = self._server.add_insecure_port(f"{host}:{port}")
+        except RuntimeError as exc:
+            raise OSError(f"cannot listen on {host}:{port} (gRPC): {exc}") from exc
         if bound == 0:
             raise OSError(f"cannot listen on {host}:{port} (gRPC)")
         return int(bound)
 
     def start(self) -> None:
-        self._server.start()
+        if not self._started:
+            self._server.start()
+            self._started = True
 
     def stop(self, grace_s: float = 1.0) -> None:
-        """Stop accepting, cancel live sessions, wait for the workers."""
+        """Stop accepting, cancel live sessions, wait for the workers.
+
+        gRPC frees the socket bound by ``add_insecure_port`` only when a
+        **started** server is stopped: stopping (or dropping) a server that was
+        never started leaves the port listening for the life of the process.
+        So a never-started server is started here purely to be stopped again,
+        which is what ``S2Server.open()``'s failure path needs. Idempotent.
+        """
         self.stopping.set()
+        if self._stopped:
+            return
+        self._stopped = True
+        self.start()
         self._server.stop(grace_s).wait(timeout=grace_s + 5.0)
         self._pool.shutdown(wait=True, cancel_futures=True)
 
@@ -245,7 +274,14 @@ class S2GrpcServer:
     ) -> Iterator[bytes]:
         beats = itertools.count()
         started = time.monotonic()
-        next_beat = started + state.beat_interval_s
+        # The beat interval is negotiated by the client's ``hello``, which the
+        # reader thread handles *after* this generator has started. The due
+        # time is therefore recomputed from the current interval on every pass
+        # (``last_beat + interval``) instead of being latched once here: with a
+        # latched deadline the first beat would always be DEFAULT_BEAT_S away,
+        # and a session shorter than that would carry no server-initiated
+        # message at all - exactly the ADR-0002 property this spike measures.
+        last_beat = started
         while not done.is_set() and not self.stopping.is_set() and context.is_active():
             if time.monotonic() - started > MAX_HOLD_S:
                 self.log("session hit the server hold limit; closing")
@@ -260,8 +296,8 @@ class S2GrpcServer:
                 yield item
                 self.touch()
             now = time.monotonic()
-            if now >= next_beat:
-                next_beat = now + state.beat_interval_s
+            if now - last_beat >= state.beat_interval_s:
+                last_beat = now
                 if now >= state.quiet_until:
                     yield encode({"op": "beat", "seq": next(beats)})
                     self.touch()

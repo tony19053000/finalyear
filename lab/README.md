@@ -10,6 +10,9 @@ lab/
     _harness/       shared by every spike: reps runner, stats, result JSON, report
     s1_network.py   S1 network matrix (serve / client / matrix)
     _s1/            S1 measurement code (plain functions, no CLI)
+    s2_crossos.py   S2 cross-OS reachability (serve / client / report)
+    _s2/            S2 HTTP + gRPC server, probes, WSL/OS facts, verdicts
+    S2.md           S2: what is measured, how to run, how to read it, limits
     s3_transport.py S3 transport throughput (serve / client / report)
     _s3/            S3 senders (raw TCP, gRPC, HTTP) + client, payload, report tables
     S3.md           S3: what is measured, how to run, how to read it, limits
@@ -114,6 +117,66 @@ The report holds the Results table and both docs/LAB.md §2 matrices per link. C
 - A cell above 50 % of a host's loopback ceiling is flagged as possibly tool-limited. Confirm it with `--iperf3`.
 
 The measurement code in `_s1/` (`client.tcp_throughput`, `client.udp_rtt`, `server.S1Server`) has no CLI coupling, so the V0.3 agent network probe can adopt it.
+
+### s2_crossos.py (spike S2, task 0.2.6)
+
+Answers, for one **ordered pair** of laptops: can a **native, non-WSL** Python process on the far machine be reached over **HTTP** and over **gRPC**, does a long-lived **agent-initiated bidirectional gRPC stream** (ADR-0002) survive idle gaps with keepalive on *and* off, and does the **outbound-only** model work from Windows with **no inbound firewall rule on the client**? That is the evidence for ADR-0009 (native Windows agent) and ADR-0002. Standard library + `grpcio`; no admin rights needed on the client side. Details, the WSL refusal, the verdict rules and the limits: [`spikes/S2.md`](spikes/S2.md).
+
+**Before you start:** both laptops on the same link, Windows network profile **Private** (the tool warns if an adapter is Public), and the tool **refuses to run inside WSL** (exit `4`, override `--allow-wsl` for a deliberately-WSL data point) — WSL2's NAT would answer a different question. One run measures **one direction**; swap the roles and run it again for the other. About 25–35 minutes per run with the defaults.
+
+**1. Firewall — only the *server* laptop needs a rule.** One `serve` process opens **TCP 47202 (HTTP) and 47203 (gRPC)**, no UDP. The laptop running `client` needs **no inbound rule at all**: adding one would destroy the evidence for ADR-0002. Replace `192.168.1.0/24` with the lab subnet.
+
+```powershell
+# SERVER laptop only. Windows, PowerShell as Administrator. Profile must be Private (task 0.2.4).
+New-NetFirewallRule -DisplayName "MeshForge S2" -Group "MeshForge lab" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 47202-47203 -RemoteAddress 192.168.1.0/24 -Profile Private
+# afterwards:
+Remove-NetFirewallRule -DisplayName "MeshForge S2"
+```
+```bash
+# SERVER laptop only. Linux: needed only if ufw is active (sudo ufw status)
+sudo ufw allow from 192.168.1.0/24 to any port 47202:47203 proto tcp
+# afterwards:
+sudo ufw delete allow from 192.168.1.0/24 to any port 47202:47203 proto tcp
+```
+The same "Windows Security Alert" warning as for S1 applies on the server: tick **Private networks** and **Allow**, never Cancel. A prompt on the **client** is itself a finding — record it in `--note` and allow nothing.
+
+**2. Start the server** on the laptop that accepts connections, bound to its lab IP:
+```bash
+uv run python lab/spikes/s2_crossos.py serve --bind 192.168.1.20 --name L1
+```
+```powershell
+# Windows (PowerShell, native, not inside WSL) — same command
+uv run python lab/spikes/s2_crossos.py serve --bind 192.168.1.20 --name L2
+```
+It refuses `0.0.0.0`/`::` and public addresses (override: `--allow-any`), answers private/loopback/link-local peers only, and stops by itself after `--idle` seconds without a request (default 900) or `--duration` seconds in total (default 7200), or on Ctrl-C / SIGTERM.
+
+**3. Run the client** on the other laptop (this machine gets no firewall rule):
+```bash
+uv run python lab/spikes/s2_crossos.py client --server 192.168.1.20 --link ethernet --name L1 --no-inbound-rule --note "no Defender prompt appeared"
+```
+```powershell
+# Windows (PowerShell, native, not inside WSL) — same command
+uv run python lab/spikes/s2_crossos.py client --server 192.168.1.20 --link ethernet --name L2 --no-inbound-rule --note "no Defender prompt appeared"
+```
+Defaults: `--reps 5 --warmup 1 --pause 0.5 --blob-bytes 33554432 --hold 5 --ping-interval 1 --idle-gaps 30,120 --keepalive both --connect-timeout 5 --io-timeout 20`. `--no-inbound-rule` is the operator's statement that no inbound rule exists here; without it the outbound-only verdict stays `TBD`. `--idle-gaps 30,120,300` tests longer idles, `--keepalive off` isolates the keepalive question, `--out-dir DIR` writes elsewhere. `--reps` below 5 makes every cell INVALID and the client says so. It writes `lab/reports/raw/<UTC date>-S2-crossos/<client>__to-<server>_<link>.json`. **Then swap the roles and run the other direction.**
+
+**4. Build the report** after copying every JSON into one folder (Wi-Fi and Ethernet files may share it):
+```bash
+uv run python lab/spikes/s2_crossos.py report --results lab/reports/raw/2026-09-21-S2-crossos --out lab/reports/2026-09-21-S2-crossos.md --hosts L1=L1,L2=L2
+```
+`--hosts LABEL=HOST` renames each host in the table (case-insensitive) **and** declares which directions should exist: every ordered pair nobody measured becomes a `TBD` row. `HOST` is the name the runs recorded — the `--name` you passed, or the hostname if you passed none. Tables: reachability verdicts per direction × link (HTTP GET, HTTP stream, gRPC unary, gRPC server-stream, one column per bidi idle/keepalive case, outbound-only), latency/throughput means, and the diagnoses with their fixes. Then write Goal/Conclusion and update ADR-0002 / ADR-0009 and `docs/LAB.md`.
+
+**Exit codes:** `0` complete · `1` cannot bind/write · `2` bad usage · `3` results written but incomplete (peer lost, failed repetitions: see `errors` in the JSON) · `4` refused: running inside WSL · `130` Ctrl-C.
+
+**How to read the numbers (honesty notes):**
+- `yes` needs **every** repetition to pass with n ≥ 5; `flaky k/n` shows both counts; `INVALID (n<5)` is measured but not a lab result; `TBD` is untested and is never replaced by a guess.
+- One run = one direction. `A -> B` says nothing about `B -> A`, and a Wi-Fi row says nothing about Ethernet — the two are separate rows and are never merged.
+- A session that dropped with keepalive **off** while keepalive **on** survived is an idle-survival finding (turn keepalive on), not a failure of the outbound-only model.
+- `outbound-only` is `yes` only with `--no-inbound-rule` **and** a working gRPC unary **and** a surviving session; it is `no` only when a gRPC case really failed, and `TBD` when those cases never produced a valid result.
+- A direction with a WSL side is flagged as not a native pair: ADR-0009 needs a native run.
+- The throughput columns bound the stdlib HTTP server and the gRPC handler, **not** the link — bandwidth questions belong to S1 and S3.
+
+`_s2/client.py`, `_s2/env.py` and `_s2/protocol.py` have no CLI coupling, so V0.3's agent connection code can adopt the session shape and keepalive settings (by moving them under `src/`, never importing `lab/`).
 
 ### s3_transport.py (spike S3, task 0.2.7)
 

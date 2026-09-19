@@ -17,7 +17,7 @@ from typing import Any, Final
 
 from spikes._harness import MIN_VALID_REPS
 from spikes._harness.envelope import host_label
-from spikes._harness.report import fmt, link_name
+from spikes._harness.report import cell, fmt, link_name
 
 YES: Final = "yes"
 NO: Final = "no"
@@ -183,13 +183,29 @@ def _native(facts: Mapping[str, Any]) -> bool:
     return not (isinstance(wsl, dict) and wsl.get("is_wsl"))
 
 
-def direction_verdict(doc: Mapping[str, Any]) -> DirectionVerdict:
+def relabel(name: str, labels: Mapping[str, str] | None) -> str:
+    """Report label for a recorded host name (``--hosts LABEL=HOST``).
+
+    Matching is case-insensitive because Windows reports its hostname in
+    upper case while the operator usually types it in lower case; an unknown
+    name keeps the name it was recorded under, never a guessed label.
+    """
+    if not labels:
+        return name
+    return labels.get(name.casefold(), name)
+
+
+def direction_verdict(
+    doc: Mapping[str, Any], labels: Mapping[str, str] | None = None
+) -> DirectionVerdict:
     """Judge one result envelope (one direction, one link)."""
     extra = doc.get("extra") or {}
     params = doc.get("params") or {}
     cases: dict[str, Any] = doc.get("cases") or {}
-    client = host_label(doc)
-    server = str(params.get("server_name") or params.get("server") or "?")
+    client = relabel(host_label(doc), labels)
+    server = relabel(
+        str(params.get("server_name") or params.get("server") or "?"), labels
+    )
     local = extra.get("local") or {}
     peer = extra.get("peer_identity") or {}
     verdict = DirectionVerdict(
@@ -227,29 +243,68 @@ def _outbound_verdict(extra: Mapping[str, Any], verdict: DirectionVerdict) -> Ve
     """ADR-0002: the client needs no inbound port. Proven only when the
     operator confirms no inbound rule was added *and* the gRPC cases worked."""
     info = extra.get("outbound_only") or {}
-    grpc_ok = verdict.cases.get("grpc-unary", Verdict(TBD)).ok and any(
-        v.ok for v in verdict.sessions.values()
-    )
+    unary = verdict.cases.get("grpc-unary", Verdict(TBD))
+    sessions = list(verdict.sessions.values())
     if not info.get("no_inbound_rule_declared"):
         return Verdict(
             TBD, "run the client with --no-inbound-rule to record this claim"
         )
-    if not grpc_ok:
+    parts = {
+        "gRPC unary": _status([unary]),
+        "the long-lived session": _status(sessions),
+    }
+    if all(status == "ok" for status in parts.values()):
+        return Verdict(YES, "no listening socket and no inbound rule on the client")
+    if any(status == "failed" for status in parts.values()):
         return Verdict(NO, "gRPC unary and/or the long-lived session did not work")
-    return Verdict(YES, "no listening socket and no inbound rule on the client")
+    # Nothing failed, but nothing proves it either: a case that never ran (or
+    # ran too few times) must not be reported as a model that was tested and
+    # failed - nor as one that worked.
+    unknown = [name for name, status in parts.items() if status != "ok"]
+    return Verdict(TBD, f"{' and '.join(unknown)} produced no valid result")
+
+
+def _status(verdicts: Sequence[Verdict]) -> str:
+    """``ok`` (at least one clean pass) · ``failed`` (something was measured and
+    did not work) · ``unknown`` (only TBD / INVALID - never tested properly)."""
+    if any(v.ok for v in verdicts):
+        return "ok"
+    if any(v.value == NO or v.value.startswith("flaky") for v in verdicts):
+        return "failed"
+    return "unknown"
 
 
 def direction_verdicts(
     envelopes: Iterable[Mapping[str, Any]],
+    labels: Mapping[str, str] | None = None,
 ) -> dict[str, DirectionVerdict]:
-    """Verdicts keyed by ``"<client> -> <server>"`` + link (later runs win)."""
+    """Verdicts keyed by ``"<client> -> <server>"`` + link.
+
+    When the same direction and link was measured more than once (a re-run
+    under a different file name, or two result folders), the **newest** run by
+    ``timestamp_utc`` wins - not whichever file the directory listing produced
+    last - and every file that covered the direction is kept in ``sources`` so
+    the report can say which run the row came from. Ties keep the first seen.
+
+    ``labels`` (case-folded host name -> report label) renames the hosts, so
+    the rows use the same names as the expected-direction list.
+    """
     out: dict[str, DirectionVerdict] = {}
+    stamps: dict[str, str] = {}
     for doc in envelopes:
-        verdict = direction_verdict(doc)
+        verdict = direction_verdict(doc, labels)
         key = f"{verdict.direction} [{verdict.link}]"
-        if key in out:
-            verdict.sources = out[key].sources + verdict.sources
-        out[key] = verdict
+        stamp = str(doc.get("timestamp_utc") or "")
+        previous = out.get(key)
+        if previous is None:
+            out[key], stamps[key] = verdict, stamp
+            continue
+        sources = previous.sources + verdict.sources
+        if stamp > stamps[key]:
+            verdict.sources = sources
+            out[key], stamps[key] = verdict, stamp
+        else:
+            previous.sources = sources
     return out
 
 
@@ -279,12 +334,15 @@ def render_verdicts(
         "client OS",
         "server OS",
         *[label for _, label in FIXED_CASES],
-        *[c.replace("grpc-bidi-", "bidi ") for c in session_cols],
+        *[cell(c.replace("grpc-bidi-", "bidi ")) for c in session_cols],
         "outbound-only",
     ]
     header = "| " + " | ".join(columns) + " |\n|" + "---|" * len(columns) + "\n"
     lines: list[str] = []
     for verdict in rows:
+        # Every cell below is free text from a result file (host labels, OS
+        # strings, OS error messages): a literal "|" or newline in one of them
+        # would silently shift the whole table, so they all go through cell().
         cells = [
             verdict.direction,
             link_name(verdict.link),
@@ -294,10 +352,10 @@ def render_verdicts(
             *[verdict.sessions.get(c, Verdict(TBD)).cell() for c in session_cols],
             verdict.outbound_only.cell(),
         ]
-        lines.append("| " + " | ".join(cells) + " |")
+        lines.append("| " + " | ".join(cell(c) for c in cells) + " |")
     tested = {v.direction for v in rows}
     lines += [
-        "| " + " | ".join([direction, *([TBD] * (len(columns) - 1))]) + " |"
+        "| " + " | ".join([cell(direction), *([TBD] * (len(columns) - 1))]) + " |"
         for direction in expected
         if direction not in tested
     ]
@@ -324,7 +382,7 @@ def _render_metrics(rows: Sequence[DirectionVerdict]) -> str:
     for verdict in rows:
         m = verdict.metrics
         text += (
-            f"| {verdict.direction} | {link_name(verdict.link)} | "
+            f"| {cell(verdict.direction)} | {cell(link_name(verdict.link))} | "
             f"{fmt(m.get('http_ttfb_ms'))} | {fmt(m.get('http_mbps'), 1)} | "
             f"{fmt(m.get('grpc_rtt_ms'))} | {fmt(m.get('grpc_mbps'), 1)} |\n"
         )
@@ -333,13 +391,14 @@ def _render_metrics(rows: Sequence[DirectionVerdict]) -> str:
 
 def _render_fixes(rows: Sequence[DirectionVerdict]) -> str:
     items = [
-        f"- **{verdict.direction}** {fix}"
+        f"- **{cell(verdict.direction)}** {cell(fix)}"
         for verdict in rows
         for fix in verdict.fixes()
     ]
     non_native = [
-        f"- **{verdict.direction}**: one side is not native "
-        f"({verdict.client_os} -> {verdict.server_os}); ADR-0009 needs a native run."
+        f"- **{cell(verdict.direction)}**: one side is not native "
+        f"({cell(verdict.client_os)} -> {cell(verdict.server_os)}); "
+        "ADR-0009 needs a native run."
         for verdict in rows
         if not verdict.native_pair
     ]

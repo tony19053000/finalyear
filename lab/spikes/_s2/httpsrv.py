@@ -9,6 +9,7 @@ timeout, and the handler never touches the file system.
 
 from __future__ import annotations
 
+import contextlib
 import socket
 import threading
 from collections.abc import Callable
@@ -29,6 +30,7 @@ from spikes._s2.protocol import (
 )
 
 SERVER_NAME: Final = "meshforge-s2/1"
+_JOIN_S: Final = 10.0
 _PATTERN: Final = b"\xa5"
 
 
@@ -136,6 +138,7 @@ class S2HttpServer(ThreadingHTTPServer):
         self.note_error = note_error
         self.timeout = timeout_s
         self.stopping = False
+        self._thread: threading.Thread | None = None
         self.counters: dict[str, int] = {
             "ping": 0,
             "blob": 0,
@@ -177,9 +180,24 @@ class S2HttpServer(ThreadingHTTPServer):
         )
         thread.daemon = True
         thread.start()
+        self._thread = thread
         return thread
 
     def stop(self) -> None:
+        """Stop serving (if started), close the listener, join the thread.
+
+        ``shutdown()`` is only called when :meth:`start` ran: socketserver's
+        ``shutdown`` waits for ``serve_forever`` to acknowledge and blocks
+        **forever** on a server that was opened but never served - which is
+        what ``S2Server.open()`` does when the gRPC listener fails to bind.
+        Idempotent: ``stop()`` may be called from several threads.
+        """
         self.stopping = True
-        self.shutdown()
-        self.server_close()
+        thread, self._thread = self._thread, None
+        if thread is not None:
+            with contextlib.suppress(OSError, RuntimeError):
+                self.shutdown()
+        with contextlib.suppress(OSError):
+            self.server_close()
+        if thread is not None:
+            thread.join(timeout=_JOIN_S)

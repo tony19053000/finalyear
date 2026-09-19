@@ -58,12 +58,28 @@ def _free_port() -> int:
 
 
 def _port_is_free(port: int) -> bool:
+    """True when nothing is listening on ``port`` any more.
+
+    ``SO_REUSEADDR`` is set on purpose: after a session the server side of a
+    closed connection sits in ``TIME-WAIT`` for ~60 s, and a plain bind would
+    then report "in use" for a port whose *listener* is long gone - a test
+    artefact, not a leak. A listening socket still fails this bind on Linux;
+    on Windows ``SO_REUSEADDR`` would happily steal a live listener, so the
+    connect probe below is what catches a leak there.
+    """
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             sock.bind(("127.0.0.1", port))
         except OSError:
             return False
-    return True
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.settimeout(1.0)
+        try:
+            probe.connect(("127.0.0.1", port))
+        except OSError:
+            return True
+    return False
 
 
 def _wait_free(ports: list[int], timeout_s: float = 10.0) -> bool:
@@ -184,8 +200,13 @@ def test_long_lived_bidi_session_survives_an_idle_gap(
 
 
 def test_session_counts_server_initiated_beats(server: _Running) -> None:
+    """The server must push on a stream the client opened (ADR-0002), at the
+    beat interval the client negotiated in ``hello`` - not at the server's
+    default. 1.0 s of active phase at 0.2 s per beat is at least two beats even
+    on a slow machine; asserting only ``>= 1`` would pass with a server that
+    ignored the negotiated interval."""
     sample = grpc_session(server.endpoint, hold_s=1.0, ping_interval_s=0.2, idle_s=0.5)
-    assert sample["beats"] >= 1, "no server-initiated message arrived"
+    assert sample["beats"] >= 2, "no server-initiated message at the agreed interval"
 
 
 # --------------------------------------------------------- failure paths
@@ -237,6 +258,33 @@ def test_peer_vanishing_mid_stream_is_recorded_not_hung(server: _Running) -> Non
         assert sample["survived"] == 0
         assert sample["failure"]["fix"]
         assert sample["failure"]["failure_type"]
+
+
+@pytest.mark.timeout(60)
+def test_open_with_a_busy_grpc_port_fails_fast_and_frees_the_http_listener() -> None:
+    """``open()`` must not hang and must not leave the HTTP listener behind
+    when the second listener cannot bind (a second ``serve`` on one laptop)."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as taken:
+        taken.bind(("127.0.0.1", 0))
+        taken.listen(1)
+        busy = int(taken.getsockname()[1])
+        http_port = _free_port()
+        srv = S2Server("127.0.0.1", http_port, busy, ServerLimits(), name="clash")
+        outcome: dict[str, Any] = {}
+
+        def run() -> None:
+            try:
+                srv.open()
+            except OSError as exc:
+                outcome["error"] = exc
+
+        worker = threading.Thread(target=run, name="s2-open-under-test", daemon=True)
+        worker.start()
+        worker.join(timeout=30.0)
+        assert not worker.is_alive(), "open() hung instead of reporting the bind error"
+        assert isinstance(outcome.get("error"), OSError)
+        assert srv.http is None and srv.grpc is None
+        assert _wait_free([http_port]), "the HTTP listener survived the failed open()"
 
 
 def test_run_client_records_an_unreachable_peer_without_raising() -> None:
@@ -432,7 +480,9 @@ def test_cli_serve_and_client_end_to_end(tmp_path: Path) -> None:
     )
     assert built.returncode == 0, built.stderr.decode("utf-8", "replace")
     text = report.read_text(encoding="utf-8")
-    assert "client-a -> server-b" in text
+    assert "A -> B" in text, "--hosts renames the measured hosts"
+    assert "client-a" not in text.split("#### Reachability verdicts")[1]
+    assert "B -> A" in text  # the direction nobody ran
     assert "outbound-only" in text
     assert _wait_free(list(ports.values())), "the CLI leaked a listening port"
 
@@ -471,6 +521,36 @@ def test_cli_client_against_a_dead_peer_exits_three(tmp_path: Path) -> None:
     doc = json.loads(next(iter(out_dir.glob("*.json"))).read_text(encoding="utf-8"))
     assert doc["errors"][0]["failure_type"] in {"connection_refused", "connect_timeout"}
     assert doc["errors"][0]["fix"]
+
+
+@pytest.mark.timeout(120)
+def test_cli_serve_exits_one_when_a_port_is_already_in_use(tmp_path: Path) -> None:
+    """Starting ``serve`` twice on one laptop must print the bind error and
+    exit 1 quickly, never block for ever inside the partial shutdown."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as taken:
+        taken.bind(("127.0.0.1", 0))
+        taken.listen(1)
+        busy = int(taken.getsockname()[1])
+        started = time.monotonic()
+        result = subprocess.run(
+            _cmd(
+                "serve",
+                "--bind",
+                "127.0.0.1",
+                "--http-port",
+                "0",
+                "--grpc-port",
+                str(busy),
+                "--ready-file",
+                str(tmp_path / "ready.json"),
+            ),
+            capture_output=True,
+            timeout=90,
+        )
+    assert result.returncode == 1, result.stderr.decode("utf-8", "replace")
+    assert time.monotonic() - started < 60.0
+    assert "cannot listen" in result.stderr.decode("utf-8", "replace")
+    assert not (tmp_path / "ready.json").exists()
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX signal semantics")

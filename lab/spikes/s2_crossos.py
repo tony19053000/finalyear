@@ -55,6 +55,7 @@ from spikes._harness.envelope import (  # noqa: E402
     load_dir,
     raw_dir,
     raw_result_path,
+    sanitize_text,
     write_envelope,
 )
 from spikes._harness.report import (  # noqa: E402
@@ -298,8 +299,10 @@ def _parser() -> argparse.ArgumentParser:
         "--hosts",
         type=_labels,
         default={},
-        help="hosts that should have been tested, e.g. L1=hostA,L2=hostB; every "
-        "untested direction between them is reported TBD",
+        help="name every host that should have been tested, e.g. "
+        "L1=hostA,L2=hostB: hostA is shown as L1 in the report (matching is "
+        "case-insensitive) and every untested direction between the listed "
+        "hosts is reported TBD",
     )
     report.add_argument(
         "--date",
@@ -528,8 +531,12 @@ def cmd_report(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int
         _say(f"skipped invalid result file: {reason}")
     if not envelopes:
         _say("warning: no S2 result files found; every cell will be TBD")
-    verdicts = direction_verdicts(envelopes)
-    labels = sorted(set(args.hosts.values())) or sorted(
+    # ``--hosts L1=hostA`` both *renames* hostA to L1 in every row and says
+    # which directions were expected; without the rename the expected list
+    # would never match the measured rows and every direction would be TBD.
+    names = {host.casefold(): label for host, label in args.hosts.items()}
+    verdicts = direction_verdicts(envelopes, names)
+    labels = sorted(set(names.values())) or sorted(
         {v.client for v in verdicts.values()} | {v.server for v in verdicts.values()}
     )
     extra = render_verdicts(verdicts, expected_directions(labels))
@@ -547,7 +554,7 @@ def cmd_report(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int
             day=day,
             task="0.2.6",
             spike="S2",
-            extra_results=extra,
+            extra_results=sanitize_text(extra),
         )
     except (OSError, TemplateError) as exc:
         _say(f"report: cannot build the report: {exc}")
