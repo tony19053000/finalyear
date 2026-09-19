@@ -7,6 +7,9 @@ lab/
   inventory.py      hardware/software inventory → JSON   (task 0.2.2)
   _inventory/       helpers for inventory.py (parsers, probes, privacy filter)
   spikes/           feasibility spikes S1–S7              (tasks 0.2.5–0.2.11)
+    _harness/       shared by every spike: reps runner, stats, result JSON, report
+    s1_network.py   S1 network matrix (serve / client / matrix)
+    _s1/            S1 measurement code (plain functions, no CLI)
   reports/          one markdown report per lab run
     TEMPLATE.md     copy this for every report
     raw/            unedited command output, per run and per host
@@ -44,6 +47,67 @@ Every section looks like `{"ok": true, "source": "lscpu", "value": {...}}` or `{
 **Privacy (docs/LAB.md §6):** no Wi-Fi SSIDs or keys, usernames, serial numbers, environment variables or public IPs are collected. The home directory is written as `~` and other user folders as `<user>`. Public IPv4 addresses become `<public-ip>`. Secret-looking text is scrubbed with `meshforge.common.redaction`. MAC addresses, private IPv4 addresses and the hostname are kept on purpose. Known gap: a 4-part version string that looks like a public IP (for example `1.2.3.4`) is masked too.
 
 **Windows notes:** Secure Boot is read from the registry, which is readable without admin. If the registry can't be read, `Confirm-SecureBootUEFI` is tried, and it usually reports `unknown` without admin. `Win32_VideoController.AdapterRAM` caps at 4 GiB, so for NVIDIA GPUs the nvidia-smi row replaces it. Integrated GPUs keep the CIM value, with a `vram_note` when it is capped. CPU `max_mhz` is `null` on Windows because turbo clocks are not exposed; `base_mhz` is the rated clock.
+
+## Spikes (lab/spikes/)
+
+Every spike is a script in `lab/spikes/` that runs after a plain `uv sync` (standard library only unless the spike needs torch/Docker) and uses the shared harness in `spikes/_harness/`:
+
+- **Repetitions:** `warmup` + `reps` per case (default 1 + 5). Warmup samples are kept in the JSON but never enter the summary. A failed repetition is recorded with a typed `failure_type`; a fatal one (peer gone) stops that case at once.
+- **Statistics:** n, mean, sample stdev, min, max, median, p95 per metric. A value with n < 5 is **INVALID** in every table.
+- **Result JSON** (one per host and run): `schema_version`, `spike`, `topic`, git commit + dirty flag, host (hostname, OS, label), UTC timestamp, `link` (`wifi`/`ethernet`, given by the operator), all parameters, raw samples, summaries, and errors. Keys are sorted, so the output is deterministic. Home paths and public IPs are masked with the inventory privacy filter. Files go to `reports/raw/YYYY-MM-DD-<topic>/<host>__<suffix>.json`.
+- **Report:** generated from `reports/TEMPLATE.md`. The header, machines table, raw-output location, n and the Results table (INVALID rows and every failed repetition listed) are filled in automatically. Goal, conclusion and decisions are written afterwards.
+
+### s1_network.py (spike S1, task 0.2.5)
+
+Measures, for each pair of laptops: TCP bandwidth in **both directions** (row = sender), with 1 and 4 parallel streams, bytes counted at the receiver; and UDP echo RTT (mean ± stdev), jitter and loss. It is our own Python tool, so it needs no extra install on Windows. iperf3 is an optional cross-check (`--iperf3`, needs `iperf3 -s` running on the server).
+
+**Before you start:** all four laptops are on the same link (for the Wi-Fi matrix, unplug the Ethernet cables; for the Ethernet matrix, use the Ethernet IPs and turn Wi-Fi off, so the traffic cannot take the other path), plugged in, and in performance mode. The JSON records the local IP used (`params.local_address`), so you can check which link was used.
+
+**1. Firewall (only for the spike, remove it afterwards).** The server listens on TCP **and** UDP port `47201`. Replace `192.168.1.0/24` with the lab subnet.
+
+```powershell
+# Windows, PowerShell as Administrator. Network profile must be Private (task 0.2.4).
+New-NetFirewallRule -DisplayName "MeshForge S1 TCP" -Group "MeshForge lab" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 47201 -RemoteAddress 192.168.1.0/24 -Profile Private
+New-NetFirewallRule -DisplayName "MeshForge S1 UDP" -Group "MeshForge lab" -Direction Inbound -Action Allow -Protocol UDP -LocalPort 47201 -RemoteAddress 192.168.1.0/24 -Profile Private
+# afterwards:
+Remove-NetFirewallRule -DisplayName "MeshForge S1 TCP","MeshForge S1 UDP"
+```
+If Windows shows a "Windows Security Alert" for Python the first time, tick **Private networks** only and click **Allow**. Do not press Cancel, which can create a *block* rule for python.exe that overrides the rule above. Check with `Get-NetFirewallRule -Direction Inbound -Action Block -Enabled True | Where-Object DisplayName -like "*python*"`.
+```bash
+# Linux: only needed if ufw is active (sudo ufw status)
+sudo ufw allow from 192.168.1.0/24 to any port 47201
+# afterwards:
+sudo ufw delete allow from 192.168.1.0/24 to any port 47201
+```
+
+**2. Start a server on every laptop** (bound to that laptop's lab IP on the link being measured):
+```bash
+uv run python lab/spikes/s1_network.py serve --bind 192.168.1.20
+```
+It refuses `0.0.0.0`/`::` and public addresses (override: `--allow-any`), answers only private/loopback/link-local clients, stops by itself after `--idle` seconds without clients (default 600) or `--duration` seconds in total (default 3600), and stops cleanly on Ctrl-C. It holds at most 32 TCP connections. A new connection must send its complete request header within `--header-timeout` seconds (default 2), or it is dropped. When all 32 slots are full, the oldest connection that has not sent a header yet is evicted to make room. A running measurement is never evicted, so idle or slow peers cannot lock real clients out.
+
+**3. Run the clients one at a time** (never two at once, because they would share the link). Six runs cover all 12 directions and 6 pairs of four laptops: L1 → L2, L3, L4; then L2 → L3, L4; then L3 → L4. `--server` can be repeated; servers are measured one after another.
+```bash
+uv run python lab/spikes/s1_network.py client --link wifi --server 192.168.1.21 --server 192.168.1.22 --server 192.168.1.23
+```
+Each client run first checks the loopback ceiling: the highest rate this tool reaches on this laptop with no network. Python counts bytes in user space and may be the limit above about 1 Gbit/s. Per server it takes about 5 minutes with the defaults (`--reps 5 --warmup 1 --seconds 10 --streams 1,4 --pings 200 --ping-interval 0.02`). It writes `lab/reports/raw/<UTC date>-S1-network/<client>__to-<server>_<link>.json`.
+
+**4. Build the report** after copying every laptop's JSON into one folder (Wi-Fi and Ethernet files may share the folder; they are never mixed in a table):
+```bash
+uv run python lab/spikes/s1_network.py matrix --results lab/reports/raw/2026-09-20-S1-network --out lab/reports/2026-09-20-S1-network.md --labels L1=<host1>,L2=<host2>,L3=<host3>,L4=<host4>
+```
+The report holds the Results table and both docs/LAB.md §2 matrices per link. Cells show mean ± stdev (n); n < 5 is `INVALID (n=k)`; a pair nobody measured is `TBD`. Runs that cover the same direction (A measured B and B measured A) are pooled. Then write Goal/Conclusion and copy the matrices into docs/LAB.md §2.
+
+**Exit codes:** `0` complete · `1` cannot bind/write · `2` bad usage (e.g. wildcard bind) · `3` results written but incomplete (server lost, failed repetitions: see `errors` in the JSON) · `130` Ctrl-C.
+
+**How to read the numbers (honesty notes):**
+- Bandwidth is TCP goodput counted **at the receiver**, from the first byte to the last byte on the receiver's clock. The sender view is recorded too; the report lists every cell where the two differ by more than 5 %.
+- Streams start together after all connections are open, so no data is queued before the measured window.
+- Buffers: the app sends 128 KiB chunks and receives into a 256 KiB buffer. The kernel socket buffers are left to OS autotuning; their initial sizes are recorded in `extra.buffers`.
+- RTT is measured on the **idle** link, before the TCP tests. Jitter = mean |RTT(i) − RTT(i−1)| of consecutive replies (RFC 3550's D without the 1/16 smoothing). The smoothed RFC 3550 value is kept as `jitter_rfc3550_ms`. Loss counts pings without a reply within `--ping-timeout`.
+- A cell above 50 % of a host's loopback ceiling is flagged as possibly tool-limited. Confirm it with `--iperf3`.
+
+The measurement code in `_s1/` (`client.tcp_throughput`, `client.udp_rtt`, `server.S1Server`) has no CLI coupling, so the V0.3 agent network probe can adopt it.
 
 ## Conventions
 - **Report name:** `reports/YYYY-MM-DD-<topic>.md`, e.g. `2026-09-20-S1-network.md`.

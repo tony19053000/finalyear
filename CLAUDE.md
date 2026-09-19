@@ -123,6 +123,7 @@ The team opens a **new Claude session per roadmap version** (large versions may 
 **Session start:** read `docs/STATUS.md` → the current version in `docs/DEVELOPMENT_ROADMAP.md` → only the ARCHITECTURE sections and ADRs that version needs. Do not re-read everything unless required.
 
 **Session end (mandatory, even if interrupted work):**
+0. Update `docs/SESSION_HANDOFF.md` (in-flight tasks, uncommitted state, blockers) and commit work in progress.
 1. Update roadmap checkboxes (`[~]` / `[x]` with evidence).
 2. Update `docs/STATUS.md`: done, in progress, blockers, exact next task, anything a fresh session must know.
 3. Record new decisions (ADR or brief §40 decision log) and roadmap changes (design change log).
@@ -138,7 +139,9 @@ docs/DEVELOPMENT_ROADMAP.md  versioned plan + checklist (source of truth for pro
 docs/STATUS.md               concise current state
 docs/adr/NNNN-title.md       architecture decision records
 docs/PROJECT_SUMMARY.md      short plain-language overview for readers outside the team
+docs/SESSION_HANDOFF.md      cold-start handover: in-flight work, blockers, traps (read first)
 ```
+**Account rotation.** The team has several Claude accounts sharing this one repository. A usage limit can end a session mid-task, so `docs/SESSION_HANDOFF.md` is kept current **continuously** — after every finished step, not only at session end — and work in progress is committed (`wip:` prefix allowed) so the next account inherits committed truth. A new session starts by reading `docs/SESSION_HANDOFF.md`, then `docs/STATUS.md`, then the current roadmap version.
 `PROJECT_SUMMARY.md` is written for non-specialist readers (e.g. college evaluation), not for agents. Keep it **up to date**: whenever a decision changes what it states — the execution modes and how they relate, the product shape, platforms, or headline technical claims — update it in the same session, keeping its simple tone and short length. It is derived from the documents above, never a source of truth.
 Hierarchy: `PROJECT_BRIEF → ARCHITECTURE → ROADMAP → STATUS → IMPLEMENTATION`.
 

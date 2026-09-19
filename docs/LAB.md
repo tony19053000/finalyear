@@ -42,7 +42,9 @@ The table is the human-readable view and the JSON is the source of truth. If the
 ## 2. Network
 
 **Topology:** gigabit Ethernet switch (not yet purchased) plus the Wi-Fi router, used for internet and as the fallback link. See ARCHITECTURE §23.
-Measurements come from spike **S1** (task 0.2.5), using iperf3, ≥ 5 reps per pair, reported as mean ± stdev. Each direction is measured separately (row → column).
+Measurements come from spike **S1** (task 0.2.5), ≥ 5 reps per cell, reported as mean ± stdev. Each direction is measured separately (row → column).
+
+**How the matrix is produced.** Tool: `lab/spikes/s1_network.py`, our own standard-library Python measurement. iperf3 is only an optional cross-check. First open TCP+UDP port 47201 to the lab subnet, and remove the rule afterwards. Then every laptop runs `uv run python lab/spikes/s1_network.py serve --bind <its lab IP>`. The clients run one at a time: `uv run python lab/spikes/s1_network.py client --link wifi|ethernet --server <peer IP> ...`, with six runs covering all pairs. Finally, `uv run python lab/spikes/s1_network.py matrix --results lab/reports/raw/<date>-S1-network --out lab/reports/<date>-S1-network.md --labels L1=<host>,...` generates the report with both tables per link. Copy the tables here; don't write them by hand. Step-by-step instructions, the firewall commands and how to read the numbers are in [`lab/README.md`](../lab/README.md#s1_networkpy-spike-s1-task-025).
 
 ### 2.1 Wi-Fi matrix
 Router model / band / channel: TBD · Date: TBD · Report: TBD

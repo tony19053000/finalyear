@@ -169,7 +169,7 @@ A version is **complete** only when all apply:
 **Prerequisites:** V0.1 (repo for `lab/` scripts).
 
 **Tasks**
-- [ ] **0.2.1** 🧑 Fix NVIDIA driver on Laptop 1 (Secure Boot MOK enrollment); verify `nvidia-smi` + `torch.cuda.is_available()`
+- [~] **0.2.1** 🧑 Fix NVIDIA driver on Laptop 1 (Secure Boot MOK enrollment); verify `nvidia-smi` + `torch.cuda.is_available()` — *driver fixed 2026-09-19: `nvidia-smi` → RTX 3050 Laptop GPU, driver 595.91.07, 4096 MiB, compute cap 8.6, Secure Boot still enabled; `torch.cuda.is_available()` pending torch install (ADR-0011 / 0.2.3)*
 - [~] **0.2.2** `lab/inventory.py` — cross-platform hardware/software inventory → JSON; 🧑 run on all 4 laptops → `docs/LAB.md` — *code done: commit `feat(0.2.2)`, tester PASS round 2 (798 unit; lab unit+component 234 passed incl. adversarial tree-kill, privacy, 60 s run budget), reviewer APPROVE; stays [~] until 🧑 runs on all 4 laptops (JSON in `lab/reports/inventory/`) incl. Windows tree-kill check*
 - [ ] **0.2.3** 🧑 GPU stack on every NVIDIA laptop: driver, PyTorch CUDA wheel check (decide per-platform torch index via `[tool.uv.sources]` — PyPI Windows torch is CPU-only; add ADR + startup CUDA check), Docker (Desktop on Windows) + GPU container test `docker run --gpus all … nvidia-smi`
 - [ ] **0.2.4** 🧑 Network: switch + cables, DHCP reservations/hostnames, Windows firewall profile set to Private; record link speeds
@@ -738,7 +738,7 @@ A version is **complete** only when all apply:
 
 | Date | Item | Status | Owner |
 |---|---|---|---|
-| 2026-09-15 | Laptop 1 NVIDIA driver not loading (Secure Boot key not enrolled) | open — user action (MOK enrollment) | team |
+| 2026-09-15 | Laptop 1 NVIDIA driver not loading (Secure Boot key not enrolled) | **resolved 2026-09-19** (MOK enrolled; driver 595.91.07 works, Secure Boot still on) | team |
 | 2026-09-15 | Hardware of laptops 2–4 unknown | open | team |
 | 2026-09-15 | AI-agent access to Windows laptops undecided | open | team |
 | 2026-09-15 | Ethernet switch not yet purchased | open | team |

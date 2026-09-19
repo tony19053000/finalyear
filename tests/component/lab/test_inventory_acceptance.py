@@ -132,19 +132,81 @@ def fake_bin(tmp_path: Path) -> Path:
     return d
 
 
+def _write_broken_nvml(directory: Path) -> Path:
+    """A stub ``pynvml`` whose ``nvmlInit()`` fails like an unloaded driver.
+
+    The NVML probe runs ``sys.executable -c <script>`` in a child process, so it
+    cannot be monkeypatched from here; shadowing the module through
+    ``PYTHONPATH`` is the equivalent seam for a subprocess test. It makes the
+    *simulated* broken-driver machine independent of whether this host has a
+    working driver (or ``pynvml``) installed."""
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "pynvml.py").write_text(
+        "class NVMLError(Exception):\n    pass\n\n\n"
+        "def nvmlInit():\n"
+        '    raise NVMLError("NVML_ERROR_DRIVER_NOT_LOADED: Driver Not Loaded")\n',
+        encoding="utf-8",
+    )
+    return directory
+
+
+def _broken_driver_env(fake_bin: Path, stub_dir: Path) -> dict[str, str]:
+    """Env for a machine whose NVIDIA driver is broken (the state Laptop 1 was in
+    while Secure Boot blocked the module): ``nvidia-smi`` is installed but fails,
+    and NVML cannot initialise. Nothing here depends on the real host."""
+    _write_fake_tool(
+        fake_bin,
+        "nvidia-smi",
+        "echo \"NVIDIA-SMI has failed because it couldn't communicate with the "
+        "NVIDIA driver. Make sure that the latest NVIDIA driver is installed "
+        'and running." >&2\nexit 9',
+    )
+    _write_broken_nvml(stub_dir)
+    env = _base_env([str(fake_bin)])
+    env["PYTHONPATH"] = os.pathsep.join(
+        [str(stub_dir), *([env["PYTHONPATH"]] if env.get("PYTHONPATH") else [])]
+    )
+    return env
+
+
 def test_nvidia_smi_producing_garbage_never_crashes(
     fake_bin: Path, tmp_path: Path
 ) -> None:
     """A broken/mocked ``nvidia-smi`` on PATH that exits 0 with unrelated garbage
-    (not CSV) must be recorded as a failure, and the run must still succeed."""
+    (not CSV) must be recorded as a failure, and the run must still succeed.
+
+    Host-independent: what nvidia-smi says is fully controlled here, and
+    ``driver_working`` is only checked for internal consistency with the two
+    probes it is derived from (this host's *real* NVML is deliberately left
+    alone, so it may legitimately be working)."""
     _write_fake_tool(fake_bin, "nvidia-smi", 'echo "not a csv line at all, sorry"')
     out = tmp_path / "inv.json"
     proc = _run("--out", str(out), "--no-summary", env=_base_env([str(fake_bin)]))
     assert proc.returncode == 0, (proc.stdout, proc.stderr)
     assert "Traceback" not in proc.stderr
     doc = json.loads(out.read_text(encoding="utf-8"))
+    assert doc["sections"]["nvidia"]["ok"] is True  # the probe itself never fails
     nv = doc["sections"]["nvidia"]["value"]
     assert nv["nvidia_smi"]["ok"] is False
+    assert nv["driver_working"] is bool(nv["nvidia_smi"]["ok"] or nv["nvml"]["ok"])
+
+
+def test_garbage_nvidia_smi_with_dead_nvml_reports_driver_not_working(
+    fake_bin: Path, tmp_path: Path
+) -> None:
+    """The same garbage nvidia-smi on a machine whose NVML is also dead: both
+    probes failed, so ``driver_working`` must be false -- and the run still
+    succeeds."""
+    env = _broken_driver_env(fake_bin, tmp_path / "stub")
+    _write_fake_tool(fake_bin, "nvidia-smi", 'echo "not a csv line at all, sorry"')
+    out = tmp_path / "inv.json"
+    proc = _run("--out", str(out), "--no-summary", env=env)
+    assert proc.returncode == 0, (proc.stdout, proc.stderr)
+    assert "Traceback" not in proc.stderr
+    doc = json.loads(out.read_text(encoding="utf-8"))
+    nv = doc["sections"]["nvidia"]["value"]
+    assert nv["nvidia_smi"]["ok"] is False
+    assert nv["nvml"]["ok"] is False
     assert nv["driver_working"] is False
 
 
@@ -409,20 +471,68 @@ def test_every_lab_field_resolves_to_an_ok_or_explicit_error_on_this_machine(
                 assert node, (row, path, node)  # e.g. "hostname": a non-empty scalar
 
 
+def _nvidia_problems(doc: dict[str, Any]) -> list[str]:
+    return [p for p in doc["problems"] if p.startswith("nvidia:")]
+
+
 def test_nvidia_section_ok_true_does_not_imply_driver_working(
-    real_machine_json: dict[str, Any],
+    fake_bin: Path, tmp_path: Path
 ) -> None:
-    """Design check (this machine's driver is known broken by Secure Boot): the
-    ``nvidia`` section is ``ok: true`` (the probe itself succeeded) even though
-    ``value.driver_working`` is ``false``. This means a consumer that only checks
-    top-level ``ok`` / ``failed_sections`` to decide "does this machine have a
-    working GPU" will silently miss the failure -- it must read
-    ``value.driver_working`` instead. Recorded here so this is a documented,
-    deliberate trade-off rather than a silent surprise."""
-    nv = real_machine_json["sections"]["nvidia"]
+    """Design check, on a *simulated* machine whose NVIDIA driver is broken (the
+    state Laptop 1 was in under Secure Boot): the ``nvidia`` section is
+    ``ok: true`` -- the probe itself succeeded -- even though
+    ``value.driver_working`` is ``false`` and the section is not in
+    ``failed_sections``. A consumer that only checks top-level ``ok`` /
+    ``failed_sections`` to decide "does this machine have a working GPU" would
+    silently miss the failure; it must read ``value.driver_working``, or the
+    ``problems`` list, which is exactly why ``problems`` exists.
+
+    Uses a fake failing ``nvidia-smi`` plus a stub NVML, so the result does not
+    depend on the driver state of the machine running the tests."""
+    env = _broken_driver_env(fake_bin, tmp_path / "stub")
+    out = tmp_path / "inv.json"
+    proc = _run("--out", str(out), "--no-summary", env=env)
+    assert proc.returncode == 0, (proc.stdout, proc.stderr)
+    doc = json.loads(out.read_text(encoding="utf-8"))
+    nv = doc["sections"]["nvidia"]
     assert nv["ok"] is True
     assert nv["value"]["driver_working"] is False
+    assert "nvidia" not in doc["failed_sections"]
+    # ...but the broken driver is surfaced, once, in `problems`.
+    assert _nvidia_problems(doc), doc["problems"]
+    assert (
+        "driver" in _nvidia_problems(doc)[0]
+        or "not working" in (_nvidia_problems(doc)[0])
+    )
+
+
+def test_nvidia_driver_state_and_problems_agree_on_this_machine(
+    real_machine_json: dict[str, Any],
+) -> None:
+    """The same property checked against whatever this real machine is: the
+    ``nvidia`` probe always succeeds, ``driver_working`` is a boolean, and a
+    broken driver on a machine where NVIDIA hardware or tooling is visible is
+    always reported in ``problems`` (and never reported when it works)."""
+    nv = real_machine_json["sections"]["nvidia"]
+    assert nv["ok"] is True
     assert "nvidia" not in real_machine_json["failed_sections"]
+    working = nv["value"]["driver_working"]
+    assert isinstance(working, bool)
+    problems = _nvidia_problems(real_machine_json)
+    if working:
+        assert not problems, problems
+        return
+    gpus = real_machine_json["sections"]["gpus"]
+    nvidia_visible = nv["value"]["nvidia_smi"].get("available") is True or (
+        gpus["ok"] and any(g.get("vendor") == "NVIDIA" for g in gpus["value"])
+    )
+    if nvidia_visible:
+        assert problems, (
+            "driver_working is false with NVIDIA hardware/tooling present, "
+            f"but nothing was reported in problems: {real_machine_json['problems']}"
+        )
+    else:
+        assert not problems, problems  # no NVIDIA on this machine: not a problem
 
 
 # --------------------------------------------------------------------- fresh clone, plain uv sync

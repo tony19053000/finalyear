@@ -12,6 +12,8 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 0.2.5 S1 network spike + shared spike harness `[~]` (implementer). 0.2.2 inventory code done (commit `feat(0.2.2)`), waiting for 🧑 runs on all 4 laptops. V0.1: 0.1.4 and 0.1.10 wait only for the 🧑 first real GitHub CI run.
 
 ## Recently Completed
+- 0.2.1 (Laptop 1 part): NVIDIA driver fixed by the user — `nvidia-smi` works (RTX 3050 Laptop, 595.91.07, 4 GiB, CC 8.6); `torch.cuda` check still pending ADR-0011/0.2.3
+- 0.2.5 S1 spike: tester PASS round 2; small fix round in progress (host-dependent tests, flaky flood margin, case-insensitive filename collision)
 - 0.2.2 inventory script: tester PASS (round 2), reviewer APPROVE, committed; `[~]` until real 4-laptop runs
 - All V0.1 tasks implemented, tested and reviewed; committed locally (one commit per task + fix commits). `[x]`: 0.1.1, 0.1.2, 0.1.3, 0.1.5, 0.1.6, 0.1.7, 0.1.8, 0.1.9, 0.1.11, 0.1.12
 - `[~]` pending real GitHub run: 0.1.4 (import boundaries enforced in CI), 0.1.10 (CI green incl. Windows)
@@ -24,7 +26,6 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 
 ## Blockers
 - 🧑 Private GitHub repo + first push not done → V0.1 criteria 1 (Windows) and 2 (CI green, bad commit rejected) cannot be proven until then
-- Laptop 1 NVIDIA driver blocked by Secure Boot (MOK not enrolled) — user must run `sudo mokutil --import /var/lib/shim-signed/mok/MOK.der`, reboot, enroll
 - Hardware of laptops 2–4 unknown; AI-agent access to Windows laptops undecided; Ethernet switch not purchased
 
 ## Known Bugs
