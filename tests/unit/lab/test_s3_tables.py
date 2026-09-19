@@ -180,7 +180,10 @@ def test_collect_flattens_rows_with_validity() -> None:
 
 def test_collect_marks_short_rows_invalid() -> None:
     doc = envelope(
-        "A", "B", "wifi", [case("tcp-down-1MiB", transport="tcp", size=MIB, mbps=[1, 2])]
+        "A",
+        "B",
+        "wifi",
+        [case("tcp-down-1MiB", transport="tcp", size=MIB, mbps=[1, 2])],
     )
     (row,) = tables.collect([doc])
     assert row.n == 2 and not row.valid
@@ -191,7 +194,10 @@ def test_throughput_matrix_never_shows_a_sweep_row_in_the_default_cell() -> None
     """Regression: the sweep row ``grpc-down-64MiB-chunk64KiB`` sorts after
     ``grpc-down-64MiB`` and used to overwrite its cell."""
     doc = envelope(
-        "A", "B", "ethernet", full_run(grpc=900.0, sweep={64 * KIB: 500.0, 4 * MIB: 700.0})
+        "A",
+        "B",
+        "ethernet",
+        full_run(grpc=900.0, sweep={64 * KIB: 500.0, 4 * MIB: 700.0}),
     )
     text = tables.throughput_tables(tables.collect([doc]))
     grpc_line = next(ln for ln in text.splitlines() if "gRPC server-stream" in ln)
@@ -205,7 +211,10 @@ def test_matrix_prefers_the_row_with_most_valid_reps_on_rerun() -> None:
         "A", "B", "wifi", [case("tcp-down-1MiB", transport="tcp", size=MIB, mbps=[999])]
     )
     second = envelope(
-        "A", "B", "wifi", [case("tcp-down-1MiB", transport="tcp", size=MIB, mbps=five(500))]
+        "A",
+        "B",
+        "wifi",
+        [case("tcp-down-1MiB", transport="tcp", size=MIB, mbps=five(500))],
     )
     rows = tables.collect([first, second])
     index = tables._index(rows)
@@ -226,7 +235,10 @@ def test_matrix_marks_invalid_and_tbd_cells_and_groups_by_pair_and_link() -> Non
         ],
     )
     doc_eth = envelope(
-        "A", "C", "ethernet", [case("tcp-down-1MiB", transport="tcp", size=MIB, mbps=five(900))]
+        "A",
+        "C",
+        "ethernet",
+        [case("tcp-down-1MiB", transport="tcp", size=MIB, mbps=five(900))],
     )
     text = tables.throughput_tables(tables.collect([doc_wifi, doc_eth]))
     assert "**A -> B · Wi-Fi**" in text and "**A -> C · Ethernet**" in text
@@ -247,7 +259,10 @@ def test_sweep_rows_include_the_default_chunk_row() -> None:
     assert [r.sweep for r in rows] == [True, False, True]
     text = tables.sweep_table(tables.collect([doc]))
     assert "payload 64MiB" in text and "| 1MiB | 900.0 ±" in text
-    assert tables.sweep_table(tables.collect([envelope("A", "B", "wifi", full_run())])) == ""
+    assert (
+        tables.sweep_table(tables.collect([envelope("A", "B", "wifi", full_run())]))
+        == ""
+    )
 
 
 def test_best_chunk_is_per_group_and_ignores_invalid_rows() -> None:
@@ -258,8 +273,8 @@ def test_best_chunk_is_per_group_and_ignores_invalid_rows() -> None:
         "A",
         "B",
         "wifi",
-        full_run(grpc=300.0, sweep={256 * KIB: 320.0, 4 * MIB: 250.0})
-        + [
+        [
+            *full_run(grpc=300.0, sweep={256 * KIB: 320.0, 4 * MIB: 250.0}),
             case(
                 "grpc-down-64MiB-chunk64KiB",
                 transport="grpc",
@@ -267,11 +282,14 @@ def test_best_chunk_is_per_group_and_ignores_invalid_rows() -> None:
                 chunk=64 * KIB,
                 mbps=[5000.0],  # n=1: INVALID, must not win
                 sweep=True,
-            )
+            ),
         ],
     )
     eth = envelope(
-        "A", "C", "ethernet", full_run(grpc=900.0, sweep={256 * KIB: 850.0, 4 * MIB: 950.0})
+        "A",
+        "C",
+        "ethernet",
+        full_run(grpc=900.0, sweep={256 * KIB: 850.0, 4 * MIB: 950.0}),
     )
     groups = tables._groups(tables.collect([wifi, eth]))
     best_wifi = tables.best_chunk(groups[("A -> B", "wifi")])
@@ -279,13 +297,46 @@ def test_best_chunk_is_per_group_and_ignores_invalid_rows() -> None:
     assert best_wifi is not None and best_wifi.chunk == 256 * KIB
     assert best_eth is not None and best_eth.chunk == 4 * MIB
     verdict = tables.verdict(tables.collect([wifi, eth]))
-    wifi_block = verdict[verdict.index("**A -> B · Wi-Fi**") : verdict.index("**A -> C")]
+    wifi_block = verdict[
+        verdict.index("**A -> B · Wi-Fi**") : verdict.index("**A -> C")
+    ]
     eth_block = verdict[verdict.index("**A -> C · Ethernet**") :]
     assert "Best gRPC chunk (message) size at 64MiB: **256KiB**" in wifi_block
     assert "64KiB" not in wifi_block.split("Best gRPC chunk")[1].split("\n")[0]
     assert "Best gRPC chunk (message) size at 64MiB: **4MiB**" in eth_block
     assert "exactly gRPC's default 4 MB message limit" in eth_block
     assert "default 4 MB" not in wifi_block
+
+
+def test_sweep_rows_keep_one_row_per_chunk_on_rerun() -> None:
+    """A rerun of the same pair+link must not list a chunk twice, and the row
+    with the most valid repetitions wins over a faster low-n one."""
+    first = envelope(
+        "A", "B", "wifi", full_run(grpc=900.0, sweep={256 * KIB: 800.0, 4 * MIB: 950.0})
+    )
+    second = envelope(
+        "A",
+        "B",
+        "wifi",
+        [
+            case(
+                "grpc-down-64MiB-chunk256KiB",
+                transport="grpc",
+                size=64 * MIB,
+                chunk=256 * KIB,
+                mbps=[5000.0],  # n=1: INVALID, must lose to the n=5 row
+                sweep=True,
+            )
+        ],
+    )
+    rows = tables.collect([first, second])
+    entries = tables.sweep_rows(rows)
+    assert [r.chunk for r in entries] == [256 * KIB, MIB, 4 * MIB]
+    assert entries[0].n == 5 and entries[0].mbps_mean == pytest.approx(800.0)
+    line = tables.chunk_line(rows)
+    assert line is not None and "**4MiB**" in line
+    assert line.count("256KiB") == 1 and "5000" not in line
+    assert tables.sweep_table(rows).count("| 256KiB |") == 1
 
 
 def test_best_chunk_needs_two_valid_chunks_and_flags_ties() -> None:
@@ -320,8 +371,8 @@ def test_decision_size_needs_all_three_transports_valid() -> None:
         "A",
         "B",
         "wifi",
-        full_run(size=8 * MIB)
-        + [
+        [
+            *full_run(size=8 * MIB),
             case("tcp-down-64MiB", transport="tcp", size=64 * MIB, mbps=five(900)),
             case("grpc-down-64MiB", transport="grpc", size=64 * MIB, mbps=five(800)),
             case("http-get-64MiB", transport="http", size=64 * MIB, mbps=[850, 860]),
@@ -330,7 +381,10 @@ def test_decision_size_needs_all_three_transports_valid() -> None:
     # 64MiB has only an INVALID HTTP row, so the decision falls back to 8MiB
     assert tables.decision_size(tables.collect([doc])) == 8 * MIB
     partial = envelope(
-        "A", "B", "wifi", [case("tcp-down-1MiB", transport="tcp", size=MIB, mbps=five(1))]
+        "A",
+        "B",
+        "wifi",
+        [case("tcp-down-1MiB", transport="tcp", size=MIB, mbps=five(1))],
     )
     assert tables.decision_size(tables.collect([partial])) == 0
 
@@ -377,11 +431,15 @@ def test_verdict_parallel_wording_is_faster_no_gain_or_slower(
 def test_verdict_never_mixes_pairs_or_links() -> None:
     """Regression: the old verdict took the best row of every family over all
     envelopes, so a Wi-Fi gRPC row was compared with an Ethernet TCP row."""
-    wifi = envelope("A", "B", "wifi", full_run(tcp=300.0, grpc=150.0, http=280.0, ranges=290.0))
+    wifi = envelope(
+        "A", "B", "wifi", full_run(tcp=300.0, grpc=150.0, http=280.0, ranges=290.0)
+    )
     eth = envelope("A", "B", "ethernet", full_run(tcp=940.0, grpc=900.0, http=930.0))
     text = tables.verdict(tables.collect([wifi, eth]))
     # groups are sorted by (pair, link): Ethernet before Wi-Fi
-    eth_block = text[text.index("**A -> B · Ethernet**") : text.index("**A -> B · Wi-Fi**")]
+    eth_block = text[
+        text.index("**A -> B · Ethernet**") : text.index("**A -> B · Wi-Fi**")
+    ]
     wifi_block = text[text.index("**A -> B · Wi-Fi**") :]
     assert "raw TCP 300 Mbit/s (baseline), gRPC 150" in wifi_block
     assert "**50%** of raw TCP - too expensive" in wifi_block
@@ -392,7 +450,10 @@ def test_verdict_never_mixes_pairs_or_links() -> None:
 def test_verdict_tbd_paths() -> None:
     assert "TBD: no S3 results" in tables.verdict([])
     doc = envelope(
-        "A", "B", "wifi", [case("tcp-down-1MiB", transport="tcp", size=MIB, mbps=five(1))]
+        "A",
+        "B",
+        "wifi",
+        [case("tcp-down-1MiB", transport="tcp", size=MIB, mbps=five(1))],
     )
     text = tables.verdict(tables.collect([doc]))
     assert "**A -> B · Wi-Fi**: TBD" in text and "n >= 5" in text
@@ -452,7 +513,9 @@ def test_ceiling_table_renders_ok_and_failed() -> None:
         "B",
         "wifi",
         [],
-        extra={"loopback_ceiling": {"ok": False, "error": "did not start", "size_bytes": 0}},
+        extra={
+            "loopback_ceiling": {"ok": False, "error": "did not start", "size_bytes": 0}
+        },
     )
     text = tables.ceiling_table([ok, failed])
     assert "**A** · payload 64MiB · CRC-32 verification 5000 MiB/s" in text
@@ -500,8 +563,14 @@ def test_probe_table_new_and_legacy_shapes() -> None:
     )
     text = tables.probe_table([new, legacy])
     assert "| A -> B | 4MiB | 4194304 (default) | passed |" in text
-    assert "4194303 (one byte under) | refused - transport_error: RESOURCE_EXHAUSTED |" in text
-    assert "| C -> B | 4MiB | 4194304 (default) | refused - grpc_unavailable: no grpc (unexpected) |" in text
+    assert (
+        "4194303 (one byte under) | refused - transport_error: RESOURCE_EXHAUSTED |"
+        in text
+    )
+    assert (
+        "| C -> B | 4MiB | 4194304 (default) | refused - grpc_unavailable: no grpc "
+        "(unexpected) |"
+    ) in text
     assert tables.probe_table([envelope("A", "B", "wifi", [])]) == ""
 
 

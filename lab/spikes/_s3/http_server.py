@@ -277,9 +277,18 @@ class S3HttpServer(ThreadingHTTPServer):
         self._thread = thread
 
     def close(self) -> None:
-        with contextlib.suppress(OSError, RuntimeError):
-            self.shutdown()
+        """Stop serving (if started), close the listener, join the thread.
+
+        ``shutdown()`` is only called when :meth:`start` ran: socketserver's
+        ``shutdown`` waits for ``serve_forever`` to acknowledge, and blocks
+        forever on a server that was opened but never served (the
+        ``--ready-file`` failure path, ``open()`` followed by ``close()``).
+        """
+        if self._thread is not None:
+            with contextlib.suppress(OSError, RuntimeError):
+                self.shutdown()
         with contextlib.suppress(OSError):
             self.server_close()
         if self._thread is not None:
             self._thread.join(timeout=_JOIN_S)
+            self._thread = None

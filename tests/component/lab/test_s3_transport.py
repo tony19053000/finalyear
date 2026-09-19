@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import contextlib
 import http.client
+import itertools
 import json
 import socket
 import struct
@@ -184,11 +185,12 @@ def test_range_parts_cover_size_exactly() -> None:
         ranges = range_parts(size, parts)
         assert len(ranges) == min(parts, size)
         assert ranges[0][0] == 0 and sum(length for _, length in ranges) == size
-        for (a, la), (b, _) in zip(ranges, ranges[1:], strict=False):
+        for (a, la), (b, _) in itertools.pairwise(ranges):
             assert a + la == b
-        assert max(length for _, length in ranges) - min(
-            length for _, length in ranges
-        ) <= 1
+        assert (
+            max(length for _, length in ranges) - min(length for _, length in ranges)
+            <= 1
+        )
     with pytest.raises(ValueError):
         range_parts(10, 0)
 
@@ -244,7 +246,9 @@ def test_tcp_invalid_requests_get_typed_refusals(server: S3Server) -> None:
             {"op": "download", "transfer_id": "x", "size": SIZE, "chunk": 8 * MIB},
         )
     with pytest.raises(TransferError, match="bad transfer_id"):
-        control(ep, {"op": "upload", "transfer_id": "../x", "size": SIZE, "chunk": CHUNK})
+        control(
+            ep, {"op": "upload", "transfer_id": "../x", "size": SIZE, "chunk": CHUNK}
+        )
     with pytest.raises(TransferError, match="bad parts"):
         control(ep, {"op": "stats", "transfer_id": "x", "parts": 1000})
     assert hello(ep)["ok"] is True
@@ -366,10 +370,10 @@ def test_grpc_bad_request_and_oversized_message_are_typed(server: S3Server) -> N
         upload = channel.stream_unary(GRPC_UPLOAD, lambda b: b, lambda b: b)
         with pytest.raises(grpc.RpcError) as exc:
             upload(iter([b"not json"]), timeout=5)
-        assert exc.value.code() is grpc.StatusCode.INVALID_ARGUMENT  # type: ignore[attr-defined]
+        assert exc.value.code() is grpc.StatusCode.INVALID_ARGUMENT
         with pytest.raises(grpc.RpcError) as exc:
             upload(iter([]), timeout=5)
-        assert exc.value.code() is grpc.StatusCode.INVALID_ARGUMENT  # type: ignore[attr-defined]
+        assert exc.value.code() is grpc.StatusCode.INVALID_ARGUMENT
     finally:
         channel.close()
     # a message larger than the server's raised limit is refused, never buffered
@@ -385,13 +389,15 @@ def test_grpc_bad_request_and_oversized_message_are_typed(server: S3Server) -> N
         ).encode()
         with pytest.raises(grpc.RpcError) as exc:
             upload(iter([header, b"x" * huge]), timeout=10)
-        assert exc.value.code() is grpc.StatusCode.RESOURCE_EXHAUSTED  # type: ignore[attr-defined]
+        assert exc.value.code() is grpc.StatusCode.RESOURCE_EXHAUSTED
     finally:
         channel.close()
     assert server.ctx.counters.bad_requests >= 1
     # the client wrapper maps the same refusal to a typed, non-fatal failure
     with pytest.raises(TransferError) as terr:
-        grpc_download(ep, 2 * MAX_CHUNK_BYTES, MAX_CHUNK_BYTES, limit=MAX_CHUNK_BYTES - 1)
+        grpc_download(
+            ep, 2 * MAX_CHUNK_BYTES, MAX_CHUNK_BYTES, limit=MAX_CHUNK_BYTES - 1
+        )
     assert terr.value.failure_type is FailureType.TRANSPORT_ERROR
     assert not terr.value.fatal
     assert grpc_download(ep, SIZE, CHUNK)["bytes"] == SIZE
@@ -492,7 +498,9 @@ def fake_tcp_server(
     assert not thread.is_alive()
 
 
-def _download_then(action: Callable[[socket.socket], None]) -> Callable[[socket.socket], None]:
+def _download_then(
+    action: Callable[[socket.socket], None],
+) -> Callable[[socket.socket], None]:
     def handler(conn: socket.socket) -> None:
         msg = recv_msg(conn)
         assert msg["op"] == "download"
@@ -502,19 +510,23 @@ def _download_then(action: Callable[[socket.socket], None]) -> Callable[[socket.
 
 
 def test_client_short_transfer_when_server_closes_early() -> None:
-    with fake_tcp_server(
-        _download_then(lambda c: c.sendall(bytes(payload.chunk_view(0, 1000))))
-    ) as port:
-        with pytest.raises(TransferError) as exc:
-            tcp_download(Endpoint("127.0.0.1", port, 0, 0, io_timeout_s=5), SIZE, CHUNK)
+    with (
+        fake_tcp_server(
+            _download_then(lambda c: c.sendall(bytes(payload.chunk_view(0, 1000))))
+        ) as port,
+        pytest.raises(TransferError) as exc,
+    ):
+        tcp_download(Endpoint("127.0.0.1", port, 0, 0, io_timeout_s=5), SIZE, CHUNK)
     assert exc.value.failure_type is FailureType.SHORT_TRANSFER
     assert "1000 of 262144" in str(exc.value) and not exc.value.fatal
 
 
 def test_client_checksum_mismatch_when_server_sends_wrong_bytes() -> None:
-    with fake_tcp_server(_download_then(lambda c: c.sendall(b"\x00" * SIZE))) as port:
-        with pytest.raises(TransferError) as exc:
-            tcp_download(Endpoint("127.0.0.1", port, 0, 0, io_timeout_s=5), SIZE, CHUNK)
+    with (
+        fake_tcp_server(_download_then(lambda c: c.sendall(b"\x00" * SIZE))) as port,
+        pytest.raises(TransferError) as exc,
+    ):
+        tcp_download(Endpoint("127.0.0.1", port, 0, 0, io_timeout_s=5), SIZE, CHUNK)
     assert exc.value.failure_type is FailureType.CHECKSUM_MISMATCH
 
 
@@ -526,7 +538,9 @@ def test_client_times_out_when_server_stalls() -> None:
     with fake_tcp_server(_download_then(stall)) as port:
         started = time.monotonic()
         with pytest.raises(TransferError) as exc:
-            tcp_download(Endpoint("127.0.0.1", port, 0, 0, io_timeout_s=0.5), SIZE, CHUNK)
+            tcp_download(
+                Endpoint("127.0.0.1", port, 0, 0, io_timeout_s=0.5), SIZE, CHUNK
+            )
         assert time.monotonic() - started < 5
     assert exc.value.failure_type is FailureType.TIMEOUT and exc.value.fatal
 
@@ -538,9 +552,8 @@ def test_client_upload_reply_garbage_is_a_protocol_error() -> None:
             pass
         conn.sendall(b"\x00\x00\x00\x03[1]")
 
-    with fake_tcp_server(garbage) as port:
-        with pytest.raises(TransferError) as exc:
-            tcp_upload(Endpoint("127.0.0.1", port, 0, 0, io_timeout_s=5), SIZE, CHUNK)
+    with fake_tcp_server(garbage) as port, pytest.raises(TransferError) as exc:
+        tcp_upload(Endpoint("127.0.0.1", port, 0, 0, io_timeout_s=5), SIZE, CHUNK)
     assert exc.value.failure_type is FailureType.PROTOCOL_ERROR
 
 
@@ -548,7 +561,9 @@ def test_dead_server_gives_typed_fatal_errors_quickly() -> None:
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         port = s.getsockname()[1]  # bound but not listening: connections refused
-        ep = Endpoint("127.0.0.1", port, port, port, connect_timeout_s=2, io_timeout_s=2)
+        ep = Endpoint(
+            "127.0.0.1", port, port, port, connect_timeout_s=2, io_timeout_s=2
+        )
         started = time.monotonic()
         for fn in (tcp_download, tcp_upload, http_download):
             with pytest.raises(TransferError) as exc:

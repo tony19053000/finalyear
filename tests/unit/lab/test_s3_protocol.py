@@ -84,7 +84,7 @@ def test_select_sizes_keeps_smallest_when_cap_is_tiny() -> None:
 
 def test_default_sizes_span_1mib_to_2gib_and_chunk_sweep_fits_payload() -> None:
     assert p.DEFAULT_SIZES[0] == p.MIB and p.DEFAULT_SIZES[-1] == 2 * p.GIB
-    assert p.DEFAULT_SIZES == tuple(sorted(p.DEFAULT_SIZES))
+    assert tuple(sorted(p.DEFAULT_SIZES)) == p.DEFAULT_SIZES
     assert all(p.MIN_CHUNK_BYTES <= c <= p.MAX_CHUNK_BYTES for c in p.CHUNK_SWEEP)
     assert p.DEFAULT_CHUNK_BYTES in p.CHUNK_SWEEP
 

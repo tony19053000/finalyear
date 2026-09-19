@@ -186,7 +186,9 @@ def test_endpoint_follows_convention_then_hello() -> None:
         47301 + GRPC_PORT_OFFSET,
         47301 + HTTP_PORT_OFFSET,
     )
-    real = cfg.endpoint_from_hello({"ports": {"tcp": 47301, "grpc": 5000, "http": 6000}})
+    real = cfg.endpoint_from_hello(
+        {"ports": {"tcp": 47301, "grpc": 5000, "http": 6000}}
+    )
     assert (real.tcp_port, real.grpc_port, real.http_port) == (47301, 5000, 6000)
     assert real.host == "10.0.0.2" and real.io_timeout_s == ep.io_timeout_s
     # a server without gRPC says port 0; garbage keeps the convention
@@ -261,7 +263,15 @@ def test_report_on_empty_folder_warns_and_uses_explicit_date(
     out = tmp_path / "r.md"
     assert (
         cli.main(
-            ["report", "--results", str(tmp_path), "--out", str(out), "--date", "2026-01-02"]
+            [
+                "report",
+                "--results",
+                str(tmp_path),
+                "--out",
+                str(out),
+                "--date",
+                "2026-01-02",
+            ]
         )
         == 0
     )
@@ -283,7 +293,10 @@ def test_report_day_from_folder_name(tmp_path: Path) -> None:
     named.mkdir()
     assert cli._report_day([tmp_path, named], None).isoformat() == "2026-03-04"
     assert cli._report_day([named], None).isoformat() == "2026-03-04"
-    assert cli._report_day([named], datetime(2026, 5, 6, tzinfo=UTC).date()).isoformat() == "2026-05-06"
+    explicit = datetime(2026, 5, 6, tzinfo=UTC).date()
+    assert cli._report_day([named], explicit).isoformat() == "2026-05-06"
     bad = tmp_path / "2026-99-99-x"
     bad.mkdir()
-    assert cli._report_day([bad], None).isoformat() == datetime.now(UTC).date().isoformat()
+    assert (
+        cli._report_day([bad], None).isoformat() == datetime.now(UTC).date().isoformat()
+    )

@@ -207,19 +207,25 @@ def cpu_tables(rows: Sequence[Row]) -> str:
 
 
 def sweep_rows(rows: Sequence[Row]) -> list[Row]:
-    """The gRPC chunk sweep: every ``grpc-down`` row at the swept payload size.
+    """The gRPC chunk sweep: one ``grpc-down`` row per chunk at the swept size.
 
     The row measured with the default chunk is part of the sweep even though it
     is not marked ``sweep`` (it is not run twice), so "best chunk" sees it too.
+    When the same pair+link was measured more than once, each chunk keeps the
+    row with the most valid repetitions (like :func:`pick`), never the fastest.
     """
     sizes = sorted({r.size for r in rows if r.sweep})
     if not sizes:
         return []
     target = sizes[-1]
-    return sorted(
-        (r for r in rows if r.family == "grpc-down" and r.size == target and r.chunk),
-        key=lambda r: r.chunk,
-    )
+    per_chunk: dict[int, Row] = {}
+    for row in rows:
+        if row.family != "grpc-down" or row.size != target or not row.chunk:
+            continue
+        current = per_chunk.get(row.chunk)
+        if current is None or (row.valid, row.n) > (current.valid, current.n):
+            per_chunk[row.chunk] = row
+    return [per_chunk[chunk] for chunk in sorted(per_chunk)]
 
 
 def sweep_table(rows: Sequence[Row]) -> str:
