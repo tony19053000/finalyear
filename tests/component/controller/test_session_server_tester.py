@@ -123,10 +123,19 @@ async def test_second_hello_on_open_stream_with_extreme_epoch_is_protocol_error(
             message_id=new_command_id(), hello=make_hello(node_id, 2)
         )
     )
-    while True:
-        msg = await call.read()
-        if msg is grpc.aio.EOF:
-            break
+    # Review NB1: a protocol_error end is ABORTED, so after EOF the next read
+    # (or the status) reports it; either way the stream ends with that reason.
+    code: grpc.StatusCode | None = None
+    try:
+        while True:
+            msg = await call.read()
+            if msg is grpc.aio.EOF:
+                code = await call.code()
+                break
+    except grpc.aio.AioRpcError as exc:
+        code = exc.code()
+    assert code is grpc.StatusCode.ABORTED, code
+    assert await call.details() == SessionEndReason.PROTOCOL_ERROR.value
     session_id = ack.hello_ack.session_id
     rec = await registry.get_session(session_id)
     assert rec is not None and not rec.is_open
@@ -261,14 +270,19 @@ async def test_burst_of_2000_heartbeats_never_hangs_the_server(
     session_id = ack.hello_ack.session_id
     assert ack.hello_ack.accepted
 
+    # (Round 2: message_id must be a cmd_<ULID> - a bare label is a protocol
+    # error on the first message, which would end the flood before it starts.)
     for i in range(2000):
-        await call.write(
-            agent_pb2.AgentMessage(
-                message_id=f"hb-flood-{i}",
-                session_id=session_id,
-                heartbeat=agent_pb2.Heartbeat(sequence=i),
+        try:
+            await call.write(
+                agent_pb2.AgentMessage(
+                    message_id=new_command_id(),
+                    session_id=session_id,
+                    heartbeat=agent_pb2.Heartbeat(sequence=i),
+                )
             )
-        )
+        except asyncio.InvalidStateError:
+            break  # the controller already ended the stream (typed, below)
 
     async def closed() -> bool:
         rec = await registry.get_session(session_id)

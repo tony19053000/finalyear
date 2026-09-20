@@ -92,6 +92,9 @@ class ControllerRuntime:
         self._tasks: set[asyncio.Task[None]] = set()
         self._stop_requested = asyncio.Event()
         self._stopped = False
+        self.failed_task: str | None = None
+        """Name of the owned task whose crash caused the stop, if any (NB3): a
+        controller that stopped because its lease timer died exits ``FAILURE``."""
 
     # -------------------------------------------------------------- lifecycle
 
@@ -186,6 +189,8 @@ class ControllerRuntime:
                 error=str(exc),
             )
             # A dead lease timer or HTTP server is not a running controller.
+            if self.failed_task is None:
+                self.failed_task = task.get_name()
             self.request_stop()
 
     # ---------------------------------------------------------------- signals
@@ -209,6 +214,11 @@ class ControllerRuntime:
     async def wait_for_stop(self) -> None:
         await self._stop_requested.wait()
 
+    @property
+    def exit_code(self) -> ExitCode:
+        """``OK`` for a requested stop; ``FAILURE`` if an owned task crashed."""
+        return ExitCode.OK if self.failed_task is None else ExitCode.FAILURE
+
     # --------------------------------------------------------------- shutdown
 
     async def stop(self) -> None:
@@ -222,7 +232,7 @@ class ControllerRuntime:
             # Sessions first: their streams end with the reason persisted before the
             # transport is torn down under them.
             with contextlib.suppress(TimeoutError):
-                await asyncio.wait_for(self.manager.shutdown(), drain)
+                await asyncio.wait_for(self.manager.shutdown(drain_s=drain), drain)
         if self._lease_timer_task is not None and not self._lease_timer_task.done():
             # Runs forever by design; nothing to drain once the sessions are closed.
             self._lease_timer_task.cancel()
@@ -288,7 +298,9 @@ async def _serve(settings: ControllerSettings) -> int:
     async with ControllerRuntime.start(settings) as runtime:
         runtime.install_signal_handlers()
         await runtime.wait_for_stop()
-    return int(ExitCode.OK)
+    if runtime.failed_task is not None:
+        log.error("controller.exited_after_task_failure", task=runtime.failed_task)
+    return int(runtime.exit_code)
 
 
 def run_controller(settings: ControllerSettings) -> int:

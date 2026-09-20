@@ -17,7 +17,7 @@ from collections.abc import Awaitable, Callable, Coroutine, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy import CursorResult, Result, select, update
+from sqlalchemy import CursorResult, Result, func, select, update
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
@@ -192,13 +192,34 @@ class Registry:
         the Hello was an enrollment, a reconnect or a superseding stream).
 
         ``session_epoch`` is the high-water mark of the node (ADR-0002 Updates §1)
-        and **never moves backwards**: the row keeps ``GREATEST(existing, new)``.
-        The session layer rejects a lower-or-equal epoch before calling this; the
-        clamp is the second line of defence and is logged when it engages.
+        and **never moves backwards**: the UPDATE itself writes
+        ``GREATEST(session_epoch, :new)``, so the clamp holds in the database even
+        for two writers racing without the session manager's lock (there is no
+        read-modify-write to interleave). The session layer rejects a
+        lower-or-equal epoch before calling this; the clamp is the second line of
+        defence and is logged when it engaged (RETURNING shows the stored value).
         """
         now = _utcnow()
         async with self._sessions() as db, db.begin():
-            row = await db.get(Node, node_id)
+            # UPDATE first (the common case: a known node reconnecting); the clamp
+            # is inside the statement. RETURNING gives the row as stored.
+            result = await db.execute(
+                update(Node)
+                .where(Node.node_id == node_id)
+                .values(
+                    hostname=hostname,
+                    os=os,
+                    platform=platform,
+                    hardware=dict(hardware),
+                    state=state.value,
+                    last_seen_at=now,
+                    last_session_id=session_id,
+                    session_epoch=func.greatest(Node.session_epoch, session_epoch),
+                )
+                .returning(Node)
+                .execution_options(synchronize_session=False)
+            )
+            row = result.scalars().one_or_none()
             if row is None:
                 row = Node(
                     node_id=node_id,
@@ -213,25 +234,15 @@ class Registry:
                     session_epoch=session_epoch,
                 )
                 db.add(row)
-            else:
-                row.hostname = hostname
-                row.os = os
-                row.platform = platform
-                row.hardware = dict(hardware)
-                row.state = state.value
-                row.last_seen_at = now
-                row.last_session_id = session_id
-                if session_epoch < row.session_epoch:
-                    log.warning(
-                        "registry.epoch_not_lowered",
-                        node_id=node_id,
-                        session_id=session_id,
-                        hello_epoch=session_epoch,
-                        stored_epoch=row.session_epoch,
-                    )
-                else:
-                    row.session_epoch = session_epoch
-            await db.flush()
+                await db.flush()
+            elif row.session_epoch != session_epoch:
+                log.warning(
+                    "registry.epoch_not_lowered",
+                    node_id=node_id,
+                    session_id=session_id,
+                    hello_epoch=session_epoch,
+                    stored_epoch=row.session_epoch,
+                )
             return _node_record(row)
 
     @_typed
@@ -248,7 +259,15 @@ class Registry:
 
     @_typed
     async def touch_node(self, node_id: str) -> None:
-        """Move ``last_seen_at`` to now (called on every heartbeat)."""
+        """Move ``last_seen_at`` to now.
+
+        Not called per heartbeat: the session manager *coalesces* heartbeats to
+        one call per ``heartbeat_interval_s`` per node and runs it on the
+        session's ordered write chain (``session/writer.py``), so the value is the
+        wall time the write executed - at most one interval plus queueing after
+        the heartbeat it stands for. Liveness is decided in memory; this column
+        is a record for the dashboard and for a controller restart.
+        """
         async with self._sessions() as db, db.begin():
             await db.execute(
                 update(Node)

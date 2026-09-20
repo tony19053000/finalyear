@@ -8,6 +8,11 @@
 * :mod:`.leases` - :class:`LeaseTimer`: the single timer task that turns silence
   into SUSPECT/OFFLINE via :mod:`meshforge.controller.liveness` and sends the RTT
   pings.
+* :mod:`.writer` - :class:`WriteChain`: one ordered single-writer task per
+  session that carries every registry write, so neither a reader nor the lease
+  timer ever awaits the database.
+* :mod:`.limits` - caps on peer-controlled input (``message_id`` shape, Hello
+  string lengths) applied before anything is kept or persisted.
 * :mod:`.epoch` - ``MAX_SESSION_EPOCH``, the one place the controller's bound on
   ``Hello.session_epoch`` is defined.
 * :mod:`.errors` - typed failures of the session layer.
@@ -27,6 +32,7 @@ from meshforge.controller.session.manager import (
     SessionManager,
 )
 from meshforge.controller.session.servicer import AgentControlServicer
+from meshforge.controller.session.writer import WriteChain
 
 __all__ = [
     "AdmitResult",
@@ -36,4 +42,5 @@ __all__ = [
     "OutboundOverflowError",
     "SessionManager",
     "SessionProtocolError",
+    "WriteChain",
 ]

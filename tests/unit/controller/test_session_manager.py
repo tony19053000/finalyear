@@ -11,12 +11,14 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import datetime as dt
+import hashlib
 from collections.abc import AsyncIterator, Mapping
 from typing import Any, cast
 
 import grpc
 import pytest
 import structlog
+from ulid import ULID
 
 from meshforge.common.ids import new_node_id
 from meshforge.common.proto.meshforge.v1 import agent_pb2
@@ -193,11 +195,18 @@ async def admit(manager: SessionManager, h: agent_pb2.Hello) -> LiveSession:
     return result.live
 
 
+def mid(label: str) -> str:
+    """A valid, canonical ``cmd_<ULID>`` derived deterministically from ``label``
+    (the same label always gives the same id, so duplicates can be staged)."""
+    digest = hashlib.sha256(label.encode()).digest()[:16]
+    return f"cmd_{ULID.from_bytes(digest)}"
+
+
 def heartbeat(
     live: LiveSession, message_id: str, seq: int = 1
 ) -> agent_pb2.AgentMessage:
     return agent_pb2.AgentMessage(
-        message_id=message_id,
+        message_id=mid(message_id),
         session_id=live.session_id,
         heartbeat=agent_pb2.Heartbeat(sequence=seq),
     )
@@ -395,6 +404,7 @@ async def test_hello_after_offline_is_reconnected() -> None:
     for event in (LivenessEvent.LEASE_MISSED, LivenessEvent.LEASE_EXPIRED):
         await manager.apply_event(live, event, silence_s=6.0)
     await manager.end_session(live, SessionEndReason.LEASE_EXPIRED)
+    await settle()  # the writes ride the session's chain
     assert reg.nodes[node_id].state is NodeState.OFFLINE
 
     with structlog.testing.capture_logs() as logs:
@@ -459,8 +469,9 @@ async def test_heartbeat_resets_lease_and_is_acked() -> None:
     out = drain(live)
     assert len(out) == 1 and out[0] is not None
     assert out[0].WhichOneof("payload") == "ack"
-    assert out[0].ack.acked_message_id == "m-1"
+    assert out[0].ack.acked_message_id == mid("m-1")
     assert out[0].session_id == live.session_id
+    await settle()
     assert reg.calls_named("touch_node") == [((live.node_id,), {})]
 
 
@@ -476,6 +487,7 @@ async def test_heartbeat_burst_in_one_interval_costs_exactly_one_touch_write() -
         await manager.handle_message(live, heartbeat(live, f"hb-{i}", seq=i))
     assert live.heartbeats == 1000
     assert live.tracker.last_heartbeat == clock.now  # every one extended the lease
+    await settle()
     assert reg.calls_named("touch_node") == [((live.node_id,), {})]
     assert live.touch_dirty is True
     assert (
@@ -493,6 +505,7 @@ async def test_pending_touch_is_flushed_by_the_timer_once_the_window_closes() ->
     await manager.handle_message(live, heartbeat(live, "a"))  # writes (window opens)
     clock.now += 0.5
     await manager.handle_message(live, heartbeat(live, "b"))  # coalesced -> dirty
+    await settle()
     assert len(reg.calls_named("touch_node")) == 1
 
     # The timer schedules the flush, and a tick before it is due does nothing.
@@ -502,6 +515,7 @@ async def test_pending_touch_is_flushed_by_the_timer_once_the_window_closes() ->
 
     clock.now = NOW0 + CFG.heartbeat_interval_s
     await timer.tick(clock.now)
+    await settle()
     assert len(reg.calls_named("touch_node")) == 2
     assert not live.touch_dirty
     assert live.touch_due_at(CFG.heartbeat_interval_s) is None
@@ -509,9 +523,11 @@ async def test_pending_touch_is_flushed_by_the_timer_once_the_window_closes() ->
     # A clean session is not written again by later ticks...
     clock.now += CFG.heartbeat_interval_s
     await timer.tick(clock.now)
+    await settle()
     assert len(reg.calls_named("touch_node")) == 2
     # ...and a heartbeat after the window writes immediately again.
     await manager.handle_message(live, heartbeat(live, "c"))
+    await settle()
     assert len(reg.calls_named("touch_node")) == 3
 
 
@@ -527,6 +543,7 @@ async def test_touch_is_not_flushed_for_an_ended_session() -> None:
     await manager.end_session(live, SessionEndReason.AGENT_CLOSED)
     clock.now += CFG.heartbeat_interval_s
     await manager.flush_touch(live, clock.now)
+    await settle()
     assert len(reg.calls_named("touch_node")) == 1
 
 
@@ -542,7 +559,7 @@ async def test_duplicate_message_id_is_processed_once_but_re_acked() -> None:
     acks = [
         m for m in drain(live) if m is not None and m.WhichOneof("payload") == "ack"
     ]
-    assert [a.ack.acked_message_id for a in acks] == ["dup", "dup"]
+    assert [a.ack.acked_message_id for a in acks] == [mid("dup"), mid("dup")]
 
 
 @pytest.mark.asyncio
@@ -605,7 +622,8 @@ async def test_missing_message_id_or_payload_is_a_protocol_error() -> None:
         )
     with pytest.raises(SessionProtocolError, match="payload"):
         await manager.handle_message(
-            live, agent_pb2.AgentMessage(message_id="x", session_id=live.session_id)
+            live,
+            agent_pb2.AgentMessage(message_id=mid("x"), session_id=live.session_id),
         )
 
 
@@ -645,7 +663,7 @@ async def test_agent_ack_is_not_acked_back() -> None:
     await manager.handle_message(
         live,
         agent_pb2.AgentMessage(
-            message_id="a-1",
+            message_id=mid("a-1"),
             session_id=live.session_id,
             ack=agent_pb2.Ack(acked_message_id="c"),
         ),
@@ -660,13 +678,17 @@ async def test_other_reports_are_acked_and_left_for_later_versions() -> None:
     await manager.handle_message(
         live,
         agent_pb2.AgentMessage(
-            message_id="r-1",
+            message_id=mid("r-1"),
             session_id=live.session_id,
             resource_update=agent_pb2.ResourceUpdate(sequence=1, cpu_percent=3.0),
         ),
     )
     out = drain(live)
-    assert len(out) == 1 and out[0] is not None and out[0].ack.acked_message_id == "r-1"
+    assert (
+        len(out) == 1
+        and out[0] is not None
+        and out[0].ack.acked_message_id == mid("r-1")
+    )
 
 
 # ------------------------------------------------------------------- overflow
@@ -686,6 +708,7 @@ async def test_outbound_overflow_is_typed_and_closes_the_session() -> None:
     # From the timer path the overflow closes the session instead of raising.
     await manager.send_ping(live, NOW0)
     assert live.ended and live.end_reason is SessionEndReason.PROTOCOL_ERROR
+    await settle()
     assert reg.sessions[live.session_id].end_reason is SessionEndReason.PROTOCOL_ERROR
     assert drain(live) == [None]  # queue cleared, sentinel delivered
 
@@ -716,7 +739,7 @@ async def test_ping_pong_measures_rtt_on_the_monotonic_clock_only() -> None:
 
     clock.now += 0.0125  # 12.5 ms later; agent_time is deliberately absurd (skew)
     pong = agent_pb2.AgentMessage(
-        message_id="p-1",
+        message_id=mid("p-1"),
         session_id=live.session_id,
         pong=agent_pb2.Pong(ping_id=ping_id),
     )
@@ -724,6 +747,7 @@ async def test_ping_pong_measures_rtt_on_the_monotonic_clock_only() -> None:
     assert live.last_rtt_ms == pytest.approx(12.5)
     assert live.rtt_ewma_ms == pytest.approx(12.5)
     assert live.outstanding_ping is None
+    await settle()
     ((args, kwargs),) = reg.calls_named("record_rtt")
     assert args == (live.session_id,)
     assert kwargs["last_ms"] == pytest.approx(12.5)
@@ -737,7 +761,7 @@ async def test_ping_pong_measures_rtt_on_the_monotonic_clock_only() -> None:
     await manager.handle_message(
         live,
         agent_pb2.AgentMessage(
-            message_id="p-2",
+            message_id=mid("p-2"),
             session_id=live.session_id,
             pong=agent_pb2.Pong(ping_id=ping2.ping.ping_id),
         ),
@@ -761,7 +785,7 @@ async def test_unmatched_or_expired_pong_is_ignored() -> None:
     await manager.handle_message(
         live,
         agent_pb2.AgentMessage(
-            message_id="late",
+            message_id=mid("late"),
             session_id=live.session_id,
             pong=agent_pb2.Pong(ping_id=first.ping.ping_id),
         ),
@@ -784,6 +808,7 @@ async def test_apply_event_persists_and_logs_a_change() -> None:
             live, LivenessEvent.LEASE_MISSED, silence_s=2.5
         )
     assert state is NodeState.SUSPECT and live.state is NodeState.SUSPECT
+    await settle()
     assert reg.nodes[live.node_id].state is NodeState.SUSPECT
     (entry,) = [e for e in logs if e["event"] == "node.state_changed"]
     assert entry["from"] == "online" and entry["to"] == "suspect"
@@ -858,10 +883,18 @@ async def test_registry_failure_is_logged_and_never_kills_the_session() -> None:
     with structlog.testing.capture_logs() as logs:
         await manager.handle_message(live, heartbeat(live, "hb"))
         await manager.apply_event(live, LivenessEvent.LEASE_MISSED, silence_s=2.5)
+        await settle()
     assert live.heartbeats == 1 and live.state is NodeState.SUSPECT
-    failed = {e["event"] for e in logs if e["log_level"] == "error"}
-    assert failed == {"registry.touch_failed", "registry.state_persist_failed"}
+    failed = [e for e in logs if e["log_level"] == "error"]
+    assert [e["event"] for e in failed] == ["registry.write_failed"] * 2
+    assert [e["op"] for e in failed] == ["touch_node", "set_node_state"]
+    assert all(
+        e["node_id"] == live.node_id and e["session_id"] == live.session_id
+        for e in failed
+    )
+    assert failed[0]["error"] == "db gone" and failed[0]["retryable"] is True
     assert not live.ended
+    assert live.writer.failed == 2 and not live.writer.done()  # chain continues
 
 
 # ------------------------------------------------------------------- shutdown
@@ -940,6 +973,7 @@ async def test_timer_walks_online_suspect_offline_and_ends_the_session() -> None
     nxt = await timer.tick(clock.now)
     assert live.state is NodeState.OFFLINE
     assert live.ended and live.end_reason is SessionEndReason.LEASE_EXPIRED
+    await settle()
     assert reg.nodes[live.node_id].state is NodeState.OFFLINE
     assert reg.sessions[live.session_id].end_reason is SessionEndReason.LEASE_EXPIRED
     assert nxt is None
@@ -954,6 +988,7 @@ async def test_timer_that_stalled_still_walks_every_arrow_in_one_tick() -> None:
     live = await admit(manager, hello(new_node_id()))
     clock.now = NOW0 + 60.0
     await timer.tick(clock.now)
+    await settle()
     states = [args[1] for name, args, _ in reg.calls if name == "set_node_state"]
     assert states == [NodeState.SUSPECT, NodeState.OFFLINE]
     assert live.end_reason is SessionEndReason.LEASE_EXPIRED

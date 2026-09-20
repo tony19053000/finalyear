@@ -107,9 +107,10 @@ class FakeAgent:
             self.session_id = reply.hello_ack.session_id
         return reply
 
-    async def connect(self) -> agent_pb2.HelloAck:
-        """Hello and assert acceptance; starts the background reader."""
-        reply = await self.hello()
+    async def connect(self, **overrides: Any) -> agent_pb2.HelloAck:
+        """Hello (with optional field overrides) and assert acceptance; starts the
+        background reader."""
+        reply = await self.hello(**overrides)
         assert reply is not None, (self.end_code, self.end_details)
         assert reply.WhichOneof("payload") == "hello_ack", reply
         assert reply.hello_ack.accepted, reply.hello_ack
@@ -136,14 +137,17 @@ class FakeAgent:
             self.ended.set()
 
     async def pong(self, ping_id: str) -> None:
-        self.pongs_sent += 1
-        await self.write(
-            agent_pb2.AgentMessage(
-                message_id=new_command_id(),
-                session_id=self.session_id,
-                pong=agent_pb2.Pong(ping_id=ping_id),
+        # The controller pings right after HelloAck; if close() half-closed the
+        # call in the meantime the write is moot, not an error (review B2).
+        with contextlib.suppress(asyncio.InvalidStateError, grpc.aio.UsageError):
+            await self.write(
+                agent_pb2.AgentMessage(
+                    message_id=new_command_id(),
+                    session_id=self.session_id,
+                    pong=agent_pb2.Pong(ping_id=ping_id),
+                )
             )
-        )
+            self.pongs_sent += 1
 
     async def heartbeat(self, *, session_id: str | None = None) -> str:
         self.heartbeats_sent += 1
@@ -162,7 +166,10 @@ class FakeAgent:
 
         async def loop() -> None:
             while not self.ended.is_set():
-                await self.heartbeat()
+                try:
+                    await self.heartbeat()
+                except (asyncio.InvalidStateError, grpc.aio.UsageError):
+                    return  # the call ended under us (aborted / half-closed)
                 await asyncio.sleep(interval_s)
 
         self._hb = asyncio.create_task(loop(), name=f"fake-agent-hb:{self.node_id}")
@@ -178,18 +185,23 @@ class FakeAgent:
         await asyncio.wait_for(self.ended.wait(), timeout_s)
 
     async def close(self) -> None:
-        """Half-close, stop own tasks, cancel the call if still open."""
+        """Stop own tasks, half-close, cancel the call if still open.
+
+        Order matters (review B2): the reader (and its auto-pong) is stopped
+        *before* ``done_writing()``; the other way round an auto-pong could race
+        into the half-closed call and escape the reader as ``InvalidStateError``.
+        """
         self.stop_heartbeats()
-        if self._call is not None:
-            with contextlib.suppress(Exception):
-                await self._call.done_writing()
+        if self._hb is not None:
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._hb
         if self._reader is not None:
             self._reader.cancel()
             with contextlib.suppress(asyncio.CancelledError, grpc.aio.AioRpcError):
                 await self._reader
-        if self._hb is not None:
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._hb
+        if self._call is not None:
+            with contextlib.suppress(Exception):
+                await self._call.done_writing()
         if self._call is not None and not self._call.done():
             self._call.cancel()
 

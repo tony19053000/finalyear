@@ -1,20 +1,29 @@
 """Live-session table and message dispatch for ``AgentControl.Session`` (0.3.6/0.3.10).
 
 One :class:`LiveSession` per connected ``node_id``; the table is a ``dict`` behind a
-single ``asyncio.Lock`` (admission, supersede and close all take it). Each stream has
-exactly one reader task (created by :meth:`SessionManager.start_reader`) and one
-bounded outbound queue drained by the gRPC handler; the two never share a coroutine.
+single ``asyncio.Lock`` taken by *admission only* (two Hellos for one node are
+strictly ordered; closing a session is synchronous in memory and needs no lock).
+Each stream has exactly one reader task (created by
+:meth:`SessionManager.start_reader`), one bounded outbound queue drained by the
+gRPC handler, and one :class:`~.writer.WriteChain` that carries its registry
+writes; the three never share a coroutine.
 
 Time: every lease/RTT computation uses the injected monotonic ``clock`` (the event
 loop's ``time()`` in production). The wall clock appears only in ``HelloAck.
 controller_time`` and in the registry's database timestamps.
 
-Failure handling: driver errors from the registry are typed
-(:class:`~meshforge.controller.registry.RegistryError`) and logged; they never tear
-down a session on their own - liveness is decided in memory and the database is
-brought up to date on the next write. Contract violations by the agent are
-:class:`~meshforge.controller.session.errors.SessionProtocolError` and close the
-session with ``end_reason = protocol_error``.
+**Liveness is decided in memory.** Nothing on the heartbeat path or in the lease
+timer awaits the database: every registry write after admission (``touch_node``,
+``set_node_state``, ``record_rtt``, ``close_session``) is *enqueued* on the
+session's ordered single-writer chain and performed by that chain's own task, so
+a slow or unreachable PostgreSQL delays the *record* of liveness, never the
+decision. The chain preserves order (SUSPECT, then ONLINE, then the close), logs a
+failed write as ``registry.write_failed`` and continues, and ends after the
+session's final write. Admission itself (``get_node`` for fencing, the upsert and
+the session row) does await the registry - a Hello needs the answer - and only
+ever blocks other Hellos, not readers or the timer. Contract violations by the
+agent are :class:`~meshforge.controller.session.errors.SessionProtocolError` and
+close the session with ``end_reason = protocol_error``.
 
 Epoch fencing (ADR-0002 Updates §1) compares a Hello against **both** the live
 session (if any) and the highest epoch the registry has ever persisted for the
@@ -24,25 +33,30 @@ the agent increments before every stream), so "equal" is stale too.
 
 Heartbeat persistence is coalesced: the lease is extended in memory on every
 heartbeat, but ``node.last_seen_at`` is written at most once per
-``heartbeat_interval_s`` per node (the first heartbeat of a window writes at once;
-later ones mark the session dirty and the :class:`~.leases.LeaseTimer` flushes it
-when the window closes). A burst of heartbeats therefore costs one DB round-trip,
-not one per message, and can no longer outrun its own lease.
+``heartbeat_interval_s`` per node (the first heartbeat of a window enqueues a
+write at once; later ones mark the session dirty and the
+:class:`~.leases.LeaseTimer` flushes it when the window closes). A burst of
+heartbeats therefore costs one queued DB round-trip, not one per message.
+
+Bounds on peer-controlled input (:mod:`~.limits`): ``message_id`` must be a
+``cmd_<ULID>`` (so the dedupe window holds at most ``dedupe_window`` x 30 bytes)
+and the Hello's string fields are capped before anything is persisted.
 """
 
 from __future__ import annotations
 
 import asyncio
 import datetime as dt
+import functools
 from collections import deque
-from collections.abc import AsyncIterator, Callable, Coroutine
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
-from typing import Any, Final
+from typing import Final
 
 import grpc
 from google.protobuf.json_format import MessageToDict
 
-from meshforge.common.errors import InvalidIdError, MeshForgeError
+from meshforge.common.errors import InvalidIdError
 from meshforge.common.ids import new_command_id, new_session_id, validate_node_id
 from meshforge.common.logging import get_logger
 from meshforge.common.proto.meshforge.v1 import agent_pb2
@@ -59,6 +73,15 @@ from meshforge.controller.session.epoch import MAX_SESSION_EPOCH
 from meshforge.controller.session.errors import (
     OutboundOverflowError,
     SessionProtocolError,
+)
+from meshforge.controller.session.limits import (
+    check_hello_strings,
+    validate_message_id,
+)
+from meshforge.controller.session.writer import (
+    DEFAULT_WRITE_CAPACITY,
+    WriteChain,
+    WriteKind,
 )
 
 __all__ = [
@@ -127,6 +150,8 @@ class LiveSession:
     outbound: asyncio.Queue[agent_pb2.ControllerMessage | None]
     seen: _SeenIds
     next_ping_at: float
+    writer: WriteChain
+    """This session's ordered registry-write chain (see module docstring)."""
     reader_task: asyncio.Task[None] | None = None
     ended: bool = False
     end_reason: SessionEndReason | None = None
@@ -185,6 +210,7 @@ class SessionManager:
         accepted_protocol_versions: tuple[int, int] = (1, 1),
         outbound_queue_size: int = 1000,
         dedupe_window: int = 10_000,
+        write_capacity: int = DEFAULT_WRITE_CAPACITY,
         wall_clock: Callable[[], dt.datetime] | None = None,
     ) -> None:
         self._registry = registry
@@ -194,11 +220,12 @@ class SessionManager:
         self._versions = accepted_protocol_versions
         self._queue_size = outbound_queue_size
         self._dedupe_window = dedupe_window
+        self._write_capacity = write_capacity
         self._lock = asyncio.Lock()
         self._live: dict[str, LiveSession] = {}
         self._tasks: set[asyncio.Task[None]] = set()
-        self._writes: set[asyncio.Task[None]] = set()
-        """In-flight registry writes; never cancelled (see :meth:`_persist`)."""
+        self._chains: set[WriteChain] = set()
+        """Write chains not yet finished (closed sessions included until drained)."""
         self.wake = asyncio.Event()
         """Set whenever a session registers; the lease timer waits on it."""
         self.stale_messages_total = 0
@@ -227,8 +254,10 @@ class SessionManager:
         """Apply the Hello rules (ADR-0002 Updates §1) and register the session.
 
         Holds the table lock for the whole admission (including the registry
-        writes) so two Hellos for one node are strictly ordered. Hellos are rare;
-        simplicity wins over a per-node lock here.
+        reads/writes a Hello genuinely needs) so two Hellos for one node are
+        strictly ordered. Hellos are rare; simplicity wins over a per-node lock
+        here. Nothing but admission takes the lock, so a stalled database delays
+        other Hellos only - never a reader or the lease timer.
         """
         if self.closing:
             return Rejected(
@@ -236,12 +265,27 @@ class SessionManager:
                 "controller is shutting down",
                 grpc.StatusCode.UNAVAILABLE,
             )
+        # TRUST POINT (until V0.7 mTLS, ADR-0008): ``Hello.node_id`` is a claim
+        # accepted on the trusted LAN (ADR-0013 §2). Pairing binds node_id -> key
+        # -> certificate; then the transport, not this field, proves identity.
         try:
             validate_node_id(hello.node_id)
         except InvalidIdError as exc:
             return Rejected(
                 RejectCode.REJECT_CODE_INTERNAL,
                 str(exc),
+                grpc.StatusCode.INVALID_ARGUMENT,
+            )
+        too_long = check_hello_strings(
+            hostname=hello.hostname,
+            os=hello.os,
+            platform=hello.platform,
+            agent_version=hello.agent_version,
+        )
+        if too_long is not None:
+            return Rejected(
+                RejectCode.REJECT_CODE_INTERNAL,
+                too_long,
                 grpc.StatusCode.INVALID_ARGUMENT,
             )
         if not 0 <= hello.session_epoch <= MAX_SESSION_EPOCH:
@@ -266,10 +310,18 @@ class SessionManager:
         self, hello: agent_pb2.Hello, peer_address: str
     ) -> AdmitResult:
         node_id = hello.node_id
-        old = self._live.get(node_id)
         # One read per Hello: the registry's high-water mark. Fencing must hold
         # across disconnects, not only against a live competitor (ADR-0002 §1).
         record = await self._registry.get_node(node_id)
+        if self.closing:  # shutdown began while we waited on the database
+            return Rejected(
+                RejectCode.REJECT_CODE_INTERNAL,
+                "controller is shutting down",
+                grpc.StatusCode.UNAVAILABLE,
+            )
+        # Read the live entry *after* the await: the lease timer closes sessions
+        # without the lock, so the table may have changed while we waited.
+        old = self._live.get(node_id)
         highest = -1 if record is None else record.session_epoch
         if old is not None:
             highest = max(highest, old.session_epoch)
@@ -289,7 +341,7 @@ class SessionManager:
             )
         if old is not None:
             prior = old.state
-            await self._end_session_locked(old, SessionEndReason.SUPERSEDED)
+            self._close(old, SessionEndReason.SUPERSEDED)
         else:
             prior = NodeState.ENROLLING if record is None else record.state
 
@@ -322,6 +374,9 @@ class SessionManager:
             agent_version=hello.agent_version,
             protocol_version=hello.protocol_version,
         )
+        writer = WriteChain(
+            node_id=node_id, session_id=session_id, capacity=self._write_capacity
+        )
         live = LiveSession(
             node_id=node_id,
             session_id=session_id,
@@ -332,7 +387,10 @@ class SessionManager:
             outbound=asyncio.Queue(maxsize=self._queue_size),
             seen=_SeenIds(self._dedupe_window),
             next_ping_at=now,  # first RTT sample right away
+            writer=writer,
         )
+        self._chains.add(writer)
+        writer.start().add_done_callback(lambda _t: self._chains.discard(writer))
         self._live[node_id] = live
         self.wake.set()
         if prior is not state:
@@ -464,6 +522,16 @@ class SessionManager:
                 session_id=live.session_id,
                 node_id=live.node_id,
             )
+        try:
+            validate_message_id(msg.message_id)
+        except InvalidIdError as exc:
+            # Bounds the dedupe window in bytes, not only in count (B3): the
+            # value itself is never logged or kept.
+            raise SessionProtocolError(
+                f"{which} message: {exc}",
+                session_id=live.session_id,
+                node_id=live.node_id,
+            ) from None
         if live.seen.remember(msg.message_id):
             live.duplicates += 1
             log.debug(
@@ -491,9 +559,9 @@ class SessionManager:
             live.heartbeats += 1
             if live.state is NodeState.SUSPECT:
                 await self.apply_event(live, LivenessEvent.HEARTBEAT, silence_s=0.0)
-            await self._touch(live, now, force=False)
+            self._touch(live, now, force=False)
         elif which == "pong":
-            await self._on_pong(live, msg.pong.ping_id)
+            self._on_pong(live, msg.pong.ping_id)
         elif which == "ack":
             log.debug(
                 "session.command_acked",
@@ -511,12 +579,15 @@ class SessionManager:
                 payload=which,
             )
 
-    async def _touch(self, live: LiveSession, now: float, *, force: bool) -> None:
-        """Persist ``last_seen_at`` at most once per ``heartbeat_interval_s``.
+    def _touch(self, live: LiveSession, now: float, *, force: bool) -> None:
+        """Queue a ``last_seen_at`` write at most once per ``heartbeat_interval_s``.
 
-        The first heartbeat of a window writes immediately; the rest only mark the
-        session dirty. ``force`` is the timer's flush: it writes whenever dirty.
-        The persisted value is the write's wall time, at most one interval after
+        Coalescing: the first heartbeat of a window enqueues a write immediately;
+        the rest only mark the session dirty and the timer's flush (``force``)
+        enqueues one write when the window closes. Asynchrony: the write itself
+        runs on the session's :class:`~.writer.WriteChain`, so this method never
+        awaits and a stalled database cannot hold up the reader. The persisted
+        value is the write's wall time, at most one interval (plus queueing) after
         the heartbeat it stands for - liveness itself is decided in memory.
         """
         interval = self._liveness.heartbeat_interval_s
@@ -528,16 +599,18 @@ class SessionManager:
             return
         live.last_touch_at = now
         live.touch_dirty = False
-        await self._persist(
-            self._registry.touch_node(live.node_id), live, "registry.touch_failed"
+        live.writer.enqueue(
+            "touch_node",
+            WriteKind.TOUCH,
+            functools.partial(self._registry.touch_node, live.node_id),
         )
 
     async def flush_touch(self, live: LiveSession, now: float) -> None:
-        """Timer hook: write a pending ``last_seen_at`` once its window has closed."""
+        """Timer hook: queue a pending ``last_seen_at`` write once its window closed."""
         due = live.touch_due_at(self._liveness.heartbeat_interval_s)
         if due is None or now < due or live.ended:
             return
-        await self._touch(live, now, force=True)
+        self._touch(live, now, force=True)
 
     def _ack(self, live: LiveSession, acked: str) -> agent_pb2.ControllerMessage:
         return agent_pb2.ControllerMessage(
@@ -585,7 +658,7 @@ class SessionManager:
             )
             await self.end_session(live, SessionEndReason.PROTOCOL_ERROR)
 
-    async def _on_pong(self, live: LiveSession, ping_id: str) -> None:
+    def _on_pong(self, live: LiveSession, ping_id: str) -> None:
         outstanding = live.outstanding_ping
         if outstanding is None or outstanding[0] != ping_id:
             log.debug(
@@ -607,12 +680,15 @@ class SessionManager:
             rtt_ms=round(rtt_ms, 3),
             rtt_ewma_ms=round(live.rtt_ewma_ms, 3),
         )
-        await self._persist(
-            self._registry.record_rtt(
-                live.session_id, last_ms=rtt_ms, ewma_ms=live.rtt_ewma_ms
+        live.writer.enqueue(
+            "record_rtt",
+            WriteKind.RTT,
+            functools.partial(
+                self._registry.record_rtt,
+                live.session_id,
+                last_ms=rtt_ms,
+                ewma_ms=live.rtt_ewma_ms,
             ),
-            live,
-            "registry.rtt_failed",
         )
 
     # ------------------------------------------------------------- liveness
@@ -620,9 +696,10 @@ class SessionManager:
     async def apply_event(
         self, live: LiveSession, event: LivenessEvent, *, silence_s: float
     ) -> NodeState:
-        """Apply a §12.3 arrow to ``live``; persist and log a real change.
+        """Apply a §12.3 arrow to ``live``; queue the write and log a real change.
 
-        An :class:`InvalidTransitionError` is a bug in the caller, not in the agent:
+        Never awaits the registry (the timer calls this for every session). An
+        :class:`InvalidTransitionError` is a bug in the caller, not in the agent:
         it is logged at error level and the state is left unchanged.
         """
         old = live.state
@@ -641,10 +718,10 @@ class SessionManager:
         if new is old:
             return old
         live.state = new
-        await self._persist(
-            self._registry.set_node_state(live.node_id, new),
-            live,
-            "registry.state_persist_failed",
+        live.writer.enqueue(
+            "set_node_state",
+            WriteKind.STATE,
+            functools.partial(self._registry.set_node_state, live.node_id, new),
         )
         log.info(
             "node.state_changed",
@@ -659,13 +736,14 @@ class SessionManager:
     # --------------------------------------------------------------- closing
 
     async def end_session(self, live: LiveSession, reason: SessionEndReason) -> None:
-        """Close ``live`` (idempotent): unregister, stop both tasks, persist the reason."""
-        async with self._lock:
-            await self._end_session_locked(live, reason)
+        """Close ``live`` (idempotent): unregister, stop the reader, queue the reason.
 
-    async def _end_session_locked(
-        self, live: LiveSession, reason: SessionEndReason
-    ) -> None:
+        Synchronous in memory (no lock, no database await) so the lease timer and
+        a reader can close sessions while an admission is waiting on the registry.
+        """
+        self._close(live, reason)
+
+    def _close(self, live: LiveSession, reason: SessionEndReason) -> None:
         if live.ended:
             return
         live.ended = True
@@ -680,10 +758,11 @@ class SessionManager:
         if task is not None and task is not asyncio.current_task() and not task.done():
             task.cancel()
         live.done.set()
-        await self._persist(
-            self._registry.close_session(live.session_id, reason),
-            live,
-            "registry.close_failed",
+        # The final write of this session's chain; the chain task ends after it.
+        live.writer.enqueue(
+            "close_session",
+            WriteKind.END,
+            functools.partial(self._registry.close_session, live.session_id, reason),
         )
         log.info(
             "session.closed",
@@ -693,63 +772,36 @@ class SessionManager:
             heartbeats=live.heartbeats,
             stale_messages=live.stale_messages,
             duplicates=live.duplicates,
+            pending_writes=live.writer.pending,
             last_rtt_ms=None
             if live.last_rtt_ms is None
             else round(live.last_rtt_ms, 3),
         )
 
-    async def shutdown(self) -> None:
-        """Refuse new Hellos and close every live session as ``controller_shutdown``."""
+    async def shutdown(self, *, drain_s: float = 5.0) -> None:
+        """Refuse new Hellos, close every live session as ``controller_shutdown``,
+        then let the write chains finish for at most ``drain_s`` (the close reasons
+        above included). Chains still running after that are cancelled and logged
+        ``registry.write_abandoned``.
+        """
         self.closing = True
-        async with self._lock:
+        async with self._lock:  # an admission in flight finishes (or refuses) first
             for live in list(self._live.values()):
-                await self._end_session_locked(
-                    live, SessionEndReason.CONTROLLER_SHUTDOWN
-                )
+                self._close(live, SessionEndReason.CONTROLLER_SHUTDOWN)
         pending = [t for t in self._tasks if not t.done()]
         for task in pending:
             task.cancel()
         if pending:
             await asyncio.gather(*pending, return_exceptions=True)
-        # Let in-flight writes (the close reasons above included) reach the database.
-        writes = [t for t in self._writes if not t.done()]
-        if writes:
-            await asyncio.gather(*writes, return_exceptions=True)
-
-    # --------------------------------------------------------------- helpers
-
-    async def _persist(
-        self, op: Coroutine[Any, Any, Any], live: LiveSession, log_event: str
-    ) -> None:
-        """Await a registry write; a typed failure is logged, never propagated.
-
-        The write runs in its own task and is *shielded*: a reader task cancelled
-        mid-write (supersede, lease expiry, shutdown) must not abandon a pooled
-        connection half-way through a statement. The caller still observes its
-        own cancellation; the write finishes (or fails and is logged) on its own.
-        """
-        task = asyncio.create_task(
-            self._persist_logged(op, live, log_event),
-            name=f"registry-write:{live.session_id}",
-        )
-        self._writes.add(task)
-        task.add_done_callback(self._writes.discard)
-        task.add_done_callback(_log_task_failure)
-        await asyncio.shield(task)
-
-    async def _persist_logged(
-        self, op: Coroutine[Any, Any, Any], live: LiveSession, log_event: str
-    ) -> None:
-        try:
-            await op
-        except MeshForgeError as exc:
-            log.exception(
-                log_event,
-                node_id=live.node_id,
-                session_id=live.session_id,
-                error=str(exc),
-                failure_type=exc.failure_type.value,
-                retryable=exc.retryable,
+        chains = [c for c in self._chains if not c.done()]
+        if chains:
+            results = await asyncio.gather(*(c.drain(drain_s) for c in chains))
+            abandoned = sum(1 for ok in results if not ok)
+            log.info(
+                "session.writes_drained",
+                chains=len(chains),
+                abandoned=abandoned,
+                drain_s=drain_s,
             )
 
 

@@ -21,7 +21,7 @@ import pytest
 from pydantic import ValidationError
 
 from meshforge.common.errors import ConfigError
-from meshforge.common.ids import new_node_id
+from meshforge.common.ids import new_command_id, new_node_id
 from meshforge.common.netaddr import parse_bind
 from meshforge.common.proto.meshforge.v1 import agent_pb2
 from meshforge.controller.liveness import (
@@ -299,9 +299,9 @@ async def test_heartbeat_sequence_going_backwards_still_extends_the_lease() -> N
 
     clock.advance(1.0)
     seqs = [10, 3, 2**63, 0, 1]
-    for i, seq in enumerate(seqs):
+    for seq in seqs:
         msg = agent_pb2.AgentMessage(
-            message_id=f"hb-{i}",
+            message_id=new_command_id(),
             session_id=live.session_id,
             heartbeat=agent_pb2.Heartbeat(sequence=seq),
         )
@@ -329,7 +329,7 @@ async def test_agent_time_far_in_past_or_future_does_not_affect_liveness() -> No
         hb = agent_pb2.Heartbeat(sequence=1)
         hb.agent_time.FromDatetime(ts)
         msg = agent_pb2.AgentMessage(
-            message_id=f"hb-{ts.year}", session_id=live.session_id, heartbeat=hb
+            message_id=new_command_id(), session_id=live.session_id, heartbeat=hb
         )
         await manager.handle_message(live, msg)
     assert live.state is NodeState.ONLINE
@@ -350,7 +350,7 @@ async def test_pong_before_any_ping_is_ignored_not_a_crash() -> None:
     assert live.outstanding_ping is None
 
     msg = agent_pb2.AgentMessage(
-        message_id="pong-1",
+        message_id=new_command_id(),
         session_id=live.session_id,
         pong=agent_pb2.Pong(ping_id="never-sent"),
     )
@@ -371,7 +371,7 @@ async def test_replayed_pong_for_an_already_matched_ping_is_ignored() -> None:
     ping_id = live.outstanding_ping[0]  # type: ignore[index]
     clock.advance(0.01)
     pong = agent_pb2.AgentMessage(
-        message_id="pong-1",
+        message_id=new_command_id(),
         session_id=live.session_id,
         pong=agent_pb2.Pong(ping_id=ping_id),
     )
@@ -382,7 +382,7 @@ async def test_replayed_pong_for_an_already_matched_ping_is_ignored() -> None:
     # Replay the exact same Pong again (duplicate delivery / malicious replay).
     clock.advance(5.0)
     pong2 = agent_pb2.AgentMessage(
-        message_id="pong-2",
+        message_id=new_command_id(),
         session_id=live.session_id,
         pong=agent_pb2.Pong(ping_id=ping_id),
     )
@@ -404,7 +404,7 @@ async def test_ack_for_unknown_message_id_does_not_crash_the_session() -> None:
     live = await admit(manager, hello(node_id))
 
     msg = agent_pb2.AgentMessage(
-        message_id="ack-1",
+        message_id=new_command_id(),
         session_id=live.session_id,
         ack=agent_pb2.Ack(acked_message_id="cmd-that-was-never-sent"),
     )
@@ -427,13 +427,15 @@ async def test_ten_thousand_duplicate_message_ids_are_all_deduped() -> None:
     live = await admit(manager, hello(node_id))
 
     dispatched_before = len(reg.calls)
+    same_id_forever = new_command_id()
     for _ in range(10_000):
         msg = agent_pb2.AgentMessage(
-            message_id="same-id-forever",
+            message_id=same_id_forever,
             session_id=live.session_id,
             heartbeat=agent_pb2.Heartbeat(sequence=1),
         )
         await manager.handle_message(live, msg)
+    await settle()  # the one write rides the session's chain
     # Only the *first* occurrence dispatched (one touch_node registry call);
     # the other 9 999 were recognised as duplicates.
     assert reg.calls[dispatched_before:].count("touch_node") == 1

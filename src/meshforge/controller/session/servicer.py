@@ -9,6 +9,12 @@ Per stream::
     stream ends when the session is closed for any reason (superseded, lease
     expired, protocol error, controller shutdown) or the agent goes away.
 
+Final status of an accepted stream: ``OK`` when the close was clean
+(``agent_closed``, ``controller_shutdown``); ``ABORTED`` with the end reason as
+the detail for everything else (``superseded``, ``lease_expired``,
+``protocol_error``) so an agent can tell "I was replaced / timed out / broke the
+contract" from a normal end without a second round-trip.
+
 Hello outcomes that are not a ``HelloAck``: a malformed ``node_id`` or a
 ``session_epoch`` outside ``[0, MAX_SESSION_EPOCH]`` (see
 :mod:`meshforge.controller.session.epoch`) end the stream ``INVALID_ARGUMENT`` with
@@ -43,6 +49,11 @@ log = get_logger(__name__)
 type _Context = grpc.aio.ServicerContext[
     agent_pb2.AgentMessage, agent_pb2.ControllerMessage
 ]
+
+_CLEAN_END_REASONS: frozenset[SessionEndReason] = frozenset(
+    {SessionEndReason.AGENT_CLOSED, SessionEndReason.CONTROLLER_SHUTDOWN}
+)
+"""End reasons that finish the stream ``OK``; every other one is ``ABORTED``."""
 
 
 class AgentControlServicer(agent_pb2_grpc.AgentControlServicer):
@@ -115,6 +126,9 @@ class AgentControlServicer(agent_pb2_grpc.AgentControlServicer):
             # is cancelled) and on any error: the session must never outlive its
             # stream. A session already closed by the manager keeps its reason.
             await self._manager.end_session(live, SessionEndReason.AGENT_CLOSED)
+        if live.end_reason not in _CLEAN_END_REASONS:
+            reason = live.end_reason.value if live.end_reason else "unknown"
+            await context.abort(grpc.StatusCode.ABORTED, reason)
 
     async def _first_message(
         self,

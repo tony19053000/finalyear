@@ -19,6 +19,7 @@ import pytest
 from mf_session_client import FakeAgent, make_hello, poll_until
 
 from conftest import FAST_LIVENESS, HELLO_TIMEOUT_S
+from meshforge.common.ids import new_command_id
 from meshforge.common.proto.meshforge.v1 import agent_pb2, common_pb2
 from meshforge.controller.liveness import NodeState
 from meshforge.controller.registry import Registry, SessionEndReason
@@ -110,7 +111,7 @@ async def test_first_message_not_hello_is_failed_precondition(
     agent.open()
     await agent.write(
         agent_pb2.AgentMessage(
-            message_id="hb-0", heartbeat=agent_pb2.Heartbeat(sequence=1)
+            message_id=new_command_id(), heartbeat=agent_pb2.Heartbeat(sequence=1)
         )
     )
     assert await agent.read() is None
@@ -172,7 +173,10 @@ async def test_higher_epoch_supersedes_and_old_stream_ends(
     new.start_heartbeats(0.1)
 
     await old.wait_ended()
-    assert old.end_code is grpc.StatusCode.OK  # ended, not errored
+    # Review NB1: a non-clean end is ABORTED with the reason, so the zombie can
+    # tell "replaced" from a normal close without a second round-trip.
+    assert old.end_code is grpc.StatusCode.ABORTED
+    assert old.end_details == SessionEndReason.SUPERSEDED.value
     # The zombie got nothing after it was superseded except the end of stream.
     assert all(m.session_id in ("", old_ack.session_id) for m in old.received)
 
@@ -226,7 +230,8 @@ async def test_silence_walks_suspect_then_offline_and_persists_both(
 
     assert await wait_closed(registry, ack.session_id) is SessionEndReason.LEASE_EXPIRED
     await agent.wait_ended()
-    assert agent.end_code is grpc.StatusCode.OK
+    assert agent.end_code is grpc.StatusCode.ABORTED  # review NB1: not a clean end
+    assert agent.end_details == SessionEndReason.LEASE_EXPIRED.value
     assert runtime.manager is not None and len(runtime.manager) == 0
 
 
@@ -288,7 +293,7 @@ async def test_second_hello_on_open_stream_is_protocol_error(
     ack = await agent.connect()
     await agent.write(
         agent_pb2.AgentMessage(
-            message_id="hello-again",
+            message_id=new_command_id(),
             session_id=ack.session_id,
             hello=make_hello(agent.node_id, 1),
         )
@@ -297,6 +302,8 @@ async def test_second_hello_on_open_stream_is_protocol_error(
     assert (
         await wait_closed(registry, ack.session_id) is SessionEndReason.PROTOCOL_ERROR
     )
+    assert agent.end_code is grpc.StatusCode.ABORTED  # review NB1
+    assert agent.end_details == SessionEndReason.PROTOCOL_ERROR.value
 
 
 async def test_agent_disconnect_closes_session_as_agent_closed(

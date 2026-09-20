@@ -10,13 +10,17 @@ sets ``wake``. On each tick it
 
 1. drains the due lease events of every session (``LEASE_MISSED`` then
    ``LEASE_EXPIRED`` - a stalled loop still walks ONLINE -> SUSPECT -> OFFLINE);
-2. applies them through :meth:`SessionManager.apply_event` (which persists and
-   logs ``node.state_changed``; an ``InvalidTransitionError`` there is logged, never
-   raised);
+2. applies them through :meth:`SessionManager.apply_event` (which queues the
+   registry write on the session's chain and logs ``node.state_changed``; an
+   ``InvalidTransitionError`` there is logged, never raised);
 3. closes a session whose lease expired (``end_reason = lease_expired``);
 4. sends one RTT ``Ping`` per lease interval to every ONLINE session;
 5. flushes a coalesced ``last_seen_at`` write for sessions whose heartbeats since
    the last write were only recorded in memory (``SessionManager.flush_touch``).
+
+The timer never awaits the database: every write it causes is queued on the
+session's :class:`~.writer.WriteChain`, so one node's slow row can never delay
+another node's lease evaluation (review B1).
 
 Clock: the injected monotonic ``clock`` only (``loop.time()`` in production).
 :meth:`LeaseTimer.tick` is the pure-ish step unit tests drive with a fake clock;
