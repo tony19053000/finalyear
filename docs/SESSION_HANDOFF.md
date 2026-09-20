@@ -29,7 +29,7 @@
 > throughput measurements and the reasoning; if you think the arithmetic or the trade is wrong,
 > **say so to the team before building on it.** Do not silently re-expand the scope either.
 
-**Last updated:** 2026-09-20 (**scope changed — ADR-0012**; S6 + 0.2.13 closed agent-side) · **Updated by:** Lead session (account 1)
+**Last updated:** 2026-09-20 (**scope changed — ADR-0012**; V0.2 agent-side work finished — 0.2.13 `[x]`, protocol promoted to `_harness/`, udp-flood flake fixed) · **Updated by:** Lead session (account 1)
 
 ---
 
@@ -101,13 +101,29 @@ approval of ADR-0012 first.
 
 ## 2. In flight right now
 
-**Nothing is in flight.** **0.2.13 closed `[x]` 2026-09-20** — tester round (commit `ac5a65f`) pinned 3
-defects (glued human table silently dropped · lone surrogate → `UnicodeEncodeError` traceback · UTF-8 BOM made
-every merge refuse), all fixed in `2fd3185` (shape/delimiter-aware `_host_table_parts`, `UnencodableTextError`
-(an `OSError`) pre-encode check in `_harness/atomic.py`, BOM strip, plus a refusal when the existing file is
-*another spike's* report by its `> File:` meta line). Reviewer **APPROVE**, 5 non-blocking findings; #1 and #3
-applied directly by the Lead in the closing commit, the rest logged in the roadmap design change log. Gates:
-ruff + mypy clean (132 files), lab unit **1313 passed**, component **240 passed, 3 skipped**.
+**Nothing is in flight; the working tree is clean.** Last commits (all on `main`, unpushed):
+
+- `b41450c` **0.2.13 closed `[x]`** — `write_report()` merges an existing `--out` (human regions kept, generated
+  regions refreshed), refuses malformed / other-spike files with `ReportMergeError`, `--force` regenerates; all five
+  CLIs write atomically. Tester round `ac5a65f` (3 defects) → fix `2fd3185` → reviewer **APPROVE**; follow-ups #1/#3
+  applied, #2/#4/#5 logged in the roadmap design change log.
+- `9e4fe20` **S3-review follow-up done** — framing + LAN address rules now live in `lab/spikes/_harness/protocol.py`;
+  `_s1/protocol.py` keeps S1's constants + `MeasureError` and re-exports; S2/S3 import from the harness;
+  `tests/unit/lab/test_harness_protocol_boundary.py` fails if any non-S1 spike imports `spikes._s1` again.
+  Lead-direct mechanical move (ADR-0012 §6), no behaviour change.
+- `9c955fb` **udp-flood flake fixed** — `test_udp_flood_of_garbage_is_dropped_not_amplified` now paces bursts of ≤ 50
+  on the `udp_dropped` counter (a 540-datagram burst could overflow the 212 KiB default UDP receive buffer under
+  suite load); assertions unchanged.
+
+Gates at handoff: ruff + mypy clean (133 files), `tests/unit/lab` **1360 passed**, `tests/component/lab`
+**240 passed, 3 skipped** (5 min 50 s).
+
+**There is no agent-side V0.2 work left.** Do not invent any: 0.2.12 needs real lab data, V0.3 needs the
+inventory of laptops 2–4. If a session starts and the human items in section 3 are still open, the useful
+agent-side options are (a) the small optional follow-ups in the roadmap design change log (0.2.10 #2/#4/#5,
+0.2.13 #2/#4/#5) — each a Lead-direct fix, no subagent — or (b) **preparing V0.3**: re-read ARCHITECTURE for the
+controller ⇄ agent core, list the 0.3.x tasks with their dependencies, and write the front-loaded implementer brief
+for the first coherent task group *without starting code* until the inventory lands.
 
 **Documented loss in 0.2.13, not a bug:** hand-edits *inside* a generated region (e.g. filling
 "speed: TBD" or the power-mode cell in the host table) are still overwritten. Recorded in
