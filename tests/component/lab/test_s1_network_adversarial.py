@@ -16,7 +16,7 @@ import socket
 import sys
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Final
 
@@ -198,24 +198,46 @@ def test_many_parallel_fuzzers_do_not_crash_or_wedge_server(server: S1Server) ->
 
 
 # ------------------------------------------------------------------- UDP flood
+def _wait_for_dropped(server: S1Server, target: int, *, timeout_s: float = 5.0) -> None:
+    """Block until the server has counted ``target`` dropped datagrams (or give up)."""
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline and server.counters.udp_dropped < target:
+        time.sleep(0.01)
+
+
 def test_udp_flood_of_garbage_is_dropped_not_amplified(server: S1Server) -> None:
+    """Every garbage datagram the server *receives* is dropped and never echoed.
+
+    The garbage is sent in paced bursts, each acknowledged by the server's
+    ``udp_dropped`` counter before the next goes out. A single 540-datagram
+    burst is not a valid test: the kernel's UDP receive buffer accounts the
+    per-skb overhead (~1 KiB per datagram, far more than the payload), so under
+    full-suite load it overflows and silently discards datagrams *before* the
+    server ever sees them - which made the exact ``>= 500`` count flake once in
+    two full runs on 2026-09-20. Pacing keeps the count exact without weakening
+    what is asserted: everything received was dropped, nothing came back.
+    """
     before = server.counters.udp_dropped
+    # (burst size, how to make one datagram) - 500 random, 20 oversized
+    # (rejected by the receive-buffer bound), 20 with the right magic but too
+    # short to be a ping.
+    bursts: list[tuple[int, Callable[[], bytes]]] = [
+        *([(50, lambda: os.urandom(32))] * 10),
+        (20, lambda: os.urandom(4000)),
+        (20, lambda: MAGIC + os.urandom(4)),
+    ]
+    sent = 0
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
         s.settimeout(0.5)
-        # Bursts of garbage, including oversized datagrams (truncated/rejected
-        # by the receive-buffer bound) and well-formed-looking-but-wrong magic.
-        for _ in range(500):
-            s.sendto(os.urandom(32), ("127.0.0.1", server.port))
-        for _ in range(20):
-            s.sendto(os.urandom(4000), ("127.0.0.1", server.port))  # oversized
-        for _ in range(20):
-            s.sendto(MAGIC + os.urandom(4), ("127.0.0.1", server.port))  # too short
+        for count, make in bursts:
+            for _ in range(count):
+                s.sendto(make(), ("127.0.0.1", server.port))
+            sent += count
+            _wait_for_dropped(server, before + sent)
         with pytest.raises(TimeoutError):
             s.recvfrom(2048)  # none of the above were ever echoed back
-    deadline = time.monotonic() + 5
-    while time.monotonic() < deadline and server.counters.udp_dropped < before + 500:
-        time.sleep(0.05)
-    assert server.counters.udp_dropped >= before + 500
+    assert sent == 540
+    assert server.counters.udp_dropped >= before + sent
     # the server is still alive and still echoes legitimate pings afterwards
     sample = udp_rtt(Endpoint("127.0.0.1", server.port), count=20, interval_s=0.005)
     assert sample["received"] > 0

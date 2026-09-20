@@ -44,7 +44,7 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 
 ## Known Bugs
 - No bugs open in the lab suites (S2's two red tests from 2026-09-19 were fixed in the S2 rounds). DEFECT-0.1.8-01 (test Postgres container leaked on Ctrl-C) fixed: layered cleanup (atexit + finally, SIGINT-deferring shield, labelled containers, namespace-safe stale sweep, Ryuk).
-- **Flake (1 of 2 full runs, 2026-09-20):** `tests/component/lab/test_s1_network_adversarial.py::test_udp_flood_of_garbage_is_dropped_not_amplified` failed once under full-suite load, passed 3/3 in isolation. It asserts `udp_dropped >= before + 500`, i.e. that the kernel delivers all 540 burst datagrams to the server's socket — under load the loopback UDP receive buffer can drop some before the server ever counts them. Unrelated to the protocol move (UDP path untouched; `MAGIC`/`PING` stay in `_s1`). Fix: count `sent - kernel_dropped` or assert a lower bound (e.g. ≥ 90 %) + "nothing echoed"; the "never amplified" half is the real invariant.
+- Fixed 2026-09-20: `test_udp_flood_of_garbage_is_dropped_not_amplified` flaked once under full-suite load — a single 540-datagram burst (~1 KiB skb `truesize` each) can overflow the server's 212 KiB default UDP receive buffer while its thread is descheduled, so the kernel dropped datagrams before the server counted them. The test now sends paced bursts of ≤ 50, each acknowledged by the `udp_dropped` counter, and still asserts the exact count and that nothing is echoed.
 - Watch: `test_sigkill_during_pg_settings_leaks_no_container` failed once (1 of 8 runs, right after a heavy run) — likely the 20 s Ryuk reap window under load; not reproduced in 7 further runs. If it recurs in CI, widen the deadline or rely on the next-run sweep assertion.
 - Fixed this session: secret leak + O(n²) in log scrubber; duplicate IDs after fork; plain-`uv sync` test collection crash; CRLF-dependent codegen output.
 
@@ -55,7 +55,7 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 - `.venv` on Laptop 1 has all extras incl. torch installed (reviewer ran `uv sync --all-extras`)
 
 ## Test Status
-- Lab suites (2026-09-20, after 0.2.13): `ruff check` / `ruff format --check` clean; `mypy lab tests/unit/lab tests/component/lab` clean (132 files); `pytest tests/unit/lab` **1360 passed**; `pytest tests/component/lab` **240 passed, 3 skipped** (5 min 51 s, on 0.2.13); after the protocol move 239 passed / 1 flake (see Known Bugs) / 3 skipped
+- Lab suites (2026-09-20, after 0.2.13): `ruff check` / `ruff format --check` clean; `mypy lab tests/unit/lab tests/component/lab` clean (132 files); `pytest tests/unit/lab` **1360 passed**; `pytest tests/component/lab` **240 passed, 3 skipped** (5 min 51 s, on 0.2.13); after the protocol move + flood-test fix **240 passed, 3 skipped** again (5 min 50 s)
 - Linux: `uv run pytest -q` → 646 passed, 3 skipped (2 slow opt-in, 1 AttemptState TODO), 2 xfailed (documented redaction scope gaps); ruff, strict mypy (71 files), lint-imports, gen_protos --check all clean; fresh clone + plain `uv sync` → `pytest -m unit` 0 failed
 - Windows: not yet run (first real CI run will cover unit + fresh-clone on windows-latest)
 
