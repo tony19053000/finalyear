@@ -28,6 +28,8 @@ from meshforge.controller.registry import (
     SessionEndReason,
     SessionRecord,
 )
+from meshforge.controller.session import epoch as epoch_module
+from meshforge.controller.session import manager as manager_module
 from meshforge.controller.session.errors import (
     OutboundOverflowError,
     SessionProtocolError,
@@ -302,6 +304,66 @@ async def test_stale_or_equal_epoch_is_rejected_and_live_session_untouched() -> 
 
 
 @pytest.mark.asyncio
+async def test_epoch_fencing_uses_the_persisted_high_water_mark() -> None:
+    """ADR-0002 Updates §1 across a disconnect: with no live session left, a Hello
+    whose epoch is <= the highest epoch the registry ever stored is still stale;
+    the next strictly higher one is a normal reconnect. One get_node per Hello."""
+    reg, clock = FakeRegistry(), FakeClock()
+    manager = make_manager(reg, clock)
+    node_id = new_node_id()
+    winner = await admit(manager, hello(node_id, epoch=7))
+    await manager.end_session(winner, SessionEndReason.AGENT_CLOSED)
+    await settle()
+    assert manager.get(node_id) is None
+
+    gets_before = len(reg.calls_named("get_node"))
+    for epoch in (7, 3, 0):  # equal is stale too (agent increments per stream)
+        result = await manager.admit(hello(node_id, epoch=epoch), "p2")
+        assert isinstance(result, Rejected), epoch
+        assert result.reject_code == RejectCode.REJECT_CODE_STALE_EPOCH
+        assert result.abort_status is None
+    assert len(reg.calls_named("get_node")) - gets_before == 3
+    assert reg.nodes[node_id].session_epoch == 7  # never moved backwards
+    assert len(reg.sessions) == 1  # nothing persisted for the stale Hellos
+
+    live = await admit(manager, hello(node_id, epoch=8))
+    assert live.state is NodeState.ONLINE  # OFFLINE -> RECONNECTED -> ONLINE
+    assert reg.nodes[node_id].session_epoch == 8
+
+
+@pytest.mark.asyncio
+async def test_max_session_epoch_is_the_wire_domain_and_a_fresh_node_may_use_it() -> (
+    None
+):
+    assert epoch_module.MAX_SESSION_EPOCH == 2**64 - 1  # protobuf uint64
+    reg, clock = FakeRegistry(), FakeClock()
+    manager = make_manager(reg, clock)
+    node_id = new_node_id()
+    live = await admit(manager, hello(node_id, epoch=2**64 - 1))
+    assert live.session_epoch == 2**64 - 1
+    assert reg.nodes[node_id].session_epoch == 2**64 - 1
+
+
+@pytest.mark.asyncio
+async def test_epoch_above_the_bound_is_invalid_argument_and_never_persisted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The bound is unreachable from a protobuf uint64, so it is lowered here to
+    prove the check runs before any registry call and names both numbers."""
+    monkeypatch.setattr(manager_module, "MAX_SESSION_EPOCH", 10)
+    reg, clock = FakeRegistry(), FakeClock()
+    manager = make_manager(reg, clock)
+    result = await manager.admit(hello(new_node_id(), epoch=11), "p")
+    assert isinstance(result, Rejected)
+    assert result.abort_status is grpc.StatusCode.INVALID_ARGUMENT
+    assert result.reason == "session_epoch 11 exceeds the controller's maximum 10"
+    assert reg.calls == [] and reg.nodes == {} and reg.sessions == {}
+    assert isinstance(
+        await manager.admit(hello(new_node_id(), epoch=10), "p"), Accepted
+    )
+
+
+@pytest.mark.asyncio
 async def test_higher_epoch_supersedes_and_cancels_old_reader() -> None:
     reg, clock = FakeRegistry(), FakeClock()
     manager = make_manager(reg, clock)
@@ -400,6 +462,72 @@ async def test_heartbeat_resets_lease_and_is_acked() -> None:
     assert out[0].ack.acked_message_id == "m-1"
     assert out[0].session_id == live.session_id
     assert reg.calls_named("touch_node") == [((live.node_id,), {})]
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_burst_in_one_interval_costs_exactly_one_touch_write() -> None:
+    """Coalescing: the first heartbeat of a window writes ``last_seen_at``; the
+    next 999 within ``heartbeat_interval_s`` only extend the lease in memory."""
+    reg, clock = FakeRegistry(), FakeClock()
+    manager = make_manager(reg, clock)
+    live = await admit(manager, hello(new_node_id()))
+    for i in range(1000):
+        clock.now = NOW0 + i * (CFG.heartbeat_interval_s / 1000)  # all inside 2 s
+        await manager.handle_message(live, heartbeat(live, f"hb-{i}", seq=i))
+    assert live.heartbeats == 1000
+    assert live.tracker.last_heartbeat == clock.now  # every one extended the lease
+    assert reg.calls_named("touch_node") == [((live.node_id,), {})]
+    assert live.touch_dirty is True
+    assert (
+        live.touch_due_at(CFG.heartbeat_interval_s) == NOW0 + CFG.heartbeat_interval_s
+    )
+    assert len(drain(live)) == 1000  # every heartbeat still acked
+
+
+@pytest.mark.asyncio
+async def test_pending_touch_is_flushed_by_the_timer_once_the_window_closes() -> None:
+    reg, clock = FakeRegistry(), FakeClock()
+    manager = make_manager(reg, clock)
+    timer = LeaseTimer(manager, clock=clock)
+    live = await admit(manager, hello(new_node_id()))
+    await manager.handle_message(live, heartbeat(live, "a"))  # writes (window opens)
+    clock.now += 0.5
+    await manager.handle_message(live, heartbeat(live, "b"))  # coalesced -> dirty
+    assert len(reg.calls_named("touch_node")) == 1
+
+    # The timer schedules the flush, and a tick before it is due does nothing.
+    next_deadline = await timer.tick(clock.now)
+    assert next_deadline == NOW0 + CFG.heartbeat_interval_s
+    assert len(reg.calls_named("touch_node")) == 1 and live.touch_dirty
+
+    clock.now = NOW0 + CFG.heartbeat_interval_s
+    await timer.tick(clock.now)
+    assert len(reg.calls_named("touch_node")) == 2
+    assert not live.touch_dirty
+    assert live.touch_due_at(CFG.heartbeat_interval_s) is None
+
+    # A clean session is not written again by later ticks...
+    clock.now += CFG.heartbeat_interval_s
+    await timer.tick(clock.now)
+    assert len(reg.calls_named("touch_node")) == 2
+    # ...and a heartbeat after the window writes immediately again.
+    await manager.handle_message(live, heartbeat(live, "c"))
+    assert len(reg.calls_named("touch_node")) == 3
+
+
+@pytest.mark.asyncio
+async def test_touch_is_not_flushed_for_an_ended_session() -> None:
+    reg, clock = FakeRegistry(), FakeClock()
+    manager = make_manager(reg, clock)
+    live = await admit(manager, hello(new_node_id()))
+    await manager.handle_message(live, heartbeat(live, "a"))
+    clock.now += 0.1
+    await manager.handle_message(live, heartbeat(live, "b"))
+    assert live.touch_dirty
+    await manager.end_session(live, SessionEndReason.AGENT_CLOSED)
+    clock.now += CFG.heartbeat_interval_s
+    await manager.flush_touch(live, clock.now)
+    assert len(reg.calls_named("touch_node")) == 1
 
 
 @pytest.mark.asyncio

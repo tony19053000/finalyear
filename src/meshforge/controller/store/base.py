@@ -15,23 +15,37 @@ datetimes.
 ULID strings from :mod:`meshforge.common.ids` (``job_01J...``). They are created in
 Python *before* the insert, so the ID can appear in logs and idempotency records
 before the row exists; the database never generates them.
+
+**Unsigned 64-bit counters.** Protobuf ``uint64`` fields (``Hello.session_epoch``)
+span ``[0, 2^64-1]``; PostgreSQL has no unsigned integer and ``bigint`` stops at
+``2^63-1``, so :class:`UInt64` maps them onto ``NUMERIC(20, 0)`` (exact, ordered,
+human-readable in ``psql``) and back to Python ``int``. Pair it with
+:func:`uint64_check` so the database refuses anything outside the domain.
 """
 
 from __future__ import annotations
 
 import datetime as dt
-from typing import Final
+from typing import Any, Final
 
-from sqlalchemy import DateTime, MetaData, String, func
+from sqlalchemy import CheckConstraint, DateTime, MetaData, Numeric, String, func
+from sqlalchemy.engine import Dialect
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.types import TypeDecorator
 
 __all__ = [
     "ID_MAX_LENGTH",
     "NAMING_CONVENTION",
+    "UINT64_MAX",
     "Base",
     "TimestampMixin",
+    "UInt64",
     "id_column",
+    "uint64_check",
 ]
+
+UINT64_MAX: Final = 2**64 - 1
+"""Largest value of a protobuf ``uint64`` field; the domain of :class:`UInt64`."""
 
 NAMING_CONVENTION: Final[dict[str, str]] = {
     "ix": "ix_%(column_0_N_label)s",
@@ -75,3 +89,37 @@ class TimestampMixin:
         onupdate=func.now(),
         nullable=False,
     )
+
+
+class UInt64(TypeDecorator[int]):
+    """An unsigned 64-bit integer column (see module docstring).
+
+    Stored as ``NUMERIC(20, 0)``; ``NUMERIC`` was chosen over a signed ``bigint``
+    with an offset (unreadable in SQL) and over ``text`` (no ordering, so
+    ``GREATEST``/``<`` comparisons would be wrong) because it keeps the full
+    ``uint64`` domain, compares numerically and reads back as the plain number.
+    Values are converted to Python ``int`` on the way out; out-of-range values are
+    refused in Python before they reach the driver (the CHECK is the second line).
+    """
+
+    impl = Numeric(precision=20, scale=0)
+    cache_ok = True
+
+    def process_bind_param(self, value: int | None, dialect: Dialect) -> Any:
+        if value is None:
+            return None
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise TypeError(f"UInt64 expects an int, got {type(value).__name__}")
+        if not 0 <= value <= UINT64_MAX:
+            raise ValueError(f"UInt64 value {value} outside [0, {UINT64_MAX}]")
+        return value
+
+    def process_result_value(self, value: Any, dialect: Dialect) -> int | None:
+        if value is None:
+            return None
+        return int(value)  # asyncpg hands NUMERIC back as decimal.Decimal
+
+
+def uint64_check(column: str, *, name: str) -> CheckConstraint:
+    """``CHECK (column BETWEEN 0 AND 2^64-1)`` for a :class:`UInt64` column."""
+    return CheckConstraint(f"{column} >= 0 AND {column} <= {UINT64_MAX}", name=name)

@@ -20,7 +20,6 @@ from typing import Any, Final
 
 from sqlalchemy import (
     REAL,
-    BigInteger,
     CheckConstraint,
     ForeignKey,
     Index,
@@ -35,12 +34,15 @@ from meshforge.controller.store.base import (
     ID_MAX_LENGTH,
     Base,
     TimestampMixin,
+    UInt64,
     id_column,
+    uint64_check,
 )
 
 __all__ = [
     "END_REASON_CHECK_NAME",
     "NODE_STATE_CHECK_NAME",
+    "SESSION_EPOCH_CHECK_NAME",
     "Node",
     "NodeSession",
     "SessionEndReason",
@@ -68,6 +70,7 @@ class SessionEndReason(StrEnum):
 
 NODE_STATE_CHECK_NAME: Final = "state"
 END_REASON_CHECK_NAME: Final = "end_reason"
+SESSION_EPOCH_CHECK_NAME: Final = "session_epoch"
 
 
 def sql_in_list(values: type[StrEnum]) -> str:
@@ -83,6 +86,7 @@ class Node(TimestampMixin, Base):
         CheckConstraint(
             f"state IN ({sql_in_list(NodeState)})", name=NODE_STATE_CHECK_NAME
         ),
+        uint64_check("session_epoch", name=SESSION_EPOCH_CHECK_NAME),
     )
 
     node_id: Mapped[str] = id_column(primary_key=True)
@@ -97,8 +101,13 @@ class Node(TimestampMixin, Base):
     last_session_id: Mapped[str | None] = mapped_column(
         String(ID_MAX_LENGTH), nullable=True
     )
-    session_epoch: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    """Highest ``Hello.session_epoch`` accepted for this node."""
+    session_epoch: Mapped[int] = mapped_column(UInt64, nullable=False)
+    """Highest ``Hello.session_epoch`` ever accepted for this node (never lowered).
+
+    ``Hello.session_epoch`` is a protobuf ``uint64``, so the column must hold the
+    full ``[0, 2^64-1]`` domain (ADR-0013 §6 lets the agent's file hold any such
+    value; refusing the upper half would strand a node until an identity reset).
+    """
 
 
 class NodeSession(TimestampMixin, Base):
@@ -110,6 +119,7 @@ class NodeSession(TimestampMixin, Base):
             f"end_reason IS NULL OR end_reason IN ({sql_in_list(SessionEndReason)})",
             name=END_REASON_CHECK_NAME,
         ),
+        uint64_check("session_epoch", name=SESSION_EPOCH_CHECK_NAME),
         Index("ix_node_session_node_id_started_at", "node_id", "started_at"),
     )
 
@@ -119,7 +129,7 @@ class NodeSession(TimestampMixin, Base):
         ForeignKey("node.node_id", ondelete="CASCADE"),
         nullable=False,
     )
-    session_epoch: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    session_epoch: Mapped[int] = mapped_column(UInt64, nullable=False)
     started_at: Mapped[dt.datetime] = mapped_column(nullable=False)
     ended_at: Mapped[dt.datetime | None] = mapped_column(nullable=True)
     end_reason: Mapped[str | None] = mapped_column(String(32), nullable=True)

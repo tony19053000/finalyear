@@ -9,6 +9,15 @@ Per stream::
     stream ends when the session is closed for any reason (superseded, lease
     expired, protocol error, controller shutdown) or the agent goes away.
 
+Hello outcomes that are not a ``HelloAck``: a malformed ``node_id`` or a
+``session_epoch`` outside ``[0, MAX_SESSION_EPOCH]`` (see
+:mod:`meshforge.controller.session.epoch`) end the stream ``INVALID_ARGUMENT`` with
+nothing persisted; a revoked node ``PERMISSION_DENIED``; a controller that is
+shutting down ``UNAVAILABLE``. A registry/store failure *during* admission (database
+unreachable, constraint violation...) is our fault, not the agent's: it is logged
+``session.admit_failed`` and the stream ends ``INTERNAL`` - never an unhandled
+exception in the handler.
+
 The handler owns no session state; everything lives in
 :class:`~meshforge.controller.session.manager.SessionManager`.
 """
@@ -20,6 +29,7 @@ from collections.abc import AsyncIterator
 
 import grpc
 
+from meshforge.common.errors import MeshForgeError
 from meshforge.common.ids import new_command_id
 from meshforge.common.logging import get_logger
 from meshforge.common.proto.meshforge.v1 import agent_pb2, agent_pb2_grpc
@@ -51,7 +61,26 @@ class AgentControlServicer(agent_pb2_grpc.AgentControlServicer):
     ) -> AsyncIterator[agent_pb2.ControllerMessage]:
         peer = context.peer()
         first = await self._first_message(request_iterator, context, peer)
-        result = await self._manager.admit(first.hello, peer)
+        try:
+            result = await self._manager.admit(first.hello, peer)
+        except MeshForgeError as exc:
+            # RegistryError / StoreError / any typed failure of our own layers.
+            # The fields name only the operation and the error class; the
+            # traceback carries the typed wrapper's message (never a DSN or
+            # credentials - see registry._typed).
+            log.exception(
+                "session.admit_failed",
+                node_id=first.hello.node_id,
+                peer=peer,
+                cause=type(exc).__name__,
+                failure_type=exc.failure_type.value,
+                retryable=exc.retryable,
+                operation=exc.details.get("operation"),
+            )
+            await context.abort(
+                grpc.StatusCode.INTERNAL,
+                f"controller could not admit the session ({type(exc).__name__})",
+            )
         if isinstance(result, Rejected):
             log.info(
                 "session.rejected",

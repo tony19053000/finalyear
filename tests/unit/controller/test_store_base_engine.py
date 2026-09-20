@@ -24,9 +24,12 @@ from meshforge.common.logging import configure_logging
 from meshforge.controller.store.base import (
     ID_MAX_LENGTH,
     NAMING_CONVENTION,
+    UINT64_MAX,
     Base,
     TimestampMixin,
+    UInt64,
     id_column,
+    uint64_check,
 )
 from meshforge.controller.store.engine import (
     build_url,
@@ -195,3 +198,38 @@ def test_database_unavailable_error_is_typed_and_masked() -> None:
     rendered = f"{err} {err!r} {err.to_dict()}"
     assert PASSWORD not in rendered
     assert "ConnectionRefusedError" in rendered
+
+
+# ------------------------------------------------------------------ UInt64 (G2)
+
+
+def test_uint64_compiles_to_numeric_20_0_with_a_domain_check() -> None:
+    class _U(_TBase):
+        __tablename__ = "u"
+        __table_args__ = (uint64_check("epoch", name="epoch"),)
+        id: Mapped[str] = id_column(primary_key=True)
+        epoch: Mapped[int] = mapped_column(UInt64, nullable=False)
+
+    ddl = str(CreateTable(_U.__table__).compile(dialect=postgresql.dialect()))
+    assert "epoch NUMERIC(20, 0) NOT NULL" in ddl
+    assert f"CONSTRAINT ck_u_epoch CHECK (epoch >= 0 AND epoch <= {UINT64_MAX})" in ddl
+    assert UINT64_MAX == 2**64 - 1
+
+
+def test_uint64_binds_ints_in_range_and_refuses_everything_else() -> None:
+    import decimal
+
+    dialect = postgresql.dialect()
+    t = UInt64()
+    assert t.process_bind_param(0, dialect) == 0
+    assert t.process_bind_param(UINT64_MAX, dialect) == UINT64_MAX
+    assert t.process_bind_param(None, dialect) is None
+    for bad in (-1, UINT64_MAX + 1):
+        with pytest.raises(ValueError, match="outside"):
+            t.process_bind_param(bad, dialect)
+    for wrong in (True, 1.0, "1"):
+        with pytest.raises(TypeError, match="expects an int"):
+            t.process_bind_param(wrong, dialect)  # type: ignore[arg-type]
+    got = t.process_result_value(decimal.Decimal(UINT64_MAX), dialect)
+    assert got == UINT64_MAX and type(got) is int
+    assert t.process_result_value(None, dialect) is None

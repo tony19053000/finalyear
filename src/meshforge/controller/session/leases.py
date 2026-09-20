@@ -14,7 +14,9 @@ sets ``wake``. On each tick it
    logs ``node.state_changed``; an ``InvalidTransitionError`` there is logged, never
    raised);
 3. closes a session whose lease expired (``end_reason = lease_expired``);
-4. sends one RTT ``Ping`` per lease interval to every ONLINE session.
+4. sends one RTT ``Ping`` per lease interval to every ONLINE session;
+5. flushes a coalesced ``last_seen_at`` write for sessions whose heartbeats since
+   the last write were only recorded in memory (``SessionManager.flush_touch``).
 
 Clock: the injected monotonic ``clock`` only (``loop.time()`` in production).
 :meth:`LeaseTimer.tick` is the pure-ish step unit tests drive with a fake clock;
@@ -62,13 +64,16 @@ class LeaseTimer:
         """
         self.ticks += 1
         next_deadline: float | None = None
+        interval = self._manager.liveness.heartbeat_interval_s
         for live in self._manager.snapshot():
             await self._tick_session(live, now)
             if live.ended:
                 continue
+            await self._manager.flush_touch(live, now)
             for candidate in (
                 live.tracker.deadline(),
                 live.next_ping_at if live.state is NodeState.ONLINE else None,
+                live.touch_due_at(interval),
             ):
                 if candidate is not None and (
                     next_deadline is None or candidate < next_deadline

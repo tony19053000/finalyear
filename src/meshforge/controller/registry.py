@@ -190,6 +190,11 @@ class Registry:
         ``first_seen_at`` is preserved; ``last_seen_at`` and ``last_session_id`` move
         to now / the new session. The caller decides ``state`` (it knows whether
         the Hello was an enrollment, a reconnect or a superseding stream).
+
+        ``session_epoch`` is the high-water mark of the node (ADR-0002 Updates §1)
+        and **never moves backwards**: the row keeps ``GREATEST(existing, new)``.
+        The session layer rejects a lower-or-equal epoch before calling this; the
+        clamp is the second line of defence and is logged when it engages.
         """
         now = _utcnow()
         async with self._sessions() as db, db.begin():
@@ -216,7 +221,16 @@ class Registry:
                 row.state = state.value
                 row.last_seen_at = now
                 row.last_session_id = session_id
-                row.session_epoch = session_epoch
+                if session_epoch < row.session_epoch:
+                    log.warning(
+                        "registry.epoch_not_lowered",
+                        node_id=node_id,
+                        session_id=session_id,
+                        hello_epoch=session_epoch,
+                        stored_epoch=row.session_epoch,
+                    )
+                else:
+                    row.session_epoch = session_epoch
             await db.flush()
             return _node_record(row)
 

@@ -15,6 +15,19 @@ down a session on their own - liveness is decided in memory and the database is
 brought up to date on the next write. Contract violations by the agent are
 :class:`~meshforge.controller.session.errors.SessionProtocolError` and close the
 session with ``end_reason = protocol_error``.
+
+Epoch fencing (ADR-0002 Updates §1) compares a Hello against **both** the live
+session (if any) and the highest epoch the registry has ever persisted for the
+node, so a stale process cannot be admitted by waiting for the winner's stream to
+end. A legitimate reconnect always carries a strictly higher epoch (ADR-0013 §3:
+the agent increments before every stream), so "equal" is stale too.
+
+Heartbeat persistence is coalesced: the lease is extended in memory on every
+heartbeat, but ``node.last_seen_at`` is written at most once per
+``heartbeat_interval_s`` per node (the first heartbeat of a window writes at once;
+later ones mark the session dirty and the :class:`~.leases.LeaseTimer` flushes it
+when the window closes). A burst of heartbeats therefore costs one DB round-trip,
+not one per message, and can no longer outrun its own lease.
 """
 
 from __future__ import annotations
@@ -42,6 +55,7 @@ from meshforge.controller.liveness import (
     next_state,
 )
 from meshforge.controller.registry import Registry, SessionEndReason
+from meshforge.controller.session.epoch import MAX_SESSION_EPOCH
 from meshforge.controller.session.errors import (
     OutboundOverflowError,
     SessionProtocolError,
@@ -127,6 +141,17 @@ class LiveSession:
     rtt_ewma_ms: float | None = None
     pings_sent: int = 0
     pongs_matched: int = 0
+    # coalesced ``last_seen_at`` persistence (monotonic clock only)
+    last_touch_at: float | None = None
+    """When the last ``touch_node`` write was issued; None before the first."""
+    touch_dirty: bool = False
+    """Heartbeats arrived since ``last_touch_at`` that are not yet persisted."""
+
+    def touch_due_at(self, interval_s: float) -> float | None:
+        """Monotonic time the pending ``last_seen_at`` write is due (None if clean)."""
+        if not self.touch_dirty or self.last_touch_at is None:
+            return None
+        return self.last_touch_at + interval_s
 
 
 @dataclass(frozen=True, slots=True)
@@ -219,6 +244,15 @@ class SessionManager:
                 str(exc),
                 grpc.StatusCode.INVALID_ARGUMENT,
             )
+        if not 0 <= hello.session_epoch <= MAX_SESSION_EPOCH:
+            # Unreachable from a protobuf uint64; guards non-proto callers so the
+            # bound lives in one place (session/epoch.py) and nothing is persisted.
+            return Rejected(
+                RejectCode.REJECT_CODE_INTERNAL,
+                f"session_epoch {hello.session_epoch} exceeds the controller's "
+                f"maximum {MAX_SESSION_EPOCH}",
+                grpc.StatusCode.INVALID_ARGUMENT,
+            )
         lo, hi = self._versions
         if not lo <= hello.protocol_version <= hi:
             return Rejected(
@@ -233,24 +267,30 @@ class SessionManager:
     ) -> AdmitResult:
         node_id = hello.node_id
         old = self._live.get(node_id)
+        # One read per Hello: the registry's high-water mark. Fencing must hold
+        # across disconnects, not only against a live competitor (ADR-0002 §1).
+        record = await self._registry.get_node(node_id)
+        highest = -1 if record is None else record.session_epoch
         if old is not None:
-            if hello.session_epoch <= old.session_epoch:
-                log.warning(
-                    "session.stale_epoch",
-                    node_id=node_id,
-                    session_id=old.session_id,
-                    hello_epoch=hello.session_epoch,
-                    live_epoch=old.session_epoch,
-                    peer=peer_address,
-                )
-                return Rejected(
-                    RejectCode.REJECT_CODE_STALE_EPOCH,
-                    f"epoch {hello.session_epoch} <= live {old.session_epoch}",
-                )
+            highest = max(highest, old.session_epoch)
+        if hello.session_epoch <= highest:
+            log.warning(
+                "session.stale_epoch",
+                node_id=node_id,
+                session_id=old.session_id if old else None,
+                hello_epoch=hello.session_epoch,
+                highest_epoch=highest,
+                live=old is not None,
+                peer=peer_address,
+            )
+            return Rejected(
+                RejectCode.REJECT_CODE_STALE_EPOCH,
+                f"epoch {hello.session_epoch} <= highest seen {highest}",
+            )
+        if old is not None:
             prior = old.state
             await self._end_session_locked(old, SessionEndReason.SUPERSEDED)
         else:
-            record = await self._registry.get_node(node_id)
             prior = NodeState.ENROLLING if record is None else record.state
 
         if prior is NodeState.REVOKED:
@@ -451,9 +491,7 @@ class SessionManager:
             live.heartbeats += 1
             if live.state is NodeState.SUSPECT:
                 await self.apply_event(live, LivenessEvent.HEARTBEAT, silence_s=0.0)
-            await self._persist(
-                self._registry.touch_node(live.node_id), live, "registry.touch_failed"
-            )
+            await self._touch(live, now, force=False)
         elif which == "pong":
             await self._on_pong(live, msg.pong.ping_id)
         elif which == "ack":
@@ -472,6 +510,34 @@ class SessionManager:
                 session_id=live.session_id,
                 payload=which,
             )
+
+    async def _touch(self, live: LiveSession, now: float, *, force: bool) -> None:
+        """Persist ``last_seen_at`` at most once per ``heartbeat_interval_s``.
+
+        The first heartbeat of a window writes immediately; the rest only mark the
+        session dirty. ``force`` is the timer's flush: it writes whenever dirty.
+        The persisted value is the write's wall time, at most one interval after
+        the heartbeat it stands for - liveness itself is decided in memory.
+        """
+        interval = self._liveness.heartbeat_interval_s
+        window_open = live.last_touch_at is not None and (
+            now - live.last_touch_at < interval
+        )
+        if window_open and not force:
+            live.touch_dirty = True
+            return
+        live.last_touch_at = now
+        live.touch_dirty = False
+        await self._persist(
+            self._registry.touch_node(live.node_id), live, "registry.touch_failed"
+        )
+
+    async def flush_touch(self, live: LiveSession, now: float) -> None:
+        """Timer hook: write a pending ``last_seen_at`` once its window has closed."""
+        due = live.touch_due_at(self._liveness.heartbeat_interval_s)
+        if due is None or now < due or live.ended:
+            return
+        await self._touch(live, now, force=True)
 
     def _ack(self, live: LiveSession, acked: str) -> agent_pb2.ControllerMessage:
         return agent_pb2.ControllerMessage(

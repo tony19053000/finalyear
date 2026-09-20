@@ -8,6 +8,8 @@
 * :mod:`.leases` - :class:`LeaseTimer`: the single timer task that turns silence
   into SUSPECT/OFFLINE via :mod:`meshforge.controller.liveness` and sends the RTT
   pings.
+* :mod:`.epoch` - ``MAX_SESSION_EPOCH``, the one place the controller's bound on
+  ``Hello.session_epoch`` is defined.
 * :mod:`.errors` - typed failures of the session layer.
 
 The package imports gRPC and the generated stubs (core dependencies) but no
