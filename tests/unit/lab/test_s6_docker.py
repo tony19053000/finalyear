@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from spikes._s6 import docker
+from spikes._s6 import docker, proc
 from spikes._s6.proc import Outcome
 
 # ---------------------------------------------------------------- parse_info
@@ -243,7 +243,7 @@ def test_docker_facts_daemon_down_from_server_errors(
     ) -> Outcome:
         return Outcome(tuple(argv), 0, outputs[argv[1]], "", 0.01)
 
-    monkeypatch.setattr(docker.proc, "run", fake_run)
+    monkeypatch.setattr(proc, "run", fake_run)
     facts = docker.docker_facts("/fake/docker")
     assert facts["ok"] is False
     assert facts["failure_type"] == "docker_daemon_unreachable"
@@ -265,7 +265,7 @@ def test_docker_facts_ok(
     ) -> Outcome:
         return Outcome(tuple(argv), 0, outputs[argv[1]], "", 0.01)
 
-    monkeypatch.setattr(docker.proc, "run", fake_run)
+    monkeypatch.setattr(proc, "run", fake_run)
     facts = docker.docker_facts("/fake/docker")
     assert facts["ok"] is True
     assert facts["nvidia_runtime"] is True
@@ -278,7 +278,7 @@ def test_docker_facts_info_exit_nonzero(monkeypatch: pytest.MonkeyPatch) -> None
     ) -> Outcome:
         return Outcome(tuple(argv), 1, "", LINUX_DAEMON_DOWN, 0.01)
 
-    monkeypatch.setattr(docker.proc, "run", fake_run)
+    monkeypatch.setattr(proc, "run", fake_run)
     facts = docker.docker_facts("/fake/docker")
     assert facts["ok"] is False
     assert facts["failure_type"] == "docker_daemon_unreachable"
@@ -360,7 +360,7 @@ def test_run_container_force_removes_even_when_the_client_fails(
             return Outcome(tuple(argv), None, "", "", timeout, timed_out=True)
         return Outcome(tuple(argv), 0, "", "", 0.01)
 
-    monkeypatch.setattr(docker.proc, "run", fake_run)
+    monkeypatch.setattr(proc, "run", fake_run)
     run = docker.run_container(
         "/fake/docker", "img", ["true"], timeout=5, sandbox=True, gpus=True
     )
@@ -387,7 +387,7 @@ def test_run_container_collects_daemon_warnings(
             )
         return Outcome(tuple(argv), 0, "", "", 0.01)
 
-    monkeypatch.setattr(docker.proc, "run", fake_run)
+    monkeypatch.setattr(proc, "run", fake_run)
     run = docker.run_container("/fake/docker", "img", ["true"], timeout=5)
     assert run.outcome.ok
     assert run.warnings and run.warnings[0].startswith("WARNING: Your kernel")

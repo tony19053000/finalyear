@@ -4,6 +4,8 @@ and uv CLIs stubbed out - no daemon, no network, no uv process."""
 
 from __future__ import annotations
 
+import shutil
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -11,8 +13,9 @@ import pytest
 
 from spikes._harness import MIN_VALID_REPS
 from spikes._harness.envelope import validate
+from spikes._harness.reps import CaseResult
+from spikes._s6 import docker, venv
 from spikes._s6 import run as r
-from spikes._s6 import venv
 
 
 def test_run_config_defaults_and_quick() -> None:
@@ -89,7 +92,7 @@ def _ctx(
     )
 
 
-def _setup_failure(case: Any) -> dict[str, Any]:
+def _setup_failure(case: CaseResult) -> dict[str, Any]:
     assert case.aborted and not case.samples and len(case.errors) == 1
     err = case.errors[0]
     assert err["phase"] == "setup"
@@ -216,7 +219,7 @@ def test_gpu_torch_absent_image_without_network(
         uv=None,
         gpu=True,
     )
-    monkeypatch.setattr(r.docker, "image_present", lambda *_a, **_k: False)
+    monkeypatch.setattr(docker, "image_present", lambda *_a, **_k: False)
     err = _setup_failure(r.case_docker_gpu_torch(ctx))
     assert (
         err["failure_type"] == "image_pull_failed" and "--no-network" in err["message"]
@@ -234,10 +237,10 @@ def test_gpu_torch_refuses_pull_without_disk(
         uv=None,
         gpu=True,
     )
-    monkeypatch.setattr(r.docker, "image_present", lambda *_a, **_k: False)
-    monkeypatch.setattr(r.docker, "compressed_size", lambda *_a, **_k: 3_700_000_000)
+    monkeypatch.setattr(docker, "image_present", lambda *_a, **_k: False)
+    monkeypatch.setattr(docker, "compressed_size", lambda *_a, **_k: 3_700_000_000)
     pulled: list[str] = []
-    monkeypatch.setattr(r.docker, "pull_image", lambda *_a, **_k: pulled.append("x"))
+    monkeypatch.setattr(docker, "pull_image", lambda *_a, **_k: pulled.append("x"))
     err = _setup_failure(r.case_docker_gpu_torch(ctx))
     assert err["failure_type"] == "insufficient_disk"
     assert "11.1 GB needed" in err["message"] and "--skip-gpu-torch" in err["message"]
@@ -283,7 +286,7 @@ def test_venv_warm_setup_failure_is_typed(
     def boom(*_a: Any, **_k: Any) -> float:
         raise venv.VenvError("network_error", "no route", fix="check the network")
 
-    monkeypatch.setattr(r.venv, "create_venv", boom)
+    monkeypatch.setattr(venv, "create_venv", boom)
     err = _setup_failure(r.case_venv_warm(ctx))
     assert (
         err["failure_type"] == "network_error"
@@ -297,18 +300,16 @@ def test_run_environments_with_everything_unavailable(
 ) -> None:
     """No docker, no uv, no GPU: every case is a typed failure, the envelope is
     valid, the temp dir is gone, and the run is incomplete (exit 3)."""
-    monkeypatch.setattr(r.docker, "find_docker", lambda: None)
-    monkeypatch.setattr(r.venv, "find_uv", lambda: None)
-    monkeypatch.setattr(r.facts.shutil, "which", lambda _n: None)
-    monkeypatch.setattr(
-        r.tempfile,
-        "mkdtemp",
-        lambda prefix: (
-            str(tmp_path / "s6-env-x")
-            if (tmp_path / "s6-env-x").mkdir() is None
-            else ""
-        ),
-    )
+    monkeypatch.setattr(docker, "find_docker", lambda: None)
+    monkeypatch.setattr(venv, "find_uv", lambda: None)
+    monkeypatch.setattr(shutil, "which", lambda _n: None)
+
+    def fake_mkdtemp(prefix: str) -> str:
+        target = tmp_path / "s6-env-x"
+        target.mkdir()
+        return str(target)
+
+    monkeypatch.setattr(tempfile, "mkdtemp", fake_mkdtemp)
     out = r.run_environments(r.RunConfig(warmup=0, reps=1))
     doc = validate(out.envelope)
     assert not out.complete
@@ -330,9 +331,9 @@ def test_run_environments_all_skipped_is_complete(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Operator skips do not count as failures: exit 0 with an honest JSON."""
-    monkeypatch.setattr(r.venv, "find_uv", lambda: "/fake/uv")
-    monkeypatch.setattr(r.venv, "uv_version", lambda _uv: "uv fake")
-    monkeypatch.setattr(r.facts.shutil, "which", lambda _n: None)
+    monkeypatch.setattr(venv, "find_uv", lambda: "/fake/uv")
+    monkeypatch.setattr(venv, "uv_version", lambda _uv: "uv fake")
+    monkeypatch.setattr(shutil, "which", lambda _n: None)
     out = r.run_environments(r.RunConfig(skip_docker=True, no_network=True))
     doc = validate(out.envelope)
     assert out.complete

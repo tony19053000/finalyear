@@ -5,13 +5,14 @@ No uv or docker process is started here."""
 from __future__ import annotations
 
 import os
+import shutil
 import stat
 import sys
 from pathlib import Path
 
 import pytest
 
-from spikes._s6 import facts, venv
+from spikes._s6 import facts, proc, venv
 from spikes._s6.proc import Outcome
 
 
@@ -144,7 +145,7 @@ def test_parse_smi_list() -> None:
 
 
 def test_host_gpu_without_nvidia_smi(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(facts.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(shutil, "which", lambda _name: None)
     gpu = facts.host_gpu()
     assert gpu["present"] is False
     assert gpu["failure_type"] == "no_gpu_on_host"
@@ -152,9 +153,9 @@ def test_host_gpu_without_nvidia_smi(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_host_gpu_smi_fails(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(facts.shutil, "which", lambda _name: "/usr/bin/nvidia-smi")
+    monkeypatch.setattr(shutil, "which", lambda _name: "/usr/bin/nvidia-smi")
     monkeypatch.setattr(
-        facts.proc,
+        proc,
         "run",
         lambda argv, *, timeout, env=None, cwd=None: Outcome(
             tuple(argv), 9, "", "NVIDIA-SMI has failed", 0.1
@@ -165,9 +166,9 @@ def test_host_gpu_smi_fails(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_host_gpu_present(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(facts.shutil, "which", lambda _name: "/usr/bin/nvidia-smi")
+    monkeypatch.setattr(shutil, "which", lambda _name: "/usr/bin/nvidia-smi")
     monkeypatch.setattr(
-        facts.proc,
+        proc,
         "run",
         lambda argv, *, timeout, env=None, cwd=None: Outcome(
             tuple(argv), 0, "GPU 0: X (UUID: 1)\n", "", 0.1
