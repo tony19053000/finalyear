@@ -3,7 +3,10 @@
 > **Status:** v1 — **Approved by team** (2026-09-15)
 > **Nature:** a living plan and progress tracker — **not** a rigid spec. When reality disagrees, update this file (and log it in [Design change log](#design-change-log)).
 > **Reads with:** [`PROJECT_BRIEF.md`](PROJECT_BRIEF.md) · [`ARCHITECTURE.md`](ARCHITECTURE.md) · [`STATUS.md`](STATUS.md) · [`adr/`](adr/)
-> **No deadline:** versions are ordered by dependency, not by calendar. Scope is never cut for time; quality bar is *polished, finished, really working*.
+> **Budget (2026-09-20):** ~**10 weeks**, one Claude account, ~9 sessions/week → **~90 sessions**. Scope is set by
+> [ADR-0012](adr/0012-scope-ship-mode3-complete.md): **ship Mode 3 complete and production-grade** (Mode 1 is its
+> foundation), with the AI planner, telemetry, security and dashboard **in full**. Mode 2 and Mode 4 are **deferred**.
+> Superseded: the original "no deadline, scope is never cut for time" rule. Quality bar is *polished, finished, really working*.
 
 ---
 
@@ -12,10 +15,10 @@
 | Field | Value |
 |---|---|
 | **Current version** | V0.2 — in progress (started 2026-09-15); V0.1 code-complete, awaiting 🧑 GitHub CI proof (0.1.4, 0.1.10) |
-| **Current task** | All V0.2 spike code is done (S1, S2, S3, S7); waiting on 🧑 lab runs for 0.2.2 / S1 / S2 / S3 / S7, 🧑 ADR-0011 decision (unblocks S4/S5), 🧑 GitHub push + CI proof (V0.1 criteria 1–2) |
-| **Parallel human tasks** | NVIDIA driver fix (Laptop 1) · hardware inventory of laptops 2–4 · buy Ethernet switch · decide AI-agent access to laptops |
+| **Current task** | 0.2.10 (S6) awaiting tester + reviewer. All other V0.2 spike code done (S1, S2, S3, S7), waiting on 🧑 lab runs. **0.2.8 (S4) and 0.2.9 (S5) are deferred with Mode 2 — [ADR-0012](adr/0012-scope-ship-mode3-complete.md).** |
+| **Parallel human tasks** | hardware inventory of laptops 2–4 (**blocking**) · approve ADR-0012 · GitHub push + CI proof · buy Ethernet switch · decide ADR-0011 |
 | **Blockers** | See [Blockers & problems](#blockers--problems-discovered) |
-| **Next recommended task** | 🧑 lab runs (S2 and S3 two-laptop procedures first; inventory on all 4 laptops) and 🧑 ADR-0011 decision; agent-side: 0.2.12 spike follow-ups once lab data exists, or the S3-review follow-up (promote `spikes._s1.protocol` into `_harness/`) |
+| **Next recommended task** | 🧑 `lab/inventory.py` on laptops 2–4 (confirms the hardware ADR-0012 rests on) · 🧑 team approval of [ADR-0012](adr/0012-scope-ship-mode3-complete.md) · 🧑 GitHub push + CI proof. Agent-side: close 0.2.10 (S6 tester + reviewer), then 0.2.12, then **V0.3**. |
 
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` completed (**only** after tests + success criteria pass, with evidence) · `[-]` dropped (reason logged) · 🧑 = requires a human on physical hardware · 🔬 = spike / measurement.
 
@@ -27,9 +30,9 @@
 - [Quality gates (apply to every version)](#quality-gates-apply-to-every-version)
 - **M1 — Foundation:** [V0.1](#v01--foundations--engineering-system) · [V0.2](#v02--lab-setup--feasibility-validation) · [V0.3](#v03--fabric-core-controller--agent)
 - **M2 — Mode 1 product:** [V0.4](#v04--remote-execution-core-mode-1-foundation) · [V0.5](#v05--data-plane--environments) · [V0.6](#v06--scheduling--reliability--mode-1-complete) · [V0.7](#v07--security--pairing) · [V0.8](#v08--dashboard--cli-v1) · [V0.9](#v09--benchmark--telemetry-system-v1)
-- **M3 — Parallel & GPU modes:** [V0.10](#v010--mode-3-task-splitting) · [V0.11](#v011--mode-2-remote-gpu) · [V0.12](#v012--mode-4-combined-gpu--inference) · [V0.13](#v013--mode-4-combined-gpu--training)
+- **M3 — Parallel:** [V0.10](#v010--mode-3-task-splitting) *(V0.11/V0.12/V0.13 deferred — ADR-0012)* · [V0.11](#v011--mode-2-remote-gpu) · [V0.12](#v012--mode-4-combined-gpu--inference) · [V0.13](#v013--mode-4-combined-gpu--training)
 - **M4 — Intelligence:** [V0.14](#v014--unified-planner-v2) · [V0.15](#v015--ml-planner)
-- **M5 — Advanced & product:** [V0.16](#v016--model-splitting-mode-4-stage-3) · [V0.17](#v017--productization) · [V1.0](#v10--release-hardening--final-evaluation)
+- **M5 — Product:** *(V0.16 deferred — ADR-0012)* [V0.16](#v016--model-splitting-mode-4-stage-3) · [V0.17](#v017--productization) · [V1.0](#v10--release-hardening--final-evaluation)
 - [Cross-cutting tracks](#cross-cutting-tracks) · [Risk register](#risk-register) · [Blockers](#blockers--problems-discovered) · [Design change log](#design-change-log)
 
 ---
@@ -68,9 +71,9 @@ flowchart LR
 |---|---|---|
 | **M1 Foundation** | V0.1–V0.3 | Repo, lab, measured constraints, live fabric of real laptops |
 | **M2 Mode 1 product** | V0.4–V0.9 | Finished Job Offloading: fast, cached, reliable, secure, UI, benchmark data flowing |
-| **M3 Parallel & GPU** | V0.10–V0.13 | Task Splitting, Remote GPU, Combined GPU (inference + training) |
-| **M4 Intelligence** | V0.14–V0.15 | Unified cost-based planner over all modes, then ML-assisted |
-| **M5 Advanced & product** | V0.16–V1.0 | Model splitting, installers, hardening, final evaluation |
+| **M3 Parallel** | V0.10 | **Task Splitting (Mode 3)** — the shipped mode. V0.11–V0.13 (Mode 2, Mode 4) **deferred, ADR-0012** |
+| **M4 Intelligence** | V0.14–V0.15 | Cost-based planner over Local + Mode 1 + Mode 3, then **ML-assisted** |
+| **M5 Product** | V0.17–V1.0 | Installers, hardening, final evaluation. V0.16 (model splitting) **deferred, ADR-0012** |
 
 ```mermaid
 flowchart TD
@@ -83,22 +86,62 @@ flowchart TD
     V06 --> V08["V0.8 Dashboard + CLI"]
     V06 --> V09["V0.9 Benchmarks + telemetry"]
     V06 --> V010["V0.10 Mode 3 Task Splitting"]
-    V06 --> V011["V0.11 Mode 2 Remote GPU"]
-    V011 --> V012["V0.12 Mode 4 inference"]
+    V06 -.-> V011["V0.11 Mode 2 Remote GPU — DEFERRED"]
+    V011 -.-> V012["V0.12 Mode 4 inference — DEFERRED"]
     V010 -.->|work queue| V012
-    V012 --> V013["V0.13 Mode 4 training"]
-    V09 --> V014["V0.14 Unified planner v2"]
+    V012 -.-> V013["V0.13 Mode 4 training — DEFERRED"]
+    V09 --> V014["V0.14 Planner v2 (Local + M1 + M3)"]
     V010 --> V014
-    V013 --> V014
     V014 --> V015["V0.15 ML planner"]
-    V012 --> V016["V0.16 Model splitting"]
+    V012 -.-> V016["V0.16 Model splitting — DEFERRED"]
     V07 --> V017["V0.17 Productization"]
     V08 --> V017
     V015 --> V10["V1.0 Release + evaluation"]
-    V016 --> V10
+    V016 -.-> V10
     V017 --> V10
 ```
 After V0.6, up to four tracks can proceed in parallel (security, UI, benchmarks, Mode 3/Mode 2) — useful when several agent sessions work at once.
+
+---
+
+## Scope & budget (ADR-0012, 2026-09-20)
+
+**Decision:** ship **Mode 3 (Task Splitting)** complete and production-grade — nothing stubbed. Mode 1 ships with it,
+because Mode 3 is Mode 1 extended from one laptop to many. The **AI planner, telemetry, security and dashboard are kept
+in full**. **Mode 2 (V0.11) and Mode 4 (V0.12/V0.13/V0.16) are deferred** and revisited once Mode 3 is finished.
+
+**Budget:** ~10 weeks × ~9 sessions × 5 h ≈ **90 sessions**; realistic capacity **140–180 tasks** (measured rate, with
+the token-efficiency rules below). **Target ≈ 1.5 tasks per session.**
+
+| # | Block | Tasks | Running |
+|---|---|---|---|
+| 1 | V0.3 fabric core (controller ⇄ agent) | 15 | 15 |
+| 2 | V0.4 remote execution core (Mode 1) | 15 | 30 |
+| 3 | V0.5 data plane & environments — full | 11 | 41 |
+| 4 | V0.6 scheduling & reliability (Mode 1 complete) | 13 | 54 |
+| 5 | **V0.9 telemetry & benchmarks** *(pulled before V0.10)* | 10 | 64 |
+| 6 | **V0.10 Mode 3 task splitting** | 10 | 74 |
+| 7 | V0.14 planner v2 (Local + M1 + M3) | 8 | 82 |
+| 8 | **V0.15 ML planner** | 10 | 92 |
+| 9 | V0.7 security & pairing — full | 11 | 103 |
+| 10 | V0.8 dashboard & CLI v1 — full | 10 | 113 |
+| 11 | V0.17 productization | 8 | 121 |
+| 12 | V1.0 release hardening & final evaluation | 8 | **129** |
+
+**129 tasks against 140–180 capacity — 11–51 tasks of margin**, deliberately held for lab-coordination delays,
+hardware failures and the ML planner needing more telemetry than expected.
+
+**Why V0.9 moves before V0.10:** V0.15 needs thousands of telemetry runs to train on. Built late, there is no training
+data at the end. Built early, data accumulates throughout Mode 3 development.
+
+**If the budget collapses toward ~5 weeks**, cut in this fixed order: V1.0 → V0.17 → thin V0.8 to a read-only
+dashboard → drop V0.5 polish (0.5.6 named inputs, 0.5.9 GC). **V0.10, V0.15 and V0.9 are never cut — they are the
+project.** If margin survives instead, the stretch is **V0.11 (Mode 2)**.
+
+**Token-efficiency rules (half the reason this fits):** one *coherent group* per implementer run, not one task ·
+front-load each brief with the standing objection checklist so reviews pass in 1–2 rounds · the Lead makes doc edits
+and small mechanical fixes directly, with no subagent · run the ~6-minute component suite once per task group, not
+once per agent.
 
 ---
 
@@ -176,8 +219,8 @@ A version is **complete** only when all apply:
 - [~] **0.2.5** 🔬 **S1** network matrix: iperf3 all pairs (Wi-Fi and Ethernet), RTT, jitter, loss → `lab/reports/YYYY-MM-DD-S1-network.md` — *code done: `lab/spikes/s1_network.py` + shared `_harness/` (commit `feat(0.2.5)`); tester PASS round 2, reviewer APPROVE after fix round 3 (312 unit, 52 component S1 tests); stays [~] until 🧑 Wi-Fi + Ethernet matrices are run on all 4 laptops (needs 0.2.4 switch)*
 - [~] **0.2.6** 🔬 **S2** cross-OS reachability: native Windows Python gRPC + HTTP server reachable from Linux and vice-versa, without WSL — *code done: `lab/spikes/s2_crossos.py` (serve / client / report) + `_s2/` + `S2.md` + `lab/README.md` S2 subsection (commits `wip(0.2.6)` ×8, `feat(0.2.6)` `633d474`); tester round 1 pinned 6 defects (port sharing via SO_REUSEPORT, start/stop race, warmup errors demoting verdicts, NaN blob size, serve Ctrl-C exit code, malformed case entries), round 2 confirmed the fixes and found 1 shared-harness crash (`_harness/report.py`, fixed, covered in `test_spike_report.py`); reviewer REQUEST_CHANGES ×4 (a loopback run rendered as a real cross-OS row → `⚠ same machine` marker + caveats + outbound-only TBD; idle death time measured when noticed not when it happened → `failed_at` stamp; operator declaration phrased as measurement → reworded, `client_listens`/`basis`; every result-file field guarded against corrupt shapes) then APPROVE on pass 5 (1033 unit, 42 S2 component, whole lab suite 226 component green); real loopback runs recorded in `S2.md` §5 — loopback bounds the tool, not the question; stays [~] until 🧑 two-laptop runs Windows↔Linux, both directions, Wi-Fi **and** Ethernet (procedure in `lab/spikes/S2.md` §3, incl. the Windows second-`serve` check)*
 - [~] **0.2.7** 🔬 **S3** transport throughput: gRPC bytes streaming vs raw TCP vs HTTP range, 1 MB → 2 GB → decides tensor/data transport (update ADR-0003/0005) — *code done: `lab/spikes/s3_transport.py` + `_s3/` + `S3.md` + `lab/README.md` S3 subsection (commits `wip(0.2.7)` ×3, `feat(0.2.7)` `81d620f`); tester PASS (24 adversarial tests), reviewer APPROVE on the second pass after 3 blocking fixes (245 unit, 62 component); real loopback run verified end to end (exit 0, report renders, limit probe correct) — loopback bounds the tool, not the link; stays [~] until 🧑 two-laptop runs on Wi-Fi **and** Ethernet (procedure in `lab/spikes/S3.md` §2; needs 0.2.4 switch for the Ethernet half)*
-- [ ] **0.2.8** 🔬 **S4** `torch.export` round-trip: export ResNet-50 / BERT-base on one laptop, load and run on another laptop's GPU; verify equality; measure per-call latency vs payload
-- [ ] **0.2.9** 🔬 **S5** collectives: `torch.distributed` gloo all-reduce Windows↔Linux; if unusable, minimal TCP ring prototype; measure 10 MB / 100 MB all-reduce
+- [ ] ~~**0.2.8**~~ **DEFERRED (ADR-0012, with Mode 2)** — 🔬 **S4** `torch.export` round-trip: export ResNet-50 / BERT-base on one laptop, load and run on another laptop's GPU; verify equality; measure per-call latency vs payload
+- [ ] ~~**0.2.9**~~ **DEFERRED (ADR-0012, with Mode 2)** — 🔬 **S5** collectives: `torch.distributed` gloo all-reduce Windows↔Linux; if unusable, minimal TCP ring prototype; measure 10 MB / 100 MB all-reduce
 - [~] **0.2.10** 🔬 **S6** environments: Docker Desktop GPU PyTorch container on Windows; uv venv creation time with/without cache — *started 2026-09-20 (Lead session): `lab/spikes/s6_environments.py run|report` + `_s6/` + `S6.md`; cases docker-facts · docker-start · docker-pull-cold · docker-gpu-smi · docker-gpu-torch (PyTorch CUDA image, ~3.7 GB, opt-out) · venv-cold · venv-warm · venv-start; answers Q4 and gives V0.4.7/0.4.8 + V0.5 criterion 5 their calibration numbers; Linux half verifiable on Laptop 1 (GPU-in-container confirmed working 2026-09-20), Windows Docker Desktop half is 🧑*
 - [~] **0.2.11** 🔬 **S7** hardware scores: CPU GFLOPS, memory bandwidth, GPU fp32/fp16 TFLOPS micro-benchmarks per laptop — *code done: `lab/spikes/s7_hardware.py` + `_s7/` + `S7.md` (commit `feat(0.2.11)`); tester PASS (69 adversarial tests), reviewer APPROVE after one fix round (280 unit, 29 component); GPU/torch paths covered only by fake-torch tests until ADR-0011 torch install; stays [~] until 🧑 real runs on all 4 laptops (check `threads_effective == cpu count` for memory-bandwidth and `allow_tf32 == false` for gpu-float32)*
 - [ ] **0.2.12** Consolidate findings: update ADRs, ARCHITECTURE open questions, and *(calibrate)* thresholds in this roadmap; choose controller laptop
@@ -476,6 +519,9 @@ A version is **complete** only when all apply:
 
 ## V0.11 — Mode 2 Remote GPU
 
+> **DEFERRED — [ADR-0012](adr/0012-scope-ship-mode3-complete.md) (2026-09-20).** Not in the 10-week
+> plan. Kept in full as the future-work record; architecture and ADRs stay valid. Revisit **first** once Mode 3 is complete and margin remains: Mode 4 extends Mode 2, so this is the step that moves the team's original goal forward. Costs its full 13 tasks (GPU service, tensor codec, `torch.export` path).
+
 **Objective:** a program on one laptop uses another laptop's GPU for real PyTorch computation, efficiently and safely.
 
 **Concepts introduced:** GPU sessions · remote tensor handles & lifetimes · tensor serialization without pickle · `torch.export` · call pipelining · VRAM admission control · typed remote errors.
@@ -511,6 +557,9 @@ A version is **complete** only when all apply:
 
 ## V0.12 — Mode 4 Combined GPU — inference
 
+> **DEFERRED — [ADR-0012](adr/0012-scope-ship-mode3-complete.md) (2026-09-20).** Not in the 10-week
+> plan. Kept in full as the future-work record; architecture and ADRs stay valid. Requires V0.11 **and** V0.10's work queue — ~87 tasks in total, against Mode 3's ~64. Also bounded by ~4 GB VRAM per card.
+
 **Objective:** a program on one laptop uses all laptops' GPUs as one combined GPU for inference over large inputs.
 
 **Concepts introduced:** multi-session pools · replication · heterogeneous batch sharing · ordered streaming combine · member failure recovery.
@@ -541,6 +590,9 @@ A version is **complete** only when all apply:
 ---
 
 ## V0.13 — Mode 4 Combined GPU — training
+
+> **DEFERRED — [ADR-0012](adr/0012-scope-ship-mode3-complete.md) (2026-09-20).** Not in the 10-week
+> plan. Kept in full as the future-work record; architecture and ADRs stay valid. Requires V0.12. The most research-grade work in the plan.
 
 **Objective:** train one model using all laptops' GPUs together, with results equivalent to single-GPU training.
 
@@ -573,7 +625,11 @@ A version is **complete** only when all apply:
 
 ## V0.14 — Unified planner v2
 
-**Objective:** one planner comparing **all** modes with calibrated analytical cost models and clear explanations.
+> **RE-SCOPED — [ADR-0012](adr/0012-scope-ship-mode3-complete.md) (2026-09-20).** Compares **Local + Mode 1 + Mode 3**
+> only, since Mode 2 and Mode 4 are deferred. The `AcceleratorRequest` candidate space (0.14.1) and any
+> prerequisite on V0.13 fall away; everything else stands. Prerequisites become **V0.9 + V0.10**.
+
+**Objective:** one planner comparing **every mode this build ships** (Local, Mode 1, Mode 3) with calibrated analytical cost models and clear explanations.
 
 **Concepts introduced:** unified candidate spaces · set enumeration with pruning · model calibration from telemetry · risk-adjusted cost · decision regret · oracle comparison.
 **Prerequisites:** V0.9, V0.10, V0.13.
@@ -632,6 +688,9 @@ A version is **complete** only when all apply:
 # M5 — ADVANCED & PRODUCT
 
 ## V0.16 — Model splitting (Mode 4 stage 3)
+
+> **DEFERRED — [ADR-0012](adr/0012-scope-ship-mode3-complete.md) (2026-09-20).** Not in the 10-week
+> plan. Kept in full as the future-work record; architecture and ADRs stay valid. Requires V0.12.
 
 **Objective:** run a model larger than any single GPU's memory by splitting its layers across GPUs.
 
@@ -757,6 +816,8 @@ A version is **complete** only when all apply:
 
 | Date | Change | Reason |
 |---|---|---|
+| **2026-09-20** | **Scope set by [ADR-0012](adr/0012-scope-ship-mode3-complete.md): ship Mode 3 complete and production-grade (Mode 1 is its foundation), AI planner + telemetry + security + dashboard in full; **defer Mode 2 (V0.11) and Mode 4 (V0.12/V0.13/V0.16)**; re-scope V0.14 to Local + M1 + M3; move V0.9 before V0.10** | team stated the real constraint (one Claude account, ~10 weeks ≈ 90 sessions). Measured throughput (`git log`: 1.04 tasks/h on V0.1 scaffolding, 0.60 on V0.2 spikes) puts capacity at 140–180 tasks, not 171-and-rising. Mode 3 chosen over the GPU modes because V0.12 requires V0.11 **and** V0.10 (~87 tasks vs ~64), Mode 3 uses the CPU-only Laptop 4, and unequal shares across 2× RTX 3050 + RTX 2050 + CPU give the planner a real optimization problem. Supersedes the "no deadline, never cut scope for time" rule |
+| **2026-09-20** | **S4 (0.2.8) and S5 (0.2.9) drop off the critical path**; ADR-0011 no longer gates the plan's spine | both existed for Mode 2 / collectives. torch is still needed for GPU-backed Mode 3 chunks, so ADR-0011 still matters, just not as a blocker |
 | 2026-09-15 | Roadmap v1 drafted: 18 versions in 5 milestones | initial plan |
 | 2026-09-15 | Four execution modes (1 Job Offloading, 2 Remote GPU, 3 Task Splitting, 4 Combined GPU) replace earlier "ModelPool" framing | team decision (brief §40) |
 | 2026-09-15 | Roadmap v1 approved by team; one Claude session per version | team decision |
