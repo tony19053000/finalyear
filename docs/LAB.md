@@ -9,15 +9,26 @@
 
 ## 1. Machines
 
+> **Provisional, stated by the team 2026-09-20, NOT yet measured.** Laptop 2 ≈ RTX 3050,
+> Laptop 3 ≈ RTX 2050, Laptop 4 has **no GPU**. Treat every "unconfirmed" cell as a hypothesis
+> until `lab/inventory.py` (task 0.2.2) has run on that machine. Two consequences if it holds:
+> (a) the fabric has **3 NVIDIA GPUs + 1 CPU-only node**, which is a genuinely heterogeneous
+> lab and gives the planner a real decision to make; (b) RTX 3050 and RTX 2050 are both Ampere
+> (compute capability 8.6), so no pre-Turing GPU exists in the fleet — see
+> [ADR-0011](adr/0011-torch-index-per-platform.md), whose cu126-vs-cu130 question turns on
+> exactly that plus the installed driver versions. VRAM is ~4 GB per card, which is the real
+> ceiling on model size.
+
+
 | Field | Laptop 1 | Laptop 2 | Laptop 3 | Laptop 4 |
 |---|---|---|---|---|
 | Hostname | TBD | TBD | TBD | TBD |
 | Owner | TBD | TBD | TBD | TBD |
-| Role (proposed) | controller + PostgreSQL + agent | agent + GPU service | agent + GPU service | agent + GPU service |
+| Role (proposed) | controller + PostgreSQL + agent | agent + GPU service | agent + GPU service | agent (CPU only — no GPU service) |
 | OS / build | Ubuntu 24.04 (native) | Windows TBD | Windows TBD | Windows TBD |
 | CPU (cores/threads) | Intel i7-12650H (TBD from inventory) | TBD | TBD | TBD |
 | RAM | 16 GB | TBD | TBD | TBD |
-| GPU / VRAM | NVIDIA RTX 3050 Mobile / ~4 GB | TBD | TBD | TBD |
+| GPU / VRAM | NVIDIA RTX 3050 Mobile / ~4 GB | *unconfirmed:* RTX 3050 / ~4 GB | *unconfirmed:* RTX 2050 / ~4 GB | **no GPU** (CPU only) |
 | Driver / CUDA | **blocked**: Secure Boot MOK not enrolled (0.2.1); 595 installed, leftover 590-open metapackage | TBD | TBD | TBD |
 | `nvidia-smi` / `torch.cuda.is_available()` | not yet (driver blocked) | TBD | TBD | TBD |
 | Docker (GPU in container?) | Docker 29.7, daemon usable without sudo; GPU TBD | TBD (Docker Desktop?) | TBD | TBD |
