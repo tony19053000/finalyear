@@ -101,16 +101,40 @@ approval of ADR-0012 first.
 
 ## 2. In flight right now
 
-**V0.3 G4 (0.3.3 hardware discovery + 0.3.5 resource monitor + 0.3.11 snapshots) is in flight.** The brief is written —
-`docs/briefs/V0.3-fabric-core.md` **§5d**, with the Lead decisions **D9–D12** in the table just above it — the three
-tasks are `[~]` in the roadmap, and the implementer has been spawned. **If this session died mid-G4:** `git status`
-shows whether the implementer committed anything; if the working tree has uncommitted G4 code, commit it `wip:` and
-re-run the implementer on §5d telling it what already exists. No design work needs to be re-derived — §5d is complete
-and self-contained. After the implementer: tester → reviewer → the ~6-minute component suite **once**, then the Lead
-marks `[x]` with evidence and writes the **G5** brief (0.3.12 REST + CLI, 0.3.13 service units).
+**V0.3 G4 (0.3.3 hardware discovery + 0.3.5 resource monitor + 0.3.11 snapshots) is in flight — implementer DONE,
+tester RUNNING.** The brief is `docs/briefs/V0.3-fabric-core.md` **§5d** with the Lead decisions **D9–D12** above it;
+the three tasks are `[~]`. The implementer's work is committed and the tree is clean: `5fa761b` (agent hardware +
+monitor) · `de25e6d` (controller bounds, tracker, snapshots) · `a643ea6` (unit tier) · `a5240e8` (component tier) ·
+`eac66e6` (ARCHITECTURE §19 + migration head 0003). It reported ruff/mypy(77)/lint-imports/gen_protos clean,
+unit **2554**, component agent+store+controller **121** (146 s), and **six declared deviations** from §5d that the
+reviewer must rule on — they are listed in §2a below. **If this session died here:** re-read §5d, then run the tester
+(tests only, never `src/`), then the reviewer. After reviewer APPROVE: run the component suite once, mark `[x]` with
+evidence, write the **G5** brief (0.3.12 REST + CLI, 0.3.13 service units).
 V0.3 **G1, G2 and G3 are closed agent-side** (G3 on 2026-09-21).
 A live controller ⇄ agent fabric now works in-process: `meshforge-controller run` + `meshforge-agent run` → node
 ONLINE, heartbeats, pings/RTT, lease expiry, reconnect after a controller restart in ~1–2 s, mDNS discovery.
+
+
+### 2a. G4 declared deviations the reviewer must rule on
+
+1. `ResourceSink.record(node_id, session_epoch, update, now)` — §5d named `record(node_id, update, now)`. Claim: after
+   a reconnect a replay arrives on a new session, so `(session_epoch, sequence)` is the only correct duplicate key;
+   sequence alone breaks on an agent restart. **Plausible and probably right — check the claim, not the prose.**
+2. Live GPU *usage* is NVML-only. If NVML is unavailable but `nvidia-smi` works, the static inventory still lists the
+   GPUs but per-sample usage is omitted with a recorded reason (a subprocess every 2 s was judged unacceptable).
+   **This is a real capability gap on any machine where NVML is missing — worth the team's eye, not just the reviewer's.**
+3. `torch` tag from `find_spec` (no import); only `torch-cuda` costs a child process, probed last within the budget.
+4. Extra `controller.resources.max_open_buckets` + a bounded pending-row list in the flusher (not in §5d; defensive).
+5. Migration `0003` also adds `SessionEndReason.INTERNAL_ERROR` and the manager uses it for a reader crash — this one
+   was explicitly authorised by §5d.
+6. No proto change was needed (as §5d predicted).
+
+Implementer follow-ups logged for later: `HardwareFacts` is built but exposed nowhere (G5's REST should serve it);
+`HardwareProvider.refresh()` has no caller until G7/0.3.4; snapshot rows whose `node` row is missing are retried then
+dropped (FK); small vfat partitions such as `/boot/efi` pass the fixed-filesystem filter; the agent's `capabilities`
+no longer match G3's `["v0.3"]` shape, and `tests/component/agent/test_agent_session.py` still asserts the fallback
+shape for a client built without `hardware=`; bare `uv run mypy` (src+tests+scripts+lab) has **54 pre-existing**
+errors at HEAD~ — the gate is `mypy src`, and widening it is a team call.
 
 - **G1** (`da27ff1` → `0acf7eb`): proto, identity (ADR-0013), liveness logic. 0.3.2 `[~]` until a 🧑 Windows unit run.
 - **G2** (`bd416eb` → `a1014d5`): controller session server, registry, leases, RTT, one process. 0.3.7 `[~]` for lab evidence.
