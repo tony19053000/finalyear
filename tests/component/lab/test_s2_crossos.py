@@ -497,9 +497,10 @@ def test_kill_server_during_idle_gap_records_survived_zero(server: S2Server) -> 
     # reported, never a fabricated number.
     idle_survived = sample["idle_survived_s"]
     alive = sample["alive_s"]
-    assert idle_survived is None or idle_survived < 1.0, sample
-    assert alive is None or alive < 2.0, sample
-    assert (idle_survived is None) == (alive is None), sample
+    # stop(grace_s=0) cancels the RPC, so the reader sees an RpcError and the
+    # death time *is* known: a None here would mean failed_at was never stamped
+    assert idle_survived is not None and idle_survived < 1.0, sample
+    assert alive is not None and alive < 2.0, sample
 
 
 def test_still_there_check_after_hello_kill_reports_typed_error(

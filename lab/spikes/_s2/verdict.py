@@ -192,7 +192,7 @@ def _drop_detail(dropped: Sequence[Any]) -> str:
 def _mean(case: Any, metric: str) -> float | None:
     if not isinstance(case, Mapping):
         return None
-    summary = (case.get("summary") or {}).get(metric) or {}
+    summary = _mapping(_mapping(case.get("summary")).get(metric))
     value = summary.get("mean")
     return (
         float(value)
@@ -343,10 +343,8 @@ def is_same_host(doc: Mapping[str, Any]) -> bool:
     (Windows reports upper case). Nothing here is a guess: every input is a
     recorded fact from the envelope.
     """
-    extra = doc.get("extra") or {}
-    endpoint = extra.get("endpoint") or {}
-    if not isinstance(endpoint, Mapping):
-        endpoint = {}
+    extra = _mapping(doc.get("extra"))
+    endpoint = _mapping(extra.get("endpoint"))
     remote = endpoint.get("remote_address")
     local = endpoint.get("local_address")
     if _is_loopback(remote):
@@ -387,8 +385,8 @@ def direction_verdict(
     doc: Mapping[str, Any], labels: Mapping[str, str] | None = None
 ) -> DirectionVerdict:
     """Judge one result envelope (one direction, one link)."""
-    extra = doc.get("extra") or {}
-    params = doc.get("params") or {}
+    extra = _mapping(doc.get("extra"))
+    params = _mapping(doc.get("params"))
     raw_cases = doc.get("cases")
     cases: dict[str, Any] = dict(raw_cases) if isinstance(raw_cases, Mapping) else {}
     client = relabel(host_label(doc), labels)
@@ -452,7 +450,7 @@ def _outbound_verdict(extra: Mapping[str, Any], verdict: DirectionVerdict) -> Ve
     *and* there was a firewall in the path at all (never on one machine)."""
     if verdict.same_host:
         return Verdict(TBD, LOOPBACK_DETAIL)
-    info = extra.get("outbound_only") or {}
+    info = _mapping(extra.get("outbound_only"))
     unary = verdict.cases.get("grpc-unary", Verdict(TBD))
     sessions = list(verdict.sessions.values())
     if not info.get("no_inbound_rule_declared"):

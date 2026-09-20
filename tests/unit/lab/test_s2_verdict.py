@@ -861,3 +861,39 @@ def test_outbound_yes_detail_states_declaration_not_observation() -> None:
     assert "operator declared" in detail and "--no-inbound-rule" in detail
     assert "by construction" in detail
     assert "no listening socket and no inbound rule" not in detail
+
+
+# ------------------------------------------- malformed extra / params / summary
+@pytest.mark.parametrize(
+    "extra",
+    ["junk", 7, ["x"], {"outbound_only": ["x"]}, {"outbound_only": "yes"}],
+)
+def test_malformed_extra_is_reported_not_crashed_on(extra: object) -> None:
+    """(Reviewer finding, pass 2.) A hand-edited or corrupt ``extra`` block must
+    never crash ``report``, and can never buy an outbound-only ``yes``."""
+    doc = _doc(
+        cases={"grpc-unary": {"samples": _samples(MIN_VALID_REPS), "errors": []}}
+    )
+    doc["extra"] = extra
+    dv = v.direction_verdict(doc)
+    assert dv.outbound_only.value == v.TBD
+    assert dv.cases["grpc-unary"].value == v.YES
+    assert "| L1 -> L2 |" in v.render_verdicts({"k": dv})
+
+
+def test_malformed_params_and_summary_are_reported_not_crashed_on() -> None:
+    doc = _doc(
+        cases={
+            "http-ping": {"samples": _samples(MIN_VALID_REPS), "summary": "nope"},
+            "grpc-unary": {
+                "samples": _samples(MIN_VALID_REPS),
+                "summary": {"rtt_ms": "nope"},
+            },
+        }
+    )
+    doc["params"] = "junk"
+    dv = v.direction_verdict(doc)
+    assert dv.server == "?"
+    assert dv.metrics["http_ttfb_ms"] is None
+    assert dv.metrics["grpc_rtt_ms"] is None
+    assert v.render_verdicts({"k": dv})
