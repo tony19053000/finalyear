@@ -29,7 +29,7 @@
 > throughput measurements and the reasoning; if you think the arithmetic or the trade is wrong,
 > **say so to the team before building on it.** Do not silently re-expand the scope either.
 
-**Last updated:** 2026-09-21 (**V0.3 G1–G3 closed agent-side; account rotation point**; G4 next; V0.2 waits on 🧑 lab runs) · **Updated by:** Lead session (account 1) · **Updated by:** Lead session (account 1)
+**Last updated:** 2026-09-21 (**V0.3 G4 in progress** — §5d brief written, 0.3.3/0.3.5/0.3.11 `[~]`, implementer running; G1–G3 closed; V0.2 waits on 🧑 lab runs) · **Updated by:** Lead session (account 2)
 
 ---
 
@@ -101,10 +101,14 @@ approval of ADR-0012 first.
 
 ## 2. In flight right now
 
-**Nothing is in flight; the working tree is clean; all work is committed on `main` (unpushed — humans push).**
-**Account switched here on 2026-09-21 after G3 closed.** The next session's first action is: write the G4 brief as §5d of
-`docs/briefs/V0.3-fabric-core.md` (use the G4 notes below and the §4 checklist), mark 0.3.3 / 0.3.5 / 0.3.11 `[~]`,
-commit, then spawn the implementer. Nothing needs to be re-derived. V0.3 **G1, G2 and G3 are closed agent-side** (G3 on 2026-09-21).
+**V0.3 G4 (0.3.3 hardware discovery + 0.3.5 resource monitor + 0.3.11 snapshots) is in flight.** The brief is written —
+`docs/briefs/V0.3-fabric-core.md` **§5d**, with the Lead decisions **D9–D12** in the table just above it — the three
+tasks are `[~]` in the roadmap, and the implementer has been spawned. **If this session died mid-G4:** `git status`
+shows whether the implementer committed anything; if the working tree has uncommitted G4 code, commit it `wip:` and
+re-run the implementer on §5d telling it what already exists. No design work needs to be re-derived — §5d is complete
+and self-contained. After the implementer: tester → reviewer → the ~6-minute component suite **once**, then the Lead
+marks `[x]` with evidence and writes the **G5** brief (0.3.12 REST + CLI, 0.3.13 service units).
+V0.3 **G1, G2 and G3 are closed agent-side** (G3 on 2026-09-21).
 A live controller ⇄ agent fabric now works in-process: `meshforge-controller run` + `meshforge-agent run` → node
 ONLINE, heartbeats, pings/RTT, lease expiry, reconnect after a controller restart in ~1–2 s, mDNS discovery.
 
@@ -117,8 +121,7 @@ Pattern that worked: every implementer/tester/reviewer run on a front-loaded bri
 usage limits and recovered from a `wip:` commit — **always commit partial work before relaunching**. Follow-ups from
 each review are in the roadmap design change log (rows "V0.3 G1/G2/G3 review follow-ups").
 
-**Next: G4 (hardware + resources + snapshots, 0.3.3 + 0.3.5 + 0.3.11).** The Lead writes §5d of
-`docs/briefs/V0.3-fabric-core.md`. Real API to build on: `AgentSessionClient.send_report(payload_name, payload)` with
+**G4 (hardware + resources + snapshots, 0.3.3 + 0.3.5 + 0.3.11) — brief §5d is written.** Real API it builds on: `AgentSessionClient.send_report(payload_name, payload)` with
 `REPORT_PAYLOADS` (reports are ring-buffered and replayed; `ResourceUpdate.sequence` is stamped by the client);
 `Hello.hardware` = `HardwareSummary` (currently basics only, `capabilities=["v0.3"]`); controller stores
 `Hello.hardware` as JSON on the `node` row (`Registry.upsert_node_on_hello`) — G4 must cap its size (G2 follow-up);

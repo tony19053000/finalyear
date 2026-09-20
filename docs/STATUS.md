@@ -2,10 +2,10 @@
 
 > Concise current state. Long-term plan: [`DEVELOPMENT_ROADMAP.md`](DEVELOPMENT_ROADMAP.md). Update at the end of every work session.
 
-**Last updated:** 2026-09-21 (**V0.3 G1–G3 closed agent-side** — a live controller ⇄ agent fabric works in-process; V0.2 waits on 🧑 lab runs)
+**Last updated:** 2026-09-21 (**V0.3 G4 in progress** — brief §5d written, 0.3.3/0.3.5/0.3.11 `[~]`, implementer spawned; G1–G3 closed agent-side; V0.2 waits on 🧑 lab runs)
 
 ## Current Version
-**V0.3 — Fabric core** · started 2026-09-20 on the team's decision (before the laptop 2–4 inventory); **G1–G3 closed agent-side** (0.3.1, 0.3.6, 0.3.8, 0.3.9, 0.3.10 `[x]`; 0.3.2 `[~]` Windows run; 0.3.7 `[~]` lab evidence)
+**V0.3 — Fabric core** · started 2026-09-20 on the team's decision (before the laptop 2–4 inventory); **G1–G3 closed agent-side** (0.3.1, 0.3.6, 0.3.8, 0.3.9, 0.3.10 `[x]`; 0.3.2 `[~]` Windows run; 0.3.7 `[~]` lab evidence); **G4 in progress** (0.3.3, 0.3.5, 0.3.11 `[~]`)
 V0.2 — Lab setup & feasibility validation · agent-side complete, waiting on 🧑 lab runs
 V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4, 0.1.10)
 
@@ -15,9 +15,21 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 > V0.10. 129 tasks vs 140–180 capacity → **~1.5 tasks/session**. Needs the other three team members' approval.
 
 ## Current Task
-**Next: V0.3 group G4** — 0.3.3 hardware discovery (lift `lab/_inventory/probes.py` logic into `agent/hardware/`, NVML + nvidia-smi, fill `Hello.hardware`), 0.3.5 resource monitor (psutil + NVML every 2 s, change-threshold reporting via `send_report("resource_update", …)`), 0.3.11 snapshots (controller: live ring per node + 1-min downsample into a `resource_snapshot` table, retention setting; cap `hardware` JSON size — G2 follow-up). The Lead writes the brief as §5d of `docs/briefs/V0.3-fabric-core.md` using G3's real API (`AgentSessionClient.send_report`, `REPORT_PAYLOADS`, `ResourceUpdate.sequence` keyed replay).
+**V0.3 group G4 — hardware + resources + snapshots (0.3.3, 0.3.5, 0.3.11), implementer running.**
+The brief is `docs/briefs/V0.3-fabric-core.md` **§5d** and carries the Lead decisions D9–D12:
+D9 the monitor samples but does not send while the session is not ONLINE (so the replay ring is not
+flooded during an outage) · D10 hardware discovery never raises and never blocks the loop (guarded,
+timed-out probes, one `asyncio.to_thread` call at start-up, cached with a `refresh()` for G7) ·
+D11 live ring in controller memory + 1-min buckets in a new `resource_snapshot` table, retention 7
+days, bucket length a setting · D12 peer-controlled sizes bounded on both sides — an over-size
+`Hello.hardware` is INVALID_ARGUMENT (closes the G2 follow-up), an over-size `ResourceUpdate` is
+clamped and counted, never fatal. G4 also folds in `SessionEndReason.INTERNAL_ERROR` because it is
+writing migration `0003` anyway. **No proto change is expected in G4.**
 
-**First real two-machine smoke is now possible** (no lab task yet — optional): controller on Laptop 1 (`meshforge-controller run` with Postgres via compose), `meshforge-agent run` on another laptop with `MESHFORGE_AGENT__CONTROLLER_ADDRESS=<L1-ip>:47100`; expect the node ONLINE in `/healthz` sessions count and the `node` table. Firewall: TCP 47100 inbound on Laptop 1 only.
+**First real two-machine smoke is possible** (no lab task yet — optional): controller on Laptop 1
+(`meshforge-controller run` with Postgres via compose), `meshforge-agent run` on another laptop with
+`MESHFORGE_AGENT__CONTROLLER_ADDRESS=<L1-ip>:47100`; expect the node ONLINE in `/healthz` sessions
+count and the `node` table. Firewall: TCP 47100 inbound on Laptop 1 only.
 
 ## Recently Completed
 - 2026-09-21: **V0.3 G3 closed agent-side** — 0.3.8 `[x]`, 0.3.9 `[x]`. The agent runtime exists: `meshforge-agent run` connects, heartbeats, answers pings, reconnects with full-jitter backoff (controller restart → ONLINE again in ~1–2 s in-process), replays buffered reports after `Reconcile`, finds the controller by config or mDNS, exits CONFLICT when superseded. Tester: 1 defect (heartbeat interval unbounded → clamped) ; reviewer pass 1 → 1 blocking (`replay_from_sequence` contract) → APPROVE pass 2. Commits `a934621` … `0f55af0`. Unit 2437, component agent 37 (~78 s), store+controller+agent 90.
@@ -40,6 +52,7 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 - Team accepted ARCHITECTURE v1 and ADRs 0001–0010 (2026-09-15)
 
 ## In Progress
+- **G4 (0.3.3 / 0.3.5 / 0.3.11)** — implementer run on the §5d brief; nothing committed from it yet
 - 🧑 0.3.2 Windows verification: `uv run pytest tests/unit/agent -q` on any Windows laptop after `git pull` + `uv sync` (exercises `icacls` and `msvcrt.locking`); paste the summary line
 - 🧑 0.2.6 S2 two-laptop runs, Windows↔Linux both directions, Wi-Fi **and** Ethernet (procedure in `lab/spikes/S2.md` §3; server-side firewall TCP 47202–47203 only; includes the Windows second-`serve` check)
 - 🧑 0.2.7 S3 two-laptop runs, Wi-Fi **and** Ethernet (procedure in `lab/spikes/S3.md` §2; firewall TCP 47301–47303)
