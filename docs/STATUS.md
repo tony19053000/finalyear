@@ -2,16 +2,24 @@
 
 > Concise current state. Long-term plan: [`DEVELOPMENT_ROADMAP.md`](DEVELOPMENT_ROADMAP.md). Update at the end of every work session.
 
-**Last updated:** 2026-09-20 (S2 closed)
+**Last updated:** 2026-09-20 (**scope changed — ADR-0012**; S6 closed, all V0.2 spike code done)
 
 ## Current Version
-V0.2 — Lab setup & feasibility validation · **in progress** (started 2026-09-15)
+V0.2 — Lab setup & feasibility validation · **agent-side complete**, waiting on 🧑 lab runs
 V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4, 0.1.10)
 
+> **Scope changed 2026-09-20 — [ADR-0012](adr/0012-scope-ship-mode3-complete.md) (Proposed).** Budget is ~10 weeks
+> ≈ 90 sessions. **Ship Mode 3 complete and production-grade** (Mode 1 is its foundation), AI planner + telemetry +
+> security + dashboard **in full**; **Mode 2 (V0.11) and Mode 4 (V0.12/V0.13/V0.16) deferred**. V0.9 moves before
+> V0.10. 129 tasks vs 140–180 capacity → **~1.5 tasks/session**. Needs the other three team members' approval.
+
 ## Current Task
-**All V0.2 spike code is done.** S1 (0.2.5), S2 (0.2.6), S3 (0.2.7) and S7 (0.2.11) are committed with reviewer APPROVE; all four wait for 🧑 runs on the laptops. S4/S5 wait for the 🧑 ADR-0011 decision. V0.1: 0.1.4 and 0.1.10 wait only for the 🧑 first real GitHub CI run (remote `origin` added 2026-09-20, push pending).
+**All V0.2 agent-side work is done.** S1 (0.2.5), S2 (0.2.6), S3 (0.2.7), **S6 (0.2.10)** and S7 (0.2.11) are committed with tester PASS + reviewer APPROVE; all five wait on 🧑 runs. The critical path is now entirely human: **`lab/inventory.py` on laptops 2–4 blocks V0.3.**
 
 ## Recently Completed
+- 2026-09-20: **Scope decision ADR-0012** — ship Mode 3 complete, defer Mode 2 + Mode 4, keep the AI in full. Roadmap, `PROJECT_SUMMARY.md`, `docs/LAB.md` and the handoff updated. `CLAUDE.md` and `PROJECT_BRIEF.md` deliberately **not** amended until the team approves.
+- 2026-09-20: **0.2.10 S6 environments spike** — tester PASS (no defects, 16 adversarial tests), reviewer APPROVE (no blocking findings); commits `f7b094c` `f3364b8` `bfce2fa` `fb9376a`. Real Laptop 1 run: **GPU is visible inside a container** (nvidia-smi 361 ms), cold pull 9.7 s, venv cold 3.56 s vs warm 0.10 s. `docker-gpu-torch` skipped as typed `insufficient_disk` → `torch-cuda-in-container` **TBD**, Q4 unanswered. `[~]` until the 🧑 Windows runs.
+- 2026-09-20: **`n = 0` report headline fixed** in the shared `_harness/report.py` — one skipped case no longer makes a healthy table read `n = 0`. Affects every spike's report. New task **0.2.13** raised for the report-CLI overwrite hazard.
 - 2026-09-20: **0.2.6 S2 cross-OS spike** — tester rounds 1–2 (6 + 1 defects, all fixed), reviewer REQUEST_CHANGES ×4 then APPROVE on pass 5; commit `633d474`. 1033 lab unit tests, 42 S2 component tests; whole lab component suite 226 passed. Real loopback runs in `S2.md` §5 (the tool marks them `⚠ same machine`). `[~]` until the 🧑 two-laptop runs.
 - 2026-09-20: **0.2.7 S3 transport spike** — tester PASS (24 adversarial tests), reviewer APPROVE on the second pass after 3 blocking fixes; commit `81d620f`. 245 unit + 62 component S3 tests; real loopback run verified end to end. `[~]` until the 🧑 two-laptop runs.
 - 2026-09-20: 0.2.5 S1 spike + `_harness/` — reviewer APPROVE after fix round 3, commit `ef065ac`; 0.2.11 S7 spike — tester PASS, reviewer APPROVE, commit `8072b9f`; GitHub remote added
@@ -49,6 +57,10 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 - Windows: not yet run (first real CI run will cover unit + fresh-clone on windows-latest)
 
 ## Next Recommended Task
+**🔴 🧑 `uv run python lab/inventory.py` on laptops 2, 3 and 4 — this blocks V0.3**, confirms the hardware ADR-0012 rests on (team-stated, unmeasured: L2 ≈ RTX 3050, L3 ≈ RTX 2050, **L4 no GPU**), fills `docs/LAB.md` §1 and settles ADR-0011.
+**🧑 Team approval of ADR-0012** — it changes an item `PROJECT_BRIEF` §33 calls relatively fixed.
+Agent-side, nothing blocks: **0.2.13** (report CLIs must not destroy hand-written prose) or the S3-review follow-up (promote `spikes._s1.protocol` into `_harness/`). **0.2.12 must wait for real lab data** — never run it on loopback numbers.
+
 **🧑 Lab runs are now the critical path.** Agent-side spike work in V0.2 is finished; what remains needs real machines: (1) S2 two-laptop runs (`lab/spikes/S2.md` §3), (2) S3 two-laptop runs (`lab/spikes/S3.md` §2), (3) `lab/inventory.py` on all 4 laptops, (4) the ADR-0011 decision + torch install (unblocks S4 0.2.8 / S5 0.2.9), (5) the GitHub push + CI proof below. Agent-side while waiting: the S3-review follow-up — promote `spikes._s1.protocol` (address rules, framing, `ProtocolError`) into `_harness/` so spikes stop importing each other's internals — or start 0.2.12 once any lab data lands.
 
 In parallel, 🧑 **GitHub push + CI proof** (only humans push):
