@@ -16,3 +16,6 @@ Shared secret for all nodes; SSH keys; account-based cloud identity; PAKE-only.
 
 ## Consequences
 Node keypairs exist from V0.3 so V0.7 adds certificates without redesign.
+
+## Updates
+- 2026-09-20: the node keypair is **ECDSA P-256**, created at first agent start and stored OS-protected — [ADR-0013](0013-node-identity-storage.md). Pairing signs the CSR with that key unchanged; the certificate binds `node_id` (a ULID, not a key fingerprint) in its SAN.

@@ -573,6 +573,7 @@ sequenceDiagram
     N->>C: all further traffic over mTLS
 ```
 
+- Node identity: an **ECDSA P-256** keypair and a ULID `node_id`, minted once at first agent start and stored OS-protected in the agent data dir ([ADR-0013](adr/0013-node-identity-storage.md)); pairing signs its CSR with that same key. Until pairing exists (V0.7) the controller trusts `Hello.node_id` on the trusted LAN only — one marked trust point in the code.
 - mTLS on agent gRPC; node-cert auth on peer blob servers and GPU services; short-lived session tokens for GPU sessions and blob fetches.
 - User auth on REST (local admin credential; tokens for CLI).
 - Revocation list checked on every session; cert rotation supported.

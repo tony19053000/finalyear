@@ -5,7 +5,7 @@ Format: Context · Decision · Alternatives · Trade-offs · Consequences. Statu
 | ADR | Title | Status |
 |---|---|---|
 | [0001](0001-centralized-control-plane.md) | Centralized control plane | Accepted |
-| [0002](0002-agent-initiated-grpc-session.md) | Agent-initiated bidirectional gRPC session | Accepted |
+| [0002](0002-agent-initiated-grpc-session.md) | Agent-initiated bidirectional gRPC session | Accepted · Updates 2026-09-20 (session epoch, reconnect policy) Proposed |
 | [0003](0003-content-addressed-data-plane.md) | Content-addressed data plane over HTTP | Accepted |
 | [0004](0004-execution-runtimes.md) | Execution runtimes: Docker first, uv venv fallback | Accepted |
 | [0005](0005-gpu-remoting-at-pytorch-level.md) | GPU remoting at the PyTorch level with torch.export | Accepted |
@@ -15,6 +15,8 @@ Format: Context · Decision · Alternatives · Trade-offs · Consequences. Statu
 | [0009](0009-native-windows-agent.md) | Native Windows agent (not inside WSL) | Accepted |
 | [0010](0010-monorepo-and-stack.md) | Monorepo, single Python package, and core stack | Accepted |
 | [0011](0011-torch-index-per-platform.md) | PyTorch wheels from the official CUDA 12.6 index on Linux and Windows | Proposed |
+| [0012](0012-scope-ship-mode3-complete.md) | Ship Mode 3 (with Mode 1) complete and production-grade; defer Mode 2 and Mode 4 | Proposed |
+| [0013](0013-node-identity-storage.md) | Node identity: ECDSA P-256 keypair + ULID `node_id`, minted once, OS-protected | Proposed |
 
 ## How to write an ADR
 

@@ -123,8 +123,9 @@ inventory of laptops 2–4. If a session starts and the human items in section 3
 agent-side options are (a) the small optional follow-ups in the roadmap design change log (0.2.10 #2/#4/#5,
 0.2.13 #2/#4/#5) — each a Lead-direct fix, no subagent — or (b) **V0.3 preparation is done** — `docs/briefs/V0.3-fabric-core.md` holds the reuse map, 8 design
 decisions the Lead must settle first (D1 identity → ADR-0013, D2/D4 → ADR-0002 amendment), the 7 task groups in
-dependency order, the standing checklist, and a paste-ready G1 brief. When the inventory lands: check §6 of that
-file, write ADR-0013 + the ADR-0002 amendment, then spawn the G1 implementer.
+dependency order, the standing checklist, and a paste-ready G1 brief. **ADR-0013 (node identity) and the ADR-0002 Updates
+(session epoch, reconnect policy) are written (Proposed, 2026-09-20).** When the inventory lands: check §6 of that
+file, then spawn the G1 implementer with the §5 brief.
 
 **Documented loss in 0.2.13, not a bug:** hand-edits *inside* a generated region (e.g. filling
 "speed: TBD" or the power-mode cell in the host table) are still overwritten. Recorded in
@@ -165,6 +166,8 @@ malformed case entry as one INVALID (n=0) row + note; report writes go through `
    without it.** It confirms the hardware ADR-0012 rests on (team-stated, unmeasured: L2 ≈ RTX 3050, L3 ≈ RTX 2050,
    **L4 no GPU**), fills `docs/LAB.md` §1, and settles ADR-0011. If L4 really has no GPU that is *good* — it is what
    gives the planner a real decision to make.
+0b. **Team review of [ADR-0013](adr/0013-node-identity-storage.md) and the ADR-0002 Updates (2026-09-20)** — both Proposed; G1 builds
+   on them, so objections are cheapest before G1 starts (key type P-256, `node_id` not key-derived, epoch fencing rules).
 0a. **Team approval of [ADR-0012](adr/0012-scope-ship-mode3-complete.md)** — it changes an item `PROJECT_BRIEF` §33
    calls "relatively fixed", so it stays Proposed, and `CLAUDE.md` + the brief stay un-amended, until the other
    three agree.
