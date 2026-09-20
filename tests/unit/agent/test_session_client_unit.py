@@ -16,7 +16,13 @@ from pathlib import Path
 import pytest
 
 from meshforge.agent.identity import load_or_create
-from meshforge.agent.session.client import AgentSessionClient, grpc_channel_options
+from meshforge.agent.session.client import (
+    MAX_HEARTBEAT_INTERVAL_S,
+    MIN_HEARTBEAT_INTERVAL_S,
+    AgentSessionClient,
+    clamp_heartbeat_interval_s,
+    grpc_channel_options,
+)
 from meshforge.agent.session.hello import (
     CAPABILITIES_V03,
     HOSTNAME_MAX_LENGTH,
@@ -263,3 +269,31 @@ async def test_run_twice_concurrently_is_refused(client: AgentSessionClient) -> 
     with pytest.raises(RuntimeError, match="already running"):
         await client.run()
     await asyncio.sleep(0)
+
+
+# ------------------------------------------------------ heartbeat interval clamp
+@pytest.mark.parametrize(
+    ("requested_s", "expected_s"),
+    [
+        (2.0, 2.0),  # the production default passes through untouched
+        (0.2, 0.2),  # the fast test setting passes through untouched
+        (0.001, MIN_HEARTBEAT_INTERVAL_S),  # 1 ms would spin
+        (1_000_000.0, MAX_HEARTBEAT_INTERVAL_S),  # 10**9 ms is ~11.6 days of silence
+        (MAX_HEARTBEAT_INTERVAL_S, MAX_HEARTBEAT_INTERVAL_S),
+        (MIN_HEARTBEAT_INTERVAL_S, MIN_HEARTBEAT_INTERVAL_S),
+    ],
+)
+def test_heartbeat_interval_is_clamped_to_sane_bounds(
+    requested_s: float, expected_s: float
+) -> None:
+    """Tester defect (G3): a hostile/buggy HelloAck must never buy days of
+    silence or a busy loop; the controller owns the interval only within bounds."""
+    assert clamp_heartbeat_interval_s(requested_s) == expected_s
+
+
+def test_heartbeat_bounds_keep_criterion_2_reachable() -> None:
+    """OFFLINE <= 8 s needs heartbeats well under 8 s; the default 2 s and the
+    lease multiplier 3 fit inside the clamp with room, and the max is below any
+    interval that could make a healthy node look OFFLINE for a whole minute."""
+    assert MIN_HEARTBEAT_INTERVAL_S < 2.0 < MAX_HEARTBEAT_INTERVAL_S
+    assert MAX_HEARTBEAT_INTERVAL_S <= 60.0

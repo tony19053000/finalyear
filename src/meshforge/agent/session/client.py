@@ -70,6 +70,24 @@ log = get_logger(__name__)
 
 _COMMAND_DEDUPE_WINDOW: Final = 10_000
 _CLOSE_GRACE_S: Final = 2.0
+#: Bounds on the controller-owned heartbeat interval. Below the minimum the
+#: agent would spin; above the maximum a buggy or hostile controller could buy
+#: itself days of silence (a value of 10**9 ms is ~11.6 days). Out-of-range
+#: values are clamped and logged, never obeyed verbatim.
+MIN_HEARTBEAT_INTERVAL_S: Final = 0.1
+MAX_HEARTBEAT_INTERVAL_S: Final = 30.0
+
+
+def clamp_heartbeat_interval_s(requested_s: float) -> float:
+    """The heartbeat interval the agent will actually use for ``requested_s``.
+
+    Clamped into ``[MIN_HEARTBEAT_INTERVAL_S, MAX_HEARTBEAT_INTERVAL_S]``; a
+    non-positive request is still a protocol violation for the caller to
+    reject - this function only bounds what would otherwise be obeyed.
+    """
+    return min(max(requested_s, MIN_HEARTBEAT_INTERVAL_S), MAX_HEARTBEAT_INTERVAL_S)
+
+
 """After half-closing on stop, how long to wait for the controller's final status."""
 _UNACKED_CONTROLLER_PAYLOADS: Final[frozenset[str]] = frozenset(
     {"hello_ack", "ack", "ping"}
@@ -442,7 +460,16 @@ class AgentSessionClient:
 
     async def _online(self, call: Any, ack: agent_pb2.HelloAck) -> _Outcome:
         self.session_id = ack.session_id
-        self.heartbeat_interval_s = ack.heartbeat_interval_ms / 1000.0
+        requested_s = ack.heartbeat_interval_ms / 1000.0
+        self.heartbeat_interval_s = clamp_heartbeat_interval_s(requested_s)
+        if requested_s > 0 and self.heartbeat_interval_s != requested_s:
+            log.warning(
+                "agent.session.heartbeat_interval_clamped",
+                node_id=self.node_id,
+                session_id=self.session_id,
+                requested_s=requested_s,
+                used_s=self.heartbeat_interval_s,
+            )
         self.lease_s = ack.lease_ms / 1000.0
         reconnect = self.stats.sessions_accepted > 0
         self.stats.sessions_accepted += 1
@@ -453,12 +480,17 @@ class AgentSessionClient:
             heartbeat_interval_s=self.heartbeat_interval_s,
             lease_s=self.lease_s,
         )
-        if self.heartbeat_interval_s <= 0:
+        violation = None
+        if requested_s <= 0:
+            violation = "HelloAck.heartbeat_interval_ms must be > 0"
+        elif not self.session_id:
+            violation = "HelloAck.session_id must not be empty on an accepted Hello"
+        if violation is not None:
             log.error(
                 "agent.session.protocol_violation",
                 node_id=self.node_id,
                 session_id=self.session_id,
-                detail="HelloAck.heartbeat_interval_ms must be > 0",
+                detail=violation,
             )
             call.cancel()
             return await self._finish_stream(
