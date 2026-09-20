@@ -201,7 +201,7 @@ class LeaseTracker:
             return LivenessEvent.LEASE_MISSED
         return None
 
-    def deadline(self, now: float | None = None) -> float | None:
+    def deadline(self) -> float | None:
         """Earliest monotonic time at which :meth:`check` could return an event.
 
         None once both events have fired (nothing left to wait for until the next

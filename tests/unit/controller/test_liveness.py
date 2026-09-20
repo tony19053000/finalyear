@@ -153,7 +153,7 @@ def test_walk_through_silence_emits_each_event_once() -> None:
     # Long after: nothing more for this silence, no matter how often we poll.
     for t in (6.0, 6.1, 60.0, 3600.0):
         assert tracker.check(t) is None, t
-    assert tracker.deadline(3600.0) is None
+    assert tracker.deadline() is None
 
 
 def test_explicit_now_overrides_clock() -> None:
@@ -167,11 +167,11 @@ def test_explicit_now_overrides_clock() -> None:
 
 def test_edges_are_inclusive_so_a_timer_at_deadline_sees_the_event() -> None:
     tracker = LeaseTracker(LivenessConfig(), FakeClock(10.0))
-    assert tracker.deadline(10.0) == 12.5
+    assert tracker.deadline() == 12.5
     assert tracker.check(12.5) is E.LEASE_MISSED
-    assert tracker.deadline(12.5) == 16.0
+    assert tracker.deadline() == 16.0
     assert tracker.check(16.0) is E.LEASE_EXPIRED
-    assert tracker.deadline(16.0) is None
+    assert tracker.deadline() is None
 
 
 def test_heartbeat_during_suspect_resets_the_silence() -> None:
@@ -188,7 +188,7 @@ def test_heartbeat_during_suspect_resets_the_silence() -> None:
     assert state is S.ONLINE
     assert tracker.last_heartbeat == 3.5
     assert tracker.silence(3.5) == 0.0
-    assert tracker.deadline(3.5) == 6.0  # 3.5 + 2.5
+    assert tracker.deadline() == 6.0  # 3.5 + 2.5
 
     # The old expiry (0 + 6.0) must NOT fire: the silence started over at 3.5.
     clock.now = 5.9

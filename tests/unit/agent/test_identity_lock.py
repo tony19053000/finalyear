@@ -211,3 +211,49 @@ def test_session_epoch_at_uint64_max_loads_but_cannot_advance(id_dir: Path) -> N
     with pytest.raises(IdentityError, match="exhausted"):
         next_epoch(identity)
     assert json.loads(path.read_text())["session_epoch"] == 2**64 - 1  # unchanged
+
+
+# ------------------------------------------------- reviewer findings (G1 review)
+def test_next_epoch_refuses_to_clobber_an_identity_reset_underneath_it(
+    tmp_path: Path,
+) -> None:
+    """Blocking finding: ``reset`` + fresh ``load_or_create`` while an old
+    ``NodeIdentity`` is still in memory; ``next_epoch(old)`` must not write the
+    old node_id/fingerprint next to the new key (that wedges the node)."""
+    d = tmp_path / "id"
+    old = load_or_create(d)
+    reset(d)
+    new = load_or_create(d)
+    assert new.node_id != old.node_id
+    before = (d / "node.json").read_bytes()
+    with pytest.raises(IdentityError, match="changed underneath"):
+        next_epoch(old)
+    assert (d / "node.json").read_bytes() == before
+    # the fresh identity is still perfectly loadable and advanceable
+    assert load_or_create(d).node_id == new.node_id
+    assert next_epoch(new).session_epoch == 1
+
+
+def test_an_oserror_in_the_locked_body_is_not_blamed_on_the_lock_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    d = tmp_path / "id"
+    load_or_create(d)
+
+    def boom(*_: object, **__: object) -> None:
+        raise PermissionError(13, "simulated body failure")
+
+    monkeypatch.setattr(ident, "_check_protected", boom)
+    with pytest.raises(PermissionError, match="simulated body failure"):
+        load_or_create(d)
+
+
+def test_temp_debris_from_a_killed_writer_is_swept_under_the_lock(
+    tmp_path: Path,
+) -> None:
+    d = tmp_path / "id"
+    load_or_create(d)
+    debris = d / ".node.json.deadbeef.tmp"
+    debris.write_bytes(b"half-written")
+    load_or_create(d)
+    assert not debris.exists()

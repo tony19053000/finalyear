@@ -47,7 +47,7 @@ import stat
 import subprocess
 import sys
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager, suppress
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -176,6 +176,18 @@ def next_epoch(
     json_path = identity.path / JSON_FILE_NAME
     with _locked(identity.path, lock_timeout_s):
         current = _read_json(json_path)
+        # The file may no longer be *this* identity: an `identity reset` (or a
+        # hand edit) while the agent runs replaces key and json. Writing our
+        # node_id next to someone else's key would wedge the node (ADR-0013 §6).
+        if (
+            current.get("node_id") != str(identity.node_id)
+            or current.get("key_fingerprint_sha256") != identity.fingerprint
+        ):
+            raise IdentityError(
+                "identity on disk changed underneath this process",
+                json_path,
+                "restart the agent so it loads the current identity",
+            )
         created_at = current.get("created_at")
         if not isinstance(created_at, str):
             raise IdentityError(
@@ -239,21 +251,39 @@ def reset(directory: Path, *, lock_timeout_s: float = DEFAULT_LOCK_TIMEOUT_S) ->
 def _locked(directory: Path, timeout_s: float) -> Iterator[None]:
     """Hold ``identity.lock`` in ``directory``; every failure is an :class:`IdentityError`."""
     lock_path = directory / LOCK_FILE_NAME
-    try:
-        with locked(lock_path, timeout_s=timeout_s, mode=_FILE_MODE) as created:
-            if created:
-                _protect(lock_path)
-            yield
-    except TimeoutError as exc:
-        raise IdentityError(
-            "identity directory is locked by another process", lock_path, _LOCK_REMEDY
-        ) from exc
-    except OSError as exc:
-        raise IdentityError(
-            f"could not open identity lock file: {exc.strerror or exc}",
-            lock_path,
-            "check permissions",
-        ) from exc
+    with ExitStack() as stack:
+        # Only *acquiring* the lock is translated here; an OSError raised by the
+        # body keeps its own meaning (it is not a lock problem).
+        try:
+            created = stack.enter_context(
+                locked(lock_path, timeout_s=timeout_s, mode=_FILE_MODE)
+            )
+        except TimeoutError as exc:
+            raise IdentityError(
+                "identity directory is locked by another process",
+                lock_path,
+                _LOCK_REMEDY,
+            ) from exc
+        except OSError as exc:
+            raise IdentityError(
+                f"could not open identity lock file: {exc.strerror or exc}",
+                lock_path,
+                "check permissions",
+            ) from exc
+        if created:
+            _protect(lock_path)
+        _sweep_temp_files(directory)
+        yield
+
+
+def _sweep_temp_files(directory: Path) -> None:
+    """Remove ``.<name>.<hex>.tmp`` debris left by a writer that was killed mid-write.
+
+    Called under the lock, so nobody else's in-flight temp file can be swept.
+    """
+    for tmp in directory.glob(".*.tmp"):
+        with suppress(OSError):
+            tmp.unlink()
 
 
 # ---------------------------------------------------------------------------- create
