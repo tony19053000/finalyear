@@ -27,9 +27,7 @@ def update(*, sequence: int, cpu: float = 10.0) -> agent_pb2.ResourceUpdate:
     return message
 
 
-def test_a_zombie_sessions_huge_sequence_cannot_beat_a_newer_epochs_small_one() -> (
-    None
-):
+def test_a_zombie_sessions_huge_sequence_cannot_beat_a_newer_epochs_small_one() -> None:
     """A controller-fencing race: an old (stale) session with epoch 1 is still
     delivering buffered reports with high sequence numbers (e.g. its replay ring
     had a lot queued) at the same time epoch 2's session has already reported a

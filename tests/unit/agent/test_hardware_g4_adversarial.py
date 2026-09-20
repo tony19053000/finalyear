@@ -112,7 +112,7 @@ class MidEnumerationSlowNvml:
     def nvmlSystemGetDriverVersion(self) -> bytes:  # noqa: N802
         return b"1.0"
 
-    def nvmlDeviceGetMemoryInfo(self, handle: int) -> Any:
+    def nvmlDeviceGetMemoryInfo(self, handle: int) -> Any:  # noqa: N802
         time.sleep(self.delay_s)
         raise RuntimeError("should not reach here in the budget-respecting version")
 

@@ -27,7 +27,10 @@ T0 = dt.datetime(2026, 9, 21, 12, 0, tzinfo=dt.UTC)
 
 def sample(*, cpu: float = 10.0) -> ResourceSample:
     return ResourceSample(
-        observed_at=T0, cpu_percent=cpu, ram_used_bytes=1_000_000, ram_total_bytes=8_000_000
+        observed_at=T0,
+        cpu_percent=cpu,
+        ram_used_bytes=1_000_000,
+        ram_total_bytes=8_000_000,
     )
 
 
@@ -140,7 +143,9 @@ async def test_the_monitor_survives_many_online_offline_flaps_without_sending_wh
     # tracked in their own counter, never folded into `suppressed`.
     assert (
         monitor.stats.samples
-        == monitor.stats.reports + monitor.stats.suppressed + monitor.stats.offline_samples
+        == monitor.stats.reports
+        + monitor.stats.suppressed
+        + monitor.stats.offline_samples
     )
 
 
