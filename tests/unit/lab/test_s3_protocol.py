@@ -10,7 +10,7 @@ from collections.abc import Iterator
 
 import pytest
 
-from spikes._s1.protocol import ProtocolError
+from spikes._harness.protocol import ProtocolError
 from spikes._s3 import protocol as p
 
 

@@ -26,7 +26,7 @@ import socket
 from enum import StrEnum
 from typing import Any, Final
 
-from spikes._s1.protocol import (
+from spikes._harness.protocol import (
     MAX_HEADER_BYTES,
     ProtocolError,
     check_bind_address,

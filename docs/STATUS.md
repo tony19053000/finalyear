@@ -17,6 +17,7 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 **All V0.2 agent-side work is done.** S1 (0.2.5), S2 (0.2.6), S3 (0.2.7), **S6 (0.2.10)** and S7 (0.2.11) are committed with tester PASS + reviewer APPROVE; all five wait on 🧑 runs. **0.2.13 is `[x]`** (report CLIs merge instead of overwriting prose). The critical path is now entirely human: **`lab/inventory.py` on laptops 2–4 blocks V0.3.**
 
 ## Recently Completed
+- 2026-09-20: **S3-review follow-up done** — `spikes._harness.protocol` (framing + LAN address rules) replaces cross-spike imports of `_s1.protocol`; boundary test added. Lead-direct mechanical move; unit 1360, component suite re-run (see Test Status).
 - 2026-09-20: **0.2.13 `[x]`** — `write_report()` in `_harness/report.py`: an existing `--out` is merged (human regions kept, generated regions refreshed), malformed / other-spike files refused with `ReportMergeError` and left byte-identical, `--force` regenerates; all five CLIs write atomically. Tester found 3 defects (glued human table dropped, lone surrogate traceback, UTF-8 BOM refused) → fixed `2fd3185`; reviewer APPROVE. Gates: ruff + mypy clean, lab unit 1313, component 240 passed / 3 skipped.
 - 2026-09-20: **Scope decision ADR-0012** — ship Mode 3 complete, defer Mode 2 + Mode 4, keep the AI in full. Roadmap, `PROJECT_SUMMARY.md`, `docs/LAB.md` and the handoff updated. `CLAUDE.md` and `PROJECT_BRIEF.md` deliberately **not** amended until the team approves.
 - 2026-09-20: **0.2.10 S6 environments spike** — tester PASS (no defects, 16 adversarial tests), reviewer APPROVE (no blocking findings); commits `f7b094c` `f3364b8` `bfce2fa` `fb9376a`. Real Laptop 1 run: **GPU is visible inside a container** (nvidia-smi 361 ms), cold pull 9.7 s, venv cold 3.56 s vs warm 0.10 s. `docker-gpu-torch` skipped as typed `insufficient_disk` → `torch-cuda-in-container` **TBD**, Q4 unanswered. `[~]` until the 🧑 Windows runs.
@@ -43,6 +44,7 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 
 ## Known Bugs
 - No bugs open in the lab suites (S2's two red tests from 2026-09-19 were fixed in the S2 rounds). DEFECT-0.1.8-01 (test Postgres container leaked on Ctrl-C) fixed: layered cleanup (atexit + finally, SIGINT-deferring shield, labelled containers, namespace-safe stale sweep, Ryuk).
+- **Flake (1 of 2 full runs, 2026-09-20):** `tests/component/lab/test_s1_network_adversarial.py::test_udp_flood_of_garbage_is_dropped_not_amplified` failed once under full-suite load, passed 3/3 in isolation. It asserts `udp_dropped >= before + 500`, i.e. that the kernel delivers all 540 burst datagrams to the server's socket — under load the loopback UDP receive buffer can drop some before the server ever counts them. Unrelated to the protocol move (UDP path untouched; `MAGIC`/`PING` stay in `_s1`). Fix: count `sent - kernel_dropped` or assert a lower bound (e.g. ≥ 90 %) + "nothing echoed"; the "never amplified" half is the real invariant.
 - Watch: `test_sigkill_during_pg_settings_leaks_no_container` failed once (1 of 8 runs, right after a heavy run) — likely the 20 s Ryuk reap window under load; not reproduced in 7 further runs. If it recurs in CI, widen the deadline or rely on the next-run sweep assertion.
 - Fixed this session: secret leak + O(n²) in log scrubber; duplicate IDs after fork; plain-`uv sync` test collection crash; CRLF-dependent codegen output.
 
@@ -53,16 +55,16 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 - `.venv` on Laptop 1 has all extras incl. torch installed (reviewer ran `uv sync --all-extras`)
 
 ## Test Status
-- Lab suites (2026-09-20, after 0.2.13): `ruff check` / `ruff format --check` clean; `mypy lab tests/unit/lab tests/component/lab` clean (132 files); `pytest tests/unit/lab` **1313 passed**; `pytest tests/component/lab` **240 passed, 3 skipped** (5 min 51 s)
+- Lab suites (2026-09-20, after 0.2.13): `ruff check` / `ruff format --check` clean; `mypy lab tests/unit/lab tests/component/lab` clean (132 files); `pytest tests/unit/lab` **1360 passed**; `pytest tests/component/lab` **240 passed, 3 skipped** (5 min 51 s, on 0.2.13); after the protocol move 239 passed / 1 flake (see Known Bugs) / 3 skipped
 - Linux: `uv run pytest -q` → 646 passed, 3 skipped (2 slow opt-in, 1 AttemptState TODO), 2 xfailed (documented redaction scope gaps); ruff, strict mypy (71 files), lint-imports, gen_protos --check all clean; fresh clone + plain `uv sync` → `pytest -m unit` 0 failed
 - Windows: not yet run (first real CI run will cover unit + fresh-clone on windows-latest)
 
 ## Next Recommended Task
 **🔴 🧑 `uv run python lab/inventory.py` on laptops 2, 3 and 4 — this blocks V0.3**, confirms the hardware ADR-0012 rests on (team-stated, unmeasured: L2 ≈ RTX 3050, L3 ≈ RTX 2050, **L4 no GPU**), fills `docs/LAB.md` §1 and settles ADR-0011.
 **🧑 Team approval of ADR-0012** — it changes an item `PROJECT_BRIEF` §33 calls relatively fixed.
-Agent-side, nothing blocks: the S3-review follow-up (promote `spikes._s1.protocol` — address rules, framing, `ProtocolError` — into `_harness/`, so spikes stop importing each other's internals; these are the pieces V0.3/V0.4 lift into `src/`). Small optional follow-ups from the 0.2.10/0.2.13 reviews are in the roadmap design change log. **0.2.12 must wait for real lab data** — never run it on loopback numbers.
+Agent-side, **nothing is left in V0.2**: the S3-review follow-up (protocol helpers promoted into `_harness/protocol.py`) is done. Small optional follow-ups from the 0.2.10/0.2.13 reviews are in the roadmap design change log. **0.2.12 must wait for real lab data** — never run it on loopback numbers.
 
-**🧑 Lab runs are now the critical path.** Agent-side spike work in V0.2 is finished; what remains needs real machines: (1) S2 two-laptop runs (`lab/spikes/S2.md` §3), (2) S3 two-laptop runs (`lab/spikes/S3.md` §2), (3) `lab/inventory.py` on all 4 laptops, (4) the ADR-0011 decision + torch install (unblocks S4 0.2.8 / S5 0.2.9), (5) the GitHub push + CI proof below. Agent-side while waiting: the S3-review follow-up — promote `spikes._s1.protocol` (address rules, framing, `ProtocolError`) into `_harness/` so spikes stop importing each other's internals — or start 0.2.12 once any lab data lands.
+**🧑 Lab runs are now the critical path.** Agent-side spike work in V0.2 is finished; what remains needs real machines: (1) S2 two-laptop runs (`lab/spikes/S2.md` §3), (2) S3 two-laptop runs (`lab/spikes/S3.md` §2), (3) `lab/inventory.py` on all 4 laptops, (4) the ADR-0011 decision + torch install (unblocks S4 0.2.8 / S5 0.2.9), (5) the GitHub push + CI proof below. Agent-side while waiting: nothing required; start 0.2.12 once any lab data lands, then V0.3 once the inventory of laptops 2–4 is in.
 
 In parallel, 🧑 **GitHub push + CI proof** (only humans push):
 1. Create a **private** GitHub repo (no README/license/.gitignore).

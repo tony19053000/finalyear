@@ -59,6 +59,7 @@ from spikes._harness.envelope import (  # noqa: E402
     sanitize_text,
     write_envelope,
 )
+from spikes._harness.protocol import check_bind_address, is_lan_address  # noqa: E402
 from spikes._harness.report import (  # noqa: E402
     FORCE_HELP,
     TEMPLATE_PATH,
@@ -67,7 +68,6 @@ from spikes._harness.report import (  # noqa: E402
     render_report,
     write_report,
 )
-from spikes._s1.protocol import check_bind_address, is_lan_address  # noqa: E402
 from spikes._s2.env import (  # noqa: E402
     firewall_profile,
     non_private_profiles,

@@ -4,6 +4,8 @@
 * :mod:`.reps` - warmup + repetition runner with typed, recorded failures.
 * :mod:`.envelope` - the result JSON every spike writes (schema, git, host, link).
 * :mod:`.report` - fills ``lab/reports/TEMPLATE.md`` from result JSONs.
+* :mod:`.atomic` - atomic text writes (temp file + fsync + ``os.replace``).
+* :mod:`.protocol` - LAN-only address rules and length-prefixed JSON framing.
 
 Every spike: ``>= MIN_VALID_REPS`` measured repetitions per data point, warmup
 excluded, raw samples kept, results under ``lab/reports/raw/<day>-<topic>/``.

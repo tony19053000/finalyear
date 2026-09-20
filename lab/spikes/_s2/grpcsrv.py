@@ -29,7 +29,7 @@ from typing import Any, Final
 
 import grpc
 
-from spikes._s1.protocol import is_allowed_peer
+from spikes._harness.protocol import is_allowed_peer
 from spikes._s2.env import local_facts
 from spikes._s2.protocol import (
     CHUNK_BYTES,

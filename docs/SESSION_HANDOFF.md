@@ -129,11 +129,11 @@ concurrent S6 runs on one host would kill each other's.
 
 **After 0.2.13:** all V0.2 agent-side work is done. **0.2.12 must wait for real lab data** — never
 run it on loopback numbers. The next real work is **V0.3, the first version of the new plan**, and
-it is blocked on the 🧑 inventory of laptops 2–4. Also still open: the S3-review follow-up —
-promote `spikes._s1.protocol` (address rules, framing, `ProtocolError`) into `_harness/` so spikes
-stop importing each other's internals.
+it is blocked on the 🧑 inventory of laptops 2–4. The S3-review follow-up (promote `_s1.protocol`
+into `_harness/`) is **done**: `_harness/protocol.py` holds framing + LAN address rules;
+`test_harness_protocol_boundary.py` fails if any non-S1 spike imports `spikes._s1` again.
 
-**Harness rules every spike must respect:** envelope `link` may be `None` (n/a); `load_dir` skip
+**Harness rules every spike must respect:** framing / address rules come from `_harness/protocol.py`, never from another spike's package · envelope `link` may be `None` (n/a); `load_dir` skip
 reasons carry only `path.name`; `envelope.sanitize_text()` on any extra markdown; `report.cell()`
 for *any* interpolated free text in a markdown table cell; `_harness/report.py` renders a
 malformed case entry as one INVALID (n=0) row + note; report writes go through `write_report()`.

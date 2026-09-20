@@ -18,7 +18,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Final
 from urllib.parse import parse_qs, urlsplit
 
-from spikes._s1.protocol import family_of, is_allowed_peer
+from spikes._harness.protocol import family_of, is_allowed_peer
 from spikes._s2.env import local_facts
 from spikes._s2.protocol import (
     CHUNK_BYTES,
