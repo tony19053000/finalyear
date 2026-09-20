@@ -252,11 +252,11 @@ A version is **complete** only when all apply:
 - [ ] **0.3.3** Hardware discovery: CPU model/cores/threads, RAM, disks, OS, GPU(s) via NVML (model, VRAM, driver, compute capability), software versions
 - [ ] **0.3.4** Hardware scores from S7 micro-benchmarks, run at first enrollment and on demand
 - [ ] **0.3.5** Resource monitor: CPU %, RAM, GPU util, VRAM free, disk free every 2 s; change-threshold reporting
-- [ ] **0.3.6** Controller gRPC server (grpc.aio) + session manager; node registry tables; one process hosting FastAPI + gRPC
+- [~] **0.3.6** Controller gRPC server (grpc.aio) + session manager; node registry tables; one process hosting FastAPI + gRPC
 - [~] **0.3.7** Liveness: heartbeat 2 s, lease 3 × heartbeat; states ONLINE / SUSPECT / OFFLINE per ARCHITECTURE §12.3 — *pure logic done 2026-09-20 (G1): `controller/liveness.py` — `NodeState`, `LivenessEvent`, `next_state` (the §12.3 arrows as of G1), `LivenessConfig` 2 s / +0.5 s / ×3, `LeaseTracker` on an injected monotonic clock with one-shot MISSED/EXPIRED and `deadline()`. 48-pair table test + tester's boundary tests, reviewer APPROVE. **G2 must:** extend the table to the amended §12.3 (DRAINING→SUSPECT, SUSPECT/DRAINING→REVOKED, Hello-while-SUSPECT = RECONNECTED), wire one tracker per session to a single timer task, derive `HelloAck` intervals from `LivenessConfig`.*
 - [ ] **0.3.8** Agent reconnect with exponential backoff + jitter; Reconcile message on reconnect
 - [ ] **0.3.9** Controller discovery: explicit address in config, fallback mDNS
-- [ ] **0.3.10** RTT to controller measured on heartbeat; stored
+- [~] **0.3.10** RTT to controller measured on heartbeat; stored
 - [ ] **0.3.11** Persist resource snapshots (live buffer + downsampled history)
 - [ ] **0.3.12** REST `GET /v1/nodes`, `/v1/nodes/{id}`; CLI `compute nodes`, `compute status` (Rich tables, `--json`)
 - [ ] **0.3.13** Run as background service in dev: systemd user unit (Linux); scheduled task / NSSM (Windows) — documented

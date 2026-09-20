@@ -109,7 +109,7 @@ REQUEST_CHANGES (blocking: `next_epoch` clobbering an identity that was `reset` 
 reviewer pass 2 **APPROVE**. 0.3.1 `[x]`; 0.3.2 `[~]` until a 🧑 Windows unit run; 0.3.7 `[~]` until G2 wires it.
 Gates: ruff/mypy/lint-imports/gen_protos clean, `pytest -m unit` 2122 passed.
 
-**Next: G2** — 0.3.6 (controller `grpc.aio` server + session manager + node registry tables, FastAPI + gRPC in one
+**G2 IS WITH THE IMPLEMENTER (started 2026-09-20)** — 0.3.6 (controller `grpc.aio` server + session manager + node registry tables, FastAPI + gRPC in one
 process), 0.3.7 wiring (one `LeaseTracker` per session, single timer task using `deadline()`), 0.3.10 (RTT from
 `Heartbeat.agent_time` ⇄ Ack). The Lead writes the brief from `docs/briefs/V0.3-fabric-core.md` §3/§4 with G1's
 real names. Musts for G2 from the reviews: extend `liveness.next_state` to the **amended ARCHITECTURE §12.3**
