@@ -147,7 +147,8 @@ def test_n_headline_when_no_row_is_valid() -> None:
     """Here the pessimistic headline is the truth and must stay."""
     text = _render([_env("hostA", [1, 2, 3]), _env("hostB", [])])
     assert _n_line(text) == (
-        "Repetitions per data point: **n = 0** (no valid rows)" + N_TAIL
+        "Repetitions per data point: **n = 0** (no valid rows; 2 rows INVALID "
+        "(n < 5), marked in the table)" + N_TAIL
     )
     assert text.count("**INVALID (n<5)**") == 2
 
@@ -166,7 +167,9 @@ def test_n_headline_boundary_is_min_valid_reps_not_a_literal_five() -> None:
     assert f"**n = {MIN_VALID_REPS}** (every row)" in ok
     assert "**INVALID (n<5)**" not in ok
     low = _render([_env("hostA", [1.0] * (MIN_VALID_REPS - 1))])
-    assert "**n = 0** (no valid rows)" in low
+    assert (
+        "**n = 0** (no valid rows; 1 row INVALID (n < 5), marked in the table)" in low
+    )
 
 
 def test_extra_results_follow_the_table() -> None:

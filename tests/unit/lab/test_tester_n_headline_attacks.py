@@ -81,7 +81,8 @@ def test_garbage_summary_n_becomes_invalid_zero_not_a_crash(garbage_n: object) -
     text = _render([env])
     assert "INVALID (n<5)" in text
     assert _n_line(text) == (
-        "Repetitions per data point: **n = 0** (no valid rows)"
+        "Repetitions per data point: **n = 0** (no valid rows; 1 row INVALID "
+        "(n < 5), marked in the table)"
         " — any row with n < 5 must be marked INVALID with the reason under "
         '"Notes on outliers or failed runs".'
     )
@@ -131,7 +132,9 @@ def test_min_valid_reps_monkeypatched_changes_the_headline_threshold(
     monkeypatch.setattr(report_mod, "MIN_VALID_REPS", 10)
     env2 = _env("hostA", [1, 2, 3, 4, 5])
     text2 = _render([env2])
-    assert "**n = 0** (no valid rows)" in text2
+    assert (
+        "**n = 0** (no valid rows; 1 row INVALID (n < 10), marked in the table)"
+    ) in text2
     assert "INVALID (n<10)" in text2
 
 
@@ -139,7 +142,8 @@ def test_min_valid_reps_monkeypatched_changes_the_headline_threshold(
 def test_single_row_invalid_uses_singular_row() -> None:
     text = _render([_env("hostA", [1, 2])])
     assert _n_line(text) == (
-        "Repetitions per data point: **n = 0** (no valid rows)"
+        "Repetitions per data point: **n = 0** (no valid rows; 1 row INVALID "
+        "(n < 5), marked in the table)"
         " — any row with n < 5 must be marked INVALID with the reason under "
         '"Notes on outliers or failed runs".'
     )
@@ -192,7 +196,12 @@ def test_n_headline_pure_function_shapes() -> None:
         )
 
     assert n_headline([]) == "**n = 0** (no rows)"
-    assert n_headline([row(0)]) == "**n = 0** (no valid rows)"
+    assert n_headline([row(0)]) == (
+        "**n = 0** (no valid rows; 1 row INVALID (n < 5), marked in the table)"
+    )
+    assert n_headline([row(0), row(1)]) == (
+        "**n = 0** (no valid rows; 2 rows INVALID (n < 5), marked in the table)"
+    )
     assert n_headline([row(5)]) == "**n = 5** (every row)"
     assert n_headline([row(5), row(5)]) == "**n = 5** (every row)"
     assert n_headline([row(5), row(7)]) == "**n = 5–7** (smallest: 5)"  # noqa: RUF001 (en dash range)

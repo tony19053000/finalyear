@@ -8,16 +8,23 @@ human or agent to write. Spikes may append extra markdown (e.g. the S1 matrices)
 right after the Results table. If the template no longer contains a placeholder
 this code relies on, :class:`TemplateError` is raised instead of silently
 producing a half-filled report.
+
+Re-running ``report --out`` over an existing file **merges**: the generated
+regions are refreshed and the hand-written ones are taken from the file on disk
+(see "merging" at the bottom of this module). ``--force`` restores the old
+regenerate-everything behaviour.
 """
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
 from spikes._harness import MIN_VALID_REPS
+from spikes._harness.atomic import atomic_write_text
 from spikes._harness.envelope import LAB_DIR, host_label
 from spikes._harness.reps import JSON
 from spikes._harness.stats import Summary
@@ -149,7 +156,10 @@ def n_headline(rows: Sequence[ResultRow]) -> str:
     valid = sorted(r.summary.n for r in rows if not r.invalid)
     n_invalid = len(rows) - len(valid)
     if not valid:
-        return "**n = 0** (no valid rows)"
+        return (
+            f"**n = 0** (no valid rows; {n_invalid} {_rows(n_invalid)} INVALID "
+            f"(n < {MIN_VALID_REPS}), marked in the table)"
+        )
     low, high = valid[0], valid[-1]
     count = f"**n = {low}**" if low == high else f"**n = {low}–{high}**"  # noqa: RUF001 (en dash range)
     if not n_invalid:
@@ -287,3 +297,277 @@ def render_report(
 
 def read_template(path: Path = TEMPLATE_PATH) -> str:
     return path.read_text(encoding="utf-8")
+
+
+# ------------------------------------------------------------------- merging
+#
+# ``report --out FILE`` is re-run whenever new results arrive or this code
+# changes, but the file it writes is only half generated: the other half is
+# prose a human wrote. A plain overwrite destroys that prose. The regions are
+# fixed by the placeholders above and by ``TEMPLATE.md``:
+#
+#   generated  the title line and the ``> File: ...`` meta line; the host table
+#              rows of "Machines & conditions"; "Raw output location"; the whole
+#              "Results" section (the ``n`` headline, the results table, any
+#              extra tables a spike appends, and the notes list).
+#   human      "Goal"; the prose *after* the host table; "Commands run";
+#              "Expected vs actual"; "Conclusion"; "Decisions triggered".
+#
+# :func:`merge_report` starts from the fresh render and splices the human
+# regions of the existing file into it, so merging an untouched generated
+# report reproduces a plain render byte for byte. Text a human wrote *inside* a
+# generated region is replaced - that is what "generated" means - and the CLI
+# prints which regions it kept. If the existing file is not shaped like one of
+# our reports, :class:`ReportMergeError` is raised and nothing is written.
+
+GOAL: Final = "Goal"
+MACHINES: Final = "Machines & conditions"
+COMMANDS: Final = "Commands run"
+RAW_LOCATION: Final = "Raw output location"
+RESULTS: Final = "Results"
+EXPECTED: Final = "Expected vs actual"
+CONCLUSION: Final = "Conclusion"
+DECISIONS: Final = "Decisions triggered"
+
+SECTIONS: Final = (
+    GOAL,
+    MACHINES,
+    COMMANDS,
+    RAW_LOCATION,
+    RESULTS,
+    EXPECTED,
+    CONCLUSION,
+    DECISIONS,
+)
+HUMAN_SECTIONS: Final = (GOAL, COMMANDS, EXPECTED, CONCLUSION, DECISIONS)
+MACHINES_PROSE: Final = f"{MACHINES} (prose after the host table)"
+#: Human regions, in document order, as named to the user.
+PRESERVED_REGIONS: Final = (
+    GOAL,
+    MACHINES_PROSE,
+    COMMANDS,
+    EXPECTED,
+    CONCLUSION,
+    DECISIONS,
+)
+
+FORCE_HELP: Final = (
+    "regenerate an existing --out from the template, discarding every "
+    "hand-written section (default: keep them and refresh only the generated "
+    "parts)"
+)
+
+_FENCE_RE: Final = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+
+
+class ReportMergeError(ValueError):
+    """``--out`` exists but is not a report this generator can merge into."""
+
+    def __init__(self, problem: str, *, path: Path | None = None) -> None:
+        self.problem = problem
+        self.path = path
+        where = f"{path}: " if path is not None else ""
+        super().__init__(
+            f"{where}{problem}. Nothing was written, the file is unchanged. Fix "
+            "the file, choose another --out, or re-run with --force to "
+            "regenerate it from the template (that discards every hand-written "
+            "section)."
+        )
+
+
+class _NoHostTableError(Exception):
+    """A "Machines & conditions" body without a host table (internal)."""
+
+
+@dataclass(frozen=True, slots=True)
+class _Section:
+    title: str
+    heading: str  # the exact ``## ...`` line, newline included
+    body: str  # everything up to the next top-level heading, exact
+
+
+@dataclass(frozen=True, slots=True)
+class _Parsed:
+    preamble: str
+    sections: tuple[_Section, ...]
+
+    def body(self, title: str) -> str:
+        for section in self.sections:
+            if section.title == title:
+                return section.body
+        raise _NoHostTableError(title)  # unreachable once _shape_problem() passed
+
+
+@dataclass(frozen=True, slots=True)
+class WriteResult:
+    """What :func:`write_report` did, so the CLI can say it out loud."""
+
+    path: Path
+    merged: bool
+    forced: bool
+
+    def messages(self) -> list[str]:
+        if self.merged:
+            return [
+                "kept the hand-written text of: "
+                + ", ".join(PRESERVED_REGIONS)
+                + "; every other region was regenerated"
+            ]
+        if self.forced:
+            return [
+                "--force: the existing file was regenerated from the template, "
+                "its hand-written sections are gone"
+            ]
+        return []
+
+
+def _normalise_newlines(text: str) -> str:
+    """CRLF / CR -> LF, so a report edited on Windows merges like any other."""
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _fence_opened(line: str) -> str | None:
+    match = _FENCE_RE.match(line)
+    return match.group(1) if match else None
+
+
+def _fence_closed(line: str, fence: str) -> bool:
+    stripped = line.strip()
+    indent = len(line) - len(line.lstrip(" "))
+    return indent <= 3 and len(stripped) >= len(fence) and set(stripped) == {fence[0]}
+
+
+def _split_sections(text: str) -> _Parsed:
+    """Split a report into its preamble and its ``## `` sections, exactly.
+
+    Headings inside fenced code blocks are text, not headings (``## `` can
+    legitimately appear in a "Commands run" snippet). Joining every piece back
+    together reproduces ``text`` unchanged.
+    """
+    preamble: list[str] = []
+    sections: list[_Section] = []
+    heading: str | None = None
+    title = ""
+    body: list[str] = []
+    fence: str | None = None
+    for line in text.splitlines(keepends=True):
+        if fence is not None:
+            if _fence_closed(line, fence):
+                fence = None
+        else:
+            opened = _fence_opened(line)
+            if opened is not None:
+                fence = opened
+            elif line.startswith("## "):
+                if heading is not None:
+                    sections.append(_Section(title, heading, "".join(body)))
+                heading, title, body = line, line[3:].strip(), []
+                continue
+        (preamble if heading is None else body).append(line)
+    if heading is not None:
+        sections.append(_Section(title, heading, "".join(body)))
+    return _Parsed("".join(preamble), tuple(sections))
+
+
+def _host_table_parts(body: str) -> tuple[str, str]:
+    """A "Machines & conditions" body as (host table, prose after it).
+
+    The table is the first unbroken run of lines starting with ``|``; every
+    later line is the human's, including a table they added themselves (as
+    long as a blank line separates it from the generated one).
+    """
+    lines = body.splitlines(keepends=True)
+    start = next((i for i, ln in enumerate(lines) if ln.startswith("|")), None)
+    if start is None:
+        raise _NoHostTableError(body)
+    end = start
+    while end + 1 < len(lines) and lines[end + 1].startswith("|"):
+        end += 1
+    return "".join(lines[: end + 1]), "".join(lines[end + 1 :])
+
+
+def _shape_problem(parsed: _Parsed) -> str | None:
+    """The first way ``parsed`` differs from a generated report, or ``None``."""
+    titles = [s.title for s in parsed.sections]
+    duplicated = [t for t in SECTIONS if titles.count(t) > 1]
+    if duplicated:
+        return "duplicated section(s): " + ", ".join(
+            f"'## {t}' ({titles.count(t)}x)" for t in duplicated
+        )
+    missing = [t for t in SECTIONS if t not in titles]
+    if missing:
+        return "missing section(s): " + ", ".join(f"'## {t}'" for t in missing)
+    unexpected = [t for t in titles if t not in SECTIONS]
+    if unexpected:
+        return (
+            "unexpected top-level heading(s): "
+            + ", ".join(f"'## {t}'" for t in unexpected)
+            + " (write your own sub-headings as '### ')"
+        )
+    if titles != list(SECTIONS):
+        return (
+            "sections are out of order: expected "
+            + " / ".join(SECTIONS)
+            + "; found "
+            + " / ".join(titles)
+        )
+    if not parsed.preamble.lstrip().startswith("# "):
+        return "no '# ' title line before the first section"
+    try:
+        _host_table_parts(parsed.body(MACHINES))
+    except _NoHostTableError:
+        return f"'## {MACHINES}' has no host table (no line starts with '|')"
+    return None
+
+
+def merge_report(existing: str, fresh: str, *, path: Path | None = None) -> str:
+    """``fresh`` with the human-written regions of ``existing`` spliced in.
+
+    Raises :class:`TemplateError` if ``fresh`` is not shaped like a report (the
+    template changed under us) and :class:`ReportMergeError` if ``existing``
+    is not. Never returns a partially merged text.
+    """
+    new = _split_sections(_normalise_newlines(fresh))
+    problem = _shape_problem(new)
+    if problem is not None:
+        raise TemplateError(f"the generated report cannot be merged: {problem}")
+    old = _split_sections(_normalise_newlines(existing))
+    problem = _shape_problem(old)
+    if problem is not None:
+        raise ReportMergeError(problem, path=path)
+    out = [new.preamble]
+    for section in new.sections:
+        body = section.body
+        if section.title in HUMAN_SECTIONS:
+            body = old.body(section.title)
+        elif section.title == MACHINES:
+            table, _ = _host_table_parts(section.body)
+            _, prose = _host_table_parts(old.body(MACHINES))
+            body = table + prose
+        out.append(section.heading + body)
+    text = "".join(out)
+    return text if text.endswith("\n") else text + "\n"
+
+
+def write_report(path: Path, text: str, *, force: bool = False) -> WriteResult:
+    """Write a rendered report to ``path`` atomically, keeping human prose.
+
+    ``path`` does not exist, or ``force`` -> ``text`` is written as rendered.
+    Otherwise the human regions of the existing file are merged into ``text``
+    (:func:`merge_report`). Raises :class:`ReportMergeError` when the existing
+    file is not a report of the expected shape and ``OSError`` when it cannot
+    be read or written; in every failure case ``path`` is left byte-identical.
+    """
+    existed = path.exists()
+    merge = existed and not force
+    if merge:
+        try:
+            existing = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError as exc:
+            raise ReportMergeError(
+                f"the file is not valid UTF-8 text ({exc.reason} at byte {exc.start})",
+                path=path,
+            ) from exc
+        text = merge_report(existing, text, path=path)
+    atomic_write_text(path, text)
+    return WriteResult(path=path, merged=merge, forced=existed and force)

@@ -54,9 +54,12 @@ from spikes._harness.envelope import (  # noqa: E402
     write_envelope,
 )
 from spikes._harness.report import (  # noqa: E402
+    FORCE_HELP,
     TEMPLATE_PATH,
+    ReportMergeError,
     TemplateError,
     render_report,
+    write_report,
 )
 from spikes._s1 import iperf  # noqa: E402
 from spikes._s1.ceiling import loopback_ceiling  # noqa: E402
@@ -306,6 +309,11 @@ def _parser() -> argparse.ArgumentParser:
         "--out", required=True, type=Path, help="markdown report to write"
     )
     matrix.add_argument(
+        "--force",
+        action="store_true",
+        help=FORCE_HELP,
+    )
+    matrix.add_argument(
         "--labels",
         type=_labels,
         default={},
@@ -542,11 +550,16 @@ def cmd_matrix(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int
         _say(f"matrix: cannot build the report: {exc}")
         return EXIT_IO
     try:
-        atomic_write_text(args.out, text)
+        written = write_report(args.out, text, force=args.force)
+    except ReportMergeError as exc:
+        _say(f"matrix: {exc}")
+        return EXIT_IO
     except OSError as exc:
         _say(f"matrix: cannot write {args.out}: {exc}")
         return EXIT_IO
     _say(f"report written: {args.out} ({len(envelopes)} result files)")
+    for line in written.messages():
+        _say(line)
     return EXIT_OK
 
 

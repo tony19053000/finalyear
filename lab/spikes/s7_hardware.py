@@ -51,9 +51,12 @@ from spikes._harness.envelope import (  # noqa: E402
     write_envelope,
 )
 from spikes._harness.report import (  # noqa: E402
+    FORCE_HELP,
     TEMPLATE_PATH,
+    ReportMergeError,
     TemplateError,
     render_report,
+    write_report,
 )
 from spikes._harness.reps import JSON  # noqa: E402
 from spikes._s7 import SPIKE, TOPIC, sizing  # noqa: E402
@@ -182,6 +185,11 @@ def _parser() -> argparse.ArgumentParser:
     )
     report.add_argument(
         "--out", required=True, type=Path, help="markdown report to write"
+    )
+    report.add_argument(
+        "--force",
+        action="store_true",
+        help=FORCE_HELP,
     )
     report.add_argument(
         "--labels",
@@ -321,12 +329,16 @@ def cmd_report(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int
         _say(f"report: cannot build the report: {exc}")
         return EXIT_IO
     try:
-        args.out.parent.mkdir(parents=True, exist_ok=True)
-        args.out.write_text(text, encoding="utf-8", newline="\n")
+        written = write_report(args.out, text, force=args.force)
+    except ReportMergeError as exc:
+        _say(f"report: {exc}")
+        return EXIT_IO
     except OSError as exc:
         _say(f"report: cannot write {args.out}: {exc}")
         return EXIT_IO
     _say(f"report written: {args.out} ({len(envelopes)} result files)")
+    for line in written.messages():
+        _say(line)
     return EXIT_OK
 
 
