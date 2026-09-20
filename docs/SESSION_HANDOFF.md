@@ -101,7 +101,7 @@ approval of ADR-0012 first.
 
 ## 2. In flight right now
 
-**G3 IS WITH THE IMPLEMENTER (started 2026-09-21; brief = `docs/briefs/V0.3-fabric-core.md` §5c; 0.3.8/0.3.9 `[~]`).** If this
+**G3: implementer complete (`feat(V0.3-G3)`); with the TESTER next, then reviewer.** If this
 session is lost mid-flight: look for uncommitted files under `src/meshforge/agent/`, `tests/unit/agent/`,
 `tests/component/agent/`; run the gates; commit `wip(V0.3-G3)` with what is missing in the message; relaunch an
 implementer pointing at that commit. V0.3 **G1 and G2 are closed agent-side** (2026-09-20).
