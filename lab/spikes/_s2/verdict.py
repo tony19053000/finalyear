@@ -210,9 +210,11 @@ def _drop_detail(dropped: Sequence[Any]) -> str:
     """Why the idle stream died, and what to change about it."""
     first = dropped[0] if dropped else None
     failure = _mapping(first.get("failure")) if isinstance(first, Mapping) else {}
-    message = str(failure.get("message") or "stream did not survive the idle gap")
+    message = failure.get("message")
+    if not isinstance(message, str) or not message:
+        message = "stream did not survive the idle gap"
     fix = failure.get("fix")
-    return f"{message} [fix: {fix}]" if fix else message
+    return f"{message} [fix: {fix}]" if isinstance(fix, str) and fix else message
 
 
 def _mean(case: Any, metric: str) -> float | None:

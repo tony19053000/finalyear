@@ -946,7 +946,18 @@ def test_missing_endpoint_facts_are_a_visible_caveat(extra: object) -> None:
     assert "connection facts missing" in v.render_verdicts({"k": dv})
 
 
-@pytest.mark.parametrize("failure", [5, "x", ["y"], None, True])
+@pytest.mark.parametrize(
+    "failure",
+    [
+        5,
+        "x",
+        ["y"],
+        None,
+        True,
+        {"message": 5, "fix": ["a"]},
+        {"message": "", "fix": 0},
+    ],
+)
 def test_dropped_session_with_malformed_failure_record_is_no_not_crash(
     failure: object,
 ) -> None:
