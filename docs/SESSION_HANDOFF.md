@@ -14,7 +14,42 @@
 > Order of truth: `PROJECT_BRIEF → ARCHITECTURE → ROADMAP → STATUS → this file`. If this file
 > disagrees with the roadmap, the roadmap wins and this file is stale — fix it.
 
-**Last updated:** 2026-09-20 (S2 closed — all V0.2 spike code done) · **Updated by:** Lead session (account 1)
+**Last updated:** 2026-09-20 (**scope changed — ADR-0012**; S6 in tester) · **Updated by:** Lead session (account 1)
+
+---
+
+## 0. SCOPE CHANGED 2026-09-20 — read before anything else
+
+The team stated the real budget for the first time: **one Claude account, ~10 weeks, ~9 sessions/week ≈ 90
+sessions.** The old "no deadline, never cut scope for time" rule is **dead**.
+**[ADR-0012](adr/0012-scope-ship-mode3-complete.md) (Proposed — needs the other three team members):**
+
+- **Ship Mode 3 (Task Splitting) complete and production-grade.** Mode 1 ships with it as its foundation.
+- **Keep the AI in full** — V0.9 telemetry, V0.14 planner v2, V0.15 ML planner. An earlier draft cut these and
+  the team rejected it: "AI has a real optimization role" is a fixed pillar.
+- **Keep V0.7 security and V0.8 dashboard in full**, plus V0.17 and V1.0. **Nothing is trimmed at 10 weeks.**
+- **Defer Mode 2 (V0.11) and Mode 4 (V0.12/V0.13/V0.16)** — marked DEFERRED in the roadmap, kept in full as the
+  future-work record. Revisit **V0.11 first** if margin survives; Mode 4 extends Mode 2.
+- **V0.9 moves before V0.10** so ML training data accumulates during Mode 3 development.
+- **0.2.8 (S4) and 0.2.9 (S5) are deferred with Mode 2.** ADR-0011 is off the critical path (torch still needed
+  for GPU-backed Mode 3 chunks, but it blocks nothing now).
+- **129 tasks against 140–180 capacity → target ~1.5 tasks/session.** Degradation order if the budget shrinks is
+  fixed in the roadmap's "Scope & budget" section: V1.0 → V0.17 → thin V0.8 → V0.5 polish. **Never V0.10, V0.15,
+  V0.9.**
+- **Breadth-vs-depth resolved:** the college rewards *working quality*, not a count of features. Depth is correct,
+  so the quality rules (tester + reviewer, evidence before `[x]`, real multi-machine tests) all stay.
+
+**Token efficiency is half of why this fits** and is now a working rule, not advice: one *coherent group* per
+implementer run (not one task) · front-load every brief with the standing "no confidently-wrong output" checklist
+so reviews pass in 1–2 rounds · the Lead does doc edits and small mechanical fixes directly with **no subagent** ·
+run the ~6-minute component suite **once per task group**, not once per agent. Evidence: a ~30-line `_harness`
+change cost **54 k tokens** as a subagent; 0.2.6 (S2) needed **7** agent runs; S6 passed its implementer round
+**first time** on a front-loaded brief.
+
+Docs already updated: `docs/adr/0012-*`, `DEVELOPMENT_ROADMAP.md` (header, Scope & budget section, DEFERRED
+banners, V0.14 re-scope, dependency graph, design change log), `PROJECT_SUMMARY.md`, `docs/LAB.md` §1.
+**Not yet updated: `CLAUDE.md` (still says "No deadline") and `PROJECT_BRIEF.md` §33/§40** — both need team
+approval of ADR-0012 first.
 
 ---
 
@@ -31,77 +66,52 @@
 
 ## 2. In flight right now
 
-**In flight: 0.2.10 S6 environments spike** (started 2026-09-20 by the Lead session on the
-team's instruction). Design is in the roadmap line for 0.2.10 and will be in `lab/spikes/S6.md`.
-Round plan is the S2 one: implementer → tester → reviewer, fixing what each returns; commit
-`wip(0.2.10)` after each round. If you find uncommitted `lab/spikes/_s6/` or
-`s6_environments.py`, an implementer run was cut off: read its files, run the gates, and
-re-brief a new implementer with "finish the interrupted S6 run".
+**0.2.10 (S6 environments) is with the tester** covering ONE group: the S6 spike **and** the shared
+`n_headline()` fix in `_harness/report.py`. Commits `f7b094c` (recovered interrupted implementer run),
+`f3364b8` (mypy clean + `lab/spikes/S6.md`), `bfce2fa` (n=0 headline fix). If the tester result is lost, re-run it
+from the brief shape above; then reviewer; then the Lead marks 0.2.10 `[~]` (it still needs 🧑 Windows runs) and
+records evidence.
 
-**Done 2026-09-20 (team request): the `n = 0` report headline is fixed.**
-`_harness/report.py:251` renders `Repetitions per data point: **n = {min}** (smallest n of any
-row)`. One skipped/INVALID case (n=0) therefore makes the headline of an otherwise healthy
-table read `n = 0` — visible in `lab/reports/2026-09-20-S6-environments.md:34`, where 15 of 19
-rows were n=5 and only the disk-skipped `docker-gpu-torch` case (4 metric rows) was n=0. This is the
-"confidently wrong sentence" class the S2 reviewer rejected four times, and it affects every
-spike's report, not just S6. Intended rendering: state the n of the **valid** rows and count
-the invalid ones separately, e.g. `**n = 5** across the 18 valid rows; 1 row INVALID (n < 5),
-marked in the table`; a range (`n = 5-10`) when valid rows differ; `n = 0 (no valid rows)`
-only when there genuinely are none. Keep the template sentence's existing contract about
-marking `n < MIN_VALID_REPS` rows INVALID. `_harness/**` is shared: ONE implementer, then
-tester + reviewer, then the **whole** lab suite. Assertion to update:
-`tests/unit/lab/test_spike_report.py:88`. Implemented by `n_headline()` in `_harness/report.py`
-(+6 unit tests); the S6 report line 34 now reads `**n = 5** across the 15 valid rows; 4 rows
-INVALID (n < 5), marked in the table`. Still needs tester + reviewer before the Lead closes it.
+**The `n = 0` headline fix (done, awaiting test+review):** `_harness/report.py` used to set the results headline
+from `min(n over ALL rows)`, so one skipped case made a healthy table read `**n = 0**`. `n_headline()` now
+describes the **valid** rows and counts invalid ones separately. S6 report line 34 went from
+`**n = 0** (smallest n of any row)` to `**n = 5** across the 15 valid rows; 4 rows INVALID (n < 5), marked in the
+table`. Verified: 19 rows, 4 INVALID marks, raw JSON md5 unchanged. **This renders every spike's report**, so
+S1/S2/S3/S7 regressions are the risk.
 
-**TRAP found while regenerating that report:** `s6_environments.py report --out <existing file>`
-rewrites the **whole** file from `TEMPLATE.md`, blanking any hand-written prose (Goal,
-"Background load", "Commands run", "Expected vs actual", Conclusion) back to placeholders. The
-implementer snapshotted first and restored those sections verbatim, so nothing was lost, but
-**never re-run `report` over a report a human has filled in without a backup.** Every spike's
-report CLI shares this shape. Follow-up worth doing: make `report` preserve human-written
-sections (or refuse to overwrite without `--force`).
+**TRAP:** `s6_environments.py report --out <existing file>` rewrites the **whole** file from `TEMPLATE.md`,
+blanking any hand-written prose (Goal, "Background load", "Commands run", Conclusion) back to placeholders. It was
+snapshotted and restored, so nothing was lost — but **never re-run `report` over a report a human has filled in
+without a backup.** Every spike's report CLI shares this shape. Worth fixing (preserve human sections, or refuse
+to overwrite without `--force`).
 
-**What to do next (agent side, while humans run the lab):** pick ONE of
-- the S3-review follow-up: promote `spikes._s1.protocol` (address rules, framing,
-  `ProtocolError`) into `_harness/` so S2/S3/S7 stop importing another spike's internals
-  (roadmap "Blockers & problems" table, 2026-09-20 row). Shared `_harness` edit → one
-  implementer only, then tester + reviewer, then run the **whole** lab suite
-  (`uv run pytest tests/unit/lab tests/component/lab`, ~5 min);
-- or 0.2.12 (spike follow-ups + ADR-0003/0005 updates) **once any lab data exists** —
-  do not start it on loopback numbers.
+**After S6 closes:** 0.2.12 (consolidate findings) once any real lab data exists — do **not** run it on loopback
+numbers — then **V0.3, the first version of the new plan**. V0.3 needs the 🧑 inventory of laptops 2–4 first.
 
-**How the S2 round went** (precedent for future spikes): implementer finished the
-interrupted run → tester FAIL (6 defects pinned by tests) → fix → tester FAIL (1 new defect
-in the shared harness) → fix → reviewer REQUEST_CHANGES ×4 → APPROVE on pass 5. The
-reviewer's theme every time: **a generated sentence or cell that could be confidently
-wrong** (a loopback row that looks real; a death time measured when the client noticed;
-an operator assertion phrased as a measurement; any corrupt result-file field crashing
-`report` instead of rendering "?"/TBD/INVALID). Build the next spike with that bar from
-the start: every value read from a result file goes through a shape guard (`_mapping()`,
-`_records()` in `_s2/verdict.py` are the pattern), and every loopback artefact must be
-marked by the tool itself.
+Also still open: the S3-review follow-up — promote `spikes._s1.protocol` (address rules, framing, `ProtocolError`)
+into `_harness/` so spikes stop importing each other's internals. Shared `_harness` edit → one implementer, then
+tester + reviewer, then the whole lab suite.
 
-**Harness rules every spike must respect:** envelope `link` may be `None` (n/a);
-`load_dir` skip reasons carry only `path.name`; `envelope.sanitize_text()` on any extra
-markdown; `report.cell()` for *any* interpolated free text in a markdown table cell;
-`_harness/report.py` renders a malformed case entry as one INVALID (n=0) row + note.
+**Harness rules every spike must respect:** envelope `link` may be `None` (n/a); `load_dir` skip reasons carry only
+`path.name`; `envelope.sanitize_text()` on any extra markdown; `report.cell()` for *any* interpolated free text in
+a markdown table cell; `_harness/report.py` renders a malformed case entry as one INVALID (n=0) row + note.
 
-**File ownership while several agents run:** each spike owns only its own paths
-(`lab/spikes/<sN>_*.py`, `lab/spikes/_sN/`, `tests/**/test_sN_*.py`, `lab/spikes/SN.md`).
-`_harness/**` is shared — only one agent may edit it at a time; others read it.
+**File ownership while several agents run:** each spike owns only its own paths (`lab/spikes/<sN>_*.py`,
+`lab/spikes/_sN/`, `tests/**/test_sN_*.py`, `lab/spikes/SN.md`). `_harness/**` is shared — one agent at a time.
 
-**Gate state (measured 2026-09-20 after `633d474`):** `ruff check` / `ruff format --check`
-clean; `mypy lab tests/unit/lab tests/component/lab` clean (111 files);
-`pytest tests/unit/lab` 1033 passed; `pytest tests/component/lab` 226 passed, 3 skipped.
-Nothing is red.
-
-## 2b. GitHub
-
-Remote `origin` = https://github.com/tony19053000/finalyear.git added 2026-09-20; the **first push is the user's job** (in progress).
+**Gate state (measured 2026-09-20 after `bfce2fa`):** `ruff check` / `ruff format --check` clean;
+`mypy lab tests/unit/lab tests/component/lab` clean (127 files); `pytest tests/unit/lab` **1223 passed**;
+`pytest tests/component/lab` **240 passed, 3 skipped** (~6 min). Nothing is red.
 
 ## 3. Blocked on humans (nothing agent-side unblocks these)
 
+0. **🔴 Run `uv run python lab/inventory.py` on laptops 2, 3 and 4** — now the top blocker. **V0.3 cannot start
+   without it.** It confirms the hardware ADR-0012 rests on (team-stated, unmeasured: L2 ≈ RTX 3050, L3 ≈ RTX 2050,
+   **L4 no GPU**), fills `docs/LAB.md` §1, and settles ADR-0011. If L4 really has no GPU that is *good* — it is what
+   gives the planner a real decision to make.
+0a. **Team approval of [ADR-0012](adr/0012-scope-ship-mode3-complete.md)** — it changes an item `PROJECT_BRIEF` §33
+   calls "relatively fixed", so it stays Proposed, and `CLAUDE.md` + the brief stay un-amended, until the other
+   three agree.
 1. **GitHub push + CI proof** — closes V0.1 (criteria 1–2) and lets laptops 2–4 `git pull`.
    Steps are in `docs/STATUS.md` → Next Recommended Task. **Agents never push.**
 1a. **Run the S2 spike on two laptops** — Windows↔Linux, **both directions**, Wi-Fi **and**
@@ -114,9 +124,10 @@ Remote `origin` = https://github.com/tony19053000/finalyear.git added 2026-09-20
    S1). Until then ADR-0003/ADR-0005 have no real-link evidence and 0.2.12 cannot start.
    The loopback numbers in `S3.md` §4 bound the tool, **not** the link — never quote them
    as evidence about the network.
-2. **Team decision on [ADR-0011](adr/0011-torch-index-per-platform.md)** (torch from the cu126
-   index). Until it is Accepted and torch is installed, **S4 (0.2.8) and S5 (0.2.9) cannot
-   start** and 0.2.1 cannot close.
+2. **Team decision on [ADR-0011](adr/0011-torch-index-per-platform.md)** (torch from the cu126 index).
+   **No longer urgent:** S4 (0.2.8) and S5 (0.2.9) are deferred with Mode 2 (ADR-0012). torch is still needed for
+   GPU-backed Mode 3 chunks and to close 0.2.1. Note the provisional inventory says all three GPUs are Ampere
+   (CC 8.6), which is exactly the fact ADR-0011's cu126-vs-cu130 choice turns on.
 3. **Run `lab/inventory.py` on all 4 laptops** (commands in `lab/README.md`) — the results
    decide cu126 vs cu130 and fill `docs/LAB.md` §1.
 4. **Buy the gigabit switch, set DHCP reservations, set Windows profile to Private** (0.2.4);
