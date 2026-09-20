@@ -38,6 +38,23 @@ Round plan is the S2 one: implementer → tester → reviewer, fixing what each 
 `s6_environments.py`, an implementer run was cut off: read its files, run the gates, and
 re-brief a new implementer with "finish the interrupted S6 run".
 
+**Queued next (team asked for it 2026-09-20): fix the `n = 0` report headline.**
+`_harness/report.py:251` renders `Repetitions per data point: **n = {min}** (smallest n of any
+row)`. One skipped/INVALID case (n=0) therefore makes the headline of an otherwise healthy
+table read `n = 0` — visible in `lab/reports/2026-09-20-S6-environments.md:34`, where 18 of 19
+rows are n=5 and only the disk-skipped `docker-gpu-torch` row is n=0. This is the
+"confidently wrong sentence" class the S2 reviewer rejected four times, and it affects every
+spike's report, not just S6. Intended rendering: state the n of the **valid** rows and count
+the invalid ones separately, e.g. `**n = 5** across the 18 valid rows; 1 row INVALID (n < 5),
+marked in the table`; a range (`n = 5-10`) when valid rows differ; `n = 0 (no valid rows)`
+only when there genuinely are none. Keep the template sentence's existing contract about
+marking `n < MIN_VALID_REPS` rows INVALID. `_harness/**` is shared: ONE implementer, then
+tester + reviewer, then the **whole** lab suite. Assertion to update:
+`tests/unit/lab/test_spike_report.py:88`. Do this only after the in-flight S6 implementer
+round is finished - it runs that suite as its gate. Regenerate the S6 report afterwards
+(`s6_environments.py report --results lab/reports/raw/2026-09-20-S6-environments ...`);
+never hand-edit the measured JSON.
+
 **What to do next (agent side, while humans run the lab):** pick ONE of
 - the S3-review follow-up: promote `spikes._s1.protocol` (address rules, framing,
   `ProtocolError`) into `_harness/` so S2/S3/S7 stop importing another spike's internals
