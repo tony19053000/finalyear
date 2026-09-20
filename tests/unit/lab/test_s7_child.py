@@ -295,6 +295,9 @@ def test_gpu_matmul_sizes_itself_from_free_vram_and_times_with_events(
     assert info["device_name"].startswith("NVIDIA")
     assert info["capability"] == "8.6"
     assert info["cuda_version"] == "12.6"
+    # every kernel kind records `backend` (found missing for GPU kernels the first
+    # time the component suite ran with a real CUDA torch, 2026-09-20)
+    assert info["backend"].startswith("torch-cuda ")
     assert 1 <= info["iters"] <= child.MAX_ITERS
     sample = bench.rep()
     assert sample["tflops"] > 0

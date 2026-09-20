@@ -56,11 +56,11 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 - Leftover `nvidia-driver-590-open` metapackage alongside 595 on Laptop 1 (clean up after driver fix)
 - Dev DB has a default password (`meshforge-dev`, DB bound to 127.0.0.1); product/non-dev must refuse to start without an explicit secret (V0.7/V0.17)
 - `pytest.mark.unit` etc. not registered until 0.1.8 (warnings); ruff formats Python blocks inside docs/*.md until 0.1.9 excludes docs
-- `.venv` on Laptop 1 has all extras incl. torch installed (reviewer ran `uv sync --all-extras`)
+- `.venv` on Laptop 1 has all extras incl. torch installed (`uv sync --all-extras`, re-done in G1) — **torch 2.14 with CUDA 13.0 and no numpy**; the S7 GPU cases run for real here now. Note for ADR-0011: this is not the cu126 index it proposes; check what `uv` resolved before deciding
 
 ## Test Status
 - Lab suites (2026-09-20, after 0.2.13): `ruff check` / `ruff format --check` clean; `mypy lab tests/unit/lab tests/component/lab` clean (132 files); `pytest tests/unit/lab` **1360 passed**; `pytest tests/component/lab` **240 passed, 3 skipped** (5 min 51 s, on 0.2.13); after the protocol move + flood-test fix **240 passed, 3 skipped** again (5 min 50 s)
-- Core (2026-09-20, after G1): `ruff` clean; `mypy src` clean (34 files); `lint-imports` 7 kept / 0 broken; `gen_protos.py --check` clean; `pytest -m unit` **2122 passed**, 2 skipped, 2 xfailed (31 s); component suite: see handoff §2 for the post-G1 run
+- Core (2026-09-20, after G1): `ruff` clean; `mypy src` clean (34 files); `lint-imports` 7 kept / 0 broken; `gen_protos.py --check` clean; `pytest -m unit` **2122 passed**, 2 skipped, 2 xfailed (31 s); component suite (`pytest -m component`, 9 min 07 s): 279 passed, 6 skipped, 2 failed → (1) S7 `gpu-bfloat16` setup info lacked the `backend` key — a **real latent S7 defect** that only shows with a real CUDA torch, which the G1 `uv sync --all-extras` installed on Laptop 1 (torch 2.14, CUDA 13.0); fixed in `_s7/child.py` `_device_info`, S7 component file 17 passed with the GPU cases running for real; (2) the known `test_sigkill_during_pg_settings_leaks_no_container` load flake (passed on rerun — see Known Bugs)
 - Linux (V0.1 baseline): `uv run pytest -q` → 646 passed, 3 skipped (2 slow opt-in, 1 AttemptState TODO), 2 xfailed (documented redaction scope gaps); ruff, strict mypy (71 files), lint-imports, gen_protos --check all clean; fresh clone + plain `uv sync` → `pytest -m unit` 0 failed
 - Windows: not yet run (first real CI run will cover unit + fresh-clone on windows-latest)
 

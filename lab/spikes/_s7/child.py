@@ -457,6 +457,9 @@ def _device_info(torch: Any, index: int) -> dict[str, Any]:
     free, total = torch.cuda.mem_get_info(index)
     props = torch.cuda.get_device_properties(index)
     return {
+        # Same key every kernel's setup info carries, so the report's backend
+        # column and the tests can read it without knowing the kernel kind.
+        "backend": f"torch-cuda {torch.__version__}",
         "device_index": index,
         "device_name": torch.cuda.get_device_name(index),
         "capability": ".".join(str(v) for v in torch.cuda.get_device_capability(index)),
