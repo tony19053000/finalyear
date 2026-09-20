@@ -14,7 +14,7 @@
 > Order of truth: `PROJECT_BRIEF → ARCHITECTURE → ROADMAP → STATUS → this file`. If this file
 > disagrees with the roadmap, the roadmap wins and this file is stale — fix it.
 
-**Last updated:** 2026-09-20 (S2 fix rounds committed; reviewer pending) · **Updated by:** Lead session (account 1)
+**Last updated:** 2026-09-20 (S2 closed — all V0.2 spike code done) · **Updated by:** Lead session (account 1)
 
 ---
 
@@ -22,42 +22,50 @@
 
 - **Version:** V0.2 (lab setup & feasibility validation). V0.1 is code-complete; its last two
   tasks (0.1.4, 0.1.10) only await the **first real GitHub CI run**, which needs a human push.
-- **Committed and done:** 0.2.7 S3 spike (reviewer APPROVE, commit `81d620f`; awaits 🧑 two-laptop
-  runs). 0.2.11 S7 spike (reviewer APPROVE, commit `feat(0.2.11)`; awaits 🧑 runs incl. a
-  torch+CUDA laptop). 0.2.5 S1 spike + `_harness/` (reviewer APPROVE, commit `feat(0.2.5)`;
-  awaits 🧑 lab runs). 0.2.2 `lab/inventory.py` (commit `75d8df5`) — awaits 🧑 runs on the
-  4 laptops. ADR-0011 written (commit `b3ddd4d`), Proposed, awaiting team approval.
-- **0.2.1:** Laptop 1's NVIDIA driver is **fixed** (RTX 3050 Laptop, driver 595.91.07, 4 GiB,
-  compute capability 8.6, Secure Boot still enabled). Still `[~]` because
-  `torch.cuda.is_available()` cannot be checked until torch is installed (ADR-0011 / 0.2.3).
+- **All four V0.2 spikes are code-complete with reviewer APPROVE** and committed:
+  0.2.5 S1 (`ef065ac`), **0.2.6 S2 (`633d474`, closed 2026-09-20)**, 0.2.7 S3 (`81d620f`),
+  0.2.11 S7 (`8072b9f`). 0.2.2 `lab/inventory.py` (`75d8df5`). ADR-0011 written, Proposed.
+  Every one of these is `[~]` only because it awaits 🧑 runs on real laptops.
+- **0.2.1:** Laptop 1's NVIDIA driver is fixed (RTX 3050 Laptop, 595.91.07); still `[~]`
+  because `torch.cuda.is_available()` needs torch installed (ADR-0011 / 0.2.3).
 
 ## 2. In flight right now
 
-**The working tree is clean; the S2 fix rounds are committed** (`3221b72`, `d54649a`).
-**Exact next step: S2 reviewer round** (`reviewer` subagent on 0.2.6), then fix what it
-returns, then commit `feat(0.2.6)`, mark `[~]` with evidence in the roadmap, update STATUS.
+**The working tree is clean. No agent-side task is half-done.**
 
-S2 state: tester round 1 (commit `28f6ff6`) pinned 6 defects → all fixed (`3221b72`).
-Tester round 2 confirmed the 6 fixes with heavier adversarial tests and found 1 new
-defect in the **shared** `_harness/report.py` (crash on a non-object case entry) → fixed
-(`d54649a`, covered in `tests/unit/lab/test_spike_report.py`). Real loopback run done
-2026-09-20 (S2.md §5). Gates: ruff/format/mypy clean; `tests/unit/lab` 965 passed;
-`tests/component/lab` 221 passed, 3 skipped (whole lab suite incl. S1/S3/S7).
+**What to do next (agent side, while humans run the lab):** pick ONE of
+- the S3-review follow-up: promote `spikes._s1.protocol` (address rules, framing,
+  `ProtocolError`) into `_harness/` so S2/S3/S7 stop importing another spike's internals
+  (roadmap "Blockers & problems" table, 2026-09-20 row). Shared `_harness` edit → one
+  implementer only, then tester + reviewer, then run the **whole** lab suite
+  (`uv run pytest tests/unit/lab tests/component/lab`, ~5 min);
+- or 0.2.12 (spike follow-ups + ADR-0003/0005 updates) **once any lab data exists** —
+  do not start it on loopback numbers.
 
-Things the reviewer will probably poke at (be ready): the `grpc.so_reuseport = 0` option
-is Linux-relevant only (Windows never shared); the `_lifecycle` RLock in `S2GrpcServer`;
-warmup errors excluded from verdicts but shown as "(note, not counted)"; `INVALID
-(malformed)` cells; harness `_records/_field/_describe` helpers duplicate the shape of
-`_s2/verdict.py` helpers (accepted duplication: `_harness` must stay spike-agnostic).
+**How the S2 round went** (precedent for future spikes): implementer finished the
+interrupted run → tester FAIL (6 defects pinned by tests) → fix → tester FAIL (1 new defect
+in the shared harness) → fix → reviewer REQUEST_CHANGES ×4 → APPROVE on pass 5. The
+reviewer's theme every time: **a generated sentence or cell that could be confidently
+wrong** (a loopback row that looks real; a death time measured when the client noticed;
+an operator assertion phrased as a measurement; any corrupt result-file field crashing
+`report` instead of rendering "?"/TBD/INVALID). Build the next spike with that bar from
+the start: every value read from a result file goes through a shape guard (`_mapping()`,
+`_records()` in `_s2/verdict.py` are the pattern), and every loopback artefact must be
+marked by the tool itself.
 
-**Harness change from S1 round 3 that S2 must respect:** envelope `link` may be `None`
-(n/a); `load_dir` skip reasons carry only `path.name`; use `envelope.sanitize_text()` on any
-extra markdown; `report.cell()` escapes `|` — use it for *any* interpolated free text in a
-markdown table cell (an S3 reviewer finding).
+**Harness rules every spike must respect:** envelope `link` may be `None` (n/a);
+`load_dir` skip reasons carry only `path.name`; `envelope.sanitize_text()` on any extra
+markdown; `report.cell()` for *any* interpolated free text in a markdown table cell;
+`_harness/report.py` renders a malformed case entry as one INVALID (n=0) row + note.
 
 **File ownership while several agents run:** each spike owns only its own paths
 (`lab/spikes/<sN>_*.py`, `lab/spikes/_sN/`, `tests/**/test_sN_*.py`, `lab/spikes/SN.md`).
 `_harness/**` is shared — only one agent may edit it at a time; others read it.
+
+**Gate state (measured 2026-09-20 after `633d474`):** `ruff check` / `ruff format --check`
+clean; `mypy lab tests/unit/lab tests/component/lab` clean (111 files);
+`pytest tests/unit/lab` 1033 passed; `pytest tests/component/lab` 226 passed, 3 skipped.
+Nothing is red.
 
 ## 2b. GitHub
 
@@ -67,6 +75,11 @@ Remote `origin` = https://github.com/tony19053000/finalyear.git added 2026-09-20
 
 1. **GitHub push + CI proof** — closes V0.1 (criteria 1–2) and lets laptops 2–4 `git pull`.
    Steps are in `docs/STATUS.md` → Next Recommended Task. **Agents never push.**
+1a. **Run the S2 spike on two laptops** — Windows↔Linux, **both directions**, Wi-Fi **and**
+   Ethernet: `lab/spikes/S2.md` §3 (server-side firewall TCP 47202–47203 only; the client
+   side must have **no** inbound rule and pass `--no-inbound-rule`; also do the Windows
+   second-`serve` check in §3.2). Paste back both JSON files + stderr per direction.
+   Until then ADR-0002/ADR-0009 have no real cross-OS evidence.
 1b. **Run the S3 spike on two laptops**, Wi-Fi **and** Ethernet — procedure in
    `lab/spikes/S3.md` §2 (firewall TCP 47301–47303; one pair at a time; never together with
    S1). Until then ADR-0003/ADR-0005 have no real-link evidence and 0.2.12 cannot start.
