@@ -24,6 +24,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from enum import StrEnum
+from pathlib import Path
 from typing import Any, ClassVar
 
 from meshforge.common.exit_codes import ExitCode
@@ -34,6 +35,7 @@ __all__ = [
     "DigestMismatchError",
     "ExitCode",
     "FailureType",
+    "IdentityError",
     "InvalidIdError",
     "MeshForgeError",
     "is_retryable",
@@ -206,3 +208,28 @@ class DigestMismatchError(MeshForgeError):
     """Content does not match its expected SHA-256 digest."""
 
     default_failure_type = FailureType.INTEGRITY_ERROR
+
+
+class IdentityError(MeshForgeError):
+    """The node identity on disk is missing in part, corrupt or unprotectable (ADR-0013).
+
+    Fatal by design: the agent must never mint a new ``node_id`` next to an old
+    key or run with a key it could not protect. ``path`` is the offending file or
+    directory and ``remedy`` tells the operator what to do; both appear in the
+    message and in ``details`` (never any key material).
+    """
+
+    default_failure_type = FailureType.CONFIG_ERROR
+    exit_code = ExitCode.CONFIG_ERROR
+
+    def __init__(self, problem: str, path: Path, remedy: str) -> None:
+        super().__init__(
+            f"{problem} ({path}) - {remedy}",
+            details={"path": str(path), "remedy": remedy},
+        )
+        self.problem = problem
+        self.path = path
+        self.remedy = remedy
+
+    def __reduce__(self) -> tuple[Any, ...]:
+        return (type(self), (self.problem, self.path, self.remedy))

@@ -14,12 +14,26 @@
 // Fencing: every payload that refers to an attempt (has `attempt_id`) also
 // carries that attempt's `fencing_token` (enforced by tests/unit/test_protos.py).
 //
-// TODO(V0.3): session epoch on the envelope (reject messages from an old
-// stream after reconnect) and a request_id / correlation field for tracing.
+// Session fencing (ADR-0002 Updates 2026-09-20, roadmap 0.3.1):
+// - The agent persists a `session_epoch` counter with its identity (ADR-0013),
+//   increments it before every new stream and sends it in Hello. The controller
+//   keeps at most one live session per node_id: a Hello with a HIGHER epoch than
+//   the live session's closes that older stream (a zombie); a LOWER or EQUAL
+//   epoch is rejected with HelloAck{accepted=false, reject_code=STALE_EPOCH}.
+//   Epochs are never compared across node_ids.
+// - The controller answers Hello with HelloAck{session_id, heartbeat_interval_ms,
+//   lease_ms}. Both sides put that session_id in envelope field 3 of every
+//   later message; a message carrying another session's id is dropped and
+//   counted, never processed. Intervals are controller-owned.
+// - After a reconnect the agent sends Reconcile{replay_from_sequence} and
+//   replays its bounded ring of un-acked reports; the controller dedupes on
+//   message_id. Heartbeats are never buffered or replayed.
+// - Liveness (ARCHITECTURE §12.3) is measured on the controller's monotonic
+//   clock; the Timestamps in Heartbeat/HelloAck are for RTT and display only.
 //
-// SKELETON (roadmap task 0.1.5): envelopes, oneofs and essential fields only.
-// TODO(V0.3): session/liveness payloads in full. TODO(V0.4): attempt execution.
-// TODO(V0.5): cache/env payloads. TODO(V0.6): network probes for scheduling.
+// Roadmap coverage: 0.1.5 envelopes/oneofs; 0.3.1 session/liveness/resource
+// payloads. TODO(V0.4): attempt execution. TODO(V0.5): cache/env payloads.
+// TODO(V0.6): network probes for scheduling.
 syntax = "proto3";
 
 package meshforge.v1;
@@ -41,8 +55,11 @@ message AgentMessage {
   // Unique per message (ULID); echoed back in Ack.acked_message_id.
   string message_id = 1;
   google.protobuf.Timestamp sent_at = 2;
+  // Session this message belongs to (from HelloAck). Empty only on Hello itself.
+  // Messages for a session the receiver does not own are dropped (see header).
+  string session_id = 3;
 
-  // Payload numbers start at 10 so envelope metadata can grow in 3..9.
+  // Payload numbers start at 10 so envelope metadata can grow in 4..9.
   oneof payload {
     Hello hello = 10;
     Reconcile reconcile = 11;
@@ -62,6 +79,9 @@ message ControllerMessage {
   // Unique per message (ULID); the command ID the agent deduplicates on.
   string message_id = 1;
   google.protobuf.Timestamp sent_at = 2;
+  // Session this message belongs to (from HelloAck). Empty only on HelloAck.
+  // The agent drops commands for a session it no longer owns (see header).
+  string session_id = 3;
 
   oneof payload {
     StartAttempt start_attempt = 10;
@@ -70,6 +90,8 @@ message ControllerMessage {
     PrepareEnv prepare_env = 13;
     GcRequest gc = 14;
     Ack ack = 15;
+    // Reply to Hello; the first message on every stream from the controller.
+    HelloAck hello_ack = 16;
   }
 }
 
@@ -86,25 +108,85 @@ message Hello {
   // meshforge package version of the agent (PEP 440 string).
   string agent_version = 3;
   string hostname = 4;
-  // TODO(V0.3): OS/platform, hardware inventory summary, capabilities.
-  // TODO(V0.7): node identity is proven by mTLS, not by this field.
+  // Agent-monotonic stream counter persisted with the identity (ADR-0013);
+  // incremented before every new stream. See header "Session fencing".
+  uint64 session_epoch = 5;
+  // Operating system, e.g. "Ubuntu 24.04", "Windows 11".
+  string os = 6;
+  // Normalised platform tag, e.g. "linux-x86_64", "windows-amd64".
+  string platform = 7;
+  // Static hardware inventory (roadmap 0.3.3); dynamic usage is ResourceUpdate.
+  HardwareSummary hardware = 8;
+  // TODO(V0.7): node identity is proven by mTLS, not by node_id.
+}
+
+// Static hardware inventory sent in Hello (roadmap 0.3.3). Filled by the
+// agent's hardware discovery; the controller stores it in the node registry.
+message HardwareSummary {
+  string cpu_model = 1;
+  uint32 cpu_cores = 2;
+  uint32 cpu_threads = 3;
+  uint64 ram_bytes = 4;
+  message Gpu {
+    // NVML device index; matches GpuUsage.index in ResourceUpdate.
+    uint32 index = 1;
+    string model = 2;
+    uint64 vram_bytes = 3;
+    string driver_version = 4;
+    // CUDA compute capability as "major.minor", e.g. "8.6".
+    string compute_capability = 5;
+  }
+  repeated Gpu gpus = 5;
+  // Free-form capability tags the planner can filter on, e.g. "docker",
+  // "cuda", "nvidia-container-toolkit".
+  repeated string capabilities = 6;
 }
 
 // Sent after (re)connect: what the agent is still running, so the controller
 // can rebuild state and fence stale attempts (ARCHITECTURE §13).
 message Reconcile {
   repeated AttemptStatus running_attempts = 1;
-  // TODO(V0.3): buffered-report replay cursor.
+  // First `sequence` of the buffered reports the agent is about to replay
+  // (ADR-0002 Updates §4); 0 when nothing is replayed.
+  uint64 replay_from_sequence = 2;
 }
 
 message Heartbeat {
   // Monotonic per stream; lets the controller detect gaps.
   uint64 sequence = 1;
+  // Agent wall clock when the heartbeat was sent; used only for RTT/clock-skew
+  // measurement (roadmap 0.3.10), never for liveness (monotonic clock, see header).
+  google.protobuf.Timestamp agent_time = 2;
 }
 
+// Dynamic resource usage (roadmap 0.3.5). Sent on change beyond a threshold
+// or at least every few seconds; the controller keeps a live ring and a
+// downsampled history (roadmap 0.3.11).
 message ResourceUpdate {
-  // TODO(V0.3): CPU/RAM/GPU/VRAM/disk utilisation and availability.
-  reserved 1 to 9;
+  google.protobuf.Timestamp observed_at = 1;
+  // Whole-machine CPU utilisation, 0..100.
+  double cpu_percent = 2;
+  uint64 ram_used_bytes = 3;
+  uint64 ram_total_bytes = 4;
+  message GpuUsage {
+    // NVML device index; matches HardwareSummary.Gpu.index.
+    uint32 index = 1;
+    // GPU utilisation, 0..100.
+    double util_percent = 2;
+    uint64 vram_used_bytes = 3;
+    uint64 vram_total_bytes = 4;
+  }
+  repeated GpuUsage gpus = 5;
+  message DiskUsage {
+    // Mount point (POSIX) or drive root (Windows, e.g. "C:\\").
+    string mount = 1;
+    uint64 free_bytes = 2;
+    uint64 total_bytes = 3;
+  }
+  repeated DiskUsage disks = 6;
+  // Monotonic per stream, independent of Heartbeat.sequence; replayed after a
+  // reconnect (Reconcile.replay_from_sequence) and deduped by the controller.
+  uint64 sequence = 7;
 }
 
 message CacheReport {
@@ -175,6 +257,35 @@ message PrepareEnv {
 message GcRequest {
   // TODO(V0.5): blob-cache garbage-collection policy (target free bytes, pins).
   reserved 1 to 9;
+}
+
+// Reply to Hello (ADR-0002 Updates §1-2). The controller's first message on
+// every stream. If `accepted` is false the controller closes the stream after
+// sending it; `reject_code` says why and the agent decides whether to retry
+// (STALE_EPOCH: bump epoch and reconnect; PROTOCOL_VERSION: never retry).
+message HelloAck {
+  bool accepted = 1;
+  // Set when accepted; both sides put it in envelope field 3 from now on.
+  string session_id = 2;
+  // Controller-owned liveness parameters (ARCHITECTURE §12.3, ADR-0002 §5).
+  uint32 heartbeat_interval_ms = 3;
+  uint32 lease_ms = 4;
+  // Controller wall clock when the ack was sent (clock-skew estimate only).
+  google.protobuf.Timestamp controller_time = 5;
+  enum RejectCode {
+    REJECT_CODE_UNSPECIFIED = 0;
+    // Hello.session_epoch <= the live session's epoch for this node_id.
+    REJECT_CODE_STALE_EPOCH = 1;
+    // Hello.protocol_version outside the controller's supported range.
+    REJECT_CODE_PROTOCOL_VERSION = 2;
+    // Another stream for this node_id won a concurrent Hello race.
+    REJECT_CODE_DUPLICATE_SESSION = 3;
+    REJECT_CODE_INTERNAL = 4;
+  }
+  // Set only when accepted == false.
+  RejectCode reject_code = 6;
+  // Human-readable detail for logs; must never contain secrets.
+  string reject_reason = 7;
 }
 
 // Receipt used in both directions (ADR-0002): in ControllerMessage it acks an

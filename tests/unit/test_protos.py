@@ -168,7 +168,162 @@ def test_envelopes_cover_architecture_payloads() -> None:
         "PrepareEnv",
         "GcRequest",
         "Ack",
+        "HelloAck",
     }
+
+
+# ---------------------------------------------------------------------------
+# 0.3.1: additive extension of the V0.1 skeleton (ADR-0002 Updates 2026-09-20)
+# ---------------------------------------------------------------------------
+
+#: Every field shipped in V0.1 (task 0.1.5) with its number. V0.3 extends the
+#: contract additively; renumbering any of these would silently break old agents.
+V01_FIELD_NUMBERS: dict[str, dict[str, int]] = {
+    "AgentMessage": {
+        "message_id": 1,
+        "sent_at": 2,
+        "hello": 10,
+        "reconcile": 11,
+        "heartbeat": 12,
+        "resource_update": 13,
+        "cache_report": 14,
+        "net_probe_result": 15,
+        "attempt_status": 16,
+        "log_chunk": 17,
+        "ack": 18,
+    },
+    "ControllerMessage": {
+        "message_id": 1,
+        "sent_at": 2,
+        "start_attempt": 10,
+        "cancel_attempt": 11,
+        "probe_request": 12,
+        "prepare_env": 13,
+        "gc": 14,
+        "ack": 15,
+    },
+    "Hello": {"node_id": 1, "protocol_version": 2, "agent_version": 3, "hostname": 4},
+    "Reconcile": {"running_attempts": 1},
+    "Heartbeat": {"sequence": 1},
+    "NetProbeResult": {"probe_id": 1},
+    "AttemptStatus": {
+        "job_id": 1,
+        "attempt_id": 2,
+        "fencing_token": 3,
+        "state": 4,
+        "failure": 5,
+        "observed_at": 6,
+    },
+    "LogChunk": {
+        "job_id": 1,
+        "attempt_id": 2,
+        "stream": 3,
+        "offset": 4,
+        "data": 5,
+        "fencing_token": 6,
+    },
+    "StartAttempt": {"job_id": 1, "attempt_id": 2, "fencing_token": 3},
+    "CancelAttempt": {"attempt_id": 1, "fencing_token": 2, "reason": 3},
+    "ProbeRequest": {"probe_id": 1},
+    "PrepareEnv": {"env_hash": 1},
+    "Ack": {"acked_message_id": 1},
+}
+
+
+def test_v01_field_numbers_are_unchanged() -> None:
+    for message, fields in V01_FIELD_NUMBERS.items():
+        desc = agent_pb2.DESCRIPTOR.message_types_by_name[message]
+        for name, number in fields.items():
+            field = desc.fields_by_name.get(name)
+            assert field is not None, f"{message}.{name} was removed"
+            assert field.number == number, f"{message}.{name} renumbered"
+    # The two payloads that were placeholders in V0.1 must still have no other
+    # message squatting on their reserved range.
+    for message in ("CacheReport", "GcRequest"):
+        desc = agent_pb2.DESCRIPTOR.message_types_by_name[message]
+        assert desc.fields == [], f"{message} must stay empty until its version"
+
+
+def test_session_id_is_envelope_field_3_on_both_envelopes() -> None:
+    for envelope in (agent_pb2.AgentMessage, agent_pb2.ControllerMessage):
+        field = envelope.DESCRIPTOR.fields_by_name["session_id"]
+        assert field.number == 3, envelope.DESCRIPTOR.name
+        assert field.type == field.TYPE_STRING
+        assert field.containing_oneof is None  # envelope metadata, not a payload
+
+
+def test_hello_ack_is_reachable_in_controller_oneof() -> None:
+    field = agent_pb2.ControllerMessage.DESCRIPTOR.fields_by_name["hello_ack"]
+    assert field.number == 16
+    assert field.containing_oneof is not None
+    assert field.containing_oneof.name == "payload"
+    ack = agent_pb2.HelloAck(
+        accepted=False,
+        reject_code=agent_pb2.HelloAck.REJECT_CODE_STALE_EPOCH,
+        reject_reason="epoch 3 <= live 3",
+    )
+    msg = agent_pb2.ControllerMessage(message_id="m-1", hello_ack=ack)
+    parsed = agent_pb2.ControllerMessage.FromString(msg.SerializeToString())
+    assert parsed.WhichOneof("payload") == "hello_ack"
+    assert parsed.hello_ack.reject_code == agent_pb2.HelloAck.REJECT_CODE_STALE_EPOCH
+    assert set(agent_pb2.HelloAck.RejectCode.keys()) == {
+        "REJECT_CODE_UNSPECIFIED",
+        "REJECT_CODE_STALE_EPOCH",
+        "REJECT_CODE_PROTOCOL_VERSION",
+        "REJECT_CODE_DUPLICATE_SESSION",
+        "REJECT_CODE_INTERNAL",
+    }
+
+
+def test_v03_session_and_resource_fields() -> None:
+    hello = agent_pb2.Hello.DESCRIPTOR.fields_by_name
+    assert hello["session_epoch"].type == hello["session_epoch"].TYPE_UINT64
+    assert {"os", "platform", "hardware"} <= set(hello)
+    gpu = agent_pb2.HardwareSummary.Gpu.DESCRIPTOR.fields_by_name
+    assert set(gpu) == {
+        "index",
+        "model",
+        "vram_bytes",
+        "driver_version",
+        "compute_capability",
+    }
+    assert gpu["compute_capability"].type == gpu["compute_capability"].TYPE_STRING
+
+    heartbeat = agent_pb2.Heartbeat.DESCRIPTOR.fields_by_name
+    assert heartbeat["agent_time"].message_type.full_name == "google.protobuf.Timestamp"
+
+    update = agent_pb2.ResourceUpdate.DESCRIPTOR
+    assert {f.name: f.number for f in update.fields} == {
+        "observed_at": 1,
+        "cpu_percent": 2,
+        "ram_used_bytes": 3,
+        "ram_total_bytes": 4,
+        "gpus": 5,
+        "disks": 6,
+        "sequence": 7,
+    }
+    assert (
+        agent_pb2.Reconcile.DESCRIPTOR.fields_by_name["replay_from_sequence"].number
+        == 2
+    )
+
+    # Round trip through the wire with every new message populated.
+    msg = agent_pb2.AgentMessage(
+        message_id="m-9",
+        session_id="sess_01J00000000000000000000000",
+        resource_update=agent_pb2.ResourceUpdate(
+            cpu_percent=12.5,
+            ram_used_bytes=1 << 30,
+            ram_total_bytes=16 << 30,
+            gpus=[agent_pb2.ResourceUpdate.GpuUsage(index=0, util_percent=50.0)],
+            disks=[agent_pb2.ResourceUpdate.DiskUsage(mount="/", free_bytes=1)],
+            sequence=7,
+        ),
+    )
+    parsed = agent_pb2.AgentMessage.FromString(msg.SerializeToString())
+    assert parsed.session_id == "sess_01J00000000000000000000000"
+    assert parsed.resource_update.gpus[0].util_percent == 50.0
+    assert parsed.resource_update.disks[0].mount == "/"
 
 
 def test_agent_can_ack_controller_commands() -> None:
@@ -305,13 +460,12 @@ def test_check_passes_on_committed_tree() -> None:
 def test_check_fails_after_proto_edit_then_regenerate_fixes(repo_copy: Path) -> None:
     proto = repo_copy / "proto" / "meshforge" / "v1" / "agent.proto"
     text = proto.read_text(encoding="utf-8")
+    anchor = "  string acked_message_id = 1;\n"
+    assert text.count(anchor) == 1
     proto.write_text(
-        text.replace(
-            "  uint64 sequence = 1;\n", "  uint64 sequence = 1;\n  string extra = 2;\n"
-        ),
-        encoding="utf-8",
+        text.replace(anchor, anchor + "  string extra = 99;\n"), encoding="utf-8"
     )
-    assert "string extra = 2;" in proto.read_text(encoding="utf-8")
+    assert "string extra = 99;" in proto.read_text(encoding="utf-8")
 
     result = _run("--check", "--repo-root", str(repo_copy))
     assert result.returncode == 1, result.stdout + result.stderr

@@ -22,12 +22,26 @@ so the controller stops re-sending them.
 Fencing: every payload that refers to an attempt (has `attempt_id`) also
 carries that attempt's `fencing_token` (enforced by tests/unit/test_protos.py).
 
-TODO(V0.3): session epoch on the envelope (reject messages from an old
-stream after reconnect) and a request_id / correlation field for tracing.
+Session fencing (ADR-0002 Updates 2026-09-20, roadmap 0.3.1):
+- The agent persists a `session_epoch` counter with its identity (ADR-0013),
+  increments it before every new stream and sends it in Hello. The controller
+  keeps at most one live session per node_id: a Hello with a HIGHER epoch than
+  the live session's closes that older stream (a zombie); a LOWER or EQUAL
+  epoch is rejected with HelloAck{accepted=false, reject_code=STALE_EPOCH}.
+  Epochs are never compared across node_ids.
+- The controller answers Hello with HelloAck{session_id, heartbeat_interval_ms,
+  lease_ms}. Both sides put that session_id in envelope field 3 of every
+  later message; a message carrying another session's id is dropped and
+  counted, never processed. Intervals are controller-owned.
+- After a reconnect the agent sends Reconcile{replay_from_sequence} and
+  replays its bounded ring of un-acked reports; the controller dedupes on
+  message_id. Heartbeats are never buffered or replayed.
+- Liveness (ARCHITECTURE §12.3) is measured on the controller's monotonic
+  clock; the Timestamps in Heartbeat/HelloAck are for RTT and display only.
 
-SKELETON (roadmap task 0.1.5): envelopes, oneofs and essential fields only.
-TODO(V0.3): session/liveness payloads in full. TODO(V0.4): attempt execution.
-TODO(V0.5): cache/env payloads. TODO(V0.6): network probes for scheduling.
+Roadmap coverage: 0.1.5 envelopes/oneofs; 0.3.1 session/liveness/resource
+payloads. TODO(V0.4): attempt execution. TODO(V0.5): cache/env payloads.
+TODO(V0.6): network probes for scheduling.
 """
 
 from collections import abc as _abc
@@ -61,6 +75,7 @@ class AgentMessage(_message.Message):
 
     MESSAGE_ID_FIELD_NUMBER: _builtins.int
     SENT_AT_FIELD_NUMBER: _builtins.int
+    SESSION_ID_FIELD_NUMBER: _builtins.int
     HELLO_FIELD_NUMBER: _builtins.int
     RECONCILE_FIELD_NUMBER: _builtins.int
     HEARTBEAT_FIELD_NUMBER: _builtins.int
@@ -72,6 +87,10 @@ class AgentMessage(_message.Message):
     ACK_FIELD_NUMBER: _builtins.int
     message_id: _builtins.str
     """Unique per message (ULID); echoed back in Ack.acked_message_id."""
+    session_id: _builtins.str
+    """Session this message belongs to (from HelloAck). Empty only on Hello itself.
+    Messages for a session the receiver does not own are dropped (see header).
+    """
     @_builtins.property
     def sent_at(self) -> _timestamp_pb2.Timestamp: ...
     @_builtins.property
@@ -99,6 +118,7 @@ class AgentMessage(_message.Message):
         *,
         message_id: _builtins.str = ...,
         sent_at: _timestamp_pb2.Timestamp | None = ...,
+        session_id: _builtins.str = ...,
         hello: Global___Hello | None = ...,
         reconcile: Global___Reconcile | None = ...,
         heartbeat: Global___Heartbeat | None = ...,
@@ -111,7 +131,7 @@ class AgentMessage(_message.Message):
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _typing.Literal["ack", b"ack", "attempt_status", b"attempt_status", "cache_report", b"cache_report", "heartbeat", b"heartbeat", "hello", b"hello", "log_chunk", b"log_chunk", "net_probe_result", b"net_probe_result", "payload", b"payload", "reconcile", b"reconcile", "resource_update", b"resource_update", "sent_at", b"sent_at"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["ack", b"ack", "attempt_status", b"attempt_status", "cache_report", b"cache_report", "heartbeat", b"heartbeat", "hello", b"hello", "log_chunk", b"log_chunk", "message_id", b"message_id", "net_probe_result", b"net_probe_result", "payload", b"payload", "reconcile", b"reconcile", "resource_update", b"resource_update", "sent_at", b"sent_at"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["ack", b"ack", "attempt_status", b"attempt_status", "cache_report", b"cache_report", "heartbeat", b"heartbeat", "hello", b"hello", "log_chunk", b"log_chunk", "message_id", b"message_id", "net_probe_result", b"net_probe_result", "payload", b"payload", "reconcile", b"reconcile", "resource_update", b"resource_update", "sent_at", b"sent_at", "session_id", b"session_id"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     _WhichOneofReturnType_payload: _TypeAlias = _typing.Literal["hello", "reconcile", "heartbeat", "resource_update", "cache_report", "net_probe_result", "attempt_status", "log_chunk", "ack"]  # noqa: Y015
     _WhichOneofArgType_payload: _TypeAlias = _typing.Literal["payload", b"payload"]  # noqa: Y015
@@ -127,14 +147,20 @@ class ControllerMessage(_message.Message):
 
     MESSAGE_ID_FIELD_NUMBER: _builtins.int
     SENT_AT_FIELD_NUMBER: _builtins.int
+    SESSION_ID_FIELD_NUMBER: _builtins.int
     START_ATTEMPT_FIELD_NUMBER: _builtins.int
     CANCEL_ATTEMPT_FIELD_NUMBER: _builtins.int
     PROBE_REQUEST_FIELD_NUMBER: _builtins.int
     PREPARE_ENV_FIELD_NUMBER: _builtins.int
     GC_FIELD_NUMBER: _builtins.int
     ACK_FIELD_NUMBER: _builtins.int
+    HELLO_ACK_FIELD_NUMBER: _builtins.int
     message_id: _builtins.str
     """Unique per message (ULID); the command ID the agent deduplicates on."""
+    session_id: _builtins.str
+    """Session this message belongs to (from HelloAck). Empty only on HelloAck.
+    The agent drops commands for a session it no longer owns (see header).
+    """
     @_builtins.property
     def sent_at(self) -> _timestamp_pb2.Timestamp: ...
     @_builtins.property
@@ -149,23 +175,29 @@ class ControllerMessage(_message.Message):
     def gc(self) -> Global___GcRequest: ...
     @_builtins.property
     def ack(self) -> Global___Ack: ...
+    @_builtins.property
+    def hello_ack(self) -> Global___HelloAck:
+        """Reply to Hello; the first message on every stream from the controller."""
+
     def __init__(
         self,
         *,
         message_id: _builtins.str = ...,
         sent_at: _timestamp_pb2.Timestamp | None = ...,
+        session_id: _builtins.str = ...,
         start_attempt: Global___StartAttempt | None = ...,
         cancel_attempt: Global___CancelAttempt | None = ...,
         probe_request: Global___ProbeRequest | None = ...,
         prepare_env: Global___PrepareEnv | None = ...,
         gc: Global___GcRequest | None = ...,
         ack: Global___Ack | None = ...,
+        hello_ack: Global___HelloAck | None = ...,
     ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _typing.Literal["ack", b"ack", "cancel_attempt", b"cancel_attempt", "gc", b"gc", "payload", b"payload", "prepare_env", b"prepare_env", "probe_request", b"probe_request", "sent_at", b"sent_at", "start_attempt", b"start_attempt"]  # noqa: Y015
+    _HasFieldArgType: _TypeAlias = _typing.Literal["ack", b"ack", "cancel_attempt", b"cancel_attempt", "gc", b"gc", "hello_ack", b"hello_ack", "payload", b"payload", "prepare_env", b"prepare_env", "probe_request", b"probe_request", "sent_at", b"sent_at", "start_attempt", b"start_attempt"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["ack", b"ack", "cancel_attempt", b"cancel_attempt", "gc", b"gc", "message_id", b"message_id", "payload", b"payload", "prepare_env", b"prepare_env", "probe_request", b"probe_request", "sent_at", b"sent_at", "start_attempt", b"start_attempt"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["ack", b"ack", "cancel_attempt", b"cancel_attempt", "gc", b"gc", "hello_ack", b"hello_ack", "message_id", b"message_id", "payload", b"payload", "prepare_env", b"prepare_env", "probe_request", b"probe_request", "sent_at", b"sent_at", "session_id", b"session_id", "start_attempt", b"start_attempt"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
-    _WhichOneofReturnType_payload: _TypeAlias = _typing.Literal["start_attempt", "cancel_attempt", "probe_request", "prepare_env", "gc", "ack"]  # noqa: Y015
+    _WhichOneofReturnType_payload: _TypeAlias = _typing.Literal["start_attempt", "cancel_attempt", "probe_request", "prepare_env", "gc", "ack", "hello_ack"]  # noqa: Y015
     _WhichOneofArgType_payload: _TypeAlias = _typing.Literal["payload", b"payload"]  # noqa: Y015
     def WhichOneof(self, oneof_group: _WhichOneofArgType_payload) -> _WhichOneofReturnType_payload | None: ...
 
@@ -186,6 +218,10 @@ class Hello(_message.Message):
     PROTOCOL_VERSION_FIELD_NUMBER: _builtins.int
     AGENT_VERSION_FIELD_NUMBER: _builtins.int
     HOSTNAME_FIELD_NUMBER: _builtins.int
+    SESSION_EPOCH_FIELD_NUMBER: _builtins.int
+    OS_FIELD_NUMBER: _builtins.int
+    PLATFORM_FIELD_NUMBER: _builtins.int
+    HARDWARE_FIELD_NUMBER: _builtins.int
     node_id: _builtins.str
     protocol_version: _common_pb2.ProtocolVersion.ValueType
     """Must be set; the controller accepts a configured range of versions and
@@ -194,9 +230,20 @@ class Hello(_message.Message):
     agent_version: _builtins.str
     """meshforge package version of the agent (PEP 440 string)."""
     hostname: _builtins.str
-    """TODO(V0.3): OS/platform, hardware inventory summary, capabilities.
-    TODO(V0.7): node identity is proven by mTLS, not by this field.
+    session_epoch: _builtins.int
+    """Agent-monotonic stream counter persisted with the identity (ADR-0013);
+    incremented before every new stream. See header "Session fencing".
     """
+    os: _builtins.str
+    """Operating system, e.g. "Ubuntu 24.04", "Windows 11"."""
+    platform: _builtins.str
+    """Normalised platform tag, e.g. "linux-x86_64", "windows-amd64"."""
+    @_builtins.property
+    def hardware(self) -> Global___HardwareSummary:
+        """Static hardware inventory (roadmap 0.3.3); dynamic usage is ResourceUpdate.
+        TODO(V0.7): node identity is proven by mTLS, not by node_id.
+        """
+
     def __init__(
         self,
         *,
@@ -204,14 +251,93 @@ class Hello(_message.Message):
         protocol_version: _common_pb2.ProtocolVersion.ValueType = ...,
         agent_version: _builtins.str = ...,
         hostname: _builtins.str = ...,
+        session_epoch: _builtins.int = ...,
+        os: _builtins.str = ...,
+        platform: _builtins.str = ...,
+        hardware: Global___HardwareSummary | None = ...,
     ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    _HasFieldArgType: _TypeAlias = _typing.Literal["hardware", b"hardware"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["agent_version", b"agent_version", "hostname", b"hostname", "node_id", b"node_id", "protocol_version", b"protocol_version"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["agent_version", b"agent_version", "hardware", b"hardware", "hostname", b"hostname", "node_id", b"node_id", "os", b"os", "platform", b"platform", "protocol_version", b"protocol_version", "session_epoch", b"session_epoch"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___Hello: _TypeAlias = Hello  # noqa: Y015
+
+@_typing.final
+class HardwareSummary(_message.Message):
+    """Static hardware inventory sent in Hello (roadmap 0.3.3). Filled by the
+    agent's hardware discovery; the controller stores it in the node registry.
+    """
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    @_typing.final
+    class Gpu(_message.Message):
+        DESCRIPTOR: _descriptor.Descriptor
+
+        INDEX_FIELD_NUMBER: _builtins.int
+        MODEL_FIELD_NUMBER: _builtins.int
+        VRAM_BYTES_FIELD_NUMBER: _builtins.int
+        DRIVER_VERSION_FIELD_NUMBER: _builtins.int
+        COMPUTE_CAPABILITY_FIELD_NUMBER: _builtins.int
+        index: _builtins.int
+        """NVML device index; matches GpuUsage.index in ResourceUpdate."""
+        model: _builtins.str
+        vram_bytes: _builtins.int
+        driver_version: _builtins.str
+        compute_capability: _builtins.str
+        """CUDA compute capability as "major.minor", e.g. "8.6"."""
+        def __init__(
+            self,
+            *,
+            index: _builtins.int = ...,
+            model: _builtins.str = ...,
+            vram_bytes: _builtins.int = ...,
+            driver_version: _builtins.str = ...,
+            compute_capability: _builtins.str = ...,
+        ) -> None: ...
+        _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+        def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+        _ClearFieldArgType: _TypeAlias = _typing.Literal["compute_capability", b"compute_capability", "driver_version", b"driver_version", "index", b"index", "model", b"model", "vram_bytes", b"vram_bytes"]  # noqa: Y015
+        def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+        def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+    CPU_MODEL_FIELD_NUMBER: _builtins.int
+    CPU_CORES_FIELD_NUMBER: _builtins.int
+    CPU_THREADS_FIELD_NUMBER: _builtins.int
+    RAM_BYTES_FIELD_NUMBER: _builtins.int
+    GPUS_FIELD_NUMBER: _builtins.int
+    CAPABILITIES_FIELD_NUMBER: _builtins.int
+    cpu_model: _builtins.str
+    cpu_cores: _builtins.int
+    cpu_threads: _builtins.int
+    ram_bytes: _builtins.int
+    @_builtins.property
+    def gpus(self) -> _containers.RepeatedCompositeFieldContainer[Global___HardwareSummary.Gpu]: ...
+    @_builtins.property
+    def capabilities(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]:
+        """Free-form capability tags the planner can filter on, e.g. "docker",
+        "cuda", "nvidia-container-toolkit".
+        """
+
+    def __init__(
+        self,
+        *,
+        cpu_model: _builtins.str = ...,
+        cpu_cores: _builtins.int = ...,
+        cpu_threads: _builtins.int = ...,
+        ram_bytes: _builtins.int = ...,
+        gpus: _abc.Iterable[Global___HardwareSummary.Gpu] | None = ...,
+        capabilities: _abc.Iterable[_builtins.str] | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["capabilities", b"capabilities", "cpu_cores", b"cpu_cores", "cpu_model", b"cpu_model", "cpu_threads", b"cpu_threads", "gpus", b"gpus", "ram_bytes", b"ram_bytes"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___HardwareSummary: _TypeAlias = HardwareSummary  # noqa: Y015
 
 @_typing.final
 class Reconcile(_message.Message):
@@ -222,18 +348,22 @@ class Reconcile(_message.Message):
     DESCRIPTOR: _descriptor.Descriptor
 
     RUNNING_ATTEMPTS_FIELD_NUMBER: _builtins.int
+    REPLAY_FROM_SEQUENCE_FIELD_NUMBER: _builtins.int
+    replay_from_sequence: _builtins.int
+    """First `sequence` of the buffered reports the agent is about to replay
+    (ADR-0002 Updates §4); 0 when nothing is replayed.
+    """
     @_builtins.property
-    def running_attempts(self) -> _containers.RepeatedCompositeFieldContainer[Global___AttemptStatus]:
-        """TODO(V0.3): buffered-report replay cursor."""
-
+    def running_attempts(self) -> _containers.RepeatedCompositeFieldContainer[Global___AttemptStatus]: ...
     def __init__(
         self,
         *,
         running_attempts: _abc.Iterable[Global___AttemptStatus] | None = ...,
+        replay_from_sequence: _builtins.int = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["running_attempts", b"running_attempts"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["replay_from_sequence", b"replay_from_sequence", "running_attempts", b"running_attempts"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
@@ -244,16 +374,24 @@ class Heartbeat(_message.Message):
     DESCRIPTOR: _descriptor.Descriptor
 
     SEQUENCE_FIELD_NUMBER: _builtins.int
+    AGENT_TIME_FIELD_NUMBER: _builtins.int
     sequence: _builtins.int
     """Monotonic per stream; lets the controller detect gaps."""
+    @_builtins.property
+    def agent_time(self) -> _timestamp_pb2.Timestamp:
+        """Agent wall clock when the heartbeat was sent; used only for RTT/clock-skew
+        measurement (roadmap 0.3.10), never for liveness (monotonic clock, see header).
+        """
+
     def __init__(
         self,
         *,
         sequence: _builtins.int = ...,
+        agent_time: _timestamp_pb2.Timestamp | None = ...,
     ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    _HasFieldArgType: _TypeAlias = _typing.Literal["agent_time", b"agent_time"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["sequence", b"sequence"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["agent_time", b"agent_time", "sequence", b"sequence"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
@@ -261,14 +399,100 @@ Global___Heartbeat: _TypeAlias = Heartbeat  # noqa: Y015
 
 @_typing.final
 class ResourceUpdate(_message.Message):
+    """Dynamic resource usage (roadmap 0.3.5). Sent on change beyond a threshold
+    or at least every few seconds; the controller keeps a live ring and a
+    downsampled history (roadmap 0.3.11).
+    """
+
     DESCRIPTOR: _descriptor.Descriptor
 
+    @_typing.final
+    class GpuUsage(_message.Message):
+        DESCRIPTOR: _descriptor.Descriptor
+
+        INDEX_FIELD_NUMBER: _builtins.int
+        UTIL_PERCENT_FIELD_NUMBER: _builtins.int
+        VRAM_USED_BYTES_FIELD_NUMBER: _builtins.int
+        VRAM_TOTAL_BYTES_FIELD_NUMBER: _builtins.int
+        index: _builtins.int
+        """NVML device index; matches HardwareSummary.Gpu.index."""
+        util_percent: _builtins.float
+        """GPU utilisation, 0..100."""
+        vram_used_bytes: _builtins.int
+        vram_total_bytes: _builtins.int
+        def __init__(
+            self,
+            *,
+            index: _builtins.int = ...,
+            util_percent: _builtins.float = ...,
+            vram_used_bytes: _builtins.int = ...,
+            vram_total_bytes: _builtins.int = ...,
+        ) -> None: ...
+        _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+        def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+        _ClearFieldArgType: _TypeAlias = _typing.Literal["index", b"index", "util_percent", b"util_percent", "vram_total_bytes", b"vram_total_bytes", "vram_used_bytes", b"vram_used_bytes"]  # noqa: Y015
+        def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+        def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+    @_typing.final
+    class DiskUsage(_message.Message):
+        DESCRIPTOR: _descriptor.Descriptor
+
+        MOUNT_FIELD_NUMBER: _builtins.int
+        FREE_BYTES_FIELD_NUMBER: _builtins.int
+        TOTAL_BYTES_FIELD_NUMBER: _builtins.int
+        mount: _builtins.str
+        """Mount point (POSIX) or drive root (Windows, e.g. "C:\\\\")."""
+        free_bytes: _builtins.int
+        total_bytes: _builtins.int
+        def __init__(
+            self,
+            *,
+            mount: _builtins.str = ...,
+            free_bytes: _builtins.int = ...,
+            total_bytes: _builtins.int = ...,
+        ) -> None: ...
+        _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+        def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+        _ClearFieldArgType: _TypeAlias = _typing.Literal["free_bytes", b"free_bytes", "mount", b"mount", "total_bytes", b"total_bytes"]  # noqa: Y015
+        def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+        def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+    OBSERVED_AT_FIELD_NUMBER: _builtins.int
+    CPU_PERCENT_FIELD_NUMBER: _builtins.int
+    RAM_USED_BYTES_FIELD_NUMBER: _builtins.int
+    RAM_TOTAL_BYTES_FIELD_NUMBER: _builtins.int
+    GPUS_FIELD_NUMBER: _builtins.int
+    DISKS_FIELD_NUMBER: _builtins.int
+    SEQUENCE_FIELD_NUMBER: _builtins.int
+    cpu_percent: _builtins.float
+    """Whole-machine CPU utilisation, 0..100."""
+    ram_used_bytes: _builtins.int
+    ram_total_bytes: _builtins.int
+    sequence: _builtins.int
+    """Monotonic per stream, independent of Heartbeat.sequence; replayed after a
+    reconnect (Reconcile.replay_from_sequence) and deduped by the controller.
+    """
+    @_builtins.property
+    def observed_at(self) -> _timestamp_pb2.Timestamp: ...
+    @_builtins.property
+    def gpus(self) -> _containers.RepeatedCompositeFieldContainer[Global___ResourceUpdate.GpuUsage]: ...
+    @_builtins.property
+    def disks(self) -> _containers.RepeatedCompositeFieldContainer[Global___ResourceUpdate.DiskUsage]: ...
     def __init__(
         self,
+        *,
+        observed_at: _timestamp_pb2.Timestamp | None = ...,
+        cpu_percent: _builtins.float = ...,
+        ram_used_bytes: _builtins.int = ...,
+        ram_total_bytes: _builtins.int = ...,
+        gpus: _abc.Iterable[Global___ResourceUpdate.GpuUsage] | None = ...,
+        disks: _abc.Iterable[Global___ResourceUpdate.DiskUsage] | None = ...,
+        sequence: _builtins.int = ...,
     ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    _HasFieldArgType: _TypeAlias = _typing.Literal["observed_at", b"observed_at"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["cpu_percent", b"cpu_percent", "disks", b"disks", "gpus", b"gpus", "observed_at", b"observed_at", "ram_total_bytes", b"ram_total_bytes", "ram_used_bytes", b"ram_used_bytes", "sequence", b"sequence"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
@@ -511,6 +735,81 @@ class GcRequest(_message.Message):
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___GcRequest: _TypeAlias = GcRequest  # noqa: Y015
+
+@_typing.final
+class HelloAck(_message.Message):
+    """Reply to Hello (ADR-0002 Updates §1-2). The controller's first message on
+    every stream. If `accepted` is false the controller closes the stream after
+    sending it; `reject_code` says why and the agent decides whether to retry
+    (STALE_EPOCH: bump epoch and reconnect; PROTOCOL_VERSION: never retry).
+    """
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    class _RejectCode:
+        ValueType = _typing.NewType("ValueType", _builtins.int)
+        V: _TypeAlias = ValueType  # noqa: Y015
+
+    class _RejectCodeEnumTypeWrapper(_enum_type_wrapper._EnumTypeWrapper[HelloAck._RejectCode.ValueType], _builtins.type):
+        DESCRIPTOR: _descriptor.EnumDescriptor
+        REJECT_CODE_UNSPECIFIED: HelloAck._RejectCode.ValueType  # 0
+        REJECT_CODE_STALE_EPOCH: HelloAck._RejectCode.ValueType  # 1
+        """Hello.session_epoch <= the live session's epoch for this node_id."""
+        REJECT_CODE_PROTOCOL_VERSION: HelloAck._RejectCode.ValueType  # 2
+        """Hello.protocol_version outside the controller's supported range."""
+        REJECT_CODE_DUPLICATE_SESSION: HelloAck._RejectCode.ValueType  # 3
+        """Another stream for this node_id won a concurrent Hello race."""
+        REJECT_CODE_INTERNAL: HelloAck._RejectCode.ValueType  # 4
+
+    class RejectCode(_RejectCode, metaclass=_RejectCodeEnumTypeWrapper): ...
+    REJECT_CODE_UNSPECIFIED: HelloAck.RejectCode.ValueType  # 0
+    REJECT_CODE_STALE_EPOCH: HelloAck.RejectCode.ValueType  # 1
+    """Hello.session_epoch <= the live session's epoch for this node_id."""
+    REJECT_CODE_PROTOCOL_VERSION: HelloAck.RejectCode.ValueType  # 2
+    """Hello.protocol_version outside the controller's supported range."""
+    REJECT_CODE_DUPLICATE_SESSION: HelloAck.RejectCode.ValueType  # 3
+    """Another stream for this node_id won a concurrent Hello race."""
+    REJECT_CODE_INTERNAL: HelloAck.RejectCode.ValueType  # 4
+
+    ACCEPTED_FIELD_NUMBER: _builtins.int
+    SESSION_ID_FIELD_NUMBER: _builtins.int
+    HEARTBEAT_INTERVAL_MS_FIELD_NUMBER: _builtins.int
+    LEASE_MS_FIELD_NUMBER: _builtins.int
+    CONTROLLER_TIME_FIELD_NUMBER: _builtins.int
+    REJECT_CODE_FIELD_NUMBER: _builtins.int
+    REJECT_REASON_FIELD_NUMBER: _builtins.int
+    accepted: _builtins.bool
+    session_id: _builtins.str
+    """Set when accepted; both sides put it in envelope field 3 from now on."""
+    heartbeat_interval_ms: _builtins.int
+    """Controller-owned liveness parameters (ARCHITECTURE §12.3, ADR-0002 §5)."""
+    lease_ms: _builtins.int
+    reject_code: Global___HelloAck.RejectCode.ValueType
+    """Set only when accepted == false."""
+    reject_reason: _builtins.str
+    """Human-readable detail for logs; must never contain secrets."""
+    @_builtins.property
+    def controller_time(self) -> _timestamp_pb2.Timestamp:
+        """Controller wall clock when the ack was sent (clock-skew estimate only)."""
+
+    def __init__(
+        self,
+        *,
+        accepted: _builtins.bool = ...,
+        session_id: _builtins.str = ...,
+        heartbeat_interval_ms: _builtins.int = ...,
+        lease_ms: _builtins.int = ...,
+        controller_time: _timestamp_pb2.Timestamp | None = ...,
+        reject_code: Global___HelloAck.RejectCode.ValueType = ...,
+        reject_reason: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["controller_time", b"controller_time"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["accepted", b"accepted", "controller_time", b"controller_time", "heartbeat_interval_ms", b"heartbeat_interval_ms", "lease_ms", b"lease_ms", "reject_code", b"reject_code", "reject_reason", b"reject_reason", "session_id", b"session_id"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___HelloAck: _TypeAlias = HelloAck  # noqa: Y015
 
 @_typing.final
 class Ack(_message.Message):

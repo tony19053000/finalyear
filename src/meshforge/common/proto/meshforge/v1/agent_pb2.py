@@ -31,7 +31,7 @@ from google.protobuf import timestamp_pb2 as google_dot_protobuf_dot_timestamp__
 from meshforge.common.proto.meshforge.v1 import common_pb2 as meshforge_dot_v1_dot_common__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x18meshforge/v1/agent.proto\x12\x0cmeshforge.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x19meshforge/v1/common.proto\"\x88\x04\n\x0c\x41gentMessage\x12\x12\n\nmessage_id\x18\x01 \x01(\t\x12+\n\x07sent_at\x18\x02 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12$\n\x05hello\x18\n \x01(\x0b\x32\x13.meshforge.v1.HelloH\x00\x12,\n\treconcile\x18\x0b \x01(\x0b\x32\x17.meshforge.v1.ReconcileH\x00\x12,\n\theartbeat\x18\x0c \x01(\x0b\x32\x17.meshforge.v1.HeartbeatH\x00\x12\x37\n\x0fresource_update\x18\r \x01(\x0b\x32\x1c.meshforge.v1.ResourceUpdateH\x00\x12\x31\n\x0c\x63\x61\x63he_report\x18\x0e \x01(\x0b\x32\x19.meshforge.v1.CacheReportH\x00\x12\x38\n\x10net_probe_result\x18\x0f \x01(\x0b\x32\x1c.meshforge.v1.NetProbeResultH\x00\x12\x35\n\x0e\x61ttempt_status\x18\x10 \x01(\x0b\x32\x1b.meshforge.v1.AttemptStatusH\x00\x12+\n\tlog_chunk\x18\x11 \x01(\x0b\x32\x16.meshforge.v1.LogChunkH\x00\x12 \n\x03\x61\x63k\x18\x12 \x01(\x0b\x32\x11.meshforge.v1.AckH\x00\x42\t\n\x07payload\"\xfa\x02\n\x11\x43ontrollerMessage\x12\x12\n\nmessage_id\x18\x01 \x01(\t\x12+\n\x07sent_at\x18\x02 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12\x33\n\rstart_attempt\x18\n \x01(\x0b\x32\x1a.meshforge.v1.StartAttemptH\x00\x12\x35\n\x0e\x63\x61ncel_attempt\x18\x0b \x01(\x0b\x32\x1b.meshforge.v1.CancelAttemptH\x00\x12\x33\n\rprobe_request\x18\x0c \x01(\x0b\x32\x1a.meshforge.v1.ProbeRequestH\x00\x12/\n\x0bprepare_env\x18\r \x01(\x0b\x32\x18.meshforge.v1.PrepareEnvH\x00\x12%\n\x02gc\x18\x0e \x01(\x0b\x32\x17.meshforge.v1.GcRequestH\x00\x12 \n\x03\x61\x63k\x18\x0f \x01(\x0b\x32\x11.meshforge.v1.AckH\x00\x42\t\n\x07payload\"z\n\x05Hello\x12\x0f\n\x07node_id\x18\x01 \x01(\t\x12\x37\n\x10protocol_version\x18\x02 \x01(\x0e\x32\x1d.meshforge.v1.ProtocolVersion\x12\x15\n\ragent_version\x18\x03 \x01(\t\x12\x10\n\x08hostname\x18\x04 \x01(\t\"B\n\tReconcile\x12\x35\n\x10running_attempts\x18\x01 \x03(\x0b\x32\x1b.meshforge.v1.AttemptStatus\"\x1d\n\tHeartbeat\x12\x10\n\x08sequence\x18\x01 \x01(\x04\"\x16\n\x0eResourceUpdateJ\x04\x08\x01\x10\n\"\x13\n\x0b\x43\x61\x63heReportJ\x04\x08\x01\x10\n\"\"\n\x0eNetProbeResult\x12\x10\n\x08probe_id\x18\x01 \x01(\t\"\xce\x01\n\rAttemptStatus\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12\x12\n\nattempt_id\x18\x02 \x01(\t\x12\x15\n\rfencing_token\x18\x03 \x01(\x04\x12)\n\x05state\x18\x04 \x01(\x0e\x32\x1a.meshforge.v1.AttemptState\x12&\n\x07\x66\x61ilure\x18\x05 \x01(\x0b\x32\x15.meshforge.v1.Failure\x12/\n\x0bobserved_at\x18\x06 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\"\xda\x01\n\x08LogChunk\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12\x12\n\nattempt_id\x18\x02 \x01(\t\x12-\n\x06stream\x18\x03 \x01(\x0e\x32\x1d.meshforge.v1.LogChunk.Stream\x12\x0e\n\x06offset\x18\x04 \x01(\x04\x12\x0c\n\x04\x64\x61ta\x18\x05 \x01(\x0c\x12\x15\n\rfencing_token\x18\x06 \x01(\x04\"F\n\x06Stream\x12\x16\n\x12STREAM_UNSPECIFIED\x10\x00\x12\x11\n\rSTREAM_STDOUT\x10\x01\x12\x11\n\rSTREAM_STDERR\x10\x02\"I\n\x0cStartAttempt\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12\x12\n\nattempt_id\x18\x02 \x01(\t\x12\x15\n\rfencing_token\x18\x03 \x01(\x04\"J\n\rCancelAttempt\x12\x12\n\nattempt_id\x18\x01 \x01(\t\x12\x15\n\rfencing_token\x18\x02 \x01(\x04\x12\x0e\n\x06reason\x18\x03 \x01(\t\" \n\x0cProbeRequest\x12\x10\n\x08probe_id\x18\x01 \x01(\t\"\x1e\n\nPrepareEnv\x12\x10\n\x08\x65nv_hash\x18\x01 \x01(\t\"\x11\n\tGcRequestJ\x04\x08\x01\x10\n\"\x1f\n\x03\x41\x63k\x12\x18\n\x10\x61\x63ked_message_id\x18\x01 \x01(\t2Z\n\x0c\x41gentControl\x12J\n\x07Session\x12\x1a.meshforge.v1.AgentMessage\x1a\x1f.meshforge.v1.ControllerMessage(\x01\x30\x01\x62\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x18meshforge/v1/agent.proto\x12\x0cmeshforge.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x19meshforge/v1/common.proto\"\x9c\x04\n\x0c\x41gentMessage\x12\x12\n\nmessage_id\x18\x01 \x01(\t\x12+\n\x07sent_at\x18\x02 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12\x12\n\nsession_id\x18\x03 \x01(\t\x12$\n\x05hello\x18\n \x01(\x0b\x32\x13.meshforge.v1.HelloH\x00\x12,\n\treconcile\x18\x0b \x01(\x0b\x32\x17.meshforge.v1.ReconcileH\x00\x12,\n\theartbeat\x18\x0c \x01(\x0b\x32\x17.meshforge.v1.HeartbeatH\x00\x12\x37\n\x0fresource_update\x18\r \x01(\x0b\x32\x1c.meshforge.v1.ResourceUpdateH\x00\x12\x31\n\x0c\x63\x61\x63he_report\x18\x0e \x01(\x0b\x32\x19.meshforge.v1.CacheReportH\x00\x12\x38\n\x10net_probe_result\x18\x0f \x01(\x0b\x32\x1c.meshforge.v1.NetProbeResultH\x00\x12\x35\n\x0e\x61ttempt_status\x18\x10 \x01(\x0b\x32\x1b.meshforge.v1.AttemptStatusH\x00\x12+\n\tlog_chunk\x18\x11 \x01(\x0b\x32\x16.meshforge.v1.LogChunkH\x00\x12 \n\x03\x61\x63k\x18\x12 \x01(\x0b\x32\x11.meshforge.v1.AckH\x00\x42\t\n\x07payload\"\xbb\x03\n\x11\x43ontrollerMessage\x12\x12\n\nmessage_id\x18\x01 \x01(\t\x12+\n\x07sent_at\x18\x02 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12\x12\n\nsession_id\x18\x03 \x01(\t\x12\x33\n\rstart_attempt\x18\n \x01(\x0b\x32\x1a.meshforge.v1.StartAttemptH\x00\x12\x35\n\x0e\x63\x61ncel_attempt\x18\x0b \x01(\x0b\x32\x1b.meshforge.v1.CancelAttemptH\x00\x12\x33\n\rprobe_request\x18\x0c \x01(\x0b\x32\x1a.meshforge.v1.ProbeRequestH\x00\x12/\n\x0bprepare_env\x18\r \x01(\x0b\x32\x18.meshforge.v1.PrepareEnvH\x00\x12%\n\x02gc\x18\x0e \x01(\x0b\x32\x17.meshforge.v1.GcRequestH\x00\x12 \n\x03\x61\x63k\x18\x0f \x01(\x0b\x32\x11.meshforge.v1.AckH\x00\x12+\n\thello_ack\x18\x10 \x01(\x0b\x32\x16.meshforge.v1.HelloAckH\x00\x42\t\n\x07payload\"\xe0\x01\n\x05Hello\x12\x0f\n\x07node_id\x18\x01 \x01(\t\x12\x37\n\x10protocol_version\x18\x02 \x01(\x0e\x32\x1d.meshforge.v1.ProtocolVersion\x12\x15\n\ragent_version\x18\x03 \x01(\t\x12\x10\n\x08hostname\x18\x04 \x01(\t\x12\x15\n\rsession_epoch\x18\x05 \x01(\x04\x12\n\n\x02os\x18\x06 \x01(\t\x12\x10\n\x08platform\x18\x07 \x01(\t\x12/\n\x08hardware\x18\x08 \x01(\x0b\x32\x1d.meshforge.v1.HardwareSummary\"\x93\x02\n\x0fHardwareSummary\x12\x11\n\tcpu_model\x18\x01 \x01(\t\x12\x11\n\tcpu_cores\x18\x02 \x01(\r\x12\x13\n\x0b\x63pu_threads\x18\x03 \x01(\r\x12\x11\n\tram_bytes\x18\x04 \x01(\x04\x12/\n\x04gpus\x18\x05 \x03(\x0b\x32!.meshforge.v1.HardwareSummary.Gpu\x12\x14\n\x0c\x63\x61pabilities\x18\x06 \x03(\t\x1ak\n\x03Gpu\x12\r\n\x05index\x18\x01 \x01(\r\x12\r\n\x05model\x18\x02 \x01(\t\x12\x12\n\nvram_bytes\x18\x03 \x01(\x04\x12\x16\n\x0e\x64river_version\x18\x04 \x01(\t\x12\x1a\n\x12\x63ompute_capability\x18\x05 \x01(\t\"`\n\tReconcile\x12\x35\n\x10running_attempts\x18\x01 \x03(\x0b\x32\x1b.meshforge.v1.AttemptStatus\x12\x1c\n\x14replay_from_sequence\x18\x02 \x01(\x04\"M\n\tHeartbeat\x12\x10\n\x08sequence\x18\x01 \x01(\x04\x12.\n\nagent_time\x18\x02 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\"\xae\x03\n\x0eResourceUpdate\x12/\n\x0bobserved_at\x18\x01 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12\x13\n\x0b\x63pu_percent\x18\x02 \x01(\x01\x12\x16\n\x0eram_used_bytes\x18\x03 \x01(\x04\x12\x17\n\x0fram_total_bytes\x18\x04 \x01(\x04\x12\x33\n\x04gpus\x18\x05 \x03(\x0b\x32%.meshforge.v1.ResourceUpdate.GpuUsage\x12\x35\n\x05\x64isks\x18\x06 \x03(\x0b\x32&.meshforge.v1.ResourceUpdate.DiskUsage\x12\x10\n\x08sequence\x18\x07 \x01(\x04\x1a\x62\n\x08GpuUsage\x12\r\n\x05index\x18\x01 \x01(\r\x12\x14\n\x0cutil_percent\x18\x02 \x01(\x01\x12\x17\n\x0fvram_used_bytes\x18\x03 \x01(\x04\x12\x18\n\x10vram_total_bytes\x18\x04 \x01(\x04\x1a\x43\n\tDiskUsage\x12\r\n\x05mount\x18\x01 \x01(\t\x12\x12\n\nfree_bytes\x18\x02 \x01(\x04\x12\x13\n\x0btotal_bytes\x18\x03 \x01(\x04\"\x13\n\x0b\x43\x61\x63heReportJ\x04\x08\x01\x10\n\"\"\n\x0eNetProbeResult\x12\x10\n\x08probe_id\x18\x01 \x01(\t\"\xce\x01\n\rAttemptStatus\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12\x12\n\nattempt_id\x18\x02 \x01(\t\x12\x15\n\rfencing_token\x18\x03 \x01(\x04\x12)\n\x05state\x18\x04 \x01(\x0e\x32\x1a.meshforge.v1.AttemptState\x12&\n\x07\x66\x61ilure\x18\x05 \x01(\x0b\x32\x15.meshforge.v1.Failure\x12/\n\x0bobserved_at\x18\x06 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\"\xda\x01\n\x08LogChunk\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12\x12\n\nattempt_id\x18\x02 \x01(\t\x12-\n\x06stream\x18\x03 \x01(\x0e\x32\x1d.meshforge.v1.LogChunk.Stream\x12\x0e\n\x06offset\x18\x04 \x01(\x04\x12\x0c\n\x04\x64\x61ta\x18\x05 \x01(\x0c\x12\x15\n\rfencing_token\x18\x06 \x01(\x04\"F\n\x06Stream\x12\x16\n\x12STREAM_UNSPECIFIED\x10\x00\x12\x11\n\rSTREAM_STDOUT\x10\x01\x12\x11\n\rSTREAM_STDERR\x10\x02\"I\n\x0cStartAttempt\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12\x12\n\nattempt_id\x18\x02 \x01(\t\x12\x15\n\rfencing_token\x18\x03 \x01(\x04\"J\n\rCancelAttempt\x12\x12\n\nattempt_id\x18\x01 \x01(\t\x12\x15\n\rfencing_token\x18\x02 \x01(\x04\x12\x0e\n\x06reason\x18\x03 \x01(\t\" \n\x0cProbeRequest\x12\x10\n\x08probe_id\x18\x01 \x01(\t\"\x1e\n\nPrepareEnv\x12\x10\n\x08\x65nv_hash\x18\x01 \x01(\t\"\x11\n\tGcRequestJ\x04\x08\x01\x10\n\"\x8d\x03\n\x08HelloAck\x12\x10\n\x08\x61\x63\x63\x65pted\x18\x01 \x01(\x08\x12\x12\n\nsession_id\x18\x02 \x01(\t\x12\x1d\n\x15heartbeat_interval_ms\x18\x03 \x01(\r\x12\x10\n\x08lease_ms\x18\x04 \x01(\r\x12\x33\n\x0f\x63ontroller_time\x18\x05 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12\x36\n\x0breject_code\x18\x06 \x01(\x0e\x32!.meshforge.v1.HelloAck.RejectCode\x12\x15\n\rreject_reason\x18\x07 \x01(\t\"\xa5\x01\n\nRejectCode\x12\x1b\n\x17REJECT_CODE_UNSPECIFIED\x10\x00\x12\x1b\n\x17REJECT_CODE_STALE_EPOCH\x10\x01\x12 \n\x1cREJECT_CODE_PROTOCOL_VERSION\x10\x02\x12!\n\x1dREJECT_CODE_DUPLICATE_SESSION\x10\x03\x12\x18\n\x14REJECT_CODE_INTERNAL\x10\x04\"\x1f\n\x03\x41\x63k\x12\x18\n\x10\x61\x63ked_message_id\x18\x01 \x01(\t2Z\n\x0c\x41gentControl\x12J\n\x07Session\x12\x1a.meshforge.v1.AgentMessage\x1a\x1f.meshforge.v1.ControllerMessage(\x01\x30\x01\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -39,39 +39,51 @@ _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'meshforge.v1.agent_pb2', _g
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
   _globals['_AGENTMESSAGE']._serialized_start=103
-  _globals['_AGENTMESSAGE']._serialized_end=623
-  _globals['_CONTROLLERMESSAGE']._serialized_start=626
-  _globals['_CONTROLLERMESSAGE']._serialized_end=1004
-  _globals['_HELLO']._serialized_start=1006
-  _globals['_HELLO']._serialized_end=1128
-  _globals['_RECONCILE']._serialized_start=1130
-  _globals['_RECONCILE']._serialized_end=1196
-  _globals['_HEARTBEAT']._serialized_start=1198
-  _globals['_HEARTBEAT']._serialized_end=1227
-  _globals['_RESOURCEUPDATE']._serialized_start=1229
-  _globals['_RESOURCEUPDATE']._serialized_end=1251
-  _globals['_CACHEREPORT']._serialized_start=1253
-  _globals['_CACHEREPORT']._serialized_end=1272
-  _globals['_NETPROBERESULT']._serialized_start=1274
-  _globals['_NETPROBERESULT']._serialized_end=1308
-  _globals['_ATTEMPTSTATUS']._serialized_start=1311
-  _globals['_ATTEMPTSTATUS']._serialized_end=1517
-  _globals['_LOGCHUNK']._serialized_start=1520
-  _globals['_LOGCHUNK']._serialized_end=1738
-  _globals['_LOGCHUNK_STREAM']._serialized_start=1668
-  _globals['_LOGCHUNK_STREAM']._serialized_end=1738
-  _globals['_STARTATTEMPT']._serialized_start=1740
-  _globals['_STARTATTEMPT']._serialized_end=1813
-  _globals['_CANCELATTEMPT']._serialized_start=1815
-  _globals['_CANCELATTEMPT']._serialized_end=1889
-  _globals['_PROBEREQUEST']._serialized_start=1891
-  _globals['_PROBEREQUEST']._serialized_end=1923
-  _globals['_PREPAREENV']._serialized_start=1925
-  _globals['_PREPAREENV']._serialized_end=1955
-  _globals['_GCREQUEST']._serialized_start=1957
-  _globals['_GCREQUEST']._serialized_end=1974
-  _globals['_ACK']._serialized_start=1976
-  _globals['_ACK']._serialized_end=2007
-  _globals['_AGENTCONTROL']._serialized_start=2009
-  _globals['_AGENTCONTROL']._serialized_end=2099
+  _globals['_AGENTMESSAGE']._serialized_end=643
+  _globals['_CONTROLLERMESSAGE']._serialized_start=646
+  _globals['_CONTROLLERMESSAGE']._serialized_end=1089
+  _globals['_HELLO']._serialized_start=1092
+  _globals['_HELLO']._serialized_end=1316
+  _globals['_HARDWARESUMMARY']._serialized_start=1319
+  _globals['_HARDWARESUMMARY']._serialized_end=1594
+  _globals['_HARDWARESUMMARY_GPU']._serialized_start=1487
+  _globals['_HARDWARESUMMARY_GPU']._serialized_end=1594
+  _globals['_RECONCILE']._serialized_start=1596
+  _globals['_RECONCILE']._serialized_end=1692
+  _globals['_HEARTBEAT']._serialized_start=1694
+  _globals['_HEARTBEAT']._serialized_end=1771
+  _globals['_RESOURCEUPDATE']._serialized_start=1774
+  _globals['_RESOURCEUPDATE']._serialized_end=2204
+  _globals['_RESOURCEUPDATE_GPUUSAGE']._serialized_start=2037
+  _globals['_RESOURCEUPDATE_GPUUSAGE']._serialized_end=2135
+  _globals['_RESOURCEUPDATE_DISKUSAGE']._serialized_start=2137
+  _globals['_RESOURCEUPDATE_DISKUSAGE']._serialized_end=2204
+  _globals['_CACHEREPORT']._serialized_start=2206
+  _globals['_CACHEREPORT']._serialized_end=2225
+  _globals['_NETPROBERESULT']._serialized_start=2227
+  _globals['_NETPROBERESULT']._serialized_end=2261
+  _globals['_ATTEMPTSTATUS']._serialized_start=2264
+  _globals['_ATTEMPTSTATUS']._serialized_end=2470
+  _globals['_LOGCHUNK']._serialized_start=2473
+  _globals['_LOGCHUNK']._serialized_end=2691
+  _globals['_LOGCHUNK_STREAM']._serialized_start=2621
+  _globals['_LOGCHUNK_STREAM']._serialized_end=2691
+  _globals['_STARTATTEMPT']._serialized_start=2693
+  _globals['_STARTATTEMPT']._serialized_end=2766
+  _globals['_CANCELATTEMPT']._serialized_start=2768
+  _globals['_CANCELATTEMPT']._serialized_end=2842
+  _globals['_PROBEREQUEST']._serialized_start=2844
+  _globals['_PROBEREQUEST']._serialized_end=2876
+  _globals['_PREPAREENV']._serialized_start=2878
+  _globals['_PREPAREENV']._serialized_end=2908
+  _globals['_GCREQUEST']._serialized_start=2910
+  _globals['_GCREQUEST']._serialized_end=2927
+  _globals['_HELLOACK']._serialized_start=2930
+  _globals['_HELLOACK']._serialized_end=3327
+  _globals['_HELLOACK_REJECTCODE']._serialized_start=3162
+  _globals['_HELLOACK_REJECTCODE']._serialized_end=3327
+  _globals['_ACK']._serialized_start=3329
+  _globals['_ACK']._serialized_end=3360
+  _globals['_AGENTCONTROL']._serialized_start=3362
+  _globals['_AGENTCONTROL']._serialized_end=3452
 # @@protoc_insertion_point(module_scope)

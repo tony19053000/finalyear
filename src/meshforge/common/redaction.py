@@ -7,8 +7,9 @@ layers:
    sensitive and any ``SecretStr``/``SecretBytes`` value become ``"[REDACTED]"``,
    at any nesting depth.
 2. *Value scrubbing* (:func:`scrub_text`) of free text: URL credentials,
-   ``Bearer``/``Basic`` tokens and ``key=value`` / ``key: value`` pairs whose key is
-   sensitive.
+   ``Bearer``/``Basic`` tokens, ``key=value`` / ``key: value`` pairs whose key is
+   sensitive, and PEM private-key blocks (``-----BEGIN ... PRIVATE KEY-----`` up to
+   the matching ``END`` line, or to the end of the text if unclosed).
 
 ``scrub_text`` runs on every string of every log record, so it must be
 **linear-time** on adversarial input (a super-linear scrubber is a
@@ -135,6 +136,12 @@ _KV_KEY_RE: Final = re.compile(
     r"""(?<![\w.\-])(?P<key>-*[A-Za-z_][\w.\-]{0,63})(?P<sep>["']?\s*[=:]\s*)"""
 )
 _NON_WS_RE: Final = re.compile(r"\S*")
+# PEM private-key blocks (ADR-0013 §7). Only the BEGIN marker is matched by regex;
+# the END marker is found with ``str.find`` so the scan is linear.
+_PEM_BEGIN_RE: Final = re.compile(
+    r"-----BEGIN (?P<label>[A-Z0-9 ]{0,40}PRIVATE KEY)-----"
+)
+_PEM_END_PREFIX: Final = "-----END "
 _BRACKET_SCAN_LIMIT: Final = 4096
 _CLOSERS: Final = {"{": "}", "[": "]"}
 
@@ -257,6 +264,24 @@ def _scrub_kv(text: str) -> str:
     return "".join(out)
 
 
+def _scrub_pem(text: str) -> str:
+    """Replace every PEM private-key block with ``-----BEGIN <label>----- [REDACTED]``."""
+    if "PRIVATE KEY-----" not in text:
+        return text
+    out: list[str] = []
+    emitted = 0
+    pos = 0
+    while (match := _PEM_BEGIN_RE.search(text, pos)) is not None:
+        end_marker = f"{_PEM_END_PREFIX}{match['label']}-----"
+        end = text.find(end_marker, match.end())
+        stop = len(text) if end == -1 else end + len(end_marker)
+        out.append(text[emitted : match.end()])
+        out.append(f" {REDACTED} ")
+        emitted = pos = stop
+    out.append(text[emitted:])
+    return "".join(out)
+
+
 def scrub_text(text: str) -> str:
     """Mask known secret *shapes* inside free text (see module docstring).
 
@@ -272,6 +297,7 @@ def scrub_text(text: str) -> str:
         text = text[:MAX_SCRUB_CHARS]
     if _AUTH_ONLY_RE.fullmatch(text):
         return REDACTED + suffix
+    text = _scrub_pem(text)
     text = _URL_CREDS_RE.sub(lambda m: f"{m['pre']}{REDACTED}@", text)
     text = _AUTH_ANY_RE.sub(lambda m: f"{m['scheme']}{m['sp']}{REDACTED}", text)
     return _scrub_kv(text) + suffix

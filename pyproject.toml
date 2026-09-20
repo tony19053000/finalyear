@@ -24,6 +24,10 @@ dependencies = [
     "protobuf>=7.36",
     "typer>=0.27",
     "rich>=15.0",
+    # Node identity keypair (ADR-0013): ECDSA P-256 PKCS#8 PEM; the same key signs
+    # the V0.7 CSR. Core (not the agent extra) because the identity module must
+    # import on a base install and the CLI will read the identity file.
+    "cryptography>=46",
 ]
 
 [project.optional-dependencies]

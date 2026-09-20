@@ -22,12 +22,26 @@ so the controller stops re-sending them.
 Fencing: every payload that refers to an attempt (has `attempt_id`) also
 carries that attempt's `fencing_token` (enforced by tests/unit/test_protos.py).
 
-TODO(V0.3): session epoch on the envelope (reject messages from an old
-stream after reconnect) and a request_id / correlation field for tracing.
+Session fencing (ADR-0002 Updates 2026-09-20, roadmap 0.3.1):
+- The agent persists a `session_epoch` counter with its identity (ADR-0013),
+  increments it before every new stream and sends it in Hello. The controller
+  keeps at most one live session per node_id: a Hello with a HIGHER epoch than
+  the live session's closes that older stream (a zombie); a LOWER or EQUAL
+  epoch is rejected with HelloAck{accepted=false, reject_code=STALE_EPOCH}.
+  Epochs are never compared across node_ids.
+- The controller answers Hello with HelloAck{session_id, heartbeat_interval_ms,
+  lease_ms}. Both sides put that session_id in envelope field 3 of every
+  later message; a message carrying another session's id is dropped and
+  counted, never processed. Intervals are controller-owned.
+- After a reconnect the agent sends Reconcile{replay_from_sequence} and
+  replays its bounded ring of un-acked reports; the controller dedupes on
+  message_id. Heartbeats are never buffered or replayed.
+- Liveness (ARCHITECTURE §12.3) is measured on the controller's monotonic
+  clock; the Timestamps in Heartbeat/HelloAck are for RTT and display only.
 
-SKELETON (roadmap task 0.1.5): envelopes, oneofs and essential fields only.
-TODO(V0.3): session/liveness payloads in full. TODO(V0.4): attempt execution.
-TODO(V0.5): cache/env payloads. TODO(V0.6): network probes for scheduling.
+Roadmap coverage: 0.1.5 envelopes/oneofs; 0.3.1 session/liveness/resource
+payloads. TODO(V0.4): attempt execution. TODO(V0.5): cache/env payloads.
+TODO(V0.6): network probes for scheduling.
 """
 
 from collections import abc as _abc
