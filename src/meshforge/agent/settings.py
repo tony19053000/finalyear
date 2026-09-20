@@ -10,7 +10,9 @@ Where things live (ARCHITECTURE §23): the node identity is ``data_dir/identity`
 (:attr:`AgentSettings.identity_dir`); the controller is reached at
 ``agent.controller_address`` or, when that is empty, found on the LAN via mDNS
 (``agent.discovery``). Reconnect timing comes from ADR-0002 Updates §3, gRPC
-keepalive from the same section; the replay ring size from Updates §4.
+keepalive from the same section; the replay ring size from Updates §4. Hardware
+discovery (``[agent.hardware]``, roadmap 0.3.3) and the live resource monitor
+(``[agent.resources]``, roadmap 0.3.5) are documented on their own sections below.
 
 This module imports no agent-extra package so ``meshforge-agent --version`` works
 on a base install.

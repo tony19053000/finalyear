@@ -648,7 +648,7 @@ erDiagram
     ML_MODEL ||--o{ EXECUTION_PLAN : "informs"
     ENROLLMENT_TOKEN }o--|| FABRIC : "issued by"
 ```
-Schema is managed with SQLAlchemy 2.0 + Alembic migrations. Large logs and outputs live in the blob store, not in PostgreSQL. Resource snapshots are downsampled (e.g. 2 s live → 1 min history).
+Schema is managed with SQLAlchemy 2.0 + Alembic migrations. Large logs and outputs live in the blob store, not in PostgreSQL. Resource snapshots are downsampled (e.g. 2 s live → 1 min history): the controller keeps the last few minutes per node in memory (`controller.resources.live_ring_size`, default 150 samples) and writes only **closed** 1-minute buckets (mean/max per metric, plus the sample count) to `resource_snapshot`, which a periodic sweep deletes after `controller.resources.retention_days` (default 7). Plain rows with a `(node_id, bucket_start)` primary key — partitioning is premature at this fleet size, and the key makes a re-flush an idempotent upsert.
 
 ---
 

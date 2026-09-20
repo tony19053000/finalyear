@@ -83,20 +83,20 @@ async def _snapshot(settings: DatabaseSettings) -> tuple[set[str], list[str]]:
         await engine.dispose()
 
 
-HEAD = "0002"  # bump with every new migration; the chain must stay linear
+HEAD = "0003"  # bump with every new migration; the chain must stay linear
 
 
 def test_single_linear_head() -> None:
     script = ScriptDirectory.from_config(alembic_config())
     assert script.get_heads() == [HEAD]
     chain = [r.revision for r in script.walk_revisions()]
-    assert chain == ["0002", "0001"]  # head first, base last
+    assert chain == ["0003", "0002", "0001"]  # head first, base last
     base = script.get_revision("0001")
     assert base is not None
     assert base.down_revision is None
     head = script.get_revision(HEAD)
     assert head is not None
-    assert head.down_revision == "0001"
+    assert head.down_revision == "0002"
 
 
 def test_upgrade_check_downgrade_on_clean_database(
