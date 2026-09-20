@@ -13,20 +13,23 @@ from __future__ import annotations
 
 import datetime as dt
 import functools
-from collections.abc import Awaitable, Callable, Coroutine, Mapping
+from collections.abc import Awaitable, Callable, Coroutine, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy import CursorResult, Result, func, literal, select, update
+from sqlalchemy import CursorResult, Result, delete, func, literal, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from meshforge.common.errors import FailureType, MeshForgeError
 from meshforge.common.logging import get_logger
 from meshforge.controller.liveness import NodeState
+from meshforge.controller.resources import SnapshotRow
 from meshforge.controller.store.base import UInt64
 from meshforge.controller.store.engine import create_session_factory
 from meshforge.controller.store.models.node import Node, NodeSession, SessionEndReason
+from meshforge.controller.store.models.resource import ResourceSnapshot
 
 __all__ = [
     "NodeRecord",
@@ -34,6 +37,7 @@ __all__ = [
     "RegistryError",
     "SessionEndReason",
     "SessionRecord",
+    "SnapshotRecord",
     "UnknownNodeError",
     "UnknownSessionError",
 ]
@@ -99,6 +103,37 @@ class SessionRecord:
     @property
     def is_open(self) -> bool:
         return self.ended_at is None
+
+
+@dataclass(frozen=True, slots=True)
+class SnapshotRecord:
+    """Read model of one ``resource_snapshot`` row (G5's REST will serve these)."""
+
+    node_id: str
+    bucket_start: dt.datetime
+    samples: int
+    cpu_percent_mean: float
+    cpu_percent_max: float
+    ram_used_bytes_mean: int
+    ram_used_bytes_max: int
+    ram_total_bytes: int
+    gpu: Mapping[str, Any]
+    disks: Mapping[str, Any]
+
+
+def _snapshot_record(row: ResourceSnapshot) -> SnapshotRecord:
+    return SnapshotRecord(
+        node_id=row.node_id,
+        bucket_start=row.bucket_start,
+        samples=row.samples,
+        cpu_percent_mean=row.cpu_percent_mean,
+        cpu_percent_max=row.cpu_percent_max,
+        ram_used_bytes_mean=row.ram_used_bytes_mean,
+        ram_used_bytes_max=row.ram_used_bytes_max,
+        ram_total_bytes=row.ram_total_bytes,
+        gpu=dict(row.gpu),
+        disks=dict(row.disks),
+    )
 
 
 def _utcnow() -> dt.datetime:
@@ -419,3 +454,93 @@ class Registry:
         async with self._sessions() as db:
             rows = await db.scalars(stmt)
             return [_session_record(r) for r in rows]
+
+    # ------------------------------------------------------------- snapshots
+
+    @_typed
+    async def upsert_resource_snapshots(self, rows: Sequence[SnapshotRow]) -> int:
+        """Write closed downsample buckets; returns how many rows were sent.
+
+        One batched ``INSERT ... ON CONFLICT (node_id, bucket_start) DO UPDATE``, so
+        re-flushing a bucket the controller already wrote (a retry after a database
+        hiccup) updates the row instead of duplicating it - the table's primary key
+        *is* the bucket (roadmap 0.3.11).
+
+        A row whose node has no ``node`` row is skipped by the foreign key, so the
+        statement is ordered after the node exists in practice; the caller treats a
+        failure as retryable.
+        """
+        if not rows:
+            return 0
+        values = [
+            {
+                "node_id": row.node_id,
+                "bucket_start": row.bucket_start,
+                "samples": row.samples,
+                "cpu_percent_mean": row.cpu_percent_mean,
+                "cpu_percent_max": row.cpu_percent_max,
+                "ram_used_bytes_mean": row.ram_used_bytes_mean,
+                "ram_used_bytes_max": row.ram_used_bytes_max,
+                "ram_total_bytes": row.ram_total_bytes,
+                "gpu": row.gpu,
+                "disks": row.disks,
+            }
+            for row in rows
+        ]
+        statement = pg_insert(ResourceSnapshot).values(values)
+        statement = statement.on_conflict_do_update(
+            index_elements=[ResourceSnapshot.node_id, ResourceSnapshot.bucket_start],
+            set_={
+                "samples": statement.excluded.samples,
+                "cpu_percent_mean": statement.excluded.cpu_percent_mean,
+                "cpu_percent_max": statement.excluded.cpu_percent_max,
+                "ram_used_bytes_mean": statement.excluded.ram_used_bytes_mean,
+                "ram_used_bytes_max": statement.excluded.ram_used_bytes_max,
+                "ram_total_bytes": statement.excluded.ram_total_bytes,
+                "gpu": statement.excluded.gpu,
+                "disks": statement.excluded.disks,
+                "updated_at": func.now(),
+            },
+        )
+        async with self._sessions() as db, db.begin():
+            await db.execute(statement)
+        return len(values)
+
+    @_typed
+    async def delete_snapshots_before(self, cutoff: dt.datetime) -> int:
+        """Retention sweep: drop buckets that started before ``cutoff``."""
+        async with self._sessions() as db, db.begin():
+            result = await db.execute(
+                delete(ResourceSnapshot).where(ResourceSnapshot.bucket_start < cutoff)
+            )
+            count = _rowcount(result)
+        if count:
+            log.info(
+                "registry.snapshots_deleted", count=count, cutoff=cutoff.isoformat()
+            )
+        return count
+
+    @_typed
+    async def list_snapshots(
+        self,
+        node_id: str,
+        *,
+        since: dt.datetime | None = None,
+        until: dt.datetime | None = None,
+        limit: int | None = None,
+    ) -> list[SnapshotRecord]:
+        """One node's history, oldest first. ``since`` inclusive, ``until`` exclusive."""
+        stmt = (
+            select(ResourceSnapshot)
+            .where(ResourceSnapshot.node_id == node_id)
+            .order_by(ResourceSnapshot.bucket_start)
+        )
+        if since is not None:
+            stmt = stmt.where(ResourceSnapshot.bucket_start >= since)
+        if until is not None:
+            stmt = stmt.where(ResourceSnapshot.bucket_start < until)
+        if limit is not None:
+            stmt = stmt.limit(limit)
+        async with self._sessions() as db:
+            rows = await db.scalars(stmt)
+            return [_snapshot_record(r) for r in rows]

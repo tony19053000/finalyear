@@ -4,6 +4,7 @@
 
     settings -> engine -> migrations (thread) -> start-up sweep
              -> SessionManager + LeaseTimer task
+             -> ResourceTracker + SnapshotFlusher task      (roadmap 0.3.11)
              -> grpc.aio server (AgentControl)         on controller.grpc_bind
              -> uvicorn (FastAPI, GET /healthz) task   on controller.http_bind
              -> mDNS advertisement of the gRPC port    if controller.discovery.advertise
@@ -41,10 +42,12 @@ from meshforge.common.proto.meshforge.v1 import agent_pb2_grpc
 from meshforge.controller.discovery import ServiceAdvertiser
 from meshforge.controller.http import create_http_app
 from meshforge.controller.registry import Registry, SessionEndReason
+from meshforge.controller.resources import ResourceTracker
 from meshforge.controller.session.leases import LeaseTimer
 from meshforge.controller.session.manager import SessionManager
 from meshforge.controller.session.servicer import AgentControlServicer
 from meshforge.controller.settings import ControllerSettings
+from meshforge.controller.snapshots import SnapshotFlusher
 from meshforge.controller.store.engine import check_connection, create_engine
 from meshforge.controller.store.migrate import upgrade_to_head
 
@@ -87,12 +90,15 @@ class ControllerRuntime:
         self.http_port: int = 0
         self.manager: SessionManager | None = None
         self.registry: Registry | None = None
+        self.resources: ResourceTracker | None = None
+        self.flusher: SnapshotFlusher | None = None
         self._engine: AsyncEngine | None = None
         self._grpc_server: grpc.aio.Server | None = None
         self._http_server: _NoSignalUvicorn | None = None
         self._http_sock: socket.socket | None = None
         self._advertiser: ServiceAdvertiser | None = None
         self._lease_timer_task: asyncio.Task[None] | None = None
+        self._flusher_task: asyncio.Task[None] | None = None
         self._tasks: set[asyncio.Task[None]] = set()
         self._stop_requested = asyncio.Event()
         self._stopped = False
@@ -124,6 +130,14 @@ class ControllerRuntime:
             "controller.startup_sweep", sessions_closed=swept, nodes_offline=offline
         )
 
+        resources = ResourceTracker(
+            live_ring_size=cfg.resources.live_ring_size,
+            bucket_s=cfg.resources.bucket_s,
+            max_tracked_nodes=cfg.resources.max_tracked_nodes,
+            max_open_buckets=cfg.resources.max_open_buckets,
+        )
+        self.resources = resources
+
         manager = SessionManager(
             registry,
             cfg.liveness.to_config(),
@@ -131,11 +145,15 @@ class ControllerRuntime:
             accepted_protocol_versions=cfg.accepted_protocol_versions,
             outbound_queue_size=cfg.outbound_queue_size,
             dedupe_window=cfg.dedupe_window,
+            resources=resources,
         )
         self.manager = manager
         self._lease_timer_task = self._spawn(
             LeaseTimer(manager, clock=loop.time).run(), "lease-timer"
         )
+        flusher = SnapshotFlusher(resources, registry, cfg.resources, clock=loop.time)
+        self.flusher = flusher
+        self._flusher_task = self._spawn(flusher.run(), "snapshot-flusher")
 
         grpc_server = grpc.aio.server(options=list(GRPC_SERVER_OPTIONS))
         agent_pb2_grpc.add_AgentControlServicer_to_server(
@@ -267,6 +285,14 @@ class ControllerRuntime:
             # Runs forever by design; nothing to drain once the sessions are closed.
             self._lease_timer_task.cancel()
             await asyncio.gather(self._lease_timer_task, return_exceptions=True)
+        if self._flusher_task is not None and not self._flusher_task.done():
+            # Stop the periodic loop first, then write the closed buckets once -
+            # inside the shared deadline, so history never delays the drain.
+            self._flusher_task.cancel()
+            await asyncio.gather(self._flusher_task, return_exceptions=True)
+        if self.flusher is not None:
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(self.flusher.final_flush(), remaining())
         if self._grpc_server is not None:
             await self._grpc_server.stop(grace=remaining())
         if self._http_server is not None:

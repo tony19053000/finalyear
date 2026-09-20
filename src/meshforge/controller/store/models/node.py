@@ -66,6 +66,10 @@ class SessionEndReason(StrEnum):
     PROTOCOL_ERROR = "protocol_error"
     """The agent broke the session contract (second Hello, empty message_id,
     outbound queue overflow...)."""
+    INTERNAL_ERROR = "internal_error"
+    """A bug on *our* side ended the stream (the reader task raised). Kept apart
+    from ``protocol_error`` so "the peer misbehaved" and "we misbehaved" are not
+    the same number on a dashboard (G2 review follow-up, added in 0003)."""
 
 
 NODE_STATE_CHECK_NAME: Final = "state"

@@ -69,13 +69,16 @@ from meshforge.controller.liveness import (
     next_state,
 )
 from meshforge.controller.registry import Registry, SessionEndReason
+from meshforge.controller.resources import ResourceSink
 from meshforge.controller.session.epoch import MAX_SESSION_EPOCH
 from meshforge.controller.session.errors import (
     OutboundOverflowError,
     SessionProtocolError,
 )
 from meshforge.controller.session.limits import (
+    check_hardware,
     check_hello_strings,
+    check_resource_update,
     validate_message_id,
 )
 from meshforge.controller.session.writer import (
@@ -160,6 +163,9 @@ class LiveSession:
     heartbeats: int = 0
     stale_messages: int = 0
     duplicates: int = 0
+    resource_updates: int = 0
+    resource_updates_clamped: int = 0
+    """Reports that broke a D12 cap; logged once, counted always."""
     # RTT (roadmap 0.3.10) - monotonic clock only
     outstanding_ping: tuple[str, float] | None = None
     last_rtt_ms: float | None = None
@@ -212,8 +218,11 @@ class SessionManager:
         dedupe_window: int = 10_000,
         write_capacity: int = DEFAULT_WRITE_CAPACITY,
         wall_clock: Callable[[], dt.datetime] | None = None,
+        resources: ResourceSink | None = None,
     ) -> None:
         self._registry = registry
+        self._resources = resources
+        """Where ResourceUpdates go (roadmap 0.3.11); None = not recorded."""
         self._liveness = liveness
         self._clock = clock
         self._wall_clock = wall_clock or (lambda: dt.datetime.now(dt.UTC))
@@ -286,6 +295,17 @@ class SessionManager:
             return Rejected(
                 RejectCode.REJECT_CODE_INTERNAL,
                 too_long,
+                grpc.StatusCode.INVALID_ARGUMENT,
+            )
+        # D12: the hardware summary is part of the enrolment contract - over a cap
+        # the Hello is refused and nothing is persisted. The agent clips to the
+        # same numbers before sending, so this only fires on a hostile or broken
+        # peer (roadmap 0.3.3, G2 review follow-up on unbounded `hardware` JSON).
+        oversized = check_hardware(hello.hardware)
+        if oversized is not None:
+            return Rejected(
+                RejectCode.REJECT_CODE_INTERNAL,
+                oversized,
                 grpc.StatusCode.INVALID_ARGUMENT,
             )
         if not 0 <= hello.session_epoch <= MAX_SESSION_EPOCH:
@@ -475,14 +495,14 @@ class SessionManager:
             )
         except Exception:
             # A bug in dispatch must not leave a zombie session behind; the stream
-            # is closed and the traceback logged. protocol_error is the closest
-            # persisted reason (see Follow-ups: an internal_error reason).
+            # is closed and the traceback logged. The reason is internal_error, not
+            # protocol_error: the peer did nothing wrong (0003 widened the enum).
             log.exception(
                 "session.reader_crashed",
                 node_id=live.node_id,
                 session_id=live.session_id,
             )
-            reason = SessionEndReason.PROTOCOL_ERROR
+            reason = SessionEndReason.INTERNAL_ERROR
         await self.end_session(live, reason)
 
     # -------------------------------------------------------------- dispatch
@@ -569,14 +589,42 @@ class SessionManager:
                 session_id=live.session_id,
                 acked_message_id=msg.ack.acked_message_id,
             )
+        elif which == "resource_update":
+            self._on_resource_update(live, msg.resource_update)
         else:
-            # reconcile / resource_update / cache_report / ... : accepted and acked;
-            # their handlers arrive with the versions that own them (G4, V0.4+).
+            # reconcile / cache_report / ... : accepted and acked; their handlers
+            # arrive with the versions that own them (V0.4+).
             log.debug(
                 "session.message",
                 node_id=live.node_id,
                 session_id=live.session_id,
                 payload=which,
+            )
+
+    def _on_resource_update(
+        self, live: LiveSession, update: agent_pb2.ResourceUpdate
+    ) -> None:
+        """Bound the report (D12: clamp, never reject) and hand it to the sink.
+
+        Synchronous on purpose: the sink is in-memory (live ring + downsampler),
+        so the reader never waits on it, and the database write happens later in
+        the controller's snapshot flusher.
+        """
+        bounded = check_resource_update(update)
+        if bounded.clamped:
+            live.resource_updates_clamped += 1
+            if live.resource_updates_clamped == 1:
+                # Once per session: a broken agent must not fill the log.
+                log.warning(
+                    "session.resource_update_clamped",
+                    node_id=live.node_id,
+                    session_id=live.session_id,
+                    dropped=list(bounded.dropped),
+                )
+        live.resource_updates += 1
+        if self._resources is not None:
+            self._resources.record(
+                live.node_id, live.session_epoch, bounded.update, self._clock()
             )
 
     def _touch(self, live: LiveSession, now: float, *, force: bool) -> None:

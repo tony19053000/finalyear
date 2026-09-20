@@ -101,9 +101,10 @@ def test_base_metadata_uses_convention_and_registers_every_model() -> None:
     assert Base.metadata.naming_convention == NAMING_CONVENTION
     import meshforge.controller.store.models  # noqa: F401 - registry import
 
-    # V0.1 had no domain tables; V0.3 G2 added the node registry (0.3.6). Every
-    # model module must be imported by models/__init__ or Alembic cannot see it.
-    assert set(Base.metadata.tables) == {"node", "node_session"}
+    # V0.1 had no domain tables; V0.3 G2 added the node registry (0.3.6) and G4
+    # the resource history (0.3.11). Every model module must be imported by
+    # models/__init__ or Alembic cannot see it.
+    assert set(Base.metadata.tables) == {"node", "node_session", "resource_snapshot"}
 
 
 def test_timestamps_are_timestamptz_with_server_defaults() -> None:

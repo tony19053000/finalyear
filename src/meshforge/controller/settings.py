@@ -31,6 +31,7 @@ __all__ = [
     "ControllerSettings",
     "DiscoverySettings",
     "LivenessSettings",
+    "ResourceHistorySettings",
 ]
 
 DEFAULT_GRPC_PORT = 47100
@@ -63,6 +64,67 @@ class DiscoverySettings(SectionModel):
         if not value.endswith("._tcp.local.") or not value.startswith("_"):
             raise ValueError("service_type must look like _name._tcp.local.")
         return value
+
+
+class ResourceHistorySettings(SectionModel):
+    """``[controller.resources]`` - live ring + snapshot history (roadmap 0.3.11).
+
+    Two levels (ARCHITECTURE §19): a per-node in-memory ring of the last few
+    minutes, and 1-minute buckets written to ``resource_snapshot`` by the snapshot
+    flusher. ``bucket_s`` is a setting so component tests can use 1 s buckets;
+    ``retention_days`` is swept periodically rather than by table partitioning,
+    which is premature at a handful of nodes.
+    """
+
+    live_ring_size: int = Field(
+        default=150,
+        ge=1,
+        le=10_000,
+        description=(
+            "Samples kept in memory per node (150 = 5 minutes at one per 2 s)."
+        ),
+    )
+    bucket_s: float = Field(
+        default=60.0,
+        gt=0,
+        le=3600.0,
+        description="Length of one history bucket written to resource_snapshot.",
+    )
+    flush_interval_s: float = Field(
+        default=10.0,
+        gt=0,
+        le=3600.0,
+        description="How often closed buckets are written to the database.",
+    )
+    retention_days: float = Field(
+        default=7.0,
+        gt=0,
+        le=3650.0,
+        description="Snapshot rows older than this are deleted by the sweep.",
+    )
+    retention_sweep_s: float = Field(
+        default=3600.0,
+        gt=0,
+        description="How often the retention delete runs.",
+    )
+    max_tracked_nodes: int = Field(
+        default=256,
+        ge=1,
+        le=10_000,
+        description=(
+            "Nodes with a live ring; the least recently updated is evicted above "
+            "this so a flood of unknown node_ids cannot grow the controller."
+        ),
+    )
+    max_open_buckets: int = Field(
+        default=8,
+        ge=1,
+        le=1_000,
+        description=(
+            "Open (not yet closed) history buckets per node; more than a couple "
+            "means an agent clock that jumped. The oldest is dropped and counted."
+        ),
+    )
 
 
 class LivenessSettings(SectionModel):
@@ -139,6 +201,7 @@ class ControllerSection(SectionModel):
     )
     liveness: LivenessSettings = Field(default_factory=LivenessSettings)
     discovery: DiscoverySettings = Field(default_factory=DiscoverySettings)
+    resources: ResourceHistorySettings = Field(default_factory=ResourceHistorySettings)
     outbound_queue_size: int = Field(
         default=1000,
         ge=1,
