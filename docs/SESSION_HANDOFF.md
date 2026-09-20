@@ -101,7 +101,10 @@ approval of ADR-0012 first.
 
 ## 2. In flight right now
 
-**Nothing is in flight; the working tree is clean.** V0.3 **G1 and G2 are closed agent-side** (2026-09-20).
+**G3 IS WITH THE IMPLEMENTER (started 2026-09-21; brief = `docs/briefs/V0.3-fabric-core.md` §5c; 0.3.8/0.3.9 `[~]`).** If this
+session is lost mid-flight: look for uncommitted files under `src/meshforge/agent/`, `tests/unit/agent/`,
+`tests/component/agent/`; run the gates; commit `wip(V0.3-G3)` with what is missing in the message; relaunch an
+implementer pointing at that commit. V0.3 **G1 and G2 are closed agent-side** (2026-09-20).
 
 - **G1** (`da27ff1` → `0acf7eb`): proto V0.3 contract, node identity (ADR-0013), liveness logic. 0.3.1 `[x]`; 0.3.2 `[~]`
   until a 🧑 Windows unit run (`uv run pytest tests/unit/agent -q`, exercises `icacls` + `msvcrt.locking`).
