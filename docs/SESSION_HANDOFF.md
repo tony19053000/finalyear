@@ -101,7 +101,14 @@ approval of ADR-0012 first.
 
 ## 2. In flight right now
 
-**Nothing is in flight; the working tree is clean.** Last commits (all on `main`, unpushed):
+**V0.3 group G1 is with the implementer (started 2026-09-20 on the team's say-so, before the laptop 2–4
+inventory — G1 is pure code with no hardware dependency).** Brief: `docs/briefs/V0.3-fabric-core.md` §5; tasks 0.3.1,
+0.3.2, 0.3.7 (logic) are `[~]`. Flow: implementer → tester → reviewer → Lead marks. If this session is lost mid-flight,
+look for uncommitted files under `proto/`, `src/meshforge/agent/identity.py`, `src/meshforge/controller/liveness.py`,
+`tests/unit/`; run `uv run ruff check . && uv run mypy src && uv run pytest -m unit -q`; if green, commit `wip(V0.3-G1)`
+and run the tester next.
+
+Before that: Last commits (all on `main`, unpushed):
 
 - `b41450c` **0.2.13 closed `[x]`** — `write_report()` merges an existing `--out` (human regions kept, generated
   regions refreshed), refuses malformed / other-spike files with `ReportMergeError`, `--force` regenerates; all five

@@ -14,7 +14,7 @@
 
 | Field | Value |
 |---|---|
-| **Current version** | V0.2 — in progress (started 2026-09-15); V0.1 code-complete, awaiting 🧑 GitHub CI proof (0.1.4, 0.1.10) |
+| **Current version** | **V0.3 — started 2026-09-20 (group G1: 0.3.1, 0.3.2, 0.3.7 logic)** while V0.2 waits on 🧑 lab runs; V0.2 — in progress (started 2026-09-15); V0.1 code-complete, awaiting 🧑 GitHub CI proof (0.1.4, 0.1.10) |
 | **Current task** | **All V0.2 agent-side spike code is complete** (S1, S2, S3, S6, S7 — each tester PASS + reviewer APPROVE; **0.2.13 `[x]`** — report CLIs merge instead of overwriting prose). Everything now waits on 🧑 lab runs. **0.2.8 (S4) / 0.2.9 (S5) deferred with Mode 2 — [ADR-0012](adr/0012-scope-ship-mode3-complete.md).** Next agent-side work is **V0.3**, blocked on the 🧑 inventory of laptops 2–4. |
 | **Parallel human tasks** | hardware inventory of laptops 2–4 (**blocking**) · approve ADR-0012 · GitHub push + CI proof · buy Ethernet switch · decide ADR-0011 |
 | **Blockers** | See [Blockers & problems](#blockers--problems-discovered) |
@@ -247,13 +247,13 @@ A version is **complete** only when all apply:
 **Prerequisites:** V0.1; V0.2 S2 (cross-OS reachability) passed.
 
 **Tasks**
-- [ ] **0.3.1** `agent.proto`: `Session` bidi stream; messages Hello, Heartbeat, ResourceUpdate, Command, Ack, Reconcile
-- [ ] **0.3.2** Agent identity: keypair + `node_id` generated on first start, stored in OS-appropriate data dir with restricted permissions
+- [~] **0.3.1** `agent.proto`: `Session` bidi stream; messages Hello, Heartbeat, ResourceUpdate, Command, Ack, Reconcile
+- [~] **0.3.2** Agent identity: keypair + `node_id` generated on first start, stored in OS-appropriate data dir with restricted permissions
 - [ ] **0.3.3** Hardware discovery: CPU model/cores/threads, RAM, disks, OS, GPU(s) via NVML (model, VRAM, driver, compute capability), software versions
 - [ ] **0.3.4** Hardware scores from S7 micro-benchmarks, run at first enrollment and on demand
 - [ ] **0.3.5** Resource monitor: CPU %, RAM, GPU util, VRAM free, disk free every 2 s; change-threshold reporting
 - [ ] **0.3.6** Controller gRPC server (grpc.aio) + session manager; node registry tables; one process hosting FastAPI + gRPC
-- [ ] **0.3.7** Liveness: heartbeat 2 s, lease 3 × heartbeat; states ONLINE / SUSPECT / OFFLINE per ARCHITECTURE §12.3
+- [~] **0.3.7** Liveness: heartbeat 2 s, lease 3 × heartbeat; states ONLINE / SUSPECT / OFFLINE per ARCHITECTURE §12.3
 - [ ] **0.3.8** Agent reconnect with exponential backoff + jitter; Reconcile message on reconnect
 - [ ] **0.3.9** Controller discovery: explicit address in config, fallback mDNS
 - [ ] **0.3.10** RTT to controller measured on heartbeat; stored
