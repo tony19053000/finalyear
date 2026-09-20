@@ -25,3 +25,8 @@ class ExitCode(IntEnum):
 
     CONFIG_ERROR = 4
     """Configuration could not be loaded or failed validation (see ``ConfigError``)."""
+
+    CONFLICT = 5
+    """Another instance owns the same identity: the controller superseded this
+    process's session (ADR-0002 Updates §1). Do not restart in a loop - stop the
+    other instance or give this one its own ``data_dir``."""

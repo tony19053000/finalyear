@@ -16,9 +16,9 @@ from typing import Any
 
 import grpc
 import pytest
+from mf_controller_harness import FAST_LIVENESS, HELLO_TIMEOUT_S
 from mf_session_client import FakeAgent, make_hello, poll_until
 
-from conftest import FAST_LIVENESS, HELLO_TIMEOUT_S
 from meshforge.common.ids import new_command_id
 from meshforge.common.proto.meshforge.v1 import agent_pb2, common_pb2
 from meshforge.controller.liveness import NodeState

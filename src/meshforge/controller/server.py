@@ -6,6 +6,7 @@
              -> SessionManager + LeaseTimer task
              -> grpc.aio server (AgentControl)         on controller.grpc_bind
              -> uvicorn (FastAPI, GET /healthz) task   on controller.http_bind
+             -> mDNS advertisement of the gRPC port    if controller.discovery.advertise
 
 Shutdown (SIGINT/SIGTERM or :meth:`ControllerRuntime.stop`): stop accepting,
 close every live session as ``controller_shutdown`` (their streams end), stop
@@ -37,6 +38,7 @@ from meshforge.common.errors import ConfigError, ExitCode, MeshForgeError
 from meshforge.common.logging import get_logger
 from meshforge.common.netaddr import BindAddress, parse_bind
 from meshforge.common.proto.meshforge.v1 import agent_pb2_grpc
+from meshforge.controller.discovery import ServiceAdvertiser
 from meshforge.controller.http import create_http_app
 from meshforge.controller.registry import Registry, SessionEndReason
 from meshforge.controller.session.leases import LeaseTimer
@@ -89,6 +91,7 @@ class ControllerRuntime:
         self._grpc_server: grpc.aio.Server | None = None
         self._http_server: _NoSignalUvicorn | None = None
         self._http_sock: socket.socket | None = None
+        self._advertiser: ServiceAdvertiser | None = None
         self._lease_timer_task: asyncio.Task[None] | None = None
         self._tasks: set[asyncio.Task[None]] = set()
         self._stop_requested = asyncio.Event()
@@ -162,6 +165,15 @@ class ControllerRuntime:
         )
         self._http_server = _NoSignalUvicorn(http_config)
         self._spawn(self._http_server.serve(sockets=[self._http_sock]), "http-server")
+
+        if cfg.discovery.advertise:
+            # Roadmap 0.3.9: agents with an empty controller_address browse for this.
+            self._advertiser = ServiceAdvertiser(
+                service_type=cfg.discovery.service_type,
+                host=self._grpc_bind.host,
+                port=self.grpc_port,
+            )
+            await self._advertiser.start()
 
         log.info(
             "controller.started",
@@ -241,6 +253,9 @@ class ControllerRuntime:
             return max(deadline - loop.time(), 0.0)
 
         log.info("controller.stopping", drain_s=drain)
+        if self._advertiser is not None:
+            # Withdraw the record first so agents stop finding a dying controller.
+            await self._advertiser.stop()
         if self.manager is not None:
             # Sessions first: their streams end with the reason persisted before the
             # transport is torn down under them.
@@ -310,8 +325,12 @@ def _bind_socket(bind: BindAddress) -> socket.socket:
 
 
 async def _serve(settings: ControllerSettings) -> int:
-    async with ControllerRuntime.start(settings) as runtime:
-        runtime.install_signal_handlers()
+    runtime = ControllerRuntime(settings)
+    # Before start-up, not after: start-up awaits migrations and the mDNS
+    # registration (~1 s), and a SIGTERM in that window must still be a graceful
+    # stop, not the default "killed by signal" exit (G3 finding).
+    runtime.install_signal_handlers()
+    async with _RuntimeContext(runtime):
         await runtime.wait_for_stop()
     if runtime.failed_task is not None:
         log.error("controller.exited_after_task_failure", task=runtime.failed_task)

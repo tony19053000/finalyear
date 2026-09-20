@@ -121,7 +121,6 @@ def test_base_install_script_version_works(base_install: Path, script: str) -> N
     ("script", "args", "expected_marker"),
     [
         ("compute", ["status"], "V0.8"),
-        ("meshforge-agent", [], "V0.3"),
     ],
 )
 def test_base_install_placeholder_exits_3(

@@ -37,7 +37,7 @@ if TYPE_CHECKING:
 
 pytestmark = pytest.mark.component
 
-from conftest import make_settings  # noqa: E402
+from mf_controller_harness import make_settings  # noqa: E402
 
 UINT64_MAX = 2**64 - 1
 

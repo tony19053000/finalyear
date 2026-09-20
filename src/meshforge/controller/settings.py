@@ -26,13 +26,43 @@ from meshforge.controller.store.settings import DatabaseSettings
 __all__ = [
     "DEFAULT_GRPC_PORT",
     "DEFAULT_HTTP_PORT",
+    "DEFAULT_SERVICE_TYPE",
     "ControllerSection",
     "ControllerSettings",
+    "DiscoverySettings",
     "LivenessSettings",
 ]
 
 DEFAULT_GRPC_PORT = 47100
 DEFAULT_HTTP_PORT = 47110
+DEFAULT_SERVICE_TYPE = "_meshforge-ctl._tcp.local."
+"""DNS-SD service type advertised for agents (must match ``[agent.discovery]``)."""
+
+
+class DiscoverySettings(SectionModel):
+    """``[controller.discovery]`` - mDNS advertisement of the gRPC listener (0.3.9).
+
+    Best effort: a host without multicast keeps serving and logs
+    ``controller.discovery.unavailable``. Turn it off on CI or when agents are
+    always configured with an explicit ``controller_address``.
+    """
+
+    advertise: bool = Field(
+        default=True,
+        description="Register the gRPC listener via mDNS/DNS-SD at start-up.",
+    )
+    service_type: str = Field(
+        default=DEFAULT_SERVICE_TYPE,
+        description="DNS-SD service type; agents browse for exactly this.",
+    )
+
+    @field_validator("service_type")
+    @classmethod
+    def _service_type_shape(cls, value: str) -> str:
+        value = value.strip()
+        if not value.endswith("._tcp.local.") or not value.startswith("_"):
+            raise ValueError("service_type must look like _name._tcp.local.")
+        return value
 
 
 class LivenessSettings(SectionModel):
@@ -101,6 +131,7 @@ class ControllerSection(SectionModel):
         ),
     )
     liveness: LivenessSettings = Field(default_factory=LivenessSettings)
+    discovery: DiscoverySettings = Field(default_factory=DiscoverySettings)
     outbound_queue_size: int = Field(
         default=1000,
         ge=1,

@@ -83,12 +83,13 @@ def test_process_entry_points_via_runner(app: object, prog: str) -> None:
     assert result.stdout.strip() == f"{prog} {meshforge.__version__}"
 
 
-def test_agent_entry_point_is_still_a_placeholder() -> None:
-    # The controller `run` is real since V0.3 G2 (it needs PostgreSQL, so it is
-    # exercised in tests/component/controller); the agent runtime lands in G3.
+def test_agent_entry_point_lists_its_commands() -> None:
+    # `run` and `identity` are real since V0.3 G3 (`run` needs a controller, so it
+    # is exercised in tests/component/agent); no arguments prints the help.
     result = runner.invoke(agent_app, [], prog_name="meshforge-agent")
-    assert result.exit_code == ExitCode.NOT_IMPLEMENTED
-    assert "not yet implemented (planned for V0.3)" in result.stderr
+    assert result.exit_code in (ExitCode.OK, ExitCode.USAGE_ERROR)
+    assert "run" in result.output
+    assert "identity" in result.output
 
 
 @pytest.mark.parametrize("script", list(SCRIPTS))
@@ -110,7 +111,6 @@ def test_python_dash_m(script: str, module: str) -> None:
 @pytest.mark.parametrize(
     ("script", "expected"),
     [
-        ("meshforge-agent", "V0.3"),
         ("compute", "V0.8"),
     ],
 )
@@ -119,8 +119,7 @@ def test_installed_script_placeholder_exits_non_zero(
 ) -> None:
     path = shutil.which(script)
     assert path is not None
-    args = [path, "status"] if script == "compute" else [path]
-    result = _run(*args)
+    result = _run(path, "status")
     assert result.returncode == ExitCode.NOT_IMPLEMENTED
     assert expected in result.stderr
 

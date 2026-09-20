@@ -109,7 +109,8 @@ def test_help_exits_zero_and_mentions_prog(app: object, prog: str) -> None:
         [sys.executable, "-m", "meshforge.controller", "--version"],
         [sys.executable, "-m", "meshforge.controller", "--help"],
         [sys.executable, "-m", "meshforge.agent", "--version"],
-        [sys.executable, "-m", "meshforge.agent"],
+        [sys.executable, "-m", "meshforge.agent", "--help"],
+        [sys.executable, "-m", "meshforge.agent", "identity", "--help"],
     ],
 )
 def test_output_is_pure_ascii_under_c_locale(argv: list[str]) -> None:
@@ -126,12 +127,9 @@ def test_ascii_env_does_not_crash_with_encode_error() -> None:
     """A stronger check: run with encoding actually pinned to ascii, subprocess
     must not itself raise UnicodeEncodeError while writing (returncode would be
     1/traceback, not the expected 0 or 3)."""
-    # `meshforge.controller` without arguments is a real server since V0.3 G2
-    # (needs PostgreSQL) and is covered by tests/component/controller instead.
-    for argv in (
-        [sys.executable, "-m", "meshforge.cli", "status"],
-        [sys.executable, "-m", "meshforge.agent"],
-    ):
+    # `meshforge.controller` / `meshforge.agent run` are real processes since V0.3
+    # (G2/G3) and are covered by tests/component instead.
+    for argv in ([sys.executable, "-m", "meshforge.cli", "status"],):
         result = _run_ascii_env(*argv)
         assert result.returncode == ExitCode.NOT_IMPLEMENTED, result.stderr
         assert "Traceback" not in result.stderr

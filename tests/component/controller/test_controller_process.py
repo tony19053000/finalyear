@@ -28,7 +28,8 @@ from pydantic import SecretStr
 
 pytest.importorskip("sqlalchemy", reason="needs the controller extra")
 
-from conftest import FAST_LIVENESS, make_settings
+from mf_controller_harness import FAST_LIVENESS, make_settings
+
 from meshforge.common.errors import ExitCode
 from meshforge.controller.liveness import NodeState
 from meshforge.controller.registry import Registry, SessionEndReason
