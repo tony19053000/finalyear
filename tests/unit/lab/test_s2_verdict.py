@@ -944,3 +944,17 @@ def test_missing_endpoint_facts_are_a_visible_caveat(extra: object) -> None:
     assert dv.to_json()["endpoint_known"] is False
     assert any("connection facts missing" in c for c in dv.caveats())
     assert "connection facts missing" in v.render_verdicts({"k": dv})
+
+
+@pytest.mark.parametrize("failure", [5, "x", ["y"], None, True])
+def test_dropped_session_with_malformed_failure_record_is_no_not_crash(
+    failure: object,
+) -> None:
+    """(Reviewer finding, pass 4.) The typed failure of a dropped stream may
+    itself be corrupt; the cell is still ``no`` with the default diagnosis."""
+    case = {"samples": [{"survived": 0, "failure": failure}] * MIN_VALID_REPS}
+    result = v.session_verdict(case)
+    assert result.value == v.NO
+    assert result.detail == "stream did not survive the idle gap"
+    doc = _doc(cases={"grpc-bidi-idle30s-kaon": case})
+    assert "| no —" in v.render_verdicts({"k": v.direction_verdict(doc)})

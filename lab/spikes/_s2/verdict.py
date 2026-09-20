@@ -209,7 +209,7 @@ def session_verdict(case: object, *, min_reps: int = MIN_VALID_REPS) -> Verdict:
 def _drop_detail(dropped: Sequence[Any]) -> str:
     """Why the idle stream died, and what to change about it."""
     first = dropped[0] if dropped else None
-    failure = (first.get("failure") or {}) if isinstance(first, Mapping) else {}
+    failure = _mapping(first.get("failure")) if isinstance(first, Mapping) else {}
     message = str(failure.get("message") or "stream did not survive the idle gap")
     fix = failure.get("fix")
     return f"{message} [fix: {fix}]" if fix else message
