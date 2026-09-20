@@ -31,7 +31,12 @@
 
 ## 2. In flight right now
 
-**The working tree is clean. No agent-side task is half-done.**
+**In flight: 0.2.10 S6 environments spike** (started 2026-09-20 by the Lead session on the
+team's instruction). Design is in the roadmap line for 0.2.10 and will be in `lab/spikes/S6.md`.
+Round plan is the S2 one: implementer → tester → reviewer, fixing what each returns; commit
+`wip(0.2.10)` after each round. If you find uncommitted `lab/spikes/_s6/` or
+`s6_environments.py`, an implementer run was cut off: read its files, run the gates, and
+re-brief a new implementer with "finish the interrupted S6 run".
 
 **What to do next (agent side, while humans run the lab):** pick ONE of
 - the S3-review follow-up: promote `spikes._s1.protocol` (address rules, framing,
