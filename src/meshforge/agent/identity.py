@@ -4,9 +4,10 @@ Layout under the identity directory (default ``platform_dirs().data / "identity"
 i.e. ``~/.local/share/meshforge/identity`` on Linux, ``%LOCALAPPDATA%\\MeshForge\\identity``
 on Windows)::
 
-    node.key    PKCS#8 PEM, unencrypted, ECDSA secp256r1 (the V0.7 CSR key)
-    node.json   {"format": 1, "node_id", "session_epoch", "created_at",
-                 "key_fingerprint_sha256"}
+    node.key       PKCS#8 PEM, unencrypted, ECDSA secp256r1 (the V0.7 CSR key)
+    node.json      {"format": 1, "node_id", "session_epoch", "created_at",
+                    "key_fingerprint_sha256"}
+    identity.lock  empty advisory lock file (``common.filelock``), never deleted
 
 Rules (ADR-0013 §6):
 
@@ -24,6 +25,15 @@ Rules (ADR-0013 §6):
   failure is fatal.
 * Writes are atomic (:mod:`meshforge.common.atomic`): a crash leaves the old
   identity or none, never a half-written one.
+* Processes are serialised: :func:`load_or_create`, :func:`next_epoch` and
+  :func:`reset` hold ``identity.lock`` for their whole duration and re-check the
+  on-disk state *inside* the lock, so two agents racing on an empty directory end
+  with one identity and the same ``node_id``, and two racing ``next_epoch`` calls
+  never persist the same epoch. As a second line of defence the create path writes
+  the final files exclusively (``atomic_write_bytes(..., exclusive=True)``). The
+  lock file is never deleted (``reset`` leaves it): unlinking a lock another
+  process is waiting on would let two processes own it. A lock still held after
+  the bounded wait is an :class:`IdentityError`.
 * Key material is never logged, never in ``repr`` and never in an exception.
 """
 
@@ -36,6 +46,8 @@ import os
 import stat
 import subprocess
 import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -46,13 +58,17 @@ from cryptography.hazmat.primitives.asymmetric import ec
 
 from meshforge.common.atomic import atomic_write_bytes
 from meshforge.common.errors import IdentityError, InvalidIdError
+from meshforge.common.filelock import locked
 from meshforge.common.ids import NodeId, new_node_id, validate_node_id
 from meshforge.common.logging import get_logger
 
 __all__ = [
+    "DEFAULT_LOCK_TIMEOUT_S",
     "IDENTITY_FORMAT",
     "JSON_FILE_NAME",
     "KEY_FILE_NAME",
+    "LOCK_FILE_NAME",
+    "MAX_SESSION_EPOCH",
     "IdentityError",
     "NodeIdentity",
     "load_or_create",
@@ -64,12 +80,20 @@ log = get_logger(__name__)
 
 KEY_FILE_NAME: Final = "node.key"
 JSON_FILE_NAME: Final = "node.json"
+LOCK_FILE_NAME: Final = "identity.lock"
 IDENTITY_FORMAT: Final = 1
+DEFAULT_LOCK_TIMEOUT_S: Final = 10.0
+MAX_SESSION_EPOCH: Final = 2**64 - 1
+"""``Hello.session_epoch`` is a proto3 ``uint64`` (ADR-0002 §1); larger cannot be sent."""
 _DIR_MODE: Final = 0o700
 _FILE_MODE: Final = 0o600
 _REMEDY: Final = (
     "run `meshforge-agent identity reset` (or delete the identity directory) to "
     "mint a fresh identity; the node will get a NEW node_id"
+)
+_LOCK_REMEDY: Final = (
+    "another meshforge-agent (or `identity` command) is using this identity "
+    "directory; stop it, or wait and retry"
 )
 
 
@@ -89,37 +113,45 @@ class NodeIdentity:
 # ----------------------------------------------------------------------------- public
 
 
-def load_or_create(directory: Path) -> NodeIdentity:
+def load_or_create(
+    directory: Path, *, lock_timeout_s: float = DEFAULT_LOCK_TIMEOUT_S
+) -> NodeIdentity:
     """Load the identity in ``directory``; create it when neither file exists.
 
     Idempotent: calling it twice returns equal identities and writes nothing the
-    second time. Raises :class:`IdentityError` on partial, corrupt or unprotectable
-    identity files.
+    second time. Safe across processes: the whole check-create-verify runs under
+    ``identity.lock``, so a second process that lost the first-create race loads
+    the winner's identity. Raises :class:`IdentityError` on partial, corrupt or
+    unprotectable identity files, or when the lock is still held by another
+    process after ``lock_timeout_s`` seconds.
     """
     directory = Path(directory)
     key_path = directory / KEY_FILE_NAME
     json_path = directory / JSON_FILE_NAME
     _ensure_dir(directory)
 
-    has_key, has_json = key_path.exists(), json_path.exists()
-    if has_key != has_json:
-        missing = json_path if has_key else key_path
-        raise IdentityError(
-            f"partial identity: {missing.name} is missing but its companion exists",
-            missing,
-            _REMEDY,
-        )
-    if not has_key:
-        identity = _create(directory, key_path, json_path)
-        log.info(
-            "identity.created",
-            node_id=identity.node_id,
-            key_fingerprint=identity.fingerprint,
-            path=str(directory),
-        )
-        return identity
+    with _locked(directory, lock_timeout_s):
+        # State is decided *inside* the lock (double-check): whatever we saw
+        # before acquiring it may have been changed by the process that held it.
+        has_key, has_json = key_path.exists(), json_path.exists()
+        if has_key != has_json:
+            missing = json_path if has_key else key_path
+            raise IdentityError(
+                f"partial identity: {missing.name} is missing but its companion exists",
+                missing,
+                _REMEDY,
+            )
+        if not has_key:
+            identity = _create(directory, key_path, json_path)
+            log.info(
+                "identity.created",
+                node_id=identity.node_id,
+                key_fingerprint=identity.fingerprint,
+                path=str(directory),
+            )
+            return identity
 
-    identity = _load(directory, key_path, json_path)
+        identity = _load(directory, key_path, json_path)
     log.info(
         "identity.loaded",
         node_id=identity.node_id,
@@ -130,30 +162,43 @@ def load_or_create(directory: Path) -> NodeIdentity:
     return identity
 
 
-def next_epoch(identity: NodeIdentity) -> NodeIdentity:
+def next_epoch(
+    identity: NodeIdentity, *, lock_timeout_s: float = DEFAULT_LOCK_TIMEOUT_S
+) -> NodeIdentity:
     """Increment ``session_epoch``, persist it atomically, return the new identity.
 
     Call it before opening every new stream (ADR-0002 Updates §1). The write
     happens *before* the return, so a crash after this call can never reuse an
-    epoch the controller may already have seen.
+    epoch the controller may already have seen. Read-compute-write runs under
+    ``identity.lock``: two processes racing here get distinct epochs (1 and 2),
+    never the same one.
     """
     json_path = identity.path / JSON_FILE_NAME
-    current = _read_json(json_path)
-    created_at = current.get("created_at")
-    if not isinstance(created_at, str):
-        raise IdentityError("corrupt identity: created_at missing", json_path, _REMEDY)
-    # Never reuse an epoch: if the file on disk is already ahead (another process
-    # of this node advanced it), continue from the higher value.
-    on_disk = current.get("session_epoch")
-    base = max(identity.session_epoch, on_disk if isinstance(on_disk, int) else 0)
-    updated = NodeIdentity(
-        node_id=identity.node_id,
-        private_key=identity.private_key,
-        session_epoch=base + 1,
-        fingerprint=identity.fingerprint,
-        path=identity.path,
-    )
-    _write_json(json_path, updated, created_at)
+    with _locked(identity.path, lock_timeout_s):
+        current = _read_json(json_path)
+        created_at = current.get("created_at")
+        if not isinstance(created_at, str):
+            raise IdentityError(
+                "corrupt identity: created_at missing", json_path, _REMEDY
+            )
+        # Never reuse an epoch: if the file on disk is already ahead (another
+        # process of this node advanced it), continue from the higher value.
+        on_disk = current.get("session_epoch")
+        base = max(identity.session_epoch, on_disk if isinstance(on_disk, int) else 0)
+        if base >= MAX_SESSION_EPOCH:
+            raise IdentityError(
+                f"session_epoch exhausted (would exceed {MAX_SESSION_EPOCH})",
+                json_path,
+                _REMEDY,
+            )
+        updated = NodeIdentity(
+            node_id=identity.node_id,
+            private_key=identity.private_key,
+            session_epoch=base + 1,
+            fingerprint=identity.fingerprint,
+            path=identity.path,
+        )
+        _write_json(json_path, updated, created_at)
     log.info(
         "identity.epoch_advanced",
         node_id=updated.node_id,
@@ -162,22 +207,53 @@ def next_epoch(identity: NodeIdentity) -> NodeIdentity:
     return updated
 
 
-def reset(directory: Path) -> None:
-    """Delete both identity files (the directory stays). Missing files are fine."""
+def reset(directory: Path, *, lock_timeout_s: float = DEFAULT_LOCK_TIMEOUT_S) -> None:
+    """Delete both identity files under the lock. Missing files/directory are fine.
+
+    The directory and ``identity.lock`` stay: deleting a lock file another process
+    is blocked on would let two processes own the lock (see ``common.filelock``).
+    """
     directory = Path(directory)
-    for name in (KEY_FILE_NAME, JSON_FILE_NAME):
-        path = directory / name
-        try:
-            path.unlink()
-        except FileNotFoundError:
-            continue
-        except OSError as exc:
-            raise IdentityError(
-                f"could not delete identity file: {exc.strerror}",
-                path,
-                "check permissions",
-            ) from exc
+    if not directory.is_dir():
+        return  # nothing to delete, and no reason to create a directory
+    with _locked(directory, lock_timeout_s):
+        for name in (KEY_FILE_NAME, JSON_FILE_NAME):
+            path = directory / name
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                continue
+            except OSError as exc:
+                raise IdentityError(
+                    f"could not delete identity file: {exc.strerror}",
+                    path,
+                    "check permissions",
+                ) from exc
     log.info("identity.reset", path=str(directory))
+
+
+# ------------------------------------------------------------------------------ lock
+
+
+@contextmanager
+def _locked(directory: Path, timeout_s: float) -> Iterator[None]:
+    """Hold ``identity.lock`` in ``directory``; every failure is an :class:`IdentityError`."""
+    lock_path = directory / LOCK_FILE_NAME
+    try:
+        with locked(lock_path, timeout_s=timeout_s, mode=_FILE_MODE) as created:
+            if created:
+                _protect(lock_path)
+            yield
+    except TimeoutError as exc:
+        raise IdentityError(
+            "identity directory is locked by another process", lock_path, _LOCK_REMEDY
+        ) from exc
+    except OSError as exc:
+        raise IdentityError(
+            f"could not open identity lock file: {exc.strerror or exc}",
+            lock_path,
+            "check permissions",
+        ) from exc
 
 
 # ---------------------------------------------------------------------------- create
@@ -200,12 +276,16 @@ def _create(directory: Path, key_path: Path, json_path: Path) -> NodeIdentity:
     created_at = datetime.now(UTC).isoformat(timespec="seconds")
     # Key first: if we crash between the two writes the result is a partial
     # identity, which the next start refuses loudly instead of forking an id.
-    _write_protected(key_path, pem)
-    _write_json(json_path, identity, created_at)
+    # ``exclusive``: the lock already serialises creators; this makes an
+    # overwrite of an existing identity impossible even if it did not.
+    _write_protected(key_path, pem, exclusive=True)
+    _write_json(json_path, identity, created_at, exclusive=True)
     return identity
 
 
-def _write_json(json_path: Path, identity: NodeIdentity, created_at: str) -> None:
+def _write_json(
+    json_path: Path, identity: NodeIdentity, created_at: str, *, exclusive: bool = False
+) -> None:
     payload = {
         "format": IDENTITY_FORMAT,
         "node_id": str(identity.node_id),
@@ -214,12 +294,19 @@ def _write_json(json_path: Path, identity: NodeIdentity, created_at: str) -> Non
         "key_fingerprint_sha256": identity.fingerprint,
     }
     data = (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode("utf-8")
-    _write_protected(json_path, data)
+    _write_protected(json_path, data, exclusive=exclusive)
 
 
-def _write_protected(path: Path, data: bytes) -> None:
+def _write_protected(path: Path, data: bytes, *, exclusive: bool = False) -> None:
     try:
-        atomic_write_bytes(path, data, mode=_FILE_MODE)
+        atomic_write_bytes(path, data, mode=_FILE_MODE, exclusive=exclusive)
+    except FileExistsError as exc:
+        raise IdentityError(
+            "identity file appeared while creating a fresh identity (another "
+            "process wrote it); this must not happen under the lock",
+            path,
+            "retry; if it persists, report it",
+        ) from exc
     except OSError as exc:
         raise IdentityError(
             f"could not write identity file: {exc.strerror or exc}",
@@ -248,9 +335,14 @@ def _load(directory: Path, key_path: Path, json_path: Path) -> NodeIdentity:
     except InvalidIdError as exc:
         raise IdentityError(f"corrupt identity: {exc}", json_path, _REMEDY) from exc
     epoch = meta.get("session_epoch")
-    if not isinstance(epoch, int) or isinstance(epoch, bool) or epoch < 0:
+    if (
+        not isinstance(epoch, int)
+        or isinstance(epoch, bool)
+        or not 0 <= epoch <= MAX_SESSION_EPOCH
+    ):
         raise IdentityError(
-            "corrupt identity: session_epoch is not a non-negative integer",
+            "corrupt identity: session_epoch is not an integer in "
+            f"[0, {MAX_SESSION_EPOCH}] (Hello.session_epoch is a uint64)",
             json_path,
             _REMEDY,
         )

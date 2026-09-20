@@ -150,38 +150,37 @@ def test_concurrent_next_epoch_never_loses_an_increment(
 # -------------------------------------------------------------------- epoch bounds
 
 
-def test_session_epoch_beyond_uint64_range_is_accepted_but_unsendable(
-    id_dir: Path,
-) -> None:
+def test_session_epoch_beyond_uint64_range_is_refused(id_dir: Path) -> None:
     """``Hello.session_epoch`` is proto3 ``uint64`` (max 2**64 - 1, ADR-0002 §1).
 
     Reproduction: hand-write ``node.json`` with ``session_epoch = 2**64`` (one
-    past the uint64 max) and load it. Expected (one of): ``load_or_create``
-    refuses it with ``IdentityError`` (consistent with "bad node_id" and
-    "epoch as float or negative" being refused per the task brief), OR the
-    value is silently clamped/rejected before it could ever reach a
-    ``Hello`` message. Observed: ``_load`` only checks
+    past the uint64 max) and load it. Before the fix ``_load`` only checked
     ``isinstance(epoch, int) and not bool and epoch >= 0`` - no upper bound - so
-    an out-of-range epoch is accepted into a live ``NodeIdentity``, and
-    ``next_epoch`` would carry it forward (2**64 + 1, ...), silently producing a
-    value that cannot be encoded into the ``Hello.session_epoch`` proto field
-    without raising deep in gRPC serialization far from this module.
+    the value reached a live ``NodeIdentity`` and could only fail later, deep in
+    protobuf serialization of ``Hello``. Expected (tester defect D3, fixed in the
+    G1 fix round): ``load_or_create`` refuses it with ``IdentityError``, the same
+    treatment as a bad ``node_id`` or a negative epoch, and the files on disk are
+    left untouched so the operator can repair them.
     """
-    identity = load_or_create(id_dir)
+    load_or_create(id_dir)
     path = id_dir / "node.json"
     meta = json.loads(path.read_text())
     meta["session_epoch"] = 2**64  # one past uint64 max
     path.write_text(json.dumps(meta))
+    before = path.read_bytes()
 
-    reloaded = load_or_create(id_dir)  # implementer expects this NOT to raise today
-    assert reloaded.session_epoch == 2**64
-    # Demonstrate the real-world consequence: this value cannot become a proto
-    # uint64 field, which is the whole reason the epoch exists (ADR-0002 §1).
+    with pytest.raises(IdentityError):
+        load_or_create(id_dir)
+    assert path.read_bytes() == before
+    # and the boundary value itself is fine and encodable
+    meta["session_epoch"] = 2**64 - 1
+    path.write_text(json.dumps(meta))
     from meshforge.common.proto.meshforge.v1 import agent_pb2
 
-    with pytest.raises(ValueError):
-        agent_pb2.Hello(session_epoch=reloaded.session_epoch)
-    assert identity.node_id == reloaded.node_id
+    reloaded = load_or_create(id_dir)
+    assert (
+        agent_pb2.Hello(session_epoch=reloaded.session_epoch).session_epoch == 2**64 - 1
+    )
 
 
 # ----------------------------------------------------------------- adversarial PEM

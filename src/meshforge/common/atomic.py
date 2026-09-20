@@ -21,27 +21,54 @@ from pathlib import Path
 __all__ = ["atomic_write_bytes"]
 
 
-def atomic_write_bytes(path: Path, data: bytes, *, mode: int = 0o600) -> None:
+def atomic_write_bytes(
+    path: Path, data: bytes, *, mode: int = 0o600, exclusive: bool = False
+) -> None:
     """Atomically replace ``path`` with ``data``.
 
     ``mode`` is the permission bits the temporary (and therefore the final) file
     is created with; ignored by the OS on Windows (ACLs are applied by the caller).
     The parent directory must already exist. Raises ``OSError`` on failure; on any
     exception the target is unchanged and no temporary file is left behind.
+
+    ``exclusive=True`` additionally refuses to overwrite: ``FileExistsError`` is
+    raised if ``path`` already exists and nothing is written. On POSIX the target
+    is *claimed* first with ``O_CREAT | O_EXCL`` (atomic against another creator),
+    then replaced; a failed replace removes the claim again. On Windows
+    ``os.replace`` always overwrites and there is no exclusive rename, so the check
+    is a plain ``exists()`` - callers must hold a process lock (``filelock``) for
+    it to be correct there; the identity module does.
     """
     tmp = path.with_name(f".{path.name}.{secrets.token_hex(4)}.tmp")
     fd = os.open(tmp, os.O_CREAT | os.O_EXCL | os.O_WRONLY, mode)
+    claimed = False
     try:
         with os.fdopen(fd, "wb") as fh:
             fh.write(data)
             fh.flush()
             os.fsync(fh.fileno())
+        if exclusive:
+            claimed = _claim(path, mode)
         os.replace(tmp, path)
     except BaseException:
         with contextlib.suppress(OSError):
             tmp.unlink()
+        if claimed:
+            with contextlib.suppress(OSError):
+                path.unlink()
         raise
     _fsync_dir(path.parent)
+
+
+def _claim(path: Path, mode: int) -> bool:
+    """Create an empty ``path`` exclusively; ``FileExistsError`` if it exists."""
+    if os.name != "posix":
+        # No exclusive rename on Windows: the caller's lock is what makes this safe.
+        if path.exists():
+            raise FileExistsError(17, "File exists", str(path))
+        return False
+    os.close(os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, mode))
+    return True
 
 
 def _fsync_dir(directory: Path) -> None:

@@ -44,7 +44,12 @@ def id_dir(tmp_path: Path) -> Path:
 
 
 def _files(id_dir: Path) -> dict[str, bytes]:
-    return {p.name: p.read_bytes() for p in sorted(id_dir.iterdir())}
+    """Identity files by name. The permanent, empty ``identity.lock`` is not one."""
+    return {
+        p.name: p.read_bytes()
+        for p in sorted(id_dir.iterdir())
+        if p.name != ident.LOCK_FILE_NAME
+    }
 
 
 def _other_key_pem() -> bytes:
