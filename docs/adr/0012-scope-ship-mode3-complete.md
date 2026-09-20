@@ -86,7 +86,7 @@ The team's **original motivation was Mode 4** — "my laptop is weak, let me com
 - **Gained:** a finishable project with real margin; one execution mode genuinely complete and production-grade; the AI doing real work on genuinely heterogeneous hardware; honest benchmarks; a shipped product (security, dashboard, productization, hardening) rather than a demo; a clean base for Mode 2 → Mode 4 afterwards.
 - **Lost:** the four-mode headline, and — for now — the GPU-combining idea that motivated the project.
 - **Risk:** V0.15 expects **several thousand telemetry runs** to train on. That is lab hours on four laptops, not agent hours. Benchmark jobs must be small, fast and automated **from V0.9 onward** so data accumulates during development; otherwise the ML planner has nothing to learn from at the end.
-- **Risk:** if the evaluation rewards *breadth of demonstrated modes* over depth, this is the wrong trade. **The team has not yet answered this question** and should before work starts.
+- ~~**Risk:** if the evaluation rewards *breadth of demonstrated modes* over depth, this is the wrong trade.~~ **Resolved 2026-09-20:** the team confirmed the college assessment rewards **something that works, and works well** — depth, not a count of features. This ADR's trade is therefore aligned with the evaluation, and "four modes" carries no marking value that "one mode, finished" does not.
 - **Risk:** deferring V0.11 means the GPU service, tensor codec and `torch.export` path are never built, so resuming Mode 2 later costs its full 13 tasks.
 
 ## Consequences
