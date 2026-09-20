@@ -101,8 +101,14 @@ approval of ADR-0012 first.
 
 ## 2. In flight right now
 
-**V0.3 G4 (0.3.3 hardware discovery + 0.3.5 resource monitor + 0.3.11 snapshots) is in flight — implementer DONE,
-tester RUNNING.** The brief is `docs/briefs/V0.3-fabric-core.md` **§5d** with the Lead decisions **D9–D12** above it;
+**V0.3 G4 (0.3.3 hardware discovery + 0.3.5 resource monitor + 0.3.11 snapshots) is in flight — tester returned
+FAIL; the batched implementer FIX ROUND is running.** Tester commit `9b94774` (6 new adversarial unit files,
+unit **2568**, component tiers **121**). Two defects plus one Lead finding went into one fix run: **R1 critical**
+(replay dedupe, below) · **H1 major** (NVML has no timeout: `Budget.expired` is checked only *between* probes and
+`runtime.serve()` wraps `asyncio.to_thread(provider.get)` in no `wait_for`; measured 2.011 s against a configured
+0.3 s budget — a wedged NVML means the node never sends its first Hello and **never appears**, against criterion 1)
+· **L1 minor** (the `"v0.3"` shape marker defined twice). **If this session died here:** the fix brief is reproduced
+from these three items; after the fix round, re-run the tester on R1/H1 only, then the reviewer. The brief is `docs/briefs/V0.3-fabric-core.md` **§5d** with the Lead decisions **D9–D12** above it;
 the three tasks are `[~]`. The implementer's work is committed and the tree is clean: `5fa761b` (agent hardware +
 monitor) · `de25e6d` (controller bounds, tracker, snapshots) · `a643ea6` (unit tier) · `a5240e8` (component tier) ·
 `eac66e6` (ARCHITECTURE §19 + migration head 0003). It reported ruff/mypy(77)/lint-imports/gen_protos clean,
