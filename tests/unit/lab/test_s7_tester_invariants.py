@@ -227,9 +227,12 @@ def test_atomic_write_failure_leaves_target_and_tmp_untouched(tmp_path: Path) ->
 
     target = tmp_path / "out.json"
     target.write_text("original\n", encoding="utf-8")
-    # A lone UTF-16 surrogate cannot be encoded as UTF-8: this must fail during
-    # the write to the temp file, not after the atomic rename.
-    with pytest.raises(UnicodeEncodeError):
+    # A lone UTF-16 surrogate cannot be encoded as UTF-8: this must fail before
+    # the atomic rename. Since 0.2.13 it is refused before the temp file is
+    # even created, as an OSError (UnencodableTextError) rather than a bare
+    # UnicodeEncodeError, so that every CLI's `except OSError` handles it; the
+    # invariant this test pins - target untouched, no .tmp left - is unchanged.
+    with pytest.raises(OSError, match="cannot be encoded"):
         atomic_write_text(target, "\udc80 broken surrogate")
     assert target.read_text(encoding="utf-8") == "original\n"  # untouched
     assert not list(tmp_path.glob("*.tmp")), "a failed write left a .tmp file behind"

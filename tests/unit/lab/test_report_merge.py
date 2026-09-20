@@ -78,6 +78,40 @@ BASE = _render([_env("hostA", [1, 2, 3, 4, 5])])
 FRESH = _render([_env("hostA", [9, 9, 9, 9, 9, 9]), _env("hostB", [1, 2, 3, 4, 5])])
 
 
+def _env_s6(host: str, values: list[float]) -> dict:  # type: ignore[type-arg]
+    """An S6-shaped envelope, so a merge into the real S6 report is legitimate."""
+    case = CaseResult(
+        case_id="container_start",
+        label="docker run (warm image)",
+        metrics={"seconds": "s"},
+        samples=[{"seconds": v} for v in values],
+        errors=[],
+    )
+    return make_envelope(
+        spike="S6",
+        topic="S6-environments",
+        link=None,
+        params={},
+        cases=[case],
+        errors=None,
+        git={"commit": "572472f", "dirty": False},
+        host={"hostname": host, "os": "Linux", "os_release": "6.8.0-139-generic"},
+        now=NOW,
+    )
+
+
+#: A fresh S6 render: same spike and roadmap task as the real S6 report, new data.
+S6_FRESH = render_report(
+    read_template(),
+    [_env_s6("JARVISM3", [1.0, 1.1, 1.2, 1.3, 1.4, 1.5])],
+    topic="S6-environments",
+    title="S6 execution environments",
+    day="2026-09-20",
+    task="0.2.10",
+    spike="S6",
+)
+
+
 def _section(text: str, title: str) -> str:
     """Body of ``## <title>`` in ``text`` (test-side parser, deliberately dumb)."""
     lines = text.splitlines(keepends=True)
@@ -225,6 +259,64 @@ def test_a_hand_filled_host_table_cell_is_replaced() -> None:
     assert "(speed: TBD)" in merged
 
 
+# --------------------------------------- a human table glued to the host one
+GENERATED_ROW = (
+    "| hostA | Windows 11 | see inventory JSON | Ethernet (speed: TBD) | TBD |\n"
+)
+
+
+def _glued(table: str) -> str:
+    """``BASE`` with ``table`` pasted right under the host table, no blank line."""
+    return BASE.replace(GENERATED_ROW, GENERATED_ROW + table)
+
+
+NARROW_TABLE = "| my own table | mine |\n|---|---|\n| a | b |\n"
+#: The nastier one: the same number of columns as the generated host table.
+WIDE_TABLE = (
+    "| my header | b | c | d | e |\n|---|---|---|---|---|\n| row | 1 | 2 | 3 | 4 |\n"
+)
+
+
+@pytest.mark.parametrize("table", [NARROW_TABLE, WIDE_TABLE], ids=["narrow", "wide"])
+def test_a_table_pasted_under_the_host_table_survives_and_is_stable(
+    table: str,
+) -> None:
+    """No blank line, so it sits inside the ``|`` run - but it is still the
+    human's text, and nothing human may be dropped silently."""
+    once = merge_report(_glued(table), FRESH)
+    assert table in once
+    assert "hostB" in once  # the generated rows were still refreshed
+    assert merge_report(once, FRESH) == once  # and it does not drift
+
+
+def test_the_generated_host_rows_are_still_replaced_when_a_table_is_glued_on() -> None:
+    merged = merge_report(_glued(NARROW_TABLE), FRESH)
+    # the generated rows are the fresh ones (hostA once, plus the new hostB) ...
+    assert merged.count(GENERATED_ROW) == 1
+    assert merged.count(GENERATED_ROW.replace("hostA", "hostB")) == 1
+    # ... and the human's table was neither dropped nor duplicated
+    assert merged.count("| my own table | mine |") == 1
+
+
+# ------------------------------------------------------------------ BOM / spike
+def test_a_bom_is_stripped_from_the_fresh_render_too() -> None:
+    assert "﻿" not in merge_report(BASE, "﻿" + FRESH)
+
+
+def test_a_report_of_another_spike_is_refused() -> None:
+    other = BASE.replace("Spike: S1", "Spike: S3").replace(
+        "Roadmap task: 0.2.5", "Roadmap task: 0.2.7"
+    )
+    with pytest.raises(ReportMergeError, match="another spike's report"):
+        merge_report(other, FRESH)
+
+
+def test_a_hand_started_report_still_carrying_template_placeholders_merges() -> None:
+    """``<0.2.x>`` / ``<S1-S7 or ->`` are not a spike, they are the template."""
+    hand_started = BASE.replace("Roadmap task: 0.2.5", "Roadmap task: <0.2.x>")
+    assert "hostB" in merge_report(hand_started, FRESH)
+
+
 # ------------------------------------------------------------- idempotence
 def test_two_consecutive_merges_are_identical() -> None:
     once = merge_report(_heavily_edited(), FRESH)
@@ -368,6 +460,19 @@ def test_a_file_that_is_not_utf8_is_refused_and_untouched(tmp_path: Path) -> Non
     assert out.read_bytes() == b"\xff\xfe# S1\x00\x00 report"
 
 
+def test_text_that_cannot_be_encoded_is_refused_and_nothing_is_written(
+    tmp_path: Path,
+) -> None:
+    """A lone surrogate from a result JSON must not escape as a traceback."""
+    out = tmp_path / "r.md"
+    out.write_text(BASE, encoding="utf-8", newline="\n")
+    with pytest.raises(OSError, match="cannot be encoded") as exc:
+        write_report(out, FRESH.replace("hostB", "host\udcffB"))
+    assert "lone surrogate" in str(exc.value) and "unchanged" in str(exc.value)
+    assert out.read_bytes() == BASE.encode("utf-8")
+    assert not list(tmp_path.glob("*.tmp")) and not list(tmp_path.glob(".*.tmp"))
+
+
 def test_writing_over_a_directory_raises_oserror_not_a_silent_pass(
     tmp_path: Path,
 ) -> None:
@@ -386,8 +491,8 @@ def test_the_real_s6_report_keeps_its_prose_when_merged(tmp_path: Path) -> None:
         "the real Laptop 1 measurement must never be modified"
     )
     existing = original.decode("utf-8")
-    # a fresh render of *another* spike's data must not be able to eat the prose
-    merged = merge_report(existing, FRESH)
+    # a fresh S6 render (new numbers, same spike and task) must not eat the prose
+    merged = merge_report(existing, S6_FRESH)
     for prose in (
         "Per laptop: is Docker usable for workloads",  # their Goal
         "Background load, time of day, and anything unusual: Laptop 1 on AC",
@@ -402,5 +507,17 @@ def test_the_real_s6_report_keeps_its_prose_when_merged(tmp_path: Path) -> None:
         existing, "Expected vs actual"
     )
     assert "Laptop 1 on AC" in _section(merged, "Machines & conditions")
-    assert _section(merged, "Results") == _section(FRESH, "Results")
+    assert _section(merged, "Results") == _section(S6_FRESH, "Results")
     assert REAL_S6_REPORT.read_bytes() == original
+
+
+def test_merging_another_spikes_data_into_the_real_s6_report_is_refused() -> None:
+    """S1 numbers under an S6 title, with S6 prose around them, would be a
+    confidently wrong artefact - and is almost always the wrong ``--out``."""
+    existing = REAL_S6_REPORT.read_text(encoding="utf-8")
+    with pytest.raises(ReportMergeError) as exc:
+        merge_report(existing, FRESH)
+    assert "another spike's report" in exc.value.problem
+    assert "'Roadmap task' is '0.2.10'" in exc.value.problem
+    assert "'0.2.5'" in exc.value.problem
+    assert "--force" in str(exc.value)

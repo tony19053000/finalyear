@@ -8,6 +8,7 @@ regenerate only with ``--force``, and write atomically.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from pathlib import Path
 
@@ -20,6 +21,7 @@ from spikes import (
     s6_environments,
     s7_hardware,
 )
+from spikes._harness.envelope import SCHEMA_VERSION
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 REAL_S6_REPORT = REPO_ROOT / "lab" / "reports" / "2026-09-20-S6-environments.md"
@@ -147,6 +149,43 @@ def test_the_written_file_has_no_crlf_even_from_a_crlf_original(
     assert _run(cli, tmp_path, out) == 0
     assert b"\r" not in out.read_bytes()
     assert GOAL in out.read_text(encoding="utf-8")
+
+
+def test_a_result_file_with_a_lone_surrogate_is_refused_not_crashed(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """``"\\ud800"`` is valid JSON but has no UTF-8 encoding. It must come out
+    as the ordinary exit-1 refusal, with the old report byte-identical - not
+    as a ``UnicodeEncodeError`` traceback from inside the write."""
+    out = tmp_path / "report.md"
+    assert _run(CLIS[0], tmp_path, out) == 0
+    _set_goal(out)
+    before = out.read_bytes()
+    results = tmp_path / "2026-09-20-empty"
+    envelope = {
+        "schema_version": SCHEMA_VERSION,
+        "spike": "S1",
+        "topic": "S1-network",
+        "link": "ethernet",
+        "params": {},
+        "cases": {},
+        "errors": [],
+        "git": {"commit": "abc1234", "dirty": False},
+        "host": {"hostname": "host\ud800A", "os": "Windows", "os_release": "11"},
+        "timestamp_utc": "2026-09-20T09:00:00+00:00",
+        "tool": "test",
+    }
+    (results / "poisoned.json").write_text(
+        json.dumps(envelope, ensure_ascii=True), encoding="utf-8"
+    )
+    assert (
+        s1_network.main(["matrix", "--results", str(results), "--out", str(out)])
+        == s1_network.EXIT_IO
+    )
+    assert out.read_bytes() == before
+    err = capsys.readouterr().err
+    assert "cannot be encoded" in err and "unchanged" in err
+    assert not list(tmp_path.glob("*.tmp")) and not list(tmp_path.glob(".*.tmp"))
 
 
 # --------------------------------------------------- the real S6 artefacts

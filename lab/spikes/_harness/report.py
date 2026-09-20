@@ -318,7 +318,9 @@ def read_template(path: Path = TEMPLATE_PATH) -> str:
 # report reproduces a plain render byte for byte. Text a human wrote *inside* a
 # generated region is replaced - that is what "generated" means - and the CLI
 # prints which regions it kept. If the existing file is not shaped like one of
-# our reports, :class:`ReportMergeError` is raised and nothing is written.
+# our reports, or is a *different* spike's report (its ``Roadmap task:`` /
+# ``Spike:`` meta values disagree with the fresh render's),
+# :class:`ReportMergeError` is raised and nothing is written.
 
 GOAL: Final = "Goal"
 MACHINES: Final = "Machines & conditions"
@@ -358,6 +360,12 @@ FORCE_HELP: Final = (
 )
 
 _FENCE_RE: Final = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+#: An unescaped ``|``: a cell separator (``cell()`` writes literal pipes as ``\|``).
+_PIPE_RE: Final = re.compile(r"(?<!\\)\|")
+_DASHES_RE: Final = re.compile(r":?-+:?")
+_BOM: Final = "﻿"
+#: Meta fields of the ``> File: ...`` line that say which spike a report is.
+_IDENTITY_FIELDS: Final = ("Roadmap task", "Spike")
 
 
 class ReportMergeError(ValueError):
@@ -422,8 +430,15 @@ class WriteResult:
 
 
 def _normalise_newlines(text: str) -> str:
-    """CRLF / CR -> LF, so a report edited on Windows merges like any other."""
-    return text.replace("\r\n", "\n").replace("\r", "\n")
+    """CRLF / CR -> LF and no leading BOM, so a report edited on Windows merges
+    like any other.
+
+    PowerShell's ``Set-Content`` / ``Out-File`` (and older Notepad) save UTF-8
+    **with** a BOM. U+FEFF is not whitespace, so a BOM would otherwise hide the
+    ``# `` title line and make every merge refuse for ever. Output stays LF and
+    BOM-free.
+    """
+    return text.lstrip(_BOM).replace("\r\n", "\n").replace("\r", "\n")
 
 
 def _fence_opened(line: str) -> str | None:
@@ -469,21 +484,50 @@ def _split_sections(text: str) -> _Parsed:
     return _Parsed("".join(preamble), tuple(sections))
 
 
+def _columns(line: str) -> int:
+    """How many cell separators a table row has (its shape)."""
+    return len(_PIPE_RE.findall(line))
+
+
+def _is_delimiter_row(line: str) -> bool:
+    """``|---|---|`` & co: the row that *starts* a markdown table's body."""
+    stripped = line.strip()
+    if not stripped.startswith("|"):
+        return False
+    cells = [c.strip() for c in _PIPE_RE.split(stripped)[1:-1] or [""]]
+    return all(c and _DASHES_RE.fullmatch(c) for c in cells)
+
+
 def _host_table_parts(body: str) -> tuple[str, str]:
     """A "Machines & conditions" body as (host table, prose after it).
 
-    The table is the first unbroken run of lines starting with ``|``; every
-    later line is the human's, including a table they added themselves (as
-    long as a blank line separates it from the generated one).
+    The generated table is the run of ``|`` lines that starts at the first one
+    and keeps the *shape* of that header row; everything from there on is the
+    human's. A table they pasted directly under the generated one - no blank
+    line, the easy mistake - is therefore kept, because it gives itself away
+    twice: its rows have a different number of cells, and it brings its own
+    ``|---|`` delimiter row (the generated table has exactly one, right under
+    its header). When the delimiter is what gives it away, the split moves one
+    line up, so the pasted table keeps its own header row too.
+
+    The one case this cannot see is a bare ``|`` row with exactly the shape of
+    a host row and no delimiter under it: it is byte-for-byte what the
+    generator itself writes. Separate your own rows with a blank line.
     """
     lines = body.splitlines(keepends=True)
     start = next((i for i, ln in enumerate(lines) if ln.startswith("|")), None)
     if start is None:
         raise _NoHostTableError(body)
-    end = start
-    while end + 1 < len(lines) and lines[end + 1].startswith("|"):
+    width = _columns(lines[start])
+    end = start + 1
+    while end < len(lines) and lines[end].startswith("|"):
+        if _columns(lines[end]) != width:
+            break  # a differently shaped row: not part of the generated table
+        if end > start + 1 and _is_delimiter_row(lines[end]):
+            end -= 1  # a second table starts here; the row above is its header
+            break
         end += 1
-    return "".join(lines[: end + 1]), "".join(lines[end + 1 :])
+    return "".join(lines[:end]), "".join(lines[end:])
 
 
 def _shape_problem(parsed: _Parsed) -> str | None:
@@ -520,19 +564,58 @@ def _shape_problem(parsed: _Parsed) -> str | None:
     return None
 
 
+def _identity(preamble: str, field: str) -> str | None:
+    """``field``'s value on the ``> File: ...`` meta line, if it has one.
+
+    ``None`` when the line, the field or a real value is missing (a template
+    placeholder such as ``<0.2.x>`` counts as missing, so a report started by
+    hand from TEMPLATE.md still merges).
+    """
+    for line in preamble.splitlines():
+        if not line.lstrip().startswith(">"):
+            continue
+        match = re.search(rf"{re.escape(field)}:\s*([^·\n]*)", line)
+        if match is None:
+            continue
+        value = match.group(1).strip()
+        if value and not (value.startswith("<") and value.endswith(">")):
+            return value
+    return None
+
+
+def _identity_problem(old: _Parsed, new: _Parsed) -> str | None:
+    """Whether ``old`` is a *different* spike's report than ``new``.
+
+    Merging one spike's fresh data into another spike's finished report would
+    leave a file whose title and meta line name one spike while every kept
+    paragraph describes another - a confidently wrong artefact, and almost
+    always the wrong ``--out``.
+    """
+    for field in _IDENTITY_FIELDS:
+        mine, theirs = _identity(old.preamble, field), _identity(new.preamble, field)
+        if mine is not None and theirs is not None and mine != theirs:
+            return (
+                f"this file is another spike's report: its '{field}' is "
+                f"{mine!r}, the report being generated is {theirs!r}"
+            )
+    return None
+
+
 def merge_report(existing: str, fresh: str, *, path: Path | None = None) -> str:
     """``fresh`` with the human-written regions of ``existing`` spliced in.
 
     Raises :class:`TemplateError` if ``fresh`` is not shaped like a report (the
-    template changed under us) and :class:`ReportMergeError` if ``existing``
-    is not. Never returns a partially merged text.
+    template changed under us) and :class:`ReportMergeError` if ``existing`` is
+    not, or if it belongs to another spike. Never returns a partially merged
+    text, and never drops a human region: every region named in
+    :data:`PRESERVED_REGIONS` is taken verbatim from ``existing``.
     """
     new = _split_sections(_normalise_newlines(fresh))
     problem = _shape_problem(new)
     if problem is not None:
         raise TemplateError(f"the generated report cannot be merged: {problem}")
     old = _split_sections(_normalise_newlines(existing))
-    problem = _shape_problem(old)
+    problem = _shape_problem(old) or _identity_problem(old, new)
     if problem is not None:
         raise ReportMergeError(problem, path=path)
     out = [new.preamble]
@@ -555,8 +638,10 @@ def write_report(path: Path, text: str, *, force: bool = False) -> WriteResult:
     ``path`` does not exist, or ``force`` -> ``text`` is written as rendered.
     Otherwise the human regions of the existing file are merged into ``text``
     (:func:`merge_report`). Raises :class:`ReportMergeError` when the existing
-    file is not a report of the expected shape and ``OSError`` when it cannot
-    be read or written; in every failure case ``path`` is left byte-identical.
+    file is not a report of the expected shape or is another spike's, and
+    ``OSError`` when it cannot be read, cannot be written, or holds text that
+    cannot be encoded (:class:`~spikes._harness.atomic.UnencodableTextError`);
+    in every failure case ``path`` is left byte-identical.
     """
     existed = path.exists()
     merge = existed and not force
