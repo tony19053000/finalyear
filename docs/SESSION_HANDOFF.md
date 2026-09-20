@@ -121,9 +121,10 @@ Gates at handoff: ruff + mypy clean (133 files), `tests/unit/lab` **1360 passed*
 **There is no agent-side V0.2 work left.** Do not invent any: 0.2.12 needs real lab data, V0.3 needs the
 inventory of laptops 2–4. If a session starts and the human items in section 3 are still open, the useful
 agent-side options are (a) the small optional follow-ups in the roadmap design change log (0.2.10 #2/#4/#5,
-0.2.13 #2/#4/#5) — each a Lead-direct fix, no subagent — or (b) **preparing V0.3**: re-read ARCHITECTURE for the
-controller ⇄ agent core, list the 0.3.x tasks with their dependencies, and write the front-loaded implementer brief
-for the first coherent task group *without starting code* until the inventory lands.
+0.2.13 #2/#4/#5) — each a Lead-direct fix, no subagent — or (b) **V0.3 preparation is done** — `docs/briefs/V0.3-fabric-core.md` holds the reuse map, 8 design
+decisions the Lead must settle first (D1 identity → ADR-0013, D2/D4 → ADR-0002 amendment), the 7 task groups in
+dependency order, the standing checklist, and a paste-ready G1 brief. When the inventory lands: check §6 of that
+file, write ADR-0013 + the ADR-0002 amendment, then spawn the G1 implementer.
 
 **Documented loss in 0.2.13, not a bug:** hand-edits *inside* a generated region (e.g. filling
 "speed: TBD" or the power-mode cell in the host table) are still overwritten. Recorded in

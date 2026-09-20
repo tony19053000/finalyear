@@ -64,7 +64,7 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 **🧑 Team approval of ADR-0012** — it changes an item `PROJECT_BRIEF` §33 calls relatively fixed.
 Agent-side, **nothing is left in V0.2**: the S3-review follow-up (protocol helpers promoted into `_harness/protocol.py`) is done. Small optional follow-ups from the 0.2.10/0.2.13 reviews are in the roadmap design change log. **0.2.12 must wait for real lab data** — never run it on loopback numbers.
 
-**🧑 Lab runs are now the critical path.** Agent-side spike work in V0.2 is finished; what remains needs real machines: (1) S2 two-laptop runs (`lab/spikes/S2.md` §3), (2) S3 two-laptop runs (`lab/spikes/S3.md` §2), (3) `lab/inventory.py` on all 4 laptops, (4) the ADR-0011 decision + torch install (unblocks S4 0.2.8 / S5 0.2.9), (5) the GitHub push + CI proof below. Agent-side while waiting: nothing required; start 0.2.12 once any lab data lands, then V0.3 once the inventory of laptops 2–4 is in.
+**🧑 Lab runs are now the critical path.** Agent-side spike work in V0.2 is finished; what remains needs real machines: (1) S2 two-laptop runs (`lab/spikes/S2.md` §3), (2) S3 two-laptop runs (`lab/spikes/S3.md` §2), (3) `lab/inventory.py` on all 4 laptops, (4) the ADR-0011 decision + torch install (unblocks S4 0.2.8 / S5 0.2.9), (5) the GitHub push + CI proof below. Agent-side while waiting: nothing required. **V0.3 is planned** in `docs/briefs/V0.3-fabric-core.md` (task groups G1–G7, decisions D1–D8, G1 brief ready); when the inventory of laptops 2–4 is in: settle D1–D4 (ADR-0013 + ADR-0002 amendment), then spawn G1. 0.2.12 once any lab data lands.
 
 In parallel, 🧑 **GitHub push + CI proof** (only humans push):
 1. Create a **private** GitHub repo (no README/license/.gitignore).
