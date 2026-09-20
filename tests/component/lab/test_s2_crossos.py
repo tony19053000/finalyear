@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import math
 import os
 import signal
 import socket
@@ -35,6 +36,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, Final
 
+import grpc
 import pytest
 
 REPO_ROOT: Final = Path(__file__).resolve().parents[3]
@@ -44,10 +46,11 @@ if str(LAB_DIR) not in sys.path:
     sys.path.insert(0, str(LAB_DIR))
 
 from spikes import s2_crossos as cli  # noqa: E402
-from spikes._harness.envelope import load_dir, validate  # noqa: E402
+from spikes._harness.envelope import load_dir, validate, write_envelope  # noqa: E402
 from spikes._s2 import client as probe  # noqa: E402
 from spikes._s2 import grpcsrv  # noqa: E402
 from spikes._s2.httpsrv import S2HttpServer  # noqa: E402
+from spikes._s2.protocol import METHOD_DOWNLOAD  # noqa: E402
 from spikes._s2.run import ClientConfig, run_client  # noqa: E402
 from spikes._s2.server import S2Server, ServerLimits  # noqa: E402
 
@@ -867,3 +870,235 @@ def test_grpc_session_reader_thread_joins_after_close(server: S2Server) -> None:
         t.ident for t in threading.enumerate() if t.name == "s2-session-client"
     } - before
     assert not leaked, "the client's session reader thread did not join after close()"
+
+
+# ===================================================== tester round 2 (0.2.6)
+# Independent verification of the six fix-round defects, from S2.md's success
+# criteria rather than from the implementation: real `serve` subprocesses for
+# the so_reuseport fix, a heavier start/stop race, the real gRPC Download
+# handler fed NaN/Infinity, and a malformed-cases result file through the
+# actual `report` CLI end to end.
+
+
+def test_two_serve_processes_same_grpc_port_second_refused_first_survives(
+    tmp_path: Path,
+) -> None:
+    """(Defect 1, verified at the CLI/subprocess level, not just S2GrpcServer.)
+    A stale ``serve`` holding the gRPC port must not be silently joined via
+    SO_REUSEPORT: a second, independent ``serve`` process on the same gRPC
+    port (different HTTP port, so only the gRPC bind can conflict) must be
+    refused with the documented "cannot listen" message and exit 1 -- no
+    traceback -- while the first server keeps answering real client traffic,
+    and the second process's own HTTP port must be free again immediately
+    (no lingering listener from the process that failed to fully start)."""
+    grpc_port = _free_port()
+    http_port_a = _free_port()
+    http_port_b = _free_port()
+    ready_a = tmp_path / "a.ready.json"
+    log_a = tmp_path / "a.log"
+    argv_a = _cmd(
+        "serve", "--bind", "127.0.0.1", "--http-port", str(http_port_a),
+        "--grpc-port", str(grpc_port), "--name", "first", "--idle", "30",
+        "--io-timeout", "5", "--ready-file", str(ready_a),
+    )  # fmt: skip
+    with log_a.open("wb") as log_file_a:
+        proc_a = subprocess.Popen(
+            argv_a,
+            cwd=REPO_ROOT,
+            stdin=subprocess.DEVNULL,
+            stdout=log_file_a,
+            stderr=subprocess.STDOUT,
+        )
+        try:
+            deadline = time.monotonic() + 20
+            while time.monotonic() < deadline and not ready_a.exists():
+                if proc_a.poll() is not None:
+                    break
+                time.sleep(0.05)
+            assert ready_a.exists(), log_a.read_text(encoding="utf-8", errors="replace")
+
+            proc_b = subprocess.run(
+                _cmd(
+                    "serve", "--bind", "127.0.0.1", "--http-port", str(http_port_b),
+                    "--grpc-port", str(grpc_port), "--name", "second",
+                    "--idle", "5", "--io-timeout", "5",
+                ),
+                cwd=REPO_ROOT,
+                capture_output=True,
+                text=True,
+                timeout=20,
+            )  # fmt: skip
+            assert proc_b.returncode == cli.EXIT_IO, proc_b.stderr
+            assert "cannot listen" in proc_b.stderr
+            assert "Traceback" not in proc_b.stderr
+
+            # the second (failed) process must not leave its own HTTP port bound
+            with socket.socket() as check:
+                check.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                check.bind(("127.0.0.1", http_port_b))
+
+            # the first server must still be fully alive and correct
+            out_dir = tmp_path / "raw"
+            code = cli.main(_client_argv(http_port_a, grpc_port, out_dir))
+            assert code == cli.EXIT_OK
+        finally:
+            if proc_a.poll() is None:
+                proc_a.terminate()
+                try:
+                    proc_a.wait(timeout=15)
+                except subprocess.TimeoutExpired:
+                    proc_a.kill()
+                    proc_a.wait(timeout=15)
+    assert proc_a.poll() is not None, "first serve process leaked"
+
+
+def test_start_stop_heavy_race_many_threads_many_iterations() -> None:
+    """(Defect 2, heavier than the fix-round's 5x1-vs-1 race.) Several threads
+    call ``start()`` *and* several call ``stop()`` concurrently, repeated many
+    times, to stress the ``_lifecycle`` lock beyond the single-racer case."""
+    failures: list[BaseException] = []
+    for _ in range(15):
+        srv = grpcsrv.S2GrpcServer(
+            "127.0.0.1",
+            0,
+            name="race",
+            log=lambda _m: None,
+            touch=lambda: None,
+            note_error=lambda _m: None,
+        )
+        errors: list[BaseException] = []
+
+        def _call(method: Any, errors: list[BaseException] = errors) -> None:
+            try:
+                method()
+            except BaseException as exc:  # noqa: BLE001
+                errors.append(exc)
+
+        threads = [
+            threading.Thread(target=_call, args=(srv.start,)) for _ in range(4)
+        ] + [threading.Thread(target=_call, args=(srv.stop,)) for _ in range(4)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=15)
+        assert all(not t.is_alive() for t in threads)
+        failures += errors
+    assert not failures, (
+        f"start()/stop() raised in a {8}-thread race in "
+        f"{len(failures)} of 15 attempts: {failures[0]!r}"
+    )
+
+
+# ================================================== real gRPC Download + NaN
+def _raw_download(
+    server: S2Server, request_body: bytes, *, timeout: float = 5.0
+) -> tuple[list[bytes], grpc.RpcError | None]:
+    assert server.grpc is not None
+    channel = grpc.insecure_channel(f"127.0.0.1:{server.grpc.port}")
+    try:
+        grpc.channel_ready_future(channel).result(timeout=timeout)
+        call: grpc.UnaryStreamMultiCallable[bytes, bytes] = channel.unary_stream(
+            METHOD_DOWNLOAD
+        )
+        chunks: list[bytes] = []
+        try:
+            stream = call(request_body, timeout=timeout)
+            chunks = list(stream)
+            return chunks, None
+        except grpc.RpcError as exc:
+            return chunks, exc
+    finally:
+        channel.close()
+
+
+@pytest.mark.parametrize("bad_value", ["NaN", "Infinity", "-Infinity"])
+def test_grpc_download_non_finite_bytes_is_invalid_argument_server_survives(
+    server: S2Server, bad_value: str
+) -> None:
+    """(Defect 4, exercised through the real gRPC handler, not just
+    ``blob_size`` in isolation.) A peer that sends ``{"bytes": NaN}`` (the
+    stdlib's own ``json`` module happily *decodes*, even though ``encode()``
+    refuses to *emit* it with ``allow_nan=False``) must get a clean
+    ``INVALID_ARGUMENT`` -- never a crashed handler thread, never a hung
+    stream -- and the server must go on serving normally afterwards."""
+    # bypass encode()'s allow_nan=False: craft the wire body by hand, exactly
+    # as a non-compliant or malicious peer could.
+    body = json.dumps({"op": "download", "bytes": json.loads(bad_value)}).encode(
+        "utf-8"
+    )
+    chunks, error = _raw_download(server, body)
+    assert chunks == []
+    assert error is not None
+    assert error.code() == grpc.StatusCode.INVALID_ARGUMENT, error
+    # the server must still be completely usable afterwards
+    good = json.dumps({"op": "download", "bytes": 16}).encode("utf-8")
+    chunks2, error2 = _raw_download(server, good)
+    assert error2 is None
+    assert sum(len(c) for c in chunks2) == 16
+
+
+def test_grpc_download_nan_does_not_increment_download_counter() -> None:
+    """A rejected, malformed request must not be counted as a served
+    download: ``blob_size`` raises before ``self.counters["download"] += 1``
+    runs (see ``_download`` in grpcsrv.py)."""
+    srv = grpcsrv.S2GrpcServer(
+        "127.0.0.1",
+        0,
+        name="counter-check",
+        log=lambda _m: None,
+        touch=lambda: None,
+        note_error=lambda _m: None,
+    )
+    srv.start()
+    try:
+        channel = grpc.insecure_channel(f"127.0.0.1:{srv.port}")
+        try:
+            grpc.channel_ready_future(channel).result(timeout=5)
+            call: grpc.UnaryStreamMultiCallable[bytes, bytes] = channel.unary_stream(
+                METHOD_DOWNLOAD
+            )
+            body = json.dumps(
+                {"op": "download", "bytes": math.nan}, allow_nan=True
+            ).encode("utf-8")
+            with pytest.raises(grpc.RpcError) as excinfo:
+                list(call(body, timeout=5))
+            assert excinfo.value.code() == grpc.StatusCode.INVALID_ARGUMENT
+        finally:
+            channel.close()
+        assert srv.counters["download"] == 0
+    finally:
+        srv.stop()
+
+
+# ======================================= malformed cases through cmd_report
+def test_cmd_report_malformed_case_entry_end_to_end(tmp_path: Path) -> None:
+    """(Defect 6, through the real ``report`` CLI subcommand end to end, not
+    just ``direction_verdict`` in isolation.) A result file that is
+    schema-valid overall (``cases`` is a dict) but whose *value* for one case
+    id is not an object -- a hand-edited or future-buggier-version file --
+    must not crash ``cmd_report``: the report must still be written, still
+    contain the other, well-formed direction, and mark the malformed cell
+    ``INVALID (malformed)``, never ``yes``."""
+    out_dir = tmp_path / "raw"
+    with _serve_process(tmp_path, "cli-server") as ports:
+        code = cli.main(_client_argv(ports["http_port"], ports["grpc_port"], out_dir))
+        assert code == cli.EXIT_OK
+    (doc_path,) = out_dir.glob("*.json")
+    doc = json.loads(doc_path.read_text(encoding="utf-8"))
+    # corrupt one case entry the way a hand edit or a buggy writer could
+    doc["cases"]["http-ping"] = "not-an-object-anymore"
+    doc["cases"]["totally-unexpected-case"] = ["also", "garbage"]
+    write_envelope(doc, doc_path)
+
+    report = tmp_path / "S2-malformed.md"
+    rc = cli.main(
+        [
+            "report", "--results", str(out_dir), "--out", str(report),
+            "--hosts", "L1=cli-client,L2=cli-server",
+        ]
+    )  # fmt: skip
+    assert rc == cli.EXIT_OK, "a malformed case entry must not turn into a crash"
+    text = report.read_text(encoding="utf-8")
+    assert "S2 cross-OS reachability" in text
+    assert "| L1 -> L2 |" in text
+    assert "INVALID (malformed)" in text

@@ -12,7 +12,7 @@ producing a half-filled report.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
@@ -72,25 +72,49 @@ def cell(text: object) -> str:
     return str(text).replace("|", "\\|").replace("\r", " ").replace("\n", " ")
 
 
+_EMPTY_SUMMARY: Final = Summary(0, None, None, None, None, None, None)
+
+
 def result_rows(envelopes: Sequence[dict[str, JSON]]) -> list[ResultRow]:
-    """One row per (envelope, case, metric), in file then case-id order."""
+    """One row per (envelope, case, metric), in file then case-id order.
+
+    A result file is data written by another machine, possibly hand-edited:
+    a case entry that is not an object, or a ``summary``/``metrics`` that is
+    not a mapping, is rendered as one **INVALID** row (n = 0) that says so,
+    never crashed on and never counted as a measurement.
+    """
     rows: list[ResultRow] = []
     for doc in envelopes:
         host = host_label(doc)
         for case_id in sorted(doc["cases"]):
             case = doc["cases"][case_id]
+            if not isinstance(case, Mapping):
+                rows.append(
+                    ResultRow(
+                        case=cell(f"[{link_name(doc['link'])}] {host}: {case_id}"),
+                        metric=cell(f"malformed case entry ({type(case).__name__})"),
+                        unit="",
+                        summary=_EMPTY_SUMMARY,
+                    )
+                )
+                continue
             label = case.get("label") or case_id
-            units: dict[str, str] = case.get("metrics", {})
-            for metric in sorted(case.get("summary", {})):
+            units = case.get("metrics")
+            if not isinstance(units, Mapping):
+                units = {}
+            summaries = case.get("summary")
+            if not isinstance(summaries, Mapping):
+                summaries = {}
+            for metric in sorted(summaries):
                 try:
-                    summary = Summary.from_json(case["summary"][metric])
+                    summary = Summary.from_json(summaries[metric])
                 except (TypeError, ValueError, AttributeError):
-                    summary = Summary(0, None, None, None, None, None, None)
+                    summary = _EMPTY_SUMMARY
                 rows.append(
                     ResultRow(
                         case=cell(f"[{link_name(doc['link'])}] {host}: {label}"),
                         metric=cell(metric),
-                        unit=cell(units.get(metric, "")),
+                        unit=cell(units.get(metric) or ""),
                         summary=summary,
                     )
                 )
@@ -121,19 +145,46 @@ def notes(envelopes: Sequence[dict[str, JSON]], rows: Sequence[ResultRow]) -> st
     for doc in envelopes:
         src = doc.get("_source", host_label(doc))
         items.extend(
-            f"- `{src}`: run error {err.get('failure_type')}: {err.get('message')}"
-            for err in doc.get("errors", [])
+            f"- `{src}`: run error {_describe(err)}"
+            for err in _records(doc.get("errors"))
         )
         for case_id in sorted(doc["cases"]):
             case = doc["cases"][case_id]
+            if not isinstance(case, Mapping):
+                items.append(
+                    f"- `{src}` {case_id}: malformed case entry "
+                    f"({type(case).__name__}, not an object) - not a measurement."
+                )
+                continue
             items.extend(
-                f"- `{src}` {case_id} rep {err.get('rep')} ({err.get('phase')}): "
-                f"{err.get('failure_type')}: {err.get('message')}"
-                for err in case.get("errors", [])
+                f"- `{src}` {case_id} rep {_field(err, 'rep')} ({_field(err, 'phase')}): "
+                f"{_describe(err)}"
+                for err in _records(case.get("errors"))
             )
             if case.get("aborted"):
                 items.append(f"- `{src}` {case_id}: aborted after a fatal error.")
     return "\n".join(items) + "\n" if items else "- none\n"
+
+
+def _records(errors: object) -> list[object]:
+    """An ``errors`` value as a list, whatever shape a result file gave it.
+
+    A non-list value is kept as one opaque record, never dropped."""
+    if errors is None or errors == []:
+        return []
+    if isinstance(errors, Sequence) and not isinstance(errors, str | bytes):
+        return list(errors)
+    return [errors]
+
+
+def _field(err: object, key: str) -> object:
+    return err.get(key) if isinstance(err, Mapping) else None
+
+
+def _describe(err: object) -> str:
+    if not isinstance(err, Mapping):
+        return cell(f"malformed error record: {err!r}")
+    return cell(f"{err.get('failure_type')}: {err.get('message')}")
 
 
 def _replace_once(text: str, old: str, new: str) -> str:

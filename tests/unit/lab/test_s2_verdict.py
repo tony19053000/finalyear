@@ -10,6 +10,7 @@ for absurd case ids / free text, and the ``outbound-only`` TBD/yes/no logic.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import pytest
@@ -533,3 +534,134 @@ def test_malformed_errors_value_is_never_silently_dropped() -> None:
     unreadable result file can never be upgraded to ``yes``."""
     case = {"samples": _samples(MIN_VALID_REPS), "errors": "kaboom"}
     assert v.case_verdict(case).value == "flaky 5/6"
+
+
+# =============================================== tester round 2: defect 3 (warmup)
+def test_session_verdict_ignores_warmup_errors_mixed_with_all_survived() -> None:
+    """A session case where every *measured* repetition survived, plus one
+    warmup-phase failure, must still be ``yes`` -- the session equivalent of
+    the fixed case_verdict defect."""
+    case = {
+        "samples": _samples(MIN_VALID_REPS, survived=True),
+        "errors": [_warmup_error()],
+    }
+    result = v.session_verdict(case)
+    assert result.value == v.YES, result
+
+
+def test_session_verdict_measured_error_still_counts_alongside_warmup_noise() -> None:
+    """One warmup failure plus one *measured* failure on a session case must
+    report the measured failure (flaky), never silently absorb it into the
+    warmup noise and never round up to yes."""
+    case = {
+        "samples": _samples(MIN_VALID_REPS, survived=True),
+        "errors": [
+            _warmup_error(),
+            {
+                "rep": 3,
+                "phase": "measure",
+                "failure_type": "stream_dropped",
+                "message": "m",
+            },
+        ],
+    }
+    result = v.session_verdict(case)
+    assert result.value == "flaky 5/6"
+    assert result.value != v.YES
+    assert result.detail == "stream_dropped: m"
+
+
+@pytest.mark.parametrize(
+    "phase_value",
+    [None, 123, ["warmup"], {"nested": "warmup"}, "Warmup", "WARMUP", "", "measure "],
+)
+def test_unexpected_phase_types_are_conservatively_treated_as_measured(
+    phase_value: Any,
+) -> None:
+    """Only the exact string ``"warmup"`` may exempt an error from the
+    verdict. Any other type or spelling -- None, an int, a list, a dict, a
+    different case, trailing whitespace -- must count as measured, the
+    conservative reading the fix-round docstring promises: "no unknown input
+    can buy a yes"."""
+    err = {"rep": 0, "phase": phase_value, "failure_type": "timeout", "message": "m"}
+    case = {"samples": _samples(MIN_VALID_REPS), "errors": [err]}
+    result = v.case_verdict(case)
+    assert result.value == "flaky 5/6", (phase_value, result.value)
+    assert v.warmup_errors(case) == []
+    assert v.measured_errors(case) == [err]
+
+
+def test_exact_warmup_phase_is_excluded_from_measured() -> None:
+    err = _warmup_error()
+    case = {"samples": _samples(MIN_VALID_REPS), "errors": [err]}
+    assert v.measured_errors(case) == []
+    assert v.warmup_errors(case) == [err]
+    assert v.case_verdict(case).value == v.YES
+
+
+@pytest.mark.parametrize(
+    ("n_samples", "n_warmup_errors", "n_measured_errors"),
+    [
+        (MIN_VALID_REPS, 5, 0),
+        (MIN_VALID_REPS, 20, 0),
+        (MIN_VALID_REPS - 1, 3, 0),
+        (0, 4, 0),
+        (MIN_VALID_REPS, 2, 1),
+        (3, 2, 1),
+    ],
+)
+def test_no_mix_of_warmup_noise_and_sample_count_buys_yes_without_five_measured(
+    n_samples: int, n_warmup_errors: int, n_measured_errors: int
+) -> None:
+    """The highest-value property, now stress-tested with warmup noise added:
+    no combination of sample count plus warmup errors plus measured errors
+    can produce ``yes`` unless there are exactly >=5 measured samples and zero
+    measured errors."""
+    errors = [_warmup_error(i) for i in range(n_warmup_errors)] + [
+        {"rep": 100 + i, "phase": "measure", "failure_type": "timeout", "message": "m"}
+        for i in range(n_measured_errors)
+    ]
+    case = {"samples": _samples(n_samples), "errors": errors}
+    case_result = v.case_verdict(case)
+    session_case = {
+        "samples": _samples(n_samples, survived=True),
+        "errors": errors,
+    }
+    session_result = v.session_verdict(session_case)
+    should_be_yes = n_samples >= MIN_VALID_REPS and n_measured_errors == 0
+    if should_be_yes:
+        assert case_result.value == v.YES
+        assert session_result.value == v.YES
+    else:
+        assert case_result.value != v.YES
+        assert session_result.value != v.YES
+
+
+# ==================================== tester round 2: JSON round-trip (defect 3)
+def test_direction_verdict_to_json_round_trips_warmup_notes_through_json_module() -> (
+    None
+):
+    """``to_json()`` must produce something that actually survives a real
+    ``json.dumps``/``json.loads`` round trip (not just an in-memory dict
+    comparison), and the reloaded structure must still carry the warmup
+    notes -- this is what the report generator and any downstream tooling
+    actually consume."""
+    doc = _doc(
+        cases={
+            "http-ping": {
+                "samples": _samples(MIN_VALID_REPS),
+                "errors": [_warmup_error(2)],
+            },
+            "grpc-bidi-idle30s-kaon": {
+                "samples": _samples(MIN_VALID_REPS, survived=True),
+                "errors": [_warmup_error(3)],
+            },
+        }
+    )
+    dv = v.direction_verdict(doc)
+    encoded = json.dumps(dv.to_json())
+    reloaded = json.loads(encoded)
+    assert reloaded["warmup_notes"] == dv.notes()
+    assert len(reloaded["warmup_notes"]) == 2
+    assert reloaded["cases"]["http-ping"]["value"] == v.YES
+    assert reloaded["sessions"]["grpc-bidi-idle30s-kaon"]["value"] == v.YES

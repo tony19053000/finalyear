@@ -154,3 +154,27 @@ def test_pipe_in_cells_is_escaped() -> None:
     # every table row of the Results table still has the same number of cells
     rows = [ln for ln in text.splitlines() if ln.startswith("| [Ethernet]")]
     assert rows and all(ln.count("|") - ln.count("\\|") == 8 for ln in rows)
+
+
+@pytest.mark.parametrize("garbage", ["not-an-object", 7, [], None, True])
+def test_malformed_case_entry_becomes_invalid_row_not_crash(garbage: object) -> None:
+    """A result file is data from another machine, possibly hand-edited: a
+    case value that is not an object must be rendered as one INVALID row and a
+    note, never crash the whole report (found by the S2 tester round 2)."""
+    env = _env("hostA", [1, 2, 3, 4, 5])
+    env["cases"]["tcp"] = garbage
+    text = _render([env])
+    assert "malformed case entry" in text
+    assert "INVALID (n<5)" in text
+    assert "not a measurement" in text
+
+
+def test_malformed_errors_and_metrics_do_not_crash_the_report() -> None:
+    env = _env("hostA", [1, 2, 3, 4, 5])
+    env["cases"]["tcp"]["errors"] = "kaboom"  # not a list
+    env["cases"]["tcp"]["metrics"] = 3  # not a mapping
+    env["cases"]["tcp"]["summary"] = "nope"  # not a mapping
+    env["errors"] = [["not", "a", "record"]]
+    text = _render([env])
+    assert "malformed error record" in text
+    assert "run error malformed error record" in text
