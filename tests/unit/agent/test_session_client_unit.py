@@ -297,3 +297,78 @@ def test_heartbeat_bounds_keep_criterion_2_reachable() -> None:
     interval that could make a healthy node look OFFLINE for a whole minute."""
     assert MIN_HEARTBEAT_INTERVAL_S < 2.0 < MAX_HEARTBEAT_INTERVAL_S
     assert MAX_HEARTBEAT_INTERVAL_S <= 60.0
+
+
+# ------------------------------------------------------- G3 review follow-ups
+@pytest.mark.asyncio
+async def test_reconcile_replay_from_sequence_is_zero_when_nothing_is_replayed(
+    client: AgentSessionClient,
+) -> None:
+    """Wire contract (agent.proto Reconcile): ``replay_from_sequence`` is 0 when the
+    ring is empty. The G3 implementation sent ``_report_sequence + 1`` with zero
+    messages following, which a gap-detecting controller would read as a lost
+    report (reviewer blocking finding)."""
+    call = _online(client)
+    await client._reconcile_and_replay()
+    reconciles = [m for m in call.written if m.WhichOneof("payload") == "reconcile"]
+    assert len(reconciles) == 1
+    assert reconciles[0].reconcile.replay_from_sequence == 0
+    assert len(call.written) == 1  # nothing replayed
+
+
+@pytest.mark.asyncio
+async def test_reconcile_replay_from_sequence_is_the_first_pending_report(
+    client: AgentSessionClient,
+) -> None:
+    call = _online(client)
+    first = await client.send_report(
+        "resource_update", agent_pb2.ResourceUpdate(cpu_percent=1.0)
+    )
+    await client.send_report(
+        "resource_update", agent_pb2.ResourceUpdate(cpu_percent=2.0)
+    )
+    # the controller acked the first one; only the second is pending
+    await client._handle(
+        agent_pb2.ControllerMessage(
+            message_id=new_command_id(),
+            session_id=client.session_id,
+            ack=agent_pb2.Ack(acked_message_id=first),
+        )
+    )
+    call.written.clear()
+    await client._reconcile_and_replay()
+    assert call.written[0].reconcile.replay_from_sequence == 2
+    replayed = [
+        m for m in call.written[1:] if m.WhichOneof("payload") == "resource_update"
+    ]
+    assert [m.resource_update.cpu_percent for m in replayed] == [2.0]
+
+
+@pytest.mark.asyncio
+async def test_a_ping_with_a_foreign_session_id_is_dropped_not_answered(
+    client: AgentSessionClient,
+) -> None:
+    """ADR-0002 Updates §2: messages carrying another session's id are dropped
+    and counted - Pings included (reviewer non-blocking #1)."""
+    call = _online(client)
+    ping_id = new_command_id()
+    await client._handle(
+        agent_pb2.ControllerMessage(
+            message_id=ping_id,
+            session_id=new_session_id(),  # not ours
+            ping=agent_pb2.Ping(ping_id=ping_id),
+        )
+    )
+    assert call.written == []
+    assert client.stats.pings_answered == 0
+    assert client.stats.stale_messages == 1
+
+
+def test_reconnect_cap_cannot_exceed_criterion_3(tmp_path: Path) -> None:
+    from meshforge.common.errors import ConfigError
+
+    with pytest.raises(ConfigError, match="cap_s"):
+        AgentSettings.load(
+            data_dir=tmp_path,
+            agent={"controller_address": "127.0.0.1:1", "reconnect": {"cap_s": 16.0}},
+        )

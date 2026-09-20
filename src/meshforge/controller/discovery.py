@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import ipaddress
 import socket
+from contextlib import suppress
 from typing import Any
 
 from meshforge.common.logging import get_logger
@@ -79,6 +80,8 @@ class ServiceAdvertiser:
                 error=str(exc),
                 cause=type(exc).__name__,
             )
+            with suppress(Exception):  # best effort: do not leak the UDP socket
+                await azc.async_close()
             return
         self._azc = azc
         self._info = info

@@ -74,7 +74,14 @@ class LivenessSettings(SectionModel):
     """
 
     heartbeat_interval_s: float = Field(
-        default=2.0, gt=0, description="Agents send one Heartbeat per interval."
+        default=2.0,
+        ge=0.1,
+        le=30.0,
+        description=(
+            "Agents send one Heartbeat per interval. Bounded to the agent's clamp "
+            "[0.1 s, 30 s] so a configured value is never silently changed on the "
+            "agent side."
+        ),
     )
     miss_allowance_s: float = Field(
         default=0.5,

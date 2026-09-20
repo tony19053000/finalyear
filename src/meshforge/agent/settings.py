@@ -102,7 +102,10 @@ class ReconnectSettings(SectionModel):
 
     base_s: float = Field(default=0.5, gt=0, description="First backoff ceiling.")
     cap_s: float = Field(
-        default=15.0, gt=0, description="Upper bound of the backoff ceiling."
+        default=15.0,
+        gt=0,
+        le=15.0,
+        description="Upper bound of the backoff ceiling (<= 15 s, V0.3 criterion 3).",
     )
     reset_after_s: float = Field(
         default=30.0,

@@ -8,7 +8,9 @@ cycle (state ``DISCOVERING``). Two implementations:
   (default ``_meshforge-ctl._tcp.local.``) for at most ``timeout_s``, resolves the
   first record whose address passes :func:`meshforge.common.netaddr.is_lan_address`
   (private / loopback / link-local only - a record pointing at a public address is
-  ignored and logged, CLAUDE.md §9), and returns ``"ip:port"``. Nothing found ->
+  ignored and logged, CLAUDE.md §9), and returns ``"ip:port"``. **Trust point:**
+  mDNS records are unauthenticated until pairing/mTLS exist (V0.7, ADR-0008); the
+  LAN filter *limits* the target, it does not authenticate it. Nothing found ->
   ``None`` -> the client goes to BACKOFF and browses again next cycle; it never
   spins.
 

@@ -70,6 +70,7 @@ log = get_logger(__name__)
 
 _COMMAND_DEDUPE_WINDOW: Final = 10_000
 _CLOSE_GRACE_S: Final = 2.0
+"""After half-closing on stop, how long to wait for the controller's final status."""
 #: Bounds on the controller-owned heartbeat interval. Below the minimum the
 #: agent would spin; above the maximum a buggy or hostile controller could buy
 #: itself days of silence (a value of 10**9 ms is ~11.6 days). Out-of-range
@@ -88,7 +89,6 @@ def clamp_heartbeat_interval_s(requested_s: float) -> float:
     return min(max(requested_s, MIN_HEARTBEAT_INTERVAL_S), MAX_HEARTBEAT_INTERVAL_S)
 
 
-"""After half-closing on stop, how long to wait for the controller's final status."""
 _UNACKED_CONTROLLER_PAYLOADS: Final[frozenset[str]] = frozenset(
     {"hello_ack", "ack", "ping"}
 )
@@ -494,7 +494,7 @@ class AgentSessionClient:
             )
             call.cancel()
             return await self._finish_stream(
-                self._stream_end(grpc.StatusCode.CANCELLED, "bad heartbeat interval")
+                self._stream_end(grpc.StatusCode.CANCELLED, violation)
             )
 
         self._heartbeat_task = asyncio.create_task(
@@ -526,9 +526,8 @@ class AgentSessionClient:
 
     async def _reconcile_and_replay(self) -> None:
         pending = self.ring.pending()
-        replay_from = self.ring.first_sequence()
-        if replay_from is None:
-            replay_from = self._report_sequence + 1
+        # Wire contract (agent.proto Reconcile): 0 when nothing is replayed.
+        replay_from = self.ring.first_sequence() or 0
         await self._write(
             agent_pb2.AgentMessage(
                 reconcile=agent_pb2.Reconcile(
@@ -604,6 +603,17 @@ class AgentSessionClient:
 
     async def _handle(self, msg: agent_pb2.ControllerMessage) -> None:
         which = msg.WhichOneof("payload")
+        if msg.session_id != self.session_id:
+            self.stats.stale_messages += 1
+            log.warning(
+                "agent.session.stale_message",
+                node_id=self.node_id,
+                session_id=self.session_id,
+                message_session_id=msg.session_id,
+                payload=which,
+                count=self.stats.stale_messages,
+            )
+            return
         if which == "ping":
             # Before anything else: RTT is measured on this reply.
             await self._write(
@@ -617,17 +627,6 @@ class AgentSessionClient:
                 node_id=self.node_id,
                 session_id=self.session_id,
                 detail="second HelloAck on an open stream (ignored)",
-            )
-            return
-        if msg.session_id != self.session_id:
-            self.stats.stale_messages += 1
-            log.warning(
-                "agent.session.stale_message",
-                node_id=self.node_id,
-                session_id=self.session_id,
-                message_session_id=msg.session_id,
-                payload=which,
-                count=self.stats.stale_messages,
             )
             return
         if which == "ack":
