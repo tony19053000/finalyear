@@ -24,8 +24,9 @@ behind its own NAT, so a result from there would answer a different question
 than ADR-0009 asks.
 
 Exit codes: ``0`` done; ``1`` could not bind / write output; ``2`` usage error;
-``3`` results written but incomplete (peer lost, failed repetitions - see
-``errors`` in the JSON); ``4`` refused: running inside WSL; ``130`` interrupted.
+``3`` results written but incomplete (peer lost, a failed *measured* repetition -
+see ``errors`` in the JSON; a failed warmup repetition never makes a run
+incomplete); ``4`` refused: running inside WSL; ``130`` interrupted.
 """
 
 from __future__ import annotations
@@ -81,6 +82,7 @@ from spikes._s2.protocol import (  # noqa: E402
 from spikes._s2.run import TOPIC, ClientConfig, ClientRun, run_client  # noqa: E402
 from spikes._s2.server import S2Server, ServerLimits  # noqa: E402
 from spikes._s2.verdict import (  # noqa: E402
+    SAME_MACHINE_MARK,
     direction_verdict,
     direction_verdicts,
     expected_directions,
@@ -386,8 +388,7 @@ def cmd_serve(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
                 json.dumps({"http_port": http_port, "grpc_port": grpc_port}),
             )
         except OSError as exc:
-            server.stop()
-            server.serve()
+            server.close()  # both listeners released; nothing was served
             _say(f"serve: cannot write --ready-file: {exc}")
             return EXIT_IO
     log(
@@ -425,7 +426,8 @@ def _check_server(text: str, *, allow_any: bool) -> str:
 
 def print_summary(run: ClientRun) -> None:
     verdict = direction_verdict(run.envelope)
-    _say(f"--- S2 verdict [{run.envelope['link']}] {verdict.direction} ---")
+    marker = f" {SAME_MACHINE_MARK}" if verdict.same_host else ""
+    _say(f"--- S2 verdict [{run.envelope['link']}{marker}] {verdict.direction} ---")
     _say(f"client: {verdict.client_os}    server: {verdict.server_os}")
     for name, item in {**verdict.cases, **verdict.sessions}.items():
         _say(f"  {name:<28} {item.cell()}")
@@ -442,6 +444,13 @@ def print_summary(run: ClientRun) -> None:
         _say("  what to fix:")
         for fix in fixes:
             _say(f"    - {fix}")
+    caveats = verdict.caveats()
+    if caveats:
+        # same machine / same OS / WSL: the run worked, but it is not the
+        # evidence ADR-0009 asks for, and the operator must hear it now
+        _say("  what this run is NOT:")
+        for caveat in caveats:
+            _say(f"    - {caveat}")
     notes = verdict.notes()
     if notes:
         # warmup-only failures: reported, but they change no verdict

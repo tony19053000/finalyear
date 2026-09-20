@@ -16,10 +16,19 @@ ran every requested repetition cleanly. They are not dropped either: they are
 surfaced as ``warmup_notes`` on the direction, under "Diagnoses and fixes".
 An error with no ``phase`` at all is counted as measured - the conservative
 reading, so no unknown input can buy a ``yes``.
+
+A row is also judged on **what it can prove**: a run whose client and server
+were the same machine (loopback address, or identical hostnames) is marked
+``same machine`` in the table and its outbound-only verdict stays ``TBD`` -
+a loopback path crosses no firewall. A run whose two sides report the same
+operating system is not a cross-OS result and says so; neither flag changes a
+reachability cell, they only stop a pasted table from passing as evidence it
+is not.
 """
 
 from __future__ import annotations
 
+import ipaddress
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Final
@@ -36,6 +45,15 @@ INVALID: Final = f"INVALID (n<{MIN_VALID_REPS})"
 #: A result file whose case entry is not an object at all (hand-edited, or
 #: written by a buggier version): reported, never crashed on, never ``yes``.
 MALFORMED: Final = "INVALID (malformed)"
+#: Suffix on the ``link`` cell of a row measured against the same machine.
+SAME_MACHINE_MARK: Final = "⚠ same machine"
+#: Detail of the outbound-only ``TBD`` on a same-machine run.
+LOOPBACK_DETAIL: Final = "loopback path crosses no firewall"
+#: Detail of an outbound-only ``yes``: what was declared vs what is built in.
+OUTBOUND_YES_DETAIL: Final = (
+    "operator declared no inbound rule (--no-inbound-rule); "
+    "client binds no listening socket by construction"
+)
 
 #: The four fixed cases every direction is judged on, in report order.
 FIXED_CASES: Final[tuple[tuple[str, str], ...]] = (
@@ -195,6 +213,10 @@ class DirectionVerdict:
     server_os: str
     client_native: bool
     server_native: bool
+    #: client and server were one machine (loopback address / same hostname)
+    same_host: bool = False
+    #: the two sides reported *different* operating systems (both known)
+    cross_os: bool = True
     cases: dict[str, Verdict] = field(default_factory=dict)
     sessions: dict[str, Verdict] = field(default_factory=dict)
     outbound_only: Verdict = Verdict(TBD)
@@ -220,6 +242,32 @@ class DirectionVerdict:
         """Things worth knowing that do **not** change any verdict."""
         return list(self.warmup_notes)
 
+    def caveats(self) -> list[str]:
+        """Why this row cannot answer the spike's question, if it cannot.
+
+        These never change a cell: a loopback run really did reach its peer.
+        They say what the row is evidence *of* - and ADR-0009 needs a native,
+        cross-OS, two-machine run.
+        """
+        out: list[str] = []
+        if self.same_host:
+            out.append("not a cross-OS result: same machine (loopback)")
+        if not self.cross_os:
+            pair = f"{self.client_os} -> {self.server_os}"
+            if _known_os(self.client_os) and _known_os(self.server_os):
+                out.append(f"same OS on both sides ({pair}) — does not answer ADR-0009")
+            else:
+                out.append(
+                    f"OS of one side not recorded ({pair}) — cannot count as a "
+                    "cross-OS result"
+                )
+        if not self.native_pair:
+            out.append(
+                f"one side is not native ({self.client_os} -> {self.server_os}); "
+                "ADR-0009 needs a native run."
+            )
+        return out
+
     def to_json(self) -> dict[str, Any]:
         return {
             "direction": self.direction,
@@ -229,6 +277,9 @@ class DirectionVerdict:
             "client_os": self.client_os,
             "server_os": self.server_os,
             "native_pair": self.native_pair,
+            "same_host": self.same_host,
+            "cross_os": self.cross_os,
+            "caveats": self.caveats(),
             "cases": {k: v.to_json() for k, v in self.cases.items()},
             "sessions": {k: v.to_json() for k, v in self.sessions.items()},
             "outbound_only": self.outbound_only.to_json(),
@@ -237,6 +288,12 @@ class DirectionVerdict:
             "warmup_notes": self.warmup_notes,
             "sources": self.sources,
         }
+
+
+def _mapping(value: object) -> Mapping[str, Any]:
+    """``value`` if it is an object, else empty: a malformed result file is
+    reported as unknown facts, never crashed on."""
+    return value if isinstance(value, Mapping) else {}
 
 
 def _os_text(facts: Mapping[str, Any]) -> str:
@@ -250,6 +307,68 @@ def _os_text(facts: Mapping[str, Any]) -> str:
 def _native(facts: Mapping[str, Any]) -> bool:
     wsl = facts.get("wsl")
     return not (isinstance(wsl, dict) and wsl.get("is_wsl"))
+
+
+def _known_os(text: str) -> bool:
+    return bool(text) and not text.startswith("?")
+
+
+def _system(facts: Mapping[str, Any]) -> str:
+    return str(facts.get("system") or facts.get("os") or "").strip()
+
+
+def _is_loopback(address: object) -> bool:
+    """``127.x`` / ``::1`` / ``localhost``; anything unparseable is not."""
+    text = str(address or "").strip()
+    if not text:
+        return False
+    if text.casefold() in {"localhost", "localhost.localdomain"}:
+        return True
+    try:
+        return ipaddress.ip_address(text).is_loopback
+    except ValueError:
+        return False
+
+
+def _hostname(facts: Mapping[str, Any]) -> str:
+    return str(facts.get("hostname") or "").strip().casefold()
+
+
+def is_same_host(doc: Mapping[str, Any]) -> bool:
+    """Were client and server the same machine?
+
+    True when the dialled address is loopback, when the client's own address
+    towards the peer *is* the peer's address, or when both sides report the
+    same (non-empty) hostname. Hostnames are compared case-insensitively
+    (Windows reports upper case). Nothing here is a guess: every input is a
+    recorded fact from the envelope.
+    """
+    extra = doc.get("extra") or {}
+    endpoint = extra.get("endpoint") or {}
+    if not isinstance(endpoint, Mapping):
+        endpoint = {}
+    remote = endpoint.get("remote_address")
+    local = endpoint.get("local_address")
+    if _is_loopback(remote):
+        return True
+    if remote and local and str(remote).strip() == str(local).strip():
+        return True
+    host = doc.get("host") or {}
+    peer = extra.get("peer_identity") or {}
+    if not isinstance(host, Mapping) or not isinstance(peer, Mapping):
+        return False
+    mine, theirs = _hostname(host), _hostname(peer)
+    return bool(mine) and mine == theirs
+
+
+def is_cross_os(local: Mapping[str, Any], peer: Mapping[str, Any]) -> bool:
+    """Both operating systems known **and** different (``Linux`` vs ``Windows``).
+
+    An unknown side is conservatively *not* cross-OS: a row that cannot show
+    which two systems it joined cannot be evidence for ADR-0009.
+    """
+    mine, theirs = _system(local), _system(peer)
+    return bool(mine) and bool(theirs) and mine.casefold() != theirs.casefold()
 
 
 def relabel(name: str, labels: Mapping[str, str] | None) -> str:
@@ -276,8 +395,8 @@ def direction_verdict(
     server = relabel(
         str(params.get("server_name") or params.get("server") or "?"), labels
     )
-    local = extra.get("local") or {}
-    peer = extra.get("peer_identity") or {}
+    local = _mapping(extra.get("local"))
+    peer = _mapping(extra.get("peer_identity"))
     verdict = DirectionVerdict(
         direction=f"{client} -> {server}",
         client=client,
@@ -287,6 +406,8 @@ def direction_verdict(
         server_os=_os_text(peer),
         client_native=_native(local),
         server_native=_native(peer),
+        same_host=is_same_host(doc),
+        cross_os=is_cross_os(local, peer),
         sources=[str(doc.get("_source", ""))] if doc.get("_source") else [],
     )
     for case_id, _ in FIXED_CASES:
@@ -327,7 +448,10 @@ def _warmup_notes(cases: Mapping[str, Any]) -> list[str]:
 
 def _outbound_verdict(extra: Mapping[str, Any], verdict: DirectionVerdict) -> Verdict:
     """ADR-0002: the client needs no inbound port. Proven only when the
-    operator confirms no inbound rule was added *and* the gRPC cases worked."""
+    operator confirms no inbound rule was added *and* the gRPC cases worked
+    *and* there was a firewall in the path at all (never on one machine)."""
+    if verdict.same_host:
+        return Verdict(TBD, LOOPBACK_DETAIL)
     info = extra.get("outbound_only") or {}
     unary = verdict.cases.get("grpc-unary", Verdict(TBD))
     sessions = list(verdict.sessions.values())
@@ -340,7 +464,7 @@ def _outbound_verdict(extra: Mapping[str, Any], verdict: DirectionVerdict) -> Ve
         "the long-lived session": _status(sessions),
     }
     if all(status == "ok" for status in parts.values()):
-        return Verdict(YES, "no listening socket and no inbound rule on the client")
+        return Verdict(YES, OUTBOUND_YES_DETAIL)
     if any(status == "failed" for status in parts.values()):
         return Verdict(NO, "gRPC unary and/or the long-lived session did not work")
     # Nothing failed, but nothing proves it either: a case that never ran (or
@@ -399,6 +523,12 @@ def expected_directions(labels: Sequence[str]) -> list[str]:
     return [f"{a} -> {b}" for a in labels for b in labels if a != b]
 
 
+def link_cell(verdict: DirectionVerdict) -> str:
+    """The ``link`` cell, with the same-machine marker a reader cannot miss."""
+    text = link_name(verdict.link)
+    return f"{text} {SAME_MACHINE_MARK}" if verdict.same_host else text
+
+
 def _session_columns(verdicts: Iterable[DirectionVerdict]) -> list[str]:
     seen: list[str] = []
     for verdict in verdicts:
@@ -431,7 +561,7 @@ def render_verdicts(
         # would silently shift the whole table, so they all go through cell().
         cells = [
             verdict.direction,
-            link_name(verdict.link),
+            link_cell(verdict),
             verdict.client_os,
             verdict.server_os,
             *[verdict.cases[c].cell() for c, _ in FIXED_CASES],
@@ -468,7 +598,7 @@ def _render_metrics(rows: Sequence[DirectionVerdict]) -> str:
     for verdict in rows:
         m = verdict.metrics
         text += (
-            f"| {cell(verdict.direction)} | {cell(link_name(verdict.link))} | "
+            f"| {cell(verdict.direction)} | {cell(link_cell(verdict))} | "
             f"{fmt(m.get('http_ttfb_ms'))} | {fmt(m.get('http_mbps'), 1)} | "
             f"{fmt(m.get('grpc_rtt_ms'))} | {fmt(m.get('grpc_mbps'), 1)} |\n"
         )
@@ -486,12 +616,10 @@ def _render_fixes(rows: Sequence[DirectionVerdict]) -> str:
         for verdict in rows
         for note in verdict.notes()
     ]
-    non_native = [
-        f"- **{cell(verdict.direction)}**: one side is not native "
-        f"({cell(verdict.client_os)} -> {cell(verdict.server_os)}); "
-        "ADR-0009 needs a native run."
+    caveats = [
+        f"- **{cell(verdict.direction)}**: {cell(caveat)}"
         for verdict in rows
-        if not verdict.native_pair
+        for caveat in verdict.caveats()
     ]
-    body = "\n".join(items + non_native + notes) or "- none"
+    body = "\n".join(items + caveats + notes) or "- none"
     return "#### Diagnoses and fixes\n\n" + body + "\n"

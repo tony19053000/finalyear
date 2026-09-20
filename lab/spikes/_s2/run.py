@@ -14,14 +14,14 @@ recorded, because "blocked by X, do Y" is the point of this spike.
 from __future__ import annotations
 
 import socket
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Final
 
 from spikes._harness import MIN_VALID_REPS
 from spikes._harness.envelope import interpreter, make_envelope
-from spikes._harness.reps import CaseResult, RepError, Sample, run_reps
+from spikes._harness.reps import PHASE_WARMUP, CaseResult, RepError, Sample, run_reps
 from spikes._s2 import client as probe
 from spikes._s2.env import (
     endpoint_facts,
@@ -109,7 +109,8 @@ class ClientRun:
     envelope: dict[str, Any]
     client_name: str
     server_name: str
-    #: every planned case produced ``reps`` samples and no error was recorded
+    #: every planned case produced ``reps`` samples and no *measured* error
+    #: was recorded (a failed warmup repetition never makes a run incomplete)
     complete: bool
     errors: list[dict[str, Any]] = field(default_factory=list)
 
@@ -224,7 +225,7 @@ def _progress(log: Log, case_id: str) -> Callable[[str, int, Sample | RepError],
             verdict = "alive" if outcome["survived"] else "DROPPED"
             log(
                 f"  {case_id} rep {index} ({phase}): {verdict} after "
-                f"{outcome['alive_s']:.1f} s, {outcome['msgs_up']} up / "
+                f"{_seconds(outcome.get('alive_s'))}, {outcome['msgs_up']} up / "
                 f"{outcome['msgs_down']} down"
             )
         elif "mbps" in outcome:
@@ -237,6 +238,37 @@ def _progress(log: Log, case_id: str) -> Callable[[str, int, Sample | RepError],
             log(f"  {case_id} rep {index} ({phase}): {outcome[key]:.2f} ms")
 
     return on_rep
+
+
+def _seconds(value: object) -> str:
+    """``alive_s`` for the progress line; ``None`` (unknown) is said, not faked."""
+    if isinstance(value, int | float) and not isinstance(value, bool):
+        return f"{value:.1f} s"
+    return "an unknown time (stream never reported dying)"
+
+
+def is_complete(
+    cases: Sequence[CaseResult],
+    planned: Sequence[str],
+    reps: int,
+    errors: Sequence[Any],
+) -> bool:
+    """Did every planned case run every requested repetition cleanly?
+
+    Only **measured** repetitions count, as in the verdict: a warmup failure
+    is recorded (honesty) but a run whose measured repetitions all passed is
+    complete, and exits ``0``, not ``3``. Run-level errors (peer lost) always
+    make the run incomplete.
+    """
+    return (
+        not errors
+        and len(cases) == len(planned)
+        and all(
+            not [e for e in c.errors if e.get("phase") != PHASE_WARMUP]
+            and len(c.samples) == reps
+            for c in cases
+        )
+    )
 
 
 def _still_there(cfg: ClientConfig) -> ProbeError | None:
@@ -283,11 +315,7 @@ def run_client(
             f"wsl={bool((identity.get('wsl') or {}).get('is_wsl'))})"
         )
         cases = _run_cases(cfg, client_name, server_name, errors, log)
-    complete = (
-        not errors
-        and len(cases) == len(planned_cases(cfg))
-        and all(not c.errors and len(c.samples) == cfg.reps for c in cases)
-    )
+    complete = is_complete(cases, planned_cases(cfg), cfg.reps, errors)
     envelope = make_envelope(
         spike=SPIKE,
         topic=TOPIC,
@@ -303,7 +331,11 @@ def run_client(
             "endpoint": endpoint_facts(cfg.server, cfg.grpc_port),
             "outbound_only": {
                 "no_inbound_rule_declared": cfg.no_inbound_rule,
-                "client_listeners_opened": 0,
+                # Not a measurement: nothing in this process calls bind()/
+                # listen() (see _s2/client.py), which is a property of the
+                # code, not something the run observed.
+                "client_listens": False,
+                "basis": "by construction, not measured",
                 "explanation": (
                     "the client dials out only (ADR-0002); it binds no listening "
                     "socket, so no inbound firewall rule is needed on this machine"

@@ -81,6 +81,11 @@ def _ms(seconds: float) -> float:
 
 
 def _rpc_error(exc: grpc.RpcError, doing: str, *, connecting: bool) -> ProbeError:
+    # Defensive on purpose: ``grpc.RpcError`` is only a marker base class. The
+    # error a ``channel_ready_future`` raises (and some transport-level ones)
+    # is not a ``grpc.Call`` and may carry no ``.code()``/``.details()``/
+    # ``.debug_error_string()`` at all - a plain AttributeError there would
+    # turn a classifiable network failure into a crash of the probe.
     code = getattr(exc, "code", lambda: None)()
     call: Any = exc
     details = getattr(call, "details", lambda: "")() or ""
@@ -295,6 +300,10 @@ class _SessionCall:
         self.acks: dict[str, float] = {}
         self._cond = threading.Condition()
         self._done = threading.Event()
+        #: ``perf_counter`` when the stream was *seen* to die (an RPC error
+        #: in the reader, or the response iterator ending before we asked it
+        #: to); ``None`` while it is alive - or when it never told us.
+        self.failed_at: float | None = None
         self.started = time.perf_counter()
         method: grpc.StreamStreamMultiCallable[bytes, bytes] = channel.stream_stream(
             METHOD_SESSION
@@ -335,12 +344,19 @@ class _SessionCall:
         except ProtocolError as exc:
             self._fail(ProbeError(FailureType.PROTOCOL_ERROR, f"gRPC Session: {exc}"))
         finally:
-            self._done.set()
             with self._cond:
+                # The responses ended - by error, cancellation or a clean
+                # end-of-stream. Whichever it was, *this* is when the stream
+                # stopped being usable, not when a waiter later notices.
+                if self.failed_at is None:
+                    self.failed_at = time.perf_counter()
+                self._done.set()
                 self._cond.notify_all()
 
     def _fail(self, error: ProbeError) -> None:
         with self._cond:
+            if self.failed_at is None:
+                self.failed_at = time.perf_counter()
             if self.error is None:
                 self.error = error
 
@@ -420,6 +436,26 @@ class _SessionCall:
         self.reader.join(timeout=_JOIN_S)
 
 
+def idle_outcome(
+    failed_at: float | None, *, started: float, idle_start: float, idle_s: float
+) -> tuple[float | None, float | None]:
+    """``(alive_s, idle_survived_s)`` of a session whose final ping failed.
+
+    ``failed_at`` is when the stream was seen to die. With it, ``alive_s`` is
+    the stream's real lifetime and ``idle_survived_s`` is how far into the
+    idle gap it got, clamped to ``[0, idle_s]`` (a death noticed during the
+    active phase or after the gap still counts as 0 / ``idle_s`` of idle).
+    Without it (the ping timed out, the stream never said it died) both are
+    ``None``: the harness then leaves them out of the summary rather than
+    average a guess.
+    """
+    if failed_at is None:
+        return None, None
+    alive = max(failed_at - started, 0.0)
+    idle_survived = min(max(failed_at - idle_start, 0.0), idle_s)
+    return alive, idle_survived
+
+
 def grpc_session(
     ep: Endpoint,
     *,
@@ -431,9 +467,17 @@ def grpc_session(
     """One long-lived bidi session: active phase, idle phase, final round trip.
 
     Returns ``survived`` 1/0 plus how long the stream stayed usable. A stream
-    that dies during the idle phase is *the* result this spike is after, so it
-    is returned as a sample (``survived`` 0) with the diagnosis attached, not
-    raised - unless the stream never got going at all.
+    that dies **during the idle phase** is *the* result this spike is after, so
+    it is returned as a sample (``survived`` 0) with the diagnosis attached,
+    not raised. Everything else is raised as a :class:`ProbeError` and becomes
+    a repetition *error*, not a ``survived`` 0: a stream that never got going,
+    and one that drops while the active hold phase is still exchanging pings
+    (that is a plain connectivity failure, not an idle-drop finding).
+
+    ``alive_s`` and ``idle_survived_s`` come from the moment the reader thread
+    saw the stream die (:attr:`_SessionCall.failed_at`), not from when the
+    final ping gave up. When the final ping simply timed out and the stream
+    never reported dying, both are ``None`` - unknown, not a number.
     """
     channel = open_channel(ep, keepalive)
     call: _SessionCall | None = None
@@ -472,10 +516,16 @@ def grpc_session(
             call.send({"op": "ping", "seq": seq})
             final_rtt = call.wait_pong(seq, ep.io_timeout_s)
         except ProbeError as exc:
+            alive, idle_survived = idle_outcome(
+                call.failed_at,
+                started=call.started,
+                idle_start=idle_start,
+                idle_s=idle_s,
+            )
             sample.update(
                 survived=0,
-                alive_s=call.alive_s,
-                idle_survived_s=time.perf_counter() - idle_start,
+                alive_s=alive,
+                idle_survived_s=idle_survived,
                 final_rtt_ms=None,
                 failure=exc.to_json(),
             )

@@ -148,7 +148,7 @@ uv run python lab/spikes/s2_crossos.py serve --bind 192.168.1.20 --name L1
 # Windows (PowerShell, native, not inside WSL) — same command
 uv run python lab/spikes/s2_crossos.py serve --bind 192.168.1.20 --name L2
 ```
-It refuses `0.0.0.0`/`::` and public addresses (override: `--allow-any`), answers private/loopback/link-local peers only, and stops by itself after `--idle` seconds without a request (default 900) or `--duration` seconds in total (default 7200), or on Ctrl-C / SIGTERM.
+It refuses `0.0.0.0`/`::` and public addresses (override: `--allow-any`), answers private/loopback/link-local peers only, and stops by itself after `--idle` seconds without a request (default 900) or `--duration` seconds in total (default 7200), or on Ctrl-C / SIGTERM. On the **Windows** server, once: start a second `serve` with the same `--bind` while the first runs and paste back that it exits `1` with `cannot listen` (that is the port-exclusivity check on Windows).
 
 **3. Run the client** on the other laptop (this machine gets no firewall rule):
 ```bash
@@ -166,13 +166,14 @@ uv run python lab/spikes/s2_crossos.py report --results lab/reports/raw/2026-09-
 ```
 `--hosts LABEL=HOST` renames each host in the table (case-insensitive) **and** declares which directions should exist: every ordered pair nobody measured becomes a `TBD` row. `HOST` is the name the runs recorded — the `--name` you passed, or the hostname if you passed none. Tables: reachability verdicts per direction × link (HTTP GET, HTTP stream, gRPC unary, gRPC server-stream, one column per bidi idle/keepalive case, outbound-only), latency/throughput means, and the diagnoses with their fixes. Then write Goal/Conclusion and update ADR-0002 / ADR-0009 and `docs/LAB.md`.
 
-**Exit codes:** `0` complete · `1` cannot bind/write · `2` bad usage · `3` results written but incomplete (peer lost, failed repetitions: see `errors` in the JSON) · `4` refused: running inside WSL · `130` Ctrl-C.
+**Exit codes:** `0` complete · `1` cannot bind/write · `2` bad usage · `3` results written but incomplete (peer lost, a failed *measured* repetition: see `errors` in the JSON; a failed warmup repetition never makes a run incomplete) · `4` refused: running inside WSL · `130` Ctrl-C.
 
 **How to read the numbers (honesty notes):**
 - `yes` needs **every** repetition to pass with n ≥ 5; `flaky k/n` shows both counts; `INVALID (n<5)` is measured but not a lab result; `TBD` is untested and is never replaced by a guess.
 - One run = one direction. `A -> B` says nothing about `B -> A`, and a Wi-Fi row says nothing about Ethernet — the two are separate rows and are never merged.
 - A session that dropped with keepalive **off** while keepalive **on** survived is an idle-survival finding (turn keepalive on), not a failure of the outbound-only model.
-- `outbound-only` is `yes` only with `--no-inbound-rule` **and** a working gRPC unary **and** a surviving session; it is `no` only when a gRPC case really failed, and `TBD` when those cases never produced a valid result.
+- `outbound-only` is `yes` only with `--no-inbound-rule` **and** a working gRPC unary **and** a surviving session; it is `no` only when a gRPC case really failed, and `TBD` when those cases never produced a valid result. Its `yes` reads "operator declared no inbound rule (--no-inbound-rule); client binds no listening socket by construction" — the first half is your statement, the second a property of the code, neither a measurement.
+- A run against the **same machine** (loopback, or both sides with the same hostname) is marked `⚠ same machine` in the `link` cell, gets `TBD — loopback path crosses no firewall` for outbound-only, and is listed under "Diagnoses and fixes" as `not a cross-OS result`; a run where both sides report the **same OS** is listed as `same OS on both sides … — does not answer ADR-0009`. Such a run proves the tool works, nothing more.
 - A direction with a WSL side is flagged as not a native pair: ADR-0009 needs a native run.
 - The throughput columns bound the stdlib HTTP server and the gRPC handler, **not** the link — bandwidth questions belong to S1 and S3.
 

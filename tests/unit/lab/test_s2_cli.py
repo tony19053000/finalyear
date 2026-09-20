@@ -582,3 +582,134 @@ def test_print_summary_names_every_case_and_the_fixes(
     assert "outbound-only" in err
     assert "what to fix" in err
     assert "idle drop" in err
+
+
+def test_print_summary_marks_a_same_machine_run_loudly(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """(Reviewer BLOCKING 1.) A loopback run must not print like a cross-OS
+    result: the header carries the marker, outbound-only is TBD with the
+    loopback reason, and a "what this run is NOT" block names both caveats."""
+    path = _result(tmp_path, "L1", "L2", survived=1)
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    doc["extra"]["endpoint"] = {"remote_address": "127.0.0.1", "local_address": None}
+    doc["extra"]["peer_identity"]["system"] = "Linux"
+    run = ClientRun(envelope=doc, client_name="L1", server_name="L2", complete=True)
+    cli.print_summary(run)
+    err = capsys.readouterr().err
+    assert "--- S2 verdict [ethernet ⚠ same machine] L1 -> L2 ---" in err
+    assert "outbound-only (ADR-0002)     TBD — loopback path crosses no firewall" in err
+    assert "what this run is NOT:" in err
+    assert "- not a cross-OS result: same machine (loopback)" in err
+    assert "- same OS on both sides (Linux 6.8 -> Linux 11)" in err
+    assert "no listening socket and no inbound rule" not in err
+
+
+def test_print_summary_of_a_real_pair_has_no_caveat_block(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = _result(tmp_path, "L1", "L2", survived=1)
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    doc["extra"]["endpoint"] = {
+        "remote_address": "192.168.1.21",
+        "local_address": "192.168.1.20",
+    }
+    run = ClientRun(envelope=doc, client_name="L1", server_name="L2", complete=True)
+    cli.print_summary(run)
+    err = capsys.readouterr().err
+    assert "same machine" not in err
+    assert "what this run is NOT" not in err
+    assert "operator declared no inbound rule (--no-inbound-rule)" in err
+
+
+# ------------------------------------------------------ complete vs warmup
+def _case(case_id: str, *, samples: int, errors: list[dict[str, object]]) -> CaseResult:
+    return CaseResult(
+        case_id=case_id,
+        label=case_id,
+        metrics={},
+        requested_reps=5,
+        samples=[{"x": 1.0} for _ in range(samples)],
+        errors=errors,
+    )
+
+
+def _warmup_error() -> dict[str, object]:
+    return {"rep": 0, "phase": "warmup", "failure_type": "timeout", "message": "m"}
+
+
+def _measured_error() -> dict[str, object]:
+    return {"rep": 3, "phase": "measure", "failure_type": "timeout", "message": "m"}
+
+
+def test_run_is_complete_despite_a_warmup_hiccup() -> None:
+    """(Reviewer N1.) Every measured repetition passed; one warmup repetition
+    failed. The verdict says ``yes`` in every cell, so the exit code must be
+    0, not 3."""
+    from spikes._s2.run import is_complete
+
+    cases = [
+        _case("http-ping", samples=5, errors=[_warmup_error()]),
+        _case("http-blob", samples=5, errors=[]),
+    ]
+    assert is_complete(cases, ["http-ping", "http-blob"], 5, []) is True
+
+
+def test_run_is_incomplete_on_a_measured_error_or_short_case() -> None:
+    from spikes._s2.run import is_complete
+
+    planned = ["http-ping", "http-blob"]
+    measured = [
+        _case("http-ping", samples=5, errors=[_measured_error()]),
+        _case("http-blob", samples=5, errors=[]),
+    ]
+    assert is_complete(measured, planned, 5, []) is False
+    short = [
+        _case("http-ping", samples=4, errors=[]),
+        _case("http-blob", samples=5, errors=[]),
+    ]
+    assert is_complete(short, planned, 5, []) is False
+    missing = [_case("http-ping", samples=5, errors=[])]
+    assert is_complete(missing, planned, 5, []) is False
+
+
+def test_run_is_incomplete_on_any_run_level_error() -> None:
+    from spikes._s2.run import is_complete
+
+    cases = [_case("http-ping", samples=5, errors=[])]
+    assert is_complete(cases, ["http-ping"], 5, [{"phase": "hello"}]) is False
+
+
+def test_unlabelled_case_error_counts_as_measured_for_completeness() -> None:
+    from spikes._s2.run import is_complete
+
+    cases = [_case("http-ping", samples=5, errors=[{"failure_type": "timeout"}])]
+    assert is_complete(cases, ["http-ping"], 5, []) is False
+
+
+def test_envelope_outbound_block_states_its_basis_not_a_measurement(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """(Reviewer BLOCKING 3.) ``client_listens`` is a property of the code,
+    labelled as such; the old ``client_listeners_opened: 0`` counter is gone."""
+    from spikes._s2 import client as probe
+    from spikes._s2 import run as runmod
+    from spikes._s2.protocol import FailureType, ProbeError
+
+    def _refused(_ep: object) -> dict[str, object]:
+        raise ProbeError(FailureType.CONNECTION_REFUSED, "nothing listening")
+
+    monkeypatch.setattr(probe, "http_ping", _refused)  # no socket opened
+    cfg = runmod.ClientConfig(
+        server="192.168.1.21",
+        http_port=1,
+        grpc_port=1,
+        link="wifi",
+        no_inbound_rule=True,
+    )
+    run = runmod.run_client(cfg)
+    block = run.envelope["extra"]["outbound_only"]
+    assert block["client_listens"] is False
+    assert block["basis"] == "by construction, not measured"
+    assert block["no_inbound_rule_declared"] is True
+    assert "client_listeners_opened" not in block

@@ -665,3 +665,199 @@ def test_direction_verdict_to_json_round_trips_warmup_notes_through_json_module(
     assert len(reloaded["warmup_notes"]) == 2
     assert reloaded["cases"]["http-ping"]["value"] == v.YES
     assert reloaded["sessions"]["grpc-bidi-idle30s-kaon"]["value"] == v.YES
+
+
+# ------------------------------------------- same machine / same OS (reviewer)
+def _clean_cases() -> dict[str, Any]:
+    cases: dict[str, Any] = {
+        c: {"samples": _samples(MIN_VALID_REPS), "errors": []} for c, _ in v.FIXED_CASES
+    }
+    cases["grpc-bidi-idle30s-kaon"] = {
+        "samples": _samples(MIN_VALID_REPS, survived=True),
+        "errors": [],
+    }
+    return cases
+
+
+def _pair_extra(
+    *,
+    remote: str = "192.168.1.21",
+    local: str | None = "192.168.1.20",
+    client_system: str = "Linux",
+    server_system: str = "Windows",
+    server_hostname: str = "LAB-2",
+    declared: bool = True,
+) -> dict[str, Any]:
+    return {
+        "endpoint": {"remote_address": remote, "local_address": local},
+        "local": {"system": client_system, "release": "6.8", "wsl": {"is_wsl": False}},
+        "peer_identity": {
+            "hostname": server_hostname,
+            "system": server_system,
+            "release": "11",
+            "wsl": {"is_wsl": False},
+        },
+        "outbound_only": {"no_inbound_rule_declared": declared},
+    }
+
+
+def test_two_lan_hosts_two_systems_is_neither_same_host_nor_same_os() -> None:
+    dv = v.direction_verdict(_doc(cases=_clean_cases(), extra=_pair_extra()))
+    assert dv.same_host is False
+    assert dv.cross_os is True
+    assert dv.caveats() == []
+    assert dv.outbound_only.value == v.YES
+
+
+@pytest.mark.parametrize("remote", ["127.0.0.1", "127.0.0.2", "::1", "localhost"])
+def test_loopback_remote_address_marks_same_host(remote: str) -> None:
+    dv = v.direction_verdict(
+        _doc(cases=_clean_cases(), extra=_pair_extra(remote=remote))
+    )
+    assert dv.same_host is True
+
+
+def test_same_hostname_on_both_sides_marks_same_host_case_insensitively() -> None:
+    doc = _doc(cases=_clean_cases(), extra=_pair_extra(server_hostname="lab-1"))
+    doc["host"] = {"hostname": "LAB-1", "label": "L1"}
+    assert v.direction_verdict(doc).same_host is True
+
+
+def test_local_address_equal_to_remote_marks_same_host() -> None:
+    extra = _pair_extra(remote="192.168.1.20", local="192.168.1.20")
+    assert v.direction_verdict(_doc(cases=_clean_cases(), extra=extra)).same_host
+
+
+def test_empty_hostnames_never_count_as_the_same_host() -> None:
+    doc = _doc(cases=_clean_cases(), extra=_pair_extra(server_hostname=""))
+    doc["host"] = {"hostname": "", "label": "L1"}
+    assert v.direction_verdict(doc).same_host is False
+
+
+@pytest.mark.parametrize("remote", ["", "not an address", "192.168.1.999", None])
+def test_unparseable_remote_address_is_not_loopback(remote: Any) -> None:
+    assert v._is_loopback(remote) is False
+
+
+def test_same_host_survives_malformed_endpoint_and_peer() -> None:
+    doc = _doc(cases=_clean_cases(), extra={"endpoint": "junk", "peer_identity": 3})
+    assert v.direction_verdict(doc).same_host is False
+
+
+def test_outbound_only_is_tbd_on_same_host_even_when_everything_else_says_yes() -> None:
+    """A loopback run crosses no firewall: the outbound-only claim cannot be
+    proven there, however clean the gRPC cases were and whatever the operator
+    declared."""
+    dv = v.direction_verdict(
+        _doc(cases=_clean_cases(), extra=_pair_extra(remote="127.0.0.1"))
+    )
+    assert dv.cases["grpc-unary"].ok and dv.sessions["grpc-bidi-idle30s-kaon"].ok
+    assert dv.outbound_only == v.Verdict(v.TBD, v.LOOPBACK_DETAIL)
+    assert "firewall" in dv.outbound_only.detail
+
+
+def test_same_host_does_not_change_the_reachability_cells() -> None:
+    dv = v.direction_verdict(
+        _doc(cases=_clean_cases(), extra=_pair_extra(remote="127.0.0.1"))
+    )
+    assert all(c.ok for c in dv.cases.values())
+
+
+def test_same_system_on_both_sides_is_not_cross_os() -> None:
+    extra = _pair_extra(client_system="Linux", server_system="Linux")
+    dv = v.direction_verdict(_doc(cases=_clean_cases(), extra=extra))
+    assert dv.cross_os is False
+    assert dv.same_host is False
+    (caveat,) = dv.caveats()
+    assert caveat.startswith("same OS on both sides (Linux 6.8 -> Linux 11)")
+    assert "ADR-0009" in caveat
+
+
+def test_system_comparison_is_case_insensitive() -> None:
+    extra = _pair_extra(client_system="linux", server_system="Linux")
+    assert (
+        v.direction_verdict(_doc(cases=_clean_cases(), extra=extra)).cross_os is False
+    )
+
+
+def test_unknown_system_on_one_side_is_conservatively_not_cross_os() -> None:
+    extra = _pair_extra(client_system="", server_system="Windows")
+    dv = v.direction_verdict(_doc(cases=_clean_cases(), extra=extra))
+    assert dv.cross_os is False
+    (caveat,) = dv.caveats()
+    assert caveat.startswith("OS of one side not recorded")
+
+
+def test_loopback_same_os_run_lists_both_caveats() -> None:
+    extra = _pair_extra(remote="127.0.0.1", server_system="Linux")
+    dv = v.direction_verdict(_doc(cases=_clean_cases(), extra=extra))
+    caveats = dv.caveats()
+    assert "not a cross-OS result: same machine (loopback)" in caveats
+    assert any(c.startswith("same OS on both sides") for c in caveats)
+
+
+def test_wsl_side_caveat_moved_into_caveats_and_still_rendered() -> None:
+    extra = _pair_extra()
+    extra["peer_identity"]["wsl"] = {"is_wsl": True}
+    dv = v.direction_verdict(_doc(cases=_clean_cases(), extra=extra))
+    assert not dv.native_pair
+    assert any("not native" in c for c in dv.caveats())
+    text = v.render_verdicts({"k": dv})
+    assert "ADR-0009 needs a native run" in text
+
+
+def test_to_json_carries_same_host_cross_os_and_caveats() -> None:
+    dv = v.direction_verdict(
+        _doc(cases=_clean_cases(), extra=_pair_extra(remote="127.0.0.1"))
+    )
+    data = json.loads(json.dumps(dv.to_json()))
+    assert data["same_host"] is True
+    assert data["cross_os"] is True
+    assert "not a cross-OS result: same machine (loopback)" in data["caveats"]
+    assert data["outbound_only"] == {"value": v.TBD, "detail": v.LOOPBACK_DETAIL}
+
+
+def test_render_marks_same_host_row_in_the_link_cell_and_lists_the_caveat() -> None:
+    dv = v.direction_verdict(
+        _doc(cases=_clean_cases(), extra=_pair_extra(remote="127.0.0.1"))
+    )
+    text = v.render_verdicts({"k": dv})
+    verdict_block = text.split("#### Latency")[0]
+    row = next(ln for ln in verdict_block.splitlines() if ln.startswith("| L1 -> L2"))
+    assert f"| Ethernet {v.SAME_MACHINE_MARK} |" in row
+    assert f"yes — {v.OUTBOUND_YES_DETAIL}" not in row
+    assert f"TBD — {v.LOOPBACK_DETAIL}" in row
+    # the metrics table carries the same marker: neither table can be pasted alone
+    metrics_block = text.split("#### Latency")[1].split("#### Diagnoses")[0]
+    assert v.SAME_MACHINE_MARK in metrics_block
+    fixes_block = text.split("#### Diagnoses and fixes")[1]
+    assert (
+        "- **L1 -> L2**: not a cross-OS result: same machine (loopback)" in fixes_block
+    )
+
+
+def test_render_does_not_mark_a_real_pair() -> None:
+    dv = v.direction_verdict(_doc(cases=_clean_cases(), extra=_pair_extra()))
+    text = v.render_verdicts({"k": dv})
+    assert v.SAME_MACHINE_MARK not in text
+    assert "same OS" not in text and "same machine" not in text
+    assert "#### Diagnoses and fixes\n\n- none" in text
+
+
+def test_same_machine_marker_never_shifts_columns() -> None:
+    dv = v.direction_verdict(
+        _doc(cases=_clean_cases(), extra=_pair_extra(remote="127.0.0.1"))
+    )
+    text = v.render_verdicts({"k": dv}).split("#### Latency")[0]
+    lines = text.splitlines()
+    header = next(ln for ln in lines if ln.startswith("| direction"))
+    row = next(ln for ln in lines if ln.startswith("| L1 -> L2"))
+    assert _unescaped_pipe_count(row) == _unescaped_pipe_count(header)
+
+
+def test_outbound_yes_detail_states_declaration_not_observation() -> None:
+    dv = v.direction_verdict(_doc(cases=_clean_cases(), extra=_pair_extra()))
+    detail = dv.outbound_only.detail
+    assert "operator declared" in detail and "--no-inbound-rule" in detail
+    assert "by construction" in detail
+    assert "no listening socket and no inbound rule" not in detail

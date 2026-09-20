@@ -53,6 +53,7 @@ from spikes._s2.httpsrv import S2HttpServer  # noqa: E402
 from spikes._s2.protocol import METHOD_DOWNLOAD  # noqa: E402
 from spikes._s2.run import ClientConfig, run_client  # noqa: E402
 from spikes._s2.server import S2Server, ServerLimits  # noqa: E402
+from spikes._s2.verdict import direction_verdict  # noqa: E402
 
 pytestmark = pytest.mark.timeout(180)
 
@@ -171,6 +172,15 @@ def test_server_hold_cap_closes_session_before_client_idle_completes(
     )
     assert sample["survived"] == 0, sample
     assert sample["failure"] is not None
+    # a clean server-side end of stream is a known death time too. The cap
+    # fires ~0.5 s after the session began, but the server's handler only
+    # returns once its request-reader thread wakes (the client's post-gap
+    # ping, 0.6 s in), so the client sees the end right after that ping -
+    # and the numbers must say ~0.6 s, never 0.6 s + the 3 s io timeout the
+    # old bookkeeping added when the waiter gave up.
+    assert sample["alive_s"] is not None and sample["alive_s"] < 1.5, sample
+    assert sample["idle_survived_s"] is not None, sample
+    assert 0.0 <= sample["idle_survived_s"] <= 0.6, sample
 
 
 # ================================================= S2GrpcServer.stop() contract
@@ -469,7 +479,10 @@ def test_kill_server_during_idle_gap_records_survived_zero(server: S2Server) -> 
     t.start()
     time.sleep(0.6)  # past the 0.2s hold phase, now inside the idle gap
     assert server.grpc is not None
-    server.grpc.stop()
+    # grace 0: live RPCs are cancelled *now*, so the death time is known to
+    # within the scheduler's jitter (the default 1 s grace would legitimately
+    # put it ~1.4 s into the gap - correct, but a looser bound below)
+    server.grpc.stop(grace_s=0.0)
     assert server.http is not None
     server.http.stop()
     t.join(timeout=20)
@@ -478,6 +491,15 @@ def test_kill_server_during_idle_gap_records_survived_zero(server: S2Server) -> 
     sample = result["sample"]
     assert sample["survived"] == 0
     assert sample["failure"] is not None
+    # (Reviewer BLOCKING 2.) The stream died ~0.4 s into a 3 s gap. The
+    # numbers must say *that*, not "3 s idle + 8 s io timeout" (when the
+    # client finally noticed) - or be absent (None) if the death was never
+    # reported, never a fabricated number.
+    idle_survived = sample["idle_survived_s"]
+    alive = sample["alive_s"]
+    assert idle_survived is None or idle_survived < 1.0, sample
+    assert alive is None or alive < 2.0, sample
+    assert (idle_survived is None) == (alive is None), sample
 
 
 def test_still_there_check_after_hello_kill_reports_typed_error(
@@ -624,8 +646,19 @@ def test_cli_serve_client_report_end_to_end(tmp_path: Path) -> None:
     validate(doc, source="test")
     assert doc["spike"] == "S2" and doc["link"] == "ethernet"
     assert doc["extra"]["complete"] is True and doc["errors"] == []
+    # (Reviewer BLOCKING 3.) Not a measurement, and labelled as such.
+    outbound = doc["extra"]["outbound_only"]
+    assert outbound["client_listens"] is False
+    assert outbound["basis"] == "by construction, not measured"
+    assert "client_listeners_opened" not in outbound
     raw_text = (out_dir / str(doc["_source"])).read_text(encoding="utf-8")
     _no_home(raw_text)
+    # (Reviewer BLOCKING 1.) This *is* a loopback run: the verdict must say so.
+    dv = direction_verdict(doc)
+    assert dv.same_host is True
+    assert dv.cross_os is False
+    assert dv.outbound_only.value == "TBD"
+    assert "loopback" in dv.outbound_only.detail
 
     report = tmp_path / "S2.md"
     rc = cli.main(
@@ -639,6 +672,11 @@ def test_cli_serve_client_report_end_to_end(tmp_path: Path) -> None:
     _no_home(text)
     assert "S2 cross-OS reachability" in text
     assert "| L1 -> L2 |" in text
+    row = next(line for line in text.splitlines() if line.startswith("| L1 -> L2 |"))
+    assert "| Ethernet ⚠ same machine |" in row
+    assert "TBD — loopback path crosses no firewall" in row
+    assert "- **L1 -> L2**: not a cross-OS result: same machine (loopback)" in text
+    assert "same OS on both sides" in text
     # the reverse direction was never run: must show TBD, never a guess
     assert "| L2 -> L1 |" in text
     tbd_row = next(
@@ -1102,3 +1140,111 @@ def test_cmd_report_malformed_case_entry_end_to_end(tmp_path: Path) -> None:
     assert "S2 cross-OS reachability" in text
     assert "| L1 -> L2 |" in text
     assert "INVALID (malformed)" in text
+
+
+# ================================================= reviewer round: N3 / N4
+def test_server_close_without_serve_frees_both_ports() -> None:
+    """(Reviewer N4.) ``S2Server.close()`` releases both listeners without
+    ever serving - the CLI path after a ``--ready-file`` write failure."""
+    srv = S2Server("127.0.0.1", 0, 0, name="closer")
+    http_port, grpc_port = srv.open()
+    srv.close()
+    for port in (http_port, grpc_port):
+        with socket.socket() as sock:
+            sock.bind(("127.0.0.1", port))  # raises EADDRINUSE if still held
+    srv.close()  # idempotent
+
+
+def test_server_close_after_serve_is_harmless() -> None:
+    srv = S2Server("127.0.0.1", 0, 0, ServerLimits(duration_s=60, idle_s=60), name="c")
+    http_port, grpc_port = srv.open()
+    thread = srv.start_thread()
+    srv.stop()
+    thread.join(timeout=15)
+    assert not thread.is_alive()
+    srv.close()
+    for port in (http_port, grpc_port):
+        with socket.socket() as sock:
+            sock.bind(("127.0.0.1", port))
+
+
+def test_cli_serve_ready_file_failure_exits_one_and_frees_the_ports(
+    tmp_path: Path,
+) -> None:
+    """(Reviewer N4, at the CLI level.) ``--ready-file`` pointing inside a
+    *file* cannot be written: exit 1, and neither port may stay bound."""
+    blocker = tmp_path / "not-a-dir"
+    blocker.write_text("x", encoding="utf-8")
+    http_port, grpc_port = _free_port(), _free_port()
+    proc = _run(
+        "serve", "--bind", "127.0.0.1", "--http-port", str(http_port),
+        "--grpc-port", str(grpc_port), "--quiet", "--idle", "5",
+        "--ready-file", str(blocker / "ports.json"),
+        timeout=30,
+    )  # fmt: skip
+    assert proc.returncode == cli.EXIT_IO, proc.stderr
+    assert "cannot write --ready-file" in proc.stderr
+    for port in (http_port, grpc_port):
+        with socket.socket() as sock:
+            sock.bind(("127.0.0.1", port))
+
+
+def test_counters_are_exact_under_concurrent_bumps() -> None:
+    """(Reviewer N3.) Counter bumps from many threads never lose an increment
+    and ``snapshot()`` hands back a consistent copy."""
+    http = S2HttpServer(
+        "127.0.0.1", 0, name="h", log=lambda _m: None, touch=lambda: None,
+        note_error=lambda _m: None,
+    )  # fmt: skip
+    grpc_srv = grpcsrv.S2GrpcServer(
+        "127.0.0.1", 0, name="g", log=lambda _m: None, touch=lambda: None,
+        note_error=lambda _m: None,
+    )  # fmt: skip
+    try:
+        rounds, workers = 2000, 8
+
+        def _http() -> None:
+            for _ in range(rounds):
+                http.bump("ping")
+
+        def _grpc() -> None:
+            for _ in range(rounds):
+                grpc_srv._bump("echo")
+
+        threads = [
+            threading.Thread(target=t) for t in (_http, _grpc) for _ in range(workers)
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=30)
+        assert http.snapshot()["ping"] == rounds * workers
+        assert grpc_srv.snapshot()["echo"] == rounds * workers
+        assert http.snapshot() is not http.counters
+    finally:
+        grpc_srv.stop()
+        http.stop()
+
+
+def test_concurrent_pings_are_all_counted(server: S2Server) -> None:
+    """Real handler threads, not just the helper: 8 clients x 25 pings."""
+    ep = _endpoint(server)
+    errors: list[BaseException] = []
+
+    def _client() -> None:
+        try:
+            for _ in range(25):
+                probe.http_ping(ep)
+                probe.grpc_unary(ep, "on")
+        except BaseException as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    threads = [threading.Thread(target=_client) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=60)
+    assert not errors, errors
+    counters = server.counters()
+    assert counters["http"]["ping"] == 8 * 25
+    assert counters["grpc"]["echo"] == 8 * 25

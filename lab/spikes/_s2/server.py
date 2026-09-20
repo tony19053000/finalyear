@@ -140,6 +140,16 @@ class S2Server:
             return STOP_IDLE
         return None
 
+    def close(self) -> None:
+        """Release both listeners **without** serving.
+
+        For the path where :meth:`open` succeeded but the caller cannot go on
+        (the CLI failing to write ``--ready-file``): both ports must be free
+        again immediately, and there is nothing to serve. Idempotent; safe
+        after :meth:`serve` too (which already closed them).
+        """
+        self._shutdown()
+
     def _shutdown(self) -> None:
         self._stop.set()
         if self.grpc is not None:
@@ -149,8 +159,8 @@ class S2Server:
 
     def counters(self) -> dict[str, Any]:
         return {
-            "http": dict(self.http.counters) if self.http else {},
-            "grpc": dict(self.grpc.counters) if self.grpc else {},
+            "http": self.http.snapshot() if self.http else {},
+            "grpc": self.grpc.snapshot() if self.grpc else {},
             "errors": list(self.state.errors),
         }
 

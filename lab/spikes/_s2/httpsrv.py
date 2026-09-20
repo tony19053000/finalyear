@@ -66,7 +66,7 @@ class _Handler(BaseHTTPRequestHandler):
         srv = self._srv
         srv.touch()
         if not is_allowed_peer(self.client_address[0]):
-            srv.counters["refused_peer"] += 1
+            srv.bump("refused_peer")
             self.close_connection = True
             self._json(
                 HTTPStatus.FORBIDDEN,
@@ -75,7 +75,7 @@ class _Handler(BaseHTTPRequestHandler):
             return
         parts = urlsplit(self.path)
         if parts.path == "/ping":
-            srv.counters["ping"] += 1
+            srv.bump("ping")
             self._json(
                 HTTPStatus.OK, {**srv.identity(), "peer": self.client_address[0]}
             )
@@ -93,7 +93,7 @@ class _Handler(BaseHTTPRequestHandler):
         except (ValueError, ProtocolError) as exc:
             self._json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": str(exc)})
             return
-        srv.counters["blob"] += 1
+        srv.bump("blob")
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "application/octet-stream")
         self.send_header("Content-Length", str(size))
@@ -105,7 +105,7 @@ class _Handler(BaseHTTPRequestHandler):
             try:
                 self.wfile.write(piece)
             except OSError as exc:  # client vanished mid-body: normal here
-                srv.counters["blob_aborted"] += 1
+                srv.bump("blob_aborted")
                 srv.log(f"http blob aborted by {self.client_address[0]}: {exc}")
                 self.close_connection = True
                 return
@@ -145,8 +145,20 @@ class S2HttpServer(ThreadingHTTPServer):
             "blob_aborted": 0,
             "refused_peer": 0,
         }
+        #: handlers run on ``ThreadingHTTPServer``'s per-connection threads;
+        #: ``+= 1`` on a dict entry is not atomic, so bumps go through ``bump``
+        self._counter_lock = threading.Lock()
         super().__init__((bind, port), _Handler, bind_and_activate=True)
         self.socket.settimeout(timeout_s)
+
+    def bump(self, name: str) -> None:
+        with self._counter_lock:
+            self.counters[name] += 1
+
+    def snapshot(self) -> dict[str, int]:
+        """A consistent copy of the counters (never a half-updated view)."""
+        with self._counter_lock:
+            return dict(self.counters)
 
     def identity(self) -> dict[str, Any]:
         return {

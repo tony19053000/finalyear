@@ -104,6 +104,9 @@ class S2GrpcServer:
             "session_ended": 0,
             "refused_peer": 0,
         }
+        #: ``counters`` is bumped from the worker threads; ``+= 1`` on a dict
+        #: entry is not atomic, so every bump goes through :meth:`_bump`.
+        self._counter_lock = threading.Lock()
         self._pool = futures.ThreadPoolExecutor(
             max_workers=max_workers, thread_name_prefix="s2-grpc"
         )
@@ -177,6 +180,15 @@ class S2GrpcServer:
             self._server.stop(grace_s).wait(timeout=grace_s + 5.0)
             self._pool.shutdown(wait=True, cancel_futures=True)
 
+    def _bump(self, name: str) -> None:
+        with self._counter_lock:
+            self.counters[name] += 1
+
+    def snapshot(self) -> dict[str, int]:
+        """A consistent copy of the counters (never a half-updated view)."""
+        with self._counter_lock:
+            return dict(self.counters)
+
     # ------------------------------------------------------------ handlers
     def _handlers(self) -> grpc.GenericRpcHandler:
         return grpc.method_handlers_generic_handler(
@@ -199,7 +211,7 @@ class S2GrpcServer:
         self.touch()
         address = peer_address(context.peer())
         if address is None or not is_allowed_peer(address):
-            self.counters["refused_peer"] += 1
+            self._bump("refused_peer")
             context.abort(
                 grpc.StatusCode.PERMISSION_DENIED, "LAN peers only (docs/LAB.md §6)"
             )
@@ -219,7 +231,7 @@ class S2GrpcServer:
             msg = decode(request)
         except ProtocolError as exc:
             context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
-        self.counters["echo"] += 1
+        self._bump("echo")
         return encode(
             {
                 **self.identity(),
@@ -237,7 +249,7 @@ class S2GrpcServer:
             size = blob_size(decode(request).get("bytes"))
         except ProtocolError as exc:
             context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
-        self.counters["download"] += 1
+        self._bump("download")
         chunk = _PATTERN * min(size, CHUNK_BYTES)
         left = size
         while left > 0 and not self.stopping.is_set() and context.is_active():
@@ -251,7 +263,7 @@ class S2GrpcServer:
         self, request_iterator: Iterator[bytes], context: grpc.ServicerContext
     ) -> Iterator[bytes]:
         self._check_peer(context)
-        self.counters["session"] += 1
+        self._bump("session")
         state = _SessionState()
         done = threading.Event()
         context.add_callback(done.set)
@@ -268,7 +280,7 @@ class S2GrpcServer:
             done.set()
             state.replies.put(None)
             reader.join(timeout=5.0)
-            self.counters["session_ended"] += 1
+            self._bump("session_ended")
             self.log(f"session from {peer_address(context.peer())} ended")
 
     def _read_requests(
