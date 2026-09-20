@@ -140,8 +140,9 @@ def test_build_url_from_url_setting_matches_fields_form() -> None:
 
 
 def test_connect_args_force_utc_and_app_name() -> None:
-    args = connect_args(DatabaseSettings(connect_timeout_s=3))
+    args = connect_args(DatabaseSettings(connect_timeout_s=3, command_timeout_s=7))
     assert args["timeout"] == 3
+    assert args["command_timeout"] == 7  # 0.1.7 carry-over: statement timeout
     assert args["server_settings"] == {
         "timezone": "UTC",
         "application_name": "meshforge-controller",

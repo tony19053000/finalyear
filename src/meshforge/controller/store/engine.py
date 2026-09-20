@@ -50,6 +50,7 @@ def connect_args(settings: DatabaseSettings) -> dict[str, Any]:
     """asyncpg ``connect()`` keyword arguments derived from ``settings``."""
     return {
         "timeout": settings.connect_timeout_s,
+        "command_timeout": settings.command_timeout_s,
         "server_settings": {
             "timezone": "UTC",
             "application_name": settings.application_name,

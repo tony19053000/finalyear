@@ -82,7 +82,11 @@ def test_process_entry_points_via_runner(app: object, prog: str) -> None:
     assert result.exit_code == ExitCode.OK
     assert result.stdout.strip() == f"{prog} {meshforge.__version__}"
 
-    result = runner.invoke(app, [], prog_name=prog)  # type: ignore[arg-type]
+
+def test_agent_entry_point_is_still_a_placeholder() -> None:
+    # The controller `run` is real since V0.3 G2 (it needs PostgreSQL, so it is
+    # exercised in tests/component/controller); the agent runtime lands in G3.
+    result = runner.invoke(agent_app, [], prog_name="meshforge-agent")
     assert result.exit_code == ExitCode.NOT_IMPLEMENTED
     assert "not yet implemented (planned for V0.3)" in result.stderr
 
@@ -106,7 +110,6 @@ def test_python_dash_m(script: str, module: str) -> None:
 @pytest.mark.parametrize(
     ("script", "expected"),
     [
-        ("meshforge-controller", "V0.3"),
         ("meshforge-agent", "V0.3"),
         ("compute", "V0.8"),
     ],

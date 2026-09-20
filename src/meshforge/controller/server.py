@@ -1,0 +1,297 @@
+"""The controller process: one asyncio loop hosting gRPC + REST (ARCHITECTURE §3, D6).
+
+:class:`ControllerRuntime` wires everything and owns every task it starts::
+
+    settings -> engine -> migrations (thread) -> start-up sweep
+             -> SessionManager + LeaseTimer task
+             -> grpc.aio server (AgentControl)         on controller.grpc_bind
+             -> uvicorn (FastAPI, GET /healthz) task   on controller.http_bind
+
+Shutdown (SIGINT/SIGTERM or :meth:`ControllerRuntime.stop`): stop accepting,
+close every live session as ``controller_shutdown`` (their streams end), stop
+both servers, drain at most ``shutdown_drain_s``, dispose the engine.
+
+Start-up failures are typed: :class:`~meshforge.common.errors.ConfigError` (bind
+rules), :class:`~meshforge.controller.store.errors.DatabaseUnavailableError`,
+:class:`~meshforge.controller.store.errors.MigrationError` - each carries its exit
+code. Tests bind port ``0`` on both listeners and read :attr:`grpc_port` /
+:attr:`http_port`.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import signal
+import socket
+from collections.abc import Coroutine, Iterator
+from types import TracebackType
+from typing import Any
+
+import grpc
+import uvicorn
+from sqlalchemy.ext.asyncio import AsyncEngine
+
+from meshforge.common.errors import ConfigError, ExitCode, MeshForgeError
+from meshforge.common.logging import get_logger
+from meshforge.common.netaddr import BindAddress, parse_bind
+from meshforge.common.proto.meshforge.v1 import agent_pb2_grpc
+from meshforge.controller.http import create_http_app
+from meshforge.controller.registry import Registry, SessionEndReason
+from meshforge.controller.session.leases import LeaseTimer
+from meshforge.controller.session.manager import SessionManager
+from meshforge.controller.session.servicer import AgentControlServicer
+from meshforge.controller.settings import ControllerSettings
+from meshforge.controller.store.engine import check_connection, create_engine
+from meshforge.controller.store.migrate import upgrade_to_head
+
+__all__ = ["GRPC_SERVER_OPTIONS", "ControllerRuntime", "run_controller"]
+
+log = get_logger(__name__)
+
+#: gRPC keepalive per ADR-0002 Updates §3: a dead TCP path is torn down by the
+#: transport, not only by the application lease.
+GRPC_SERVER_OPTIONS: tuple[tuple[str, int], ...] = (
+    ("grpc.keepalive_time_ms", 10_000),
+    ("grpc.keepalive_timeout_ms", 5_000),
+    ("grpc.keepalive_permit_without_calls", 1),
+    ("grpc.http2.max_pings_without_data", 0),
+    ("grpc.http2.min_recv_ping_interval_without_data_ms", 5_000),
+)
+
+
+class _NoSignalUvicorn(uvicorn.Server):
+    """uvicorn's ``serve()`` installs its own SIGINT/SIGTERM handlers and re-raises
+    the signal on exit; the runtime owns signals, so that hook is disabled."""
+
+    @contextlib.contextmanager
+    def capture_signals(self) -> Iterator[None]:
+        yield
+
+
+class ControllerRuntime:
+    """See module docstring. Use ``async with ControllerRuntime.start(settings)``."""
+
+    def __init__(self, settings: ControllerSettings) -> None:
+        self.settings = settings
+        self._grpc_bind: BindAddress = parse_bind(
+            settings.controller.grpc_bind, allow_any=settings.controller.allow_any_bind
+        )
+        self._http_bind: BindAddress = parse_bind(
+            settings.controller.http_bind, allow_any=settings.controller.allow_any_bind
+        )
+        self.grpc_port: int = 0
+        self.http_port: int = 0
+        self.manager: SessionManager | None = None
+        self.registry: Registry | None = None
+        self._engine: AsyncEngine | None = None
+        self._grpc_server: grpc.aio.Server | None = None
+        self._http_server: _NoSignalUvicorn | None = None
+        self._http_sock: socket.socket | None = None
+        self._tasks: set[asyncio.Task[None]] = set()
+        self._stop_requested = asyncio.Event()
+        self._stopped = False
+
+    # -------------------------------------------------------------- lifecycle
+
+    @classmethod
+    def start(cls, settings: ControllerSettings) -> _RuntimeContext:
+        return _RuntimeContext(cls(settings))
+
+    async def _start(self) -> None:
+        cfg = self.settings.controller
+        loop = asyncio.get_running_loop()
+
+        engine = create_engine(self.settings.database)
+        self._engine = engine
+        await check_connection(engine, self.settings.database)
+        # Alembic is synchronous (and runs its own loop inside env.py).
+        await asyncio.to_thread(upgrade_to_head, self.settings.database)
+
+        registry = Registry(engine)
+        self.registry = registry
+        swept = await registry.sweep_open_sessions(SessionEndReason.CONTROLLER_RESTART)
+        offline = await registry.mark_live_nodes_offline()
+        log.info(
+            "controller.startup_sweep", sessions_closed=swept, nodes_offline=offline
+        )
+
+        manager = SessionManager(
+            registry,
+            cfg.liveness.to_config(),
+            clock=loop.time,
+            accepted_protocol_versions=cfg.accepted_protocol_versions,
+            outbound_queue_size=cfg.outbound_queue_size,
+            dedupe_window=cfg.dedupe_window,
+        )
+        self.manager = manager
+        self._spawn(LeaseTimer(manager, clock=loop.time).run(), "lease-timer")
+
+        grpc_server = grpc.aio.server(options=list(GRPC_SERVER_OPTIONS))
+        agent_pb2_grpc.add_AgentControlServicer_to_server(
+            AgentControlServicer(manager, hello_timeout_s=cfg.hello_timeout_s),
+            grpc_server,
+        )
+        port = grpc_server.add_insecure_port(self._grpc_bind.grpc_target())
+        if port == 0:
+            raise ConfigError(
+                f"cannot bind gRPC listener on {self._grpc_bind.grpc_target()}",
+                details={"bind": self._grpc_bind.grpc_target()},
+            )
+        self.grpc_port = port
+        await grpc_server.start()
+        self._grpc_server = grpc_server
+
+        self._http_sock = _bind_socket(self._http_bind)
+        self.http_port = int(self._http_sock.getsockname()[1])
+        http_config = uvicorn.Config(
+            create_http_app(manager),
+            host=self._http_bind.host,
+            port=self.http_port,
+            log_config=None,
+            access_log=False,
+            lifespan="off",
+            timeout_graceful_shutdown=int(cfg.shutdown_drain_s) or 1,
+        )
+        self._http_server = _NoSignalUvicorn(http_config)
+        self._spawn(self._http_server.serve(sockets=[self._http_sock]), "http-server")
+
+        log.info(
+            "controller.started",
+            grpc_bind=f"{self._grpc_bind.host}:{self.grpc_port}",
+            http_bind=f"{self._http_bind.host}:{self.http_port}",
+            heartbeat_interval_s=cfg.liveness.heartbeat_interval_s,
+            lease_s=cfg.liveness.to_config().offline_after_s,
+        )
+
+    def _spawn(self, coro: Coroutine[Any, Any, None], name: str) -> None:
+        task = asyncio.create_task(coro, name=name)
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+        task.add_done_callback(self._on_task_done)
+
+    def _on_task_done(self, task: asyncio.Task[None]) -> None:
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            log.error(
+                "controller.task_failed",
+                task=task.get_name(),
+                cause=type(exc).__name__,
+                error=str(exc),
+            )
+            # A dead lease timer or HTTP server is not a running controller.
+            self.request_stop()
+
+    # ---------------------------------------------------------------- signals
+
+    def install_signal_handlers(self) -> None:
+        """SIGINT/SIGTERM -> graceful stop. Works on Windows via ``signal.signal``."""
+        loop = asyncio.get_running_loop()
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            try:
+                loop.add_signal_handler(sig, self.request_stop)
+            except (NotImplementedError, RuntimeError):  # Windows / non-main thread
+                signal.signal(
+                    sig, lambda *_: loop.call_soon_threadsafe(self.request_stop)
+                )
+
+    def request_stop(self) -> None:
+        if not self._stop_requested.is_set():
+            log.info("controller.stop_requested")
+            self._stop_requested.set()
+
+    async def wait_for_stop(self) -> None:
+        await self._stop_requested.wait()
+
+    # --------------------------------------------------------------- shutdown
+
+    async def stop(self) -> None:
+        """Graceful shutdown; idempotent; bounded by ``shutdown_drain_s``."""
+        if self._stopped:
+            return
+        self._stopped = True
+        drain = self.settings.controller.shutdown_drain_s
+        log.info("controller.stopping", drain_s=drain)
+        if self.manager is not None:
+            # Sessions first: their streams end with the reason persisted before the
+            # transport is torn down under them.
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(self.manager.shutdown(), drain)
+        if self._grpc_server is not None:
+            await self._grpc_server.stop(grace=drain)
+        if self._http_server is not None:
+            self._http_server.should_exit = True
+        pending = [t for t in self._tasks if not t.done()]
+        if pending:
+            _done, still = await asyncio.wait(pending, timeout=drain)
+            for task in still:  # the lease timer runs forever; anything else is late
+                task.cancel()
+            if still:
+                await asyncio.gather(*still, return_exceptions=True)
+        if self._http_sock is not None:
+            self._http_sock.close()
+        if self._engine is not None:
+            await self._engine.dispose()
+        log.info("controller.stopped")
+
+
+class _RuntimeContext:
+    """``async with ControllerRuntime.start(settings) as runtime``."""
+
+    def __init__(self, runtime: ControllerRuntime) -> None:
+        self._runtime = runtime
+
+    async def __aenter__(self) -> ControllerRuntime:
+        try:
+            await self._runtime._start()
+        except BaseException:
+            await self._runtime.stop()
+            raise
+        return self._runtime
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
+        await self._runtime.stop()
+
+
+def _bind_socket(bind: BindAddress) -> socket.socket:
+    family = socket.AF_INET6 if ":" in bind.host else socket.AF_INET
+    sock = socket.socket(family, socket.SOCK_STREAM)
+    try:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind((bind.host, bind.port))
+        sock.set_inheritable(True)
+    except OSError as exc:
+        sock.close()
+        raise ConfigError(
+            f"cannot bind HTTP listener on {bind.host}:{bind.port}: {exc.strerror or exc}",
+            details={"bind": f"{bind.host}:{bind.port}"},
+        ) from exc
+    return sock
+
+
+async def _serve(settings: ControllerSettings) -> int:
+    async with ControllerRuntime.start(settings) as runtime:
+        runtime.install_signal_handlers()
+        await runtime.wait_for_stop()
+    return int(ExitCode.OK)
+
+
+def run_controller(settings: ControllerSettings) -> int:
+    """Blocking entry used by ``meshforge-controller run``; returns the exit code."""
+    try:
+        return asyncio.run(_serve(settings))
+    except MeshForgeError as exc:
+        log.exception(
+            "controller.start_failed",
+            error=str(exc),
+            failure_type=exc.failure_type.value,
+            details=exc.details,
+        )
+        return int(exc.exit_code)

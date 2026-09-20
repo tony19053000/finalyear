@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from meshforge.common.errors import FailureType, MeshForgeError
+from meshforge.common.errors import ExitCode, FailureType, MeshForgeError
 
-__all__ = ["DatabaseUnavailableError"]
+__all__ = ["DatabaseUnavailableError", "MigrationError"]
 
 
 class DatabaseUnavailableError(MeshForgeError):
@@ -15,3 +15,16 @@ class DatabaseUnavailableError(MeshForgeError):
     """
 
     default_failure_type = FailureType.NETWORK_ERROR
+
+
+class MigrationError(MeshForgeError):
+    """``alembic upgrade head`` failed; the controller must not run on a stale schema.
+
+    ``details`` carries ``target_revision`` (the head we tried to reach) and
+    ``current_revision`` (what the database reported before the attempt, or ``None``
+    for an empty database / unreachable database). Exit code ``CONFIG_ERROR``:
+    the operator must fix the database before the controller can start.
+    """
+
+    default_failure_type = FailureType.CONFIG_ERROR
+    exit_code = ExitCode.CONFIG_ERROR

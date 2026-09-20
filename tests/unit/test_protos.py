@@ -160,6 +160,7 @@ def test_envelopes_cover_architecture_payloads() -> None:
         "AttemptStatus",
         "LogChunk",
         "Ack",
+        "Pong",
     }
     assert members(agent_pb2.ControllerMessage.DESCRIPTOR) == {
         "StartAttempt",
@@ -169,6 +170,7 @@ def test_envelopes_cover_architecture_payloads() -> None:
         "GcRequest",
         "Ack",
         "HelloAck",
+        "Ping",
     }
 
 
@@ -530,3 +532,32 @@ def test_parse_version() -> None:
     assert gen.parse_version("7.36.1") == (7, 36, 1)
     assert gen.parse_version("1.84") == (1, 84, 0)
     assert gen.parse_version("1.84.0rc1") == (1, 84, 0)
+
+
+# ---------------------------------------------------------------------------
+# 0.3.10: RTT ping/pong (additive, V0.3 G2)
+# ---------------------------------------------------------------------------
+
+
+def test_ping_pong_field_numbers_are_pinned() -> None:
+    ping = agent_pb2.ControllerMessage.DESCRIPTOR.fields_by_name["ping"]
+    assert ping.number == 17
+    assert ping.containing_oneof is not None
+    assert ping.containing_oneof.name == "payload"
+    assert ping.message_type is agent_pb2.Ping.DESCRIPTOR
+    pong = agent_pb2.AgentMessage.DESCRIPTOR.fields_by_name["pong"]
+    assert pong.number == 19
+    assert pong.containing_oneof is not None
+    assert pong.containing_oneof.name == "payload"
+    assert pong.message_type is agent_pb2.Pong.DESCRIPTOR
+    for msg in (agent_pb2.Ping, agent_pb2.Pong):
+        field = msg.DESCRIPTOR.fields_by_name["ping_id"]
+        assert field.number == 1
+        assert field.type == field.TYPE_STRING
+    # A Pong echoes the Ping's id and round-trips through the envelope.
+    wire = agent_pb2.AgentMessage(
+        message_id="m-9", session_id="sess-1", pong=agent_pb2.Pong(ping_id="p-1")
+    ).SerializeToString()
+    parsed = agent_pb2.AgentMessage.FromString(wire)
+    assert parsed.WhichOneof("payload") == "pong"
+    assert parsed.pong.ping_id == "p-1"

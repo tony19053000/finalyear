@@ -107,7 +107,7 @@ def test_help_exits_zero_and_mentions_prog(app: object, prog: str) -> None:
         [sys.executable, "-m", "meshforge.cli", "--version"],
         [sys.executable, "-m", "meshforge.cli", "status"],
         [sys.executable, "-m", "meshforge.controller", "--version"],
-        [sys.executable, "-m", "meshforge.controller"],
+        [sys.executable, "-m", "meshforge.controller", "--help"],
         [sys.executable, "-m", "meshforge.agent", "--version"],
         [sys.executable, "-m", "meshforge.agent"],
     ],
@@ -126,9 +126,10 @@ def test_ascii_env_does_not_crash_with_encode_error() -> None:
     """A stronger check: run with encoding actually pinned to ascii, subprocess
     must not itself raise UnicodeEncodeError while writing (returncode would be
     1/traceback, not the expected 0 or 3)."""
+    # `meshforge.controller` without arguments is a real server since V0.3 G2
+    # (needs PostgreSQL) and is covered by tests/component/controller instead.
     for argv in (
         [sys.executable, "-m", "meshforge.cli", "status"],
-        [sys.executable, "-m", "meshforge.controller"],
         [sys.executable, "-m", "meshforge.agent"],
     ):
         result = _run_ascii_env(*argv)

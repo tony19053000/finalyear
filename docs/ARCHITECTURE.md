@@ -752,6 +752,18 @@ flowchart TB
 ```
 The controller role is proposed for Laptop 1 (native Linux, simplest to keep running); final choice after hardware inventory (V0.2).
 
+**Ports & directories** (V0.3; every value is a setting, these are the defaults)
+
+| What | Default | Setting / owner |
+|---|---|---|
+| Controller gRPC (`AgentControl`, agents dial out to it) | `127.0.0.1:47100` — give the controller laptop's LAN IP to serve other laptops | `[controller] grpc_bind` |
+| Controller REST (`/healthz`, later `/v1/*`) | `127.0.0.1:47110` | `[controller] http_bind` |
+| Wildcard / public bind | refused | `[controller] allow_any_bind = true` (or `--allow-any-bind`) |
+| Agent identity (`node.key`, `node.json`, `identity.lock`; ADR-0013) | `<data dir>/identity` — Linux `~/.local/share/meshforge/identity`, Windows `%LOCALAPPDATA%\MeshForge\identity` | `data_dir` (`common.config`) |
+| PostgreSQL (dev) | `127.0.0.1:5432` | `[database]` |
+
+Spike ports (V0.2) live in 472xx–473xx and never collide with these.
+
 ---
 
 ## 24. Cross-platform strategy

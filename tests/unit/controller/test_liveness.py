@@ -25,18 +25,23 @@ pytestmark = pytest.mark.unit
 
 S, E = NodeState, LivenessEvent
 
-#: The §12.3 arrows (plus the ONLINE heartbeat self-loop). Everything else must raise.
+#: The §12.3 arrows as amended 2026-09-20 (plus the ONLINE heartbeat self-loop).
+#: Everything else must raise.
 ARROWS: dict[tuple[NodeState, LivenessEvent], NodeState] = {
     (S.ENROLLING, E.HELLO_ACCEPTED): S.ONLINE,
     (S.ONLINE, E.HEARTBEAT): S.ONLINE,
     (S.ONLINE, E.LEASE_MISSED): S.SUSPECT,
     (S.SUSPECT, E.HEARTBEAT): S.ONLINE,
     (S.SUSPECT, E.LEASE_EXPIRED): S.OFFLINE,
+    (S.SUSPECT, E.RECONNECTED): S.ONLINE,  # amended 2026-09-20: Hello while SUSPECT
     (S.OFFLINE, E.RECONNECTED): S.ONLINE,
     (S.ONLINE, E.DRAIN): S.DRAINING,
     (S.DRAINING, E.UNDRAIN): S.ONLINE,
+    (S.DRAINING, E.LEASE_MISSED): S.SUSPECT,  # amended: drain cancelled by the loss
     (S.ONLINE, E.REVOKE): S.REVOKED,
+    (S.SUSPECT, E.REVOKE): S.REVOKED,  # amended: revoke from every live state
     (S.OFFLINE, E.REVOKE): S.REVOKED,
+    (S.DRAINING, E.REVOKE): S.REVOKED,  # amended
 }
 
 ALL_PAIRS = list(itertools.product(NodeState, LivenessEvent))
@@ -74,9 +79,9 @@ def test_every_pair_is_an_arrow_or_invalid(
         assert state.value in str(err) and event.value in str(err)
 
 
-def test_arrow_table_is_exactly_ten_arrows_and_nothing_leaves_revoked() -> None:
+def test_arrow_table_is_exactly_fourteen_arrows_and_nothing_leaves_revoked() -> None:
     valid = {pair for pair in ALL_PAIRS if pair in ARROWS}
-    assert len(valid) == 10
+    assert len(valid) == 14
     for event in LivenessEvent:
         with pytest.raises(InvalidTransitionError):
             next_state(S.REVOKED, event)
@@ -265,3 +270,16 @@ def test_tracker_never_touches_wall_clock(monkeypatch: pytest.MonkeyPatch) -> No
     tracker.observe_heartbeat()
     assert tracker.check() is None
     assert tracker.deadline() == 3.5
+
+
+def test_amended_arrows_2026_09_20() -> None:
+    """ARCHITECTURE §12.3 amendment: lease loss from DRAINING, revoke from every live
+    state, and a Hello while SUSPECT handled as RECONNECTED."""
+    assert next_state(S.DRAINING, E.LEASE_MISSED) is S.SUSPECT
+    assert next_state(S.SUSPECT, E.RECONNECTED) is S.ONLINE
+    for state in (S.ONLINE, S.SUSPECT, S.OFFLINE, S.DRAINING):
+        assert next_state(state, E.REVOKE) is S.REVOKED
+    with pytest.raises(InvalidTransitionError):
+        next_state(S.ENROLLING, E.REVOKE)  # never enrolled: nothing to revoke
+    with pytest.raises(InvalidTransitionError):
+        next_state(S.DRAINING, E.LEASE_EXPIRED)  # must pass through SUSPECT first

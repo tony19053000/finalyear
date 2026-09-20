@@ -71,6 +71,8 @@ message AgentMessage {
     LogChunk log_chunk = 17;
     // Receipt for a ControllerMessage command (acked_message_id = its message_id).
     Ack ack = 18;
+    // Reply to a controller Ping (roadmap 0.3.10); never buffered or replayed.
+    Pong pong = 19;
   }
 }
 
@@ -92,6 +94,8 @@ message ControllerMessage {
     Ack ack = 15;
     // Reply to Hello; the first message on every stream from the controller.
     HelloAck hello_ack = 16;
+    // RTT probe (roadmap 0.3.10); the agent answers with Pong{same ping_id}.
+    Ping ping = 17;
   }
 }
 
@@ -293,4 +297,24 @@ message HelloAck {
 message Ack {
   // message_id of the envelope being acknowledged.
   string acked_message_id = 1;
+}
+
+// ---------------------------------------------------------------------------
+// RTT measurement (roadmap 0.3.10)
+// ---------------------------------------------------------------------------
+//
+// RTT is measured by the controller on its own monotonic clock: loop.time() at
+// Pong minus loop.time() at Ping. It is never derived from Heartbeat.agent_time
+// (that difference is clock skew, not latency). The controller sends one Ping
+// per lease interval per ONLINE session and keeps only the latest outstanding
+// ping_id; an unanswered Ping simply expires when the next one is sent.
+
+// Controller -> agent. The agent replies immediately with Pong{ping_id}.
+message Ping {
+  string ping_id = 1;
+}
+
+// Agent -> controller. Echoes Ping.ping_id.
+message Pong {
+  string ping_id = 1;
 }

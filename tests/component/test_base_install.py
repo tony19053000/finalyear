@@ -121,7 +121,6 @@ def test_base_install_script_version_works(base_install: Path, script: str) -> N
     ("script", "args", "expected_marker"),
     [
         ("compute", ["status"], "V0.8"),
-        ("meshforge-controller", [], "V0.3"),
         ("meshforge-agent", [], "V0.3"),
     ],
 )
@@ -135,6 +134,23 @@ def test_base_install_placeholder_exits_3(
     assert result.returncode == 3
     assert result.stdout == ""
     assert expected_marker in result.stderr
+
+
+def test_base_install_controller_run_needs_extra(base_install: Path, tmp_path: Path) -> None:
+    """Since V0.3 G2 `meshforge-controller` is a real server; on a base install it
+    must fail fast with a typed CONFIG_ERROR naming the missing extra, not a
+    traceback (settings load first, so an unreadable user config would win)."""
+    exe = _venv_bin(base_install, "meshforge-controller")
+    env = {k: v for k, v in os.environ.items() if not k.startswith("MESHFORGE_")}
+    env["XDG_CONFIG_HOME"] = str(tmp_path)
+    env["APPDATA"] = str(tmp_path)
+    result = subprocess.run(
+        [str(exe)], capture_output=True, text=True, timeout=30, check=False, env=env
+    )
+    assert result.returncode == 4, result.stderr
+    assert result.stdout == ""
+    assert "controller extra" in result.stderr
+    assert "Traceback" not in result.stderr
 
 
 def test_base_install_python_dash_m_works(base_install: Path) -> None:

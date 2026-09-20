@@ -1,9 +1,10 @@
 """Node liveness: the §12.3 state machine and the lease timer, as pure logic.
 
 Roadmap task 0.3.7 (logic half). No asyncio, no sockets, no wall clock: the
-session manager (0.3.6) owns the timers and the DB row and calls into this module
-with its monotonic ``loop.time()``. Keeping the rules pure makes every
-(state, event) pair and every lease edge a table-driven unit test.
+session manager (:mod:`meshforge.controller.session`) owns the timers and the DB
+row and calls into this module with its monotonic ``loop.time()``. Keeping the
+rules pure makes every (state, event) pair and every lease edge a table-driven
+unit test.
 
 Timing (ADR-0002 Updates §5, ARCHITECTURE §12.3)::
 
@@ -74,18 +75,27 @@ class InvalidTransitionError(MeshForgeError):
         self.event = event
 
 
-#: The §12.3 arrows. Anything not listed raises InvalidTransitionError.
+#: The §12.3 arrows (as amended 2026-09-20). Anything not listed raises
+#: InvalidTransitionError.
 _TRANSITIONS: Final[dict[tuple[NodeState, LivenessEvent], NodeState]] = {
     (NodeState.ENROLLING, LivenessEvent.HELLO_ACCEPTED): NodeState.ONLINE,
     (NodeState.ONLINE, LivenessEvent.HEARTBEAT): NodeState.ONLINE,  # self-loop
     (NodeState.ONLINE, LivenessEvent.LEASE_MISSED): NodeState.SUSPECT,
     (NodeState.SUSPECT, LivenessEvent.HEARTBEAT): NodeState.ONLINE,
     (NodeState.SUSPECT, LivenessEvent.LEASE_EXPIRED): NodeState.OFFLINE,
+    # A Hello while SUSPECT (agent reconnected before the lease expired) is the
+    # same arrow as the reconnect from OFFLINE.
+    (NodeState.SUSPECT, LivenessEvent.RECONNECTED): NodeState.ONLINE,
     (NodeState.OFFLINE, LivenessEvent.RECONNECTED): NodeState.ONLINE,
     (NodeState.ONLINE, LivenessEvent.DRAIN): NodeState.DRAINING,
     (NodeState.DRAINING, LivenessEvent.UNDRAIN): NodeState.ONLINE,
+    # A draining node can still lose its lease; the loss cancels the drain.
+    (NodeState.DRAINING, LivenessEvent.LEASE_MISSED): NodeState.SUSPECT,
+    # Revocation is possible from every live state.
     (NodeState.ONLINE, LivenessEvent.REVOKE): NodeState.REVOKED,
+    (NodeState.SUSPECT, LivenessEvent.REVOKE): NodeState.REVOKED,
     (NodeState.OFFLINE, LivenessEvent.REVOKE): NodeState.REVOKED,
+    (NodeState.DRAINING, LivenessEvent.REVOKE): NodeState.REVOKED,
 }
 
 

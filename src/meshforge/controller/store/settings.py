@@ -51,6 +51,14 @@ class DatabaseSettings(SectionModel):
     password: SecretStr = SecretStr("meshforge-dev")
 
     connect_timeout_s: float = Field(default=10.0, gt=0)
+    command_timeout_s: float = Field(
+        default=30.0,
+        gt=0,
+        description=(
+            "Upper bound for one SQL statement (asyncpg command_timeout); a hung "
+            "query becomes a typed error instead of a stuck controller."
+        ),
+    )
     pool_size: int = Field(default=5, ge=1)
     max_overflow: int = Field(default=10, ge=0)
     pool_recycle_s: int = Field(default=1800, ge=-1)

@@ -85,6 +85,7 @@ class AgentMessage(_message.Message):
     ATTEMPT_STATUS_FIELD_NUMBER: _builtins.int
     LOG_CHUNK_FIELD_NUMBER: _builtins.int
     ACK_FIELD_NUMBER: _builtins.int
+    PONG_FIELD_NUMBER: _builtins.int
     message_id: _builtins.str
     """Unique per message (ULID); echoed back in Ack.acked_message_id."""
     session_id: _builtins.str
@@ -113,6 +114,10 @@ class AgentMessage(_message.Message):
     def ack(self) -> Global___Ack:
         """Receipt for a ControllerMessage command (acked_message_id = its message_id)."""
 
+    @_builtins.property
+    def pong(self) -> Global___Pong:
+        """Reply to a controller Ping (roadmap 0.3.10); never buffered or replayed."""
+
     def __init__(
         self,
         *,
@@ -128,12 +133,13 @@ class AgentMessage(_message.Message):
         attempt_status: Global___AttemptStatus | None = ...,
         log_chunk: Global___LogChunk | None = ...,
         ack: Global___Ack | None = ...,
+        pong: Global___Pong | None = ...,
     ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _typing.Literal["ack", b"ack", "attempt_status", b"attempt_status", "cache_report", b"cache_report", "heartbeat", b"heartbeat", "hello", b"hello", "log_chunk", b"log_chunk", "net_probe_result", b"net_probe_result", "payload", b"payload", "reconcile", b"reconcile", "resource_update", b"resource_update", "sent_at", b"sent_at"]  # noqa: Y015
+    _HasFieldArgType: _TypeAlias = _typing.Literal["ack", b"ack", "attempt_status", b"attempt_status", "cache_report", b"cache_report", "heartbeat", b"heartbeat", "hello", b"hello", "log_chunk", b"log_chunk", "net_probe_result", b"net_probe_result", "payload", b"payload", "pong", b"pong", "reconcile", b"reconcile", "resource_update", b"resource_update", "sent_at", b"sent_at"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["ack", b"ack", "attempt_status", b"attempt_status", "cache_report", b"cache_report", "heartbeat", b"heartbeat", "hello", b"hello", "log_chunk", b"log_chunk", "message_id", b"message_id", "net_probe_result", b"net_probe_result", "payload", b"payload", "reconcile", b"reconcile", "resource_update", b"resource_update", "sent_at", b"sent_at", "session_id", b"session_id"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["ack", b"ack", "attempt_status", b"attempt_status", "cache_report", b"cache_report", "heartbeat", b"heartbeat", "hello", b"hello", "log_chunk", b"log_chunk", "message_id", b"message_id", "net_probe_result", b"net_probe_result", "payload", b"payload", "pong", b"pong", "reconcile", b"reconcile", "resource_update", b"resource_update", "sent_at", b"sent_at", "session_id", b"session_id"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
-    _WhichOneofReturnType_payload: _TypeAlias = _typing.Literal["hello", "reconcile", "heartbeat", "resource_update", "cache_report", "net_probe_result", "attempt_status", "log_chunk", "ack"]  # noqa: Y015
+    _WhichOneofReturnType_payload: _TypeAlias = _typing.Literal["hello", "reconcile", "heartbeat", "resource_update", "cache_report", "net_probe_result", "attempt_status", "log_chunk", "ack", "pong"]  # noqa: Y015
     _WhichOneofArgType_payload: _TypeAlias = _typing.Literal["payload", b"payload"]  # noqa: Y015
     def WhichOneof(self, oneof_group: _WhichOneofArgType_payload) -> _WhichOneofReturnType_payload | None: ...
 
@@ -155,6 +161,7 @@ class ControllerMessage(_message.Message):
     GC_FIELD_NUMBER: _builtins.int
     ACK_FIELD_NUMBER: _builtins.int
     HELLO_ACK_FIELD_NUMBER: _builtins.int
+    PING_FIELD_NUMBER: _builtins.int
     message_id: _builtins.str
     """Unique per message (ULID); the command ID the agent deduplicates on."""
     session_id: _builtins.str
@@ -179,6 +186,10 @@ class ControllerMessage(_message.Message):
     def hello_ack(self) -> Global___HelloAck:
         """Reply to Hello; the first message on every stream from the controller."""
 
+    @_builtins.property
+    def ping(self) -> Global___Ping:
+        """RTT probe (roadmap 0.3.10); the agent answers with Pong{same ping_id}."""
+
     def __init__(
         self,
         *,
@@ -192,12 +203,13 @@ class ControllerMessage(_message.Message):
         gc: Global___GcRequest | None = ...,
         ack: Global___Ack | None = ...,
         hello_ack: Global___HelloAck | None = ...,
+        ping: Global___Ping | None = ...,
     ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _typing.Literal["ack", b"ack", "cancel_attempt", b"cancel_attempt", "gc", b"gc", "hello_ack", b"hello_ack", "payload", b"payload", "prepare_env", b"prepare_env", "probe_request", b"probe_request", "sent_at", b"sent_at", "start_attempt", b"start_attempt"]  # noqa: Y015
+    _HasFieldArgType: _TypeAlias = _typing.Literal["ack", b"ack", "cancel_attempt", b"cancel_attempt", "gc", b"gc", "hello_ack", b"hello_ack", "payload", b"payload", "ping", b"ping", "prepare_env", b"prepare_env", "probe_request", b"probe_request", "sent_at", b"sent_at", "start_attempt", b"start_attempt"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["ack", b"ack", "cancel_attempt", b"cancel_attempt", "gc", b"gc", "hello_ack", b"hello_ack", "message_id", b"message_id", "payload", b"payload", "prepare_env", b"prepare_env", "probe_request", b"probe_request", "sent_at", b"sent_at", "session_id", b"session_id", "start_attempt", b"start_attempt"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["ack", b"ack", "cancel_attempt", b"cancel_attempt", "gc", b"gc", "hello_ack", b"hello_ack", "message_id", b"message_id", "payload", b"payload", "ping", b"ping", "prepare_env", b"prepare_env", "probe_request", b"probe_request", "sent_at", b"sent_at", "session_id", b"session_id", "start_attempt", b"start_attempt"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
-    _WhichOneofReturnType_payload: _TypeAlias = _typing.Literal["start_attempt", "cancel_attempt", "probe_request", "prepare_env", "gc", "ack", "hello_ack"]  # noqa: Y015
+    _WhichOneofReturnType_payload: _TypeAlias = _typing.Literal["start_attempt", "cancel_attempt", "probe_request", "prepare_env", "gc", "ack", "hello_ack", "ping"]  # noqa: Y015
     _WhichOneofArgType_payload: _TypeAlias = _typing.Literal["payload", b"payload"]  # noqa: Y015
     def WhichOneof(self, oneof_group: _WhichOneofArgType_payload) -> _WhichOneofReturnType_payload | None: ...
 
@@ -834,3 +846,56 @@ class Ack(_message.Message):
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___Ack: _TypeAlias = Ack  # noqa: Y015
+
+@_typing.final
+class Ping(_message.Message):
+    """---------------------------------------------------------------------------
+    RTT measurement (roadmap 0.3.10)
+    ---------------------------------------------------------------------------
+
+    RTT is measured by the controller on its own monotonic clock: loop.time() at
+    Pong minus loop.time() at Ping. It is never derived from Heartbeat.agent_time
+    (that difference is clock skew, not latency). The controller sends one Ping
+    per lease interval per ONLINE session and keeps only the latest outstanding
+    ping_id; an unanswered Ping simply expires when the next one is sent.
+
+    Controller -> agent. The agent replies immediately with Pong{ping_id}.
+    """
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    PING_ID_FIELD_NUMBER: _builtins.int
+    ping_id: _builtins.str
+    def __init__(
+        self,
+        *,
+        ping_id: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["ping_id", b"ping_id"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___Ping: _TypeAlias = Ping  # noqa: Y015
+
+@_typing.final
+class Pong(_message.Message):
+    """Agent -> controller. Echoes Ping.ping_id."""
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    PING_ID_FIELD_NUMBER: _builtins.int
+    ping_id: _builtins.str
+    def __init__(
+        self,
+        *,
+        ping_id: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["ping_id", b"ping_id"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___Pong: _TypeAlias = Pong  # noqa: Y015
