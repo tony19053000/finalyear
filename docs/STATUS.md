@@ -2,10 +2,11 @@
 
 > Concise current state. Long-term plan: [`DEVELOPMENT_ROADMAP.md`](DEVELOPMENT_ROADMAP.md). Update at the end of every work session.
 
-**Last updated:** 2026-09-20 (**scope changed — ADR-0012**; S6 + 0.2.13 closed, all V0.2 agent-side work done)
+**Last updated:** 2026-09-20 (**V0.3 started** — G1 closed agent-side; V0.2 waits on 🧑 lab runs)
 
 ## Current Version
-V0.2 — Lab setup & feasibility validation · **agent-side complete**, waiting on 🧑 lab runs
+**V0.3 — Fabric core** · started 2026-09-20 on the team's decision (before the laptop 2–4 inventory); **G1 closed agent-side** (0.3.1 `[x]`; 0.3.2 and 0.3.7 `[~]` — Windows run / G2 wiring)
+V0.2 — Lab setup & feasibility validation · agent-side complete, waiting on 🧑 lab runs
 V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4, 0.1.10)
 
 > **Scope changed 2026-09-20 — [ADR-0012](adr/0012-scope-ship-mode3-complete.md) (Proposed).** Budget is ~10 weeks
@@ -14,9 +15,10 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 > V0.10. 129 tasks vs 140–180 capacity → **~1.5 tasks/session**. Needs the other three team members' approval.
 
 ## Current Task
-**All V0.2 agent-side work is done.** S1 (0.2.5), S2 (0.2.6), S3 (0.2.7), **S6 (0.2.10)** and S7 (0.2.11) are committed with tester PASS + reviewer APPROVE; all five wait on 🧑 runs. **0.2.13 is `[x]`** (report CLIs merge instead of overwriting prose). The critical path is now entirely human: **`lab/inventory.py` on laptops 2–4 blocks V0.3.**
+**Next: V0.3 group G2** (0.3.6 controller gRPC server + session manager + node registry tables, 0.3.7 lease timers wired to sessions, 0.3.10 RTT). The Lead writes the G2 brief from `docs/briefs/V0.3-fabric-core.md` §3 using G1's real names (`HelloAck`, `LivenessConfig`, `LeaseTracker.deadline()`, `NodeIdentity`, `next_epoch`) and the amended ARCHITECTURE §12.3. G2 is the first real gRPC + Postgres code; it needs the controller extras (`uv sync --all-extras`).
 
 ## Recently Completed
+- 2026-09-20: **V0.3 G1 closed agent-side** — 0.3.1 proto `[x]`; 0.3.2 identity (ADR-0013) and 0.3.7 liveness logic code-complete. Implementer → tester (2 critical concurrency defects + 1 minor, fixed) → reviewer (1 blocking: `next_epoch` clobbering a reset identity, fixed; APPROVE pass 2). Commits `da27ff1` `b7eda28` `7b7e7ff` `0acf7eb`. `pytest -m unit` 2122 passed. ARCHITECTURE §12.3 amended (DRAINING lease arrows, revoke from every live state).
 - 2026-09-20: **V0.3 prepared** — `docs/briefs/V0.3-fabric-core.md` (groups G1–G7, G1 brief), **ADR-0013** node identity (P-256 key + ULID `node_id`, OS-protected) and **ADR-0002 Updates** (session epoch fencing, `session_id` envelopes, full-jitter backoff cap 15 s, bounded replay, monotonic leases) — all Proposed, need team review.
 - 2026-09-20: **S3-review follow-up done** — `spikes._harness.protocol` (framing + LAN address rules) replaces cross-spike imports of `_s1.protocol`; boundary test added. Lead-direct mechanical move; unit 1360, component suite re-run (see Test Status).
 - 2026-09-20: **0.2.13 `[x]`** — `write_report()` in `_harness/report.py`: an existing `--out` is merged (human regions kept, generated regions refreshed), malformed / other-spike files refused with `ReportMergeError` and left byte-identical, `--force` regenerates; all five CLIs write atomically. Tester found 3 defects (glued human table dropped, lone surrogate traceback, UTF-8 BOM refused) → fixed `2fd3185`; reviewer APPROVE. Gates: ruff + mypy clean, lab unit 1313, component 240 passed / 3 skipped.
@@ -34,6 +36,7 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 - Team accepted ARCHITECTURE v1 and ADRs 0001–0010 (2026-09-15)
 
 ## In Progress
+- 🧑 0.3.2 Windows verification: `uv run pytest tests/unit/agent -q` on any Windows laptop after `git pull` + `uv sync` (exercises `icacls` and `msvcrt.locking`); paste the summary line
 - 🧑 0.2.6 S2 two-laptop runs, Windows↔Linux both directions, Wi-Fi **and** Ethernet (procedure in `lab/spikes/S2.md` §3; server-side firewall TCP 47202–47203 only; includes the Windows second-`serve` check)
 - 🧑 0.2.7 S3 two-laptop runs, Wi-Fi **and** Ethernet (procedure in `lab/spikes/S3.md` §2; firewall TCP 47301–47303)
 - 🧑 0.2.2 inventory runs on all 4 laptops (commands in lab/README.md; Windows: also confirm no leftover processes after `--timeout 5`)
@@ -57,7 +60,8 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 
 ## Test Status
 - Lab suites (2026-09-20, after 0.2.13): `ruff check` / `ruff format --check` clean; `mypy lab tests/unit/lab tests/component/lab` clean (132 files); `pytest tests/unit/lab` **1360 passed**; `pytest tests/component/lab` **240 passed, 3 skipped** (5 min 51 s, on 0.2.13); after the protocol move + flood-test fix **240 passed, 3 skipped** again (5 min 50 s)
-- Linux: `uv run pytest -q` → 646 passed, 3 skipped (2 slow opt-in, 1 AttemptState TODO), 2 xfailed (documented redaction scope gaps); ruff, strict mypy (71 files), lint-imports, gen_protos --check all clean; fresh clone + plain `uv sync` → `pytest -m unit` 0 failed
+- Core (2026-09-20, after G1): `ruff` clean; `mypy src` clean (34 files); `lint-imports` 7 kept / 0 broken; `gen_protos.py --check` clean; `pytest -m unit` **2122 passed**, 2 skipped, 2 xfailed (31 s); component suite: see handoff §2 for the post-G1 run
+- Linux (V0.1 baseline): `uv run pytest -q` → 646 passed, 3 skipped (2 slow opt-in, 1 AttemptState TODO), 2 xfailed (documented redaction scope gaps); ruff, strict mypy (71 files), lint-imports, gen_protos --check all clean; fresh clone + plain `uv sync` → `pytest -m unit` 0 failed
 - Windows: not yet run (first real CI run will cover unit + fresh-clone on windows-latest)
 
 ## Next Recommended Task

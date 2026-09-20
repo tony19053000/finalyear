@@ -464,11 +464,15 @@ stateDiagram-v2
     SUSPECT --> OFFLINE: lease expired (3 × heartbeat)
     OFFLINE --> ONLINE: agent reconnects + reconciles
     ONLINE --> DRAINING: owner/admin drains
-    DRAINING --> ONLINE
+    DRAINING --> ONLINE: undrain
+    DRAINING --> SUSPECT: heartbeat missed (drain is cancelled by the loss)
     ONLINE --> REVOKED
+    SUSPECT --> REVOKED
     OFFLINE --> REVOKED
+    DRAINING --> REVOKED
     REVOKED --> [*]
 ```
+*Amended 2026-09-20 (V0.3 G1 review):* a draining node can still lose its lease, and revocation must be possible from every live state — the original diagram had no arrows for either. A `Hello` that arrives while the node is `SUSPECT` (agent reconnected before the lease expired) is handled as `RECONNECTED`, i.e. the same arrow as from `OFFLINE`; both land in `ONLINE`. The code table in `controller/liveness.py` must match this diagram exactly (V0.3 G2 extends it; the G1 table implements the arrows that existed before this amendment).
 
 ---
 

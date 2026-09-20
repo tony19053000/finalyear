@@ -29,7 +29,7 @@
 > throughput measurements and the reasoning; if you think the arithmetic or the trade is wrong,
 > **say so to the team before building on it.** Do not silently re-expand the scope either.
 
-**Last updated:** 2026-09-20 (**scope changed — ADR-0012**; V0.2 agent-side work finished — 0.2.13 `[x]`, protocol promoted to `_harness/`, udp-flood flake fixed) · **Updated by:** Lead session (account 1)
+**Last updated:** 2026-09-20 (**V0.3 G1 closed agent-side**; V0.2 agent-side finished, waits on 🧑 lab runs) · **Updated by:** Lead session (account 1)
 
 ---
 
@@ -101,38 +101,22 @@ approval of ADR-0012 first.
 
 ## 2. In flight right now
 
-**V0.3 group G1: implementer done, committed `wip(V0.3-G1)`; with the tester next** (started 2026-09-20 on the team's say-so, before the laptop 2–4
-inventory — G1 is pure code with no hardware dependency).** Brief: `docs/briefs/V0.3-fabric-core.md` §5; tasks 0.3.1,
-0.3.2, 0.3.7 (logic) are `[~]`. Flow: implementer → tester → reviewer → Lead marks. If this session is lost mid-flight,
-look for uncommitted files under `proto/`, `src/meshforge/agent/identity.py`, `src/meshforge/controller/liveness.py`,
-`tests/unit/`; run `uv run ruff check . && uv run mypy src && uv run pytest -m unit -q`; if green, commit `wip(V0.3-G1)`
-and run the tester next.
+**V0.3 started 2026-09-20 on the team's say-so** ("the limit is there, continue the progress; we will update it
+later") — before the laptop 2–4 inventory, which G1 did not need. **G1 is closed agent-side**: implementer
+`da27ff1` → tester `b7eda28` (2 critical concurrency defects: first-create fork, lost `next_epoch` increment; 1
+minor: unbounded epoch) → fix `7b7e7ff` (identity dir lock, exclusive create, epoch ≤ 2⁶⁴−1) → reviewer pass 1
+REQUEST_CHANGES (blocking: `next_epoch` clobbering an identity that was `reset` underneath it) → fix `0acf7eb` →
+reviewer pass 2 **APPROVE**. 0.3.1 `[x]`; 0.3.2 `[~]` until a 🧑 Windows unit run; 0.3.7 `[~]` until G2 wires it.
+Gates: ruff/mypy/lint-imports/gen_protos clean, `pytest -m unit` 2122 passed.
 
-Before that: Last commits (all on `main`, unpushed):
-
-- `b41450c` **0.2.13 closed `[x]`** — `write_report()` merges an existing `--out` (human regions kept, generated
-  regions refreshed), refuses malformed / other-spike files with `ReportMergeError`, `--force` regenerates; all five
-  CLIs write atomically. Tester round `ac5a65f` (3 defects) → fix `2fd3185` → reviewer **APPROVE**; follow-ups #1/#3
-  applied, #2/#4/#5 logged in the roadmap design change log.
-- `9e4fe20` **S3-review follow-up done** — framing + LAN address rules now live in `lab/spikes/_harness/protocol.py`;
-  `_s1/protocol.py` keeps S1's constants + `MeasureError` and re-exports; S2/S3 import from the harness;
-  `tests/unit/lab/test_harness_protocol_boundary.py` fails if any non-S1 spike imports `spikes._s1` again.
-  Lead-direct mechanical move (ADR-0012 §6), no behaviour change.
-- `9c955fb` **udp-flood flake fixed** — `test_udp_flood_of_garbage_is_dropped_not_amplified` now paces bursts of ≤ 50
-  on the `udp_dropped` counter (a 540-datagram burst could overflow the 212 KiB default UDP receive buffer under
-  suite load); assertions unchanged.
-
-Gates at handoff: ruff + mypy clean (133 files), `tests/unit/lab` **1360 passed**, `tests/component/lab`
-**240 passed, 3 skipped** (5 min 50 s).
-
-**There is no agent-side V0.2 work left.** Do not invent any: 0.2.12 needs real lab data, V0.3 needs the
-inventory of laptops 2–4. If a session starts and the human items in section 3 are still open, the useful
-agent-side options are (a) the small optional follow-ups in the roadmap design change log (0.2.10 #2/#4/#5,
-0.2.13 #2/#4/#5) — each a Lead-direct fix, no subagent — or (b) **V0.3 preparation is done** — `docs/briefs/V0.3-fabric-core.md` holds the reuse map, 8 design
-decisions the Lead must settle first (D1 identity → ADR-0013, D2/D4 → ADR-0002 amendment), the 7 task groups in
-dependency order, the standing checklist, and a paste-ready G1 brief. **ADR-0013 (node identity) and the ADR-0002 Updates
-(session epoch, reconnect policy) are written (Proposed, 2026-09-20).** When the inventory lands: check §6 of that
-file, then spawn the G1 implementer with the §5 brief.
+**Next: G2** — 0.3.6 (controller `grpc.aio` server + session manager + node registry tables, FastAPI + gRPC in one
+process), 0.3.7 wiring (one `LeaseTracker` per session, single timer task using `deadline()`), 0.3.10 (RTT from
+`Heartbeat.agent_time` ⇄ Ack). The Lead writes the brief from `docs/briefs/V0.3-fabric-core.md` §3/§4 with G1's
+real names. Musts for G2 from the reviews: extend `liveness.next_state` to the **amended ARCHITECTURE §12.3**
+(DRAINING→SUSPECT, SUSPECT/DRAINING→REVOKED, Hello-while-SUSPECT = RECONNECTED); derive `HelloAck` intervals from
+`LivenessConfig`; call `identity.load_or_create`/`next_epoch` via `asyncio.to_thread` (they block); key the replay
+ring on `ResourceUpdate.sequence`, not `Heartbeat.sequence`; the 0.1.7 DB carry-overs (`command_timeout`, named
+`CheckConstraint`s, `onupdate` for `updated_at`, `store.migrations.failed` log).
 
 **Documented loss in 0.2.13, not a bug:** hand-edits *inside* a generated region (e.g. filling
 "speed: TBD" or the power-mode cell in the host table) are still overwritten. Recorded in
