@@ -33,8 +33,10 @@ __all__ = [
     "AgentSection",
     "AgentSettings",
     "DiscoverySettings",
+    "HardwareSettings",
     "KeepaliveSettings",
     "ReconnectSettings",
+    "ResourceSettings",
     "parse_controller_address",
 ]
 
@@ -135,6 +137,87 @@ class KeepaliveSettings(SectionModel):
     )
 
 
+class HardwareSettings(SectionModel):
+    """``[agent.hardware]`` - static hardware discovery (roadmap 0.3.3).
+
+    One blocking pass runs at start-up in a thread and its result is cached for the
+    process (``HardwareProvider``). ``timeout_s`` is the budget for **all** probes
+    together: whatever has not answered when it runs out is reported as ``timeout``
+    and the Hello simply lacks that field (D10 - a probe costs a field, never the
+    agent). Raise it on a laptop whose ``nvidia-smi`` or Docker daemon is slow to
+    wake; the agent's start-up is delayed by at most this long.
+    """
+
+    timeout_s: float = Field(
+        default=5.0,
+        gt=0,
+        le=60.0,
+        description=(
+            "Total budget for one hardware-discovery pass; the agent's start-up "
+            "waits at most this long before sending Hello."
+        ),
+    )
+
+
+class ResourceSettings(SectionModel):
+    """``[agent.resources]`` - the live resource monitor (roadmap 0.3.5).
+
+    Sampling is unconditional while the agent runs; *reporting* is
+    change-triggered (§2 D5): a report is sent when a metric moved by more than
+    ``change_threshold_percent``, and otherwise at least every
+    ``max_report_interval_s``. While the session is not ONLINE the monitor keeps
+    sampling but sends nothing (D9) - buffering hundreds of stale samples would
+    evict real reports from the replay ring - and the first sample after the
+    session is ONLINE again is always sent.
+    """
+
+    enabled: bool = Field(
+        default=True,
+        description="Run the resource monitor. Off = the node reports no usage.",
+    )
+    sample_interval_s: float = Field(
+        default=2.0,
+        gt=0,
+        le=300.0,
+        description="Seconds between samples; matches the controller's live ring.",
+    )
+    change_threshold_percent: float = Field(
+        default=5.0,
+        ge=0,
+        le=100.0,
+        description=(
+            "Report at once when a metric moves more than this: percentage points "
+            "for CPU/GPU utilisation, relative percent for byte metrics."
+        ),
+    )
+    max_report_interval_s: float = Field(
+        default=10.0,
+        gt=0,
+        le=3600.0,
+        description="Report at least this often even when nothing changed.",
+    )
+    max_gpus: int = Field(
+        default=16,
+        ge=1,
+        le=16,
+        description="GPU entries per report (the controller's cap is the same).",
+    )
+    max_disks: int = Field(
+        default=16,
+        ge=1,
+        le=16,
+        description="Disk entries per report (the controller's cap is the same).",
+    )
+
+    @model_validator(mode="after")
+    def _intervals_ordered(self) -> ResourceSettings:
+        if self.max_report_interval_s < self.sample_interval_s:
+            raise ValueError(
+                "resources.max_report_interval_s must be >= sample_interval_s"
+            )
+        return self
+
+
 class DiscoverySettings(SectionModel):
     """``[agent.discovery]`` - mDNS lookup of the controller (roadmap 0.3.9).
 
@@ -185,6 +268,8 @@ class AgentSection(SectionModel):
         ),
     )
     discovery: DiscoverySettings = Field(default_factory=DiscoverySettings)
+    hardware: HardwareSettings = Field(default_factory=HardwareSettings)
+    resources: ResourceSettings = Field(default_factory=ResourceSettings)
     hello_timeout_s: float = Field(
         default=5.0,
         gt=0,

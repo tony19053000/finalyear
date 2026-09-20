@@ -1,11 +1,16 @@
-"""Hello construction (roadmap 0.3.8) with the *basic* hardware summary.
+"""Hello construction (roadmap 0.3.8) and the *fallback* hardware summary.
 
-Full hardware discovery (GPUs via NVML, disks, software versions) is task 0.3.3
-(G4) and will replace :func:`basic_hardware`. Until then the Hello carries what the
-standard library (and psutil, if the agent extra is installed) can tell for free:
-CPU model string, core/thread counts, total RAM. ``gpus`` stays empty and
-``capabilities`` is ``["v0.3"]`` so the controller can tell this Hello shape apart
-from G4's.
+The Hello's real payload comes from hardware discovery
+(:mod:`meshforge.agent.hardware`, roadmap 0.3.3): the agent runs one bounded pass at
+start-up and passes the result to :class:`~meshforge.agent.session.client
+.AgentSessionClient` as ``hardware=``.
+
+:func:`basic_hardware` is what is sent when discovery fails outright (and what
+tests constructing a client without ``hardware=`` get): what the standard library
+(and psutil, if the agent extra is installed) can tell for free - CPU model string,
+core/thread counts, total RAM - with no GPUs and ``capabilities == ["v0.3"]``. That
+tag stays first in the discovered list too: it marks the *shape* of the Hello, not
+the state of the discovery.
 
 Strings are clipped to the controller's caps (``controller/session/limits.py``) so a
 long ``platform.platform()`` can never turn into an ``INVALID_ARGUMENT`` on our own
