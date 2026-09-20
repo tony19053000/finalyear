@@ -145,6 +145,8 @@ flowchart TB
     AG <-->|gRPC session, agent dials out| C
 ```
 
+**Liveness is decided in memory; the database is the record (V0.3 G2).** The controller's session reader tasks and the single lease-timer task never await a database write: every persistence call is enqueued on a per-session ordered write chain (`controller/session/writer.py`) drained by its own task, so a slow or unreachable PostgreSQL cannot make a heartbeating node look OFFLINE. State transitions, heartbeats and RTT are applied to in-memory `LeaseTracker`s first and written behind.
+
 **Why the GPU service is a separate process:** it imports PyTorch/CUDA (large, crash-prone, version-sensitive). Isolating it keeps the agent small and stable, lets it be restarted independently, and lets its Python/CUDA environment differ from the agent's.
 
 ---

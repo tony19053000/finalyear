@@ -2,10 +2,10 @@
 
 > Concise current state. Long-term plan: [`DEVELOPMENT_ROADMAP.md`](DEVELOPMENT_ROADMAP.md). Update at the end of every work session.
 
-**Last updated:** 2026-09-20 (**V0.3 started** — G1 closed agent-side; V0.2 waits on 🧑 lab runs)
+**Last updated:** 2026-09-20 (**V0.3 G1 + G2 closed agent-side**; V0.2 waits on 🧑 lab runs)
 
 ## Current Version
-**V0.3 — Fabric core** · started 2026-09-20 on the team's decision (before the laptop 2–4 inventory); **G1 closed agent-side** (0.3.1 `[x]`; 0.3.2 and 0.3.7 `[~]` — Windows run / G2 wiring)
+**V0.3 — Fabric core** · started 2026-09-20 on the team's decision (before the laptop 2–4 inventory); **G1 + G2 closed agent-side** (0.3.1, 0.3.6, 0.3.10 `[x]`; 0.3.2 `[~]` Windows run; 0.3.7 `[~]` lab evidence)
 V0.2 — Lab setup & feasibility validation · agent-side complete, waiting on 🧑 lab runs
 V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4, 0.1.10)
 
@@ -15,9 +15,10 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 > V0.10. 129 tasks vs 140–180 capacity → **~1.5 tasks/session**. Needs the other three team members' approval.
 
 ## Current Task
-**Next: V0.3 group G2** (0.3.6 controller gRPC server + session manager + node registry tables, 0.3.7 lease timers wired to sessions, 0.3.10 RTT). The Lead writes the G2 brief from `docs/briefs/V0.3-fabric-core.md` §3 using G1's real names (`HelloAck`, `LivenessConfig`, `LeaseTracker.deadline()`, `NodeIdentity`, `next_epoch`) and the amended ARCHITECTURE §12.3. G2 is the first real gRPC + Postgres code; it needs the controller extras (`uv sync --all-extras`).
+**Next: V0.3 group G3** — 0.3.8 agent runtime: connect, `Hello` with `next_epoch`, heartbeat at the `HelloAck` interval, answer `Ping` with `Pong`, reconnect with full-jitter backoff (base 0.5 s, cap 15 s) + gRPC keepalive, `Reconcile` + bounded replay ring; 0.3.9 controller discovery (config address, mDNS fallback via zeroconf). The Lead writes the G3 brief (`docs/briefs/V0.3-fabric-core.md` §5c) using G2's real contract: `HelloAck{accepted, session_id, heartbeat_interval_ms, lease_ms, reject_code}`, stream ends `ABORTED` with details = end reason for superseded / lease_expired / protocol_error, `OK` for agent_closed / controller_shutdown; `message_id` must be `cmd_<ULID>`; Hello string caps in `controller/session/limits.py`. First agent-side task group → criterion 3 (reconnect ≤ 15 s after controller restart) becomes testable in-process.
 
 ## Recently Completed
+- 2026-09-20: **V0.3 G2 closed agent-side** — 0.3.6 `[x]`, 0.3.10 `[x]`, 0.3.7 wired. Implementer (2 runs) → tester (2 defects) → reviewer REQUEST_CHANGES (3 blocking) → fixes → **APPROVE pass 2**. Key design outcomes: liveness decided in memory with a per-session ordered write chain (DB never blocks the reader/timer); epoch fenced against the persisted high-water mark; `session_epoch` as NUMERIC(20,0) full uint64; stream end reasons surfaced as `ABORTED` details. Commits `bd416eb` … `a1014d5`. Unit 2259, component store+controller 67, controller component 10/10.
 - 2026-09-20: **V0.3 G1 closed agent-side** — 0.3.1 proto `[x]`; 0.3.2 identity (ADR-0013) and 0.3.7 liveness logic code-complete. Implementer → tester (2 critical concurrency defects + 1 minor, fixed) → reviewer (1 blocking: `next_epoch` clobbering a reset identity, fixed; APPROVE pass 2). Commits `da27ff1` `b7eda28` `7b7e7ff` `0acf7eb`. `pytest -m unit` 2122 passed. ARCHITECTURE §12.3 amended (DRAINING lease arrows, revoke from every live state).
 - 2026-09-20: **V0.3 prepared** — `docs/briefs/V0.3-fabric-core.md` (groups G1–G7, G1 brief), **ADR-0013** node identity (P-256 key + ULID `node_id`, OS-protected) and **ADR-0002 Updates** (session epoch fencing, `session_id` envelopes, full-jitter backoff cap 15 s, bounded replay, monotonic leases) — all Proposed, need team review.
 - 2026-09-20: **S3-review follow-up done** — `spikes._harness.protocol` (framing + LAN address rules) replaces cross-spike imports of `_s1.protocol`; boundary test added. Lead-direct mechanical move; unit 1360, component suite re-run (see Test Status).
