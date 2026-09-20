@@ -41,7 +41,9 @@ down_revision: str | Sequence[str] | None = "0002"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
-_END_REASON_CHECK = "ck_node_session_end_reason"
+#: Bare constraint key; Alembic applies the ``ck_%(table_name)s_%(constraint_name)s``
+#: naming convention to it, exactly as ``create_check_constraint`` below does.
+_END_REASON_CHECK = "end_reason"
 _UINT64 = "{column} >= 0 AND {column} <= " + str(UINT64_MAX)
 #: The enum as it was before this revision (for the downgrade).
 _END_REASONS_0002 = (
