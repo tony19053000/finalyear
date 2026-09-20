@@ -80,18 +80,40 @@ class Verdict:
         return {"value": self.value, "detail": self.detail}
 
 
-def _error_records(case: Mapping[str, Any]) -> list[Any]:
-    """Every recorded failure of a case, however malformed.
+def _records(value: object) -> list[Any]:
+    """A list-typed result-file field as a list, whatever shape it has.
 
-    A malformed ``errors`` value is never *dropped*: it is kept as one opaque
-    failure, so no unreadable result file can buy a ``yes``.
+    A malformed value is never *dropped*: it is kept as one opaque record, so
+    an unreadable result file can never buy a ``yes`` (an opaque "error" is a
+    failure; an opaque "sample" is not a mapping with ``survived``).
     """
-    errors = case.get("errors")
-    if errors is None or errors == []:
+    if value is None or value == []:
         return []
-    if isinstance(errors, Sequence) and not isinstance(errors, str | bytes):
-        return list(errors)
-    return [errors]
+    if isinstance(value, Sequence) and not isinstance(value, str | bytes):
+        return list(value)
+    return [value]
+
+
+def _error_records(case: Mapping[str, Any]) -> list[Any]:
+    """Every recorded failure of a case, however malformed."""
+    return _records(case.get("errors"))
+
+
+def _samples(case: Mapping[str, Any]) -> list[Any]:
+    """Every recorded sample of a case; a non-list ``samples`` is one opaque
+    sample, so the case still cannot silently vanish or become ``yes``."""
+    return _records(case.get("samples"))
+
+
+def _malformed_samples(case: Mapping[str, Any]) -> Verdict | None:
+    """``samples`` present but not a list: say so, never count it."""
+    raw = case.get("samples")
+    if raw is None or (isinstance(raw, Sequence) and not isinstance(raw, str | bytes)):
+        return None
+    return Verdict(
+        MALFORMED,
+        f"result file is malformed: samples is {type(raw).__name__}, not a list",
+    )
 
 
 def _is_warmup(err: Any) -> bool:
@@ -140,7 +162,9 @@ def case_verdict(case: object, *, min_reps: int = MIN_VALID_REPS) -> Verdict:
         return Verdict(TBD, "case not run")
     if not isinstance(case, Mapping):
         return _malformed(case)
-    samples = case.get("samples") or []
+    if (bad := _malformed_samples(case)) is not None:
+        return bad
+    samples = _samples(case)
     if not samples:
         return Verdict(NO, _first_failure(case) or "no successful repetition")
     errors = measured_errors(case)
@@ -160,7 +184,9 @@ def session_verdict(case: object, *, min_reps: int = MIN_VALID_REPS) -> Verdict:
         return Verdict(TBD, "case not run")
     if not isinstance(case, Mapping):
         return _malformed(case)
-    samples = case.get("samples") or []
+    if (bad := _malformed_samples(case)) is not None:
+        return bad
+    samples = _samples(case)
     if not samples:
         return Verdict(NO, _first_failure(case) or "no successful repetition")
     survived = [s for s in samples if isinstance(s, Mapping) and s.get("survived")]
@@ -217,6 +243,9 @@ class DirectionVerdict:
     same_host: bool = False
     #: the two sides reported *different* operating systems (both known)
     cross_os: bool = True
+    #: ``extra.endpoint`` was missing or unreadable: the same-machine check
+    #: could not run, so this row cannot be trusted to be two machines
+    endpoint_known: bool = True
     cases: dict[str, Verdict] = field(default_factory=dict)
     sessions: dict[str, Verdict] = field(default_factory=dict)
     outbound_only: Verdict = Verdict(TBD)
@@ -252,6 +281,11 @@ class DirectionVerdict:
         out: list[str] = []
         if self.same_host:
             out.append("not a cross-OS result: same machine (loopback)")
+        elif not self.endpoint_known:
+            out.append(
+                "connection facts missing from the result file (extra.endpoint) — "
+                "cannot tell whether this was one machine or two"
+            )
         if not self.cross_os:
             pair = f"{self.client_os} -> {self.server_os}"
             if _known_os(self.client_os) and _known_os(self.server_os):
@@ -278,6 +312,7 @@ class DirectionVerdict:
             "server_os": self.server_os,
             "native_pair": self.native_pair,
             "same_host": self.same_host,
+            "endpoint_known": self.endpoint_known,
             "cross_os": self.cross_os,
             "caveats": self.caveats(),
             "cases": {k: v.to_json() for k, v in self.cases.items()},
@@ -406,6 +441,7 @@ def direction_verdict(
         server_native=_native(peer),
         same_host=is_same_host(doc),
         cross_os=is_cross_os(local, peer),
+        endpoint_known=isinstance(extra.get("endpoint"), Mapping),
         sources=[str(doc.get("_source", ""))] if doc.get("_source") else [],
     )
     for case_id, _ in FIXED_CASES:
@@ -423,7 +459,7 @@ def direction_verdict(
     }
     verdict.run_errors = [
         describe_error(e) + (f" [fix: {e['fix']}]" if e.get("fix") else "")
-        for e in doc.get("errors") or []
+        for e in _records(doc.get("errors"))
         if isinstance(e, Mapping)
     ]
     return verdict

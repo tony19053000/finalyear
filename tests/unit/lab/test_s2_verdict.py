@@ -897,3 +897,50 @@ def test_malformed_params_and_summary_are_reported_not_crashed_on() -> None:
     assert dv.metrics["http_ttfb_ms"] is None
     assert dv.metrics["grpc_rtt_ms"] is None
     assert v.render_verdicts({"k": dv})
+
+
+@pytest.mark.parametrize("samples", [5, "five", {"a": 1}, True])
+def test_non_list_samples_is_malformed_never_yes(samples: object) -> None:
+    """(Reviewer finding, pass 3.) ``samples`` that is not a list crashed
+    ``report``; it is now an ``INVALID (malformed)`` cell."""
+    case = {"samples": samples, "errors": []}
+    for fn in (v.case_verdict, v.session_verdict):
+        result = fn(case)
+        assert result.value == v.MALFORMED, result
+        assert "samples is" in result.detail
+
+
+@pytest.mark.parametrize("errors", [5, "boom", {"a": 1}, [["x"]], None])
+def test_non_list_top_level_errors_never_crash_report(errors: object) -> None:
+    doc = _doc(
+        cases={"grpc-unary": {"samples": _samples(MIN_VALID_REPS), "errors": []}}
+    )
+    doc["errors"] = errors
+    dv = v.direction_verdict(doc)
+    assert dv.cases["grpc-unary"].value == v.YES
+    assert "| L1 -> L2 |" in v.render_verdicts({"k": dv})
+
+
+def test_direction_verdict_with_non_list_samples_renders_malformed_cell() -> None:
+    doc = _doc(
+        cases={"http-ping": {"samples": 5}, "grpc-bidi-idle30s-kaon": {"samples": "x"}}
+    )
+    dv = v.direction_verdict(doc)
+    assert dv.cases["http-ping"].value == v.MALFORMED
+    assert dv.sessions["grpc-bidi-idle30s-kaon"].value == v.MALFORMED
+    assert "INVALID (malformed)" in v.render_verdicts({"k": dv})
+
+
+@pytest.mark.parametrize("extra", ["junk", {}, {"endpoint": "nope"}])
+def test_missing_endpoint_facts_are_a_visible_caveat(extra: object) -> None:
+    """A file whose connection facts are gone must not read as a clean two-
+    machine row: the reader is told the same-machine check could not run."""
+    doc = _doc(
+        cases={"grpc-unary": {"samples": _samples(MIN_VALID_REPS), "errors": []}}
+    )
+    doc["extra"] = extra
+    dv = v.direction_verdict(doc)
+    assert dv.endpoint_known is False
+    assert dv.to_json()["endpoint_known"] is False
+    assert any("connection facts missing" in c for c in dv.caveats())
+    assert "connection facts missing" in v.render_verdicts({"k": dv})
