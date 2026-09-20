@@ -188,6 +188,7 @@ def test_offline_sql_generation_needs_no_database_at_all() -> None:
     assert "CREATE TABLE alembic_version" in output
     assert "INSERT INTO alembic_version" in output
     assert "0001" in output
+    assert "0002" in output  # the whole chain is emitted, up to head
 
 
 def test_unreachable_database_fails_within_configured_timeout_no_hang() -> None:

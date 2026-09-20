@@ -9,6 +9,7 @@ the manager's lock/queue/tasks need. No ``sleep`` longer than 50 ms.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import datetime as dt
 from collections.abc import AsyncIterator, Mapping
 from typing import Any, cast
@@ -18,7 +19,7 @@ import pytest
 import structlog
 
 from meshforge.common.ids import new_node_id
-from meshforge.common.proto.meshforge.v1 import agent_pb2, common_pb2
+from meshforge.common.proto.meshforge.v1 import agent_pb2
 from meshforge.controller.liveness import LivenessConfig, LivenessEvent, NodeState
 from meshforge.controller.registry import (
     NodeRecord,
@@ -133,29 +134,29 @@ class FakeRegistry:
         self.sessions[session_id] = rec
         return rec
 
-    async def close_session(self, session_id: str, end_reason: SessionEndReason) -> bool:
+    async def close_session(
+        self, session_id: str, end_reason: SessionEndReason
+    ) -> bool:
         self._record("close_session", session_id, end_reason)
         rec = self.sessions[session_id]
         if rec.ended_at is not None:
             return False
-        self.sessions[session_id] = SessionRecord(
-            **{
-                **rec.__dict__,
-                "ended_at": dt.datetime.now(dt.UTC),
-                "end_reason": end_reason,
-            }
+        self.sessions[session_id] = dataclasses.replace(
+            rec, ended_at=dt.datetime.now(dt.UTC), end_reason=end_reason
         )
         return True
 
     async def set_node_state(self, node_id: str, state: NodeState) -> None:
         self._record("set_node_state", node_id, state)
         rec = self.nodes[node_id]
-        self.nodes[node_id] = NodeRecord(**{**rec.__dict__, "state": state})
+        self.nodes[node_id] = dataclasses.replace(rec, state=state)
 
     async def touch_node(self, node_id: str) -> None:
         self._record("touch_node", node_id)
 
-    async def record_rtt(self, session_id: str, *, last_ms: float, ewma_ms: float) -> None:
+    async def record_rtt(
+        self, session_id: str, *, last_ms: float, ewma_ms: float
+    ) -> None:
         self._record("record_rtt", session_id, last_ms=last_ms, ewma_ms=ewma_ms)
 
 
@@ -190,7 +191,9 @@ async def admit(manager: SessionManager, h: agent_pb2.Hello) -> LiveSession:
     return result.live
 
 
-def heartbeat(live: LiveSession, message_id: str, seq: int = 1) -> agent_pb2.AgentMessage:
+def heartbeat(
+    live: LiveSession, message_id: str, seq: int = 1
+) -> agent_pb2.AgentMessage:
     return agent_pb2.AgentMessage(
         message_id=message_id,
         session_id=live.session_id,
@@ -253,7 +256,9 @@ async def test_first_hello_enrolls_and_ack_carries_liveness_intervals() -> None:
     assert ack.session_id == live.session_id
     assert ack.heartbeat_interval_ms == 2000
     assert ack.lease_ms == 6000  # offline_after_s from LivenessConfig
-    assert ack.controller_time.ToDatetime(dt.UTC) == dt.datetime(2026, 9, 20, tzinfo=dt.UTC)
+    assert ack.controller_time.ToDatetime(dt.UTC) == dt.datetime(
+        2026, 9, 20, tzinfo=dt.UTC
+    )
     assert manager.wake.is_set()
     assert len(manager) == 1
     assert live.next_ping_at == clock.now  # first RTT sample on the next tick
@@ -336,7 +341,9 @@ async def test_hello_after_offline_is_reconnected() -> None:
     change = [e for e in logs if e["event"] == "node.state_changed"]
     assert change and change[0]["from"] == "offline" and change[0]["to"] == "online"
     assert change[0]["liveness_event"] == "reconnected"
-    assert change[0]["node_id"] == node_id and change[0]["session_id"] == again.session_id
+    assert (
+        change[0]["node_id"] == node_id and change[0]["session_id"] == again.session_id
+    )
 
 
 @pytest.mark.asyncio
@@ -404,7 +411,9 @@ async def test_duplicate_message_id_is_processed_once_but_re_acked() -> None:
     await manager.handle_message(live, heartbeat(live, "dup", seq=2))
     assert live.heartbeats == 1
     assert live.duplicates == 1
-    acks = [m for m in drain(live) if m is not None and m.WhichOneof("payload") == "ack"]
+    acks = [
+        m for m in drain(live) if m is not None and m.WhichOneof("payload") == "ack"
+    ]
     assert [a.ack.acked_message_id for a in acks] == ["dup", "dup"]
 
 
@@ -449,7 +458,10 @@ async def test_second_hello_on_open_stream_is_a_protocol_error() -> None:
     msg = agent_pb2.AgentMessage(message_id="h2", hello=hello(live.node_id, epoch=2))
     with pytest.raises(SessionProtocolError) as info:
         await manager.handle_message(live, msg)
-    assert info.value.details == {"session_id": live.session_id, "node_id": live.node_id}
+    assert info.value.details == {
+        "session_id": live.session_id,
+        "node_id": live.node_id,
+    }
 
 
 @pytest.mark.asyncio
@@ -459,7 +471,9 @@ async def test_missing_message_id_or_payload_is_a_protocol_error() -> None:
     with pytest.raises(SessionProtocolError, match="message_id"):
         await manager.handle_message(
             live,
-            agent_pb2.AgentMessage(session_id=live.session_id, heartbeat=agent_pb2.Heartbeat()),
+            agent_pb2.AgentMessage(
+                session_id=live.session_id, heartbeat=agent_pb2.Heartbeat()
+            ),
         )
     with pytest.raises(SessionProtocolError, match="payload"):
         await manager.handle_message(
@@ -503,7 +517,9 @@ async def test_agent_ack_is_not_acked_back() -> None:
     await manager.handle_message(
         live,
         agent_pb2.AgentMessage(
-            message_id="a-1", session_id=live.session_id, ack=agent_pb2.Ack(acked_message_id="c")
+            message_id="a-1",
+            session_id=live.session_id,
+            ack=agent_pb2.Ack(acked_message_id="c"),
         ),
     )
     assert drain(live) == []
@@ -563,7 +579,9 @@ async def test_ping_pong_measures_rtt_on_the_monotonic_clock_only() -> None:
     live = await admit(manager, hello(new_node_id()))
     await manager.send_ping(live, clock.now)
     out = drain(live)
-    assert len(out) == 1 and out[0] is not None and out[0].WhichOneof("payload") == "ping"
+    assert (
+        len(out) == 1 and out[0] is not None and out[0].WhichOneof("payload") == "ping"
+    )
     ping_id = out[0].ping.ping_id
     assert live.outstanding_ping == (ping_id, NOW0)
     assert live.next_ping_at == NOW0 + CFG.offline_after_s
@@ -584,12 +602,16 @@ async def test_ping_pong_measures_rtt_on_the_monotonic_clock_only() -> None:
 
     # second round: EWMA blends
     await manager.send_ping(live, clock.now)
-    ping2 = [m for m in drain(live) if m is not None and m.WhichOneof("payload") == "ping"][0]
+    ping2 = next(
+        m for m in drain(live) if m is not None and m.WhichOneof("payload") == "ping"
+    )
     clock.now += 0.0325
     await manager.handle_message(
         live,
         agent_pb2.AgentMessage(
-            message_id="p-2", session_id=live.session_id, pong=agent_pb2.Pong(ping_id=ping2.ping.ping_id)
+            message_id="p-2",
+            session_id=live.session_id,
+            pong=agent_pb2.Pong(ping_id=ping2.ping.ping_id),
         ),
     )
     assert live.last_rtt_ms == pytest.approx(32.5)
@@ -604,12 +626,16 @@ async def test_unmatched_or_expired_pong_is_ignored() -> None:
     await manager.send_ping(live, clock.now)
     first = drain(live)[0]
     assert first is not None
-    await manager.send_ping(live, clock.now + 6.0)  # only the latest ping is outstanding
+    await manager.send_ping(
+        live, clock.now + 6.0
+    )  # only the latest ping is outstanding
     drain(live)
     await manager.handle_message(
         live,
         agent_pb2.AgentMessage(
-            message_id="late", session_id=live.session_id, pong=agent_pb2.Pong(ping_id=first.ping.ping_id)
+            message_id="late",
+            session_id=live.session_id,
+            pong=agent_pb2.Pong(ping_id=first.ping.ping_id),
         ),
     )
     assert live.last_rtt_ms is None
@@ -626,7 +652,9 @@ async def test_apply_event_persists_and_logs_a_change() -> None:
     manager = make_manager(reg, clock)
     live = await admit(manager, hello(new_node_id()))
     with structlog.testing.capture_logs() as logs:
-        state = await manager.apply_event(live, LivenessEvent.LEASE_MISSED, silence_s=2.5)
+        state = await manager.apply_event(
+            live, LivenessEvent.LEASE_MISSED, silence_s=2.5
+        )
     assert state is NodeState.SUSPECT and live.state is NodeState.SUSPECT
     assert reg.nodes[live.node_id].state is NodeState.SUSPECT
     (entry,) = [e for e in logs if e["event"] == "node.state_changed"]
@@ -640,7 +668,9 @@ async def test_invalid_transition_is_logged_not_raised() -> None:
     manager = make_manager(reg, FakeClock())
     live = await admit(manager, hello(new_node_id()))
     with structlog.testing.capture_logs() as logs:
-        state = await manager.apply_event(live, LivenessEvent.LEASE_EXPIRED, silence_s=9)
+        state = await manager.apply_event(
+            live, LivenessEvent.LEASE_EXPIRED, silence_s=9
+        )
     assert state is NodeState.ONLINE  # unchanged: ONLINE has no LEASE_EXPIRED arrow
     (entry,) = [e for e in logs if e["event"] == "liveness.invalid_transition"]
     assert entry["log_level"] == "error"
@@ -658,6 +688,37 @@ async def test_heartbeat_while_suspect_returns_to_online() -> None:
     await manager.handle_message(live, heartbeat(live, "hb"))
     assert live.state is NodeState.ONLINE
     assert reg.nodes[live.node_id].state is NodeState.ONLINE
+
+
+@pytest.mark.asyncio
+async def test_registry_write_survives_cancellation_of_the_reader() -> None:
+    """A reader cancelled mid-write (supersede) must not abandon the DB statement."""
+    reg, clock = FakeRegistry(), FakeClock()
+    manager = make_manager(reg, clock)
+    node_id = new_node_id()
+    old = await admit(manager, hello(node_id, epoch=1))
+
+    gate = asyncio.Event()
+    touched: list[str] = []
+
+    async def slow_touch(nid: str) -> None:
+        await gate.wait()  # "the statement is on the wire"
+        touched.append(nid)
+
+    reg.touch_node = slow_touch  # type: ignore[method-assign]
+    stream = QueueStream()
+    reader = manager.start_reader(old, stream)
+    stream.feed(heartbeat(old, "hb-1"))
+    await settle()
+    assert not touched  # blocked inside the registry write
+
+    await admit(manager, hello(node_id, epoch=2))  # supersede: cancels the reader
+    await settle()
+    assert reader.cancelled()
+    assert not touched  # still pending, not abandoned
+    gate.set()
+    await settle()
+    assert touched == [node_id]  # the shielded write completed on its own
 
 
 @pytest.mark.asyncio
@@ -689,7 +750,10 @@ async def test_shutdown_closes_every_session_and_cancels_readers() -> None:
     assert len(manager) == 0
     for live, reader in zip(lives, readers, strict=True):
         assert live.end_reason is SessionEndReason.CONTROLLER_SHUTDOWN
-        assert reg.sessions[live.session_id].end_reason is SessionEndReason.CONTROLLER_SHUTDOWN
+        assert (
+            reg.sessions[live.session_id].end_reason
+            is SessionEndReason.CONTROLLER_SHUTDOWN
+        )
         assert reader.done()
         assert drain(live) == [None]
     # idempotent
@@ -738,7 +802,11 @@ async def test_timer_walks_online_suspect_offline_and_ends_the_session() -> None
     assert live.state is NodeState.SUSPECT
     assert nxt == NOW0 + 6.0
     (entry,) = [e for e in logs if e["event"] == "node.state_changed"]
-    assert (entry["from"], entry["to"], entry["silence_s"]) == ("online", "suspect", 2.5)
+    assert (entry["from"], entry["to"], entry["silence_s"]) == (
+        "online",
+        "suspect",
+        2.5,
+    )
 
     clock.now = NOW0 + 6.0
     nxt = await timer.tick(clock.now)
@@ -758,7 +826,7 @@ async def test_timer_that_stalled_still_walks_every_arrow_in_one_tick() -> None:
     live = await admit(manager, hello(new_node_id()))
     clock.now = NOW0 + 60.0
     await timer.tick(clock.now)
-    states = [k[1] for _, k, _ in reg.calls if _ == "set_node_state"]
+    states = [args[1] for name, args, _ in reg.calls if name == "set_node_state"]
     assert states == [NodeState.SUSPECT, NodeState.OFFLINE]
     assert live.end_reason is SessionEndReason.LEASE_EXPIRED
 
@@ -774,7 +842,11 @@ async def test_heartbeats_keep_online_and_pings_recur_per_lease_interval() -> No
         clock.now = NOW0 + i
         await manager.handle_message(live, heartbeat(live, f"hb-{i}"))
         await timer.tick(clock.now)
-        pings += sum(1 for m in drain(live) if m is not None and m.WhichOneof("payload") == "ping")
+        pings += sum(
+            1
+            for m in drain(live)
+            if m is not None and m.WhichOneof("payload") == "ping"
+        )
     assert live.state is NodeState.ONLINE and not live.ended
     assert pings == 2  # t=1 (first) and t=7 (>= 1 + 6 s lease)
 
@@ -783,7 +855,9 @@ async def test_heartbeats_keep_online_and_pings_recur_per_lease_interval() -> No
 async def test_timer_run_wakes_on_register_and_survives_a_tick_bug() -> None:
     reg, clock = FakeRegistry(), FakeClock()
     manager = make_manager(reg, clock)
-    timer = LeaseTimer(manager, clock=clock, max_idle_s=5.0)  # long idle: only wake helps
+    timer = LeaseTimer(
+        manager, clock=clock, max_idle_s=5.0
+    )  # long idle: only wake helps
     task = asyncio.create_task(timer.run())
     try:
         await settle()
@@ -812,5 +886,6 @@ async def test_timer_run_wakes_on_register_and_survives_a_tick_bug() -> None:
 
 
 async def _until(pred: Any) -> None:
-    while not pred():
+    """Yield to the loop until ``pred()`` holds (callers bound it with wait_for)."""
+    while not pred():  # noqa: ASYNC110 - polling a plain predicate, no event exists
         await asyncio.sleep(0)

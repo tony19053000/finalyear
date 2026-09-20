@@ -88,6 +88,7 @@ class ControllerRuntime:
         self._grpc_server: grpc.aio.Server | None = None
         self._http_server: _NoSignalUvicorn | None = None
         self._http_sock: socket.socket | None = None
+        self._lease_timer_task: asyncio.Task[None] | None = None
         self._tasks: set[asyncio.Task[None]] = set()
         self._stop_requested = asyncio.Event()
         self._stopped = False
@@ -125,7 +126,9 @@ class ControllerRuntime:
             dedupe_window=cfg.dedupe_window,
         )
         self.manager = manager
-        self._spawn(LeaseTimer(manager, clock=loop.time).run(), "lease-timer")
+        self._lease_timer_task = self._spawn(
+            LeaseTimer(manager, clock=loop.time).run(), "lease-timer"
+        )
 
         grpc_server = grpc.aio.server(options=list(GRPC_SERVER_OPTIONS))
         agent_pb2_grpc.add_AgentControlServicer_to_server(
@@ -164,11 +167,12 @@ class ControllerRuntime:
             lease_s=cfg.liveness.to_config().offline_after_s,
         )
 
-    def _spawn(self, coro: Coroutine[Any, Any, None], name: str) -> None:
+    def _spawn(self, coro: Coroutine[Any, Any, None], name: str) -> asyncio.Task[None]:
         task = asyncio.create_task(coro, name=name)
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
         task.add_done_callback(self._on_task_done)
+        return task
 
     def _on_task_done(self, task: asyncio.Task[None]) -> None:
         if task.cancelled():
@@ -219,6 +223,10 @@ class ControllerRuntime:
             # transport is torn down under them.
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(self.manager.shutdown(), drain)
+        if self._lease_timer_task is not None and not self._lease_timer_task.done():
+            # Runs forever by design; nothing to drain once the sessions are closed.
+            self._lease_timer_task.cancel()
+            await asyncio.gather(self._lease_timer_task, return_exceptions=True)
         if self._grpc_server is not None:
             await self._grpc_server.stop(grace=drain)
         if self._http_server is not None:
@@ -226,7 +234,7 @@ class ControllerRuntime:
         pending = [t for t in self._tasks if not t.done()]
         if pending:
             _done, still = await asyncio.wait(pending, timeout=drain)
-            for task in still:  # the lease timer runs forever; anything else is late
+            for task in still:  # anything still running after the drain is late
                 task.cancel()
             if still:
                 await asyncio.gather(*still, return_exceptions=True)

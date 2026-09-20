@@ -136,7 +136,9 @@ def test_base_install_placeholder_exits_3(
     assert expected_marker in result.stderr
 
 
-def test_base_install_controller_run_needs_extra(base_install: Path, tmp_path: Path) -> None:
+def test_base_install_controller_run_needs_extra(
+    base_install: Path, tmp_path: Path
+) -> None:
     """Since V0.3 G2 `meshforge-controller` is a real server; on a base install it
     must fail fast with a typed CONFIG_ERROR naming the missing extra, not a
     traceback (settings load first, so an unreadable user config would win)."""

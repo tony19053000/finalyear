@@ -20,6 +20,7 @@ from collections.abc import AsyncIterator
 
 import grpc
 
+from meshforge.common.ids import new_command_id
 from meshforge.common.logging import get_logger
 from meshforge.common.proto.meshforge.v1 import agent_pb2, agent_pb2_grpc
 from meshforge.controller.registry import SessionEndReason
@@ -62,7 +63,7 @@ class AgentControlServicer(agent_pb2_grpc.AgentControlServicer):
             if result.abort_status is not None:
                 await context.abort(result.abort_status, result.reason)
             yield agent_pb2.ControllerMessage(
-                message_id=first.message_id,
+                message_id=new_command_id(),
                 hello_ack=agent_pb2.HelloAck(
                     accepted=False,
                     reject_code=result.reject_code,

@@ -94,11 +94,13 @@ def test_naming_convention_gives_deterministic_constraint_names() -> None:
         assert name in ddl, f"{name} missing from DDL:\n{ddl}"
 
 
-def test_base_metadata_uses_convention_and_is_empty_in_v01() -> None:
+def test_base_metadata_uses_convention_and_registers_every_model() -> None:
     assert Base.metadata.naming_convention == NAMING_CONVENTION
     import meshforge.controller.store.models  # noqa: F401 - registry import
 
-    assert Base.metadata.tables == {}, "V0.1 baseline has no domain tables"
+    # V0.1 had no domain tables; V0.3 G2 added the node registry (0.3.6). Every
+    # model module must be imported by models/__init__ or Alembic cannot see it.
+    assert set(Base.metadata.tables) == {"node", "node_session"}
 
 
 def test_timestamps_are_timestamptz_with_server_defaults() -> None:

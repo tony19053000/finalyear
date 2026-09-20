@@ -1,9 +1,12 @@
 """The single lease timer for all sessions (roadmap 0.3.7 wiring, 0.3.10 pings).
 
 One task, not one per session: it sleeps until the earliest
-:meth:`LeaseTracker.deadline` (or the next ping due) across every live session,
-capped at ``max_idle_s``, and is woken early by ``SessionManager.wake`` when a
-session registers. On each tick it
+:meth:`LeaseTracker.deadline` (or the next ping due) across every live session
+(at most ``max_idle_s`` when nothing is scheduled), and is woken early by
+``SessionManager.wake`` when a session registers. Deadlines only ever move later
+(heartbeats extend leases, pings reschedule themselves), so sleeping until the
+known minimum is safe; only a *new* session can create an earlier one, and that
+sets ``wake``. On each tick it
 
 1. drains the due lease events of every session (``LEASE_MISSED`` then
    ``LEASE_EXPIRED`` - a stalled loop still walks ONLINE -> SUSPECT -> OFFLINE);
@@ -97,10 +100,10 @@ class LeaseTimer:
             await self._manager.send_ping(live, now)
 
     def timeout_until(self, next_deadline: float | None, now: float) -> float:
-        """How long :meth:`run` sleeps before the next tick."""
+        """How long :meth:`run` sleeps before the next tick (0 = already due)."""
         if next_deadline is None:
             return self._max_idle_s
-        return min(max(next_deadline - now, 0.0), self._max_idle_s)
+        return max(next_deadline - now, 0.0)
 
     async def run(self) -> None:
         """Loop forever (cancelled by the server on shutdown)."""

@@ -64,6 +64,9 @@ RTT_EWMA_ALPHA: Final = 0.3
 
 RejectCode = agent_pb2.HelloAck.RejectCode
 
+_UNACKED: Final = frozenset({"ack", "pong"})
+"""Agent payloads that get no Ack back (ADR-0002 Updates §4: never buffered)."""
+
 
 def update_ewma(
     previous: float | None, sample: float, alpha: float = RTT_EWMA_ALPHA
@@ -169,6 +172,8 @@ class SessionManager:
         self._lock = asyncio.Lock()
         self._live: dict[str, LiveSession] = {}
         self._tasks: set[asyncio.Task[None]] = set()
+        self._writes: set[asyncio.Task[None]] = set()
+        """In-flight registry writes; never cancelled (see :meth:`_persist`)."""
         self.wake = asyncio.Event()
         """Set whenever a session registers; the lease timer waits on it."""
         self.stale_messages_total = 0
@@ -430,10 +435,11 @@ class SessionManager:
             )
         else:
             await self._dispatch(live, which, msg)
-        if which != "ack":
-            # Receipts are never acknowledged (that would ping-pong forever); every
-            # other message is, duplicates included - the agent may have missed
-            # the first Ack.
+        if which not in _UNACKED:
+            # Receipts (Ack) and probe replies (Pong) are never acknowledged - they
+            # are never buffered or replayed, and acking them would ping-pong
+            # forever. Every other message is, duplicates included: the agent may
+            # have missed the first Ack.
             self.send(live, self._ack(live, msg.message_id))
 
     async def _dispatch(
@@ -639,13 +645,35 @@ class SessionManager:
             task.cancel()
         if pending:
             await asyncio.gather(*pending, return_exceptions=True)
+        # Let in-flight writes (the close reasons above included) reach the database.
+        writes = [t for t in self._writes if not t.done()]
+        if writes:
+            await asyncio.gather(*writes, return_exceptions=True)
 
     # --------------------------------------------------------------- helpers
 
     async def _persist(
         self, op: Coroutine[Any, Any, Any], live: LiveSession, log_event: str
     ) -> None:
-        """Await a registry write; a typed failure is logged, never propagated."""
+        """Await a registry write; a typed failure is logged, never propagated.
+
+        The write runs in its own task and is *shielded*: a reader task cancelled
+        mid-write (supersede, lease expiry, shutdown) must not abandon a pooled
+        connection half-way through a statement. The caller still observes its
+        own cancellation; the write finishes (or fails and is logged) on its own.
+        """
+        task = asyncio.create_task(
+            self._persist_logged(op, live, log_event),
+            name=f"registry-write:{live.session_id}",
+        )
+        self._writes.add(task)
+        task.add_done_callback(self._writes.discard)
+        task.add_done_callback(_log_task_failure)
+        await asyncio.shield(task)
+
+    async def _persist_logged(
+        self, op: Coroutine[Any, Any, Any], live: LiveSession, log_event: str
+    ) -> None:
         try:
             await op
         except MeshForgeError as exc:
