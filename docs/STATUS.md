@@ -2,10 +2,10 @@
 
 > Concise current state. Long-term plan: [`DEVELOPMENT_ROADMAP.md`](DEVELOPMENT_ROADMAP.md). Update at the end of every work session.
 
-**Last updated:** 2026-09-20 (**V0.3 G1 + G2 closed agent-side**; V0.2 waits on 🧑 lab runs)
+**Last updated:** 2026-09-21 (**V0.3 G1–G3 closed agent-side** — a live controller ⇄ agent fabric works in-process; V0.2 waits on 🧑 lab runs)
 
 ## Current Version
-**V0.3 — Fabric core** · started 2026-09-20 on the team's decision (before the laptop 2–4 inventory); **G1 + G2 closed agent-side** (0.3.1, 0.3.6, 0.3.10 `[x]`; 0.3.2 `[~]` Windows run; 0.3.7 `[~]` lab evidence)
+**V0.3 — Fabric core** · started 2026-09-20 on the team's decision (before the laptop 2–4 inventory); **G1–G3 closed agent-side** (0.3.1, 0.3.6, 0.3.8, 0.3.9, 0.3.10 `[x]`; 0.3.2 `[~]` Windows run; 0.3.7 `[~]` lab evidence)
 V0.2 — Lab setup & feasibility validation · agent-side complete, waiting on 🧑 lab runs
 V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4, 0.1.10)
 
@@ -15,9 +15,12 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 > V0.10. 129 tasks vs 140–180 capacity → **~1.5 tasks/session**. Needs the other three team members' approval.
 
 ## Current Task
-**Next: V0.3 group G3** — 0.3.8 agent runtime: connect, `Hello` with `next_epoch`, heartbeat at the `HelloAck` interval, answer `Ping` with `Pong`, reconnect with full-jitter backoff (base 0.5 s, cap 15 s) + gRPC keepalive, `Reconcile` + bounded replay ring; 0.3.9 controller discovery (config address, mDNS fallback via zeroconf). The Lead writes the G3 brief (`docs/briefs/V0.3-fabric-core.md` §5c) using G2's real contract: `HelloAck{accepted, session_id, heartbeat_interval_ms, lease_ms, reject_code}`, stream ends `ABORTED` with details = end reason for superseded / lease_expired / protocol_error, `OK` for agent_closed / controller_shutdown; `message_id` must be `cmd_<ULID>`; Hello string caps in `controller/session/limits.py`. First agent-side task group → criterion 3 (reconnect ≤ 15 s after controller restart) becomes testable in-process.
+**Next: V0.3 group G4** — 0.3.3 hardware discovery (lift `lab/_inventory/probes.py` logic into `agent/hardware/`, NVML + nvidia-smi, fill `Hello.hardware`), 0.3.5 resource monitor (psutil + NVML every 2 s, change-threshold reporting via `send_report("resource_update", …)`), 0.3.11 snapshots (controller: live ring per node + 1-min downsample into a `resource_snapshot` table, retention setting; cap `hardware` JSON size — G2 follow-up). The Lead writes the brief as §5d of `docs/briefs/V0.3-fabric-core.md` using G3's real API (`AgentSessionClient.send_report`, `REPORT_PAYLOADS`, `ResourceUpdate.sequence` keyed replay).
+
+**First real two-machine smoke is now possible** (no lab task yet — optional): controller on Laptop 1 (`meshforge-controller run` with Postgres via compose), `meshforge-agent run` on another laptop with `MESHFORGE_AGENT__CONTROLLER_ADDRESS=<L1-ip>:47100`; expect the node ONLINE in `/healthz` sessions count and the `node` table. Firewall: TCP 47100 inbound on Laptop 1 only.
 
 ## Recently Completed
+- 2026-09-21: **V0.3 G3 closed agent-side** — 0.3.8 `[x]`, 0.3.9 `[x]`. The agent runtime exists: `meshforge-agent run` connects, heartbeats, answers pings, reconnects with full-jitter backoff (controller restart → ONLINE again in ~1–2 s in-process), replays buffered reports after `Reconcile`, finds the controller by config or mDNS, exits CONFLICT when superseded. Tester: 1 defect (heartbeat interval unbounded → clamped) ; reviewer pass 1 → 1 blocking (`replay_from_sequence` contract) → APPROVE pass 2. Commits `a934621` … `0f55af0`. Unit 2437, component agent 37 (~78 s), store+controller+agent 90.
 - 2026-09-20: **V0.3 G2 closed agent-side** — 0.3.6 `[x]`, 0.3.10 `[x]`, 0.3.7 wired. Implementer (2 runs) → tester (2 defects) → reviewer REQUEST_CHANGES (3 blocking) → fixes → **APPROVE pass 2**. Key design outcomes: liveness decided in memory with a per-session ordered write chain (DB never blocks the reader/timer); epoch fenced against the persisted high-water mark; `session_epoch` as NUMERIC(20,0) full uint64; stream end reasons surfaced as `ABORTED` details. Commits `bd416eb` … `a1014d5`. Unit 2259, component store+controller 67, controller component 10/10.
 - 2026-09-20: **V0.3 G1 closed agent-side** — 0.3.1 proto `[x]`; 0.3.2 identity (ADR-0013) and 0.3.7 liveness logic code-complete. Implementer → tester (2 critical concurrency defects + 1 minor, fixed) → reviewer (1 blocking: `next_epoch` clobbering a reset identity, fixed; APPROVE pass 2). Commits `da27ff1` `b7eda28` `7b7e7ff` `0acf7eb`. `pytest -m unit` 2122 passed. ARCHITECTURE §12.3 amended (DRAINING lease arrows, revoke from every live state).
 - 2026-09-20: **V0.3 prepared** — `docs/briefs/V0.3-fabric-core.md` (groups G1–G7, G1 brief), **ADR-0013** node identity (P-256 key + ULID `node_id`, OS-protected) and **ADR-0002 Updates** (session epoch fencing, `session_id` envelopes, full-jitter backoff cap 15 s, bounded replay, monotonic leases) — all Proposed, need team review.

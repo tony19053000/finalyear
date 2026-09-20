@@ -29,7 +29,7 @@
 > throughput measurements and the reasoning; if you think the arithmetic or the trade is wrong,
 > **say so to the team before building on it.** Do not silently re-expand the scope either.
 
-**Last updated:** 2026-09-20 (**V0.3 G1 + G2 closed agent-side**; G3 next; V0.2 waits on 🧑 lab runs) · **Updated by:** Lead session (account 1)
+**Last updated:** 2026-09-21 (**V0.3 G1–G3 closed agent-side**; G4 next; V0.2 waits on 🧑 lab runs) · **Updated by:** Lead session (account 1)
 
 ---
 
@@ -101,29 +101,27 @@ approval of ADR-0012 first.
 
 ## 2. In flight right now
 
-**G3: implementer complete (`feat(V0.3-G3)`); with the TESTER next, then reviewer.** If this
-session is lost mid-flight: look for uncommitted files under `src/meshforge/agent/`, `tests/unit/agent/`,
-`tests/component/agent/`; run the gates; commit `wip(V0.3-G3)` with what is missing in the message; relaunch an
-implementer pointing at that commit. V0.3 **G1 and G2 are closed agent-side** (2026-09-20).
+**Nothing is in flight; the working tree is clean.** V0.3 **G1, G2 and G3 are closed agent-side** (G3 on 2026-09-21).
+A live controller ⇄ agent fabric now works in-process: `meshforge-controller run` + `meshforge-agent run` → node
+ONLINE, heartbeats, pings/RTT, lease expiry, reconnect after a controller restart in ~1–2 s, mDNS discovery.
 
-- **G1** (`da27ff1` → `0acf7eb`): proto V0.3 contract, node identity (ADR-0013), liveness logic. 0.3.1 `[x]`; 0.3.2 `[~]`
-  until a 🧑 Windows unit run (`uv run pytest tests/unit/agent -q`, exercises `icacls` + `msvcrt.locking`).
-- **G2** (`bd416eb` → `a1014d5`): controller session server, registry (`0002_nodes`), lease wiring, ping/pong RTT, one
-  process (gRPC 47100 + REST 47110 `/healthz`). 0.3.6 `[x]`, 0.3.10 `[x]`, 0.3.7 `[~]` only for the 🧑 cable-pull
-  evidence in 0.3.15. Two implementer runs were cut by usage limits; partial work was always committed as `wip:` first —
-  keep doing that. Reviewer pass 2 APPROVE; follow-ups in the roadmap design change log (2026-09-20 "G2 review
-  follow-ups" row). **Dev-DB notice:** migration `0002_nodes` was amended in place; a dev Postgres migrated between
-  `226506e` and `35bc872` must be dropped or `alembic downgrade 0001 && upgrade head`.
+- **G1** (`da27ff1` → `0acf7eb`): proto, identity (ADR-0013), liveness logic. 0.3.2 `[~]` until a 🧑 Windows unit run.
+- **G2** (`bd416eb` → `a1014d5`): controller session server, registry, leases, RTT, one process. 0.3.7 `[~]` for lab evidence.
+  Dev-DB notice: migration `0002_nodes` was amended in place on 2026-09-20 — drop or re-migrate a dev DB from that day.
+- **G3** (`a934621` → `0f55af0`): agent runtime + discovery. 0.3.8 / 0.3.9 `[x]`.
 
-**Next: G3 (agent runtime + discovery, 0.3.8 + 0.3.9).** The Lead writes the brief as §5c of
-`docs/briefs/V0.3-fabric-core.md` from G2's real contract (see STATUS → Current Task). Musts for G3 from G2:
-`message_id` = `cmd_<ULID>` (`common.ids.new_command_id`); heartbeat interval and lease come from `HelloAck`, never
-hard-coded; on stream end read the gRPC status — `ABORTED` + details `superseded` → stop (another instance of this
-node won), `lease_expired` / `protocol_error` → reconnect with backoff, `OK` → controller went away cleanly → reconnect;
-`STALE_EPOCH` in `HelloAck` → call `identity.next_epoch` (via `asyncio.to_thread`) and retry; answer every `Ping` with
-`Pong` immediately; never derive anything from `controller_time` except display skew. Gates at handoff: ruff /
-mypy (49 files) / lint-imports / gen_protos clean, unit **2259**, component store+controller **67**, controller
-component file **10/10** runs.
+Pattern that worked: every implementer/tester/reviewer run on a front-loaded brief; two implementer runs were cut by
+usage limits and recovered from a `wip:` commit — **always commit partial work before relaunching**. Follow-ups from
+each review are in the roadmap design change log (rows "V0.3 G1/G2/G3 review follow-ups").
+
+**Next: G4 (hardware + resources + snapshots, 0.3.3 + 0.3.5 + 0.3.11).** The Lead writes §5d of
+`docs/briefs/V0.3-fabric-core.md`. Real API to build on: `AgentSessionClient.send_report(payload_name, payload)` with
+`REPORT_PAYLOADS` (reports are ring-buffered and replayed; `ResourceUpdate.sequence` is stamped by the client);
+`Hello.hardware` = `HardwareSummary` (currently basics only, `capabilities=["v0.3"]`); controller stores
+`Hello.hardware` as JSON on the `node` row (`Registry.upsert_node_on_hello`) — G4 must cap its size (G2 follow-up);
+`lab/_inventory/probes.py` has the probe logic to lift (never import `lab/` from `src/`); `lab/spikes/_s7/` has the
+score kernels for G7. Gates at handoff: ruff / mypy (60 files) / lint-imports / gen_protos clean, unit **2437**,
+component agent **37**, store+controller+agent **~92**.
 
 **Documented loss in 0.2.13, not a bug:** hand-edits *inside* a generated region (e.g. filling
 "speed: TBD" or the power-mode cell in the host table) are still overwritten. Recorded in
