@@ -14,7 +14,7 @@
 > Order of truth: `PROJECT_BRIEF → ARCHITECTURE → ROADMAP → STATUS → this file`. If this file
 > disagrees with the roadmap, the roadmap wins and this file is stale — fix it.
 
-**Last updated:** 2026-09-20 (S3 closed) · **Updated by:** Lead session (account 1)
+**Last updated:** 2026-09-20 (S2 fix rounds committed; reviewer pending) · **Updated by:** Lead session (account 1)
 
 ---
 
@@ -33,31 +33,22 @@
 
 ## 2. In flight right now
 
-**The working tree is clean.** Nothing is half-written.
+**The working tree is clean; the S2 fix rounds are committed** (`3221b72`, `d54649a`).
+**Exact next step: S2 reviewer round** (`reviewer` subagent on 0.2.6), then fix what it
+returns, then commit `feat(0.2.6)`, mark `[~]` with evidence in the roadmap, update STATUS.
 
-**Exact next task: 0.2.6 S2 cross-OS.** It is the last unfinished spike code in V0.2, and the
-only red left in the lab suites. Its code is in commit `b039b0f` (`lab/spikes/s2_crossos.py`,
-`lab/spikes/_s2/`) with most unit tests written; the 2026-09-19 run was interrupted during
-verdict aggregation + CLI tests.
+S2 state: tester round 1 (commit `28f6ff6`) pinned 6 defects → all fixed (`3221b72`).
+Tester round 2 confirmed the 6 fixes with heavier adversarial tests and found 1 new
+defect in the **shared** `_harness/report.py` (crash on a non-object case entry) → fixed
+(`d54649a`, covered in `tests/unit/lab/test_spike_report.py`). Real loopback run done
+2026-09-20 (S2.md §5). Gates: ruff/format/mypy clean; `tests/unit/lab` 965 passed;
+`tests/component/lab` 221 passed, 3 skipped (whole lab suite incl. S1/S3/S7).
 
-What is missing for S2:
-- finish the verdict-aggregation and CLI unit tests;
-- fix `tests/component/lab/test_s2_crossos.py`: 1 failure
-  (`test_session_counts_server_initiated_beats`: 0 server beats) and 1 error
-  (`test_peer_vanishing_mid_stream_is_recorded_not_hung`: subprocess pids not freed);
-- fix `ruff format --check` on `tests/unit/lab/test_s2_verdict.py`;
-- write `lab/spikes/S2.md` and an S2 subsection in `lab/README.md`, modelled on `S3.md`;
-- do a real loopback run;
-- then `tester` → `reviewer` → commit `feat(0.2.6)` → mark `[~]` with evidence.
-
-Run it exactly like the S3 round that just closed: one `implementer` run with a precise brief,
-then `tester`, then `reviewer`, fixing what each returns. Budget roughly one session.
-
-**How the S3 round went** (useful precedent): implementer finished the interrupted run →
-tester PASS with 2 minor boundary defects + 1 flake → fix round → reviewer REQUEST_CHANGES
-with 3 blocking findings (all about the report being able to state a *confidently wrong*
-number) → fix round → reviewer APPROVE. Expect the reviewer to be strict about anything the
-generated verdict sentences claim.
+Things the reviewer will probably poke at (be ready): the `grpc.so_reuseport = 0` option
+is Linux-relevant only (Windows never shared); the `_lifecycle` RLock in `S2GrpcServer`;
+warmup errors excluded from verdicts but shown as "(note, not counted)"; `INVALID
+(malformed)` cells; harness `_records/_field/_describe` helpers duplicate the shape of
+`_s2/verdict.py` helpers (accepted duplication: `_harness` must stay spike-agnostic).
 
 **Harness change from S1 round 3 that S2 must respect:** envelope `link` may be `None`
 (n/a); `load_dir` skip reasons carry only `path.name`; use `envelope.sanitize_text()` on any
@@ -67,10 +58,6 @@ markdown table cell (an S3 reviewer finding).
 **File ownership while several agents run:** each spike owns only its own paths
 (`lab/spikes/<sN>_*.py`, `lab/spikes/_sN/`, `tests/**/test_sN_*.py`, `lab/spikes/SN.md`).
 `_harness/**` is shared — only one agent may edit it at a time; others read it.
-
-**Gate state (measured 2026-09-20 after the S3 commit):** `ruff check` clean, `mypy` clean
-(181 files), `pytest tests/unit/lab -k "s3 or spike"` 245 passed, `pytest tests/component/lab
--k s3` 62 passed (twice, no flake). The only red anywhere is S2's, listed above.
 
 ## 2b. GitHub
 
