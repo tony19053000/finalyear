@@ -119,7 +119,33 @@ ONLINE, heartbeats, pings/RTT, lease expiry, reconnect after a controller restar
 
 1. `ResourceSink.record(node_id, session_epoch, update, now)` — §5d named `record(node_id, update, now)`. Claim: after
    a reconnect a replay arrives on a new session, so `(session_epoch, sequence)` is the only correct duplicate key;
-   sequence alone breaks on an agent restart. **Plausible and probably right — check the claim, not the prose.**
+   sequence alone breaks on an agent restart. **🔴 CONFIRMED DEFECT — the Lead reproduced it 2026-09-21.** Half the
+   claim is right (an agent *restart* does reset `_report_sequence` to 0, so a bare sequence cursor would reject the
+   new process's reports), but the chosen key breaks the case §5d explicitly required — *"a duplicate (replayed)
+   update is not double-counted"*. `next_epoch` is bumped **per connection attempt**, not per process
+   (`client.py:339`), while `_report_sequence` is per process and never reset (`client.py:204`). So a report sent as
+   `(epoch 5, seq 100)` whose Ack was lost is replayed after the reconnect as `(epoch 6, seq 100)`; lexicographically
+   that is *greater* than the cursor, so it is accepted again. Reproduced directly against `ResourceTracker`:
+
+   ```
+   record(node, epoch=5, seq=100) -> True
+   record(node, epoch=6, seq=100) -> True      # the replay; expected False
+   recorded: 2  duplicates: 0                   # expected recorded 1, duplicates 1
+   ```
+
+   The sample lands in the live ring twice **and** is added to the downsampler twice, so `resource_snapshot.samples`
+   and every mean are wrong after any lossy reconnect — silently, and exactly on the flaky links this project is
+   built for. The implementer's component test that claims "replay not double-counted" therefore tests the wrong
+   thing: it must replay *with* the epoch bump that a real reconnect performs.
+
+   **Fix direction (implementer to verify, no proto change needed):** dedupe on `sequence` alone — it is already
+   per-process monotonic — and reset the cursor using information that is already on the wire:
+   `Reconcile.replay_from_sequence`. A same-process reconnect that has buffered reports sends the oldest buffered
+   sequence (> 0), so the controller **keeps** its cursor and rejects the replayed duplicates; a fresh process sends
+   0 (G3's reviewer fix made the empty ring send 0), so the controller **resets** the cursor and accepts the restarted
+   agent's sequence 1. A same-process reconnect with an empty ring also sends 0, where resetting is harmless because
+   the next sequence is higher anyway. This needs a `begin_session(node_id, replay_from_sequence)` on the sink and the
+   manager's `reconcile` branch to call it.
 2. Live GPU *usage* is NVML-only. If NVML is unavailable but `nvidia-smi` works, the static inventory still lists the
    GPUs but per-sample usage is omitted with a recorded reason (a subprocess every 2 s was judged unacceptable).
    **This is a real capability gap on any machine where NVML is missing — worth the team's eye, not just the reviewer's.**
