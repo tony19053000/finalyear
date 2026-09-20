@@ -311,6 +311,19 @@ def test_a_report_of_another_spike_is_refused() -> None:
         merge_report(other, FRESH)
 
 
+@pytest.mark.parametrize(
+    "meta",
+    [
+        "Spike: S1 (Linux only)",  # an annotation after the value
+        "Spike: S1 - Author: me",  # re-punctuated with '-' instead of '·'
+    ],
+)
+def test_an_annotated_or_repunctuated_meta_line_is_not_another_spike(meta: str) -> None:
+    """Only the first token of the value is the identity (reviewer follow-up)."""
+    annotated = BASE.replace("Spike: S1", meta)
+    assert "hostB" in merge_report(annotated, FRESH)
+
+
 def test_a_hand_started_report_still_carrying_template_placeholders_merges() -> None:
     """``<0.2.x>`` / ``<S1-S7 or ->`` are not a spike, they are the template."""
     hand_started = BASE.replace("Roadmap task: 0.2.5", "Roadmap task: <0.2.x>")
@@ -518,6 +531,6 @@ def test_merging_another_spikes_data_into_the_real_s6_report_is_refused() -> Non
     with pytest.raises(ReportMergeError) as exc:
         merge_report(existing, FRESH)
     assert "another spike's report" in exc.value.problem
-    assert "'Roadmap task' is '0.2.10'" in exc.value.problem
+    assert "'Roadmap task' on its '> File:' line is '0.2.10'" in exc.value.problem
     assert "'0.2.5'" in exc.value.problem
     assert "--force" in str(exc.value)

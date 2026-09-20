@@ -2,7 +2,7 @@
 
 > Concise current state. Long-term plan: [`DEVELOPMENT_ROADMAP.md`](DEVELOPMENT_ROADMAP.md). Update at the end of every work session.
 
-**Last updated:** 2026-09-20 (**scope changed — ADR-0012**; S6 closed, all V0.2 spike code done)
+**Last updated:** 2026-09-20 (**scope changed — ADR-0012**; S6 + 0.2.13 closed, all V0.2 agent-side work done)
 
 ## Current Version
 V0.2 — Lab setup & feasibility validation · **agent-side complete**, waiting on 🧑 lab runs
@@ -14,9 +14,10 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 > V0.10. 129 tasks vs 140–180 capacity → **~1.5 tasks/session**. Needs the other three team members' approval.
 
 ## Current Task
-**All V0.2 agent-side work is done.** S1 (0.2.5), S2 (0.2.6), S3 (0.2.7), **S6 (0.2.10)** and S7 (0.2.11) are committed with tester PASS + reviewer APPROVE; all five wait on 🧑 runs. The critical path is now entirely human: **`lab/inventory.py` on laptops 2–4 blocks V0.3.**
+**All V0.2 agent-side work is done.** S1 (0.2.5), S2 (0.2.6), S3 (0.2.7), **S6 (0.2.10)** and S7 (0.2.11) are committed with tester PASS + reviewer APPROVE; all five wait on 🧑 runs. **0.2.13 is `[x]`** (report CLIs merge instead of overwriting prose). The critical path is now entirely human: **`lab/inventory.py` on laptops 2–4 blocks V0.3.**
 
 ## Recently Completed
+- 2026-09-20: **0.2.13 `[x]`** — `write_report()` in `_harness/report.py`: an existing `--out` is merged (human regions kept, generated regions refreshed), malformed / other-spike files refused with `ReportMergeError` and left byte-identical, `--force` regenerates; all five CLIs write atomically. Tester found 3 defects (glued human table dropped, lone surrogate traceback, UTF-8 BOM refused) → fixed `2fd3185`; reviewer APPROVE. Gates: ruff + mypy clean, lab unit 1313, component 240 passed / 3 skipped.
 - 2026-09-20: **Scope decision ADR-0012** — ship Mode 3 complete, defer Mode 2 + Mode 4, keep the AI in full. Roadmap, `PROJECT_SUMMARY.md`, `docs/LAB.md` and the handoff updated. `CLAUDE.md` and `PROJECT_BRIEF.md` deliberately **not** amended until the team approves.
 - 2026-09-20: **0.2.10 S6 environments spike** — tester PASS (no defects, 16 adversarial tests), reviewer APPROVE (no blocking findings); commits `f7b094c` `f3364b8` `bfce2fa` `fb9376a`. Real Laptop 1 run: **GPU is visible inside a container** (nvidia-smi 361 ms), cold pull 9.7 s, venv cold 3.56 s vs warm 0.10 s. `docker-gpu-torch` skipped as typed `insufficient_disk` → `torch-cuda-in-container` **TBD**, Q4 unanswered. `[~]` until the 🧑 Windows runs.
 - 2026-09-20: **`n = 0` report headline fixed** in the shared `_harness/report.py` — one skipped case no longer makes a healthy table read `n = 0`. Affects every spike's report. New task **0.2.13** raised for the report-CLI overwrite hazard.
@@ -52,14 +53,14 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 - `.venv` on Laptop 1 has all extras incl. torch installed (reviewer ran `uv sync --all-extras`)
 
 ## Test Status
-- Lab suites (2026-09-20, after S2): `ruff check` / `ruff format --check` clean; `mypy lab tests/unit/lab tests/component/lab` clean (111 files); `pytest tests/unit/lab` 1033 passed; `pytest tests/component/lab` 226 passed, 3 skipped (~5 min, no flake across the S2 rounds)
+- Lab suites (2026-09-20, after 0.2.13): `ruff check` / `ruff format --check` clean; `mypy lab tests/unit/lab tests/component/lab` clean (132 files); `pytest tests/unit/lab` **1313 passed**; `pytest tests/component/lab` **240 passed, 3 skipped** (5 min 51 s)
 - Linux: `uv run pytest -q` → 646 passed, 3 skipped (2 slow opt-in, 1 AttemptState TODO), 2 xfailed (documented redaction scope gaps); ruff, strict mypy (71 files), lint-imports, gen_protos --check all clean; fresh clone + plain `uv sync` → `pytest -m unit` 0 failed
 - Windows: not yet run (first real CI run will cover unit + fresh-clone on windows-latest)
 
 ## Next Recommended Task
 **🔴 🧑 `uv run python lab/inventory.py` on laptops 2, 3 and 4 — this blocks V0.3**, confirms the hardware ADR-0012 rests on (team-stated, unmeasured: L2 ≈ RTX 3050, L3 ≈ RTX 2050, **L4 no GPU**), fills `docs/LAB.md` §1 and settles ADR-0011.
 **🧑 Team approval of ADR-0012** — it changes an item `PROJECT_BRIEF` §33 calls relatively fixed.
-Agent-side, nothing blocks: **0.2.13** (report CLIs must not destroy hand-written prose) or the S3-review follow-up (promote `spikes._s1.protocol` into `_harness/`). **0.2.12 must wait for real lab data** — never run it on loopback numbers.
+Agent-side, nothing blocks: the S3-review follow-up (promote `spikes._s1.protocol` — address rules, framing, `ProtocolError` — into `_harness/`, so spikes stop importing each other's internals; these are the pieces V0.3/V0.4 lift into `src/`). Small optional follow-ups from the 0.2.10/0.2.13 reviews are in the roadmap design change log. **0.2.12 must wait for real lab data** — never run it on loopback numbers.
 
 **🧑 Lab runs are now the critical path.** Agent-side spike work in V0.2 is finished; what remains needs real machines: (1) S2 two-laptop runs (`lab/spikes/S2.md` §3), (2) S3 two-laptop runs (`lab/spikes/S3.md` §2), (3) `lab/inventory.py` on all 4 laptops, (4) the ADR-0011 decision + torch install (unblocks S4 0.2.8 / S5 0.2.9), (5) the GitHub push + CI proof below. Agent-side while waiting: the S3-review follow-up — promote `spikes._s1.protocol` (address rules, framing, `ProtocolError`) into `_harness/` so spikes stop importing each other's internals — or start 0.2.12 once any lab data lands.
 

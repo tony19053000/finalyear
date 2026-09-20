@@ -567,17 +567,20 @@ def _shape_problem(parsed: _Parsed) -> str | None:
 def _identity(preamble: str, field: str) -> str | None:
     """``field``'s value on the ``> File: ...`` meta line, if it has one.
 
-    ``None`` when the line, the field or a real value is missing (a template
-    placeholder such as ``<0.2.x>`` counts as missing, so a report started by
-    hand from TEMPLATE.md still merges).
+    Only the first whitespace-delimited token counts, so a human who annotates
+    the line (``Spike: S6 (Linux only)``) or re-punctuates it with ``-`` instead
+    of ``·`` is not mistaken for another spike. ``None`` when the line, the
+    field or a real value is missing (a template placeholder such as ``<0.2.x>``
+    counts as missing, so a report started by hand from TEMPLATE.md still
+    merges).
     """
     for line in preamble.splitlines():
         if not line.lstrip().startswith(">"):
             continue
-        match = re.search(rf"{re.escape(field)}:\s*([^·\n]*)", line)
+        match = re.search(rf"{re.escape(field)}:\s*(\S+)", line)
         if match is None:
             continue
-        value = match.group(1).strip()
+        value = match.group(1).rstrip("·,;")
         if value and not (value.startswith("<") and value.endswith(">")):
             return value
     return None
@@ -595,8 +598,10 @@ def _identity_problem(old: _Parsed, new: _Parsed) -> str | None:
         mine, theirs = _identity(old.preamble, field), _identity(new.preamble, field)
         if mine is not None and theirs is not None and mine != theirs:
             return (
-                f"this file is another spike's report: its '{field}' is "
-                f"{mine!r}, the report being generated is {theirs!r}"
+                f"this file looks like another spike's report: the '{field}' on "
+                f"its '> File:' line is {mine!r}, the report being generated is "
+                f"{theirs!r} (if that line was hand-edited, restore it instead "
+                "of using --force)"
             )
     return None
 

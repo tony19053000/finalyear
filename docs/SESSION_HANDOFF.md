@@ -29,7 +29,7 @@
 > throughput measurements and the reasoning; if you think the arithmetic or the trade is wrong,
 > **say so to the team before building on it.** Do not silently re-expand the scope either.
 
-**Last updated:** 2026-09-20 (**scope changed — ADR-0012**; S6 closed, 0.2.13 in tester) · **Updated by:** Lead session (account 1)
+**Last updated:** 2026-09-20 (**scope changed — ADR-0012**; S6 + 0.2.13 closed agent-side) · **Updated by:** Lead session (account 1)
 
 ---
 
@@ -101,18 +101,13 @@ approval of ADR-0012 first.
 
 ## 2. In flight right now
 
-**0.2.13 is with the tester** — "spike report CLIs must not destroy hand-written prose".
-Implementer committed `e23d762`. `write_report(path, text, force=)` in the shared
-`_harness/report.py`, called by all five spike CLIs: an existing `--out` is **merged**
-(generated regions refreshed from the fresh render, human regions taken from disk), a malformed
-file is **refused** with a typed `ReportMergeError` that names the mismatch and leaves the file
-byte-identical, and `--force` restores full regeneration. All five now write atomically (s2/s6/s7
-were using plain `write_text`). Merge is fresh-render-first, so "merging an untouched render is a
-plain render" is structural, not just tested. Folded in the 0.2.10 reviewer's follow-up #3
-(`n_headline`'s no-valid-rows branch now carries the INVALID count). Gates at handoff: ruff +
-mypy clean (131 files), unit **1299 passed** (1239 + 60 new), component **240 passed, 3 skipped**.
-If the tester result is lost, re-run tester then reviewer, then the Lead marks 0.2.13 `[x]`
-(no 🧑 step needed — it is a pure tooling fix).
+**Nothing is in flight.** **0.2.13 closed `[x]` 2026-09-20** — tester round (commit `ac5a65f`) pinned 3
+defects (glued human table silently dropped · lone surrogate → `UnicodeEncodeError` traceback · UTF-8 BOM made
+every merge refuse), all fixed in `2fd3185` (shape/delimiter-aware `_host_table_parts`, `UnencodableTextError`
+(an `OSError`) pre-encode check in `_harness/atomic.py`, BOM strip, plus a refusal when the existing file is
+*another spike's* report by its `> File:` meta line). Reviewer **APPROVE**, 5 non-blocking findings; #1 and #3
+applied directly by the Lead in the closing commit, the rest logged in the roadmap design change log. Gates:
+ruff + mypy clean (132 files), lab unit **1313 passed**, component **240 passed, 3 skipped**.
 
 **Documented loss in 0.2.13, not a bug:** hand-edits *inside* a generated region (e.g. filling
 "speed: TBD" or the power-mode cell in the host table) are still overwritten. Recorded in
