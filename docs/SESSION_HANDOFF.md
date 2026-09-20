@@ -129,6 +129,13 @@ ONLINE, heartbeats, pings/RTT, lease expiry, reconnect after a controller restar
    was explicitly authorised by §5d.
 6. No proto change was needed (as §5d predicted).
 
+**Lead finding while the tester ran (hand to the reviewer, do not patch mid-tester-run):** the
+`"v0.3"` Hello-shape marker is now defined **twice** — `agent/session/hello.py::CAPABILITIES_V03`
+and `agent/hardware/summary.py::SHAPE_CAPABILITY`. Two constants for one wire value is exactly the
+silent drift `controller/session/limits.py`'s docstring warns about. The fix direction is
+`hardware/summary.py` importing it from `hello.py`, **not** the reverse: `hello.py` deliberately
+imports no agent-extra package so `meshforge-agent --version` works on a base install.
+
 Implementer follow-ups logged for later: `HardwareFacts` is built but exposed nowhere (G5's REST should serve it);
 `HardwareProvider.refresh()` has no caller until G7/0.3.4; snapshot rows whose `node` row is missing are retried then
 dropped (FK); small vfat partitions such as `/boot/efi` pass the fixed-filesystem filter; the agent's `capabilities`
