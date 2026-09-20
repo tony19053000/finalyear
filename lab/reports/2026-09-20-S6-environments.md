@@ -31,7 +31,7 @@ uv run python lab/spikes/s6_environments.py report --results lab/reports/raw/202
 `lab/reports/raw/2026-09-20-S6-environments/` (one file per host; unedited)
 
 ## Results
-Repetitions per data point: **n = 0** (smallest n of any row) — any row with n < 5 must be marked INVALID with the reason under "Notes on outliers or failed runs".
+Repetitions per data point: **n = 5** across the 15 valid rows; 4 rows INVALID (n < 5), marked in the table — any row with n < 5 must be marked INVALID with the reason under "Notes on outliers or failed runs".
 
 | Case / pair / payload | Metric (unit) | n | mean | stdev | min | max |
 |---|---|---|---|---|---|---|

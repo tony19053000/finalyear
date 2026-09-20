@@ -135,6 +135,36 @@ def _case_cell(row: ResultRow) -> str:
     return f"{row.case} **INVALID (n<{MIN_VALID_REPS})**" if row.invalid else row.case
 
 
+def n_headline(rows: Sequence[ResultRow]) -> str:
+    """Text that replaces the template's ``**n = <≥5>**`` placeholder.
+
+    It must stay true in every case: the bold ``n`` describes the **valid**
+    rows only (``summary.n >= MIN_VALID_REPS``), because one skipped case used
+    to drag an otherwise healthy table's headline to ``n = 0``. Invalid rows
+    are never hidden - they are counted in the same sentence and stay marked
+    ``INVALID`` in the table (see :func:`_case_cell`) and in :func:`notes`.
+    """
+    if not rows:
+        return "**n = 0** (no rows)"
+    valid = sorted(r.summary.n for r in rows if not r.invalid)
+    n_invalid = len(rows) - len(valid)
+    if not valid:
+        return "**n = 0** (no valid rows)"
+    low, high = valid[0], valid[-1]
+    count = f"**n = {low}**" if low == high else f"**n = {low}–{high}**"  # noqa: RUF001 (en dash range)
+    if not n_invalid:
+        return f"{count} (every row)" if low == high else f"{count} (smallest: {low})"
+    return (
+        f"{count} across the {len(valid)} valid {_rows(len(valid))}; "
+        f"{n_invalid} {_rows(n_invalid)} INVALID (n < {MIN_VALID_REPS}), "
+        "marked in the table"
+    )
+
+
+def _rows(count: int) -> str:
+    return "row" if count == 1 else "rows"
+
+
 def notes(envelopes: Sequence[dict[str, JSON]], rows: Sequence[ResultRow]) -> str:
     items: list[str] = [
         f"- INVALID: {r.case} / {r.metric}: only n={r.summary.n} successful "
@@ -247,8 +277,7 @@ def render_report(
     text = _replace_once(text, _COMMIT, f"Git commit: `{_commits(envelopes)}`")
     text = _replace_once(text, _HOSTS_ROW, "\n" + _host_rows(envelopes))
     text = _replace_once(text, _RAW, f"`lab/reports/raw/{stem}/`")
-    n_min = min((r.summary.n for r in rows), default=0)
-    text = _replace_once(text, _N, f"**n = {n_min}** (smallest n of any row)")
+    text = _replace_once(text, _N, n_headline(rows))
     table = results_table_rows(rows)
     if extra_results:
         table += "\n" + extra_results.rstrip("\n") + "\n\n"

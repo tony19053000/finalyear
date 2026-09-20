@@ -47,6 +47,20 @@ def _render(envs: list[dict], extra: str = "") -> str:  # type: ignore[type-arg]
     )
 
 
+def _n_line(text: str) -> str:
+    """The rendered "Repetitions per data point" sentence, whole."""
+    lines = [ln for ln in text.splitlines() if ln.startswith("Repetitions per data")]
+    assert len(lines) == 1, lines
+    return lines[0]
+
+
+#: Tail of the template sentence; it must survive every headline shape.
+N_TAIL = (
+    " — any row with n < 5 must be marked INVALID with the reason under "
+    '"Notes on outliers or failed runs".'
+)
+
+
 def test_all_generated_placeholders_are_filled() -> None:
     text = _render([_env("hostA", [900, 910, 920, 930, 940])])
     for placeholder in (
@@ -85,11 +99,74 @@ def test_invalid_rows_errors_and_dirty_commits_are_listed() -> None:
     )
     text = _render([_env("hostA", [1, 2, 3, 4, 5]), bad])
     assert "[Wi-Fi] hostB: TCP hostB **INVALID (n<5)**" in text
-    assert "**n = 3**" in text  # smallest n of any row
+    assert _n_line(text) == (
+        "Repetitions per data point: **n = 5** across the 1 valid row; "
+        "1 row INVALID (n < 5), marked in the table" + N_TAIL
+    )
     assert "- INVALID: [Wi-Fi] hostB: TCP hostB / receiver_mbps: only n=3" in text
     assert "run error connection_lost: server lost" in text
     assert "tcp rep 2 (measure): timeout: slow" in text
     assert "abc1234, abc1234+dirty" in text
+
+
+def test_n_headline_all_rows_valid_and_equal() -> None:
+    text = _render([_env("hostA", [1, 2, 3, 4, 5]), _env("hostB", [1, 2, 3, 4, 5])])
+    assert _n_line(text) == (
+        "Repetitions per data point: **n = 5** (every row)" + N_TAIL
+    )
+    assert "**INVALID (n<5)**" not in text
+
+
+def test_n_headline_all_rows_valid_but_n_differs() -> None:
+    text = _render([_env("hostA", list(range(7))), _env("hostB", list(range(5)))])
+    assert _n_line(text) == (
+        "Repetitions per data point: **n = 5–7** (smallest: 5)" + N_TAIL  # noqa: RUF001 (en dash range)
+    )
+
+
+def test_n_headline_mixed_valid_and_several_invalid_rows() -> None:
+    """The defect this sentence was rewritten for: one skipped case must not
+    make a healthy table's headline read ``n = 0``."""
+    text = _render(
+        [
+            _env("hostA", list(range(9))),
+            _env("hostB", list(range(5))),
+            _env("hostC", list(range(3))),
+            _env("hostD", []),
+        ]
+    )
+    assert _n_line(text) == (
+        "Repetitions per data point: **n = 5–9** across the 2 valid rows; "  # noqa: RUF001 (en dash range)
+        "2 rows INVALID (n < 5), marked in the table" + N_TAIL
+    )
+    # The table contract is untouched: the two weak rows are still marked.
+    assert text.count("**INVALID (n<5)**") == 2
+
+
+def test_n_headline_when_no_row_is_valid() -> None:
+    """Here the pessimistic headline is the truth and must stay."""
+    text = _render([_env("hostA", [1, 2, 3]), _env("hostB", [])])
+    assert _n_line(text) == (
+        "Repetitions per data point: **n = 0** (no valid rows)" + N_TAIL
+    )
+    assert text.count("**INVALID (n<5)**") == 2
+
+
+def test_n_headline_with_no_rows_at_all() -> None:
+    assert _n_line(_render([])) == (
+        "Repetitions per data point: **n = 0** (no rows)" + N_TAIL
+    )
+
+
+def test_n_headline_boundary_is_min_valid_reps_not_a_literal_five() -> None:
+    """A row with exactly MIN_VALID_REPS repetitions is valid, one below is not."""
+    from spikes._harness import MIN_VALID_REPS
+
+    ok = _render([_env("hostA", [1.0] * MIN_VALID_REPS)])
+    assert f"**n = {MIN_VALID_REPS}** (every row)" in ok
+    assert "**INVALID (n<5)**" not in ok
+    low = _render([_env("hostA", [1.0] * (MIN_VALID_REPS - 1))])
+    assert "**n = 0** (no valid rows)" in low
 
 
 def test_extra_results_follow_the_table() -> None:
