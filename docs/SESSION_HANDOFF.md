@@ -29,7 +29,7 @@
 > throughput measurements and the reasoning; if you think the arithmetic or the trade is wrong,
 > **say so to the team before building on it.** Do not silently re-expand the scope either.
 
-**Last updated:** 2026-09-21 (**V0.3 G1–G3 closed agent-side**; G4 next; V0.2 waits on 🧑 lab runs) · **Updated by:** Lead session (account 1)
+**Last updated:** 2026-09-21 (**V0.3 G1–G3 closed agent-side; account rotation point**; G4 next; V0.2 waits on 🧑 lab runs) · **Updated by:** Lead session (account 1) · **Updated by:** Lead session (account 1)
 
 ---
 
@@ -101,7 +101,10 @@ approval of ADR-0012 first.
 
 ## 2. In flight right now
 
-**Nothing is in flight; the working tree is clean.** V0.3 **G1, G2 and G3 are closed agent-side** (G3 on 2026-09-21).
+**Nothing is in flight; the working tree is clean; all work is committed on `main` (unpushed — humans push).**
+**Account switched here on 2026-09-21 after G3 closed.** The next session's first action is: write the G4 brief as §5d of
+`docs/briefs/V0.3-fabric-core.md` (use the G4 notes below and the §4 checklist), mark 0.3.3 / 0.3.5 / 0.3.11 `[~]`,
+commit, then spawn the implementer. Nothing needs to be re-derived. V0.3 **G1, G2 and G3 are closed agent-side** (G3 on 2026-09-21).
 A live controller ⇄ agent fabric now works in-process: `meshforge-controller run` + `meshforge-agent run` → node
 ONLINE, heartbeats, pings/RTT, lease expiry, reconnect after a controller restart in ~1–2 s, mDNS discovery.
 
