@@ -219,3 +219,41 @@ async def test_concurrent_upserts_keep_the_highest_epoch_without_any_lock(
     # and every returned record reflects a value that was really stored at the
     # time (monotone non-decreasing is all concurrency guarantees)
     assert max(r.session_epoch for r in results) == 20
+
+
+async def test_greatest_clamp_binds_the_epoch_as_uint64_not_bigint(
+    runtime: ControllerRuntime, registry: Registry
+) -> None:
+    """Regression: the ``GREATEST(session_epoch, :new)`` literal was bound as an
+    untyped Python int (BIGINT), so asyncpg refused every Hello with an epoch
+    >= 2^63 with ``OverflowError`` -> ``RegistryError`` -> INTERNAL. The literal
+    now carries the column's :class:`UInt64` type on both the INSERT and the
+    UPDATE path, and the clamp compares numerically above the int64 range."""
+    node_id = new_node_id()
+    common: dict[str, Any] = {
+        "hostname": "h",
+        "os": "o",
+        "platform": "p",
+        "hardware": {},
+        "state": NodeState.ONLINE,
+    }
+    first = await registry.upsert_node_on_hello(
+        node_id=node_id, session_epoch=2**63, session_id=new_session_id(), **common
+    )
+    assert first.session_epoch == 2**63
+    raised = await registry.upsert_node_on_hello(
+        node_id=node_id,
+        session_epoch=2**64 - 1,
+        session_id=new_session_id(),
+        **common,
+    )
+    assert raised.session_epoch == 2**64 - 1
+    clamped = await registry.upsert_node_on_hello(
+        node_id=node_id,
+        session_epoch=2**63 + 1,
+        session_id=new_session_id(),
+        **common,
+    )
+    assert clamped.session_epoch == 2**64 - 1  # never lowered, even above int64
+    stored = await registry.get_node(node_id)
+    assert stored is not None and stored.session_epoch == 2**64 - 1

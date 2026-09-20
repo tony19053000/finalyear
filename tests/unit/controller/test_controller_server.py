@@ -113,7 +113,8 @@ def test_run_controller_exits_ok_after_a_requested_stop(
 def test_stop_passes_the_drain_budget_to_the_session_manager(
     settings: ControllerSettings, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The write chains get the same ``shutdown_drain_s`` the servers do."""
+    """The write chains get (what is left of) the same ``shutdown_drain_s`` the
+    servers do - never more."""
     seen: dict[str, Any] = {}
 
     class FakeManager:
@@ -126,4 +127,44 @@ def test_stop_passes_the_drain_budget_to_the_session_manager(
         await runtime.stop()
 
     asyncio.run(go())
-    assert seen == {"drain_s": settings.controller.shutdown_drain_s}
+    budget = settings.controller.shutdown_drain_s
+    assert 0.9 * budget <= seen["drain_s"] <= budget
+
+
+def test_stop_shares_one_drain_deadline_across_every_step(
+    settings: ControllerSettings,
+) -> None:
+    """NB: a manager that eats the whole budget leaves the gRPC server (and the
+    owned-task wait) a grace of ~0, so a stop is bounded by ``shutdown_drain_s``
+    in total, not by 3 x ``shutdown_drain_s``."""
+    seen: dict[str, Any] = {}
+    budget = settings.controller.shutdown_drain_s  # 0.1 s
+
+    class SlowManager:
+        async def shutdown(self, *, drain_s: float) -> None:
+            seen["manager_drain_s"] = drain_s
+            await asyncio.sleep(10 * budget)  # cut off by the deadline
+
+    class FakeGrpcServer:
+        async def stop(self, grace: float | None) -> None:
+            seen["grpc_grace"] = grace
+
+    async def never() -> None:
+        await asyncio.sleep(3600)
+
+    async def go() -> float:
+        loop = asyncio.get_running_loop()
+        runtime = ControllerRuntime(settings)
+        runtime.manager = SlowManager()  # type: ignore[assignment]
+        runtime._grpc_server = FakeGrpcServer()  # type: ignore[assignment]
+        late = asyncio.create_task(never(), name="late-task")
+        runtime._tasks.add(late)
+        started = loop.time()
+        await runtime.stop()
+        assert late.cancelled()
+        return loop.time() - started
+
+    took = asyncio.run(go())
+    assert seen["manager_drain_s"] <= budget
+    assert seen["grpc_grace"] is not None and seen["grpc_grace"] < 0.5 * budget
+    assert took < 2.0 * budget, took

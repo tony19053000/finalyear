@@ -9,7 +9,8 @@
 
 Shutdown (SIGINT/SIGTERM or :meth:`ControllerRuntime.stop`): stop accepting,
 close every live session as ``controller_shutdown`` (their streams end), stop
-both servers, drain at most ``shutdown_drain_s``, dispose the engine.
+both servers, drain at most ``shutdown_drain_s`` **in total** (one shared
+deadline), dispose the engine.
 
 Start-up failures are typed: :class:`~meshforge.common.errors.ConfigError` (bind
 rules), :class:`~meshforge.controller.store.errors.DatabaseUnavailableError`,
@@ -222,28 +223,42 @@ class ControllerRuntime:
     # --------------------------------------------------------------- shutdown
 
     async def stop(self) -> None:
-        """Graceful shutdown; idempotent; bounded by ``shutdown_drain_s``."""
+        """Graceful shutdown; idempotent; bounded by ``shutdown_drain_s`` **in total**.
+
+        One deadline (``loop.time() + shutdown_drain_s``) is shared by every step
+        below - the session manager's write chains, the gRPC server's grace and
+        the owned tasks - so a stop never takes 3 x the budget when each step in
+        turn uses all of it.
+        """
         if self._stopped:
             return
         self._stopped = True
+        loop = asyncio.get_running_loop()
         drain = self.settings.controller.shutdown_drain_s
+        deadline = loop.time() + drain
+
+        def remaining() -> float:
+            return max(deadline - loop.time(), 0.0)
+
         log.info("controller.stopping", drain_s=drain)
         if self.manager is not None:
             # Sessions first: their streams end with the reason persisted before the
             # transport is torn down under them.
             with contextlib.suppress(TimeoutError):
-                await asyncio.wait_for(self.manager.shutdown(drain_s=drain), drain)
+                await asyncio.wait_for(
+                    self.manager.shutdown(drain_s=remaining()), remaining()
+                )
         if self._lease_timer_task is not None and not self._lease_timer_task.done():
             # Runs forever by design; nothing to drain once the sessions are closed.
             self._lease_timer_task.cancel()
             await asyncio.gather(self._lease_timer_task, return_exceptions=True)
         if self._grpc_server is not None:
-            await self._grpc_server.stop(grace=drain)
+            await self._grpc_server.stop(grace=remaining())
         if self._http_server is not None:
             self._http_server.should_exit = True
         pending = [t for t in self._tasks if not t.done()]
         if pending:
-            _done, still = await asyncio.wait(pending, timeout=drain)
+            _done, still = await asyncio.wait(pending, timeout=remaining())
             for task in still:  # anything still running after the drain is late
                 task.cancel()
             if still:
@@ -252,7 +267,7 @@ class ControllerRuntime:
             self._http_sock.close()
         if self._engine is not None:
             await self._engine.dispose()
-        log.info("controller.stopped")
+        log.info("controller.stopped", took_s=round(drain - remaining(), 3))
 
 
 class _RuntimeContext:

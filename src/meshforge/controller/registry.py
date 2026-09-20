@@ -17,13 +17,14 @@ from collections.abc import Awaitable, Callable, Coroutine, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy import CursorResult, Result, func, select, update
+from sqlalchemy import CursorResult, Result, func, literal, select, update
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from meshforge.common.errors import FailureType, MeshForgeError
 from meshforge.common.logging import get_logger
 from meshforge.controller.liveness import NodeState
+from meshforge.controller.store.base import UInt64
 from meshforge.controller.store.engine import create_session_factory
 from meshforge.controller.store.models.node import Node, NodeSession, SessionEndReason
 
@@ -214,7 +215,11 @@ class Registry:
                     state=state.value,
                     last_seen_at=now,
                     last_session_id=session_id,
-                    session_epoch=func.greatest(Node.session_epoch, session_epoch),
+                    # The literal must carry the column's type: an untyped Python
+                    # int binds as BIGINT and asyncpg refuses epochs >= 2^63.
+                    session_epoch=func.greatest(
+                        Node.session_epoch, literal(session_epoch, UInt64)
+                    ),
                 )
                 .returning(Node)
                 .execution_options(synchronize_session=False)
