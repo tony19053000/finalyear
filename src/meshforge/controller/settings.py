@@ -116,6 +116,18 @@ class ResourceHistorySettings(SectionModel):
             "this so a flood of unknown node_ids cannot grow the controller."
         ),
     )
+    max_cursor_nodes: int = Field(
+        default=16_384,
+        ge=1,
+        le=1_000_000,
+        description=(
+            "Nodes with a duplicate-detection cursor (three fields each), bounded "
+            "separately from and far above max_tracked_nodes: evicting a live ring "
+            "only loses history, while evicting a cursor lets a reconnecting "
+            "agent's replayed report be counted twice. Evictions are counted and "
+            "logged as controller.resources.cursor_evicted."
+        ),
+    )
     max_open_buckets: int = Field(
         default=8,
         ge=1,

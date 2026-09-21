@@ -41,6 +41,15 @@ reset from information already on the wire, through :meth:`ResourceSink.begin_se
 ``session_epoch`` still has one job here: it *fences*. A report arriving under an
 epoch lower than the highest this node has been seen with belongs to a superseded
 (zombie) stream and is dropped, so a stale session cannot move the cursor.
+
+**Cursors are bounded separately from rings.** The expensive per-node state is the
+live ring (``live_ring_size`` samples); the dedupe state is three fields. They used
+to share one LRU, which meant a node whose reconnect was in flight could lose its
+cursor to *ring* pressure from other nodes and then accept its own replay twice
+(the double-count this module exists to prevent). So ``max_tracked_nodes`` bounds
+the rings and ``max_cursor_nodes`` - much larger - bounds the cursors. Evicting a
+cursor is the only moment a duplicate can slip through, so it is counted
+(``evicted_cursors``) and logged at warning level.
 """
 
 from __future__ import annotations
@@ -58,6 +67,7 @@ from meshforge.common.proto.meshforge.v1 import agent_pb2
 __all__ = [
     "DEFAULT_BUCKET_S",
     "DEFAULT_LIVE_RING_SIZE",
+    "DEFAULT_MAX_CURSOR_NODES",
     "DEFAULT_MAX_OPEN_BUCKETS",
     "DEFAULT_MAX_TRACKED_NODES",
     "DiskSample",
@@ -81,6 +91,29 @@ DEFAULT_BUCKET_S: Final = 60.0
 DEFAULT_MAX_TRACKED_NODES: Final = 256
 DEFAULT_MAX_OPEN_BUCKETS: Final = 8
 """Open buckets kept per node; more than a couple means a clock that jumped."""
+
+DEFAULT_MAX_CURSOR_NODES: Final = 16_384
+"""Dedupe cursors kept (three fields each), independently of the live rings.
+
+Deliberately far above ``DEFAULT_MAX_TRACKED_NODES``: dropping a cursor is what
+lets a replayed sample be counted twice, while the memory it costs is negligible.
+"""
+
+
+@dataclass(slots=True)
+class _Cursor:
+    """One node's dedupe state: what to reject, and from which stream.
+
+    Kept out of :class:`LiveRing` so ring pressure can never delete it (see the
+    module docstring).
+    """
+
+    sequence: int | None = None
+    """The newest report ``sequence`` recorded (per agent *process*)."""
+    epoch: int | None = None
+    """The highest ``session_epoch`` seen; older ones are fenced out."""
+    reset_armed: bool = False
+    """The next report clears ``sequence`` (the agent process may be new)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -396,13 +429,20 @@ class Downsampler:
 class ResourceSink(Protocol):
     """What the session manager needs; the manager depends on this, not on the class."""
 
-    def begin_session(self, node_id: str, replay_from_sequence: int) -> None:
+    def begin_session(
+        self,
+        node_id: str,
+        replay_from_sequence: int,
+        *,
+        session_epoch: int | None = None,
+    ) -> None:
         """Declare how this node's new session starts (see the module docstring).
 
         Called twice per session at most: once when the session is accepted
-        (``replay_from_sequence=0``, "this may be a fresh process") and once more
-        from the session's ``Reconcile``, before any replayed report. The last
-        call before the first report of the session wins.
+        (``replay_from_sequence=0``, "this may be a fresh process", with the
+        ``Hello``'s ``session_epoch``) and once more from the session's
+        ``Reconcile``, before any replayed report. The last call before the first
+        report of the session wins.
         """
 
     def record(
@@ -424,25 +464,26 @@ class ResourceTracker:
         live_ring_size: int = DEFAULT_LIVE_RING_SIZE,
         bucket_s: float = DEFAULT_BUCKET_S,
         max_tracked_nodes: int = DEFAULT_MAX_TRACKED_NODES,
+        max_cursor_nodes: int = DEFAULT_MAX_CURSOR_NODES,
         max_open_buckets: int = DEFAULT_MAX_OPEN_BUCKETS,
         wall_clock: Callable[[], dt.datetime] | None = None,
     ) -> None:
         self._ring_size = live_ring_size
         self._max_nodes = max(1, max_tracked_nodes)
+        self._max_cursor_nodes = max(self._max_nodes, max_cursor_nodes)
         self._wall_clock = wall_clock or _utcnow
         self._rings: OrderedDict[str, LiveRing] = OrderedDict()
-        self._cursor: dict[str, int] = {}
-        """node_id -> the newest report ``sequence`` recorded (per agent process)."""
-        self._epoch: dict[str, int] = {}
-        """node_id -> the highest ``session_epoch`` seen; older ones are fenced out."""
-        self._reset_armed: set[str] = set()
-        """Nodes whose cursor the next report clears (a possibly fresh process)."""
+        self._cursors: OrderedDict[str, _Cursor] = OrderedDict()
+        """node_id -> dedupe state, bounded by ``max_cursor_nodes`` on its own."""
         self.downsampler = Downsampler(
             bucket_s=bucket_s, max_open_buckets=max_open_buckets
         )
         self.duplicates = 0
         self.recorded = 0
         self.evicted_nodes = 0
+        """Live rings dropped under ``max_tracked_nodes`` (cursors are kept)."""
+        self.evicted_cursors = 0
+        """Dedupe cursors dropped under ``max_cursor_nodes`` - a duplicate window."""
         self.stale_epochs = 0
         """Reports dropped because they came from a superseded session's epoch."""
 
@@ -460,17 +501,35 @@ class ResourceTracker:
 
     # ------------------------------------------------------------ write side
 
-    def begin_session(self, node_id: str, replay_from_sequence: int) -> None:
-        """See :class:`ResourceSink`; ``> 0`` keeps the cursor, ``0`` arms a reset."""
-        if replay_from_sequence > 0:
-            self._reset_armed.discard(node_id)
-        else:
-            self._reset_armed.add(node_id)
+    def begin_session(
+        self,
+        node_id: str,
+        replay_from_sequence: int,
+        *,
+        session_epoch: int | None = None,
+    ) -> None:
+        """See :class:`ResourceSink`; ``> 0`` keeps the cursor, ``0`` arms a reset.
+
+        ``session_epoch`` (when the caller knows it, i.e. from ``Hello``) raises the
+        node's epoch high-water mark immediately, so the fence is already armed in
+        the window between the session opening and its first report - otherwise a
+        zombie stream could get one report in at that moment.
+        """
+        cursor = self._cursor_for(node_id)
+        cursor.reset_armed = replay_from_sequence <= 0
+        if session_epoch is not None:
+            cursor.epoch = (
+                session_epoch
+                if cursor.epoch is None
+                else max(cursor.epoch, session_epoch)
+            )
         log.debug(
             "controller.resources.begin_session",
             node_id=node_id,
             replay_from_sequence=replay_from_sequence,
-            cursor_reset_armed=node_id in self._reset_armed,
+            session_epoch=session_epoch,
+            highest_epoch=cursor.epoch,
+            cursor_reset_armed=cursor.reset_armed,
         )
 
     def record(
@@ -481,7 +540,8 @@ class ResourceTracker:
         now: float,
     ) -> bool:
         """See :class:`ResourceSink`. ``now`` is the controller's monotonic clock."""
-        highest_epoch = self._epoch.get(node_id)
+        cursor_state = self._cursor_for(node_id)
+        highest_epoch = cursor_state.epoch
         if highest_epoch is not None and session_epoch < highest_epoch:
             # A superseded stream still delivering: it must not move the cursor.
             self.stale_epochs += 1
@@ -495,12 +555,12 @@ class ResourceTracker:
                 stale_epochs=self.stale_epochs,
             )
             return False
-        if node_id in self._reset_armed:
+        if cursor_state.reset_armed:
             # First report of a session that did not announce a replay: treat the
             # sequence space as new (the agent process may have restarted).
-            self._reset_armed.discard(node_id)
-            self._cursor.pop(node_id, None)
-        cursor = self._cursor.get(node_id)
+            cursor_state.reset_armed = False
+            cursor_state.sequence = None
+        cursor = cursor_state.sequence
         if cursor is not None and update.sequence <= cursor:
             self.duplicates += 1
             log.debug(
@@ -520,10 +580,41 @@ class ResourceTracker:
         )
         self._ring_for(node_id).append(sample)
         self.downsampler.add(node_id, sample)
-        self._cursor[node_id] = update.sequence
-        self._epoch[node_id] = session_epoch
+        cursor_state.sequence = update.sequence
+        cursor_state.epoch = (
+            session_epoch
+            if cursor_state.epoch is None
+            else max(cursor_state.epoch, session_epoch)
+        )
         self.recorded += 1
         return True
+
+    def _cursor_for(self, node_id: str) -> _Cursor:
+        """The node's dedupe state, created on demand, LRU-bounded on its own.
+
+        Losing a cursor is the one way a replayed sample can be counted twice, so
+        this cap is separate from (and much larger than) ``max_tracked_nodes`` and
+        every eviction is counted and logged.
+        """
+        cursor = self._cursors.get(node_id)
+        if cursor is None:
+            cursor = _Cursor()
+            self._cursors[node_id] = cursor
+            while len(self._cursors) > self._max_cursor_nodes:
+                evicted, dropped = self._cursors.popitem(last=False)
+                self.evicted_cursors += 1
+                log.warning(
+                    "controller.resources.cursor_evicted",
+                    node_id=evicted,
+                    cursor=dropped.sequence,
+                    highest_epoch=dropped.epoch,
+                    cursor_reset_armed=dropped.reset_armed,
+                    tracked_cursors=len(self._cursors),
+                    max_cursor_nodes=self._max_cursor_nodes,
+                    evicted_cursors=self.evicted_cursors,
+                )
+        self._cursors.move_to_end(node_id)
+        return cursor
 
     def _ring_for(self, node_id: str) -> LiveRing:
         ring = self._rings.get(node_id)
@@ -532,9 +623,9 @@ class ResourceTracker:
             self._rings[node_id] = ring
             while len(self._rings) > self._max_nodes:
                 evicted, _ = self._rings.popitem(last=False)
-                self._cursor.pop(evicted, None)
-                self._epoch.pop(evicted, None)
-                self._reset_armed.discard(evicted)
+                # The dedupe cursor deliberately survives: it is three fields, and
+                # dropping it here would let an in-flight reconnect replay its
+                # buffered reports into a fresh ring and be counted twice.
                 self.downsampler.forget(evicted)
                 self.evicted_nodes += 1
                 log.warning(

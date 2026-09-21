@@ -416,7 +416,9 @@ class SessionManager:
             # A new session may be a *restarted* agent process, whose report
             # sequence starts at 1 again. Arm a cursor reset; this session's
             # Reconcile (if it announces a replay) cancels it before any report.
-            self._resources.begin_session(node_id, 0)
+            # The epoch goes with it so the sink's zombie fence is armed from the
+            # first instant of the session, not only from its first report.
+            self._resources.begin_session(node_id, 0, session_epoch=hello.session_epoch)
         self.wake.set()
         if prior is not state:
             log.info(

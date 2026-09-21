@@ -286,8 +286,39 @@ def test_tracking_too_many_nodes_evicts_the_least_recently_updated() -> None:
     assert tracker.evicted_nodes == 1
     assert set(tracker.nodes()) == {"node_a", "node_c"}
     assert tracker.ring("node_b") is None
-    # The evicted node's cursor went with it: it may re-enrol from sequence 1.
-    assert tracker.record("node_b", 1, update(sequence=1), 5.0) is True
+    # Only the *ring* is evicted. The dedupe cursor lives in its own, much larger
+    # LRU (max_cursor_nodes), so node_b replaying sequence 1 is still a duplicate
+    # - ring pressure from other nodes must never reopen the double-count window.
+    assert tracker.record("node_b", 1, update(sequence=1), 5.0) is False
+    assert tracker.evicted_cursors == 0
+    # A genuinely newer sample re-enrols node_b (and rebuilds its ring).
+    assert tracker.record("node_b", 1, update(sequence=2), 6.0) is True
+
+
+def test_cursor_eviction_is_counted_and_only_happens_under_its_own_cap() -> None:
+    """The cursor LRU is what finally lets a duplicate through, so it is counted.
+
+    ``max_cursor_nodes`` is clamped to at least ``max_tracked_nodes``; here both
+    are 1, so every new node evicts the previous node's cursor.
+    """
+    tracker = ResourceTracker(
+        live_ring_size=2, bucket_s=60.0, max_tracked_nodes=1, max_cursor_nodes=1
+    )
+    assert tracker.record("node_a", 1, update(sequence=5), 1.0) is True
+    assert tracker.record("node_b", 1, update(sequence=5), 2.0) is True
+    assert tracker.evicted_cursors == 1
+    assert tracker.evicted_nodes == 1
+    # node_a's cursor is gone, so its replay is (unavoidably) accepted again.
+    assert tracker.record("node_a", 1, update(sequence=5), 3.0) is True
+    assert tracker.evicted_cursors == 2
+
+
+def test_max_cursor_nodes_is_never_below_max_tracked_nodes() -> None:
+    tracker = ResourceTracker(bucket_s=60.0, max_tracked_nodes=8, max_cursor_nodes=2)
+    for index in range(8):
+        assert tracker.record(f"node_{index}", 1, update(sequence=1), float(index))
+    assert tracker.evicted_nodes == 0
+    assert tracker.evicted_cursors == 0
 
 
 def test_closed_rows_use_the_injected_wall_clock() -> None:
@@ -298,3 +329,22 @@ def test_closed_rows_use_the_injected_wall_clock() -> None:
     now = T0 + dt.timedelta(minutes=2)
     rows = tracker.closed_rows()
     assert len(rows) == 1 and rows[0].node_id == NODE
+
+
+def test_begin_session_raises_the_epoch_high_water_mark() -> None:
+    """NB-9: without the epoch from Hello the fence is inert in the window between
+    a session opening and its first report, so a zombie stream could get one
+    report in. ``begin_session`` now raises the mark immediately."""
+    tracker = ResourceTracker(live_ring_size=5, bucket_s=60.0)
+    tracker.begin_session(NODE, 0, session_epoch=7)
+    assert tracker.record(NODE, 6, update(sequence=1), 1.0) is False
+    assert tracker.stale_epochs == 1
+    assert tracker.record(NODE, 7, update(sequence=1), 2.0) is True
+
+
+def test_begin_session_never_lowers_the_epoch_high_water_mark() -> None:
+    tracker = ResourceTracker(live_ring_size=5, bucket_s=60.0)
+    tracker.begin_session(NODE, 0, session_epoch=9)
+    tracker.begin_session(NODE, 0, session_epoch=3)  # a late/zombie Hello
+    assert tracker.record(NODE, 8, update(sequence=1), 1.0) is False
+    assert tracker.stale_epochs == 1
