@@ -34,14 +34,25 @@ class StubRegistry:
         self.cutoffs: list[dt.datetime] = []
         self.fail_writes = False
         self.fail_deletes = False
+        self.raise_unexpected = False
+        self.poison: tuple[str, dt.datetime] | None = None
         self.deleted = 3
 
     async def upsert_resource_snapshots(self, rows: Any) -> int:
+        batch = list(rows)
         if self.fail_writes:
             raise RegistryError(
                 "connection refused", details={"operation": "upsert_resource_snapshots"}
             )
-        batch = list(rows)
+        if self.poison is not None and any(
+            (row.node_id, row.bucket_start) == self.poison for row in batch
+        ):
+            raise RegistryError(
+                "insert or update violates foreign key constraint",
+                details={"operation": "upsert_resource_snapshots"},
+            )
+        if self.raise_unexpected:
+            raise TypeError("a malformed row reached the driver")
         self.batches.append(batch)
         return len(batch)
 
@@ -209,3 +220,122 @@ async def test_final_flush_writes_closed_buckets_and_never_raises() -> None:
     assert await flusher.final_flush() == 0  # the failure is swallowed and logged
     registry.fail_writes = False
     assert await flusher.final_flush() == 1
+
+
+# --------------------------------------------------------------- poison rows
+
+
+def row_at(node_id: str, minute: int) -> SnapshotRow:
+    return SnapshotRow(
+        node_id=node_id,
+        bucket_start=T0 + dt.timedelta(minutes=minute),
+        samples=2,
+        cpu_percent_mean=1.0,
+        cpu_percent_max=2.0,
+        ram_used_bytes_mean=1,
+        ram_used_bytes_max=2,
+        ram_total_bytes=3,
+        gpu={},
+        disks={},
+    )
+
+
+@pytest.mark.asyncio
+async def test_one_poison_row_does_not_block_the_batch_forever() -> None:
+    """NB-6: the retry is a single statement, so a row the database always
+    refuses used to fail every later flush until the pending cap evicted it."""
+    registry = StubRegistry()
+    flusher, _, _ = make(registry, T0)
+    good = [row_at(NODE, minute) for minute in range(3)]
+    bad = row_at("node_02TESTTESTTESTTESTTESTTEST", 9)
+    registry.poison = (bad.node_id, bad.bucket_start)
+    flusher._pending = [*good, bad]
+
+    # First tick: the batch fails as a whole, nothing is blamed yet.
+    assert await flusher.flush_once() == 0
+    assert flusher.pending == 4
+    assert registry.batches == []
+
+    # Second consecutive failure -> isolation pass: the good rows go in, the bad
+    # one is blamed once and kept for one more try.
+    assert await flusher.flush_once() == 0
+    assert [len(batch) for batch in registry.batches] == [1, 1, 1]
+    assert flusher.written == 3
+    assert flusher.pending == 1
+    assert flusher.dropped_poison == 0
+
+    # It fails alone a second time while others succeed -> dropped and counted.
+    assert await flusher.flush_once() == 0
+    assert flusher.dropped_poison == 1
+    assert flusher.pending == 0
+
+    # And the flusher is healthy again.
+    flusher._pending = [row_at(NODE, 20)]
+    assert await flusher.flush_once() == 1
+
+
+@pytest.mark.asyncio
+async def test_an_unreachable_database_never_blames_a_row() -> None:
+    """If nothing gets through during the isolation pass it is the database that
+    is down, not a poison row: every row must survive."""
+    registry = StubRegistry()
+    registry.fail_writes = True
+    flusher, _, _ = make(registry, T0)
+    flusher._pending = [row_at(NODE, minute) for minute in range(4)]
+
+    for _tick in range(5):
+        assert await flusher.flush_once() == 0
+    assert flusher.pending == 4
+    assert flusher.dropped_poison == 0
+
+    registry.fail_writes = False
+    assert await flusher.flush_once() == 4
+
+
+@pytest.mark.asyncio
+async def test_an_unexpected_exception_does_not_escape_flush_once() -> None:
+    """NB-5: ``flush_once`` caught only MeshForgeError, so a TypeError from a
+    malformed row escaped to ``_on_task_done`` and stopped the controller."""
+    registry = StubRegistry()
+    registry.raise_unexpected = True
+    flusher, _, _ = make(registry, T0)
+    flusher._pending = [row_at(NODE, 0)]
+
+    assert await flusher.flush_once() == 0
+    assert flusher.failures == 1
+    assert flusher.pending == 1
+
+
+@pytest.mark.asyncio
+async def test_a_cancelled_upsert_keeps_the_batch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """NB-10: ``_pending`` used to be cleared before the await, so a cancellation
+    mid-upsert lost up to one whole batch."""
+    registry = StubRegistry()
+    flusher, _, _ = make(registry, T0)
+    flusher._pending = [row_at(NODE, 0), row_at(NODE, 1)]
+
+    async def cancelled(_rows: Any) -> int:
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(registry, "upsert_resource_snapshots", cancelled)
+    with pytest.raises(asyncio.CancelledError):
+        await flusher.flush_once()
+    assert flusher.pending == 2
+
+    monkeypatch.undo()
+    assert await flusher.flush_once() == 2
+
+
+@pytest.mark.asyncio
+async def test_an_unexpected_exception_does_not_escape_sweep_once() -> None:
+    registry = StubRegistry()
+    flusher, _, _ = make(registry, T0)
+
+    async def boom(_cutoff: dt.datetime) -> int:
+        raise TypeError("driver said no")
+
+    setattr(registry, "delete_snapshots_before", boom)  # noqa: B010
+    assert await flusher.sweep_once() == 0
+    assert flusher.failures == 1
