@@ -502,6 +502,22 @@ class AgentSessionClient:
         )
         self._heartbeat_task.add_done_callback(self._on_heartbeat_done)
         try:
+            # ORDERING INVARIANT - do not add an ``await`` between the
+            # HELLO_ACCEPTED transition above and this call.
+            #
+            # That transition is what makes the session ONLINE, i.e. what lets
+            # ``send_report`` (the resource monitor) write to the stream. Because
+            # there is no suspension point in between, this coroutine reaches
+            # ``_reconcile_and_replay`` - and takes ``_write_lock`` - before any
+            # other task can, so ``Reconcile`` is always the first
+            # ``AgentMessage`` of a reconnect, as the controller's dedupe assumes.
+            #
+            # Add an ``await`` here and a fresh report overtakes the Reconcile:
+            # the controller's armed cursor reset is then consumed by that new
+            # report, the cursor jumps to its sequence, and every replayed report
+            # below it is rejected as a duplicate - telemetry silently lost, no
+            # error anywhere. Pinned by
+            # tests/component/agent/test_reconnect_reconcile_first.py.
             if reconnect:
                 await self._reconcile_and_replay()
             end = await self._read_loop(call)
