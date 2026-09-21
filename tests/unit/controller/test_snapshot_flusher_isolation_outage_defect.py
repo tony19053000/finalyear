@@ -50,6 +50,18 @@ class StubRegistry:
         self.batches: list[list[SnapshotRow]] = []
         self.fail_writes = False
         self.poison: tuple[str, dt.datetime] | None = None
+        self.pings = 0
+
+    async def ping(self) -> None:
+        """Mirror the real ``Registry.ping``: it answers unless the DB is down.
+
+        Without this the flusher's ``_database_answers()`` would swallow an
+        ``AttributeError`` and report "down" for the wrong reason, so this test
+        would pass even if the ping logic were inverted (final review, item 3).
+        """
+        self.pings += 1
+        if self.fail_writes:
+            raise RegistryError("connection refused", details={"operation": "ping"})
 
     async def upsert_resource_snapshots(self, rows: Any) -> int:
         batch = list(rows)
@@ -147,6 +159,9 @@ async def test_a_full_outage_during_isolation_does_not_drop_an_unconfirmed_row()
     registry.fail_writes = False
     assert await flusher.flush_once() == 1
     assert flusher.pending == 0
+    # The verdict must come from a ping that actually answered "down", not from a
+    # stub that lacks the method (final review, item 3).
+    assert registry.pings >= 1
 
 
 @pytest.mark.asyncio
