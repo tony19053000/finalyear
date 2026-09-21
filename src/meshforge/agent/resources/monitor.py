@@ -20,6 +20,14 @@ sample is worth a ``ResourceUpdate``:
 type, counted, and the loop continues on the next tick; a write that races the
 stream ending is swallowed by the session client. The task is referenced and
 awaited by ``serve()``; it is not fire-and-forget.
+
+**Nor can a wedged driver stall it** (D10's sibling guarantee). Sampling touches
+NVML, which is synchronous FFI with no cancellation point, so every blocking call -
+``prime``, ``sample`` and ``close`` - goes through the
+:class:`~meshforge.agent.hardware.deadline.DeadlineThread` shared with hardware
+discovery: a sample that does not return within ``sample_timeout_s`` is abandoned
+and counted, the loop keeps its cadence, and while that one thread is still stuck
+further ticks fail fast instead of starting a second one.
 """
 
 from __future__ import annotations
@@ -28,8 +36,13 @@ import asyncio
 import contextlib
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Final, Protocol
 
+from meshforge.agent.hardware.deadline import (
+    BlockingCallError,
+    BlockingCallStalledError,
+    DeadlineThread,
+)
 from meshforge.agent.resources.convert import to_resource_update
 from meshforge.agent.resources.sampler import ResourceSample, ResourceSampler
 from meshforge.agent.session.state import AgentState
@@ -39,6 +52,9 @@ from meshforge.common.logging import get_logger
 __all__ = ["MonitorStats", "ReportPolicy", "ResourceMonitor", "SessionReporter"]
 
 log = get_logger(__name__)
+
+_CLOSE_TIMEOUT_S: Final = 2.0
+"""``NvmlSession.close`` is a driver call; shutdown never waits longer than this."""
 
 
 class SessionReporter(Protocol):
@@ -61,6 +77,10 @@ class MonitorStats:
     offline_samples: int = 0
     """Samples taken while the session was not ONLINE (D9: never sent)."""
     sampler_errors: int = 0
+    sampler_timeouts: int = 0
+    """Samples abandoned on their deadline (a wedged NVML/``/proc`` call)."""
+    sampler_stalled: int = 0
+    """Ticks skipped because an abandoned sample was still running."""
     send_errors: int = 0
 
 
@@ -138,11 +158,13 @@ class ResourceMonitor:
         settings: ResourceSettings,
         *,
         clock: Callable[[], float] | None = None,
+        guard: DeadlineThread | None = None,
     ) -> None:
         self._client = client
         self._sampler = sampler
         self._settings = settings
         self._clock_override = clock
+        self._guard = guard if guard is not None else DeadlineThread("resources")
         self._policy = ReportPolicy(
             threshold_percent=settings.change_threshold_percent,
             max_interval_s=settings.max_report_interval_s,
@@ -175,14 +197,16 @@ class ResourceMonitor:
             change_threshold_percent=self._settings.change_threshold_percent,
             max_report_interval_s=self._settings.max_report_interval_s,
         )
-        await asyncio.to_thread(self._sampler.prime)
+        await self._blocking(self._sampler.prime, self._settings.sample_timeout_s)
         try:
             while not self._stop.is_set():
                 await self._tick(clock())
                 with contextlib.suppress(TimeoutError):
                     await asyncio.wait_for(self._stop.wait(), interval)
         finally:
-            await asyncio.to_thread(self._sampler.close)
+            # A wedged sample still owns the NVML session: closing it from here
+            # would race that thread, so the close is skipped and logged instead.
+            await self._blocking(self._sampler.close, _CLOSE_TIMEOUT_S)
             log.info(
                 "agent.resources.stopped",
                 node_id=self._client.node_id,
@@ -190,6 +214,8 @@ class ResourceMonitor:
                 reports=self.stats.reports,
                 suppressed=self.stats.suppressed,
                 sampler_errors=self.stats.sampler_errors,
+                sampler_timeouts=self.stats.sampler_timeouts,
+                sampler_stalled=self.stats.sampler_stalled,
             )
 
     async def _tick(self, now: float) -> None:
@@ -210,9 +236,31 @@ class ResourceMonitor:
 
     async def _sample(self) -> ResourceSample | None:
         try:
-            return await asyncio.to_thread(self._sampler.sample)
+            return await self._guard.call(
+                self._sampler.sample, timeout_s=self._settings.sample_timeout_s
+            )
         except asyncio.CancelledError:
             raise
+        except BlockingCallStalledError:
+            self.stats.sampler_stalled += 1
+            log.debug(
+                "agent.resources.sample_stalled",
+                node_id=self._client.node_id,
+                failure_type="stalled",
+                stalled=self.stats.sampler_stalled,
+            )
+            return None
+        except BlockingCallError:
+            self.stats.sampler_errors += 1
+            self.stats.sampler_timeouts += 1
+            log.warning(
+                "agent.resources.sample_timeout",
+                node_id=self._client.node_id,
+                failure_type="timeout",
+                timeout_s=self._settings.sample_timeout_s,
+                failures=self.stats.sampler_errors,
+            )
+            return None
         except Exception as exc:  # noqa: BLE001 - one bad sample must not end the loop
             self.stats.sampler_errors += 1
             log.warning(
@@ -223,6 +271,29 @@ class ResourceMonitor:
                 failures=self.stats.sampler_errors,
             )
             return None
+
+    async def _blocking(self, fn: Callable[[], None], timeout_s: float) -> None:
+        """Run one guarded lifecycle call (``prime``/``close``); never raises."""
+        try:
+            await self._guard.call(fn, timeout_s=timeout_s)
+        except asyncio.CancelledError:
+            raise
+        except BlockingCallError as exc:
+            log.warning(
+                "agent.resources.blocking_call_skipped",
+                node_id=self._client.node_id,
+                call=getattr(fn, "__name__", "call"),
+                failure_type="timeout",
+                reason=str(exc),
+            )
+        except Exception as exc:  # noqa: BLE001 - lifecycle must not end the agent
+            log.warning(
+                "agent.resources.blocking_call_failed",
+                node_id=self._client.node_id,
+                call=getattr(fn, "__name__", "call"),
+                cause=type(exc).__name__,
+                error=str(exc)[:200],
+            )
 
     async def _send(self, sample: ResourceSample, now: float) -> None:
         update = to_resource_update(

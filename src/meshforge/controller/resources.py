@@ -20,10 +20,27 @@ a few buckets, not the controller's memory.
 
 **Duplicates.** After a reconnect the agent replays un-acked reports, and the new
 session has a fresh ``message_id`` dedupe window, so the same ``ResourceUpdate`` can
-arrive twice. ``ResourceUpdate.sequence`` is monotonic per agent *process*, and a
-new process always carries a higher ``session_epoch``, so ``(session_epoch,
-sequence)`` identifies a sample exactly: anything not strictly newer than the last
-one recorded for that node is ignored and counted.
+arrive twice. The dedupe key is ``ResourceUpdate.sequence`` **alone**: it is the one
+counter that is monotonic over the whole thing being deduped, the agent *process*
+(``agent/session/client.py``: "reports, per process, never reset"). ``session_epoch``
+is deliberately *not* part of the key - it is bumped per connection *attempt*, so a
+report first sent under epoch N and replayed after a reconnect arrives under epoch
+N+1 with the same sequence and would compare as new.
+
+Because the sequence restarts at 1 when the agent *process* restarts, the cursor is
+reset from information already on the wire, through :meth:`ResourceSink.begin_session`:
+
+* a session opens -> the manager calls ``begin_session(node_id, 0)``: assume a fresh
+  process, i.e. *arm* a reset that the first report of the session applies;
+* the session's ``Reconcile`` (sent only on a reconnect, before any replayed report)
+  carries ``replay_from_sequence``; ``> 0`` means this is the same process replaying
+  buffered reports, so the arming is cancelled and the cursor survives - the replayed
+  duplicates are rejected. ``0`` (nothing buffered) leaves the reset armed, which is
+  harmless: the next report's sequence is higher than the cursor anyway.
+
+``session_epoch`` still has one job here: it *fences*. A report arriving under an
+epoch lower than the highest this node has been seen with belongs to a superseded
+(zombie) stream and is dropped, so a stale session cannot move the cursor.
 """
 
 from __future__ import annotations
@@ -379,6 +396,15 @@ class Downsampler:
 class ResourceSink(Protocol):
     """What the session manager needs; the manager depends on this, not on the class."""
 
+    def begin_session(self, node_id: str, replay_from_sequence: int) -> None:
+        """Declare how this node's new session starts (see the module docstring).
+
+        Called twice per session at most: once when the session is accepted
+        (``replay_from_sequence=0``, "this may be a fresh process") and once more
+        from the session's ``Reconcile``, before any replayed report. The last
+        call before the first report of the session wins.
+        """
+
     def record(
         self,
         node_id: str,
@@ -405,14 +431,20 @@ class ResourceTracker:
         self._max_nodes = max(1, max_tracked_nodes)
         self._wall_clock = wall_clock or _utcnow
         self._rings: OrderedDict[str, LiveRing] = OrderedDict()
-        self._cursor: dict[str, tuple[int, int]] = {}
-        """node_id -> the newest ``(session_epoch, sequence)`` recorded."""
+        self._cursor: dict[str, int] = {}
+        """node_id -> the newest report ``sequence`` recorded (per agent process)."""
+        self._epoch: dict[str, int] = {}
+        """node_id -> the highest ``session_epoch`` seen; older ones are fenced out."""
+        self._reset_armed: set[str] = set()
+        """Nodes whose cursor the next report clears (a possibly fresh process)."""
         self.downsampler = Downsampler(
             bucket_s=bucket_s, max_open_buckets=max_open_buckets
         )
         self.duplicates = 0
         self.recorded = 0
         self.evicted_nodes = 0
+        self.stale_epochs = 0
+        """Reports dropped because they came from a superseded session's epoch."""
 
     # ------------------------------------------------------------- read side
 
@@ -428,6 +460,19 @@ class ResourceTracker:
 
     # ------------------------------------------------------------ write side
 
+    def begin_session(self, node_id: str, replay_from_sequence: int) -> None:
+        """See :class:`ResourceSink`; ``> 0`` keeps the cursor, ``0`` arms a reset."""
+        if replay_from_sequence > 0:
+            self._reset_armed.discard(node_id)
+        else:
+            self._reset_armed.add(node_id)
+        log.debug(
+            "controller.resources.begin_session",
+            node_id=node_id,
+            replay_from_sequence=replay_from_sequence,
+            cursor_reset_armed=node_id in self._reset_armed,
+        )
+
     def record(
         self,
         node_id: str,
@@ -436,15 +481,34 @@ class ResourceTracker:
         now: float,
     ) -> bool:
         """See :class:`ResourceSink`. ``now`` is the controller's monotonic clock."""
+        highest_epoch = self._epoch.get(node_id)
+        if highest_epoch is not None and session_epoch < highest_epoch:
+            # A superseded stream still delivering: it must not move the cursor.
+            self.stale_epochs += 1
+            self.duplicates += 1
+            log.debug(
+                "controller.resources.stale_epoch_update",
+                node_id=node_id,
+                session_epoch=session_epoch,
+                highest_epoch=highest_epoch,
+                sequence=update.sequence,
+                stale_epochs=self.stale_epochs,
+            )
+            return False
+        if node_id in self._reset_armed:
+            # First report of a session that did not announce a replay: treat the
+            # sequence space as new (the agent process may have restarted).
+            self._reset_armed.discard(node_id)
+            self._cursor.pop(node_id, None)
         cursor = self._cursor.get(node_id)
-        key = (session_epoch, update.sequence)
-        if cursor is not None and key <= cursor:
+        if cursor is not None and update.sequence <= cursor:
             self.duplicates += 1
             log.debug(
                 "controller.resources.duplicate_update",
                 node_id=node_id,
                 session_epoch=session_epoch,
                 sequence=update.sequence,
+                cursor=cursor,
                 duplicates=self.duplicates,
             )
             return False
@@ -456,7 +520,8 @@ class ResourceTracker:
         )
         self._ring_for(node_id).append(sample)
         self.downsampler.add(node_id, sample)
-        self._cursor[node_id] = key
+        self._cursor[node_id] = update.sequence
+        self._epoch[node_id] = session_epoch
         self.recorded += 1
         return True
 
@@ -468,6 +533,8 @@ class ResourceTracker:
             while len(self._rings) > self._max_nodes:
                 evicted, _ = self._rings.popitem(last=False)
                 self._cursor.pop(evicted, None)
+                self._epoch.pop(evicted, None)
+                self._reset_armed.discard(evicted)
                 self.downsampler.forget(evicted)
                 self.evicted_nodes += 1
                 log.warning(

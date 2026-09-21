@@ -36,6 +36,7 @@ from meshforge.agent.hardware.gpu import GpuFacts, NvmlSession, probe_gpus
 from meshforge.agent.hardware.limits import clip_hardware
 from meshforge.agent.hardware.probe import Budget, ProbeOutcome
 from meshforge.agent.hardware.software import probe_software
+from meshforge.agent.session.hello import CAPABILITIES_V03
 from meshforge.common.logging import get_logger
 from meshforge.common.proto.meshforge.v1 import agent_pb2
 
@@ -52,8 +53,15 @@ log = get_logger(__name__)
 DEFAULT_TIMEOUT_S: Final = 5.0
 """Default total budget of one ``discover()`` pass (``agent.hardware.timeout_s``)."""
 
-SHAPE_CAPABILITY: Final = "v0.3"
-"""First capability tag; G3 documented it as the marker of the Hello shape."""
+SHAPE_CAPABILITY: Final = CAPABILITIES_V03[0]
+"""First capability tag; G3 documented it as the marker of the Hello shape.
+
+Defined once, in :mod:`meshforge.agent.session.hello` - it is a *wire* value, and
+two constants for one wire value is exactly the drift ``controller/session/limits
+.py`` warns about. The dependency only goes this way: ``hello.py`` deliberately
+imports nothing from the agent extra so ``meshforge-agent --version`` works on a
+base install.
+"""
 
 
 @dataclass(frozen=True, slots=True)

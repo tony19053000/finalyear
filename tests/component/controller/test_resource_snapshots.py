@@ -99,23 +99,48 @@ async def test_reports_land_in_the_live_ring_in_order_and_a_replay_is_not_counte
         async with grpc.aio.insecure_channel(f"127.0.0.1:{runtime.grpc_port}") as ch:
             agent = FakeAgent(ch, node_id=new_node_id())
             await agent.connect()
+            tracker = runtime.resources
             try:
                 ids = [await send_update(agent, sequence=n) for n in (1, 2, 3)]
-                tracker = runtime.resources
+                assert len(set(ids)) == 3
                 await wait_for(lambda: _ring_len(tracker, agent.node_id) == 3)
                 ring = tracker.ring(agent.node_id)
                 assert ring is not None
                 assert [s.sequence for s in ring.snapshot()] == [1, 2, 3]
                 assert ring.snapshot()[0].received_at <= ring.snapshot()[2].received_at
-
-                # A replay after a reconnect: same sequence, a new message_id (the
-                # per-session dedupe window cannot catch it, the tracker must).
-                assert ids[1] != ids[2]
-                await send_update(agent, sequence=2)
-                await wait_for(lambda: tracker.duplicates == 1)
-                assert _ring_len(tracker, agent.node_id) == 3
             finally:
                 await agent.close()
+
+        # A *real* reconnect: the agent process is the same (its report sequence
+        # keeps counting) but `identity.next_epoch` bumps per connection attempt,
+        # so the replay arrives under a higher epoch with the same sequences and
+        # brand new message_ids - nothing but the tracker's cursor can catch it.
+        async with grpc.aio.insecure_channel(f"127.0.0.1:{runtime.grpc_port}") as ch:
+            again = FakeAgent(ch, node_id=agent.node_id, epoch=agent.epoch + 1)
+            await again.connect()
+            try:
+                await again.write(
+                    agent_pb2.AgentMessage(
+                        message_id=new_command_id(),
+                        session_id=again.session_id,
+                        reconcile=agent_pb2.Reconcile(replay_from_sequence=2),
+                    )
+                )
+                for sequence in (2, 3):  # the un-acked tail of the replay ring
+                    await send_update(again, sequence=sequence)
+                await wait_for(lambda: tracker.duplicates == 2)
+                assert _ring_len(tracker, again.node_id) == 3, (
+                    "a replayed report must not occupy a second ring slot"
+                )
+                # ... and the first genuinely new report still gets through.
+                await send_update(again, sequence=4)
+                await wait_for(lambda: _ring_len(tracker, again.node_id) == 4)
+                ring = tracker.ring(again.node_id)
+                assert ring is not None
+                assert [s.sequence for s in ring.snapshot()] == [1, 2, 3, 4]
+                assert tracker.duplicates == 2
+            finally:
+                await again.close()
 
 
 def _ring_len(tracker: Any, node_id: str) -> int:

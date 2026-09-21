@@ -252,9 +252,20 @@ def test_a_replayed_update_is_not_double_counted() -> None:
 def test_a_restarted_agent_starts_its_sequence_again_and_is_accepted() -> None:
     tracker = ResourceTracker(live_ring_size=5, bucket_s=60.0)
     tracker.record(NODE, 1, update(sequence=7), 100.0)
-    # New process: epoch 2, sequence back to 1 - not a duplicate.
+    # New process: its session opens (begin_session arms a cursor reset) and it
+    # sends no Reconcile, so sequence 1 is a new sample, not a duplicate.
+    tracker.begin_session(NODE, 0)
     assert tracker.record(NODE, 2, update(sequence=1), 101.0) is True
     assert tracker.duplicates == 0
+
+
+def test_a_session_announcing_a_replay_keeps_its_cursor() -> None:
+    tracker = ResourceTracker(live_ring_size=5, bucket_s=60.0)
+    tracker.record(NODE, 1, update(sequence=7), 100.0)
+    tracker.begin_session(NODE, 0)  # the reconnect's session opens
+    tracker.begin_session(NODE, 7)  # its Reconcile: replaying from sequence 7
+    assert tracker.record(NODE, 2, update(sequence=7), 101.0) is False
+    assert tracker.duplicates == 1
 
 
 def test_a_sequence_gap_is_recorded_not_rejected() -> None:

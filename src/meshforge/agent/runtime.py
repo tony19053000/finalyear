@@ -6,15 +6,21 @@
              -> AgentSessionClient.run() + ResourceMonitor.run()
              -> SIGINT/SIGTERM -> client.request_stop() -> exit 0
 
-Hardware discovery (roadmap 0.3.3) runs once, before the first Hello, in a worker
-thread and bounded by ``agent.hardware.timeout_s``; its summary is what the Hello
-carries. If it fails outright the agent still enrols, with
+Hardware discovery (roadmap 0.3.3) runs once, before the first Hello, on a
+:class:`~meshforge.agent.hardware.deadline.DeadlineThread` bounded by
+``agent.hardware.timeout_s`` plus :data:`DISCOVERY_GRACE_S`. The deadline is
+*outside* the probes on purpose: their own budget cannot interrupt a wedged NVML
+call, and an agent that never reaches its first Hello is a node that never appears
+at all. On expiry (or any failure) the agent still enrols, with
 :func:`~meshforge.agent.session.hello.basic_hardware` as the documented fallback -
-a node that cannot describe its GPUs is still a node.
+a node that cannot describe its GPUs is still a node - and the abandoned thread is
+a daemon, so it cannot hold up process exit either.
 
 The resource monitor (roadmap 0.3.5) is the second task in this process. It is
 referenced, stopped and awaited before ``serve()`` returns, and its NVML session is
-shared with discovery so the driver is initialised once.
+shared with discovery so the driver is initialised once. That sharing is why both
+use the **same** deadline thread: NVML is not thread-safe here, and one wedged call
+must leave at most one abandoned thread, not one per sample.
 
 Signals are Windows-safe: ``loop.add_signal_handler`` where it exists, else
 ``signal.signal`` + ``call_soon_threadsafe`` (ADR-0009: the agent runs natively on
@@ -32,8 +38,14 @@ from __future__ import annotations
 import asyncio
 import signal
 from collections.abc import Callable
+from typing import Final
 
 from meshforge.agent.hardware import HardwareFacts, HardwareProvider, NvmlSession
+from meshforge.agent.hardware.deadline import (
+    BlockingCallError,
+    BlockingCallTimeoutError,
+    DeadlineThread,
+)
 from meshforge.agent.identity import NodeIdentity, load_or_create
 from meshforge.agent.resources import ResourceMonitor, ResourceSampler
 from meshforge.agent.session.client import AgentSessionClient
@@ -44,6 +56,7 @@ from meshforge.common.logging import get_logger
 from meshforge.common.proto.meshforge.v1 import agent_pb2
 
 __all__ = [
+    "DISCOVERY_GRACE_S",
     "discover_hardware",
     "install_signal_handlers",
     "run_agent",
@@ -51,6 +64,12 @@ __all__ = [
 ]
 
 log = get_logger(__name__)
+
+DISCOVERY_GRACE_S: Final = 1.0
+"""Slack over ``agent.hardware.timeout_s`` for thread start-up and the final log."""
+
+_NVML_CLOSE_TIMEOUT_S: Final = 2.0
+"""``nvmlShutdown`` is a driver call too; shutdown never waits longer than this."""
 
 
 def install_signal_handlers(on_signal: Callable[[], None]) -> None:
@@ -64,21 +83,34 @@ def install_signal_handlers(on_signal: Callable[[], None]) -> None:
 
 
 async def discover_hardware(
-    settings: AgentSettings, node_id: str, nvml: NvmlSession
+    settings: AgentSettings, node_id: str, nvml: NvmlSession, guard: DeadlineThread
 ) -> tuple[agent_pb2.HardwareSummary, HardwareFacts | None]:
-    """One bounded discovery pass in a thread; the Hello summary and the rich facts.
+    """One bounded discovery pass on ``guard``; the Hello summary and the rich facts.
 
-    Never raises: ``discover()`` guards every probe itself, and the last-resort
-    ``except`` here covers a bug in this package rather than letting it stop a node
-    from enrolling. The fallback summary is G3's :func:`basic_hardware`.
+    Never raises: ``discover()`` guards every probe itself, ``guard`` bounds the
+    pass as a whole (a probe that cannot be interrupted, i.e. NVML), and the
+    last-resort ``except`` covers a bug in this package rather than letting it stop
+    a node from enrolling. The fallback summary is G3's :func:`basic_hardware`.
     """
-    provider = HardwareProvider(timeout_s=settings.agent.hardware.timeout_s, nvml=nvml)
+    timeout_s = settings.agent.hardware.timeout_s
+    provider = HardwareProvider(timeout_s=timeout_s, nvml=nvml)
     try:
-        facts = await asyncio.to_thread(provider.get)
+        facts = await guard.call(provider.get, timeout_s=timeout_s + DISCOVERY_GRACE_S)
+    except BlockingCallTimeoutError:
+        log.warning(
+            "agent.hardware.discovery_timeout",
+            node_id=node_id,
+            failure_type="timeout",
+            timeout_s=timeout_s,
+            grace_s=DISCOVERY_GRACE_S,
+            reason="a probe did not return inside the budget (NVML cannot be killed)",
+        )
+        return basic_hardware(), None
     except Exception as exc:  # noqa: BLE001 - enrolment must survive a broken probe
         log.warning(
             "agent.hardware.discovery_failed",
             node_id=node_id,
+            failure_type="error",
             cause=type(exc).__name__,
             error=str(exc)[:200],
         )
@@ -112,7 +144,8 @@ async def serve(
         )
     node_id = str(identity.node_id)
     nvml = NvmlSession()
-    hardware, facts = await discover_hardware(settings, node_id, nvml)
+    guard = DeadlineThread("hardware")
+    hardware, facts = await discover_hardware(settings, node_id, nvml, guard)
     client = AgentSessionClient(settings, identity, hardware=hardware)
     install_signal_handlers(client.request_stop)
     log.info(
@@ -122,9 +155,9 @@ async def serve(
         controller_address=settings.agent.controller_address or None,
         discovery=settings.agent.uses_discovery,
     )
-    monitor = _build_monitor(settings, client, facts, nvml)
+    monitor = _build_monitor(settings, client, facts, nvml, guard)
     if monitor is None:
-        await asyncio.to_thread(nvml.close)
+        await _close_nvml(nvml, guard)
         await client.run()
         return client
     monitor_task = asyncio.create_task(monitor.run(), name=f"agent-resources:{node_id}")
@@ -139,11 +172,20 @@ async def serve(
     return client
 
 
+async def _close_nvml(nvml: NvmlSession, guard: DeadlineThread) -> None:
+    """Shut NVML down without ever waiting on it: a wedged driver is left alone."""
+    try:
+        await guard.call(nvml.close, timeout_s=_NVML_CLOSE_TIMEOUT_S)
+    except BlockingCallError as exc:
+        log.warning("agent.hardware.nvml_close_skipped", reason=str(exc))
+
+
 def _build_monitor(
     settings: AgentSettings,
     client: AgentSessionClient,
     facts: HardwareFacts | None,
     nvml: NvmlSession,
+    guard: DeadlineThread,
 ) -> ResourceMonitor | None:
     """The monitor for this process, or None when ``agent.resources.enabled`` is off."""
     resources = settings.agent.resources
@@ -157,7 +199,7 @@ def _build_monitor(
         max_gpus=resources.max_gpus,
         max_disks=resources.max_disks,
     )
-    return ResourceMonitor(client, sampler, resources)
+    return ResourceMonitor(client, sampler, resources, guard=guard)
 
 
 def _on_monitor_done(task: asyncio.Task[None]) -> None:

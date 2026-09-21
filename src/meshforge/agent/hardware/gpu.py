@@ -166,8 +166,15 @@ def merge_by_index(
 class NvmlSession:
     """An open NVML handle set, or a recorded reason why there is none.
 
-    Not thread-safe by itself: the resource sampler owns exactly one and only ever
-    touches it from the one worker thread ``asyncio.to_thread`` gives it.
+    Not thread-safe by itself. Every caller (discovery and the resource sampler,
+    which share one session) goes through the same
+    :class:`~meshforge.agent.hardware.deadline.DeadlineThread`, so exactly one
+    call touches it at a time - including after a wedged call was abandoned, since
+    that one still holds the slot.
+
+    **No call here can be interrupted**: NVML is synchronous FFI, so a driver that
+    hangs instead of erroring hangs its thread. The deadline belongs *around* this
+    object, not inside it.
     """
 
     __slots__ = ("_driver_version", "_handles", "_nvml", "reason")

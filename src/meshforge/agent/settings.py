@@ -148,6 +148,11 @@ class HardwareSettings(SectionModel):
     and the Hello simply lacks that field (D10 - a probe costs a field, never the
     agent). Raise it on a laptop whose ``nvidia-smi`` or Docker daemon is slow to
     wake; the agent's start-up is delayed by at most this long.
+
+    The budget is enforced *around* the pass as well as inside it: NVML is plain
+    synchronous FFI with no cancellation point, so the pass runs on a deadline
+    thread (:mod:`meshforge.agent.hardware.deadline`) and start-up gives up after
+    ``timeout_s`` plus a small grace, falling back to the basic summary.
     """
 
     timeout_s: float = Field(
@@ -209,6 +214,15 @@ class ResourceSettings(SectionModel):
         ge=1,
         le=16,
         description="Disk entries per report (the controller's cap is the same).",
+    )
+    sample_timeout_s: float = Field(
+        default=5.0,
+        gt=0,
+        le=60.0,
+        description=(
+            "Give up waiting for one sample after this long (a wedged NVML/driver "
+            "call): the tick is counted and the loop continues."
+        ),
     )
 
     @model_validator(mode="after")

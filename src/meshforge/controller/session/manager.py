@@ -412,6 +412,11 @@ class SessionManager:
         self._chains.add(writer)
         writer.start().add_done_callback(lambda _t: self._chains.discard(writer))
         self._live[node_id] = live
+        if self._resources is not None:
+            # A new session may be a *restarted* agent process, whose report
+            # sequence starts at 1 again. Arm a cursor reset; this session's
+            # Reconcile (if it announces a replay) cancels it before any report.
+            self._resources.begin_session(node_id, 0)
         self.wake.set()
         if prior is not state:
             log.info(
@@ -591,15 +596,36 @@ class SessionManager:
             )
         elif which == "resource_update":
             self._on_resource_update(live, msg.resource_update)
+        elif which == "reconcile":
+            self._on_reconcile(live, msg.reconcile)
         else:
-            # reconcile / cache_report / ... : accepted and acked; their handlers
-            # arrive with the versions that own them (V0.4+).
+            # cache_report / ... : accepted and acked; their handlers arrive with
+            # the versions that own them (V0.4+).
             log.debug(
                 "session.message",
                 node_id=live.node_id,
                 session_id=live.session_id,
                 payload=which,
             )
+
+    def _on_reconcile(self, live: LiveSession, reconcile: agent_pb2.Reconcile) -> None:
+        """The reconnect marker: it says where the agent's replay starts.
+
+        ``replay_from_sequence > 0`` means this is the *same* agent process
+        replaying its un-acked reports, so the resource sink must keep its dedupe
+        cursor and reject them; ``0`` (nothing buffered) leaves the reset armed by
+        the session's opening. ``running_attempts`` belongs to V0.4's executor and
+        is only counted here.
+        """
+        if self._resources is not None:
+            self._resources.begin_session(live.node_id, reconcile.replay_from_sequence)
+        log.info(
+            "session.reconciled",
+            node_id=live.node_id,
+            session_id=live.session_id,
+            replay_from_sequence=reconcile.replay_from_sequence,
+            running_attempts=len(reconcile.running_attempts),
+        )
 
     def _on_resource_update(
         self, live: LiveSession, update: agent_pb2.ResourceUpdate

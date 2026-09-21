@@ -3,8 +3,9 @@
 :class:`ResourceSampler` is the only place that touches ``psutil`` and NVML on the
 sampling path. It is **blocking** (``psutil`` reads ``/proc``, NVML calls into the
 driver) and is called from :class:`~meshforge.agent.resources.monitor.ResourceMonitor`
-through ``asyncio.to_thread``, so the agent's event loop never waits on a stalled
-``/proc`` read or a busy GPU driver.
+through a :class:`~meshforge.agent.hardware.deadline.DeadlineThread`, so the agent's
+event loop never waits on a stalled ``/proc`` read or a wedged GPU driver: a sample
+that outlives ``agent.resources.sample_timeout_s`` is abandoned and counted.
 
 Two things are deliberately stateful:
 
