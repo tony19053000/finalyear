@@ -130,6 +130,36 @@ CLI, 0.3.13 service units). **Carry into G6:** the tester could not build a "con
 drops and reconnects" component test — the existing harness restarts the controller, which destroys the in-memory
 tracker along with it. That harness gap is G6 fault-injection work and it is why R1 survived the first round.
 
+### 2d. G4 cleanup + tester round 3 — ISO-1 (the fix that introduced the opposite bug)
+
+**Cleanup round done** (`1a46004` → `89ce269`, 6 commits): D-EVICT-1 + reviewer NB-1/3/4/5/6/7/8/9/10. Dedupe state
+moved to a `_Cursor` in its own LRU (`controller.resources.max_cursor_nodes`, default 16 384, clamped ≥
+`max_tracked_nodes`), so ring pressure no longer drops cursors. **Lead-verified at HEAD:** all five R1 cases still
+correct; and the NB-1 guard genuinely fails when `await asyncio.sleep(0)` is inserted before
+`_reconcile_and_replay()` and passes when reverted — the ordering invariant is enforced, not merely documented.
+Gates: mypy 78, lint-imports 7/0, unit **2606**, component **124**.
+
+**Tester round 3: FAIL — ISO-1 (critical).** Worth understanding, not just fixing: **the logic written to fix NB-6
+("a poison row blocks history") introduced its inverse ("an outage drops history").** `_isolate`'s guard
+`if not ok and not self._isolating: return` only protects the *first* episode, because `_isolating` is set as
+`bool(keep)` and persists across ticks. After any earlier episode latched it, a later full outage falls through to
+the blame branch and can drop a row that was never individually proven poison twice. Pinned by
+`tests/unit/controller/test_snapshot_flusher_isolation_outage_defect.py`.
+
+**The tension the fix must respect** (a naive latch removal re-opens NB-6): if the *only* pending row is poison,
+nothing ever gets through, `ok` is always empty, and "never blame when `ok` is empty" means that row blocks every
+flush forever. Both must hold: **(a)** a full outage never blames or drops a row, whatever happened earlier;
+**(b)** a lone poison row is still dropped after genuine individual failures. Lead's suggested signal: when a pass
+ends with `ok` empty, make one explicit liveness check and blame only if the database answers — a fact established
+in the current pass, replacing a stale latch.
+
+Tester **PASSED** everything else it attacked, by test or by traced inspection: the cursor LRU (an armed node is
+`move_to_end`-ed on every touch, so it stays MRU — the D-EVICT-1 race now needs 16 384 distinct nodes of churn, and
+is counted and logged), NB-3's upsert guard, NB-4's key cap, NB-9's epoch high-water. It **confirmed the import
+cycle** behind the deferred `MAX_GPUS`/`MAX_DISKS` import by reproducing the real `ImportError`
+(`resources` → `session/__init__` → `manager` → `registry` → `resources`). Minor follow-up folded into the ISO-1
+round: `_row_failures` can leak an orphaned entry for a row evicted by `max_pending_rows` before a second probe.
+
 ### 2c. G4 tester round 2 (FAIL, 2026-09-21) + the batched cleanup round
 
 **Tester FAIL at `ac20ea3` with exactly one defect; everything else PASS.** Commits `0af3f49`, `11c2235`,
