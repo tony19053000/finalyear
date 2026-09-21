@@ -113,7 +113,9 @@ async def test_a_second_call_while_the_first_is_wedged_fails_fast_not_slow() -> 
     with pytest.raises(BlockingCallStalledError):
         await guard.call(lambda: "should not run", timeout_s=5.0)
     elapsed = time.monotonic() - started
-    assert elapsed < 0.5, "a stalled call must fail immediately, not wait out its own timeout"
+    assert elapsed < 0.5, (
+        "a stalled call must fail immediately, not wait out its own timeout"
+    )
     assert guard.stalled_calls == 1
     # The stalled call never started a thread: `calls` only counts threads started.
     assert guard.calls == 1
@@ -134,7 +136,7 @@ async def test_the_slot_frees_once_the_abandoned_thread_actually_finishes() -> N
 
     release.set()  # let the abandoned thread complete
     deadline = time.monotonic() + 2.0
-    while guard.stalled and time.monotonic() < deadline:
+    while guard.stalled and time.monotonic() < deadline:  # noqa: ASYNC110
         await asyncio.sleep(0.01)
     assert guard.stalled is False, "the abandoned thread finishing must clear the slot"
 
@@ -178,7 +180,7 @@ async def test_a_late_finishing_abandoned_call_does_not_corrupt_a_later_calls_re
     # there is nobody left awaiting it, and no result was returned to any caller.
     release_1.set()
     deadline = time.monotonic() + 2.0
-    while guard.stalled and time.monotonic() < deadline:
+    while guard.stalled and time.monotonic() < deadline:  # noqa: ASYNC110
         await asyncio.sleep(0.01)
     assert guard.stalled is False
 
@@ -202,7 +204,7 @@ async def test_repeated_wedge_cycles_accumulate_counters_without_crashing() -> N
             await guard.call(wedge, timeout_s=0.03)
         release.set()
         deadline = time.monotonic() + 2.0
-        while guard.stalled and time.monotonic() < deadline:
+        while guard.stalled and time.monotonic() < deadline:  # noqa: ASYNC110
             await asyncio.sleep(0.01)
         assert guard.stalled is False, "must free up between cycles to prove no leak"
 

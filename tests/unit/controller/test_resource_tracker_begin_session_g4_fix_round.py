@@ -90,9 +90,7 @@ def test_two_nodes_arming_are_fully_independent() -> None:
     assert tracker.record(OTHER, 1, update(sequence=10), 1.0) is False
 
 
-def test_replay_from_sequence_far_ahead_of_anything_ever_seen_does_not_crash() -> (
-    None
-):
+def test_replay_from_sequence_far_ahead_of_anything_ever_seen_does_not_crash() -> None:
     """``replay_from_sequence`` is only a > 0 / == 0 signal to disarm the reset,
     never itself installed as the cursor - a Reconcile that (wrongly, or from a
     device clock issue) claims a huge replay point must not silently accept
