@@ -2,10 +2,10 @@
 
 > Concise current state. Long-term plan: [`DEVELOPMENT_ROADMAP.md`](DEVELOPMENT_ROADMAP.md). Update at the end of every work session.
 
-**Last updated:** 2026-09-21 (**V0.3 G4 in progress** — brief §5d written, 0.3.3/0.3.5/0.3.11 `[~]`, implementer spawned; G1–G3 closed agent-side; V0.2 waits on 🧑 lab runs)
+**Last updated:** 2026-09-21 (**V0.3 G4 CLOSED agent-side** — 0.3.3 / 0.3.5 / 0.3.11 `[x]`; G5 next; V0.2 waits on 🧑 lab runs)
 
 ## Current Version
-**V0.3 — Fabric core** · started 2026-09-20 on the team's decision (before the laptop 2–4 inventory); **G1–G3 closed agent-side** (0.3.1, 0.3.6, 0.3.8, 0.3.9, 0.3.10 `[x]`; 0.3.2 `[~]` Windows run; 0.3.7 `[~]` lab evidence); **G4 in progress** (0.3.3, 0.3.5, 0.3.11 `[~]`)
+**V0.3 — Fabric core** · started 2026-09-20 on the team's decision (before the laptop 2–4 inventory); **G1–G3 closed agent-side** (0.3.1, 0.3.6, 0.3.8, 0.3.9, 0.3.10 `[x]`; 0.3.2 `[~]` Windows run; 0.3.7 `[~]` lab evidence); **G4 closed** (0.3.3, 0.3.5, 0.3.11 `[x]`)
 V0.2 — Lab setup & feasibility validation · agent-side complete, waiting on 🧑 lab runs
 V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4, 0.1.10)
 
@@ -15,23 +15,14 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 > V0.10. 129 tasks vs 140–180 capacity → **~1.5 tasks/session**. Needs the other three team members' approval.
 
 ## Current Task
-**V0.3 group G4 — hardware + resources + snapshots (0.3.3, 0.3.5, 0.3.11), implementer running.**
-The brief is `docs/briefs/V0.3-fabric-core.md` **§5d** and carries the Lead decisions D9–D12:
-D9 the monitor samples but does not send while the session is not ONLINE (so the replay ring is not
-flooded during an outage) · D10 hardware discovery never raises and never blocks the loop (guarded,
-timed-out probes, one `asyncio.to_thread` call at start-up, cached with a `refresh()` for G7) ·
-D11 live ring in controller memory + 1-min buckets in a new `resource_snapshot` table, retention 7
-days, bucket length a setting · D12 peer-controlled sizes bounded on both sides — an over-size
-`Hello.hardware` is INVALID_ARGUMENT (closes the G2 follow-up), an over-size `ResourceUpdate` is
-clamped and counted, never fatal. G4 also folds in `SessionEndReason.INTERNAL_ERROR` because it is
-writing migration `0003` anyway. **No proto change is expected in G4.**
+**Next: write the V0.3 G5 brief** (0.3.12 REST `GET /v1/nodes` + `/v1/nodes/{id}` and CLI `compute nodes` / `compute status`; 0.3.13 dev background service — systemd user unit on Linux, Task Scheduler on Windows) as **§5e** of `docs/briefs/V0.3-fabric-core.md`, following the §5d pattern: Lead decisions first, then the pasteable brief with the §4 checklist.
 
-**First real two-machine smoke is possible** (no lab task yet — optional): controller on Laptop 1
-(`meshforge-controller run` with Postgres via compose), `meshforge-agent run` on another laptop with
-`MESHFORGE_AGENT__CONTROLLER_ADDRESS=<L1-ip>:47100`; expect the node ONLINE in `/healthz` sessions
-count and the `node` table. Firewall: TCP 47100 inbound on Laptop 1 only.
+G5 should serve `HardwareFacts` (probe status, durations, degraded reasons) — it is built but exposed nowhere — and must first sanitise `ProbeOutcome.reason`, whose `ERROR` branch interpolates an exception that may carry a filesystem path (review NB-11). Two more G4 follow-ups land near G5: `ResourceTracker.forget_node()` before any node-delete endpoint exists, and moving `MAX_GPUS`/`MAX_DISKS` out of `controller.session.limits` to kill a deferred import.
+
+**Open team question (NB-2):** where NVML is missing but `nvidia-smi` works, a node reports its GPUs in `Hello.hardware` but **never** GPU util/VRAM in any `ResourceUpdate` — so V0.9 telemetry and the V0.15 ML planner would train on a node that looks GPU-equipped and never uses it. Refusing a subprocess every 2 s was right; the option to cost is a low-cadence (~30 s, interpolated) `nvidia-smi` poll behind a setting.
 
 ## Recently Completed
+- 2026-09-21: **V0.3 G4 closed agent-side** — 0.3.3 / 0.3.5 / 0.3.11 `[x]`. One data path end to end: the agent probes its hardware once at start-up (NVML primary, nvidia-smi fallback, hard budget on an abandoned daemon thread so a wedged driver still enrols the node), samples CPU/RAM/GPU/disk on a change-threshold policy, and the controller bounds each report, keeps a live ring and downsamples 1-minute mean/max buckets into `resource_snapshot` with a retention sweep. **Three tester rounds, three critical defects, all found and fixed:** R1 (the `(session_epoch, sequence)` dedupe accepted replayed reports, corrupting snapshot means after any lossy reconnect), D-EVICT-1 (ring LRU eviction dropped the dedupe cursor, reopening R1 through another path), ISO-1 (the poison-row fix dropped real history during a database outage). Reviewer APPROVE on the delta, no blocking. Gates: mypy 78, lint-imports 7/0, unit **2611**, component agent+store+controller **126**. Commits `5fa761b` … `dce88c0`.
 - 2026-09-21: **V0.3 G3 closed agent-side** — 0.3.8 `[x]`, 0.3.9 `[x]`. The agent runtime exists: `meshforge-agent run` connects, heartbeats, answers pings, reconnects with full-jitter backoff (controller restart → ONLINE again in ~1–2 s in-process), replays buffered reports after `Reconcile`, finds the controller by config or mDNS, exits CONFLICT when superseded. Tester: 1 defect (heartbeat interval unbounded → clamped) ; reviewer pass 1 → 1 blocking (`replay_from_sequence` contract) → APPROVE pass 2. Commits `a934621` … `0f55af0`. Unit 2437, component agent 37 (~78 s), store+controller+agent 90.
 - 2026-09-20: **V0.3 G2 closed agent-side** — 0.3.6 `[x]`, 0.3.10 `[x]`, 0.3.7 wired. Implementer (2 runs) → tester (2 defects) → reviewer REQUEST_CHANGES (3 blocking) → fixes → **APPROVE pass 2**. Key design outcomes: liveness decided in memory with a per-session ordered write chain (DB never blocks the reader/timer); epoch fenced against the persisted high-water mark; `session_epoch` as NUMERIC(20,0) full uint64; stream end reasons surfaced as `ABORTED` details. Commits `bd416eb` … `a1014d5`. Unit 2259, component store+controller 67, controller component 10/10.
 - 2026-09-20: **V0.3 G1 closed agent-side** — 0.3.1 proto `[x]`; 0.3.2 identity (ADR-0013) and 0.3.7 liveness logic code-complete. Implementer → tester (2 critical concurrency defects + 1 minor, fixed) → reviewer (1 blocking: `next_epoch` clobbering a reset identity, fixed; APPROVE pass 2). Commits `da27ff1` `b7eda28` `7b7e7ff` `0acf7eb`. `pytest -m unit` 2122 passed. ARCHITECTURE §12.3 amended (DRAINING lease arrows, revoke from every live state).
