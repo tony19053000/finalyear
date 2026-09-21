@@ -5,11 +5,16 @@ Commands::
     meshforge-agent run [--config FILE] [--controller HOST:PORT]
     meshforge-agent identity show [--config FILE] [--json]
     meshforge-agent identity reset --yes [--config FILE]
+    meshforge-agent hardware show [--config FILE] [--json]
 
 Everything beyond ``--version``/``--help`` is imported inside the command so the
 module runs on a base install (no agent extra). ``run`` itself needs only core
 dependencies when ``controller_address`` is configured; mDNS discovery needs the
 ``agent`` extra (``zeroconf``) and says so if it is missing.
+
+``hardware show`` is **local only** (brief §5e D13): it never contacts the
+controller. The controller receives the clipped ``Hello.hardware`` summary and
+nothing else, so per-probe status, duration and reason can only be seen here.
 """
 
 from __future__ import annotations
@@ -24,6 +29,7 @@ from meshforge import __version__
 from meshforge.common.exit_codes import ExitCode
 
 if TYPE_CHECKING:
+    from meshforge.agent.hardware import HardwareFacts
     from meshforge.agent.settings import AgentSettings
 
 PROG_NAME = "meshforge-agent"
@@ -41,6 +47,13 @@ identity_app = typer.Typer(
     no_args_is_help=True,
 )
 app.add_typer(identity_app, name="identity")
+hardware_app = typer.Typer(
+    name="hardware",
+    help="Inspect the hardware this node discovers (local only; D13).",
+    add_completion=False,
+    no_args_is_help=True,
+)
+app.add_typer(hardware_app, name="hardware")
 
 ConfigOption = Annotated[
     Path | None,
@@ -180,6 +193,63 @@ def identity_reset(
         typer.echo(f"{PROG_NAME}: {exc}", err=True)
         raise typer.Exit(exc.exit_code) from None
     typer.echo(f"identity reset: {settings.identity_dir}")
+
+
+@hardware_app.command("show")
+def hardware_show(
+    config: ConfigOption = None,
+    as_json: Annotated[
+        bool, typer.Option("--json", help="Machine-readable output.")
+    ] = False,
+) -> None:
+    """Probe this machine and print what discovery found - and what it could not.
+
+    Runs entirely on this laptop: no controller, no network. The output includes
+    every probe's status, duration and reason, which is exactly the part the
+    controller never receives (D13).
+    """
+    import asyncio
+
+    from meshforge.agent.hardware import HardwareProvider
+    from meshforge.agent.hardware.deadline import BlockingCallError, DeadlineThread
+    from meshforge.agent.hardware.view import facts_lines, facts_payload
+    from meshforge.agent.runtime import DISCOVERY_GRACE_S
+
+    settings = _load_settings(config)
+    _quiet_logging(settings)
+    timeout_s = settings.agent.hardware.timeout_s
+
+    async def probe_once() -> HardwareFacts:
+        # The same bounded path the agent's start-up uses: a wedged NVML call
+        # cannot be cancelled, so it is abandoned on its own daemon thread rather
+        # than hanging this command (agent/hardware/deadline.py).
+        guard = DeadlineThread("hardware-show")
+        provider = HardwareProvider(timeout_s=timeout_s)
+        return await guard.call(provider.get, timeout_s=timeout_s + DISCOVERY_GRACE_S)
+
+    try:
+        facts = asyncio.run(probe_once())
+    except BlockingCallError as exc:
+        typer.echo(
+            f"{PROG_NAME}: hardware discovery did not finish within "
+            f"{timeout_s + DISCOVERY_GRACE_S:.3g} s ({exc}); raise "
+            "[agent.hardware] timeout_s or check the GPU driver",
+            err=True,
+        )
+        raise typer.Exit(ExitCode.FAILURE) from None
+    except ImportError as exc:
+        typer.echo(
+            f"{PROG_NAME}: hardware discovery needs the agent extra "
+            f"(`uv sync --extra agent`): {exc}",
+            err=True,
+        )
+        raise typer.Exit(ExitCode.CONFIG_ERROR) from None
+
+    if as_json:
+        typer.echo(json.dumps(facts_payload(facts), sort_keys=True))
+    else:
+        for line in facts_lines(facts):
+            typer.echo(line)
 
 
 def main() -> None:

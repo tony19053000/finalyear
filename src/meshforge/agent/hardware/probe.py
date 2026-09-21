@@ -22,6 +22,7 @@ from __future__ import annotations
 import contextlib
 import importlib.util
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -38,9 +39,11 @@ __all__ = [
     "ProbeOutcome",
     "ProbeStatus",
     "clip",
+    "failure_reason",
     "guarded",
     "module_installed",
     "run_command",
+    "sanitize_reason",
     "which",
 ]
 
@@ -115,7 +118,8 @@ def guarded[T](
 
     ``fn`` returns the value, or ``None`` when the source is simply not present on
     this machine (``UNAVAILABLE``). Any exception becomes ``ERROR`` with the
-    exception type and message as the reason - a probe never propagates.
+    exception type and a **path-free** message as the reason
+    (:func:`failure_reason`) - a probe never propagates.
     """
     if budget.expired:
         return ProbeOutcome(name, ProbeStatus.TIMEOUT, reason="discovery budget spent")
@@ -123,17 +127,18 @@ def guarded[T](
     try:
         value = fn(budget.slice_s(cap_s))
     except TimeoutError as exc:
+        # TimeoutError is an OSError subclass, so it goes through the sanitiser too.
         return ProbeOutcome(
             name,
             ProbeStatus.TIMEOUT,
-            reason=str(exc) or "timed out",
+            reason=sanitize_reason(str(exc)) or "timed out",
             duration_s=budget.now() - started,
         )
     except Exception as exc:  # noqa: BLE001 - a broken probe must cost one field only
         return ProbeOutcome(
             name,
             ProbeStatus.ERROR,
-            reason=f"{type(exc).__name__}: {exc}"[:200],
+            reason=failure_reason(exc),
             duration_s=budget.now() - started,
         )
     duration = budget.now() - started
@@ -142,6 +147,66 @@ def guarded[T](
             name, ProbeStatus.UNAVAILABLE, reason="not present", duration_s=duration
         )
     return ProbeOutcome(name, ProbeStatus.OK, value=value, duration_s=duration)
+
+
+_REASON_MAX_CHARS: Final = 200
+_PATH_PLACEHOLDER: Final = "<path>"
+_PATH_RE: Final = re.compile(
+    r"""
+      [A-Za-z]:[\\/][^\s'"]*          # C:\Users\me\... or C:/Users/me/...
+    | \\\\[^\s'"]+                    # \\server\share\...
+    | ~[\\/][^\s'"]*                  # ~/.local/share/meshforge
+    | /[^\s'"/]+(?:/[^\s'"/]*)+       # /home/alice/.config (two or more segments)
+    """,
+    re.VERBOSE,
+)
+
+
+_QUOTED_PATH_RE: Final = re.compile(
+    r"""(['"])((?:/|~[\\/]|\\\\|[A-Za-z]:[\\/])[^'"]*)\1"""
+)
+"""A *quoted* path, so one containing spaces is removed whole (argv reprs)."""
+
+
+def sanitize_reason(text: str) -> str:
+    """Strip filesystem paths out of a probe reason and bound its length.
+
+    :attr:`ProbeOutcome.reason` is shown by ``meshforge-agent hardware show`` and
+    logged; its own contract is "never a secret and never a full user path", but an
+    ``OSError`` carries the path it failed on (``[Errno 2] No such file or
+    directory: '/home/alice/...'``) and a subprocess error carries the executable's
+    path. Every absolute POSIX path of two or more segments, every Windows drive or
+    UNC path and every ``~``-relative path becomes ``<path>``; the rest of the
+    message - which is what tells an operator *what* went wrong - survives.
+
+    A *quoted* path is removed as a whole first, so one containing spaces (a repr
+    of an argv list, say) does not survive in pieces; quotes left around the
+    placeholder by the unquoted pass are then dropped so the result reads cleanly.
+    """
+    cleaned = _QUOTED_PATH_RE.sub(_PATH_PLACEHOLDER, text)
+    cleaned = _PATH_RE.sub(_PATH_PLACEHOLDER, cleaned)
+    cleaned = cleaned.replace(f"'{_PATH_PLACEHOLDER}'", _PATH_PLACEHOLDER)
+    cleaned = cleaned.replace(f'"{_PATH_PLACEHOLDER}"', _PATH_PLACEHOLDER)
+    return " ".join(cleaned.split())[:_REASON_MAX_CHARS]
+
+
+def failure_reason(exc: BaseException) -> str:
+    """``"TypeName: message"`` for a failed probe, with no path in it.
+
+    ``OSError`` is rebuilt from ``errno``/``strerror`` alone, because those two
+    fields are exactly the part of the message that does not name a file;
+    :func:`sanitize_reason` then covers every other exception type (a
+    ``ValueError`` from a parser, a ``CalledProcessError`` naming an executable).
+    """
+    name = type(exc).__name__
+    if isinstance(exc, OSError):
+        detail = (exc.strerror or "").strip()
+        if exc.errno is not None:
+            detail = f"[Errno {exc.errno}] {detail}".strip()
+        message = detail or "OS error"
+    else:
+        message = str(exc)
+    return sanitize_reason(f"{name}: {message}" if message else name)
 
 
 def clip(value: str, limit: int) -> str:

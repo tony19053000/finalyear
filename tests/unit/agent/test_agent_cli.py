@@ -112,3 +112,86 @@ def test_no_arguments_prints_help() -> None:
     assert "run" in result.output and "identity" in result.output
     result = runner.invoke(app, ["identity"], prog_name=PROG)
     assert "show" in result.output and "reset" in result.output
+
+
+# ------------------------------------------------------- hardware show (G5, D13)
+
+
+def test_hardware_show_renders_the_probe_table(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The command is local only: the facts are injected, nothing is probed here."""
+    import meshforge.agent.hardware as hardware_pkg
+
+    facts = _fabricated_facts()
+    monkeypatch.setattr(
+        hardware_pkg.HardwareProvider, "get", lambda self: facts, raising=True
+    )
+    result = runner.invoke(app, ["hardware", "show"], prog_name=PROG)
+    assert result.exit_code == ExitCode.OK, result.output
+    assert "Fictional CPU 9000" in result.stdout
+    assert "unavailable" in result.stdout
+    assert "degraded:" in result.stdout
+
+
+def test_hardware_show_json_is_one_parseable_object(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import meshforge.agent.hardware as hardware_pkg
+
+    facts = _fabricated_facts()
+    monkeypatch.setattr(
+        hardware_pkg.HardwareProvider, "get", lambda self: facts, raising=True
+    )
+    result = runner.invoke(app, ["hardware", "show", "--json"], prog_name=PROG)
+    assert result.exit_code == ExitCode.OK, result.output
+    payload = json.loads(result.stdout)
+    assert payload["cpu"]["model"] == "Fictional CPU 9000"
+    assert payload["degraded"] == ["gpu: unavailable: not present"]
+
+
+def test_hardware_show_reports_a_wedged_probe_instead_of_hanging(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A probe that never returns is abandoned on its daemon thread (D10)."""
+    import threading
+
+    import meshforge.agent.hardware as hardware_pkg
+
+    release = threading.Event()
+
+    def wedged(_self: object) -> object:
+        release.wait(30.0)
+        return _fabricated_facts()
+
+    monkeypatch.setattr(hardware_pkg.HardwareProvider, "get", wedged, raising=True)
+    monkeypatch.setenv("MESHFORGE_AGENT__HARDWARE__TIMEOUT_S", "0.05")
+    try:
+        result = runner.invoke(app, ["hardware", "show"], prog_name=PROG)
+    finally:
+        release.set()
+    assert result.exit_code == ExitCode.FAILURE, result.output
+    assert "did not finish" in result.output
+    assert "timeout_s" in result.output
+
+
+def _fabricated_facts() -> object:
+    from meshforge.agent.hardware.cpu import CpuFacts
+    from meshforge.agent.hardware.probe import ProbeOutcome, ProbeStatus
+    from meshforge.agent.hardware.summary import HardwareFacts
+
+    return HardwareFacts(
+        cpu=CpuFacts(
+            model="Fictional CPU 9000",
+            physical_cores=4,
+            logical_threads=8,
+            ram_bytes=1 << 33,
+            source="test",
+        ),
+        capabilities=("docker",),
+        probes=(
+            ProbeOutcome("cpu", ProbeStatus.OK, value=1, duration_s=0.01),
+            ProbeOutcome("gpu", ProbeStatus.UNAVAILABLE, reason="not present"),
+        ),
+        duration_s=0.5,
+    )
