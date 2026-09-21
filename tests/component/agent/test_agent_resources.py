@@ -27,6 +27,7 @@ from mf_session_client import poll_until
 pytest.importorskip("sqlalchemy", reason="needs the controller extra")
 
 from meshforge.agent.hardware import NvmlSession
+from meshforge.agent.hardware.deadline import DeadlineThread
 from meshforge.agent.hardware.probe import run_command
 from meshforge.agent.identity import NodeIdentity
 from meshforge.agent.resources import ResourceMonitor, ResourceSampler
@@ -71,7 +72,10 @@ async def test_the_hello_carries_this_machines_discovered_hardware(
 ) -> None:
     settings = make_agent_settings(data_dir, grpc_target)
     nvml = NvmlSession()
-    summary, facts = await discover_hardware(settings, str(identity.node_id), nvml)
+    guard = DeadlineThread("hardware-test")
+    summary, facts = await discover_hardware(
+        settings, str(identity.node_id), nvml, guard
+    )
     await asyncio.to_thread(nvml.close)
     assert facts is not None
 
