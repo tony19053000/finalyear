@@ -466,6 +466,13 @@ class Registry:
         hiccup) updates the row instead of duplicating it - the table's primary key
         *is* the bucket (roadmap 0.3.11).
 
+        The update is **guarded by ``samples``** (NB-3): after a controller restart a
+        replayed report can re-accumulate the same bucket from a partial sample set,
+        and an unconditional overwrite would replace a complete 30-sample row with a
+        2-sample one. A row is only replaced by one that saw at least as many
+        samples, so the history only ever gets better; the row count returned counts
+        rows *sent*, not rows changed.
+
         A row whose node has no ``node`` row is skipped by the foreign key, so the
         statement is ordered after the node exists in practice; the caller treats a
         failure as retryable.
@@ -501,6 +508,9 @@ class Registry:
                 "disks": statement.excluded.disks,
                 "updated_at": func.now(),
             },
+            # ``ResourceSnapshot.samples`` here is the *existing* row; the guard
+            # is emitted as the ON CONFLICT ... WHERE clause.
+            where=ResourceSnapshot.samples <= statement.excluded.samples,
         )
         async with self._sessions() as db, db.begin():
             await db.execute(statement)

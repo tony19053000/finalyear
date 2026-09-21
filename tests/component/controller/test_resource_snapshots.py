@@ -10,6 +10,7 @@ seconds, not minutes.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import datetime as dt
 from collections.abc import Callable
 from typing import Any
@@ -252,6 +253,54 @@ async def test_writing_the_same_bucket_twice_updates_the_row(
         rows = await registry.list_snapshots(agent.node_id)
         assert len(rows) == 1
         assert rows[0].samples == 9
+
+
+@pytest.mark.asyncio
+async def test_a_poorer_re_flush_of_a_bucket_never_replaces_a_richer_row(
+    history_settings: Any, registry: Registry
+) -> None:
+    """NB-3: after a controller restart a replayed report can re-accumulate a
+    bucket from a *partial* sample set. That row must not overwrite the complete
+    one already written (``samples`` 30 -> 2); an equal or better one must."""
+    async with (
+        ControllerRuntime.start(history_settings) as runtime,
+        grpc.aio.insecure_channel(f"127.0.0.1:{runtime.grpc_port}") as ch,
+    ):
+        agent = FakeAgent(ch, node_id=new_node_id())
+        await agent.connect()
+        await send_update(agent, sequence=1)
+        await wait_for(lambda: _ring_len(runtime.resources, agent.node_id) == 1)
+        await agent.close()
+
+        bucket = dt.datetime.now(dt.UTC).replace(microsecond=0)
+        rich = snapshot_row(agent.node_id, bucket, samples=30)
+        rich = dataclasses.replace(rich, cpu_percent_max=99.0)
+        assert await registry.upsert_resource_snapshots([rich]) == 1
+
+        poor = snapshot_row(agent.node_id, bucket, samples=2)
+        poor = dataclasses.replace(poor, cpu_percent_max=1.0)
+        assert await registry.upsert_resource_snapshots([poor]) == 1  # rows *sent*
+
+        rows = await registry.list_snapshots(agent.node_id)
+        assert len(rows) == 1
+        assert rows[0].samples == 30, "the partial re-flush overwrote a good row"
+        assert rows[0].cpu_percent_max == 99.0
+
+        # The other direction: an equal-or-better row still wins.
+        better = dataclasses.replace(
+            snapshot_row(agent.node_id, bucket, samples=30), cpu_percent_max=42.0
+        )
+        assert await registry.upsert_resource_snapshots([better]) == 1
+        rows = await registry.list_snapshots(agent.node_id)
+        assert len(rows) == 1 and rows[0].cpu_percent_max == 42.0
+
+        richer = dataclasses.replace(
+            snapshot_row(agent.node_id, bucket, samples=31), cpu_percent_max=7.0
+        )
+        assert await registry.upsert_resource_snapshots([richer]) == 1
+        rows = await registry.list_snapshots(agent.node_id)
+        assert len(rows) == 1
+        assert rows[0].samples == 31 and rows[0].cpu_percent_max == 7.0
 
 
 @pytest.mark.asyncio
