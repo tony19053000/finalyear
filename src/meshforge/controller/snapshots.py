@@ -21,10 +21,12 @@ is why :meth:`flush_once` and :meth:`sweep_once` catch ``Exception``, not only
 statement, so a row the database always refuses (e.g. its ``node`` row is gone)
 used to fail every later flush until the pending cap evicted it - hours of lost
 history. After two consecutive batch failures the flusher makes an *isolation
-pass*: up to :data:`MAX_ISOLATED_ROWS` rows written one statement at a time. If
-**none** of them succeeds the database is simply unreachable and nothing is held
-against the rows; if some succeed, the ones that failed are poison and are
-dropped (with a counter) the second time they fail on their own.
+pass*: up to :data:`MAX_ISOLATED_ROWS` rows written one statement at a time. A
+row is blamed only when the database is proved reachable **in that same pass**:
+either another row got through, or - when nothing did, which is what a lone
+poison row looks like - an explicit :meth:`~meshforge.controller.registry.Registry.ping`
+answered. If neither holds, the database is unreachable and no row is blamed. A
+blamed row is dropped (with a counter) the second time it fails that way.
 
 Rows stay owned by ``_pending`` **across** the write and are cleared only after it
 succeeds, so a cancellation mid-upsert re-writes the batch (the upsert is
@@ -101,7 +103,7 @@ class SnapshotFlusher:
         """Rows the database refused on their own twice while others went through."""
         self._consecutive_failures = 0
         self._isolating = False
-        """An isolation pass proved the database healthy while some row failed."""
+        """A suspected poison row is pending: isolate on the next failure, at once."""
         self._row_failures: dict[tuple[str, dt.datetime], int] = {}
 
     @property
@@ -183,9 +185,11 @@ class SnapshotFlusher:
     async def _isolate(self, rows: list[SnapshotRow]) -> None:
         """Write rows one by one to find the one(s) the batch chokes on (NB-6).
 
-        Only called after repeated batch failures. If nothing gets through, the
-        database is down and no row is blamed; otherwise the rows that failed on
-        their own are poison and are dropped on their second individual failure.
+        Only called after repeated batch failures. A row is blamed only if this
+        pass establishes that the database is reachable *now*: either some other
+        row got through, or - when none did - :meth:`Registry.ping` answered. A
+        pass in which nothing gets through and the ping fails is an outage: no
+        row is blamed, no count moves, everything stays pending.
         """
         probed = rows[:MAX_ISOLATED_ROWS]
         ok: list[SnapshotRow] = []
@@ -199,20 +203,18 @@ class SnapshotFlusher:
                 bad.append(row)
             else:
                 ok.append(row)
-        if not ok and not self._isolating:
-            # Nothing got through and nothing has just proved otherwise: the
-            # database is unreachable, not poisoned. Blame no row.
+        if not ok and not await self._database_answers():
+            # Nothing got through and the database does not answer at all: it is
+            # unreachable, not poisoned. Blame no row, whatever earlier passes saw.
             log.debug(
                 "controller.snapshots.isolation_all_failed",
                 probed=len(probed),
                 pending=len(self._pending),
             )
             return
-        # ``_isolating`` means a probe *did* get through a moment ago, so a row
-        # still failing on its own is the row's fault even if it is now the only
-        # one left. (A database that dies right after an isolation pass can cost
-        # up to MAX_ISOLATED_ROWS rows of history - bounded, and the alternative
-        # is a poison row blocking every flush for hours.)
+        # Either another row landed, or the database answered a ``SELECT 1`` while
+        # this one still failed: the row is the problem, even when it is the only
+        # row left (a lone poison row must not block every flush forever - NB-6).
         self.written += len(ok)
         self._consecutive_failures = 0
         keep: list[SnapshotRow] = []
@@ -232,9 +234,8 @@ class SnapshotFlusher:
             else:
                 self._row_failures[key] = attempts
                 keep.append(row)
-        for row in ok:
-            self._row_failures.pop((row.node_id, row.bucket_start), None)
         self._pending = keep + rows[MAX_ISOLATED_ROWS:]
+        self._prune_row_failures()
         self._isolating = bool(keep)
         log.warning(
             "controller.snapshots.isolated",
@@ -273,6 +274,38 @@ class SnapshotFlusher:
             return await self.flush_once()
         return 0
 
+    async def _database_answers(self) -> bool:
+        """Is the database reachable *right now*? One ``SELECT 1``, never raises.
+
+        The isolation pass needs this only when no row got through, i.e. at most
+        once per tick. Any failure - including a registry that cannot be asked -
+        is reported as "not answering", so the fail-safe direction is always
+        "blame nobody".
+        """
+        try:
+            await self._registry.ping()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - any answer but success is "down"
+            log.debug("controller.snapshots.ping_failed", error=str(exc))
+            return False
+        return True
+
+    def _prune_row_failures(self) -> None:
+        """Forget failure counts for rows that are no longer pending.
+
+        Without this a row that failed once individually and was then evicted by
+        the pending cap (or written by a later batch) would leave an orphaned key
+        behind forever. Pruning against ``_pending`` also bounds the dict by
+        ``max_pending_rows``.
+        """
+        if not self._row_failures:
+            return
+        live = {(row.node_id, row.bucket_start) for row in self._pending}
+        self._row_failures = {
+            key: count for key, count in self._row_failures.items() if key in live
+        }
+
     def _remember(self, rows: list[SnapshotRow]) -> None:
         """Keep ``rows`` for the next tick, newest kept when the cap is passed."""
         self._pending = rows
@@ -280,6 +313,7 @@ class SnapshotFlusher:
         if overflow > 0:
             del self._pending[:overflow]
             self.dropped_rows += overflow
+            self._prune_row_failures()
             log.warning(
                 "controller.snapshots.pending_overflow",
                 dropped=overflow,

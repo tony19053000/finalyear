@@ -37,6 +37,13 @@ class StubRegistry:
         self.raise_unexpected = False
         self.poison: tuple[str, dt.datetime] | None = None
         self.deleted = 3
+        self.pings = 0
+
+    async def ping(self) -> None:
+        """Up unless the whole database is down (``poison`` is a per-row refusal)."""
+        self.pings += 1
+        if self.fail_writes:
+            raise RegistryError("connection refused", details={"operation": "ping"})
 
     async def upsert_resource_snapshots(self, rows: Any) -> int:
         batch = list(rows)
@@ -339,3 +346,86 @@ async def test_an_unexpected_exception_does_not_escape_sweep_once() -> None:
     setattr(registry, "delete_snapshots_before", boom)  # noqa: B010
     assert await flusher.sweep_once() == 0
     assert flusher.failures == 1
+
+
+@pytest.mark.asyncio
+async def test_a_total_outage_never_blames_a_row_even_after_a_poison_episode() -> None:
+    """ISO-1: the "nothing got through -> blame nobody" guarantee used to depend on
+    the ``_isolating`` latch being unset, so a *later*, independent outage dropped a
+    row that had only ever failed once for real. Liveness is now established in the
+    current pass (``Registry.ping``), so no earlier episode can change the verdict."""
+    registry = StubRegistry()
+    flusher, _, _ = make(registry, T0)
+    good = [row_at(NODE, minute) for minute in range(3)]
+    suspect = row_at("node_02TESTTESTTESTTESTTESTTEST", 9)
+    registry.poison = (suspect.node_id, suspect.bucket_start)
+    flusher._pending = [*good, suspect]
+
+    assert await flusher.flush_once() == 0
+    assert await flusher.flush_once() == 0  # isolation: latch armed, one strike
+    assert flusher._isolating is True
+    assert flusher.dropped_poison == 0
+
+    # The database now goes down entirely, for several ticks.
+    registry.poison = None
+    registry.fail_writes = True
+    for _tick in range(3):
+        assert await flusher.flush_once() == 0
+    assert flusher.dropped_poison == 0
+    assert flusher.pending == 1
+    assert registry.pings >= 1  # liveness really was asked, not assumed
+
+    # It recovers: the row is still here to write, no history lost.
+    registry.fail_writes = False
+    assert await flusher.flush_once() == 1
+    assert flusher.pending == 0
+
+
+@pytest.mark.asyncio
+async def test_a_lone_poison_row_is_still_dropped_when_the_ping_answers() -> None:
+    """The other half of ISO-1: with the poison row the *only* row pending, no probe
+    can ever succeed, so "blame nobody when nothing got through" would block every
+    flush forever (the NB-6 bug). The ping supplies the missing proof."""
+    registry = StubRegistry()
+    flusher, _, _ = make(registry, T0)
+    bad = row_at("node_02TESTTESTTESTTESTTESTTEST", 9)
+    registry.poison = (bad.node_id, bad.bucket_start)
+    flusher._pending = [bad]
+
+    assert await flusher.flush_once() == 0  # batch failure 1
+    assert await flusher.flush_once() == 0  # isolation: ping up -> strike one
+    assert flusher.dropped_poison == 0
+    assert flusher._row_failures[(bad.node_id, bad.bucket_start)] == 1
+
+    assert await flusher.flush_once() == 0  # strike two -> dropped
+    assert flusher.dropped_poison == 1
+    assert flusher.pending == 0
+    assert flusher._row_failures == {}
+
+    # The flusher is unblocked: healthy rows flow again on the next tick.
+    registry.poison = None
+    flusher._pending = [row_at(NODE, 20)]
+    assert await flusher.flush_once() == 1
+
+
+@pytest.mark.asyncio
+async def test_row_failure_counts_do_not_outlive_their_rows() -> None:
+    """A row blamed once and then evicted by the pending cap used to leave an
+    orphaned key in ``_row_failures`` forever; counts are pruned to what is pending."""
+    registry = StubRegistry()
+    flusher, _, _ = make(registry, T0, max_pending_rows=2)
+    good = row_at(NODE, 0)
+    bad = row_at("node_02TESTTESTTESTTESTTESTTEST", 9)
+    registry.poison = (bad.node_id, bad.bucket_start)
+    flusher._pending = [good, bad]
+
+    assert await flusher.flush_once() == 0
+    assert await flusher.flush_once() == 0  # isolation: good lands, bad blamed once
+    assert flusher._row_failures == {(bad.node_id, bad.bucket_start): 1}
+
+    # Two fresh rows push the blamed row out of the (size-2) pending list.
+    registry.fail_writes = True
+    flusher._pending = [bad, row_at(NODE, 30), row_at(NODE, 31)]
+    assert await flusher.flush_once() == 0
+    assert flusher.dropped_rows == 1
+    assert flusher._row_failures == {}

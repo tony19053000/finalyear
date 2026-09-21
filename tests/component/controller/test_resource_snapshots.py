@@ -26,8 +26,10 @@ from meshforge.common.ids import new_command_id, new_node_id, new_session_id
 from meshforge.common.proto.meshforge.v1 import agent_pb2
 from meshforge.controller.liveness import NodeState
 from meshforge.controller.registry import Registry, SessionEndReason
-from meshforge.controller.resources import SnapshotRow
+from meshforge.controller.resources import ResourceTracker, SnapshotRow
 from meshforge.controller.server import ControllerRuntime
+from meshforge.controller.settings import ResourceHistorySettings
+from meshforge.controller.snapshots import SnapshotFlusher
 from meshforge.controller.store.settings import DatabaseSettings
 
 pytestmark = [pytest.mark.component, pytest.mark.docker]
@@ -478,3 +480,40 @@ async def test_the_internal_error_end_reason_is_accepted_by_the_schema(
     record = await registry.get_session(session_id)
     assert record is not None
     assert record.end_reason is SessionEndReason.INTERNAL_ERROR
+
+
+# ------------------------------------------------------- isolation liveness (ISO-1)
+
+
+@pytest.mark.asyncio
+async def test_ping_answers_against_a_real_database(registry: Registry) -> None:
+    """The liveness signal the isolation pass depends on is a real round trip."""
+    await registry.ping()
+
+
+@pytest.mark.asyncio
+async def test_a_lone_poison_row_is_dropped_against_a_real_database(
+    registry: Registry,
+) -> None:
+    """ISO-1 (b) end to end: a row whose node does not exist is refused forever by
+    the real foreign key. It is the only row pending, so no probe can succeed and
+    only ``Registry.ping`` can prove the database is up - without it this row would
+    block every flush until the pending cap evicted it (NB-6)."""
+    flusher = SnapshotFlusher(
+        ResourceTracker(bucket_s=60.0),
+        registry,
+        ResourceHistorySettings(bucket_s=60.0, flush_interval_s=0.2),
+        clock=lambda: 0.0,
+    )
+    bucket = dt.datetime.now(dt.UTC).replace(microsecond=0)
+    flusher._pending = [snapshot_row(new_node_id(), bucket)]
+
+    assert await flusher.flush_once() == 0  # batch failure 1 (no isolation yet)
+    assert await flusher.flush_once() == 0  # isolation: ping up -> strike one
+    assert flusher.dropped_poison == 0
+    assert flusher.pending == 1
+
+    assert await flusher.flush_once() == 0  # strike two -> dropped, flusher unblocked
+    assert flusher.dropped_poison == 1
+    assert flusher.pending == 0
+    assert flusher._row_failures == {}

@@ -206,6 +206,22 @@ class Registry:
             engine
         )
 
+    # --------------------------------------------------------------- liveness
+
+    @_typed
+    async def ping(self) -> None:
+        """Cheapest possible proof that the database answers right now.
+
+        ``SELECT 1`` on a pooled connection: no table, no lock, no write. Callers
+        use it to tell "the database is down" apart from "the database is up and
+        rejecting this particular statement" - see
+        :meth:`meshforge.controller.snapshots.SnapshotFlusher._isolate`. Raises
+        :class:`RegistryError` exactly like every other method when the database
+        is unreachable.
+        """
+        async with self._sessions() as db:
+            await db.execute(select(literal(1)))
+
     # ----------------------------------------------------------------- nodes
 
     @_typed
