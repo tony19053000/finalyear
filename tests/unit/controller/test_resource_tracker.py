@@ -348,3 +348,28 @@ def test_begin_session_never_lowers_the_epoch_high_water_mark() -> None:
     tracker.begin_session(NODE, 0, session_epoch=3)  # a late/zombie Hello
     assert tracker.record(NODE, 8, update(sequence=1), 1.0) is False
     assert tracker.stale_epochs == 1
+
+
+def test_one_bucket_caps_the_number_of_gpu_and_disk_keys() -> None:
+    """NB-4: D12 caps GPUs/disks per *message*, but a bucket accumulates every
+    sample, so an agent varying the mount string each sample could otherwise put
+    hundreds of keys in one JSONB row."""
+    from meshforge.controller.session.limits import MAX_DISKS, MAX_GPUS
+
+    tracker = ResourceTracker(live_ring_size=200, bucket_s=60.0)
+    for index in range(MAX_GPUS + MAX_DISKS + 20):
+        message = update(sequence=index + 1)
+        message.gpus.add(index=index, util_percent=1.0, vram_total_bytes=2)
+        message.disks.add(mount=f"/mnt/{index}", free_bytes=1, total_bytes=2)
+        assert tracker.record(NODE, 1, message, float(index)) is True
+
+    rows = tracker.drain_rows()
+    assert len(rows) == 1
+    assert len(rows[0].gpu) == MAX_GPUS
+    assert len(rows[0].disks) == MAX_DISKS
+    # Every sample carries one new GPU index and one new mount: everything above
+    # the two caps is refused and counted.
+    samples = MAX_GPUS + MAX_DISKS + 20
+    expected = (samples - MAX_GPUS) + (samples - MAX_DISKS)
+    assert tracker.downsampler.dropped_keys == expected
+    assert set(rows[0].disks) == {f"/mnt/{i}" for i in range(MAX_DISKS)}

@@ -247,8 +247,17 @@ class _Accumulator:
     ram_total: int = 0
     gpus: dict[int, dict[str, float]] = field(default_factory=dict)
     disks: dict[str, dict[str, float]] = field(default_factory=dict)
+    dropped_keys: int = 0
+    """GPU indices / disk mounts refused because the bucket already holds the cap.
 
-    def add(self, sample: LiveSample) -> None:
+    D12 bounds a *single* ``ResourceUpdate`` at ``MAX_GPUS``/``MAX_DISKS``, but a
+    bucket accumulates every sample in it, so an agent varying the mount string
+    each sample would otherwise write hundreds of JSONB keys into one row (NB-4).
+    The first ``MAX_*`` keys of a bucket win; the rest are counted here and by
+    :attr:`Downsampler.dropped_keys`.
+    """
+
+    def add(self, sample: LiveSample, *, max_gpus: int, max_disks: int) -> None:
         self.samples += 1
         self.cpu_sum += sample.cpu_percent
         self.cpu_max = max(self.cpu_max, sample.cpu_percent)
@@ -257,6 +266,9 @@ class _Accumulator:
         if sample.ram_total_bytes:
             self.ram_total = sample.ram_total_bytes
         for gpu in sample.gpus:
+            if gpu.index not in self.gpus and len(self.gpus) >= max_gpus:
+                self.dropped_keys += 1
+                continue
             entry = self.gpus.setdefault(
                 gpu.index,
                 {
@@ -276,6 +288,9 @@ class _Accumulator:
             if gpu.vram_total_bytes:
                 entry["vram_total"] = float(gpu.vram_total_bytes)
         for disk in sample.disks:
+            if disk.mount not in self.disks and len(self.disks) >= max_disks:
+                self.dropped_keys += 1
+                continue
             entry = self.disks.setdefault(
                 disk.mount,
                 {
@@ -353,6 +368,16 @@ class Downsampler:
     ) -> None:
         if bucket_s <= 0:
             raise ValueError("bucket_s must be > 0")
+        # Deferred on purpose: ``controller.session`` imports this module (the
+        # manager needs ``ResourceSink``), so importing its ``limits`` at module
+        # level would be a cycle. One source of truth for the caps, no cycle.
+        from meshforge.controller.session.limits import (
+            MAX_DISKS,
+            MAX_GPUS,
+        )
+
+        self.max_gpu_keys = MAX_GPUS
+        self.max_disk_keys = MAX_DISKS
         self.bucket_s = bucket_s
         self.max_open_buckets = max(1, max_open_buckets)
         self._open: dict[str, OrderedDict[dt.datetime, _Accumulator]] = {}
@@ -361,6 +386,8 @@ class Downsampler:
         """Samples for a bucket already written (an agent whose clock went back)."""
         self.dropped_buckets = 0
         """Open buckets evicted because one node had too many (a clock jump)."""
+        self.dropped_keys = 0
+        """GPU/disk keys refused by a bucket already at ``MAX_GPUS``/``MAX_DISKS``."""
 
     def add(self, node_id: str, sample: LiveSample) -> None:
         start = bucket_start(sample.observed_at, self.bucket_s)
@@ -386,7 +413,22 @@ class Downsampler:
                     open_buckets=len(buckets),
                     dropped_total=self.dropped_buckets,
                 )
-        accumulator.add(sample)
+        before = accumulator.dropped_keys
+        accumulator.add(
+            sample, max_gpus=self.max_gpu_keys, max_disks=self.max_disk_keys
+        )
+        if accumulator.dropped_keys > before:
+            self.dropped_keys += accumulator.dropped_keys - before
+        if before == 0 and accumulator.dropped_keys:
+            # Once per bucket: an agent varying its mounts would log every sample.
+            log.warning(
+                "controller.resources.bucket_keys_dropped",
+                node_id=node_id,
+                bucket_start=start.isoformat(),
+                gpus=len(accumulator.gpus),
+                disks=len(accumulator.disks),
+                dropped_total=self.dropped_keys,
+            )
 
     def forget(self, node_id: str) -> None:
         """Drop every open bucket of a node the tracker stopped following."""
