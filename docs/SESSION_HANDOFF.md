@@ -130,6 +130,56 @@ CLI, 0.3.13 service units). **Carry into G6:** the tester could not build a "con
 drops and reconnects" component test — the existing harness restarts the controller, which destroys the in-memory
 tracker along with it. That harness gap is G6 fault-injection work and it is why R1 survived the first round.
 
+### 2b. G4 reviewer outcome (APPROVE, 2026-09-21) — cleanup round to dispatch
+
+**APPROVE at `ac20ea3`, conditional on the in-flight tester round returning PASS. No blocking findings.** The
+reviewer walked the R1 state machine against `client.py` / `manager.py` and ruled it *correct, not merely
+correct-looking* (ordered stream ⇒ "received" is always a prefix of the ring, so no silent loss; fresh process sends
+no `Reconcile` and the armed reset clears the cursor; a superseded stream's reader is cancelled and re-checks
+`live.ended` before dispatch). It ruled `deadline.py` sound (`box` is per-call and closure-captured, so an abandoned
+thread can never write into a later call's slot) and re-verified the 0.301 s bound itself. All six §2a deviations
+**accepted**. Layering held (`manager.py` grew 84 lines, no downsampler, imports only the Protocol). No ADR needed —
+D9–D12 belong in the brief. No architecture drift.
+
+**Fix in the cleanup round** (Lead's selection — each is cheap and several are silent data corruption):
+1. **NB-1 `client.py:478-506` — the R1 fix rests on an undocumented, untested ordering invariant.** ONLINE at `:478`
+   reaches `_reconcile_and_replay()` at `:506` with **no suspension point between**, so the Reconcile takes
+   `_write_lock` before a monitor tick woken by the ONLINE transition can. Add one `await` in that window and a fresh
+   report overtakes the Reconcile: the armed reset is consumed by the *new* report, the cursor jumps forward, and the
+   replayed reports the controller never received are silently dropped. **Needs a comment at `:504` forbidding an
+   `await` there and a component test asserting Reconcile is the first `AgentMessage` of every reconnect.**
+2. **NB-3 `registry.py:491-503` — the snapshot upsert overwrites unconditionally.** After a controller restart a
+   replayed report can re-accumulate a bucket from a partial sample set and `DO UPDATE` replaces the good row
+   (`samples` 30 → 2). Fix: `where=ResourceSnapshot.samples <= excluded.samples`.
+3. **NB-4 `resources.py:226-259` — per-bucket key cardinality is unbounded.** D12 caps 16 GPUs / 16 disks *per
+   message*, but the accumulator dicts are keyed across every sample in the bucket, so an agent varying the mount
+   string yields ~480 JSONB keys in one row. Cap at `MAX_GPUS`/`MAX_DISKS` with a dropped counter.
+4. **NB-6 `snapshots.py:103-108` — one poison row blocks the whole batch** (single statement), so a row whose `node`
+   is missing fails every later flush until the 5 000-row cap evicts it — ~20 h of lost history at 4 nodes. This is
+   **worse than the logged "retried then dropped" follow-up.** Retry row-by-row on `RegistryError`, or drop after two
+   failures with a counter.
+5. **NB-5 `snapshots.py:13` overclaims** "never raises out of `run()`" — `flush_once` catches only `MeshForgeError`,
+   so a `TypeError` escapes to `_on_task_done` and stops the controller. Broaden the guard or soften the docstring.
+6. **NB-10 `server.py:288`** — `flush_once` clears `_pending` before the await, so cancelling mid-upsert loses a
+   batch. Clear only after the write succeeds.
+7. **NB-9 `resources.py:463`** — `begin_session` does not raise the epoch high-water mark, so the fence is inert in
+   the window right after a reconnect. Pass `session_epoch` and `max()` it in (defence in depth).
+8. **NB-7 `agent/hardware/limits.py:80`** — `"v0.3"` is hardcoded a **third** time in `clip_capabilities`; L1 only
+   collapsed two. Import `CAPABILITIES_V03[0]`.
+9. **NB-8 `agent/hardware/limits.py:8` and `controller/session/limits.py:124` name the wrong test file** — they cite
+   `test_session_limits`; the parity is actually pinned by `tests/unit/controller/test_resource_limits.py:189`. The
+   reviewer nearly filed a blocking "claimed coverage does not exist" on this.
+
+**Escalate to the team (not a reviewer call) — NB-2:** on a laptop where NVML is missing but `nvidia-smi` works, the
+static inventory lists the GPU but **every** `ResourceUpdate` omits GPU util and VRAM, permanently. V0.9 telemetry
+and the V0.15 ML planner would then train on a node that looks like it has a GPU and never uses it. Refusing a 2 s
+subprocess was right; the option worth costing is a low-cadence `nvidia-smi` poll (~30 s, interpolated) behind a
+setting.
+
+**Defer:** NB-11 (`ProbeOutcome.reason`'s `ERROR` branch interpolates an exception whose `OSError` carries a path —
+sanitise before `HardwareFacts` is served over REST) → **G5**. NB-12 (`manager.py` now ~913 lines, still on the
+extraction list) → **V0.4**.
+
 ### 2a. G4 declared deviations the reviewer must rule on
 
 1. `ResourceSink.record(node_id, session_epoch, update, now)` — §5d named `record(node_id, update, now)`. Claim: after
