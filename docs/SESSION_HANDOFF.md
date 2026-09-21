@@ -101,25 +101,34 @@ approval of ADR-0012 first.
 
 ## 2. In flight right now
 
-**V0.3 G4 (0.3.3 hardware discovery + 0.3.5 resource monitor + 0.3.11 snapshots) is in flight — tester returned
-FAIL; the batched implementer FIX ROUND is running.** Tester commit `9b94774` (6 new adversarial unit files,
-unit **2568**, component tiers **121**). Two defects plus one Lead finding went into one fix run: **R1 critical**
-(replay dedupe, below) · **H1 major** (NVML has no timeout: `Budget.expired` is checked only *between* probes and
-`runtime.serve()` wraps `asyncio.to_thread(provider.get)` in no `wait_for`; measured 2.011 s against a configured
-0.3 s budget — a wedged NVML means the node never sends its first Hello and **never appears**, against criterion 1)
-· **L1 minor** (the `"v0.3"` shape marker defined twice). **If this session died here:** the fix brief is reproduced
-from these three items; after the fix round, re-run the tester on R1/H1 only, then the reviewer. The brief is `docs/briefs/V0.3-fabric-core.md` **§5d** with the Lead decisions **D9–D12** above it;
-the three tasks are `[~]`. The implementer's work is committed and the tree is clean: `5fa761b` (agent hardware +
-monitor) · `de25e6d` (controller bounds, tracker, snapshots) · `a643ea6` (unit tier) · `a5240e8` (component tier) ·
-`eac66e6` (ARCHITECTURE §19 + migration head 0003). It reported ruff/mypy(77)/lint-imports/gen_protos clean,
-unit **2554**, component agent+store+controller **121** (146 s), and **six declared deviations** from §5d that the
-reviewer must rule on — they are listed in §2a below. **If this session died here:** re-read §5d, then run the tester
-(tests only, never `src/`), then the reviewer. After reviewer APPROVE: run the component suite once, mark `[x]` with
-evidence, write the **G5** brief (0.3.12 REST + CLI, 0.3.13 service units).
-V0.3 **G1, G2 and G3 are closed agent-side** (G3 on 2026-09-21).
-A live controller ⇄ agent fabric now works in-process: `meshforge-controller run` + `meshforge-agent run` → node
-ONLINE, heartbeats, pings/RTT, lease expiry, reconnect after a controller restart in ~1–2 s, mDNS discovery.
+**V0.3 G4 (0.3.3 hardware discovery + 0.3.5 resource monitor + 0.3.11 snapshots) — fix round DONE and
+Lead-verified; an independent tester round and the reviewer are running in parallel.**
 
+Timeline: implementer `5fa761b`→`eac66e6` · tester FAIL `9b94774` (R1 critical, H1 major) · fix round **`ac20ea3`**
+(preceded by `743b178`, work-in-progress recovered after the fix agent was cut off mid-run — it never wrote its
+handoff note, so the record below is the Lead's, from reading the diff).
+
+**R1 fixed:** dedupe is on `ResourceUpdate.sequence` alone with the cursor reset armed by
+`Reconcile.replay_from_sequence` via a new `ResourceSink.begin_session`; a lower `session_epoch` (a superseded zombie
+stream) is rejected and cannot move the cursor. **H1 fixed:** new `agent/hardware/deadline.py` runs a blocking probe
+on its own daemon thread and *abandons* it on expiry — `asyncio.to_thread` was rejected because its workers are
+joined by `shutdown_default_executor()` and the `concurrent.futures` atexit hook, so one wedged NVML call would have
+hung process exit; one slot, so a permanently wedged driver leaks one thread, not one per sample, and discovery
+degrades to `basic_hardware()` so the node still enrolls. **L1 fixed:** `SHAPE_CAPABILITY` derives from
+`hello.CAPABILITIES_V03`. The Lead also fixed one stale call site the interrupted run left behind
+(`discover_hardware` gained a `guard` parameter).
+
+**Lead verification, independent of the agents' own tests** (scripts in the session scratchpad, not the repo):
+replay rejected · restart accepted · same-process reconnect accepted · zombie epoch rejected · bucket `samples == 1`
+· deadline bounded at 0.301 s against a 5 s wedge · one leaked daemon thread · `asyncio.run()` returns without
+waiting for it. Gates at `ac20ea3`: ruff + format clean, mypy **78** files, lint-imports 7 kept / 0 broken,
+gen_protos clean, unit **2573 passed / 2 skipped / 2 xfailed**, component agent+store+controller **121 passed**.
+
+**If this session died here:** wait for (or re-run) the tester and reviewer, batch whatever they find into one
+implementer round, then mark 0.3.3 / 0.3.5 / 0.3.11 `[x]` with evidence and write the **G5** brief (0.3.12 REST +
+CLI, 0.3.13 service units). **Carry into G6:** the tester could not build a "controller stays up, the client's TCP
+drops and reconnects" component test — the existing harness restarts the controller, which destroys the in-memory
+tracker along with it. That harness gap is G6 fault-injection work and it is why R1 survived the first round.
 
 ### 2a. G4 declared deviations the reviewer must rule on
 
