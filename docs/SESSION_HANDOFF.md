@@ -130,6 +130,38 @@ CLI, 0.3.13 service units). **Carry into G6:** the tester could not build a "con
 drops and reconnects" component test — the existing harness restarts the controller, which destroys the in-memory
 tracker along with it. That harness gap is G6 fault-injection work and it is why R1 survived the first round.
 
+### 2c. G4 tester round 2 (FAIL, 2026-09-21) + the batched cleanup round
+
+**Tester FAIL at `ac20ea3` with exactly one defect; everything else PASS.** Commits `0af3f49`, `11c2235`,
+`1a46004` (22 new unit tests + 1 component). It **ruled out** the hazards the Lead and reviewer were most worried
+about, with tests rather than argument: an abandoned `DeadlineThread` finishing late cannot corrupt a later call's
+result (each call keeps its own `box`/`done`), `begin_session` arming does not leak across nodes, a zombie-epoch
+report arriving while a reset is armed is fenced and the arm survives intact, a `Reconcile` arriving after the
+session's first report does not retroactively reopen a cursor, and a wedged discovery genuinely still enrols the
+node with `basic_hardware()` inside the budget. No flakiness (deadline tests 5×, component wedge 3×).
+
+**D-EVICT-1 — `controller/resources.py` `_ring_for`.** `max_tracked_nodes` LRU eviction and the `begin_session`
+arm/Reconcile handshake are unaware of each other: if a node reconnects (reset armed) but its `Reconcile` has not
+arrived, and other nodes push it out under the node cap, eviction pops its `_cursor`, `_epoch` **and**
+`_reset_armed` — so the later replay has no cursor to be rejected against and is recorded twice. **The double-count
+R1 closed, reopened through the eviction path.** Pinned by a deliberately failing test:
+`tests/unit/controller/test_resource_tracker_begin_session_g4_fix_round.py::test_eviction_while_a_reconnect_is_armed_drops_the_kept_cursor`.
+Lead's fix direction: the memory bound exists for the **rings** (150 samples), not the cursors (two ints and a
+flag) — evict rings under `max_tracked_nodes`, keep cursor state in its own bounded LRU with a far larger cap and a
+counter when *it* evicts.
+
+**Cleanup round dispatched** (one implementer run batching D-EVICT-1 + reviewer NB-1, NB-3, NB-4, NB-5, NB-6, NB-7,
+NB-8, NB-9, NB-10 — the ten items detailed in §2b). **If this session died here:** the brief is reconstructable
+from §2b's list plus D-EVICT-1 above; after it, re-run the tester on the changed areas, then mark
+0.3.3 / 0.3.5 / 0.3.11 `[x]` with evidence and write the **G5** brief.
+
+### ⚠ Process rule learned the hard way (2026-09-21)
+
+**Never run `git add -A` while a subagent is running.** The Lead did, and swept a tester file that was mid-write
+into an unrelated docs commit (`26eb91a` carries `test_agent_discovery_wedge_g4_fix_round.py`). Nothing was lost and
+the tree is consistent, but the commit boundaries now lie about who wrote what. Stage explicit paths
+(`git add docs/...`) whenever an agent may be writing, or commit only after it has finished.
+
 ### 2b. G4 reviewer outcome (APPROVE, 2026-09-21) — cleanup round to dispatch
 
 **APPROVE at `ac20ea3`, conditional on the in-flight tester round returning PASS. No blocking findings.** The
