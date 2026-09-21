@@ -231,8 +231,9 @@ def test_the_caps_have_exactly_one_definition_inside_the_controller() -> None:
 
     assert session_limits.MAX_GPUS is caps.MAX_GPUS
     assert session_limits.MAX_DISKS is caps.MAX_DISKS
-    assert resources.MAX_GPUS is caps.MAX_GPUS
-    assert resources.MAX_DISKS is caps.MAX_DISKS
+    downsampler = resources.Downsampler()
+    assert downsampler.max_gpu_keys == caps.MAX_GPUS
+    assert downsampler.max_disk_keys == caps.MAX_DISKS
     source = Path(session_limits.__file__).read_text(encoding="utf-8") + Path(
         resources.__file__
     ).read_text(encoding="utf-8")
