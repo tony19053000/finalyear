@@ -121,8 +121,9 @@ def validate_message_id(value: str) -> str:
 # The agent clips to exactly these numbers before it sends
 # (``meshforge.agent.hardware.limits``); the controller re-checks because a peer is
 # a peer. The two copies are duplicated on purpose - the controller never imports
-# the agent - and ``tests/unit/controller/test_session_limits.py`` pins that they
-# agree. The policies are asymmetric:
+# the agent - and ``test_the_agent_and_controller_caps_are_the_same_numbers`` in
+# ``tests/unit/controller/test_resource_limits.py`` pins that they agree. The
+# policies are asymmetric:
 #
 # * ``Hello.hardware`` is the enrolment contract, so over-limit is INVALID_ARGUMENT
 #   and nothing is persisted (:func:`check_hardware`).

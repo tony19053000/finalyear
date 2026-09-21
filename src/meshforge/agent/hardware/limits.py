@@ -5,7 +5,8 @@ would have to reject, so a laptop with a pathological driver string cannot turn 
 own Hello into an ``INVALID_ARGUMENT`` and strand the node. The controller re-checks
 the same caps (:mod:`meshforge.controller.session.limits`) because a peer is a peer -
 the two copies are deliberate duplication (the agent never imports the controller),
-and :mod:`tests.unit.controller.test_session_limits` pins that they agree.
+and ``test_the_agent_and_controller_caps_are_the_same_numbers`` in
+``tests/unit/controller/test_resource_limits.py`` pins that they agree.
 
 Two different failure policies, and they are not symmetric (D12):
 
@@ -20,6 +21,7 @@ from __future__ import annotations
 from typing import Final
 
 from meshforge.agent.hardware.probe import clip
+from meshforge.agent.session.hello import CAPABILITIES_V03
 from meshforge.common.proto.meshforge.v1 import agent_pb2
 
 __all__ = [
@@ -72,12 +74,13 @@ bound it far below this, so hitting it means a field grew without its cap."""
 def clip_capabilities(tags: list[str]) -> list[str]:
     """Sorted, de-duplicated, clipped tags - at most :data:`MAX_CAPABILITIES`.
 
-    ``"v0.3"`` keeps the first position when present: G3 documented it as the
-    marker of the Hello *shape*, so it must survive the truncation of a node that
-    somehow reported 40 tags.
+    The shape marker (:data:`CAPABILITIES_V03` ``[0]``, ``"v0.3"``) keeps the first
+    position when present: G3 documented it as the marker of the Hello *shape*, so
+    it must survive the truncation of a node that somehow reported 40 tags. It is
+    read from ``session.hello`` - one wire value, one constant (L1).
     """
     cleaned = {clip(tag.strip(), CAPABILITY_MAX_LENGTH) for tag in tags if tag.strip()}
-    marker = [tag for tag in ("v0.3",) if tag in cleaned]
+    marker = [tag for tag in CAPABILITIES_V03[:1] if tag in cleaned]
     rest = sorted(cleaned - set(marker))
     return [*marker, *rest][:MAX_CAPABILITIES]
 
