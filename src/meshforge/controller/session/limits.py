@@ -26,6 +26,7 @@ from typing import Final
 from meshforge.common.errors import InvalidIdError
 from meshforge.common.ids import IdKind, parse_id
 from meshforge.common.proto.meshforge.v1 import agent_pb2
+from meshforge.controller.caps import MAX_DISKS, MAX_GPUS
 
 __all__ = [
     "AGENT_VERSION_MAX_LENGTH",
@@ -130,6 +131,10 @@ def validate_message_id(value: str) -> str:
 # * ``ResourceUpdate`` is a periodic report, so over-limit is *clamped* and counted
 #   once per session (:func:`check_resource_update`). A bad report must never close
 #   a live session.
+#
+# ``MAX_GPUS`` / ``MAX_DISKS`` themselves live in :mod:`meshforge.controller.caps`
+# (the downsampler bounds its JSONB keys with the same numbers and must import them
+# at module level) and are re-exported here, where the admission checks read them.
 
 CPU_MODEL_MAX_LENGTH: Final = 128
 """``HardwareSummary.cpu_model``."""
@@ -143,17 +148,11 @@ GPU_DRIVER_MAX_LENGTH: Final = 64
 GPU_COMPUTE_CAPABILITY_MAX_LENGTH: Final = 16
 """``HardwareSummary.Gpu.compute_capability`` (``"8.6"``)."""
 
-MAX_GPUS: Final = 16
-"""Devices per node, in ``HardwareSummary.gpus`` and ``ResourceUpdate.gpus``."""
-
 MAX_CAPABILITIES: Final = 32
 """Tags in ``HardwareSummary.capabilities``."""
 
 CAPABILITY_MAX_LENGTH: Final = 64
 """One capability tag."""
-
-MAX_DISKS: Final = 16
-"""Entries in ``ResourceUpdate.disks``."""
 
 MOUNT_MAX_LENGTH: Final = 128
 """``ResourceUpdate.DiskUsage.mount``."""

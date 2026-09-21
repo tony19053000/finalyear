@@ -12,6 +12,7 @@ agent starts sending Hellos its peer refuses.
 from __future__ import annotations
 
 import math
+from pathlib import Path
 
 import pytest
 
@@ -216,3 +217,24 @@ def test_whatever_the_agent_clips_passes_the_controllers_check() -> None:
         )
     assert check_hardware(hostile) is not None
     assert check_hardware(agent_limits.clip_hardware(hostile)) is None
+
+
+def test_the_caps_have_exactly_one_definition_inside_the_controller() -> None:
+    """G4 follow-up 5: ``session.limits`` and ``resources`` read the same objects.
+
+    ``controller/caps.py`` exists so the downsampler can import the caps at module
+    level (the deferred import it used to need hid a real cycle). If a future edit
+    re-declares either number in one of the two modules, this fails.
+    """
+    from meshforge.controller import caps, resources
+    from meshforge.controller.session import limits as session_limits
+
+    assert session_limits.MAX_GPUS is caps.MAX_GPUS
+    assert session_limits.MAX_DISKS is caps.MAX_DISKS
+    assert resources.MAX_GPUS is caps.MAX_GPUS
+    assert resources.MAX_DISKS is caps.MAX_DISKS
+    source = Path(session_limits.__file__).read_text(encoding="utf-8") + Path(
+        resources.__file__
+    ).read_text(encoding="utf-8")
+    assert "MAX_GPUS: Final" not in source
+    assert "MAX_DISKS: Final" not in source

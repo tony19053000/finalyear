@@ -63,6 +63,7 @@ from typing import Any, Final, Protocol
 
 from meshforge.common.logging import get_logger
 from meshforge.common.proto.meshforge.v1 import agent_pb2
+from meshforge.controller.caps import MAX_DISKS, MAX_GPUS
 
 __all__ = [
     "DEFAULT_BUCKET_S",
@@ -250,7 +251,8 @@ class _Accumulator:
     dropped_keys: int = 0
     """GPU indices / disk mounts refused because the bucket already holds the cap.
 
-    D12 bounds a *single* ``ResourceUpdate`` at ``MAX_GPUS``/``MAX_DISKS``, but a
+    D12 bounds a *single* ``ResourceUpdate`` at ``MAX_GPUS``/``MAX_DISKS``
+    (:mod:`meshforge.controller.caps`), but a
     bucket accumulates every sample in it, so an agent varying the mount string
     each sample would otherwise write hundreds of JSONB keys into one row (NB-4).
     The first ``MAX_*`` keys of a bucket win; the rest are counted here and by
@@ -368,14 +370,6 @@ class Downsampler:
     ) -> None:
         if bucket_s <= 0:
             raise ValueError("bucket_s must be > 0")
-        # Deferred on purpose: ``controller.session`` imports this module (the
-        # manager needs ``ResourceSink``), so importing its ``limits`` at module
-        # level would be a cycle. One source of truth for the caps, no cycle.
-        from meshforge.controller.session.limits import (
-            MAX_DISKS,
-            MAX_GPUS,
-        )
-
         self.max_gpu_keys = MAX_GPUS
         self.max_disk_keys = MAX_DISKS
         self.bucket_s = bucket_s
