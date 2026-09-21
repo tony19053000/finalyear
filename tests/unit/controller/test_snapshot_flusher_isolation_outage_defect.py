@@ -96,7 +96,9 @@ def make(registry: StubRegistry, wall: dt.datetime) -> SnapshotFlusher:
 
 
 @pytest.mark.asyncio
-async def test_a_full_outage_during_isolation_does_not_drop_an_unconfirmed_row() -> None:
+async def test_a_full_outage_during_isolation_does_not_drop_an_unconfirmed_row() -> (
+    None
+):
     """A row must not be dropped on a failure that coincides with every other row
     in the batch also failing - that is a database outage, not row poison, even
     when an unrelated earlier poison episode already set the ``_isolating`` latch.
@@ -113,7 +115,9 @@ async def test_a_full_outage_during_isolation_does_not_drop_an_unconfirmed_row()
     flusher._pending = [*good, suspect]
 
     assert await flusher.flush_once() == 0  # batch fails as a whole
-    assert await flusher.flush_once() == 0  # isolation: good rows land, suspect blamed once
+    assert (
+        await flusher.flush_once() == 0
+    )  # isolation: good rows land, suspect blamed once
     assert flusher._isolating is True
     assert flusher._row_failures[(suspect.node_id, suspect.bucket_start)] == 1
     assert flusher.dropped_poison == 0
@@ -146,7 +150,9 @@ async def test_a_full_outage_during_isolation_does_not_drop_an_unconfirmed_row()
 
 
 @pytest.mark.asyncio
-async def test_dropping_a_row_requires_two_failures_each_proven_against_a_live_database() -> None:
+async def test_dropping_a_row_requires_two_failures_each_proven_against_a_live_database() -> (
+    None
+):
     """Sanity check on the *intended* path: two failures that both coincide with
     other rows succeeding is the only sequence the docstring authorises a drop
     for. This must keep passing - it is the isolation feature actually working.
