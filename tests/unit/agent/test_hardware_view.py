@@ -262,3 +262,14 @@ def test_facts_payload_is_json_serialisable_and_complete() -> None:
     }
     assert encoded["degraded"] == ["gpu: unavailable: not present"]
     assert encoded["gpus"][0]["vram_bytes"] == 4_294_967_296
+
+
+def test_an_oserror_without_a_filename_keeps_its_message() -> None:
+    """Only the path-carrying form is rebuilt; ``OSError("device not ready")``
+    has no filename and its message is the only information there is."""
+
+    def probe(_timeout_s: float) -> str:
+        raise OSError("device not ready")
+
+    outcome = guarded("gpu", Budget(1.0), 0.5, probe)
+    assert outcome.reason == "OSError: device not ready"

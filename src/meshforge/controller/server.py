@@ -6,7 +6,7 @@
              -> SessionManager + LeaseTimer task
              -> ResourceTracker + SnapshotFlusher task      (roadmap 0.3.11)
              -> grpc.aio server (AgentControl)         on controller.grpc_bind
-             -> uvicorn (FastAPI, GET /healthz) task   on controller.http_bind
+             -> uvicorn (FastAPI: /healthz + read-only /v1) on controller.http_bind
              -> mDNS advertisement of the gRPC port    if controller.discovery.advertise
 
 Shutdown (SIGINT/SIGTERM or :meth:`ControllerRuntime.stop`): stop accepting,
@@ -174,7 +174,14 @@ class ControllerRuntime:
         self._http_sock = _bind_socket(self._http_bind)
         self.http_port = int(self._http_sock.getsockname()[1])
         http_config = uvicorn.Config(
-            create_http_app(manager),
+            create_http_app(
+                manager,
+                registry=registry,
+                resources=resources,
+                # The API reads sample ages against the same monotonic clock the
+                # session manager and the leases use (D16).
+                clock=loop.time,
+            ),
             host=self._http_bind.host,
             port=self.http_port,
             log_config=None,

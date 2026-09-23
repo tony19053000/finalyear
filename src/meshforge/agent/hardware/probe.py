@@ -193,13 +193,17 @@ def sanitize_reason(text: str) -> str:
 def failure_reason(exc: BaseException) -> str:
     """``"TypeName: message"`` for a failed probe, with no path in it.
 
-    ``OSError`` is rebuilt from ``errno``/``strerror`` alone, because those two
-    fields are exactly the part of the message that does not name a file;
-    :func:`sanitize_reason` then covers every other exception type (a
-    ``ValueError`` from a parser, a ``CalledProcessError`` naming an executable).
+    An ``OSError`` that names a file (``filename``/``filename2`` set - what
+    ``str(exc)`` appends the path from) is rebuilt from ``errno``/``strerror``
+    alone, which is exactly the part of the message that does not name anything.
+    Every other exception - including a plain ``OSError("device not ready")``,
+    which carries no path - keeps its message, and :func:`sanitize_reason` is the
+    backstop for a path embedded in it (a ``CalledProcessError`` reprs its argv).
     """
     name = type(exc).__name__
-    if isinstance(exc, OSError):
+    if isinstance(exc, OSError) and (
+        exc.filename is not None or exc.filename2 is not None
+    ):
         detail = (exc.strerror or "").strip()
         if exc.errno is not None:
             detail = f"[Errno {exc.errno}] {detail}".strip()

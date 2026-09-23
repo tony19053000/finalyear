@@ -463,13 +463,27 @@ class Registry:
             return None if row is None else _session_record(row)
 
     @_typed
-    async def list_sessions(self, node_id: str | None = None) -> list[SessionRecord]:
-        stmt = select(NodeSession).order_by(NodeSession.started_at)
+    async def list_sessions(
+        self, node_id: str | None = None, *, limit: int | None = None
+    ) -> list[SessionRecord]:
+        """Sessions, oldest first.
+
+        ``limit`` returns the ``limit`` **most recent** sessions instead (still
+        oldest first in the result), so a caller that wants "the last few" does not
+        read a table that grows by one row per reconnect. Without it the behaviour
+        is unchanged: every row, oldest first.
+        """
+        stmt = select(NodeSession)
         if node_id is not None:
             stmt = stmt.where(NodeSession.node_id == node_id)
+        if limit is not None:
+            stmt = stmt.order_by(NodeSession.started_at.desc()).limit(limit)
+        else:
+            stmt = stmt.order_by(NodeSession.started_at)
         async with self._sessions() as db:
-            rows = await db.scalars(stmt)
-            return [_session_record(r) for r in rows]
+            rows = list(await db.scalars(stmt))
+        records = [_session_record(r) for r in rows]
+        return records[::-1] if limit is not None else records
 
     # ------------------------------------------------------------- snapshots
 
