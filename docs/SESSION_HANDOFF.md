@@ -29,7 +29,7 @@
 > throughput measurements and the reasoning; if you think the arithmetic or the trade is wrong,
 > **say so to the team before building on it.** Do not silently re-expand the scope either.
 
-**Last updated:** 2026-09-21 (**V0.3 G4 closed — 0.3.3 / 0.3.5 / 0.3.11 `[x]`; G5 in flight**; V0.2 still waits on 🧑 lab runs) · **Updated by:** Lead session (account 2)
+**Last updated:** 2026-09-23 (**G5 in flight, cut mid-task by a session limit**; partial work committed as `1717214`) · **Updated by:** Lead session (account 2)
 
 ---
 
@@ -95,6 +95,43 @@ approval of ADR-0012 first.
 
 ---
 
+## 0b. 🔴 THE BUDGET IS NOT 10 WEEKS — team-stated 2026-09-21
+
+**ADR-0012 says "secured ~10 weeks". That is wrong.** The team has **~5 weeks of calendar**, worked with
+**2 Claude accounts**. Every future session reads the ADR as truth, so treat this section as the correction until
+the ADR is amended (**not yet done — it needs the team, like the rest of ADR-0012**).
+
+**What two accounts do and do not buy.** They roughly preserve the *token* capacity ADR-0012's 140–180-task
+estimate was actually measuring. They do **not** buy calendar, and three things are calendar-bound:
+- **V0.15's training data** — thousands of real runs accumulating over wall-clock weeks. Five weeks instead of ten
+  is **half the telemetry**, whatever the account count. **This is the single biggest threat to the AI pillar.**
+- **The 24 🧑 lab tasks** — four co-located people and physical laptops; half the chances to schedule them.
+- **The 24 h soak** (V0.3 criterion 5) and any multi-day stability evidence.
+
+**Session arithmetic.** The same token budget in 5 weeks means **~18 sessions/week (~2.6/day)** sustained
+alongside coursework; ADR-0012 already called 9/week demanding. Realistic ~12–14/week → **~60 sessions × 1.5 ≈
+90 tasks**, against **129 planned with 8 done** — roughly a **30-task shortfall**.
+
+~90 tasks buys **V0.3 + V0.4 + V0.5 + V0.6 + V0.9 + V0.10 + V0.14 + V0.15 ≈ 92**: Mode 3 complete plus the full
+AI planner, and **essentially nothing else** — no V0.7 security, no V0.8 dashboard, no V0.17, no V1.0.
+
+**This is the contingency ADR-0012 pre-agreed**, so apply the ladder **now**, not in week 4, so nobody builds
+toward work that gets cut: **V1.0 → V0.17 → thin V0.8 → V0.5 polish; never Mode 3, V0.15 or V0.9.**
+
+**Open question for the team (Lead's recommendation, not decided):** the ladder thins **V0.8 before V0.7**. For a
+college evaluation consider reversing that — a thin read-only dashboard demonstrates the fabric and the planner's
+decisions far better than mTLS does, and "AI has a real optimization role" is a pillar that has to be *shown*.
+
+**Two urgent consequences:**
+1. **Start the telemetry flywheel immediately.** Leave `meshforge-agent` running on all four laptops from now on:
+   every idle week is V0.15 training data that cannot be recovered later, and it earns the 24 h soak evidence as a
+   side effect. This moved from "good idea" to "decides whether V0.15 is real".
+2. **Two accounts share one repository.** Two Leads on one working tree will corrupt each other's commits (a mild
+   version of this already happened — see §4's `git add -A` rule). Run them on **different task groups with no
+   overlapping files**, or strictly sequentially.
+
+---
+
 ## 1. Where the project is
 
 - **Version: V0.3 (fabric core).** **G1–G4 are closed agent-side; G5 is in flight.** A live controller ⇄ agent
@@ -113,14 +150,31 @@ approval of ADR-0012 first.
 
 ## 2. In flight right now
 
-**V0.3 G5 — the operator surface (0.3.12 REST + CLI, 0.3.13 documented service units).** The brief is
-`docs/briefs/V0.3-fabric-core.md` **§5e** with the Lead decisions **D13–D17** in the table above it; both tasks are
-`[~]`; the implementer was spawned 2026-09-21 from `bd05e74`. Nothing needs re-deriving — §5e is complete and
-self-contained.
+**V0.3 G5 — the operator surface (0.3.12 REST + CLI, 0.3.13 documented service units). The implementer was
+KILLED MID-TASK by a session limit on 2026-09-21.** Its partial work is committed as **`1717214`** (`wip:`), so
+nothing is lost. Brief: `docs/briefs/V0.3-fabric-core.md` **§5e**, Lead decisions **D13–D17** in the table above it.
 
-**If this session died mid-G5:** run `git status`. If there is uncommitted G5 code, commit it `wip:` first, then
-either re-run the implementer on §5e telling it what already exists, or continue directly. Then tester → reviewer →
-the component suite **once** → the Lead marks `[x]` with evidence → write the **G6** brief.
+**What already landed (committed, verified green):**
+- `add7250` — `MAX_GPUS`/`MAX_DISKS` moved to `controller/caps.py`, killing G4's deferred-import cycle (follow-up 5)
+- `8dd97d5` — `meshforge-agent hardware show` + the **NB-11 reason sanitiser** (deliverable C, D13)
+- `4d6714a` — cap-parity test pinned against the value the downsampler actually uses
+- `1717214` (`wip:`) — new `controller/api/` package (`models.py`, `shape.py`, `routes.py`, `errors.py`,
+  `context.py`, `__init__.py`) plus the start of the wiring into `http.py`, `server.py`, `registry.py`
+
+**State of the wip commit:** imports clean, `ruff check` clean, `pytest -m unit` **2632 passed**. But the REST
+surface is **not finished and not verified** — no component tests, and the Lead has not reviewed it.
+
+**What remains in G5** (deliverables B and D of §5e are untouched):
+1. Finish wiring `controller/api/` into `create_http_app` / `ControllerRuntime` and prove it end to end.
+2. **Deliverable B — the CLI**, not started: relocate `httpx` from the `agent` extra to core (D15, needs
+   `uv lock`), add the `[cli]` settings section, then `compute nodes` / `compute status` / `compute nodes <id>`
+   with `--json`, Rich tables, and a clean typed error when the controller is unreachable.
+3. **Deliverable D — `docs/OPERATIONS.md` + `deploy/`**, not started: systemd user unit + Windows Task Scheduler,
+   files that **print** commands, never auto-install (D17).
+4. Then tester → reviewer → component suite once → Lead marks 0.3.12 / 0.3.13 `[x]`.
+
+**Do not re-derive the design** — §5e is complete. A cut agent cannot be resumed in this setup; relaunch the
+implementer with a fresh prompt that tells it what `1717214` already contains.
 
 The five G5 decisions a later session must not quietly reverse:
 - **D13** `HardwareFacts` is **not** served over REST — the controller only ever receives `Hello.hardware`, so the
