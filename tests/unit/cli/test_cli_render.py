@@ -22,7 +22,7 @@ from meshforge.common.exit_codes import ExitCode
 pytestmark = pytest.mark.unit
 
 NODE_FULL: dict[str, Any] = {
-    "node_id": "node_01JQZ0000000000000000000A",
+    "node_id": "node_01JQZ00000000000000000000A",
     "hostname": "laptop-one",
     "os": "linux",
     "platform": "x86_64",
@@ -53,7 +53,7 @@ NODE_FULL: dict[str, Any] = {
 """A connected node with two GPUs."""
 
 NODE_EMPTY: dict[str, Any] = {
-    "node_id": "node_01JQZ0000000000000000000B",
+    "node_id": "node_01JQZ00000000000000000000B",
     "hostname": "laptop-two",
     "os": "windows",
     "platform": "AMD64",
@@ -249,7 +249,7 @@ def test_nodes_with_an_id_and_json_prints_the_detail_payload(
     runner: CliRunner, controller: TransportFactory
 ) -> None:
     controller(json_handler(DETAIL_PAYLOAD))
-    result = runner.invoke(app, ["nodes", "node_01JQZ0000000000000000000A", "--json"])
+    result = runner.invoke(app, ["nodes", "node_01JQZ00000000000000000000A", "--json"])
     assert json.loads(result.stdout) == DETAIL_PAYLOAD
 
 

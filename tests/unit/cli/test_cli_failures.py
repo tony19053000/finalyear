@@ -27,7 +27,7 @@ from meshforge.common.exit_codes import ExitCode
 
 pytestmark = pytest.mark.unit
 
-NODE_ID = "node_01JQZ0000000000000000000A"
+NODE_ID = "node_01JQZ00000000000000000000A"
 _TRACEBACK_MARKERS = (
     "Traceback",
     "most recent call last",
@@ -145,12 +145,19 @@ def test_a_404_on_one_node_exits_failure_not_unavailable(
 def test_a_400_envelope_exits_failure(
     runner: CliRunner, controller: TransportFactory
 ) -> None:
+    """A *server-side* 400 exits FAILURE.
+
+    The id is a valid one on purpose: since the G5 fix round the CLI refuses a
+    malformed NODE_ID itself with ``USAGE_ERROR`` before any request is built
+    (``test_cli_g5_fix_round.py``), so a 400 can now only come from the
+    controller - e.g. an older/newer controller with a stricter rule.
+    """
     controller(
         answering(
             400, body=envelope(FailureType.INVALID_INPUT, "node_id is not canonical")
         )
     )
-    result = runner.invoke(app, ["nodes", "not-a-node"])
+    result = runner.invoke(app, ["nodes", NODE_ID])
     assert result.exit_code == ExitCode.FAILURE
     assert_no_traceback(result.output)
 

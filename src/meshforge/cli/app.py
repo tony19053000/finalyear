@@ -21,6 +21,11 @@ sub-typer that bare form would have to be a no-argument default subcommand
 be ambiguous with a subcommand name. One command with an optional argument keeps
 both forms unambiguous: no argument lists, an argument shows that node.
 
+``meshforge.cli.client`` and ``meshforge.cli.render`` are imported **inside** the
+commands, not at module scope: importing the client imports ``httpx``, which costs
+roughly 150 ms, and ``compute --version`` (ADR-0010's base-install check) needs
+neither. Every command that talks to the controller imports them on its first line.
+
 Failure behaviour: an unreachable or timed-out controller prints one typed line on
 stderr and exits :attr:`~meshforge.common.exit_codes.ExitCode.UNAVAILABLE` (D18);
 a refused request exits ``FAILURE``; bad configuration exits ``CONFIG_ERROR``. No
@@ -32,16 +37,17 @@ from __future__ import annotations
 import json
 import time
 from collections.abc import Callable, Mapping
-from typing import Annotated, Any, NoReturn
+from typing import TYPE_CHECKING, Annotated, Any, NoReturn
 
 import typer
 from rich.console import Console
 
 from meshforge import __version__
-from meshforge.cli.client import ControllerClient, ControllerError, exit_code_for
-from meshforge.cli.render import node_detail_table, nodes_table, status_table
 from meshforge.cli.settings import CliSettings
 from meshforge.common.errors import ConfigError, ExitCode
+
+if TYPE_CHECKING:  # `meshforge.cli.client` pulls in httpx - see `_client` below.
+    from meshforge.cli.client import ControllerClient
 
 PROG_NAME = "compute"
 
@@ -96,6 +102,8 @@ def _settings() -> CliSettings:
 
 
 def _client(settings: CliSettings) -> ControllerClient:
+    from meshforge.cli.client import ControllerClient
+
     return ControllerClient(
         settings.cli.controller_url, timeout_s=settings.cli.timeout_s
     )
@@ -103,10 +111,35 @@ def _client(settings: CliSettings) -> ControllerClient:
 
 def _fetch[T](call: Callable[[], T]) -> T:
     """Run one request, turning every typed client failure into an exit."""
+    from meshforge.cli.client import ControllerError, exit_code_for
+
     try:
         return call()
     except ControllerError as exc:
         _die(exc.message, exit_code_for(exc))
+
+
+def _checked_node_id(value: str | None) -> str | None:
+    """A NODE_ID argument is validated here, before any request is built.
+
+    Without this, ``compute nodes ../healthz`` becomes ``GET /v1/healthz`` (httpx
+    collapses the dot segments) and renders a row of dashes, and
+    ``compute nodes 'x?limit=9'`` silently sends a query string. Both are usage
+    errors, so they exit ``USAGE_ERROR`` rather than reaching the controller. The
+    offending value is not echoed: it is argv, and argv reaches a terminal.
+    """
+    from meshforge.common.errors import InvalidIdError
+    from meshforge.common.ids import validate_node_id
+
+    if value is None:
+        return None
+    try:
+        return str(validate_node_id(value))
+    except InvalidIdError:
+        _die(
+            "NODE_ID is not a canonical node_<ULID>; run `compute nodes` to list them",
+            ExitCode.USAGE_ERROR,
+        )
 
 
 def _version_callback(value: bool) -> None:
@@ -158,10 +191,13 @@ def nodes(
     is whether this controller process holds the node's stream right now, and AGE
     is how stale the newest resource sample is.
     """
+    from meshforge.cli.render import node_detail_table, nodes_table
+
+    checked = _checked_node_id(node_id)
     settings = _settings()
     with _client(settings) as client:
-        if node_id is not None:
-            payload = _fetch(lambda: client.node(node_id))
+        if checked is not None:
+            payload = _fetch(lambda: client.node(checked))
             if json_output:
                 _echo_json(payload)
             else:
@@ -188,6 +224,9 @@ def status(json_output: JsonOption = False) -> None:
     failing on it - "is the fabric up?" is the question it exists to answer - but
     it still exits non-zero (UNAVAILABLE) so a script can branch on it.
     """
+    from meshforge.cli.client import ControllerError, exit_code_for
+    from meshforge.cli.render import status_table
+
     settings = _settings()
     url = settings.cli.controller_url
     with _client(settings) as client:
