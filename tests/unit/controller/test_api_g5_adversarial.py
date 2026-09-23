@@ -61,8 +61,9 @@ class _Registry:
         self.nodes = nodes or []
         self.seen_node_ids: list[str] = []
 
-    async def list_nodes(self) -> list[NodeRecord]:
-        return list(self.nodes)
+    async def list_nodes(self, *, limit: int | None = None) -> list[NodeRecord]:
+        rows = list(self.nodes)
+        return rows if limit is None else rows[:limit]
 
     async def get_node(self, node_id: str) -> NodeRecord | None:
         self.seen_node_ids.append(node_id)
@@ -340,7 +341,7 @@ async def test_a_caller_supplied_node_id_string_never_reaches_a_500_body() -> No
 @pytest.mark.asyncio
 async def test_registry_error_details_dict_never_appears_in_the_body() -> None:
     class _Boom(_Registry):
-        async def list_nodes(self) -> list[NodeRecord]:
+        async def list_nodes(self, *, limit: int | None = None) -> list[NodeRecord]:
             raise RegistryError(
                 "internal detail",
                 details={"host": "db.internal.example", "user": "meshforge_admin"},

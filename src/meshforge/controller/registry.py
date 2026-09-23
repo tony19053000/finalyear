@@ -363,9 +363,18 @@ class Registry:
             return None if row is None else _node_record(row)
 
     @_typed
-    async def list_nodes(self) -> list[NodeRecord]:
+    async def list_nodes(self, *, limit: int | None = None) -> list[NodeRecord]:
+        """Every node, ordered by ``node_id``.
+
+        ``limit`` is applied in SQL (``LIMIT``), not by slicing the result, so the
+        bound the API advertises is a real bound on the rows read. ``node_id`` is
+        the primary key, so the window is deterministic without a tiebreaker.
+        """
+        stmt = select(Node).order_by(Node.node_id)
+        if limit is not None:
+            stmt = stmt.limit(limit)
         async with self._sessions() as db:
-            rows = await db.scalars(select(Node).order_by(Node.node_id))
+            rows = await db.scalars(stmt)
             return [_node_record(r) for r in rows]
 
     # -------------------------------------------------------------- sessions
@@ -477,9 +486,15 @@ class Registry:
         if node_id is not None:
             stmt = stmt.where(NodeSession.node_id == node_id)
         if limit is not None:
-            stmt = stmt.order_by(NodeSession.started_at.desc()).limit(limit)
+            # ``session_id`` breaks the tie: two sessions can share a
+            # ``started_at`` (same transaction clock, or a coarse timestamp), and
+            # ``started_at`` alone leaves which of them falls inside the window to
+            # the database. The reversal below therefore also stays stable.
+            stmt = stmt.order_by(
+                NodeSession.started_at.desc(), NodeSession.session_id.desc()
+            ).limit(limit)
         else:
-            stmt = stmt.order_by(NodeSession.started_at)
+            stmt = stmt.order_by(NodeSession.started_at, NodeSession.session_id)
         async with self._sessions() as db:
             rows = list(await db.scalars(stmt))
         records = [_session_record(r) for r in rows]

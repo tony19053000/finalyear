@@ -43,9 +43,11 @@ from meshforge.controller.api.shape import (
 
 __all__ = [
     "DEFAULT_LIVE_LIMIT",
+    "DEFAULT_NODE_LIMIT",
     "DEFAULT_SESSION_LIMIT",
     "DEFAULT_SNAPSHOT_LIMIT",
     "MAX_LIVE_LIMIT",
+    "MAX_NODE_LIMIT",
     "MAX_SESSION_LIMIT",
     "MAX_SNAPSHOT_LIMIT",
     "NODE_ID_MAX_LENGTH",
@@ -62,6 +64,10 @@ MAX_LIVE_LIMIT: Final = 1_000
 """Above the live ring's own capacity, so the ring is the real bound."""
 DEFAULT_SESSION_LIMIT: Final = 50
 MAX_SESSION_LIMIT: Final = 500
+DEFAULT_NODE_LIMIT: Final = 500
+"""Far above any plausible fabric (the lab has 4), so the default is never a
+surprise truncation - but it is still a bound, not "every row"."""
+MAX_NODE_LIMIT: Final = 5_000
 NODE_ID_MAX_LENGTH: Final = 32
 """``node_`` + ULID = 31; the path parameter is refused above this before parsing."""
 
@@ -87,14 +93,23 @@ def _as_utc(value: dt.datetime | None) -> dt.datetime | None:
 
 
 @router.get("/nodes", response_model=NodeList, summary="Every known node")
-async def list_nodes(fabric: Fabric) -> NodeList:
+async def list_nodes(
+    fabric: Fabric,
+    limit: Annotated[
+        int, Query(ge=1, le=MAX_NODE_LIMIT, description="Nodes returned, by node_id.")
+    ] = DEFAULT_NODE_LIMIT,
+) -> NodeList:
     """All enrolled nodes with their live state (D16: three separate fields).
 
-    Bounded by the registry itself: a fabric has one row per node that ever
-    enrolled, not per event.
+    The table holds one row per node that ever enrolled, not one per event, so
+    ``limit`` exists to keep the promise that *every* list endpoint is bounded
+    rather than to page through a large result. There is deliberately no offset or
+    cursor yet (a V0.8 conversation): ``count`` is the number of rows returned, and
+    no ``total`` is served because counting every node would mean a second query on
+    a path an operator polls with ``--watch``.
     """
     now = fabric.clock()
-    records = await fabric.registry.list_nodes()
+    records = await fabric.registry.list_nodes(limit=limit)
     nodes: list[NodeSummary] = [
         node_summary(
             record,

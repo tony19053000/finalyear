@@ -87,9 +87,10 @@ class FakeRegistry:
         if self.raises is not None:
             raise self.raises
 
-    async def list_nodes(self) -> list[NodeRecord]:
+    async def list_nodes(self, *, limit: int | None = None) -> list[NodeRecord]:
         self._check()
-        return list(self.nodes)
+        rows = list(self.nodes)
+        return rows if limit is None else rows[:limit]
 
     async def get_node(self, node_id: str) -> NodeRecord | None:
         self._check()
