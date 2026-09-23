@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  MeshForge node agent as a Windows Scheduled Task (dev, roadmap 0.3.13).
+
+  Template only. Nothing in this repository registers it for you (D17); the exact
+  commands are printed by:
+
+      uv run python scripts/print_service_setup.py windows
+
+  EDIT BEFORE USE:
+    * <UserId>          -> "COMPUTERNAME\yourname" (run `whoami` in cmd.exe)
+    * <WorkingDirectory>-> your repository checkout
+    * <Command>         -> the full path to uv.exe (run `where uv`)
+
+  Register / inspect / remove:
+      schtasks /create /tn MeshForgeAgent /xml deploy\windows\meshforge-agent-task.xml
+      schtasks /query  /tn MeshForgeAgent /v /fo LIST
+      schtasks /end    /tn MeshForgeAgent
+      schtasks /delete /tn MeshForgeAgent /f
+
+  If `schtasks /create /xml` fails to parse this file, it wants UTF-16: convert it
+  with `Get-Content file.xml | Set-Content -Encoding Unicode file-u16.xml`.
+
+  LOGOFF BEHAVIOUR IS UNVERIFIED - see docs/OPERATIONS.md, "Does it survive
+  logoff?". This template runs the task in the interactive logon session, which is
+  what the agent wants (its identity lives under %LOCALAPPDATA%), and that is also
+  why it is expected to end at logoff.
+-->
+<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Description>MeshForge node agent: connects to the controller and stays connected.</Description>
+    <URI>\MeshForgeAgent</URI>
+  </RegistrationInfo>
+  <Triggers>
+    <LogonTrigger>
+      <Enabled>true</Enabled>
+      <!-- EDIT: the account that runs the agent. -->
+      <UserId>COMPUTERNAME\yourname</UserId>
+      <Delay>PT15S</Delay>
+    </LogonTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <!-- EDIT: same account as above. -->
+      <UserId>COMPUTERNAME\yourname</UserId>
+      <LogonType>InteractiveToken</LogonType>
+      <!-- Least privilege: the agent needs no elevation in V0.3. -->
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowHardTerminate>true</AllowHardTerminate>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
+    <IdleSettings>
+      <StopOnIdleEnd>false</StopOnIdleEnd>
+      <RestartOnIdle>false</RestartOnIdle>
+    </IdleSettings>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled>
+    <Hidden>false</Hidden>
+    <RunOnlyIfIdle>false</RunOnlyIfIdle>
+    <WakeToRun>false</WakeToRun>
+    <!-- A long-lived client, so: no time limit, and restart it if it dies. -->
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <Priority>7</Priority>
+    <RestartOnFailure>
+      <Interval>PT1M</Interval>
+      <Count>3</Count>
+    </RestartOnFailure>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <!-- EDIT: `where uv` gives this path. -->
+      <Command>C:\Users\yourname\.local\bin\uv.exe</Command>
+      <Arguments>run meshforge-agent run</Arguments>
+      <!-- EDIT: your repository checkout. -->
+      <WorkingDirectory>C:\Users\yourname\meshforge</WorkingDirectory>
+    </Exec>
+  </Actions>
+</Task>

@@ -37,6 +37,7 @@ See [`docs/STATUS.md`](docs/STATUS.md) for the current state and
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Current architecture |
 | [`docs/DEVELOPMENT_ROADMAP.md`](docs/DEVELOPMENT_ROADMAP.md) | Versioned plan and progress checklist |
 | [`docs/STATUS.md`](docs/STATUS.md) | Concise current state |
+| [`docs/OPERATIONS.md`](docs/OPERATIONS.md) | Running the controller and agents in dev: ports, background services, health checks, troubleshooting |
 | [`docs/adr/`](docs/adr/) | Architecture decision records |
 | [`CLAUDE.md`](CLAUDE.md) | Operating guide for AI coding agents |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Task flow, commit convention, review checklist, evidence rules |

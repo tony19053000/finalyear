@@ -1,0 +1,50 @@
+# MeshForge node agent - systemd **user** unit (dev, roadmap 0.3.13).
+#
+# Install it yourself; nothing in this repository writes to your service manager:
+#
+#   mkdir -p ~/.config/systemd/user
+#   cp deploy/systemd/meshforge-agent.service ~/.config/systemd/user/
+#   $EDITOR ~/.config/systemd/user/meshforge-agent.service   # set WorkingDirectory
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now meshforge-agent
+#   loginctl enable-linger "$USER"        # <- survives logout / runs at boot
+#
+# A **user** unit (not system) on purpose: the agent's identity and data live in
+# $XDG_DATA_HOME/meshforge (ADR-0013), it must run as the person using the laptop,
+# and it needs no root. The cost is that a user manager stops at logout unless
+# `loginctl enable-linger` is set - see docs/OPERATIONS.md.
+#
+# `uv run` is used so the unit works from a plain `git clone` + `uv sync` with no
+# extra install step. Replace WorkingDirectory with your checkout, and %h is your
+# home directory.
+
+[Unit]
+Description=MeshForge node agent
+# Only a hint to the user manager: the controller is normally on another laptop
+# and this agent retries for as long as it takes (ADR-0002 Updates section 3).
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# EDIT THIS: the repository checkout on this laptop.
+WorkingDirectory=%h/meshforge
+ExecStart=/usr/bin/env uv run meshforge-agent run
+# The agent is a long-lived client: if it exits for any reason, start it again.
+Restart=always
+RestartSec=5
+# Exit code 5 = CONFLICT: another agent owns this identity (ADR-0002 Updates
+# section 1). Restarting in a loop would fight it forever, so stop instead.
+RestartPreventExitStatus=5
+# Logs go to the journal (`journalctl --user -u meshforge-agent`). The agent's own
+# format is JSON by default; set MESHFORGE_LOG__FORMAT=console for a readable
+# journal on a dev laptop.
+StandardOutput=journal
+StandardError=journal
+# Modest hardening; the agent is remote-code-execution machinery by design, so the
+# real sandboxing lives with the executor (V0.5), not here.
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target

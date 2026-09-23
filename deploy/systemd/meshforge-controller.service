@@ -1,0 +1,42 @@
+# MeshForge controller - systemd **user** unit (dev, roadmap 0.3.13).
+#
+#   mkdir -p ~/.config/systemd/user
+#   cp deploy/systemd/meshforge-controller.service ~/.config/systemd/user/
+#   $EDITOR ~/.config/systemd/user/meshforge-controller.service
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now meshforge-controller
+#   loginctl enable-linger "$USER"
+#
+# The controller needs PostgreSQL (deploy/docker-compose.dev.yml) reachable at
+# [database]; it exits CONFIG_ERROR (4) if it is not, and systemd will retry.
+#
+# Serving other laptops means binding the LAN address, which is a deliberate act:
+# set MESHFORGE_CONTROLLER__GRPC_BIND and MESHFORGE_CONTROLLER__HTTP_BIND below.
+# The REST surface is unauthenticated in V0.3 (docs/OPERATIONS.md, D14) - do not
+# bind it to anything an untrusted network can reach.
+
+[Unit]
+Description=MeshForge controller (gRPC 47100 + REST 47110)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+# EDIT THIS: the repository checkout on this laptop.
+WorkingDirectory=%h/meshforge
+# EDIT THESE to serve the LAN (defaults are loopback-only):
+#Environment=MESHFORGE_CONTROLLER__GRPC_BIND=192.168.1.20:47100
+#Environment=MESHFORGE_CONTROLLER__HTTP_BIND=192.168.1.20:47110
+Environment=MESHFORGE_LOG__FORMAT=json
+ExecStart=/usr/bin/env uv run meshforge-controller
+Restart=always
+RestartSec=5
+# 4 = CONFIG_ERROR: retrying cannot fix a bad configuration file.
+RestartPreventExitStatus=4
+StandardOutput=journal
+StandardError=journal
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target

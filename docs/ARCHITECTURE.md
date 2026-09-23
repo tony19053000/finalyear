@@ -660,7 +660,13 @@ Schema is managed with SQLAlchemy 2.0 + Alembic migrations. Large logs and outpu
 
 **REST (external, versioned `/v1`)** — `nodes`, `jobs` (POST with `Idempotency-Key`), `jobs/{id}` `/plan` `/logs` (WebSocket) `/cancel` `/outputs`, `blobs` (has/upload), `accelerator-requests` (SDK placement), `benchmarks`, `telemetry/export`, `fabric` (create/invite/join/revoke), `auth`.
 
+*Shipped in V0.3 (roadmap 0.3.12), read-only and unauthenticated (see `docs/OPERATIONS.md` §0):*
+`GET /healthz` · `GET /v1/nodes` · `GET /v1/nodes/{node_id}` · `GET /v1/nodes/{node_id}/resources?since=&until=&limit=&live_limit=` · `GET /v1/sessions?node_id=&limit=`.
+Every list endpoint has a documented default and maximum `limit`; every failure returns one envelope `{"error": {"code", "message"}}` whose `code` is a `FailureType` value. The OpenAPI schema is served at `/v1/openapi.json` (Swagger UI and ReDoc stay off — they load assets from a public CDN an isolated lab LAN cannot reach). Node liveness is three separate fields — `state` (persisted, §12.3), `connected` (a live stream in *this* controller process) and `sample_age_s` (monotonic staleness of the newest resource sample) — which legitimately disagree and must never be collapsed into one boolean.
+
 **CLI** — `compute status | nodes | run | jobs | logs | cancel | get | explain | fabric create|invite|join|revoke | node prepare|drain | bench run|status`.
+
+*Shipped in V0.3:* `compute status [--json]` and `compute nodes [NODE_ID] [--json] [--watch]`, both over REST only — the CLI never touches PostgreSQL or gRPC (`[cli] controller_url`, `MESHFORGE_CLI__CONTROLLER_URL`). An unreachable or timed-out controller exits `ExitCode.UNAVAILABLE` (6).
 
 **SDK** — `mf.remote_gpu()`, `mf.combined_gpu()`, `RemoteModule`, `RemoteTensor`, `Pool.map/train/step`.
 
@@ -759,12 +765,14 @@ The controller role is proposed for Laptop 1 (native Linux, simplest to keep run
 | What | Default | Setting / owner |
 |---|---|---|
 | Controller gRPC (`AgentControl`, agents dial out to it) | `127.0.0.1:47100` — give the controller laptop's LAN IP to serve other laptops | `[controller] grpc_bind` |
-| Controller REST (`/healthz`, later `/v1/*`) | `127.0.0.1:47110` | `[controller] http_bind` |
+| Controller REST (`/healthz`, `/v1/*` read-only, schema at `/v1/openapi.json`) | `127.0.0.1:47110` | `[controller] http_bind` |
 | Wildcard / public bind | refused | `[controller] allow_any_bind = true` (or `--allow-any-bind`) |
 | Agent identity (`node.key`, `node.json`, `identity.lock`; ADR-0013) | `<data dir>/identity` — Linux `~/.local/share/meshforge/identity`, Windows `%LOCALAPPDATA%\MeshForge\identity` | `data_dir` (`common.config`) |
 | Agent → controller target | `[agent] controller_address = "host:port"`; empty = mDNS discovery | `[agent] controller_address` (or `meshforge-agent run --controller`) |
 | Controller discovery (mDNS/DNS-SD, roadmap 0.3.9) | UDP `5353` multicast (`224.0.0.251` / `ff02::fb`), service type `_meshforge-ctl._tcp.local.`, TXT `node=controller`; the record carries the gRPC bind IP + port. Agents accept only LAN/loopback addresses from records | `[controller.discovery] advertise` (default true), `[agent.discovery] enabled / timeout_s / service_type` |
 | PostgreSQL (dev) | `127.0.0.1:5432` | `[database]` |
+| Dev background-service assets (roadmap 0.3.13) | `deploy/systemd/*.service` (systemd **user** units), `deploy/windows/meshforge-agent-task.xml` (Task Scheduler). Installed by hand only — `scripts/print_service_setup.py` *prints* the commands and changes nothing (D17) | [`docs/OPERATIONS.md`](OPERATIONS.md) |
+| Agent log file on Windows (Task Scheduler has no console) | `%LOCALAPPDATA%\MeshForge\agent.log`, set in the task's command line; not rotated in V0.3 | `docs/OPERATIONS.md` §3 |
 
 Spike ports (V0.2) live in 472xx–473xx and never collide with these.
 

@@ -1,0 +1,260 @@
+# OPERATIONS — running MeshForge in dev
+
+How to keep a controller and an agent running on a laptop, how to check that the
+fabric is healthy, and how to remove all of it again. Roadmap **0.3.13**
+(background service, *documented*) and **0.3.12** (REST + `compute`).
+
+> **Nothing here is installed for you.** The service units and the Task Scheduler
+> template live in [`deploy/`](../deploy/), and
+> `uv run python scripts/print_service_setup.py` **prints** the commands so you can
+> read them before running them. No script in this repository edits your service
+> manager (decision D17). That is deliberate: a tool that quietly registers a
+> background service on a shared laptop is not something you can easily undo.
+
+---
+
+## 0. Trust boundary — read this first
+
+In V0.3 the controller exposes:
+
+| Port | Protocol | Who dials it | Authentication |
+|---|---|---|---|
+| **47100** | gRPC `AgentControl` | agents dial **out** to the controller | none yet |
+| **47110** | HTTP REST `/healthz`, `/v1/*` | `compute`, later the dashboard/SDK | **none yet** |
+
+- The REST surface is **read-only**: there is no endpoint that changes a node, a
+  session or the database — no delete, no drain, no command (decision D14).
+- It is **unauthenticated**, so anyone who can reach port 47110 can read the
+  fabric's inventory: hostnames, hardware summaries, peer addresses, utilisation.
+- Therefore **keep it LAN-bound.** The defaults are loopback
+  (`127.0.0.1:47100` / `127.0.0.1:47110`) and the controller *refuses* a wildcard
+  bind (`0.0.0.0`) unless you set `[controller] allow_any_bind = true`. Bind a
+  specific LAN address instead, and never expose either port to the internet or to
+  a network you do not control.
+- Identity, mTLS and authorization arrive in **V0.7** ([ADR-0008](adr/0008-pairing-and-mtls.md)).
+  Until then the project's security baseline (`CLAUDE.md` §9) is "trusted LAN
+  machines only".
+
+The agent needs **no inbound port** at all — it dials out
+([ADR-0002](adr/0002-agent-initiated-grpc-session.md)). Only the controller laptop needs
+a firewall rule (inbound TCP 47100, and 47110 if other laptops should run
+`compute`).
+
+---
+
+## 1. Run it by hand first
+
+Always get the manual run working before turning anything into a service: a
+service that fails to start tells you far less than a terminal does.
+
+**Controller laptop** (Linux recommended — it also hosts PostgreSQL):
+
+```bash
+uv sync --extra controller
+docker compose -f deploy/docker-compose.dev.yml up -d --wait   # PostgreSQL
+uv run meshforge-controller                                     # migrates, then serves
+```
+
+To serve the other laptops, bind the LAN address explicitly:
+
+```bash
+MESHFORGE_CONTROLLER__GRPC_BIND=192.168.1.20:47100 \
+MESHFORGE_CONTROLLER__HTTP_BIND=192.168.1.20:47110 \
+uv run meshforge-controller
+```
+
+**Every agent laptop:**
+
+```bash
+uv sync --extra agent
+uv run meshforge-agent run --controller 192.168.1.20:47100
+# or omit --controller and let mDNS find it on the LAN
+```
+
+**Check it:**
+
+```bash
+curl -sS http://127.0.0.1:47110/healthz            # {"status":"ok","sessions":N}
+uv run compute status                              # URL, reachability, counts
+uv run compute nodes                               # the operator table
+uv run compute nodes --json | jq .                 # for scripting
+uv run compute nodes node_01J...                   # one node's detail
+uv run meshforge-agent hardware show               # this laptop's own probes (local only)
+```
+
+`compute` reads `[cli]` settings, so point it at another laptop with
+
+```bash
+export MESHFORGE_CLI__CONTROLLER_URL=http://192.168.1.20:47110
+```
+
+Exit codes worth scripting against: `0` ok, `2` bad usage, `4` bad configuration,
+**`6` the controller could not be reached or timed out**.
+
+---
+
+## 2. Linux — systemd **user** unit
+
+A *user* unit, not a system one: the agent runs as the person using the laptop,
+keeps its identity in `~/.local/share/meshforge/identity`
+([ADR-0013](adr/0013-node-identity-storage.md)) and needs no root.
+
+```bash
+mkdir -p ~/.config/systemd/user
+cp deploy/systemd/meshforge-agent.service      ~/.config/systemd/user/
+cp deploy/systemd/meshforge-controller.service ~/.config/systemd/user/   # controller laptop only
+$EDITOR ~/.config/systemd/user/meshforge-agent.service     # set WorkingDirectory
+systemctl --user daemon-reload
+systemctl --user enable --now meshforge-agent
+```
+
+### The one step people forget
+
+```bash
+loginctl enable-linger "$USER"
+```
+
+Without linger, **your user's systemd manager is shut down when you log out**, and
+the agent dies with it; with linger the manager starts at boot and keeps running
+after logout, so the laptop can contribute while nobody is logged in. This also
+earns the telemetry the V0.15 planner needs (`docs/SESSION_HANDOFF.md` §0b) and
+V0.3's 24-hour soak evidence.
+
+### Day-to-day
+
+```bash
+systemctl --user status  meshforge-agent
+systemctl --user restart meshforge-agent
+systemctl --user stop    meshforge-agent
+journalctl --user -u meshforge-agent -f              # follow
+journalctl --user -u meshforge-agent --since "1 hour ago"
+```
+
+**Logs** go to the journal (the unit sets `StandardOutput=journal`). The processes
+log structured JSON by default; for a readable journal on a dev laptop add
+`Environment=MESHFORGE_LOG__FORMAT=console` to the unit.
+
+**Restart policy.** `Restart=always` with `RestartSec=5`, except:
+
+| Exit code | Meaning | Unit behaviour |
+|---|---|---|
+| `5` CONFLICT | another agent process owns this node identity | agent unit does **not** restart |
+| `4` CONFIG_ERROR | bad settings / database unreachable at startup | controller unit does **not** restart |
+
+Both are conditions a restart loop cannot fix; fix the cause and
+`systemctl --user restart …`.
+
+---
+
+## 3. Windows — Task Scheduler
+
+The agent runs **natively on Windows**, not inside WSL
+([ADR-0009](adr/0009-native-windows-agent.md)), and V0.3 uses **Task Scheduler** —
+no third-party service wrapper. In `cmd.exe`:
+
+```bat
+if not exist "%LOCALAPPDATA%\MeshForge" mkdir "%LOCALAPPDATA%\MeshForge"
+set MF_LOG=%LOCALAPPDATA%\MeshForge\agent.log
+schtasks /create /tn MeshForgeAgent /sc onlogon /rl LIMITED ^
+  /tr "cmd /c cd /d \"C:\path\to\meshforge\" && uv run meshforge-agent run >> \"%MF_LOG%\" 2>&1"
+```
+
+Then:
+
+```bat
+schtasks /run   /tn MeshForgeAgent          :: start now, without logging off
+schtasks /query /tn MeshForgeAgent /v /fo LIST
+schtasks /end   /tn MeshForgeAgent          :: stop the running instance
+```
+
+- **Where the output goes:** the task has no console, so the command line above
+  redirects stdout+stderr to `%LOCALAPPDATA%\MeshForge\agent.log`. Nothing rotates
+  that file in V0.3 — check its size occasionally, or set
+  `MESHFORGE_LOG__LEVEL=WARNING`. The Task Scheduler's own history (last run time,
+  last result) is in `schtasks /query /v` and in Task Scheduler's UI.
+- A richer template with restart-on-failure and no execution time limit is
+  [`deploy/windows/meshforge-agent-task.xml`](../deploy/windows/meshforge-agent-task.xml)
+  — edit the three marked fields, then
+  `schtasks /create /tn MeshForgeAgent /xml "…\meshforge-agent-task.xml"`. If
+  `schtasks` refuses to parse it, convert the file to UTF-16
+  (`Get-Content f.xml | Set-Content -Encoding Unicode f-u16.xml`).
+- Use `/rl LIMITED`: the agent needs no elevation in V0.3.
+
+### Does it survive logoff?
+
+**Unverified — 🧑 needs a lab check.** An `/sc onlogon` task runs inside the
+interactive logon session with an `InteractiveToken` principal, and the expectation
+is that Windows ends it when that user logs off (it is not a service). The project
+has **not** measured this on the team's Windows laptops, and stating it as fact
+without a test is exactly the kind of confidently-wrong documentation this project
+forbids.
+
+**The check (5 minutes, on a Windows agent laptop):**
+
+1. Register the task as above and `schtasks /run /tn MeshForgeAgent`.
+2. On the controller laptop: `uv run compute nodes` — this laptop is `CONN yes`.
+3. **Log off** the Windows user (do not shut down, do not restart).
+4. Wait 30 s, then on the controller: `uv run compute nodes` again.
+5. Paste back both tables plus
+   `schtasks /query /tn MeshForgeAgent /v /fo LIST` from after step 4.
+
+*Interpretation:* `CONN no` after logoff ⇒ the task does **not** survive logoff.
+*If it does not survive and you need it to:*
+
+- **NSSM** (`nssm install MeshForgeAgent …`) is the documented fallback — it runs
+  the same native Python process as a real Windows service. It is a third-party
+  binary, which is why it is a fallback and not the default.
+- A task with *"Run whether user is logged on or not"* (stored credentials) is the
+  built-in alternative, but it runs without the interactive desktop; the agent's
+  identity path (`%LOCALAPPDATA%`) then belongs to the account you configure, so
+  the node may enrol as a **different** node. Verify with
+  `meshforge-agent identity show` under that account before relying on it.
+
+Either way the agent stays a **native Windows process** (ADR-0009); nothing here
+moves it into WSL. Real installation and service registration is V0.17
+productization.
+
+---
+
+## 4. Uninstall
+
+```bash
+# Linux
+systemctl --user disable --now meshforge-agent
+systemctl --user disable --now meshforge-controller
+rm -f ~/.config/systemd/user/meshforge-{agent,controller}.service
+systemctl --user daemon-reload
+loginctl disable-linger "$USER"     # only if nothing else of yours needs linger
+```
+
+```bat
+:: Windows
+schtasks /end    /tn MeshForgeAgent
+schtasks /delete /tn MeshForgeAgent /f
+```
+
+Neither removes your data. The node identity stays at
+`~/.local/share/meshforge/identity` (Linux) or `%LOCALAPPDATA%\MeshForge\identity`
+(Windows); delete it only if you want the laptop to enrol as a brand new node, and
+prefer `meshforge-agent identity reset`. The dev database is removed with
+`docker compose -f deploy/docker-compose.dev.yml down -v` (that **deletes the
+volume**).
+
+---
+
+## 5. Troubleshooting
+
+| Symptom | Likely cause | What to do |
+|---|---|---|
+| `compute` prints `cannot reach the controller …` and exits **6** | controller not running, or `[cli] controller_url` points elsewhere | `systemctl --user status meshforge-controller`; check `MESHFORGE_CLI__CONTROLLER_URL`; `curl http://HOST:47110/healthz` |
+| `compute status` says reachable, `nodes` is empty | no agent has ever enrolled | run the agent by hand and watch its log; check it can reach TCP 47100 on the controller |
+| Agent log repeats connect/backoff | firewall on the controller laptop, or the wrong address | open inbound TCP 47100 **on the controller only**; agents need no inbound rule |
+| Controller exits **4** at startup | PostgreSQL unreachable or bad `[database]` settings | `docker compose -f deploy/docker-compose.dev.yml up -d --wait`, then check `[database]` |
+| Agent exits **5** immediately | another agent process already owns this identity | stop the other one, or give this one its own `data_dir` |
+| A node shows `STATE online` but `CONN no` | the stream is gone; the persisted state has not been reconciled yet | this is expected — `CONN` (live stream) and `STATE` (database, §12.3) are separate on purpose (decision D16). `AGE` tells you how stale the numbers are |
+| `sample_age_s` / `AGE` keeps growing | the agent's resource monitor stopped, or reports are being suppressed | check the agent log for `agent.resources.*` events |
+| `systemctl --user` works but everything dies at logout | linger not enabled | `loginctl enable-linger "$USER"` |
+
+For what the three liveness fields mean (`STATE`, `CONN`, `AGE`) see
+[`ARCHITECTURE.md` §12.3](ARCHITECTURE.md) and the module docstring of
+`meshforge/controller/api/models.py`.

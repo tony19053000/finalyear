@@ -1,7 +1,28 @@
 # deploy/
 
-Deployment assets. For now only the development database exists; systemd units,
-Windows services and installers arrive with later versions.
+Deployment assets: the development database, plus the **dev background service**
+templates (roadmap 0.3.13). Real installers arrive with V0.17 productization.
+
+```
+deploy/
+  docker-compose.dev.yml          PostgreSQL 16 for local development
+  .env.example                    compose variables (copy to deploy/.env)
+  systemd/meshforge-agent.service      systemd *user* unit (Linux)
+  systemd/meshforge-controller.service systemd *user* unit (Linux, controller laptop)
+  windows/meshforge-agent-task.xml     Task Scheduler template (Windows agent)
+```
+
+**Nothing here installs itself** (decision D17). Print the exact commands with
+
+```bash
+uv run python scripts/print_service_setup.py          # this platform
+uv run python scripts/print_service_setup.py all      # linux + windows + uninstall
+```
+
+and read [`docs/OPERATIONS.md`](../docs/OPERATIONS.md) for the prose: the V0.3
+trust boundary (the REST surface on port 47110 is read-only and
+**unauthenticated**), `loginctl enable-linger`, where the logs go, the Windows
+logoff open question, troubleshooting and uninstall.
 
 ## Development PostgreSQL (`docker-compose.dev.yml`)
 
