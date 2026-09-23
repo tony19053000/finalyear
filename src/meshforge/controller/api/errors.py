@@ -12,11 +12,14 @@ carries a driver message that might name a host, a user or a password.
 
 FastAPI's own handlers are replaced rather than wrapped, so a validation error
 (``limit=0``), a 404 and an unexpected exception all look the same to a client.
+The last one needs the catch-all ``Exception`` handler below: without it a bug in
+a shaper (a ``KeyError``) or a ``ResponseValidationError`` leaves Starlette's
+default ``text/plain`` ``Internal Server Error``, which has no ``code`` at all.
 """
 
 from __future__ import annotations
 
-from typing import Final
+from typing import Final, cast
 
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
@@ -29,6 +32,7 @@ from meshforge.controller.registry import RegistryError, UnknownNodeError
 from meshforge.controller.store.errors import DatabaseUnavailableError
 
 __all__ = [
+    "GENERIC_5XX_MESSAGE",
     "ApiError",
     "error_body",
     "error_response",
@@ -36,6 +40,10 @@ __all__ = [
 ]
 
 log = get_logger(__name__)
+
+GENERIC_5XX_MESSAGE: Final = "the controller failed to handle this request"
+"""What every 5xx says. An internal failure's own text can name a host, a user, a
+path or a query value, so it is logged and never returned."""
 
 _STATUS_FOR: Final[dict[FailureType, int]] = {
     FailureType.NOT_FOUND: status.HTTP_404_NOT_FOUND,
@@ -100,18 +108,20 @@ def install_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(ApiError)
     async def _api_error(_request: Request, exc: Exception) -> JSONResponse:
-        assert isinstance(exc, ApiError)  # noqa: S101 - handler registered for it
-        return error_response(exc.failure_type, exc.message, exc.http_status)
+        # Starlette types every handler as ``(Request, Exception)``; the narrowing
+        # is a cast, not a runtime check, so these handlers do not depend on
+        # ``assert`` (which ``python -O`` removes).
+        error = cast("ApiError", exc)
+        return error_response(error.failure_type, error.message, error.http_status)
 
     @app.exception_handler(RequestValidationError)
     async def _validation(_request: Request, exc: Exception) -> JSONResponse:
         # The location (query parameter name) is ours; the *value* is not, so only
         # the field name and our own constraint text are returned.
-        assert isinstance(exc, RequestValidationError)  # noqa: S101
         problems = "; ".join(
             f"{'.'.join(str(p) for p in err.get('loc', ())[1:]) or '<request>'}: "
             f"{err.get('msg', 'invalid')}"
-            for err in exc.errors()[:5]
+            for err in cast("RequestValidationError", exc).errors()[:5]
         )
         return error_response(
             FailureType.INVALID_INPUT,
@@ -121,13 +131,15 @@ def install_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(StarletteHTTPException)
     async def _http(_request: Request, exc: Exception) -> JSONResponse:
-        assert isinstance(exc, StarletteHTTPException)  # noqa: S101
-        failure_type = _STATUS_FALLBACK.get(exc.status_code, FailureType.INTERNAL_ERROR)
-        detail = exc.detail if isinstance(exc.detail, str) else ""
+        http_exc = cast("StarletteHTTPException", exc)
+        failure_type = _STATUS_FALLBACK.get(
+            http_exc.status_code, FailureType.INTERNAL_ERROR
+        )
+        detail = http_exc.detail if isinstance(http_exc.detail, str) else ""
         return error_response(
             failure_type,
             detail or failure_type.value.replace("_", " "),
-            exc.status_code,
+            http_exc.status_code,
         )
 
     @app.exception_handler(UnknownNodeError)
@@ -140,11 +152,11 @@ def install_error_handlers(app: FastAPI) -> None:
     async def _registry(_request: Request, exc: Exception) -> JSONResponse:
         # A database that is down or refusing is *our* problem, and its driver
         # message can name the host and the user - so it is logged, not returned.
-        assert isinstance(exc, RegistryError)  # noqa: S101
+        registry_exc = cast("RegistryError", exc)
         log.warning(
             "controller.api.registry_unavailable",
-            failure_type=exc.failure_type.value,
-            details=exc.details,
+            failure_type=registry_exc.failure_type.value,
+            details=registry_exc.details,
         )
         return error_response(
             FailureType.NETWORK_ERROR,
@@ -162,16 +174,43 @@ def install_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(MeshForgeError)
     async def _meshforge(_request: Request, exc: Exception) -> JSONResponse:
-        assert isinstance(exc, MeshForgeError)  # noqa: S101
-        code = _STATUS_FOR.get(exc.failure_type, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        error = cast("MeshForgeError", exc)
+        code = _STATUS_FOR.get(
+            error.failure_type, status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
         log.warning(
             "controller.api.request_failed",
-            failure_type=exc.failure_type.value,
-            error=exc.message,
+            failure_type=error.failure_type.value,
+            error=error.message,
         )
         message = (
-            exc.message
+            error.message
             if code < status.HTTP_500_INTERNAL_SERVER_ERROR
-            else "the controller failed to handle this request"
+            else GENERIC_5XX_MESSAGE
         )
-        return error_response(exc.failure_type, message, code)
+        return error_response(error.failure_type, message, code)
+
+    @app.exception_handler(Exception)
+    async def _unhandled(_request: Request, _exc: Exception) -> JSONResponse:
+        """Last resort: anything not handled above is still the envelope.
+
+        Registering ``Exception`` does **not** shadow the handlers above: Starlette
+        routes the ``Exception``/``500`` key to ``ServerErrorMiddleware`` (the
+        outermost layer) and every other key to ``ExceptionMiddleware`` (inside the
+        router), and the inner one resolves by walking ``type(exc).__mro__``. So a
+        ``RegistryError`` still reaches ``_registry``; only what escapes that
+        middleware arrives here.
+
+        The traceback goes to the log, never to the client, and the message is the
+        same generic 5xx text the ``MeshForgeError`` handler uses - an unexpected
+        exception may carry a path, a query or a driver string.
+        """
+        # Starlette calls this from inside ``except Exception as exc``, so
+        # ``sys.exc_info()`` is live and ``.exception`` records the traceback -
+        # which is exactly why it must not be downgraded to ``.error``.
+        log.exception("controller.api.unhandled")  # noqa: LOG004
+        return error_response(
+            FailureType.INTERNAL_ERROR,
+            GENERIC_5XX_MESSAGE,
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
