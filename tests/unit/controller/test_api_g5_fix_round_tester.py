@@ -7,11 +7,33 @@ quietly widens to swallow something it must not, or a new bound that a caller
 elsewhere silently stops honouring.
 
 Never imports anything from ``tests/component`` and never modifies ``src/``.
+
+**Second-round addition (see the report for the full writeup).** The section
+below headed "the huge exception, done correctly" independently re-derives why
+the cut tester's ``test_a_huge_non_ascii_exception_message_still_yields_the_envelope``
+is skipped, and finds the skip note's own suggested fix ("call
+``configure_logging()`` and drop the size to a few KB") is *incomplete*: that
+test's ``boom`` fixture builds its transport with the default
+``httpx.ASGITransport(app=...)``, i.e. ``raise_app_exceptions=True``. Starlette's
+``ServerErrorMiddleware`` (see ``errors.py``'s own docstring on where the
+``Exception`` handler lives) always **re-raises the original exception after
+sending the handler's response**, specifically so a real ASGI server can log it;
+under the default transport that re-raise surfaces to the ``httpx`` caller as the
+raised exception itself, not a response - so even with logging fixed and the
+message shrunk, ``response = await boom.get(...)`` would still raise
+``ValueError`` rather than return. The tests below use
+``raise_app_exceptions=False`` (the same technique the *implementer's* own
+``test_api_g5_fix_round.py`` already uses, correctly) and
+``structlog.testing.capture_logs()`` (also already used there) instead of
+``configure_logging()`` - it replaces the processor chain for the duration of the
+``with`` block, which turns out to make even the full, unshrunk 200 KB message
+finish in under a millisecond, so no size reduction is needed either.
 """
 
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import AsyncIterator
 from typing import cast
 
@@ -21,7 +43,9 @@ import pytest_asyncio
 pytest.importorskip("fastapi", reason="needs the controller extra")
 
 import httpx
+import structlog
 from fastapi import FastAPI
+from pydantic import BaseModel
 
 from meshforge.common.errors import FailureType
 from meshforge.controller.api.errors import GENERIC_5XX_MESSAGE, install_error_handlers
@@ -259,3 +283,191 @@ async def test_max_node_limit_boundary_is_a_real_sql_bound_not_a_python_slice(
     response = await client.get("/v1/nodes", params={"limit": MAX_NODE_LIMIT})
     assert response.status_code == 200
     assert registry.calls[-1] == MAX_NODE_LIMIT
+
+
+# --------------------------------------------------------------------------
+# B1, the huge exception, done correctly (see the module docstring).
+# --------------------------------------------------------------------------
+
+
+def _boom_app_no_reraise_needed() -> FastAPI:
+    """Same shape as ``_boom_app`` above, plus a route whose *response
+    construction itself* fails to encode - a real FastAPI/Starlette failure
+    mode distinct from "the handler body raised"."""
+    app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+    install_error_handlers(app)
+
+    @app.get("/boom/huge-non-ascii")
+    async def _huge_non_ascii() -> dict[str, str]:
+        raise ValueError("é" * 200_000 + "\udcff")  # the skipped test's exact payload
+
+    @app.get("/boom/unencodable-response")
+    async def _unencodable_response() -> dict[str, str]:
+        # A lone surrogate in the *return value*: FastAPI/Starlette's
+        # `JSONResponse.render` does `json.dumps(..., ensure_ascii=False).encode
+        # ("utf-8")`, which raises `UnicodeEncodeError` while constructing the
+        # response object - before any header is sent. If this were e.g. a
+        # `hostname` read back from storage via a path that used
+        # `errors="surrogateescape"`, this is exactly the shape it would take.
+        return {"hostname": "lap\udcfftop"}
+
+    return app
+
+
+@pytest_asyncio.fixture
+async def boom_observable() -> AsyncIterator[httpx.AsyncClient]:
+    """``raise_app_exceptions=False``: the correct technique (already used by
+    the implementer's own ``test_api_g5_fix_round.py``) to see the *response* a
+    real socket client would receive, rather than the re-raise
+    ``ServerErrorMiddleware`` performs afterwards purely for server-side
+    logging."""
+    transport = httpx.ASGITransport(
+        app=_boom_app_no_reraise_needed(), raise_app_exceptions=False
+    )
+    async with httpx.AsyncClient(transport=transport, base_url="http://api.test") as c:
+        yield c
+
+
+@pytest.mark.asyncio
+async def test_the_full_200kb_non_ascii_message_yields_the_envelope_fast(
+    boom_observable: httpx.AsyncClient,
+) -> None:
+    """The skipped test's exact payload (200 KB, non-ASCII, plus a lone
+    surrogate), unshrunk, with the two things its skip note's suggested fix
+    was missing: a transport that surfaces the response instead of re-raising,
+    and ``capture_logs()`` instead of ``configure_logging()`` (both patterns
+    already present in the implementer's own file for this exact reason)."""
+    t0 = time.perf_counter()
+    with structlog.testing.capture_logs():
+        response = await boom_observable.get("/boom/huge-non-ascii")
+    elapsed = time.perf_counter() - t0
+    assert response.status_code == 500
+    assert response.headers["content-type"].startswith("application/json")
+    assert response.json() == {
+        "error": {
+            "code": FailureType.INTERNAL_ERROR.value,
+            "message": GENERIC_5XX_MESSAGE,
+        }
+    }
+    assert "é" not in response.text
+    assert len(response.content) < 1_000
+    assert elapsed < 0.1, f"took {elapsed:.3f}s - should be sub-millisecond"
+
+
+@pytest.mark.asyncio
+async def test_a_response_that_cannot_be_utf8_encoded_still_yields_the_envelope(
+    boom_observable: httpx.AsyncClient,
+) -> None:
+    """A real FastAPI/Starlette failure mode the implementer's own B1 tests do
+    not cover: the exception happens while *constructing the response*, not in
+    the route body, so it is a ``UnicodeEncodeError`` raised by
+    ``JSONResponse.render`` rather than anything ``meshforge`` code raised on
+    purpose. B1's catch-all must still produce the typed envelope, not the bare
+    Starlette default this whole round exists to eliminate."""
+    with structlog.testing.capture_logs():
+        response = await boom_observable.get("/boom/unencodable-response")
+    assert response.status_code == 500
+    assert response.headers["content-type"].startswith("application/json")
+    assert response.json() == {
+        "error": {
+            "code": FailureType.INTERNAL_ERROR.value,
+            "message": GENERIC_5XX_MESSAGE,
+        }
+    }
+
+
+# --------------------------------------------------------------------------
+# N4: does `typing.cast` replacing `assert isinstance` remove a real guard?
+# --------------------------------------------------------------------------
+
+
+def test_n4_cast_provides_zero_runtime_protection_if_ever_misrouted() -> None:
+    """Not reachable through the public HTTP surface (Starlette's dispatch only
+    calls a registered handler for the exception class - or a subclass - it was
+    registered against), but the fix round explicitly asks whether removing the
+    ``assert isinstance`` removed a real guard. It did, in the narrow
+    defense-in-depth sense: calling a handler directly with the wrong exception
+    type used to fail loudly and immediately (``AssertionError``, a clear
+    programmer error); now it fails later and more confusingly. This test
+    exercises that directly, documents the *current* failure shape, and is a
+    canary for it getting worse (e.g. a handler than can be reached with the
+    wrong type through some future refactor silently returning a bad body
+    instead of erroring at all)."""
+    import asyncio as _asyncio
+
+    from meshforge.controller.api.errors import install_error_handlers as _install
+
+    app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+    _install(app)
+    handlers = dict(app.exception_handlers)
+    from meshforge.controller.api.errors import ApiError
+
+    api_error_handler = handlers[ApiError]
+
+    async def _call() -> None:
+        # Call the handler exactly as Starlette's dispatch would, but with a
+        # deliberately wrong exception type - the scenario N4 asks about.
+        await api_error_handler(cast("httpx.Request", object()), TypeError("wrong"))
+
+    with pytest.raises(AttributeError):
+        _asyncio.run(_call())
+
+
+# --------------------------------------------------------------------------
+# B1 does not widen to swallow RequestValidationError's own shaping.
+# --------------------------------------------------------------------------
+
+
+class _StrictModel(BaseModel):
+    value: int
+
+
+def _shaping_app() -> FastAPI:
+    app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+    install_error_handlers(app)
+
+    @app.get("/response-model-mismatch", response_model=_StrictModel)
+    async def _mismatch() -> dict[str, str]:
+        # Independent of the implementer's own `/boom/response-validation`
+        # route: a different mechanism (an explicit `response_model`) reaching
+        # the same `ResponseValidationError` class, to confirm it is not the
+        # route shape rather than the exception class that made B1's catch-all
+        # apply.
+        return {"value": "not-an-int"}
+
+    return app
+
+
+@pytest.mark.asyncio
+async def test_a_response_model_mismatch_is_the_envelope_not_a_bare_500() -> None:
+    transport = httpx.ASGITransport(app=_shaping_app(), raise_app_exceptions=False)
+    async with httpx.AsyncClient(transport=transport, base_url="http://api.test") as c:
+        with structlog.testing.capture_logs():
+            response = await c.get("/response-model-mismatch")
+    assert response.status_code == 500
+    assert response.json() == {
+        "error": {
+            "code": FailureType.INTERNAL_ERROR.value,
+            "message": GENERIC_5XX_MESSAGE,
+        }
+    }
+
+
+# --------------------------------------------------------------------------
+# Gap found via mutation testing: the earlier `test_max_node_limit_boundary_
+# is_a_real_sql_bound_not_a_python_slice` above only checks that MAX_NODE_LIMIT
+# is *accepted* - it does not check that one past it is *rejected*. Mutating
+# `Query(ge=1, le=MAX_NODE_LIMIT, ...)` to drop the `le=` bound entirely makes
+# every test in this file except the one below still pass (verified, then
+# reverted - `git diff src/` is clean).
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_one_past_max_node_limit_is_rejected_not_silently_accepted(
+    many_nodes: tuple[httpx.AsyncClient, _OrderedRegistry],
+) -> None:
+    client, registry = many_nodes
+    response = await client.get("/v1/nodes", params={"limit": MAX_NODE_LIMIT + 1})
+    assert response.status_code == 400
+    assert registry.calls == []  # refused before the registry is ever touched
