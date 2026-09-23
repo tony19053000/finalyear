@@ -448,3 +448,51 @@ async def test_history_and_live_ring_disagree_in_resolution_as_documented(
                 assert body["history_count"] <= body["live_count"]
         finally:
             await agent.close()
+
+
+@pytest.mark.asyncio
+async def test_nb_g5_1_independent_confirmation_with_the_default_fast_lease(
+    runtime: ControllerRuntime,
+    grpc_target: str,
+    identity: NodeIdentity,
+    data_dir: Path,
+) -> None:
+    """Independent, timed re-check of the implementer's NB-G5-1 pin
+    (``test_a_closed_session_does_not_move_the_database_state_today``), using this
+    directory's *default* fixture (``FAST_LIVENESS``: heartbeat 0.2 s, SUSPECT at
+    0.25 s, OFFLINE at 0.6 s if a lease is actually walked) rather than the
+    implementer's own deliberately slow one - so this is not the same test with
+    different numbers, it is a second, much tighter clock making the same claim.
+
+    Observed: several multiples of what would be the OFFLINE deadline for a *live*
+    session pass with ``state`` still ``online`` after the stream is cut without a
+    goodbye. This independently confirms the pinned behaviour: a session that
+    closes (even abruptly) is never walked by the lease timer again, because the
+    timer only walks sessions the manager still holds live - so only ``connected``
+    tells the truth until the controller's next startup sweep.
+    """
+    liveness = runtime.settings.controller.liveness
+    would_be_offline_s = liveness.heartbeat_interval_s * liveness.lease_multiplier
+    agent = make_agent(data_dir, grpc_target, identity, monitor=False)
+    try:
+        await agent.online()
+        agent.client.request_stop()
+        with contextlib.suppress(BaseException):
+            await asyncio.wait_for(agent.client_task, 10.0)
+        async with rest_for(runtime) as rest:
+            # Wait several multiples of the tight lease window - if the lease
+            # timer *did* still walk this row, it would have gone OFFLINE long
+            # before this.
+            margin_s = would_be_offline_s * 6
+            started = time.monotonic()
+            await asyncio.sleep(margin_s)
+            row = (await rest.json("/v1/nodes"))["nodes"][0]
+            elapsed = time.monotonic() - started
+        assert row["connected"] is False
+        assert row["state"] == NodeState.ONLINE.value, (
+            f"state moved off ONLINE after only {elapsed:.2f}s "
+            f"({elapsed / would_be_offline_s:.1f}x the would-be OFFLINE deadline) "
+            "- NB-G5-1 would need to be revised if this ever fails"
+        )
+    finally:
+        await agent.close()
