@@ -1,11 +1,47 @@
-"""Typer application behind the ``compute`` console script."""
+"""Typer application behind the ``compute`` console script (roadmap 0.3.12).
 
-from typing import Annotated
+``compute`` is an operator's read-only window on the fabric. It talks **only** to
+the controller's REST surface (``{[cli] controller_url}/v1``, D15) - never to
+PostgreSQL, never over gRPC - which is what keeps ``meshforge.cli`` importing
+nothing but ``common`` (and later ``sdk``).
+
+Shape of the commands::
+
+    compute nodes                  list every node (Rich table)
+    compute nodes --json           the raw API payload, one line, for scripting
+    compute nodes --watch          re-render every [cli] watch_interval_s; Ctrl-C = 0
+    compute nodes <node_id>        one node's detail
+    compute status                 where the controller is, whether it answers
+
+``nodes`` takes an **optional argument** rather than being a sub-typer: an
+operator types ``compute nodes`` far more often than any subcommand, and with a
+sub-typer that bare form would have to be a no-argument default subcommand
+(``nodes list``), which Typer expresses only through a callback with
+``invoke_without_command`` - more machinery, and ``compute nodes <id>`` would then
+be ambiguous with a subcommand name. One command with an optional argument keeps
+both forms unambiguous: no argument lists, an argument shows that node.
+
+Failure behaviour: an unreachable or timed-out controller prints one typed line on
+stderr and exits :attr:`~meshforge.common.exit_codes.ExitCode.UNAVAILABLE` (D18);
+a refused request exits ``FAILURE``; bad configuration exits ``CONFIG_ERROR``. No
+command ever shows a traceback.
+"""
+
+from __future__ import annotations
+
+import json
+import time
+from collections.abc import Callable, Mapping
+from typing import Annotated, Any, NoReturn
 
 import typer
+from rich.console import Console
 
 from meshforge import __version__
-from meshforge.common.exit_codes import ExitCode
+from meshforge.cli.client import ControllerClient, ControllerError, exit_code_for
+from meshforge.cli.render import node_detail_table, nodes_table, status_table
+from meshforge.cli.settings import CliSettings
+from meshforge.common.errors import ConfigError, ExitCode
 
 PROG_NAME = "compute"
 
@@ -15,6 +51,62 @@ app = typer.Typer(
     add_completion=False,
     no_args_is_help=True,
 )
+
+JsonOption = Annotated[
+    bool,
+    typer.Option(
+        "--json",
+        help="Print the controller's raw JSON payload on one line (for scripting).",
+    ),
+]
+
+
+def _out() -> Console:
+    """stdout console. Rich turns colour off by itself when stdout is not a TTY."""
+    return Console(highlight=False, emoji=False, markup=False)
+
+
+def _echo_json(payload: Mapping[str, Any]) -> None:
+    """One unindented JSON object on one line, straight to stdout.
+
+    Not via Rich: a console would wrap and style it, and this output is meant to
+    be piped into ``jq``.
+    """
+    typer.echo(json.dumps(payload, separators=(",", ":"), sort_keys=False))
+
+
+def _die(message: str, code: ExitCode) -> NoReturn:
+    """One sanitised line on stderr, then exit. Never a traceback.
+
+    Deliberately ``typer.echo`` and not a Rich console: a console would wrap the
+    line at the terminal width (turning a single error into several lines a
+    ``grep`` would miss) and would interpret square brackets as markup. The
+    message is already one short printable line - :mod:`meshforge.cli.client`
+    flattens and truncates anything the server supplied.
+    """
+    typer.echo(f"{PROG_NAME}: {message}", err=True)
+    raise typer.Exit(code)
+
+
+def _settings() -> CliSettings:
+    try:
+        return CliSettings.load()
+    except ConfigError as exc:
+        _die(exc.message, ExitCode.CONFIG_ERROR)
+
+
+def _client(settings: CliSettings) -> ControllerClient:
+    return ControllerClient(
+        settings.cli.controller_url, timeout_s=settings.cli.timeout_s
+    )
+
+
+def _fetch[T](call: Callable[[], T]) -> T:
+    """Run one request, turning every typed client failure into an exit."""
+    try:
+        return call()
+    except ControllerError as exc:
+        _die(exc.message, exit_code_for(exc))
 
 
 def _version_callback(value: bool) -> None:
@@ -39,14 +131,120 @@ def _root(
 
 
 @app.command()
-def status() -> None:
-    """Show fabric status (not implemented yet)."""
-    typer.echo(
-        f"{PROG_NAME} status: not implemented yet - the fabric (controller + agents) "
-        "arrives in V0.3 and the full status view in V0.8.",
-        err=True,
-    )
-    raise typer.Exit(ExitCode.NOT_IMPLEMENTED)
+def nodes(
+    node_id: Annotated[
+        str | None,
+        typer.Argument(
+            metavar="[NODE_ID]",
+            help="Show this node's detail instead of the list.",
+        ),
+    ] = None,
+    json_output: JsonOption = False,
+    watch: Annotated[
+        bool,
+        typer.Option(
+            "--watch",
+            help=(
+                "Re-render every cli.watch_interval_s seconds until Ctrl-C "
+                "(exits 0). Ignored with --json."
+            ),
+        ),
+    ] = False,
+) -> None:
+    """List the fabric's nodes, or show one node.
+
+    Three liveness fields are shown on purpose and can legitimately disagree
+    (D16): STATE is the database's view (it survives a controller restart), CONN
+    is whether this controller process holds the node's stream right now, and AGE
+    is how stale the newest resource sample is.
+    """
+    settings = _settings()
+    with _client(settings) as client:
+        if node_id is not None:
+            payload = _fetch(lambda: client.node(node_id))
+            if json_output:
+                _echo_json(payload)
+            else:
+                _out().print(node_detail_table(payload))
+            return
+        if watch and not json_output:
+            _watch(
+                lambda: nodes_table(_fetch(client.nodes)),
+                interval_s=settings.cli.watch_interval_s,
+            )
+            return
+        payload = _fetch(client.nodes)
+        if json_output:
+            _echo_json(payload)
+        else:
+            _out().print(nodes_table(payload))
+
+
+@app.command()
+def status(json_output: JsonOption = False) -> None:
+    """Show where the controller is, whether it answers, and what it reports.
+
+    Unlike the other commands this one **reports** unreachability instead of
+    failing on it - "is the fabric up?" is the question it exists to answer - but
+    it still exits non-zero (UNAVAILABLE) so a script can branch on it.
+    """
+    settings = _settings()
+    url = settings.cli.controller_url
+    with _client(settings) as client:
+        try:
+            health = client.health()
+            node_payload: Mapping[str, Any] | None = client.nodes()
+            detail: str | None = None
+            reachable = True
+            code = ExitCode.OK
+        except ControllerError as exc:
+            health, node_payload, detail = {}, None, exc.message
+            reachable = False
+            code = exit_code_for(exc)
+
+    if json_output:
+        _echo_json(
+            {
+                "controller_url": url,
+                "reachable": reachable,
+                "detail": detail,
+                "live_sessions": health.get("sessions"),
+                "nodes": node_payload,
+            }
+        )
+    else:
+        _out().print(
+            status_table(
+                controller_url=url,
+                reachable=reachable,
+                detail=detail,
+                nodes=node_payload,
+                sessions=health.get("sessions"),
+            )
+        )
+    if code is not ExitCode.OK:
+        raise typer.Exit(code)
+
+
+def _watch(render: Callable[[], Any], *, interval_s: float) -> None:
+    """Re-render on a bounded interval until Ctrl-C, which exits 0.
+
+    Deliberately a clear-and-print loop rather than ``rich.live``: the output is
+    one small table, and a full-screen alternate buffer is what makes a watch
+    command leave a terminal in a strange state when it is killed.
+    """
+    console = _out()
+    try:
+        while True:
+            table = render()
+            console.clear()
+            console.print(table)
+            console.print(f"(refreshing every {interval_s:g}s - Ctrl-C to stop)")
+            time.sleep(interval_s)
+    except KeyboardInterrupt:
+        # Not an error: stopping a watch is how it ends. Click would otherwise
+        # turn this into "Aborted!" and exit 1.
+        console.print("")
 
 
 def main() -> None:

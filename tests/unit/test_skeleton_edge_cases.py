@@ -114,24 +114,29 @@ def test_help_exits_zero_and_mentions_prog(app: object, prog: str) -> None:
     ],
 )
 def test_output_is_pure_ascii_under_c_locale(argv: list[str]) -> None:
-    """Every message a placeholder command can print must decode under a plain
+    """Every message these commands can print must decode under a plain
     ASCII/cp437-style console, since Windows terminals are not guaranteed to be
-    UTF-8 and the task requires ASCII stderr messages."""
+    UTF-8 and the task requires ASCII stderr messages. ``compute status`` also
+    renders a Rich table now (0.3.12), which is why it uses the ASCII box style."""
     result = _run_ascii_env(*argv)
     combined = result.stdout + result.stderr
     combined.encode("ascii")  # raises UnicodeEncodeError if not pure ASCII
-    assert result.returncode in (ExitCode.OK, ExitCode.NOT_IMPLEMENTED)
+    assert result.returncode in (
+        ExitCode.OK,
+        ExitCode.NOT_IMPLEMENTED,
+        ExitCode.UNAVAILABLE,  # `compute status` with no controller running
+    )
 
 
 def test_ascii_env_does_not_crash_with_encode_error() -> None:
     """A stronger check: run with encoding actually pinned to ascii, subprocess
     must not itself raise UnicodeEncodeError while writing (returncode would be
-    1/traceback, not the expected 0 or 3)."""
+    1/traceback, not 0 or the typed UNAVAILABLE of a missing controller)."""
     # `meshforge.controller` / `meshforge.agent run` are real processes since V0.3
     # (G2/G3) and are covered by tests/component instead.
     for argv in ([sys.executable, "-m", "meshforge.cli", "status"],):
         result = _run_ascii_env(*argv)
-        assert result.returncode == ExitCode.NOT_IMPLEMENTED, result.stderr
+        assert result.returncode in (ExitCode.OK, ExitCode.UNAVAILABLE), result.stderr
         assert "Traceback" not in result.stderr
 
 

@@ -1,6 +1,7 @@
 """Task 0.1.3: package skeleton and entry points."""
 
 import importlib
+import os
 import shutil
 import subprocess
 import sys
@@ -61,11 +62,20 @@ def test_compute_no_args_shows_help() -> None:
     assert "status" in result.output
 
 
-def test_compute_status_not_implemented() -> None:
+def test_compute_status_reports_an_unreachable_controller(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``status`` stopped being a NOT_IMPLEMENTED stub in V0.3 G5 (roadmap 0.3.12).
+
+    Port 1 is chosen so the connection is refused immediately on every platform
+    and the assertion cannot depend on whether a controller happens to be running
+    on this machine.
+    """
+    monkeypatch.setenv("MESHFORGE_CLI__CONTROLLER_URL", "http://127.0.0.1:1")
     result = runner.invoke(cli_app, ["status"], prog_name="compute")
-    assert result.exit_code == ExitCode.NOT_IMPLEMENTED
-    assert "not implemented" in result.stderr
-    assert result.stdout == ""
+    assert result.exit_code == ExitCode.UNAVAILABLE
+    assert "reachable" in result.stdout
+    assert "Traceback" not in result.output
 
 
 def test_compute_unknown_command_is_usage_error() -> None:
@@ -108,20 +118,23 @@ def test_python_dash_m(script: str, module: str) -> None:
     assert result.stdout.strip() == f"{script} {meshforge.__version__}"
 
 
-@pytest.mark.parametrize(
-    ("script", "expected"),
-    [
-        ("compute", "V0.8"),
-    ],
-)
-def test_installed_script_placeholder_exits_non_zero(
-    script: str, expected: str
-) -> None:
-    path = shutil.which(script)
+def test_installed_compute_exits_unavailable_without_a_controller() -> None:
+    """The installed console script, as an operator would run it: one typed line,
+    exit 6, no traceback (roadmap 0.3.12, decision D18)."""
+    path = shutil.which("compute")
     assert path is not None
-    result = _run(path, "status")
-    assert result.returncode == ExitCode.NOT_IMPLEMENTED
-    assert expected in result.stderr
+    env = dict(os.environ, MESHFORGE_CLI__CONTROLLER_URL="http://127.0.0.1:1")
+    result = subprocess.run(
+        [path, "nodes"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+        env=env,
+    )
+    assert result.returncode == ExitCode.UNAVAILABLE
+    assert "cannot reach the controller" in result.stderr
+    assert "Traceback" not in result.stderr
 
 
 def test_entry_points_do_not_import_extras() -> None:
