@@ -251,7 +251,7 @@ volume**).
 | Agent log repeats connect/backoff | firewall on the controller laptop, or the wrong address | open inbound TCP 47100 **on the controller only**; agents need no inbound rule |
 | Controller exits **4** at startup | PostgreSQL unreachable or bad `[database]` settings | `docker compose -f deploy/docker-compose.dev.yml up -d --wait`, then check `[database]` |
 | Agent exits **5** immediately | another agent process already owns this identity | stop the other one, or give this one its own `data_dir` |
-| A node shows `STATE online` but `CONN no` | the stream is gone; the persisted state has not been reconciled yet | this is expected — `CONN` (live stream) and `STATE` (database, §12.3) are separate on purpose (decision D16). `AGE` tells you how stale the numbers are |
+| A node shows `STATE online` but `CONN no` | the session has ended, and `node.state` is **not** reconciled while the controller keeps running | **Trust `connected` / `CONN` and `sample_age_s` / `AGE`; never `STATE` alone.** `STATE` is the database's view (§12.3), `CONN` is whether this controller holds the stream right now — separate on purpose (D16). The lease timer only walks sessions the manager still holds, so once a session ends (a clean agent shutdown *or* a dropped stream) the row keeps `state = online` **until the controller is restarted**, whose startup sweep (`mark_live_nodes_offline`) marks it offline. Known limitation NB-G5-1; a fix is scheduled for G6 |
 | `sample_age_s` / `AGE` keeps growing | the agent's resource monitor stopped, or reports are being suppressed | check the agent log for `agent.resources.*` events |
 | `systemctl --user` works but everything dies at logout | linger not enabled | `loginctl enable-linger "$USER"` |
 

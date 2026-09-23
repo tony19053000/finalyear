@@ -40,6 +40,11 @@ def _run_ascii_env(*args: str) -> subprocess.CompletedProcess[str]:
     env["PYTHONIOENCODING"] = "ascii"
     env["LC_ALL"] = "C"
     env["LANG"] = "C"
+    # Port 1 is never listening, so `compute status` fails the same way on every
+    # machine. Without this the subprocess inherits the developer's
+    # MESHFORGE_* environment and the exit code depends on whether a controller
+    # happens to be running - the sibling tests in test_skeleton.py pin it too.
+    env["MESHFORGE_CLI__CONTROLLER_URL"] = "http://127.0.0.1:1"
     return subprocess.run(
         args, capture_output=True, text=True, timeout=30, check=False, env=env
     )
@@ -102,18 +107,20 @@ def test_help_exits_zero_and_mentions_prog(app: object, prog: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "argv",
+    ("argv", "expected"),
     [
-        [sys.executable, "-m", "meshforge.cli", "--version"],
-        [sys.executable, "-m", "meshforge.cli", "status"],
-        [sys.executable, "-m", "meshforge.controller", "--version"],
-        [sys.executable, "-m", "meshforge.controller", "--help"],
-        [sys.executable, "-m", "meshforge.agent", "--version"],
-        [sys.executable, "-m", "meshforge.agent", "--help"],
-        [sys.executable, "-m", "meshforge.agent", "identity", "--help"],
+        ([sys.executable, "-m", "meshforge.cli", "--version"], ExitCode.OK),
+        # `_run_ascii_env` points the CLI at a dead port, so this is exactly
+        # "controller unreachable" (D18) on every machine, not "it depends".
+        ([sys.executable, "-m", "meshforge.cli", "status"], ExitCode.UNAVAILABLE),
+        ([sys.executable, "-m", "meshforge.controller", "--version"], ExitCode.OK),
+        ([sys.executable, "-m", "meshforge.controller", "--help"], ExitCode.OK),
+        ([sys.executable, "-m", "meshforge.agent", "--version"], ExitCode.OK),
+        ([sys.executable, "-m", "meshforge.agent", "--help"], ExitCode.OK),
+        ([sys.executable, "-m", "meshforge.agent", "identity", "--help"], ExitCode.OK),
     ],
 )
-def test_output_is_pure_ascii_under_c_locale(argv: list[str]) -> None:
+def test_output_is_pure_ascii_under_c_locale(argv: list[str], expected: int) -> None:
     """Every message these commands can print must decode under a plain
     ASCII/cp437-style console, since Windows terminals are not guaranteed to be
     UTF-8 and the task requires ASCII stderr messages. ``compute status`` also
@@ -121,11 +128,7 @@ def test_output_is_pure_ascii_under_c_locale(argv: list[str]) -> None:
     result = _run_ascii_env(*argv)
     combined = result.stdout + result.stderr
     combined.encode("ascii")  # raises UnicodeEncodeError if not pure ASCII
-    assert result.returncode in (
-        ExitCode.OK,
-        ExitCode.NOT_IMPLEMENTED,
-        ExitCode.UNAVAILABLE,  # `compute status` with no controller running
-    )
+    assert result.returncode == expected, combined
 
 
 def test_ascii_env_does_not_crash_with_encode_error() -> None:
@@ -136,7 +139,7 @@ def test_ascii_env_does_not_crash_with_encode_error() -> None:
     # (G2/G3) and are covered by tests/component instead.
     for argv in ([sys.executable, "-m", "meshforge.cli", "status"],):
         result = _run_ascii_env(*argv)
-        assert result.returncode in (ExitCode.OK, ExitCode.UNAVAILABLE), result.stderr
+        assert result.returncode == ExitCode.UNAVAILABLE, result.stderr
         assert "Traceback" not in result.stderr
 
 
