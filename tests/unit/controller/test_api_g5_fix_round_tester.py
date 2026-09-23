@@ -9,11 +9,18 @@ elsewhere silently stops honouring.
 Never imports anything from ``tests/component`` and never modifies ``src/``.
 
 **Second-round addition (see the report for the full writeup).** The section
-below headed "the huge exception, done correctly" independently re-derives why
-the cut tester's ``test_a_huge_non_ascii_exception_message_still_yields_the_envelope``
-is skipped, and finds the skip note's own suggested fix ("call
-``configure_logging()`` and drop the size to a few KB") is *incomplete*: that
-test's ``boom`` fixture builds its transport with the default
+below headed "the huge exception, done correctly" replaces a test the cut tester
+left behind, ``test_a_huge_non_ascii_exception_message_still_yields_the_envelope``,
+which wedged the suite for minutes at 100% CPU: it logged a 200 KB exception
+through structlog's *default* processor chain, whose cost is superlinear in the
+message length (measured 0.43 s at 1 K chars, 2.26 s at 20 K). With logging
+configured - how the controller actually runs - the same request is 2-3 ms and
+returns the 92-byte typed envelope, so B1 was never at fault.
+
+The Lead first skipped that test with a note suggesting "call
+``configure_logging()`` and drop the size to a few KB". That fix is
+*incomplete*, which is why the test is now deleted rather than re-enabled: its
+``boom`` fixture builds its transport with the default
 ``httpx.ASGITransport(app=...)``, i.e. ``raise_app_exceptions=True``. Starlette's
 ``ServerErrorMiddleware`` (see ``errors.py``'s own docstring on where the
 ``Exception`` handler lives) always **re-raises the original exception after
@@ -21,7 +28,8 @@ sending the handler's response**, specifically so a real ASGI server can log it;
 under the default transport that re-raise surfaces to the ``httpx`` caller as the
 raised exception itself, not a response - so even with logging fixed and the
 message shrunk, ``response = await boom.get(...)`` would still raise
-``ValueError`` rather than return. The tests below use
+``ValueError`` rather than return. A session following that note literally
+would have traded a hang for a confusing failure. The tests below use
 ``raise_app_exceptions=False`` (the same technique the *implementer's* own
 ``test_api_g5_fix_round.py`` already uses, correctly) and
 ``structlog.testing.capture_logs()`` (also already used there) instead of
@@ -118,36 +126,6 @@ async def test_a_non_cancelled_base_exception_also_propagates(
 ) -> None:
     with pytest.raises(KeyboardInterrupt):
         await boom.get("/boom/base-exception")
-
-
-@pytest.mark.skip(
-    reason="Lead 2026-09-23: this test HANGS, and not because of the code under test. "
-    "It logs a 200 KB exception through structlog's DEFAULT chain (the fixture never "
-    "calls configure_logging), which is superlinear in message length: measured 0.43 s "
-    "at 1 K chars and 2.26 s at 20 K, so 200 K is minutes of CPU at 100%. With logging "
-    "configured - how the controller actually runs - the same request is 2-3 ms and "
-    "returns the 92-byte typed envelope, i.e. B1 is correct. Re-enable by calling "
-    "configure_logging() in the fixture and dropping the size to a few KB."
-)
-@pytest.mark.asyncio
-async def test_a_huge_non_ascii_exception_message_still_yields_the_envelope(
-    boom: httpx.AsyncClient,
-) -> None:
-    """The exception text is never echoed, so its size and encoding must not be
-    able to break the handler itself (a crash here would be a *worse* leak: a
-    bare Starlette 500 with no typed code, exactly what B1 was meant to fix)."""
-    response = await boom.get("/boom/huge-non-ascii")
-    assert response.status_code == 500
-    assert response.headers["content-type"].startswith("application/json")
-    body = response.json()
-    assert body == {
-        "error": {
-            "code": FailureType.INTERNAL_ERROR.value,
-            "message": GENERIC_5XX_MESSAGE,
-        }
-    }
-    assert "é" not in response.text
-    assert len(response.content) < 1_000  # nowhere near the 200 KB exception text
 
 
 @pytest.mark.asyncio
