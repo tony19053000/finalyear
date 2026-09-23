@@ -30,3 +30,10 @@ class ExitCode(IntEnum):
     """Another instance owns the same identity: the controller superseded this
     process's session (ADR-0002 Updates §1). Do not restart in a loop - stop the
     other instance or give this one its own ``data_dir``."""
+
+    UNAVAILABLE = 6
+    """The service this command had to talk to could not be reached: the
+    controller's REST endpoint refused the connection, resolved nowhere, or did
+    not answer within ``[cli] timeout_s``. Distinct from ``CONFIG_ERROR`` (the URL
+    itself was fine) and from ``FAILURE`` (nothing ran wrong locally) so a script
+    polling the fabric can tell "controller down" from "bad usage" and retry."""

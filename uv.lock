@@ -676,6 +676,7 @@ source = { editable = "." }
 dependencies = [
     { name = "cryptography" },
     { name = "grpcio" },
+    { name = "httpx" },
     { name = "protobuf" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
@@ -687,7 +688,6 @@ dependencies = [
 
 [package.optional-dependencies]
 agent = [
-    { name = "httpx" },
     { name = "nvidia-ml-py" },
     { name = "psutil" },
     { name = "zeroconf" },
@@ -728,7 +728,7 @@ requires-dist = [
     { name = "cryptography", specifier = ">=46" },
     { name = "fastapi", marker = "extra == 'controller'", specifier = ">=0.141" },
     { name = "grpcio", specifier = ">=1.84" },
-    { name = "httpx", marker = "extra == 'agent'", specifier = ">=0.28" },
+    { name = "httpx", specifier = ">=0.28" },
     { name = "nvidia-ml-py", marker = "extra == 'agent'", specifier = ">=13.610" },
     { name = "protobuf", specifier = ">=7.36" },
     { name = "psutil", marker = "extra == 'agent'", specifier = ">=7.2" },

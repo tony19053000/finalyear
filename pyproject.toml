@@ -28,6 +28,10 @@ dependencies = [
     # the V0.7 CSR. Core (not the agent extra) because the identity module must
     # import on a base install and the CLI will read the identity file.
     "cryptography>=46",
+    # HTTP client. Core (not an extra) because `compute` talks to the controller's
+    # read-only REST surface and the SDK will use the same client - neither may
+    # import `controller` (lint-imports: cli/sdk see only `common`). D15.
+    "httpx>=0.28",
 ]
 
 [project.optional-dependencies]
@@ -45,7 +49,6 @@ agent = [
     "psutil>=7.2",
     "nvidia-ml-py>=13.610",
     "zeroconf>=0.151",
-    "httpx>=0.28",
 ]
 # CPU/CUDA variant selection (PyTorch wheel index per platform) is decided in V0.2;
 # here torch comes from the default index. Only installed with `--extra gpu`.
