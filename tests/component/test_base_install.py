@@ -117,22 +117,34 @@ def test_base_install_script_version_works(base_install: Path, script: str) -> N
     assert result.stderr == ""
 
 
-@pytest.mark.parametrize(
-    ("script", "args", "expected_marker"),
-    [
-        ("compute", ["status"], "V0.8"),
-    ],
-)
-def test_base_install_placeholder_exits_3(
-    base_install: Path, script: str, args: list[str], expected_marker: str
+def test_base_install_compute_talks_rest_with_no_extra(
+    base_install: Path, tmp_path: Path
 ) -> None:
-    exe = _venv_bin(base_install, script)
+    """Since V0.3 G5 `compute` is real and needs **no** extra: it speaks REST, and
+    httpx is a core dependency (decision D15). With nothing listening it reports
+    the typed UNAVAILABLE (6), never a traceback and never an ImportError.
+
+    Port 1 is refused immediately on every platform, so the result does not depend
+    on whether a controller happens to run on this machine.
+    """
+    exe = _venv_bin(base_install, "compute")
+    env = {k: v for k, v in os.environ.items() if not k.startswith("MESHFORGE_")}
+    env["XDG_CONFIG_HOME"] = str(tmp_path)
+    env["APPDATA"] = str(tmp_path)
+    env["MESHFORGE_CLI__CONTROLLER_URL"] = "http://127.0.0.1:1"
     result = subprocess.run(
-        [str(exe), *args], capture_output=True, text=True, timeout=30, check=False
+        [str(exe), "nodes"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+        env=env,
     )
-    assert result.returncode == 3
+    assert result.returncode == 6, result.stderr
     assert result.stdout == ""
-    assert expected_marker in result.stderr
+    assert "cannot reach the controller" in result.stderr
+    assert "Traceback" not in result.stderr
+    assert "ModuleNotFoundError" not in result.stderr
 
 
 def test_base_install_controller_run_needs_extra(
