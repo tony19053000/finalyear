@@ -10,6 +10,18 @@ null value renders as ``-`` and a field this build has never heard of is ignored
 (it is still visible in ``--json``). That way an older ``compute`` against a newer
 controller degrades instead of crashing.
 
+**Untrusted text (V0.3).** gRPC enrolment is unauthenticated, and the controller
+validates ``Hello.hostname`` / ``os`` / ``platform`` / ``hardware`` for *length*
+only - so any host on the LAN can put escape sequences in a value that every
+operator's ``compute nodes`` then prints. :func:`_cell` is the single gate every
+string cell goes through: non-printable characters become spaces (the same
+approach :func:`meshforge.cli.client._clean` applies to server-supplied error
+text), the value is capped, and the result is a :class:`rich.text.Text` - Rich's
+explicit "render this literally" type - so ``[bold red]`` in a hostname is never
+interpreted as markup whatever the console's ``markup`` setting is. ``--json``
+is deliberately *not* touched: it prints the API payload verbatim for scripting,
+and JSON string escaping already renders a control character as ``\u001b``.
+
 **Portability.** Tables use the ASCII box style, not Unicode box-drawing, so the
 output is identical in Windows Terminal, a legacy ``cmd.exe`` code page and a
 pipe. Colour is Rich's own TTY detection (a redirected stdout gets none).
@@ -22,8 +34,10 @@ from typing import Any
 
 from rich import box
 from rich.table import Table
+from rich.text import Text
 
 __all__ = [
+    "MAX_CELL_LENGTH",
     "NODE_COLUMNS",
     "format_age",
     "format_bytes",
@@ -38,6 +52,12 @@ NODE_COLUMNS = ("NODE", "HOSTNAME", "STATE", "CONN", "RTT", "CPU%", "RAM", "GPU"
 DASH = "-"
 """What a null, missing or unusable value renders as (ASCII, one character)."""
 
+MAX_CELL_LENGTH = 256
+"""Longest string a cell prints before it is truncated. The longest legitimate
+value is ``Hello.hostname`` at 253 characters (RFC 1035); a stored ``hardware``
+value has no such bound, and a megabyte in one cell is a denial of service
+against the operator's terminal."""
+
 _UNITS = ("B", "KiB", "MiB", "GiB", "TiB", "PiB")
 
 
@@ -49,8 +69,24 @@ def _num(value: object) -> float | None:
     return number if number == number and abs(number) != float("inf") else None  # NaN
 
 
-def _text(value: object) -> str:
-    return value if isinstance(value, str) and value else DASH
+def _cell(value: object) -> Text:
+    """The one gate for every string that reaches the terminal.
+
+    Flattens every non-printable character (ESC, BEL, CR, LF, NUL and the
+    Unicode format characters) to a space, caps the length, and returns a
+    :class:`~rich.text.Text`, which Rich renders literally - so no value can
+    move the cursor, rewrite the window title, recolour another node's row or
+    smuggle Rich markup. A value that is empty once flattened renders as ``-``.
+    """
+    if value is None:
+        return Text(DASH)
+    raw = value if isinstance(value, str) else str(value)
+    flat = "".join(ch if ch.isprintable() else " " for ch in raw).strip()
+    if not flat:
+        return Text(DASH)
+    if len(flat) > MAX_CELL_LENGTH:
+        flat = flat[:MAX_CELL_LENGTH] + "..."
+    return Text(flat)
 
 
 def format_bytes(value: object) -> str:
@@ -135,9 +171,9 @@ def nodes_table(payload: Mapping[str, Any]) -> Table:
     table = _table(*NODE_COLUMNS, title=f"nodes ({len(rows)})")
     for node in rows:
         table.add_row(
-            _text(node.get("node_id")),
-            _text(node.get("hostname")),
-            _text(node.get("state")),
+            _cell(node.get("node_id")),
+            _cell(node.get("hostname")),
+            _cell(node.get("state")),
             _conn(node),
             _rtt(node.get("rtt_ms")),
             _percent(node.get("cpu_percent")),
@@ -173,6 +209,7 @@ def node_detail_table(payload: Mapping[str, Any]) -> Table:
     table = _table("FIELD", "VALUE", title="node")
     for key, label in _DETAIL_FIELDS:
         value = payload.get(key)
+        rendered: str | Text
         if key == "connected":
             rendered = _conn(payload)
         elif key == "sample_age_s":
@@ -180,12 +217,14 @@ def node_detail_table(payload: Mapping[str, Any]) -> Table:
         elif key in {"rtt_ms", "rtt_ewma_ms"}:
             rendered = _rtt(value)
         else:
-            rendered = DASH if value is None else str(value)
+            rendered = _cell(value)
         table.add_row(label, rendered)
     hardware = payload.get("hardware")
     if isinstance(hardware, Mapping):
         for key in sorted(hardware):
-            table.add_row(f"hardware.{key}", str(hardware[key]))
+            # Both the key and the value are agent-supplied (D13: the controller
+            # stores `Hello.hardware` as given), so both go through `_cell`.
+            table.add_row(_cell(f"hardware.{key}"), _cell(hardware[key]))
     live = payload.get("cpu_percent"), payload.get("ram_used_bytes")
     if _num(live[0]) is not None or _num(live[1]) is not None:
         table.add_row("cpu%", _percent(payload.get("cpu_percent")))
@@ -220,15 +259,22 @@ def status_table(
 ) -> Table:
     """``compute status``: where we looked, whether it answered, and what it said."""
     table = _table("FIELD", "VALUE", title="fabric status")
-    table.add_row("controller", controller_url)
+    # `controller_url` comes from this operator's own config and `detail` from
+    # `client._clean`, but both still go through `_cell`: one gate, no exceptions.
+    table.add_row("controller", _cell(controller_url))
     table.add_row("reachable", "yes" if reachable else "no")
     if detail:
-        table.add_row("detail", detail)
+        table.add_row("detail", _cell(detail))
     if nodes is not None:
         total = nodes.get("count")
         table.add_row("nodes", DASH if _num(total) is None else str(total))
         for state, count in state_counts(nodes).items():
-            table.add_row(f"  {state}", str(count))
+            # The state values are the agent-influenced `node.state` strings, and
+            # they are row *labels* here - the indent is added outside `_cell`
+            # because `_cell` strips surrounding whitespace.
+            label = Text("  ")
+            label.append(_cell(state))
+            table.add_row(label, str(count))
         connected = sum(
             1
             for node in (nodes.get("nodes") or [])
