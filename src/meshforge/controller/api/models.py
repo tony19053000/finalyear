@@ -28,6 +28,22 @@ They still disagree legitimately: ``suspect`` with ``connected`` false is a node
 whose stream dropped and whose lease is running out (it may yet reconnect);
 ``online`` with ``connected`` false only lasts until the queued write lands.
 
+**Hardware scores (roadmap 0.3.4, D38)** are ``scores`` on every node, with a
+``status`` that is never inferred from a number:
+
+``measured``
+    the node's newest validated score run is stored (``run_id``, ``measured_at``,
+    ``conditions``, one entry per metric). A metric is either ``ok`` with a
+    ``mean`` or ``unavailable``/``failed`` with a ``reason`` and ``mean: null`` -
+    never a ``0.0`` standing in for "unknown".
+``pending``
+    nothing is stored for the hardware the node's latest ``Hello`` described,
+    and the node scores itself (it sent the ``hardware-scores`` capability): a
+    run is expected after its first ONLINE.
+``none``
+    nothing is stored and the node does not score (scoring disabled, hardware
+    discovery failed, or an agent older than 0.3.4).
+
 Timestamps are ISO-8601 with an explicit UTC offset. Field order is the declaration
 order below and is part of the contract (a diff of the JSON should stay readable).
 """
@@ -35,7 +51,7 @@ order below and is part of the contract (a diff of the JSON should stay readable
 from __future__ import annotations
 
 import datetime as dt
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, PlainSerializer
 
@@ -47,9 +63,12 @@ __all__ = [
     "NodeDetail",
     "NodeList",
     "NodeResources",
+    "NodeScores",
     "NodeSummary",
     "ResourceSample",
     "ResourceSnapshot",
+    "ScoreConditions",
+    "ScoreMetric",
     "SessionList",
     "SessionSummary",
 ]
@@ -83,6 +102,55 @@ class DiskUsage(ApiModel):
     total_bytes: int
 
 
+class ScoreMetric(ApiModel):
+    """One metric of a score run (D31). ``mean``/``stdev`` are null unless ``ok``."""
+
+    name: str
+    gpu_index: int | None = Field(
+        default=None,
+        description="NVML index (= hardware.gpus[].index) for GPU metrics.",
+    )
+    status: str = Field(description="ok | unavailable | failed")
+    unit: str | None = None
+    mean: float | None = None
+    stdev: float | None = None
+    n: int = 0
+    backend: str | None = None
+    backend_version: str | None = None
+    threads_effective: int | None = None
+    lower_bound: bool = False
+    throttling_suspected: bool | None = None
+    reason: str | None = Field(
+        default=None, description="Why the metric is not ok (snake_case code)."
+    )
+    detail: str = ""
+
+
+class ScoreConditions(ApiModel):
+    """How the run was measured (D36): recorded, never used to refuse."""
+
+    on_battery: bool | None = None
+    cpu_load_percent_before: float | None = None
+    background_load_high: bool | None = None
+    priority_lowered: bool = False
+    budget_s: float
+    duration_s: float
+    budget_exhausted: bool = False
+
+
+class NodeScores(ApiModel):
+    """``scores`` on a node. See the module docstring for the three statuses."""
+
+    status: Literal["measured", "pending", "none"]
+    run_id: str | None = None
+    measured_at: Utc | None = Field(
+        default=None, description="The agent's wall clock when the run finished."
+    )
+    score_version: int | None = None
+    conditions: ScoreConditions | None = None
+    metrics: tuple[ScoreMetric, ...] = ()
+
+
 class NodeSummary(ApiModel):
     """One row of ``GET /v1/nodes``. See the module docstring for D16."""
 
@@ -103,6 +171,7 @@ class NodeSummary(ApiModel):
     ram_used_bytes: int | None = None
     ram_total_bytes: int | None = None
     gpus: tuple[GpuUsage, ...] = ()
+    scores: NodeScores = Field(default_factory=lambda: NodeScores(status="none"))
 
 
 class NodeDetail(NodeSummary):

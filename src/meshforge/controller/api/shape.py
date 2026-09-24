@@ -9,24 +9,31 @@ controller restart and unit-testable with an injected clock.
 from __future__ import annotations
 
 import datetime as dt
-from typing import TypedDict
+from collections.abc import Mapping
+from typing import Any, TypedDict
 
+from meshforge.common.capabilities import HARDWARE_SCORES_CAPABILITY
 from meshforge.controller.api.models import (
     DiskUsage,
     GpuUsage,
     NodeDetail,
+    NodeScores,
     NodeSummary,
     ResourceSample,
     ResourceSnapshot,
+    ScoreConditions,
+    ScoreMetric,
     SessionSummary,
 )
 from meshforge.controller.liveness import NodeState
 from meshforge.controller.registry import NodeRecord, SessionRecord, SnapshotRecord
 from meshforge.controller.resources import LiveSample
+from meshforge.controller.scores import UNITS
 from meshforge.controller.session.manager import LiveSession
 
 __all__ = [
     "node_detail",
+    "node_scores",
     "node_summary",
     "resource_sample",
     "resource_snapshot",
@@ -60,6 +67,35 @@ def _gpus(sample: LiveSample | None) -> tuple[GpuUsage, ...]:
     )
 
 
+def _scores_capable(hardware: Mapping[str, Any]) -> bool:
+    capabilities = hardware.get("capabilities")
+    return isinstance(capabilities, list) and HARDWARE_SCORES_CAPABILITY in capabilities
+
+
+def node_scores(node: NodeRecord) -> NodeScores:
+    """``scores`` for one node (D38): measured / pending / none, never inferred.
+
+    The stored document was validated at ingestion (``session/limits.py``) and
+    shaped by ``controller/scores.py``; ``unit`` is added here from the metric name.
+    """
+    document = node.hardware_scores
+    if document is None:
+        if _scores_capable(node.hardware):
+            return NodeScores(status="pending")
+        return NodeScores(status="none")
+    return NodeScores(
+        status="measured",
+        run_id=document["run_id"],
+        measured_at=dt.datetime.fromisoformat(document["measured_at"]),
+        score_version=document["score_version"],
+        conditions=ScoreConditions(**document["conditions"]),
+        metrics=tuple(
+            ScoreMetric(**metric, unit=UNITS.get(metric["name"]))
+            for metric in document["metrics"]
+        ),
+    )
+
+
 class _SummaryFields(TypedDict):
     """Exactly the fields :class:`NodeSummary` declares (and NodeDetail inherits)."""
 
@@ -77,6 +113,7 @@ class _SummaryFields(TypedDict):
     ram_used_bytes: int | None
     ram_total_bytes: int | None
     gpus: tuple[GpuUsage, ...]
+    scores: NodeScores
 
 
 def _summary_fields(
@@ -103,6 +140,7 @@ def _summary_fields(
         "ram_used_bytes": sample.ram_used_bytes if sample is not None else None,
         "ram_total_bytes": sample.ram_total_bytes if sample is not None else None,
         "gpus": _gpus(sample),
+        "scores": node_scores(node),
     }
 
 

@@ -140,6 +140,7 @@ def test_summary_json_field_order_is_the_declaration_order() -> None:
         "ram_used_bytes",
         "ram_total_bytes",
         "gpus",
+        "scores",  # G7-B (0.3.4): appended, never reordered
     ]
 
 
