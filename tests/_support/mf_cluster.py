@@ -62,6 +62,11 @@ from pathlib import Path
 from typing import Any, Final, NoReturn
 
 import httpx
+import pytest
+
+# The agent extra provides psutil; skip (not crash) a plain `uv sync` collection.
+pytest.importorskip("psutil", reason="the cluster harness needs the agent extra")
+
 import psutil  # type: ignore[import-untyped]  # no stubs; agent extra
 from mf_faultproxy import FaultLink, FaultLoop
 
