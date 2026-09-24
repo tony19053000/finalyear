@@ -32,8 +32,16 @@ _SUMMARY = re.compile(r"^=*\s*((?:\d+ [a-z]+(?:, )?)+) in \d+(?:\.\d+)?s\b")
 _RED_OUTCOMES = frozenset({"failed", "error", "errors"})
 #: ANSI SGR colour codes: CI sets FORCE_COLOR, and pytest colours the summary.
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
-#: Printed by tests/conftest.py when it fails a run whose tests all passed.
+#: tests/conftest.py's report when it fails a run whose tests all passed: this
+#: separator (which pytest may append to the progress-dots line), then a line
+#: starting with the mark. Both are required - the phrase alone also appears in
+#: test sources and assertion diffs.
+_HALF_IMPORT_SEP = re.compile(r"=+ half-imported packages =+$")
 _HALF_IMPORT_MARK = "half-imported package(s) left in the pytest process"
+#: After Ctrl-C, how long pytest gets to finish on its own before the guard
+#: forwards the interrupt (a terminal Ctrl-C already reached it; a signal sent
+#: to the guard's PID alone did not).
+_INTERRUPT_GRACE_S = 5.0
 #: Windows reports a native crash as an NTSTATUS exit code, not a signal.
 _WINDOWS_CRASHES = {
     0xC0000005: "access violation",
@@ -97,6 +105,7 @@ def main(
     # it can be arbitrarily long, so a fixed tail buffer could lose it.
     summary = None
     half_imported = False
+    after_sep = False
     out = getattr(sys.stdout, "buffer", None)
     with subprocess.Popen(
         cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT
@@ -112,9 +121,19 @@ def main(
                     sys.stdout.write(text)
                 sys.stdout.flush()
                 summary = as_summary(text) or summary
-                half_imported = half_imported or _HALF_IMPORT_MARK in text
+                plain = _ANSI.sub("", text)
+                if after_sep and plain.startswith(_HALF_IMPORT_MARK):
+                    half_imported = True
+                after_sep = bool(_HALF_IMPORT_SEP.search(plain.rstrip()))
         except KeyboardInterrupt:
-            proc.wait()  # Ctrl-C reached pytest too; let it finish its report
+            try:
+                proc.wait(timeout=_INTERRUPT_GRACE_S)
+            except subprocess.TimeoutExpired:
+                if sys.platform == "win32":
+                    proc.terminate()
+                else:
+                    proc.send_signal(signal.SIGINT)
+                proc.wait()
             sys.stderr.write("\npytest-exit-guard: interrupted.\n")
             return 130
     if proc.returncode == 0:

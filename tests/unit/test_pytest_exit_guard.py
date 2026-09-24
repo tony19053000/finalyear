@@ -189,7 +189,9 @@ def test_a_run_failed_by_the_half_import_check_is_not_blamed_on_a_crash(
 ) -> None:
     # tests/conftest.py fails the session after every test passed, so the
     # summary is green and the exit is 1; the diagnosis must name the real cause.
+    # pytest appends the separator to the progress-dots line, as here.
     body = """
+        print("...[100%]===== half-imported packages =====")
         print("half-imported package(s) left in the pytest process: torch. ...")
         print("3 passed in 0.10s")
         raise SystemExit(1)
@@ -198,6 +200,72 @@ def test_a_run_failed_by_the_half_import_check_is_not_blamed_on_a_crash(
     err = capsys.readouterr().err
     assert "found a half-imported package" in err
     assert "crash while the" not in err
+
+
+@pytest.mark.parametrize(
+    "quoted",
+    [
+        # an assertion diff or test source quoting the phrase, no separator
+        "E   assert 'half-imported package(s) left in the pytest process' in ''",
+        "half-imported package(s) left in the pytest process: x",
+    ],
+)
+def test_the_half_import_phrase_alone_does_not_change_the_diagnosis(
+    quoted: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    body = (
+        f"print({quoted!r}); print('1 failed, 5 passed in 0.10s'); raise SystemExit(1)"
+    )
+    assert guard.main(command=fake_run(body)) == 1
+    err = capsys.readouterr().err
+    assert "half-imported" not in err
+    assert "pytest failed (exit status 1, exit 1)" in err
+
+
+@POSIX_ONLY
+def test_sigint_to_the_guard_alone_is_forwarded_to_pytest(tmp_path: Path) -> None:
+    # A signal to the guard's PID only (not the process group) never reaches
+    # pytest; the guard must forward it after the grace period, not wait out
+    # the whole run.
+    import os
+    import subprocess
+    import time
+
+    (tmp_path / "test_slow.py").write_text(
+        "import time\n\ndef test_slow():\n    time.sleep(60)\n", encoding="utf-8"
+    )
+    (tmp_path / "none.ini").write_text("[pytest]\n", encoding="utf-8")
+    runner = (
+        "import runpy, sys; sys.argv = [sys.argv[1], *sys.argv[2:]]; "
+        "runpy.run_path(sys.argv[0], run_name='__main__')"
+    )
+    with subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            runner,
+            str(SCRIPT),
+            str(tmp_path / "test_slow.py"),
+            "-q",
+            "-p",
+            "no:cacheprovider",
+            "-c",
+            str(tmp_path / "none.ini"),
+            "--rootdir",
+            str(tmp_path),
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        start_new_session=True,
+    ) as wrapper:
+        time.sleep(3)  # let pytest start the slow test
+        started = time.monotonic()
+        os.kill(wrapper.pid, signal.SIGINT)
+        _out, err = wrapper.communicate(timeout=30)
+        took = time.monotonic() - started
+    assert wrapper.returncode == 130
+    assert b"interrupted" in err
+    assert took < guard._INTERRUPT_GRACE_S + 10
 
 
 def test_output_bytes_are_passed_through_undecoded(
@@ -235,7 +303,7 @@ class _InterruptedPopen:
     def __exit__(self, *_exc: object) -> None:
         return None
 
-    def wait(self) -> int:
+    def wait(self, timeout: float | None = None) -> int:
         self.waited = True
         self.returncode = 2
         return 2
