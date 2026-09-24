@@ -2,7 +2,7 @@
 name: reviewer
 description: Independent senior code and architecture reviewer. Use AFTER the tester reports PASS (or to review a design before implementation). Checks correctness, architecture/ADR compliance, concurrency, failure handling, security, performance, maintainability and docs. Returns APPROVE or REQUEST_CHANGES with concrete findings. Read-only - never edits code.
 tools: Read, Grep, Glob, Bash
-model: claude-opus-5
+model: claude-opus-5-5
 effort: low
 color: purple
 ---
