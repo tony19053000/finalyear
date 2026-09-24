@@ -20,19 +20,18 @@ POSIX shell does (``128 + signal``, e.g. 139 for SIGSEGV).
 
 from __future__ import annotations
 
-import collections
 import re
 import signal
 import subprocess
 import sys
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 
 #: pytest's final line: ``3 passed, 1 skipped in 0.12s`` (``-q``) or the same
 #: wrapped in ``=`` rules; the duration may be ``(0:02:06)``-suffixed.
 _SUMMARY = re.compile(r"^=*\s*((?:\d+ [a-z]+(?:, )?)+) in \d+(?:\.\d+)?s\b")
 _RED_OUTCOMES = frozenset({"failed", "error", "errors"})
-#: How much trailing output to keep for finding the summary line.
-_TAIL_LINES = 50
+#: ANSI SGR colour codes: CI sets FORCE_COLOR, and pytest colours the summary.
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
 #: Windows reports a native crash as an NTSTATUS exit code, not a signal.
 _WINDOWS_CRASHES = {
     0xC0000005: "access violation",
@@ -41,17 +40,23 @@ _WINDOWS_CRASHES = {
 }
 
 
-def summary_line(lines: Sequence[str]) -> str | None:
+def as_summary(line: str) -> str | None:
+    """``line`` without colour codes if it is a pytest summary line, else None."""
+    plain = _ANSI.sub("", line).strip()
+    return plain if _SUMMARY.match(plain) else None
+
+
+def summary_line(lines: Iterable[str]) -> str | None:
     """The last pytest summary line in ``lines``, or None if there is none."""
-    for line in reversed(lines):
-        if _SUMMARY.match(line.strip()):
-            return line.strip()
-    return None
+    found = None
+    for line in lines:
+        found = as_summary(line) or found
+    return found
 
 
 def is_green(summary: str) -> bool:
     """True if a summary line reports no failed test and no error."""
-    match = _SUMMARY.match(summary)
+    match = _SUMMARY.match(_ANSI.sub("", summary).strip())
     if match is None:
         return False
     outcomes = {part.split(" ", 1)[1] for part in match.group(1).split(", ") if part}
@@ -83,7 +88,9 @@ def main(
         if command is not None
         else [sys.executable, "-m", "pytest", *args]
     )
-    tail: collections.deque[str] = collections.deque(maxlen=_TAIL_LINES)
+    # Remember the last summary as it streams past: a crash dump printed after
+    # it can be arbitrarily long, so a fixed tail buffer could lose it.
+    summary = None
     with subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
@@ -95,11 +102,10 @@ def main(
         for line in proc.stdout or ():
             sys.stdout.write(line)
             sys.stdout.flush()
-            tail.append(line)
+            summary = as_summary(line) or summary
     if proc.returncode == 0:
         return 0
     status, how = exit_status(proc.returncode)
-    summary = summary_line(list(tail))
     if summary is not None and is_green(summary):
         sys.stderr.write(
             "\n"
