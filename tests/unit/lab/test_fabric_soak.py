@@ -102,7 +102,7 @@ def test_a_controller_outage_is_recorded_with_its_duration(
     _fabric(stub_controller)
     clock = FakeClock()
     clock.after(5.0, stub_controller.stop)
-    clock.after(9.0, stub_controller.start)
+    clock.after(7.0, stub_controller.start)  # few closed-port polls (slow on Windows)
     state = soak.new_state(_cfg(), clock.wall())
     soak.Soak(
         FabricApi(stub_controller.url),
@@ -113,7 +113,7 @@ def test_a_controller_outage_is_recorded_with_its_duration(
         lambda _s: None,
     ).run()
     (outage,) = state["outages"]
-    assert 3.9 <= outage["duration_s"] <= 4.1
+    assert 1.9 <= outage["duration_s"] <= 2.1
     assert outage["to"] is not None
 
 

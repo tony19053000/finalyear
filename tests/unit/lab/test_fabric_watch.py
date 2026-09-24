@@ -222,13 +222,14 @@ def test_a_node_that_never_comes_online_aborts_the_run(
 def test_the_controller_going_away_mid_step_is_on_the_timeline(
     stub_controller: StubController,
 ) -> None:
-    """The stub's listening socket is really closed for 2 s during the pull."""
+    """The stub's listening socket is really closed for 0.3 s during the pull (short:
+    a poll of a closed port costs ~2 s of real time on Windows)."""
     _setup(stub_controller)
     clock = FakeClock()
 
     def pull() -> float:
         clock.after(1.0, stub_controller.stop)
-        clock.after(3.0, stub_controller.start)
+        clock.after(1.3, stub_controller.start)
         clock.after(
             4.0,
             lambda: stub_controller.set_node(NODE, state="offline", connected=False),

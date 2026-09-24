@@ -67,7 +67,9 @@ def test_unreachable_controller_exits_6_with_a_clear_message(
     code = cli.main(["--controller", closed_url, "--reports-dir", str(tmp_path), *sub])
     err = capsys.readouterr().err
     assert code == cli.EXIT_UNREACHABLE
-    assert "cannot reach the controller" in err and "connection refused" in err
+    assert "cannot reach the controller" in err
+    # Linux refuses at once; Windows retries the SYN for ~2 s, which can hit our timeout
+    assert "connection refused" in err or "timed out" in err
     assert "--controller" in err
     assert list(tmp_path.iterdir()) == []  # nothing half-written
 

@@ -35,7 +35,7 @@ def _fabric(stub: StubController) -> None:
 def _kill_and_restart(
     stub: StubController, clock: FakeClock, *, b_back: str | None = B
 ) -> None:
-    """Controller dies 1 s after the prompt and serves again 3 s later (all rows
+    """Controller dies 1 s after the prompt and serves again 0.3 s later (all rows
     disconnected, live rings empty - a new process); A is back 1 s after that,
     B (or a stranger with B's hostname) 2.5 s after."""
 
@@ -58,10 +58,12 @@ def _kill_and_restart(
             with stub.lock:
                 stub.nodes[b_back] = node_doc(b_back, "lap2", epoch=1)
 
+    # a short outage: every poll of a closed port costs ~2 s of REAL time on Windows
+    # (SYN retries before the refusal), so the tests keep such polls few
     clock.after(1.0, stub.stop)
-    clock.after(4.0, restart)
-    clock.after(5.0, a_back)
-    clock.after(6.5, b_returns)
+    clock.after(1.3, restart)
+    clock.after(2.3, a_back)
+    clock.after(3.8, b_returns)
 
 
 def test_reconnect_is_timed_from_the_new_controller_process(
@@ -79,7 +81,7 @@ def test_reconnect_is_timed_from_the_new_controller_process(
     )
     assert result.errors == []
     (sample,) = result.samples
-    assert 2.9 <= sample["outage_s"] <= 3.2
+    assert 0.2 <= sample["outage_s"] <= 0.4
     assert 2.4 <= sample["reconnect_all_s"] <= 2.6
     assert sample["reconnect_all_within_bound"] is True
     a, b = sample["nodes"][A], sample["nodes"][B]
@@ -120,7 +122,7 @@ def test_a_controller_that_never_comes_back_aborts_with_a_typed_failure(
     _fabric(stub_controller)
     clock = FakeClock()
     op = ScriptedOperator(clock, [step(clock, [(0.5, stub_controller.stop)], None)])
-    cfg = RestartConfig(reps=2, up_timeout_s=5.0)
+    cfg = RestartConfig(reps=2, up_timeout_s=3.0, poll_s=1.0)  # few closed-port polls
     result = run_restart_check(FabricApi(stub_controller.url), clock, op, cfg)
     assert result.aborted
     assert [e["failure_type"] for e in result.errors] == [NOT_UP]
