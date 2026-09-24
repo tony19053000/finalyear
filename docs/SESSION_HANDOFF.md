@@ -203,6 +203,9 @@ early. Re-check after G7.
 
 ## 2. In flight right now
 
+> **G7-B in flight (implementer):** done item 1 (proto `HardwareScores`, Hello 9 / AgentMessage 20, `agent/benchmarks/wire.py`; `9da3a6e`,`bde4503`).
+> Next: item 2 (agent Hello + send_report), then 3 (controller migration 0005 + validation + fenced storage).
+
 > **G7-A in flight (implementer):** items 1-7 + unit/component/heartbeat tests + mutation checks committed (`dc4ebcf`..`7ce9b39`).
 > Next: full component-suite run, then the handoff note to the Lead; after that the tester round (A+B share one tester round per §5g, so G7-B may go first).
 
