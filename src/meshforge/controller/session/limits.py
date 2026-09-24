@@ -16,12 +16,29 @@ too so a ``node_``/``job_`` id pasted into the wrong field is caught at the edge
 The string caps match the registry columns (``store/models/node.py``) so the
 limit and the schema cannot drift apart silently; ``HOSTNAME_MAX_LENGTH`` is the
 DNS maximum for a fully qualified name.
+
+**Rule (V0.3 G6, D22): agent-supplied strings are validated at ingestion;
+renderers stay defensive anyway.** Every Hello string the controller stores - the
+four top-level ones and every string anywhere inside ``Hello.hardware`` - must be
+printable (``str.isprintable()``: no C0/C1 control characters, no DEL, no bidi
+overrides or other format characters, no line breaks or tabs). Otherwise the
+Hello is ``INVALID_ARGUMENT`` and nothing is persisted, exactly like an
+over-long field. The reason names the field path and the first offending code
+point as ``U+XXXX`` - never the value, which is peer-controlled and may be an
+escape sequence aimed at an operator's terminal. Letters of every script stay
+legal (Polish, Japanese, ... hostnames). The value is rejected rather than
+cleaned so what is stored is always exactly what the agent sent; the CLI's
+``_cell()`` gate stays, because it will not stay the only sink (V0.8 dashboard,
+log lines).
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Final
+
+from google.protobuf.descriptor import FieldDescriptor
+from google.protobuf.message import Message
 
 from meshforge.common.errors import InvalidIdError
 from meshforge.common.ids import IdKind, parse_id
@@ -48,6 +65,7 @@ __all__ = [
     "check_hardware",
     "check_hello_strings",
     "check_resource_update",
+    "first_non_printable",
     "validate_message_id",
 ]
 
@@ -74,14 +92,39 @@ _HELLO_STRING_LIMITS: Final[tuple[tuple[str, int], ...]] = (
 )
 
 
+def first_non_printable(value: str) -> tuple[int, str] | None:
+    """``(index, "U+XXXX")`` of the first non-printable character, else ``None``.
+
+    Printable is :meth:`str.isprintable` (Unicode categories other than
+    ``Cc``/``Cf``/``Cs``/``Co``/``Cn``/``Zl``/``Zp``/``Zs``, plus the ASCII
+    space). Never returns the value itself.
+    """
+    if value.isprintable():  # C-speed fast path for the common case
+        return None
+    for index, char in enumerate(value):
+        if not char.isprintable():
+            return index, f"U+{ord(char):04X}"
+    return None  # pragma: no cover - isprintable() said otherwise
+
+
+def _non_printable_reason(path: str, value: str) -> str | None:
+    found = first_non_printable(value)
+    if found is None:
+        return None
+    index, code_point = found
+    return f"{path} contains the non-printable character {code_point} at index {index}"
+
+
 def check_hello_strings(
     *, hostname: str, os: str, platform: str, agent_version: str
 ) -> str | None:
-    """Return a reason if a Hello string field is over its cap, else ``None``.
+    """Return a reason if a Hello string field is over its cap or not printable.
 
     Pure: the caller turns a reason into an ``INVALID_ARGUMENT`` rejection. The
-    reason names the field and both lengths but never echoes the value (it may
-    be megabytes long, and it is peer-controlled).
+    reason names the field (and both lengths, or the first offending code point,
+    D22) but never echoes the value (it may be megabytes long, or an escape
+    sequence, and it is peer-controlled). Lengths are checked first for every
+    field, so a huge value is refused before it is scanned.
     """
     values = {
         "hostname": hostname,
@@ -93,6 +136,10 @@ def check_hello_strings(
         length = len(values[field])
         if length > limit:
             return f"Hello.{field} is {length} characters; the maximum is {limit}"
+    for field, _limit in _HELLO_STRING_LIMITS:
+        reason = _non_printable_reason(f"Hello.{field}", values[field])
+        if reason is not None:
+            return reason
     return None
 
 
@@ -214,6 +261,30 @@ def check_hardware(hardware: agent_pb2.HardwareSummary) -> str | None:
             f"Hello.hardware is {size} bytes; the maximum is "
             f"{HARDWARE_SUMMARY_MAX_BYTES}"
         )
+    # D22, after the size caps so only bounded strings are scanned.
+    return _non_printable_in_message(hardware, "Hello.hardware")
+
+
+def _non_printable_in_message(message: Message, path: str) -> str | None:
+    """The first non-printable string anywhere in ``message`` (D22), as a reason.
+
+    Walks the descriptor, not a hand-written field list, so a string field added
+    to ``HardwareSummary`` later is covered without touching this module.
+    """
+    for field, value in message.ListFields():
+        here = f"{path}.{field.name}"
+        repeated = field.is_repeated
+        items = list(value) if repeated else [value]
+        for position, item in enumerate(items):
+            where = f"{here}[{position}]" if repeated else here
+            if field.type == FieldDescriptor.TYPE_STRING:
+                reason = _non_printable_reason(where, item)
+            elif field.type == FieldDescriptor.TYPE_MESSAGE:
+                reason = _non_printable_in_message(item, where)
+            else:
+                reason = None
+            if reason is not None:
+                return reason
     return None
 
 
