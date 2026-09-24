@@ -273,15 +273,18 @@ away any once-per-session call.
   probe the first row, then ask `_database_answers()` immediately.
 - **V0.4:** `manager.py` is ~913 lines and still on the extraction list.
 
-### One gate a fresh session should re-run
+### Gate evidence at G5 close
 
-**`pytest -m component` was started at G5 close and did not finish.** It reached ~88% with **zero failures** and was
-still crawling after well over an hour (load average ~9, Docker cycling Postgres containers). G5's own component
-tests are green inside the targeted runs — `tests/component/controller` 64 passed, `tests/component/agent` 67
-passed (including all 21 new G5 tests), `test_registry_list_sessions_{tester,tiebreaker}` 10 passed against real
-PostgreSQL — so what is missing is a regression check over the `lab` and `store` tiers that G5 never touches.
-**Re-run the whole suite on an unloaded machine early in the G6 session** and record the number; if anything is red
-there, it is a G4-or-earlier regression, not G5.
+`pytest -m component` → **421 passed, 6 skipped, exit 0, in 12 min 02 s.** Green, including a regression check over
+the `lab` and `store` tiers G5 never touches. Targeted runs alongside it: `tests/component/controller` 64 passed,
+`tests/component/agent` 67 passed (all 21 new G5 tests included), `test_registry_list_sessions_{tester,tiebreaker}`
+10 passed against real PostgreSQL.
+
+Two warnings about *measuring* this suite, learned the hard way. It appeared stalled for over an hour while being
+polled — the machine was at load average ~9 with several of the Lead's own earlier runs competing for it, and each
+`kill` of a stray run reset the picture. **Actual pytest time was 12 minutes**, close to the V0.1-era record. So:
+run it once, do not poll it aggressively, and do not start other heavy runs beside it. And note the contrast that
+matters for the exit-139 hunt: **the component tier exits 0 while the unit tier exits 139.**
 
 ### Not written by an agent session
 
