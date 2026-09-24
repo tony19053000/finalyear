@@ -225,7 +225,11 @@ Everything else PASS (linger/fence, D21, D22, harness mutation + SIGKILL-pytest 
 **G6 fix round done** (`4f6e2b3` … `7bfc367`: D28 claim-on-pending-admission, D27 cap 5 s, D26 grace 20 s +
 `sample_late`, SIGBREAK, no paths in identity logs; unit 3457 exit 0, cluster 39 exit 0, component controller has the
 known racing-epochs flake ~40 %). Lead then made **D29** directly (agent `hello_timeout_s` 3 s, `cap_s + hello_timeout_s ≤
-8 s` validator). **Tester round 2 on the whole fix delta spawned**, then reviewer. If this session died,
+8 s` validator). **Tester round 2: PASS** (`56dabf1`; no `src/` defects; criterion 2 worst 3.6 s after a
+120 s blackhole, criterion 3 1.8 s with 5 agents at shipped timings; every fix mutation-checked; unit 3475 exit 0).
+Behaviour change to tell the team: a `config.toml` with `hello_timeout_s = 5` now refuses to start (5 + 5 > 8 s, clear
+`ConfigError`). Trap: after mutation testing, clear `__pycache__` — a same-second `.pyc` once showed stale defaults.
+**Reviewer spawned** over all of G6 (`64a89b5..HEAD`). If this session died,
 look at `git log` for `feat(V0.3-G6)` / `test(V0.3-G6)` commits to see which run finished; relaunch the next one from
 §5f with the previous run's handoff note pasted in (commit a half-finished tree `wip:` first).
 
