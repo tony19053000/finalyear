@@ -7,9 +7,10 @@
 > **Cold-start prompt** (paste this as the first message on the new account):
 >
 > ```
-> Read docs/SESSION_HANDOFF.md (sections 0, 0b and 2 especially), then docs/STATUS.md, then
-> the current version in docs/DEVELOPMENT_ROADMAP.md. G5 is closed; the next agent-side step
-> is to write the V0.3 G6 brief (0.3.14) as docs/briefs/V0.3-fabric-core.md §5f and spawn it.
+> Read docs/SESSION_HANDOFF.md (sections 0, 0b, 0c and 2 especially), then docs/STATUS.md, then
+> the current version in docs/DEVELOPMENT_ROADMAP.md. V0.3 G6 is in flight: the brief is
+> docs/briefs/V0.3-fabric-core.md §5f (runs A → B → C, then tester, then reviewer). Check
+> git log for which run last committed and continue from there.
 > ```
 >
 > Order of truth: `PROJECT_BRIEF → ARCHITECTURE → ROADMAP → STATUS → this file`. If this file
@@ -29,7 +30,7 @@
 > throughput measurements and the reasoning; if you think the arithmetic or the trade is wrong,
 > **say so to the team before building on it.** Do not silently re-expand the scope either.
 
-**Last updated:** 2026-09-24 (**G5 CLOSED agent-side**; **models moved to Opus 5.5** — see §0c; **G6 is next and its brief is not written yet**; the exit-139 fix task was killed and must be relaunched) · **Updated by:** Lead session (account 2)
+**Last updated:** 2026-09-24 (**G6 brief written — §5f — and run G6-A spawned**; ARCHITECTURE §12.3 amended (D19/D20); models on Opus 5.5 — see §0c; the exit-139 fix task was killed and must be relaunched) · **Updated by:** Lead session (account 2)
 
 ---
 
@@ -196,10 +197,24 @@ check nothing is mid-task first.
 
 ## 2. In flight right now
 
-**Nothing is mid-task.** G5 closed cleanly on 2026-09-24 and the working tree is committed. The next agent-side
-step is a **Lead** step: write the **G6** brief (0.3.14 cluster test harness + fault injection) as
-`docs/briefs/V0.3-fabric-core.md` **§5f**, following the §5d/§5e pattern — Lead decisions first, then the pasteable
-brief with the §4 checklist — then spawn it.
+**G6 is in flight (2026-09-24).** Brief: `docs/briefs/V0.3-fabric-core.md` **§5f**, decisions **D19–D25**. It is
+three sequential implementer runs — **G6-A** fabric fixes (NB-G5-1, fenced state writes, NB-1 `Event`, ingestion
+validation, `controller.listening`) → **G6-B** cluster harness + fault proxy (0.3.14 proper) → **G6-C** 0.3.15 lab
+kit — then **one tester round over A+B+C**, then the reviewer. **G6-A was spawned 2026-09-24.** If this session died,
+look at `git log` for `feat(V0.3-G6)` / `test(V0.3-G6)` commits to see which run finished; relaunch the next one from
+§5f with the previous run's handoff note pasted in (commit a half-finished tree `wip:` first).
+
+**Two G6 decisions the team should look at** (neither blocks the runs):
+- **D19 departs from the reviewer's NB-G5-1 proposal.** Only a *clean* close (agent half-close, controller shutdown)
+  → OFFLINE at once; an *abrupt* stream loss → SUSPECT, with OFFLINE only if the lease runs out first. Reason:
+  OFFLINE is what V0.6 turns into "attempts LOST, retry elsewhere", so a Wi-Fi blip must not cause duplicate work
+  or count as a false OFFLINE in the 24 h soak. ARCHITECTURE §12.3 amended with the full table.
+- **D20 fixes a latent race the Lead found while writing the brief:** an old session's queued state write could land
+  after a reconnect's ONLINE and leave a connected node reading OFFLINE indefinitely. Session-originated state
+  writes are now fenced on `last_session_id`.
+- **D23 replaces the Toxiproxy binary with an in-process asyncio proxy** using Toxiproxy's fault vocabulary (it is
+  named in ADR-0010/ARCHITECTURE §22; §22 updated). Reason: no download, no Docker host networking, runs after a
+  plain `uv sync`. Object before G6-B if you disagree.
 
 ### What G5 shipped (0.3.12 `[x]`, 0.3.13 `[~]`)
 

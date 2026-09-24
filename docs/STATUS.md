@@ -2,7 +2,7 @@
 
 > Concise current state. Long-term plan: [`DEVELOPMENT_ROADMAP.md`](DEVELOPMENT_ROADMAP.md). Update at the end of every work session.
 
-**Last updated:** 2026-09-24 (**V0.3 G5 CLOSED agent-side** — 0.3.12 `[x]`, 0.3.13 `[~]` on one 🧑 Windows check; G6 next; V0.2 waits on 🧑 lab runs)
+**Last updated:** 2026-09-24 (**V0.3 G6 in flight** — brief §5f written, run G6-A spawned; G5 closed agent-side; V0.2 waits on 🧑 lab runs)
 
 ## Current Version
 **V0.3 — Fabric core** · started 2026-09-20 on the team's decision (before the laptop 2–4 inventory); **G1–G5 closed agent-side** (0.3.1, 0.3.3, 0.3.5, 0.3.6, 0.3.8, 0.3.9, 0.3.10, 0.3.11, 0.3.12 `[x]`; 0.3.2 `[~]` Windows run; 0.3.7 `[~]` lab evidence; 0.3.13 `[~]` Windows logoff check). Remaining: **G6** (0.3.14 cluster harness + fault injection), **G7** (0.3.4 hardware scores), 🧑 0.3.15 lab run
@@ -15,9 +15,9 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 > V0.10. 129 tasks vs 140–180 capacity → **~1.5 tasks/session**. Needs the other three team members' approval.
 
 ## Current Task
-**Next: write the V0.3 G6 brief** (0.3.14 cluster test harness: start a controller + N agents as local processes, with fault injection — kill, pause, network cut) as **§5f** of `docs/briefs/V0.3-fabric-core.md`, following the §5d/§5e pattern: Lead decisions first, then the pasteable brief with the §4 checklist.
+**V0.3 G6 in flight** — brief `docs/briefs/V0.3-fabric-core.md` §5f (D19–D25): run **G6-A** (fabric fixes) spawned 2026-09-24 → G6-B (cluster harness + fault proxy, 0.3.14) → G6-C (0.3.15 lab kit) → tester (A+B+C) → reviewer. ARCHITECTURE §12.3 amended first (D19 stream-end arrows, D20 fenced state writes); §22 records D23 (in-process fault proxy instead of the Toxiproxy binary — team may object before G6-B).
 
-**G6 inherits three concrete items** — do not let them get lost:
+**G6 carries three inherited items** (all in G6-A/B):
 1. **The harness gap that let G4's R1 survive its first round.** The component harness cannot express "the controller stays up, the client's TCP drops and reconnects" — it restarts the controller, which destroys the in-memory tracker. That is exactly the shape of the bug that corrupted snapshot means.
 2. **The NB-1 ordering invariant** in `agent/session/client.py` is enforced by a comment plus a *component* test; the structural fix is an `asyncio.Event` set after `_reconcile_and_replay()` and awaited by `send_report`.
 3. **NB-G5-1 — the reviewer's "single most important G6 follow-up".** A cleanly closed session never moves `node.state`, so a laptop that shut down gracefully reads `state: online` until the controller restarts. Needs an **ARCHITECTURE §12.3 amendment first** (an explicit `STREAM_CLOSED` event, `ONLINE|SUSPECT → OFFLINE`, written from `SessionManager._close` on the same `live.writer` chain as `close_session`, with **supersession excluded** because the new session's `Hello` owns the state), then the code. Until it lands, **anything reading liveness must use `connected` / `sample_age_s`, never `state` alone** — including V0.14's planner and any V0.15 label.

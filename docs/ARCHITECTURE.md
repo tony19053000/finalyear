@@ -472,9 +472,28 @@ stateDiagram-v2
     SUSPECT --> REVOKED
     OFFLINE --> REVOKED
     DRAINING --> REVOKED
+    ONLINE --> OFFLINE: stream closed cleanly (agent half-close / controller shutdown)
+    SUSPECT --> OFFLINE: stream closed cleanly
+    DRAINING --> OFFLINE: stream closed cleanly
+    ONLINE --> SUSPECT: stream lost (transport drop, cancel, protocol/internal error)
+    DRAINING --> SUSPECT: stream lost
     REVOKED --> [*]
 ```
 *Amended 2026-09-20 (V0.3 G1 review):* a draining node can still lose its lease, and revocation must be possible from every live state — the original diagram had no arrows for either. A `Hello` that arrives while the node is `SUSPECT` (agent reconnected before the lease expired) is handled as `RECONNECTED`, i.e. the same arrow as from `OFFLINE`; both land in `ONLINE`. The code table in `controller/liveness.py` must match this diagram exactly (V0.3 G2 extends it; the G1 table implements the arrows that existed before this amendment).
+
+*Amended 2026-09-24 (V0.3 G6, fixes NB-G5-1 — decisions D19/D20 in `docs/briefs/V0.3-fabric-core.md` §5f):* before this, a session that ended any way other than lease expiry never moved `node.state`, so a laptop that shut down cleanly read `ONLINE` until the controller restarted. How a session ends now decides the arrow:
+
+| Session end | Event | Arrow | Why |
+|---|---|---|---|
+| Agent half-closed its stream (the reader saw the request iterator end normally — the **only** evidence of a clean close) | `STREAM_CLOSED` | `ONLINE/SUSPECT/DRAINING → OFFLINE` now | the agent said it is leaving |
+| Controller graceful shutdown | `STREAM_CLOSED` | same | matches the start-up sweep; no controller = no liveness claim |
+| Transport drop, call cancelled, protocol error, internal error (new end reason `stream_lost`; protocol/internal keep their own reasons) | `STREAM_LOST` | `ONLINE/DRAINING → SUSPECT` now; the lease **keeps running** on a lingering entry and `LEASE_EXPIRED → OFFLINE` fires at the normal edge (measured from the last contact) unless a new `Hello` arrives first | **`OFFLINE` is what V0.6 turns into "attempts `LOST`, retry elsewhere" (§13).** A TCP blip the agent survives in ~1 s must not cause duplicate execution, nor count as a false OFFLINE in the soak (V0.3 criterion 5) |
+| Lease expired | (already `LEASE_EXPIRED`) | none extra | already `OFFLINE` |
+| Superseded by a newer epoch | **none** | — | the new session's `Hello` owns the state |
+
+`STREAM_CLOSED` and `STREAM_LOST` are self-loops from `OFFLINE` and `REVOKED` (and `STREAM_LOST` from `SUSPECT`), so close/expiry ordering can never raise `InvalidTransitionError`. A `Hello` while an entry is lingering is `RECONNECTED` from the lingering state and ends the linger without writing `OFFLINE`; epoch fencing counts the lingering epoch as "highest seen".
+
+**Fenced state writes (D20).** Every node-state write that comes from a session is `UPDATE node SET state = … WHERE node_id = :n AND last_session_id = :s`. Writes are ordered *within* a session by its write chain, but nothing orders an old session's late write against a new session's admission (which updates the row directly, not on a chain). Without the fence, a backlogged `OFFLINE` from the old session could land after the reconnect's `ONLINE` and leave a connected node reading `OFFLINE` indefinitely: heartbeats are self-loops, so nothing would ever rewrite it. A fenced write that matches 0 rows was superseded; it is logged, not an error.
 
 ---
 
@@ -736,7 +755,7 @@ Contracts live in `proto/` (source of truth) and OpenAPI generated from FastAPI.
 | Discovery | zeroconf (mDNS) | LAN controller discovery |
 | CLI | Typer + Rich | ergonomic, testable |
 | Frontend | React + TypeScript + Vite, TanStack Query, Tailwind + Radix primitives, Recharts | professional, restrained UI |
-| Testing | pytest, pytest-asyncio, testcontainers, Toxiproxy (fault injection), Playwright (UI e2e) | real behaviour over mocks |
+| Testing | pytest, pytest-asyncio, testcontainers, fault-injecting TCP proxy (Toxiproxy's fault vocabulary, in-process asyncio implementation — V0.3 G6 D23), Playwright (UI e2e) | real behaviour over mocks; the proxy needs no download or Docker host networking, so the cluster tier runs after a plain `uv sync` |
 | Quality | ruff, mypy, pre-commit, GitHub Actions (Linux + Windows runners) | agent-safe guardrails |
 | Metrics (later) | Prometheus exporter + Grafana | optional |
 
