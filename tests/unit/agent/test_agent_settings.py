@@ -45,7 +45,7 @@ def test_defaults_match_adr_0002_updates() -> None:
     assert a.discovery.enabled is True
     assert a.discovery.timeout_s == 5.0
     assert a.discovery.service_type == DEFAULT_SERVICE_TYPE
-    assert a.hello_timeout_s == 5.0
+    assert a.hello_timeout_s == 3.0
     assert a.agent_version == __version__
 
 
@@ -141,3 +141,15 @@ def test_agent_version_bounded() -> None:
         AgentSection(agent_version="x" * 65)
     with pytest.raises(ValueError, match="agent_version"):
         AgentSection(agent_version="")
+
+
+def test_hello_timeout_plus_backoff_cap_is_bounded_by_criterion_2() -> None:
+    # D29: a dead-path attempt (hello_timeout_s) followed by the longest sleep
+    # (cap_s) must fit under criterion 2's 10 s with room for the real connect.
+    shipped = AgentSection()
+    assert shipped.reconnect.cap_s + shipped.hello_timeout_s <= 8.0
+    AgentSection(hello_timeout_s=3.0, reconnect={"cap_s": 5.0})  # exactly the budget
+    with pytest.raises(ValueError, match="criterion 2"):
+        AgentSection(hello_timeout_s=3.5, reconnect={"cap_s": 5.0})
+    with pytest.raises(ValueError, match="criterion 2"):
+        AgentSection(hello_timeout_s=8.0, reconnect={"cap_s": 0.5})

@@ -111,6 +111,16 @@ it past 5 s eats that margin; criterion 3 (reconnect within 15 s of a controller
 restart) alone would allow 15 s, so it is criterion 2 that binds.
 """
 
+RECONNECT_ATTEMPT_BUDGET_S: Final = 8.0
+"""Largest allowed ``cap_s + hello_timeout_s`` - the rest of the criterion 2 arithmetic.
+
+An attempt that starts just before the link returns can spend a whole
+``hello_timeout_s`` on the dead path and *then* sleep up to ``cap_s`` before the
+attempt that succeeds (D29, 2026-09-24). Both must fit under criterion 2's 10 s
+with room for the successful connect + Hello round trip: 3 s + 5 s = 8 s leaves
+~2 s. Enforced by :meth:`AgentSection._criterion_2_budget`.
+"""
+
 RECONNECT_CAP_S: Final = RECONNECT_CAP_BOUND_S
 """Default ``cap_s``; the single source of truth for :class:`~meshforge.agent.
 session.policy.BackoffPolicy` too."""
@@ -317,9 +327,12 @@ class AgentSection(SectionModel):
     hardware: HardwareSettings = Field(default_factory=HardwareSettings)
     resources: ResourceSettings = Field(default_factory=ResourceSettings)
     hello_timeout_s: float = Field(
-        default=5.0,
+        default=3.0,
         gt=0,
-        description="How long to wait for HelloAck before the attempt counts as failed.",
+        description=(
+            "How long to wait for HelloAck before the attempt counts as failed. "
+            "cap_s + hello_timeout_s must stay <= 8 s (V0.3 criterion 2, D29)."
+        ),
     )
     agent_version: str = Field(
         default=__version__,
@@ -350,6 +363,18 @@ class AgentSection(SectionModel):
                 f"agent_version must be 1..{_AGENT_VERSION_MAX_LENGTH} characters"
             )
         return value
+
+    @model_validator(mode="after")
+    def _criterion_2_budget(self) -> AgentSection:
+        # V0.3 criterion 2 (restored link -> ONLINE <= 10 s): see RECONNECT_ATTEMPT_BUDGET_S.
+        total = self.reconnect.cap_s + self.hello_timeout_s
+        if total > RECONNECT_ATTEMPT_BUDGET_S:
+            raise ValueError(
+                f"reconnect.cap_s + hello_timeout_s is {total:g} s; the maximum is "
+                f"{RECONNECT_ATTEMPT_BUDGET_S:g} s (V0.3 criterion 2: a restored link "
+                "must be ONLINE within 10 s)"
+            )
+        return self
 
     @model_validator(mode="after")
     def _some_way_to_find_the_controller(self) -> AgentSection:

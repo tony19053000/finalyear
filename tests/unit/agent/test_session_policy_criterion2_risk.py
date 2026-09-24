@@ -13,7 +13,7 @@ now a passing **guard**: it fails if the shipped cap, or the bound the validator
 past what criterion 2 tolerates. The history below is kept as the reason the guard exists.
 
 The *ceilings alone* sum to only 15.5 s over the first 5 failed cycles (0.5+1+2+4+8), but each
-real cycle also spends ``hello_timeout_s`` (5 s shipped default) failing to get a HelloAck before
+real cycle also spends ``hello_timeout_s`` (3 s shipped default since D29; it was 5 s when this test was written) failing to get a HelloAck before
 the sleep even starts (a ``blackhole`` fault keeps the socket open and silently drops bytes, so
 the agent's own Hello-timeout, not a fast connection refusal, is what ends each attempt) - measured
 empirically on the cluster harness (``tests/cluster/test_criterion2_long_outage_restore.py``): a
