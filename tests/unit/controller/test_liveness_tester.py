@@ -129,10 +129,17 @@ def test_check_with_now_before_construction_time_is_defined_not_negative() -> No
 
 
 def test_online_heartbeat_self_loop_is_the_only_self_loop() -> None:
+    # Amended 2026-09-24 (G6, D19): STREAM_CLOSED / STREAM_LOST are deliberate
+    # self-loops from OFFLINE and REVOKED (and STREAM_LOST from SUSPECT), so the
+    # order of a close and a lease expiry can never raise. Every *other* event
+    # still has no self-loop outside ONLINE/HEARTBEAT.
+    stream_end = (LivenessEvent.STREAM_CLOSED, LivenessEvent.STREAM_LOST)
     for state in NodeState:
         if state is NodeState.ONLINE:
             continue
         for event in LivenessEvent:
+            if event in stream_end:
+                continue
             try:
                 from meshforge.controller.liveness import next_state
 
@@ -146,6 +153,10 @@ def test_revoked_is_a_true_sink_for_every_single_event() -> None:
     from meshforge.controller.liveness import next_state
 
     for event in LivenessEvent:
+        if event in (LivenessEvent.STREAM_CLOSED, LivenessEvent.STREAM_LOST):
+            # amended 2026-09-24: a self-loop - REVOKED is still never left
+            assert next_state(NodeState.REVOKED, event) is NodeState.REVOKED
+            continue
         with pytest.raises(InvalidTransitionError):
             next_state(NodeState.REVOKED, event)
 

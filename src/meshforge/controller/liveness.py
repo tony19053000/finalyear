@@ -59,6 +59,12 @@ class LivenessEvent(StrEnum):
     DRAIN = "drain"
     UNDRAIN = "undrain"
     REVOKE = "revoke"
+    STREAM_CLOSED = "stream_closed"
+    """The session ended *cleanly*: the agent half-closed its stream, or the
+    controller is shutting down gracefully (ARCHITECTURE §12.3, 2026-09-24)."""
+    STREAM_LOST = "stream_lost"
+    """The session ended *abruptly*: transport drop, cancelled call, protocol or
+    internal error. The lease keeps running on a lingering entry (D19)."""
 
 
 class InvalidTransitionError(MeshForgeError):
@@ -75,8 +81,8 @@ class InvalidTransitionError(MeshForgeError):
         self.event = event
 
 
-#: The §12.3 arrows (as amended 2026-09-20). Anything not listed raises
-#: InvalidTransitionError.
+#: The §12.3 arrows (as amended 2026-09-20 and 2026-09-24). Anything not listed
+#: raises InvalidTransitionError.
 _TRANSITIONS: Final[dict[tuple[NodeState, LivenessEvent], NodeState]] = {
     (NodeState.ENROLLING, LivenessEvent.HELLO_ACCEPTED): NodeState.ONLINE,
     (NodeState.ONLINE, LivenessEvent.HEARTBEAT): NodeState.ONLINE,  # self-loop
@@ -96,6 +102,21 @@ _TRANSITIONS: Final[dict[tuple[NodeState, LivenessEvent], NodeState]] = {
     (NodeState.SUSPECT, LivenessEvent.REVOKE): NodeState.REVOKED,
     (NodeState.OFFLINE, LivenessEvent.REVOKE): NodeState.REVOKED,
     (NodeState.DRAINING, LivenessEvent.REVOKE): NodeState.REVOKED,
+    # How a session ends decides the arrow (2026-09-24, D19). A clean end is the
+    # agent saying it is leaving: OFFLINE now. An abrupt end is only SUSPECT; the
+    # lease decides OFFLINE later, so a blip the agent survives is not a loss.
+    (NodeState.ONLINE, LivenessEvent.STREAM_CLOSED): NodeState.OFFLINE,
+    (NodeState.SUSPECT, LivenessEvent.STREAM_CLOSED): NodeState.OFFLINE,
+    (NodeState.DRAINING, LivenessEvent.STREAM_CLOSED): NodeState.OFFLINE,
+    (NodeState.ONLINE, LivenessEvent.STREAM_LOST): NodeState.SUSPECT,
+    (NodeState.DRAINING, LivenessEvent.STREAM_LOST): NodeState.SUSPECT,
+    # Self-loops so close/expiry ordering can never raise: a stream that ends
+    # after the node already left (or was revoked) changes nothing.
+    (NodeState.SUSPECT, LivenessEvent.STREAM_LOST): NodeState.SUSPECT,
+    (NodeState.OFFLINE, LivenessEvent.STREAM_CLOSED): NodeState.OFFLINE,
+    (NodeState.OFFLINE, LivenessEvent.STREAM_LOST): NodeState.OFFLINE,
+    (NodeState.REVOKED, LivenessEvent.STREAM_CLOSED): NodeState.REVOKED,
+    (NodeState.REVOKED, LivenessEvent.STREAM_LOST): NodeState.REVOKED,
 }
 
 
@@ -186,6 +207,16 @@ class LeaseTracker:
         self._last_heartbeat = max(now, self._last_heartbeat)
         self._missed_emitted = False
         self._expired_emitted = False
+
+    def mark_missed(self) -> None:
+        """Count the current silence as already missed (no ``LEASE_MISSED`` left).
+
+        Used when a ``STREAM_LOST`` has already moved the node to SUSPECT: the
+        lease keeps running from the last heartbeat, and the only event left for
+        this silence is ``LEASE_EXPIRED`` at the normal edge (D19). A heartbeat
+        (i.e. a new session's) would reset it as usual.
+        """
+        self._missed_emitted = True
 
     def silence(self, now: float | None = None) -> float:
         """Seconds since the last heartbeat."""

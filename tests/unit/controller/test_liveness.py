@@ -42,6 +42,18 @@ ARROWS: dict[tuple[NodeState, LivenessEvent], NodeState] = {
     (S.SUSPECT, E.REVOKE): S.REVOKED,  # amended: revoke from every live state
     (S.OFFLINE, E.REVOKE): S.REVOKED,
     (S.DRAINING, E.REVOKE): S.REVOKED,  # amended
+    # amended 2026-09-24 (G6, D19): how a session ends decides the arrow
+    (S.ONLINE, E.STREAM_CLOSED): S.OFFLINE,
+    (S.SUSPECT, E.STREAM_CLOSED): S.OFFLINE,
+    (S.DRAINING, E.STREAM_CLOSED): S.OFFLINE,
+    (S.ONLINE, E.STREAM_LOST): S.SUSPECT,
+    (S.DRAINING, E.STREAM_LOST): S.SUSPECT,
+    # ... and the self-loops that make close/expiry ordering unable to raise
+    (S.SUSPECT, E.STREAM_LOST): S.SUSPECT,
+    (S.OFFLINE, E.STREAM_CLOSED): S.OFFLINE,
+    (S.OFFLINE, E.STREAM_LOST): S.OFFLINE,
+    (S.REVOKED, E.STREAM_CLOSED): S.REVOKED,
+    (S.REVOKED, E.STREAM_LOST): S.REVOKED,
 }
 
 ALL_PAIRS = list(itertools.product(NodeState, LivenessEvent))
@@ -56,8 +68,8 @@ def test_enums_match_architecture_12_3() -> None:
         "DRAINING",
         "REVOKED",
     ]
-    assert len(LivenessEvent) == 8
-    assert len(ALL_PAIRS) == 48
+    assert len(LivenessEvent) == 10
+    assert len(ALL_PAIRS) == 60
     assert NodeState.ONLINE == "online"  # StrEnum: DB/JSON value is the lowercase name
 
 
@@ -79,10 +91,13 @@ def test_every_pair_is_an_arrow_or_invalid(
         assert state.value in str(err) and event.value in str(err)
 
 
-def test_arrow_table_is_exactly_fourteen_arrows_and_nothing_leaves_revoked() -> None:
+def test_arrow_table_is_exactly_24_arrows_and_nothing_leaves_revoked() -> None:
     valid = {pair for pair in ALL_PAIRS if pair in ARROWS}
-    assert len(valid) == 14
+    assert len(valid) == 24
     for event in LivenessEvent:
+        if event in (E.STREAM_CLOSED, E.STREAM_LOST):
+            assert next_state(S.REVOKED, event) is S.REVOKED  # self-loop, not a leave
+            continue
         with pytest.raises(InvalidTransitionError):
             next_state(S.REVOKED, event)
 
@@ -283,3 +298,35 @@ def test_amended_arrows_2026_09_20() -> None:
         next_state(S.ENROLLING, E.REVOKE)  # never enrolled: nothing to revoke
     with pytest.raises(InvalidTransitionError):
         next_state(S.DRAINING, E.LEASE_EXPIRED)  # must pass through SUSPECT first
+
+
+def test_amended_arrows_2026_09_24_stream_end() -> None:
+    """ARCHITECTURE §12.3 amendment (G6, D19): a clean end is OFFLINE now, an abrupt
+    end only SUSPECT; both are self-loops once the node has left, so the order in
+    which a close and a lease expiry land can never raise."""
+    for state in (S.ONLINE, S.SUSPECT, S.DRAINING):
+        assert next_state(state, E.STREAM_CLOSED) is S.OFFLINE
+    for state in (S.ONLINE, S.DRAINING, S.SUSPECT):
+        assert next_state(state, E.STREAM_LOST) is S.SUSPECT
+    for state in (S.OFFLINE, S.REVOKED):
+        for event in (E.STREAM_CLOSED, E.STREAM_LOST):
+            assert next_state(state, event) is state
+    for event in (E.STREAM_CLOSED, E.STREAM_LOST):
+        with pytest.raises(InvalidTransitionError):
+            next_state(S.ENROLLING, event)  # a live session is never ENROLLING
+
+
+def test_mark_missed_leaves_only_the_expiry_at_the_normal_edge() -> None:
+    """After a STREAM_LOST the node is SUSPECT already: the tracker must yield
+    LEASE_EXPIRED at last_heartbeat + offline_after_s and never a LEASE_MISSED
+    (SUSPECT has no LEASE_MISSED arrow)."""
+    now = [100.0]
+    tracker = LeaseTracker(LivenessConfig(), clock=lambda: now[0])
+    tracker.observe_heartbeat(101.0)
+    tracker.mark_missed()
+    assert tracker.deadline() == 101.0 + 6.0
+    assert tracker.check(101.0 + 2.5) is None  # would have been LEASE_MISSED
+    assert tracker.check(101.0 + 6.0 - 1e-9) is None
+    assert tracker.check(101.0 + 6.0) is E.LEASE_EXPIRED
+    assert tracker.check(200.0) is None
+    assert tracker.deadline() is None
