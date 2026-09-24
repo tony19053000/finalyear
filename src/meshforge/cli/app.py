@@ -187,8 +187,9 @@ def nodes(
     """List the fabric's nodes, or show one node.
 
     Three liveness fields are shown on purpose and can legitimately disagree
-    (D16): STATE is the database's view (it survives a controller restart), CONN
-    is whether this controller process holds the node's stream right now, and AGE
+    (D16): STATE is the database's view (offline at once after a clean agent
+    stop, suspect after a dropped connection until the lease runs out), CONN is
+    whether this controller process holds the node's stream right now, and AGE
     is how stale the newest resource sample is.
     """
     from meshforge.cli.render import node_detail_table, nodes_table

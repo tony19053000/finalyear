@@ -6,8 +6,14 @@ into one "online" boolean**, because they legitimately disagree:
 ``state``
     the persisted :class:`~meshforge.controller.liveness.NodeState` (ARCHITECTURE
     §12.3). Authoritative for *policy* - what the planner and the operator should
-    believe about a node - and survives a controller restart, which is exactly why
-    it can say ``ONLINE`` about a node the current process has never heard from.
+    believe about a node. Since V0.3 G6 (D19) it follows how the stream ended: a
+    clean end (the agent half-closed, or the controller shut down) is ``offline``
+    at once; an abrupt one (dropped connection, cancelled call) is ``suspect``,
+    becoming ``offline`` at the normal lease edge unless the agent reconnects
+    first. A controller start-up marks every leftover live state ``offline``. It
+    is written asynchronously (liveness is decided in memory), so it can trail
+    the decision by the database's write latency - longer while PostgreSQL is
+    unreachable (``registry.write_failed`` in the log).
 ``connected``
     does the running :class:`~meshforge.controller.session.manager.SessionManager`
     hold a live stream for this node **right now**? In memory only; authoritative
@@ -17,6 +23,10 @@ into one "online" boolean**, because they legitimately disagree:
     controller's **monotonic** clock (``LiveSample.received_at``), never on a wall
     clock - wall clocks skew between laptops and jump. Authoritative for "how fresh
     are the numbers below". ``null`` means no sample has ever arrived.
+
+They still disagree legitimately: ``suspect`` with ``connected`` false is a node
+whose stream dropped and whose lease is running out (it may yet reconnect);
+``online`` with ``connected`` false only lasts until the queued write lands.
 
 Timestamps are ISO-8601 with an explicit UTC offset. Field order is the declaration
 order below and is part of the contract (a diff of the JSON should stay readable).
