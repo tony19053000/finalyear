@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import structlog
 from mf_agent_harness import (
     AGENT_RECONNECT,
     FAST_LIVENESS,
@@ -171,6 +172,12 @@ async def test_sigterm_exits_zero_and_controller_records_agent_closed(
         return rec is not None and rec.end_reason is SessionEndReason.AGENT_CLOSED
 
     await poll_until(closed, timeout_s=5.0)
+
+    async def offline() -> bool:  # NB-G5-1 regression (G6, D19): a clean stop
+        rec = await registry.get_node(node_id)
+        return rec is not None and rec.state is NodeState.OFFLINE
+
+    await poll_until(offline, timeout_s=5.0)
     events = [e["event"] for e in ap.events()]
     assert "agent.session.stop_requested" in events
     assert "agent.session.closed" in events
@@ -182,6 +189,55 @@ async def test_sigterm_exits_zero_and_controller_records_agent_closed(
 
     # Criterion 4 from the process side: the identity on disk is unchanged.
     assert str(load_or_create(data_dir / "identity").node_id) == node_id
+
+
+@pytest.mark.asyncio
+async def test_sigkilled_agent_is_stream_lost_suspect_then_offline_at_the_lease(
+    runtime: ControllerRuntime,
+    registry: Registry,
+    grpc_target: str,
+    data_dir: Path,
+    agent_processes: Any,
+) -> None:
+    """V0.3 G6 (D19), triggered for real: the agent *process* is killed, the kernel
+    closes its socket, and the controller must record ``stream_lost`` (never
+    ``agent_closed``), go SUSPECT at once, and OFFLINE only when the lease -
+    measured from the last heartbeat - runs out."""
+    ap: AgentProcess = agent_processes(data_dir, grpc_target)
+    node_id = await _wait_node_online(runtime, ap, timeout_s=ONLINE_TIMEOUT_S)
+    assert runtime.manager is not None
+    live = runtime.manager.get(node_id)
+    assert live is not None
+    session_id = live.session_id
+
+    loop = asyncio.get_running_loop()
+    with structlog.testing.capture_logs() as logs:
+        ap.proc.kill()
+        await asyncio.to_thread(ap.proc.wait, 15)
+        killed_at = loop.time()
+
+        async def offline() -> bool:
+            rec = await registry.get_node(node_id)
+            return rec is not None and rec.state is NodeState.OFFLINE
+
+        await poll_until(offline, timeout_s=10.0, interval_s=0.02)
+        took = loop.time() - killed_at
+    rec = await registry.get_session(session_id)
+    assert rec is not None and rec.end_reason is SessionEndReason.STREAM_LOST
+    changes = [
+        (e["from"], e["to"], e["liveness_event"])
+        for e in logs
+        if e["event"] == "node.state_changed" and e.get("node_id") == node_id
+    ]
+    # SUSPECT at once on the loss, OFFLINE only from the lease - never a clean
+    # close's straight ONLINE -> OFFLINE.
+    assert changes == [
+        ("online", "suspect", "stream_lost"),
+        ("suspect", "offline", "lease_expired"),
+    ], changes
+    lease_s = FAST_LIVENESS.heartbeat_interval_s * FAST_LIVENESS.lease_multiplier
+    assert took <= lease_s + 5.0, took
+    assert runtime.manager.get_lingering(node_id) is None
 
 
 @pytest.mark.asyncio
