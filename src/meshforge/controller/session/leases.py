@@ -22,7 +22,11 @@ sets ``wake``. On each tick it
    at the normal lease edge (from the last heartbeat) ``LEASE_EXPIRED`` writes
    OFFLINE on the entry's own chain and ends the linger
    (``SessionManager.expire_linger``). A lingering entry has no stream, so it gets
-   no ping and no touch. A new lingering entry sets ``wake`` like a new session.
+   no ping and no touch. A new lingering entry sets ``wake`` like a new session;
+7. skips (and takes no deadline from) any session or lingering entry a newer
+   ``Hello`` is being admitted for (``SessionManager.admission_pending``, D28):
+   that Hello owns the node's state, so no lease event is decided against it
+   meanwhile. The admission wakes the timer when it returns.
 
 The timer never awaits the database: every write it causes is queued on the
 session's :class:`~.writer.WriteChain`, so one node's slow row can never delay
@@ -76,6 +80,8 @@ class LeaseTimer:
         next_deadline: float | None = None
         interval = self._manager.liveness.heartbeat_interval_s
         for live in self._manager.snapshot():
+            if self._manager.admission_pending(live):
+                continue  # D28: the pending Hello owns this node's state
             await self._tick_session(live, now)
             if live.ended:
                 continue
@@ -90,6 +96,8 @@ class LeaseTimer:
                 ):
                     next_deadline = candidate
         for entry in self._manager.lingering():
+            if self._manager.admission_pending(entry):
+                continue  # D28: resolved by that admission, or re-woken after it
             self._manager.expire_linger(entry, now)
             candidate = entry.tracker.deadline() if entry.lingering else None
             if candidate is not None and (

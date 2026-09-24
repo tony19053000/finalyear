@@ -10,16 +10,16 @@ from __future__ import annotations
 import asyncio
 
 import pytest
-
-from meshforge.controller.liveness import NodeState
-from meshforge.controller.registry import SessionEndReason
-from test_session_linger import (  # noqa: F401 - reuse, not redefine
+from test_session_linger import (
     CFG,
     NOW0,
     admit,
     make,
     settle,
 )
+
+from meshforge.controller.liveness import NodeState
+from meshforge.controller.registry import SessionEndReason
 
 pytestmark = pytest.mark.unit
 
@@ -31,7 +31,7 @@ async def test_two_reconnects_in_quick_succession_leave_a_consistent_row() -> No
     ticks of the clock in between (as a flapping Wi-Fi radio might do). Each
     step's fence must see exactly the previous session, never a stale one, and
     the final row must read ONLINE under session3."""
-    manager, reg, clock, _timer = make()
+    manager, reg, _clock, _timer = make()
     node_id = "node_" + "0" * 26
 
     s1 = await admit(manager, node_id, 1)
@@ -107,9 +107,7 @@ async def test_slow_database_write_during_linger_resolution_leaves_the_row_hones
     assert reg.nodes[node_id].state is NodeState.ONLINE
     assert reg.nodes[node_id].last_session_id == new.session_id
     stale_write = [
-        w
-        for w in reg.writes
-        if w[0] == "set_node_state" and w[1] == old.session_id
+        w for w in reg.writes if w[0] == "set_node_state" and w[1] == old.session_id
     ]
     assert stale_write and stale_write[-1][3] is False, (
         "the late OFFLINE write from the resolved linger must be fenced out "

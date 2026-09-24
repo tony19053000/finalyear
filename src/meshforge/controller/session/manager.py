@@ -71,6 +71,32 @@ iteration later). So the reader treats a normal end of the iterator as a
 session ``stream_lost`` first and cancels the reader. A half-closed call stays
 open until we send the status (the agent waits up to 2 s for it), so a genuine
 half-close always survives the window.
+
+**A pending Hello owns the state** (D28). A ``Hello`` for node N that is admitted
+while N's previous session is still ending decides N's state; the previous
+session then ends with **no** state event, exactly like a supersession. From the
+moment :meth:`SessionManager.admit` has validated a Hello until its admission
+returns, the Hello's epoch sits in ``_pending_hellos``; while an epoch *higher*
+than a session's is pending, that session is "claimed" (:meth:`SessionManager.
+admission_pending`):
+
+* its end is **deferred**: ``_close`` still does everything in memory (unregister,
+  unblock the handler, stop the reader, record the reason) but parks the session
+  in ``_deferred_ends`` instead of applying the end's event and writing
+  ``close_session``;
+* the lease timer skips it (live or lingering): no ``LEASE_MISSED``/``EXPIRED``
+  is decided against a node whose Hello is being admitted.
+
+The admission then takes ``prior`` from the claimed session's **in-memory** state
+(``old`` / deferred / lingering, in that order) - never from the database row it
+read before the close - and, once the new session is persisted, ends the deferred
+session with no event (its reason is kept: ``agent_closed`` is still how that
+stream ended). If the admission does not succeed (rejected, stale, registry
+error, shutdown), its ``finally`` settles the deferred end with the event it
+would have fired (a genuine clean close still writes OFFLINE, only later) and
+wakes the lease timer. A **stale** Hello (epoch not above the session's) claims
+nothing, so it can never suppress a real close. The deferral is bounded by one
+admission's registry round trips; shutdown never defers.
 """
 
 from __future__ import annotations
@@ -305,6 +331,10 @@ class SessionManager:
         self._live: dict[str, LiveSession] = {}
         self._lingering: dict[str, LiveSession] = {}
         """Abruptly ended sessions whose lease still runs, by node (D19)."""
+        self._pending_hellos: dict[str, list[int]] = {}
+        """Epochs of validated Hellos whose admission has not returned, by node (D28)."""
+        self._deferred_ends: dict[str, LiveSession] = {}
+        """Sessions that ended while a newer Hello was pending, by node (D28)."""
         self._half_close_confirm_s = half_close_confirm_s
         self._tasks: set[asyncio.Task[None]] = set()
         self._chains: set[WriteChain] = set()
@@ -337,6 +367,14 @@ class SessionManager:
 
     def __len__(self) -> int:
         return len(self._live)
+
+    def admission_pending(self, live: LiveSession) -> bool:
+        """True while a Hello with a higher epoch than ``live``'s is being admitted
+        for its node: that Hello owns the node's state (D28, module docstring)."""
+        if self.closing:
+            return False
+        pending = self._pending_hellos.get(live.node_id)
+        return pending is not None and max(pending) > live.session_epoch
 
     # -------------------------------------------------------------- admission
 
@@ -404,8 +442,33 @@ class SessionManager:
                 RejectCode.REJECT_CODE_PROTOCOL_VERSION,
                 f"protocol_version {hello.protocol_version} not in [{lo}, {hi}]",
             )
-        async with self._lock:
-            return await self._admit_locked(hello, peer_address)
+        # D28: from here until this admission returns, the Hello claims the
+        # node's state against any older session still ending (module docstring).
+        node_id = hello.node_id
+        self._pending_hellos.setdefault(node_id, []).append(hello.session_epoch)
+        try:
+            async with self._lock:
+                return await self._admit_locked(hello, peer_address)
+        finally:
+            self._release_claim(node_id, hello.session_epoch)
+
+    def _release_claim(self, node_id: str, epoch: int) -> None:
+        """End one pending Hello's claim; settle a deferred end nobody owns now.
+
+        Runs after the admission returned: a successful one has already consumed
+        the deferred end (no event); otherwise the deferred session ends with the
+        event its reason fires, as if no Hello had been pending.
+        """
+        pending = self._pending_hellos[node_id]
+        pending.remove(epoch)
+        if not pending:
+            del self._pending_hellos[node_id]
+        deferred = self._deferred_ends.get(node_id)
+        if deferred is not None and not self.admission_pending(deferred):
+            del self._deferred_ends[node_id]
+            self._finish_end(deferred, fire_event=True)
+        # The timer skipped this node's sessions while the claim stood.
+        self.wake.set()
 
     async def _admit_locked(
         self, hello: agent_pb2.Hello, peer_address: str
@@ -424,9 +487,10 @@ class SessionManager:
         # and readers close sessions without the lock, so both tables may have
         # changed while we waited.
         old = self._live.get(node_id)
+        deferred = self._deferred_ends.get(node_id)
         lingering = self._lingering.get(node_id)
         highest = -1 if record is None else record.session_epoch
-        for entry in (old, lingering):
+        for entry in (old, deferred, lingering):
             if entry is not None:
                 highest = max(highest, entry.session_epoch)
         if hello.session_epoch <= highest:
@@ -447,6 +511,11 @@ class SessionManager:
         if old is not None:
             prior = old.state
             self._close(old, SessionEndReason.SUPERSEDED)
+        elif deferred is not None:
+            # D28: the previous session ended while this Hello was pending; its
+            # in-memory state (before any end event) is the truth, not ``record``,
+            # which was read before that close.
+            prior = deferred.state
         elif lingering is not None:
             # The in-memory state is ahead of the row (its writes are queued):
             # SUSPECT here, so this Hello is SUSPECT -> RECONNECTED -> ONLINE.
@@ -483,6 +552,12 @@ class SessionManager:
             agent_version=hello.agent_version,
             protocol_version=hello.protocol_version,
         )
+        if deferred is not None and self._deferred_ends.get(node_id) is deferred:
+            # Likewise only now: this Hello owns the state, so the deferred end
+            # fires no event (D28). Had admission failed, ``_release_claim``
+            # would have settled it with its event instead.
+            del self._deferred_ends[node_id]
+            self._finish_end(deferred, fire_event=False)
         if lingering is not None:
             # Resolved only now that the new session is persisted: had admission
             # failed above, the old lease would still be running. Nothing is
@@ -970,9 +1045,37 @@ class SessionManager:
         if task is not None and task is not asyncio.current_task() and not task.done():
             task.cancel()
         live.done.set()
+        if end_event(reason) is not None and self.admission_pending(live):
+            # D28: a newer Hello is being admitted and owns the state; its
+            # admission finishes this end (no event) or, if it fails, settles it
+            # with the event (``_release_claim``).
+            previous = self._deferred_ends.get(live.node_id)
+            if previous is not None:  # pragma: no cover - one session per node ends
+                self._finish_end(previous, fire_event=True)
+            self._deferred_ends[live.node_id] = live
+            log.info(
+                "session.end_deferred",
+                node_id=live.node_id,
+                session_id=live.session_id,
+                end_reason=reason.value,
+                state=live.state.value,
+            )
+            return
+        self._finish_end(live, fire_event=True)
+
+    def _finish_end(self, live: LiveSession, *, fire_event: bool) -> None:
+        """The persistent half of a close: the end's event (D19), then
+        ``close_session`` on the chain, lingering if the loss left it SUSPECT.
+
+        ``fire_event=False`` is a deferred end a newer Hello took over (D28): no
+        state event, the chain simply ends with ``close_session``.
+        """
+        reason = live.end_reason
+        if reason is None:  # pragma: no cover - _close sets it before any call
+            raise RuntimeError("_finish_end called on a session that never closed")
         # D19: the end decides the arrow; the state write goes on this session's
         # chain *before* close_session, so the two can never be reordered.
-        event = end_event(reason)
+        event = end_event(reason) if fire_event else None
         if event is not None:
             self._apply_event(
                 live, event, silence_s=live.tracker.silence(self._clock())
@@ -1002,6 +1105,7 @@ class SessionManager:
             liveness_event=event.value if event else None,
             state=live.state.value,
             lingering=linger,
+            owned_by_hello=not fire_event,
             heartbeats=live.heartbeats,
             stale_messages=live.stale_messages,
             duplicates=live.duplicates,
@@ -1063,6 +1167,11 @@ class SessionManager:
         async with self._lock:  # an admission in flight finishes (or refuses) first
             for live in list(self._live.values()):
                 self._close(live, SessionEndReason.CONTROLLER_SHUTDOWN)
+            # Unreachable in practice (every admission settles its claim before
+            # the lock is free again); a backstop so no chain is left without END.
+            for deferred in list(self._deferred_ends.values()):  # pragma: no cover
+                del self._deferred_ends[deferred.node_id]
+                self._finish_end(deferred, fire_event=True)
             for entry in list(self._lingering.values()):
                 # No controller = no liveness claim, exactly like the start-up
                 # sweep: a lingering SUSPECT goes OFFLINE now.

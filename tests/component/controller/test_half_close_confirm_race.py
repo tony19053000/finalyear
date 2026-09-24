@@ -75,7 +75,9 @@ class _GatedGetNode:
         return await self._inner.get_node(node_id)
 
 
-def changes_for(logs: list[dict[str, Any]], node_id: str) -> list[tuple[str, str, str | None]]:
+def changes_for(
+    logs: list[dict[str, Any]], node_id: str
+) -> list[tuple[str, str, str | None]]:
     return [
         (e["from"], e["to"], e.get("liveness_event"))
         for e in logs
@@ -83,33 +85,15 @@ def changes_for(logs: list[dict[str, Any]], node_id: str) -> list[tuple[str, str
     ]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "defect: `_admit_locked` decides `prior` from `self._live.get(node_id)` "
-        "AFTER its first await (`registry.get_node`), so if the old session's "
-        "confirm-sleep closes it while that await is still pending (a slow "
-        "database round trip, or just a loaded event loop, taking longer than "
-        "HALF_CLOSE_CONFIRM_S), admission falls back to the DB row read at the "
-        "START of the await -- from before the close wrote OFFLINE -- and logs a "
-        "spurious offline->online(reconnected) on top of the real "
-        "online->offline(stream_closed) the close already logged. The node was "
-        "reachable the whole time; the persisted row is fine once quiet (D20's "
-        "fence protects it), but the node.state_changed log records a real-looking "
-        "OFFLINE dip that never happened, which the 24h soak (criterion 5) would "
-        "count as a genuine outage."
-    ),
-)
 @pytest.mark.asyncio
 async def test_reconnect_hello_inside_confirm_window_can_log_a_false_offline(
     runtime: ControllerRuntime, registry: Registry
 ) -> None:
     """A clean, fast reconnect (half-close then immediate re-Hello, both well
     inside the confirm window) must never be recorded as a real OFFLINE dip if
-    the node was continuously reachable. If this starts failing (i.e. this xfail
-    starts passing), the race was fixed — narrow the CONFIRM window's interaction
-    with admission so `record.state` cannot be used once an in-flight close is
-    known — and this test should be un-xfailed, not deleted."""
+    the node was continuously reachable. Pins D28 (a Hello that arrives before
+    the previous session's end is decided owns the state): was a strict xfail
+    until the G6 fix round made admission claim the node while it is pending."""
     import structlog
 
     gated = _GatedGetNode(registry)
@@ -156,5 +140,45 @@ async def test_reconnect_hello_inside_confirm_window_can_log_a_false_offline(
             f"online->offline->online round trip in the log: {transitions} "
             "(a false OFFLINE for a node that was never actually down)"
         )
+    finally:
+        await manager.shutdown(drain_s=1.0)
+
+
+@pytest.mark.asyncio
+async def test_a_stale_epoch_hello_inside_the_confirm_window_does_not_hide_the_offline(
+    runtime: ControllerRuntime, registry: Registry
+) -> None:
+    """D28's claim is epoch-fenced: a Hello whose epoch is not above the ending
+    session's (a stale process, a replayed connect) owns nothing, so a genuine
+    clean close still goes OFFLINE at once - not after that Hello's admission."""
+    import structlog
+
+    from meshforge.controller.session.manager import Rejected
+
+    gated = _GatedGetNode(registry)
+    manager = SessionManager(
+        gated,  # type: ignore[arg-type]
+        LivenessConfig(heartbeat_interval_s=30.0),
+        clock=asyncio.get_running_loop().time,
+        half_close_confirm_s=0.05,
+    )
+    node_id = new_node_id()
+    try:
+        first = await manager.admit(make_hello(node_id, 5), "ipv4:127.0.0.1:1")
+        assert isinstance(first, Accepted)
+        with structlog.testing.capture_logs() as logs:
+            manager.start_reader(first.live, _EndsNormally())
+            gated.hold_node = node_id
+            admit_task = asyncio.create_task(
+                manager.admit(make_hello(node_id, 3), "ipv4:127.0.0.1:2")
+            )
+            await asyncio.wait_for(gated.held.wait(), 5.0)
+            await asyncio.sleep(0.2)  # the confirm window elapses; stale Hello held
+            assert ("online", "offline", "stream_closed") in changes_for(logs, node_id)
+            gated.release.set()
+            assert isinstance(await admit_task, Rejected)
+        await manager.shutdown(drain_s=2.0)
+        node = await registry.get_node(node_id)
+        assert node is not None and node.state is NodeState.OFFLINE
     finally:
         await manager.shutdown(drain_s=1.0)
