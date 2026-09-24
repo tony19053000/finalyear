@@ -88,12 +88,20 @@ def node_scores(node: NodeRecord) -> NodeScores:
         run_id=document["run_id"],
         measured_at=dt.datetime.fromisoformat(document["measured_at"]),
         score_version=document["score_version"],
-        conditions=ScoreConditions(**document["conditions"]),
+        conditions=ScoreConditions(**_known(ScoreConditions, document["conditions"])),
         metrics=tuple(
-            ScoreMetric(**metric, unit=UNITS.get(metric["name"]))
+            ScoreMetric(**_known(ScoreMetric, metric), unit=UNITS.get(metric["name"]))
             for metric in document["metrics"]
         ),
     )
+
+
+def _known(
+    model: type[ScoreMetric | ScoreConditions], values: Mapping[str, Any]
+) -> dict[str, Any]:
+    """Only the fields ``model`` declares: a document written by a *newer*
+    controller (after a downgrade) must not turn ``/v1/nodes`` into a 500."""
+    return {k: v for k, v in values.items() if k in model.model_fields and k != "unit"}
 
 
 class _SummaryFields(TypedDict):

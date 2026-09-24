@@ -86,3 +86,15 @@ async def test_the_openapi_schema_documents_scores() -> None:
     status = components["NodeScores"]["properties"]["status"]
     assert set(status["enum"]) == {"measured", "pending", "none"}
     assert "scores" in components["NodeSummary"]["properties"]
+
+
+def test_a_document_with_unknown_keys_still_serves() -> None:
+    """A newer controller may have stored more fields (then been downgraded)."""
+    document = _document()
+    document["invented_later"] = 1
+    document["conditions"]["invented_later"] = 2  # type: ignore[index]
+    document["metrics"][0]["invented_later"] = 3  # type: ignore[index]
+    document["metrics"][0]["unit"] = "stored unit is ignored"  # type: ignore[index]
+    scores = node_scores(node_record(hardware_scores=document))
+    assert scores.status == "measured"
+    assert scores.metrics[0].unit == "GFLOP/s"
