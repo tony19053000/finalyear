@@ -203,8 +203,8 @@ early. Re-check after G7.
 
 ## 2. In flight right now
 
-> **G7-A in flight (implementer):** done items 1-6 (settings, `hardware score` CLI, ExitCode.BUSY=7; unit tests green).
-> Next: item 7 wire `benchmarks/service.ScoreService` into `agent/runtime.serve`, then component tests (real child, heartbeat) + mutation checks + docs (§23).
+> **G7-A in flight (implementer):** items 1-7 + unit/component/heartbeat tests + mutation checks committed (`dc4ebcf`..`7ce9b39`).
+> Next: full component-suite run, then the handoff note to the Lead; after that the tester round (A+B share one tester round per §5g, so G7-B may go first).
 
 **G7-A is in flight (spawned 2026-09-24).** The G7 brief is written: `docs/briefs/V0.3-fabric-core.md` **§5g**
 (decisions D30–D38; two sequential runs, A = agent-side scoring, B = wire + controller + REST/CLI). If this session
