@@ -56,7 +56,8 @@ class SessionEndReason(StrEnum):
     SUPERSEDED = "superseded"
     """A Hello with a higher epoch for the same node replaced this stream."""
     AGENT_CLOSED = "agent_closed"
-    """The agent half-closed or its connection dropped."""
+    """The agent half-closed its stream (a clean close). Before 0004 a transport
+    drop was recorded as this too; since G6 that is ``stream_lost``."""
     LEASE_EXPIRED = "lease_expired"
     """Silence reached ``offline_after_s``; the node went OFFLINE."""
     CONTROLLER_SHUTDOWN = "controller_shutdown"
@@ -70,6 +71,10 @@ class SessionEndReason(StrEnum):
     """A bug on *our* side ended the stream (the reader task raised). Kept apart
     from ``protocol_error`` so "the peer misbehaved" and "we misbehaved" are not
     the same number on a dashboard (G2 review follow-up, added in 0003)."""
+    STREAM_LOST = "stream_lost"
+    """The stream ended abruptly - transport drop, call cancelled by the peer or
+    its channel closed without a half-close (V0.3 G6, D19, added in 0004). The
+    node goes SUSPECT and the lease decides whether it goes OFFLINE."""
 
 
 NODE_STATE_CHECK_NAME: Final = "state"
