@@ -50,3 +50,13 @@ def _clear_probe_caches() -> Iterator[None]:
     probes._cim_bundle.cache_clear()
     probes.nvidia_status.cache_clear()
     runner.reset()
+
+
+@pytest.fixture
+def stub_controller() -> Iterator[object]:
+    """A real HTTP stub of the controller's REST surface on 127.0.0.1:0 (V0.3 lab kit)."""
+    from _fabric.testing import StubController
+
+    stub = StubController().start()
+    yield stub
+    stub.stop()
