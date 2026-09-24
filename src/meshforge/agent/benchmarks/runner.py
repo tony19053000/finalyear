@@ -157,12 +157,19 @@ class ChildError(Exception):
         self.reason = reason
 
 
+#: Upper bound on the blocking ``taskkill`` call inside :func:`kill_tree` (Windows).
+_TASKKILL_TIMEOUT_S: Final = 1.0
+
+
 def kill_tree(proc: asyncio.subprocess.Process) -> None:
     """Kill the child and everything it started, now (synchronous, cancel-safe).
 
     POSIX: the child is the leader of its own session, so ``killpg`` reaches every
     descendant that stayed in it. Windows: ``taskkill /F /T`` walks the tree (a
-    bounded blocking call - the one place this path can block the loop, ~0.1 s).
+    bounded blocking call - the one place this path can block the loop, ~0.1 s
+    normally). The timeout is kept at 1 s, below the 2 s heartbeat plus its 0.5 s
+    allowance, so a stalled taskkill on a loaded box cannot cause a false SUSPECT
+    (D32b; G7 review). ``proc.kill()`` below still ends the direct child either way.
     """
     if proc.returncode is not None:
         return
@@ -174,7 +181,7 @@ def kill_tree(proc: asyncio.subprocess.Process) -> None:
             subprocess.run(  # noqa: S603 - fixed argv, no shell
                 [taskkill, "/F", "/T", "/PID", str(proc.pid)],
                 capture_output=True,
-                timeout=5,
+                timeout=_TASKKILL_TIMEOUT_S,
                 check=False,
                 creationflags=subprocess.CREATE_NO_WINDOW,
             )

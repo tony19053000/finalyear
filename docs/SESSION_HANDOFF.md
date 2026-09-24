@@ -8,8 +8,8 @@
 >
 > ```
 > Read docs/SESSION_HANDOFF.md (sections 0, 0b, 0c and 2 especially), then docs/STATUS.md, then
-> the current version in docs/DEVELOPMENT_ROADMAP.md. G6 is closed; write the V0.3 G7 brief
-> (0.3.4 hardware scores) as docs/briefs/V0.3-fabric-core.md §5g and spawn it.
+> the current version in docs/DEVELOPMENT_ROADMAP.md. V0.3 is closed agent-side (G7 done);
+> write the V0.4 brief as docs/briefs/V0.4-remote-execution.md, first group 0.4.16 + 0.4.17 item 2.
 > ```
 >
 > Order of truth: `PROJECT_BRIEF → ARCHITECTURE → ROADMAP → STATUS → this file`. If this file
@@ -29,7 +29,7 @@
 > throughput measurements and the reasoning; if you think the arithmetic or the trade is wrong,
 > **say so to the team before building on it.** Do not silently re-expand the scope either.
 
-**Last updated:** 2026-09-24 (**G6 CLOSED agent-side** — 0.3.14 `[x]`, reviewer APPROVE; G7 next; see §0c for the post-G6 throughput re-baseline) · **Updated by:** Lead session (account 2)
+**Last updated:** 2026-09-25 (**G7 CLOSED agent-side** — 0.3.4 `[x]`, reviewer APPROVE; all agent-side V0.3 work done; next: the V0.4 brief; see §0c for the G7 throughput data point) · **Updated by:** Lead session (account 2)
 
 ---
 
@@ -179,21 +179,26 @@ plus A and C each relaunched once after an **account usage limit** — both died
 **On Opus 5.5 the binding constraint was the usage limit, not tokens or defect rounds.** Keep telling agents to commit
 early. Re-check after G7.
 
+**Post-G7 data point (2026-09-25):** 1 roadmap task (0.3.4) in one Lead session across two usage-limit resets, **7 agent
+runs** (implementer A + B, each **resumed once** via SendMessage after a usage limit with no work lost because both
+committed after every item; one small fix round; tester ×2; reviewer ×1) — reviewer APPROVE first pass, no blocking.
+Resuming a cut-off agent (not relaunching) is the cheap recovery; keep the "commit after each item" rule in briefs.
+Throughput is still ~1 task/session by checkbox; the binding constraint remains the usage limit.
+
 ---
 
 ## 1. Where the project is
 
-- **Version: V0.3 (fabric core).** **G1–G6 are closed agent-side.** A live controller ⇄ agent fabric works
+- **Version: V0.3 (fabric core).** **G1–G7 are closed agent-side — all agent-side V0.3 work is done.** A live controller ⇄ agent fabric works
   in-process: identity, sessions, leases, RTT, reconnect, mDNS discovery, hardware discovery, resource monitoring,
   downsampled snapshots in Postgres — **and now an operator surface**: a read-only REST `/v1`, a `compute` CLI that
   speaks REST only, `meshforge-agent hardware show`, documented service units — **and (G6) liveness that is honest on
   session end, plus a real multi-process cluster test tier with fault injection and the 0.3.15 lab kit.**
-  - `[x]` 0.3.1, 0.3.3, 0.3.5, 0.3.6, 0.3.8, 0.3.9, 0.3.10, 0.3.11, 0.3.12, **0.3.14**
+  - `[x]` 0.3.1, 0.3.3, **0.3.4**, 0.3.5, 0.3.6, 0.3.8, 0.3.9, 0.3.10, 0.3.11, 0.3.12, 0.3.14
   - `[~]` 0.3.2 (awaits a 🧑 Windows unit run), 0.3.7 (awaits 🧑 lab evidence in 0.3.15),
     **0.3.13** (awaits the 🧑 Windows logoff check in `docs/OPERATIONS.md` §3 — the docs say "unverified" on
     purpose; do not let anyone replace that with a guess)
-  - Remaining: G7 (0.3.4 hardware
-    scores), 🧑 0.3.15 lab run
+  - Remaining: only the 🧑 0.3.15 lab run (+ Windows checks for 0.3.2, 0.3.13 and G7)
 - **V0.2:** all agent-side spike work is complete with reviewer APPROVE (S1 `ef065ac`, S2 `633d474`, S3 `81d620f`,
   S7 `8072b9f`, inventory `75d8df5`, 0.2.13 done). Every one is `[~]` **only** because it awaits runs on real
   laptops. **0.2.12 must wait for real lab data — never run it on loopback numbers.**
@@ -206,15 +211,19 @@ early. Re-check after G7.
 > **G7-B D39 fix round done (`54b27c0`):** an undeclared GPU index rejects the whole score set (`gpu_index_not_declared`); tester's test inverted; `WriteKind.SCORES` docstring fixed; unit/component-agent/cluster exit 0.
 > Next: tester re-run on the delta, then the reviewer.
 
-**G7 tester round in flight (spawned 2026-09-24)** — one round covering both runs. Brief: `docs/briefs/V0.3-fabric-core.md`
-**§5g** (D30–D38). **G7-A** (agent-side scoring, `dc4ebcf`..`e607909`) and **G7-B** (wire + controller + REST/CLI,
-`9da3a6e`..`884d593`) are handed off: unit 3710 / component 460 / cluster 40, all exit 0. If this session died: check
-`git log --oneline | grep G7` for `test(V0.3-G7)` commits, re-spawn the tester with only what is left, then the reviewer.
-**Team flags:** D30 adds `numpy` to the `agent` extra; G7-B invented a `hardware-scores` capability tag to tell
-`pending` from `none` (implementer's choice, not a Lead decision — confirm); new `ExitCode.BUSY = 7`.
-Known gap for the reviewer: a score write the DB refuses is already acked, so it is lost until the next Hello.
-🧑 Windows check for G7-A: `uv run meshforge-agent hardware score` (exit 0), two concurrent (second exits 7), Ctrl-C
-leaves no python child in Task Manager.
+**Nothing is mid-task.** G7 closed on 2026-09-25: 0.3.4 `[x]`, reviewer APPROVE with no blocking findings,
+full evidence in the roadmap row. The next agent-side step is a **Lead** step: write the **V0.4 brief**
+(`docs/briefs/V0.4-remote-execution.md`). Its first group must be **0.4.16** (explicit agent `Goodbye`, a hard
+prerequisite of V0.6) plus **0.4.17 item 2** (move the per-report handlers out of `controller/session/manager.py`,
+now 1315 lines) **before** V0.4 adds AttemptStatus/LogChunk handlers.
+
+**G7 things the team should look at:** D30 adds `numpy` to the `agent` extra; the `hardware-scores` capability tag
+(implementer's design, reviewer-accepted) tells REST `pending` from `none`; new `ExitCode.BUSY = 7`; D39 rejects a
+whole score set that names an undeclared GPU. Known gap kept on purpose: a score write the DB refuses is already
+acked and is lost until the next Hello, which heals it. 🧑 Windows check for G7: see STATUS "In Progress".
+**Traps a later session should know:** the cluster harness runs agents with `[agent.scores] enabled=false` (several
+agents on one host would load each other's liveness), so only scenario s exercises scoring there;
+`tests/cluster/test_fabric_resource_replay.py` assumes resource_update is the only report type *because of that*.
 
 *(Previous state, kept for context:)* G6 closed on 2026-09-24 (0.3.14 `[x]`, reviewer APPROVE pass 2, commits `64a89b5` …
 `64e488a`) and the tree is committed. The next agent-side step is a **Lead** step: write the **G7** brief (0.3.4
