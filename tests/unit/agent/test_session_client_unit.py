@@ -117,6 +117,8 @@ def _online(client: AgentSessionClient) -> RecordingCall:
     client._call = call
     client.session_id = new_session_id()
     client.state = AgentState.ONLINE
+    # What _online does for an accepted stream whose Reconcile is out (D21).
+    client._open_gate().ready.set()
     return call
 
 

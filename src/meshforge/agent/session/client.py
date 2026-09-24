@@ -24,6 +24,17 @@ transient -> BACKOFF (full jitter, monotonic clock); ``ABORTED superseded`` ->
 ``INVALID_ARGUMENT`` / ``PERMISSION_DENIED`` / ``PROTOCOL_VERSION`` ->
 :class:`~meshforge.agent.session.errors.AgentContractError` (exit ``CONFIG_ERROR``).
 
+**Reconcile is the first message of every reconnect - structurally (D21).** Each
+accepted stream gets a :class:`_StreamGate`: a per-stream *generation* and an
+``asyncio.Event`` that is set right after ``Reconcile`` and the replay went out (at
+once on a first connect, which has nothing to reconcile). ``send_report`` and the
+heartbeat loop wait for it before writing to the stream, so no suspension point
+anywhere in ``_online`` can let a fresh report overtake the ``Reconcile``. After the
+wait a report skips its direct write when the generation moved on (the stream
+ended - its gate is set on the way out, so a waiter never blocks forever), the
+state is not ONLINE, or the replay already carried it: the message is in the ring
+either way, and the next stream's replay sends it.
+
 Idempotency: a controller command with a foreign ``session_id`` is dropped and
 counted (``agent.session.stale_message``); a repeated ``message_id`` is acked again
 but has no second effect; a duplicate ``Ack`` for a report already removed from the
@@ -141,6 +152,16 @@ class SessionStats:
     stream_ends: list[StreamEnd] = field(default_factory=list)
 
 
+@dataclass(slots=True)
+class _StreamGate:
+    """Per-stream ordering gate (D21); see the module docstring."""
+
+    generation: int
+    ready: asyncio.Event = field(default_factory=asyncio.Event)
+    replayed_through: int = 0
+    """Highest report ``sequence`` the Reconcile replay put on this stream."""
+
+
 class EpochBumper(Protocol):
     """``identity.next_epoch``'s shape (injectable for tests)."""
 
@@ -178,7 +199,12 @@ class AgentSessionClient:
         hardware: agent_pb2.HardwareSummary | None = None,
         host_facts: tuple[str, str, str] | None = None,
         bump_epoch: EpochBumper = next_epoch,
+        on_online: Callable[[], Awaitable[None]] | None = None,
     ) -> None:
+        """``on_online`` is a **test hook**: awaited between the ONLINE transition
+        and the Reconcile, so a test can put a suspension point exactly where the
+        ordering used to depend on there being none (D21). Production passes
+        nothing."""
         self.settings = settings
         self.identity = identity
         self.node_id: str = str(identity.node_id)
@@ -211,6 +237,10 @@ class AgentSessionClient:
         self._stop_waiter: asyncio.Task[bool] | None = None
         self._backoff: Backoff | None = None
         self._running = False
+        self._on_online = on_online
+        self._generation = 0
+        """Bumped when a stream is accepted and again when it ends (D21)."""
+        self._gate: _StreamGate | None = None
 
     # ------------------------------------------------------------ lifecycle
 
@@ -474,17 +504,35 @@ class AgentSessionClient:
         reconnect = self.stats.sessions_accepted > 0
         self.stats.sessions_accepted += 1
         self._backoff_or_raise().stream_started()
+        violation = None
+        if requested_s <= 0:
+            violation = "HelloAck.heartbeat_interval_ms must be > 0"
+        elif not self.session_id:
+            violation = "HelloAck.session_id must not be empty on an accepted Hello"
+        # The gate exists before anything can observe ONLINE, and is closed (its
+        # waiters released) however this method is left.
+        gate = self._open_gate()
+        try:
+            return await self._run_stream(
+                call, gate, reconnect=reconnect, violation=violation
+            )
+        finally:
+            self._close_gate(gate)
+
+    async def _run_stream(
+        self,
+        call: Any,
+        gate: _StreamGate,
+        *,
+        reconnect: bool,
+        violation: str | None,
+    ) -> _Outcome:
         self._transition(
             AgentEvent.HELLO_ACCEPTED,
             reason="reconnected" if reconnect else "connected",
             heartbeat_interval_s=self.heartbeat_interval_s,
             lease_s=self.lease_s,
         )
-        violation = None
-        if requested_s <= 0:
-            violation = "HelloAck.heartbeat_interval_ms must be > 0"
-        elif not self.session_id:
-            violation = "HelloAck.session_id must not be empty on an accepted Hello"
         if violation is not None:
             log.error(
                 "agent.session.protocol_violation",
@@ -498,28 +546,28 @@ class AgentSessionClient:
             )
 
         self._heartbeat_task = asyncio.create_task(
-            self._heartbeat_loop(call), name=f"agent-heartbeat:{self.node_id}"
+            self._heartbeat_loop(call, gate), name=f"agent-heartbeat:{self.node_id}"
         )
         self._heartbeat_task.add_done_callback(self._on_heartbeat_done)
         try:
-            # ORDERING INVARIANT - do not add an ``await`` between the
-            # HELLO_ACCEPTED transition above and this call.
-            #
-            # That transition is what makes the session ONLINE, i.e. what lets
-            # ``send_report`` (the resource monitor) write to the stream. Because
-            # there is no suspension point in between, this coroutine reaches
-            # ``_reconcile_and_replay`` - and takes ``_write_lock`` - before any
-            # other task can, so ``Reconcile`` is always the first
-            # ``AgentMessage`` of a reconnect, as the controller's dedupe assumes.
-            #
-            # Add an ``await`` here and a fresh report overtakes the Reconcile:
-            # the controller's armed cursor reset is then consumed by that new
-            # report, the cursor jumps to its sequence, and every replayed report
-            # below it is rejected as a duplicate - telemetry silently lost, no
-            # error anywhere. Pinned by
-            # tests/component/agent/test_reconnect_reconcile_first.py.
+            # ORDERING (D21): ``Reconcile`` must be the first ``AgentMessage`` of a
+            # reconnect - otherwise a fresh report consumes the controller's armed
+            # cursor reset, the cursor jumps to its sequence and every replayed
+            # report below it is dropped as a duplicate: telemetry silently lost.
+            # This used to rest on there being no ``await`` between the ONLINE
+            # transition above and the reconcile below. It no longer does:
+            # ``send_report`` and the heartbeat wait for ``gate.ready``, which is
+            # set only after the Reconcile and the replay. Suspension points here
+            # are harmless (``on_online`` proves it in the tests). Pinned by
+            # tests/component/agent/test_reconnect_reconcile_first.py and
+            # tests/unit/agent/test_session_client_ordering.py.
+            if self._on_online is not None:
+                await self._on_online()
+            reconciled = True
             if reconnect:
-                await self._reconcile_and_replay()
+                reconciled = await self._reconcile_safely(gate)
+            if reconciled:
+                gate.ready.set()
             end = await self._read_loop(call)
         finally:
             self._heartbeat_task.cancel()
@@ -540,7 +588,26 @@ class AgentSessionClient:
             return _Outcome.STOP
         return await self._finish_stream(end)
 
-    async def _reconcile_and_replay(self) -> None:
+    async def _reconcile_safely(self, gate: _StreamGate) -> bool:
+        """Reconcile + replay; False if the stream died under it.
+
+        A write failing here means the call already ended; the read loop that
+        follows reports how. The gate then stays unset (nothing may be written to
+        a dead stream) until ``_online`` closes it on the way out.
+        """
+        try:
+            gate.replayed_through = await self._reconcile_and_replay()
+        except (grpc.aio.AioRpcError, grpc.aio.UsageError, asyncio.InvalidStateError):
+            log.info(
+                "agent.session.reconcile_interrupted",
+                node_id=self.node_id,
+                session_id=self.session_id or None,
+            )
+            return False
+        return True
+
+    async def _reconcile_and_replay(self) -> int:
+        """Write ``Reconcile`` and replay the ring; return the last sequence sent."""
         pending = self.ring.pending()
         # Wire contract (agent.proto Reconcile): 0 when nothing is replayed.
         replay_from = self.ring.first_sequence() or 0
@@ -562,6 +629,47 @@ class AgentSessionClient:
             replayed=len(pending),
             replay_dropped=self.ring.dropped,
         )
+        return pending[-1].sequence if pending else 0
+
+    # ------------------------------------------------------------ the gate
+
+    def _open_gate(self) -> _StreamGate:
+        """A new stream generation whose writes wait for its Reconcile (D21)."""
+        if self._gate is not None:  # pragma: no cover - _online always closes it
+            self._close_gate(self._gate)
+        self._generation += 1
+        gate = _StreamGate(self._generation)
+        self._gate = gate
+        return gate
+
+    def _close_gate(self, gate: _StreamGate) -> None:
+        """The stream is over: move the generation on and release every waiter
+        (each re-checks the generation and skips its direct write)."""
+        if self._gate is gate:
+            self._gate = None
+            self._generation += 1
+        gate.ready.set()
+
+    async def _wait_for_stream(self) -> int | None:
+        """Wait until the current stream may carry direct writes (D21).
+
+        Returns the generation the caller may write on, or ``None`` when it must
+        not write directly (not ONLINE, no stream, or the stream ended while
+        waiting - which releases the wait, so this never blocks past a stream).
+        """
+        gate = self._gate
+        if self.state is not AgentState.ONLINE or gate is None:
+            return None
+        generation = gate.generation
+        await gate.ready.wait()
+        if (
+            self._generation != generation
+            or self._gate is not gate
+            or self.state is not AgentState.ONLINE
+            or self._call is None
+        ):
+            return None
+        return generation
 
     async def _read_loop(self, call: Any) -> StreamEnd:
         """Consume controller messages until the stream ends; returns how.
@@ -678,8 +786,12 @@ class AgentSessionClient:
             )
             self.stats.commands_acked += 1
 
-    async def _heartbeat_loop(self, call: Any) -> None:
+    async def _heartbeat_loop(self, call: Any, gate: _StreamGate) -> None:
         interval = self.heartbeat_interval_s
+        # Not even a heartbeat may precede the Reconcile (D21).
+        await gate.ready.wait()
+        if self._gate is not gate:
+            return
         try:
             while True:
                 await asyncio.sleep(interval)
@@ -710,6 +822,8 @@ class AgentSessionClient:
     async def send_report(self, payload_name: str, payload: Any) -> str:
         """Buffer a report in the ring and, when ONLINE, write it now.
 
+        "Now" means once the stream's Reconcile is out (D21): the call may wait
+        for that, and returns without a direct write if the stream ends first.
         ``payload_name`` is the ``AgentMessage`` oneof field (``resource_update``...).
         Returns the ``message_id``. Callers arrive with G4 (ResourceUpdate) and
         V0.4 (AttemptStatus/LogChunk); until then tests use this.
@@ -729,12 +843,19 @@ class AgentSessionClient:
                 dropped_total=self.ring.dropped,
                 capacity=self.ring.capacity,
             )
-        if self.state is AgentState.ONLINE and self._call is not None:
-            with contextlib.suppress(
-                grpc.aio.AioRpcError, grpc.aio.UsageError, asyncio.InvalidStateError
-            ):
-                await self._write(msg)
-                self.stats.reports_sent += 1
+        sequence = self._report_sequence
+        gate = self._gate
+        if await self._wait_for_stream() is None:
+            # Not ONLINE, or the stream ended while we waited: the ring has it and
+            # the next stream's replay carries it (D21).
+            return msg.message_id
+        if gate is not None and sequence <= gate.replayed_through:
+            return msg.message_id  # already on the wire, inside the replay
+        with contextlib.suppress(
+            grpc.aio.AioRpcError, grpc.aio.UsageError, asyncio.InvalidStateError
+        ):
+            await self._write(msg)
+            self.stats.reports_sent += 1
         return msg.message_id
 
     # ---------------------------------------------------------------- ends
