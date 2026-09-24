@@ -23,12 +23,18 @@ from typing import Any
 
 import pytest
 import structlog
-from test_session_linger import CFG, FakeClock, FencedRegistry, admit, hello, make, settle
+from test_session_linger import (
+    FencedRegistry,
+    admit,
+    hello,
+    make,
+    settle,
+)
 
 from meshforge.common.ids import new_node_id
 from meshforge.controller.liveness import NodeState
 from meshforge.controller.registry import RegistryError, SessionEndReason
-from meshforge.controller.session.manager import Accepted, LiveSession, SessionManager
+from meshforge.controller.session.manager import Accepted, SessionManager
 
 pytestmark = pytest.mark.unit
 
@@ -248,5 +254,7 @@ async def test_two_pending_hellos_different_epochs_resolve_exactly_one_deferred_
     assert {a.live.session_epoch for a in accepted} == {2, 3}
     # The epoch 1 session never sees a real event fire twice, and its chain ends
     # with exactly one close_session write.
-    closes = [w for w in reg.writes if w[1] == old.session_id and w[0] == "close_session"]
+    closes = [
+        w for w in reg.writes if w[1] == old.session_id and w[0] == "close_session"
+    ]
     assert len(closes) == 1

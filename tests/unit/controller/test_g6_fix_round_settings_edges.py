@@ -76,7 +76,10 @@ def test_budget_accepts_every_combination_exactly_at_the_edge(
     ("cap_s", "hello_timeout_s"),
     [
         (RECONNECT_CAP_BOUND_S, 3.0 + 1e-6),  # one hair over the budget
-        (RECONNECT_CAP_BOUND_S, RECONNECT_CAP_BOUND_S),  # 5 + 5 = 10 (old shipped combo)
+        (
+            RECONNECT_CAP_BOUND_S,
+            RECONNECT_CAP_BOUND_S,
+        ),  # 5 + 5 = 10 (old shipped combo)
         (RECONNECT_CAP_BOUND_S, RECONNECT_ATTEMPT_BUDGET_S),  # 5 + 8
     ],
 )
@@ -132,11 +135,13 @@ def test_bucket_grace_s_rejects_negative_and_past_the_bound() -> None:
     ControllerSection(resources={"bucket_grace_s": 3600.0})  # the bound itself
 
 
-def test_a_long_bucket_grace_still_yields_a_positive_max_open_buckets_headroom() -> None:
+def test_a_long_bucket_grace_still_yields_a_positive_max_open_buckets_headroom() -> (
+    None
+):
     """D26: grace buckets must not count against ``max_open_buckets`` (that cap is
     for clock jumps). A large grace relative to a small bucket_s must still leave
     the Downsampler usable (finite, > the base cap)."""
-    from meshforge.controller.resources import DEFAULT_MAX_OPEN_BUCKETS, Downsampler
+    from meshforge.controller.resources import Downsampler
 
     d = Downsampler(bucket_s=1.0, max_open_buckets=2, bucket_grace_s=3600.0)
     assert d.max_open_buckets > 2

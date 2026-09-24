@@ -40,13 +40,17 @@ CRITERION_2_BOUND_S = 10.0
 WAIT_CEILING_S = 30.0
 
 
-@pytest.mark.timeout(600)  # 2 trials x (120 s outage + up to 30 s wait) > the 300 s default
+@pytest.mark.timeout(
+    600
+)  # 2 trials x (120 s outage + up to 30 s wait) > the 300 s default
 def test_restore_after_120s_blackhole_over_several_trials(
     make_fabric: MakeFabric, record_timing: Callable[..., None]
 ) -> None:
     fabric: Fabric = make_fabric(agents=5, timing=SHIPPED)
     results = []
-    trials = 2  # each trial is a genuine 120 s wait; kept small to fit the harness's budget
+    trials = (
+        2  # each trial is a genuine 120 s wait; kept small to fit the harness's budget
+    )
     for i in range(trials):
         victim = fabric.nodes[0]
         pid_before = victim.pid
@@ -60,7 +64,9 @@ def test_restore_after_120s_blackhole_over_several_trials(
             victim, "online", connected=True, within=WAIT_CEILING_S, since=t1
         )
         record_timing(
-            f"criterion2 120s outage trial {i}", online_s, CRITERION_2_BOUND_S,
+            f"criterion2 120s outage trial {i}",
+            online_s,
+            CRITERION_2_BOUND_S,
             SHIPPED.name,
         )
         results.append(online_s)
