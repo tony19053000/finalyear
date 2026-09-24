@@ -203,6 +203,9 @@ early. Re-check after G7.
 
 ## 2. In flight right now
 
+> **G7-A in flight (implementer):** done items 1-2 + runner core (`dc4ebcf`: numpy in agent extra, `agent/benchmarks/` kernels/child/plan/runner/ScoreSet, lab re-exports, `IdKind.SCORE_RUN`).
+> Next: item 4 (fingerprint + `scores.json` cache + `scores.lock`), 5 settings, 6 CLI, 7 runtime hook, then tests.
+
 **G7-A is in flight (spawned 2026-09-24).** The G7 brief is written: `docs/briefs/V0.3-fabric-core.md` **§5g**
 (decisions D30–D38; two sequential runs, A = agent-side scoring, B = wire + controller + REST/CLI). If this session
 died: check `git log --oneline | grep G7` and the implementer's own "G7-A in flight" note below, then re-spawn
