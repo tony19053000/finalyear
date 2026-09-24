@@ -199,7 +199,12 @@ check nothing is mid-task first.
 **G6 is in flight (2026-09-24).** Brief: `docs/briefs/V0.3-fabric-core.md` **§5f**, decisions **D19–D25**. It is
 three sequential implementer runs — **G6-A** fabric fixes (NB-G5-1, fenced state writes, NB-1 `Event`, ingestion
 validation, `controller.listening`) → **G6-B** cluster harness + fault proxy (0.3.14 proper) → **G6-C** 0.3.15 lab
-kit — then **one tester round over A+B+C**, then the reviewer. **G6-A was spawned 2026-09-24.** If this session died,
+kit — then **one tester round over A+B+C**, then the reviewer. **G6-A finished 2026-09-24** (commits `64a89b5` … `305d89a`, not yet tester/reviewer-checked): D19–D22 + D24
+built; unit 3351 passed exit 0, component controller 85 / agent 72 / store 17 exit 0; 8 mutation checks. **Key
+finding:** in grpcio 1.84 the server's request iterator ends *normally* for half-close, cancel, channel close and a
+killed client alike — the only difference is a handler cancel ~1 loop tick later — so a clean close is confirmed only
+after `HALF_CLOSE_CONFIRM_S` (0.25 s) with no cancel (canary test pins it; ARCHITECTURE §12.3 note). It also fixed a
+real agent crash (Reconcile write on a dead stream killed `run()`). **G6-B spawned 2026-09-24.** If this session died,
 look at `git log` for `feat(V0.3-G6)` / `test(V0.3-G6)` commits to see which run finished; relaunch the next one from
 §5f with the previous run's handoff note pasted in (commit a half-finished tree `wip:` first).
 
