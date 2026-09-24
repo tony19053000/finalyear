@@ -203,8 +203,8 @@ early. Re-check after G7.
 
 ## 2. In flight right now
 
-> **G7-A in flight (implementer):** done items 1-2 + runner core (`dc4ebcf`: numpy in agent extra, `agent/benchmarks/` kernels/child/plan/runner/ScoreSet, lab re-exports, `IdKind.SCORE_RUN`).
-> Next: item 4 (fingerprint + `scores.json` cache + `scores.lock`), 5 settings, 6 CLI, 7 runtime hook, then tests.
+> **G7-A in flight (implementer):** done items 1-4 (`dc4ebcf`, cache/fingerprint/lock + unit tests in the next commit).
+> Next: item 5 `[agent.scores]` settings, 6 `hardware score` CLI, 7 runtime hook, then component tests + mutation checks.
 
 **G7-A is in flight (spawned 2026-09-24).** The G7 brief is written: `docs/briefs/V0.3-fabric-core.md` **§5g**
 (decisions D30–D38; two sequential runs, A = agent-side scoring, B = wire + controller + REST/CLI). If this session
