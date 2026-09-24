@@ -213,7 +213,12 @@ only after a grace period (setting, default ≥ reconnect + replay window) and l
 *not* merge-into-row (a replay after a controller restart, when the dedupe cursor is gone, would be double-merged).
 Goes into the G6 fix round. Other G6-B follow-ups for that round: agent ignores SIGBREAK (Windows graceful stop);
 `identity.created` logs a full user path; tester.md + ADR-0010 still name Toxiproxy. Pre-existing, not G6:
-`test_s3_adversarial::…child_dies…` fails alone; racing-epochs component test flaky under load. **G6-C spawned.** If this session died,
+`test_s3_adversarial::…child_dies…` fails alone; racing-epochs component test flaky under load. **G6-C finished 2026-09-24** (lab kit: `lab/fabric_check.py`, `lab/agent_rss.py`,
+`lab/checklists/V0.3-fabric.md`; unit lab 1438 passed exit 0; real loopback smoke run). Corrected two brief errors:
+`session_epoch` rises on every *connection attempt*, so "restarted" is detected from the resource `sequence` resetting
+to 1; psutil is in the `agent` extra (checklist uses `uv run --extra agent`). **Risk to criterion 2:** after a long
+outage the agent's full-jitter backoff (cap 15 s, ADR-0002 Updates) can push restore → ONLINE past 10 s; the tester is
+asked to measure it. **Tester round over A+B+C spawned.** If this session died,
 look at `git log` for `feat(V0.3-G6)` / `test(V0.3-G6)` commits to see which run finished; relaunch the next one from
 §5f with the previous run's handoff note pasted in (commit a half-finished tree `wip:` first).
 
