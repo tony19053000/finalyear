@@ -262,3 +262,58 @@ def test_docker_marker_skips_with_distinct_reason_when_package_missing(
     result.assert_outcomes(skipped=2)
     result.stdout.fnmatch_lines(["*`docker` Python package is not installed*"])
     result.stdout.no_fnmatch_line("*no Docker daemon answered*")
+
+
+# A package whose import raises after a submodule is already loaded - the shape a
+# native package like torch leaves behind when its import fails half-way.
+_HALF_PKG = {
+    "unit/halfpkg/__init__.py": "from . import sub\nraise RuntimeError('half-way')\n",
+    "unit/halfpkg/sub.py": "VALUE = 1\n",
+}
+
+
+def _write_half_pkg(suite: pytest.Pytester) -> None:
+    for rel, body in _HALF_PKG.items():
+        path = suite.path / "tests" / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body, encoding="utf-8")
+
+
+def test_a_swallowed_half_import_fails_the_session_by_name(
+    suite: pytest.Pytester,
+) -> None:
+    _write_half_pkg(suite)
+    _write(
+        suite,
+        "unit/test_a.py",
+        "def test_a():\n"
+        "    try:\n"
+        "        import halfpkg  # noqa: F401\n"
+        "    except RuntimeError:\n"
+        "        pass\n",
+    )
+    result = suite.runpytest_subprocess()
+    result.assert_outcomes(passed=1)
+    assert result.ret == pytest.ExitCode.TESTS_FAILED
+    result.stdout.fnmatch_lines(
+        ["*half-imported package(s) left in the pytest process: halfpkg.*"]
+    )
+
+
+def test_an_import_blocked_through_sys_modules_is_not_flagged(
+    suite: pytest.Pytester,
+) -> None:
+    _write_half_pkg(suite)
+    _write(
+        suite,
+        "unit/test_a.py",
+        "import sys\n\n"
+        "def test_a(monkeypatch):\n"
+        "    monkeypatch.setitem(sys.modules, 'halfpkg', None)\n"
+        "    with pytest.raises(ImportError):\n"
+        "        import halfpkg  # noqa: F401\n",
+    )
+    result = suite.runpytest_subprocess()
+    result.assert_outcomes(passed=1)
+    assert result.ret == pytest.ExitCode.OK
+    assert "half-imported" not in result.stdout.str()

@@ -26,8 +26,9 @@ You are the **Implementer** for the MeshForge compute-fabric project — a senio
 
 ## Before handing off, run and make pass
 ```bash
-uv run ruff check . && uv run ruff format --check . && uv run mypy src && uv run pytest -m "unit or component" -q
+uv run ruff check . && uv run ruff format --check . && uv run mypy src && uv run python scripts/pytest_exit_guard.py -m "unit or component" -q
 ```
+Run pytest through `scripts/pytest_exit_guard.py` and report its **exit code**, not only the pass counts: a green summary followed by a non-zero exit (a crash at interpreter shutdown) is a failed run.
 (Adjust once the repo exists; if a command can't run, say so explicitly — never claim it passed.)
 
 ## Handoff note (your final message)

@@ -10,11 +10,34 @@ from __future__ import annotations
 
 import io
 import json
+import sys
+from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 
 import pytest
 
 from spikes._s7 import child, sizing
+
+_REAL_MODULE = child._module
+
+
+@pytest.fixture(autouse=True)
+def _no_real_backends(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Every test here sees torch and numpy as not installed unless it fakes them.
+
+    Without this the stdlib-path tests imported the *real* torch in the pytest
+    process whenever the venv had it. Under ``filterwarnings = error`` that
+    import raises half-way (torch warns when numpy is absent), and the repeated
+    half-imports crashed the interpreter at exit: a green summary, then exit 139.
+    It also made ``backend == "python_fallback"`` depend on what is installed.
+    ``sys.modules[name] = None`` is the standard way to make an import fail.
+    """
+    for name in ("torch", "numpy"):
+        monkeypatch.setitem(sys.modules, name, None)
+    _REAL_MODULE.cache_clear()
+    yield
+    _REAL_MODULE.cache_clear()
 
 
 # --------------------------------------------------------------- stdlib paths
@@ -577,3 +600,24 @@ def test_main_keeps_stray_prints_off_the_protocol_stream(
 
 def test_unknown_module_import_failure_is_none(monkeypatch: pytest.MonkeyPatch) -> None:
     assert child._module("definitely_not_a_module_xyz") is None
+
+
+def test_a_failed_import_is_attempted_once_per_process(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Re-running a half-failed native import is what corrupted the interpreter
+    # (exit 139 at shutdown), so _module must never retry one.
+    runs = tmp_path / "runs.txt"
+    package = tmp_path / "s7_half_failing_pkg"
+    package.mkdir()
+    (package / "__init__.py").write_text(
+        f"with open({str(runs)!r}, 'a') as f:\n"
+        "    f.write('x')\n"
+        "raise RuntimeError('import raised half-way')\n",
+        encoding="utf-8",
+    )
+    monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.delitem(sys.modules, "s7_half_failing_pkg", raising=False)
+    for _ in range(3):
+        assert child._module("s7_half_failing_pkg") is None
+    assert runs.read_text(encoding="utf-8") == "x"

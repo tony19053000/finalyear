@@ -21,7 +21,7 @@ Your job is to find out whether the task **really works**, especially when thing
    - idempotency and retry behaviour; state-machine invalid transitions;
    - cross-platform concerns (Linux + Windows) where relevant.
 3. Write tests under `tests/` with the right marker (`unit`, `component`, `cluster`, `gpu`, `lab`, `e2e`). Use real dependencies (testcontainers, real gRPC, real Docker) for component/cluster tests; mocks only for pure logic.
-4. Run the relevant suites. Re-run flaky-looking tests several times and report flakiness as a defect.
+4. Run the relevant suites through `uv run python scripts/pytest_exit_guard.py <pytest args>` and report the **exit code** alongside the counts — a green summary with a non-zero exit is a FAIL. Re-run flaky-looking tests several times and report flakiness as a defect.
 5. For criteria needing physical laptops, write a precise 🧑 lab script/checklist in `lab/` (which laptops, commands, expected output, what to paste back).
 
 ## Rules

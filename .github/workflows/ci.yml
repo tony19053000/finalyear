@@ -127,7 +127,9 @@ jobs:
         run: uv run python scripts/gen_protos.py --check
       - name: pytest -m unit
         if: ${{ !cancelled() }}
-        run: uv run pytest -m unit --junitxml=reports/junit-unit-${{ matrix.os }}.xml
+        # Through the exit guard: a green summary with a non-zero exit (e.g. a
+        # segfault at interpreter shutdown) is named as such in the log.
+        run: uv run python scripts/pytest_exit_guard.py -m unit --junitxml=reports/junit-unit-${{ matrix.os }}.xml
       - name: upload junit report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -158,7 +160,7 @@ jobs:
       # Postgres comes from testcontainers; Ryuk (enabled by default) reaps
       # containers even if the test process dies.
       - name: pytest -m component
-        run: uv run pytest -m component --junitxml=reports/junit-component.xml
+        run: uv run python scripts/pytest_exit_guard.py -m component --junitxml=reports/junit-component.xml
       - name: upload junit report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

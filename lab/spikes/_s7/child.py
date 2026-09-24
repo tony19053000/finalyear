@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import array
+import functools
 import importlib
 import json
 import os
@@ -62,7 +63,17 @@ class BenchError(Exception):
         self.failure_type = failure_type
 
 
+@functools.cache
 def _module(name: str) -> Any | None:
+    """Import ``name`` once; None if it is missing or its import raised.
+
+    Cached on purpose, failures included: a native package whose import raised
+    half-way (torch does, e.g. when a warning is promoted to an error) leaves its
+    C extension loaded, and re-running its ``__init__`` against that extension
+    corrupts interpreter state - the process then segfaults at shutdown (exit
+    139) long after every result was reported. One attempt per process is the
+    only safe number.
+    """
     try:
         return importlib.import_module(name)
     except Exception:  # noqa: BLE001 - a broken install must not crash the child

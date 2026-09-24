@@ -52,6 +52,7 @@ from __future__ import annotations
 
 import io
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Final
 
@@ -235,3 +236,54 @@ def _configured_logging() -> None:
     themselves afterwards, as those logging tests already do.
     """
     configure_logging(fmt="json", stream=io.StringIO())
+
+
+def half_imported_packages(modules: Mapping[str, object]) -> list[str]:
+    """Top-level packages that have a submodule loaded but whose parent is missing.
+
+    That is the fingerprint of an import that raised half-way and was swallowed:
+    Python drops the failed package from ``sys.modules`` but keeps whatever it had
+    already imported beneath it - for a native package, a loaded C extension.
+    """
+    return sorted(
+        {
+            name.partition(".")[0]
+            for name, module in modules.items()
+            if module is not None
+            and "." in name
+            and modules.get(name.rpartition(".")[0]) is None
+        }
+    )
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_sessionfinish(session: pytest.Session) -> None:
+    """Fail the run if a test left a package half-imported in this process.
+
+    Not hypothetical: the S7 child tests used to import the real torch in-process,
+    ``filterwarnings = error`` made that import raise half-way, and repeated
+    half-imports corrupted torch's C extension - the suite printed ``3214
+    passed`` and then segfaulted at shutdown (exit 139) with no Python frame to
+    point at the cause. This check runs *before* shutdown and names the package,
+    so the same mistake fails with a reason instead of a crash. A test that needs
+    an optional library to look missing should block it with
+    ``monkeypatch.setitem(sys.modules, name, None)``, not import it and swallow
+    the error. ``scripts/pytest_exit_guard.py`` is the other half: it catches a
+    shutdown crash this check cannot foresee.
+    """
+    packages = half_imported_packages(dict(sys.modules))
+    if not packages:
+        return
+    message = (
+        f"half-imported package(s) left in the pytest process: {', '.join(packages)}. "
+        "A test imported them, the import raised part-way and the error was "
+        "swallowed; a half-loaded native extension can crash the interpreter at "
+        "exit. Block the import in the test instead."
+    )
+    reporter = session.config.pluginmanager.get_plugin("terminalreporter")
+    if reporter is not None:
+        reporter.write_sep("=", "half-imported packages", red=True)
+        reporter.write_line(message, red=True)
+    else:
+        sys.stderr.write(message + "\n")
+    session.exitstatus = pytest.ExitCode.TESTS_FAILED
