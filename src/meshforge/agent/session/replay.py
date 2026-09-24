@@ -13,7 +13,7 @@ replay starts. The sequence is shared by every report kind; only ``ResourceUpdat
 also carries it in its payload, so the controller's resource dedupe cursor sees
 gaps where other reports were sent - gaps it tolerates by design (the cursor only
 ever compares ``<=``; pinned by
-``tests/component/controller/test_hardware_scores.py``). On overflow the *oldest*
+``tests/component/agent/test_hardware_scores.py``). On overflow the *oldest*
 entry is dropped and ``dropped`` counts it - the controller learns about the gap
 from the sequence numbers, and the agent logs ``agent.session.replay_dropped``.
 

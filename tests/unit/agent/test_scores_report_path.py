@@ -6,7 +6,7 @@
   sequence with ``resource_update`` without ever writing into a ResourceUpdate.
 
 No controller, no child process; the cross-process proofs are in
-tests/component/controller/test_hardware_scores.py.
+tests/component/agent/test_hardware_scores.py.
 """
 
 from __future__ import annotations

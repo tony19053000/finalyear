@@ -8,7 +8,7 @@
   and the run's ``measured_at``; a duplicate ``message_id`` is written once.
 
 Fakes only (no database); the fence and the ordering against real PostgreSQL are in
-tests/component/controller/test_hardware_scores.py.
+tests/component/agent/test_hardware_scores.py.
 """
 
 from __future__ import annotations
