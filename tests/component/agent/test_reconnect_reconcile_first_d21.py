@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import structlog
 from mf_agent_harness import make_agent_settings
 from mf_session_client import poll_until
 
@@ -112,3 +113,68 @@ async def test_reconcile_is_first_with_a_suspension_point_in_the_window(
         f"first message of the reconnect was {second[0]!r}: {second[:10]} - a "
         "report or heartbeat overtook the Reconcile (D21 gate broken)"
     )
+
+
+@pytest.mark.asyncio
+async def test_a_stream_that_dies_before_the_reconcile_is_a_reconnect_not_a_crash(
+    runtime: ControllerRuntime,
+    grpc_target: str,
+    data_dir: Path,
+    identity: NodeIdentity,
+) -> None:
+    """The Reconcile write hitting an already-finished call (the controller ended
+    the session inside the window) must be a stream end like any other: the agent
+    backs off and reconnects. Before G6 the ``AioRpcError`` escaped ``run()`` and
+    the agent died (checked by removing the handling: this test then fails)."""
+    manager = runtime.manager
+    assert manager is not None
+    killed: list[str] = []
+
+    async def hook() -> None:
+        if client.stats.sessions_accepted != 2 or killed:
+            return
+        live = manager.get(str(identity.node_id))
+        assert live is not None
+        killed.append(live.session_id)
+        await manager.end_session(live, SessionEndReason.PROTOCOL_ERROR)
+
+        # The controller's final status reaches the agent's call; its next write
+        # raises AioRpcError (``call.done()`` stays False until a read, so there
+        # is nothing to poll - loopback needs far less than this).
+        await asyncio.sleep(0.3)
+
+    client = AgentSessionClient(
+        make_agent_settings(data_dir, grpc_target), identity, on_online=hook
+    )
+    task = asyncio.create_task(client.run())
+    logs_cm = structlog.testing.capture_logs()
+    logs = logs_cm.__enter__()
+    try:
+        await client.wait_for_state(AgentState.ONLINE, timeout_s=10.0)
+        await client.send_report(
+            "resource_update", agent_pb2.ResourceUpdate(cpu_percent=1.0)
+        )
+        first = manager.get(str(identity.node_id))
+        assert first is not None
+        await manager.end_session(first, SessionEndReason.PROTOCOL_ERROR)
+
+        async def third_session_online() -> bool:
+            if task.done():
+                raise AssertionError(f"agent died: {task.exception()!r}")
+            return (
+                client.stats.sessions_accepted >= 3
+                and client.state is AgentState.ONLINE
+            )
+
+        await poll_until(third_session_online, timeout_s=15.0)
+        assert killed, "the hook never ran on the second session"
+        assert not task.done()
+    finally:
+        logs_cm.__exit__(None, None, None)
+        client.request_stop()
+        with contextlib.suppress(BaseException):
+            await asyncio.wait_for(task, 10.0)
+    interrupted = [
+        e for e in logs if e["event"] == "agent.session.reconcile_interrupted"
+    ]
+    assert [e["session_id"] for e in interrupted] == killed
