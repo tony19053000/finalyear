@@ -29,7 +29,7 @@ WALL0 = datetime(2026, 9, 24, 10, 0, tzinfo=UTC)
 class FakeClock:
     now: float = T0
     start_wall: datetime = WALL0
-    events: list[tuple[float, int, Callable[[], None]]] = field(default_factory=list)
+    events: list[tuple[float, int, Callable[[], object]]] = field(default_factory=list)
     _seq: int = 0
 
     def monotonic(self) -> float:
@@ -38,13 +38,13 @@ class FakeClock:
     def wall(self) -> datetime:
         return self.start_wall + timedelta(seconds=self.now - T0)
 
-    def at(self, t: float, action: Callable[[], None]) -> None:
+    def at(self, t: float, action: Callable[[], object]) -> None:
         """Run ``action`` once the clock reaches absolute monotonic time ``t``."""
         self._seq += 1
         self.events.append((t, self._seq, action))
         self.events.sort(key=lambda e: (e[0], e[1]))
 
-    def after(self, dt: float, action: Callable[[], None]) -> None:
+    def after(self, dt: float, action: Callable[[], object]) -> None:
         self.at(self.now + dt, action)
 
     def sleep(self, seconds: float) -> None:
@@ -52,6 +52,22 @@ class FakeClock:
         while self.events and self.events[0][0] <= self.now + 1e-9:
             _, _, action = self.events.pop(0)
             action()
+
+
+def step(
+    clock: FakeClock,
+    changes: list[tuple[float, Callable[[], object]]],
+    enter: float | None,
+) -> Callable[[], float | None]:
+    """A :class:`ScriptedOperator` script entry: at the prompt, schedule each
+    ``(delay, action)`` relative to now, and press Enter ``enter`` s later."""
+
+    def run() -> float | None:
+        for delay, action in changes:
+            clock.after(delay, action)
+        return enter
+
+    return run
 
 
 @dataclass

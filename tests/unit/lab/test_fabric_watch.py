@@ -4,12 +4,19 @@ transition timestamping, latency from the operator's Enter, restart detection
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 import pytest
 
 from _fabric.api import FabricApi
-from _fabric.testing import FakeClock, ScriptedOperator, StubController, node_doc
+from _fabric.testing import (
+    FakeClock,
+    ScriptedOperator,
+    StubController,
+    node_doc,
+    step,
+)
 from _fabric.watch import (
     MARK_LATE,
     NODE_ID_CHANGED,
@@ -41,7 +48,9 @@ def _cable_pull(
 
     def pull() -> float:
         mark = clock.now + 0.5
-        clock.at(mark + 1.0, lambda: stub.set_node(NODE, state="suspect", connected=False))
+        clock.at(
+            mark + 1.0, lambda: stub.set_node(NODE, state="suspect", connected=False)
+        )
 
         def gone() -> None:
             stub.set_node(NODE, state="offline")
@@ -54,7 +63,13 @@ def _cable_pull(
         mark = clock.now + 0.5
 
         def back() -> None:
-            stub.set_node(NODE, state="online", connected=True, session_epoch=6, last_session_id="s6")
+            stub.set_node(
+                NODE,
+                state="online",
+                connected=True,
+                session_epoch=6,
+                last_session_id="s6",
+            )
             stub.add_session("s6", NODE, epoch=6)
             stub.add_samples(NODE, 6, new_sequences)
 
@@ -70,10 +85,16 @@ def _run(stub: StubController, script: list[Any], clock: FakeClock, **cfg: Any) 
     return run_watch(FabricApi(stub.url), clock, op, config), op
 
 
-def test_cable_pull_latencies_are_measured_from_enter(stub_controller: StubController) -> None:
+def test_cable_pull_latencies_are_measured_from_enter(
+    stub_controller: StubController,
+) -> None:
     _setup(stub_controller)
     clock = FakeClock()
-    result, op = _run(stub_controller, _cable_pull(stub_controller, clock, new_sequences=[121, 122]), clock)
+    result, op = _run(
+        stub_controller,
+        _cable_pull(stub_controller, clock, new_sequences=[121, 122]),
+        clock,
+    )
     assert result.errors == []
     (sample,) = result.samples
     # the change lands between two 100 ms polls: the measured value is at most one poll late
@@ -88,22 +109,30 @@ def test_cable_pull_latencies_are_measured_from_enter(stub_controller: StubContr
     assert sample["first_new_sequence"] == 121
     fields = [(c["field"], c["new"]) for c in sample["changes"]]
     assert fields.index(("state", "suspect")) < fields.index(("state", "offline"))
-    assert fields.index(("state", "offline")) < len(fields) - 1 - fields[::-1].index(("state", "online"))
+    assert fields.index(("state", "offline")) < len(fields) - 1 - fields[::-1].index(
+        ("state", "online")
+    )
     assert len(op.prompts) == 2
     assert "PULL" in op.prompts[0] and "lap2" in op.prompts[0]
 
 
-def test_a_sequence_reset_is_reported_as_an_agent_restart(stub_controller: StubController) -> None:
+def test_a_sequence_reset_is_reported_as_an_agent_restart(
+    stub_controller: StubController,
+) -> None:
     _setup(stub_controller)
     clock = FakeClock()
-    script = _cable_pull(stub_controller, clock, new_sequences=[1, 2], reason="stream_lost")
+    script = _cable_pull(
+        stub_controller, clock, new_sequences=[1, 2], reason="stream_lost"
+    )
     result, _ = _run(stub_controller, script, clock)
     (sample,) = result.samples
     assert sample["restarted"] is True
     assert sample["end_reason"] == "stream_lost"
 
 
-def test_a_bound_exceeded_is_recorded_not_hidden(stub_controller: StubController) -> None:
+def test_a_bound_exceeded_is_recorded_not_hidden(
+    stub_controller: StubController,
+) -> None:
     _setup(stub_controller)
     clock = FakeClock()
     script = _cable_pull(stub_controller, clock, new_sequences=[121], offline_after=9.0)
@@ -113,12 +142,17 @@ def test_a_bound_exceeded_is_recorded_not_hidden(stub_controller: StubController
     assert sample["offline_within_bound"] is False
 
 
-def test_enter_pressed_after_the_change_does_not_count(stub_controller: StubController) -> None:
+def test_enter_pressed_after_the_change_does_not_count(
+    stub_controller: StubController,
+) -> None:
     _setup(stub_controller)
     clock = FakeClock()
 
     def late() -> float:
-        clock.after(0.2, lambda: stub_controller.set_node(NODE, state="offline", connected=False))
+        clock.after(
+            0.2,
+            lambda: stub_controller.set_node(NODE, state="offline", connected=False),
+        )
         return 2.0  # Enter 1.8 s after the node was already offline
 
     result, _ = _run(stub_controller, [late], clock)
@@ -127,7 +161,9 @@ def test_enter_pressed_after_the_change_does_not_count(stub_controller: StubCont
     assert "offline_s" not in result.samples[0]
 
 
-def test_a_state_never_reached_times_out_as_not_detected(stub_controller: StubController) -> None:
+def test_a_state_never_reached_times_out_as_not_detected(
+    stub_controller: StubController,
+) -> None:
     _setup(stub_controller)
     clock = FakeClock()
     result, op = _run(stub_controller, [lambda: 0.1], clock, detect_timeout_s=3.0)
@@ -138,12 +174,17 @@ def test_a_state_never_reached_times_out_as_not_detected(stub_controller: StubCo
     assert any("restore the node" in s for s in op.said)
 
 
-def test_a_node_back_under_a_new_node_id_is_named(stub_controller: StubController) -> None:
+def test_a_node_back_under_a_new_node_id_is_named(
+    stub_controller: StubController,
+) -> None:
     _setup(stub_controller)
     clock = FakeClock()
 
     def pull() -> float:
-        clock.after(1.0, lambda: stub_controller.set_node(NODE, state="offline", connected=False))
+        clock.after(
+            1.0,
+            lambda: stub_controller.set_node(NODE, state="offline", connected=False),
+        )
         return 0.5
 
     def plug() -> float:
@@ -161,12 +202,16 @@ def test_a_node_back_under_a_new_node_id_is_named(stub_controller: StubControlle
     assert "node_01JBBBBBBBBBBBBBBBBBBBBBBB" in error["message"]
 
 
-def test_a_node_that_never_comes_online_aborts_the_run(stub_controller: StubController) -> None:
+def test_a_node_that_never_comes_online_aborts_the_run(
+    stub_controller: StubController,
+) -> None:
     _setup(stub_controller)
     stub_controller.set_node(NODE, state="offline", connected=False)
     clock = FakeClock()
     op = ScriptedOperator(clock, [])
-    cfg = WatchConfig(node_id=NODE, expect=("offline", "online"), reps=3, ready_timeout_s=2.0)
+    cfg = WatchConfig(
+        node_id=NODE, expect=("offline", "online"), reps=3, ready_timeout_s=2.0
+    )
     result = run_watch(FabricApi(stub_controller.url), clock, op, cfg)
     assert result.aborted
     assert result.errors[0]["failure_type"] == NOT_READY
@@ -174,7 +219,9 @@ def test_a_node_that_never_comes_online_aborts_the_run(stub_controller: StubCont
     assert op.prompts == []
 
 
-def test_the_controller_going_away_mid_step_is_on_the_timeline(stub_controller: StubController) -> None:
+def test_the_controller_going_away_mid_step_is_on_the_timeline(
+    stub_controller: StubController,
+) -> None:
     """The stub's listening socket is really closed for 2 s during the pull."""
     _setup(stub_controller)
     clock = FakeClock()
@@ -182,37 +229,46 @@ def test_the_controller_going_away_mid_step_is_on_the_timeline(stub_controller: 
     def pull() -> float:
         clock.after(1.0, stub_controller.stop)
         clock.after(3.0, stub_controller.start)
-        clock.after(4.0, lambda: stub_controller.set_node(NODE, state="offline", connected=False))
+        clock.after(
+            4.0,
+            lambda: stub_controller.set_node(NODE, state="offline", connected=False),
+        )
         return 0.5
 
     def plug() -> float:
-        clock.after(0.5, lambda: stub_controller.set_node(NODE, state="online", connected=True))
+        clock.after(
+            0.5, lambda: stub_controller.set_node(NODE, state="online", connected=True)
+        )
         return 0.2
 
     result, _ = _run(stub_controller, [pull, plug], clock)
     (sample,) = result.samples
-    reach = [(c["field"], c["new"]) for c in sample["changes"] if c["field"] == "reachable"]
+    reach = [
+        (c["field"], c["new"]) for c in sample["changes"] if c["field"] == "reachable"
+    ]
     assert reach == [("reachable", False), ("reachable", True)]
     assert 3.5 <= sample["offline_s"] <= 3.6 + 1e-6
 
 
-def test_several_repetitions_wait_for_the_node_between_them(stub_controller: StubController) -> None:
+def test_several_repetitions_wait_for_the_node_between_them(
+    stub_controller: StubController,
+) -> None:
     _setup(stub_controller)
     clock = FakeClock()
-    script: list[Any] = []
+
+    def go(state: str, *, connected: bool) -> Callable[[], None]:
+        return lambda: stub_controller.set_node(NODE, state=state, connected=connected)
+
+    script: list[Callable[[], float | None]] = []
     for _ in range(3):
         script += [
-            lambda: (
-                clock.after(2.0, lambda: stub_controller.set_node(NODE, state="offline", connected=False)),
-                0.1,
-            )[1],
-            lambda: (
-                clock.after(1.0, lambda: stub_controller.set_node(NODE, state="online", connected=True)),
-                0.1,
-            )[1],
+            step(clock, [(2.0, go("offline", connected=False))], 0.1),
+            step(clock, [(1.0, go("online", connected=True))], 0.1),
         ]
     op = ScriptedOperator(clock, script)
-    cfg = WatchConfig(node_id=NODE, expect=("offline", "online"), reps=3, sample_wait_s=0.5)
+    cfg = WatchConfig(
+        node_id=NODE, expect=("offline", "online"), reps=3, sample_wait_s=0.5
+    )
     result = run_watch(FabricApi(stub_controller.url), clock, op, cfg)
     assert [round(s["offline_s"], 1) for s in result.samples] == [1.9, 1.9, 1.9]
     assert [s["rep"] for s in result.samples] == [0, 1, 2]
@@ -222,7 +278,11 @@ def test_several_repetitions_wait_for_the_node_between_them(stub_controller: Stu
 
 @pytest.mark.parametrize(
     ("expect", "match"),
-    [((), "at least one"), (("offline", "offline"), "repeat"), (("gone",), "cannot expect")],
+    [
+        ((), "at least one"),
+        (("offline", "offline"), "repeat"),
+        (("gone",), "cannot expect"),
+    ],
 )
 def test_bad_expect_lists_are_refused(expect: tuple[str, ...], match: str) -> None:
     with pytest.raises(ValueError, match=match):

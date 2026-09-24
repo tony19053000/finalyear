@@ -20,9 +20,12 @@ def view(state: str = "online", *, connected: bool = True, epoch: int = 1) -> No
 
 def test_only_changes_are_kept_and_stamped_with_the_poll_time() -> None:
     tl = Timeline()
-    assert [c.field for c in tl.observe(1.0, "w1", view())] == list(
-        ("state", "connected", "session_epoch", "last_session_id")
-    )
+    assert [c.field for c in tl.observe(1.0, "w1", view())] == [
+        "state",
+        "connected",
+        "session_epoch",
+        "last_session_id",
+    ]
     assert tl.observe(1.1, "w2", view()) == []  # nothing changed: no point
     changes = tl.observe(1.2, "w3", view("suspect", connected=False))
     assert {(c.field, c.old, c.new, c.t) for c in changes} == {
@@ -67,7 +70,9 @@ def test_first_edge_is_the_change_point_where_the_condition_becomes_true() -> No
 def test_a_state_that_already_held_at_the_start_is_not_an_edge() -> None:
     tl = Timeline()
     tl.observe(1.0, "w", view("offline", connected=False))
-    assert tl.first_edge(condition("offline"), after=0.0) == 1.0  # first point: was unknown
+    assert (
+        tl.first_edge(condition("offline"), after=0.0) == 1.0
+    )  # first point: was unknown
     assert tl.first_edge(condition("offline"), after=1.5) is None
 
 
