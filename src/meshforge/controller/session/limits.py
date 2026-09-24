@@ -34,6 +34,8 @@ log lines).
 
 from __future__ import annotations
 
+import math
+import re
 from dataclasses import dataclass
 from typing import Final
 
@@ -44,6 +46,7 @@ from meshforge.common.errors import InvalidIdError
 from meshforge.common.ids import IdKind, parse_id
 from meshforge.common.proto.meshforge.v1 import agent_pb2
 from meshforge.controller.caps import MAX_DISKS, MAX_GPUS
+from meshforge.controller.scores import GPU_METRICS, metric_name, status_name
 
 __all__ = [
     "AGENT_VERSION_MAX_LENGTH",
@@ -52,17 +55,22 @@ __all__ = [
     "GPU_COMPUTE_CAPABILITY_MAX_LENGTH",
     "GPU_DRIVER_MAX_LENGTH",
     "GPU_MODEL_MAX_LENGTH",
+    "HARDWARE_SCORES_MAX_BYTES",
     "HARDWARE_SUMMARY_MAX_BYTES",
     "HOSTNAME_MAX_LENGTH",
     "MAX_CAPABILITIES",
     "MAX_DISKS",
     "MAX_GPUS",
+    "MAX_SCORE_METRICS",
     "MESSAGE_ID_MAX_LENGTH",
     "MOUNT_MAX_LENGTH",
     "OS_MAX_LENGTH",
     "PLATFORM_MAX_LENGTH",
+    "SCORE_BACKEND_MAX_LENGTH",
+    "SCORE_DETAIL_MAX_LENGTH",
     "Clamped",
     "check_hardware",
+    "check_hardware_scores",
     "check_hello_strings",
     "check_resource_update",
     "first_non_printable",
@@ -362,3 +370,170 @@ def check_resource_update(update: agent_pb2.ResourceUpdate) -> Clamped:
             )
         )
     return Clamped(fixed, tuple(dropped))
+
+
+# ---------------------------------------------------------------------------
+# Hardware scores (V0.3 G7, brief §5g D38)
+# ---------------------------------------------------------------------------
+#
+# Policy: a score set that breaks any rule below is **dropped** - logged
+# ``session.hardware_scores_rejected`` with the reason and counted - and the
+# stream stays up. Scores are an optional feature of a node, so a malformed one
+# must not take the node offline (unlike ``Hello.hardware``, the enrolment
+# contract). A score is a feature the planner will train on (V0.15): a wrong
+# number stored quietly is worse than none, so the rules are strict - finite
+# values only, "unknown" only as *absent* (never a 0.0), known enum values only,
+# bounded counts and printable bounded strings (D22). The agent's own model
+# (``agent/benchmarks/model.py``) enforces the same shape before it sends; this is
+# the controller's copy, because a peer is a peer.
+
+MAX_SCORE_METRICS: Final = 4 + 3 * MAX_GPUS
+"""Four host metrics plus three per GPU (the agent's ``_MAX_METRICS``)."""
+
+HARDWARE_SCORES_MAX_BYTES: Final = 64 * 1024
+"""Backstop on the serialized message; the per-field caps bound it far below."""
+
+SCORE_BACKEND_MAX_LENGTH: Final = 64
+"""``Score.backend`` / ``Score.backend_version`` (the agent model's cap)."""
+
+SCORE_DETAIL_MAX_LENGTH: Final = 300
+"""``Score.detail`` (the agent model's cap)."""
+
+SCORE_MIN_REPS: Final = 5
+SCORE_MAX_REPS: Final = 10_000
+SCORE_MAX_THREADS: Final = 4096
+SCORE_MAX_GPU_INDEX: Final = 1023
+"""NVML indices are small; this only bounds a hostile value."""
+
+_SCORE_RUN_ID_LENGTH: Final = len("score_") + 26
+_FINGERPRINT = re.compile(r"[0-9a-f]{64}")
+_REASON = re.compile(r"[a-z0-9_]{1,64}")
+
+
+def _finite(value: float) -> bool:
+    return math.isfinite(value)
+
+
+def _check_score(position: int, score: agent_pb2.Score) -> str | None:
+    where = f"HardwareScores.scores[{position}]"
+    name = metric_name(score.metric)
+    if name is None:
+        return f"{where}.metric is unspecified or unknown ({int(score.metric)})"
+    status = status_name(score.status)
+    if status is None:
+        return f"{where}.status is unspecified or unknown ({int(score.status)})"
+    is_gpu = name in GPU_METRICS
+    if score.HasField("gpu_index") != is_gpu:
+        return f"{where}.gpu_index must be set for GPU metrics only ({name})"
+    if is_gpu and score.gpu_index > SCORE_MAX_GPU_INDEX:
+        return f"{where}.gpu_index {score.gpu_index} exceeds {SCORE_MAX_GPU_INDEX}"
+    if score.n > SCORE_MAX_REPS:
+        return f"{where}.n {score.n} exceeds {SCORE_MAX_REPS}"
+    if score.HasField("threads_effective") and not (
+        1 <= score.threads_effective <= SCORE_MAX_THREADS
+    ):
+        return f"{where}.threads_effective is outside [1, {SCORE_MAX_THREADS}]"
+    for field in ("backend", "backend_version"):
+        value = getattr(score, field)
+        if len(value) > SCORE_BACKEND_MAX_LENGTH:
+            return (
+                f"{where}.{field} is {len(value)} characters; "
+                f"the maximum is {SCORE_BACKEND_MAX_LENGTH}"
+            )
+    if len(score.detail) > SCORE_DETAIL_MAX_LENGTH:
+        return (
+            f"{where}.detail is {len(score.detail)} characters; "
+            f"the maximum is {SCORE_DETAIL_MAX_LENGTH}"
+        )
+    if status == "ok":
+        if not score.HasField("mean") or not (_finite(score.mean) and score.mean > 0):
+            return f"{where}.mean must be a finite number > 0 for an ok metric"
+        if not score.HasField("stdev") or not (
+            _finite(score.stdev) and score.stdev >= 0
+        ):
+            return f"{where}.stdev must be a finite number >= 0 for an ok metric"
+        if score.n < SCORE_MIN_REPS:
+            return f"{where}.n must be >= {SCORE_MIN_REPS} for an ok metric"
+        if score.reason:
+            return f"{where}.reason must be empty for an ok metric"
+    else:
+        if score.HasField("mean") or score.HasField("stdev"):
+            # "Unknown" is absence, never a number standing in for it (G4 rule).
+            return f"{where} is {status} but carries a mean/stdev"
+        if not _REASON.fullmatch(score.reason):
+            return f"{where}.reason must be a snake_case code for a {status} metric"
+    return None
+
+
+def _check_conditions(scores: agent_pb2.HardwareScores) -> str | None:
+    if not scores.HasField("conditions"):
+        return "HardwareScores.conditions is missing"
+    c = scores.conditions
+    if not (_finite(c.budget_s) and c.budget_s > 0):
+        return "HardwareScores.conditions.budget_s must be a finite number > 0"
+    if not (_finite(c.duration_s) and c.duration_s >= 0):
+        return "HardwareScores.conditions.duration_s must be a finite number >= 0"
+    if c.HasField("cpu_load_percent_before") and not (
+        _finite(c.cpu_load_percent_before)
+        and 0.0 <= c.cpu_load_percent_before <= PERCENT_MAX
+    ):
+        return "HardwareScores.conditions.cpu_load_percent_before is outside [0, 100]"
+    return None
+
+
+def check_hardware_scores(scores: agent_pb2.HardwareScores) -> str | None:
+    """Return a reason if a ``HardwareScores`` breaks a D38 rule, else ``None``.
+
+    Pure, like :func:`check_hardware`; the caller drops the set and logs the
+    reason (never a stream kill, see the section note). Sizes and counts are
+    checked before any string is scanned; reasons never echo a peer value.
+    """
+    size = scores.ByteSize()
+    if size > HARDWARE_SCORES_MAX_BYTES:
+        return (
+            f"HardwareScores is {size} bytes; the maximum is "
+            f"{HARDWARE_SCORES_MAX_BYTES}"
+        )
+    if len(scores.scores) > MAX_SCORE_METRICS:
+        return (
+            f"HardwareScores.scores has {len(scores.scores)} entries; "
+            f"the maximum is {MAX_SCORE_METRICS}"
+        )
+    if len(scores.run_id) != _SCORE_RUN_ID_LENGTH:
+        return "HardwareScores.run_id is not a score_<ULID>"
+    try:
+        parse_id(scores.run_id, IdKind.SCORE_RUN)
+    except InvalidIdError:
+        return "HardwareScores.run_id is not a score_<ULID>"
+    if not _FINGERPRINT.fullmatch(scores.fingerprint):
+        return "HardwareScores.fingerprint is not 64 lowercase hex characters"
+    if scores.score_version < 1:
+        return "HardwareScores.score_version must be >= 1"
+    if not scores.HasField("measured_at"):
+        return "HardwareScores.measured_at is missing"
+    try:
+        scores.measured_at.ToDatetime()
+    except (ValueError, OverflowError, OSError):
+        return "HardwareScores.measured_at is not a valid timestamp"
+    reason = _check_conditions(scores)
+    if reason is not None:
+        return reason
+    seen: set[tuple[str | None, int | None]] = set()
+    gpu_indices: set[int] = set()
+    for position, score in enumerate(scores.scores):
+        reason = _check_score(position, score)
+        if reason is not None:
+            return reason
+        index = score.gpu_index if score.HasField("gpu_index") else None
+        key = (metric_name(score.metric), index)
+        if key in seen:
+            return f"HardwareScores.scores[{position}] repeats a metric"
+        seen.add(key)
+        if index is not None:
+            gpu_indices.add(index)
+    if len(gpu_indices) > MAX_GPUS:
+        return (
+            f"HardwareScores covers {len(gpu_indices)} GPUs; the maximum is {MAX_GPUS}"
+        )
+    # D22, after every size cap so only bounded strings are scanned.
+    return _non_printable_in_message(scores, "HardwareScores")

@@ -65,6 +65,10 @@ class WriteKind(StrEnum):
     """RTT sample - droppable (the next sample supersedes it)."""
     STATE = "state"
     """Liveness transition - never dropped (order and presence matter)."""
+    SCORES = "scores"
+    """Hardware-score run (roadmap 0.3.4, D38) - never dropped: the agent has been
+    acked and will not resend it until its next Hello. Rare (about one per node
+    lifetime), so it cannot fill the queue."""
     END = "end"
     """``close_session`` - never dropped; the chain ends after it."""
     CLOSE = "close"

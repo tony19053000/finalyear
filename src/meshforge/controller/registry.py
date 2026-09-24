@@ -15,9 +15,21 @@ import datetime as dt
 import functools
 from collections.abc import Awaitable, Callable, Coroutine, Mapping, Sequence
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Any
 
-from sqlalchemy import CursorResult, Result, delete, func, literal, select, update
+from sqlalchemy import (
+    CursorResult,
+    Result,
+    cast,
+    delete,
+    func,
+    literal,
+    or_,
+    select,
+    update,
+)
+from sqlalchemy.dialects.postgresql import TIMESTAMP
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
@@ -35,6 +47,7 @@ __all__ = [
     "NodeRecord",
     "Registry",
     "RegistryError",
+    "ScoresWrite",
     "SessionEndReason",
     "SessionRecord",
     "SnapshotRecord",
@@ -82,6 +95,18 @@ class NodeRecord:
     last_seen_at: dt.datetime
     last_session_id: str | None
     session_epoch: int
+    hardware_scores: Mapping[str, Any] | None = None
+    """The stored score document (``controller/scores.py``); None = not measured."""
+
+
+class ScoresWrite(StrEnum):
+    """Outcome of :meth:`Registry.set_hardware_scores`."""
+
+    WRITTEN = "written"
+    FENCED = "fenced"
+    """A newer session owns the node (D20): the write is stale."""
+    OLDER = "older"
+    """The stored run is newer than this one (a replay, or a reordered report)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -179,6 +204,9 @@ def _node_record(row: Node) -> NodeRecord:
         last_seen_at=row.last_seen_at,
         last_session_id=row.last_session_id,
         session_epoch=row.session_epoch,
+        hardware_scores=(
+            dict(row.hardware_scores) if row.hardware_scores is not None else None
+        ),
     )
 
 
@@ -236,8 +264,15 @@ class Registry:
         session_epoch: int,
         session_id: str,
         state: NodeState,
+        hardware_scores: Mapping[str, Any] | None = None,
     ) -> NodeRecord:
         """Insert the node on its first Hello, else refresh it; sets ``state``.
+
+        ``hardware_scores`` is the validated score document the Hello carried, or
+        ``None``: **always written**, so a Hello without scores clears the column
+        (D37 - "not measured for this hardware", shown as pending, never the
+        previous hardware's numbers). A Hello needs no ordering guard: admission is
+        serialised and moves ``last_session_id`` in the same statement.
 
         ``first_seen_at`` is preserved; ``last_seen_at`` and ``last_session_id`` move
         to now / the new session. The caller decides ``state`` (it knows whether
@@ -252,6 +287,7 @@ class Registry:
         defence and is logged when it engaged (RETURNING shows the stored value).
         """
         now = _utcnow()
+        scores = dict(hardware_scores) if hardware_scores is not None else None
         async with self._sessions() as db, db.begin():
             # UPDATE first (the common case: a known node reconnecting); the clamp
             # is inside the statement. RETURNING gives the row as stored.
@@ -263,6 +299,7 @@ class Registry:
                     os=os,
                     platform=platform,
                     hardware=dict(hardware),
+                    hardware_scores=scores,
                     state=state.value,
                     last_seen_at=now,
                     last_session_id=session_id,
@@ -283,6 +320,7 @@ class Registry:
                     os=os,
                     platform=platform,
                     hardware=dict(hardware),
+                    hardware_scores=scores,
                     state=state.value,
                     first_seen_at=now,
                     last_seen_at=now,
@@ -336,6 +374,61 @@ class Registry:
                 state=state.value,
             )
         return written
+
+    @_typed
+    async def set_hardware_scores(
+        self,
+        node_id: str,
+        document: Mapping[str, Any],
+        *,
+        session_id: str,
+        measured_at: dt.datetime,
+    ) -> ScoresWrite:
+        """Store a mid-session score run, **fenced** and **ordered** (D38).
+
+        One statement: ``UPDATE node SET hardware_scores = :doc WHERE node_id = :n
+        AND last_session_id = :s AND (hardware_scores IS NULL OR
+        (hardware_scores->>'measured_at')::timestamptz <= :measured_at)``.
+
+        * The session fence is D20's rule: a report queued on a superseded
+          session's write chain must not overwrite what the newer session's Hello
+          stored (it may be the previous hardware's run).
+        * The ``measured_at`` guard makes the write idempotent under replay and
+          reordering: an equal run rewrites the same document, an older one is
+          ignored. ``measured_at`` is stored by ``controller/scores.py`` as
+          ISO-8601 with an offset, which PostgreSQL casts exactly.
+
+        When 0 rows match, a second read tells ``FENCED`` from ``OLDER`` for the
+        log; neither is an error.
+        """
+        stored_at = cast(
+            Node.hardware_scores["measured_at"].astext, TIMESTAMP(timezone=True)
+        )
+        async with self._sessions() as db, db.begin():
+            result = await db.execute(
+                update(Node)
+                .where(
+                    Node.node_id == node_id,
+                    Node.last_session_id == session_id,
+                    or_(Node.hardware_scores.is_(None), stored_at <= measured_at),
+                )
+                .values(hardware_scores=dict(document))
+                .execution_options(synchronize_session=False)
+            )
+            if _rowcount(result) == 1:
+                return ScoresWrite.WRITTEN
+            owner = await db.scalar(
+                select(Node.last_session_id).where(Node.node_id == node_id)
+            )
+        outcome = ScoresWrite.FENCED if owner != session_id else ScoresWrite.OLDER
+        log.info(
+            "registry.scores_write_skipped",
+            node_id=node_id,
+            session_id=session_id,
+            outcome=outcome.value,
+            run_id=document.get("run_id"),
+        )
+        return outcome
 
     @_typed
     async def touch_node(self, node_id: str) -> None:

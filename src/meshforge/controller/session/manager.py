@@ -107,7 +107,7 @@ import functools
 from collections import deque
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
-from typing import Final
+from typing import Any, Final
 
 import grpc
 from google.protobuf.json_format import MessageToDict
@@ -126,6 +126,7 @@ from meshforge.controller.liveness import (
 )
 from meshforge.controller.registry import Registry, SessionEndReason
 from meshforge.controller.resources import ResourceSink
+from meshforge.controller.scores import scores_document
 from meshforge.controller.session.epoch import MAX_SESSION_EPOCH
 from meshforge.controller.session.errors import (
     OutboundOverflowError,
@@ -133,6 +134,7 @@ from meshforge.controller.session.errors import (
 )
 from meshforge.controller.session.limits import (
     check_hardware,
+    check_hardware_scores,
     check_hello_strings,
     check_resource_update,
     validate_message_id,
@@ -260,6 +262,9 @@ class LiveSession:
     resource_updates: int = 0
     resource_updates_clamped: int = 0
     """Reports that broke a D12 cap; logged once, counted always."""
+    hardware_scores_received: int = 0
+    hardware_scores_rejected: int = 0
+    """Score sets (Hello or report) dropped by D38 validation; each is logged."""
     # RTT (roadmap 0.3.10) - monotonic clock only
     outstanding_ping: tuple[str, float] | None = None
     last_rtt_ms: float | None = None
@@ -342,6 +347,8 @@ class SessionManager:
         self.wake = asyncio.Event()
         """Set whenever a session registers; the lease timer waits on it."""
         self.stale_messages_total = 0
+        self.hardware_scores_rejected_total = 0
+        """Score sets dropped by D38 validation across all sessions."""
         self.closing = False
         """True once :meth:`shutdown` started; new Hellos are refused."""
 
@@ -534,6 +541,7 @@ class SessionManager:
 
         now = self._clock()
         session_id = new_session_id()
+        scores, scores_rejected = self._hello_scores(hello, session_id)
         await self._registry.upsert_node_on_hello(
             node_id=node_id,
             hostname=hello.hostname,
@@ -543,6 +551,7 @@ class SessionManager:
             session_epoch=hello.session_epoch,
             session_id=session_id,
             state=state,
+            hardware_scores=scores,
         )
         await self._registry.open_session(
             session_id=session_id,
@@ -577,6 +586,8 @@ class SessionManager:
             seen=_SeenIds(self._dedupe_window),
             next_ping_at=now,  # first RTT sample right away
             writer=writer,
+            hardware_scores_received=int(scores is not None),
+            hardware_scores_rejected=int(scores_rejected),
         )
         self._chains.add(writer)
         writer.start().add_done_callback(lambda _t: self._chains.discard(writer))
@@ -608,6 +619,37 @@ class SessionManager:
             superseded=old.session_id if old else None,
         )
         return Accepted(live, self._hello_ack(session_id))
+
+    def _hello_scores(
+        self, hello: agent_pb2.Hello, session_id: str
+    ) -> tuple[dict[str, Any] | None, bool]:
+        """The score document a Hello carries, validated (D38); ``(None, rejected)``.
+
+        A Hello without scores - or with scores that fail validation - stores
+        ``NULL`` (pending). A bad score set never refuses the Hello: scores are
+        optional, enrolment is not (it is logged and counted instead).
+        """
+        if not hello.HasField("hardware_scores"):
+            return None, False
+        reason = check_hardware_scores(hello.hardware_scores)
+        if reason is not None:
+            self._reject_scores(hello.node_id, session_id, "hello", reason)
+            return None, True
+        document, _measured_at = scores_document(hello.hardware_scores)
+        return document, False
+
+    def _reject_scores(
+        self, node_id: str, session_id: str, source: str, reason: str
+    ) -> None:
+        self.hardware_scores_rejected_total += 1
+        log.warning(
+            "session.hardware_scores_rejected",
+            node_id=node_id,
+            session_id=session_id,
+            source=source,
+            reason=reason,
+            rejected_total=self.hardware_scores_rejected_total,
+        )
 
     def _hello_ack(self, session_id: str) -> agent_pb2.ControllerMessage:
         ack = agent_pb2.HelloAck(
@@ -789,6 +831,8 @@ class SessionManager:
             self._on_resource_update(live, msg.resource_update)
         elif which == "reconcile":
             self._on_reconcile(live, msg.reconcile)
+        elif which == "hardware_scores":
+            self._on_hardware_scores(live, msg.hardware_scores)
         else:
             # cache_report / ... : accepted and acked; their handlers arrive with
             # the versions that own them (V0.4+).
@@ -843,6 +887,44 @@ class SessionManager:
             self._resources.record(
                 live.node_id, live.session_epoch, bounded.update, self._clock()
             )
+
+    def _on_hardware_scores(
+        self, live: LiveSession, scores: agent_pb2.HardwareScores
+    ) -> None:
+        """Validate a score report (D38) and queue its fenced, ordered write.
+
+        A rejected set is dropped - logged with the reason, counted - and the
+        message is still acked by the caller, so the agent stops replaying it; the
+        stream stays up (a bad optional field must not take a node offline). A
+        valid one goes on the session's write chain, so it can never overtake or
+        be overtaken by this session's state writes, and the registry fences it on
+        ``last_session_id`` and ignores it if the stored run is newer.
+        """
+        reason = check_hardware_scores(scores)
+        if reason is not None:
+            live.hardware_scores_rejected += 1
+            self._reject_scores(live.node_id, live.session_id, "report", reason)
+            return
+        document, measured_at = scores_document(scores)
+        live.hardware_scores_received += 1
+        live.writer.enqueue(
+            "set_hardware_scores",
+            WriteKind.SCORES,
+            functools.partial(
+                self._registry.set_hardware_scores,
+                live.node_id,
+                document,
+                session_id=live.session_id,
+                measured_at=measured_at,
+            ),
+        )
+        log.info(
+            "session.hardware_scores_received",
+            node_id=live.node_id,
+            session_id=live.session_id,
+            run_id=scores.run_id,
+            metrics=len(scores.scores),
+        )
 
     def _touch(self, live: LiveSession, now: float, *, force: bool) -> None:
         """Queue a ``last_seen_at`` write at most once per ``heartbeat_interval_s``.

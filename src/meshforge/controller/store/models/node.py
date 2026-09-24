@@ -104,6 +104,10 @@ class Node(TimestampMixin, Base):
     platform: Mapped[str] = mapped_column(String(64), nullable=False)
     hardware: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     """``Hello.hardware`` as JSON (message-to-dict); interpreted by 0.3.3 (G4)."""
+    hardware_scores: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    """The newest validated hardware-score run (roadmap 0.3.4, D38; added in 0005),
+    shaped by ``controller/scores.py``. ``NULL`` = not measured for the hardware the
+    node's latest ``Hello`` described (REST ``scores.status`` pending/none)."""
     state: Mapped[str] = mapped_column(String(16), nullable=False)
     first_seen_at: Mapped[dt.datetime] = mapped_column(nullable=False)
     last_seen_at: Mapped[dt.datetime] = mapped_column(nullable=False)
