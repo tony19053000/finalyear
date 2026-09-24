@@ -143,11 +143,13 @@ def load_or_create(
             )
         if not has_key:
             identity = _create(directory, key_path, json_path)
+            # No path: checklist item 7 (the identity dir sits under the user's
+            # home, so it would name the user). node_id + fingerprint identify it.
             log.info(
                 "identity.created",
                 node_id=identity.node_id,
                 key_fingerprint=identity.fingerprint,
-                path=str(directory),
+                session_epoch=identity.session_epoch,
             )
             return identity
 
@@ -157,7 +159,6 @@ def load_or_create(
         node_id=identity.node_id,
         key_fingerprint=identity.fingerprint,
         session_epoch=identity.session_epoch,
-        path=str(directory),
     )
     return identity
 
@@ -241,7 +242,7 @@ def reset(directory: Path, *, lock_timeout_s: float = DEFAULT_LOCK_TIMEOUT_S) ->
                     path,
                     "check permissions",
                 ) from exc
-    log.info("identity.reset", path=str(directory))
+    log.info("identity.reset")  # no path: it would name the user (checklist 7)
 
 
 # ------------------------------------------------------------------------------ lock

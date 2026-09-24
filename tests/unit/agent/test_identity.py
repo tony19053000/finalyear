@@ -435,3 +435,22 @@ def test_node_identity_is_frozen(id_dir: Path) -> None:
     with pytest.raises(AttributeError):
         identity.session_epoch = 5  # type: ignore[misc]
     assert isinstance(identity, NodeIdentity)
+
+
+def test_identity_logs_never_name_the_directory(tmp_path: Path) -> None:
+    """Checklist item 7: no full paths of user dirs in logs. The identity dir lives
+    under the user's home (it names the user); node_id + fingerprint identify it."""
+    id_dir = tmp_path / "some-user" / "identity"
+    with structlog.testing.capture_logs() as captured:
+        created = load_or_create(id_dir)
+        loaded = load_or_create(id_dir)
+        ident.reset(id_dir)
+    events = {e["event"]: e for e in captured}
+    assert {"identity.created", "identity.loaded", "identity.reset"} <= set(events)
+    for event in captured:
+        text = json.dumps(event, default=str)
+        assert str(tmp_path) not in text, event
+        assert "some-user" not in text, event
+    assert events["identity.created"]["node_id"] == created.node_id
+    assert events["identity.created"]["key_fingerprint"] == created.fingerprint
+    assert events["identity.loaded"]["key_fingerprint"] == loaded.fingerprint
