@@ -288,8 +288,9 @@ def soak_md(docs: Sequence[dict[str, Any]]) -> str:
         "not repetitions.",
         "",
         "| Host (controller) | Observed h / target | Finished | OFFLINE events | by reason "
-        "| SUSPECT events | Session ends by reason | Controller outages | Tool gaps |",
-        "|---|---|---|---|---|---|---|---|---|",
+        "| SUSPECT events | All state changes | Session ends by reason | Controller outages "
+        "| Tool gaps |",
+        "|---|---|---|---|---|---|---|---|---|---|",
     ]
     for doc in docs:
         summary = doc.get("extra", {}).get("summary", {})
@@ -300,6 +301,7 @@ def soak_md(docs: Sequence[dict[str, Any]]) -> str:
             f"| {summary.get('observed_h')} / {summary.get('target_h')} "
             f"| {yes_no(summary.get('done'))} | {summary.get('offline_events')} "
             f"| {cell(_pairs(summary.get('offline_by_reason')))} | {summary.get('suspect_events')} "
+            f"| {summary.get('state_changes')} "
             f"| {cell(_pairs(summary.get('session_ends_by_reason')))} "
             f"| {summary.get('outages')} ({fmt_s(summary.get('outage_s'))} s) "
             f"| {summary.get('gaps')} |"

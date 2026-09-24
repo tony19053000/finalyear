@@ -65,6 +65,7 @@ class WatchConfig:
     mark_timeout_s: float = 1800.0
     sample_wait_s: float = 15.0
     action_text: dict[str, str] = field(default_factory=dict)
+    restore_hint: str = "plug the cable back in"
     bounds: dict[str, float] = field(default_factory=lambda: dict(BOUNDS_S))
     """Criterion 2's bounds; empty for an agent stop/start run (criterion 4 has none)."""
 
@@ -275,7 +276,7 @@ def _one_rep(
             operator.say(f"FAILED: {failure['message']}")
             if cfg.expect[-1] == "online" and state != "online":
                 operator.say(
-                    "restore the node (plug the cable back in) before the next repetition"
+                    f"restore the node ({cfg.restore_hint}) before the next repetition"
                 )
             return sample, failure
     _finish(poller, cfg, sample, rep_start)

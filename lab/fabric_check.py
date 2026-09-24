@@ -341,6 +341,9 @@ def cmd_watch(ctx: _Ctx) -> int:
             detect_timeout_s=args.timeout,
             action_text=dict(_AGENT_ACTIONS) if args.action == "agent" else {},
             bounds={} if args.action == "agent" else dict(BOUNDS_S),
+            restore_hint="start its agent again"
+            if args.action == "agent"
+            else "plug the cable back in",
         )
     except ValueError as exc:
         _say(f"error: {exc}")

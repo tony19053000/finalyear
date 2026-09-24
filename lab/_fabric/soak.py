@@ -362,6 +362,7 @@ def summarize(state: dict[str, Any]) -> dict[str, Any]:
             sorted(Counter(t["hostname"] for t in offline).items())
         ),
         "suspect_events": len(suspect),
+        "state_changes": sum(1 for t in state["transitions"] if t["field"] == "state"),
         "session_ends_by_reason": dict(
             sorted(Counter(str(e.get("end_reason")) for e in ends).items())
         ),

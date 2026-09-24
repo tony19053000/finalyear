@@ -88,6 +88,7 @@ def test_transitions_and_reasons_are_recorded(stub_controller: StubController) -
     assert summary["offline_by_reason"] == {"lease_expired": 1}
     assert summary["offline_by_node"] == {"lap2": 1}
     assert summary["suspect_events"] == 1  # the blip is a SUSPECT, never an OFFLINE
+    assert summary["state_changes"] == 3  # suspect, online (A); offline (B)
     # the session that ended BEFORE the soak is not counted
     assert summary["session_ends_by_reason"] == {"lease_expired": 1, "stream_lost": 1}
     assert summary["outages"] == 0
