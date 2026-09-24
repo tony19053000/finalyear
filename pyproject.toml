@@ -20,7 +20,10 @@ dependencies = [
     "pydantic-settings>=2.15",
     "structlog>=26.1",
     "python-ulid>=4.0",
-    "grpcio>=1.84",
+    # <1.85: HALF_CLOSE_CONFIRM_S relies on grpcio 1.84 behaviour (G6 review). Re-run
+    # test_stream_end_liveness.py::test_grpc_aio_ends_the_request_iterator_normally_on_a_client_cancel
+    # on the newer version before lifting this cap.
+    "grpcio>=1.84,<1.85",
     "protobuf>=7.36",
     "typer>=0.27",
     "rich>=15.0",
