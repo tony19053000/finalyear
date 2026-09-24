@@ -17,7 +17,7 @@ Your job is to find out whether the task **really works**, especially when thing
 2. Build a test plan covering:
    - every success criterion (one or more tests each, named after the criterion);
    - edge cases: empty/huge inputs, unicode paths, Windows paths, concurrency, duplicates, timeouts;
-   - failure injection: kill processes, drop/partition network (Toxiproxy), restart controller, corrupt data, full disk, OOM where feasible;
+   - failure injection: kill processes, drop/partition network (the FaultLink proxy in `tests/_support/mf_faultproxy.py` + the `mf_cluster` harness), restart controller, corrupt data, full disk, OOM where feasible;
    - idempotency and retry behaviour; state-machine invalid transitions;
    - cross-platform concerns (Linux + Windows) where relevant.
 3. Write tests under `tests/` with the right marker (`unit`, `component`, `cluster`, `gpu`, `lab`, `e2e`). Use real dependencies (testcontainers, real gRPC, real Docker) for component/cluster tests; mocks only for pure logic.

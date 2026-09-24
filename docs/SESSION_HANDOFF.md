@@ -218,7 +218,11 @@ Goes into the G6 fix round. Other G6-B follow-ups for that round: agent ignores 
 `session_epoch` rises on every *connection attempt*, so "restarted" is detected from the resource `sequence` resetting
 to 1; psutil is in the `agent` extra (checklist uses `uv run --extra agent`). **Risk to criterion 2:** after a long
 outage the agent's full-jitter backoff (cap 15 s, ADR-0002 Updates) can push restore → ONLINE past 10 s; the tester is
-asked to measure it. **Tester round over A+B+C spawned.** If this session died,
+asked to measure it. **Tester round: FAIL, 2 major** (commit `775c3b3`, both pinned strict-xfail): (1) backoff cap 15 s can break
+criterion 2 after a long outage — measured worst 3.6 s at 60 s blackhole, but the design gap is real → **D27** cap 5 s
+(ADR-0002 amended); (2) a reconnect inside the 0.25 s confirm window with a slow DB logs a false OFFLINE → **D28**.
+Everything else PASS (linger/fence, D21, D22, harness mutation + SIGKILL-pytest containment, lab kit CLI).
+**G6 fix round spawned** (D26 LATE-1, D27, D28, SIGBREAK, identity path log) — then tester on the delta, then reviewer. If this session died,
 look at `git log` for `feat(V0.3-G6)` / `test(V0.3-G6)` commits to see which run finished; relaunch the next one from
 §5f with the previous run's handoff note pasted in (commit a half-finished tree `wip:` first).
 

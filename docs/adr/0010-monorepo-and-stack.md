@@ -16,3 +16,7 @@ Multiple repositories; microservices per subsystem; Go/Rust agent.
 
 ## Consequences
 Separate processes only at real runtime boundaries: controller, agent, GPU service, dashboard.
+
+## Updates
+
+- **2026-09-24 (V0.3 G6, D23):** fault injection uses an in-process asyncio TCP proxy (`tests/_support/mf_faultproxy.py`) with Toxiproxy's fault vocabulary instead of the Toxiproxy binary — no download or Docker host networking, so the cluster tier runs after a plain `uv sync`. Rationale in `docs/briefs/V0.3-fabric-core.md` §5f D23; ARCHITECTURE §22 updated.
