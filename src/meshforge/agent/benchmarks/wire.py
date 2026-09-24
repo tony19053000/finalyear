@@ -42,7 +42,7 @@ def _status_to_proto(status: MetricStatus) -> agent_pb2.ScoreStatus.ValueType:
     return agent_pb2.ScoreStatus.Value(_STATUS_PREFIX + status.name)
 
 
-def _metric_from_proto(value: int) -> MetricName:
+def _metric_from_proto(value: agent_pb2.ScoreMetric.ValueType) -> MetricName:
     if value == agent_pb2.SCORE_METRIC_UNSPECIFIED:
         raise ValueError("Score.metric is SCORE_METRIC_UNSPECIFIED")
     try:
@@ -52,7 +52,7 @@ def _metric_from_proto(value: int) -> MetricName:
     return MetricName[name.removeprefix(_METRIC_PREFIX)]
 
 
-def _status_from_proto(value: int) -> MetricStatus:
+def _status_from_proto(value: agent_pb2.ScoreStatus.ValueType) -> MetricStatus:
     if value == agent_pb2.SCORE_STATUS_UNSPECIFIED:
         raise ValueError("Score.status is SCORE_STATUS_UNSPECIFIED")
     try:
