@@ -184,8 +184,18 @@ class FakeAgent:
     async def wait_ended(self, timeout_s: float = 5.0) -> None:
         await asyncio.wait_for(self.ended.wait(), timeout_s)
 
-    async def close(self) -> None:
-        """Stop own tasks, half-close, cancel the call if still open.
+    async def close(self, *, graceful: bool = False, timeout_s: float = 3.0) -> None:
+        """Stop own tasks, half-close, then end the call.
+
+        ``graceful=False`` (teardown): cancel right after the half-close. The
+        controller cannot tell that from a dropped call - grpc.aio shows it the
+        same normal end of the request stream followed by a cancellation - so
+        since V0.3 G6 (D19) it is recorded ``stream_lost``, not ``agent_closed``.
+
+        ``graceful=True``: what the real agent's ``request_stop`` does - half-close
+        and keep reading until the controller's final status (at most
+        ``timeout_s``), so the controller records ``agent_closed`` and writes
+        OFFLINE.
 
         Order matters (review B2): the reader (and its auto-pong) is stopped
         *before* ``done_writing()``; the other way round an auto-pong could race
@@ -195,13 +205,42 @@ class FakeAgent:
         if self._hb is not None:
             with contextlib.suppress(asyncio.CancelledError):
                 await self._hb
-        if self._reader is not None:
+        if self._reader is not None and not graceful:
             self._reader.cancel()
             with contextlib.suppress(asyncio.CancelledError, grpc.aio.AioRpcError):
                 await self._reader
         if self._call is not None:
             with contextlib.suppress(Exception):
                 await self._call.done_writing()
+        if graceful and self._call is not None:
+            with contextlib.suppress(TimeoutError):
+                if self._reader is not None:
+                    # The reader keeps answering pings until the status arrives.
+                    await asyncio.wait_for(self.ended.wait(), timeout_s)
+                else:
+                    await asyncio.wait_for(self._drain_to_status(), timeout_s)
+            if self._reader is not None and not self._reader.done():
+                self._reader.cancel()
+                with contextlib.suppress(asyncio.CancelledError, grpc.aio.AioRpcError):
+                    await self._reader
+        if self._call is not None and not self._call.done():
+            self._call.cancel()
+
+    async def _drain_to_status(self) -> None:
+        while await self.read() is not None:
+            pass
+
+    async def abort(self) -> None:
+        """Cancel the call **without** a half-close: the agent's end of an abrupt
+        loss (D19) - the controller must record ``stream_lost`` and go SUSPECT."""
+        self.stop_heartbeats()
+        if self._hb is not None:
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._hb
+        if self._reader is not None:
+            self._reader.cancel()
+            with contextlib.suppress(asyncio.CancelledError, grpc.aio.AioRpcError):
+                await self._reader
         if self._call is not None and not self._call.done():
             self._call.cancel()
 

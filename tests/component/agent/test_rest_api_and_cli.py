@@ -293,7 +293,7 @@ async def test_an_unknown_node_is_the_typed_404_envelope(
 
 
 @pytest.mark.asyncio
-async def test_a_dead_stream_leaves_state_online_while_connected_goes_false(
+async def test_a_dead_stream_reads_suspect_while_connected_goes_false(
     settings: ControllerSettings,
     pg_settings: DatabaseSettings,
     identity: NodeIdentity,
@@ -301,9 +301,12 @@ async def test_a_dead_stream_leaves_state_online_while_connected_goes_false(
 ) -> None:
     """The D16 disagreement, with a lease too long to expire during the test.
 
-    This is the case a single "online" boolean would get wrong: the database's
-    §12.3 state is still ONLINE (no lease has been missed yet) while the session
-    manager holds no stream at all.
+    Since G6 (D19) a stream that dies without a half-close moves the node to
+    SUSPECT at once - not OFFLINE: the lease keeps running on a lingering entry,
+    and with this lease it cannot expire during the test. So ``state`` is
+    ``suspect`` while ``connected`` is false - still the case a single "online"
+    boolean would get wrong, now with a state that says so. (Before G6 this read
+    ``online``: NB-G5-1.)
     """
     from mf_agent_harness import make_controller_settings
 
@@ -322,68 +325,71 @@ async def test_a_dead_stream_leaves_state_online_while_connected_goes_false(
                 )
 
                 await agent.kill_stream()
-                assert runtime.manager is not None
-                await wait_for(
-                    lambda: (
-                        runtime.manager is not None
-                        and runtime.manager.get(str(identity.node_id)) is None
-                    )
-                )
-                after = (await rest.json("/v1/nodes"))["nodes"][0]
+                rows: list[dict[str, Any]] = []
+
+                async def suspect() -> bool:
+                    rows[:] = (await rest.json("/v1/nodes"))["nodes"]
+                    return bool(rows) and rows[0]["state"] == "suspect"
+
+                await poll_until(suspect, timeout_s=TIMEOUT_S)
+                after = rows[0]
                 assert after["connected"] is False
-                assert after["state"] == NodeState.ONLINE.value
                 assert after["rtt_ms"] is None
+                assert runtime.manager is not None
+                assert runtime.manager.get(str(identity.node_id)) is None
+                assert runtime.manager.get_lingering(str(identity.node_id))
         finally:
             await agent.close()
 
 
 @pytest.mark.asyncio
-async def test_a_closed_session_does_not_move_the_database_state_today(
+async def test_a_killed_stream_walks_suspect_then_offline_at_the_lease_edge(
     runtime: ControllerRuntime,
     grpc_target: str,
     identity: NodeIdentity,
     data_dir: Path,
 ) -> None:
-    """Pins the *observed* V0.3 behaviour, which is not what one might assume.
+    """NB-G5-1 regression, abrupt half (D19). Before G6 a session that ended
+    never moved ``state`` again (this test used to pin ``online`` after 3 leases).
 
-    §12.3 moves ONLINE -> SUSPECT -> OFFLINE on ``LEASE_MISSED`` / ``LEASE_EXPIRED``,
-    and the lease timer only walks **live** sessions. So when a session *closes*
-    (here: the agent's task is cancelled, which still yields a clean
-    ``end_reason=agent_closed``), the node row keeps ``state = online`` - for
-    longer than several lease periods, as asserted below - and the timer never
-    fires for it again. The value that tells the truth is ``connected`` (D16), and
-    a stale row is reconciled by the controller's startup sweep
-    (``mark_live_nodes_offline``).
-
-    The other case - a laptop that genuinely vanishes without closing the stream -
-    *does* walk to OFFLINE via the lease, but the component harness cannot express
-    "the TCP path dies while the controller stays up" (the known G6 gap), so it is
-    not asserted here.
-
-    **Open question for the Lead (NB-G5-1):** whether a closed session should also
-    enqueue an OFFLINE transition. A planner reading ``state`` alone would treat a
-    cleanly shut-down laptop as online until the controller restarts. Not changed
-    here: §12.3 has no "stream closed" arrow, and G5 is not allowed to alter the
-    liveness machine.
+    Now: the agent's task is cancelled, its channel closes without a half-close
+    -> ``stream_lost``, SUSPECT at once, and - with nobody reconnecting - OFFLINE
+    at the lease edge measured from the last heartbeat, all visible over REST.
     """
     liveness = runtime.settings.controller.liveness
     lease_s = liveness.heartbeat_interval_s * liveness.lease_multiplier
+    node_id = str(identity.node_id)
     agent = make_agent(data_dir, grpc_target, identity, monitor=False)
     try:
         await agent.online()
-        await agent.kill_stream()
+        session_id = agent.client.session_id
         async with rest_for(runtime) as rest:
-            assert runtime.manager is not None
-            await wait_for(
-                lambda: (
-                    runtime.manager is not None
-                    and runtime.manager.get(str(identity.node_id)) is None
-                )
-            )
-            await asyncio.sleep(lease_s * 3)
+            await agent.kill_stream()
+            loop = asyncio.get_running_loop()
+            killed_at = loop.time()
+            seen: list[str] = []
+
+            async def offline() -> bool:
+                row = (await rest.json("/v1/nodes"))["nodes"][0]
+                if not seen or seen[-1] != row["state"]:
+                    seen.append(row["state"])
+                return bool(row["state"] == "offline")
+
+            await poll_until(offline, timeout_s=TIMEOUT_S, interval_s=0.01)
+            took = loop.time() - killed_at
             row = (await rest.json("/v1/nodes"))["nodes"][0]
             assert row["connected"] is False
-            assert row["state"] == NodeState.ONLINE.value
+            # ONLINE -> SUSPECT -> OFFLINE, never straight to OFFLINE.
+            assert "suspect" in seen, seen
+            assert seen[-1] == "offline"
+            # At the lease edge: not before a lease has passed, and not long after
+            # (generous bound for a loaded machine; the unit tests pin the edge).
+            assert took <= lease_s + 5.0, took
+            sessions = (await rest.json("/v1/sessions", node_id=node_id))["sessions"]
+            (ours,) = [s for s in sessions if s["session_id"] == session_id]
+            assert ours["end_reason"] == "stream_lost"
+            assert runtime.manager is not None
+            assert runtime.manager.get_lingering(node_id) is None  # resolved
     finally:
         await agent.close()
 

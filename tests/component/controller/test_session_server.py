@@ -311,7 +311,9 @@ async def test_agent_disconnect_closes_session_as_agent_closed(
 ) -> None:
     agent: FakeAgent = agents()
     ack = await agent.connect()
-    await agent.close()  # half-close + cancel: the transport tears the stream down
+    # Half-close and wait for the final status, like the real agent's stop. (A
+    # cancel right after the half-close is stream_lost since G6 / D19.)
+    await agent.close(graceful=True)
     assert await wait_closed(registry, ack.session_id) is SessionEndReason.AGENT_CLOSED
 
     async def unregistered() -> bool:

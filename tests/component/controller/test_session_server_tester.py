@@ -469,7 +469,7 @@ async def test_five_reconnects_produce_five_sessions_with_correct_reasons(
     for epoch in range(1, 6):
         agent = FakeAgent(channel, node_id=node_id, epoch=epoch)
         await agent.connect()
-        await agent.close()
+        await agent.close(graceful=True)  # a clean stop each time (D19)
         await poll_until(
             lambda a=agent: _session_closed(registry, a.session_id), timeout_s=5.0
         )

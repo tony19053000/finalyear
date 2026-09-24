@@ -60,7 +60,7 @@ async def test_lower_or_equal_epoch_after_disconnect_is_stale_over_the_wire(
 ) -> None:
     winner: FakeAgent = agents(epoch=5)
     ack = await winner.connect()
-    await winner.close()
+    await winner.close(graceful=True)
     assert await wait_closed(registry, ack.session_id) is SessionEndReason.AGENT_CLOSED
 
     for epoch in (5, 4):

@@ -35,14 +35,19 @@ def _run[T](coro: Coroutine[Any, Any, T]) -> T:
     return asyncio.run(coro)
 
 
-async def _exec(settings: DatabaseSettings, sql: str) -> list[Any]:
+async def _exec(settings: DatabaseSettings, sql: str, **params: Any) -> list[Any]:
     engine = create_engine(settings)
     try:
         async with engine.begin() as conn:
-            result = await conn.execute(text(sql))
+            result = await conn.execute(text(sql), params)
             return list(result) if result.returns_rows else []
     finally:
         await engine.dispose()
+
+
+_SET_STREAM_LOST = (
+    "UPDATE node_session SET end_reason = 'stream_lost' WHERE session_id = :s"
+)
 
 
 def _seed(settings: DatabaseSettings, end_reason: str) -> None:
@@ -51,8 +56,9 @@ def _seed(settings: DatabaseSettings, end_reason: str) -> None:
             settings,
             "INSERT INTO node (node_id, hostname, os, platform, hardware, state, "
             "first_seen_at, last_seen_at, last_session_id, session_epoch) VALUES "
-            f"('{_NODE}', 'h', 'o', 'p', '{{}}', 'offline', now(), now(), "
-            f"'{_SESSION}', 1)",
+            "(:n, 'h', 'o', 'p', '{}', 'offline', now(), now(), :s, 1)",
+            n=_NODE,
+            s=_SESSION,
         )
     )
     _run(
@@ -60,8 +66,11 @@ def _seed(settings: DatabaseSettings, end_reason: str) -> None:
             settings,
             "INSERT INTO node_session (session_id, node_id, session_epoch, "
             "started_at, ended_at, end_reason, peer_address, agent_version, "
-            f"protocol_version) VALUES ('{_SESSION}', '{_NODE}', 1, now(), now(), "
-            f"'{end_reason}', 'ipv4:127.0.0.1:1', '0.1.0', 1)",
+            "protocol_version) VALUES (:s, :n, 1, now(), now(), :r, "
+            "'ipv4:127.0.0.1:1', '0.1.0', 1)",
+            n=_NODE,
+            s=_SESSION,
+            r=end_reason,
         )
     )
 
@@ -77,27 +86,16 @@ def test_stream_lost_is_stored_at_head_and_rewritten_by_the_downgrade(
     rows = _run(
         _exec(
             pg_settings,
-            f"SELECT end_reason FROM node_session WHERE session_id = '{_SESSION}'",
+            "SELECT end_reason FROM node_session WHERE session_id = :s",
+            s=_SESSION,
         )
     )
     assert [r[0] for r in rows] == ["agent_closed"]
     # 0003's CHECK is back: stream_lost is refused again.
     with pytest.raises(IntegrityError):
-        _run(
-            _exec(
-                pg_settings,
-                "UPDATE node_session SET end_reason = 'stream_lost' "
-                f"WHERE session_id = '{_SESSION}'",
-            )
-        )
+        _run(_exec(pg_settings, _SET_STREAM_LOST, s=_SESSION))
 
     command.upgrade(cfg, "head")
-    _run(
-        _exec(
-            pg_settings,
-            "UPDATE node_session SET end_reason = 'stream_lost' "
-            f"WHERE session_id = '{_SESSION}'",
-        )
-    )
+    _run(_exec(pg_settings, _SET_STREAM_LOST, s=_SESSION))
     command.check(cfg)  # model == migrations after the round trip
     command.downgrade(cfg, "base")
