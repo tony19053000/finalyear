@@ -19,6 +19,12 @@ alive; the parent decides whether to retry or give up. ``--probe`` prints the
 machine's backend capabilities (torch / numpy / CUDA) and exits, so the parent
 can choose the case list without importing torch itself.
 
+**Frozen spike copy (G7, brief §5g D33).** The maintained kernels are
+``meshforge.agent.benchmarks.kernels`` / ``.child``. This file keeps its own copy
+because its tests patch ``child._module`` and ``child.KINDS`` on *this* module
+(which a re-export cannot honour) and it still needs the pure-Python fallback that
+the agent deliberately does not ship. ``scores``/``sizing`` are shared re-exports.
+
 Run directly (debugging)::
 
     echo '{"op":"setup","spec":{"kind":"cpu_python","target_s":0.05}}

@@ -321,16 +321,22 @@ def hardware_score(
         return
 
     scores_cfg = settings.agent.scores
-    if not as_json:
-        typer.echo(
-            f"measuring (up to {scores_cfg.budget_s:g} s; Ctrl-C stops it) ...",
-            err=True,
-        )
+
+    def announce() -> None:  # called once the lock is held
+        if not as_json:
+            typer.echo(
+                f"measuring (up to {scores_cfg.budget_s:g} s; Ctrl-C stops it) ...",
+                err=True,
+            )
+
     exit_code = ExitCode.OK
     try:
         scores = asyncio.run(
             service.score_and_cache(
-                settings.data_dir, facts, service.runner_config(scores_cfg)
+                settings.data_dir,
+                facts,
+                service.runner_config(scores_cfg),
+                on_start=announce,
             )
         )
     except ScorerBusyError:

@@ -128,6 +128,7 @@ def test_lock_held_by_another_scorer_is_busy_not_a_traceback(env: Path) -> None:
     assert result.exit_code == ExitCode.BUSY
     assert int(ExitCode.BUSY) == 7
     assert "already in progress" in result.output
+    assert "measuring" not in result.output  # nothing started
     assert isinstance(result.exception, SystemExit)  # typer.Exit, not a crash
     assert FakeRunner.calls == 0
     assert not (env / "scores.json").exists()

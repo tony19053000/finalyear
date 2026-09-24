@@ -106,8 +106,11 @@ async def score_and_cache(
     runner_factory: RunnerFactory | None = None,
     backends: Callable[[], dict[str, str | None]] = backend_versions,
     log_fields: dict[str, Any] | None = None,
+    on_start: Callable[[], None] | None = None,
 ) -> ScoreSet:
     """Measure under ``scores.lock`` and write ``scores.json``.
+
+    ``on_start`` is called once the lock is held (the CLI prints "measuring").
 
     Raises :class:`~.cache.ScorerBusyError` (another scorer holds the lock),
     :class:`CacheWriteError` (measured, not saved), ``OSError`` (the data dir or lock
@@ -117,6 +120,8 @@ async def score_and_cache(
     fp, inputs = current_fingerprint(facts, backends)
     factory: RunnerFactory = runner_factory or ScoreRunner
     with scorer_lock(data_dir):
+        if on_start is not None:
+            on_start()
         runner = factory(
             config, host_facts(facts), fingerprint=fp, log_fields=log_fields
         )
