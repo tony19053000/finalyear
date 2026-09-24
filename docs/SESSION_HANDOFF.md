@@ -204,7 +204,16 @@ built; unit 3351 passed exit 0, component controller 85 / agent 72 / store 17 ex
 finding:** in grpcio 1.84 the server's request iterator ends *normally* for half-close, cancel, channel close and a
 killed client alike — the only difference is a handler cancel ~1 loop tick later — so a clean close is confirmed only
 after `HALF_CLOSE_CONFIRM_S` (0.25 s) with no cancel (canary test pins it; ARCHITECTURE §12.3 note). It also fixed a
-real agent crash (Reconcile write on a dead stream killed `run()`). **G6-B spawned 2026-09-24.** If this session died,
+real agent crash (Reconcile write on a dead stream killed `run()`). **G6-B finished 2026-09-24** (commits `7189812` … `11a5f0d`, no `src/` change): FaultLink proxy + process
+harness + `tests/cluster/` (38 passed / 2 skipped / 1 strict xfail, exit 0, ~105 s, 3 runs; `--run-slow` 40 passed
+exit 0, 121 s). Loopback at shipped timings: blackhole → OFFLINE 6.0 s (≤ 8), restore → ONLINE 0.3 s (≤ 10),
+controller SIGKILL → all 5 back 2.4 s (≤ 15). **LATE-1 (real defect, pinned as strict xfail `test_f2`):** a resource
+sample arriving after its bucket was flushed is dropped from history silently. **Lead decision D26:** close a bucket
+only after a grace period (setting, default ≥ reconnect + replay window) and log + count any sample still late;
+*not* merge-into-row (a replay after a controller restart, when the dedupe cursor is gone, would be double-merged).
+Goes into the G6 fix round. Other G6-B follow-ups for that round: agent ignores SIGBREAK (Windows graceful stop);
+`identity.created` logs a full user path; tester.md + ADR-0010 still name Toxiproxy. Pre-existing, not G6:
+`test_s3_adversarial::…child_dies…` fails alone; racing-epochs component test flaky under load. **G6-C spawned.** If this session died,
 look at `git log` for `feat(V0.3-G6)` / `test(V0.3-G6)` commits to see which run finished; relaunch the next one from
 §5f with the previous run's handoff note pasted in (commit a half-finished tree `wip:` first).
 
