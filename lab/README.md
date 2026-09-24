@@ -6,6 +6,10 @@ Physical-lab tooling and evidence for the MeshForge fabric. The human summary li
 lab/
   inventory.py      hardware/software inventory → JSON   (task 0.2.2)
   _inventory/       helpers for inventory.py (parsers, probes, privacy filter)
+  fabric_check.py   V0.3 fabric checks over REST /v1: inventory, watch, restart-check, soak (0.3.15)
+  agent_rss.py      V0.3 soak: the agent process's RSS on each laptop (0.3.15)
+  _fabric/          helpers for both (stdlib REST client, timeline maths, checkpoints, reports)
+  checklists/       step-by-step human procedures, e.g. V0.3-fabric.md
   spikes/           feasibility spikes S1–S7              (tasks 0.2.5–0.2.11)
     _harness/       shared by every spike: reps runner, stats, result JSON, report
     s1_network.py   S1 network matrix (serve / client / matrix)
@@ -274,6 +278,35 @@ One table per metric (rows = cases, columns = laptops, `mean ± stdev`), a ranki
 - `extra.planner_fields` lists the JSON paths the planner reads (`cpu-float32-all.summary.gflops.mean`, `gpu-float16.summary.tflops.mean`, `memory-bandwidth.summary.triad_gb_s.mean`, …).
 
 `_s7/child.py` (benchmarks) and `_s7/worker.py` (bounded child protocol) have no CLI coupling; task 0.3.4 reuses them inside the agent at enrollment.
+
+## fabric_check.py and agent_rss.py (V0.3 lab run, task 0.3.15)
+
+The procedure the team follows is [`checklists/V0.3-fabric.md`](checklists/V0.3-fabric.md); it
+has every command for Linux and Windows. In short:
+
+| Command (on the controller laptop unless noted) | Evidence for V0.3 criterion |
+|---|---|
+| `uv run python lab/fabric_check.py inventory` | 1 — every node's hardware from `GET /v1/nodes/{id}`; a human compares it with `docs/LAB.md` §1 (the tool never says "matches") |
+| `uv run python lab/fabric_check.py watch --node HOST --link ethernet` | 2 — polls every 100 ms; OFFLINE / ONLINE latency from the operator's Enter, on the monotonic clock; session `end_reason`; agent restart yes/no |
+| `… watch --node HOST --action agent --link ethernet` | 4 — stop/start the agent: back under the same `node_id`, and really a new process |
+| `uv run python lab/fabric_check.py restart-check --link ethernet` | 3, 4 — time from the new controller answering until every node is connected again; any `node_id` change |
+| `uv run python lab/fabric_check.py soak --hours 24 --link ethernet` | 5 (part 1) — every state change and session end for 24 h; checkpointed, resumes when re-run |
+| `uv run --extra agent python lab/agent_rss.py run --hours 24 --name L2` (**every** laptop) | 5 (part 2) — RSS of the running agent every 60 s; growth vs a post-warm-up baseline |
+
+- **Standard library only** for `fabric_check.py` (`urllib`), so a plain `uv sync` is enough.
+  `agent_rss.py` needs psutil, which comes with the `agent` extra every agent laptop has.
+- It talks **only** to the controller's read-only REST surface — never to PostgreSQL or gRPC,
+  never imports `meshforge` (decision D24). Default URL `$MESHFORGE_CLI__CONTROLLER_URL`, else
+  `http://127.0.0.1:47110`; `--controller` overrides.
+- **Agent restart detection** uses the per-process resource `sequence` (it restarts at 1 only in
+  a new agent process). `session_epoch` is *not* a restart signal: the agent bumps it on every
+  connection attempt, so it changes on every reconnect of the same process.
+- Results: JSON envelope under `reports/raw/<day>-V0.3-fabric-<sub>/` (watch and restart runs
+  carry their start time in the file name, so runs never overwrite each other) and a merged
+  report `reports/<day>-V0.3-fabric-<sub>.md` rebuilt from every run of that day.
+- Exit codes: `0` ok, `1` cannot write, `2` usage, `3` finished with a failure or a bound
+  exceeded, `6` controller unreachable (like `compute`), `130` Ctrl-C (partial results written;
+  `soak` resumes). `agent_rss.py` adds `4` psutil missing and `5` no agent process found.
 
 ## Conventions
 - **Report name:** `reports/YYYY-MM-DD-<topic>.md`, e.g. `2026-09-20-S1-network.md`.

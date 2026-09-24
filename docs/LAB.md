@@ -143,6 +143,8 @@ AI agents cannot touch most lab machines, so every 🧑 step follows this loop:
 4. **The agent writes the report** at `lab/reports/YYYY-MM-DD-<topic>.md` from the template, e.g. `2026-09-20-S1-network.md` or `2026-09-18-inventory.md`, and updates the tables in this file.
 5. **Decisions** triggered by the result go into an ADR (Proposed) or the roadmap design change log. The Lead records them in `STATUS.md`.
 
+Checklists for multi-step lab runs live in `lab/checklists/` — the V0.3 fabric run (roadmap 0.3.15: inventory, cable pull, controller restart, agent restart, 24 h soak) is [`lab/checklists/V0.3-fabric.md`](../lab/checklists/V0.3-fabric.md).
+
 Rules for measurements: ≥ 5 repetitions, report mean ± stdev · note the link (Wi-Fi/Ethernet), power state (plugged in, performance mode), and background load · never mix Wi-Fi and Ethernet runs in one table.
 
 ---
