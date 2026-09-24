@@ -533,6 +533,8 @@ class Fabric:
         controller_resources: Mapping[str, Any] | None = None,
         agent_resources: Mapping[str, Any] | None = None,
         agent_keepalive: Mapping[str, Any] | None = None,
+        agent_scores: Mapping[str, Any] | None = None,
+        agent_env: Mapping[str, str] | None = None,
         log_level: str = "INFO",
     ) -> None:
         self.workdir = workdir
@@ -542,6 +544,12 @@ class Fabric:
         self._controller_resources = dict(controller_resources or {})
         self._agent_resources = dict(agent_resources or {})
         self._agent_keepalive = dict(agent_keepalive or {})
+        # G7-B: ``[agent.scores]`` overrides (scoring stays off unless a scenario
+        # passes ``{"enabled": True, ...}``) and extra environment for the agent
+        # processes - e.g. the benchmark child's test-only hooks
+        # (``MESHFORGE_BENCH_DISABLE``), which the child inherits from its agent.
+        self._agent_scores: dict[str, Any] = {"enabled": False, **(agent_scores or {})}
+        self._agent_env = dict(agent_env or {})
         self._db_env = {
             "MESHFORGE_DATABASE__HOST": str(database.host),
             "MESHFORGE_DATABASE__PORT": str(database.port),
@@ -609,7 +617,7 @@ class Fabric:
             # G7 (0.3.4): N agents share one host here, so each one's background
             # hardware-score run would put all-core benchmark load on the others'
             # liveness. Off by default; a scenario that tests scoring turns it on.
-            "agent.scores": {"enabled": False},
+            "agent.scores": self._agent_scores,
         }
         path = self.workdir / f"agent{index}.toml"
         path.write_text(_toml({k: v for k, v in tables.items() if v}), "utf-8")
@@ -645,6 +653,8 @@ class Fabric:
             data_dir = self.workdir / f"agent{i}-data"
             link = self.loop.link(_host_port(self.grpc_target), name=f"agent{i}")
             config = self._agent_config(i, data_dir)
+            agent_env = self._base_env()
+            agent_env.update(self._agent_env)
             proc = ManagedProcess(
                 f"agent{i}",
                 [
@@ -656,7 +666,7 @@ class Fabric:
                     "--controller",
                     link.target,
                 ],
-                self._base_env(),
+                agent_env,
                 self.workdir / "logs",
             )
             self.nodes.append(Node(i, proc, link, data_dir, fabric=self))
