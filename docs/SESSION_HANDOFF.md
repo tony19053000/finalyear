@@ -8,9 +8,8 @@
 >
 > ```
 > Read docs/SESSION_HANDOFF.md (sections 0, 0b, 0c and 2 especially), then docs/STATUS.md, then
-> the current version in docs/DEVELOPMENT_ROADMAP.md. V0.3 G6 is in flight: the brief is
-> docs/briefs/V0.3-fabric-core.md §5f (runs A → B → C, then tester, then reviewer). Check
-> git log for which run last committed and continue from there.
+> the current version in docs/DEVELOPMENT_ROADMAP.md. G6 is closed; write the V0.3 G7 brief
+> (0.3.4 hardware scores) as docs/briefs/V0.3-fabric-core.md §5g and spawn it.
 > ```
 >
 > Order of truth: `PROJECT_BRIEF → ARCHITECTURE → ROADMAP → STATUS → this file`. If this file
@@ -30,7 +29,7 @@
 > throughput measurements and the reasoning; if you think the arithmetic or the trade is wrong,
 > **say so to the team before building on it.** Do not silently re-expand the scope either.
 
-**Last updated:** 2026-09-24 (**G6 brief written — §5f — and run G6-A spawned**; ARCHITECTURE §12.3 amended (D19/D20); models on Opus 5.5 — see §0c; the exit-139 bug is **fixed** — torch half-import, not grpc; see §2) · **Updated by:** Lead session (account 2)
+**Last updated:** 2026-09-24 (**G6 CLOSED agent-side** — 0.3.14 `[x]`, reviewer APPROVE; G7 next; see §0c for the post-G6 throughput re-baseline) · **Updated by:** Lead session (account 2)
 
 ---
 
@@ -173,19 +172,27 @@ the 24 h soak.
 **The app restart killed the first exit-139 fix task**; it was relaunched and is **done** (§2). Restarting the desktop app kills every running session;
 check nothing is mid-task first.
 
+**Post-G6 re-baseline (as asked above).** G6 = 1 roadmap task (0.3.14) **plus** three inherited items, the 0.3.15
+lab kit and four tester-driven fixes, in one long Lead session, with **11 agent runs**: implementer ×5 (A, B, C, fix,
+plus A and C each relaunched once after an **account usage limit** — both died at startup, so little was lost), tester
+×2, reviewer ×2. By roadmap checkboxes that is 1 task/session, below plan, but the inherited items were real V0.3 debt.
+**On Opus 5.5 the binding constraint was the usage limit, not tokens or defect rounds.** Keep telling agents to commit
+early. Re-check after G7.
+
 ---
 
 ## 1. Where the project is
 
-- **Version: V0.3 (fabric core).** **G1–G5 are closed agent-side.** A live controller ⇄ agent fabric works
+- **Version: V0.3 (fabric core).** **G1–G6 are closed agent-side.** A live controller ⇄ agent fabric works
   in-process: identity, sessions, leases, RTT, reconnect, mDNS discovery, hardware discovery, resource monitoring,
   downsampled snapshots in Postgres — **and now an operator surface**: a read-only REST `/v1`, a `compute` CLI that
-  speaks REST only, `meshforge-agent hardware show`, and documented (never auto-installed) service units.
-  - `[x]` 0.3.1, 0.3.3, 0.3.5, 0.3.6, 0.3.8, 0.3.9, 0.3.10, 0.3.11, **0.3.12**
+  speaks REST only, `meshforge-agent hardware show`, documented service units — **and (G6) liveness that is honest on
+  session end, plus a real multi-process cluster test tier with fault injection and the 0.3.15 lab kit.**
+  - `[x]` 0.3.1, 0.3.3, 0.3.5, 0.3.6, 0.3.8, 0.3.9, 0.3.10, 0.3.11, 0.3.12, **0.3.14**
   - `[~]` 0.3.2 (awaits a 🧑 Windows unit run), 0.3.7 (awaits 🧑 lab evidence in 0.3.15),
     **0.3.13** (awaits the 🧑 Windows logoff check in `docs/OPERATIONS.md` §3 — the docs say "unverified" on
     purpose; do not let anyone replace that with a guess)
-  - Remaining: **G6** (0.3.14 cluster harness + fault injection — *brief not written yet*), G7 (0.3.4 hardware
+  - Remaining: G7 (0.3.4 hardware
     scores), 🧑 0.3.15 lab run
 - **V0.2:** all agent-side spike work is complete with reviewer APPROVE (S1 `ef065ac`, S2 `633d474`, S3 `81d620f`,
   S7 `8072b9f`, inventory `75d8df5`, 0.2.13 done). Every one is `[~]` **only** because it awaits runs on real
@@ -196,44 +203,21 @@ check nothing is mid-task first.
 
 ## 2. In flight right now
 
-**G6 is in flight (2026-09-24).** Brief: `docs/briefs/V0.3-fabric-core.md` **§5f**, decisions **D19–D25**. It is
-three sequential implementer runs — **G6-A** fabric fixes (NB-G5-1, fenced state writes, NB-1 `Event`, ingestion
-validation, `controller.listening`) → **G6-B** cluster harness + fault proxy (0.3.14 proper) → **G6-C** 0.3.15 lab
-kit — then **one tester round over A+B+C**, then the reviewer. **G6-A finished 2026-09-24** (commits `64a89b5` … `305d89a`, not yet tester/reviewer-checked): D19–D22 + D24
-built; unit 3351 passed exit 0, component controller 85 / agent 72 / store 17 exit 0; 8 mutation checks. **Key
-finding:** in grpcio 1.84 the server's request iterator ends *normally* for half-close, cancel, channel close and a
-killed client alike — the only difference is a handler cancel ~1 loop tick later — so a clean close is confirmed only
-after `HALF_CLOSE_CONFIRM_S` (0.25 s) with no cancel (canary test pins it; ARCHITECTURE §12.3 note). It also fixed a
-real agent crash (Reconcile write on a dead stream killed `run()`). **G6-B finished 2026-09-24** (commits `7189812` … `11a5f0d`, no `src/` change): FaultLink proxy + process
-harness + `tests/cluster/` (38 passed / 2 skipped / 1 strict xfail, exit 0, ~105 s, 3 runs; `--run-slow` 40 passed
-exit 0, 121 s). Loopback at shipped timings: blackhole → OFFLINE 6.0 s (≤ 8), restore → ONLINE 0.3 s (≤ 10),
-controller SIGKILL → all 5 back 2.4 s (≤ 15). **LATE-1 (real defect, pinned as strict xfail `test_f2`):** a resource
-sample arriving after its bucket was flushed is dropped from history silently. **Lead decision D26:** close a bucket
-only after a grace period (setting, default ≥ reconnect + replay window) and log + count any sample still late;
-*not* merge-into-row (a replay after a controller restart, when the dedupe cursor is gone, would be double-merged).
-Goes into the G6 fix round. Other G6-B follow-ups for that round: agent ignores SIGBREAK (Windows graceful stop);
-`identity.created` logs a full user path; tester.md + ADR-0010 still name Toxiproxy. Pre-existing, not G6:
-`test_s3_adversarial::…child_dies…` fails alone; racing-epochs component test flaky under load. **G6-C finished 2026-09-24** (lab kit: `lab/fabric_check.py`, `lab/agent_rss.py`,
-`lab/checklists/V0.3-fabric.md`; unit lab 1438 passed exit 0; real loopback smoke run). Corrected two brief errors:
-`session_epoch` rises on every *connection attempt*, so "restarted" is detected from the resource `sequence` resetting
-to 1; psutil is in the `agent` extra (checklist uses `uv run --extra agent`). **Risk to criterion 2:** after a long
-outage the agent's full-jitter backoff (cap 15 s, ADR-0002 Updates) can push restore → ONLINE past 10 s; the tester is
-asked to measure it. **Tester round: FAIL, 2 major** (commit `775c3b3`, both pinned strict-xfail): (1) backoff cap 15 s can break
-criterion 2 after a long outage — measured worst 3.6 s at 60 s blackhole, but the design gap is real → **D27** cap 5 s
-(ADR-0002 amended); (2) a reconnect inside the 0.25 s confirm window with a slow DB logs a false OFFLINE → **D28**.
-Everything else PASS (linger/fence, D21, D22, harness mutation + SIGKILL-pytest containment, lab kit CLI).
-**G6 fix round done** (`4f6e2b3` … `7bfc367`: D28 claim-on-pending-admission, D27 cap 5 s, D26 grace 20 s +
-`sample_late`, SIGBREAK, no paths in identity logs; unit 3457 exit 0, cluster 39 exit 0, component controller has the
-known racing-epochs flake ~40 %). Lead then made **D29** directly (agent `hello_timeout_s` 3 s, `cap_s + hello_timeout_s ≤
-8 s` validator). **Tester round 2: PASS** (`56dabf1`; no `src/` defects; criterion 2 worst 3.6 s after a
-120 s blackhole, criterion 3 1.8 s with 5 agents at shipped timings; every fix mutation-checked; unit 3475 exit 0).
-Behaviour change to tell the team: a `config.toml` with `hello_timeout_s = 5` now refuses to start (5 + 5 > 8 s, clear
-`ConfigError`). Trap: after mutation testing, clear `__pycache__` — a same-second `.pyc` once showed stale defaults.
-**Reviewer spawned** over all of G6 (`64a89b5..HEAD`). If this session died,
-look at `git log` for `feat(V0.3-G6)` / `test(V0.3-G6)` commits to see which run finished; relaunch the next one from
-§5f with the previous run's handoff note pasted in (commit a half-finished tree `wip:` first).
+**Nothing is mid-task.** G6 closed on 2026-09-24 (0.3.14 `[x]`, reviewer APPROVE pass 2, commits `64a89b5` …
+`64e488a`) and the tree is committed. The next agent-side step is a **Lead** step: write the **G7** brief (0.3.4
+hardware scores from the S7 kernels in `lab/spikes/_s7/`, at first enrolment and on demand) as
+`docs/briefs/V0.3-fabric-core.md` **§5g**, then spawn it. GPU score must be a typed `unavailable: torch not installed`
+(ADR-0011 undecided). Add "`ruff check . && ruff format --check .`" to the tester's exit list — G6's tester round 2
+reported PASS while lint was red (the reviewer's only blocker).
 
-**Two G6 decisions the team should look at** (neither blocks the runs):
+**How G6 went** (decisions D19–D29 in §5f, story in the roadmap change log): runs A → B → C → tester **FAIL**
+(criterion-2 backoff cap; false OFFLINE inside the 0.25 s confirm window) → fix round (D26–D28) + Lead D29 → tester
+**PASS** → reviewer REQUEST_CHANGES (lint) → **APPROVE**. The reviewer's lasting concern is tracked as roadmap
+**0.4.16**, a **hard prerequisite of V0.6**: the clean-close decision is inferred from *timing* (no cancel within
+0.25 s) on measured grpcio 1.84 behaviour — hence the `grpcio<1.85` cap — and should become an explicit agent
+`Goodbye` before OFFLINE starts triggering retries.
+
+**G6 decisions the team should look at** (all shipped; object if you disagree):
 - **D19 departs from the reviewer's NB-G5-1 proposal.** Only a *clean* close (agent half-close, controller shutdown)
   → OFFLINE at once; an *abrupt* stream loss → SUSPECT, with OFFLINE only if the lease runs out first. Reason:
   OFFLINE is what V0.6 turns into "attempts LOST, retry elsewhere", so a Wi-Fi blip must not cause duplicate work
