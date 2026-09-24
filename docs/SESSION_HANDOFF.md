@@ -203,17 +203,15 @@ early. Re-check after G7.
 
 ## 2. In flight right now
 
-> **G7-B in flight (implementer):** items 1-5 + component tests (`tests/component/agent/test_hardware_scores.py`) + cluster scenario s + mutation checks committed (`9da3a6e`..`d6b60da`).
-> Next: full component + cluster tier runs, then the handoff note to the Lead; then ONE tester round covers G7-A+B.
-
-> **G7-A in flight (implementer):** items 1-7 + unit/component/heartbeat tests + mutation checks committed (`dc4ebcf`..`7ce9b39`).
-> Next: full component-suite run, then the handoff note to the Lead; after that the tester round (A+B share one tester round per §5g, so G7-B may go first).
-
-**G7-A is in flight (spawned 2026-09-24).** The G7 brief is written: `docs/briefs/V0.3-fabric-core.md` **§5g**
-(decisions D30–D38; two sequential runs, A = agent-side scoring, B = wire + controller + REST/CLI). If this session
-died: check `git log --oneline | grep G7` and the implementer's own "G7-A in flight" note below, then re-spawn
-G7-A with only what is left, or spawn G7-B once A has handed off. **Team flag:** D30 adds `numpy` to the `agent`
-extra.
+**G7 tester round in flight (spawned 2026-09-24)** — one round covering both runs. Brief: `docs/briefs/V0.3-fabric-core.md`
+**§5g** (D30–D38). **G7-A** (agent-side scoring, `dc4ebcf`..`e607909`) and **G7-B** (wire + controller + REST/CLI,
+`9da3a6e`..`884d593`) are handed off: unit 3710 / component 460 / cluster 40, all exit 0. If this session died: check
+`git log --oneline | grep G7` for `test(V0.3-G7)` commits, re-spawn the tester with only what is left, then the reviewer.
+**Team flags:** D30 adds `numpy` to the `agent` extra; G7-B invented a `hardware-scores` capability tag to tell
+`pending` from `none` (implementer's choice, not a Lead decision — confirm); new `ExitCode.BUSY = 7`.
+Known gap for the reviewer: a score write the DB refuses is already acked, so it is lost until the next Hello.
+🧑 Windows check for G7-A: `uv run meshforge-agent hardware score` (exit 0), two concurrent (second exits 7), Ctrl-C
+leaves no python child in Task Manager.
 
 *(Previous state, kept for context:)* G6 closed on 2026-09-24 (0.3.14 `[x]`, reviewer APPROVE pass 2, commits `64a89b5` …
 `64e488a`) and the tree is committed. The next agent-side step is a **Lead** step: write the **G7** brief (0.3.4
