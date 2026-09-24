@@ -7,9 +7,9 @@
 > **Cold-start prompt** (paste this as the first message on the new account):
 >
 > ```
-> Read docs/SESSION_HANDOFF.md (including section 0, the scope change), then
-> docs/adr/0012-scope-ship-mode3-complete.md, then docs/STATUS.md, then the current
-> version in docs/DEVELOPMENT_ROADMAP.md, and continue the work exactly where it stopped.
+> Read docs/SESSION_HANDOFF.md (sections 0, 0b and 2 especially), then docs/STATUS.md, then
+> the current version in docs/DEVELOPMENT_ROADMAP.md. G5 is closed; the next agent-side step
+> is to write the V0.3 G6 brief (0.3.14) as docs/briefs/V0.3-fabric-core.md §5f and spawn it.
 > ```
 >
 > Order of truth: `PROJECT_BRIEF → ARCHITECTURE → ROADMAP → STATUS → this file`. If this file
@@ -29,7 +29,7 @@
 > throughput measurements and the reasoning; if you think the arithmetic or the trade is wrong,
 > **say so to the team before building on it.** Do not silently re-expand the scope either.
 
-**Last updated:** 2026-09-23 (**G5 in flight, cut mid-task by a session limit**; partial work committed as `1717214`) · **Updated by:** Lead session (account 2)
+**Last updated:** 2026-09-24 (**G5 CLOSED agent-side** — 0.3.12 `[x]`, 0.3.13 `[~]` on one 🧑 Windows check; **G6 is next and its brief is not written yet**) · **Updated by:** Lead session (account 2)
 
 ---
 
@@ -134,13 +134,16 @@ decisions far better than mTLS does, and "AI has a real optimization role" is a 
 
 ## 1. Where the project is
 
-- **Version: V0.3 (fabric core).** **G1–G4 are closed agent-side; G5 is in flight.** A live controller ⇄ agent
-  fabric works in-process: identity, sessions, leases, RTT, reconnect, mDNS discovery, hardware discovery,
-  resource monitoring and downsampled snapshots in Postgres.
-  - `[x]` 0.3.1, 0.3.3, 0.3.5, 0.3.6, 0.3.8, 0.3.9, 0.3.10, 0.3.11
+- **Version: V0.3 (fabric core).** **G1–G5 are closed agent-side.** A live controller ⇄ agent fabric works
+  in-process: identity, sessions, leases, RTT, reconnect, mDNS discovery, hardware discovery, resource monitoring,
+  downsampled snapshots in Postgres — **and now an operator surface**: a read-only REST `/v1`, a `compute` CLI that
+  speaks REST only, `meshforge-agent hardware show`, and documented (never auto-installed) service units.
+  - `[x]` 0.3.1, 0.3.3, 0.3.5, 0.3.6, 0.3.8, 0.3.9, 0.3.10, 0.3.11, **0.3.12**
   - `[~]` 0.3.2 (awaits a 🧑 Windows unit run), 0.3.7 (awaits 🧑 lab evidence in 0.3.15),
-    0.3.12 + 0.3.13 (G5, in flight)
-  - Remaining: G6 (0.3.14 cluster harness + fault injection), G7 (0.3.4 hardware scores), 🧑 0.3.15 lab run
+    **0.3.13** (awaits the 🧑 Windows logoff check in `docs/OPERATIONS.md` §3 — the docs say "unverified" on
+    purpose; do not let anyone replace that with a guess)
+  - Remaining: **G6** (0.3.14 cluster harness + fault injection — *brief not written yet*), G7 (0.3.4 hardware
+    scores), 🧑 0.3.15 lab run
 - **V0.2:** all agent-side spike work is complete with reviewer APPROVE (S1 `ef065ac`, S2 `633d474`, S3 `81d620f`,
   S7 `8072b9f`, inventory `75d8df5`, 0.2.13 done). Every one is `[~]` **only** because it awaits runs on real
   laptops. **0.2.12 must wait for real lab data — never run it on loopback numbers.**
@@ -150,48 +153,132 @@ decisions far better than mTLS does, and "AI has a real optimization role" is a 
 
 ## 2. In flight right now
 
-**V0.3 G5 — the operator surface (0.3.12 REST + CLI, 0.3.13 documented service units). The implementer was
-KILLED MID-TASK by a session limit on 2026-09-21.** Its partial work is committed as **`1717214`** (`wip:`), so
-nothing is lost. Brief: `docs/briefs/V0.3-fabric-core.md` **§5e**, Lead decisions **D13–D17** in the table above it.
+**Nothing is mid-task.** G5 closed cleanly on 2026-09-24 and the working tree is committed. The next agent-side
+step is a **Lead** step: write the **G6** brief (0.3.14 cluster test harness + fault injection) as
+`docs/briefs/V0.3-fabric-core.md` **§5f**, following the §5d/§5e pattern — Lead decisions first, then the pasteable
+brief with the §4 checklist — then spawn it.
 
-**What already landed (committed, verified green):**
-- `add7250` — `MAX_GPUS`/`MAX_DISKS` moved to `controller/caps.py`, killing G4's deferred-import cycle (follow-up 5)
-- `8dd97d5` — `meshforge-agent hardware show` + the **NB-11 reason sanitiser** (deliverable C, D13)
-- `4d6714a` — cap-parity test pinned against the value the downsampler actually uses
-- `1717214` (`wip:`) — new `controller/api/` package (`models.py`, `shape.py`, `routes.py`, `errors.py`,
-  `context.py`, `__init__.py`) plus the start of the wiring into `http.py`, `server.py`, `registry.py`
+### What G5 shipped (0.3.12 `[x]`, 0.3.13 `[~]`)
 
-**State of the wip commit:** imports clean, `ruff check` clean, `pytest -m unit` **2632 passed**. But the REST
-surface is **not finished and not verified** — no component tests, and the Lead has not reviewed it.
+Read-only, unauthenticated, LAN-bound REST `/v1` (`GET /v1/nodes`, `/v1/nodes/{id}`, `/v1/nodes/{id}/resources`,
+`/v1/sessions`) with one typed `{"error":{"code","message"}}` envelope; OpenAPI at `/v1/openapi.json` with `/docs`
+and `/redoc` **off** (they fetch assets from a public CDN an isolated lab LAN cannot reach). A `compute` CLI that
+speaks REST only — `compute nodes [NODE_ID] [--json] [--watch]`, `compute status [--json]` — with ASCII-box tables
+and `ExitCode.UNAVAILABLE = 6` instead of a traceback when the controller is down. `meshforge-agent hardware show`
+for the per-probe facts that deliberately never go on the wire. `docs/OPERATIONS.md` + `deploy/` +
+`scripts/print_service_setup.py`, which **prints and installs nothing**.
 
-**What remains in G5** (deliverables B and D of §5e are untouched):
-1. Finish wiring `controller/api/` into `create_http_app` / `ControllerRuntime` and prove it end to end.
-2. **Deliverable B — the CLI**, not started: relocate `httpx` from the `agent` extra to core (D15, needs
-   `uv lock`), add the `[cli]` settings section, then `compute nodes` / `compute status` / `compute nodes <id>`
-   with `--json`, Rich tables, and a clean typed error when the controller is unreachable.
-3. **Deliverable D — `docs/OPERATIONS.md` + `deploy/`**, not started: systemd user unit + Windows Task Scheduler,
-   files that **print** commands, never auto-install (D17).
-4. Then tester → reviewer → component suite once → Lead marks 0.3.12 / 0.3.13 `[x]`.
+Rounds: implementer → tester **PASS** → reviewer **REQUEST_CHANGES** (2 blocking) → fix → tester **PASS** →
+reviewer **APPROVE**. Commits `8dd97d5` … `bedbee5`.
 
-**Do not re-derive the design** — §5e is complete. A cut agent cannot be resumed in this setup; relaunch the
-implementer with a fresh prompt that tells it what `1717214` already contains.
+**Both reviewer blockers were the same shape — a document claiming something the code did not do:**
+- the error-handler set was not exhaustive while its own docstring promised it was, so an unexpected exception
+  returned Starlette's text/plain 500 (the "bare FastAPI default" the brief forbids);
+- **ANSI/OSC escape injection** — enrolment is unauthenticated in V0.3 and `Hello.hostname` / `os` / `platform` /
+  `hardware` are validated for **length only**, so any host on the LAN could enrol with escape sequences that landed
+  in every operator's `compute nodes`. Fixed with a single `_cell()` gate in `cli/render.py` returning
+  `rich.text.Text`. **The defence-in-depth half is still open** — see Follow-ups below.
 
-The five G5 decisions a later session must not quietly reverse:
+### The six G5 decisions a later session must not quietly reverse
+
 - **D13** `HardwareFacts` is **not** served over REST — the controller only ever receives `Hello.hardware`, so the
-  probe statuses/durations/degraded reasons (agent-side only) are exposed by a local
-  `meshforge-agent hardware show`. Putting them on the wire is a **V0.8** conversation, not a G5 edit. *(This
-  corrects an earlier STATUS note that said G5 would serve them over REST.)*
-- **D14** the REST surface is **read-only** and unauthenticated in G5, LAN-bound. `CLAUDE.md` §9 allows assuming a
-  trusted LAN early; it does not allow a mutating unauthenticated endpoint. Hence `ResourceTracker.forget_node()`
-  is still unnecessary — **it becomes required with the first node-delete path.**
-- **D15** `httpx` moves from the `agent` extra to core; the CLI speaks REST only (a CLI importing `controller`
-  breaks the boundary lint-imports enforces).
-- **D16** `state` / `connected` / `sample_age_s` stay three separate fields — they disagree legitimately (a node can
-  be ONLINE in the database while the controller that wrote it has restarted), and V0.8's dashboard is built on
-  this shape.
+  probe statuses/durations/degraded reasons (agent-side only) are exposed by a local `meshforge-agent hardware show`.
+  Putting them on the wire is a **V0.8** conversation, not a G5 edit.
+- **D14** the REST surface is **read-only** and unauthenticated in V0.3, LAN-bound. Proved, not asserted: the route
+  set was enumerated and every mutating verb on every path is a typed 405. Hence `ResourceTracker.forget_node()` is
+  still unnecessary — **it becomes required with the first node-delete path.**
+- **D15** `httpx` lives in core deps; the CLI speaks REST only (a CLI importing `controller` breaks the boundary
+  lint-imports enforces). `cli/client.py` keeps payloads as plain mappings rather than copying the controller's
+  Pydantic models, because a copy it cannot import cannot be diffed against the original and would drift silently.
+- **D16** `state` / `connected` / `sample_age_s` stay three separate fields. **Read the NB-G5-1 warning below before
+  trusting `state`.**
 - **D17** service units are documented and **printed, never auto-installed**.
+- **D18** (new, 2026-09-23) `ExitCode.UNAVAILABLE = 6` for "the thing this command had to reach was unreachable" —
+  `FAILURE=1` is generic and `CONFIG_ERROR=4` would lie when the URL is fine and the controller is simply down.
 
-### 2a. What G4 cost, and what it should change about how we work
+### 🔴 NB-G5-1 — the API tells a partial truth until G6 fixes it
+
+**A cleanly closed session never moves `node.state`.** `SessionManager._close` enqueues only
+`close_session(reason)`; `apply_event` is reachable only from the lease timer and heartbeat paths, which walk
+`self._live` — from which `_close` has already removed the session. The only thing that ever corrects the row is
+`registry.sweep_open_sessions` at controller start-up. So a laptop that shuts down gracefully reads
+`state: online` indefinitely, and **`connected` is the only honest field.**
+
+Confirmed twice independently: the tester with a tight lease and a *graceful* `request_stop()` (state stayed
+`online` for 6× the would-be OFFLINE deadline), and the reviewer by reading the call graph.
+
+**Consequences, in order of importance:**
+1. **Anything reading liveness before G6 lands must use `connected` / `sample_age_s`, never `state` alone** — that
+   includes V0.14's rule-based planner and any V0.15 training label. A fabric of laptops that suspend nightly will
+   have rows reading `ONLINE` for hours with no session.
+2. The fix belongs to **G6** and needs an **ARCHITECTURE §12.3 amendment first**: an explicit `STREAM_CLOSED` event
+   with `ONLINE|SUSPECT → OFFLINE`, written from `_close` on the same `live.writer` chain as `close_session` (same
+   chain ⇒ no reordering against the session-end row, and idempotent because `_close` already early-returns on
+   `live.ended`), with **supersession excluded** — the new session's `Hello` owns the state. That exclusion is why
+   this is a §12.3 decision and not a one-line patch.
+3. Documenting rather than fixing it inside a REST task was the *right* call (§2a: three of G4's four defects were
+   introduced by fixes), and it is a good argument that D16's three-field design was right.
+
+### 🔴 The unit suite's exit code is not green — read this before pushing
+
+`uv run pytest -m unit -q` prints `3214 passed, 2 skipped, 2 xfailed` and then **exits 139 (SIGSEGV)**.
+Pre-existing, reproduced with and without this session's changes. faulthandler shows
+`Fatal Python error: Segmentation fault` in a native thread with `<no Python frame>` — a C-level crash at
+interpreter shutdown. Each of `tests/unit/{cli,common,agent,controller}` exits **0** alone; only the whole
+`tests/unit` set crashes, and the top-level files are the ones importing grpc/protobuf, so **`grpcio`'s C core is
+the prime suspect — not yet proven.**
+
+**This will make the first GitHub Actions `unit` job red no matter how many tests pass, so it blocks closing V0.1
+(0.1.4, 0.1.10).** It survived three agent rounds because every one of them reported pass counts and none checked
+the exit code. **A green summary is not a green run.** Raised as its own task.
+
+### A second trap the same investigation found
+
+**A test that logs a large exception can wedge the entire suite.** structlog's *default* processor chain renders a
+rich traceback at a cost superlinear in the message length (~1.9 s at 20 K chars, minutes at 200 K), and the spin
+**holds the GIL**, so `pytest-timeout` never fires: it looks like a stall with no failing test, and every file
+still passes in under a second on its own. Fixed structurally — `tests/conftest.py` now applies
+`configure_logging` in a **function-scoped** autouse fixture. It must stay function-scoped: the
+`tests/unit/common/test_common_logging*.py` fixtures legitimately call `structlog.reset_defaults()`, which repairs
+away any once-per-session call.
+
+### Follow-ups G5 raised (none blocking)
+
+1. **Defence in depth for the injection blocker:** `check_hello_strings` (`controller/session/limits.py`, a G2 file)
+   should reject non-printable characters at enrolment so the controller never *stores* them. The renderer is safe
+   now, so this is not urgent — but phrase the G6 item as the **rule** ("agent-supplied strings are validated at
+   ingestion; renderers stay defensive anyway"), because the renderer stops being the only sink the moment V0.8's
+   dashboard or a single log line is added.
+2. No request correlation id on the REST surface; `controller.api.*` events carry none.
+3. `/v1/nodes` has a bound (500/5000) but no offset/cursor pagination and no `total` — V0.8.
+4. `--watch` exits on the first transient error (deliberate, tested). For an operator watching a fabric, rendering
+   the error into the table and exiting after N consecutive failures is friendlier — V0.8.
+5. `uv run mypy` with no arguments reports **~59 pre-existing errors in `tests/`** (none in `src/`). Either clean
+   them up or narrow `files` so the command in CONTRIBUTING is honest.
+6. `test_the_no_limit_path_is_deterministic_for_tied_timestamps_too` is documentation, not a mutation-killing test
+   (PostgreSQL's heap-scan order on a fresh small table coincides with insertion order). Its docstring says so.
+
+### Still open from G4
+
+- **🧑 NB-2, a team decision** — where NVML is missing but `nvidia-smi` works, a node reports its GPUs in
+  `Hello.hardware` but **never** GPU util/VRAM in any `ResourceUpdate`. V0.9 telemetry and the V0.15 planner would
+  train on a node that looks GPU-equipped and never uses it. Option to cost: a low-cadence (~30 s, interpolated)
+  `nvidia-smi` poll behind a setting.
+- **G6:** the component harness cannot express "controller stays up, the client's TCP drops and reconnects" — it
+  restarts the controller, destroying the in-memory tracker. **That gap is why G4's R1 survived the first round.**
+- **G6:** the NB-1 ordering invariant in `client.py` (no `await` between the ONLINE transition and
+  `_reconcile_and_replay()`) is enforced by a comment plus a *component* test — a unit-gate edit will not see it.
+  Structural fix: an `asyncio.Event` set after the reconcile and awaited by `send_report`.
+- **Flusher:** during a real outage it issues up to 100 individually failing statements before asking the ping;
+  probe the first row, then ask `_database_answers()` immediately.
+- **V0.4:** `manager.py` is ~913 lines and still on the extraction list.
+
+### Not written by an agent session
+
+`docs/reports/` (two mentor progress reports + a PDF, 2026-09-24) appeared in the working tree from outside this
+session and is left **untracked on purpose**. Commit it only if the team asks.
+
+## 2a. What G4 and G5 cost, and what it should change about how we work
 
 G4 (0.3.3 / 0.3.5 / 0.3.11, commits `5fa761b` … `dce88c0`) closed 2026-09-21 after **three tester rounds that each
 found a critical defect**, then reviewer APPROVE. Full forensics are in the roadmap design change log; what a
@@ -206,27 +293,21 @@ future session needs is the pattern:
 
 **Therefore: run the tester after every fix round, not only after the initial implementation.** That rule cost
 extra rounds here and caught three silent data-corruption bugs that green gates *and* code review both missed —
-all of them in the telemetry V0.15's ML planner will train on.
+all of them in the telemetry V0.15's ML planner will train on. **G5 vindicated it again:** its fix round was where
+the reviewer's two blockers were closed, and the tester round on that delta found a vacuous assertion and a gap in
+an earlier tester's own test.
 
 **A test that passes for the wrong reason is worse than no test.** Two instances in G4: the original component test
 claiming "a replay is not counted twice" never performed a reconnect, and the ISO-1 defect pin passed via
-`AttributeError` because its stub lacked `ping()` — it would have passed with the ping logic inverted. When a test
-guards something whose failure is *silent*, mutate the code and confirm the test fails.
+`AttributeError` because its stub lacked `ping()` — it would have passed with the ping logic inverted. G5 added
+three more: a `"Traceback" not in output` assertion that `CliRunner`'s `catch_exceptions=True` made vacuous, an
+`elapsed < 0.1` bound sitting inside `capture_logs()` (which replaces the chain, so it measured nothing), and a
+`MAX_LIMIT` boundary test that checked the max was *accepted* but never that max+1 was *rejected*. **When a test
+guards something whose failure is silent, mutate the code and confirm the test fails.** G5 ran 9 such checks.
 
-**Still open from G4** (details in the roadmap design change log row "V0.3 G4 review follow-ups"):
-- **🧑 NB-2, a team decision** — where NVML is missing but `nvidia-smi` works, a node reports its GPUs in
-  `Hello.hardware` but **never** GPU util/VRAM in any `ResourceUpdate`. V0.9 telemetry and the V0.15 planner would
-  train on a node that looks GPU-equipped and never uses it. Option to cost: a low-cadence (~30 s, interpolated)
-  `nvidia-smi` poll behind a setting.
-- **G6:** the component harness cannot express "controller stays up, the client's TCP drops and reconnects" — it
-  restarts the controller, destroying the in-memory tracker. **That gap is why R1 survived the first round.**
-- **G6:** the NB-1 ordering invariant in `client.py` (no `await` between the ONLINE transition and
-  `_reconcile_and_replay()`) is enforced by a comment plus a *component* test that the token policy runs once per
-  group — a unit-gate edit will not see it. Structural fix: an `asyncio.Event` set after the reconcile and awaited
-  by `send_report`.
-- **Flusher:** during a real outage it issues up to 100 individually failing statements before asking the ping;
-  probe the first row, then ask `_database_answers()` immediately.
-- **V0.4:** `manager.py` is ~913 lines and still on the extraction list.
+**New from G5: check the exit code, not just the summary.** Three agent rounds reported pass counts and none
+noticed the suite exits 139. And **never edit a file while a test run or subagent is touching it** — doing so cost
+this session several dead runs before the real cause was found.
 
 ## 3. Blocked on humans (nothing agent-side unblocks these)
 
@@ -278,6 +359,14 @@ guards something whose failure is *silent*, mutate the code and confirm the test
 - **Subagent runs die to transient API timeouts.** Tell every agent to commit incrementally; recover by committing
   the working tree `wip:` and relaunching (SendMessage is disabled in this setup, so a cut agent cannot be
   resumed — it must be relaunched with a fresh prompt).
+- **Check the exit code, not just the pytest summary.** `pytest -m unit` currently prints a fully green summary and
+  then exits **139**. Three agent rounds missed it (§2).
+- **A test that logs a large exception can wedge the whole suite** and `--timeout` will not save you, because the
+  spin holds the GIL. `tests/conftest.py`'s autouse `configure_logging` fixture must stay **function-scoped** (§2).
+- **Never edit a file while a test run or a subagent is touching it.** Beyond the `git add -A` rule below, editing
+  `tests/conftest.py` mid-run cost this session several dead runs and a false lead.
+- **The whole `pytest -m component` suite takes far longer than the 9 min recorded for V0.1** — on a loaded machine
+  with Docker it ran well past 30 min. Budget for that, or run the targeted directories and say which.
 - **`uv run` re-syncs the environment**; don't edit `pyproject.toml`/`uv.lock` while another
   agent is running tests.
 - Lab scripts are stdlib-first: they must work after a plain `uv sync` on native Windows too.
