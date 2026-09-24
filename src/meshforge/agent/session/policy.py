@@ -4,9 +4,10 @@ end / a Hello rejection means. Pure and clock-injected; no I/O.
 **Backoff** - full jitter: ``sleep = uniform(0, min(cap, base * 2**n))``. ``n``
 grows by one per failed cycle and resets to 0 once a stream has lived
 ``reset_after_s`` (measured with the injected monotonic clock). With the defaults
-(0.5 s / 15 s) the ceilings are 0.5, 1, 2, 4, 8, 15, 15, ...; the cap must not
-exceed 15 s because V0.3 criterion 3 requires reconnection within 15 s of a
-controller restart.
+(0.5 s / 5 s) the ceilings are 0.5, 1, 2, 4, 5, 5, ...; the defaults and the cap's
+bound live in :mod:`meshforge.agent.settings` (``RECONNECT_*``): the cap must not
+exceed 5 s because V0.3 criterion 2 requires a restored link to be ONLINE again
+within 10 s (D27; criterion 3 alone would allow 15 s).
 
 **Stream end -> action** (:func:`stream_end_action`)::
 
@@ -35,6 +36,11 @@ from typing import Final
 
 import grpc
 
+from meshforge.agent.settings import (
+    RECONNECT_BASE_S,
+    RECONNECT_CAP_S,
+    RECONNECT_RESET_AFTER_S,
+)
 from meshforge.common.proto.meshforge.v1 import agent_pb2
 
 __all__ = [
@@ -109,9 +115,9 @@ def hello_reject_action(
 
 @dataclass(frozen=True, slots=True)
 class BackoffPolicy:
-    base_s: float = 0.5
-    cap_s: float = 15.0
-    reset_after_s: float = 30.0
+    base_s: float = RECONNECT_BASE_S
+    cap_s: float = RECONNECT_CAP_S
+    reset_after_s: float = RECONNECT_RESET_AFTER_S
 
     def __post_init__(self) -> None:
         if self.base_s <= 0:

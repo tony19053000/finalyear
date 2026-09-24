@@ -96,23 +96,53 @@ def parse_controller_address(text: str) -> tuple[str, int]:
     return host, port
 
 
+RECONNECT_BASE_S: Final = 0.5
+"""Default first backoff ceiling (ADR-0002 Updates §3)."""
+
+RECONNECT_CAP_BOUND_S: Final = 5.0
+"""Largest allowed ``[agent.reconnect] cap_s`` - the V0.3 **criterion 2** bound.
+
+Criterion 2: a restored link -> node ONLINE within 10 s, with no agent restart.
+Nothing wakes a backoff sleep early when the link returns, so after a long outage
+the restore can land at the start of a sleep as long as the cap: the cap is added
+to the restore latency as-is. At 5 s that leaves ~5 s for the connect + Hello
+round trip (worst ~6 s on a LAN; D27, ADR-0002 Updates amended 2026-09-24). Raising
+it past 5 s eats that margin; criterion 3 (reconnect within 15 s of a controller
+restart) alone would allow 15 s, so it is criterion 2 that binds.
+"""
+
+RECONNECT_CAP_S: Final = RECONNECT_CAP_BOUND_S
+"""Default ``cap_s``; the single source of truth for :class:`~meshforge.agent.
+session.policy.BackoffPolicy` too."""
+
+RECONNECT_RESET_AFTER_S: Final = 30.0
+"""Default stream lifetime that resets the backoff exponent."""
+
+
 class ReconnectSettings(SectionModel):
     """``[agent.reconnect]`` - full-jitter exponential backoff (ADR-0002 Updates §3).
 
     ``sleep = uniform(0, min(cap_s, base_s * 2**n))``; ``n`` resets to 0 after a
-    stream that lived at least ``reset_after_s``. ``cap_s`` must stay <= 15 s: V0.3
-    criterion 3 requires reconnection within 15 s of a controller restart.
+    stream that lived at least ``reset_after_s``. ``cap_s`` must stay <=
+    :data:`RECONNECT_CAP_BOUND_S` (5 s): V0.3 criterion 2 requires a restored link
+    to be ONLINE again within 10 s (see that constant for the arithmetic).
     """
 
-    base_s: float = Field(default=0.5, gt=0, description="First backoff ceiling.")
+    base_s: float = Field(
+        default=RECONNECT_BASE_S, gt=0, description="First backoff ceiling."
+    )
     cap_s: float = Field(
-        default=15.0,
+        default=RECONNECT_CAP_S,
         gt=0,
-        le=15.0,
-        description="Upper bound of the backoff ceiling (<= 15 s, V0.3 criterion 3).",
+        # V0.3 criterion 2 (restored link -> ONLINE <= 10 s): see RECONNECT_CAP_BOUND_S.
+        le=RECONNECT_CAP_BOUND_S,
+        description=(
+            "Upper bound of the backoff ceiling (<= 5 s, V0.3 criterion 2: "
+            "restored link -> ONLINE within 10 s)."
+        ),
     )
     reset_after_s: float = Field(
-        default=30.0,
+        default=RECONNECT_RESET_AFTER_S,
         ge=0,
         description="A stream that lived this long resets the backoff exponent.",
     )

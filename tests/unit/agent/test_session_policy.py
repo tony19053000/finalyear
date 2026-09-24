@@ -43,12 +43,12 @@ def test_policy_ceilings_default() -> None:
         1.0,
         2.0,
         4.0,
-        8.0,
-        15.0,
-        15.0,
-        15.0,
+        5.0,
+        5.0,
+        5.0,
+        5.0,
     ]
-    assert p.ceiling(1000) == 15.0  # no overflow, still the cap
+    assert p.ceiling(1000) == 5.0  # no overflow, still the cap (D27: 5 s)
 
 
 def test_policy_validation() -> None:
@@ -67,7 +67,7 @@ def test_full_jitter_uses_the_whole_range() -> None:
     clock = FakeClock()
     values = iter([1.0, 0.0, 0.5, 1.0, 1.0, 1.0, 1.0])
     b = Backoff(BackoffPolicy(), clock=clock, rand=lambda: next(values))
-    assert [b.next_delay() for _ in range(7)] == [0.5, 0.0, 1.0, 4.0, 8.0, 15.0, 15.0]
+    assert [b.next_delay() for _ in range(7)] == [0.5, 0.0, 1.0, 4.0, 5.0, 5.0, 5.0]
     assert b.attempt == 7
 
 

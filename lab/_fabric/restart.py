@@ -12,8 +12,8 @@ Per repetition, the tool itself sees the three moments (no Enter needed):
 ``reconnect_all_s = t_all - t_up`` is the criterion-3 number: from the moment the
 new controller process serves, to the whole fabric being back. It deliberately
 excludes how long the human took to restart the process (``outage_s``). Note the
-agents back off with full jitter capped at 15 s (ADR-0002 Updates §3), so a long
-outage lets the backoff reach its cap - restart the controller promptly.
+agents back off with full jitter capped at 5 s (ADR-0002 Updates §3, D27), so a
+long outage lets the backoff reach its cap - restart the controller promptly.
 """
 
 from __future__ import annotations

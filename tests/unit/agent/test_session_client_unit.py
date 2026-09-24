@@ -366,11 +366,15 @@ async def test_a_ping_with_a_foreign_session_id_is_dropped_not_answered(
     assert client.stats.stale_messages == 1
 
 
-def test_reconnect_cap_cannot_exceed_criterion_3(tmp_path: Path) -> None:
+@pytest.mark.parametrize("cap_s", [16.0, 5.01])
+def test_reconnect_cap_cannot_exceed_the_criterion_2_bound(
+    tmp_path: Path, cap_s: float
+) -> None:
+    # 16 s broke criterion 3 already; 5.01 s breaks criterion 2's bound (D27).
     from meshforge.common.errors import ConfigError
 
     with pytest.raises(ConfigError, match="cap_s"):
         AgentSettings.load(
             data_dir=tmp_path,
-            agent={"controller_address": "127.0.0.1:1", "reconnect": {"cap_s": 16.0}},
+            agent={"controller_address": "127.0.0.1:1", "reconnect": {"cap_s": cap_s}},
         )

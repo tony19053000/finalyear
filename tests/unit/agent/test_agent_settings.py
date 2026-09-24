@@ -37,7 +37,7 @@ def test_defaults_match_adr_0002_updates() -> None:
     assert a.uses_discovery is True
     assert (a.reconnect.base_s, a.reconnect.cap_s, a.reconnect.reset_after_s) == (
         0.5,
-        15.0,
+        5.0,  # D27 (criterion 2); was 15.0
         30.0,
     )
     assert (a.keepalive.time_ms, a.keepalive.timeout_ms) == (10_000, 5_000)
