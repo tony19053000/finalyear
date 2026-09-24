@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
+from collections.abc import Mapping, Sequence
 from typing import Any, cast
 
 import pytest
@@ -58,7 +59,7 @@ def secs(n: float) -> dt.timedelta:
     return dt.timedelta(seconds=n)
 
 
-def late_events(logs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def late_events(logs: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
     return [e for e in logs if e["event"] == "controller.resources.sample_late"]
 
 

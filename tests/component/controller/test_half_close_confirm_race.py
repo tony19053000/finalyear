@@ -26,7 +26,7 @@ part).
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping, Sequence
 from typing import Any
 
 import pytest
@@ -76,7 +76,7 @@ class _GatedGetNode:
 
 
 def changes_for(
-    logs: list[dict[str, Any]], node_id: str
+    logs: Sequence[Mapping[str, Any]], node_id: str
 ) -> list[tuple[str, str, str | None]]:
     return [
         (e["from"], e["to"], e.get("liveness_event"))

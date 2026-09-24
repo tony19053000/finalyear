@@ -15,7 +15,8 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
-from typing import Any
+from collections.abc import Mapping, Sequence
+from typing import Any, cast
 
 import pytest
 import structlog
@@ -32,7 +33,12 @@ from test_session_linger import (
 from meshforge.common.ids import new_node_id
 from meshforge.controller.liveness import NodeState
 from meshforge.controller.registry import NodeRecord, RegistryError, SessionEndReason
-from meshforge.controller.session.manager import Accepted, Rejected, SessionManager
+from meshforge.controller.session.manager import (
+    Accepted,
+    LiveSession,
+    Rejected,
+    SessionManager,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -45,7 +51,7 @@ class GatedGet:
         self.held = asyncio.Event()
         self.release = asyncio.Event()
         self.fail = False
-        reg.get_node = self  # type: ignore[method-assign]
+        reg.get_node = self  # type: ignore[method-assign, unused-ignore]
 
     async def __call__(self, node_id: str) -> NodeRecord | None:
         self.held.set()
@@ -54,10 +60,18 @@ class GatedGet:
             raise RegistryError(
                 "database unreachable (test)", details={"operation": "get_node"}
             )
-        return await self._inner(node_id)
+        return cast("NodeRecord | None", await self._inner(node_id))
 
 
-def state_changes(logs: list[dict[str, Any]], node: str) -> list[tuple[str, str]]:
+def state_of(live: LiveSession) -> NodeState:
+    """Read the state through a call, so a type checker does not keep an earlier
+    ``assert live.state is ...`` narrowing across the awaits that change it."""
+    return live.state
+
+
+def state_changes(
+    logs: Sequence[Mapping[str, Any]], node: str
+) -> list[tuple[str, str]]:
     return [
         (e["from"], e["to"])
         for e in logs
@@ -177,7 +191,7 @@ async def test_a_failed_admission_settles_the_deferred_end_with_its_event(
         assert isinstance(await task, Rejected)
     await settle()
     # As if no Hello had been pending: the clean close is OFFLINE, then the END.
-    assert old.state is NodeState.OFFLINE
+    assert state_of(old) is NodeState.OFFLINE
     assert [w for w in reg.writes if w[1] == old.session_id and w[0] != "upsert"] == [
         ("set_node_state", old.session_id, NodeState.OFFLINE, True),
         ("close_session", old.session_id, SessionEndReason.AGENT_CLOSED, True),
