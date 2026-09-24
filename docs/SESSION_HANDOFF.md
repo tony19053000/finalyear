@@ -203,6 +203,9 @@ early. Re-check after G7.
 
 ## 2. In flight right now
 
+> **G7-B D39 fix round done (`54b27c0`):** an undeclared GPU index rejects the whole score set (`gpu_index_not_declared`); tester's test inverted; `WriteKind.SCORES` docstring fixed; unit/component-agent/cluster exit 0.
+> Next: tester re-run on the delta, then the reviewer.
+
 **G7 tester round in flight (spawned 2026-09-24)** — one round covering both runs. Brief: `docs/briefs/V0.3-fabric-core.md`
 **§5g** (D30–D38). **G7-A** (agent-side scoring, `dc4ebcf`..`e607909`) and **G7-B** (wire + controller + REST/CLI,
 `9da3a6e`..`884d593`) are handed off: unit 3710 / component 460 / cluster 40, all exit 0. If this session died: check
