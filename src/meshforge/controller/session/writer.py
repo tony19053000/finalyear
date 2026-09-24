@@ -15,6 +15,15 @@ even when the first is slow), logs a failed write as
 ``registry.write_failed{node_id, session_id, op, error}`` and moves on, and ends
 by itself after the session's final write (the close reason).
 
+**Lingering sessions (V0.3 G6, D19).** A session that ended *abruptly* keeps its
+lease running on a lingering entry, and that entry may still need to write
+``OFFLINE`` when the lease expires - on this same chain, so it can never be
+reordered against the session's earlier writes. Its ``close_session`` is therefore
+enqueued as :attr:`WriteKind.CLOSE` - persisted promptly, in order, never dropped,
+but *not* the end of the chain - and the chain is ended later by :meth:`finish`
+(no database write) once the linger resolves (lease expiry, a reconnect, or
+controller shutdown).
+
 Overflow policy (``capacity`` pending writes, default 1000): a new write that
 finds the queue full first evicts the **oldest droppable** write (``touch`` /
 ``rtt`` - a later one supersedes it anyway). If nothing is droppable, a droppable
@@ -58,6 +67,10 @@ class WriteKind(StrEnum):
     """Liveness transition - never dropped (order and presence matter)."""
     END = "end"
     """``close_session`` - never dropped; the chain ends after it."""
+    CLOSE = "close"
+    """``close_session`` of a session whose lease lingers (D19) - never dropped,
+    and the chain stays open for the linger's own final state write; it is ended
+    by :meth:`WriteChain.finish`."""
 
     @property
     def droppable(self) -> bool:
@@ -89,7 +102,8 @@ class WriteChain:
         self._queue: deque[_Pending] = deque()
         self._wake = asyncio.Event()
         self._closed = False
-        """True once the END write was enqueued; later writes are refused."""
+        """True once the END write was enqueued or :meth:`finish` was called;
+        later writes are refused."""
         self._task: asyncio.Task[None] | None = None
         # counters (read by tests and, later, telemetry)
         self.enqueued = 0
@@ -193,6 +207,17 @@ class WriteChain:
         )
         return True
 
+    def finish(self) -> None:
+        """No more writes: the task ends once everything already queued is done.
+
+        Idempotent. The end of a chain whose ``close_session`` went out as
+        :attr:`WriteKind.CLOSE` (a lingering session, D19); also used by
+        :meth:`drain`.
+        """
+        if not self._closed:
+            self._closed = True
+            self._wake.set()
+
     # ---------------------------------------------------------------- consume
 
     async def _run(self) -> None:
@@ -251,10 +276,8 @@ class WriteChain:
         task = self._task
         if task is None:
             return True
-        if not self._closed:
-            # No END will ever arrive: let the consumer stop once the queue is empty.
-            self._closed = True
-            self._wake.set()
+        # No END will ever arrive: let the consumer stop once the queue is empty.
+        self.finish()
         _done, still = await asyncio.wait({task}, timeout=timeout_s)
         if not still:
             return True

@@ -302,16 +302,40 @@ class Registry:
             return _node_record(row)
 
     @_typed
-    async def set_node_state(self, node_id: str, state: NodeState) -> None:
-        """Persist a liveness transition. Raises :class:`UnknownNodeError`."""
+    async def set_node_state(
+        self, node_id: str, state: NodeState, *, session_id: str
+    ) -> bool:
+        """Persist a liveness transition **fenced on the session** (D20).
+
+        ``UPDATE node SET state = :state WHERE node_id = :n AND last_session_id =
+        :s``. Returns True when the row was written, False when 0 rows matched:
+        a newer session has been admitted for the node since this write was
+        queued (admission updates the row directly, not on the old session's
+        write chain), so the write is stale and must not land - without the
+        fence a backlogged OFFLINE could overwrite a reconnect's ONLINE and a
+        connected node would read OFFLINE indefinitely (heartbeats are
+        self-loops; nothing rewrites it). A fenced write is logged
+        ``registry.state_write_fenced`` at info level and is never an error.
+
+        Every session-originated state write goes through here; the only other
+        state writers are admission (``upsert_node_on_hello``, which *moves*
+        ``last_session_id``) and the start-up sweep (no session is live then).
+        """
         async with self._sessions() as db, db.begin():
             result = await db.execute(
-                update(Node).where(Node.node_id == node_id).values(state=state.value)
+                update(Node)
+                .where(Node.node_id == node_id, Node.last_session_id == session_id)
+                .values(state=state.value)
             )
-            if _rowcount(result) != 1:
-                raise UnknownNodeError(
-                    f"no node {node_id}", details={"node_id": node_id}
-                )
+            written = _rowcount(result) == 1
+        if not written:
+            log.info(
+                "registry.state_write_fenced",
+                node_id=node_id,
+                session_id=session_id,
+                state=state.value,
+            )
+        return written
 
     @_typed
     async def touch_node(self, node_id: str) -> None:
@@ -323,6 +347,16 @@ class Registry:
         wall time the write executed - at most one interval plus queueing after
         the heartbeat it stands for. Liveness is decided in memory; this column
         is a record for the dashboard and for a controller restart.
+
+        **Deliberately not fenced** on ``last_session_id`` (unlike
+        :meth:`set_node_state`, D20): a late touch from a superseded session
+        writes the wall time it *executed*, which can be a little later than that
+        session's last heartbeat - but the node is being heard from through the
+        newer session anyway, whose own touches follow within one heartbeat
+        interval, and nothing decides liveness from this column. A stale *state*
+        write is a lie nothing corrects; a late ``last_seen_at`` is at worst a few
+        seconds optimistic in a display field. Within one session the chain
+        orders every touch before that session's final state write.
         """
         async with self._sessions() as db, db.begin():
             await db.execute(

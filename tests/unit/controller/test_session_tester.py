@@ -144,10 +144,15 @@ class FakeRegistry:
         )
         return True
 
-    async def set_node_state(self, node_id: str, state: NodeState) -> None:
+    async def set_node_state(
+        self, node_id: str, state: NodeState, *, session_id: str
+    ) -> bool:
         self.calls.append("set_node_state")
         rec = self.nodes[node_id]
+        if rec.last_session_id != session_id:  # fenced like the real one (D20)
+            return False
         self.nodes[node_id] = dataclasses.replace(rec, state=state)
+        return True
 
     async def touch_node(self, node_id: str) -> None:
         self.calls.append("touch_node")

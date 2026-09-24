@@ -16,7 +16,13 @@ sets ``wake``. On each tick it
 3. closes a session whose lease expired (``end_reason = lease_expired``);
 4. sends one RTT ``Ping`` per lease interval to every ONLINE session;
 5. flushes a coalesced ``last_seen_at`` write for sessions whose heartbeats since
-   the last write were only recorded in memory (``SessionManager.flush_touch``).
+   the last write were only recorded in memory (``SessionManager.flush_touch``);
+6. walks the **lingering** entries too - sessions that ended abruptly and are
+   SUSPECT with their lease still running (D19, ARCHITECTURE §12.3 2026-09-24):
+   at the normal lease edge (from the last heartbeat) ``LEASE_EXPIRED`` writes
+   OFFLINE on the entry's own chain and ends the linger
+   (``SessionManager.expire_linger``). A lingering entry has no stream, so it gets
+   no ping and no touch. A new lingering entry sets ``wake`` like a new session.
 
 The timer never awaits the database: every write it causes is queued on the
 session's :class:`~.writer.WriteChain`, so one node's slow row can never delay
@@ -83,6 +89,13 @@ class LeaseTimer:
                     next_deadline is None or candidate < next_deadline
                 ):
                     next_deadline = candidate
+        for entry in self._manager.lingering():
+            self._manager.expire_linger(entry, now)
+            candidate = entry.tracker.deadline() if entry.lingering else None
+            if candidate is not None and (
+                next_deadline is None or candidate < next_deadline
+            ):
+                next_deadline = candidate
         return next_deadline
 
     async def _tick_session(self, live: LiveSession, now: float) -> None:

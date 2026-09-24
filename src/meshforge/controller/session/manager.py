@@ -40,7 +40,37 @@ heartbeats therefore costs one queued DB round-trip, not one per message.
 
 Bounds on peer-controlled input (:mod:`~.limits`): ``message_id`` must be a
 ``cmd_<ULID>`` (so the dedupe window holds at most ``dedupe_window`` x 30 bytes)
-and the Hello's string fields are capped before anything is persisted.
+and the Hello's string fields are capped (and must be printable, D22) before
+anything is persisted.
+
+**How a session ends decides the liveness arrow** (ARCHITECTURE §12.3 2026-09-24
+amendment, D19). Every end goes through :meth:`SessionManager._close`, which is
+idempotent (first reason wins) and maps the reason to an event:
+
+* clean - ``agent_closed`` (the agent half-closed) and ``controller_shutdown`` ->
+  ``STREAM_CLOSED``: ``ONLINE/SUSPECT/DRAINING -> OFFLINE`` written now, then
+  ``close_session`` ends the chain;
+* abrupt - ``stream_lost``, ``protocol_error``, ``internal_error`` ->
+  ``STREAM_LOST``: ``ONLINE/DRAINING -> SUSPECT`` written now, ``close_session``
+  written promptly as a :attr:`~.writer.WriteKind.CLOSE` that keeps the chain
+  open, and the session stays in :attr:`SessionManager._lingering` with its lease
+  tracker. The lease timer walks lingering entries too: ``LEASE_EXPIRED -> OFFLINE``
+  at the normal edge measured from the last heartbeat, then the chain is finished.
+  A newer ``Hello`` first resolves the linger with **no** OFFLINE write
+  (``SUSPECT -> RECONNECTED -> ONLINE``); a stale-epoch Hello does not;
+* ``superseded`` - no event, no state write: the new session's Hello owns it;
+* ``lease_expired`` - none extra: the timer already applied ``LEASE_EXPIRED``.
+
+**Half-close is confirmed, not assumed.** grpc.aio (1.84, measured) ends the
+server's request iterator *normally* for a client half-close **and** for a
+cancelled call, a closed channel or a killed client process; what distinguishes
+the abrupt cases is that the handler task is then cancelled (about one loop
+iteration later). So the reader treats a normal end of the iterator as a
+*candidate* clean close and waits ``half_close_confirm_s`` before recording
+``agent_closed``; if the handler is cancelled meanwhile, the servicer closes the
+session ``stream_lost`` first and cancels the reader. A half-closed call stays
+open until we send the status (the agent waits up to 2 s for it), so a genuine
+half-close always survives the window.
 """
 
 from __future__ import annotations
@@ -88,12 +118,14 @@ from meshforge.controller.session.writer import (
 )
 
 __all__ = [
+    "HALF_CLOSE_CONFIRM_S",
     "RTT_EWMA_ALPHA",
     "Accepted",
     "AdmitResult",
     "LiveSession",
     "Rejected",
     "SessionManager",
+    "end_event",
     "update_ewma",
 ]
 
@@ -101,6 +133,38 @@ log = get_logger(__name__)
 
 RTT_EWMA_ALPHA: Final = 0.3
 """Weight of the newest RTT sample in ``rtt_ewma_ms`` (roadmap 0.3.10)."""
+
+HALF_CLOSE_CONFIRM_S: Final = 0.25
+"""How long a normal end of the request iterator must go without the call being
+cancelled before it counts as the agent's half-close (see the module docstring).
+Must stay well below the agent's own close grace (2 s), which is how long a
+half-closed agent waits for our final status."""
+
+_CLEAN_END: Final[frozenset[SessionEndReason]] = frozenset(
+    {SessionEndReason.AGENT_CLOSED, SessionEndReason.CONTROLLER_SHUTDOWN}
+)
+_ABRUPT_END: Final[frozenset[SessionEndReason]] = frozenset(
+    {
+        SessionEndReason.STREAM_LOST,
+        SessionEndReason.PROTOCOL_ERROR,
+        SessionEndReason.INTERNAL_ERROR,
+    }
+)
+
+
+def end_event(reason: SessionEndReason) -> LivenessEvent | None:
+    """The §12.3 event a session end fires (D19); None = no state write.
+
+    ``superseded`` fires nothing (the new session's Hello owns the state),
+    ``lease_expired`` nothing extra (the timer already applied the expiry) and
+    ``controller_restart`` is only ever written by the start-up sweep.
+    """
+    if reason in _CLEAN_END:
+        return LivenessEvent.STREAM_CLOSED
+    if reason in _ABRUPT_END:
+        return LivenessEvent.STREAM_LOST
+    return None
+
 
 RejectCode = agent_pb2.HelloAck.RejectCode
 
@@ -159,6 +223,10 @@ class LiveSession:
     ended: bool = False
     end_reason: SessionEndReason | None = None
     done: asyncio.Event = field(default_factory=asyncio.Event)
+    lingering: bool = False
+    """The stream ended abruptly and the lease is still running (D19): the entry
+    sits in ``SessionManager._lingering`` until a Hello, the lease or a shutdown
+    resolves it. Its ``writer`` stays open until then."""
     # counters
     heartbeats: int = 0
     stale_messages: int = 0
@@ -219,7 +287,10 @@ class SessionManager:
         write_capacity: int = DEFAULT_WRITE_CAPACITY,
         wall_clock: Callable[[], dt.datetime] | None = None,
         resources: ResourceSink | None = None,
+        half_close_confirm_s: float = HALF_CLOSE_CONFIRM_S,
     ) -> None:
+        if not half_close_confirm_s >= 0:
+            raise ValueError("half_close_confirm_s must be >= 0")
         self._registry = registry
         self._resources = resources
         """Where ResourceUpdates go (roadmap 0.3.11); None = not recorded."""
@@ -232,6 +303,9 @@ class SessionManager:
         self._write_capacity = write_capacity
         self._lock = asyncio.Lock()
         self._live: dict[str, LiveSession] = {}
+        self._lingering: dict[str, LiveSession] = {}
+        """Abruptly ended sessions whose lease still runs, by node (D19)."""
+        self._half_close_confirm_s = half_close_confirm_s
         self._tasks: set[asyncio.Task[None]] = set()
         self._chains: set[WriteChain] = set()
         """Write chains not yet finished (closed sessions included until drained)."""
@@ -253,6 +327,13 @@ class SessionManager:
 
     def get(self, node_id: str) -> LiveSession | None:
         return self._live.get(node_id)
+
+    def lingering(self) -> list[LiveSession]:
+        """Abruptly ended sessions whose lease still runs (a copy, D19)."""
+        return list(self._lingering.values())
+
+    def get_lingering(self, node_id: str) -> LiveSession | None:
+        return self._lingering.get(node_id)
 
     def __len__(self) -> int:
         return len(self._live)
@@ -339,13 +420,17 @@ class SessionManager:
                 "controller is shutting down",
                 grpc.StatusCode.UNAVAILABLE,
             )
-        # Read the live entry *after* the await: the lease timer closes sessions
-        # without the lock, so the table may have changed while we waited.
+        # Read the live and lingering entries *after* the await: the lease timer
+        # and readers close sessions without the lock, so both tables may have
+        # changed while we waited.
         old = self._live.get(node_id)
+        lingering = self._lingering.get(node_id)
         highest = -1 if record is None else record.session_epoch
-        if old is not None:
-            highest = max(highest, old.session_epoch)
+        for entry in (old, lingering):
+            if entry is not None:
+                highest = max(highest, entry.session_epoch)
         if hello.session_epoch <= highest:
+            # A stale Hello never resolves a linger: the lease keeps running.
             log.warning(
                 "session.stale_epoch",
                 node_id=node_id,
@@ -362,6 +447,10 @@ class SessionManager:
         if old is not None:
             prior = old.state
             self._close(old, SessionEndReason.SUPERSEDED)
+        elif lingering is not None:
+            # The in-memory state is ahead of the row (its writes are queued):
+            # SUSPECT here, so this Hello is SUSPECT -> RECONNECTED -> ONLINE.
+            prior = lingering.state
         else:
             prior = NodeState.ENROLLING if record is None else record.state
 
@@ -394,6 +483,11 @@ class SessionManager:
             agent_version=hello.agent_version,
             protocol_version=hello.protocol_version,
         )
+        if lingering is not None:
+            # Resolved only now that the new session is persisted: had admission
+            # failed above, the old lease would still be running. Nothing is
+            # written for it - its fenced writes still queued are stale by now.
+            self._end_linger(lingering, cause="reconnected")
         writer = WriteChain(
             node_id=node_id, session_id=session_id, capacity=self._write_capacity
         )
@@ -476,14 +570,19 @@ class SessionManager:
         live: LiveSession,
         request_iterator: AsyncIterator[agent_pb2.AgentMessage],
     ) -> None:
-        reason = SessionEndReason.AGENT_CLOSED
+        """Consume the agent's messages; classify how the stream ended (D19).
+
+        Only a *normal* end of the request iterator can be a clean close, and even
+        that is confirmed first (module docstring: grpc.aio also ends the iterator
+        normally when the call is cancelled). Everything else is abrupt.
+        """
         try:
             async for msg in request_iterator:
                 if live.ended:
-                    break
+                    return  # closed by supersede/lease/shutdown/handler meanwhile
                 await self.handle_message(live, msg)
         except asyncio.CancelledError:
-            raise  # ended by supersede/lease/shutdown; they close the session
+            raise  # ended by supersede/lease/shutdown/handler; they close it
         except SessionProtocolError as exc:
             log.warning(
                 "session.protocol_error",
@@ -500,6 +599,7 @@ class SessionManager:
                 session_id=live.session_id,
                 cause=type(exc).__name__,
             )
+            reason = SessionEndReason.STREAM_LOST
         except Exception:
             # A bug in dispatch must not leave a zombie session behind; the stream
             # is closed and the traceback logged. The reason is internal_error, not
@@ -510,6 +610,20 @@ class SessionManager:
                 session_id=live.session_id,
             )
             reason = SessionEndReason.INTERNAL_ERROR
+        else:
+            if live.ended:
+                return
+            # Candidate half-close. If the call was in fact cancelled, the gRPC
+            # handler is cancelled within this window and closes the session
+            # ``stream_lost`` first, which cancels this sleep (first reason wins).
+            log.debug(
+                "session.request_stream_ended",
+                node_id=live.node_id,
+                session_id=live.session_id,
+                confirm_s=self._half_close_confirm_s,
+            )
+            await asyncio.sleep(self._half_close_confirm_s)
+            reason = SessionEndReason.AGENT_CLOSED
         await self.end_session(live, reason)
 
     # -------------------------------------------------------------- dispatch
@@ -774,7 +888,19 @@ class SessionManager:
     ) -> NodeState:
         """Apply a §12.3 arrow to ``live``; queue the write and log a real change.
 
-        Never awaits the registry (the timer calls this for every session). An
+        Never awaits the registry (the timer calls this for every session and
+        every lingering entry). See :meth:`_apply_event`.
+        """
+        return self._apply_event(live, event, silence_s=silence_s)
+
+    def _apply_event(
+        self, live: LiveSession, event: LivenessEvent, *, silence_s: float
+    ) -> NodeState:
+        """Synchronous core of :meth:`apply_event` (``_close`` needs it inline).
+
+        The write is **fenced** on this session (D20): it lands only while the
+        node's ``last_session_id`` is still this session, so a write queued
+        behind a slow chain can never overwrite a newer session's state. An
         :class:`InvalidTransitionError` is a bug in the caller, not in the agent:
         it is logged at error level and the state is left unchanged.
         """
@@ -797,7 +923,12 @@ class SessionManager:
         live.writer.enqueue(
             "set_node_state",
             WriteKind.STATE,
-            functools.partial(self._registry.set_node_state, live.node_id, new),
+            functools.partial(
+                self._registry.set_node_state,
+                live.node_id,
+                new,
+                session_id=live.session_id,
+            ),
         )
         log.info(
             "node.state_changed",
@@ -806,6 +937,7 @@ class SessionManager:
             **{"from": old.value, "to": new.value},
             silence_s=round(silence_s, 3),
             liveness_event=event.value,
+            lingering=live.lingering,
         )
         return new
 
@@ -819,9 +951,13 @@ class SessionManager:
         """
         self._close(live, reason)
 
+    def end_session_nowait(self, live: LiveSession, reason: SessionEndReason) -> None:
+        """:meth:`end_session` for synchronous callers (a gRPC done-callback)."""
+        self._close(live, reason)
+
     def _close(self, live: LiveSession, reason: SessionEndReason) -> None:
         if live.ended:
-            return
+            return  # first reason wins
         live.ended = True
         live.end_reason = reason
         if self._live.get(live.node_id) is live:
@@ -834,17 +970,38 @@ class SessionManager:
         if task is not None and task is not asyncio.current_task() and not task.done():
             task.cancel()
         live.done.set()
-        # The final write of this session's chain; the chain task ends after it.
-        live.writer.enqueue(
-            "close_session",
-            WriteKind.END,
-            functools.partial(self._registry.close_session, live.session_id, reason),
-        )
+        # D19: the end decides the arrow; the state write goes on this session's
+        # chain *before* close_session, so the two can never be reordered.
+        event = end_event(reason)
+        if event is not None:
+            self._apply_event(
+                live, event, silence_s=live.tracker.silence(self._clock())
+            )
+        linger = event is LivenessEvent.STREAM_LOST and live.state is NodeState.SUSPECT
+        close = functools.partial(self._registry.close_session, live.session_id, reason)
+        if linger:
+            # The loss already counts as the miss; LEASE_EXPIRED is all that is
+            # left, at last heartbeat + offline_after_s. close_session is written
+            # now (CLOSE), the chain stays open for that possible OFFLINE.
+            live.tracker.mark_missed()
+            live.lingering = True
+            previous = self._lingering.get(live.node_id)
+            if previous is not None and previous is not live:  # pragma: no cover
+                self._end_linger(previous, cause="replaced")  # admission resolves it
+            self._lingering[live.node_id] = live
+            live.writer.enqueue("close_session", WriteKind.CLOSE, close)
+            self.wake.set()  # the timer must learn the lingering deadline
+        else:
+            # The final write of this session's chain; the chain task ends after it.
+            live.writer.enqueue("close_session", WriteKind.END, close)
         log.info(
             "session.closed",
             node_id=live.node_id,
             session_id=live.session_id,
             end_reason=reason.value,
+            liveness_event=event.value if event else None,
+            state=live.state.value,
+            lingering=linger,
             heartbeats=live.heartbeats,
             stale_messages=live.stale_messages,
             duplicates=live.duplicates,
@@ -854,16 +1011,67 @@ class SessionManager:
             else round(live.last_rtt_ms, 3),
         )
 
+    def expire_linger(self, entry: LiveSession, now: float) -> None:
+        """Lease timer hook: apply the lingering entry's due lease event (D19).
+
+        ``LEASE_EXPIRED`` writes ``SUSPECT -> OFFLINE`` on the entry's chain and
+        ends the linger (and with it the chain). A no-op for an entry that is no
+        longer lingering (a Hello resolved it) or whose lease is not due.
+        """
+        while entry.lingering:
+            event = entry.tracker.check(now)
+            if event is None:
+                return
+            silence = entry.tracker.silence(now)
+            self._apply_event(entry, event, silence_s=silence)
+            if event is LivenessEvent.LEASE_EXPIRED:
+                log.warning(
+                    "node.lease_expired",
+                    node_id=entry.node_id,
+                    session_id=entry.session_id,
+                    silence_s=round(silence, 3),
+                    lingering=True,
+                )
+                self._end_linger(entry, cause="lease_expired")
+
+    def _end_linger(self, entry: LiveSession, *, cause: str) -> None:
+        """Stop lingering: forget the entry and let its chain end (idempotent)."""
+        if not entry.lingering:
+            return
+        entry.lingering = False
+        if self._lingering.get(entry.node_id) is entry:
+            del self._lingering[entry.node_id]
+        entry.writer.finish()
+        log.info(
+            "session.linger_ended",
+            node_id=entry.node_id,
+            session_id=entry.session_id,
+            cause=cause,
+            state=entry.state.value,
+            pending_writes=entry.writer.pending,
+        )
+
     async def shutdown(self, *, drain_s: float = 5.0) -> None:
-        """Refuse new Hellos, close every live session as ``controller_shutdown``,
-        then let the write chains finish for at most ``drain_s`` (the close reasons
-        above included). Chains still running after that are cancelled and logged
-        ``registry.write_abandoned``.
+        """Refuse new Hellos, close every live session as ``controller_shutdown``
+        (``STREAM_CLOSED``: OFFLINE), write OFFLINE for every lingering entry and
+        end its chain, then let the write chains finish for at most ``drain_s``
+        (the close reasons above included). Chains still running after that are
+        cancelled and logged ``registry.write_abandoned``; the start-up sweep is
+        the backstop for anything they did not persist.
         """
         self.closing = True
         async with self._lock:  # an admission in flight finishes (or refuses) first
             for live in list(self._live.values()):
                 self._close(live, SessionEndReason.CONTROLLER_SHUTDOWN)
+            for entry in list(self._lingering.values()):
+                # No controller = no liveness claim, exactly like the start-up
+                # sweep: a lingering SUSPECT goes OFFLINE now.
+                self._apply_event(
+                    entry,
+                    LivenessEvent.STREAM_CLOSED,
+                    silence_s=entry.tracker.silence(self._clock()),
+                )
+                self._end_linger(entry, cause="controller_shutdown")
         pending = [t for t in self._tasks if not t.done()]
         for task in pending:
             task.cancel()

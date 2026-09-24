@@ -12,8 +12,21 @@ Per stream::
 Final status of an accepted stream: ``OK`` when the close was clean
 (``agent_closed``, ``controller_shutdown``); ``ABORTED`` with the end reason as
 the detail for everything else (``superseded``, ``lease_expired``,
-``protocol_error``) so an agent can tell "I was replaced / timed out / broke the
-contract" from a normal end without a second round-trip.
+``protocol_error``, ``internal_error``, ``stream_lost``) so an agent can tell "I
+was replaced / timed out / broke the contract" from a normal end without a second
+round-trip.
+
+**Who labels the end (D19).** The manager's reader labels the ends it can see: a
+protocol/internal error, and a confirmed half-close (``agent_closed``). This
+handler labels the one only it can see - the call being **cancelled** (the agent's
+call cancelled, its channel closed, its process killed, the TCP path torn down by
+keepalive): grpc.aio cancels the handler task, and the ``finally`` below closes the
+session ``stream_lost``. Because ``_close`` is idempotent and the first reason
+wins, the ``finally`` can never relabel a session that was already closed for a
+real reason, and a cancellation that arrives while the reader is still confirming
+a half-close wins, as it must. A done-callback on the RPC closes it
+``stream_lost`` too, in case the handler was cancelled while suspended at a
+``yield`` and its ``finally`` runs late (the lease timer is the last backstop).
 
 Hello outcomes that are not a ``HelloAck``: a malformed ``node_id`` or a
 ``session_epoch`` outside ``[0, MAX_SESSION_EPOCH]`` (see
@@ -32,6 +45,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
+from typing import Any, cast
 
 import grpc
 
@@ -113,8 +127,16 @@ class AgentControlServicer(agent_pb2_grpc.AgentControlServicer):
             return
 
         live = result.live
+        manager = self._manager
+
+        def on_rpc_done(_ctx: object) -> None:
+            manager.end_session_nowait(live, SessionEndReason.STREAM_LOST)
+
+        # grpc-stubs types the callback as a nominal (non-Protocol) class no
+        # function can satisfy; at runtime any callable taking the context works.
+        context.add_done_callback(cast("Any", on_rpc_done))
         yield result.hello_ack
-        self._manager.start_reader(live, request_iterator)
+        manager.start_reader(live, request_iterator)
         try:
             while True:
                 msg = await live.outbound.get()
@@ -122,10 +144,11 @@ class AgentControlServicer(agent_pb2_grpc.AgentControlServicer):
                     break
                 yield msg
         finally:
-            # Reached on a clean close (sentinel), on client disconnect (the handler
-            # is cancelled) and on any error: the session must never outlive its
-            # stream. A session already closed by the manager keeps its reason.
-            await self._manager.end_session(live, SessionEndReason.AGENT_CLOSED)
+            # After the sentinel the session is already closed and keeps its
+            # reason (first wins). Anything else that gets here - the handler
+            # cancelled because the call was, an error writing to the transport -
+            # is an abrupt end: never ``agent_closed`` (D19).
+            await manager.end_session(live, SessionEndReason.STREAM_LOST)
         if live.end_reason not in _CLEAN_END_REASONS:
             reason = live.end_reason.value if live.end_reason else "unknown"
             await context.abort(grpc.StatusCode.ABORTED, reason)

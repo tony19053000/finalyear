@@ -94,9 +94,12 @@ class StallingRegistry:
         await self._stall("touch_node")
         self.calls.append(("touch_node", node_id))
 
-    async def set_node_state(self, node_id: str, state: NodeState) -> None:
+    async def set_node_state(
+        self, node_id: str, state: NodeState, *, session_id: str
+    ) -> bool:
         await self._stall("set_node_state")
         self.calls.append(("set_node_state", state))
+        return True
 
     async def record_rtt(self, session_id: str, **kwargs: Any) -> None:
         await self._stall("record_rtt")
@@ -215,11 +218,13 @@ async def test_end_session_does_not_wait_for_a_hung_registry() -> None:
         manager.end_session(live, SessionEndReason.AGENT_CLOSED), 0.05
     )
     assert live.ended and manager.get(live.node_id) is None
-    assert live.writer.pending == 1  # the close waits behind the hung touch
+    # STREAM_CLOSED's OFFLINE and the close wait behind the hung touch (D19).
+    assert live.writer.pending == 2
     reg.gate.set()
     await settle()
     assert reg.calls == [
         ("touch_node", live.node_id),
+        ("set_node_state", NodeState.OFFLINE),
         ("close_session", SessionEndReason.AGENT_CLOSED),
     ]
 
@@ -236,15 +241,17 @@ async def test_writes_reach_the_registry_in_order_even_when_the_first_is_slow() 
     clock.now += 3.0
     await manager.handle_message(live, heartbeat(live, 1))  # SUSPECT -> ONLINE
     await manager.end_session(live, SessionEndReason.AGENT_CLOSED)
-    assert live.state is NodeState.ONLINE and live.ended
+    assert live.state is NodeState.OFFLINE and live.ended  # STREAM_CLOSED (D19)
     assert reg.calls == []  # nothing has landed yet
-    assert live.writer.pending == 3  # set_state(ONLINE), touch, close
+    # set_state(ONLINE), touch, set_state(OFFLINE) for the clean close (D19), close
+    assert live.writer.pending == 4
 
     reg.gate.set()
     await settle()
     assert [c for c in reg.calls if c[0] != "touch_node"] == [
         ("set_node_state", NodeState.SUSPECT),
         ("set_node_state", NodeState.ONLINE),
+        ("set_node_state", NodeState.OFFLINE),
         ("close_session", SessionEndReason.AGENT_CLOSED),
     ]
     assert reg.calls.index(("touch_node", live.node_id)) == 2  # between them
@@ -307,7 +314,8 @@ async def test_shutdown_abandons_chains_past_the_budget_and_logs() -> None:
         await asyncio.wait_for(manager.shutdown(drain_s=0.02), 0.5)
     (abandoned,) = [e for e in logs if e["event"] == "registry.write_abandoned"]
     assert abandoned["session_id"] == live.session_id
-    assert abandoned["pending"] == 2  # the hung touch + the queued close
+    # the hung touch + STREAM_CLOSED's OFFLINE (D19) + the queued close
+    assert abandoned["pending"] == 3
     assert live.writer.done()  # cancelled, not leaked
     assert reg.calls == []
     drained = [e for e in logs if e["event"] == "session.writes_drained"]

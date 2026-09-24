@@ -150,10 +150,17 @@ class FakeRegistry:
         )
         return True
 
-    async def set_node_state(self, node_id: str, state: NodeState) -> None:
-        self._record("set_node_state", node_id, state)
+    async def set_node_state(
+        self, node_id: str, state: NodeState, *, session_id: str
+    ) -> bool:
+        # Fenced like the real registry (D20): only the node's current session
+        # may write its state.
+        self._record("set_node_state", node_id, state, session_id=session_id)
         rec = self.nodes[node_id]
+        if rec.last_session_id != session_id:
+            return False
         self.nodes[node_id] = dataclasses.replace(rec, state=state)
+        return True
 
     async def touch_node(self, node_id: str) -> None:
         self._record("touch_node", node_id)
@@ -167,6 +174,9 @@ class FakeRegistry:
 def make_manager(
     registry: FakeRegistry, clock: FakeClock, **kwargs: Any
 ) -> SessionManager:
+    # No real sleep in unit tests: a half-close is confirmed at once here (the
+    # confirmation window itself is covered by the component tests).
+    kwargs.setdefault("half_close_confirm_s", 0.0)
     return SessionManager(
         cast(Registry, registry),
         CFG,
@@ -436,9 +446,11 @@ async def test_revoked_node_is_refused_with_permission_denied() -> None:
     reg = FakeRegistry()
     manager = make_manager(reg, FakeClock())
     node_id = new_node_id()
-    await admit(manager, hello(node_id))
+    live = await admit(manager, hello(node_id))
     await manager.shutdown()
-    await reg.set_node_state(node_id, NodeState.REVOKED)
+    assert await reg.set_node_state(
+        node_id, NodeState.REVOKED, session_id=live.session_id
+    )
     manager2 = make_manager(reg, FakeClock())
     result = await manager2.admit(hello(node_id, epoch=2), "p")
     assert isinstance(result, Rejected)
