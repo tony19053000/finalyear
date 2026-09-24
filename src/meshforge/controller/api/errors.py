@@ -132,8 +132,15 @@ def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(StarletteHTTPException)
     async def _http(_request: Request, exc: Exception) -> JSONResponse:
         http_exc = cast("StarletteHTTPException", exc)
-        failure_type = _STATUS_FALLBACK.get(
-            http_exc.status_code, FailureType.INTERNAL_ERROR
+        failure_type = _STATUS_FALLBACK.get(http_exc.status_code) or (
+            # A status we have not mapped: fall back on the class of the code
+            # rather than on INTERNAL_ERROR, so a 4xx never tells a client the
+            # *controller* failed when the client's request was at fault. Every
+            # raise site is ours today, so this only matters for a status added
+            # later - which is exactly when a wrong `code` would mislead.
+            FailureType.INVALID_INPUT
+            if http_exc.status_code < status.HTTP_500_INTERNAL_SERVER_ERROR
+            else FailureType.INTERNAL_ERROR
         )
         detail = http_exc.detail if isinstance(http_exc.detail, str) else ""
         return error_response(

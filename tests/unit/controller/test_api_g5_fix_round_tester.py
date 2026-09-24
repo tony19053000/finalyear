@@ -13,9 +13,17 @@ below headed "the huge exception, done correctly" replaces a test the cut tester
 left behind, ``test_a_huge_non_ascii_exception_message_still_yields_the_envelope``,
 which wedged the suite for minutes at 100% CPU: it logged a 200 KB exception
 through structlog's *default* processor chain, whose cost is superlinear in the
-message length (measured 0.43 s at 1 K chars, 2.26 s at 20 K). With logging
-configured - how the controller actually runs - the same request is 2-3 ms and
-returns the 92-byte typed envelope, so B1 was never at fault.
+message length (~1.9 s at 20 K chars). With logging configured - how the
+controller actually runs - the same request is ~1.5 ms and **flat** in the
+message length, because ``configure_logging`` installs
+``ExceptionDictTransformer(use_rich=False)`` and caps scrubbed text. So B1 was
+never at fault; the cost was the default renderer.
+
+The 92-byte typed envelope is returned in **both** cases - an earlier Lead note
+here claimed the unconfigured path returned an empty body, which the review round
+could not reproduce and traced to a measurement harness, not to the code. The
+unconfigured path is only slow, never wrong. ``tests/conftest.py`` now configures
+logging for the whole suite, so this hazard cannot come back through a new test.
 
 The Lead first skipped that test with a note suggesting "call
 ``configure_logging()`` and drop the size to a few KB". That fix is
@@ -54,6 +62,7 @@ import httpx
 import structlog
 from fastapi import FastAPI
 from pydantic import BaseModel
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from meshforge.common.errors import FailureType
 from meshforge.controller.api.errors import GENERIC_5XX_MESSAGE, install_error_handlers
@@ -310,26 +319,41 @@ async def boom_observable() -> AsyncIterator[httpx.AsyncClient]:
 async def test_the_full_200kb_non_ascii_message_yields_the_envelope_fast(
     boom_observable: httpx.AsyncClient,
 ) -> None:
-    """The skipped test's exact payload (200 KB, non-ASCII, plus a lone
-    surrogate), unshrunk, with the two things its skip note's suggested fix
-    was missing: a transport that surfaces the response instead of re-raising,
-    and ``capture_logs()`` instead of ``configure_logging()`` (both patterns
-    already present in the implementer's own file for this exact reason)."""
+    """The deleted test's exact payload (200 KB, non-ASCII, plus a lone
+    surrogate), unshrunk, with the thing its skip note's suggested fix was
+    missing: a transport that surfaces the response instead of re-raising.
+
+    Two requests on purpose. The first runs under ``capture_logs()`` to assert
+    the handler logged, which replaces the processor chain - so it proves nothing
+    about cost. The second runs under the chain ``tests/conftest.py`` installs
+    (the same ``configure_logging`` the controller uses), which is where the
+    timing claim is meaningful: that chain is flat in the message length, and a
+    regression to a rich-traceback renderer would blow the bound by orders of
+    magnitude, not by a few milliseconds.
+    """
+    with structlog.testing.capture_logs() as logs:
+        first = await boom_observable.get("/boom/huge-non-ascii")
+    assert [entry["event"] for entry in logs] == ["controller.api.unhandled"]
+
     t0 = time.perf_counter()
-    with structlog.testing.capture_logs():
-        response = await boom_observable.get("/boom/huge-non-ascii")
+    response = await boom_observable.get("/boom/huge-non-ascii")
     elapsed = time.perf_counter() - t0
-    assert response.status_code == 500
-    assert response.headers["content-type"].startswith("application/json")
-    assert response.json() == {
-        "error": {
-            "code": FailureType.INTERNAL_ERROR.value,
-            "message": GENERIC_5XX_MESSAGE,
+
+    for reply in (first, response):
+        assert reply.status_code == 500
+        assert reply.headers["content-type"].startswith("application/json")
+        assert reply.json() == {
+            "error": {
+                "code": FailureType.INTERNAL_ERROR.value,
+                "message": GENERIC_5XX_MESSAGE,
+            }
         }
-    }
-    assert "é" not in response.text
-    assert len(response.content) < 1_000
-    assert elapsed < 0.1, f"took {elapsed:.3f}s - should be sub-millisecond"
+        assert "é" not in reply.text
+        assert len(reply.content) < 1_000
+    # ~1.5 ms configured vs ~1.9 s at a tenth of this size unconfigured: a
+    # generous bound that still separates the two by three orders of magnitude,
+    # so it will not flake on a loaded shared machine.
+    assert elapsed < 0.5, f"took {elapsed:.3f}s - the default renderer is back"
 
 
 @pytest.mark.asyncio
@@ -449,3 +473,41 @@ async def test_one_past_max_node_limit_is_rejected_not_silently_accepted(
     response = await client.get("/v1/nodes", params={"limit": MAX_NODE_LIMIT + 1})
     assert response.status_code == 400
     assert registry.calls == []  # refused before the registry is ever touched
+
+
+# ------------------------------------------- review round 2: the 4xx fallback
+
+
+@pytest.mark.asyncio
+async def test_an_unmapped_4xx_status_is_invalid_input_not_internal_error() -> None:
+    """A status absent from ``_STATUS_FALLBACK`` must not claim the controller
+    failed when the *client's* request was at fault.
+
+    Every raise site is ours today, so this is unreachable through the V0.3
+    routes - which is precisely why it is worth pinning: the first handler that
+    raises, say, a 429 or a 451 would otherwise hand clients ``internal_error``
+    on a response that is explicitly about their request, and anything branching
+    on ``code`` (the CLI's exit codes, V0.8's dashboard, V0.15's labels) would
+    act on it.
+    """
+    app = FastAPI()
+    install_error_handlers(app)
+
+    @app.get("/teapot")
+    async def teapot() -> dict[str, str]:
+        raise StarletteHTTPException(status_code=418, detail="")
+
+    @app.get("/gateway")
+    async def gateway() -> dict[str, str]:
+        raise StarletteHTTPException(status_code=502, detail="")
+
+    transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+    async with httpx.AsyncClient(transport=transport, base_url="http://api.test") as c:
+        client_side = await c.get("/teapot")
+        server_side = await c.get("/gateway")
+
+    assert client_side.status_code == 418
+    assert client_side.json()["error"]["code"] == FailureType.INVALID_INPUT.value
+    # The >= 500 half of the same branch still says internal_error.
+    assert server_side.status_code == 502
+    assert server_side.json()["error"]["code"] == FailureType.INTERNAL_ERROR.value
