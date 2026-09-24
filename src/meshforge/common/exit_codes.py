@@ -37,3 +37,8 @@ class ExitCode(IntEnum):
     not answer within ``[cli] timeout_s``. Distinct from ``CONFIG_ERROR`` (the URL
     itself was fine) and from ``FAILURE`` (nothing ran wrong locally) so a script
     polling the fabric can tell "controller down" from "bad usage" and retry."""
+
+    BUSY = 7
+    """Another process holds a resource this command needs exclusively - e.g. a
+    hardware-score run is already in progress (``scores.lock``). Nothing was
+    changed; retry when the other run finishes."""

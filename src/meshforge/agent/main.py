@@ -6,15 +6,17 @@ Commands::
     meshforge-agent identity show [--config FILE] [--json]
     meshforge-agent identity reset --yes [--config FILE]
     meshforge-agent hardware show [--config FILE] [--json]
+    meshforge-agent hardware score [--config FILE] [--json] [--force]
 
 Everything beyond ``--version``/``--help`` is imported inside the command so the
 module runs on a base install (no agent extra). ``run`` itself needs only core
 dependencies when ``controller_address`` is configured; mDNS discovery needs the
 ``agent`` extra (``zeroconf``) and says so if it is missing.
 
-``hardware show`` is **local only** (brief §5e D13): it never contacts the
-controller. The controller receives the clipped ``Hello.hardware`` summary and
-nothing else, so per-probe status, duration and reason can only be seen here.
+``hardware show`` and ``hardware score`` are **local only** (brief §5e D13,
+§5g D34): they never contact the controller. The controller receives the clipped
+``Hello.hardware`` summary and nothing else, so per-probe status, duration and
+reason can only be seen here.
 """
 
 from __future__ import annotations
@@ -195,28 +197,14 @@ def identity_reset(
     typer.echo(f"identity reset: {settings.identity_dir}")
 
 
-@hardware_app.command("show")
-def hardware_show(
-    config: ConfigOption = None,
-    as_json: Annotated[
-        bool, typer.Option("--json", help="Machine-readable output.")
-    ] = False,
-) -> None:
-    """Probe this machine and print what discovery found - and what it could not.
-
-    Runs entirely on this laptop: no controller, no network. The output includes
-    every probe's status, duration and reason, which is exactly the part the
-    controller never receives (D13).
-    """
+def _discover_facts(settings: AgentSettings) -> HardwareFacts:
+    """One bounded discovery pass (the agent's own start-up path); exits on failure."""
     import asyncio
 
     from meshforge.agent.hardware import HardwareProvider
     from meshforge.agent.hardware.deadline import BlockingCallError, DeadlineThread
-    from meshforge.agent.hardware.view import facts_lines, facts_payload
     from meshforge.agent.runtime import DISCOVERY_GRACE_S
 
-    settings = _load_settings(config)
-    _quiet_logging(settings)
     timeout_s = settings.agent.hardware.timeout_s
 
     async def probe_once() -> HardwareFacts:
@@ -228,7 +216,7 @@ def hardware_show(
         return await guard.call(provider.get, timeout_s=timeout_s + DISCOVERY_GRACE_S)
 
     try:
-        facts = asyncio.run(probe_once())
+        return asyncio.run(probe_once())
     except BlockingCallError as exc:
         typer.echo(
             f"{PROG_NAME}: hardware discovery did not finish within "
@@ -245,10 +233,143 @@ def hardware_show(
         )
         raise typer.Exit(ExitCode.CONFIG_ERROR) from None
 
+
+@hardware_app.command("show")
+def hardware_show(
+    config: ConfigOption = None,
+    as_json: Annotated[
+        bool, typer.Option("--json", help="Machine-readable output.")
+    ] = False,
+) -> None:
+    """Probe this machine and print what discovery found - and what it could not.
+
+    Runs entirely on this laptop: no controller, no network. The output includes
+    every probe's status, duration and reason, which is exactly the part the
+    controller never receives (D13), and the cached hardware scores, if any.
+    """
+    from meshforge.agent.benchmarks.cache import load_cache
+    from meshforge.agent.benchmarks.service import current_fingerprint
+    from meshforge.agent.benchmarks.view import score_lines, scores_payload
+    from meshforge.agent.hardware.view import facts_lines, facts_payload
+
+    settings = _load_settings(config)
+    _quiet_logging(settings)
+    facts = _discover_facts(settings)
+    fp, _ = current_fingerprint(facts)
+    cache = load_cache(settings.data_dir, fp)
+    source = (
+        f"cached ({cache.status.value}{': ' + cache.reason if cache.reason else ''})"
+    )
+
     if as_json:
-        typer.echo(json.dumps(facts_payload(facts), sort_keys=True))
+        payload = facts_payload(facts)
+        payload["scores"] = scores_payload(cache.scores, source="cache", cache=cache)
+        typer.echo(json.dumps(payload, sort_keys=True))
+        return
+    for line in facts_lines(facts):
+        typer.echo(line)
+    typer.echo("")
+    if cache.scores is None:
+        typer.echo(
+            f"scores: none cached ({cache.status.value}); run "
+            f"`{PROG_NAME} hardware score`"
+        )
     else:
-        for line in facts_lines(facts):
+        for line in score_lines(cache.scores, source=source):
+            typer.echo(line)
+
+
+@hardware_app.command("score")
+def hardware_score(
+    config: ConfigOption = None,
+    as_json: Annotated[
+        bool, typer.Option("--json", help="Machine-readable output.")
+    ] = False,
+    force: Annotated[
+        bool,
+        typer.Option("--force", help="Measure even if a valid cached run exists."),
+    ] = False,
+) -> None:
+    """Measure this machine's hardware scores (CPU, memory, GPU) and cache them.
+
+    Local only, like `hardware show`. Uses the cached run when it is still valid for
+    this hardware and software (unless --force). Measurements run in a child process
+    at lowered priority within [agent.scores] budget_s. A metric that cannot be
+    measured here (no BLAS, no torch, no CUDA) is reported as unavailable with its
+    reason - that is a truthful result, exit 0. Exit 7 (BUSY) if another scoring
+    run holds the lock.
+    """
+    import asyncio
+
+    from meshforge.agent.benchmarks import service
+    from meshforge.agent.benchmarks.cache import ScorerBusyError, load_cache
+    from meshforge.agent.benchmarks.view import score_lines, scores_payload
+
+    settings = _load_settings(config)
+    _quiet_logging(settings)
+    facts = _discover_facts(settings)
+    fp, _ = service.current_fingerprint(facts)
+    cache = load_cache(settings.data_dir, fp)
+    if cache.valid and cache.scores is not None and not force:
+        _print_scores(
+            as_json,
+            scores_payload(cache.scores, source="cache", cache=cache),
+            score_lines(
+                cache.scores, source="cached (valid; use --force to re-measure)"
+            ),
+        )
+        return
+
+    scores_cfg = settings.agent.scores
+    if not as_json:
+        typer.echo(
+            f"measuring (up to {scores_cfg.budget_s:g} s; Ctrl-C stops it) ...",
+            err=True,
+        )
+    exit_code = ExitCode.OK
+    try:
+        scores = asyncio.run(
+            service.score_and_cache(
+                settings.data_dir, facts, service.runner_config(scores_cfg)
+            )
+        )
+    except ScorerBusyError:
+        typer.echo(
+            f"{PROG_NAME}: a hardware-score run is already in progress (another "
+            "`hardware score`, or the agent's background run); try again when it "
+            "finishes",
+            err=True,
+        )
+        raise typer.Exit(ExitCode.BUSY) from None
+    except service.CacheWriteError as exc:
+        typer.echo(f"{PROG_NAME}: measured, but {exc}", err=True)
+        scores = exc.scores
+        exit_code = ExitCode.FAILURE
+    except OSError as exc:
+        typer.echo(
+            f"{PROG_NAME}: cannot use the data directory: "
+            f"{exc.strerror or type(exc).__name__}",
+            err=True,
+        )
+        raise typer.Exit(ExitCode.FAILURE) from None
+    except KeyboardInterrupt:
+        typer.echo(
+            f"{PROG_NAME}: interrupted; the benchmark child was stopped", err=True
+        )
+        raise typer.Exit(ExitCode.FAILURE) from None
+    _print_scores(
+        as_json,
+        scores_payload(scores, source="measured", cache=None),
+        score_lines(scores, source="measured"),
+    )
+    raise typer.Exit(exit_code)
+
+
+def _print_scores(as_json: bool, payload: dict[str, object], lines: list[str]) -> None:
+    if as_json:
+        typer.echo(json.dumps(payload, sort_keys=True))
+    else:
+        for line in lines:
             typer.echo(line)
 
 

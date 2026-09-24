@@ -12,7 +12,9 @@ Where things live (ARCHITECTURE §23): the node identity is ``data_dir/identity`
 (``agent.discovery``). Reconnect timing comes from ADR-0002 Updates §3, gRPC
 keepalive from the same section; the replay ring size from Updates §4. Hardware
 discovery (``[agent.hardware]``, roadmap 0.3.3) and the live resource monitor
-(``[agent.resources]``, roadmap 0.3.5) are documented on their own sections below.
+(``[agent.resources]``, roadmap 0.3.5) and hardware scores (``[agent.scores]``,
+roadmap 0.3.4: ``<data_dir>/scores.json`` + ``scores.lock``) are documented on their
+own sections below.
 
 This module imports no agent-extra package so ``meshforge-agent --version`` works
 on a base install.
@@ -39,6 +41,7 @@ __all__ = [
     "KeepaliveSettings",
     "ReconnectSettings",
     "ResourceSettings",
+    "ScoreSettings",
     "parse_controller_address",
 ]
 
@@ -274,6 +277,63 @@ class ResourceSettings(SectionModel):
         return self
 
 
+class ScoreSettings(SectionModel):
+    """``[agent.scores]`` - hardware scores (roadmap 0.3.4, brief §5g D32b/D34).
+
+    The agent measures CPU GFLOP/s, memory bandwidth and GPU TFLOP/s **once per
+    hardware/software fingerprint**: in the background, ``start_delay_s`` after the
+    first ONLINE of the process, and only when ``<data_dir>/scores.json`` is missing,
+    corrupt or stale. It never re-scores periodically. ``meshforge-agent hardware
+    score`` measures on demand; a running agent notices the new cache by polling its
+    modification time every ``cache_poll_s``. Every measurement runs in a child
+    process at lowered priority, killed at ``case_timeout_s`` per case and at
+    ``budget_s`` for the whole run.
+    """
+
+    enabled: bool = Field(
+        default=True,
+        description="Score this node in the background when the cache is invalid.",
+    )
+    start_delay_s: float = Field(
+        default=15.0,
+        ge=0,
+        le=3600.0,
+        description=(
+            "Wait this long after the first ONLINE before scoring, so start-up and "
+            "enrolment never compete with the benchmark."
+        ),
+    )
+    budget_s: float = Field(
+        default=90.0,
+        ge=1.0,
+        le=1800.0,
+        description=(
+            "Whole-run budget; cases it does not reach are FAILED: budget_exhausted."
+        ),
+    )
+    case_timeout_s: float = Field(
+        default=30.0,
+        gt=0,
+        le=600.0,
+        description=(
+            "One case (child start + setup + warmup + 5 repetitions); on expiry the "
+            "child tree is killed and the case is FAILED: timeout."
+        ),
+    )
+    cache_poll_s: float = Field(
+        default=10.0,
+        ge=0.05,
+        le=3600.0,
+        description="How often a running agent checks scores.json for a newer run.",
+    )
+
+    @model_validator(mode="after")
+    def _case_fits_budget(self) -> ScoreSettings:
+        if self.case_timeout_s > self.budget_s:
+            raise ValueError("scores.case_timeout_s must be <= scores.budget_s")
+        return self
+
+
 class DiscoverySettings(SectionModel):
     """``[agent.discovery]`` - mDNS lookup of the controller (roadmap 0.3.9).
 
@@ -326,6 +386,7 @@ class AgentSection(SectionModel):
     discovery: DiscoverySettings = Field(default_factory=DiscoverySettings)
     hardware: HardwareSettings = Field(default_factory=HardwareSettings)
     resources: ResourceSettings = Field(default_factory=ResourceSettings)
+    scores: ScoreSettings = Field(default_factory=ScoreSettings)
     hello_timeout_s: float = Field(
         default=3.0,
         gt=0,
