@@ -161,6 +161,7 @@ def test_envelopes_cover_architecture_payloads() -> None:
         "LogChunk",
         "Ack",
         "Pong",
+        "HardwareScores",
     }
     assert members(agent_pb2.ControllerMessage.DESCRIPTOR) == {
         "StartAttempt",
@@ -561,3 +562,51 @@ def test_ping_pong_field_numbers_are_pinned() -> None:
     parsed = agent_pb2.AgentMessage.FromString(wire)
     assert parsed.WhichOneof("payload") == "pong"
     assert parsed.pong.ping_id == "p-1"
+
+
+# ---------------------------------------------------------------------------
+# 0.3.4: hardware scores (additive, V0.3 G7, brief §5g D37)
+# ---------------------------------------------------------------------------
+
+
+def test_hardware_scores_field_numbers_are_pinned() -> None:
+    hello = agent_pb2.Hello.DESCRIPTOR.fields_by_name["hardware_scores"]
+    assert hello.number == 9
+    assert hello.message_type is agent_pb2.HardwareScores.DESCRIPTOR
+    report = agent_pb2.AgentMessage.DESCRIPTOR.fields_by_name["hardware_scores"]
+    assert report.number == 20
+    assert report.containing_oneof is not None
+    assert report.containing_oneof.name == "payload"
+    assert report.message_type is agent_pb2.HardwareScores.DESCRIPTOR
+    assert {f.name: f.number for f in agent_pb2.HardwareScores.DESCRIPTOR.fields} == {
+        "run_id": 1,
+        "measured_at": 2,
+        "score_version": 3,
+        "fingerprint": 4,
+        "conditions": 5,
+        "scores": 6,
+    }
+    assert {f.name: f.number for f in agent_pb2.Score.DESCRIPTOR.fields} == {
+        "metric": 1,
+        "gpu_index": 2,
+        "status": 3,
+        "mean": 4,
+        "stdev": 5,
+        "n": 6,
+        "backend": 7,
+        "backend_version": 8,
+        "threads_effective": 9,
+        "lower_bound": 10,
+        "throttling_suspected": 11,
+        "reason": 12,
+        "detail": 13,
+    }
+    # "Unknown" must be expressible as absence: these carry presence.
+    score = agent_pb2.Score.DESCRIPTOR.fields_by_name
+    for name in ("gpu_index", "mean", "stdev", "throttling_suspected"):
+        assert score[name].has_presence, name
+    conditions = agent_pb2.ScoreConditions.DESCRIPTOR.fields_by_name
+    for name in ("on_battery", "cpu_load_percent_before", "background_load_high"):
+        assert conditions[name].has_presence, name
+    assert agent_pb2.ScoreMetric.Name(0) == "SCORE_METRIC_UNSPECIFIED"
+    assert agent_pb2.ScoreStatus.Name(0) == "SCORE_STATUS_UNSPECIFIED"

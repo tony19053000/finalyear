@@ -32,8 +32,8 @@
 //   clock; the Timestamps in Heartbeat/HelloAck are for RTT and display only.
 //
 // Roadmap coverage: 0.1.5 envelopes/oneofs; 0.3.1 session/liveness/resource
-// payloads. TODO(V0.4): attempt execution. TODO(V0.5): cache/env payloads.
-// TODO(V0.6): network probes for scheduling.
+// payloads; 0.3.4 hardware scores. TODO(V0.4): attempt execution.
+// TODO(V0.5): cache/env payloads. TODO(V0.6): network probes for scheduling.
 syntax = "proto3";
 
 package meshforge.v1;
@@ -73,6 +73,9 @@ message AgentMessage {
     Ack ack = 18;
     // Reply to a controller Ping (roadmap 0.3.10); never buffered or replayed.
     Pong pong = 19;
+    // A completed hardware-score run (roadmap 0.3.4, brief §5g D37). A report:
+    // buffered, replayed after a reconnect and acked like ResourceUpdate.
+    HardwareScores hardware_scores = 20;
   }
 }
 
@@ -121,6 +124,11 @@ message Hello {
   string platform = 7;
   // Static hardware inventory (roadmap 0.3.3); dynamic usage is ResourceUpdate.
   HardwareSummary hardware = 8;
+  // The agent's cached hardware scores when they are valid for this machine's
+  // current fingerprint (roadmap 0.3.4, D37), so a controller restart never loses
+  // them. Absent = "not measured for this hardware": the controller clears what
+  // it stored and shows the scores as pending.
+  HardwareScores hardware_scores = 9;
   // TODO(V0.7): node identity is proven by mTLS, not by node_id.
 }
 
@@ -144,6 +152,95 @@ message HardwareSummary {
   // Free-form capability tags the planner can filter on, e.g. "docker",
   // "cuda", "nvidia-container-toolkit".
   repeated string capabilities = 6;
+}
+
+// ---------------------------------------------------------------------------
+// Hardware scores (roadmap 0.3.4, brief §5g D31/D36-D38)
+// ---------------------------------------------------------------------------
+//
+// One scoring run of one node: a fixed, small metric set measured by the agent
+// in a child process. Every Score is either a measured value WITH its conditions
+// (SCORE_STATUS_OK: mean, stdev, n >= 5, backend, threads) or a typed "not
+// measured, because ..." (UNAVAILABLE / FAILED + reason) - never a 0.0 standing
+// in for "unknown". The controller validates every field at ingestion (finite,
+// non-negative numbers; bounded counts; printable bounded strings; known enum
+// values) and DROPS an invalid set (logged, counted) - it never closes the
+// stream over it. Enum value 0 is never valid.
+
+enum ScoreMetric {
+  SCORE_METRIC_UNSPECIFIED = 0;
+  // Host metrics (no gpu_index).
+  SCORE_METRIC_CPU_FP32_GFLOPS_1T = 1;
+  SCORE_METRIC_CPU_FP32_GFLOPS_ALL = 2;
+  SCORE_METRIC_CPU_FP64_GFLOPS_ALL = 3;
+  SCORE_METRIC_MEM_TRIAD_GB_S = 4;
+  // Per-GPU metrics (gpu_index = HardwareSummary.Gpu.index, the NVML index).
+  SCORE_METRIC_GPU_FP32_TFLOPS = 5;
+  SCORE_METRIC_GPU_FP16_TFLOPS = 6;
+  SCORE_METRIC_GPU_MEM_GB_S = 7;
+}
+
+enum ScoreStatus {
+  SCORE_STATUS_UNSPECIFIED = 0;
+  // Measured: mean/stdev over n >= 5 repetitions.
+  SCORE_STATUS_OK = 1;
+  // This machine cannot measure it (no BLAS, no torch, no usable CUDA).
+  SCORE_STATUS_UNAVAILABLE = 2;
+  // A measurement was attempted and broke (timeout, crash, device mismatch).
+  SCORE_STATUS_FAILED = 3;
+}
+
+message Score {
+  ScoreMetric metric = 1;
+  // Set for GPU metrics only.
+  optional uint32 gpu_index = 2;
+  ScoreStatus status = 3;
+  // Set only when status == SCORE_STATUS_OK (unit implied by the metric).
+  optional double mean = 4;
+  optional double stdev = 5;
+  // Measured repetitions (0 when not OK).
+  uint32 n = 6;
+  // e.g. "numpy", "torch"; unset when no backend was involved.
+  optional string backend = 7;
+  optional string backend_version = 8;
+  optional uint32 threads_effective = 9;
+  // The backend could not use the whole machine: the value is a lower bound.
+  bool lower_bound = 10;
+  // Unset when the run was too short to judge, or the metric is not OK.
+  optional bool throttling_suspected = 11;
+  // Stable snake_case code; set exactly when status != SCORE_STATUS_OK
+  // (e.g. "torch_not_installed", "timeout", "device_mismatch").
+  string reason = 12;
+  // Human-readable context for a non-OK status; no paths, no secrets.
+  string detail = 13;
+}
+
+message ScoreConditions {
+  // Unset = unknown (no battery API or no battery information).
+  optional bool on_battery = 1;
+  // Machine-wide CPU %, 0..100, over the ~2 s before the first case.
+  optional double cpu_load_percent_before = 2;
+  optional bool background_load_high = 3;
+  // The benchmark child ran at lowered OS priority.
+  bool priority_lowered = 4;
+  double budget_s = 5;
+  double duration_s = 6;
+  // The total budget ran out before every planned case finished.
+  bool budget_exhausted = 7;
+}
+
+message HardwareScores {
+  // score_<ULID>; unique per run.
+  string run_id = 1;
+  // Agent wall clock when the run finished. The controller keeps the newest
+  // run: a report older than the stored one is ignored (replay-idempotent).
+  google.protobuf.Timestamp measured_at = 2;
+  // Bumped by the agent when a kernel or formula changes.
+  uint32 score_version = 3;
+  // SHA-256 hex of the hardware/software inputs the run is valid for.
+  string fingerprint = 4;
+  ScoreConditions conditions = 5;
+  repeated Score scores = 6;
 }
 
 // Sent after (re)connect: what the agent is still running, so the controller

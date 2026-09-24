@@ -40,8 +40,8 @@ Session fencing (ADR-0002 Updates 2026-09-20, roadmap 0.3.1):
   clock; the Timestamps in Heartbeat/HelloAck are for RTT and display only.
 
 Roadmap coverage: 0.1.5 envelopes/oneofs; 0.3.1 session/liveness/resource
-payloads. TODO(V0.4): attempt execution. TODO(V0.5): cache/env payloads.
-TODO(V0.6): network probes for scheduling.
+payloads; 0.3.4 hardware scores. TODO(V0.4): attempt execution.
+TODO(V0.5): cache/env payloads. TODO(V0.6): network probes for scheduling.
 """
 
 from collections import abc as _abc
@@ -61,6 +61,75 @@ else:
     from typing_extensions import TypeAlias as _TypeAlias, Never as _Never
 
 DESCRIPTOR: _descriptor.FileDescriptor
+
+class _ScoreMetric:
+    ValueType = _typing.NewType("ValueType", _builtins.int)
+    V: _TypeAlias = ValueType  # noqa: Y015
+
+class _ScoreMetricEnumTypeWrapper(_enum_type_wrapper._EnumTypeWrapper[_ScoreMetric.ValueType], _builtins.type):
+    DESCRIPTOR: _descriptor.EnumDescriptor
+    SCORE_METRIC_UNSPECIFIED: _ScoreMetric.ValueType  # 0
+    SCORE_METRIC_CPU_FP32_GFLOPS_1T: _ScoreMetric.ValueType  # 1
+    """Host metrics (no gpu_index)."""
+    SCORE_METRIC_CPU_FP32_GFLOPS_ALL: _ScoreMetric.ValueType  # 2
+    SCORE_METRIC_CPU_FP64_GFLOPS_ALL: _ScoreMetric.ValueType  # 3
+    SCORE_METRIC_MEM_TRIAD_GB_S: _ScoreMetric.ValueType  # 4
+    SCORE_METRIC_GPU_FP32_TFLOPS: _ScoreMetric.ValueType  # 5
+    """Per-GPU metrics (gpu_index = HardwareSummary.Gpu.index, the NVML index)."""
+    SCORE_METRIC_GPU_FP16_TFLOPS: _ScoreMetric.ValueType  # 6
+    SCORE_METRIC_GPU_MEM_GB_S: _ScoreMetric.ValueType  # 7
+
+class ScoreMetric(_ScoreMetric, metaclass=_ScoreMetricEnumTypeWrapper):
+    """---------------------------------------------------------------------------
+    Hardware scores (roadmap 0.3.4, brief §5g D31/D36-D38)
+    ---------------------------------------------------------------------------
+
+    One scoring run of one node: a fixed, small metric set measured by the agent
+    in a child process. Every Score is either a measured value WITH its conditions
+    (SCORE_STATUS_OK: mean, stdev, n >= 5, backend, threads) or a typed "not
+    measured, because ..." (UNAVAILABLE / FAILED + reason) - never a 0.0 standing
+    in for "unknown". The controller validates every field at ingestion (finite,
+    non-negative numbers; bounded counts; printable bounded strings; known enum
+    values) and DROPS an invalid set (logged, counted) - it never closes the
+    stream over it. Enum value 0 is never valid.
+    """
+
+SCORE_METRIC_UNSPECIFIED: ScoreMetric.ValueType  # 0
+SCORE_METRIC_CPU_FP32_GFLOPS_1T: ScoreMetric.ValueType  # 1
+"""Host metrics (no gpu_index)."""
+SCORE_METRIC_CPU_FP32_GFLOPS_ALL: ScoreMetric.ValueType  # 2
+SCORE_METRIC_CPU_FP64_GFLOPS_ALL: ScoreMetric.ValueType  # 3
+SCORE_METRIC_MEM_TRIAD_GB_S: ScoreMetric.ValueType  # 4
+SCORE_METRIC_GPU_FP32_TFLOPS: ScoreMetric.ValueType  # 5
+"""Per-GPU metrics (gpu_index = HardwareSummary.Gpu.index, the NVML index)."""
+SCORE_METRIC_GPU_FP16_TFLOPS: ScoreMetric.ValueType  # 6
+SCORE_METRIC_GPU_MEM_GB_S: ScoreMetric.ValueType  # 7
+Global___ScoreMetric: _TypeAlias = ScoreMetric  # noqa: Y015
+
+class _ScoreStatus:
+    ValueType = _typing.NewType("ValueType", _builtins.int)
+    V: _TypeAlias = ValueType  # noqa: Y015
+
+class _ScoreStatusEnumTypeWrapper(_enum_type_wrapper._EnumTypeWrapper[_ScoreStatus.ValueType], _builtins.type):
+    DESCRIPTOR: _descriptor.EnumDescriptor
+    SCORE_STATUS_UNSPECIFIED: _ScoreStatus.ValueType  # 0
+    SCORE_STATUS_OK: _ScoreStatus.ValueType  # 1
+    """Measured: mean/stdev over n >= 5 repetitions."""
+    SCORE_STATUS_UNAVAILABLE: _ScoreStatus.ValueType  # 2
+    """This machine cannot measure it (no BLAS, no torch, no usable CUDA)."""
+    SCORE_STATUS_FAILED: _ScoreStatus.ValueType  # 3
+    """A measurement was attempted and broke (timeout, crash, device mismatch)."""
+
+class ScoreStatus(_ScoreStatus, metaclass=_ScoreStatusEnumTypeWrapper): ...
+
+SCORE_STATUS_UNSPECIFIED: ScoreStatus.ValueType  # 0
+SCORE_STATUS_OK: ScoreStatus.ValueType  # 1
+"""Measured: mean/stdev over n >= 5 repetitions."""
+SCORE_STATUS_UNAVAILABLE: ScoreStatus.ValueType  # 2
+"""This machine cannot measure it (no BLAS, no torch, no usable CUDA)."""
+SCORE_STATUS_FAILED: ScoreStatus.ValueType  # 3
+"""A measurement was attempted and broke (timeout, crash, device mismatch)."""
+Global___ScoreStatus: _TypeAlias = ScoreStatus  # noqa: Y015
 
 @_typing.final
 class AgentMessage(_message.Message):
@@ -86,6 +155,7 @@ class AgentMessage(_message.Message):
     LOG_CHUNK_FIELD_NUMBER: _builtins.int
     ACK_FIELD_NUMBER: _builtins.int
     PONG_FIELD_NUMBER: _builtins.int
+    HARDWARE_SCORES_FIELD_NUMBER: _builtins.int
     message_id: _builtins.str
     """Unique per message (ULID); echoed back in Ack.acked_message_id."""
     session_id: _builtins.str
@@ -118,6 +188,12 @@ class AgentMessage(_message.Message):
     def pong(self) -> Global___Pong:
         """Reply to a controller Ping (roadmap 0.3.10); never buffered or replayed."""
 
+    @_builtins.property
+    def hardware_scores(self) -> Global___HardwareScores:
+        """A completed hardware-score run (roadmap 0.3.4, brief §5g D37). A report:
+        buffered, replayed after a reconnect and acked like ResourceUpdate.
+        """
+
     def __init__(
         self,
         *,
@@ -134,12 +210,13 @@ class AgentMessage(_message.Message):
         log_chunk: Global___LogChunk | None = ...,
         ack: Global___Ack | None = ...,
         pong: Global___Pong | None = ...,
+        hardware_scores: Global___HardwareScores | None = ...,
     ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _typing.Literal["ack", b"ack", "attempt_status", b"attempt_status", "cache_report", b"cache_report", "heartbeat", b"heartbeat", "hello", b"hello", "log_chunk", b"log_chunk", "net_probe_result", b"net_probe_result", "payload", b"payload", "pong", b"pong", "reconcile", b"reconcile", "resource_update", b"resource_update", "sent_at", b"sent_at"]  # noqa: Y015
+    _HasFieldArgType: _TypeAlias = _typing.Literal["ack", b"ack", "attempt_status", b"attempt_status", "cache_report", b"cache_report", "hardware_scores", b"hardware_scores", "heartbeat", b"heartbeat", "hello", b"hello", "log_chunk", b"log_chunk", "net_probe_result", b"net_probe_result", "payload", b"payload", "pong", b"pong", "reconcile", b"reconcile", "resource_update", b"resource_update", "sent_at", b"sent_at"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["ack", b"ack", "attempt_status", b"attempt_status", "cache_report", b"cache_report", "heartbeat", b"heartbeat", "hello", b"hello", "log_chunk", b"log_chunk", "message_id", b"message_id", "net_probe_result", b"net_probe_result", "payload", b"payload", "pong", b"pong", "reconcile", b"reconcile", "resource_update", b"resource_update", "sent_at", b"sent_at", "session_id", b"session_id"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["ack", b"ack", "attempt_status", b"attempt_status", "cache_report", b"cache_report", "hardware_scores", b"hardware_scores", "heartbeat", b"heartbeat", "hello", b"hello", "log_chunk", b"log_chunk", "message_id", b"message_id", "net_probe_result", b"net_probe_result", "payload", b"payload", "pong", b"pong", "reconcile", b"reconcile", "resource_update", b"resource_update", "sent_at", b"sent_at", "session_id", b"session_id"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
-    _WhichOneofReturnType_payload: _TypeAlias = _typing.Literal["hello", "reconcile", "heartbeat", "resource_update", "cache_report", "net_probe_result", "attempt_status", "log_chunk", "ack", "pong"]  # noqa: Y015
+    _WhichOneofReturnType_payload: _TypeAlias = _typing.Literal["hello", "reconcile", "heartbeat", "resource_update", "cache_report", "net_probe_result", "attempt_status", "log_chunk", "ack", "pong", "hardware_scores"]  # noqa: Y015
     _WhichOneofArgType_payload: _TypeAlias = _typing.Literal["payload", b"payload"]  # noqa: Y015
     def WhichOneof(self, oneof_group: _WhichOneofArgType_payload) -> _WhichOneofReturnType_payload | None: ...
 
@@ -234,6 +311,7 @@ class Hello(_message.Message):
     OS_FIELD_NUMBER: _builtins.int
     PLATFORM_FIELD_NUMBER: _builtins.int
     HARDWARE_FIELD_NUMBER: _builtins.int
+    HARDWARE_SCORES_FIELD_NUMBER: _builtins.int
     node_id: _builtins.str
     protocol_version: _common_pb2.ProtocolVersion.ValueType
     """Must be set; the controller accepts a configured range of versions and
@@ -252,7 +330,14 @@ class Hello(_message.Message):
     """Normalised platform tag, e.g. "linux-x86_64", "windows-amd64"."""
     @_builtins.property
     def hardware(self) -> Global___HardwareSummary:
-        """Static hardware inventory (roadmap 0.3.3); dynamic usage is ResourceUpdate.
+        """Static hardware inventory (roadmap 0.3.3); dynamic usage is ResourceUpdate."""
+
+    @_builtins.property
+    def hardware_scores(self) -> Global___HardwareScores:
+        """The agent's cached hardware scores when they are valid for this machine's
+        current fingerprint (roadmap 0.3.4, D37), so a controller restart never loses
+        them. Absent = "not measured for this hardware": the controller clears what
+        it stored and shows the scores as pending.
         TODO(V0.7): node identity is proven by mTLS, not by node_id.
         """
 
@@ -267,10 +352,11 @@ class Hello(_message.Message):
         os: _builtins.str = ...,
         platform: _builtins.str = ...,
         hardware: Global___HardwareSummary | None = ...,
+        hardware_scores: Global___HardwareScores | None = ...,
     ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _typing.Literal["hardware", b"hardware"]  # noqa: Y015
+    _HasFieldArgType: _TypeAlias = _typing.Literal["hardware", b"hardware", "hardware_scores", b"hardware_scores"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["agent_version", b"agent_version", "hardware", b"hardware", "hostname", b"hostname", "node_id", b"node_id", "os", b"os", "platform", b"platform", "protocol_version", b"protocol_version", "session_epoch", b"session_epoch"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["agent_version", b"agent_version", "hardware", b"hardware", "hardware_scores", b"hardware_scores", "hostname", b"hostname", "node_id", b"node_id", "os", b"os", "platform", b"platform", "protocol_version", b"protocol_version", "session_epoch", b"session_epoch"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
@@ -350,6 +436,194 @@ class HardwareSummary(_message.Message):
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___HardwareSummary: _TypeAlias = HardwareSummary  # noqa: Y015
+
+@_typing.final
+class Score(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    METRIC_FIELD_NUMBER: _builtins.int
+    GPU_INDEX_FIELD_NUMBER: _builtins.int
+    STATUS_FIELD_NUMBER: _builtins.int
+    MEAN_FIELD_NUMBER: _builtins.int
+    STDEV_FIELD_NUMBER: _builtins.int
+    N_FIELD_NUMBER: _builtins.int
+    BACKEND_FIELD_NUMBER: _builtins.int
+    BACKEND_VERSION_FIELD_NUMBER: _builtins.int
+    THREADS_EFFECTIVE_FIELD_NUMBER: _builtins.int
+    LOWER_BOUND_FIELD_NUMBER: _builtins.int
+    THROTTLING_SUSPECTED_FIELD_NUMBER: _builtins.int
+    REASON_FIELD_NUMBER: _builtins.int
+    DETAIL_FIELD_NUMBER: _builtins.int
+    metric: Global___ScoreMetric.ValueType
+    gpu_index: _builtins.int
+    """Set for GPU metrics only."""
+    status: Global___ScoreStatus.ValueType
+    mean: _builtins.float
+    """Set only when status == SCORE_STATUS_OK (unit implied by the metric)."""
+    stdev: _builtins.float
+    n: _builtins.int
+    """Measured repetitions (0 when not OK)."""
+    backend: _builtins.str
+    """e.g. "numpy", "torch"; unset when no backend was involved."""
+    backend_version: _builtins.str
+    threads_effective: _builtins.int
+    lower_bound: _builtins.bool
+    """The backend could not use the whole machine: the value is a lower bound."""
+    throttling_suspected: _builtins.bool
+    """Unset when the run was too short to judge, or the metric is not OK."""
+    reason: _builtins.str
+    """Stable snake_case code; set exactly when status != SCORE_STATUS_OK
+    (e.g. "torch_not_installed", "timeout", "device_mismatch").
+    """
+    detail: _builtins.str
+    """Human-readable context for a non-OK status; no paths, no secrets."""
+    def __init__(
+        self,
+        *,
+        metric: Global___ScoreMetric.ValueType = ...,
+        gpu_index: _builtins.int | None = ...,
+        status: Global___ScoreStatus.ValueType = ...,
+        mean: _builtins.float | None = ...,
+        stdev: _builtins.float | None = ...,
+        n: _builtins.int = ...,
+        backend: _builtins.str | None = ...,
+        backend_version: _builtins.str | None = ...,
+        threads_effective: _builtins.int | None = ...,
+        lower_bound: _builtins.bool = ...,
+        throttling_suspected: _builtins.bool | None = ...,
+        reason: _builtins.str = ...,
+        detail: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["_backend", b"_backend", "_backend_version", b"_backend_version", "_gpu_index", b"_gpu_index", "_mean", b"_mean", "_stdev", b"_stdev", "_threads_effective", b"_threads_effective", "_throttling_suspected", b"_throttling_suspected", "backend", b"backend", "backend_version", b"backend_version", "gpu_index", b"gpu_index", "mean", b"mean", "stdev", b"stdev", "threads_effective", b"threads_effective", "throttling_suspected", b"throttling_suspected"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["_backend", b"_backend", "_backend_version", b"_backend_version", "_gpu_index", b"_gpu_index", "_mean", b"_mean", "_stdev", b"_stdev", "_threads_effective", b"_threads_effective", "_throttling_suspected", b"_throttling_suspected", "backend", b"backend", "backend_version", b"backend_version", "detail", b"detail", "gpu_index", b"gpu_index", "lower_bound", b"lower_bound", "mean", b"mean", "metric", b"metric", "n", b"n", "reason", b"reason", "status", b"status", "stdev", b"stdev", "threads_effective", b"threads_effective", "throttling_suspected", b"throttling_suspected"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    _WhichOneofReturnType__backend: _TypeAlias = _typing.Literal["backend"]  # noqa: Y015
+    _WhichOneofArgType__backend: _TypeAlias = _typing.Literal["_backend", b"_backend"]  # noqa: Y015
+    _WhichOneofReturnType__backend_version: _TypeAlias = _typing.Literal["backend_version"]  # noqa: Y015
+    _WhichOneofArgType__backend_version: _TypeAlias = _typing.Literal["_backend_version", b"_backend_version"]  # noqa: Y015
+    _WhichOneofReturnType__gpu_index: _TypeAlias = _typing.Literal["gpu_index"]  # noqa: Y015
+    _WhichOneofArgType__gpu_index: _TypeAlias = _typing.Literal["_gpu_index", b"_gpu_index"]  # noqa: Y015
+    _WhichOneofReturnType__mean: _TypeAlias = _typing.Literal["mean"]  # noqa: Y015
+    _WhichOneofArgType__mean: _TypeAlias = _typing.Literal["_mean", b"_mean"]  # noqa: Y015
+    _WhichOneofReturnType__stdev: _TypeAlias = _typing.Literal["stdev"]  # noqa: Y015
+    _WhichOneofArgType__stdev: _TypeAlias = _typing.Literal["_stdev", b"_stdev"]  # noqa: Y015
+    _WhichOneofReturnType__threads_effective: _TypeAlias = _typing.Literal["threads_effective"]  # noqa: Y015
+    _WhichOneofArgType__threads_effective: _TypeAlias = _typing.Literal["_threads_effective", b"_threads_effective"]  # noqa: Y015
+    _WhichOneofReturnType__throttling_suspected: _TypeAlias = _typing.Literal["throttling_suspected"]  # noqa: Y015
+    _WhichOneofArgType__throttling_suspected: _TypeAlias = _typing.Literal["_throttling_suspected", b"_throttling_suspected"]  # noqa: Y015
+    @_typing.overload
+    def WhichOneof(self, oneof_group: _WhichOneofArgType__backend) -> _WhichOneofReturnType__backend | None: ...
+    @_typing.overload
+    def WhichOneof(self, oneof_group: _WhichOneofArgType__backend_version) -> _WhichOneofReturnType__backend_version | None: ...
+    @_typing.overload
+    def WhichOneof(self, oneof_group: _WhichOneofArgType__gpu_index) -> _WhichOneofReturnType__gpu_index | None: ...
+    @_typing.overload
+    def WhichOneof(self, oneof_group: _WhichOneofArgType__mean) -> _WhichOneofReturnType__mean | None: ...
+    @_typing.overload
+    def WhichOneof(self, oneof_group: _WhichOneofArgType__stdev) -> _WhichOneofReturnType__stdev | None: ...
+    @_typing.overload
+    def WhichOneof(self, oneof_group: _WhichOneofArgType__threads_effective) -> _WhichOneofReturnType__threads_effective | None: ...
+    @_typing.overload
+    def WhichOneof(self, oneof_group: _WhichOneofArgType__throttling_suspected) -> _WhichOneofReturnType__throttling_suspected | None: ...
+
+Global___Score: _TypeAlias = Score  # noqa: Y015
+
+@_typing.final
+class ScoreConditions(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    ON_BATTERY_FIELD_NUMBER: _builtins.int
+    CPU_LOAD_PERCENT_BEFORE_FIELD_NUMBER: _builtins.int
+    BACKGROUND_LOAD_HIGH_FIELD_NUMBER: _builtins.int
+    PRIORITY_LOWERED_FIELD_NUMBER: _builtins.int
+    BUDGET_S_FIELD_NUMBER: _builtins.int
+    DURATION_S_FIELD_NUMBER: _builtins.int
+    BUDGET_EXHAUSTED_FIELD_NUMBER: _builtins.int
+    on_battery: _builtins.bool
+    """Unset = unknown (no battery API or no battery information)."""
+    cpu_load_percent_before: _builtins.float
+    """Machine-wide CPU %, 0..100, over the ~2 s before the first case."""
+    background_load_high: _builtins.bool
+    priority_lowered: _builtins.bool
+    """The benchmark child ran at lowered OS priority."""
+    budget_s: _builtins.float
+    duration_s: _builtins.float
+    budget_exhausted: _builtins.bool
+    """The total budget ran out before every planned case finished."""
+    def __init__(
+        self,
+        *,
+        on_battery: _builtins.bool | None = ...,
+        cpu_load_percent_before: _builtins.float | None = ...,
+        background_load_high: _builtins.bool | None = ...,
+        priority_lowered: _builtins.bool = ...,
+        budget_s: _builtins.float = ...,
+        duration_s: _builtins.float = ...,
+        budget_exhausted: _builtins.bool = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["_background_load_high", b"_background_load_high", "_cpu_load_percent_before", b"_cpu_load_percent_before", "_on_battery", b"_on_battery", "background_load_high", b"background_load_high", "cpu_load_percent_before", b"cpu_load_percent_before", "on_battery", b"on_battery"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["_background_load_high", b"_background_load_high", "_cpu_load_percent_before", b"_cpu_load_percent_before", "_on_battery", b"_on_battery", "background_load_high", b"background_load_high", "budget_exhausted", b"budget_exhausted", "budget_s", b"budget_s", "cpu_load_percent_before", b"cpu_load_percent_before", "duration_s", b"duration_s", "on_battery", b"on_battery", "priority_lowered", b"priority_lowered"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    _WhichOneofReturnType__background_load_high: _TypeAlias = _typing.Literal["background_load_high"]  # noqa: Y015
+    _WhichOneofArgType__background_load_high: _TypeAlias = _typing.Literal["_background_load_high", b"_background_load_high"]  # noqa: Y015
+    _WhichOneofReturnType__cpu_load_percent_before: _TypeAlias = _typing.Literal["cpu_load_percent_before"]  # noqa: Y015
+    _WhichOneofArgType__cpu_load_percent_before: _TypeAlias = _typing.Literal["_cpu_load_percent_before", b"_cpu_load_percent_before"]  # noqa: Y015
+    _WhichOneofReturnType__on_battery: _TypeAlias = _typing.Literal["on_battery"]  # noqa: Y015
+    _WhichOneofArgType__on_battery: _TypeAlias = _typing.Literal["_on_battery", b"_on_battery"]  # noqa: Y015
+    @_typing.overload
+    def WhichOneof(self, oneof_group: _WhichOneofArgType__background_load_high) -> _WhichOneofReturnType__background_load_high | None: ...
+    @_typing.overload
+    def WhichOneof(self, oneof_group: _WhichOneofArgType__cpu_load_percent_before) -> _WhichOneofReturnType__cpu_load_percent_before | None: ...
+    @_typing.overload
+    def WhichOneof(self, oneof_group: _WhichOneofArgType__on_battery) -> _WhichOneofReturnType__on_battery | None: ...
+
+Global___ScoreConditions: _TypeAlias = ScoreConditions  # noqa: Y015
+
+@_typing.final
+class HardwareScores(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    RUN_ID_FIELD_NUMBER: _builtins.int
+    MEASURED_AT_FIELD_NUMBER: _builtins.int
+    SCORE_VERSION_FIELD_NUMBER: _builtins.int
+    FINGERPRINT_FIELD_NUMBER: _builtins.int
+    CONDITIONS_FIELD_NUMBER: _builtins.int
+    SCORES_FIELD_NUMBER: _builtins.int
+    run_id: _builtins.str
+    """score_<ULID>; unique per run."""
+    score_version: _builtins.int
+    """Bumped by the agent when a kernel or formula changes."""
+    fingerprint: _builtins.str
+    """SHA-256 hex of the hardware/software inputs the run is valid for."""
+    @_builtins.property
+    def measured_at(self) -> _timestamp_pb2.Timestamp:
+        """Agent wall clock when the run finished. The controller keeps the newest
+        run: a report older than the stored one is ignored (replay-idempotent).
+        """
+
+    @_builtins.property
+    def conditions(self) -> Global___ScoreConditions: ...
+    @_builtins.property
+    def scores(self) -> _containers.RepeatedCompositeFieldContainer[Global___Score]: ...
+    def __init__(
+        self,
+        *,
+        run_id: _builtins.str = ...,
+        measured_at: _timestamp_pb2.Timestamp | None = ...,
+        score_version: _builtins.int = ...,
+        fingerprint: _builtins.str = ...,
+        conditions: Global___ScoreConditions | None = ...,
+        scores: _abc.Iterable[Global___Score] | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["conditions", b"conditions", "measured_at", b"measured_at"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["conditions", b"conditions", "fingerprint", b"fingerprint", "measured_at", b"measured_at", "run_id", b"run_id", "score_version", b"score_version", "scores", b"scores"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___HardwareScores: _TypeAlias = HardwareScores  # noqa: Y015
 
 @_typing.final
 class Reconcile(_message.Message):
