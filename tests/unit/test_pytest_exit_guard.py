@@ -97,7 +97,10 @@ def test_a_signal_death_maps_to_the_shell_convention() -> None:
 
 def test_a_windows_access_violation_is_named() -> None:
     status, how = guard.exit_status(0xC0000005)
-    assert status == 0xC0000005
+    # Signed 32-bit form: sys.exit rejects values >= 2**31 on Windows, and this
+    # one exits with the same 0xC0000005 code there.
+    assert status == 0xC0000005 - 2**32
+    assert status & 0xFFFFFFFF == 0xC0000005
     assert "access violation" in how
 
 
@@ -179,3 +182,75 @@ def test_a_real_pytest_run_that_crashes_at_shutdown_is_caught(
     out, err = capsys.readouterr()
     assert "1 passed" in out
     assert "summary is green but pytest did not exit 0" in err
+
+
+def test_a_run_failed_by_the_half_import_check_is_not_blamed_on_a_crash(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # tests/conftest.py fails the session after every test passed, so the
+    # summary is green and the exit is 1; the diagnosis must name the real cause.
+    body = """
+        print("half-imported package(s) left in the pytest process: torch. ...")
+        print("3 passed in 0.10s")
+        raise SystemExit(1)
+    """
+    assert guard.main(command=fake_run(body)) == 1
+    err = capsys.readouterr().err
+    assert "found a half-imported package" in err
+    assert "crash while the" not in err
+
+
+def test_output_bytes_are_passed_through_undecoded(
+    capfdbinary: pytest.CaptureFixture[bytes],
+) -> None:
+    # Not UTF-8 and not cp1252-encodable once decoded: re-encoding text would
+    # raise on a non-UTF-8 Windows console, so the guard forwards raw bytes.
+    body = """
+        import sys
+        sys.stdout.buffer.write(b"caf\\xe9 \\xff\\n1 passed in 0.01s\\n")
+    """
+    assert guard.main(command=fake_run(body)) == 0
+    assert b"caf\xe9 \xff\n" in capfdbinary.readouterr().out
+
+
+class _InterruptedStream:
+    def __iter__(self) -> _InterruptedStream:
+        return self
+
+    def __next__(self) -> bytes:
+        raise KeyboardInterrupt
+
+
+class _InterruptedPopen:
+    """Popen stand-in whose output stream raises Ctrl-C mid-run."""
+
+    def __init__(self, *_args: object, **_kwargs: object) -> None:
+        self.stdout = _InterruptedStream()
+        self.returncode: int | None = None
+        self.waited = False
+
+    def __enter__(self) -> _InterruptedPopen:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        return None
+
+    def wait(self) -> int:
+        self.waited = True
+        self.returncode = 2
+        return 2
+
+
+def test_ctrl_c_waits_for_pytest_and_exits_130(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    made: list[_InterruptedPopen] = []
+
+    def popen(*args: object, **kwargs: object) -> _InterruptedPopen:
+        made.append(_InterruptedPopen(*args, **kwargs))
+        return made[-1]
+
+    monkeypatch.setattr(guard.subprocess, "Popen", popen)
+    assert guard.main(["-q"]) == 130
+    assert made[0].waited
+    assert "interrupted" in capsys.readouterr().err

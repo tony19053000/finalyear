@@ -32,6 +32,8 @@ _SUMMARY = re.compile(r"^=*\s*((?:\d+ [a-z]+(?:, )?)+) in \d+(?:\.\d+)?s\b")
 _RED_OUTCOMES = frozenset({"failed", "error", "errors"})
 #: ANSI SGR colour codes: CI sets FORCE_COLOR, and pytest colours the summary.
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
+#: Printed by tests/conftest.py when it fails a run whose tests all passed.
+_HALF_IMPORT_MARK = "half-imported package(s) left in the pytest process"
 #: Windows reports a native crash as an NTSTATUS exit code, not a signal.
 _WINDOWS_CRASHES = {
     0xC0000005: "access violation",
@@ -72,10 +74,13 @@ def exit_status(returncode: int) -> tuple[int, str]:
         except ValueError:
             name = f"signal {signum}"
         return 128 + signum, f"killed by {name}"
+    # An NTSTATUS code such as 0xC0000005 is >= 2**31, which sys.exit cannot
+    # take on Windows; its signed 32-bit form exits with the same code.
+    status = returncode - 2**32 if returncode >= 2**31 else returncode
     crash = _WINDOWS_CRASHES.get(returncode & 0xFFFFFFFF)
     if crash is not None:
-        return returncode, f"crashed ({crash}, 0x{returncode & 0xFFFFFFFF:08X})"
-    return returncode, f"exit status {returncode}"
+        return status, f"crashed ({crash}, 0x{returncode & 0xFFFFFFFF:08X})"
+    return status, f"exit status {returncode}"
 
 
 def main(
@@ -91,22 +96,36 @@ def main(
     # Remember the last summary as it streams past: a crash dump printed after
     # it can be arbitrarily long, so a fixed tail buffer could lose it.
     summary = None
+    half_imported = False
+    out = getattr(sys.stdout, "buffer", None)
     with subprocess.Popen(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
+        cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT
     ) as proc:
-        for line in proc.stdout or ():
-            sys.stdout.write(line)
-            sys.stdout.flush()
-            summary = as_summary(line) or summary
+        try:
+            for raw in proc.stdout or ():
+                # Pass bytes through untouched: re-encoding decoded text would
+                # fail on a Windows console that is not UTF-8.
+                text = raw.decode("utf-8", errors="replace")
+                if out is not None:
+                    out.write(raw)
+                else:
+                    sys.stdout.write(text)
+                sys.stdout.flush()
+                summary = as_summary(text) or summary
+                half_imported = half_imported or _HALF_IMPORT_MARK in text
+        except KeyboardInterrupt:
+            proc.wait()  # Ctrl-C reached pytest too; let it finish its report
+            sys.stderr.write("\npytest-exit-guard: interrupted.\n")
+            return 130
     if proc.returncode == 0:
         return 0
     status, how = exit_status(proc.returncode)
-    if summary is not None and is_green(summary):
+    if half_imported:
+        sys.stderr.write(
+            f"\npytest-exit-guard: FAILED - tests/conftest.py found a half-imported "
+            f"package (see 'half-imported packages' above; {how}).\n"
+        )
+    elif summary is not None and is_green(summary):
         sys.stderr.write(
             "\n"
             "pytest-exit-guard: FAILED - the summary is green but pytest did not exit 0.\n"

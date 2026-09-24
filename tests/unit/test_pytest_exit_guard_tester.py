@@ -87,8 +87,10 @@ def test_no_tests_collected_exit5_is_reported_as_a_failure(
 
 # --------------------------------------------------- E: non-UTF-8 bytes, huge output
 def test_non_utf8_bytes_do_not_crash_the_guard(
-    capsys: pytest.CaptureFixture[str],
+    capfdbinary: pytest.CaptureFixture[bytes],
 ) -> None:
+    # Binary capture: the guard forwards raw bytes (reviewer finding on d9ec26f),
+    # which capsys's strict UTF-8 decode cannot represent.
     body = (
         "import sys\n"
         "sys.stdout.buffer.write(b'garbage \\xff\\xfe bytes\\n')\n"
@@ -96,7 +98,9 @@ def test_non_utf8_bytes_do_not_crash_the_guard(
         "sys.stdout.buffer.flush()\n"
     )
     assert guard.main(command=fake_run(body)) == 0
-    assert "3 passed" in capsys.readouterr().out
+    out = capfdbinary.readouterr().out
+    assert b"garbage \xff\xfe bytes\n" in out
+    assert b"3 passed" in out
 
 
 def test_a_very_long_run_still_exits_zero_on_success(
