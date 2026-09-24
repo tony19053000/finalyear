@@ -52,6 +52,11 @@ agent = [
     "psutil>=7.2",
     "nvidia-ml-py>=13.610",
     "zeroconf>=0.151",
+    # Hardware scores (0.3.4, brief §5g D30): the CPU GFLOP/s and memory-bandwidth
+    # kernels need a BLAS; numpy bundles OpenBLAS on every OS we use. Imported only
+    # by the benchmark *child* process (agent/benchmarks/child.py), never by the
+    # agent itself. torch, when present, is preferred by the child.
+    "numpy>=2.3",
 ]
 # CPU/CUDA variant selection (PyTorch wheel index per platform) is decided in V0.2;
 # here torch comes from the default index. Only installed with `--extra gpu`.

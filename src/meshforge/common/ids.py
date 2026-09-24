@@ -53,6 +53,7 @@ __all__ = [
     "IdKind",
     "JobId",
     "NodeId",
+    "ScoreRunId",
     "SessionId",
     "id_kind",
     "id_timestamp",
@@ -62,6 +63,7 @@ __all__ = [
     "new_id",
     "new_job_id",
     "new_node_id",
+    "new_score_run_id",
     "new_session_id",
     "parse_id",
     "validate_attempt_id",
@@ -69,6 +71,7 @@ __all__ = [
     "validate_command_id",
     "validate_job_id",
     "validate_node_id",
+    "validate_score_run_id",
     "validate_session_id",
 ]
 
@@ -82,6 +85,8 @@ class IdKind(StrEnum):
     SESSION = "sess"
     CHUNK = "chunk"
     COMMAND = "cmd"
+    SCORE_RUN = "score"
+    """One hardware-score run of an agent (roadmap 0.3.4, brief §5g)."""
 
 
 JobId = NewType("JobId", str)
@@ -90,6 +95,7 @@ NodeId = NewType("NodeId", str)
 SessionId = NewType("SessionId", str)
 ChunkId = NewType("ChunkId", str)
 CommandId = NewType("CommandId", str)
+ScoreRunId = NewType("ScoreRunId", str)
 
 _SEPARATOR = "_"
 _ULID_LEN = 26
@@ -171,6 +177,10 @@ def new_command_id() -> CommandId:
     return CommandId(new_id(IdKind.COMMAND))
 
 
+def new_score_run_id() -> ScoreRunId:
+    return ScoreRunId(new_id(IdKind.SCORE_RUN))
+
+
 def parse_id(value: object, kind: IdKind | None = None) -> tuple[IdKind, ULID]:
     """Split and validate an ID. If ``kind`` is given the prefix must match it.
 
@@ -240,3 +250,8 @@ def validate_chunk_id(value: object) -> ChunkId:
 def validate_command_id(value: object) -> CommandId:
     parse_id(value, IdKind.COMMAND)
     return CommandId(str(value))
+
+
+def validate_score_run_id(value: object) -> ScoreRunId:
+    parse_id(value, IdKind.SCORE_RUN)
+    return ScoreRunId(str(value))
