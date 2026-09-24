@@ -68,6 +68,14 @@ def _report(live: LiveSession, label: str, scores: agent_pb2.HardwareScores) -> 
     )
 
 
+def gpu_hello(node_id: str, *indices: int) -> agent_pb2.Hello:
+    """A Hello that declares GPUs ``indices`` (``make_scoreset()`` names GPU 0)."""
+    h = hello(node_id)
+    for index in indices:
+        h.hardware.gpus.append(agent_pb2.HardwareSummary.Gpu(index=index, model="g"))
+    return h
+
+
 def _bad() -> agent_pb2.HardwareScores:
     scores = to_proto(make_scoreset())
     scores.scores[0].mean = math.nan
@@ -79,7 +87,7 @@ async def test_hello_scores_are_stored_with_the_admission() -> None:
     registry = ScoresRegistry()
     manager = make_manager(registry, FakeClock())
     run = make_scoreset()
-    h = hello(new_node_id())
+    h = gpu_hello(new_node_id(), 0)
     h.hardware_scores.CopyFrom(to_proto(run))
     live = await admit(manager, h)
     stored = registry.nodes[live.node_id].hardware_scores
@@ -117,7 +125,7 @@ async def test_hello_with_invalid_scores_is_accepted_with_null() -> None:
 async def test_a_valid_report_is_a_fenced_ordered_write_and_acked() -> None:
     registry = ScoresRegistry()
     manager = make_manager(registry, FakeClock())
-    live = await admit(manager, hello(new_node_id()))
+    live = await admit(manager, gpu_hello(new_node_id(), 0))
     run = make_scoreset()
     msg = _report(live, "s-1", to_proto(run))
     await manager.handle_message(live, msg)
@@ -151,3 +159,42 @@ async def test_an_invalid_report_is_dropped_acked_and_the_stream_stays() -> None
     rejected = [e for e in logs if e["event"] == "session.hardware_scores_rejected"]
     assert rejected and rejected[0]["source"] == "report"
     assert rejected[0]["session_id"] == live.session_id
+
+
+# ------------------------------------------------ D39: GPUs the node declared
+
+
+@pytest.mark.asyncio
+async def test_hello_scores_for_an_undeclared_gpu_store_null() -> None:
+    registry = ScoresRegistry()
+    manager = make_manager(registry, FakeClock())
+    h = hello(new_node_id())  # declares no GPU; make_scoreset() names GPU 0
+    h.hardware_scores.CopyFrom(to_proto(make_scoreset()))
+    with capture_logs() as logs:
+        live = await admit(manager, h)
+    assert registry.nodes[live.node_id].hardware_scores is None
+    assert live.hardware_scores_rejected == 1
+    (rejected,) = [e for e in logs if e["event"] == "session.hardware_scores_rejected"]
+    assert rejected["source"] == "hello"
+    assert rejected["reason"].startswith("gpu_index_not_declared")
+
+
+@pytest.mark.asyncio
+async def test_a_report_for_an_undeclared_gpu_is_dropped_acked_stream_stays() -> None:
+    registry = ScoresRegistry()
+    manager = make_manager(registry, FakeClock())
+    live = await admit(manager, gpu_hello(new_node_id(), 1))  # GPU 1 only
+    assert live.declared_gpus == frozenset({1})
+    with capture_logs() as logs:
+        await manager.handle_message(
+            live, _report(live, "gpu-0", to_proto(make_scoreset()))
+        )
+    await settle()
+    assert registry.calls_named("set_hardware_scores") == []
+    assert not live.ended and manager.get(live.node_id) is live
+    assert live.hardware_scores_rejected == 1
+    acks = [m for m in drain(live) if m is not None and m.HasField("ack")]
+    assert [a.ack.acked_message_id for a in acks] == [mid("gpu-0")]
+    (rejected,) = [e for e in logs if e["event"] == "session.hardware_scores_rejected"]
+    assert rejected["source"] == "report"
+    assert rejected["reason"].startswith("gpu_index_not_declared")

@@ -66,9 +66,11 @@ class WriteKind(StrEnum):
     STATE = "state"
     """Liveness transition - never dropped (order and presence matter)."""
     SCORES = "scores"
-    """Hardware-score run (roadmap 0.3.4, D38) - never dropped: the agent has been
-    acked and will not resend it until its next Hello. Rare (about one per node
-    lifetime), so it cannot fill the queue."""
+    """Hardware-score run (roadmap 0.3.4, D38/D39) - never dropped **from the
+    queue** on overflow. That is not "never lost": the agent was acked when the
+    report arrived, so a write the DB refuses is logged (``registry.write_failed``)
+    and lost until the next Hello re-delivers the cached run. Rare (about one per
+    node lifetime), so it cannot fill the queue."""
     END = "end"
     """``close_session`` - never dropped; the chain ends after it."""
     CLOSE = "close"

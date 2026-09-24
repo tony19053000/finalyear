@@ -38,13 +38,18 @@ from meshforge.controller.session.limits import (
 
 pytestmark = pytest.mark.unit
 
+GPU0 = frozenset({0})
+"""What ``make_scoreset()``'s node declares: its one GPU metric names index 0."""
+ANY_GPU = frozenset(range(2048))
+"""For the D38 cases: every index declared, so D39 cannot mask another reason."""
+
 
 def _valid() -> agent_pb2.HardwareScores:
     return to_proto(make_scoreset())
 
 
 def test_a_valid_set_from_the_agent_is_accepted() -> None:
-    assert check_hardware_scores(_valid()) is None
+    assert check_hardware_scores(_valid(), GPU0) is None
 
 
 def test_unicode_backend_names_and_details_are_accepted() -> None:
@@ -52,7 +57,7 @@ def test_unicode_backend_names_and_details_are_accepted() -> None:
     scores.scores[0].backend = "numpy-ÄÖÜ"
     scores.scores[0].backend_version = "2.5.3+ローカル"
     scores.scores[2].detail = "torch fehlt - トーチなし"
-    assert check_hardware_scores(scores) is None
+    assert check_hardware_scores(scores, GPU0) is None
 
 
 def test_the_agent_and_controller_caps_agree() -> None:
@@ -204,7 +209,7 @@ REJECTIONS: list[tuple[str, Mutation, str]] = [
 def test_each_rejection_class(mutate: Mutation, needle: str) -> None:
     scores = _valid()
     mutate(scores)
-    reason = check_hardware_scores(scores)
+    reason = check_hardware_scores(scores, ANY_GPU)
     assert reason is not None, "accepted a malformed score set"
     assert needle in reason
     assert "\x1b" not in reason and "\u202e" not in reason  # never echoes the value
@@ -224,7 +229,7 @@ def test_the_stored_document_keeps_unknown_as_null() -> None:
         )
     )
     message = to_proto(original)
-    assert check_hardware_scores(message) is None
+    assert check_hardware_scores(message, {0, 1}) is None
     document, measured_at = ctl_scores.scores_document(message)
     assert measured_at == original.measured_at
     assert document["measured_at"] == "2026-09-24T12:00:00.123456+00:00"
@@ -266,7 +271,57 @@ def test_an_empty_run_id_is_rejected_without_parsing() -> None:
     scores = _valid()
     scores.run_id = ""
     assert (
-        check_hardware_scores(scores) == "HardwareScores.run_id is not a score_<ULID>"
+        check_hardware_scores(scores, GPU0)
+        == "HardwareScores.run_id is not a score_<ULID>"
     )
     scores.run_id = new_score_run_id()
-    assert check_hardware_scores(scores) is None
+    assert check_hardware_scores(scores, GPU0) is None
+
+
+# ------------------------------------------------ D39: GPUs the node declared
+
+
+def _with_gpu(index: int, status: str = "ok") -> agent_pb2.HardwareScores:
+    scores = to_proto(
+        make_scoreset(metrics=(ok_metric(MetricName.CPU_FP32_GFLOPS_1T),))
+    )
+    if status == "ok":
+        scores.scores.append(
+            to_proto(
+                make_scoreset(
+                    metrics=(ok_metric(MetricName.GPU_FP32_TFLOPS, 12.3, index),)
+                )
+            ).scores[0]
+        )
+    else:
+        scores.scores.append(
+            agent_pb2.Score(
+                metric=agent_pb2.SCORE_METRIC_GPU_MEM_GB_S,
+                gpu_index=index,
+                status=agent_pb2.SCORE_STATUS_UNAVAILABLE,
+                reason="torch_not_installed",
+            )
+        )
+    return scores
+
+
+@pytest.mark.parametrize("status", ["ok", "unavailable"])
+def test_a_gpu_metric_on_a_node_with_zero_gpus_is_rejected(status: str) -> None:
+    reason = check_hardware_scores(_with_gpu(0, status), frozenset())
+    assert reason is not None and reason.startswith("gpu_index_not_declared")
+    assert "scores[1].gpu_index 0" in reason
+
+
+def test_index_1_when_only_0_is_declared_is_rejected() -> None:
+    reason = check_hardware_scores(_with_gpu(1), GPU0)
+    assert reason is not None and reason.startswith("gpu_index_not_declared")
+
+
+def test_a_declared_index_is_accepted() -> None:
+    assert check_hardware_scores(_with_gpu(1), frozenset({0, 1})) is None
+    assert check_hardware_scores(_with_gpu(0), GPU0) is None
+
+
+def test_host_metrics_need_no_gpu() -> None:
+    host_only = to_proto(make_scoreset(metrics=(ok_metric(MetricName.MEM_TRIAD_GB_S),)))
+    assert check_hardware_scores(host_only, frozenset()) is None

@@ -4,11 +4,9 @@ out that the implementer's own suite does not cover.
 1. **Truthfulness / GPU index cross-check** - D31 says a GPU metric's
    ``gpu_index`` "matches ``HardwareSummary.Gpu.index``", but
    ``session/limits.py::check_hardware_scores`` never reads ``Hello.hardware`` -
-   it only bounds ``gpu_index <= 1023``. This reproduces an ``OK`` GPU score for
-   an index the node never declared in its own ``Hello.hardware.gpus`` (here:
-   no GPUs at all) being accepted, stored and served by REST as "measured".
-   Documents current (permissive) behaviour - report as a defect, do not silently
-   treat it as a guard test.
+   it only bounded ``gpu_index <= 1023``. Found as a defect (an ``OK`` GPU score
+   for a GPU the node never declared was stored and served as "measured"); fixed
+   by D39 and this test now pins the rejection.
 
 2. **The DB-refused write gap the G7-B handoff flagged as known**: a
    ``set_hardware_scores`` failure on the registry is logged by the
@@ -116,21 +114,19 @@ async def _stop(running: RunningAgent) -> None:
 
 
 @pytest.mark.asyncio
-async def test_a_gpu_score_for_a_gpu_the_node_never_declared_is_accepted_as_measured(
+async def test_a_gpu_score_for_a_gpu_the_node_never_declared_is_rejected(
     runtime: ControllerRuntime,
     grpc_target: str,
     identity: NodeIdentity,
     data_dir: Any,
     registry: Registry,
 ) -> None:
-    """DEFECT REPRODUCTION (not a guard test): ``Hello.hardware.gpus`` is empty
-    (``basic_hardware()``), yet an ``OK`` ``gpu_fp32_tflops`` score for
-    ``gpu_index=0`` is accepted by ``check_hardware_scores``, stored, and served
-    by ``/v1/nodes/{id}`` as ``measured`` with a real-looking TFLOP/s number -
-    for a GPU this node's own enrolment says it does not have. Report severity:
-    see the tester's final report; this asserts *today's* behaviour so a future
-    fix is a visible test change, not a silent regression.
-    """
+    """D39 (inverted from the tester's defect reproduction): ``Hello.hardware.gpus``
+    is empty (``basic_hardware()``), so an ``OK`` ``gpu_fp32_tflops`` score for
+    ``gpu_index=0`` names a GPU this node never declared. The whole set is
+    rejected (``gpu_index_not_declared``) through D38's path - dropped, counted,
+    logged, acked - the stream stays up, nothing is stored and REST reads
+    ``pending``, never ``measured`` with a phantom TFLOP/s number."""
     running = _agent(grpc_target, identity, data_dir)
     node_id = str(identity.node_id)
     try:
@@ -138,6 +134,7 @@ async def test_a_gpu_score_for_a_gpu_the_node_never_declared_is_accepted_as_meas
             AgentState.ONLINE, timeout_s=ONLINE_TIMEOUT_S
         )
         assert basic_hardware().gpus == []  # sanity: this node has no GPUs
+        session = running.client.session_id
 
         phantom_gpu_run = make_scoreset(
             metrics=(
@@ -148,17 +145,27 @@ async def test_a_gpu_score_for_a_gpu_the_node_never_declared_is_accepted_as_meas
                 ),  # a phantom GPU 0
             )
         )
-        async with _rest(runtime) as rest:
+        with structlog.testing.capture_logs() as logs:
             await session_reporter(running.client)(phantom_gpu_run)
-            scores = await _wait_scores(rest, node_id, "measured")
-            gpu_metrics = [m for m in scores["metrics"] if m["gpu_index"] is not None]
-            assert len(gpu_metrics) == 1
-            # Today: accepted as a genuine measurement of a GPU that does not
-            # exist on this node, per Hello.hardware.
-            assert gpu_metrics[0]["status"] == "ok"
-            assert gpu_metrics[0]["mean"] == 12.3
-        node = await registry.get_node(node_id)
-        assert node is not None and node.hardware.get("gpus", []) == []
+
+            async def acked() -> bool:
+                return len(running.client.ring) == 0
+
+            await poll_until(acked, timeout_s=TIMEOUT_S)
+        (rejected,) = [
+            e for e in logs if e["event"] == "session.hardware_scores_rejected"
+        ]
+        assert rejected["reason"].startswith("gpu_index_not_declared")
+        assert rejected["source"] == "report"
+        async with _rest(runtime) as rest:
+            scores = await _scores(rest, node_id)
+        assert scores["status"] == "pending"
+        assert scores["metrics"] == []
+        assert await _stored(registry, node_id) is None
+        assert running.client.state is AgentState.ONLINE
+        assert running.client.session_id == session  # the stream stayed up
+        live = runtime.manager.get(node_id) if runtime.manager else None
+        assert live is not None and live.hardware_scores_rejected == 1
     finally:
         await _stop(running)
 
@@ -217,7 +224,10 @@ async def test_a_db_refused_score_write_is_lost_until_the_next_hello(
     node_id = new_node_id()
     run = make_scoreset()
     try:
-        accepted = await manager.admit(make_hello(node_id, 1), "ipv4:127.0.0.1:1")
+        # D39: the Hello declares GPU 0, the GPU make_scoreset()'s run names.
+        hello = make_hello(node_id, 1)
+        hello.hardware.gpus.append(agent_pb2.HardwareSummary.Gpu(index=0))
+        accepted = await manager.admit(hello, "ipv4:127.0.0.1:1")
         assert isinstance(accepted, Accepted)
         live = accepted.live
         failing.fail = True

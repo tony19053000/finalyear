@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import math
 import re
+from collections.abc import Collection
 from dataclasses import dataclass
 from typing import Final
 
@@ -68,6 +69,7 @@ __all__ = [
     "PLATFORM_MAX_LENGTH",
     "SCORE_BACKEND_MAX_LENGTH",
     "SCORE_DETAIL_MAX_LENGTH",
+    "SCORE_GPU_NOT_DECLARED",
     "Clamped",
     "check_hardware",
     "check_hardware_scores",
@@ -405,6 +407,9 @@ SCORE_MAX_THREADS: Final = 4096
 SCORE_MAX_GPU_INDEX: Final = 1023
 """NVML indices are small; this only bounds a hostile value."""
 
+SCORE_GPU_NOT_DECLARED: Final = "gpu_index_not_declared"
+"""Reason code (D39): a GPU metric names a GPU the session's Hello did not declare."""
+
 _SCORE_RUN_ID_LENGTH: Final = len("score_") + 26
 _FINGERPRINT = re.compile(r"[0-9a-f]{64}")
 _REASON = re.compile(r"[a-z0-9_]{1,64}")
@@ -481,8 +486,17 @@ def _check_conditions(scores: agent_pb2.HardwareScores) -> str | None:
     return None
 
 
-def check_hardware_scores(scores: agent_pb2.HardwareScores) -> str | None:
-    """Return a reason if a ``HardwareScores`` breaks a D38 rule, else ``None``.
+def check_hardware_scores(
+    scores: agent_pb2.HardwareScores, declared_gpus: Collection[int]
+) -> str | None:
+    """Return a reason if a ``HardwareScores`` breaks a D38/D39 rule, else ``None``.
+
+    ``declared_gpus`` is the set of ``Hello.hardware.gpus[].index`` of the **same
+    session** (for a Hello, that Hello's own hardware). A GPU metric whose
+    ``gpu_index`` is not in it rejects the whole set with a reason starting
+    ``gpu_index_not_declared`` (D39): a node with no declared GPU may send no GPU
+    metric at all - otherwise REST would serve a TFLOP/s number for a GPU the
+    node itself says it does not have. Host metrics need no GPU.
 
     Pure, like :func:`check_hardware`; the caller drops the set and logs the
     reason (never a stream kill, see the section note). Sizes and counts are
@@ -530,6 +544,11 @@ def check_hardware_scores(scores: agent_pb2.HardwareScores) -> str | None:
             return f"HardwareScores.scores[{position}] repeats a metric"
         seen.add(key)
         if index is not None:
+            if index not in declared_gpus:
+                return (
+                    f"{SCORE_GPU_NOT_DECLARED}: HardwareScores.scores[{position}]"
+                    f".gpu_index {index} is not in the session's Hello.hardware.gpus"
+                )
             gpu_indices.add(index)
     if len(gpu_indices) > MAX_GPUS:
         return (

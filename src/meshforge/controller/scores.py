@@ -116,7 +116,7 @@ def scores_document(
 ) -> tuple[dict[str, Any], dt.datetime]:
     """The stored JSON document and its ``measured_at`` (UTC).
 
-    Precondition: ``check_hardware_scores(message) is None``. Metrics keep the order
+    Precondition: ``check_hardware_scores(message, ...) is None``. Metrics keep the order
     the agent sent them in.
     """
     measured_at = message.measured_at.ToDatetime(tzinfo=dt.UTC)

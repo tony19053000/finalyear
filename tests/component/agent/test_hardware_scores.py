@@ -57,6 +57,8 @@ T0 = dt.datetime(2026, 9, 24, 12, 0, 0, 123456, tzinfo=dt.UTC)
 
 def _hardware(*, scores_capable: bool = True) -> agent_pb2.HardwareSummary:
     hardware = basic_hardware()
+    # D39: make_scoreset() names GPU 0, so the node must declare it.
+    hardware.gpus.append(agent_pb2.HardwareSummary.Gpu(index=0, model="test-gpu"))
     if scores_capable:
         hardware.capabilities.append(HARDWARE_SCORES_CAPABILITY)
     return hardware
@@ -396,6 +398,13 @@ async def test_malformed_scores_are_dropped_and_the_node_stays_online(
 # ----------------------------------------------- the fence and the ordering (D38)
 
 
+def _gpu_hello(node_id: str, epoch: int) -> agent_pb2.Hello:
+    """A Hello declaring GPU 0 (D39: the score runs here name it)."""
+    hello = make_hello(node_id, epoch)
+    hello.hardware.gpus.append(agent_pb2.HardwareSummary.Gpu(index=0))
+    return hello
+
+
 class _GatedRegistry:
     """The real registry, with one session's ``set_hardware_scores`` held."""
 
@@ -446,7 +455,7 @@ async def test_an_old_sessions_queued_scores_write_is_fenced_by_a_newer_hello(
     newer = make_scoreset(measured_at=T0 + dt.timedelta(hours=1))
     older = make_scoreset(measured_at=T0)
     try:
-        first = await manager.admit(make_hello(node_id, 1), "ipv4:127.0.0.1:1")
+        first = await manager.admit(_gpu_hello(node_id, 1), "ipv4:127.0.0.1:1")
         assert isinstance(first, Accepted)
         old = first.live
         gated.hold_session = old.session_id
@@ -460,7 +469,7 @@ async def test_an_old_sessions_queued_scores_write_is_fenced_by_a_newer_hello(
         )
         await asyncio.wait_for(gated.held.wait(), 5.0)
 
-        hello = make_hello(node_id, 2)
+        hello = _gpu_hello(node_id, 2)
         hello.hardware_scores.CopyFrom(to_proto(older))
         second = await manager.admit(hello, "ipv4:127.0.0.1:2")
         assert isinstance(second, Accepted)

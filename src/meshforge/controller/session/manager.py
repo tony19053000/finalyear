@@ -262,6 +262,9 @@ class LiveSession:
     resource_updates: int = 0
     resource_updates_clamped: int = 0
     """Reports that broke a D12 cap; logged once, counted always."""
+    declared_gpus: frozenset[int] = frozenset()
+    """``Hello.hardware.gpus[].index`` of this session: the only GPU indices its
+    score reports may name (D39)."""
     hardware_scores_received: int = 0
     hardware_scores_rejected: int = 0
     """Score sets (Hello or report) dropped by D38 validation; each is logged."""
@@ -586,6 +589,7 @@ class SessionManager:
             seen=_SeenIds(self._dedupe_window),
             next_ping_at=now,  # first RTT sample right away
             writer=writer,
+            declared_gpus=declared_gpus(hello.hardware),
             hardware_scores_received=int(scores is not None),
             hardware_scores_rejected=int(scores_rejected),
         )
@@ -631,7 +635,9 @@ class SessionManager:
         """
         if not hello.HasField("hardware_scores"):
             return None, False
-        reason = check_hardware_scores(hello.hardware_scores)
+        reason = check_hardware_scores(
+            hello.hardware_scores, declared_gpus(hello.hardware)
+        )
         if reason is not None:
             self._reject_scores(hello.node_id, session_id, "hello", reason)
             return None, True
@@ -900,7 +906,7 @@ class SessionManager:
         be overtaken by this session's state writes, and the registry fences it on
         ``last_session_id`` and ignores it if the stored run is newer.
         """
-        reason = check_hardware_scores(scores)
+        reason = check_hardware_scores(scores, live.declared_gpus)
         if reason is not None:
             live.hardware_scores_rejected += 1
             self._reject_scores(live.node_id, live.session_id, "report", reason)
@@ -1278,6 +1284,11 @@ class SessionManager:
                 abandoned=abandoned,
                 drain_s=drain_s,
             )
+
+
+def declared_gpus(hardware: agent_pb2.HardwareSummary) -> frozenset[int]:
+    """The GPU indices a Hello declared (D39)."""
+    return frozenset(gpu.index for gpu in hardware.gpus)
 
 
 def _hello_event(prior: NodeState) -> LivenessEvent | None:
