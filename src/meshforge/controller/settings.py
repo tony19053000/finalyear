@@ -21,6 +21,7 @@ from pydantic import Field, field_validator, model_validator
 from meshforge.common.config import MeshForgeSettings, SectionModel
 from meshforge.common.netaddr import parse_bind
 from meshforge.controller.liveness import LivenessConfig
+from meshforge.controller.resources import DEFAULT_BUCKET_GRACE_S
 from meshforge.controller.store.settings import DatabaseSettings
 
 __all__ = [
@@ -89,6 +90,21 @@ class ResourceHistorySettings(SectionModel):
         gt=0,
         le=3600.0,
         description="Length of one history bucket written to resource_snapshot.",
+    )
+    bucket_grace_s: float = Field(
+        default=DEFAULT_BUCKET_GRACE_S,
+        ge=0,
+        le=3600.0,
+        description=(
+            "How long after its end a history bucket still accepts late samples "
+            "before it is closed and written (D26). The default (20 s) covers the "
+            "reconnect + replay window of a blip: one lease (6 s) + criterion 2's "
+            "restore bound (10 s, which the 5 s backoff cap keeps) + the replay "
+            "itself. A sample later than this stays in the live ring, is left out "
+            "of history (never merged into a stored row) and is logged as "
+            "controller.resources.sample_late. Rows appear bucket_s + this after "
+            "their bucket starts; the shutdown flush does not wait for it."
+        ),
     )
     flush_interval_s: float = Field(
         default=10.0,

@@ -10,6 +10,19 @@ Two levels, as ARCHITECTURE §19 puts it ("2 s live -> 1 min history"):
   which upserts them into ``resource_snapshot``. An open bucket is never written, so
   a row is complete the moment it exists.
 
+**Late samples (D26, LATE-1).** A bucket *ends* at ``bucket_start + bucket_s`` but
+is *closed* only ``bucket_grace_s`` later (default 20 s), because reports reach the
+controller late for ordinary reasons: link latency, and above all the replay after
+a reconnect, which delivers samples observed before the drop seconds after it. A
+sample that arrives after its bucket was closed anyway is **not** merged into the
+stored row (after a controller restart, when the dedupe cursor is gone, a replay
+would be merged twice); it stays in the live ring, is counted
+(:attr:`Downsampler.dropped_late`) and logged ``controller.resources.sample_late``
+with the node, the bucket and how late it was - never dropped silently. Buckets in
+their grace period do not count against ``max_open_buckets`` (that cap is for clock
+jumps), and the shutdown flush closes every *ended* bucket without waiting for the
+grace, because no session is left to deliver into them.
+
 :class:`ResourceTracker` is the one object the session manager talks to, through the
 :class:`ResourceSink` protocol - ``manager.py`` must not grow a downsampler.
 
@@ -66,6 +79,7 @@ from meshforge.common.proto.meshforge.v1 import agent_pb2
 from meshforge.controller.caps import MAX_DISKS, MAX_GPUS
 
 __all__ = [
+    "DEFAULT_BUCKET_GRACE_S",
     "DEFAULT_BUCKET_S",
     "DEFAULT_LIVE_RING_SIZE",
     "DEFAULT_MAX_CURSOR_NODES",
@@ -89,6 +103,20 @@ DEFAULT_LIVE_RING_SIZE: Final = 150
 """5 minutes at one sample per 2 s (``controller.resources.live_ring_size``)."""
 
 DEFAULT_BUCKET_S: Final = 60.0
+
+DEFAULT_BUCKET_GRACE_S: Final = 20.0
+"""How long after its end a bucket still accepts samples (``controller.resources.
+bucket_grace_s``, D26).
+
+Sized to the reconnect + replay window of a blip the fabric treats as "not gone"
+(ARCHITECTURE §12.3): a stream lost just after a sample is observed can stay
+silent for up to one lease (6 s at the shipped 2 s heartbeat) before the node is
+declared OFFLINE, a restored link must be ONLINE again within 10 s (V0.3 criterion
+2, which the 5 s backoff cap of D27 guarantees for the sleep part), and the replay
+itself follows the Reconcile at once (a few hundred ms for a few minutes of
+buffered 2 s reports). 6 + 10 + ~1 s rounds up to 20 s. Longer outages are real
+outages: their samples arrive late and are counted and logged, not merged.
+"""
 DEFAULT_MAX_TRACKED_NODES: Final = 256
 DEFAULT_MAX_OPEN_BUCKETS: Final = 8
 """Open buckets kept per node; more than a couple means a clock that jumped."""
@@ -367,17 +395,32 @@ class Downsampler:
         *,
         bucket_s: float = DEFAULT_BUCKET_S,
         max_open_buckets: int = DEFAULT_MAX_OPEN_BUCKETS,
+        bucket_grace_s: float = DEFAULT_BUCKET_GRACE_S,
+        wall_clock: Callable[[], dt.datetime] | None = None,
     ) -> None:
         if bucket_s <= 0:
             raise ValueError("bucket_s must be > 0")
+        if not bucket_grace_s >= 0:
+            raise ValueError("bucket_grace_s must be >= 0")
         self.max_gpu_keys = MAX_GPUS
         self.max_disk_keys = MAX_DISKS
         self.bucket_s = bucket_s
-        self.max_open_buckets = max(1, max_open_buckets)
+        self.bucket_grace_s = bucket_grace_s
+        self._wall_clock = wall_clock or _utcnow
+        """Only for how late a late sample is (the log line); never for bucketing."""
+        # Buckets that ended but are still in their grace period are expected, not
+        # a clock jump: they do not count against the operator's cap.
+        self.max_open_buckets = max(1, max_open_buckets) + math.ceil(
+            bucket_grace_s / bucket_s
+        )
         self._open: dict[str, OrderedDict[dt.datetime, _Accumulator]] = {}
         self._last_flushed: dict[str, dt.datetime] = {}
+        self._late_logged: dict[str, dt.datetime] = {}
+        """The last bucket each node's late samples were logged for (D26)."""
         self.dropped_late = 0
-        """Samples for a bucket already written (an agent whose clock went back)."""
+        """Samples that arrived after their bucket was closed - later than the grace
+        period (a long outage's replay, or an agent whose clock went back). Kept in
+        the live ring, left out of history, logged (``sample_late``)."""
         self.dropped_buckets = 0
         """Open buckets evicted because one node had too many (a clock jump)."""
         self.dropped_keys = 0
@@ -387,7 +430,7 @@ class Downsampler:
         start = bucket_start(sample.observed_at, self.bucket_s)
         last = self._last_flushed.get(node_id)
         if last is not None and start <= last:
-            self.dropped_late += 1
+            self._late(node_id, start, sample)
             return
         buckets = self._open.setdefault(node_id, OrderedDict())
         accumulator = buckets.get(start)
@@ -424,23 +467,52 @@ class Downsampler:
                 dropped_total=self.dropped_keys,
             )
 
+    def _late(self, node_id: str, start: dt.datetime, sample: LiveSample) -> None:
+        """Count a sample whose bucket is already closed and say so (D26).
+
+        Warning once per (node, bucket) - a long outage's replay would otherwise
+        write one line per buffered report - and debug for the rest of that
+        bucket's late samples, so every one is still visible at DEBUG.
+        """
+        self.dropped_late += 1
+        end = start + dt.timedelta(seconds=self.bucket_s)
+        lateness_s = (self._wall_clock() - end).total_seconds()
+        first = self._late_logged.get(node_id) != start
+        self._late_logged[node_id] = start
+        (log.warning if first else log.debug)(
+            "controller.resources.sample_late",
+            node_id=node_id,
+            bucket_start=start.isoformat(),
+            lateness_s=round(lateness_s, 3),
+            grace_s=self.bucket_grace_s,
+            sequence=sample.sequence,
+            session_epoch=sample.session_epoch,
+            dropped_late=self.dropped_late,
+        )
+
     def forget(self, node_id: str) -> None:
         """Drop every open bucket of a node the tracker stopped following."""
         self._open.pop(node_id, None)
         self._last_flushed.pop(node_id, None)
+        self._late_logged.pop(node_id, None)
 
     @property
     def open_buckets(self) -> int:
         return sum(len(buckets) for buckets in self._open.values())
 
-    def closed_buckets(self, now: dt.datetime) -> list[SnapshotRow]:
-        """Remove and return every bucket whose end is at or before ``now``.
+    def closed_buckets(
+        self, now: dt.datetime, *, grace: bool = True
+    ) -> list[SnapshotRow]:
+        """Remove and return every bucket whose end plus ``bucket_grace_s`` is at or
+        before ``now`` (D26). ``grace=False`` closes every bucket that has *ended*:
+        for the shutdown flush, when no session is left to deliver a late sample.
 
         ``now`` is a *wall clock* on purpose: buckets are wall-clock aligned so the
         history lines up across nodes.
         """
         rows: list[SnapshotRow] = []
-        cutoff = now.astimezone(dt.UTC) - dt.timedelta(seconds=self.bucket_s)
+        wait_s = self.bucket_s + (self.bucket_grace_s if grace else 0.0)
+        cutoff = now.astimezone(dt.UTC) - dt.timedelta(seconds=wait_s)
         for node_id, buckets in self._open.items():
             for start in [s for s in buckets if s <= cutoff]:
                 rows.append(_row(node_id, start, buckets.pop(start)))
@@ -502,6 +574,7 @@ class ResourceTracker:
         max_tracked_nodes: int = DEFAULT_MAX_TRACKED_NODES,
         max_cursor_nodes: int = DEFAULT_MAX_CURSOR_NODES,
         max_open_buckets: int = DEFAULT_MAX_OPEN_BUCKETS,
+        bucket_grace_s: float = DEFAULT_BUCKET_GRACE_S,
         wall_clock: Callable[[], dt.datetime] | None = None,
     ) -> None:
         self._ring_size = live_ring_size
@@ -512,7 +585,10 @@ class ResourceTracker:
         self._cursors: OrderedDict[str, _Cursor] = OrderedDict()
         """node_id -> dedupe state, bounded by ``max_cursor_nodes`` on its own."""
         self.downsampler = Downsampler(
-            bucket_s=bucket_s, max_open_buckets=max_open_buckets
+            bucket_s=bucket_s,
+            max_open_buckets=max_open_buckets,
+            bucket_grace_s=bucket_grace_s,
+            wall_clock=self._wall_clock,
         )
         self.duplicates = 0
         self.recorded = 0
@@ -675,8 +751,11 @@ class ResourceTracker:
 
     # ------------------------------------------------------------- flush side
 
-    def closed_rows(self, now: dt.datetime | None = None) -> list[SnapshotRow]:
-        return self.downsampler.closed_buckets(now or self._wall_clock())
+    def closed_rows(
+        self, now: dt.datetime | None = None, *, grace: bool = True
+    ) -> list[SnapshotRow]:
+        """Closed buckets (see :meth:`Downsampler.closed_buckets` for ``grace``)."""
+        return self.downsampler.closed_buckets(now or self._wall_clock(), grace=grace)
 
     def drain_rows(self) -> list[SnapshotRow]:
         return self.downsampler.drain()

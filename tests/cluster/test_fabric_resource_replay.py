@@ -35,17 +35,17 @@ Buckets are then compared **per bucket** with the live samples' ``observed_at``.
 "Force the flush": only closed buckets are written, so the test waits until the
 bucket holding the last sample has ended plus three flush intervals.
 
-LATE-1 (found here, not fixed - a src design decision for the Lead): a sample
-that reaches the controller *after its bucket was already flushed* is dropped
-from history (``Downsampler.add`` -> ``dropped_late``, no log line), although the
-live ring keeps it. Buckets close on the controller's wall clock at
-``bucket_start + bucket_s`` with no allowance for delivery delay, so any sample
-observed just before a boundary and delivered just after the next flush tick is
-lost - by link latency alone (seen here at 100-300 ms) and, far more often, by a
-reconnect's replay (seconds late). It is a loss, not a double count: scenario f
-asserts the R1 property strictly (no bucket ever above its distinct samples) and
-bounds the loss (every sample a bucket lacks arrived after its bucket ended);
-``test_f2_...`` pins the replay case deterministically as a strict xfail.
+LATE-1 (found here by G6-B; fixed in the G6 fix round by D26): a sample that
+reached the controller *after its bucket was already flushed* was dropped from
+history with no log line, although the live ring kept it - buckets closed at
+``bucket_start + bucket_s`` with no allowance for delivery delay, so link latency
+(100-300 ms here) and above all a reconnect's replay (seconds late) lost samples.
+Buckets now close ``bucket_grace_s`` after they end (``GRACE_S`` here, sized to
+this scenario's replay; 20 s by default) and a sample later than that is counted
+and logged ``controller.resources.sample_late``. Scenario f still asserts the R1
+property strictly (no bucket ever above its distinct samples) and bounds any loss
+(every sample a bucket lacks arrived after its bucket ended); ``test_f2_...``
+pins the replay case deterministically: the late replayed sample is now kept.
 """
 
 from __future__ import annotations
@@ -65,6 +65,10 @@ pytestmark = [pytest.mark.docker]
 
 SAMPLE_S = 0.1
 FLUSH_S = 0.2
+GRACE_S = 3.0
+"""``controller.resources.bucket_grace_s`` here (D26): covers test_f2's replay
+(latency 300 ms + Hello round trip, ~1 s late) with margin; the shipped 20 s would
+only make the run slower."""
 RESETS = 4
 RESET_SPACING_S = 0.4
 EPOCH = dt.datetime(1970, 1, 1, tzinfo=dt.UTC)
@@ -86,6 +90,7 @@ def _dense_fabric(make_fabric: MakeFabric, bucket_s: float) -> Fabric:
         log_level="DEBUG",  # controller.resources.duplicate_update is DEBUG
         controller_resources={
             "bucket_s": bucket_s,
+            "bucket_grace_s": GRACE_S,
             "flush_interval_s": FLUSH_S,
             "live_ring_size": 1000,
         },
@@ -142,9 +147,12 @@ class Account:
         last = max(_utc(s["observed_at"]) for s in self.live)
         end = _bucket(last, bucket_s) + dt.timedelta(seconds=bucket_s)
         fabric.wait_until(
-            lambda: dt.datetime.now(dt.UTC) > end + dt.timedelta(seconds=3 * FLUSH_S),
-            within=bucket_s + 5.0,
-            what="last bucket closed and flushed",
+            lambda: (
+                dt.datetime.now(dt.UTC)
+                > end + dt.timedelta(seconds=GRACE_S + 3 * FLUSH_S)
+            ),
+            within=bucket_s + GRACE_S + 5.0,
+            what="last bucket closed (after its grace) and flushed",
         )
         history = fabric.resources(node, limit=1000, live_limit=1)
         assert history is not None
@@ -241,15 +249,6 @@ def test_f_replayed_reports_are_never_counted_twice(make_fabric: MakeFabric) -> 
     assert sum(acc.stored.values()) >= acc.highest - sum(len(v) for v in late.values())
 
 
-@pytest.mark.xfail(
-    reason=(
-        "LATE-1 (G6-B): a replayed sample that arrives after its history bucket "
-        "was flushed is dropped (Downsampler.add dropped_late, no log) - history "
-        "loses it although the live ring has it. Fix is a Lead decision (close "
-        "buckets after a replay grace, or merge late samples into the stored row)."
-    ),
-    strict=True,
-)
 def test_f2_replay_landing_after_its_bucket_was_flushed_is_kept(
     make_fabric: MakeFabric,
 ) -> None:
@@ -258,8 +257,9 @@ def test_f2_replay_landing_after_its_bucket_was_flushed_is_kept(
     Reports sent in the last 300 ms before the reset are still in the proxy's
     delay queue, which the reset discards: never delivered, so the replay is
     their first arrival. Some were observed before the boundary; the replay needs
-    at least the Hello round trip (600 ms) while the flusher closes the old
-    bucket within one flush interval (0.2 s) of the boundary.
+    at least the Hello round trip (600 ms). Before D26 the flusher closed the old
+    bucket within one flush interval (0.2 s) of the boundary and lost them; now it
+    waits ``GRACE_S`` and they are counted.
     """
     bucket_s = 2.0
     fabric = _dense_fabric(make_fabric, bucket_s)

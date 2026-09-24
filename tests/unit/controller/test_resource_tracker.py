@@ -145,7 +145,9 @@ def test_mean_and_max_are_computed_per_bucket() -> None:
 
 
 def test_an_open_bucket_is_never_returned() -> None:
-    down = Downsampler(bucket_s=60.0)
+    down = Downsampler(
+        bucket_s=60.0, bucket_grace_s=0.0
+    )  # the bare edge (no D26 grace)
     down.add(NODE, sample_at(T0))
     assert down.closed_buckets(T0 + dt.timedelta(seconds=30)) == []
     assert down.open_buckets == 1
@@ -154,7 +156,7 @@ def test_an_open_bucket_is_never_returned() -> None:
 
 
 def test_a_bucket_with_one_sample_is_written() -> None:
-    down = Downsampler(bucket_s=1.0)
+    down = Downsampler(bucket_s=1.0, bucket_grace_s=0.0)
     down.add(NODE, sample_at(T0, cpu=7.0))
     rows = down.closed_buckets(T0 + dt.timedelta(seconds=5))
     assert total_samples(rows) == 1
@@ -196,7 +198,7 @@ def test_a_sample_for_an_already_written_bucket_is_dropped_and_counted() -> None
 
 
 def test_too_many_open_buckets_drop_the_oldest_with_a_counter() -> None:
-    down = Downsampler(bucket_s=60.0, max_open_buckets=2)
+    down = Downsampler(bucket_s=60.0, max_open_buckets=2, bucket_grace_s=0.0)
     for minutes in range(5):
         down.add(NODE, sample_at(T0 + dt.timedelta(minutes=minutes)))
     assert down.open_buckets == 2

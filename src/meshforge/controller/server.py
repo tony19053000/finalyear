@@ -143,6 +143,7 @@ class ControllerRuntime:
         resources = ResourceTracker(
             live_ring_size=cfg.resources.live_ring_size,
             bucket_s=cfg.resources.bucket_s,
+            bucket_grace_s=cfg.resources.bucket_grace_s,
             max_tracked_nodes=cfg.resources.max_tracked_nodes,
             max_cursor_nodes=cfg.resources.max_cursor_nodes,
             max_open_buckets=cfg.resources.max_open_buckets,

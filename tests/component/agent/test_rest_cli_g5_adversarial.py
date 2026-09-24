@@ -60,6 +60,7 @@ FAST_RESOURCES: dict[str, Any] = {
 }
 FAST_HISTORY: dict[str, Any] = {
     "bucket_s": 1.0,
+    "bucket_grace_s": 0.5,  # D26: short, so rows appear fast; the grace still runs
     "flush_interval_s": 0.2,
     "retention_sweep_s": 3600.0,
     "live_ring_size": 200,

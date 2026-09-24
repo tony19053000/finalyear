@@ -32,8 +32,10 @@ Rows stay owned by ``_pending`` **across** the write and are cleared only after 
 succeeds, so a cancellation mid-upsert re-writes the batch (the upsert is
 idempotent) instead of losing it (NB-10).
 
-On shutdown :meth:`final_flush` writes whatever is already closed exactly once,
-inside the runtime's shared drain deadline. Open buckets are deliberately *not*
+On shutdown :meth:`final_flush` writes every bucket that has *ended* exactly once,
+inside the runtime's shared drain deadline, without waiting for the late-sample
+grace period (D26): it runs after the session manager shut down, so no sample can
+still arrive for them. Open (not yet ended) buckets are deliberately *not*
 written: a partial bucket would look like a complete one.
 """
 
@@ -137,14 +139,19 @@ class SnapshotFlusher:
                 pending=len(self._pending),
             )
 
-    async def flush_once(self) -> int:
+    async def flush_once(self, *, grace: bool = True) -> int:
         """Write every closed bucket (plus anything pending). Returns rows written.
 
-        Never raises except :class:`asyncio.CancelledError` (see the module
-        docstring). The rows are held in ``_pending`` for the whole write and
-        released only on success, so a cancelled upsert is retried, not lost.
+        ``grace=False`` (shutdown only) also closes buckets still in their
+        late-sample grace period (D26). Never raises except
+        :class:`asyncio.CancelledError` (see the module docstring). The rows are
+        held in ``_pending`` for the whole write and released only on success, so
+        a cancelled upsert is retried, not lost.
         """
-        rows = [*self._pending, *self._tracker.closed_rows(self._wall_clock())]
+        rows = [
+            *self._pending,
+            *self._tracker.closed_rows(self._wall_clock(), grace=grace),
+        ]
         if not rows:
             return 0
         self._remember(rows)  # NB-10: owned by _pending across the await
@@ -269,9 +276,9 @@ class SnapshotFlusher:
         return deleted
 
     async def final_flush(self) -> int:
-        """Shutdown hook: write what is already closed, once. Never raises."""
+        """Shutdown hook: write every ended bucket, once (no grace). Never raises."""
         with contextlib.suppress(asyncio.CancelledError):
-            return await self.flush_once()
+            return await self.flush_once(grace=False)
         return 0
 
     async def _database_answers(self) -> bool:
