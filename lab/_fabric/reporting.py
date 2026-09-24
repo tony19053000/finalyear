@@ -188,7 +188,8 @@ def _samples(case: Mapping[str, Any]) -> list[Mapping[str, Any]]:
 
 def watch_md(docs: Sequence[dict[str, Any]]) -> str:
     lines = [
-        "### Per repetition (criterion 2: OFFLINE <= 8 s, ONLINE <= 10 s, no agent restart)",
+        "### Per repetition (cable pull, criterion 2: OFFLINE <= 8 s, ONLINE <= 10 s, no "
+        "agent restart; agent stop/start, criterion 4: back with the same node_id)",
         "",
         "| Run | Node | Rep | offline s | online s | Session end reason | Epoch before -> after "
         "| Agent process restarted | Within bounds |",
@@ -204,7 +205,10 @@ def watch_md(docs: Sequence[dict[str, Any]]) -> str:
                     for k in ("offline", "online")
                     if f"{k}_s" in s
                 ]
-                ok = "yes" if bounds and all(b is True for b in bounds) else "NO"
+                if all(b is None for b in bounds):
+                    ok = "n/a"  # agent stop/start run (criterion 4): no timing bound
+                else:
+                    ok = "yes" if all(b is True for b in bounds) else "NO"
                 lines.append(
                     f"| {run} | {label} | {int(s.get('rep', 0)) + 1} | {fmt_s(s.get('offline_s'))} "
                     f"| {fmt_s(s.get('online_s'))} | {cell(s.get('end_reason') or '—')} "
@@ -215,11 +219,13 @@ def watch_md(docs: Sequence[dict[str, Any]]) -> str:
         "",
         "How to read it: *latency* = from the operator's Enter to the first poll answer "
         "showing the state (upper bound; poll interval in the JSON `params`). "
-        "*Session end reason*: `stream_lost` = the TCP connection was reset/closed and the "
-        "controller saw it at once; `lease_expired` = nothing arrived and the 6 s lease ran "
-        "out (a silent cable pull). *Agent process restarted* comes from the per-process "
-        "resource `sequence` (it restarts at 1 only in a new process); `session_epoch` is "
-        "bumped on every reconnect and is shown only for reference. Loopback prediction "
+        "*Session end reason*: `stream_lost` = the OS reset/closed the TCP connection, so "
+        "the controller saw the loss at once (SUSPECT at once, OFFLINE still at the lease "
+        "edge); `lease_expired` = nothing arrived and the 6 s lease ran out (a silent cable "
+        "pull); `agent_closed` = the agent said goodbye (a clean stop, criterion 4 runs). "
+        "*Agent process restarted* comes from the per-process resource `sequence` (it "
+        "restarts at 1 only in a new process); `session_epoch` is bumped on every "
+        "reconnect and is shown only for reference. Loopback prediction "
         "(V0.3 G6-B, shipped timings): blackhole -> OFFLINE ~6.0 s, restore -> ONLINE ~0.3 s.",
     ]
     return "\n".join(lines)

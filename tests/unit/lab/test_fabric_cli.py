@@ -276,3 +276,47 @@ def test_ctrl_c_during_watch_still_writes_what_was_measured(
     assert cli.main(argv, clock=clock, operator=op) == cli.EXIT_INTERRUPTED
     (raw,) = (tmp_path / "raw" / "2026-09-24-V0.3-fabric-watch").glob("*.json")
     assert json.loads(raw.read_text(encoding="utf-8"))["extra"]["interrupted"] is True
+
+
+@pytest.mark.parametrize(
+    ("new_seq", "expected"),
+    [([1, 2], cli.EXIT_OK), ([11, 12], cli.EXIT_INCOMPLETE)],
+    ids=["agent-restarted", "agent-not-restarted"],
+)
+def test_agent_stop_start_mode_needs_a_restart_and_has_no_bounds(
+    stub_controller: StubController, tmp_path: Path, new_seq: list[int], expected: int
+) -> None:
+    """Criterion 4: stop + start the agent; it must come back as the SAME node_id
+    and really be a new process. A slow start is not a criterion-2 failure."""
+    _watch_setup(stub_controller)
+    clock = FakeClock()
+
+    def stop() -> float:
+        clock.after(
+            0.3,
+            lambda: stub_controller.set_node(NODE, state="offline", connected=False),
+        )
+        return 0.1
+
+    def start() -> float:
+        def back() -> None:  # 14 s: longer than criterion 2's ONLINE bound
+            stub_controller.set_node(
+                NODE,
+                state="online",
+                connected=True,
+                session_epoch=6,
+                last_session_id="s6",
+            )
+            stub_controller.add_samples(NODE, 6, new_seq)
+
+        clock.after(14.0, back)
+        return 0.0
+
+    argv = ["--controller", stub_controller.url, "--reports-dir", str(tmp_path),
+            "watch", "--node", NODE, "--link", "ethernet", "--reps", "1",
+            "--action", "agent"]  # fmt: skip
+    op = ScriptedOperator(clock, [stop, start])
+    assert cli.main(argv, clock=clock, operator=op) == expected
+    assert "STOP the agent" in op.prompts[0] and "START" in op.prompts[1]
+    text = (tmp_path / "2026-09-24-V0.3-fabric-watch.md").read_text(encoding="utf-8")
+    assert "| n/a |" in text

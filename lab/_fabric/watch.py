@@ -65,6 +65,8 @@ class WatchConfig:
     mark_timeout_s: float = 1800.0
     sample_wait_s: float = 15.0
     action_text: dict[str, str] = field(default_factory=dict)
+    bounds: dict[str, float] = field(default_factory=lambda: dict(BOUNDS_S))
+    """Criterion 2's bounds; empty for an agent stop/start run (criterion 4 has none)."""
 
     def __post_init__(self) -> None:
         if not self.expect:
@@ -320,8 +322,8 @@ def _measure_step(
                     "press Enter at the moment you act; this repetition does not count",
                 )
             sample[f"{state}_s"] = seconds
-            sample[f"{state}_within_bound"] = within_bound(state, seconds)
-            bound = BOUNDS_S.get(state)
+            sample[f"{state}_within_bound"] = within_bound(state, seconds, cfg.bounds)
+            bound = cfg.bounds.get(state)
             limit = (
                 f" (bound {bound:.0f} s: {'within' if seconds <= bound else 'EXCEEDED'})"
                 if bound
@@ -330,7 +332,7 @@ def _measure_step(
             operator.say(f"{state} detected {seconds:.2f} s after Enter{limit}")
             return edge, None
         elif now - mark >= cfg.detect_timeout_s:
-            sample[f"{state}_within_bound"] = False if state in BOUNDS_S else None
+            sample[f"{state}_within_bound"] = False if state in cfg.bounds else None
             return None, _error(
                 rep,
                 NOT_DETECTED,

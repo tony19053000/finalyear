@@ -173,9 +173,11 @@ def latency(mark: float, edge: float) -> float:
     return round(edge - mark, 3)
 
 
-def within_bound(state: str, seconds: float | None) -> bool | None:
-    """``None`` when criterion 2 sets no bound for ``state`` or nothing was measured."""
-    bound = BOUNDS_S.get(state)
+def within_bound(
+    state: str, seconds: float | None, bounds: Mapping[str, float] = BOUNDS_S
+) -> bool | None:
+    """``None`` when ``bounds`` has none for ``state`` or nothing was measured."""
+    bound = bounds.get(state)
     if bound is None or seconds is None:
         return None
     return seconds <= bound

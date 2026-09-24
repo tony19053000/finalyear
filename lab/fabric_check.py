@@ -50,7 +50,7 @@ from _fabric.restart import (  # noqa: E402
     RestartResult,
     run_restart_check,
 )
-from _fabric.timeline import EXPECTABLE  # noqa: E402
+from _fabric.timeline import BOUNDS_S, EXPECTABLE  # noqa: E402
 from _fabric.watch import WatchConfig, WatchResult, run_watch  # noqa: E402
 from spikes._harness.envelope import LINKS  # noqa: E402
 from spikes._harness.report import ReportMergeError, TemplateError  # noqa: E402
@@ -340,6 +340,7 @@ def cmd_watch(ctx: _Ctx) -> int:
             poll_s=args.poll,
             detect_timeout_s=args.timeout,
             action_text=dict(_AGENT_ACTIONS) if args.action == "agent" else {},
+            bounds={} if args.action == "agent" else dict(BOUNDS_S),
         )
     except ValueError as exc:
         _say(f"error: {exc}")
@@ -362,7 +363,7 @@ def cmd_watch(ctx: _Ctx) -> int:
             "poll_s": cfg.poll_s,
             "detect_timeout_s": cfg.detect_timeout_s,
             "action": args.action,
-            "bounds_s": {"offline": 8.0, "online": 10.0},
+            "bounds_s": cfg.bounds,
         },
         cases=_cases_watch(result, cfg),
         extra={"interrupted": interrupted},
@@ -379,10 +380,12 @@ def cmd_watch(ctx: _Ctx) -> int:
     bad_bound = any(
         s.get(f"{k}_within_bound") is False for s in result.samples for k in cfg.expect
     )
-    restarted = args.action == "cable" and any(
-        s.get("restarted") is True for s in result.samples
+    # cable pull: the agent must NOT restart (criterion 2); agent stop/start: it must
+    # have (otherwise the operator did not restart it and criterion 4 was not tested)
+    wrong_restart = any(
+        s.get("restarted") is (args.action == "cable") for s in result.samples
     )
-    if result.errors or bad_bound or restarted or len(result.samples) < cfg.reps:
+    if result.errors or bad_bound or wrong_restart or len(result.samples) < cfg.reps:
         _say("done, with failures - see the report")
         return EXIT_INCOMPLETE
     return EXIT_OK
