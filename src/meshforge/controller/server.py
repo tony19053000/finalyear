@@ -14,6 +14,12 @@ close every live session as ``controller_shutdown`` (their streams end), stop
 both servers, drain at most ``shutdown_drain_s`` **in total** (one shared
 deadline), dispose the engine.
 
+Once both listeners accept connections the runtime logs **one**
+``controller.listening`` event with the *actually bound* addresses
+(``grpc="host:port"``, ``http="host:port"``; port ``0`` resolved), before the mDNS
+registration. A test or cluster harness binds ``127.0.0.1:0`` and reads the ports
+from that line instead of guessing free ones (V0.3 G6, D24: no TOCTOU).
+
 Start-up failures are typed: :class:`~meshforge.common.errors.ConfigError` (bind
 rules), :class:`~meshforge.controller.store.errors.DatabaseUnavailableError`,
 :class:`~meshforge.controller.store.errors.MigrationError` - each carries its exit
@@ -64,6 +70,10 @@ GRPC_SERVER_OPTIONS: tuple[tuple[str, int], ...] = (
     ("grpc.http2.max_pings_without_data", 0),
     ("grpc.http2.min_recv_ping_interval_without_data_ms", 5_000),
 )
+
+
+_HTTP_BACKLOG = 2048
+"""uvicorn's default ``backlog``; the HTTP socket listens with it before serving."""
 
 
 class _NoSignalUvicorn(uvicorn.Server):
@@ -172,6 +182,11 @@ class ControllerRuntime:
         self._grpc_server = grpc_server
 
         self._http_sock = _bind_socket(self._http_bind)
+        # Listening now, not when uvicorn's task first runs: connections made as
+        # soon as ``controller.listening`` is logged wait in the backlog instead
+        # of being refused. (asyncio's create_server calls listen() again; that
+        # is harmless.)
+        self._http_sock.listen(_HTTP_BACKLOG)
         self.http_port = int(self._http_sock.getsockname()[1])
         http_config = uvicorn.Config(
             create_http_app(
@@ -191,6 +206,11 @@ class ControllerRuntime:
         )
         self._http_server = _NoSignalUvicorn(http_config)
         self._spawn(self._http_server.serve(sockets=[self._http_sock]), "http-server")
+        log.info(
+            "controller.listening",
+            grpc=BindAddress((self._grpc_bind.host, self.grpc_port)).grpc_target(),
+            http=BindAddress((self._http_bind.host, self.http_port)).grpc_target(),
+        )
 
         if cfg.discovery.advertise:
             # Roadmap 0.3.9: agents with an empty controller_address browse for this.
