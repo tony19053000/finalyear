@@ -163,9 +163,18 @@ async def test_the_no_limit_path_is_deterministic_for_tied_timestamps_too(
     store: Registry, migrated: DatabaseSettings
 ) -> None:
     """N3's diff added ``session_id`` as a secondary sort key to the *unlimited*
-    query too, not only the ``limit``-bounded one - confirm that is true and
-    that it is deterministic across repeated calls, which the pre-fix query
-    (``ORDER BY started_at`` alone) did not guarantee for a tie."""
+    query too, not only the ``limit``-bounded one; confirm the resulting order is
+    the documented one and is stable across repeated calls.
+
+    **This test is documentation, not proof that the tiebreaker is needed here.**
+    Review round 2 mutated the secondary key away and this test stayed green:
+    PostgreSQL's heap-scan order for a freshly-inserted, never-updated small
+    table happens to match insertion order, which for ULIDs is ascending
+    ``session_id``. The mutation-killing test for N3 is
+    ``test_registry_list_sessions_tiebreaker.py::test_the_limited_window_is_deterministic_for_equal_timestamps``,
+    which forces real disagreement via the ``limit``-bounded path. Kept because
+    the invariant it asserts is correct and cheap to check.
+    """
     node_id, session_ids = await _node_with_sessions(store, 4)
     await _set_started_at(migrated, dict.fromkeys(session_ids, SHARED_TIMESTAMP))
     expected = sorted(session_ids)  # started_at ties -> session_id ascending

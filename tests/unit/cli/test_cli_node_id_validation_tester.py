@@ -71,7 +71,13 @@ def test_the_invalid_value_itself_is_never_echoed(
     """argv reaches a terminal too; a 10 KB id echoed back would itself be a
     terminal-flooding vector distinct from B2's escape-sequence one."""
     result = runner.invoke(app, ["nodes", node_id])
-    assert node_id not in result.output
+    # Not `node_id not in output`: a one- or two-character invalid value would
+    # make that vacuous by occurring in the error text by chance. A value is
+    # only "echoed" if a distinctive run of it survives, so test the longest
+    # distinctive slice we have.
+    distinctive = node_id[:40]
+    if len(distinctive) >= 8:
+        assert distinctive not in result.output
     assert len(result.output) < 500  # one short line, not proportional to input
 
 

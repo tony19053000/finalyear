@@ -325,7 +325,7 @@ def test_json_output_is_genuinely_parseable_with_hostile_values(
         assert char not in line
 
 
-def test_a_real_controller_response_containing_a_literal_lone_surrogate_crashes(
+def test_a_response_whose_bytes_are_not_utf8_is_decoded_lossily_not_fatally(
     runner: CliRunner, controller: TransportFactory
 ) -> None:
     """DEFECT (see report): ``starlette.responses.JSONResponse.render`` calls
@@ -361,6 +361,10 @@ def test_a_real_controller_response_containing_a_literal_lone_surrogate_crashes(
 
     controller(handler)
     result = runner.invoke(app, ["nodes", "--json"])
-    # Documents current behaviour either way; if this starts failing, the
-    # decode path's robustness changed and the report's finding is stale.
+    # `"Traceback" not in output` alone would be VACUOUS: CliRunner defaults to
+    # catch_exceptions=True, so a hard crash is stored on `result.exception` and
+    # nothing is written to `output`. The exit code and `result.exception` are
+    # what actually distinguish "decoded lossily" from "crashed".
+    assert result.exception is None, f"the CLI crashed: {result.exception!r}"
+    assert result.exit_code == ExitCode.OK
     assert "Traceback" not in result.output
