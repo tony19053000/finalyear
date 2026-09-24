@@ -322,3 +322,33 @@ def test_ctrl_c_waits_for_pytest_and_exits_130(
     assert guard.main(["-q"]) == 130
     assert made[0].waited
     assert "interrupted" in capsys.readouterr().err
+
+
+class _DeafPopen:
+    """A pytest that ignores every signal short of a kill."""
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+        self.killed = False
+
+    def wait(self, timeout: float | None = None) -> int:
+        self.calls.append("wait")
+        if not self.killed and timeout is not None:
+            raise guard.subprocess.TimeoutExpired("pytest", timeout)
+        return -9
+
+    def send_signal(self, _sig: int) -> None:
+        self.calls.append("signal")
+
+    def terminate(self) -> None:
+        self.calls.append("signal")
+
+    def kill(self) -> None:
+        self.calls.append("kill")
+        self.killed = True
+
+
+def test_a_pytest_that_ignores_ctrl_c_is_killed_not_waited_on_forever() -> None:
+    proc = _DeafPopen()
+    guard._stop(proc)
+    assert proc.calls == ["wait", "signal", "wait", "kill", "wait"]

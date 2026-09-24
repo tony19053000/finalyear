@@ -91,6 +91,32 @@ def exit_status(returncode: int) -> tuple[int, str]:
     return status, f"exit status {returncode}"
 
 
+def _stop(proc: subprocess.Popen[bytes]) -> None:
+    """After Ctrl-C: let pytest stop by itself, then interrupt it, then kill it.
+
+    Every wait is bounded, so a hung test that ignores SIGINT cannot hang the
+    guard (and the CI job) with it.
+    """
+    if _exited_within_grace(proc):
+        return  # a terminal Ctrl-C reached pytest too, and it stopped
+    if sys.platform == "win32":
+        proc.terminate()
+    else:
+        proc.send_signal(signal.SIGINT)
+    if _exited_within_grace(proc):
+        return
+    proc.kill()
+    proc.wait()
+
+
+def _exited_within_grace(proc: subprocess.Popen[bytes]) -> bool:
+    try:
+        proc.wait(timeout=_INTERRUPT_GRACE_S)
+    except subprocess.TimeoutExpired:
+        return False
+    return True
+
+
 def main(
     argv: Sequence[str] | None = None, *, command: Sequence[str] | None = None
 ) -> int:
@@ -126,14 +152,7 @@ def main(
                     half_imported = True
                 after_sep = bool(_HALF_IMPORT_SEP.search(plain.rstrip()))
         except KeyboardInterrupt:
-            try:
-                proc.wait(timeout=_INTERRUPT_GRACE_S)
-            except subprocess.TimeoutExpired:
-                if sys.platform == "win32":
-                    proc.terminate()
-                else:
-                    proc.send_signal(signal.SIGINT)
-                proc.wait()
+            _stop(proc)
             sys.stderr.write("\npytest-exit-guard: interrupted.\n")
             return 130
     if proc.returncode == 0:
