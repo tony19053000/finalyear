@@ -110,7 +110,7 @@ xfail_strict = true
 markers = [
     "unit: tier - pure logic, no I/O beyond tmp files; must pass on Linux and Windows",
     "component: tier - real gRPC/DB/Docker/subprocess, one process each",
-    "cluster: tier - controller + N agents as local processes, Toxiproxy faults",
+    "cluster: tier - controller + N agents as local processes, FaultLink proxy faults (D23)",
     "lab: tier - real laptops on the LAN (human-run); skipped unless --run-lab",
     "e2e: tier - dashboard UI end-to-end (Playwright)",
     "soak: tier - long-running stability runs; skipped unless --run-soak",

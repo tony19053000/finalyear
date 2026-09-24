@@ -1,7 +1,7 @@
 # CI for MeshForge (roadmap 0.1.10).
 #
 # Jobs:  lint · types · unit (Linux + Windows) · component (Linux) ·
-#        fresh-clone (Linux + Windows) · ci-ok
+#        cluster (Linux) · fresh-clone (Linux + Windows) · ci-ok
 # Branch protection on `main` should require ONLY the `ci-ok` check: it passes
 # iff every other job passed, so adding/renaming jobs never needs a settings change.
 #
@@ -170,6 +170,42 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+  # Roadmap 0.3.14 (V0.3 G6-B): a real controller + N real agents as local
+  # processes with fault injection (tests/cluster; in-process FaultLink proxy,
+  # D23). Linux only for now: Windows runners have no Linux Docker for the
+  # Postgres fixture, and the harness's Windows paths (CREATE_NEW_PROCESS_GROUP,
+  # CTRL_BREAK, no Job Object backstop) have not been run yet. The `slow` set
+  # (shipped-timing criteria 2/3) is not run here: its bounds are the criteria
+  # themselves and shared runners are noisy; run it with --run-slow.
+  cluster:
+    name: cluster (ubuntu-latest, Docker, processes)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.UV_PYTHON }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      # The controller and agent run as subprocesses: both extras are needed.
+      - run: uv sync --locked --extra controller --extra agent
+      - name: docker info
+        run: docker info --format '{{.ServerVersion}} {{.OperatingSystem}}'
+      - name: pytest -m cluster
+        run: uv run python scripts/pytest_exit_guard.py -m cluster --junitxml=reports/junit-cluster.xml
+      - name: upload junit report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: junit-cluster
+          path: reports/
+          if-no-files-found: ignore
+          retention-days: 14
+
   # V0.1 success criterion 1, literally: copy the checkout to a temp dir, run a
   # plain `uv sync` (no extras, own uv cache) there, then `pytest -m unit` and a
   # Docker-unreachable bare `pytest -q` inside that clone. The test itself does
@@ -212,7 +248,7 @@ jobs:
   ci-ok:
     name: ci-ok
     if: ${{ always() }}
-    needs: [lint, types, unit, component, fresh-clone]
+    needs: [lint, types, unit, component, cluster, fresh-clone]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
