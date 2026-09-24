@@ -50,11 +50,14 @@ that directory on ``sys.path`` so they import as top-level modules (e.g.
 
 from __future__ import annotations
 
+import io
 import sys
 from pathlib import Path
 from typing import Final
 
 import pytest
+
+from meshforge.common.logging import configure_logging
 
 TESTS_DIR: Final = Path(__file__).resolve().parent
 
@@ -199,3 +202,36 @@ def docker_available(pytestconfig: pytest.Config) -> None:
     reason = docker_unavailable_reason(pytestconfig)
     if reason:
         pytest.skip(reason)
+
+
+@pytest.fixture(autouse=True)
+def _configured_logging() -> None:
+    """Give the whole suite the logging configuration the real processes use.
+
+    Not cosmetic — it removes a way to wedge the suite. structlog's *default*
+    (unconfigured) processor chain renders a rich traceback whose cost grows
+    superlinearly with the exception message: a V0.3 G5 tester test that logged a
+    200 KB exception through it spun at 100% CPU for minutes and had to be
+    deleted. :func:`~meshforge.common.logging.configure_logging` installs
+    ``ExceptionDictTransformer(use_rich=False)`` and caps scrubbed text, so the
+    same call is ~1.5 ms and flat in the message length.
+
+    Configuring it here makes that hazard structurally impossible rather than
+    something each new test has to remember. Output goes to an in-memory stream so
+    log lines never pollute pytest's captured output; a test that wants to *read*
+    what was logged still uses ``structlog.testing.capture_logs()``, which
+    replaces the chain for its own block.
+
+    **Function-scoped, not session-scoped, and that is the whole point.**
+    ``tests/unit/common/test_common_logging*.py`` legitimately call
+    ``structlog.reset_defaults()`` in their own fixtures, so a once-per-session
+    call leaves every *later* test running on the default chain again - which is
+    exactly how the full suite came to spin for minutes at ~90% CPU inside
+    ``rich/text.py`` while each file passed in under a second on its own. (The
+    spin holds the GIL, so ``--timeout`` never fires: the hang looks like a stall
+    with no failing test, which is what made it expensive to find.) Re-applying
+    per test is ~0.2 ms and restores the invariant no matter what ran before.
+    Tests that want a different configuration simply call ``configure_logging``
+    themselves afterwards, as those logging tests already do.
+    """
+    configure_logging(fmt="json", stream=io.StringIO())

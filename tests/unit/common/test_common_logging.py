@@ -241,8 +241,17 @@ def test_console_format_is_human_readable() -> None:
 
 
 def test_invalid_arguments() -> None:
+    """A rejected argument must install nothing - no handler, no half-setup.
+
+    Asserted as "no *new* handler appeared", not "there are none at all": the
+    suite-wide ``_configured_logging`` fixture in ``tests/conftest.py`` has
+    already installed one by design, and a test that depends on ambient global
+    state is the thing this repo's own rules forbid. Counting the delta keeps the
+    invariant exactly and makes the test independent of what ran before.
+    """
+    before = len(_our_handlers())
     with pytest.raises(ValueError):
         configure_logging("LOUD")
     with pytest.raises(ValueError):
         configure_logging("INFO", fmt="xml")  # type: ignore[arg-type]
-    assert _our_handlers() == []
+    assert len(_our_handlers()) == before
