@@ -192,7 +192,7 @@ def nodes(
     whether this controller process holds the node's stream right now, and AGE
     is how stale the newest resource sample is.
     """
-    from meshforge.cli.render import node_detail_table, nodes_table
+    from meshforge.cli.render import node_detail_table, nodes_table, scores_table
 
     checked = _checked_node_id(node_id)
     settings = _settings()
@@ -203,6 +203,7 @@ def nodes(
                 _echo_json(payload)
             else:
                 _out().print(node_detail_table(payload))
+                _out().print(scores_table(payload))
             return
         if watch and not json_output:
             _watch(

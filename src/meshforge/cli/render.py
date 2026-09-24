@@ -22,6 +22,15 @@ interpreted as markup whatever the console's ``markup`` setting is. ``--json``
 is deliberately *not* touched: it prints the API payload verbatim for scripting,
 and JSON string escaping already renders a control character as ``\u001b``.
 
+**Hardware scores (roadmap 0.3.4, D38).** ``nodes_table`` gets one compact
+``SCORES`` cell per node (``CPU 312 GF, GPU0 8.1 TF``; ``pending``; ``-`` for
+none) and ``compute nodes <id>`` prints :func:`scores_table` under the detail
+table: one row per metric, a measured value with its spread and conditions or the
+reason it was not measured. A value the backend could only lower-bound prints
+as ``>=``; a metric that is not ``ok`` prints ``n/a``, never a number. Every
+string in either comes from the agent (backend names, reasons, details, even
+the metric names) and goes through :func:`_cell`.
+
 **Portability.** Tables use the ASCII box style, not Unicode box-drawing, so the
 output is identical in Windows Terminal, a legacy ``cmd.exe`` code page and a
 pipe. Colour is Rich's own TTY detection (a redirected stdout gets none).
@@ -43,11 +52,37 @@ __all__ = [
     "format_bytes",
     "node_detail_table",
     "nodes_table",
+    "scores_cell",
+    "scores_table",
     "state_counts",
     "status_table",
 ]
 
-NODE_COLUMNS = ("NODE", "HOSTNAME", "STATE", "CONN", "RTT", "CPU%", "RAM", "GPU", "AGE")
+NODE_COLUMNS = (
+    "NODE",
+    "HOSTNAME",
+    "STATE",
+    "CONN",
+    "RTT",
+    "CPU%",
+    "RAM",
+    "GPU",
+    "AGE",
+    "SCORES",
+)
+
+SCORE_COLUMNS = (
+    "METRIC",
+    "GPU",
+    "STATUS",
+    "VALUE",
+    "UNIT",
+    "STDEV",
+    "N",
+    "BACKEND",
+    "THREADS",
+    "NOTES",
+)
 
 DASH = "-"
 """What a null, missing or unusable value renders as (ASCII, one character)."""
@@ -153,6 +188,150 @@ def _conn(node: Mapping[str, Any]) -> str:
     return "yes" if value is True else "no" if value is False else DASH
 
 
+def _mapping(value: object) -> Mapping[str, Any] | None:
+    return value if isinstance(value, Mapping) else None
+
+
+def _metrics(scores: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    metrics = scores.get("metrics")
+    if not isinstance(metrics, Sequence) or isinstance(metrics, (str, bytes)):
+        return []
+    return [m for m in metrics if isinstance(m, Mapping)]
+
+
+def _score_value(metric: Mapping[str, Any]) -> str:
+    """``312``/``8.1``/``>=19.3`` for an ok metric; ``n/a`` otherwise (never 0)."""
+    mean = _num(metric.get("mean"))
+    if metric.get("status") != "ok" or mean is None:
+        return "n/a"
+    text = f"{mean:.0f}" if mean >= 100 else f"{mean:.1f}"
+    return f">={text}" if metric.get("lower_bound") is True else text
+
+
+def _find(
+    metrics: list[Mapping[str, Any]], name: str, gpu_index: float | None = None
+) -> Mapping[str, Any] | None:
+    for metric in metrics:
+        if metric.get("name") == name and _num(metric.get("gpu_index")) == gpu_index:
+            return metric
+    return None
+
+
+def scores_cell(node: Mapping[str, Any]) -> Text:
+    """The compact ``SCORES`` cell: ``CPU 312 GF, GPU0 8.1 TF`` / ``pending`` / ``-``.
+
+    CPU is ``cpu_fp32_gflops_all`` (the 1-thread figure when that is all there
+    is); one ``GPUn`` per GPU from ``gpu_fp32_tflops``. Built from numbers this
+    function formats, but the whole cell still goes through :func:`_cell`.
+    """
+    scores = _mapping(node.get("scores"))
+    if scores is None:
+        return Text(DASH)
+    status = scores.get("status")
+    if status != "measured":
+        return _cell("pending" if status == "pending" else None)
+    metrics = _metrics(scores)
+    parts: list[str] = []
+    cpu = _find(metrics, "cpu_fp32_gflops_all") or _find(metrics, "cpu_fp32_gflops_1t")
+    if cpu is not None:
+        parts.append(f"CPU {_score_value(cpu)} GF")
+    gpu_indices = sorted(
+        {
+            index
+            for metric in metrics
+            if metric.get("name") == "gpu_fp32_tflops"
+            and (index := _num(metric.get("gpu_index"))) is not None
+        }
+    )
+    for index in gpu_indices:
+        gpu = _find(metrics, "gpu_fp32_tflops", index)
+        if gpu is not None:
+            parts.append(f"GPU{index:.0f} {_score_value(gpu)} TF")
+    return _cell(", ".join(parts) if parts else "measured")
+
+
+def _notes(metric: Mapping[str, Any]) -> str:
+    notes: list[str] = []
+    if metric.get("lower_bound") is True:
+        notes.append("lower bound")
+    if metric.get("throttling_suspected") is True:
+        notes.append("throttling?")
+    reason = metric.get("reason")
+    if isinstance(reason, str) and reason:
+        detail = metric.get("detail")
+        notes.append(
+            f"{reason}: {detail}" if isinstance(detail, str) and detail else reason
+        )
+    return "; ".join(notes)
+
+
+def _yes_no(value: object) -> str:
+    return "yes" if value is True else "no" if value is False else "unknown"
+
+
+def _conditions_caption(scores: Mapping[str, Any]) -> Text:
+    conditions = _mapping(scores.get("conditions")) or {}
+    load = _num(conditions.get("cpu_load_percent_before"))
+    duration, budget = (
+        _num(conditions.get("duration_s")),
+        _num(conditions.get("budget_s")),
+    )
+    parts = [
+        f"measured {scores.get('measured_at')}",
+        f"run {scores.get('run_id')}",
+        f"on battery: {_yes_no(conditions.get('on_battery'))}",
+        f"load before: {DASH if load is None else f'{load:.0f}%'}",
+        f"priority lowered: {_yes_no(conditions.get('priority_lowered'))}",
+        f"took {DASH if duration is None else f'{duration:.1f}'} s of "
+        f"{DASH if budget is None else f'{budget:.0f}'} s budget",
+    ]
+    if conditions.get("budget_exhausted") is True:
+        parts.append("BUDGET EXHAUSTED")
+    if conditions.get("background_load_high") is True:
+        parts.append("BACKGROUND LOAD HIGH")
+    return _cell(" / ".join(parts))
+
+
+def scores_table(payload: Mapping[str, Any]) -> Table:
+    """``scores`` of ``GET /v1/nodes/{id}`` as a full table (``compute nodes <id>``)."""
+    scores = _mapping(payload.get("scores")) or {}
+    status = scores.get("status")
+    label = status if status in ("measured", "pending", "none") else "unknown"
+    table = _table(*SCORE_COLUMNS, title=f"hardware scores ({label})")
+    if status != "measured":
+        table.caption = {
+            "pending": "not measured yet for this hardware; "
+            "the agent scores after it connects",
+            "none": "this node does not measure hardware scores",
+        }.get(label, "the controller sent no scores (older controller?)")
+        return table
+    table.caption = _conditions_caption(scores)
+    for metric in _metrics(scores):
+        gpu = _num(metric.get("gpu_index"))
+        stdev = _num(metric.get("stdev"))
+        n = _num(metric.get("n"))
+        threads = _num(metric.get("threads_effective"))
+        ok = metric.get("status") == "ok"
+        version = metric.get("backend_version")
+        backend = metric.get("backend")
+        backend_text = (
+            f"{backend} {version}" if isinstance(version, str) and version else backend
+        )
+        table.add_row(
+            _cell(metric.get("name")),
+            DASH if gpu is None else f"{gpu:.0f}",
+            _cell(metric.get("status")),
+            _score_value(metric),
+            _cell(metric.get("unit")),
+            DASH if not ok or stdev is None else f"{stdev:.3g}",
+            DASH if not ok or n is None else f"{n:.0f}",
+            _cell(backend_text),
+            DASH if threads is None else f"{threads:.0f}",
+            _cell(_notes(metric) or None),
+        )
+    return table
+
+
 def _table(*columns: str, title: str | None = None) -> Table:
     table = Table(title=title, box=box.ASCII, header_style="bold", pad_edge=False)
     for column in columns:
@@ -180,6 +359,7 @@ def nodes_table(payload: Mapping[str, Any]) -> Table:
             _ram(node),
             _gpus(node),
             format_age(node.get("sample_age_s")),
+            scores_cell(node),
         )
     return table
 
@@ -225,6 +405,7 @@ def node_detail_table(payload: Mapping[str, Any]) -> Table:
             # Both the key and the value are agent-supplied (D13: the controller
             # stores `Hello.hardware` as given), so both go through `_cell`.
             table.add_row(_cell(f"hardware.{key}"), _cell(hardware[key]))
+    table.add_row("scores", scores_cell(payload))
     live = payload.get("cpu_percent"), payload.get("ram_used_bytes")
     if _num(live[0]) is not None or _num(live[1]) is not None:
         table.add_row("cpu%", _percent(payload.get("cpu_percent")))
