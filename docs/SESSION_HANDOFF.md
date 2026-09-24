@@ -29,7 +29,7 @@
 > throughput measurements and the reasoning; if you think the arithmetic or the trade is wrong,
 > **say so to the team before building on it.** Do not silently re-expand the scope either.
 
-**Last updated:** 2026-09-24 (**G5 CLOSED agent-side** — 0.3.12 `[x]`, 0.3.13 `[~]` on one 🧑 Windows check; **G6 is next and its brief is not written yet**) · **Updated by:** Lead session (account 2)
+**Last updated:** 2026-09-24 (**G5 CLOSED agent-side**; **models moved to Opus 5.5** — see §0c; **G6 is next and its brief is not written yet**; the exit-139 fix task was killed and must be relaunched) · **Updated by:** Lead session (account 2)
 
 ---
 
@@ -132,6 +132,49 @@ decisions far better than mTLS does, and "AI has a real optimization role" is a 
 
 ---
 
+## 0c. 🟢 MODELS CHANGED 2026-09-24 — Opus 5.5
+
+**Claude Opus 5.5 (`claude-opus-5-5`) was released 2026-09-22** — stronger than Opus 5 on agentic coding and
+~40% cheaper to run on typical workloads ($4 / $20 per M input/output tokens). The project now uses it:
+
+| Role | Model | Effort | Where it is set |
+|---|---|---|---|
+| **Lead** (the main session) | `claude-opus-5-5` | — | the app's model picker / `/model claude-opus-5-5` |
+| implementer | `claude-opus-5-5` (was `claude-opus-5`) | medium | `.claude/agents/implementer.md` |
+| tester | `claude-sonnet-5` (unchanged) | medium | `.claude/agents/tester.md` |
+| reviewer | `claude-opus-5-5` (was `claude-opus-5`) | low | `.claude/agents/reviewer.md` |
+
+Commit `6563c7d`. **Subagent models are pinned by exact ID in the agent files** — switching the Lead's model does
+*not* change them; edit the frontmatter. Tester stays on Sonnet 5 on purpose: it has been effective (G5's tester
+rounds found three vacuous assertions) and there is no verified cost comparison to justify moving it.
+
+**What this does and does not change about §0b's budget arithmetic.** The throughput figures there (≈1.5
+tasks/session, the ~30-task shortfall) were measured from this repo's `git log` on **Opus 5** sessions. A cheaper,
+stronger model is the first thing that pushes *toward* closing the gap — but it is **unmeasured on this repo**, so
+do not re-plan on it yet. **Re-baseline after G6** (tasks closed, agent runs, re-rounds) and only then revisit the
+degradation ladder. It changes nothing about the calendar-bound items: V0.15's training data, the 24 🧑 lab tasks,
+the 24 h soak.
+
+**How the machine got here (so nobody repeats the detour):**
+- The Claude Desktop app was upgraded via its official apt repo (`/etc/apt/sources.list.d/claude-desktop.list`,
+  `downloads.claude.ai`) from **1.49585.0 → 2.7032.0**; after a restart, Opus 5.5 is selectable in the desktop app.
+  Upgrade command: `sudo apt update` then `sudo apt install --only-upgrade claude-desktop` (needs the user's sudo
+  password — an agent cannot run it).
+- The standalone CLI was also installed (`npm install -g @anthropic-ai/claude-code`, **2.1.281**, under nvm, no sudo).
+  It turned out **not to be needed**; it is optional (`claude` in a terminal, where `/model` and `/permissions`
+  dialogs work). Remove with `npm uninstall -g @anthropic-ai/claude-code` if unwanted.
+- **Trap:** grepping the app bundle (`app.asar`) for model IDs is **not** evidence of what the picker offers —
+  `claude-opus-5-5` had zero hits there yet was selectable after the restart. Check the picker, not the bundle.
+- ⚠️ A **third-party snap** `claudeai-desktop 1.0.0` (publisher `prevailexcel`, not Anthropic) is also installed.
+  It is not the app in use (that is the `.deb` at `/usr/lib/claude-desktop`). Treat it as untrusted — it would
+  handle account credentials; remove with `snap remove claudeai-desktop` unless someone knows why it is there.
+
+**The app restart killed the exit-139 fix task** (started in its own session just before). It left no worktree
+and no commits, so **it must be relaunched** — see §2. Restarting the desktop app kills every running session;
+check nothing is mid-task first.
+
+---
+
 ## 1. Where the project is
 
 - **Version: V0.3 (fabric core).** **G1–G5 are closed agent-side.** A live controller ⇄ agent fabric works
@@ -230,7 +273,7 @@ the prime suspect — not yet proven.**
 
 **This will make the first GitHub Actions `unit` job red no matter how many tests pass, so it blocks closing V0.1
 (0.1.4, 0.1.10).** It survived three agent rounds because every one of them reported pass counts and none checked
-the exit code. **A green summary is not a green run.** Raised as its own task.
+the exit code. **A green summary is not a green run.** Raised as its own task — **which was killed by a desktop app restart on 2026-09-24 before committing anything, so it must be relaunched** (the prompt is in `docs/STATUS.md` → Next Recommended Task).
 
 ### A second trap the same investigation found
 
