@@ -16,6 +16,11 @@ at all. On expiry (or any failure) the agent still enrols, with
 a node that cannot describe its GPUs is still a node - and the abandoned thread is
 a daemon, so it cannot hold up process exit either.
 
+Hardware scores (roadmap 0.3.4) are the third task: :func:`start_scores` runs
+:class:`~meshforge.agent.benchmarks.service.ScoreService`, which waits for the first
+ONLINE, scores once in a child process if ``<data_dir>/scores.json`` is invalid, and
+then polls the cache. It is cancelled first on the way out (its child is killed).
+
 The resource monitor (roadmap 0.3.5) is the second task in this process. It is
 referenced, stopped and awaited before ``serve()`` returns, and its NVML session is
 shared with discovery so the driver is initialised once. That sharing is why both
@@ -43,6 +48,7 @@ import signal
 from collections.abc import Callable
 from typing import Final
 
+from meshforge.agent.benchmarks.service import ScoreService
 from meshforge.agent.hardware import HardwareFacts, HardwareProvider, NvmlSession
 from meshforge.agent.hardware.deadline import (
     BlockingCallError,
@@ -64,7 +70,9 @@ __all__ = [
     "install_signal_handlers",
     "run_agent",
     "serve",
+    "start_scores",
     "stop_signals",
+    "stop_task",
 ]
 
 log = get_logger(__name__)
@@ -169,20 +177,71 @@ async def serve(
         discovery=settings.agent.uses_discovery,
     )
     monitor = _build_monitor(settings, client, facts, nvml, guard)
+    monitor_task: asyncio.Task[None] | None = None
     if monitor is None:
         await _close_nvml(nvml, guard)
-        await client.run()
-        return client
-    monitor_task = asyncio.create_task(monitor.run(), name=f"agent-resources:{node_id}")
-    monitor_task.add_done_callback(_on_monitor_done)
+    else:
+        monitor_task = asyncio.create_task(
+            monitor.run(), name=f"agent-resources:{node_id}"
+        )
+        monitor_task.add_done_callback(_on_monitor_done)
+    scores_task = start_scores(settings, client, facts)
     try:
         await client.run()
     finally:
-        monitor.request_stop()
-        # The monitor's own loop closes the sampler (and the NVML session) in its
-        # finally block; gather so a crash in it is reported, never swallowed.
-        await asyncio.gather(monitor_task, return_exceptions=True)
+        # Cancelling the scoring task kills its benchmark child tree (runner).
+        await stop_task(scores_task)
+        if monitor is not None and monitor_task is not None:
+            monitor.request_stop()
+            # The monitor's own loop closes the sampler (and the NVML session) in
+            # its finally block; gather so a crash in it is reported, never swallowed.
+            await asyncio.gather(monitor_task, return_exceptions=True)
     return client
+
+
+def start_scores(
+    settings: AgentSettings,
+    client: AgentSessionClient,
+    facts: HardwareFacts | None,
+    *,
+    service: ScoreService | None = None,
+) -> asyncio.Task[None] | None:
+    """Start the background hardware-score task (roadmap 0.3.4) unless disabled.
+
+    The task waits for the first ONLINE itself, so starting it here never delays
+    connect or Hello. The reference is returned (and kept by :func:`serve`) and a
+    done-callback logs a crash - no fire-and-forget task.
+    """
+    if not settings.agent.scores.enabled:
+        log.info("agent.scores.disabled", node_id=client.node_id)
+        return None
+    service = service or ScoreService(
+        settings.agent.scores, settings.data_dir, client, facts
+    )
+    task = asyncio.create_task(service.run(), name=f"agent-scores:{client.node_id}")
+    task.add_done_callback(_on_scores_done)
+    return task
+
+
+async def stop_task(task: asyncio.Task[None] | None) -> None:
+    """Cancel ``task`` and wait for it (its ``finally`` blocks run to the end)."""
+    if task is None:
+        return
+    task.cancel()
+    await asyncio.gather(task, return_exceptions=True)
+
+
+def _on_scores_done(task: asyncio.Task[None]) -> None:
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        log.error(
+            "agent.scores.task_failed",
+            task=task.get_name(),
+            cause=type(exc).__name__,
+            error=str(exc)[:200],
+        )
 
 
 async def _close_nvml(nvml: NvmlSession, guard: DeadlineThread) -> None:

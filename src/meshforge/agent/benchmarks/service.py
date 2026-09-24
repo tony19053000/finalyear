@@ -58,7 +58,15 @@ log = get_logger(__name__)
 _ONLINE_WAIT_S = 3600.0
 
 type Report = Callable[[ScoreSet], Awaitable[None]]
-type RunnerFactory = Callable[..., ScoreRunner]
+
+
+class Runner(Protocol):
+    """What :func:`score_and_cache` needs from a runner (``ScoreRunner`` or a fake)."""
+
+    async def run(self) -> ScoreSet: ...
+
+
+type RunnerFactory = Callable[..., Runner]
 
 
 class CacheWriteError(Exception):
@@ -107,7 +115,7 @@ async def score_and_cache(
     raised: they are metric statuses in the returned set.
     """
     fp, inputs = current_fingerprint(facts, backends)
-    factory = runner_factory or ScoreRunner
+    factory: RunnerFactory = runner_factory or ScoreRunner
     with scorer_lock(data_dir):
         runner = factory(
             config, host_facts(facts), fingerprint=fp, log_fields=log_fields

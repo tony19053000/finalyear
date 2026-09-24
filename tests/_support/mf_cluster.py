@@ -606,6 +606,10 @@ class Fabric:
             "agent.keepalive": self._agent_keepalive,
             "agent.discovery": {"enabled": False},
             "agent.resources": self._agent_resources,
+            # G7 (0.3.4): N agents share one host here, so each one's background
+            # hardware-score run would put all-core benchmark load on the others'
+            # liveness. Off by default; a scenario that tests scoring turns it on.
+            "agent.scores": {"enabled": False},
         }
         path = self.workdir / f"agent{index}.toml"
         path.write_text(_toml({k: v for k, v in tables.items() if v}), "utf-8")
