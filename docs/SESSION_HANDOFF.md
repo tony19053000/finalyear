@@ -273,6 +273,16 @@ away any once-per-session call.
   probe the first row, then ask `_database_answers()` immediately.
 - **V0.4:** `manager.py` is ~913 lines and still on the extraction list.
 
+### One gate a fresh session should re-run
+
+**`pytest -m component` was started at G5 close and did not finish.** It reached ~88% with **zero failures** and was
+still crawling after well over an hour (load average ~9, Docker cycling Postgres containers). G5's own component
+tests are green inside the targeted runs — `tests/component/controller` 64 passed, `tests/component/agent` 67
+passed (including all 21 new G5 tests), `test_registry_list_sessions_{tester,tiebreaker}` 10 passed against real
+PostgreSQL — so what is missing is a regression check over the `lab` and `store` tiers that G5 never touches.
+**Re-run the whole suite on an unloaded machine early in the G6 session** and record the number; if anything is red
+there, it is a G4-or-earlier regression, not G5.
+
 ### Not written by an agent session
 
 `docs/reports/` (two mentor progress reports + a PDF, 2026-09-24) appeared in the working tree from outside this
