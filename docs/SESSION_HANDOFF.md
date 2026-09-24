@@ -203,8 +203,8 @@ early. Re-check after G7.
 
 ## 2. In flight right now
 
-> **G7-B in flight (implementer):** done items 1-3 (proto + wire `9da3a6e`; agent Hello/send_report `5b3d976`; controller 0005 + D38 validation + fenced ordered write `d7c940c`).
-> Next: controller component tests (restart/replay/fence/malformed), then items 4 (REST) and 5 (CLI), then the cluster scenario.
+> **G7-B in flight (implementer):** done items 1-5 (proto/wire, agent send, controller 0005+validation+fence, REST scores, CLI column+table; last `feat` commit on main).
+> Next: component tests (tests/component/agent/test_hardware_scores.py), cluster scenario, mutation checks, full gates, handoff.
 
 > **G7-A in flight (implementer):** items 1-7 + unit/component/heartbeat tests + mutation checks committed (`dc4ebcf`..`7ce9b39`).
 > Next: full component-suite run, then the handoff note to the Lead; after that the tester round (A+B share one tester round per §5g, so G7-B may go first).
