@@ -22,6 +22,7 @@ def report(seq: int) -> agent_pb2.AgentMessage:
 def test_report_payload_set_is_exactly_the_reports() -> None:
     assert {
         "resource_update",
+        "hardware_scores",  # G7-B (D37): a report, buffered and replayed
         "cache_report",
         "net_probe_result",
         "attempt_status",

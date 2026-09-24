@@ -20,6 +20,13 @@ Hardware scores (roadmap 0.3.4) are the third task: :func:`start_scores` runs
 :class:`~meshforge.agent.benchmarks.service.ScoreService`, which waits for the first
 ONLINE, scores once in a child process if ``<data_dir>/scores.json`` is invalid, and
 then polls the cache. It is cancelled first on the way out (its child is killed).
+A finished run goes to the controller through ``send_report("hardware_scores")``
+(:func:`~meshforge.agent.benchmarks.service.session_reporter`), and the cache that
+is already valid at start-up rides in the first ``Hello`` (D37) - read here, in a
+thread, before connecting, whether or not background scoring is enabled (a run
+made with ``meshforge-agent hardware score`` is still this machine's truth). With
+scoring enabled the Hello also carries the ``hardware-scores`` capability tag, which
+tells the controller "pending" from "this node does not score" (``none``).
 
 The resource monitor (roadmap 0.3.5) is the second task in this process. It is
 referenced, stopped and awaited before ``serve()`` returns, and its NVML session is
@@ -48,8 +55,18 @@ import signal
 from collections.abc import Callable
 from typing import Final
 
-from meshforge.agent.benchmarks.service import ScoreService
-from meshforge.agent.hardware import HardwareFacts, HardwareProvider, NvmlSession
+from meshforge.agent.benchmarks.service import (
+    ScoreService,
+    session_reporter,
+    valid_cached_scores,
+)
+from meshforge.agent.benchmarks.wire import to_proto
+from meshforge.agent.hardware import (
+    HardwareFacts,
+    HardwareProvider,
+    NvmlSession,
+    clip_capabilities,
+)
 from meshforge.agent.hardware.deadline import (
     BlockingCallError,
     BlockingCallTimeoutError,
@@ -60,6 +77,7 @@ from meshforge.agent.resources import ResourceMonitor, ResourceSampler
 from meshforge.agent.session.client import AgentSessionClient
 from meshforge.agent.session.hello import basic_hardware
 from meshforge.agent.settings import AgentSettings
+from meshforge.common.capabilities import HARDWARE_SCORES_CAPABILITY
 from meshforge.common.errors import ExitCode, MeshForgeError
 from meshforge.common.logging import get_logger
 from meshforge.common.proto.meshforge.v1 import agent_pb2
@@ -67,6 +85,7 @@ from meshforge.common.proto.meshforge.v1 import agent_pb2
 __all__ = [
     "DISCOVERY_GRACE_S",
     "discover_hardware",
+    "hello_scores",
     "install_signal_handlers",
     "run_agent",
     "serve",
@@ -167,7 +186,16 @@ async def serve(
     nvml = NvmlSession()
     guard = DeadlineThread("hardware")
     hardware, facts = await discover_hardware(settings, node_id, nvml, guard)
-    client = AgentSessionClient(settings, identity, hardware=hardware)
+    if settings.agent.scores.enabled and facts is not None:
+        hardware.capabilities[:] = clip_capabilities(
+            [*hardware.capabilities, HARDWARE_SCORES_CAPABILITY]
+        )
+    client = AgentSessionClient(
+        settings,
+        identity,
+        hardware=hardware,
+        hardware_scores=await hello_scores(settings, node_id, facts),
+    )
     install_signal_handlers(client.request_stop)
     log.info(
         "agent.started",
@@ -199,6 +227,45 @@ async def serve(
     return client
 
 
+async def hello_scores(
+    settings: AgentSettings,
+    node_id: str,
+    facts: HardwareFacts | None,
+    *,
+    backends: Callable[[], dict[str, str | None]] | None = None,
+) -> agent_pb2.HardwareScores | None:
+    """The cached scores for the first ``Hello`` if valid for this machine (D37).
+
+    Read in a thread (file I/O, ``importlib.metadata``). ``None`` - Hello without
+    scores, "pending" on the controller - when there is no valid cache; never
+    raises, because a broken cache must not stop a node from enrolling.
+    """
+    try:
+        scores = await asyncio.to_thread(
+            valid_cached_scores,
+            settings.data_dir,
+            facts,
+            backends,
+            node_id=node_id,
+        )
+    except Exception as exc:  # noqa: BLE001 - enrolment must survive a broken cache
+        log.warning(
+            "agent.scores.hello_cache_failed",
+            node_id=node_id,
+            cause=type(exc).__name__,
+        )
+        return None
+    if scores is None:
+        return None
+    log.info(
+        "agent.scores.hello_cache_valid",
+        node_id=node_id,
+        run_id=scores.run_id,
+        measured_at=scores.measured_at.isoformat(),
+    )
+    return to_proto(scores)
+
+
 def start_scores(
     settings: AgentSettings,
     client: AgentSessionClient,
@@ -216,7 +283,11 @@ def start_scores(
         log.info("agent.scores.disabled", node_id=client.node_id)
         return None
     service = service or ScoreService(
-        settings.agent.scores, settings.data_dir, client, facts
+        settings.agent.scores,
+        settings.data_dir,
+        client,
+        facts,
+        report=session_reporter(client),
     )
     task = asyncio.create_task(service.run(), name=f"agent-scores:{client.node_id}")
     task.add_done_callback(_on_scores_done)

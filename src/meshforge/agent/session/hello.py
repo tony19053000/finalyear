@@ -113,10 +113,16 @@ def build_hello(
     agent_version: str,
     hardware: agent_pb2.HardwareSummary | None = None,
     facts: tuple[str, str, str] | None = None,
+    hardware_scores: agent_pb2.HardwareScores | None = None,
 ) -> agent_pb2.Hello:
-    """The Hello for one attempt. ``hardware``/``facts`` are injectable for tests."""
+    """The Hello for one attempt. ``hardware``/``facts`` are injectable for tests.
+
+    ``hardware_scores`` is the cached score run when it is valid for this machine
+    (roadmap 0.3.4, D37); ``None`` leaves the field absent, which the controller
+    reads as "not measured for this hardware" (pending).
+    """
     hostname, os_text, plat = facts if facts is not None else host_facts()
-    return agent_pb2.Hello(
+    hello = agent_pb2.Hello(
         node_id=node_id,
         protocol_version=PROTOCOL_VERSION,
         agent_version=agent_version,
@@ -126,3 +132,6 @@ def build_hello(
         platform=plat,
         hardware=hardware if hardware is not None else basic_hardware(),
     )
+    if hardware_scores is not None:
+        hello.hardware_scores.CopyFrom(hardware_scores)
+    return hello

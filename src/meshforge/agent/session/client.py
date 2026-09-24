@@ -197,6 +197,7 @@ class AgentSessionClient:
         clock: Callable[[], float] | None = None,
         rand: Callable[[], float] | None = None,
         hardware: agent_pb2.HardwareSummary | None = None,
+        hardware_scores: agent_pb2.HardwareScores | None = None,
         host_facts: tuple[str, str, str] | None = None,
         bump_epoch: EpochBumper = next_epoch,
         on_online: Callable[[], Awaitable[None]] | None = None,
@@ -216,6 +217,10 @@ class AgentSessionClient:
         self._clock_override = clock
         self._rand = rand
         self._hardware = hardware
+        self.hardware_scores: agent_pb2.HardwareScores | None = hardware_scores
+        """What every later ``Hello`` carries (roadmap 0.3.4, D37): the cached run
+        valid for this machine, replaced by the scoring task's newest run. Only the
+        event loop touches it (the owner task reads it when it builds a Hello)."""
         self._facts = host_facts
         self._bump_epoch = bump_epoch
 
@@ -386,6 +391,7 @@ class AgentSessionClient:
                 agent_version=cfg.agent_version,
                 hardware=self._hardware,
                 facts=self._facts,
+                hardware_scores=self.hardware_scores,
             )
             try:
                 await self._write(agent_pb2.AgentMessage(hello=hello))

@@ -1,17 +1,21 @@
 """Bounded replay ring for un-acked *reports* (ADR-0002 Updates §4) and the
 controller-command dedupe window.
 
-Only reports are buffered - ``ResourceUpdate``, ``AttemptStatus``, ``LogChunk``,
-``CacheReport``, ``NetProbeResult``: messages whose loss would lose information
-the controller cannot recover otherwise. **Heartbeats, Pongs, Acks, Hello and
-Reconcile are never buffered**: a missed heartbeat is information in itself, and
-the others are per-stream.
+Only reports are buffered - ``ResourceUpdate``, ``HardwareScores``,
+``AttemptStatus``, ``LogChunk``, ``CacheReport``, ``NetProbeResult``: messages
+whose loss would lose information the controller cannot recover otherwise.
+**Heartbeats, Pongs, Acks, Hello and Reconcile are never buffered**: a missed
+heartbeat is information in itself, and the others are per-stream.
 
 Each report gets a monotonic ``sequence`` (per agent process, never reset across
 reconnects) so ``Reconcile.replay_from_sequence`` can tell the controller where the
-replay starts. On overflow the *oldest* entry is dropped and ``dropped`` counts it -
-the controller learns about the gap from the sequence numbers, and the agent logs
-``agent.session.replay_dropped``.
+replay starts. The sequence is shared by every report kind; only ``ResourceUpdate``
+also carries it in its payload, so the controller's resource dedupe cursor sees
+gaps where other reports were sent - gaps it tolerates by design (the cursor only
+ever compares ``<=``; pinned by
+``tests/component/controller/test_hardware_scores.py``). On overflow the *oldest*
+entry is dropped and ``dropped`` counts it - the controller learns about the gap
+from the sequence numbers, and the agent logs ``agent.session.replay_dropped``.
 
 Ordering is by insertion (= by sequence); an ``Ack`` removes by ``message_id``
 wherever the entry sits (acks may arrive out of order after a replay).
@@ -30,6 +34,7 @@ __all__ = ["REPORT_PAYLOADS", "RecentIds", "ReplayEntry", "ReplayRing"]
 REPORT_PAYLOADS: Final[frozenset[str]] = frozenset(
     {
         "resource_update",
+        "hardware_scores",
         "cache_report",
         "net_probe_result",
         "attempt_status",

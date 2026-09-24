@@ -10,10 +10,14 @@
   it polls the cache's mtime every ``cache_poll_s`` so a run made by the CLI is
   picked up without a restart. It never re-scores periodically.
 
-The "report" step is one injectable callback. In G7-A it only logs
-``agent.scores.ready`` (run_id, fingerprint, per-metric statuses - no numbers);
-G7-B replaces it with ``send_report``. The task owns all of its state (single
-writer); on agent shutdown it is cancelled and the runner kills the child tree.
+The "report" step is one injectable callback. The agent passes
+:func:`session_reporter` (G7-B, D37): the run becomes the session's
+``hardware_scores`` (so every later ``Hello`` carries it) and is sent with
+``send_report("hardware_scores", ...)`` - buffered, replayed after a reconnect,
+acked. Without a callback it only logs ``agent.scores.ready`` (tests). The first
+``Hello`` gets the cache from :func:`valid_cached_scores`, read before connecting.
+The task owns all of its state (single writer); on agent shutdown it is cancelled
+and the runner kills the child tree.
 """
 
 from __future__ import annotations
@@ -38,19 +42,24 @@ from meshforge.agent.benchmarks.cache import (
 from meshforge.agent.benchmarks.model import ScoreSet
 from meshforge.agent.benchmarks.plan import GpuRef
 from meshforge.agent.benchmarks.runner import HostFacts, RunnerConfig, ScoreRunner
+from meshforge.agent.benchmarks.wire import to_proto
 from meshforge.agent.hardware.summary import HardwareFacts
 from meshforge.agent.session.state import AgentState
 from meshforge.agent.settings import ScoreSettings
 from meshforge.common.logging import get_logger
+from meshforge.common.proto.meshforge.v1 import agent_pb2
 
 __all__ = [
     "CacheWriteError",
+    "ScoreChannel",
     "ScoreService",
     "SessionView",
     "current_fingerprint",
     "host_facts",
     "runner_config",
     "score_and_cache",
+    "session_reporter",
+    "valid_cached_scores",
 ]
 
 log = get_logger(__name__)
@@ -131,6 +140,62 @@ async def score_and_cache(
         except OSError as exc:
             raise CacheWriteError(scores, exc) from exc
     return scores
+
+
+def valid_cached_scores(
+    data_dir: Path,
+    facts: HardwareFacts | None,
+    backends: Callable[[], dict[str, str | None]] | None = None,
+    **log_fields: Any,
+) -> ScoreSet | None:
+    """The cached run if it is valid for this machine right now, else ``None``.
+
+    Blocking (a file read and ``importlib.metadata``); the agent calls it once in a
+    thread before its first ``Hello`` (D37: a controller restart never loses the
+    scores). ``None`` when discovery failed (no fingerprint) or the cache is
+    missing, corrupt or stale - the Hello then says "not measured" and the
+    controller shows ``pending``. Never raises (``load_cache`` does not).
+    """
+    if facts is None:
+        return None
+    fp, _ = current_fingerprint(facts, backends or backend_versions)
+    state = load_cache(data_dir, fp, **log_fields)
+    return state.scores if state.valid else None
+
+
+class ScoreChannel(Protocol):
+    """What :func:`session_reporter` needs from ``AgentSessionClient``."""
+
+    node_id: str
+    session_id: str
+    hardware_scores: agent_pb2.HardwareScores | None
+
+    async def send_report(self, payload_name: str, payload: Any) -> str: ...
+
+
+def session_reporter(channel: ScoreChannel) -> Report:
+    """The agent's report step (D37): later Hellos carry the run, and it is sent now.
+
+    ``hardware_scores`` is replaced *before* the report is queued, so a reconnect
+    that happens meanwhile already announces the new run in its Hello; the report
+    itself sits in the replay ring until the controller acks it. Logs statuses,
+    never numbers.
+    """
+
+    async def report(scores: ScoreSet) -> None:
+        message = to_proto(scores)
+        channel.hardware_scores = message
+        message_id = await channel.send_report("hardware_scores", message)
+        log.info(
+            "agent.scores.reported",
+            node_id=channel.node_id,
+            session_id=channel.session_id or None,
+            run_id=scores.run_id,
+            message_id=message_id,
+            statuses=scores.statuses(),
+        )
+
+    return report
 
 
 class SessionView(Protocol):
