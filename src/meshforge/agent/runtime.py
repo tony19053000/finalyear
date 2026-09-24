@@ -4,7 +4,7 @@
 
     settings -> identity.load_or_create (thread) -> hardware.discover (thread)
              -> AgentSessionClient.run() + ResourceMonitor.run()
-             -> SIGINT/SIGTERM -> client.request_stop() -> exit 0
+             -> SIGINT/SIGTERM/SIGBREAK -> client.request_stop() -> exit 0
 
 Hardware discovery (roadmap 0.3.3) runs once, before the first Hello, on a
 :class:`~meshforge.agent.hardware.deadline.DeadlineThread` bounded by
@@ -24,8 +24,11 @@ must leave at most one abandoned thread, not one per sample.
 
 Signals are Windows-safe: ``loop.add_signal_handler`` where it exists, else
 ``signal.signal`` + ``call_soon_threadsafe`` (ADR-0009: the agent runs natively on
-Windows). On stop the agent half-closes its stream and exits 0; the controller
-records ``agent_closed`` from the stream end - no farewell message is needed.
+Windows). On Windows ``SIGBREAK`` (CTRL_BREAK_EVENT, which a supervisor sends
+with ``GenerateConsoleCtrlEvent`` to stop a console process group gracefully) is a
+stop too; unhandled, it would kill the agent without the half-close. On stop the
+agent half-closes its stream and exits 0; the controller records ``agent_closed``
+from the stream end - no farewell message is needed.
 
 Exit codes: ``OK`` after a requested stop; the error's own code for a typed failure
 (:class:`~meshforge.common.errors.IdentityError` / ``ConfigError`` ->
@@ -61,6 +64,7 @@ __all__ = [
     "install_signal_handlers",
     "run_agent",
     "serve",
+    "stop_signals",
 ]
 
 log = get_logger(__name__)
@@ -72,10 +76,19 @@ _NVML_CLOSE_TIMEOUT_S: Final = 2.0
 """``nvmlShutdown`` is a driver call too; shutdown never waits longer than this."""
 
 
+def stop_signals() -> tuple[signal.Signals, ...]:
+    """The signals that request a graceful stop: SIGINT, SIGTERM and, where the
+    platform has it (Windows), SIGBREAK."""
+    sigs = [signal.SIGINT, signal.SIGTERM]
+    if hasattr(signal, "SIGBREAK"):
+        sigs.append(signal.SIGBREAK)
+    return tuple(sigs)
+
+
 def install_signal_handlers(on_signal: Callable[[], None]) -> None:
-    """SIGINT/SIGTERM -> ``on_signal()`` on the running loop; works on Windows too."""
+    """:func:`stop_signals` -> ``on_signal()`` on the running loop; works on Windows."""
     loop = asyncio.get_running_loop()
-    for sig in (signal.SIGINT, signal.SIGTERM):
+    for sig in stop_signals():
         try:
             loop.add_signal_handler(sig, on_signal)
         except (NotImplementedError, RuntimeError):  # Windows / non-main thread
