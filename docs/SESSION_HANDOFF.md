@@ -203,7 +203,13 @@ early. Re-check after G7.
 
 ## 2. In flight right now
 
-**Nothing is mid-task.** G6 closed on 2026-09-24 (0.3.14 `[x]`, reviewer APPROVE pass 2, commits `64a89b5` …
+**G7-A is in flight (spawned 2026-09-24).** The G7 brief is written: `docs/briefs/V0.3-fabric-core.md` **§5g**
+(decisions D30–D38; two sequential runs, A = agent-side scoring, B = wire + controller + REST/CLI). If this session
+died: check `git log --oneline | grep G7` and the implementer's own "G7-A in flight" note below, then re-spawn
+G7-A with only what is left, or spawn G7-B once A has handed off. **Team flag:** D30 adds `numpy` to the `agent`
+extra.
+
+*(Previous state, kept for context:)* G6 closed on 2026-09-24 (0.3.14 `[x]`, reviewer APPROVE pass 2, commits `64a89b5` …
 `64e488a`) and the tree is committed. The next agent-side step is a **Lead** step: write the **G7** brief (0.3.4
 hardware scores from the S7 kernels in `lab/spikes/_s7/`, at first enrolment and on demand) as
 `docs/briefs/V0.3-fabric-core.md` **§5g**, then spawn it. GPU score must be a typed `unavailable: torch not installed`
