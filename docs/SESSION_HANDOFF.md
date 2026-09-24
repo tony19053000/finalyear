@@ -30,7 +30,7 @@
 > throughput measurements and the reasoning; if you think the arithmetic or the trade is wrong,
 > **say so to the team before building on it.** Do not silently re-expand the scope either.
 
-**Last updated:** 2026-09-24 (**G6 brief written — §5f — and run G6-A spawned**; ARCHITECTURE §12.3 amended (D19/D20); models on Opus 5.5 — see §0c; the exit-139 fix task was killed and must be relaunched) · **Updated by:** Lead session (account 2)
+**Last updated:** 2026-09-24 (**G6 brief written — §5f — and run G6-A spawned**; ARCHITECTURE §12.3 amended (D19/D20); models on Opus 5.5 — see §0c; the exit-139 bug is **fixed** — torch half-import, not grpc; see §2) · **Updated by:** Lead session (account 2)
 
 ---
 
@@ -170,8 +170,7 @@ the 24 h soak.
   It is not the app in use (that is the `.deb` at `/usr/lib/claude-desktop`). Treat it as untrusted — it would
   handle account credentials; remove with `snap remove claudeai-desktop` unless someone knows why it is there.
 
-**The app restart killed the exit-139 fix task** (started in its own session just before). It left no worktree
-and no commits, so **it must be relaunched** — see §2. Restarting the desktop app kills every running session;
+**The app restart killed the first exit-139 fix task**; it was relaunched and is **done** (§2). Restarting the desktop app kills every running session;
 check nothing is mid-task first.
 
 ---
@@ -277,18 +276,35 @@ Confirmed twice independently: the tester with a tight lease and a *graceful* `r
 3. Documenting rather than fixing it inside a REST task was the *right* call (§2a: three of G4's four defects were
    introduced by fixes), and it is a good argument that D16's three-field design was right.
 
-### 🔴 The unit suite's exit code is not green — read this before pushing
+### ✅ The unit suite's exit-139 is fixed (2026-09-24) — but keep reading exit codes
 
-`uv run pytest -m unit -q` prints `3214 passed, 2 skipped, 2 xfailed` and then **exits 139 (SIGSEGV)**.
-Pre-existing, reproduced with and without this session's changes. faulthandler shows
-`Fatal Python error: Segmentation fault` in a native thread with `<no Python frame>` — a C-level crash at
-interpreter shutdown. Each of `tests/unit/{cli,common,agent,controller}` exits **0** alone; only the whole
-`tests/unit` set crashes, and the top-level files are the ones importing grpc/protobuf, so **`grpcio`'s C core is
-the prime suspect — not yet proven.**
+`pytest -m unit` printed a green summary and then exited 139. **It was not grpc.** A gdb backtrace showed the crash on
+the **main thread** in `Py_FinalizeEx → _PyModule_Clear` of **`torch._C._functions`**. The chain:
+`tests/unit/lab/test_s7_child.py` imported the *real* torch in-process → `filterwarnings = error` promoted torch's
+"Failed to initialize NumPy" warning (this venv has torch but no numpy) to an exception half-way through
+`torch/__init__` → `lab/spikes/_s7/child.py::_module` swallowed it → later calls re-ran `torch/__init__` over the
+already-loaded C extension → the third attempt corrupts it → segfault at shutdown. The earlier bisection skipped
+`tests/unit/lab`, which crashes on its own. **CI was never exposed** (it syncs without the `gpu` extra).
 
-**This will make the first GitHub Actions `unit` job red no matter how many tests pass, so it blocks closing V0.1
-(0.1.4, 0.1.10).** It survived three agent rounds because every one of them reported pass counts and none checked
-the exit code. **A green summary is not a green run.** Raised as its own task — **which was killed by a desktop app restart on 2026-09-24 before committing anything, so it must be relaunched** (the prompt is in `docs/STATUS.md` → Next Recommended Task).
+Fixed in `ff7095d` `d9ec26f` `bc6042b` `db2ceec` `a99bfe2` (reviewer APPROVE; tester PASS on every round but the last — its DEFECT-7 fix (bounded kill after Ctrl-C) was verified by the Lead on a real SIGINT-deaf pytest):
+- `child._module` is `functools.cache`d — **a failed native import must never be retried in the same process**.
+- The S7 child tests block torch/numpy with `monkeypatch.setitem(sys.modules, name, None)` — the pattern to use
+  whenever a unit test needs an optional library to look missing. **Never import the real torch in a unit test.**
+- `tests/conftest.py` fails a session that leaves a package half-imported and **names it** (it fires even on one
+  bad import that would not have crashed).
+- **`scripts/pytest_exit_guard.py <pytest args>`** — run pytest through it. It forwards output unchanged, returns
+  pytest's status (signals → 128+sig), and says loudly when the summary is green but the exit is not 0. CI's unit
+  and component steps and the implementer/tester agent files use it.
+
+**For the G6 session:** the tester's component run through the guard found `tests/component/store/test_store_migrations.py`
+still pins `HEAD = "0003"` after G6's migration `0004` (2 failures), plus
+`test_s3_adversarial.py::test_loopback_ceiling_bounded_when_child_dies_mid_measurement` failing — neither is
+related to this fix; not touched here.
+
+Debugging tip that made this cheap: `gdb -iex "set debuginfod enabled on" -ex "handle SIGINT SIGTERM SIGCHLD ...
+nostop noprint pass" -ex run --args "$PWD/.venv/bin/python3" -m pytest ...` (tests send themselves SIGINT, and the
+path has a space — quote it). Ubuntu's debuginfod has no symbols for this python build; a breakpoint on
+`_PyModule_Clear` printing `(char*)(*(long*)($rdi+48)+40)` (the module name, CPython 3.12 layout) found the module.
 
 ### A second trap the same investigation found
 
@@ -342,7 +358,7 @@ Two warnings about *measuring* this suite, learned the hard way. It appeared sta
 polled — the machine was at load average ~9 with several of the Lead's own earlier runs competing for it, and each
 `kill` of a stray run reset the picture. **Actual pytest time was 12 minutes**, close to the V0.1-era record. So:
 run it once, do not poll it aggressively, and do not start other heavy runs beside it. And note the contrast that
-matters for the exit-139 hunt: **the component tier exits 0 while the unit tier exits 139.**
+mattered for the exit-139 hunt (since fixed — §2): the component tier exited 0 while the unit tier exited 139.
 
 ### Not written by an agent session
 
@@ -430,8 +446,8 @@ this session several dead runs before the real cause was found.
 - **Subagent runs die to transient API timeouts.** Tell every agent to commit incrementally; recover by committing
   the working tree `wip:` and relaunching (SendMessage is disabled in this setup, so a cut agent cannot be
   resumed — it must be relaunched with a fresh prompt).
-- **Check the exit code, not just the pytest summary.** `pytest -m unit` currently prints a fully green summary and
-  then exits **139**. Three agent rounds missed it (§2).
+- **Check the exit code, not just the pytest summary** — run pytest via `scripts/pytest_exit_guard.py`. `pytest -m unit`
+  once printed a fully green summary and exited **139**; three agent rounds missed it (§2, fixed).
 - **A test that logs a large exception can wedge the whole suite** and `--timeout` will not save you, because the
   spin holds the GIL. `tests/conftest.py`'s autouse `configure_logging` fixture must stay **function-scoped** (§2).
 - **Never edit a file while a test run or a subagent is touching it.** Beyond the `git add -A` rule below, editing
