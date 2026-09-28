@@ -59,8 +59,8 @@ ADR-0012. This section and the roadmap's DEFERRED banners are what apply.
      open-ended attack lists beyond that.
    - Reviewer: reviews **the group's commits (`git diff <first>^..<last>`) + the tester report**, not the whole repo.
    - Reports ≤ 500 words. **One Lead session per group** (fresh session per group, not one endless session).
-   - Models (`.claude/agents/*.md`): implementer **Sonnet 5** by default; the Lead passes `model: "opus"` for groups
-     heavy in concurrency / fencing / protocol (e.g. **G4**). Tester Sonnet 5. Reviewer **Opus 5.5** (the quality gate).
+   - Models (`.claude/agents/*.md`): implementer **Opus 5.5** (team decision 2026-09-28: the implementer is never
+     downgraded to save tokens), tester Sonnet 5, reviewer Opus 5.5.
 5. Tests never depend on this machine (GPU, Docker, hostname); Docker/GPU tests SKIP with a reason elsewhere.
 
 ## 2. Where we are · exact next step

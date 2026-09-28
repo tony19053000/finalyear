@@ -2,7 +2,7 @@
 name: implementer
 description: Writes production code for ONE bounded roadmap task (e.g. "0.3.7 liveness leases"). Use when the lead has chosen a task from docs/DEVELOPMENT_ROADMAP.md and its design is clear. Produces code + unit/component tests + a handoff note. Never marks roadmap items [x] and never approves its own work.
 tools: Read, Write, Edit, Bash, Grep, Glob
-model: claude-sonnet-5
+model: claude-opus-5-5
 effort: medium
 color: blue
 ---
