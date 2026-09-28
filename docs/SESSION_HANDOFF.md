@@ -7,9 +7,10 @@
 > **Cold-start prompt** (paste this as the first message on the new account):
 >
 > ```
-> Read docs/SESSION_HANDOFF.md (sections 0, 0b, 0c and 2 especially), then docs/STATUS.md, then
-> the current version in docs/DEVELOPMENT_ROADMAP.md. V0.3 is closed agent-side (G7 done);
-> write the V0.4 brief as docs/briefs/V0.4-remote-execution.md, first group 0.4.16 + 0.4.17 item 2.
+> Read docs/SESSION_HANDOFF.md (sections 0, 0b, 0c, 0d and 2 especially), then docs/STATUS.md, then
+> V0.4 in docs/DEVELOPMENT_ROADMAP.md. V0.3 is closed agent-side (G7 done). We are behind pace (§0d).
+> Write the V0.4 brief as docs/briefs/V0.4-remote-execution.md with LARGER task groups than V0.3
+> (first group 0.4.16 + 0.4.17 item 2), then spawn the first group.
 > ```
 >
 > Order of truth: `PROJECT_BRIEF → ARCHITECTURE → ROADMAP → STATUS → this file`. If this file
@@ -29,7 +30,7 @@
 > throughput measurements and the reasoning; if you think the arithmetic or the trade is wrong,
 > **say so to the team before building on it.** Do not silently re-expand the scope either.
 
-**Last updated:** 2026-09-25 (**G7 CLOSED agent-side** — 0.3.4 `[x]`, reviewer APPROVE; all agent-side V0.3 work done; next: the V0.4 brief; see §0c for the G7 throughput data point) · **Updated by:** Lead session (account 2)
+**Last updated:** 2026-09-28 (**G7 CLOSED agent-side** — all agent-side V0.3 work done; **pace check added as §0d: ~half the speed the plan needs**; next: the V0.4 brief) · **Updated by:** Lead session (account 2)
 
 ---
 
@@ -186,6 +187,44 @@ Resuming a cut-off agent (not relaunching) is the cheap recovery; keep the "comm
 Throughput is still ~1 task/session by checkbox; the binding constraint remains the usage limit.
 
 ---
+
+## 0d. 🔴 PACE CHECK 2026-09-28 — we are at about half the speed the plan needs
+
+Asked for by the team. Measured from the roadmap checkboxes, `git log` and the session files on this machine.
+
+**The plan:** 129 tasks from V0.3 to V1.0 (ADR-0012 table), now **131** after reviewers added 0.4.16 and 0.4.17.
+Calendar: **~5 weeks from 2026-09-21 (§0b) → about 2026-10-26.** *That end date is the Lead's reading of "~5 weeks";
+the team has not confirmed it — if it is wrong, redo this section.*
+
+| | Plan | Actual (2026-09-28) |
+|---|---|---|
+| Calendar used | — | 7 of 35 days (**20 %**) |
+| Tasks `[x]` | ~26 by now | **11 of 131 (8 %)** — plus 3 V0.3 tasks code-done, waiting on 🧑 checks |
+| Speed needed for the rest | **120 tasks ÷ 28 days ≈ 4.3/day** | **~1.8/day** while working (V0.3: 11 tasks, 20–25 Sep); **0 on 26–28 Sep** (no sessions) |
+| Sessions/day | ~2.6 (§0b) | ~1.7 on working days |
+| Tasks/session | 1.5 | ~1.1 |
+
+**What that means:** at ~1.8/day the remaining 28 days give ~50 more tasks, **~60 total instead of 131**. That reaches
+roughly V0.4 + V0.5 + V0.6 + part of V0.9 — **not V0.10 (Mode 3) or V0.15 (ML planner)**, the two items the plan says
+are never cut. The ladder (V1.0 → V0.17 → thin V0.8 → V0.5 polish) frees only ~25–30 tasks, so cutting alone does
+not rescue Mode 3; **speed has to roughly double as well.**
+
+**Why V0.3 was slow (so V0.4 does not repeat it):** inherited fix work (exit-139, G6's liveness redesign), defect-driven
+re-rounds (G4 9 agent runs, G6 11, G7 7), and usage limits cutting sessions short. Tester/reviewer rounds found real
+bugs every time — do **not** drop them.
+
+**Levers, in order of size — the next Lead should act on 1–3 without waiting:**
+1. **More sessions per day: run accounts in parallel** on task groups with **no overlapping files** (§0b item 2).
+   Accounts: §0b says two, the team's memory note says **three** Pro accounts — confirm with the team and use all of them.
+2. **Larger groups from V0.4 on:** Mode 1 work is more routine than V0.3's distributed-systems core — aim for 3–5 tasks
+   per implementer run, one tester + one reviewer round per group.
+3. **Apply the cut ladder now**, not in week 4, and tell the team what is being cut.
+4. **No idle days:** 26–28 Sep produced nothing; a lab day for humans can still run an agent group in parallel.
+5. **🧑 lab work is the other half:** the 12 `[~]` tasks (inventory on laptops 2–4, GitHub push + CI, Windows checks,
+   0.3.15 lab run + 24 h soak) need people, not tokens — schedule them this week.
+
+**Open team questions this raises:** the real deadline date; how many accounts; whether V0.4 coding may start before
+the 🧑 0.3.15 lab run closes V0.3 (the Lead recommends yes — the lab run is calendar-bound, not code-bound).
 
 ## 1. Where the project is
 
