@@ -28,6 +28,7 @@ from meshforge.common.errors import FailureType
 from meshforge.controller.api.errors import ApiError
 
 if TYPE_CHECKING:
+    from meshforge.controller.blobs import FetchTokens
     from meshforge.controller.fabric_token import FabricTokenVerifier
 
 __all__ = [
@@ -61,6 +62,8 @@ class ApiAuth:
     """What the API checks credentials against. ``None`` verifier = refuse all."""
 
     verifier: FabricTokenVerifier | None
+    fetch_tokens: FetchTokens | None = None
+    """Per-attempt blob tokens (D48); accepted on ``/v1/blobs`` only."""
 
 
 def get_auth(request: Request) -> ApiAuth:

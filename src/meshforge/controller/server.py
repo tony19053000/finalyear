@@ -46,6 +46,7 @@ from meshforge.common.logging import get_logger
 from meshforge.common.netaddr import BindAddress, parse_bind
 from meshforge.common.proto.meshforge.v1 import agent_pb2_grpc
 from meshforge.controller.api.auth import ApiAuth
+from meshforge.controller.blobs import BlobStore, FetchTokens
 from meshforge.controller.discovery import ServiceAdvertiser
 from meshforge.controller.fabric_token import (
     FabricTokenVerifier,
@@ -119,6 +120,9 @@ class ControllerRuntime:
         self._stop_requested = asyncio.Event()
         self._stopped = False
         self.token_verifier: FabricTokenVerifier | None = None
+        self.blobs: BlobStore | None = None
+        self.fetch_tokens: FetchTokens | None = None
+        """D48: G4 mints per-attempt tokens here and hands them to agents."""
         self.failed_task: str | None = None
         """Name of the owned task whose crash caused the stop, if any (NB3): a
         controller that stopped because its lease timer died exits ``FAILURE``."""
@@ -143,6 +147,16 @@ class ControllerRuntime:
         log.info(
             "controller.token.ready", created=created, fingerprint=fingerprint(token)
         )
+        # D48: the blob store (and a sweep of part files a crash left behind).
+        blobs = BlobStore(
+            self.settings.blobs_dir, max_blob_bytes=cfg.blobs.max_blob_bytes
+        )
+        swept_parts = await asyncio.to_thread(blobs.prepare)
+        self.blobs = blobs
+        self.fetch_tokens = FetchTokens(
+            clock=loop.time, capacity=cfg.jobs.fetch_token_capacity
+        )
+        log.info("controller.blobs.ready", parts_swept=swept_parts)
 
         engine = create_engine(self.settings.database)
         self._engine = engine
@@ -216,7 +230,10 @@ class ControllerRuntime:
                 # The API reads sample ages against the same monotonic clock the
                 # session manager and the leases use (D16).
                 clock=loop.time,
-                auth=ApiAuth(verifier=self.token_verifier),
+                auth=ApiAuth(
+                    verifier=self.token_verifier, fetch_tokens=self.fetch_tokens
+                ),
+                blobs=blobs,
             ),
             host=self._http_bind.host,
             port=self.http_port,

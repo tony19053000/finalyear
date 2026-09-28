@@ -34,6 +34,8 @@ from meshforge.controller.api import (
     router,
 )
 from meshforge.controller.api.auth import AUTH_STATE_KEY, ApiAuth, guard_mutations
+from meshforge.controller.api.blob_routes import BLOBS_STATE_KEY, blob_router
+from meshforge.controller.blobs import BlobStore
 from meshforge.controller.registry import Registry
 from meshforge.controller.resources import ResourceTracker
 from meshforge.controller.session.manager import SessionManager
@@ -50,6 +52,7 @@ def create_http_app(
     resources: ResourceTracker,
     clock: Callable[[], float],
     auth: ApiAuth | None = None,
+    blobs: BlobStore | None = None,
 ) -> FastAPI:
     """Build the controller's HTTP app. ``clock`` must be the loop's monotonic clock.
 
@@ -85,4 +88,7 @@ def create_http_app(
         return {"status": "ok", "sessions": len(manager)}
 
     app.include_router(router)
+    if blobs is not None:
+        setattr(app.state, BLOBS_STATE_KEY, blobs)
+        app.include_router(blob_router)
     return app
