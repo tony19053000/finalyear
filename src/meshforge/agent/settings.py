@@ -348,8 +348,9 @@ PYTHON_CPU_IMAGE: Final = (
 )
 """Default ``python-cpu`` base (V0.4 D46/D51): the Docker Official Image, multi-arch
 index digest resolved 2026-09-28 (image built 2026-09-19, Python 3.12.14). 3.12 is
-the project's interpreter, so a job behaves the same as a local run; ``slim`` (Debian) keeps glibc wheels working
-(an Alpine/musl base would force source builds of numpy & co.)."""
+the project's interpreter, so a job behaves the same as a local run; ``slim``
+(Debian) keeps glibc wheels working (an Alpine/musl base would force source builds
+of numpy & co.)."""
 
 CUDA_PYTORCH_IMAGE: Final = (
     "pytorch/pytorch:2.14.0-cuda12.6-cudnn9-runtime"
