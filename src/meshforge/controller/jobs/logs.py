@@ -54,6 +54,7 @@ from meshforge.controller.session.live import LiveSession
 
 __all__ = [
     "MAX_CHUNK_BYTES",
+    "MAX_PENDING_FINALS",
     "STREAMS",
     "AttemptLogState",
     "LogEvent",
@@ -68,6 +69,12 @@ log = get_logger(__name__)
 STREAMS: Final = ("stdout", "stderr")
 MAX_CHUNK_BYTES: Final = 64 * 1024
 MAX_GAPS_KEPT: Final = 1024
+MAX_PENDING_FINALS: Final = 4096
+"""Attempt ends queued for the writer at once. One is queued per ended attempt,
+so this is only reached if the writer is stalled (e.g. a hung final copy) while
+thousands of attempts end; past it an end is applied at once without the final
+copy (the live file and its gaps stay; the followers still get their end frame),
+so the queue - ``queue_chunks + queue_finals`` items - is bounded."""
 _ENDED_KEPT: Final = 4096
 _PROTO_STREAM: Final = {
     agent_pb2.LogChunk.STREAM_STDOUT: "stdout",
@@ -174,6 +181,7 @@ class LogHubStats:
     finals_copied: int = 0
     slow_subscribers: int = 0
     write_failures: int = 0
+    finals_overflowed: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -200,6 +208,7 @@ class LogHub:
         blobs: BlobStore | None,
         max_bytes: int,
         queue_chunks: int = 4096,
+        queue_finals: int = MAX_PENDING_FINALS,
         subscriber_queue: int = 1024,
         max_subscribers: int = 8,
     ) -> None:
@@ -209,8 +218,14 @@ class LogHub:
         self._queue_chunks = queue_chunks
         self._subscriber_queue = subscriber_queue
         self._max_subscribers = max_subscribers
-        self._queue: asyncio.Queue[_Chunk | _Final] = asyncio.Queue()
+        self._queue_finals = queue_finals
+        # Bounded by construction: on_chunk and finalize admit at most
+        # queue_chunks / queue_finals items, so put_nowait never raises.
+        self._queue: asyncio.Queue[_Chunk | _Final] = asyncio.Queue(
+            queue_chunks + queue_finals
+        )
         self._pending_chunks = 0
+        self._pending_finals = 0
         self._attempts: dict[str, AttemptLogState] = {}
         self._ended: OrderedDict[str, AttemptLogState] = OrderedDict()
         self._by_job: dict[str, set[Subscription]] = {}
@@ -252,7 +267,23 @@ class LogHub:
         self, attempt_id: str, logs: Mapping[str, Mapping[str, Any]] | None
     ) -> None:
         """The attempt ended; ``logs`` = verified final logs per stream (or none).
-        Queued behind the live chunks already received."""
+        Queued behind the live chunks already received; past
+        :data:`MAX_PENDING_FINALS` queued ends it is applied at once, without
+        the final copy (see there)."""
+        if self._pending_finals >= self._queue_finals:
+            self.stats.finals_overflowed += 1
+            state = self._attempts.pop(attempt_id, None)
+            log.warning(
+                "controller.logs.final_overflow",
+                attempt_id=attempt_id,
+                job_id=None if state is None else state.job_id,
+                pending=self._pending_finals,
+            )
+            if state is not None:
+                _close_files(state)
+                self._mark_ended(attempt_id, state)
+            return
+        self._pending_finals += 1
         self._queue.put_nowait(_Final(attempt_id, dict(logs or {})))
 
     def ended_state(self, attempt_id: str) -> AttemptLogState | None:
@@ -302,6 +333,7 @@ class LogHub:
                     self._pending_chunks -= 1
                     self._append(item)
                 else:
+                    self._pending_finals -= 1
                     await self._apply_final(item)
         finally:
             for state in self._attempts.values():
@@ -429,8 +461,11 @@ class LogHub:
                 continue
             state.final[stream] = True
             self.stats.finals_copied += 1
+        self._mark_ended(item.attempt_id, state)
+
+    def _mark_ended(self, attempt_id: str, state: AttemptLogState) -> None:
         state.ended = True
-        self._ended[item.attempt_id] = state
+        self._ended[attempt_id] = state
         while len(self._ended) > _ENDED_KEPT:
             self._ended.popitem(last=False)
         for sub in list(state.subscribers):
