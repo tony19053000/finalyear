@@ -148,15 +148,24 @@ class LiveSession:
     """Heartbeats arrived since ``last_touch_at`` that are not yet persisted."""
 
     def summary(self) -> dict[str, int | float | None]:
-        """The session's counters for the ``session.closed`` log line."""
+        """Every per-session counter, for the ``session.closed`` log line (D43)."""
         return {
             "heartbeats": self.heartbeats,
             "stale_messages": self.stale_messages,
             "duplicates": self.duplicates,
-            "pending_writes": self.writer.pending,
+            "resource_updates": self.resource_updates,
+            "resource_updates_clamped": self.resource_updates_clamped,
+            "hardware_scores_received": self.hardware_scores_received,
+            "hardware_scores_rejected": self.hardware_scores_rejected,
+            "pings_sent": self.pings_sent,
+            "pongs_matched": self.pongs_matched,
             "last_rtt_ms": None
             if self.last_rtt_ms is None
             else round(self.last_rtt_ms, 3),
+            "pending_writes": self.writer.pending,
+            "writes_failed": self.writer.failed,
+            "writes_dropped": self.writer.dropped,
+            "write_overflow_episodes": self.writer.overflow_episodes,
         }
 
     def touch_due_at(self, interval_s: float) -> float | None:

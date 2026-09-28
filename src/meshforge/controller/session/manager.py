@@ -780,9 +780,10 @@ class SessionManager:
         async with self._lock:  # an admission in flight finishes (or refuses) first
             for live in list(self._live.values()):
                 self._ends.close(live, SessionEndReason.CONTROLLER_SHUTDOWN)
-            # Unreachable in practice (every admission settles its claim before
-            # the lock is free again); a backstop so no chain is left without END.
-            for deferred in self._claims.drain():  # pragma: no cover
+            # Not expected (every admission settles its claim before the lock is
+            # free again); a backstop so no chain is left without END - tested
+            # directly in test_session_signals.py.
+            for deferred in self._claims.drain():
                 self._ends.finish_end(deferred, fire_event=True)
             for entry in list(self._lingering.values()):
                 # No controller = no liveness claim, exactly like the start-up

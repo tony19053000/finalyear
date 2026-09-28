@@ -30,7 +30,14 @@ finds the queue full first evicts the **oldest droppable** write (``touch`` /
 newcomer is dropped and a state/end write is still queued (never lost) with an
 error log - state writes are paced by the lease timer, so that branch means the
 database has been unreachable for on the order of a thousand lease intervals.
-Every drop is logged ``registry.write_dropped``.
+
+Overflow is visible (V0.4 D43): the first drop of an **overflow episode** logs
+``registry.write_queue_overflow`` (warning) with ``dropped`` / ``capacity`` /
+``pending``; later drops of the same episode are only counted (and logged
+``registry.write_dropped`` at debug). The episode ends once the queue has drained
+below half its capacity, so a database that recovers and stalls again is reported
+again. :attr:`WriteChain.overflow_episodes` counts episodes for the session's
+summary.
 
 Time: none. Nothing here reads a clock; ordering is the queue's.
 """
@@ -116,6 +123,10 @@ class WriteChain:
         self.completed = 0
         self.failed = 0
         self.dropped = 0
+        self.overflow_episodes = 0
+        """Overflow episodes so far (D43); one warning each."""
+        self._overflowing = False
+        """True from an episode's first drop until the queue is below half."""
 
     # ----------------------------------------------------------------- state
 
@@ -176,28 +187,10 @@ class WriteChain:
         for index, pending in enumerate(self._queue):
             if pending.kind.droppable:
                 del self._queue[index]
-                self.dropped += 1
-                log.warning(
-                    "registry.write_dropped",
-                    node_id=self._node_id,
-                    session_id=self._session_id,
-                    op=pending.op,
-                    kind=pending.kind.value,
-                    pending=len(self._queue),
-                    reason="overflow_evicted_oldest",
-                )
+                self._record_drop(pending.op, pending.kind, "overflow_evicted_oldest")
                 return True
         if kind.droppable:
-            self.dropped += 1
-            log.warning(
-                "registry.write_dropped",
-                node_id=self._node_id,
-                session_id=self._session_id,
-                op=op,
-                kind=kind.value,
-                pending=len(self._queue),
-                reason="overflow_newest_droppable",
-            )
+            self._record_drop(op, kind, "overflow_newest_droppable")
             return False
         # A state/end write with nothing droppable ahead of it: keep it (it is
         # paced by the lease timer, so this is not a peer-controlled growth path)
@@ -212,6 +205,36 @@ class WriteChain:
             capacity=self._capacity,
         )
         return True
+
+    def _record_drop(self, op: str, kind: WriteKind, reason: str) -> None:
+        """Count one dropped write; warn once per overflow episode (D43)."""
+        self.dropped += 1
+        if not self._overflowing:
+            self._overflowing = True
+            self.overflow_episodes += 1
+            log.warning(
+                "registry.write_queue_overflow",
+                node_id=self._node_id,
+                session_id=self._session_id,
+                dropped=self.dropped,
+                capacity=self._capacity,
+                pending=len(self._queue),
+                episode=self.overflow_episodes,
+            )
+        log.debug(
+            "registry.write_dropped",
+            node_id=self._node_id,
+            session_id=self._session_id,
+            op=op,
+            kind=kind.value,
+            pending=len(self._queue),
+            reason=reason,
+        )
+
+    def _note_drained(self) -> None:
+        """An overflow episode ends once the queue is below half capacity."""
+        if self._overflowing and len(self._queue) < self._capacity / 2:
+            self._overflowing = False
 
     def finish(self) -> None:
         """No more writes: the task ends once everything already queued is done.
@@ -234,6 +257,7 @@ class WriteChain:
                 await self._wake.wait()
                 self._wake.clear()
             pending = self._queue.popleft()
+            self._note_drained()
             await self._execute(pending)
             if pending.kind is WriteKind.END:
                 return
