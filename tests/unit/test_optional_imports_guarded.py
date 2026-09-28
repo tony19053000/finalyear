@@ -166,8 +166,10 @@ def test_scanner_knows_the_real_optional_packages() -> None:
     for name in ("sqlalchemy", "alembic", "asyncpg", "fastapi", "psutil", "pynvml"):
         assert name in OPTIONAL, f"{name} should be an optional-extra import"
     assert "torch" in OPTIONAL
+    # docker is in the `agent` extra since V0.4 (f9ca474), so src imports must guard it.
+    assert "docker" in OPTIONAL
     # Base / dev-group packages are always installed by a plain `uv sync`.
-    for name in ("pydantic", "grpc", "pytest", "docker", "testcontainers"):
+    for name in ("pydantic", "grpc", "pytest", "testcontainers"):
         assert name not in OPTIONAL
 
 

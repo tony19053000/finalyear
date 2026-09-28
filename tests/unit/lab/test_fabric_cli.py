@@ -150,7 +150,7 @@ def test_inventory_lists_hardware_and_never_says_it_matches(
         "--name",
         "L1",
     ]
-    assert cli.main([*argv, "inventory", "--json"]) == cli.EXIT_OK
+    assert cli.main([*argv, "inventory", "--json"], clock=FakeClock()) == cli.EXIT_OK
     out, err = capsys.readouterr()
     details = json.loads(out)
     assert {d["node_id"] for d in details} == {NODE, old}

@@ -12,6 +12,9 @@ from collections.abc import AsyncIterator
 
 import pytest
 import pytest_asyncio
+
+pytest.importorskip("alembic", reason="needs the controller extra")
+
 from alembic import command
 
 from meshforge.common.errors import FailureType
