@@ -9,7 +9,12 @@ The writer merges each chunk into ``<logs dir>/<attempt_id>.<stream>`` by offset
 (:class:`StreamMerge`): a duplicate or already-covered range is skipped, an
 overlap keeps only its new tail, a jump is **recorded** as a gap ``(from, to)`` -
 never filled with invented bytes (the live file is the bytes received, in
-order). Every appended piece is fanned out to the attempt's subscribers.
+order). Every appended piece is fanned out to the attempt's subscribers. A
+failed write (disk full, permissions, a symlink planted at the path - opened
+``O_NOFOLLOW``) is **never raised**: it is logged (``controller.logs.write_failed``,
+once per failing run), counted, the stream's handle is closed and the unwritten
+range is recorded as a gap; the next chunk re-opens the file. One bad file
+cannot stop the writer task - whose failure would stop the controller.
 
 **Final path.** When the attempt ends, :meth:`LogHub.finalize` (queued behind
 the live chunks) replaces each live file whose final log the agent uploaded
@@ -30,9 +35,11 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import errno
 import os
 import secrets
 import shutil
+import stat
 from collections import OrderedDict
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -81,6 +88,8 @@ class StreamMerge:
     """Bytes in the live file (= received bytes; gaps are not in it)."""
     gaps: list[tuple[int, int]] = field(default_factory=list)
     gaps_total: int = 0
+    write_failing: bool = False
+    """The last live-file write failed (logged once per failing run)."""
 
     def accept(self, offset: int, data: bytes) -> bytes:
         """The part of ``data`` to append (``b""`` = nothing new)."""
@@ -164,6 +173,7 @@ class LogHubStats:
     gaps: int = 0
     finals_copied: int = 0
     slow_subscribers: int = 0
+    write_failures: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -228,7 +238,8 @@ class LogHub:
             # After a controller restart the file already holds what arrived
             # before; continue after it (earlier gaps are not known any more).
             with contextlib.suppress(OSError):
-                size = self.path(attempt_id, stream).stat().st_size
+                info = self.path(attempt_id, stream).lstat()
+                size = info.st_size if stat.S_ISREG(info.st_mode) else 0
                 state.streams[stream].received_to = size
                 state.streams[stream].file_len = size
         self._attempts[attempt_id] = state
@@ -318,20 +329,78 @@ class LogHub:
         if not piece:
             self.stats.chunks_duplicate += 1
             return
-        fh = state.files.get(item.stream)
-        if fh is None:
-            fd = os.open(
-                self.path(item.attempt_id, item.stream),
-                os.O_WRONLY | os.O_CREAT | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0),
-                0o600,
-            )
-            fh = os.fdopen(fd, "ab", buffering=0)
-            state.files[item.stream] = fh
-        fh.write(piece)
+        written = 0
+        try:
+            fh = state.files.get(item.stream)
+            if fh is None:
+                fh = self._open_live(item.attempt_id, item.stream)
+                state.files[item.stream] = fh
+            while written < len(piece):
+                written += _write_some(fh, piece[written:])
+        except OSError as exc:
+            self._write_failed(item, state, merge, piece, written, exc)
+            if not written:
+                return
+            piece = piece[:written]
+        else:
+            merge.write_failing = False
         self.stats.chunks_appended += 1
         event = LogEvent("data", item.stream, start, piece)
         for sub in list(state.subscribers):
             sub.push(event)
+
+    def _open_live(self, attempt_id: str, stream: str) -> IO[bytes]:
+        fd = os.open(
+            self.path(attempt_id, stream),
+            os.O_WRONLY | os.O_CREAT | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0),
+            0o600,
+        )
+        try:
+            _require_regular(fd)
+            return os.fdopen(fd, "ab", buffering=0)
+        except BaseException:
+            os.close(fd)
+            raise
+
+    def _write_failed(
+        self,
+        item: _Chunk,
+        state: AttemptLogState,
+        merge: StreamMerge,
+        piece: bytes,
+        written: int,
+        exc: OSError,
+    ) -> None:
+        """A live-file write failed (disk full, permissions, a planted symlink):
+        the unwritten bytes become a recorded gap, the handle is closed (the
+        next chunk re-opens - a full disk may recover) and the hub carries on.
+        Never raised: one bad file must not stop the writer (and the controller).
+        """
+        self.stats.write_failures += 1
+        fh = state.files.pop(item.stream, None)
+        if fh is not None:
+            with contextlib.suppress(OSError):
+                fh.close()
+        lost = len(piece) - written
+        merge.file_len -= lost
+        lost_from = merge.received_to - lost
+        if merge.gaps and merge.gaps[-1][1] == lost_from:
+            merge.gaps[-1] = (merge.gaps[-1][0], merge.received_to)
+        else:
+            merge.gaps_total += 1
+            self.stats.gaps += 1
+            if len(merge.gaps) < MAX_GAPS_KEPT:
+                merge.gaps.append((lost_from, merge.received_to))
+        if not merge.write_failing:
+            merge.write_failing = True
+            log.warning(
+                "controller.logs.write_failed",
+                attempt_id=item.attempt_id,
+                job_id=state.job_id,
+                stream=item.stream,
+                cause=type(exc).__name__,
+                errno=exc.errno,
+            )
 
     async def _apply_final(self, item: _Final) -> None:
         state = self._attempts.pop(item.attempt_id, None)
@@ -349,7 +418,7 @@ class LogHub:
                 await asyncio.to_thread(
                     _replace_with, source, self.path(item.attempt_id, stream)
                 )
-            except OSError as exc:
+            except (OSError, ValueError) as exc:
                 log.warning(
                     "controller.logs.final_copy_failed",
                     attempt_id=item.attempt_id,
@@ -408,6 +477,19 @@ def _close_files(state: AttemptLogState) -> None:
         with contextlib.suppress(OSError):
             fh.close()
     state.files.clear()
+
+
+def _write_some(fh: IO[bytes], data: bytes) -> int:
+    """One unbuffered write; a write that stores nothing is an error (``EIO``)."""
+    n = fh.write(data)
+    if not n:
+        raise OSError(errno.EIO, "short write")
+    return n
+
+
+def _require_regular(fd: int) -> None:
+    if not stat.S_ISREG(os.fstat(fd).st_mode):
+        raise OSError(errno.EINVAL, "not a regular file")
 
 
 def _replace_with(source: Path, dest: Path) -> None:

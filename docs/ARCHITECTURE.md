@@ -529,6 +529,7 @@ stateDiagram-v2
 | Outputs cannot be collected/uploaded (V0.4 G5) | agent: link/escape/quota/upload error; controller: digest not uploaded under the attempt's grant | `FAILED(output_error)`; the Failure's `retryable` says whether a retry may help |
 | Final status lost (dropped, evicted from the ring) (D75) | no Ack within `terminal_resend_s` | the agent re-sends it until acked; the controller acks + releases anything it already ended |
 | Log chunks dropped (flood, disconnect) (D71) | offset jump | gap recorded, never filled; the final log upload replaces the live copy |
+| Controller cannot write a live log file (disk full, permissions, symlink planted at the path) (D71) | `OSError` on open (`O_NOFOLLOW`) or write | never raised out of the log writer: logged `controller.logs.write_failed` (cause + errno, no bytes/paths, once per failing run), counted, handle closed, the unwritten range recorded as a gap; the next chunk retries; other attempts unaffected; the final log still replaces the live file |
 
 Retry policy is per failure type (`retryable` vs not), with max attempts and backoff. All failures carry a typed `failure_type` for telemetry and ML.
 
