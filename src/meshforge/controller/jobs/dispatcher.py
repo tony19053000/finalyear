@@ -29,7 +29,15 @@ answered with ``CancelAttempt{release}``: the agent stops it if it still runs an
 frees it (D75). A report whose handler fails with anything but a database error
 is a *poison* report: after ``POISON_LIMIT`` failures of the same
 ``(attempt_id, state)`` it is acked and logged ``error`` with the exception type
-only, so it cannot be replayed forever (D75).
+only, so it cannot be replayed forever (D75). **Acked is not applied:** the
+store was never changed, so a poisoned ``DONE`` never makes the job
+``SUCCEEDED``. The agent frees the attempt once acked, and the attempt ends by
+another path: the next Reconcile finds it acked-but-not-held -> ``LOST``
+(``agent_lost_attempt``, job ``FAILED(node_lost)``); an agent OFFLINE -> ``LOST``;
+or, if it is still ``RUNNING`` in the store, the backstop ->
+``FAILED(deadline_exceeded, controller_backstop)``. The backstop only covers
+``RUNNING``: a poisoned report of an attempt stored as ``UPLOADING`` waits for
+the next Reconcile or OFFLINE.
 
 **Reconcile (D66).** For the node's live attempts: held by the agent -> continue
 (re-sending a pending cancel); not held and ``StartAttempt`` never acked ->
@@ -379,7 +387,11 @@ class Dispatcher:
 
     def _poisoned(self, item: _Status, exc: Exception) -> bool:
         """Count a handler failure; at ``POISON_LIMIT`` ack the report (D75).
-        True = it was acked (the caller swallows the exception)."""
+        True = it was acked (the caller swallows the exception).
+
+        The report is acked *without* being applied - a poisoned ``DONE`` never
+        yields ``SUCCEEDED``; the attempt ends ``LOST`` (Reconcile/OFFLINE) or
+        via the backstop (see the module docstring)."""
         key = (item.report.attempt_id, item.report.state.value)
         count = self._poison.pop(key, 0) + 1
         if count < POISON_LIMIT:
