@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Annotated, Final
 
 from fastapi import Depends, Request
+from starlette.requests import HTTPConnection
 
 from meshforge.common.errors import FailureType
 from meshforge.controller.api.errors import ApiError
@@ -40,6 +41,7 @@ __all__ = [
     "ApiAuth",
     "FabricTokenRequired",
     "bearer_token",
+    "fabric_token_ok",
     "get_auth",
     "guard_mutations",
     "require_fabric_token",
@@ -69,7 +71,7 @@ class ApiAuth:
     """Per-attempt upload grants (D73); accepted on ``PUT /v1/blobs`` only."""
 
 
-def get_auth(request: Request) -> ApiAuth:
+def get_auth(request: HTTPConnection) -> ApiAuth:
     auth = getattr(request.app.state, AUTH_STATE_KEY, None)
     return auth if isinstance(auth, ApiAuth) else ApiAuth(verifier=None)
 
@@ -82,7 +84,7 @@ def unauthorized() -> ApiError:
     )
 
 
-def bearer_token(request: Request) -> str | None:
+def bearer_token(request: HTTPConnection) -> str | None:
     """The token of ``Authorization: Bearer <token>``, or ``None`` if absent/malformed."""
     values = request.headers.getlist("authorization")
     if len(values) != 1:
@@ -101,27 +103,36 @@ def _fabric_ok(auth: ApiAuth, token: str | None) -> bool:
     return auth.verifier is not None and auth.verifier.verify(token)
 
 
+def fabric_token_ok(conn: HTTPConnection) -> bool:
+    """The connection (HTTP or WebSocket handshake) carries the fabric token."""
+    return _fabric_ok(get_auth(conn), bearer_token(conn))
+
+
 async def require_fabric_token(request: Request) -> None:
     """Dependency: the request carries the current fabric token, or 401."""
     if not _fabric_ok(get_auth(request), bearer_token(request)):
         raise unauthorized()
 
 
-async def guard_mutations(request: Request) -> None:
+async def guard_mutations(request: HTTPConnection) -> None:
     """App-wide dependency: every non-safe method needs the fabric token.
 
     Blob uploads are exempt here because their router checks the fabric token
     *or* a scoped fetch token itself (D48); every other mutation needs the
-    fabric token.
+    fabric token. A WebSocket route authenticates its own handshake (D72) - it
+    has no method, and a refusal there is a close, not an HTTP error body.
     """
-    if request.method in SAFE_METHODS:
+    if request.scope.get("type") == "websocket":
+        return
+    if request.scope.get("method") in SAFE_METHODS:
         return
     # Dependencies run after routing, so the matched route's *template* is known
     # (a raw-path prefix test could be fooled by an unnormalised URL).
     route_path = getattr(request.scope.get("route"), "path", "")
     if isinstance(route_path, str) and route_path.startswith(BLOB_ROUTE_PREFIX):
         return
-    await require_fabric_token(request)
+    if not fabric_token_ok(request):
+        raise unauthorized()
 
 
 FabricTokenRequired = Annotated[None, Depends(require_fabric_token)]
