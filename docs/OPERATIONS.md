@@ -70,6 +70,45 @@ This is one shared secret for the whole fabric — no per-user identity, no audi
 It keeps "anyone on the Wi-Fi" from running code on your laptops; it is not a
 substitute for V0.7's mTLS and user identity.
 
+### 0b. Running other people's jobs on this laptop (V0.4, D45/D51 — [ADR-0014](adr/0014-interim-execution-trust.md))
+
+An agent **runs nothing** unless its owner opts in. In that laptop's `config.toml`:
+
+```toml
+[agent.execution]
+enabled = true              # run jobs the controller sends (default false)
+allow_unsandboxed = false   # see "subprocess runtime" below before changing this
+grace_s = 3.0               # cancel/timeout: SIGTERM, then SIGKILL after this (<= 3 s)
+# workdir_root = ""         # empty = <data dir>/work
+# default_memory_mb = 4096, default_pids = 1024, default_cpus = (no limit),
+# default_timeout_s = 3600, max_timeout_s = 86400, run_as = "auto"
+```
+
+- **Docker runtime (the sandbox, preferred).** Needs Docker Engine (Linux) or Docker
+  Desktop with the WSL2 backend (Windows), and for GPU jobs the NVIDIA Container
+  Toolkit (Linux) / Docker Desktop's GPU support. The job sees only its own folder
+  (at `/work`), runs as a non-root user with no capabilities and a read-only system,
+  cannot see your processes, has no network unless its manifest asks, and is capped
+  in memory, processes and (optionally) CPU. It gets exactly the GPUs it was
+  assigned, none otherwise. The images are pinned by digest in
+  `[agent.execution.images]` (`python_cpu`, `cuda_pytorch`); the first job pulls them
+  (the PyTorch one is ~4 GB). Pull ahead with `docker pull <image>` on a fast link.
+- **Containers are labelled** `meshforge.agent=<node id>`. If the agent is killed, its
+  containers are removed the next time it starts; you can also list them with
+  `docker ps -a --filter label=meshforge.managed=1`.
+- **Subprocess runtime — NOT a sandbox.** With `allow_unsandboxed = true` a laptop
+  without Docker can still run jobs, but the job runs **as you**: it can read and
+  change your files, see your processes and use the network. Memory, process and CPU
+  caps are *not* enforced; time limits and cancel are. Turn it on only on a machine you use
+  for the lab, never on one with personal data.
+- **Found the controller by mDNS?** Then any machine on the Wi-Fi that pretends to be
+  a controller could send this laptop work. With execution enabled, set
+  `[agent] controller_address` explicitly (once the executor lands, the agent warns
+  with `agent.execution.unpinned_controller` when you have not). V0.7 fixes this with mTLS.
+- **Windows note:** cancel on Windows has no graceful signal for a background
+  process; the job is ended after `grace_s` together with everything it started (a
+  kill-on-close job object — also when the agent itself dies).
+
 ---
 
 ## 1. Run it by hand first

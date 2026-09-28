@@ -11,7 +11,9 @@ threads or ports.
 from __future__ import annotations
 
 import contextlib
+import errno
 import json
+import select
 import signal
 import socket
 import subprocess
@@ -153,19 +155,69 @@ def test_hello_reports_identity(inproc_server: S1Server) -> None:
     assert reply["name"] == "inproc" and reply["peer"] == "127.0.0.1"
 
 
+#: What a client may legitimately see when the server refuses junk and closes with
+#: unread bytes still in its receive buffer: the kernel then answers with an RST.
+_RESET_ERRNOS: Final = frozenset(
+    {errno.ECONNRESET, errno.ENOTCONN, errno.EPIPE, errno.ECONNABORTED}
+)
+
+
+def _send_junk_expect_refusal(port: int, junk: bytes) -> None:
+    """Send ``junk``; the server must refuse it by closing (FIN or RST), never answer.
+
+    Item 8 (roadmap 0.4.17), root cause of the old flake: for ``GET / HTTP/1.0`` the
+    server reads ``"GET "`` as a ~1.19 GB length, refuses it and closes while 14 unread
+    bytes sit in its receive buffer, so the kernel sends an RST. Under load the
+    server got there *before* the client's ``shutdown(SHUT_WR)``, which then raised
+    ENOTCONN on the reset socket (reproducible by sleeping 0.3 s before the
+    shutdown). A reset is a refusal, exactly what is being tested, so each client
+    step tolerates the reset errnos - and only those - and the refusal itself is
+    asserted: the connection ends without a single byte from the server.
+    """
+    reset: int | None = None
+    reply = b""
+    with socket.create_connection(("127.0.0.1", port), timeout=5) as s:
+        try:
+            s.sendall(junk)
+            s.shutdown(socket.SHUT_WR)
+            reply = s.recv(100)
+        except OSError as exc:
+            reset = exc.errno
+    assert reset is None or reset in _RESET_ERRNOS, reset
+    assert reply == b"", reply
+
+
 def test_garbage_header_does_not_break_the_server(inproc_server: S1Server) -> None:
     for junk in (
         b"\x00\x00\x00\x05hello",
         b"\xff\xff\xff\xff",
         b"GET / HTTP/1.0\r\n\r\n",
     ):
-        with socket.create_connection(
-            ("127.0.0.1", inproc_server.port), timeout=5
-        ) as s:
-            s.sendall(junk)
+        _send_junk_expect_refusal(inproc_server.port, junk)
+    _well_framed_invalid_requests_are_refused(inproc_server)
+
+
+@pytest.mark.skipif(
+    not sys.platform.startswith("linux"),
+    reason="ENOTCONN from shutdown() after an RST is Linux behaviour",
+)
+def test_a_refusal_that_resets_before_the_client_half_closes_is_tolerated(
+    inproc_server: S1Server,
+) -> None:
+    """The flake's timing made deterministic: wait until the server's RST has
+    arrived (the socket turns readable), *then* half-close - ENOTCONN on Linux."""
+    with socket.create_connection(("127.0.0.1", inproc_server.port), timeout=5) as s:
+        s.sendall(b"GET / HTTP/1.0\r\n\r\n")
+        readable, _, _ = select.select([s], [], [], 5.0)
+        assert readable, "the server never refused the junk header"
+        with pytest.raises(OSError) as err:
             s.shutdown(socket.SHUT_WR)
-            with contextlib.suppress(OSError):
-                s.recv(100)
+        assert err.value.errno in _RESET_ERRNOS
+    _send_junk_expect_refusal(inproc_server.port, b"GET / HTTP/1.0\r\n\r\n")
+    assert hello(Endpoint("127.0.0.1", inproc_server.port))["ok"] is True
+
+
+def _well_framed_invalid_requests_are_refused(inproc_server: S1Server) -> None:
     # well-framed but invalid requests: typed refusal or a closed connection
     ep = Endpoint("127.0.0.1", inproc_server.port, io_timeout_s=3)
     with pytest.raises(MeasureError, match="unknown op"):
