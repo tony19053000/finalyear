@@ -26,6 +26,7 @@ the implementer's fixtures.
 from __future__ import annotations
 
 import asyncio
+import socket
 import textwrap
 import time
 from collections.abc import Iterator
@@ -185,34 +186,51 @@ def test_the_setup_container_does_not_leak_the_agent_environment_either(
     assert b"agent-secret" not in capture.data(Stream.STDERR)
 
 
+_IFACES = "import os; print(','.join(sorted(os.listdir('/sys/class/net'))))"
+
+
 def test_run_phase_network_is_off_even_though_setup_phase_had_it_on(
     target: Target, workdir: Path
 ) -> None:
-    setup_code = (
-        "import socket\n"
-        "try:\n"
-        "    socket.create_connection(('1.1.1.1', 53), timeout=3).close()\n"
-        "    print('SETUP_NET_OK')\n"
-        "except OSError:\n"
-        "    print('SETUP_NET_BLOCKED')\n"
-    )
-    run_code = (
-        "import socket\n"
-        "try:\n"
-        "    socket.create_connection(('1.1.1.1', 53), timeout=3).close()\n"
-        "    print('RUN_NET_OK')\n"
-        "except OSError:\n"
-        "    print('RUN_NET_BLOCKED')\n"
-    )
+    """Hermetic (D63-1): asserts the containers' interfaces, never the internet.
+
+    The run container (``network=False``) must have **only** ``lo``; the setup
+    container (network on for ``pip install``) must have more than ``lo``. Both
+    print through the same on_output callback, setup first.
+    """
     result, capture = _run(
-        target, target.spec(workdir, run_code, setup_code=setup_code, network=False)
+        target, target.spec(workdir, _IFACES, setup_code=_IFACES, network=False)
     )
     assert result.ok, capture.data(Stream.STDERR)
-    # both the setup and run containers stream onto the same on_output callback
-    # (the same pump handles both roles) - the setup line arrives first, then
-    # the run line, which is the one that must show network=false really bit.
-    lines = capture.data(Stream.STDOUT).decode().strip().splitlines()
-    assert lines == ["SETUP_NET_OK", "RUN_NET_BLOCKED"], lines
+    setup_line, run_line = capture.data(Stream.STDOUT).decode().strip().splitlines()
+    assert run_line == "lo", f"run container interfaces: {run_line}"
+    assert set(setup_line.split(",")) - {"lo"}, f"setup had no network: {setup_line}"
+
+
+def _host_online() -> bool:
+    try:
+        socket.create_connection(("1.1.1.1", 53), timeout=3).close()
+    except OSError:
+        return False
+    return True
+
+
+def test_setup_phase_reaches_the_internet_when_the_host_does(
+    target: Target, workdir: Path
+) -> None:
+    """The other half of the old test, kept apart: it needs a real uplink."""
+    if not _host_online():
+        pytest.skip("this host has no internet route (1.1.1.1:53 unreachable)")
+    setup_code = (
+        "import socket\n"
+        "socket.create_connection(('1.1.1.1', 53), timeout=5).close()\n"
+        "print('SETUP_NET_OK')\n"
+    )
+    result, capture = _run(
+        target, target.spec(workdir, "print('RUN')", setup_code=setup_code)
+    )
+    assert result.ok, capture.data(Stream.STDERR)
+    assert b"SETUP_NET_OK" in capture.data(Stream.STDOUT)
 
 
 # --------------------------------------------------------------- daemon down

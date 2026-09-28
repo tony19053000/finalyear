@@ -210,7 +210,12 @@ class RunSpec:
 
 @dataclass(frozen=True, slots=True)
 class RunResult:
-    """How one run ended. ``failure_type`` None means exit code 0."""
+    """How one run ended. ``failure_type`` None means exit code 0.
+
+    ``exit_code`` is the **workload's** exit code - except when the requirements
+    install failed (``reason = "setup_failed"``, ``env_error``): then it is the
+    *setup* step's exit code and the workload never ran (D63-5).
+    """
 
     exit_code: int | None
     signal: int | None = None

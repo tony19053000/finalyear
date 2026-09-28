@@ -30,6 +30,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "DOCKER_RUNTIME_NAME",
+    "GPU_DRIVER_ERROR_MARKERS",
     "LABEL_AGENT",
     "LABEL_ATTEMPT",
     "LABEL_MANAGED",
@@ -49,7 +50,13 @@ LABEL_AGENT: Final = "meshforge.agent"
 LABEL_ATTEMPT: Final = "meshforge.attempt_id"
 LABEL_ROLE: Final = "meshforge.role"
 
-_NO_GPU_DRIVER: Final = ("could not select device driver", "unknown or invalid runtime")
+GPU_DRIVER_ERROR_MARKERS: Final = (
+    "could not select device driver",
+    "unknown or invalid runtime",
+)
+"""The daemon's wording (lower-case) when a GPU was requested and no NVIDIA
+driver/runtime can serve it; the only texts classified ``gpu_unavailable``."""
+_NO_GPU_DRIVER: Final = GPU_DRIVER_ERROR_MARKERS
 
 
 def docker_module() -> Any | None:

@@ -33,6 +33,15 @@ user has no home), ``PYTHONPATH`` (setup only), ``NVIDIA_VISIBLE_DEVICES=void``
 shows exit code ``128 + N`` (``docker-init`` convention); ``RunResult.signal`` is
 derived from that.
 
+**Workdir permissions (D63-2).** The attempt workdir is ``0o700`` (its parent,
+the work root, too - the executor creates both), so no other local user can enter
+it; nothing is ever made world-writable. The workload runs as the agent's own
+``uid:gid`` when the agent is not root (``run_as = "auto"``), so it owns what it
+writes and the agent can collect it. When the agent *is* root the workload runs as
+``nobody`` (never root) and the workdir is **chowned** to that uid:gid, still
+``0o700``. An explicit ``run_as`` that is neither the agent nor chown-able (agent
+not root) is refused at run time with ``config_error`` rather than opened up.
+
 Blocking SDK calls run in threads. The output of a container is read by one daemon
 thread per container (attach socket -> frames -> :class:`OutputPump`), which then
 waits for the exit status; the event loop only awaits an event it sets.
@@ -56,6 +65,7 @@ from typing import TYPE_CHECKING, Any, Final
 from meshforge.agent.execution._pump import OutputPump
 from meshforge.agent.execution.docker_support import (
     DOCKER_RUNTIME_NAME,
+    GPU_DRIVER_ERROR_MARKERS,
     LABEL_AGENT,
     LABEL_ATTEMPT,
     LABEL_MANAGED,
@@ -86,7 +96,14 @@ if TYPE_CHECKING:
 
     from meshforge.agent.settings import ExecutionSettings
 
-__all__ = ["CONTAINER_WORKDIR", "DockerConfig", "DockerRuntime", "resolve_run_as"]
+__all__ = [
+    "CONTAINER_WORKDIR",
+    "WORKDIR_MODE",
+    "DockerConfig",
+    "DockerRuntime",
+    "prepare_workdir",
+    "resolve_run_as",
+]
 
 log = get_logger(__name__)
 
@@ -303,6 +320,121 @@ def _pull_ref(image: str) -> tuple[str, str]:
     return name, "latest"
 
 
+class _WorkdirError(Exception):
+    def __init__(self, reason: str, message: str) -> None:
+        super().__init__(message)
+        self.reason = reason
+
+
+WORKDIR_MODE: Final = 0o700
+"""Attempt workdirs and the work root: owner only (D63-2)."""
+
+
+def prepare_workdir(
+    workdir: Path,
+    user: str,
+    *,
+    euid: Callable[[], int] | None = None,
+    chown: Callable[[Path, int, int], None] | None = None,
+) -> None:
+    """Make ``workdir`` owner-only and writable by the container ``user`` (``uid:gid``).
+
+    * agent uid == ``user``'s uid: ``chmod 0o700`` - the workload owns it already;
+    * agent is root: ``chown`` to ``user``, ``chmod 0o700``;
+    * otherwise the workload could only write it if the directory were opened to
+      other users - refused (:class:`_WorkdirError`, ``run_as_not_writable``).
+
+    Windows: Docker Desktop maps the mount; nothing to do. Never ``0o777``.
+    """
+    if sys.platform == "win32":  # pragma: no cover - Windows only
+        return
+    uid_text, _, gid_text = user.partition(":")
+    uid, gid = int(uid_text), int(gid_text)
+    me = (euid or os.geteuid)()
+    if me == 0:
+        (chown or _chown)(workdir, uid, gid)
+    elif me != uid:
+        raise _WorkdirError(
+            "run_as_not_writable",
+            f"[agent.execution] run_as = {user} is not this agent's uid ({me}); "
+            "a non-root agent cannot give another uid its workdir without "
+            'opening it to every local user - use run_as = "auto"',
+        )
+    workdir.chmod(WORKDIR_MODE)
+
+
+def _chown(path: Path, uid: int, gid: int) -> None:
+    os.chown(path, uid, gid)
+
+
+def _pull_response(stream: Any) -> Any | None:
+    """The HTTP response behind ``APIClient.pull(stream=True)``'s generator.
+
+    The SDK keeps it only as the generator's ``response`` argument
+    (``APIClient._stream_helper``); pinned by a unit test against the installed
+    SDK. ``None`` if a future SDK stops exposing it - the pull then cannot be
+    interrupted early and only the ``stop`` flag ends it (between messages).
+    """
+    frame = getattr(stream, "gi_frame", None)
+    if frame is None:
+        return None
+    return frame.f_locals.get("response")
+
+
+class _Pull:
+    """An image pull on a worker thread that :meth:`stop` can interrupt (D63-4).
+
+    Setting the flag alone only helps between progress messages; a stalled
+    registry sends none, so :meth:`stop` also closes the streaming response,
+    which makes the thread's blocked read fail at once.
+    """
+
+    def __init__(self, client: DockerClient, repo: str, tag: str) -> None:
+        self._client = client
+        self._repo = repo
+        self._tag = tag
+        self._stopped = threading.Event()
+        self._lock = threading.Lock()
+        self._response: Any | None = None
+
+    def run(self) -> str | None:
+        """Blocking. ``None`` = pulled; else a short error text."""
+        stream = self._client.api.pull(
+            self._repo, tag=self._tag, stream=True, decode=True
+        )
+        with self._lock:
+            self._response = _pull_response(stream)
+        if self._stopped.is_set():
+            self._close_response()
+            return "cancelled"
+        try:
+            for message in stream:
+                if self._stopped.is_set():
+                    return "cancelled"
+                if isinstance(message, Mapping) and message.get("error"):
+                    return str(message.get("error"))[:200]
+        except Exception as exc:  # noqa: BLE001 - a closed response ends the read
+            if self._stopped.is_set():
+                return "cancelled"
+            return f"pull stream failed: {type(exc).__name__}"
+        return None
+
+    def stop(self) -> None:
+        self._stopped.set()
+        self._close_response()
+
+    @property
+    def stopped(self) -> bool:
+        return self._stopped.is_set()
+
+    def _close_response(self) -> None:
+        with self._lock:
+            response = self._response
+        if response is not None:
+            with contextlib.suppress(Exception):
+                response.close()
+
+
 class DockerRuntime:
     """The sandboxed runtime. One instance per agent; runs may overlap."""
 
@@ -467,10 +599,11 @@ class DockerRuntime:
 
     # ------------------------------------------------------------- internals
     def _prepare_workdir(self, spec: RunSpec) -> None:
-        if self._user == NOBODY and sys.platform != "win32":
-            # The workload is not the workdir's owner: let it write there.
-            with contextlib.suppress(OSError):
-                spec.workdir.chmod(0o777)
+        """Owner-only workdir the workload's uid can write (module docstring)."""
+        try:
+            prepare_workdir(spec.workdir, self._user)
+        except _WorkdirError as exc:
+            raise _FaultError(FailureType.CONFIG_ERROR, exc.reason, str(exc)) from None
 
     async def _close_client(self, client: DockerClient) -> None:
         task = asyncio.ensure_future(asyncio.to_thread(client.close))
@@ -496,30 +629,20 @@ class DockerRuntime:
         else:
             return
         log.info("agent.execution.image_pull", **fields, image=image)
-        stop = threading.Event()
-        repo, tag = _pull_ref(image)
-
-        def pull() -> str | None:
-            for message in client.api.pull(repo, tag=tag, stream=True, decode=True):
-                if stop.is_set():
-                    return "cancelled"
-                if isinstance(message, Mapping) and message.get("error"):
-                    return str(message.get("error"))[:200]
-            return None
-
-        task = asyncio.ensure_future(asyncio.to_thread(pull))
+        pull = _Pull(client, *_pull_ref(image))
+        task = asyncio.ensure_future(asyncio.to_thread(pull.run))
         try:
             async with asyncio.timeout(max(0.0, deadline - self._clock())):
                 error = await asyncio.shield(task)
         except TimeoutError:
-            stop.set()
+            pull.stop()
             raise _FaultError(
                 FailureType.TIMEOUT,
                 "env_timeout",
                 f"image pull exceeded {self.config.env_timeout_s:g} s",
             ) from None
         except asyncio.CancelledError:
-            stop.set()
+            pull.stop()
             raise
         except errors as exc:
             raise _FaultError(
@@ -775,7 +898,9 @@ def _create_fault(exc: BaseException, docker: Any, role: str) -> _FaultError:
     text = str(exc).lower()
     if docker is not None and isinstance(exc, docker.errors.ImageNotFound):
         return _FaultError(FailureType.ENV_ERROR, "image_missing", _short(exc))
-    if "could not select device driver" in text or "nvidia" in text:
+    if any(marker in text for marker in GPU_DRIVER_ERROR_MARKERS):
+        # D63-3: the daemon's own "no GPU driver/runtime" wording only - a mere
+        # "nvidia" anywhere (an image name, a path) is not a GPU fault.
         return _FaultError(FailureType.ENV_ERROR, "gpu_unavailable", _short(exc))
     return _FaultError(
         FailureType.INTERNAL_ERROR, "container_create_failed", _short(exc)
