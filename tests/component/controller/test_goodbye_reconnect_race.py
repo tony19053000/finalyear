@@ -1,26 +1,16 @@
-"""V0.3 G6 tester round — attacking the 0.25 s half-close confirmation window
-(``HALF_CLOSE_CONFIRM_S``, ``controller/session/manager.py``; tester brief priority 2).
+"""A clean close racing a reconnect's admission (was: the 0.25 s half-close
+confirmation window, V0.3 G6 tester round; rewritten for V0.4 D40).
 
-The confirmation window is the ONLY way the controller tells a clean agent
-half-close from a drop (ARCHITECTURE §12.3, 2026-09-24 amendment). This module
-drives :class:`SessionManager` directly (no gRPC — the same pattern as the D20
-race test in ``test_stream_end_liveness.py``) to attack the window's interaction
-with admission:
+Since D40 the clean-close evidence is the agent's ``Goodbye``, decided on receipt,
+and the confirmation window is gone. The scenarios the old window was attacked
+with still exist - a Goodbye (the agent restarting) while its reconnect's
+admission is parked on a slow ``get_node`` - so they are kept with the new
+evidence: D28 still makes the pending Hello own the node's state, so a fast
+restart logs no false ``online -> offline -> online`` dip, and a *stale* pending
+Hello still claims nothing, so a genuine clean close is OFFLINE at once.
 
-A **reconnect Hello arriving inside the confirm window** races `_admit_locked`'s
-first await (`registry.get_node`, *before* it reads `self._live.get(node_id)`)
-against the confirm-sleep's completion. `_admit_locked` reads the OLD session's
-in-memory `.state` to decide `prior` only when `self._live.get(node_id)` still
-finds the old session; if the confirm-sleep wins the race and closes it first,
-`old` is already gone from `self._live`, and the admission falls back to
-`record.state` — the DB row read at the *start* of admission, i.e. BEFORE the
-old session's own clean-close ever wrote OFFLINE. Depending on exactly how the
-two interleave, this can make a session that never really left produce a
-spurious ``offline -> online (reconnected)`` `node.state_changed` log line
-instead of the true self-loop (``online -> online``, event ``heartbeat``) — a
-false OFFLINE that the 24 h soak (V0.3 criterion 5) would count as a real one,
-even though the row itself, once quiet, is correct (D20's fence protects that
-part).
+Drives :class:`SessionManager` directly over a real PostgreSQL registry (no gRPC,
+the same pattern as the D20 race test in ``test_stream_end_liveness.py``).
 """
 
 from __future__ import annotations
@@ -34,24 +24,36 @@ from mf_session_client import make_hello
 
 pytest.importorskip("sqlalchemy", reason="needs the controller extra")
 
-from meshforge.common.ids import new_node_id
+from meshforge.common.ids import new_command_id, new_node_id
+from meshforge.common.proto.meshforge.v1 import agent_pb2
 from meshforge.controller.liveness import LivenessConfig, NodeState
-from meshforge.controller.registry import Registry
+from meshforge.controller.registry import Registry, SessionEndReason
 from meshforge.controller.server import ControllerRuntime
 from meshforge.controller.session.manager import Accepted, SessionManager
 
 pytestmark = pytest.mark.component
 
 
-class _EndsNormally:
-    """An async iterator that yields nothing and ends normally at once — the
-    candidate half-close `_read_loop` treats as a clean end pending confirmation."""
+class _SaysGoodbye:
+    """A request stream whose only message is the agent's Goodbye (D40), after
+    which it stays open (the reader must stop reading on its own)."""
+
+    def __init__(self, session_id: str) -> None:
+        self._sent = False
+        self._session_id = session_id
 
     def __aiter__(self) -> AsyncIterator[Any]:
         return self
 
     async def __anext__(self) -> Any:
-        raise StopAsyncIteration
+        if self._sent:
+            await asyncio.Event().wait()  # open until cancelled
+        self._sent = True
+        return agent_pb2.AgentMessage(
+            message_id=new_command_id(),
+            session_id=self._session_id,
+            goodbye=agent_pb2.Goodbye(reason=agent_pb2.Goodbye.REASON_SHUTDOWN),
+        )
 
 
 class _GatedGetNode:
@@ -86,14 +88,13 @@ def changes_for(
 
 
 @pytest.mark.asyncio
-async def test_reconnect_hello_inside_confirm_window_can_log_a_false_offline(
+async def test_goodbye_while_the_reconnect_is_admitted_logs_no_false_offline(
     runtime: ControllerRuntime, registry: Registry
 ) -> None:
-    """A clean, fast reconnect (half-close then immediate re-Hello, both well
-    inside the confirm window) must never be recorded as a real OFFLINE dip if
-    the node was continuously reachable. Pins D28 (a Hello that arrives before
-    the previous session's end is decided owns the state): was a strict xfail
-    until the G6 fix round made admission claim the node while it is pending."""
+    """A fast restart (Goodbye, then the new process's Hello already being
+    admitted) must never be recorded as a real OFFLINE dip. Pins D28 with D40's
+    evidence: the Goodbye's end is deferred to the pending Hello, which owns the
+    state; the old stream keeps its honest reason, ``agent_closed``."""
     import structlog
 
     gated = _GatedGetNode(registry)
@@ -101,7 +102,6 @@ async def test_reconnect_hello_inside_confirm_window_can_log_a_false_offline(
         gated,  # type: ignore[arg-type]
         LivenessConfig(heartbeat_interval_s=30.0),  # no lease events in this test
         clock=asyncio.get_running_loop().time,
-        half_close_confirm_s=0.05,
     )
     node_id = new_node_id()
     try:
@@ -110,20 +110,17 @@ async def test_reconnect_hello_inside_confirm_window_can_log_a_false_offline(
         old = first.live
 
         with structlog.testing.capture_logs() as logs:
-            manager.start_reader(old, _EndsNormally())
-
             # Gate the NEW Hello's get_node so it is still in flight when the old
-            # session's 0.05 s confirm-sleep elapses and closes it.
+            # stream's Goodbye arrives and closes it.
             gated.hold_node = node_id
             admit_task = asyncio.create_task(
                 manager.admit(make_hello(node_id, 2), "ipv4:127.0.0.1:2")
             )
             await asyncio.wait_for(gated.held.wait(), 5.0)
-
-            # Let the confirm-sleep win: the old session closes (AGENT_CLOSED ->
-            # STREAM_CLOSED -> OFFLINE) while the new Hello's read is still gated.
-            await asyncio.sleep(0.2)
+            reader = manager.start_reader(old, _SaysGoodbye(old.session_id))
+            await asyncio.wait_for(reader, 5.0)
             assert manager.get(node_id) is None, "old session should already be closed"
+            assert old.end_reason is SessionEndReason.AGENT_CLOSED
 
             gated.release.set()
             second = await admit_task
@@ -135,8 +132,8 @@ async def test_reconnect_hello_inside_confirm_window_can_log_a_false_offline(
         # The node was reachable throughout (clean close immediately followed by
         # a successful re-Hello): a true self-loop must never surface a real
         # "offline" hop that a soak-counting reader (V0.3 criterion 5) would see.
-        assert not (went_offline and came_back_reconnected), (
-            "reconnect inside the confirm window produced a full "
+        assert not went_offline and not came_back_reconnected, (
+            "a Goodbye during the reconnect's admission produced an "
             f"online->offline->online round trip in the log: {transitions} "
             "(a false OFFLINE for a node that was never actually down)"
         )
@@ -145,12 +142,12 @@ async def test_reconnect_hello_inside_confirm_window_can_log_a_false_offline(
 
 
 @pytest.mark.asyncio
-async def test_a_stale_epoch_hello_inside_the_confirm_window_does_not_hide_the_offline(
+async def test_a_stale_epoch_hello_pending_does_not_hide_a_goodbyes_offline(
     runtime: ControllerRuntime, registry: Registry
 ) -> None:
     """D28's claim is epoch-fenced: a Hello whose epoch is not above the ending
-    session's (a stale process, a replayed connect) owns nothing, so a genuine
-    clean close still goes OFFLINE at once - not after that Hello's admission."""
+    session's (a stale process, a replayed connect) owns nothing, so a Goodbye
+    still goes OFFLINE at once - not after that Hello's admission."""
     import structlog
 
     from meshforge.controller.session.manager import Rejected
@@ -160,20 +157,21 @@ async def test_a_stale_epoch_hello_inside_the_confirm_window_does_not_hide_the_o
         gated,  # type: ignore[arg-type]
         LivenessConfig(heartbeat_interval_s=30.0),
         clock=asyncio.get_running_loop().time,
-        half_close_confirm_s=0.05,
     )
     node_id = new_node_id()
     try:
         first = await manager.admit(make_hello(node_id, 5), "ipv4:127.0.0.1:1")
         assert isinstance(first, Accepted)
         with structlog.testing.capture_logs() as logs:
-            manager.start_reader(first.live, _EndsNormally())
             gated.hold_node = node_id
             admit_task = asyncio.create_task(
                 manager.admit(make_hello(node_id, 3), "ipv4:127.0.0.1:2")
             )
             await asyncio.wait_for(gated.held.wait(), 5.0)
-            await asyncio.sleep(0.2)  # the confirm window elapses; stale Hello held
+            reader = manager.start_reader(
+                first.live, _SaysGoodbye(first.live.session_id)
+            )
+            await asyncio.wait_for(reader, 5.0)  # stale Hello still held
             assert ("online", "offline", "stream_closed") in changes_for(logs, node_id)
             gated.release.set()
             assert isinstance(await admit_task, Rejected)

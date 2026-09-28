@@ -46,8 +46,8 @@ def _record_writes(
     """Append every payload name **in the order it reached the wire**."""
     original = client._write
 
-    async def write(msg: agent_pb2.AgentMessage) -> None:
-        await original(msg)
+    async def write(msg: agent_pb2.AgentMessage, **kw: Any) -> None:
+        await original(msg, **kw)
         sent.append(msg.WhichOneof("payload") or "?")
 
     monkeypatch.setattr(client, "_write", write)
@@ -114,7 +114,16 @@ async def test_reconcile_is_the_first_message_of_every_reconnect(
         await asyncio.gather(reporter, return_exceptions=True)
         await first.stop()
 
-    hellos = [index for index, which in enumerate(sent) if which == "hello"]
+    # A Hello directly followed by another Hello was an attempt that never became
+    # a session (e.g. it reached the old controller while it was stopping: the
+    # write went out, the call then failed). Nothing but Hello can follow such an
+    # attempt - send_report writes only while ONLINE - so it cannot hide a broken
+    # ordering; it is skipped (V0.4 G1: seen once under a loaded machine).
+    hellos = [
+        index
+        for index, which in enumerate(sent)
+        if which == "hello" and sent[index + 1 : index + 2] != ["hello"]
+    ]
     assert len(hellos) >= 3, f"expected 3 sessions, wire was {sent[:40]}"
     for index in hellos[1:]:
         after = sent[index + 1 :]

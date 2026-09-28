@@ -219,7 +219,6 @@ async def test_a_db_refused_score_write_is_lost_until_the_next_hello(
         failing,  # type: ignore[arg-type]
         LivenessConfig(heartbeat_interval_s=30.0),
         clock=asyncio.get_running_loop().time,
-        half_close_confirm_s=0.0,
     )
     node_id = new_node_id()
     run = make_scoreset()

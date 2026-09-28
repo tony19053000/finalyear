@@ -161,6 +161,24 @@ class FakeAgent:
         )
         return message_id
 
+    async def goodbye(
+        self,
+        *,
+        detail: str = "fake agent stop",
+        session_id: str | None = None,
+        reason: int = agent_pb2.Goodbye.REASON_SHUTDOWN,
+    ) -> str:
+        """Write a ``Goodbye`` (V0.4 D40): the real agent's last message on stop."""
+        message_id = new_command_id()
+        await self.write(
+            agent_pb2.AgentMessage(
+                message_id=message_id,
+                session_id=self.session_id if session_id is None else session_id,
+                goodbye=agent_pb2.Goodbye(reason=reason, detail=detail),  # type: ignore[arg-type]
+            )
+        )
+        return message_id
+
     def start_heartbeats(self, interval_s: float) -> None:
         assert self._hb is None
 
@@ -184,18 +202,23 @@ class FakeAgent:
     async def wait_ended(self, timeout_s: float = 5.0) -> None:
         await asyncio.wait_for(self.ended.wait(), timeout_s)
 
-    async def close(self, *, graceful: bool = False, timeout_s: float = 3.0) -> None:
+    async def close(
+        self,
+        *,
+        graceful: bool = False,
+        timeout_s: float = 3.0,
+        half_close_only: bool = False,
+    ) -> None:
         """Stop own tasks, half-close, then end the call.
 
-        ``graceful=False`` (teardown): cancel right after the half-close. The
-        controller cannot tell that from a dropped call - grpc.aio shows it the
-        same normal end of the request stream followed by a cancellation - so
-        since V0.3 G6 (D19) it is recorded ``stream_lost``, not ``agent_closed``.
+        ``graceful=False`` (teardown): cancel right after the half-close, no
+        Goodbye - the controller records ``stream_lost``, not ``agent_closed``.
 
-        ``graceful=True``: what the real agent's ``request_stop`` does - half-close
-        and keep reading until the controller's final status (at most
-        ``timeout_s``), so the controller records ``agent_closed`` and writes
-        OFFLINE.
+        ``graceful=True``: what the real agent's ``request_stop`` does (V0.4 D40) -
+        write ``Goodbye``, half-close and keep reading until the controller's final
+        status (at most ``timeout_s``), so the controller records ``agent_closed``
+        and writes OFFLINE. ``half_close_only=True`` is an *old* agent's graceful
+        stop (half-close and wait, no Goodbye): since D40 that is ``stream_lost``.
 
         Order matters (review B2): the reader (and its auto-pong) is stopped
         *before* ``done_writing()``; the other way round an auto-pong could race
@@ -209,9 +232,13 @@ class FakeAgent:
             self._reader.cancel()
             with contextlib.suppress(asyncio.CancelledError, grpc.aio.AioRpcError):
                 await self._reader
+        if graceful and not half_close_only and self._call is not None:
+            with contextlib.suppress(Exception):
+                await self.goodbye()
         if self._call is not None:
             with contextlib.suppress(Exception):
                 await self._call.done_writing()
+        graceful = graceful or half_close_only
         if graceful and self._call is not None:
             with contextlib.suppress(TimeoutError):
                 if self._reader is not None:

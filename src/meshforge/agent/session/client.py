@@ -18,6 +18,16 @@ envelope, heartbeats every ``heartbeat_interval_ms`` with a process-monotonic
 *re*connect the first messages after HelloAck are ``Reconcile{replay_from_sequence}``
 and the replay of every un-acked report in the ring, oldest first.
 
+**Requested stop = Goodbye** (V0.4 D40). On :meth:`AgentSessionClient.request_stop`
+with a stream established, the agent writes ``Goodbye{SHUTDOWN}`` as the **last**
+message of the stream (every later write on that call is refused with
+``InvalidStateError``, which each writer already treats as "the stream ended"),
+then half-closes and waits up to ``_CLOSE_GRACE_S`` for the controller's final
+status. The controller records ``agent_closed`` (OFFLINE now) only because of the
+Goodbye: a stream that simply ends is ``stream_lost`` (SUSPECT, OFFLINE at the lease
+edge). A Goodbye is never buffered in the replay ring, so it can never be replayed
+onto a later stream.
+
 **Stream end** is classified by :func:`~meshforge.agent.session.policy.stream_end_action`:
 transient -> BACKOFF (full jitter, monotonic clock); ``ABORTED superseded`` ->
 :class:`~meshforge.agent.session.errors.SupersededError` (exit ``CONFLICT``);
@@ -82,6 +92,8 @@ log = get_logger(__name__)
 _COMMAND_DEDUPE_WINDOW: Final = 10_000
 _CLOSE_GRACE_S: Final = 2.0
 """After half-closing on stop, how long to wait for the controller's final status."""
+GOODBYE_DETAIL: Final = "agent stop requested"
+"""``Goodbye.detail`` on a requested stop (well inside the controller's bound)."""
 #: Bounds on the controller-owned heartbeat interval. Below the minimum the
 #: agent would spin; above the maximum a buggy or hostile controller could buy
 #: itself days of silence (a value of 10**9 ms is ~11.6 days). Out-of-range
@@ -238,6 +250,8 @@ class AgentSessionClient:
         self._state_changed = asyncio.Event()
         self._write_lock = asyncio.Lock()
         self._call: Any = None
+        self._writes_closed = False
+        """True once this call carried its Goodbye: nothing may follow it (D40)."""
         self._heartbeat_task: asyncio.Task[None] | None = None
         self._stop_waiter: asyncio.Task[bool] | None = None
         self._backoff: Backoff | None = None
@@ -384,6 +398,7 @@ class AgentSessionClient:
         try:
             call = agent_pb2_grpc.AgentControlStub(channel).Session()
             self._call = call
+            self._writes_closed = False
             self.session_id = ""
             hello = build_hello(
                 node_id=self.node_id,
@@ -580,9 +595,9 @@ class AgentSessionClient:
             await asyncio.gather(self._heartbeat_task, return_exceptions=True)
             self._heartbeat_task = None
         if self._stop.is_set():
-            # Requested stop: we half-closed, the controller answered with its final
-            # status (OK / agent_closed). Not a reconnect, no state change here -
-            # run() moves ONLINE -> STOPPING -> STOPPED.
+            # Requested stop: we said Goodbye and half-closed, the controller
+            # answered with its final status (OK / agent_closed). Not a reconnect,
+            # no state change here - run() moves ONLINE -> STOPPING -> STOPPED.
             self.stats.stream_ends.append(end)
             log.info(
                 "agent.session.closed",
@@ -680,10 +695,10 @@ class AgentSessionClient:
     async def _read_loop(self, call: Any) -> StreamEnd:
         """Consume controller messages until the stream ends; returns how.
 
-        A requested stop does **not** cancel the read: the agent half-closes
-        (``done_writing``) and keeps reading so the controller can end the stream
-        ``OK`` and record ``agent_closed``. If no status arrives within
-        ``_CLOSE_GRACE_S`` the call is cancelled locally.
+        A requested stop does **not** cancel the read: the agent writes its
+        ``Goodbye`` (D40), half-closes (``done_writing``) and keeps reading so the
+        controller can end the stream ``OK`` and record ``agent_closed``. If no
+        status arrives within ``_CLOSE_GRACE_S`` the call is cancelled locally.
         """
         if self._stop_waiter is None:
             raise RuntimeError("AgentSessionClient is not running")
@@ -707,6 +722,7 @@ class AgentSessionClient:
                             node_id=self.node_id,
                             session_id=self.session_id or None,
                         )
+                        await self._say_goodbye()
                         with contextlib.suppress(Exception):
                             await call.done_writing()
                         msg = await asyncio.wait_for(read_task, _CLOSE_GRACE_S)
@@ -904,9 +920,34 @@ class AgentSessionClient:
             return self._stream_end(None, "")
         return self._stream_end(code, details or "")
 
+    async def _say_goodbye(self) -> None:
+        """Write ``Goodbye{SHUTDOWN}`` as the stream's last message (D40).
+
+        A stream that already died cannot carry it; that is logged, not raised:
+        the controller then records ``stream_lost`` on its own.
+        """
+        goodbye = agent_pb2.Goodbye(
+            reason=agent_pb2.Goodbye.REASON_SHUTDOWN, detail=GOODBYE_DETAIL
+        )
+        try:
+            await self._write(agent_pb2.AgentMessage(goodbye=goodbye), last=True)
+        except (grpc.aio.AioRpcError, grpc.aio.UsageError, asyncio.InvalidStateError):
+            log.info(
+                "agent.session.goodbye_not_sent",
+                node_id=self.node_id,
+                session_id=self.session_id or None,
+            )
+            return
+        log.info(
+            "agent.session.goodbye_sent",
+            node_id=self.node_id,
+            session_id=self.session_id or None,
+        )
+
     async def _close_call(self, call: Any) -> None:
-        """Stop path: half-close so the controller records ``agent_closed``; wait a
-        little for its final status; then cancel whatever is left."""
+        """Stop before the HelloAck: no session exists yet, so there is nothing to
+        say Goodbye to. Half-close, wait a little for the final status, then
+        cancel whatever is left."""
         with contextlib.suppress(Exception):
             await call.done_writing()
         with contextlib.suppress(TimeoutError):
@@ -923,7 +964,12 @@ class AgentSessionClient:
 
     # ------------------------------------------------------------- plumbing
 
-    async def _write(self, msg: agent_pb2.AgentMessage) -> None:
+    async def _write(self, msg: agent_pb2.AgentMessage, *, last: bool = False) -> None:
+        """Write one message on the open call (one in-flight write at a time).
+
+        ``last=True`` (the Goodbye) closes the call for writes once it went out;
+        any later write raises :class:`asyncio.InvalidStateError`.
+        """
         if not msg.message_id:
             msg.message_id = new_command_id()
         if self.session_id:
@@ -933,7 +979,11 @@ class AgentSessionClient:
         if call is None:
             raise asyncio.InvalidStateError("no open call")
         async with self._write_lock:
+            if self._writes_closed:
+                raise asyncio.InvalidStateError("the stream already carried Goodbye")
             await call.write(msg)
+            if last:
+                self._writes_closed = True
 
     def _backoff_or_raise(self) -> Backoff:
         if self._backoff is None:

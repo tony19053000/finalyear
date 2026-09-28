@@ -1,5 +1,6 @@
 """V0.3 G6 component tests: how a session ends decides ``node.state`` (D19) and
-session state writes are fenced (D20).
+session state writes are fenced (D20). V0.4 G1 (D40): the clean-close evidence is
+the agent's ``Goodbye``; any end without one is ``stream_lost``.
 
 Real :class:`~meshforge.controller.server.ControllerRuntime` + real PostgreSQL +
 the hand-rolled :class:`FakeAgent` over real gRPC sockets (``FAST_LIVENESS``:
@@ -8,8 +9,9 @@ heartbeat 0.2 s, SUSPECT at 0.25 s, OFFLINE at 0.6 s). The D20 race drives a
 ``asyncio.Event``.
 
 Abrupt paths exercised for real here: the agent's call cancelled without a
-half-close, its channel closed without a half-close, and a cancel immediately
-after a half-close. (A killed agent *process* is in
+half-close, its channel closed without a half-close, a cancel immediately after a
+half-close, and an *old agent's* graceful stop (half-close and wait for the status,
+no Goodbye). (A killed agent *process* is in
 ``tests/component/agent/test_agent_process.py``.) A TCP reset or a silent
 blackhole needs G6-B's fault proxy and is not attempted here.
 """
@@ -82,7 +84,7 @@ async def test_graceful_close_is_offline_at_once_and_agent_closed(
 ) -> None:
     agent: FakeAgent = agents()
     ack = await agent.connect()
-    await agent.close(graceful=True)
+    await agent.close(graceful=True)  # Goodbye, half-close, wait for the status
     assert agent.end_code is grpc.StatusCode.OK
     await wait_state(registry, agent.node_id, NodeState.OFFLINE, timeout_s=LEASE_S)
     assert await end_reason(registry, ack.session_id) is SessionEndReason.AGENT_CLOSED
@@ -91,12 +93,77 @@ async def test_graceful_close_is_offline_at_once_and_agent_closed(
     assert runtime.manager.get_lingering(agent.node_id) is None
 
 
+@pytest.mark.asyncio
+async def test_goodbye_then_cancel_is_still_agent_closed(
+    runtime: ControllerRuntime, grpc_target: str, registry: Registry
+) -> None:
+    """D40: decided on receipt - the cancel right behind it changes nothing, and
+    the Goodbye itself is never acked."""
+    async with own_channel(grpc_target) as ch:
+        agent = FakeAgent(ch)
+        ack = await agent.connect()
+        with structlog.testing.capture_logs() as logs:
+            bye_id = await agent.goodbye()
+
+            async def said() -> bool:
+                return any(e["event"] == "session.goodbye" for e in logs)
+
+            await poll_until(said, timeout_s=5.0, interval_s=0.01)
+            await agent.abort()
+            await wait_state(
+                registry, agent.node_id, NodeState.OFFLINE, timeout_s=LEASE_S
+            )
+        assert (
+            await end_reason(registry, ack.session_id) is SessionEndReason.AGENT_CLOSED
+        )
+        assert changes_for(logs, agent.node_id) == [("online", "offline")]
+        assert not [
+            m for m in agent.messages("ack") if m.ack.acked_message_id == bye_id
+        ]
+
+
+@pytest.mark.asyncio
+async def test_a_zombies_goodbye_cannot_close_the_session_that_replaced_it(
+    runtime: ControllerRuntime, grpc_target: str, registry: Registry
+) -> None:
+    """The superseded stream's Goodbye (its own, old session_id) and the same old
+    id arriving on the NEW stream: neither closes the new session."""
+    async with own_channel(grpc_target) as ch:
+        old = FakeAgent(ch, epoch=1)
+        old_ack = await old.connect()
+        new = FakeAgent(ch, node_id=old.node_id, epoch=2)
+        new_ack = await new.connect()
+        new.start_heartbeats(0.1)
+        await old.wait_ended()
+        assert old.end_code is grpc.StatusCode.ABORTED
+        # (1) On the superseded stream itself: the call is over; nothing arrives.
+        with contextlib.suppress(Exception):
+            await old.goodbye()
+        # (2) The old id on the live stream: a stale message, dropped and counted.
+        await new.goodbye(session_id=old_ack.session_id)
+        assert runtime.manager is not None
+        live = runtime.manager.get(new.node_id)
+        assert live is not None
+
+        async def counted() -> bool:
+            return live.stale_messages >= 1
+
+        await poll_until(counted, timeout_s=5.0, interval_s=0.01)
+        await asyncio.sleep(LEASE_S * 2)
+        assert runtime.manager.get(new.node_id) is live and not live.ended
+        assert await node_state(registry, new.node_id) is NodeState.ONLINE
+        assert await end_reason(registry, new_ack.session_id) is None
+        await new.close(graceful=True)
+        await old.close()
+
+
 # ------------------------------------------------------------------ abrupt
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "how", ["cancel_call", "close_channel", "half_close_then_cancel"]
+    "how",
+    ["cancel_call", "close_channel", "half_close_then_cancel", "old_agent_half_close"],
 )
 async def test_abrupt_end_is_suspect_then_offline_at_the_lease_edge(
     runtime: ControllerRuntime, grpc_target: str, registry: Registry, how: str
@@ -111,10 +178,15 @@ async def test_abrupt_end_is_suspect_then_offline_at_the_lease_edge(
             elif how == "close_channel":
                 agent.stop_heartbeats()
                 await ch.close()
-            else:
-                # A cancel right behind the half-close: the controller cannot tell
-                # this from a drop (grpc.aio), so it must not claim agent_closed.
+            elif how == "half_close_then_cancel":
+                # A cancel right behind the half-close, no Goodbye: never
+                # agent_closed.
                 await agent.close()
+            else:
+                # An old agent's graceful stop (V0.3): half-close and wait for
+                # the status, no Goodbye. Since D40 that is stream_lost - SUSPECT,
+                # then OFFLINE at the lease edge, never earlier.
+                await agent.close(half_close_only=True)
 
             async def lost() -> bool:
                 return await end_reason(registry, ack.session_id) is (
@@ -294,7 +366,6 @@ async def test_d20_a_held_old_write_cannot_overwrite_a_newer_sessions_online(
         gated,  # type: ignore[arg-type]
         LivenessConfig(heartbeat_interval_s=30.0),  # no lease events in this test
         clock=asyncio.get_running_loop().time,
-        half_close_confirm_s=0.0,
     )
     node_id = new_node_id()
     try:
@@ -358,10 +429,10 @@ class _Probe(agent_pb2_grpc.AgentControlServicer):
 
 @pytest.mark.asyncio
 async def test_grpc_aio_ends_the_request_iterator_normally_on_a_client_cancel() -> None:
-    """Canary for SessionManager's half-close confirmation: grpc.aio shows a
-    cancelled call as a *normal* end of the request iterator, and only the
-    handler's cancellation tells it apart from a half-close. If a grpcio upgrade
-    changes this, revisit ``HALF_CLOSE_CONFIRM_S`` (it could become unnecessary)."""
+    """The grpc.aio fact behind D40: a cancelled call looks like a *normal* end
+    of the request iterator, so a normal end can never be clean-close evidence -
+    only a Goodbye is. Nothing depends on this any more (no timing rule is left);
+    it documents why, and tells the D43b grpcio upgrade what changed if it fails."""
     probe = _Probe()
     server = grpc.aio.server()
     agent_pb2_grpc.add_AgentControlServicer_to_server(probe, server)

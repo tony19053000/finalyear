@@ -53,6 +53,7 @@ __all__ = [
     "AGENT_VERSION_MAX_LENGTH",
     "CAPABILITY_MAX_LENGTH",
     "CPU_MODEL_MAX_LENGTH",
+    "GOODBYE_DETAIL_MAX_LENGTH",
     "GPU_COMPUTE_CAPABILITY_MAX_LENGTH",
     "GPU_DRIVER_MAX_LENGTH",
     "GPU_MODEL_MAX_LENGTH",
@@ -71,6 +72,7 @@ __all__ = [
     "SCORE_DETAIL_MAX_LENGTH",
     "SCORE_GPU_NOT_DECLARED",
     "Clamped",
+    "check_goodbye",
     "check_hardware",
     "check_hardware_scores",
     "check_hello_strings",
@@ -170,6 +172,27 @@ def validate_message_id(value: str) -> str:
         # Re-raise without the value: parse_id's message repr()s the input.
         raise InvalidIdError("message_id is not a canonical cmd_<ULID>") from None
     return value
+
+
+GOODBYE_DETAIL_MAX_LENGTH: Final = 256
+"""``Goodbye.detail`` (V0.4 D40) - a log-only reason string."""
+
+
+def check_goodbye(goodbye: agent_pb2.Goodbye) -> str | None:
+    """Return a reason if ``Goodbye.detail`` is over its cap or not printable.
+
+    Same rule as the Hello strings (D22): refused, never cleaned, and the reason
+    never echoes the value. The caller treats a bad Goodbye as a protocol error -
+    the session then ends ``protocol_error`` (abrupt: SUSPECT, OFFLINE at the lease
+    edge), which is the safe direction for a peer that broke the contract.
+    """
+    length = len(goodbye.detail)
+    if length > GOODBYE_DETAIL_MAX_LENGTH:
+        return (
+            f"Goodbye.detail is {length} characters; "
+            f"the maximum is {GOODBYE_DETAIL_MAX_LENGTH}"
+        )
+    return _non_printable_reason("Goodbye.detail", goodbye.detail)
 
 
 # ---------------------------------------------------------------------------

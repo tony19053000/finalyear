@@ -26,6 +26,9 @@ Timing margins (why these numbers):
 from __future__ import annotations
 
 import dataclasses
+import os
+import signal
+import sys
 import time
 from collections.abc import Callable
 
@@ -262,8 +265,10 @@ def test_g_graceful_stop_offline_promptly_connected_false(
     arrows = fabric.arrows(victim, baseline)
     record_timing("g SIGINT -> OFFLINE", offline_s, OFFLINE_WITHIN_S, FAST.name)
     # What must hold (G6-A follow-up 4): it ends OFFLINE via stream_closed, with no
-    # ONLINE in between. A SUSPECT from lease_missed inside the 0.25 s half-close
-    # confirmation window is possible with FAST timing and is reported, not hidden.
+    # ONLINE in between. Since D40 the Goodbye is decided on receipt (no 0.25 s
+    # confirmation window); a SUSPECT before it is still tolerated here because a
+    # loaded box can delay the agent's signal handling past FAST's 0.25 s edge -
+    # test_l pins the single arrow.
     assert arrows[-1] == ("online", "offline", "stream_closed") or arrows[-1] == (
         "suspect",
         "offline",
@@ -299,9 +304,10 @@ def test_j_latency_below_miss_allowance_causes_no_transitions(
 def test_g2_graceful_stop_is_a_single_arrow_when_allowance_exceeds_confirm_window(
     make_fabric: MakeFabric,
 ) -> None:
-    """The contrast for g: with a miss allowance above the controller's 0.25 s
-    half-close confirmation window (shipped: 0.5 s), a clean stop is exactly one
-    arrow, ONLINE -> OFFLINE (stream_closed) - no SUSPECT blip."""
+    """With the shipped-like miss allowance (0.3 s here, 0.5 s shipped), a clean
+    stop is exactly one arrow, ONLINE -> OFFLINE (stream_closed) - no SUSPECT
+    blip. (Written for the V0.3 half-close confirmation window; since D40 the
+    Goodbye makes it hold with no window at all.)"""
     timing = dataclasses.replace(FAST, name="fast-allowance-0.3", miss_allowance_s=0.3)
     fabric: Fabric = make_fabric(agents=1, timing=timing)
     victim = fabric.nodes[0]
@@ -312,3 +318,39 @@ def test_g2_graceful_stop_is_a_single_arrow_when_allowance_exceeds_confirm_windo
         victim, "offline", connected=False, within=OFFLINE_WITHIN_S, since=t0
     )
     assert fabric.arrows(victim, baseline) == [("online", "offline", "stream_closed")]
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="SIGTERM is TerminateProcess on Windows"
+)
+def test_l_sigterm_goodbye_offline_within_1s_sigkill_suspect_then_lease(
+    make_fabric: MakeFabric, record_timing: RecordTiming
+) -> None:
+    """D40 on real processes, side by side. SIGTERM = a requested stop: the agent
+    says Goodbye and REST shows OFFLINE within 1 s, one arrow, ``agent_closed``.
+    SIGKILL = no Goodbye: SUSPECT first, OFFLINE only at the lease edge."""
+    fabric: Fabric = make_fabric(agents=2, timing=FAST)
+    clean, killed = fabric.nodes[0], fabric.nodes[1]
+    baseline = fabric.transition_counts()
+
+    t0 = time.monotonic()
+    clean.process.expected_alive = False
+    os.kill(clean.pid, signal.SIGTERM)
+    offline_s = fabric.wait_state(
+        clean, "offline", connected=False, within=1.0, since=t0
+    )
+    assert clean.process.wait_exit(15.0) == 0
+    record_timing("l SIGTERM -> OFFLINE", offline_s, 1.0, FAST.name)
+    assert fabric.arrows(clean, baseline) == [("online", "offline", "stream_closed")]
+    closed = fabric.new_transitions(clean, baseline)[-1].session_id
+    assert fabric.session(clean, closed)["end_reason"] == "agent_closed"
+
+    t1 = killed.kill()
+    fabric.wait_state(killed, "offline", within=OFFLINE_WITHIN_S, since=t1)
+    view = fabric.node_view(killed)
+    assert view is not None and view["connected"] is False
+    assert fabric.arrows(killed, baseline) == [
+        ("online", "suspect", "stream_lost"),
+        ("suspect", "offline", "lease_expired"),
+    ]
+    _assert_offline_at_lease_edge(fabric, killed, baseline)

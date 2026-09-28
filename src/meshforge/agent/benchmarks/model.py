@@ -24,6 +24,7 @@ from typing import Final, Self
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from meshforge.common.ids import validate_score_run_id
+from meshforge.common.score_codes import ScoreReason
 
 __all__ = [
     "GPU_METRICS",
@@ -90,24 +91,10 @@ class MetricStatus(StrEnum):
     """A measurement was attempted and broke (timeout, crash, device mismatch...)."""
 
 
-class MetricReason(StrEnum):
-    """Why a metric is not ``OK``. Stable codes: logs, the cache and run B's proto."""
-
-    NO_BLAS_BACKEND = "no_blas_backend"
-    TORCH_NOT_INSTALLED = "torch_not_installed"
-    CUDA_UNAVAILABLE = "cuda_unavailable"
-    UNSUPPORTED_DTYPE = "unsupported_dtype"
-    DEVICE_MISMATCH = "device_mismatch"
-    INSUFFICIENT_VRAM = "insufficient_vram"
-    TIMEOUT = "timeout"
-    BUDGET_EXHAUSTED = "budget_exhausted"
-    CHILD_CRASHED = "child_crashed"
-    CHILD_NOT_STARTED = "child_not_started"
-    BAD_ANSWER = "bad_answer"
-    BAD_SAMPLE = "bad_sample"
-    GPU_SETUP_FAILED = "gpu_setup_failed"
-    GPU_REP_FAILED = "gpu_rep_failed"
-    BENCHMARK_ERROR = "benchmark_error"
+MetricReason = ScoreReason
+"""Why a metric is not ``OK``: the shared, frozen :class:`~meshforge.common.score_codes
+.ScoreReason` (roadmap 0.4.17 item 4) - one set of codes for the agent that sets them
+and the controller that validates them."""
 
 
 class _Frozen(BaseModel):

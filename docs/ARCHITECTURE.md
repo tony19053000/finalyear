@@ -472,7 +472,7 @@ stateDiagram-v2
     SUSPECT --> REVOKED
     OFFLINE --> REVOKED
     DRAINING --> REVOKED
-    ONLINE --> OFFLINE: stream closed cleanly (agent half-close / controller shutdown)
+    ONLINE --> OFFLINE: stream closed cleanly (agent Goodbye / controller shutdown)
     SUSPECT --> OFFLINE: stream closed cleanly
     DRAINING --> OFFLINE: stream closed cleanly
     ONLINE --> SUSPECT: stream lost (transport drop, cancel, protocol/internal error)
@@ -485,13 +485,13 @@ stateDiagram-v2
 
 | Session end | Event | Arrow | Why |
 |---|---|---|---|
-| Agent half-closed its stream (the reader saw the request iterator end normally — the **only** evidence of a clean close) | `STREAM_CLOSED` | `ONLINE/SUSPECT/DRAINING → OFFLINE` now | the agent said it is leaving |
+| Agent sent `Goodbye` with its session's id (V0.4 D40, amended 2026-09-28 — the **only** evidence of a clean close; decided on receipt, never acked) | `STREAM_CLOSED` | `ONLINE/SUSPECT/DRAINING → OFFLINE` now | the agent said it is leaving |
 | Controller graceful shutdown | `STREAM_CLOSED` | same | matches the start-up sweep; no controller = no liveness claim |
-| Transport drop, call cancelled, protocol error, internal error (new end reason `stream_lost`; protocol/internal keep their own reasons) | `STREAM_LOST` | `ONLINE/DRAINING → SUSPECT` now; the lease **keeps running** on a lingering entry and `LEASE_EXPIRED → OFFLINE` fires at the normal edge (measured from the last contact) unless a new `Hello` arrives first | **`OFFLINE` is what V0.6 turns into "attempts `LOST`, retry elsewhere" (§13).** A TCP blip the agent survives in ~1 s must not cause duplicate execution, nor count as a false OFFLINE in the soak (V0.3 criterion 5) |
+| Any stream end **without a prior Goodbye** — request iterator ended (half-close), transport drop, call cancelled, protocol error (incl. a Goodbye whose detail breaks its bound), internal error (end reason `stream_lost`; protocol/internal keep their own reasons) | `STREAM_LOST` | `ONLINE/DRAINING → SUSPECT` now; the lease **keeps running** on a lingering entry and `LEASE_EXPIRED → OFFLINE` fires at the normal edge (measured from the last contact) unless a new `Hello` arrives first | **`OFFLINE` is what V0.6 turns into "attempts `LOST`, retry elsewhere" (§13).** A TCP blip the agent survives in ~1 s must not cause duplicate execution, nor count as a false OFFLINE in the soak (V0.3 criterion 5) |
 | Lease expired | (already `LEASE_EXPIRED`) | none extra | already `OFFLINE` |
 | Superseded by a newer epoch | **none** | — | the new session's `Hello` owns the state |
 
-*Implementation note (G6-A, measured on grpcio 1.84):* grpc.aio ends the server's request iterator **normally** for a half-close **and** for a cancelled call, a closed channel or a killed client process; only the handler task being cancelled (about one event-loop iteration later) tells them apart. So a normal end is a *candidate* clean close, confirmed only if the call is not cancelled within `HALF_CLOSE_CONFIRM_S` (0.25 s, `controller/session/manager.py`) — a genuinely half-closed agent keeps its call open for up to 2 s waiting for our status, so it always survives the window. A client that half-closes and cancels at once is therefore recorded `stream_lost`. Pinned by a grpc.aio canary test (`tests/component/controller/test_stream_end_liveness.py`).
+*Amended 2026-09-28 (V0.4 G1, decision D40 in `docs/briefs/V0.4-remote-execution.md` §2a) — explicit `Goodbye` replaces the timing inference.* grpc.aio ends the server's request iterator **normally** for a half-close **and** for a cancelled call, a closed channel or a killed client process (measured on grpcio 1.84; the canary is `tests/component/controller/test_stream_end_liveness.py`), so a normal end proves nothing. V0.3 G6 inferred a clean close from "the call was not cancelled within 0.25 s" (`HALF_CLOSE_CONFIRM_S`); that rule is **deleted**, with no fallback. Now the agent's last message on a requested stop is `Goodbye{reason, detail}` (`AgentMessage` payload 21), after which it half-closes and waits for the status; the controller ends the session `agent_closed` when the Goodbye arrives and stops reading the stream. A Goodbye carrying another session's id is a stale message (dropped, counted), so a zombie stream cannot close its successor. An agent that stops without a Goodbye (an old agent, a crash) degrades to `SUSPECT → OFFLINE` at the lease edge — the safe direction: OFFLINE late never duplicates work, OFFLINE early does once V0.6 retries on it. The protocol version was not bumped (the scheme has no minor number; the change is an additive oneof member).
 
 `STREAM_CLOSED` and `STREAM_LOST` are self-loops from `OFFLINE` and `REVOKED` (and `STREAM_LOST` from `SUSPECT`), so close/expiry ordering can never raise `InvalidTransitionError`. A `Hello` while an entry is lingering is `RECONNECTED` from the lingering state and ends the linger without writing `OFFLINE`; epoch fencing counts the lingering epoch as "highest seen".
 

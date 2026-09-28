@@ -125,7 +125,6 @@ def make(
 ) -> tuple[SessionManager, FencedRegistry, FakeClock, LeaseTimer]:
     reg = FencedRegistry()
     clk = clock or FakeClock()
-    kw.setdefault("half_close_confirm_s", 0.0)
     manager = SessionManager(
         cast(Registry, reg),
         CFG,
@@ -449,31 +448,32 @@ class _Rpc(grpc.RpcError):
 
 
 @pytest.mark.asyncio
-async def test_reader_normal_end_is_agent_closed_after_the_confirmation() -> None:
-    manager, _reg, _clock, _timer = make(half_close_confirm_s=0.0)
+async def test_reader_normal_end_without_goodbye_is_stream_lost_at_once() -> None:
+    """V0.4 D40 (was: "agent_closed after the confirmation"): with no Goodbye a
+    normal end of the iterator is abrupt - SUSPECT now, the lease lingers."""
+    manager, _reg, _clock, _timer = make()
     live = await admit(manager, new_node_id(), 1)
     stream = _Stream()
     task = manager.start_reader(live, stream)
     stream.end()
     await asyncio.wait_for(task, 0.5)
-    assert live.end_reason is SessionEndReason.AGENT_CLOSED
-    assert live.state is NodeState.OFFLINE
+    assert live.end_reason is SessionEndReason.STREAM_LOST
+    assert live.state is NodeState.SUSPECT and live.lingering
 
 
 @pytest.mark.asyncio
-async def test_a_cancel_during_the_confirmation_window_wins_as_stream_lost() -> None:
-    """grpc.aio ends the request iterator normally for a cancelled call too; the
-    handler's cancellation (the servicer's ``finally``) must win the race."""
-    manager, _reg, _clock, _timer = make(half_close_confirm_s=30.0)
+async def test_a_cancel_after_a_normal_end_changes_nothing() -> None:
+    """The old race (a cancel arriving inside the confirmation window) is gone:
+    the reader decides ``stream_lost`` on the iterator's end without waiting, and
+    the handler's later ``stream_lost`` (the servicer's ``finally``) is a no-op."""
+    manager, _reg, _clock, _timer = make()
     live = await admit(manager, new_node_id(), 1)
     stream = _Stream()
     task = manager.start_reader(live, stream)
     stream.end()
-    await settle()  # the reader is now inside the confirmation window
-    assert not live.ended and not task.done()
+    await asyncio.wait_for(task, 0.5)
+    assert not task.cancelled()  # it finished on its own - nothing to wait for
     await manager.end_session(live, SessionEndReason.STREAM_LOST)  # the handler
-    await asyncio.wait_for(asyncio.gather(task, return_exceptions=True), 0.5)
-    assert task.cancelled()  # the 30 s window never ran out
     assert live.end_reason is SessionEndReason.STREAM_LOST
     assert live.state is NodeState.SUSPECT and live.lingering
 
@@ -489,9 +489,11 @@ async def test_reader_rpc_error_is_stream_lost() -> None:
     assert live.end_reason is SessionEndReason.STREAM_LOST and live.lingering
 
 
-def test_half_close_confirm_must_not_be_negative() -> None:
-    with pytest.raises(ValueError, match="half_close_confirm_s"):
-        make(half_close_confirm_s=-1.0)
+def test_the_half_close_confirm_window_is_gone() -> None:
+    """V0.4 D40 deleted the timing rule outright (no fallback): the parameter that
+    used to tune it is refused, not silently ignored."""
+    with pytest.raises(TypeError, match="half_close_confirm_s"):
+        make(half_close_confirm_s=0.25)
 
 
 # ------------------------------------------------------------ D20: the fence

@@ -462,7 +462,7 @@ async def test_nb_g5_1_regression_a_graceful_stop_is_offline_within_one_lease(
     G5 tester used to *confirm* the defect: a graceful ``request_stop`` kept
     ``state = online`` for 6x the would-be OFFLINE deadline.
 
-    Now the agent's half-close is ``STREAM_CLOSED``: the row must read
+    Now the agent's Goodbye (V0.4 D40) is ``STREAM_CLOSED``: the row must read
     ``offline`` within one lease of the agent's stop returning, ``connected``
     false, and the session's ``end_reason`` must be ``agent_closed``.
     """
@@ -474,7 +474,7 @@ async def test_nb_g5_1_regression_a_graceful_stop_is_offline_within_one_lease(
         await agent.online()
         session_id = agent.client.session_id
         agent.client.request_stop()
-        await asyncio.wait_for(agent.client_task, 10.0)  # half-close + OK status
+        await asyncio.wait_for(agent.client_task, 10.0)  # Goodbye + OK status
         async with rest_for(runtime) as rest:
             started = time.monotonic()
             row: dict[str, Any] = {}

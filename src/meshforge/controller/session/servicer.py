@@ -16,17 +16,18 @@ the detail for everything else (``superseded``, ``lease_expired``,
 was replaced / timed out / broke the contract" from a normal end without a second
 round-trip.
 
-**Who labels the end (D19).** The manager's reader labels the ends it can see: a
-protocol/internal error, and a confirmed half-close (``agent_closed``). This
-handler labels the one only it can see - the call being **cancelled** (the agent's
-call cancelled, its channel closed, its process killed, the TCP path torn down by
-keepalive): grpc.aio cancels the handler task, and the ``finally`` below closes the
-session ``stream_lost``. Because ``_close`` is idempotent and the first reason
-wins, the ``finally`` can never relabel a session that was already closed for a
-real reason, and a cancellation that arrives while the reader is still confirming
-a half-close wins, as it must. A done-callback on the RPC closes it
-``stream_lost`` too, in case the handler was cancelled while suspended at a
-``yield`` and its ``finally`` runs late (the lease timer is the last backstop).
+**Who labels the end (D19/D40).** The manager's reader labels the ends it can
+see: a ``Goodbye`` (``agent_closed`` - the only clean close an agent can make), a
+protocol/internal error, and a request stream that ended without a Goodbye
+(``stream_lost``). This handler labels the one only it can see - the call being
+**cancelled** (the agent's call cancelled, its channel closed, its process killed,
+the TCP path torn down by keepalive): grpc.aio cancels the handler task, and the
+``finally`` below closes the session ``stream_lost``. Because ``_close`` is
+idempotent and the first reason wins, the ``finally`` can never relabel a session
+that was already closed for a real reason (a Goodbye followed by a cancel stays
+``agent_closed``). A done-callback on the RPC closes it ``stream_lost`` too, in
+case the handler was cancelled while suspended at a ``yield`` and its ``finally``
+runs late (the lease timer is the last backstop).
 
 Hello outcomes that are not a ``HelloAck``: a malformed ``node_id`` or a
 ``session_epoch`` outside ``[0, MAX_SESSION_EPOCH]`` (see

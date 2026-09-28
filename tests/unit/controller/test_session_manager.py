@@ -176,9 +176,6 @@ class FakeRegistry:
 def make_manager(
     registry: FakeRegistry, clock: FakeClock, **kwargs: Any
 ) -> SessionManager:
-    # No real sleep in unit tests: a half-close is confirmed at once here (the
-    # confirmation window itself is covered by the component tests).
-    kwargs.setdefault("half_close_confirm_s", 0.0)
     return SessionManager(
         cast(Registry, registry),
         CFG,
@@ -658,12 +655,34 @@ async def test_reader_closes_session_as_protocol_error_on_second_hello() -> None
 
 
 @pytest.mark.asyncio
-async def test_reader_end_of_stream_closes_as_agent_closed() -> None:
+async def test_reader_end_of_stream_without_goodbye_is_stream_lost() -> None:
+    """V0.4 D40 (was: "end of stream closes as agent_closed"): a request stream
+    that simply ends is never a clean close any more."""
     reg = FakeRegistry()
     manager = make_manager(reg, FakeClock())
     live = await admit(manager, hello(new_node_id()))
     stream = QueueStream()
     reader = manager.start_reader(live, stream)
+    stream.close()
+    await asyncio.wait_for(reader, 1.0)
+    assert live.end_reason is SessionEndReason.STREAM_LOST
+    assert manager.get(live.node_id) is None
+
+
+@pytest.mark.asyncio
+async def test_reader_goodbye_then_end_of_stream_is_agent_closed() -> None:
+    reg = FakeRegistry()
+    manager = make_manager(reg, FakeClock())
+    live = await admit(manager, hello(new_node_id()))
+    stream = QueueStream()
+    reader = manager.start_reader(live, stream)
+    stream.feed(
+        agent_pb2.AgentMessage(
+            message_id=mid("bye"),
+            session_id=live.session_id,
+            goodbye=agent_pb2.Goodbye(reason=agent_pb2.Goodbye.REASON_SHUTDOWN),
+        )
+    )
     stream.close()
     await asyncio.wait_for(reader, 1.0)
     assert live.end_reason is SessionEndReason.AGENT_CLOSED

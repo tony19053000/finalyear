@@ -37,7 +37,7 @@ holds at most ``dedupe_window`` x 30 bytes) and the Hello is bounded by
 amendment, D19). Every end goes through :meth:`SessionManager._close`, which is
 idempotent (first reason wins) and maps the reason to an event:
 
-* clean - ``agent_closed`` (the agent half-closed) and ``controller_shutdown`` ->
+* clean - ``agent_closed`` (the agent said ``Goodbye``) and ``controller_shutdown`` ->
   ``STREAM_CLOSED``: ``ONLINE/SUSPECT/DRAINING -> OFFLINE`` written now, then
   ``close_session`` ends the chain;
 * abrupt - ``stream_lost``, ``protocol_error``, ``internal_error`` ->
@@ -51,16 +51,18 @@ idempotent (first reason wins) and maps the reason to an event:
 * ``superseded`` - no event, no state write: the new session's Hello owns it;
 * ``lease_expired`` - none extra: the timer already applied ``LEASE_EXPIRED``.
 
-**Half-close is confirmed, not assumed.** grpc.aio (1.84, measured) ends the
-server's request iterator *normally* for a client half-close **and** for a
-cancelled call, a closed channel or a killed client process; what distinguishes
-the abrupt cases is that the handler task is then cancelled (about one loop
-iteration later). So the reader treats a normal end of the iterator as a
-*candidate* clean close and waits ``half_close_confirm_s`` before recording
-``agent_closed``; if the handler is cancelled meanwhile, the servicer closes the
-session ``stream_lost`` first and cancels the reader. A half-closed call stays
-open until we send the status (the agent waits up to 2 s for it), so a genuine
-half-close always survives the window.
+**Only a Goodbye is a clean close** (D40). The agent's last message on a stream
+it closes on purpose is ``Goodbye`` (with this session's id); the session ends
+``agent_closed`` **on receipt** - whatever the stream does afterwards (half-close,
+cancel) - and the Goodbye is never acked. **Any end of the stream without a prior
+Goodbye is ``stream_lost``**, however normal the iterator's end looked: grpc.aio
+ends the server's request iterator normally for a half-close *and* for a
+cancelled call, a closed channel or a killed client process, so a normal end
+proves nothing. An agent without Goodbye therefore degrades to SUSPECT, then
+OFFLINE at the lease edge - the safe direction (OFFLINE late never duplicates
+work). A Goodbye whose detail breaks its bound is a protocol error; a Goodbye with
+another session's id is a stale message (dropped, counted), so a zombie stream can
+never close the session that replaced it. Messages after a Goodbye are not read.
 
 **A pending Hello owns the state** (D28): while a validated Hello for node N is
 being admitted, N's older session is *claimed* - its end is deferred (no event
@@ -118,6 +120,7 @@ from meshforge.controller.session.errors import (
     SessionProtocolError,
 )
 from meshforge.controller.session.heartbeats import HeartbeatRecorder
+from meshforge.controller.session.limits import check_goodbye
 from meshforge.controller.session.live import (
     RTT_EWMA_ALPHA,
     Accepted,
@@ -136,7 +139,6 @@ from meshforge.controller.session.writer import (
 )
 
 __all__ = [
-    "HALF_CLOSE_CONFIRM_S",
     "RTT_EWMA_ALPHA",
     "Accepted",
     "AdmitResult",
@@ -150,13 +152,7 @@ __all__ = [
 
 log = get_logger(__name__)
 
-HALF_CLOSE_CONFIRM_S: Final = 0.25
-"""How long a normal end of the request iterator must go without the call being
-cancelled before it counts as the agent's half-close (see the module docstring).
-Must stay well below the agent's own close grace (2 s), which is how long a
-half-closed agent waits for our final status."""
-
-_UNACKED: Final = frozenset({"ack", "pong"})
+_UNACKED: Final = frozenset({"ack", "pong", "goodbye"})
 """Agent payloads that get no Ack back (ADR-0002 Updates §4: never buffered)."""
 
 
@@ -175,10 +171,7 @@ class SessionManager:
         write_capacity: int = DEFAULT_WRITE_CAPACITY,
         wall_clock: Callable[[], dt.datetime] | None = None,
         resources: ResourceSink | None = None,
-        half_close_confirm_s: float = HALF_CLOSE_CONFIRM_S,
     ) -> None:
-        if not half_close_confirm_s >= 0:
-            raise ValueError("half_close_confirm_s must be >= 0")
         self._registry = registry
         self._liveness = liveness
         self._clock = clock
@@ -202,9 +195,9 @@ class SessionManager:
         self.dispatch.register("heartbeat", self._on_heartbeat)
         self.dispatch.register("pong", self.heartbeats.on_pong_message)
         self.dispatch.register("ack", log_ack)
+        self.dispatch.register("goodbye", self._on_goodbye)
         for payload, handler in self.reports.handlers().items():
             self.dispatch.register(payload, handler)
-        self._half_close_confirm_s = half_close_confirm_s
         self._tasks: set[asyncio.Task[None]] = set()
         self._chains: set[WriteChain] = set()
         """Write chains not yet finished (closed sessions included until drained)."""
@@ -468,17 +461,19 @@ class SessionManager:
         live: LiveSession,
         request_iterator: AsyncIterator[agent_pb2.AgentMessage],
     ) -> None:
-        """Consume the agent's messages; classify how the stream ended (D19).
+        """Consume the agent's messages; classify how the stream ended (D19/D40).
 
-        Only a *normal* end of the request iterator can be a clean close, and even
-        that is confirmed first (module docstring: grpc.aio also ends the iterator
-        normally when the call is cancelled). Everything else is abrupt.
+        A Goodbye closes the session ``agent_closed`` inside :meth:`handle_message`
+        and nothing after it is read. Every other end - the iterator finishing
+        normally included - is abrupt (module docstring).
         """
         try:
             async for msg in request_iterator:
                 if live.ended:
                     return  # closed by supersede/lease/shutdown/handler meanwhile
                 await self.handle_message(live, msg)
+                if live.done.is_set():  # ``ended``, re-read after the await
+                    return  # a Goodbye (or a close meanwhile): read nothing more
         except asyncio.CancelledError:
             raise  # ended by supersede/lease/shutdown/handler; they close it
         except SessionProtocolError as exc:
@@ -511,17 +506,15 @@ class SessionManager:
         else:
             if live.ended:
                 return
-            # Candidate half-close. If the call was in fact cancelled, the gRPC
-            # handler is cancelled within this window and closes the session
-            # ``stream_lost`` first, which cancels this sleep (first reason wins).
-            log.debug(
-                "session.request_stream_ended",
+            # D40: the request stream ended without a Goodbye. grpc.aio shows a
+            # half-close, a cancelled call and a dead client alike, so this is
+            # never evidence of a clean close.
+            log.info(
+                "session.stream_ended_without_goodbye",
                 node_id=live.node_id,
                 session_id=live.session_id,
-                confirm_s=self._half_close_confirm_s,
             )
-            await asyncio.sleep(self._half_close_confirm_s)
-            reason = SessionEndReason.AGENT_CLOSED
+            reason = SessionEndReason.STREAM_LOST
         await self.end_session(live, reason)
 
     # -------------------------------------------------------------- dispatch
@@ -570,6 +563,25 @@ class SessionManager:
         if live.state is NodeState.SUSPECT:
             await self.apply_event(live, LivenessEvent.HEARTBEAT, silence_s=0.0)
         self.heartbeats.touch(live, now, force=False)
+
+    async def _on_goodbye(self, live: LiveSession, msg: agent_pb2.AgentMessage) -> None:
+        """The agent's announced end (D40): ``agent_closed`` now, never acked."""
+        refused = check_goodbye(msg.goodbye)
+        if refused is not None:
+            raise SessionProtocolError(
+                refused, session_id=live.session_id, node_id=live.node_id
+            )
+        reason = msg.goodbye.reason
+        log.info(
+            "session.goodbye",
+            node_id=live.node_id,
+            session_id=live.session_id,
+            reason=agent_pb2.Goodbye.Reason.Name(reason)
+            if reason in agent_pb2.Goodbye.Reason.values()
+            else reason,
+            detail=msg.goodbye.detail or None,
+        )
+        self._close(live, SessionEndReason.AGENT_CLOSED)
 
     async def flush_touch(self, live: LiveSession, now: float) -> None:
         """Timer hook: queue a pending ``last_seen_at`` write once its window closed."""

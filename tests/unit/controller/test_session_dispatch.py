@@ -115,9 +115,10 @@ def test_the_payload_names_are_the_proto_oneof() -> None:
     assert {"heartbeat", "attempt_status", "log_chunk", "hello"} <= AGENT_PAYLOADS
 
 
-def test_the_manager_registers_the_v03_payloads() -> None:
+def test_the_manager_registers_its_builtin_payloads() -> None:
     manager, _reg, _clock, _timer = make()
     assert manager.dispatch.registered() == {
+        "goodbye",
         "heartbeat",
         "pong",
         "ack",

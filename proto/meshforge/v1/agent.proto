@@ -76,6 +76,11 @@ message AgentMessage {
     // A completed hardware-score run (roadmap 0.3.4, brief §5g D37). A report:
     // buffered, replayed after a reconnect and acked like ResourceUpdate.
     HardwareScores hardware_scores = 20;
+    // The agent's LAST message on a stream it closes on purpose (V0.4 D40): the
+    // controller ends the session agent_closed on receipt (node -> OFFLINE now).
+    // Never buffered, replayed or acked. Any stream end without a prior Goodbye
+    // is stream_lost (node -> SUSPECT, OFFLINE at the lease edge).
+    Goodbye goodbye = 21;
   }
 }
 
@@ -241,6 +246,21 @@ message HardwareScores {
   string fingerprint = 4;
   ScoreConditions conditions = 5;
   repeated Score scores = 6;
+}
+
+// An agent's announced, orderly end of its stream (V0.4 D40). See the payload
+// comment in AgentMessage. Carries the session_id of the stream it ends (envelope
+// field 3); a Goodbye for another session is dropped like any stale message.
+message Goodbye {
+  enum Reason {
+    REASON_UNSPECIFIED = 0;
+    // The agent process was asked to stop (signal, service stop, CLI).
+    REASON_SHUTDOWN = 1;
+  }
+  Reason reason = 1;
+  // Human-readable context for logs. Bounded (the controller refuses more than
+  // 256 characters) and printable; never secrets or paths.
+  string detail = 2;
 }
 
 // Sent after (re)connect: what the agent is still running, so the controller

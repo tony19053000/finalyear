@@ -156,6 +156,7 @@ class AgentMessage(_message.Message):
     ACK_FIELD_NUMBER: _builtins.int
     PONG_FIELD_NUMBER: _builtins.int
     HARDWARE_SCORES_FIELD_NUMBER: _builtins.int
+    GOODBYE_FIELD_NUMBER: _builtins.int
     message_id: _builtins.str
     """Unique per message (ULID); echoed back in Ack.acked_message_id."""
     session_id: _builtins.str
@@ -194,6 +195,14 @@ class AgentMessage(_message.Message):
         buffered, replayed after a reconnect and acked like ResourceUpdate.
         """
 
+    @_builtins.property
+    def goodbye(self) -> Global___Goodbye:
+        """The agent's LAST message on a stream it closes on purpose (V0.4 D40): the
+        controller ends the session agent_closed on receipt (node -> OFFLINE now).
+        Never buffered, replayed or acked. Any stream end without a prior Goodbye
+        is stream_lost (node -> SUSPECT, OFFLINE at the lease edge).
+        """
+
     def __init__(
         self,
         *,
@@ -211,12 +220,13 @@ class AgentMessage(_message.Message):
         ack: Global___Ack | None = ...,
         pong: Global___Pong | None = ...,
         hardware_scores: Global___HardwareScores | None = ...,
+        goodbye: Global___Goodbye | None = ...,
     ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _typing.Literal["ack", b"ack", "attempt_status", b"attempt_status", "cache_report", b"cache_report", "hardware_scores", b"hardware_scores", "heartbeat", b"heartbeat", "hello", b"hello", "log_chunk", b"log_chunk", "net_probe_result", b"net_probe_result", "payload", b"payload", "pong", b"pong", "reconcile", b"reconcile", "resource_update", b"resource_update", "sent_at", b"sent_at"]  # noqa: Y015
+    _HasFieldArgType: _TypeAlias = _typing.Literal["ack", b"ack", "attempt_status", b"attempt_status", "cache_report", b"cache_report", "goodbye", b"goodbye", "hardware_scores", b"hardware_scores", "heartbeat", b"heartbeat", "hello", b"hello", "log_chunk", b"log_chunk", "net_probe_result", b"net_probe_result", "payload", b"payload", "pong", b"pong", "reconcile", b"reconcile", "resource_update", b"resource_update", "sent_at", b"sent_at"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["ack", b"ack", "attempt_status", b"attempt_status", "cache_report", b"cache_report", "hardware_scores", b"hardware_scores", "heartbeat", b"heartbeat", "hello", b"hello", "log_chunk", b"log_chunk", "message_id", b"message_id", "net_probe_result", b"net_probe_result", "payload", b"payload", "pong", b"pong", "reconcile", b"reconcile", "resource_update", b"resource_update", "sent_at", b"sent_at", "session_id", b"session_id"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["ack", b"ack", "attempt_status", b"attempt_status", "cache_report", b"cache_report", "goodbye", b"goodbye", "hardware_scores", b"hardware_scores", "heartbeat", b"heartbeat", "hello", b"hello", "log_chunk", b"log_chunk", "message_id", b"message_id", "net_probe_result", b"net_probe_result", "payload", b"payload", "pong", b"pong", "reconcile", b"reconcile", "resource_update", b"resource_update", "sent_at", b"sent_at", "session_id", b"session_id"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
-    _WhichOneofReturnType_payload: _TypeAlias = _typing.Literal["hello", "reconcile", "heartbeat", "resource_update", "cache_report", "net_probe_result", "attempt_status", "log_chunk", "ack", "pong", "hardware_scores"]  # noqa: Y015
+    _WhichOneofReturnType_payload: _TypeAlias = _typing.Literal["hello", "reconcile", "heartbeat", "resource_update", "cache_report", "net_probe_result", "attempt_status", "log_chunk", "ack", "pong", "hardware_scores", "goodbye"]  # noqa: Y015
     _WhichOneofArgType_payload: _TypeAlias = _typing.Literal["payload", b"payload"]  # noqa: Y015
     def WhichOneof(self, oneof_group: _WhichOneofArgType_payload) -> _WhichOneofReturnType_payload | None: ...
 
@@ -624,6 +634,51 @@ class HardwareScores(_message.Message):
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___HardwareScores: _TypeAlias = HardwareScores  # noqa: Y015
+
+@_typing.final
+class Goodbye(_message.Message):
+    """An agent's announced, orderly end of its stream (V0.4 D40). See the payload
+    comment in AgentMessage. Carries the session_id of the stream it ends (envelope
+    field 3); a Goodbye for another session is dropped like any stale message.
+    """
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    class _Reason:
+        ValueType = _typing.NewType("ValueType", _builtins.int)
+        V: _TypeAlias = ValueType  # noqa: Y015
+
+    class _ReasonEnumTypeWrapper(_enum_type_wrapper._EnumTypeWrapper[Goodbye._Reason.ValueType], _builtins.type):
+        DESCRIPTOR: _descriptor.EnumDescriptor
+        REASON_UNSPECIFIED: Goodbye._Reason.ValueType  # 0
+        REASON_SHUTDOWN: Goodbye._Reason.ValueType  # 1
+        """The agent process was asked to stop (signal, service stop, CLI)."""
+
+    class Reason(_Reason, metaclass=_ReasonEnumTypeWrapper): ...
+    REASON_UNSPECIFIED: Goodbye.Reason.ValueType  # 0
+    REASON_SHUTDOWN: Goodbye.Reason.ValueType  # 1
+    """The agent process was asked to stop (signal, service stop, CLI)."""
+
+    REASON_FIELD_NUMBER: _builtins.int
+    DETAIL_FIELD_NUMBER: _builtins.int
+    reason: Global___Goodbye.Reason.ValueType
+    detail: _builtins.str
+    """Human-readable context for logs. Bounded (the controller refuses more than
+    256 characters) and printable; never secrets or paths.
+    """
+    def __init__(
+        self,
+        *,
+        reason: Global___Goodbye.Reason.ValueType = ...,
+        detail: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["detail", b"detail", "reason", b"reason"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___Goodbye: _TypeAlias = Goodbye  # noqa: Y015
 
 @_typing.final
 class Reconcile(_message.Message):

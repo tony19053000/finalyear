@@ -162,6 +162,7 @@ def test_envelopes_cover_architecture_payloads() -> None:
         "Ack",
         "Pong",
         "HardwareScores",
+        "Goodbye",
     }
     assert members(agent_pb2.ControllerMessage.DESCRIPTOR) == {
         "StartAttempt",
@@ -610,3 +611,34 @@ def test_hardware_scores_field_numbers_are_pinned() -> None:
         assert conditions[name].has_presence, name
     assert agent_pb2.ScoreMetric.Name(0) == "SCORE_METRIC_UNSPECIFIED"
     assert agent_pb2.ScoreStatus.Name(0) == "SCORE_STATUS_UNSPECIFIED"
+
+
+# ---------------------------------------------------------------------------
+# V0.4 G1: Goodbye (additive, brief V0.4 §2a D40)
+# ---------------------------------------------------------------------------
+
+
+def test_goodbye_field_numbers_are_pinned() -> None:
+    field = agent_pb2.AgentMessage.DESCRIPTOR.fields_by_name["goodbye"]
+    assert field.number == 21
+    assert field.containing_oneof is not None
+    assert field.containing_oneof.name == "payload"
+    assert field.message_type is agent_pb2.Goodbye.DESCRIPTOR
+    fields = agent_pb2.Goodbye.DESCRIPTOR.fields_by_name
+    assert (fields["reason"].number, fields["detail"].number) == (1, 2)
+    assert fields["detail"].type == fields["detail"].TYPE_STRING
+    reason = agent_pb2.Goodbye.Reason
+    assert (reason.Value("REASON_UNSPECIFIED"), reason.Value("REASON_SHUTDOWN")) == (
+        0,
+        1,
+    )
+    wire = agent_pb2.AgentMessage(
+        message_id="m-1",
+        session_id="sess-1",
+        goodbye=agent_pb2.Goodbye(
+            reason=agent_pb2.Goodbye.REASON_SHUTDOWN, detail="stop"
+        ),
+    ).SerializeToString()
+    parsed = agent_pb2.AgentMessage.FromString(wire)
+    assert parsed.WhichOneof("payload") == "goodbye"
+    assert parsed.goodbye.detail == "stop"

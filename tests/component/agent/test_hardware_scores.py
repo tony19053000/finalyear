@@ -449,7 +449,6 @@ async def test_an_old_sessions_queued_scores_write_is_fenced_by_a_newer_hello(
         gated,  # type: ignore[arg-type]
         LivenessConfig(heartbeat_interval_s=30.0),
         clock=asyncio.get_running_loop().time,
-        half_close_confirm_s=0.0,
     )
     node_id = new_node_id()
     newer = make_scoreset(measured_at=T0 + dt.timedelta(hours=1))
