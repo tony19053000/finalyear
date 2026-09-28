@@ -13,8 +13,9 @@ Where things live (ARCHITECTURE §23): the node identity is ``data_dir/identity`
 keepalive from the same section; the replay ring size from Updates §4. Hardware
 discovery (``[agent.hardware]``, roadmap 0.3.3) and the live resource monitor
 (``[agent.resources]``, roadmap 0.3.5) and hardware scores (``[agent.scores]``,
-roadmap 0.3.4: ``<data_dir>/scores.json`` + ``scores.lock``) are documented on their
-own sections below.
+roadmap 0.3.4: ``<data_dir>/scores.json`` + ``scores.lock``) and job execution
+(``[agent.execution]``, V0.4 D45/D51: off by default, ``<data_dir>/work``) are
+documented on their own sections below.
 
 This module imports no agent-extra package so ``meshforge-agent --version`` works
 on a base install.
@@ -22,6 +23,7 @@ on a base install.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Final
 
@@ -32,11 +34,16 @@ from meshforge.common.config import MeshForgeSettings, SectionModel
 from meshforge.common.errors import ConfigError
 
 __all__ = [
+    "CUDA_PYTORCH_IMAGE",
     "DEFAULT_SERVICE_TYPE",
+    "GRACE_BOUND_S",
     "IDENTITY_DIR_NAME",
+    "PYTHON_CPU_IMAGE",
     "AgentSection",
     "AgentSettings",
     "DiscoverySettings",
+    "ExecutionImages",
+    "ExecutionSettings",
     "HardwareSettings",
     "KeepaliveSettings",
     "ReconnectSettings",
@@ -334,6 +341,174 @@ class ScoreSettings(SectionModel):
         return self
 
 
+# ------------------------------------------------------------------ execution
+PYTHON_CPU_IMAGE: Final = (
+    "python:3.12-slim"
+    "@sha256:f77ac9e44ae96ef2c90b8053ea08c31f8be030f824196b0ae4db6d462c84e51f"
+)
+"""Default ``python-cpu`` base (V0.4 D46/D51): the Docker Official Image, multi-arch
+index digest resolved 2026-09-28 (image built 2026-09-19, Python 3.12.14). 3.12 is
+the project's interpreter, so a job behaves the same as a local run; ``slim`` (Debian) keeps glibc wheels working
+(an Alpine/musl base would force source builds of numpy & co.)."""
+
+CUDA_PYTORCH_IMAGE: Final = (
+    "pytorch/pytorch:2.14.0-cuda12.6-cudnn9-runtime"
+    "@sha256:a77983eb7a3042ccf41a94da547a7f54a47fb70da15c36d67a8e8a329ebaa098"
+)
+"""Default ``cuda-pytorch`` base: PyTorch's official image (linux/amd64 only),
+published 2026-09-02, Python 3.12. **CUDA 12.6** rather than 13.x on purpose: it runs
+on NVIDIA drivers >= 560 (and with minor-version compatibility >= 525) and still
+supports Maxwell/Pascal/Volta GPUs, which CUDA 13 dropped - the team's laptops have
+unknown drivers and GPUs until ``lab/inventory.py`` has run on them. ``runtime`` (not
+``devel``): ~4 GB instead of ~14 GB compressed."""
+
+_IMAGE_REF = re.compile(r"[a-z0-9][a-z0-9._/:-]{0,200}@sha256:[0-9a-f]{64}")
+_RUN_AS = re.compile(r"auto|(\d{1,10}):(\d{1,10})")
+GRACE_BOUND_S: Final = 3.0
+"""Largest ``[agent.execution] grace_s``: V0.4 criterion 3 wants a cancelled workload
+stopped within 5 s, and a runtime returns within ``grace_s + 2 s`` (brief D51)."""
+
+
+class ExecutionImages(SectionModel):
+    """``[agent.execution.images]`` - the image each manifest ``env.base`` maps to.
+
+    Every value must be **digest-pinned** (``name[:tag]@sha256:<64 hex>``): a tag
+    alone can move under the fabric and silently change what a job runs, which
+    would break "same inputs, same outputs" (V0.4 criterion 1) and V0.5's env hash.
+    """
+
+    python_cpu: str = Field(
+        default=PYTHON_CPU_IMAGE,
+        description="Image for env.base = python-cpu (digest-pinned).",
+    )
+    cuda_pytorch: str = Field(
+        default=CUDA_PYTORCH_IMAGE,
+        description="Image for env.base = cuda-pytorch (digest-pinned).",
+    )
+
+    @field_validator("python_cpu", "cuda_pytorch")
+    @classmethod
+    def _digest_pinned(cls, value: str) -> str:
+        if not _IMAGE_REF.fullmatch(value):
+            raise ValueError(
+                "image must be a lowercase reference pinned by digest: "
+                "name[:tag]@sha256:<64 hex digits>"
+            )
+        return value
+
+
+class ExecutionSettings(SectionModel):
+    """``[agent.execution]`` - whether and how this laptop runs other people's jobs.
+
+    Off by default (brief D45, ADR-0014): an agent executes nothing unless its owner
+    sets ``enabled = true``. The Docker runtime is the sandbox (workdir-only mount,
+    non-root, no capabilities, limits; brief D51). The **subprocess** runtime has no
+    sandbox at all - the workload runs as the agent's user with the agent's file
+    access - and is offered only with the second opt-in ``allow_unsandboxed``.
+
+    Limits here are *defaults* for a job whose manifest does not set them; a
+    manifest value never exceeds the ``max_*`` bounds. ``workdir_root`` empty =
+    ``<data_dir>/work``. ``run_as``: ``auto`` runs containers as the agent's own
+    uid:gid (so the workload can write its workdir and the agent can collect the
+    outputs), or ``65534:65534`` (nobody) when the agent itself is root or on
+    Windows; an explicit ``"uid:gid"`` must not be root (neither id 0).
+    """
+
+    enabled: bool = Field(
+        default=False,
+        description="Run jobs sent by the controller (off = refuse every StartAttempt).",
+    )
+    allow_unsandboxed: bool = Field(
+        default=False,
+        description=(
+            "Also offer the subprocess runtime, which has NO sandbox (runs as the "
+            "agent's user). Needed on a laptop without Docker."
+        ),
+    )
+    images: ExecutionImages = Field(default_factory=ExecutionImages)
+    grace_s: float = Field(
+        default=GRACE_BOUND_S,
+        gt=0,
+        le=GRACE_BOUND_S,
+        description=(
+            "Cancel/timeout: SIGTERM, then SIGKILL after this long (<= 3 s, V0.4 "
+            "criterion 3: stopped within 5 s)."
+        ),
+    )
+    workdir_root: Path | None = Field(
+        default=None,
+        description="Where attempt workdirs are created; empty = <data_dir>/work.",
+    )
+    default_timeout_s: float = Field(
+        default=3600.0, gt=0, le=604_800.0, description="Job time limit if none given."
+    )
+    max_timeout_s: float = Field(
+        default=86_400.0,
+        gt=0,
+        le=604_800.0,
+        description="Largest time limit a job may ask for (7 days at most).",
+    )
+    default_memory_mb: int = Field(
+        default=4096, ge=64, le=1_048_576, description="Memory limit if none given."
+    )
+    default_cpus: float | None = Field(
+        default=None,
+        gt=0,
+        le=1024,
+        description="CPU limit (cores) if none given; empty = no CPU limit.",
+    )
+    default_pids: int = Field(
+        default=1024, ge=16, le=65_536, description="Process/thread limit per job."
+    )
+    tmp_size_mb: int = Field(
+        default=512,
+        ge=16,
+        le=65_536,
+        description="Size of the container's /tmp (tmpfs).",
+    )
+    shm_size_mb: int = Field(
+        default=512,
+        ge=16,
+        le=65_536,
+        description="Size of /dev/shm (PyTorch DataLoader workers need more than 64 MB).",
+    )
+    env_timeout_s: float = Field(
+        default=1800.0,
+        gt=0,
+        le=7200.0,
+        description=(
+            "Budget for the env phase (image pull + requirements install); on expiry "
+            "the attempt fails with `timeout` (retryable), not `deadline_exceeded`."
+        ),
+    )
+    docker_timeout_s: float = Field(
+        default=30.0,
+        ge=1.0,
+        le=300.0,
+        description="Timeout of one Docker API call (create/inspect/remove).",
+    )
+    run_as: str = Field(
+        default="auto",
+        description='Container user: "auto" or "uid:gid" (numeric, neither 0).',
+    )
+
+    @field_validator("run_as")
+    @classmethod
+    def _run_as_shape(cls, value: str) -> str:
+        match = _RUN_AS.fullmatch(value.strip())
+        if match is None:
+            raise ValueError('run_as must be "auto" or "uid:gid" (numbers)')
+        if match.group(1) is not None and 0 in (int(match[1]), int(match[2])):
+            raise ValueError("run_as must not be uid 0 or gid 0 (root)")
+        return value.strip()
+
+    @model_validator(mode="after")
+    def _timeouts_ordered(self) -> ExecutionSettings:
+        if self.default_timeout_s > self.max_timeout_s:
+            raise ValueError("execution.default_timeout_s must be <= max_timeout_s")
+        return self
+
+
 class DiscoverySettings(SectionModel):
     """``[agent.discovery]`` - mDNS lookup of the controller (roadmap 0.3.9).
 
@@ -387,6 +562,7 @@ class AgentSection(SectionModel):
     hardware: HardwareSettings = Field(default_factory=HardwareSettings)
     resources: ResourceSettings = Field(default_factory=ResourceSettings)
     scores: ScoreSettings = Field(default_factory=ScoreSettings)
+    execution: ExecutionSettings = Field(default_factory=ExecutionSettings)
     hello_timeout_s: float = Field(
         default=3.0,
         gt=0,
