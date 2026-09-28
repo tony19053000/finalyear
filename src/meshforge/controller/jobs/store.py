@@ -1,0 +1,557 @@
+"""The one writer of ``job`` / ``job_transition`` / ``attempt`` / ``attempt_phase`` (D49).
+
+**Compare-and-set.** Every state change is one ``UPDATE ... WHERE id = :id AND
+state = :expected`` (attempts also ``AND fencing_token = :token``) whose target
+comes from :mod:`meshforge.controller.jobs.transitions`. Two racing writers can
+therefore never both win: PostgreSQL row-locks the row for the first UPDATE, and
+the second re-evaluates its WHERE after the first commits, finds the state moved
+and matches 0 rows - it gets :class:`StaleStateError` (``conflict``), never a
+silent overwrite. The history row (``job_transition``) is inserted in the same
+transaction, numbered after the winning UPDATE, so ``seq`` is gap-free.
+
+**Idempotent create.** ``INSERT ... ON CONFLICT (idempotency_key) DO NOTHING``:
+concurrent POSTs with one key produce exactly one row (the unique index decides),
+and the losers read the winner's row and compare request hashes - equal is a
+replay (same job), different is :class:`IdempotencyConflictError`.
+
+**Fencing tokens.** ``create_attempt`` allocates ``job.attempt_epoch + 1`` with one
+``UPDATE ... RETURNING`` (atomic), so attempts of a job are numbered 1, 2, ...
+and a report carrying an older token is recognisably stale
+(:class:`StaleFencingTokenError`, ``fenced``).
+
+Callers get frozen records, never ORM objects. Driver/network errors become
+:class:`JobStoreError` (``network_error``, retryable). Timestamps are the
+database's wall clock (``now()``); nothing here measures durations.
+"""
+
+from __future__ import annotations
+
+import datetime as dt
+import functools
+import hmac
+from collections.abc import Awaitable, Callable, Coroutine, Mapping, Sequence
+from dataclasses import dataclass
+from typing import Any, Final
+
+from sqlalchemy import func, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
+
+from meshforge.common.errors import FailureType, MeshForgeError
+from meshforge.common.logging import get_logger
+from meshforge.common.states import (
+    ATTEMPT_TERMINAL_STATES,
+    AttemptPhase,
+    AttemptState,
+    JobState,
+)
+from meshforge.controller.jobs.transitions import (
+    AttemptEvent,
+    JobEvent,
+    next_attempt_state,
+    next_job_state,
+)
+from meshforge.controller.store.engine import create_session_factory
+from meshforge.controller.store.models.job import (
+    MAX_DETAIL_CHARS,
+    Attempt,
+    AttemptPhaseRow,
+    Job,
+    JobTransition,
+)
+
+__all__ = [
+    "AttemptRecord",
+    "IdempotencyConflictError",
+    "JobRecord",
+    "JobStore",
+    "JobStoreError",
+    "PhaseRecord",
+    "StaleFencingTokenError",
+    "StaleStateError",
+    "TransitionRecord",
+    "UnknownAttemptError",
+    "UnknownJobError",
+    "clean_detail",
+]
+
+log = get_logger(__name__)
+
+_MAX_LIST: Final = 10_000
+
+
+class JobStoreError(MeshForgeError):
+    """The database refused or lost a read/write (retryable)."""
+
+    default_failure_type = FailureType.NETWORK_ERROR
+
+
+class UnknownJobError(MeshForgeError):
+    default_failure_type = FailureType.NOT_FOUND
+
+
+class UnknownAttemptError(MeshForgeError):
+    default_failure_type = FailureType.NOT_FOUND
+
+
+class StaleStateError(MeshForgeError):
+    """Compare-and-set lost: the row is no longer in the expected state."""
+
+    default_failure_type = FailureType.CONFLICT
+
+
+class StaleFencingTokenError(MeshForgeError):
+    """A write for an attempt carried a fencing token that is not the attempt's."""
+
+    default_failure_type = FailureType.FENCED
+
+
+class IdempotencyConflictError(MeshForgeError):
+    """The Idempotency-Key is already used by a *different* request."""
+
+    default_failure_type = FailureType.CONFLICT
+
+
+def clean_detail(text: str | None) -> str | None:
+    """Printable, at most ``MAX_DETAIL_CHARS`` characters (it reaches terminals)."""
+    if text is None:
+        return None
+    flat = "".join(ch if ch.isprintable() else " " for ch in text)
+    return flat[:MAX_DETAIL_CHARS]
+
+
+# ------------------------------------------------------------------ records
+
+
+@dataclass(frozen=True, slots=True)
+class JobRecord:
+    id: str
+    name: str
+    state: JobState
+    manifest: Mapping[str, Any]
+    bundle_digest: str
+    placement: Mapping[str, Any]
+    idempotency_key: str | None
+    request_hash: str
+    attempt_epoch: int
+    failure_type: FailureType | None
+    failure_detail: str | None
+    created_at: dt.datetime
+    updated_at: dt.datetime
+
+
+@dataclass(frozen=True, slots=True)
+class TransitionRecord:
+    seq: int
+    from_state: JobState | None
+    to_state: JobState
+    at: dt.datetime
+
+
+@dataclass(frozen=True, slots=True)
+class AttemptRecord:
+    id: str
+    job_id: str
+    node_id: str
+    fencing_token: int
+    state: AttemptState
+    failure_type: FailureType | None
+    detail: str | None
+    exit_code: int | None
+    output_digest: str | None
+    start_snapshot: Mapping[str, Any] | None
+    started_at: dt.datetime | None
+    ended_at: dt.datetime | None
+    created_at: dt.datetime
+
+
+@dataclass(frozen=True, slots=True)
+class PhaseRecord:
+    phase: str
+    started_at: dt.datetime
+    duration_ms: int
+
+
+def _job(row: Job) -> JobRecord:
+    return JobRecord(
+        id=row.id,
+        name=row.name,
+        state=JobState(row.state),
+        manifest=dict(row.manifest),
+        bundle_digest=row.bundle_digest,
+        placement=dict(row.placement),
+        idempotency_key=row.idempotency_key,
+        request_hash=row.request_hash,
+        attempt_epoch=row.attempt_epoch,
+        failure_type=FailureType(row.failure_type) if row.failure_type else None,
+        failure_detail=row.failure_detail,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+def _attempt(row: Attempt) -> AttemptRecord:
+    return AttemptRecord(
+        id=row.id,
+        job_id=row.job_id,
+        node_id=row.node_id,
+        fencing_token=row.fencing_token,
+        state=AttemptState(row.state),
+        failure_type=FailureType(row.failure_type) if row.failure_type else None,
+        detail=row.detail,
+        exit_code=row.exit_code,
+        output_digest=row.output_digest,
+        start_snapshot=dict(row.start_snapshot) if row.start_snapshot else None,
+        started_at=row.started_at,
+        ended_at=row.ended_at,
+        created_at=row.created_at,
+    )
+
+
+def _typed[**P, R](
+    method: Callable[P, Awaitable[R]],
+) -> Callable[P, Coroutine[Any, Any, R]]:
+    @functools.wraps(method)
+    async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+        try:
+            return await method(*args, **kwargs)
+        except MeshForgeError:
+            raise
+        except (SQLAlchemyError, OSError, TimeoutError) as exc:
+            raise JobStoreError(
+                f"jobs.{method.__name__} failed: {type(exc).__name__}",
+                details={"operation": method.__name__, "cause": type(exc).__name__},
+            ) from exc
+
+    return wrapper
+
+
+async def _append_transition(
+    db: AsyncSession, job_id: str, from_state: JobState | None, to_state: JobState
+) -> None:
+    """Next ``seq`` for the job; only called while this tx holds the job row."""
+    last = await db.scalar(
+        select(func.coalesce(func.max(JobTransition.seq), 0)).where(
+            JobTransition.job_id == job_id
+        )
+    )
+    db.add(
+        JobTransition(
+            job_id=job_id,
+            seq=int(last or 0) + 1,
+            from_state=from_state.value if from_state is not None else None,
+            to_state=to_state.value,
+            at=func.now(),
+        )
+    )
+    await db.flush()
+
+
+class JobStore:
+    """Async repository and single writer for jobs and attempts."""
+
+    def __init__(self, engine: AsyncEngine) -> None:
+        self._sessions: async_sessionmaker[AsyncSession] = create_session_factory(
+            engine
+        )
+
+    # ------------------------------------------------------------------ jobs
+
+    @_typed
+    async def create_job(
+        self,
+        *,
+        job_id: str,
+        name: str,
+        manifest: Mapping[str, Any],
+        bundle_digest: str,
+        placement: Mapping[str, Any],
+        request_hash: str,
+        idempotency_key: str | None,
+    ) -> tuple[JobRecord, bool]:
+        """Insert a SUBMITTED job; ``(record, created)``. See module docstring."""
+        values = {
+            "id": job_id,
+            "name": name,
+            "state": JobState.SUBMITTED.value,
+            "manifest": dict(manifest),
+            "bundle_digest": bundle_digest,
+            "placement": dict(placement),
+            "idempotency_key": idempotency_key,
+            "request_hash": request_hash,
+        }
+        async with self._sessions() as db, db.begin():
+            statement = pg_insert(Job).values(**values)
+            if idempotency_key is not None:
+                statement = statement.on_conflict_do_nothing(
+                    index_elements=[Job.idempotency_key]
+                )
+            inserted = await db.scalar(statement.returning(Job.id))
+            if inserted is not None:
+                await _append_transition(db, job_id, None, JobState.SUBMITTED)
+                row = await db.get_one(Job, job_id)
+                return _job(row), True
+        # Lost the key race (or a retry of an earlier request): read the winner.
+        existing = await self.get_job_by_key(idempotency_key or "")
+        if existing is None:  # pragma: no cover - the unique row cannot vanish
+            raise JobStoreError("idempotency conflict without a row")
+        if not hmac.compare_digest(existing.request_hash, request_hash):
+            raise IdempotencyConflictError(
+                "this Idempotency-Key was already used for a different request",
+                details={"job_id": existing.id},
+            )
+        return existing, False
+
+    @_typed
+    async def get_job(self, job_id: str) -> JobRecord | None:
+        async with self._sessions() as db:
+            row = await db.get(Job, job_id)
+            return _job(row) if row is not None else None
+
+    @_typed
+    async def get_job_by_key(self, idempotency_key: str) -> JobRecord | None:
+        async with self._sessions() as db:
+            row = await db.scalar(
+                select(Job).where(Job.idempotency_key == idempotency_key)
+            )
+            return _job(row) if row is not None else None
+
+    @_typed
+    async def list_jobs(
+        self, *, limit: int, state: JobState | None = None
+    ) -> list[JobRecord]:
+        """Newest first (by ``created_at``, then id), at most ``limit``."""
+        limit = max(1, min(limit, _MAX_LIST))
+        query = select(Job).order_by(Job.created_at.desc(), Job.id.desc()).limit(limit)
+        if state is not None:
+            query = query.where(Job.state == state.value)
+        async with self._sessions() as db:
+            return [_job(row) for row in await db.scalars(query)]
+
+    @_typed
+    async def transitions(self, job_id: str) -> list[TransitionRecord]:
+        async with self._sessions() as db:
+            rows = await db.scalars(
+                select(JobTransition)
+                .where(JobTransition.job_id == job_id)
+                .order_by(JobTransition.seq)
+            )
+            return [
+                TransitionRecord(
+                    seq=r.seq,
+                    from_state=JobState(r.from_state) if r.from_state else None,
+                    to_state=JobState(r.to_state),
+                    at=r.at,
+                )
+                for r in rows
+            ]
+
+    @_typed
+    async def transition_job(
+        self,
+        job_id: str,
+        event: JobEvent,
+        *,
+        expected: JobState,
+        failure_type: FailureType | None = None,
+        failure_detail: str | None = None,
+    ) -> JobRecord:
+        """Apply ``event`` if the job is still ``expected`` (compare-and-set)."""
+        target = next_job_state(expected, event)
+        if (target is JobState.FAILED) != (failure_type is not None):
+            raise ValueError("failure_type is required for FAILED and only for FAILED")
+        values: dict[str, Any] = {"state": target.value}
+        if failure_type is not None:
+            values["failure_type"] = failure_type.value
+            values["failure_detail"] = clean_detail(failure_detail)
+        async with self._sessions() as db, db.begin():
+            row = await db.scalar(
+                update(Job)
+                .where(Job.id == job_id, Job.state == expected.value)
+                .values(**values)
+                .returning(Job)
+                .execution_options(synchronize_session=False)
+            )
+            if row is None:
+                actual = await db.scalar(select(Job.state).where(Job.id == job_id))
+                if actual is None:
+                    raise UnknownJobError("no such job", details={"job_id": job_id})
+                log.info(
+                    "controller.jobs.transition_lost",
+                    job_id=job_id,
+                    job_event=event.value,
+                    expected=expected.value,
+                    actual=actual,
+                )
+                raise StaleStateError(
+                    f"job is {actual}, not {expected.value}",
+                    details={
+                        "job_id": job_id,
+                        "expected": expected.value,
+                        "actual": actual,
+                    },
+                )
+            record = _job(row)
+            await _append_transition(db, job_id, expected, target)
+        log.info(
+            "controller.jobs.transition",
+            job_id=job_id,
+            job_event=event.value,
+            from_state=expected.value,
+            to_state=target.value,
+        )
+        return record
+
+    # -------------------------------------------------------------- attempts
+
+    @_typed
+    async def create_attempt(
+        self, job_id: str, node_id: str, *, attempt_id: str
+    ) -> AttemptRecord:
+        """A new ASSIGNED attempt with the job's next fencing token (1, 2, ...)."""
+        async with self._sessions() as db, db.begin():
+            token = await db.scalar(
+                update(Job)
+                .where(Job.id == job_id)
+                .values(attempt_epoch=Job.attempt_epoch + 1)
+                .returning(Job.attempt_epoch)
+            )
+            if token is None:
+                raise UnknownJobError("no such job", details={"job_id": job_id})
+            row = Attempt(
+                id=attempt_id,
+                job_id=job_id,
+                node_id=node_id,
+                fencing_token=int(token),
+                state=AttemptState.ASSIGNED.value,
+            )
+            db.add(row)
+            await db.flush()
+            await db.refresh(row)
+            return _attempt(row)
+
+    @_typed
+    async def get_attempt(self, attempt_id: str) -> AttemptRecord | None:
+        async with self._sessions() as db:
+            row = await db.get(Attempt, attempt_id)
+            return _attempt(row) if row is not None else None
+
+    @_typed
+    async def list_attempts(self, job_id: str) -> list[AttemptRecord]:
+        async with self._sessions() as db:
+            rows = await db.scalars(
+                select(Attempt)
+                .where(Attempt.job_id == job_id)
+                .order_by(Attempt.fencing_token)
+            )
+            return [_attempt(r) for r in rows]
+
+    @_typed
+    async def transition_attempt(
+        self,
+        attempt_id: str,
+        event: AttemptEvent,
+        *,
+        expected: AttemptState,
+        fencing_token: int,
+        failure_type: FailureType | None = None,
+        detail: str | None = None,
+        exit_code: int | None = None,
+        output_digest: str | None = None,
+    ) -> AttemptRecord:
+        """Compare-and-set on ``(id, state, fencing_token)``."""
+        target = next_attempt_state(expected, event)
+        values: dict[str, Any] = {"state": target.value}
+        if failure_type is not None:
+            values["failure_type"] = failure_type.value
+        if detail is not None:
+            values["detail"] = clean_detail(detail)
+        if exit_code is not None:
+            values["exit_code"] = exit_code
+        if output_digest is not None:
+            values["output_digest"] = output_digest
+        if target is AttemptState.RUNNING:
+            values["started_at"] = func.now()
+        if target in ATTEMPT_TERMINAL_STATES:
+            values["ended_at"] = func.now()
+        async with self._sessions() as db, db.begin():
+            row = await db.scalar(
+                update(Attempt)
+                .where(
+                    Attempt.id == attempt_id,
+                    Attempt.state == expected.value,
+                    Attempt.fencing_token == fencing_token,
+                )
+                .values(**values)
+                .returning(Attempt)
+                .execution_options(synchronize_session=False)
+            )
+            if row is not None:
+                return _attempt(row)
+            current = (
+                await db.execute(
+                    select(Attempt.state, Attempt.fencing_token).where(
+                        Attempt.id == attempt_id
+                    )
+                )
+            ).one_or_none()
+        if current is None:
+            raise UnknownAttemptError(
+                "no such attempt", details={"attempt_id": attempt_id}
+            )
+        state, token = current
+        if token != fencing_token:
+            raise StaleFencingTokenError(
+                "stale fencing token for this attempt",
+                details={"attempt_id": attempt_id, "fencing_token": fencing_token},
+            )
+        raise StaleStateError(
+            f"attempt is {state}, not {expected.value}",
+            details={
+                "attempt_id": attempt_id,
+                "expected": expected.value,
+                "actual": state,
+            },
+        )
+
+    @_typed
+    async def record_phase(
+        self,
+        attempt_id: str,
+        phase: AttemptPhase,
+        *,
+        started_at: dt.datetime,
+        duration_ms: int,
+    ) -> bool:
+        """Store one phase timing; a duplicate (replayed report) is ignored (False)."""
+        if duration_ms < 0:
+            raise ValueError("duration_ms must be >= 0")
+        async with self._sessions() as db, db.begin():
+            inserted = await db.scalar(
+                pg_insert(AttemptPhaseRow)
+                .values(
+                    attempt_id=attempt_id,
+                    phase=AttemptPhase(phase).value,
+                    started_at=started_at,
+                    duration_ms=duration_ms,
+                )
+                .on_conflict_do_nothing(index_elements=["attempt_id", "phase"])
+                .returning(AttemptPhaseRow.phase)
+            )
+            return inserted is not None
+
+    @_typed
+    async def phases(self, attempt_id: str) -> Sequence[PhaseRecord]:
+        async with self._sessions() as db:
+            rows = await db.scalars(
+                select(AttemptPhaseRow)
+                .where(AttemptPhaseRow.attempt_id == attempt_id)
+                .order_by(AttemptPhaseRow.started_at)
+            )
+            return [
+                PhaseRecord(
+                    phase=r.phase, started_at=r.started_at, duration_ms=r.duration_ms
+                )
+                for r in rows
+            ]

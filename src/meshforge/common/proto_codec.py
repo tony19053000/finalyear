@@ -16,17 +16,20 @@ from typing import Final
 
 from meshforge.common.errors import FailureType, MeshForgeError
 from meshforge.common.proto.meshforge.v1 import common_pb2
+from meshforge.common.states import AttemptState
 
 __all__ = [
     "ProtoDecodeError",
+    "attempt_state_from_proto",
+    "attempt_state_to_proto",
     "failure_type_from_proto",
     "failure_type_to_proto",
 ]
 
-# TODO(V0.3/V0.4): add attempt_state_to_proto / attempt_state_from_proto once the
-# Python AttemptState enum exists (same name-based scheme, ATTEMPT_STATE_<NAME>).
-
 _FAILURE_TYPE_PREFIX: Final = "FAILURE_TYPE_"
+_ATTEMPT_STATE_PREFIX: Final = "ATTEMPT_STATE_"
+
+type ProtoAttemptState = common_pb2.AttemptState.ValueType
 
 type ProtoFailureType = common_pb2.FailureType.ValueType
 
@@ -72,5 +75,39 @@ def failure_type_from_proto(value: int) -> FailureType:
     except KeyError as exc:
         raise ProtoDecodeError(
             f"proto {proto_name} has no Python FailureType counterpart",
+            details={"value": value},
+        ) from exc
+
+
+def attempt_state_to_proto(state: AttemptState) -> ProtoAttemptState:
+    """``AttemptState.RUNNING`` -> ``common_pb2.ATTEMPT_STATE_RUNNING``."""
+    try:
+        return common_pb2.AttemptState.Value(_ATTEMPT_STATE_PREFIX + state.name)
+    except ValueError as exc:  # unreachable in a consistent build (parity test)
+        raise MeshForgeError(
+            f"AttemptState.{state.name} has no proto counterpart",
+            details={"attempt_state": state.value},
+        ) from exc
+
+
+def attempt_state_from_proto(value: int) -> AttemptState:
+    """Strict: ``ATTEMPT_STATE_UNSPECIFIED`` and unknown numbers raise."""
+    try:
+        proto_name = common_pb2.AttemptState.Name(value)  # type: ignore[arg-type]
+    except ValueError as exc:
+        raise ProtoDecodeError(
+            f"unknown AttemptState wire value {value}", details={"value": value}
+        ) from exc
+    name = proto_name.removeprefix(_ATTEMPT_STATE_PREFIX)
+    if name == "UNSPECIFIED":
+        raise ProtoDecodeError(
+            "AttemptState is ATTEMPT_STATE_UNSPECIFIED (not set)",
+            details={"value": value},
+        )
+    try:
+        return AttemptState[name]
+    except KeyError as exc:
+        raise ProtoDecodeError(
+            f"proto {proto_name} has no Python AttemptState counterpart",
             details={"value": value},
         ) from exc
