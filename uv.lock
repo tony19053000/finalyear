@@ -736,7 +736,7 @@ requires-dist = [
     { name = "cryptography", specifier = ">=46" },
     { name = "docker", marker = "extra == 'agent'", specifier = ">=7.1" },
     { name = "fastapi", marker = "extra == 'controller'", specifier = ">=0.141" },
-    { name = "grpcio", specifier = ">=1.84,<1.85" },
+    { name = "grpcio", specifier = ">=1.84" },
     { name = "httpx", specifier = ">=0.28" },
     { name = "numpy", marker = "extra == 'agent'", specifier = ">=2.3" },
     { name = "nvidia-ml-py", marker = "extra == 'agent'", specifier = ">=13.610" },

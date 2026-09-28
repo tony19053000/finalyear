@@ -9,8 +9,7 @@
 > ```
 > Read docs/SESSION_HANDOFF.md (§0e first, then §0d and §2), then docs/STATUS.md, then
 > docs/briefs/V0.4-remote-execution.md. RULE: run ONE subagent at a time (team decision 2026-09-28, token cost).
-> V0.4 G1–G3 code is written. Continue the per-group rounds strictly one after another: finish G1
-> (tester → reviewer), then G2 (tester → reviewer), then G3 (tester → reviewer), then write and run G4, then G5.
+> V0.4 G1 is CLOSED. G2 and G3 code is written. Continue strictly one after another: G2 (tester → reviewer), then G3 (tester → reviewer), then write and run G4, then G5.
 > Check git log and docs/briefs/progress/ first to see which round last finished.
 > ```
 >
@@ -239,7 +238,7 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
   **Tester round 1 was left running** (the one agent allowed). If this session died before it reported, re-run the
   G1 tester (prompt pattern: the G1 section of the brief + §4 checklist + "try to break D41's abandoned-admission
   linger and the Goodbye races"). Then the reviewer.
-- **G1 tester round 1: PASS** (`6f545ca`, 5 new tests; unit 1641 / component ctl+agent 290 / cluster 41, all G1 gates exit 0). Minor known gap: dropping `goodbye` from `_UNACKED` fails no test (the ended-session guard already drops the ack). **G1 reviewer running.**
+- **G1 tester round 1: PASS** (`6f545ca`, 5 new tests; unit 1641 / component ctl+agent 290 / cluster 41, all G1 gates exit 0). Minor known gap: dropping `goodbye` from `_UNACKED` fails no test (the ended-session guard already drops the ack). **G1 reviewer: APPROVE, no blocking → G1 CLOSED, 0.4.16 `[x]`; `grpcio<1.85` cap lifted (no 1.85 exists yet, lock unchanged at 1.84). Reviewer's 4 non-blocking items → D61, carried by G4.** **Next: G2 tester round** (fresh; reuse `docs/briefs/progress/parked-tests/`).
 - ⚠️ **Possible G3 sandbox defect, found by the stopped G3 tester's parked file** `test_docker_sandbox_g3_tester.py`: `test_run_phase_network_is_off_even_though_setup_phase_had_it_on` FAILED in the G1 tester's component run — the run container may have network when the setup container had it. The G3 tester round must reproduce this first.
 - **G2** (0.4.1–0.4.5 + fabric token): implementer done — `1462e34` … `f92e4fd`. **Tester round 1 stopped part-way**
   (its unit gates were green, component gates not yet run). Its unfinished test files are parked in
