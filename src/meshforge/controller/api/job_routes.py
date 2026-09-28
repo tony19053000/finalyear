@@ -25,7 +25,14 @@ optional ``Idempotency-Key`` header (1-128 printable ASCII characters):
 **A rejected request never creates a row.** Concurrent duplicate POSTs with one
 key produce one row (the unique index), and every loser gets the winner's job.
 
-**Nothing dispatches yet (V0.4 G4):** a ``queued`` job stays ``queued``.
+**Dispatch (V0.4 G4, D65):** an accepted job wakes the dispatcher, which starts
+it on the placed node as soon as that node is ONLINE and free.
+
+**Cancel** ``POST /v1/jobs/{job_id}/cancel`` (D69, idempotent): a job without a
+live attempt (queued, planning, retrying) is ``cancelled`` at once; a job whose
+attempt runs gets ``CancelAttempt`` and becomes ``cancelled`` when the agent
+reports it stopped; ``202`` either way. A job that already ended is ``200`` and
+unchanged.
 """
 
 from __future__ import annotations
@@ -44,12 +51,13 @@ from meshforge.common.hashing import Digest
 from meshforge.common.ids import new_job_id, validate_job_id, validate_node_id
 from meshforge.common.logging import get_logger
 from meshforge.common.manifest import ManifestError, parse_manifest_data
-from meshforge.common.states import JobState
+from meshforge.common.states import JOB_TERMINAL_STATES, JobState
 from meshforge.controller.api.auth import FabricTokenRequired
 from meshforge.controller.api.context import FabricView, get_fabric
 from meshforge.controller.api.errors import ApiError
 from meshforge.controller.api.job_models import (
     AttemptSummary,
+    JobCancelled,
     JobCreated,
     JobDetail,
     JobList,
@@ -59,6 +67,7 @@ from meshforge.controller.api.job_models import (
     TransitionOut,
 )
 from meshforge.controller.blobs import BlobStore
+from meshforge.controller.jobs.dispatcher import Dispatcher
 from meshforge.controller.jobs.placement import PlacementError, check_placement
 from meshforge.controller.jobs.store import (
     AttemptRecord,
@@ -91,11 +100,19 @@ class JobApi:
     """What the job routes need; put on ``app.state`` by ``create_http_app``."""
 
     def __init__(
-        self, *, store: JobStore, blobs: BlobStore, max_request_bytes: int
+        self,
+        *,
+        store: JobStore,
+        blobs: BlobStore,
+        max_request_bytes: int,
+        dispatcher: Dispatcher | None = None,
     ) -> None:
         self.store = store
         self.blobs = blobs
         self.max_request_bytes = max_request_bytes
+        self.dispatcher = dispatcher
+        """None in tests that mount the routes without a running controller: a
+        job is then stored and stays queued, and cancel is refused."""
 
 
 def get_job_api(request: Request) -> JobApi:
@@ -319,6 +336,8 @@ async def submit_job(
         bundle_digest=submission.bundle_digest,
         idempotency_key_set=key is not None,
     )
+    if jobs.dispatcher is not None:
+        jobs.dispatcher.wake()
     return JobCreated(job_id=job.id, state=job.state, created=True)
 
 
@@ -352,3 +371,43 @@ async def get_job(
     if job is None:
         raise ApiError.not_found("job")
     return await _detail(jobs.store, job)
+
+
+@job_router.post(
+    "/{job_id}/cancel",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=JobCancelled,
+    summary="Cancel a job (idempotent; 202 accepted, 200 already ended)",
+)
+async def cancel_job(
+    response: Response,
+    _auth: FabricTokenRequired,
+    jobs: Jobs,
+    job_id: Annotated[str, Path(max_length=_JOB_ID_MAX)],
+) -> JobCancelled:
+    try:
+        checked = str(validate_job_id(job_id))
+    except InvalidIdError:
+        raise ApiError.invalid("job_id is not a canonical job_<ULID>") from None
+    if jobs.dispatcher is None:
+        raise ApiError(FailureType.CONFIG_ERROR, "this controller does not dispatch")
+    before = await jobs.store.get_job(checked)
+    if before is None:
+        raise ApiError.not_found("job")
+    if before.state in JOB_TERMINAL_STATES:
+        response.status_code = status.HTTP_200_OK
+        return JobCancelled(job_id=checked, state=before.state, cancel_requested=False)
+    job = await jobs.dispatcher.cancel(checked)
+    if job is None:  # pragma: no cover - the row cannot vanish (no delete path)
+        raise ApiError.not_found("job")
+    log.info(
+        "controller.jobs.cancel_requested",
+        job_id=checked,
+        from_state=before.state.value,
+        state=job.state.value,
+    )
+    return JobCancelled(
+        job_id=checked,
+        state=job.state,
+        cancel_requested=job.state not in JOB_TERMINAL_STATES,
+    )

@@ -158,8 +158,10 @@ async def test_get_never_returns_submitted_or_planning_while_submission_slow(
             assert created.status_code == 201, created.text
             holder.append(created.json()["job_id"])
             await asyncio.wait_for(poller, timeout=3)
-        assert listing_observed <= {"queued"}
-        assert observed <= {"queued"}
+        # V0.4 G4: the dispatcher may already have moved the job on (the placed
+        # node is live); what must never be visible is a half-submitted job.
+        assert not listing_observed & {"submitted", "planning"}
+        assert not observed & {"submitted", "planning"}
     finally:
         async with engine.begin() as conn:
             await conn.execute(

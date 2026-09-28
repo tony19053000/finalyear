@@ -16,6 +16,7 @@ works on a base install.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +34,7 @@ __all__ = [
     "DEFAULT_GRPC_PORT",
     "DEFAULT_HTTP_PORT",
     "DEFAULT_SERVICE_TYPE",
+    "ApiSettings",
     "BlobStoreSettings",
     "ControllerSection",
     "ControllerSettings",
@@ -49,6 +51,9 @@ DEFAULT_SERVICE_TYPE = "_meshforge-ctl._tcp.local."
 DEFAULT_ADMISSION_TIMEOUT_S = 5.0
 """D41: default Hello admission deadline (below the default 6 s lease)."""
 BLOBS_DIR_NAME = "blobs"
+_ADVERTISE_URL = re.compile(
+    r"https?://(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9.-]{1,253}):\d{1,5}"
+)
 
 
 def _non_empty_path(value: object) -> object:
@@ -107,6 +112,92 @@ class JobApiSettings(SectionModel):
             "dropped above this, so a flood of attempts cannot grow the controller."
         ),
     )
+    # --- dispatch (V0.4 G4, D65/D66/D69) ------------------------------------
+    dispatch_interval_s: float = Field(
+        default=1.0,
+        ge=0.05,
+        le=60.0,
+        description=(
+            "Dispatcher tick: queued jobs are also picked up this often (a submit "
+            "wakes it at once), and the backstop/orphan sweeps run on it."
+        ),
+    )
+    dispatch_batch: int = Field(
+        default=100, ge=1, le=10_000, description="Queued jobs examined per tick."
+    )
+    max_attempts_per_node: int = Field(
+        default=1,
+        ge=1,
+        le=64,
+        description="Live attempts one node runs at a time (V0.4: one).",
+    )
+    backstop_grace_s: float = Field(
+        default=30.0,
+        ge=1.0,
+        le=3600.0,
+        description=(
+            "D69: an attempt still RUNNING this long past its job's time limit is "
+            "failed deadline_exceeded by the controller and cancelled."
+        ),
+    )
+    reconnect_grace_s: float = Field(
+        default=15.0,
+        ge=0.0,
+        le=3600.0,
+        description=(
+            "After a controller start, how long a node may take to reconnect "
+            "before its queued jobs fail node_lost and its live attempts are lost."
+        ),
+    )
+    fetch_token_grace_s: float = Field(
+        default=3600.0,
+        ge=10.0,
+        le=86_400.0,
+        description=(
+            "Fetch-token lifetime beyond the job's time limit (covers the env "
+            "phase and output upload, D60); shortened at attempt end."
+        ),
+    )
+    fetch_token_end_grace_s: float = Field(
+        default=60.0,
+        ge=0.0,
+        le=3600.0,
+        description="How long a fetch token stays valid after its attempt ended.",
+    )
+    status_queue_size: int = Field(
+        default=10_000,
+        ge=16,
+        le=1_000_000,
+        description=(
+            "Agent attempt reports waiting to be stored; above this a report is not "
+            "acked (the agent replays it after its next reconnect)."
+        ),
+    )
+
+
+class ApiSettings(SectionModel):
+    """``[controller.api]`` - how agents reach this controller's REST port."""
+
+    advertise_url: str | None = Field(
+        default=None,
+        description=(
+            "Base URL agents fetch bundles from (http://host:port, no path). Empty "
+            "= each agent uses the host it dialled for gRPC and this REST port."
+        ),
+    )
+
+    @field_validator("advertise_url")
+    @classmethod
+    def _url_shape(cls, value: str | None) -> str | None:
+        if value is None or not value.strip():
+            return None
+        value = value.strip().rstrip("/")
+        if not _ADVERTISE_URL.fullmatch(value):
+            raise ValueError(
+                "advertise_url must be http(s)://host:port with no path, e.g. "
+                "http://192.168.1.10:47110"
+            )
+        return value
 
 
 class DiscoverySettings(SectionModel):
@@ -343,6 +434,7 @@ class ControllerSection(SectionModel):
     )
     blobs: BlobStoreSettings = Field(default_factory=BlobStoreSettings)
     jobs: JobApiSettings = Field(default_factory=JobApiSettings)
+    api: ApiSettings = Field(default_factory=ApiSettings)
 
     @field_validator("grpc_bind", "http_bind")
     @classmethod

@@ -18,6 +18,7 @@ from meshforge.controller.api.models import ApiModel, Utc
 
 __all__ = [
     "AttemptSummary",
+    "JobCancelled",
     "JobCreated",
     "JobDetail",
     "JobList",
@@ -64,6 +65,17 @@ class JobCreated(ApiModel):
     state: JobState
     created: bool = Field(
         description="False when an Idempotency-Key replay returned an existing job."
+    )
+
+
+class JobCancelled(ApiModel):
+    job_id: str
+    state: JobState
+    cancel_requested: bool = Field(
+        description=(
+            "True while the job waits for its agent to stop the running attempt; "
+            "False when the job is already in its final state."
+        )
     )
 
 

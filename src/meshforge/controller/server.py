@@ -5,6 +5,7 @@
     settings -> engine -> migrations (thread) -> start-up sweep
              -> SessionManager + LeaseTimer task
              -> ResourceTracker + SnapshotFlusher task      (roadmap 0.3.11)
+             -> Dispatcher task (queued jobs -> attempts)   (V0.4 G4, D65)
              -> grpc.aio server (AgentControl)         on controller.grpc_bind
              -> uvicorn (FastAPI: /healthz + read-only /v1) on controller.http_bind
              -> mDNS advertisement of the gRPC port    if controller.discovery.advertise
@@ -55,7 +56,8 @@ from meshforge.controller.fabric_token import (
     load_or_create_token,
 )
 from meshforge.controller.http import create_http_app
-from meshforge.controller.jobs.store import JobStore
+from meshforge.controller.jobs.dispatcher import Dispatcher
+from meshforge.controller.jobs.execution_store import ExecutionStore
 from meshforge.controller.registry import Registry, SessionEndReason
 from meshforge.controller.resources import ResourceTracker
 from meshforge.controller.session.leases import LeaseTimer
@@ -123,8 +125,11 @@ class ControllerRuntime:
         self._stopped = False
         self.token_verifier: FabricTokenVerifier | None = None
         self.blobs: BlobStore | None = None
-        self.jobs: JobStore | None = None
-        """D49: the single writer of the job tables (G4 dispatches from it)."""
+        self.jobs: ExecutionStore | None = None
+        """D49: the single writer of the job tables."""
+        self.dispatcher: Dispatcher | None = None
+        """D65: queued jobs -> attempts; the one task that writes attempts."""
+        self._dispatcher_task: asyncio.Task[None] | None = None
         self.fetch_tokens: FetchTokens | None = None
         """D48: G4 mints per-attempt tokens here and hands them to agents."""
         self.failed_task: str | None = None
@@ -170,7 +175,7 @@ class ControllerRuntime:
 
         registry = Registry(engine)
         self.registry = registry
-        self.jobs = JobStore(engine)
+        self.jobs = ExecutionStore(engine)
         swept = await registry.sweep_open_sessions(SessionEndReason.CONTROLLER_RESTART)
         offline = await registry.mark_live_nodes_offline()
         log.info(
@@ -201,6 +206,19 @@ class ControllerRuntime:
         self._lease_timer_task = self._spawn(
             LeaseTimer(manager, clock=loop.time).run(), "lease-timer"
         )
+        # Before the gRPC server accepts a stream: the dispatcher registers the
+        # attempt_status handler and the session hooks (D64-D66).
+        self.dispatcher = Dispatcher(
+            self.jobs,
+            manager,
+            self.fetch_tokens,
+            cfg.jobs,
+            clock=loop.time,
+            blob_port=lambda: self.http_port,
+            blob_url=cfg.api.advertise_url,
+            resources=resources,
+        )
+        self._dispatcher_task = self._spawn(self.dispatcher.run(), "dispatcher")
         flusher = SnapshotFlusher(resources, registry, cfg.resources, clock=loop.time)
         self.flusher = flusher
         self._flusher_task = self._spawn(flusher.run(), "snapshot-flusher")
@@ -243,6 +261,7 @@ class ControllerRuntime:
                     store=self.jobs,
                     blobs=blobs,
                     max_request_bytes=cfg.jobs.max_request_bytes,
+                    dispatcher=self.dispatcher,
                 ),
             ),
             host=self._http_bind.host,
@@ -350,6 +369,11 @@ class ControllerRuntime:
         if self._advertiser is not None:
             # Withdraw the record first so agents stop finding a dying controller.
             await self._advertiser.stop()
+        if self._dispatcher_task is not None and not self._dispatcher_task.done():
+            # Before the sessions close: items still queued are reports not yet
+            # acked (the agents replay them) - nothing is lost by dropping them.
+            self._dispatcher_task.cancel()
+            await asyncio.gather(self._dispatcher_task, return_exceptions=True)
         if self.manager is not None:
             # Sessions first: their streams end with the reason persisted before the
             # transport is torn down under them.
