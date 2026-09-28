@@ -924,18 +924,30 @@ class AgentSessionClient:
         """Write ``Goodbye{SHUTDOWN}`` as the stream's last message (D40).
 
         A stream that already died cannot carry it; that is logged, not raised:
-        the controller then records ``stream_lost`` on its own.
+        the controller then records ``stream_lost`` on its own. The write is
+        bounded by ``_CLOSE_GRACE_S`` (D61-2): on a dead link whose transport has
+        not noticed yet, a write (or the write lock behind a stuck heartbeat) can
+        block until keepalive gives up - a SIGTERM must not wait that long.
         """
         goodbye = agent_pb2.Goodbye(
             reason=agent_pb2.Goodbye.REASON_SHUTDOWN, detail=GOODBYE_DETAIL
         )
         try:
-            await self._write(agent_pb2.AgentMessage(goodbye=goodbye), last=True)
-        except (grpc.aio.AioRpcError, grpc.aio.UsageError, asyncio.InvalidStateError):
+            await asyncio.wait_for(
+                self._write(agent_pb2.AgentMessage(goodbye=goodbye), last=True),
+                _CLOSE_GRACE_S,
+            )
+        except (
+            grpc.aio.AioRpcError,
+            grpc.aio.UsageError,
+            asyncio.InvalidStateError,
+            TimeoutError,
+        ) as exc:
             log.info(
                 "agent.session.goodbye_not_sent",
                 node_id=self.node_id,
                 session_id=self.session_id or None,
+                cause="timeout" if isinstance(exc, TimeoutError) else "stream_ended",
             )
             return
         log.info(

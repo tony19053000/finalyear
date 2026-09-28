@@ -292,6 +292,11 @@ class JobStore:
     ) -> tuple[JobRecord, bool]:
         """Insert a job; ``(record, created)``. See module docstring.
 
+        **Production code calls :meth:`create_queued_job`** (D62-1). Called with the
+        default ``through=()`` this leaves a job ``SUBMITTED`` that nothing will
+        ever plan or dispatch in V0.4 - that form exists for tests of the store
+        and of the transition path only.
+
         The job starts ``SUBMITTED`` and is walked through ``through`` (each arrow
         from :func:`next_job_state`, so an illegal path raises before any write);
         the row, its final state and every history row commit together or not at

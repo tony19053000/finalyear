@@ -828,6 +828,7 @@ Spike ports (V0.2) live in 472xx–473xx and never collide with these.
 ## 25. Observability
 
 - Structured JSON logs with `job_id`, `attempt_id`, `node_id`, `session_id` correlation fields.
+  An event carries the ids that *exist* when it is logged: `controller.jobs.placement_refused` has `node_id` but no `job_id` - a refused submission never creates a job (D50), so there is no id to correlate on (V0.4 D62-5).
 - Dashboard: live node metrics, job timelines, planner explanations, benchmark results.
 - Metrics (optional, later): Prometheus endpoint on controller (queue length, RPC latency, transfer rate, decision latency, failure rate).
 

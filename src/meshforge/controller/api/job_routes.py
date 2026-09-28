@@ -283,6 +283,7 @@ async def submit_job(
             manifest, node, connected=fabric.manager.get(node_id) is not None
         )
     except PlacementError as exc:
+        # No job_id on purpose: a refused request creates no job (D50, D62-5).
         log.info(
             "controller.jobs.placement_refused",
             node_id=node_id,

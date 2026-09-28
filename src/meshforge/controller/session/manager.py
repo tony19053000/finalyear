@@ -334,6 +334,7 @@ class SessionManager:
             )
             return unavailable(self._admission_timeout_s)
         except BaseException:  # the admission raised, or our handler was cancelled
+            self._close_orphaned_admission(body)
             self._abandon(attempt, body)
             raise
         finally:
@@ -342,6 +343,25 @@ class SessionManager:
     async def _admit_body(self, attempt: AdmissionAttempt) -> AdmitResult:
         async with self._lock:
             return await self._admit_locked(attempt)
+
+    def _close_orphaned_admission(self, body: asyncio.Task[Any]) -> None:
+        """Our handler was cancelled just as the admission *succeeded* (D61-1).
+
+        The session is registered in ``_live`` but nobody will ever start its
+        reader or drain its outbound queue: without this it would read ONLINE
+        (a phantom) until its lease expired. It is closed ``stream_lost`` - the
+        same end the servicer gives a call cancelled one step later.
+        """
+        if not body.done() or body.cancelled() or body.exception() is not None:
+            return
+        result = body.result()
+        if isinstance(result, Accepted):
+            log.info(
+                "session.admitted_without_handler",
+                node_id=result.live.node_id,
+                session_id=result.live.session_id,
+            )
+            self._ends.close(result.live, SessionEndReason.STREAM_LOST)
 
     def _abandon(self, attempt: AdmissionAttempt, body: asyncio.Task[Any]) -> None:
         """An admission failed or missed its deadline (D41).
@@ -775,6 +795,11 @@ class SessionManager:
         (the close reasons above included). Chains still running after that are
         cancelled and logged ``registry.write_abandoned``; the start-up sweep is
         the backstop for anything they did not persist.
+
+        It takes the admission lock first, so it can wait up to
+        ``admission_timeout_s`` behind an admission in flight (D41: a hung one is
+        cancelled at its deadline, which frees the lock) before closing anything
+        (D61-5). ``drain_s`` bounds only the write chains after that.
         """
         self.closing = True
         async with self._lock:  # an admission in flight finishes (or refuses) first

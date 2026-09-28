@@ -199,3 +199,26 @@ async def test_goodbye_is_never_buffered_for_replay(client: AgentSessionClient) 
         entry.message.WhichOneof("payload") != "goodbye"
         for entry in client.ring.pending()
     )
+
+
+@pytest.mark.asyncio
+async def test_a_goodbye_write_that_hangs_is_bounded(
+    client: AgentSessionClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D61-2: a write stuck on a dead link must not hold a SIGTERM hostage."""
+    from meshforge.agent.session import client as client_module
+
+    monkeypatch.setattr(client_module, "_CLOSE_GRACE_S", 0.05)
+    call = ScriptedCall()
+    never = asyncio.Event()
+
+    async def stuck_write(msg: agent_pb2.AgentMessage) -> None:
+        await never.wait()
+
+    call.write = stuck_write  # type: ignore[method-assign]
+    with structlog.testing.capture_logs() as logs:
+        reader = await stop_while_reading(client, call)
+        await asyncio.wait_for(reader, 1.0)
+    (not_sent,) = [e for e in logs if e["event"] == "agent.session.goodbye_not_sent"]
+    assert not_sent["cause"] == "timeout"
+    assert "done_writing" in call.events  # the half-close still followed
