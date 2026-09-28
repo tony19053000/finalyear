@@ -176,10 +176,6 @@ class UploadGrants:
 
     # --------------------------------------------------------------- uploads
 
-    def owns(self, token: str | None) -> bool:
-        """True when ``token`` is an upload grant (live or not)."""
-        return bool(token) and self._key(token or "") in self._grants
-
     def begin(self, token: str, digest: Digest, declared: int | None) -> UploadTicket:
         """Reserve room for one upload or raise :class:`GrantRefusal`."""
         key = self._key(token)

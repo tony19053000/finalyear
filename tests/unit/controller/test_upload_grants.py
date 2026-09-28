@@ -102,7 +102,7 @@ def test_a_re_minted_grant_keeps_what_was_stored_and_the_old_token_dies() -> Non
     grants, token = _grants(max_blobs=2, max_bytes=100)
     grants.finish(grants.begin(token, _digest(1), 50), stored=True, size=50)
     new = grants.mint("att_1", ttl_s=60, max_blobs=2, max_bytes=100)
-    assert not grants.owns(token)
+    assert _refusal(grants, token, _digest(3), 1) == "unknown"  # old token dead
     assert grants.uploaded("att_1", _digest(1))
     assert _refusal(grants, new.get_secret_value(), _digest(2), 51) == "byte_quota"
 

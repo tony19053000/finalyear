@@ -112,17 +112,21 @@ def _authorize_upload(
     if auth.verifier is not None and auth.verifier.verify(token):
         return None
     grants = auth.upload_grants
-    if token is None or grants is None or not grants.owns(token):
+    if token is None or grants is None:
         raise unauthorized()
     try:
         return grants.begin(token, digest, declared)
     except GrantRefusal as refusal:
+        if refusal.reason == "unknown":
+            # Not a grant at all: an unauthenticated request - no log line, so
+            # random tokens cannot flood the log.
+            raise unauthorized() from None
         log.warning(
             "controller.blobs.upload_refused",
             digest=str(digest),
             reason=refusal.reason,
         )
-        if refusal.reason in ("unknown", "expired"):
+        if refusal.reason == "expired":
             raise unauthorized() from None
         raise ApiError(
             FailureType.UNAUTHORIZED
