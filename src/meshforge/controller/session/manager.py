@@ -13,17 +13,13 @@ loop's ``time()`` in production). The wall clock appears only in ``HelloAck.
 controller_time`` and in the registry's database timestamps.
 
 **Liveness is decided in memory.** Nothing on the heartbeat path or in the lease
-timer awaits the database: every registry write after admission (``touch_node``,
-``set_node_state``, ``record_rtt``, ``close_session``) is *enqueued* on the
-session's ordered single-writer chain and performed by that chain's own task, so
-a slow or unreachable PostgreSQL delays the *record* of liveness, never the
-decision. The chain preserves order (SUSPECT, then ONLINE, then the close), logs a
-failed write as ``registry.write_failed`` and continues, and ends after the
-session's final write. Admission itself (``get_node`` for fencing, the upsert and
-the session row) does await the registry - a Hello needs the answer - and only
-ever blocks other Hellos, not readers or the timer. Contract violations by the
-agent are :class:`~meshforge.controller.session.errors.SessionProtocolError` and
-close the session with ``end_reason = protocol_error``.
+timer awaits the database: every registry write after admission is *enqueued* on
+the session's ordered :class:`~.writer.WriteChain` (see its docstring), so a slow
+or unreachable PostgreSQL delays the *record* of liveness, never the decision.
+Admission itself (``get_node`` for fencing, the upsert and the session row) does
+await the registry - a Hello needs the answer - and only ever blocks other
+Hellos, not readers or the timer. Contract violations by the agent are
+:class:`~.errors.SessionProtocolError` and close the session ``protocol_error``.
 
 Epoch fencing (ADR-0002 Updates §1) compares a Hello against **both** the live
 session (if any) and the highest epoch the registry has ever persisted for the
@@ -31,17 +27,11 @@ node, so a stale process cannot be admitted by waiting for the winner's stream t
 end. A legitimate reconnect always carries a strictly higher epoch (ADR-0013 §3:
 the agent increments before every stream), so "equal" is stale too.
 
-Heartbeat persistence is coalesced: the lease is extended in memory on every
-heartbeat, but ``node.last_seen_at`` is written at most once per
-``heartbeat_interval_s`` per node (the first heartbeat of a window enqueues a
-write at once; later ones mark the session dirty and the
-:class:`~.leases.LeaseTimer` flushes it when the window closes). A burst of
-heartbeats therefore costs one queued DB round-trip, not one per message.
-
-Bounds on peer-controlled input (:mod:`~.limits`): ``message_id`` must be a
-``cmd_<ULID>`` (so the dedupe window holds at most ``dedupe_window`` x 30 bytes)
-and the Hello's string fields are capped (and must be printable, D22) before
-anything is persisted.
+Heartbeat persistence is coalesced and RTT is sampled by
+:class:`~.heartbeats.HeartbeatRecorder`. Bounds on peer-controlled input
+(:mod:`~.limits`): ``message_id`` must be a ``cmd_<ULID>`` (so the dedupe window
+holds at most ``dedupe_window`` x 30 bytes) and the Hello is bounded by
+:func:`~.admission.check_hello` before anything is persisted.
 
 **How a session ends decides the liveness arrow** (ARCHITECTURE §12.3 2026-09-24
 amendment, D19). Every end goes through :meth:`SessionManager._close`, which is
@@ -72,31 +62,16 @@ session ``stream_lost`` first and cancels the reader. A half-closed call stays
 open until we send the status (the agent waits up to 2 s for it), so a genuine
 half-close always survives the window.
 
-**A pending Hello owns the state** (D28). A ``Hello`` for node N that is admitted
-while N's previous session is still ending decides N's state; the previous
-session then ends with **no** state event, exactly like a supersession. From the
-moment :meth:`SessionManager.admit` has validated a Hello until its admission
-returns, the Hello's epoch sits in ``_pending_hellos``; while an epoch *higher*
-than a session's is pending, that session is "claimed" (:meth:`SessionManager.
-admission_pending`):
+**A pending Hello owns the state** (D28): while a validated Hello for node N is
+being admitted, N's older session is *claimed* - its end is deferred (no event
+yet) and the lease timer skips it. Success consumes the deferred end with no
+event; any other outcome settles it with its event. The bookkeeping is
+:class:`~.claims.AdmissionClaims`; its module docstring is the full rule.
 
-* its end is **deferred**: ``_close`` still does everything in memory (unregister,
-  unblock the handler, stop the reader, record the reason) but parks the session
-  in ``_deferred_ends`` instead of applying the end's event and writing
-  ``close_session``;
-* the lease timer skips it (live or lingering): no ``LEASE_MISSED``/``EXPIRED``
-  is decided against a node whose Hello is being admitted.
-
-The admission then takes ``prior`` from the claimed session's **in-memory** state
-(``old`` / deferred / lingering, in that order) - never from the database row it
-read before the close - and, once the new session is persisted, ends the deferred
-session with no event (its reason is kept: ``agent_closed`` is still how that
-stream ended). If the admission does not succeed (rejected, stale, registry
-error, shutdown), its ``finally`` settles the deferred end with the event it
-would have fired (a genuine clean close still writes OFFLINE, only later) and
-wakes the lease timer. A **stale** Hello (epoch not above the session's) claims
-nothing, so it can never suppress a real close. The deferral is bounded by one
-admission's registry round trips; shutdown never defers.
+**Dispatch is a table** (D42): :meth:`SessionManager.handle_message` does the
+envelope work (stale session, ``message_id``, dedupe, Ack) and calls the handler
+registered for the payload in :class:`~.dispatch.DispatchTable`; report
+handlers and their counters live in :class:`~.reports.ReportHandlers`.
 """
 
 from __future__ import annotations
@@ -104,16 +79,13 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 import functools
-from collections import deque
 from collections.abc import AsyncIterator, Callable
-from dataclasses import dataclass, field
-from typing import Any, Final
+from typing import Final
 
 import grpc
 from google.protobuf.json_format import MessageToDict
 
-from meshforge.common.errors import InvalidIdError
-from meshforge.common.ids import new_command_id, new_session_id, validate_node_id
+from meshforge.common.ids import new_command_id, new_session_id
 from meshforge.common.logging import get_logger
 from meshforge.common.proto.meshforge.v1 import agent_pb2
 from meshforge.controller.liveness import (
@@ -126,19 +98,37 @@ from meshforge.controller.liveness import (
 )
 from meshforge.controller.registry import Registry, SessionEndReason
 from meshforge.controller.resources import ResourceSink
-from meshforge.controller.scores import scores_document
+from meshforge.controller.session.admission import (
+    RejectCode,
+    check_hello,
+    hello_ack,
+    hello_event,
+    shutting_down,
+)
+from meshforge.controller.session.claims import AdmissionClaims
+from meshforge.controller.session.dispatch import (
+    DispatchTable,
+    check_envelope,
+    log_ack,
+    log_unhandled,
+)
 from meshforge.controller.session.epoch import MAX_SESSION_EPOCH
 from meshforge.controller.session.errors import (
     OutboundOverflowError,
     SessionProtocolError,
 )
-from meshforge.controller.session.limits import (
-    check_hardware,
-    check_hardware_scores,
-    check_hello_strings,
-    check_resource_update,
-    validate_message_id,
+from meshforge.controller.session.heartbeats import HeartbeatRecorder
+from meshforge.controller.session.live import (
+    RTT_EWMA_ALPHA,
+    Accepted,
+    AdmitResult,
+    LiveSession,
+    Rejected,
+    SeenIds,
+    end_event,
+    update_ewma,
 )
+from meshforge.controller.session.reports import ReportHandlers, declared_gpus
 from meshforge.controller.session.writer import (
     DEFAULT_WRITE_CAPACITY,
     WriteChain,
@@ -153,14 +143,12 @@ __all__ = [
     "LiveSession",
     "Rejected",
     "SessionManager",
+    "declared_gpus",
     "end_event",
     "update_ewma",
 ]
 
 log = get_logger(__name__)
-
-RTT_EWMA_ALPHA: Final = 0.3
-"""Weight of the newest RTT sample in ``rtt_ewma_ms`` (roadmap 0.3.10)."""
 
 HALF_CLOSE_CONFIRM_S: Final = 0.25
 """How long a normal end of the request iterator must go without the call being
@@ -168,142 +156,8 @@ cancelled before it counts as the agent's half-close (see the module docstring).
 Must stay well below the agent's own close grace (2 s), which is how long a
 half-closed agent waits for our final status."""
 
-_CLEAN_END: Final[frozenset[SessionEndReason]] = frozenset(
-    {SessionEndReason.AGENT_CLOSED, SessionEndReason.CONTROLLER_SHUTDOWN}
-)
-_ABRUPT_END: Final[frozenset[SessionEndReason]] = frozenset(
-    {
-        SessionEndReason.STREAM_LOST,
-        SessionEndReason.PROTOCOL_ERROR,
-        SessionEndReason.INTERNAL_ERROR,
-    }
-)
-
-
-def end_event(reason: SessionEndReason) -> LivenessEvent | None:
-    """The §12.3 event a session end fires (D19); None = no state write.
-
-    ``superseded`` fires nothing (the new session's Hello owns the state),
-    ``lease_expired`` nothing extra (the timer already applied the expiry) and
-    ``controller_restart`` is only ever written by the start-up sweep.
-    """
-    if reason in _CLEAN_END:
-        return LivenessEvent.STREAM_CLOSED
-    if reason in _ABRUPT_END:
-        return LivenessEvent.STREAM_LOST
-    return None
-
-
-RejectCode = agent_pb2.HelloAck.RejectCode
-
 _UNACKED: Final = frozenset({"ack", "pong"})
 """Agent payloads that get no Ack back (ADR-0002 Updates §4: never buffered)."""
-
-
-def update_ewma(
-    previous: float | None, sample: float, alpha: float = RTT_EWMA_ALPHA
-) -> float:
-    """Exponentially weighted moving average; the first sample seeds it."""
-    if previous is None:
-        return sample
-    return alpha * sample + (1.0 - alpha) * previous
-
-
-class _SeenIds:
-    """Bounded ``message_id`` window (deque for order + set for O(1) lookup)."""
-
-    __slots__ = ("_order", "_set")
-
-    def __init__(self, capacity: int) -> None:
-        self._order: deque[str] = deque(maxlen=capacity)
-        self._set: set[str] = set()
-
-    def remember(self, message_id: str) -> bool:
-        """Record ``message_id``; return True if it was already present."""
-        if message_id in self._set:
-            return True
-        if self._order.maxlen is not None and len(self._order) == self._order.maxlen:
-            self._set.discard(self._order[0])
-        self._order.append(message_id)
-        self._set.add(message_id)
-        return False
-
-    def __len__(self) -> int:
-        return len(self._set)
-
-
-@dataclass(eq=False, slots=True)
-class LiveSession:
-    """In-memory state of one accepted stream. Owned by :class:`SessionManager`."""
-
-    node_id: str
-    session_id: str
-    session_epoch: int
-    peer_address: str
-    tracker: LeaseTracker
-    state: NodeState
-    outbound: asyncio.Queue[agent_pb2.ControllerMessage | None]
-    seen: _SeenIds
-    next_ping_at: float
-    writer: WriteChain
-    """This session's ordered registry-write chain (see module docstring)."""
-    reader_task: asyncio.Task[None] | None = None
-    ended: bool = False
-    end_reason: SessionEndReason | None = None
-    done: asyncio.Event = field(default_factory=asyncio.Event)
-    lingering: bool = False
-    """The stream ended abruptly and the lease is still running (D19): the entry
-    sits in ``SessionManager._lingering`` until a Hello, the lease or a shutdown
-    resolves it. Its ``writer`` stays open until then."""
-    # counters
-    heartbeats: int = 0
-    stale_messages: int = 0
-    duplicates: int = 0
-    resource_updates: int = 0
-    resource_updates_clamped: int = 0
-    """Reports that broke a D12 cap; logged once, counted always."""
-    declared_gpus: frozenset[int] = frozenset()
-    """``Hello.hardware.gpus[].index`` of this session: the only GPU indices its
-    score reports may name (D39)."""
-    hardware_scores_received: int = 0
-    hardware_scores_rejected: int = 0
-    """Score sets (Hello or report) dropped by D38 validation; each is logged."""
-    # RTT (roadmap 0.3.10) - monotonic clock only
-    outstanding_ping: tuple[str, float] | None = None
-    last_rtt_ms: float | None = None
-    rtt_ewma_ms: float | None = None
-    pings_sent: int = 0
-    pongs_matched: int = 0
-    # coalesced ``last_seen_at`` persistence (monotonic clock only)
-    last_touch_at: float | None = None
-    """When the last ``touch_node`` write was issued; None before the first."""
-    touch_dirty: bool = False
-    """Heartbeats arrived since ``last_touch_at`` that are not yet persisted."""
-
-    def touch_due_at(self, interval_s: float) -> float | None:
-        """Monotonic time the pending ``last_seen_at`` write is due (None if clean)."""
-        if not self.touch_dirty or self.last_touch_at is None:
-            return None
-        return self.last_touch_at + interval_s
-
-
-@dataclass(frozen=True, slots=True)
-class Accepted:
-    live: LiveSession
-    hello_ack: agent_pb2.ControllerMessage
-
-
-@dataclass(frozen=True, slots=True)
-class Rejected:
-    """Hello refused. ``abort_status`` set = close with that gRPC status instead of a
-    HelloAck (malformed/forbidden Hello); otherwise a ``HelloAck{accepted=false}``."""
-
-    reject_code: agent_pb2.HelloAck.RejectCode.ValueType
-    reason: str
-    abort_status: grpc.StatusCode | None = None
-
-
-type AdmitResult = Accepted | Rejected
 
 
 class SessionManager:
@@ -326,8 +180,6 @@ class SessionManager:
         if not half_close_confirm_s >= 0:
             raise ValueError("half_close_confirm_s must be >= 0")
         self._registry = registry
-        self._resources = resources
-        """Where ResourceUpdates go (roadmap 0.3.11); None = not recorded."""
         self._liveness = liveness
         self._clock = clock
         self._wall_clock = wall_clock or (lambda: dt.datetime.now(dt.UTC))
@@ -339,10 +191,19 @@ class SessionManager:
         self._live: dict[str, LiveSession] = {}
         self._lingering: dict[str, LiveSession] = {}
         """Abruptly ended sessions whose lease still runs, by node (D19)."""
-        self._pending_hellos: dict[str, list[int]] = {}
-        """Epochs of validated Hellos whose admission has not returned, by node (D28)."""
-        self._deferred_ends: dict[str, LiveSession] = {}
-        """Sessions that ended while a newer Hello was pending, by node (D28)."""
+        self._claims = AdmissionClaims()
+        """Pending Hellos and the session ends they defer (D28, :mod:`.claims`)."""
+        self.reports = ReportHandlers(registry, clock=clock, resources=resources)
+        """Report handlers and their counters (:mod:`.reports`)."""
+        self.heartbeats = HeartbeatRecorder(registry, liveness, clock=clock)
+        """Coalesced ``last_seen_at`` writes and RTT samples (:mod:`.heartbeats`)."""
+        self.dispatch = DispatchTable(log_unhandled)
+        """payload name -> handler (D42); later versions register theirs here."""
+        self.dispatch.register("heartbeat", self._on_heartbeat)
+        self.dispatch.register("pong", self.heartbeats.on_pong_message)
+        self.dispatch.register("ack", log_ack)
+        for payload, handler in self.reports.handlers().items():
+            self.dispatch.register(payload, handler)
         self._half_close_confirm_s = half_close_confirm_s
         self._tasks: set[asyncio.Task[None]] = set()
         self._chains: set[WriteChain] = set()
@@ -350,8 +211,6 @@ class SessionManager:
         self.wake = asyncio.Event()
         """Set whenever a session registers; the lease timer waits on it."""
         self.stale_messages_total = 0
-        self.hardware_scores_rejected_total = 0
-        """Score sets dropped by D38 validation across all sessions."""
         self.closing = False
         """True once :meth:`shutdown` started; new Hellos are refused."""
 
@@ -378,13 +237,23 @@ class SessionManager:
     def __len__(self) -> int:
         return len(self._live)
 
+    @property
+    def hardware_scores_rejected_total(self) -> int:
+        """Score sets dropped by D38 validation across all sessions."""
+        return self.reports.hardware_scores_rejected_total
+
+    @property
+    def _pending_hellos(self) -> dict[str, list[int]]:
+        return self._claims.pending
+
+    @property
+    def _deferred_ends(self) -> dict[str, LiveSession]:
+        return self._claims.deferred
+
     def admission_pending(self, live: LiveSession) -> bool:
         """True while a Hello with a higher epoch than ``live``'s is being admitted
-        for its node: that Hello owns the node's state (D28, module docstring)."""
-        if self.closing:
-            return False
-        pending = self._pending_hellos.get(live.node_id)
-        return pending is not None and max(pending) > live.session_epoch
+        for its node: that Hello owns the node's state (D28, :mod:`.claims`)."""
+        return self._claims.owns(live, closing=self.closing)
 
     # -------------------------------------------------------------- admission
 
@@ -398,45 +267,10 @@ class SessionManager:
         other Hellos only - never a reader or the lease timer.
         """
         if self.closing:
-            return Rejected(
-                RejectCode.REJECT_CODE_INTERNAL,
-                "controller is shutting down",
-                grpc.StatusCode.UNAVAILABLE,
-            )
-        # TRUST POINT (until V0.7 mTLS, ADR-0008): ``Hello.node_id`` is a claim
-        # accepted on the trusted LAN (ADR-0013 §2). Pairing binds node_id -> key
-        # -> certificate; then the transport, not this field, proves identity.
-        try:
-            validate_node_id(hello.node_id)
-        except InvalidIdError as exc:
-            return Rejected(
-                RejectCode.REJECT_CODE_INTERNAL,
-                str(exc),
-                grpc.StatusCode.INVALID_ARGUMENT,
-            )
-        too_long = check_hello_strings(
-            hostname=hello.hostname,
-            os=hello.os,
-            platform=hello.platform,
-            agent_version=hello.agent_version,
-        )
-        if too_long is not None:
-            return Rejected(
-                RejectCode.REJECT_CODE_INTERNAL,
-                too_long,
-                grpc.StatusCode.INVALID_ARGUMENT,
-            )
-        # D12: the hardware summary is part of the enrolment contract - over a cap
-        # the Hello is refused and nothing is persisted. The agent clips to the
-        # same numbers before sending, so this only fires on a hostile or broken
-        # peer (roadmap 0.3.3, G2 review follow-up on unbounded `hardware` JSON).
-        oversized = check_hardware(hello.hardware)
-        if oversized is not None:
-            return Rejected(
-                RejectCode.REJECT_CODE_INTERNAL,
-                oversized,
-                grpc.StatusCode.INVALID_ARGUMENT,
-            )
+            return shutting_down()
+        refused = check_hello(hello)
+        if refused is not None:
+            return refused
         if not 0 <= hello.session_epoch <= MAX_SESSION_EPOCH:
             # Unreachable from a protobuf uint64; guards non-proto callers so the
             # bound lives in one place (session/epoch.py) and nothing is persisted.
@@ -455,7 +289,7 @@ class SessionManager:
         # D28: from here until this admission returns, the Hello claims the
         # node's state against any older session still ending (module docstring).
         node_id = hello.node_id
-        self._pending_hellos.setdefault(node_id, []).append(hello.session_epoch)
+        self._claims.claim(node_id, hello.session_epoch)
         try:
             async with self._lock:
                 return await self._admit_locked(hello, peer_address)
@@ -469,13 +303,8 @@ class SessionManager:
         the deferred end (no event); otherwise the deferred session ends with the
         event its reason fires, as if no Hello had been pending.
         """
-        pending = self._pending_hellos[node_id]
-        pending.remove(epoch)
-        if not pending:
-            del self._pending_hellos[node_id]
-        deferred = self._deferred_ends.get(node_id)
-        if deferred is not None and not self.admission_pending(deferred):
-            del self._deferred_ends[node_id]
+        deferred = self._claims.release(node_id, epoch, closing=self.closing)
+        if deferred is not None:
             self._finish_end(deferred, fire_event=True)
         # The timer skipped this node's sessions while the claim stood.
         self.wake.set()
@@ -488,16 +317,12 @@ class SessionManager:
         # across disconnects, not only against a live competitor (ADR-0002 §1).
         record = await self._registry.get_node(node_id)
         if self.closing:  # shutdown began while we waited on the database
-            return Rejected(
-                RejectCode.REJECT_CODE_INTERNAL,
-                "controller is shutting down",
-                grpc.StatusCode.UNAVAILABLE,
-            )
+            return shutting_down()
         # Read the live and lingering entries *after* the await: the lease timer
         # and readers close sessions without the lock, so both tables may have
         # changed while we waited.
         old = self._live.get(node_id)
-        deferred = self._deferred_ends.get(node_id)
+        deferred = self._claims.deferred_for(node_id)
         lingering = self._lingering.get(node_id)
         highest = -1 if record is None else record.session_epoch
         for entry in (old, deferred, lingering):
@@ -539,12 +364,12 @@ class SessionManager:
                 "node is revoked",
                 grpc.StatusCode.PERMISSION_DENIED,
             )
-        event = _hello_event(prior)
+        event = hello_event(prior)
         state = prior if event is None else next_state(prior, event)
 
         now = self._clock()
         session_id = new_session_id()
-        scores, scores_rejected = self._hello_scores(hello, session_id)
+        scores, scores_rejected = self.reports.hello_scores(hello, session_id)
         await self._registry.upsert_node_on_hello(
             node_id=node_id,
             hostname=hello.hostname,
@@ -564,11 +389,10 @@ class SessionManager:
             agent_version=hello.agent_version,
             protocol_version=hello.protocol_version,
         )
-        if deferred is not None and self._deferred_ends.get(node_id) is deferred:
+        if deferred is not None and self._claims.consume(deferred):
             # Likewise only now: this Hello owns the state, so the deferred end
             # fires no event (D28). Had admission failed, ``_release_claim``
             # would have settled it with its event instead.
-            del self._deferred_ends[node_id]
             self._finish_end(deferred, fire_event=False)
         if lingering is not None:
             # Resolved only now that the new session is persisted: had admission
@@ -586,7 +410,7 @@ class SessionManager:
             tracker=LeaseTracker(self._liveness, self._clock),
             state=state,
             outbound=asyncio.Queue(maxsize=self._queue_size),
-            seen=_SeenIds(self._dedupe_window),
+            seen=SeenIds(self._dedupe_window),
             next_ping_at=now,  # first RTT sample right away
             writer=writer,
             declared_gpus=declared_gpus(hello.hardware),
@@ -596,13 +420,7 @@ class SessionManager:
         self._chains.add(writer)
         writer.start().add_done_callback(lambda _t: self._chains.discard(writer))
         self._live[node_id] = live
-        if self._resources is not None:
-            # A new session may be a *restarted* agent process, whose report
-            # sequence starts at 1 again. Arm a cursor reset; this session's
-            # Reconcile (if it announces a replay) cancels it before any report.
-            # The epoch goes with it so the sink's zombie fence is armed from the
-            # first instant of the session, not only from its first report.
-            self._resources.begin_session(node_id, 0, session_epoch=hello.session_epoch)
+        self.reports.begin_session(node_id, hello.session_epoch)
         self.wake.set()
         if prior is not state:
             log.info(
@@ -622,50 +440,7 @@ class SessionManager:
             agent_version=hello.agent_version,
             superseded=old.session_id if old else None,
         )
-        return Accepted(live, self._hello_ack(session_id))
-
-    def _hello_scores(
-        self, hello: agent_pb2.Hello, session_id: str
-    ) -> tuple[dict[str, Any] | None, bool]:
-        """The score document a Hello carries, validated (D38); ``(None, rejected)``.
-
-        A Hello without scores - or with scores that fail validation - stores
-        ``NULL`` (pending). A bad score set never refuses the Hello: scores are
-        optional, enrolment is not (it is logged and counted instead).
-        """
-        if not hello.HasField("hardware_scores"):
-            return None, False
-        reason = check_hardware_scores(
-            hello.hardware_scores, declared_gpus(hello.hardware)
-        )
-        if reason is not None:
-            self._reject_scores(hello.node_id, session_id, "hello", reason)
-            return None, True
-        document, _measured_at = scores_document(hello.hardware_scores)
-        return document, False
-
-    def _reject_scores(
-        self, node_id: str, session_id: str, source: str, reason: str
-    ) -> None:
-        self.hardware_scores_rejected_total += 1
-        log.warning(
-            "session.hardware_scores_rejected",
-            node_id=node_id,
-            session_id=session_id,
-            source=source,
-            reason=reason,
-            rejected_total=self.hardware_scores_rejected_total,
-        )
-
-    def _hello_ack(self, session_id: str) -> agent_pb2.ControllerMessage:
-        ack = agent_pb2.HelloAck(
-            accepted=True,
-            session_id=session_id,
-            heartbeat_interval_ms=round(self._liveness.heartbeat_interval_s * 1000),
-            lease_ms=round(self._liveness.offline_after_s * 1000),
-        )
-        ack.controller_time.FromDatetime(self._wall_clock())
-        return agent_pb2.ControllerMessage(message_id=new_command_id(), hello_ack=ack)
+        return Accepted(live, hello_ack(session_id, self._liveness, self._wall_clock()))
 
     # ---------------------------------------------------------------- reader
 
@@ -755,14 +530,8 @@ class SessionManager:
         self, live: LiveSession, msg: agent_pb2.AgentMessage
     ) -> None:
         """Process one agent message on ``live`` (idempotent per ``message_id``)."""
-        which = msg.WhichOneof("payload")
-        if which == "hello":
-            raise SessionProtocolError(
-                "second Hello on an open stream",
-                session_id=live.session_id,
-                node_id=live.node_id,
-            )
-        if msg.session_id != live.session_id:
+        which = check_envelope(live, msg)
+        if which is None:
             live.stale_messages += 1
             self.stale_messages_total += 1
             log.warning(
@@ -770,32 +539,10 @@ class SessionManager:
                 node_id=live.node_id,
                 session_id=live.session_id,
                 message_session_id=msg.session_id,
-                payload=which,
+                payload=msg.WhichOneof("payload"),
                 count=live.stale_messages,
             )
             return
-        if which is None:
-            raise SessionProtocolError(
-                "message without payload",
-                session_id=live.session_id,
-                node_id=live.node_id,
-            )
-        if not msg.message_id:
-            raise SessionProtocolError(
-                f"{which} message without message_id",
-                session_id=live.session_id,
-                node_id=live.node_id,
-            )
-        try:
-            validate_message_id(msg.message_id)
-        except InvalidIdError as exc:
-            # Bounds the dedupe window in bytes, not only in count (B3): the
-            # value itself is never logged or kept.
-            raise SessionProtocolError(
-                f"{which} message: {exc}",
-                session_id=live.session_id,
-                node_id=live.node_id,
-            ) from None
         if live.seen.remember(msg.message_id):
             live.duplicates += 1
             log.debug(
@@ -806,7 +553,7 @@ class SessionManager:
                 payload=which,
             )
         else:
-            await self._dispatch(live, which, msg)
+            await self.dispatch.handler_for(which)(live, msg)
         if which not in _UNACKED:
             # Receipts (Ack) and probe replies (Pong) are never acknowledged - they
             # are never buffered or replayed, and acking them would ping-pong
@@ -814,156 +561,19 @@ class SessionManager:
             # have missed the first Ack.
             self.send(live, self._ack(live, msg.message_id))
 
-    async def _dispatch(
-        self, live: LiveSession, which: str, msg: agent_pb2.AgentMessage
+    async def _on_heartbeat(
+        self, live: LiveSession, _msg: agent_pb2.AgentMessage
     ) -> None:
-        if which == "heartbeat":
-            now = self._clock()
-            live.tracker.observe_heartbeat(now)
-            live.heartbeats += 1
-            if live.state is NodeState.SUSPECT:
-                await self.apply_event(live, LivenessEvent.HEARTBEAT, silence_s=0.0)
-            self._touch(live, now, force=False)
-        elif which == "pong":
-            self._on_pong(live, msg.pong.ping_id)
-        elif which == "ack":
-            log.debug(
-                "session.command_acked",
-                node_id=live.node_id,
-                session_id=live.session_id,
-                acked_message_id=msg.ack.acked_message_id,
-            )
-        elif which == "resource_update":
-            self._on_resource_update(live, msg.resource_update)
-        elif which == "reconcile":
-            self._on_reconcile(live, msg.reconcile)
-        elif which == "hardware_scores":
-            self._on_hardware_scores(live, msg.hardware_scores)
-        else:
-            # cache_report / ... : accepted and acked; their handlers arrive with
-            # the versions that own them (V0.4+).
-            log.debug(
-                "session.message",
-                node_id=live.node_id,
-                session_id=live.session_id,
-                payload=which,
-            )
-
-    def _on_reconcile(self, live: LiveSession, reconcile: agent_pb2.Reconcile) -> None:
-        """The reconnect marker: it says where the agent's replay starts.
-
-        ``replay_from_sequence > 0`` means this is the *same* agent process
-        replaying its un-acked reports, so the resource sink must keep its dedupe
-        cursor and reject them; ``0`` (nothing buffered) leaves the reset armed by
-        the session's opening. ``running_attempts`` belongs to V0.4's executor and
-        is only counted here.
-        """
-        if self._resources is not None:
-            self._resources.begin_session(live.node_id, reconcile.replay_from_sequence)
-        log.info(
-            "session.reconciled",
-            node_id=live.node_id,
-            session_id=live.session_id,
-            replay_from_sequence=reconcile.replay_from_sequence,
-            running_attempts=len(reconcile.running_attempts),
-        )
-
-    def _on_resource_update(
-        self, live: LiveSession, update: agent_pb2.ResourceUpdate
-    ) -> None:
-        """Bound the report (D12: clamp, never reject) and hand it to the sink.
-
-        Synchronous on purpose: the sink is in-memory (live ring + downsampler),
-        so the reader never waits on it, and the database write happens later in
-        the controller's snapshot flusher.
-        """
-        bounded = check_resource_update(update)
-        if bounded.clamped:
-            live.resource_updates_clamped += 1
-            if live.resource_updates_clamped == 1:
-                # Once per session: a broken agent must not fill the log.
-                log.warning(
-                    "session.resource_update_clamped",
-                    node_id=live.node_id,
-                    session_id=live.session_id,
-                    dropped=list(bounded.dropped),
-                )
-        live.resource_updates += 1
-        if self._resources is not None:
-            self._resources.record(
-                live.node_id, live.session_epoch, bounded.update, self._clock()
-            )
-
-    def _on_hardware_scores(
-        self, live: LiveSession, scores: agent_pb2.HardwareScores
-    ) -> None:
-        """Validate a score report (D38) and queue its fenced, ordered write.
-
-        A rejected set is dropped - logged with the reason, counted - and the
-        message is still acked by the caller, so the agent stops replaying it; the
-        stream stays up (a bad optional field must not take a node offline). A
-        valid one goes on the session's write chain, so it can never overtake or
-        be overtaken by this session's state writes, and the registry fences it on
-        ``last_session_id`` and ignores it if the stored run is newer.
-        """
-        reason = check_hardware_scores(scores, live.declared_gpus)
-        if reason is not None:
-            live.hardware_scores_rejected += 1
-            self._reject_scores(live.node_id, live.session_id, "report", reason)
-            return
-        document, measured_at = scores_document(scores)
-        live.hardware_scores_received += 1
-        live.writer.enqueue(
-            "set_hardware_scores",
-            WriteKind.SCORES,
-            functools.partial(
-                self._registry.set_hardware_scores,
-                live.node_id,
-                document,
-                session_id=live.session_id,
-                measured_at=measured_at,
-            ),
-        )
-        log.info(
-            "session.hardware_scores_received",
-            node_id=live.node_id,
-            session_id=live.session_id,
-            run_id=scores.run_id,
-            metrics=len(scores.scores),
-        )
-
-    def _touch(self, live: LiveSession, now: float, *, force: bool) -> None:
-        """Queue a ``last_seen_at`` write at most once per ``heartbeat_interval_s``.
-
-        Coalescing: the first heartbeat of a window enqueues a write immediately;
-        the rest only mark the session dirty and the timer's flush (``force``)
-        enqueues one write when the window closes. Asynchrony: the write itself
-        runs on the session's :class:`~.writer.WriteChain`, so this method never
-        awaits and a stalled database cannot hold up the reader. The persisted
-        value is the write's wall time, at most one interval (plus queueing) after
-        the heartbeat it stands for - liveness itself is decided in memory.
-        """
-        interval = self._liveness.heartbeat_interval_s
-        window_open = live.last_touch_at is not None and (
-            now - live.last_touch_at < interval
-        )
-        if window_open and not force:
-            live.touch_dirty = True
-            return
-        live.last_touch_at = now
-        live.touch_dirty = False
-        live.writer.enqueue(
-            "touch_node",
-            WriteKind.TOUCH,
-            functools.partial(self._registry.touch_node, live.node_id),
-        )
+        now = self._clock()
+        live.tracker.observe_heartbeat(now)
+        live.heartbeats += 1
+        if live.state is NodeState.SUSPECT:
+            await self.apply_event(live, LivenessEvent.HEARTBEAT, silence_s=0.0)
+        self.heartbeats.touch(live, now, force=False)
 
     async def flush_touch(self, live: LiveSession, now: float) -> None:
         """Timer hook: queue a pending ``last_seen_at`` write once its window closed."""
-        due = live.touch_due_at(self._liveness.heartbeat_interval_s)
-        if due is None or now < due or live.ended:
-            return
-        self._touch(live, now, force=True)
+        self.heartbeats.flush_touch(live, now)
 
     def _ack(self, live: LiveSession, acked: str) -> agent_pb2.ControllerMessage:
         return agent_pb2.ControllerMessage(
@@ -989,19 +599,8 @@ class SessionManager:
 
     async def send_ping(self, live: LiveSession, now: float) -> None:
         """Send one Ping; the previous outstanding ping (if any) simply expires."""
-        ping_id = new_command_id()
-        live.outstanding_ping = (ping_id, now)
-        live.next_ping_at = now + self._liveness.offline_after_s
-        live.pings_sent += 1
         try:
-            self.send(
-                live,
-                agent_pb2.ControllerMessage(
-                    message_id=ping_id,
-                    session_id=live.session_id,
-                    ping=agent_pb2.Ping(ping_id=ping_id),
-                ),
-            )
+            self.send(live, self.heartbeats.ping(live, now))
         except OutboundOverflowError as exc:
             log.warning(
                 "session.outbound_overflow",
@@ -1010,39 +609,6 @@ class SessionManager:
                 capacity=exc.details["capacity"],
             )
             await self.end_session(live, SessionEndReason.PROTOCOL_ERROR)
-
-    def _on_pong(self, live: LiveSession, ping_id: str) -> None:
-        outstanding = live.outstanding_ping
-        if outstanding is None or outstanding[0] != ping_id:
-            log.debug(
-                "session.pong_unmatched",
-                node_id=live.node_id,
-                session_id=live.session_id,
-                ping_id=ping_id,
-            )
-            return
-        rtt_ms = (self._clock() - outstanding[1]) * 1000.0
-        live.outstanding_ping = None
-        live.last_rtt_ms = rtt_ms
-        live.rtt_ewma_ms = update_ewma(live.rtt_ewma_ms, rtt_ms)
-        live.pongs_matched += 1
-        log.debug(
-            "session.rtt",
-            node_id=live.node_id,
-            session_id=live.session_id,
-            rtt_ms=round(rtt_ms, 3),
-            rtt_ewma_ms=round(live.rtt_ewma_ms, 3),
-        )
-        live.writer.enqueue(
-            "record_rtt",
-            WriteKind.RTT,
-            functools.partial(
-                self._registry.record_rtt,
-                live.session_id,
-                last_ms=rtt_ms,
-                ewma_ms=live.rtt_ewma_ms,
-            ),
-        )
 
     # ------------------------------------------------------------- liveness
 
@@ -1137,10 +703,9 @@ class SessionManager:
             # D28: a newer Hello is being admitted and owns the state; its
             # admission finishes this end (no event) or, if it fails, settles it
             # with the event (``_release_claim``).
-            previous = self._deferred_ends.get(live.node_id)
+            previous = self._claims.defer(live)
             if previous is not None:  # pragma: no cover - one session per node ends
                 self._finish_end(previous, fire_event=True)
-            self._deferred_ends[live.node_id] = live
             log.info(
                 "session.end_deferred",
                 node_id=live.node_id,
@@ -1194,13 +759,7 @@ class SessionManager:
             state=live.state.value,
             lingering=linger,
             owned_by_hello=not fire_event,
-            heartbeats=live.heartbeats,
-            stale_messages=live.stale_messages,
-            duplicates=live.duplicates,
-            pending_writes=live.writer.pending,
-            last_rtt_ms=None
-            if live.last_rtt_ms is None
-            else round(live.last_rtt_ms, 3),
+            **live.summary(),
         )
 
     def expire_linger(self, entry: LiveSession, now: float) -> None:
@@ -1257,8 +816,7 @@ class SessionManager:
                 self._close(live, SessionEndReason.CONTROLLER_SHUTDOWN)
             # Unreachable in practice (every admission settles its claim before
             # the lock is free again); a backstop so no chain is left without END.
-            for deferred in list(self._deferred_ends.values()):  # pragma: no cover
-                del self._deferred_ends[deferred.node_id]
+            for deferred in self._claims.drain():  # pragma: no cover
                 self._finish_end(deferred, fire_event=True)
             for entry in list(self._lingering.values()):
                 # No controller = no liveness claim, exactly like the start-up
@@ -1284,22 +842,6 @@ class SessionManager:
                 abandoned=abandoned,
                 drain_s=drain_s,
             )
-
-
-def declared_gpus(hardware: agent_pb2.HardwareSummary) -> frozenset[int]:
-    """The GPU indices a Hello declared (D39)."""
-    return frozenset(gpu.index for gpu in hardware.gpus)
-
-
-def _hello_event(prior: NodeState) -> LivenessEvent | None:
-    """Which §12.3 arrow an accepted Hello is, given the node's previous state."""
-    if prior is NodeState.ENROLLING:
-        return LivenessEvent.HELLO_ACCEPTED
-    if prior in (NodeState.SUSPECT, NodeState.OFFLINE):
-        return LivenessEvent.RECONNECTED
-    if prior is NodeState.ONLINE:
-        return LivenessEvent.HEARTBEAT  # superseding stream: self-loop
-    return None  # DRAINING keeps draining; REVOKED is rejected before this
 
 
 def _log_task_failure(task: asyncio.Task[None]) -> None:
