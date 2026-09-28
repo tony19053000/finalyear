@@ -2,19 +2,19 @@
 
 > Concise current state. Long-term plan: [`DEVELOPMENT_ROADMAP.md`](DEVELOPMENT_ROADMAP.md). Update at the end of every work session.
 
-**Last updated:** 2026-09-28 (**V0.4 G1–G3 code written, tester rounds running; progress bars added**; V0.3 closed agent-side, formally closes on the 🧑 0.3.15 lab run)
+**Last updated:** 2026-09-28 (**V0.4 G1 + G2 closed**; next G3 tester; V0.3 closed agent-side, formally closes on the 🧑 0.3.15 lab run)
 
 ## Progress
 
 Generated from the roadmap checkboxes by `uv run python scripts/status_bars.py` — **re-run it and replace this block whenever checkboxes change.** Deferred versions (V0.11, V0.12, V0.13, V0.16) and deferred tasks are not counted. A task is only █ when it is `[x]` (tester + reviewer + evidence); written-but-unreviewed code is ▒.
 
 ```
-TOTAL   ███▒▒▒░░░░░░░░░░░░░░  14%  23/154 done, 20 in progress
+TOTAL   ████▒▒░░░░░░░░░░░░░░  17%  27/154 done, 16 in progress
 
 V0.1    █████████████████▒▒▒  83%  10/12  Foundations & engineering system
 V0.2    ██▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░░   9%   1/11  Lab setup & feasibility validation
 V0.3    ███████████████▒▒▒▒░  73%  11/15  Fabric core: controller ⇄ agent
-V0.4    █▒▒▒▒▒▒▒▒▒░░░░░░░░░░   5%   1/17  Remote execution core (Mode 1 foundation)
+V0.4    ██████▒▒▒▒▒░░░░░░░░░  29%   5/17  Remote execution core (Mode 1 foundation)
 V0.5    ░░░░░░░░░░░░░░░░░░░░   0%   0/11  Data plane & environments
 V0.6    ░░░░░░░░░░░░░░░░░░░░   0%   0/13  Scheduling & reliability — Mode 1 complete
 V0.7    ░░░░░░░░░░░░░░░░░░░░   0%   0/11  Security & pairing
@@ -29,7 +29,7 @@ V1.0    ░░░░░░░░░░░░░░░░░░░░   0%   0/8 
 █ done `[x]` · ▒ in progress or waiting on a 🧑 lab step `[~]` · ░ not started
 
 ## Current Version
-**V0.4 — Remote execution core** · started 2026-09-28; G1–G3 code written (0.4.1–0.4.5, 0.4.7, 0.4.8, 0.4.16, 0.4.17 `[~]`); **one subagent at a time** — **G1 closed** (0.4.16 `[x]`, tester PASS, reviewer APPROVE; grpcio cap lifted); next G2 tester → reviewer, G3 tester → reviewer, G4, G5
+**V0.4 — Remote execution core** · started 2026-09-28; G1–G3 code written (0.4.1–0.4.5, 0.4.7, 0.4.8, 0.4.16, 0.4.17 `[~]`); **one subagent at a time** — **G1 closed** (0.4.16 `[x]`); **G2 closed** (0.4.1, 0.4.3, 0.4.4, 0.4.5 `[x]`; 0.4.2 `[~]` until the Windows CI golden-digest run); next G3 tester → reviewer, G4, G5
 **V0.3 — Fabric core** · started 2026-09-20 on the team's decision (before the laptop 2–4 inventory); **G1–G7 closed agent-side** (0.3.1, 0.3.3, 0.3.4, 0.3.5, 0.3.6, 0.3.8, 0.3.9, 0.3.10, 0.3.11, 0.3.12, 0.3.14 `[x]`; 0.3.2 `[~]` Windows run; 0.3.7 `[~]` lab evidence; 0.3.13 `[~]` Windows logoff check). Remaining: **only 🧑 0.3.15 lab run** (+ the three 🧑 Windows checks)
 V0.2 — Lab setup & feasibility validation · agent-side complete, waiting on 🧑 lab runs
 V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4, 0.1.10)
@@ -47,6 +47,8 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 **Open team question (NB-2), still unanswered:** where NVML is missing but `nvidia-smi` works, a node reports its GPUs in `Hello.hardware` but **never** GPU util/VRAM in any `ResourceUpdate` — so V0.9 telemetry and the V0.15 ML planner would train on a node that looks GPU-equipped and never uses it. Refusing a subprocess every 2 s was right; the option to cost is a low-cadence (~30 s, interpolated) `nvidia-smi` poll behind a setting.
 
 ## Recently Completed
+- 2026-09-28: **V0.4 G2 closed** — job model & submission: `compute.yaml` manifest (D46), deterministic hostile-safe bundles (D47), token-protected blob store + fetch tokens (D48), Job/Attempt tables + transitions + CAS JobStore (D49), `POST/GET /v1/jobs` with Idempotency-Key and manual placement (D50), fabric token (D44). Rounds: tester PASS → reviewer REQUEST_CHANGES (submit was 3 transactions; a crash could strand a job) → fix: one-transaction submit → tester round 2 PASS (killed DB connection / random cancellation leave no row) → reviewer APPROVE. Lead fixed 3 small pre-existing unit-gate test failures (`d901810`). Follow-ups → D62 (G4).
+- 2026-09-28: **V0.4 G1 closed** — 0.4.16 `[x]` explicit `Goodbye`, admission deadline, manager split, overflow signal; grpcio cap lifted.
 - 2026-09-25: **V0.3 G7 closed agent-side** — 0.3.4 `[x]` (brief §5g, D30–D39). Every node now measures **hardware scores** (CPU fp32 1T/all, fp64, memory triad, per-GPU fp32/fp16/copy) in an isolated, tree-killed child process, caches them per hardware fingerprint, and sends them to the controller (`Hello` + a replayed report); REST shows `scores` as measured/pending/none and `compute nodes` has a SCORES column. Anything unmeasurable is a typed `UNAVAILABLE`/`FAILED` with a reason, never a 0 — GPU is `torch_not_installed` until ADR-0011. `numpy` joins the `agent` extra (D30). Rounds: implementer A → B (each resumed once after a usage limit, no work lost) → tester **PASS** with 2 defects (undeclared-GPU score accepted → **D39**; DB-refused write lost until next Hello → documented) → tester round 2 **PASS** → reviewer **APPROVE** (follow-ups **0.4.17**). Gates: unit 3725 / component 462 / cluster 40, all exit 0. Commits `dc4ebcf` … G7 close.
 - 2026-09-24: **V0.3 G6 closed agent-side** — 0.3.14 `[x]`. A real **cluster tier**: an in-process fault proxy (FaultLink, D23 — replaces the Toxiproxy binary) and a process harness start a controller + 5 agents as subprocesses and kill, pause, blackhole, reset and restart them, observing only through REST + logs; Linux CI `cluster` job. **Liveness now tells the truth on session end** (NB-G5-1, ARCHITECTURE §12.3 amended): clean close → OFFLINE, abrupt loss → SUSPECT + lingering lease, supersession writes nothing; session-originated state writes fenced (D20, closed a latent reconnect race). Also NB-1 made structural, Hello strings validated at ingestion, LATE-1 bucket grace, reconnect cap 5 s + `hello_timeout_s` 3 s for criterion 2, and the **0.3.15 lab kit** (`lab/checklists/V0.3-fabric.md`). Rounds: 3 implementer runs (2 relaunched after usage limits) → tester **FAIL** (2 major) → fix + Lead D29 → tester **PASS** → reviewer REQUEST_CHANGES (lint only) → **APPROVE**. Loopback at shipped timings: blackhole → OFFLINE 6.0 s (≤ 8), restore → ONLINE ≤ 3.6 s after 120 s (≤ 10), controller SIGKILL → all back ≤ 2.4 s (≤ 15). Commits `64a89b5` … `64e488a`. **Behaviour change:** an agent `config.toml` with `hello_timeout_s = 5` now refuses to start.
 - 2026-09-24: **V0.3 G5 closed agent-side** — 0.3.12 `[x]`, 0.3.13 `[~]` (one 🧑 Windows logoff check). The fabric now has an operator surface: a **read-only, unauthenticated, LAN-bound** REST `/v1` (nodes, one node, its resource history + live ring, recent sessions) with one typed error envelope and OpenAPI on but the CDN-backed docs pages off; a `compute` CLI that speaks **REST only** (`compute nodes [ID] [--json] [--watch]`, `compute status`) and exits `UNAVAILABLE`=6 rather than printing a traceback; `meshforge-agent hardware show` for the per-probe facts that deliberately never go on the wire (D13); and `docs/OPERATIONS.md` + `deploy/` service units that are **printed, never installed** (D17). **Rounds: implementer → tester PASS → reviewer REQUEST_CHANGES (2 blocking) → fix → tester PASS → reviewer APPROVE.** The two blockers were both "a document claims something the code does not do": the error-handler set was not exhaustive while its docstring said it was, and — the one that mattered — **ANSI/OSC escape injection**, since enrolment is unauthenticated in V0.3 and `Hello.hostname` is length-validated only, so any LAN host could have injected escape sequences into every operator's `compute nodes`. Nine mutation-checks across the two rounds. Gates: ruff + format clean, mypy `src` 89 files, lint-imports 7/0, gen_protos clean, `pytest -m unit` **3214 passed**. Commits `8dd97d5` … `bedbee5`.

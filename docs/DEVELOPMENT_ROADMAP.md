@@ -288,11 +288,11 @@ A version is **complete** only when all apply:
 **Prerequisites:** V0.3 complete.
 
 **Tasks**
-- [~] **0.4.1** Manifest schema (`compute.yaml`, Pydantic) with validation, defaults, inferred entrypoint when absent
-- [~] **0.4.2** Source bundling with ignore rules (`.gitignore`, `.computeignore`), deterministic tar + zstd, SHA-256
-- [~] **0.4.3** Upload to controller store (simple path; CAS arrives in V0.5)
-- [~] **0.4.4** Job, Attempt tables + transition module enforcing ARCHITECTURE §12 state machines
-- [~] **0.4.5** `POST /v1/jobs` with `Idempotency-Key`; manual placement `--node`; local placement `--local`
+- [x] **0.4.1** Manifest schema (`compute.yaml`, Pydantic) with validation, defaults, inferred entrypoint when absent. **Done 2026-09-28 (V0.4 G2):** evidence — tester round 1 PASS (`677939c`), reviewer REQUEST_CHANGES (non-atomic submit) → fix `c8fc346` `2f4476f` `f266274` → tester round 2 PASS (`d3581aa`: pg_terminate_backend + random cancellation mid-submit leave no row) → reviewer APPROVE. Gates: ruff/format/mypy/lint-imports/gen_protos exit 0; unit 4351 exit 0; component ctl+store 171 exit 0; cluster 41 exit 0. Commits `1462e34` … `f92e4fd` + fixes.
+- [~] **0.4.2** Source bundling with ignore rules (`.gitignore`, `.computeignore`), deterministic tar + zstd, SHA-256. *G2 tester + reviewer APPROVE (see 0.4.1); stays `[~]` only until the first GitHub CI run shows the same golden digest on `windows-latest` (cross-OS determinism is part of the brief).*
+- [x] **0.4.3** Upload to controller store (simple path; CAS arrives in V0.5). Same evidence as 0.4.1.
+- [x] **0.4.4** Job, Attempt tables + transition module enforcing ARCHITECTURE §12 state machines. Same evidence as 0.4.1 (D55's three extra arrows land in G4).
+- [x] **0.4.5** `POST /v1/jobs` with `Idempotency-Key`; manual placement `--node`; local placement `--local`. Same evidence as 0.4.1; submission is one transaction. Criterion 4's "one execution" half is proven in G4 (dispatch); the `compute run --local` command is G5.
 - [ ] **0.4.6** Dispatcher → `StartAttempt` command; agent executor: fetch, unpack, run
 - [~] **0.4.7** Runtime interface + **Docker runtime** (limits: CPU, RAM, pids; workdir-only mount; non-root user) + subprocess fallback
 - [~] **0.4.8** GPU pass-through (`resources.gpu`) via NVIDIA Container Toolkit / Docker Desktop
