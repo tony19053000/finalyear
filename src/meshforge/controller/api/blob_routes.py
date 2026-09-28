@@ -5,8 +5,10 @@ implied). Every call needs a credential (D44/D48): the fabric token, or a
 per-attempt fetch token that names this digest (``GET``/``HEAD``) or allows
 uploads (``PUT``). See :mod:`meshforge.controller.blobs` for the storage rules.
 
-* ``PUT`` streams the body to disk while hashing it; ``201`` when stored, ``200``
-  when it already existed (idempotent), ``400 integrity_error`` when the bytes do
+* ``PUT`` streams the body to disk while hashing it; ``201`` when *this request*
+  wrote the blob (concurrent identical uploads may each get ``201`` - never a
+  uniqueness signal), ``200`` when it was already present as the upload started
+  (idempotent), ``400 integrity_error`` when the bytes do
   not hash to the name (nothing kept), ``413`` over the size cap (refused from
   ``Content-Length`` before reading when the client sends one), ``507`` disk full.
 * ``HEAD`` answers "do you have it" (``200`` + ``Content-Length`` / ``404``).

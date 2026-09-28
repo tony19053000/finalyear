@@ -132,6 +132,29 @@ async def test_interrupted_upload_leaves_no_partial_blob(
     del reader
 
 
+async def test_startup_sweeps_part_files_a_killed_controller_left(
+    pg_settings: object,
+) -> None:
+    """A SIGKILL mid-upload leaves ``tmp/*.part``; the next start deletes them
+    (``BlobStore.prepare`` in ``ControllerRuntime.start``), stored blobs stay."""
+    settings = g2_settings(pg_settings, blobs={"max_blob_bytes": MIB})  # type: ignore[arg-type]
+    data = b"kept blob"
+    async with running_controller(settings) as rt:
+        async with api_client(rt, token=token_of(rt)) as client:
+            put = await client.put(f"/v1/blobs/{sha256_bytes(data).hex}", content=data)
+            assert put.status_code == 201
+        tmp = _blob_root(rt) / "tmp"
+    # Simulate what a killed controller leaves behind while it is down.
+    (tmp / "0123abcd.part").write_bytes(b"half an upload")
+    (tmp / "deadbeef.part").write_bytes(b"")
+    (tmp / "not-a-part.txt").write_bytes(b"someone else's file")
+    async with running_controller(settings) as rt:
+        assert sorted(p.name for p in tmp.iterdir()) == ["not-a-part.txt"]
+        async with api_client(rt, token=token_of(rt)) as client:
+            got = await client.get(f"/v1/blobs/{sha256_bytes(data).hex}")
+            assert got.status_code == 200 and got.content == data
+
+
 async def test_every_blob_call_needs_a_credential(runtime: ControllerRuntime) -> None:
     data = b"guarded"
     digest = sha256_bytes(data)
