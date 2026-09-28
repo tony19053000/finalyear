@@ -312,6 +312,36 @@ def test_a_large_output_flood_is_not_lost_reordered_or_unbounded(
     assert capture.max_concurrent == 1  # backpressure: never more than one in flight
 
 
+# --------------------------------------------------------------- docker socket
+def test_the_docker_socket_is_not_mounted_into_the_workload(
+    target: Target, workdir: Path
+) -> None:
+    """Only the workdir is ever mounted (D51): a workload must not be able to
+    reach the host's Docker daemon (which would be a full sandbox escape - it
+    could launch unsandboxed siblings) via the conventional socket path, nor via
+    a TCP docker endpoint on the loopback the daemon might also listen on."""
+    code = textwrap.dedent(
+        """
+        import os, socket
+        found = os.path.exists("/var/run/docker.sock") or os.path.exists(
+            "/run/docker.sock"
+        )
+        print("SOCK_PRESENT" if found else "SOCK_ABSENT")
+        for port in (2375, 2376):
+            try:
+                socket.create_connection(("127.0.0.1", port), timeout=1).close()
+                print(f"TCP_OPEN:{port}")
+            except OSError:
+                print(f"TCP_CLOSED:{port}")
+        """
+    )
+    result, capture = _run(target, target.spec(workdir, code, network=False))
+    assert result.ok, capture.data(Stream.STDERR)
+    lines = capture.data(Stream.STDOUT).decode().strip().splitlines()
+    assert lines[0] == "SOCK_ABSENT", lines
+    assert all(line.startswith("TCP_CLOSED") for line in lines[1:]), lines
+
+
 # --------------------------------------------------------------- OOM vs plain kill
 def test_a_self_sigkill_with_no_memory_pressure_is_user_error_not_oom(
     target: Target, workdir: Path
