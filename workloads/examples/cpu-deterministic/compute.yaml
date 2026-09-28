@@ -1,0 +1,12 @@
+# MeshForge example: deterministic CPU job (see README.md).
+name: cpu-deterministic
+entrypoint: python main.py --size 200000 --seed 1234
+env:
+  base: python-cpu          # numpy is optional: the result is the same without it
+resources:
+  gpu: none
+  cpus: 1
+outputs: [results/]
+limits:
+  timeout: 10m
+  network: none

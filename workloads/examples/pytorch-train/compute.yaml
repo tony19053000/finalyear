@@ -1,0 +1,12 @@
+# MeshForge example: reproducible PyTorch training (see README.md).
+name: pytorch-train
+entrypoint: python main.py --steps 400 --device auto
+env:
+  base: cuda-pytorch        # the image has torch; the subprocess runtime uses the agent's
+resources:
+  gpu: preferred            # CUDA when the node has it, else CPU
+  vram_gb: 1
+outputs: [results/]
+limits:
+  timeout: 20m
+  network: none
