@@ -17,6 +17,9 @@ import pytest
 import pytest_asyncio
 from mf_jobs_harness import api_client, g2_settings, running_controller, token_of
 from mf_session_client import FakeAgent
+
+pytest.importorskip("sqlalchemy", reason="needs the controller extra")
+
 from sqlalchemy import text
 
 from meshforge.common.hashing import sha256_bytes
