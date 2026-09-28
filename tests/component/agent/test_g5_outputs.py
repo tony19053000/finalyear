@@ -128,7 +128,11 @@ async def test_a_symlinked_output_fails_output_error(
     project = tmp_path / "proj"
     project.mkdir()
     (project / "main.py").write_text("import os\nos.symlink('/etc/hostname', 'leak')\n")
-    manifest = {"name": "leak", "entrypoint": ["python", "main.py"], "outputs": ["leak"]}
+    manifest = {
+        "name": "leak",
+        "entrypoint": ["python", "main.py"],
+        "outputs": ["leak"],
+    }
     job_id = await submit(http, project, agent.node_id, manifest)
     job = await wait_job(http, job_id, timeout_s=30)
     assert job["state"] == "failed" and job["failure_type"] == "output_error", job

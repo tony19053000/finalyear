@@ -198,7 +198,9 @@ async def test_a_done_digest_uploaded_under_the_grant_is_kept() -> None:
     attempt_id = str(new_attempt_id())
     token = grants.mint(attempt_id, ttl_s=60, max_blobs=3, max_bytes=100)
     digest = sha256_bytes(b"outputs")
-    grants.finish(grants.begin(token.get_secret_value(), digest, 7), stored=True, size=7)
+    grants.finish(
+        grants.begin(token.get_secret_value(), digest, 7), stored=True, size=7
+    )
     live = SimpleNamespace(node_id="n", session_id="s")
     report = dispatcher._verified(_done(attempt_id, str(digest)), live)  # type: ignore[arg-type]
     assert report.state is AttemptState.DONE and report.output_digest == str(digest)
@@ -214,7 +216,9 @@ async def test_a_done_digest_not_uploaded_under_the_grant_fails_output_error() -
     theirs = grants.mint(other, ttl_s=60, max_blobs=3, max_bytes=100)
     digest = sha256_bytes(b"someone else's")
     # uploaded - but under ANOTHER attempt's grant
-    grants.finish(grants.begin(theirs.get_secret_value(), digest, 5), stored=True, size=5)
+    grants.finish(
+        grants.begin(theirs.get_secret_value(), digest, 5), stored=True, size=5
+    )
     live = SimpleNamespace(node_id="n", session_id="s")
     report = dispatcher._verified(_done(attempt_id, str(digest)), live)  # type: ignore[arg-type]
     assert report.state is AttemptState.FAILED
