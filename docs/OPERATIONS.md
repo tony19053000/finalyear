@@ -137,6 +137,44 @@ kill work. Jobs are not retried until V0.6.
 - **Windows note:** cancel on Windows has no graceful signal for a background
   process; the job is ended after `grace_s` together with everything it started (a
   kill-on-close job object — also when the agent itself dies).
+- **Logs and outputs on this laptop (V0.4 G5).** Each stream's local log stops at
+  `[agent.execution] max_log_bytes` (64 MiB) and ends with a
+  `[meshforge: output truncated …]` line. After a successful run the declared outputs
+  and both logs are uploaded to the controller (TCP 47110) with a per-job upload
+  grant (at most 3 blobs / 2 GiB, `[controller.jobs] max_output_*`); a job's folder
+  is kept until the controller has acknowledged its final status - the agent
+  re-sends that status every `terminal_resend_s` (5 s) until it has.
+
+### 0c. Submitting jobs and getting results (V0.4, `compute`)
+
+From any laptop with the fabric token (§0a) and the controller's URL
+(`MESHFORGE_CLI__CONTROLLER_URL=http://<controller ip>:47110`):
+
+```bash
+compute run workloads/examples/cpu-deterministic --node <NODE_ID> -f   # Mode 1
+compute run workloads/examples/cpu-deterministic --local -f            # this laptop's agent
+compute jobs                       # recent jobs (--state running, --json)
+compute logs <JOB_ID> [-f]         # stdout to stdout, stderr to stderr; -f follows live
+compute cancel <JOB_ID>            # idempotent
+compute get <JOB_ID>               # outputs -> ./outputs/<JOB_ID>/ (--dest, --force)
+```
+
+- `run` reads `compute.yaml` (or infers `main.py`), packs the folder (`.gitignore` /
+  `.computeignore` respected), uploads it only if the controller does not have it,
+  and prints the job id. It also prints an **idempotency key** on stderr: after a
+  network error, re-run the same command with `--idempotency-key <key>` and you get
+  the same job back instead of a second one.
+- `run -f` streams the logs and exits like the job: `0` succeeded; the workload's own
+  exit code (1-125) when it failed; `126` when the fabric failed it (the failure type
+  is printed: `node_lost`, `deadline_exceeded`, `output_error` …); `128` cancelled.
+  **Ctrl-C only detaches** (exit 130) - the job keeps running; the message shows the
+  `compute cancel` command.
+- `get` checks the SHA-256 of what it downloads before unpacking, and unpacks as
+  safely as the agent does (no paths outside the folder). Declared outputs that
+  matched nothing are listed on stderr; they are not an error.
+- Live logs are best effort (a flood is dropped and the gap recorded); the stored log
+  becomes the complete one when the job ends. A follower that reads too slowly is
+  disconnected (`slow_consumer`); `compute logs <JOB_ID>` then prints the stored log.
 
 ---
 
