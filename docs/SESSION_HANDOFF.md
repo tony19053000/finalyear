@@ -7,10 +7,10 @@
 > **Cold-start prompt** (paste this as the first message on the new account):
 >
 > ```
-> Read docs/SESSION_HANDOFF.md (sections 0, 0b, 0c, 0d and 2 especially), then docs/STATUS.md, then
-> V0.4 in docs/DEVELOPMENT_ROADMAP.md. V0.3 is closed agent-side (G7 done). We are behind pace (§0d).
-> Write the V0.4 brief as docs/briefs/V0.4-remote-execution.md with LARGER task groups than V0.3
-> (first group 0.4.16 + 0.4.17 item 2), then spawn the first group.
+> Read docs/SESSION_HANDOFF.md (sections 0d and 2 especially), then docs/STATUS.md, then
+> docs/briefs/V0.4-remote-execution.md. V0.4 G1 (session hardening) was spawned 2026-09-28 — check
+> docs/briefs/progress/V0.4-G1.md and git log for where it got to. Next: add the V0.4 deps, then spawn
+> G2 and G3 in parallel (briefs §5b/§5c), then run tester/reviewer per group.
 > ```
 >
 > Order of truth: `PROJECT_BRIEF → ARCHITECTURE → ROADMAP → STATUS → this file`. If this file
@@ -30,7 +30,7 @@
 > throughput measurements and the reasoning; if you think the arithmetic or the trade is wrong,
 > **say so to the team before building on it.** Do not silently re-expand the scope either.
 
-**Last updated:** 2026-09-28 (**G7 CLOSED agent-side** — all agent-side V0.3 work done; **pace check added as §0d: ~half the speed the plan needs**; next: the V0.4 brief) · **Updated by:** Lead session (account 2)
+**Last updated:** 2026-09-28 (**V0.4 brief written** — `docs/briefs/V0.4-remote-execution.md`, 5 groups, G1‖G2‖G3 parallel; ADR-0014 Proposed; **G1 spawned**) · **Updated by:** Lead session (account 2)
 
 ---
 
@@ -246,6 +246,9 @@ the 🧑 0.3.15 lab run closes V0.3 (the Lead recommends yes — the lab run is 
   `torch.cuda.is_available()` needs torch installed (ADR-0011 / 0.2.3).
 
 ## 2. In flight right now
+
+> **2026-09-28 — V0.4 started.** Brief: `docs/briefs/V0.4-remote-execution.md` (decisions D40–D54, groups G1–G5, pasteable briefs for G1–G3). **G1 (0.4.16 + 0.4.17 items 2, 5) spawned** as an implementer; it logs progress to `docs/briefs/progress/V0.4-G1.md` and commits `refactor/feat(V0.4-G1): …`. If this session died, read that file + `git log`, commit any wip, and relaunch G1 with the §5 brief plus "resume from <last done item>".
+> **Next Lead steps:** (1) add deps (`zstandard`, `pathspec`, `pyyaml`?, `websockets` core; `docker` agent extra), `uv lock`, commit — **only while no test run is active**; (2) spawn G2 and G3 in parallel (§5b, §5c); (3) tester + reviewer per group; (4) after G1 closes, lift the `grpcio<1.85` cap (D43b). **ADR-0014** (fabric token + execution opt-in) needs team review before G2 merges. **D40 departs from the roadmap's 0.4.16 text** (timing fallback deleted, not kept) — team may object.
 
 > **G7-B D39 fix round done (`54b27c0`):** an undeclared GPU index rejects the whole score set (`gpu_index_not_declared`); tester's test inverted; `WriteKind.SCORES` docstring fixed; unit/component-agent/cluster exit 0.
 > Next: tester re-run on the delta, then the reviewer.

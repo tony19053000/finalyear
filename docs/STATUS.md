@@ -2,7 +2,7 @@
 
 > Concise current state. Long-term plan: [`DEVELOPMENT_ROADMAP.md`](DEVELOPMENT_ROADMAP.md). Update at the end of every work session.
 
-**Last updated:** 2026-09-25 (**V0.3 G7 CLOSED agent-side** — 0.3.4 `[x]`, reviewer APPROVE; all agent-side V0.3 work done; V0.3 closes on the 🧑 0.3.15 lab run; next agent-side: the V0.4 brief)
+**Last updated:** 2026-09-28 (**V0.4 brief written, G1 spawned**; V0.3 closed agent-side, formally closes on the 🧑 0.3.15 lab run)
 
 ## Current Version
 **V0.3 — Fabric core** · started 2026-09-20 on the team's decision (before the laptop 2–4 inventory); **G1–G7 closed agent-side** (0.3.1, 0.3.3, 0.3.4, 0.3.5, 0.3.6, 0.3.8, 0.3.9, 0.3.10, 0.3.11, 0.3.12, 0.3.14 `[x]`; 0.3.2 `[~]` Windows run; 0.3.7 `[~]` lab evidence; 0.3.13 `[~]` Windows logoff check). Remaining: **only 🧑 0.3.15 lab run** (+ the three 🧑 Windows checks)
@@ -15,7 +15,7 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 > V0.10. 129 tasks vs 140–180 capacity → **~1.5 tasks/session**. Needs the other three team members' approval.
 
 ## Current Task
-**Next (agent-side): write the V0.4 brief** as `docs/briefs/V0.4-remote-execution.md`, same pattern as V0.3's (Lead decisions first, task groups, pasteable briefs with the §4 checklist + exit codes + ruff in the tester's exit list). **First group: 0.4.16 (explicit agent `Goodbye`) + 0.4.17 item 2 (move the report handlers out of `controller/session/manager.py`, now 1315 lines) before V0.4 adds AttemptStatus/LogChunk handlers.** V0.4's prerequisite is "V0.3 complete", and V0.3 now waits only on the 🧑 0.3.15 lab run — planning V0.4 in parallel is fine; decide with the team whether implementation may start before 0.3.15 is in.
+**V0.4 started 2026-09-28** — brief `docs/briefs/V0.4-remote-execution.md` (D40–D54; 17 tasks in 5 groups; G1‖G2‖G3 parallel on disjoint files). **In flight: G1 session hardening** (0.4.16 explicit `Goodbye`, admission deadline, `claims.py`/`reports.py` split, overflow signal; 0.4.17 items 2, 5). **Next:** Lead adds V0.4 deps → spawn G2 (job model & submission: 0.4.1–0.4.5) and G3 (runtimes & sandbox: 0.4.7, 0.4.8, 0.4.17 items 1/3/4/6/8) in parallel. New **ADR-0014 (Proposed)**: fabric bearer token + agent execution opt-in until V0.7 — team review needed.
 
 **Carried from G6 (tracked as roadmap 0.4.16, a hard prerequisite of V0.6):** replace the timing-based clean-close inference (`HALF_CLOSE_CONFIRM_S`, measured on grpcio 1.84 → `grpcio<1.85` cap) with an explicit agent `Goodbye`; claim deadline for D28; extract `session/claims.py`; write-queue overflow signal; test the shutdown deferred-end backstop.
 
