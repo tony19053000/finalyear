@@ -465,3 +465,52 @@ def status_table(
     live = _num(sessions)
     table.add_row("live sessions", DASH if live is None else f"{live:.0f}")
     return table
+
+
+# ------------------------------------------------------------------ jobs (V0.4 G5)
+
+
+def jobs_table(payload: Mapping[str, Any]) -> Table:
+    """``compute jobs``: one row per job, newest first (every cell via _cell)."""
+    table = _table("JOB", "NAME", "STATE", "NODE", "FAILURE", "CREATED", title="Jobs")
+    jobs = payload.get("jobs")
+    for job in jobs if isinstance(jobs, list) else []:
+        if not isinstance(job, Mapping):
+            continue
+        placement = _mapping(job.get("placement")) or {}
+        table.add_row(
+            _cell(job.get("job_id")),
+            _cell(job.get("name")),
+            _cell(job.get("state")),
+            _cell(placement.get("node_id")),
+            _cell(job.get("failure_type")),
+            _cell(job.get("created_at")),
+        )
+    return table
+
+
+def job_detail_table(payload: Mapping[str, Any]) -> Table:
+    """``compute get``/``compute jobs <id>``-style detail of one job."""
+    table = _table("FIELD", "VALUE", title="Job")
+    for key in ("job_id", "name", "state", "failure_type", "failure_detail"):
+        table.add_row(_cell(key), _cell(payload.get(key)))
+    attempts = payload.get("attempts")
+    for attempt in attempts if isinstance(attempts, list) else []:
+        if not isinstance(attempt, Mapping):
+            continue
+        missing = attempt.get("missing_outputs")
+        missing_text = (
+            ",".join(str(m) for m in missing)
+            if isinstance(missing, list) and missing
+            else DASH
+        )
+        table.add_row(
+            _cell("attempt"),
+            _cell(
+                f"{attempt.get('attempt_id')} on {attempt.get('node_id')}: "
+                f"{attempt.get('state')} exit={attempt.get('exit_code')} "
+                f"outputs={attempt.get('output_digest') or DASH} "
+                f"missing={missing_text}"
+            ),
+        )
+    return table

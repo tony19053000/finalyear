@@ -42,3 +42,20 @@ class ExitCode(IntEnum):
     """Another process holds a resource this command needs exclusively - e.g. a
     hardware-score run is already in progress (``scores.lock``). Nothing was
     changed; retry when the other run finishes."""
+
+    # --- `compute run --follow` job outcomes (V0.4 G5, D76) -------------------
+    # A followed job that ended ``user_error`` exits with the workload's own exit
+    # code clamped to 1-125 (125 when it died without one, e.g. by a signal). The
+    # fabric's own outcomes use codes a clamped workload code can never take:
+
+    JOB_FAILED = 126
+    """The fabric could not run or finish the job (any failure type other than
+    ``user_error`` / ``cancelled``: node_lost, deadline_exceeded, output_error,
+    env_error, oom...). stderr names the failure type."""
+
+    JOB_CANCELLED = 128
+    """The job was cancelled. (130 is left to Ctrl-C: ``compute run -f``
+    detaches on it and exits 130, the shell's "interrupted".)"""
+
+    INTERRUPTED = 130
+    """Ctrl-C: the command stopped following; the job itself keeps running."""

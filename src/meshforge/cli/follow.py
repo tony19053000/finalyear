@@ -1,0 +1,122 @@
+"""Follow a job's logs over the controller's WebSocket (V0.4 G5, D72/D76).
+
+Synchronous (``websockets.sync``), like the rest of ``compute``. The fabric token
+goes in the handshake's ``Authorization`` header - never in the URL. Frames are
+written to this process's stdout/stderr as raw bytes (the workload's own bytes,
+not re-encoded); the end frame is returned to the caller, which turns it into an
+exit code. A typed close from the controller (slow consumer, too many followers,
+unknown job) becomes a :class:`~.client.ControllerError`.
+"""
+
+from __future__ import annotations
+
+import base64
+import binascii
+import json
+from collections.abc import Mapping
+from typing import IO, Any, Final
+
+from meshforge.cli.client import ControllerError
+from meshforge.common.errors import FailureType
+
+__all__ = ["follow_logs", "ws_url"]
+
+_MAX_FRAME: Final = 1024 * 1024
+_CLOSE_REASONS: Final = {
+    4008: "the controller dropped this follower because it read too slowly",
+    4029: "too many followers on this job; try again later",
+    4404: "no such job",
+    4400: "not a valid job id",
+    1008: "the controller refused the log stream (the fabric token is missing or wrong)",
+}
+
+
+def ws_url(controller_url: str, job_id: str, *, stream: str) -> str:
+    base = controller_url.rstrip("/")
+    if base.startswith("https://"):
+        base = "wss://" + base.removeprefix("https://")
+    elif base.startswith("http://"):
+        base = "ws://" + base.removeprefix("http://")
+    return f"{base}/v1/jobs/{job_id}/logs/ws?stream={stream}"
+
+
+def follow_logs(
+    url: str,
+    *,
+    auth_header: str | None,
+    outputs: Mapping[str, IO[bytes]],
+    open_timeout_s: float,
+) -> dict[str, Any]:
+    """Print the job's logs until the end frame; return that frame."""
+    from websockets.exceptions import (
+        ConnectionClosed,
+        InvalidStatus,
+        WebSocketException,
+    )
+    from websockets.sync.client import connect
+
+    headers = {"Authorization": auth_header} if auth_header else {}
+    try:
+        with connect(
+            url,
+            additional_headers=headers,
+            open_timeout=open_timeout_s,
+            max_size=_MAX_FRAME,
+        ) as ws:
+            for raw in ws:
+                frame = _frame(raw)
+                if frame.get("end") is True:
+                    return frame
+                out = outputs.get(str(frame.get("stream")))
+                if out is None:
+                    continue
+                try:
+                    data = base64.b64decode(str(frame.get("data", "")), validate=True)
+                except (binascii.Error, ValueError):
+                    raise _bad_frame() from None
+                out.write(data)
+                out.flush()
+    except InvalidStatus as exc:
+        status = exc.response.status_code
+        raise ControllerError(
+            _CLOSE_REASONS[1008]
+            if status == 403
+            else f"log stream refused (HTTP {status})",
+            failure_type=FailureType.UNAUTHORIZED
+            if status == 403
+            else FailureType.INTERNAL_ERROR,
+        ) from None
+    except ConnectionClosed as exc:
+        code = exc.rcvd.code if exc.rcvd is not None else None
+        raise ControllerError(
+            _CLOSE_REASONS.get(code or 0, "the log stream closed before the job ended"),
+            failure_type=FailureType.NOT_FOUND
+            if code == 4404
+            else FailureType.NETWORK_ERROR,
+        ) from None
+    except (OSError, TimeoutError, WebSocketException) as exc:
+        raise ControllerError(
+            f"cannot follow the job's logs ({type(exc).__name__})",
+            failure_type=FailureType.NETWORK_ERROR,
+        ) from None
+    raise ControllerError(
+        "the log stream closed before the job ended",
+        failure_type=FailureType.NETWORK_ERROR,
+    )
+
+
+def _frame(raw: str | bytes) -> dict[str, Any]:
+    try:
+        frame = json.loads(raw)
+    except ValueError:
+        raise _bad_frame() from None
+    if not isinstance(frame, dict):
+        raise _bad_frame()
+    return frame
+
+
+def _bad_frame() -> ControllerError:
+    return ControllerError(
+        "the controller sent a log frame this compute cannot read",
+        failure_type=FailureType.INTERNAL_ERROR,
+    )

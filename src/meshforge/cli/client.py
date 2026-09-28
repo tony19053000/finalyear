@@ -20,9 +20,10 @@ process exit code (``UNAVAILABLE`` for unreachable/timed out, D18).
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from pathlib import Path
 from types import TracebackType
-from typing import Any, Final, Self
+from typing import Any, BinaryIO, Final, Self
 
 import httpx
 from pydantic import SecretStr
@@ -36,6 +37,8 @@ _MAX_ERROR_MESSAGE = 200
 surface is unauthenticated, so it is not fully trusted input."""
 
 _UNREACHABLE: Final = frozenset({FailureType.NETWORK_ERROR, FailureType.TIMEOUT})
+_TRANSFER_TIMEOUT_S: Final = 300.0
+"""Bundle/output transfers and log downloads: bigger than one small JSON call."""
 
 
 class ControllerError(MeshForgeError):
@@ -124,7 +127,131 @@ class ControllerClient:
         params = {} if limit is None else {"limit": str(limit)}
         return self._get("/v1/sessions", params=params)
 
+    # ------------------------------------------------------ jobs (V0.4 G5)
+
+    def has_blob(self, hex_digest: str) -> bool:
+        path = f"/v1/blobs/{hex_digest}"
+        response = self._send("HEAD", path)
+        if response.status_code == httpx.codes.NOT_FOUND:
+            return False
+        if response.status_code >= httpx.codes.BAD_REQUEST:
+            raise self._envelope_error(response, None, path)
+        return True
+
+    def put_blob(self, hex_digest: str, path_on_disk: Path) -> Mapping[str, Any]:
+        """Upload a file under its digest (streamed, with Content-Length)."""
+        size = path_on_disk.stat().st_size
+        with path_on_disk.open("rb") as fh:
+            return self._request(
+                "PUT",
+                f"/v1/blobs/{hex_digest}",
+                content=_file_chunks(fh),
+                headers={
+                    "content-length": str(size),
+                    "content-type": "application/octet-stream",
+                },
+                timeout=_TRANSFER_TIMEOUT_S,
+            )
+
+    def download_blob(self, hex_digest: str, dest: Path) -> int:
+        """Stream a blob into ``dest`` (the caller verifies the digest)."""
+        path = f"/v1/blobs/{hex_digest}"
+        try:
+            with self._client.stream(
+                "GET", path, timeout=_TRANSFER_TIMEOUT_S
+            ) as response:
+                if response.status_code >= httpx.codes.BAD_REQUEST:
+                    response.read()
+                    raise self._envelope_error(response, _json_or_none(response), path)
+                size = 0
+                with dest.open("xb") as out:
+                    for chunk in response.iter_raw(1024 * 1024):
+                        out.write(chunk)
+                        size += len(chunk)
+                return size
+        except httpx.HTTPError as exc:
+            raise self._transport_error(exc, path) from exc
+
+    def submit_job(
+        self, body: Mapping[str, Any], *, idempotency_key: str
+    ) -> Mapping[str, Any]:
+        return self._request(
+            "POST",
+            "/v1/jobs",
+            json_body=dict(body),
+            headers={"idempotency-key": idempotency_key},
+        )
+
+    def jobs(self, *, state: str | None = None, limit: int = 50) -> Mapping[str, Any]:
+        params = {"limit": str(limit)}
+        if state:
+            params["state"] = state
+        return self._get("/v1/jobs", params=params)
+
+    def job(self, job_id: str) -> Mapping[str, Any]:
+        return self._get(f"/v1/jobs/{job_id}")
+
+    def cancel(self, job_id: str) -> Mapping[str, Any]:
+        return self._request("POST", f"/v1/jobs/{job_id}/cancel")
+
+    def logs(self, job_id: str, *, stream: str) -> tuple[bytes, Mapping[str, str]]:
+        """The persisted log bytes and the response headers."""
+        path = f"/v1/jobs/{job_id}/logs"
+        response = self._send(
+            "GET", path, params={"stream": stream}, timeout=_TRANSFER_TIMEOUT_S
+        )
+        if response.status_code >= httpx.codes.BAD_REQUEST:
+            raise self._envelope_error(response, _json_or_none(response), path)
+        return response.content, dict(response.headers)
+
+    @property
+    def auth_header(self) -> str | None:
+        """For the WebSocket handshake (header only, never the URL)."""
+        value = self._client.headers.get("authorization")
+        return str(value) if value else None
+
     # -------------------------------------------------------------- internals
+
+    def _send(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: Mapping[str, str] | None = None,
+        json_body: Any = None,
+        content: Any = None,
+        headers: Mapping[str, str] | None = None,
+        timeout: float | None = None,
+    ) -> httpx.Response:
+        try:
+            return self._client.request(
+                method,
+                path,
+                params=dict(params or {}),
+                json=json_body,
+                content=content,
+                headers=dict(headers or {}),
+                timeout=self.timeout_s if timeout is None else timeout,
+            )
+        except httpx.HTTPError as exc:
+            raise self._transport_error(exc, path) from exc
+
+    def _request(self, method: str, path: str, **kwargs: Any) -> Mapping[str, Any]:
+        return self._decode(self._send(method, path, **kwargs), path)
+
+    def _transport_error(self, exc: httpx.HTTPError, path: str) -> ControllerError:
+        if isinstance(exc, httpx.TimeoutException):
+            return ControllerError(
+                f"the controller at {self.controller_url} did not answer in time",
+                failure_type=FailureType.TIMEOUT,
+                details={"path": path},
+            )
+        return ControllerError(
+            f"cannot reach the controller at {self.controller_url} "
+            f"({type(exc).__name__})",
+            failure_type=FailureType.NETWORK_ERROR,
+            details={"path": path},
+        )
 
     def _get(
         self, path: str, *, params: Mapping[str, str] | None = None
@@ -201,6 +328,18 @@ class ControllerClient:
             failure_type=failure_type,
             details={"status": status, "path": path, "code": code or None},
         )
+
+
+def _json_or_none(response: httpx.Response) -> Any:
+    try:
+        return json.loads(response.text) if response.content else None
+    except ValueError:
+        return None
+
+
+def _file_chunks(fh: BinaryIO) -> Iterator[bytes]:
+    while chunk := fh.read(1024 * 1024):
+        yield chunk
 
 
 def _failure_type(code: str) -> FailureType:

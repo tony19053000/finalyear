@@ -321,3 +321,10 @@ def _watch(render: Callable[[], Any], *, interval_s: float) -> None:
 def main() -> None:
     """Console-script entry point."""
     app(prog_name=PROG_NAME)
+
+
+# The job commands (V0.4 G5); they look the shared helpers above up at call time.
+from meshforge.cli.job_commands import cancel, get, jobs, logs, run  # noqa: E402
+
+for _command in (run, jobs, logs, cancel, get):
+    app.command()(_command)
