@@ -404,9 +404,7 @@ async def test_fetch_token_never_reads_jobs(
     runtime: ControllerRuntime, bundle: str
 ) -> None:
     assert runtime.fetch_tokens is not None
-    token = runtime.fetch_tokens.mint(
-        "att_x", [sha256_bytes(BUNDLE)], ttl_s=60, allow_upload=True
-    )
+    token = runtime.fetch_tokens.mint("att_x", [sha256_bytes(BUNDLE)], ttl_s=60)
     async with api_client(runtime, token=token.get_secret_value()) as client:
         assert (await client.get("/v1/jobs")).status_code == 401
         assert (await client.post("/v1/jobs", json={})).status_code == 401

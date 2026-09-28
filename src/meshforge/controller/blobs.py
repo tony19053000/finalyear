@@ -14,11 +14,19 @@ already exists is still hashed (a client sending other bytes under that name is
 told ``integrity_error``) but nothing is written: idempotent, ``created=False``.
 Part files left by a crash are swept at start (:meth:`BlobStore.prepare`).
 
+**Admission (D73).** At most ``max_concurrent_uploads`` uploads stream at once
+(a further one waits up to ``upload_wait_s``, then is refused ``resource_busy``),
+and an upload that would leave less than ``free_disk_floor_bytes`` free on the
+store's disk is refused ``disk_full`` before it writes (checked again every
+64 MiB while it streams) - so a burst of outputs cannot fill the controller's
+disk and take the database down with it.
+
 **Fetch tokens.** An agent must never hold the fabric token (ADR-0014 §3). For each
 attempt the controller mints a random token bound to that attempt's digests and a
 lifetime; G4 hands it to the agent in ``StartAttempt`` and calls
-:meth:`FetchTokens.expire_after` when the attempt ends. A token may also allow
-*uploads* (outputs, D54) - of any digest, still size-capped. Tokens live in memory
+:meth:`FetchTokens.expire_after` when the attempt ends. A fetch token is
+**download-only** (D73): uploads use the attempt's quota-bound upload grant
+(:mod:`meshforge.controller.upload_grants`). Tokens live in memory
 (a controller restart invalidates them; G4 re-mints on re-dispatch), keyed by the
 SHA-256 of the token so the table never holds a usable secret, bounded by
 ``capacity`` (oldest dropped) and pruned on expiry. Time is the controller's
@@ -34,6 +42,7 @@ import hashlib
 import hmac
 import os
 import secrets
+import shutil
 from collections import OrderedDict
 from collections.abc import AsyncIterator, Callable, Iterable
 from dataclasses import dataclass
@@ -64,6 +73,7 @@ log = get_logger(__name__)
 MAX_FETCH_TOKEN_TTL_S: Final = 7 * 24 * 3600 + 3600
 """The longest job limit (7 days) plus an hour of grace."""
 MAX_FETCH_TOKEN_DIGESTS: Final = 1024
+_DISK_CHECK_EVERY: Final = 64 * 1024 * 1024
 _TMP_DIR: Final = "tmp"
 _ALGO_DIR: Final = "sha256"
 
@@ -97,10 +107,27 @@ class PutResult:
 class BlobStore:
     """See module docstring. Safe for concurrent use from one event loop."""
 
-    def __init__(self, root: Path, *, max_blob_bytes: int) -> None:
+    def __init__(
+        self,
+        root: Path,
+        *,
+        max_blob_bytes: int,
+        max_concurrent_uploads: int = 8,
+        upload_wait_s: float = 30.0,
+        free_disk_floor_bytes: int = 0,
+        disk_free: Callable[[Path], int] | None = None,
+    ) -> None:
+        if max_concurrent_uploads < 1:
+            raise ValueError("max_concurrent_uploads must be positive")
         self.root = root
         self.max_blob_bytes = max_blob_bytes
+        self.free_disk_floor_bytes = free_disk_floor_bytes
+        self._upload_wait_s = upload_wait_s
+        self._uploads = asyncio.Semaphore(max_concurrent_uploads)
+        self._disk_free = disk_free or _disk_free
         self._tmp = root / _TMP_DIR
+        self.uploads_refused_busy = 0
+        self.uploads_refused_disk = 0
 
     # ------------------------------------------------------------- layout
 
@@ -154,7 +181,42 @@ class BlobStore:
                 f"blob larger than the {self.max_blob_bytes}-byte limit",
                 details={"digest": str(digest), "declared": declared_size},
             )
+        try:
+            await asyncio.wait_for(self._uploads.acquire(), self._upload_wait_s)
+        except TimeoutError:
+            self.uploads_refused_busy += 1
+            raise BlobError(
+                "the controller is busy with other uploads; retry shortly",
+                failure_type=FailureType.RESOURCE_BUSY,
+                details={"digest": str(digest)},
+            ) from None
+        try:
+            return await self._put(digest, chunks, declared_size)
+        finally:
+            self._uploads.release()
+
+    def _check_disk(self, digest: Digest, needed: int) -> None:
+        if self.free_disk_floor_bytes <= 0:
+            return
+        free = self._disk_free(self.root)
+        if free - needed < self.free_disk_floor_bytes:
+            self.uploads_refused_disk += 1
+            raise BlobError(
+                "insufficient storage: the upload would leave the controller's "
+                f"disk below its {self.free_disk_floor_bytes}-byte free floor",
+                failure_type=FailureType.DISK_FULL,
+                details={"digest": str(digest), "reason": "insufficient_storage"},
+            )
+
+    async def _put(
+        self,
+        digest: Digest,
+        chunks: AsyncIterator[bytes],
+        declared_size: int | None,
+    ) -> PutResult:
         exists = self.size(digest) is not None
+        if not exists:
+            self._check_disk(digest, declared_size or 0)
         hasher = hashlib.sha256()
         count = 0
         part: Path | None = None
@@ -173,6 +235,10 @@ class BlobStore:
                         details={"digest": str(digest)},
                     )
                 hasher.update(chunk)
+                if fh is not None and count // _DISK_CHECK_EVERY != (
+                    (count - len(chunk)) // _DISK_CHECK_EVERY
+                ):
+                    self._check_disk(digest, 0)
                 if fh is not None:
                     # Page-cache writes are microseconds; the fsync below is the
                     # slow part and runs in a thread.
@@ -233,12 +299,15 @@ class BlobStore:
 # ================================================================ fetch tokens
 
 
+def _disk_free(path: Path) -> int:
+    return shutil.disk_usage(path).free
+
+
 @dataclass(frozen=True, slots=True)
 class FetchGrant:
     attempt_id: str
     digests: frozenset[str]
     """Digest hex strings this token may read."""
-    allow_upload: bool
     expires_at: float
     """Controller monotonic time."""
 
@@ -272,7 +341,6 @@ class FetchTokens:
         digests: Iterable[Digest],
         *,
         ttl_s: float,
-        allow_upload: bool = False,
     ) -> SecretStr:
         """A new token for ``attempt_id`` that may GET/HEAD exactly ``digests``."""
         if not 0 < ttl_s <= MAX_FETCH_TOKEN_TTL_S:
@@ -286,7 +354,6 @@ class FetchTokens:
         self._grants[self._key(token)] = FetchGrant(
             attempt_id=attempt_id,
             digests=allowed,
-            allow_upload=allow_upload,
             expires_at=now + ttl_s,
         )
         while len(self._grants) > self._capacity:
@@ -295,8 +362,8 @@ class FetchTokens:
             log.warning("controller.blobs.fetch_token_evicted", capacity=self._capacity)
         return SecretStr(token)
 
-    def check(self, token: str | None, digest: Digest, *, upload: bool) -> bool:
-        """True when ``token`` is live and allows this read (or upload)."""
+    def check(self, token: str | None, digest: Digest) -> bool:
+        """True when ``token`` is live and may read ``digest`` (never upload)."""
         if not token:
             return False
         grant = self._grants.get(self._key(token))
@@ -305,8 +372,6 @@ class FetchTokens:
         if grant.expires_at <= self._clock():
             self._grants.pop(self._key(token), None)
             return False
-        if upload:
-            return grant.allow_upload
         return digest.hex in grant.digests
 
     def expire_after(self, attempt_id: str, grace_s: float) -> int:
@@ -318,7 +383,6 @@ class FetchTokens:
                 self._grants[key] = FetchGrant(
                     attempt_id=grant.attempt_id,
                     digests=grant.digests,
-                    allow_upload=grant.allow_upload,
                     expires_at=deadline,
                 )
                 changed += 1

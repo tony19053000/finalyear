@@ -1,16 +1,21 @@
 """``/v1/blobs/{sha256}`` - upload, check and download blobs (brief D48).
 
 ``{sha256}`` is the 64-character lower-case hex digest (the ``sha256:`` prefix is
-implied). Every call needs a credential (D44/D48): the fabric token, or a
-per-attempt fetch token that names this digest (``GET``/``HEAD``) or allows
-uploads (``PUT``). See :mod:`meshforge.controller.blobs` for the storage rules.
+implied). Every call needs a credential (D44/D48/D73): the fabric token; a
+per-attempt fetch token that names this digest (``GET``/``HEAD`` only - fetch
+tokens never upload); or, for ``PUT`` only, an attempt's upload grant, within
+its quota (:mod:`meshforge.controller.upload_grants`: ``401`` unknown/expired,
+``403`` the attempt ended, ``411`` no ``Content-Length``, ``413`` over the
+blob or byte quota). See :mod:`meshforge.controller.blobs` for the storage rules.
 
 * ``PUT`` streams the body to disk while hashing it; ``201`` when *this request*
   wrote the blob (concurrent identical uploads may each get ``201`` - never a
   uniqueness signal), ``200`` when it was already present as the upload started
   (idempotent), ``400 integrity_error`` when the bytes do
   not hash to the name (nothing kept), ``413`` over the size cap (refused from
-  ``Content-Length`` before reading when the client sends one), ``507`` disk full.
+  ``Content-Length`` before reading when the client sends one), ``503``
+  ``resource_busy`` when every upload slot stayed taken, ``507`` disk full or
+  below the free-disk floor (insufficient storage).
 * ``HEAD`` answers "do you have it" (``200`` + ``Content-Length`` / ``404``).
 * ``GET`` streams the file.
 """
@@ -40,6 +45,7 @@ from meshforge.controller.blobs import (
     BlobStore,
     BlobTooLargeError,
 )
+from meshforge.controller.upload_grants import GrantRefusal, UploadTicket
 
 __all__ = ["BLOBS_STATE_KEY", "blob_router", "get_blob_store"]
 
@@ -48,6 +54,11 @@ log = get_logger(__name__)
 BLOBS_STATE_KEY: Final = "meshforge_blobs"
 _HEX_PATTERN: Final = r"^[0-9a-f]{64}$"
 _MAX_CONTENT_LENGTH_CHARS: Final = 20
+
+_BLOB_ERROR_STATUS: Final = {
+    FailureType.DISK_FULL: status.HTTP_507_INSUFFICIENT_STORAGE,
+    FailureType.RESOURCE_BUSY: status.HTTP_503_SERVICE_UNAVAILABLE,
+}
 
 blob_router = APIRouter(prefix="/v1/blobs", tags=["blobs"])
 
@@ -73,16 +84,53 @@ Store = Annotated[BlobStore, Depends(get_blob_store)]
 Auth = Annotated[ApiAuth, Depends(get_auth)]
 
 
-def _authorize(request: Request, auth: ApiAuth, digest: Digest, *, upload: bool) -> str:
-    """Return which credential was used (``fabric``/``fetch``) or raise 401."""
+_GRANT_STATUS: Final = {
+    "unknown": status.HTTP_401_UNAUTHORIZED,
+    "expired": status.HTTP_401_UNAUTHORIZED,
+    "closed": status.HTTP_403_FORBIDDEN,
+    "length_required": status.HTTP_411_LENGTH_REQUIRED,
+    "blob_quota": status.HTTP_413_CONTENT_TOO_LARGE,
+    "byte_quota": status.HTTP_413_CONTENT_TOO_LARGE,
+}
+
+
+def _authorize(request: Request, auth: ApiAuth, digest: Digest) -> str:
+    """Reads: ``fabric`` or ``fetch``, or raise 401."""
     token = bearer_token(request)
     if auth.verifier is not None and auth.verifier.verify(token):
         return "fabric"
-    if auth.fetch_tokens is not None and auth.fetch_tokens.check(
-        token, digest, upload=upload
-    ):
+    if auth.fetch_tokens is not None and auth.fetch_tokens.check(token, digest):
         return "fetch"
     raise unauthorized()
+
+
+def _authorize_upload(
+    request: Request, auth: ApiAuth, digest: Digest, declared: int | None
+) -> UploadTicket | None:
+    """Uploads: ``None`` for the fabric token, else a reserved grant ticket."""
+    token = bearer_token(request)
+    if auth.verifier is not None and auth.verifier.verify(token):
+        return None
+    grants = auth.upload_grants
+    if token is None or grants is None or not grants.owns(token):
+        raise unauthorized()
+    try:
+        return grants.begin(token, digest, declared)
+    except GrantRefusal as refusal:
+        log.warning(
+            "controller.blobs.upload_refused",
+            digest=str(digest),
+            reason=refusal.reason,
+        )
+        if refusal.reason in ("unknown", "expired"):
+            raise unauthorized() from None
+        raise ApiError(
+            FailureType.UNAUTHORIZED
+            if refusal.reason == "closed"
+            else FailureType.INVALID_INPUT,
+            refusal.message,
+            http_status=_GRANT_STATUS[refusal.reason],
+        ) from None
 
 
 def _declared_size(request: Request) -> int | None:
@@ -103,15 +151,18 @@ async def put_blob(
     request: Request, sha256: Sha256, store: Store, auth: Auth, response: Response
 ) -> dict[str, object]:
     digest = Digest(sha256)
-    credential = _authorize(request, auth, digest, upload=True)
     declared = _declared_size(request)
+    ticket = _authorize_upload(request, auth, digest, declared)
+    credential = "fabric" if ticket is None else "grant"
 
     async def body() -> AsyncIterator[bytes]:
         async for chunk in request.stream():
             yield chunk
 
+    stored = False
     try:
         result = await store.put(digest, body(), declared_size=declared)
+        stored = True
     except BlobTooLargeError as exc:
         raise ApiError(
             FailureType.INVALID_INPUT,
@@ -135,10 +186,18 @@ async def put_blob(
         raise ApiError(
             exc.failure_type,
             exc.message,
-            http_status=status.HTTP_507_INSUFFICIENT_STORAGE
-            if exc.failure_type is FailureType.DISK_FULL
-            else status.HTTP_400_BAD_REQUEST,
+            http_status=_BLOB_ERROR_STATUS.get(
+                exc.failure_type, status.HTTP_400_BAD_REQUEST
+            ),
+            headers={"Retry-After": "5"}
+            if exc.failure_type is FailureType.RESOURCE_BUSY
+            else None,
         ) from None
+    finally:
+        if ticket is not None and auth.upload_grants is not None:
+            auth.upload_grants.finish(
+                ticket, stored=stored, size=result.size if stored else 0
+            )
     if not result.created:
         response.status_code = status.HTTP_200_OK
     log.debug(
@@ -156,7 +215,7 @@ async def head_blob(
     request: Request, sha256: Sha256, store: Store, auth: Auth
 ) -> Response:
     digest = Digest(sha256)
-    _authorize(request, auth, digest, upload=False)
+    _authorize(request, auth, digest)
     size = store.size(digest)
     if size is None:
         return Response(status_code=status.HTTP_404_NOT_FOUND)
@@ -171,7 +230,7 @@ async def get_blob(
     request: Request, sha256: Sha256, store: Store, auth: Auth
 ) -> Response:
     digest = Digest(sha256)
-    _authorize(request, auth, digest, upload=False)
+    _authorize(request, auth, digest)
     if store.size(digest) is None:
         raise ApiError.not_found("blob")
     return FileResponse(

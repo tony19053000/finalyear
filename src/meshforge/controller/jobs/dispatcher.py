@@ -92,6 +92,7 @@ from meshforge.controller.resources import ResourceTracker
 from meshforge.controller.session.live import LiveSession, PendingCommand
 from meshforge.controller.session.manager import SessionManager
 from meshforge.controller.settings import JobApiSettings
+from meshforge.controller.upload_grants import UploadGrants
 
 __all__ = ["POISON_LIMIT", "Dispatcher", "DispatcherStats"]
 
@@ -166,6 +167,7 @@ class Dispatcher:
         fetch_tokens: FetchTokens,
         settings: JobApiSettings,
         *,
+        upload_grants: UploadGrants | None = None,
         clock: Callable[[], float],
         blob_port: Callable[[], int],
         blob_url: str | None = None,
@@ -175,6 +177,7 @@ class Dispatcher:
         self._store = store
         self._manager = manager
         self._tokens = fetch_tokens
+        self._grants = upload_grants
         self._settings = settings
         self._clock = clock
         self._blob_port = blob_port
@@ -431,9 +434,7 @@ class Dispatcher:
         if attempt is None:
             return
         if outcome.ended:
-            self._tokens.expire_after(
-                attempt.id, self._settings.fetch_token_end_grace_s
-            )
+            self._end_tokens(attempt.id)
         elif (
             job is not None
             and job.cancel_requested_at is not None
@@ -441,6 +442,14 @@ class Dispatcher:
             and outcome.kind is StatusKind.APPLIED
         ):
             self._send_cancel(attempt, "cancelled by request")
+
+    def _end_tokens(self, attempt_id: str) -> None:
+        """The attempt ended: its fetch token lives ``fetch_token_end_grace_s``
+        more, its upload grant takes no new upload (D60/D73)."""
+        grace = self._settings.fetch_token_end_grace_s
+        self._tokens.expire_after(attempt_id, grace)
+        if self._grants is not None:
+            self._grants.close(attempt_id, grace)
 
     # ------------------------------------------------------------ dispatch
 
@@ -507,11 +516,8 @@ class Dispatcher:
             + self._settings.fetch_token_grace_s,
             float(MAX_FETCH_TOKEN_TTL_S),
         )
-        token = self._tokens.mint(
-            attempt.id,
-            [Digest.parse(job.bundle_digest)],
-            ttl_s=ttl,
-            allow_upload=True,  # G5 uploads outputs with it (D54)
+        token = self._tokens.mint(  # download-only (D73)
+            attempt.id, [Digest.parse(job.bundle_digest)], ttl_s=ttl
         )
         spec = execution_spec(
             job,
@@ -520,6 +526,18 @@ class Dispatcher:
             blob_url=self._blob_url,
             blob_port=self._blob_port(),
         )
+        if self._grants is not None:
+            # D73: the only credential that may upload for this attempt; a
+            # re-send keeps what the previous grant already stored.
+            grant = self._grants.mint(
+                attempt.id,
+                ttl_s=ttl,
+                max_blobs=self._settings.max_output_blobs,
+                max_bytes=self._settings.max_output_bytes,
+            )
+            spec.upload_token = grant.get_secret_value()
+            spec.upload_max_bytes = self._settings.max_output_bytes
+            spec.upload_max_blobs = self._settings.max_output_blobs
         message_id = self._manager.send_command(
             attempt.node_id,
             "start_attempt",
@@ -634,6 +652,8 @@ class Dispatcher:
             detail=detail,
         )
         self._tokens.revoke(attempt.id)
+        if self._grants is not None:
+            self._grants.close(attempt.id)
         if outcome.kind is StatusKind.APPLIED:
             self.stats.attempts_lost += 1
             log.warning(
@@ -665,7 +685,5 @@ class Dispatcher:
                 attempt_id=attempt.id,
                 node_id=attempt.node_id,
             )
-            self._tokens.expire_after(
-                attempt.id, self._settings.fetch_token_end_grace_s
-            )
+            self._end_tokens(attempt.id)
             self._send_cancel(attempt, "controller_backstop")

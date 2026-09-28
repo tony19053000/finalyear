@@ -67,6 +67,7 @@ from meshforge.controller.settings import ControllerSettings
 from meshforge.controller.snapshots import SnapshotFlusher
 from meshforge.controller.store.engine import check_connection, create_engine
 from meshforge.controller.store.migrate import upgrade_to_head
+from meshforge.controller.upload_grants import UploadGrants
 
 __all__ = ["GRPC_SERVER_OPTIONS", "ControllerRuntime", "run_controller"]
 
@@ -132,6 +133,8 @@ class ControllerRuntime:
         self._dispatcher_task: asyncio.Task[None] | None = None
         self.fetch_tokens: FetchTokens | None = None
         """D48: G4 mints per-attempt tokens here and hands them to agents."""
+        self.upload_grants: UploadGrants | None = None
+        """D73: per-attempt upload quotas (outputs + final logs)."""
         self.failed_task: str | None = None
         """Name of the owned task whose crash caused the stop, if any (NB3): a
         controller that stopped because its lease timer died exits ``FAILURE``."""
@@ -158,11 +161,18 @@ class ControllerRuntime:
         )
         # D48: the blob store (and a sweep of part files a crash left behind).
         blobs = BlobStore(
-            self.settings.blobs_dir, max_blob_bytes=cfg.blobs.max_blob_bytes
+            self.settings.blobs_dir,
+            max_blob_bytes=cfg.blobs.max_blob_bytes,
+            max_concurrent_uploads=cfg.blobs.max_concurrent_uploads,
+            upload_wait_s=cfg.blobs.upload_wait_s,
+            free_disk_floor_bytes=cfg.blobs.free_disk_floor_mb * 1024 * 1024,
         )
         swept_parts = await asyncio.to_thread(blobs.prepare)
         self.blobs = blobs
         self.fetch_tokens = FetchTokens(
+            clock=loop.time, capacity=cfg.jobs.fetch_token_capacity
+        )
+        self.upload_grants = UploadGrants(
             clock=loop.time, capacity=cfg.jobs.fetch_token_capacity
         )
         log.info("controller.blobs.ready", parts_swept=swept_parts)
@@ -213,6 +223,7 @@ class ControllerRuntime:
             manager,
             self.fetch_tokens,
             cfg.jobs,
+            upload_grants=self.upload_grants,
             clock=loop.time,
             blob_port=lambda: self.http_port,
             blob_url=cfg.api.advertise_url,
@@ -254,7 +265,9 @@ class ControllerRuntime:
                 # session manager and the leases use (D16).
                 clock=loop.time,
                 auth=ApiAuth(
-                    verifier=self.token_verifier, fetch_tokens=self.fetch_tokens
+                    verifier=self.token_verifier,
+                    fetch_tokens=self.fetch_tokens,
+                    upload_grants=self.upload_grants,
                 ),
                 blobs=blobs,
                 jobs=JobApi(

@@ -183,20 +183,21 @@ D1, D2, D3 = (sha256_bytes(bytes([i])) for i in range(3))
 def test_token_reads_only_its_digests() -> None:
     tokens = FetchTokens(clock=Clock())
     token = tokens.mint("att_1", [D1, D2], ttl_s=60).get_secret_value()
-    assert tokens.check(token, D1, upload=False)
-    assert tokens.check(token, D2, upload=False)
-    assert not tokens.check(token, D3, upload=False)
-    assert not tokens.check(token, D1, upload=True)  # read-only token
-    assert not tokens.check(token + "x", D1, upload=False)
-    assert not tokens.check(None, D1, upload=False)
-    assert not tokens.check("", D1, upload=False)
+    assert tokens.check(token, D1)
+    assert tokens.check(token, D2)
+    assert not tokens.check(token, D3)
+    assert not tokens.check(token + "x", D1)
+    assert not tokens.check(None, D1)
+    assert not tokens.check("", D1)
 
 
-def test_upload_scope() -> None:
+def test_fetch_tokens_are_download_only() -> None:
+    """D73: there is no upload flag any more - uploads need an upload grant."""
     tokens = FetchTokens(clock=Clock())
-    token = tokens.mint("att_1", [D1], ttl_s=60, allow_upload=True)
-    assert tokens.check(token.get_secret_value(), D3, upload=True)
-    assert not tokens.check(token.get_secret_value(), D3, upload=False)
+    with pytest.raises(TypeError):
+        tokens.mint("att_1", [D1], ttl_s=60, allow_upload=True)  # type: ignore[call-arg]
+    token = tokens.mint("att_1", [D1], ttl_s=60)
+    assert not tokens.check(token.get_secret_value(), D3)
 
 
 def test_expiry_and_expire_after_and_revoke() -> None:
@@ -205,19 +206,19 @@ def test_expiry_and_expire_after_and_revoke() -> None:
     a = tokens.mint("att_a", [D1], ttl_s=60).get_secret_value()
     b = tokens.mint("att_b", [D1], ttl_s=60).get_secret_value()
     clock.now += 59.9
-    assert tokens.check(a, D1, upload=False)
+    assert tokens.check(a, D1)
     clock.now += 0.1
-    assert not tokens.check(a, D1, upload=False)  # expired exactly at the edge
+    assert not tokens.check(a, D1)  # expired exactly at the edge
     c = tokens.mint("att_c", [D1], ttl_s=600).get_secret_value()
     assert tokens.expire_after("att_c", 5) == 1
     clock.now += 4.9
-    assert tokens.check(c, D1, upload=False)
+    assert tokens.check(c, D1)
     clock.now += 0.2
-    assert not tokens.check(c, D1, upload=False)
+    assert not tokens.check(c, D1)
     d = tokens.mint("att_d", [D1], ttl_s=600).get_secret_value()
     assert tokens.revoke("att_d") == 1
-    assert not tokens.check(d, D1, upload=False)
-    assert not tokens.check(b, D1, upload=False)
+    assert not tokens.check(d, D1)
+    assert not tokens.check(b, D1)
 
 
 def test_expire_after_never_extends() -> None:
@@ -226,7 +227,7 @@ def test_expire_after_never_extends() -> None:
     t = tokens.mint("att", [D1], ttl_s=10).get_secret_value()
     assert tokens.expire_after("att", 1000) == 0
     clock.now += 10
-    assert not tokens.check(t, D1, upload=False)
+    assert not tokens.check(t, D1)
 
 
 def test_capacity_evicts_the_oldest() -> None:
@@ -235,9 +236,9 @@ def test_capacity_evicts_the_oldest() -> None:
     second = tokens.mint("a2", [D1], ttl_s=60).get_secret_value()
     third = tokens.mint("a3", [D1], ttl_s=60).get_secret_value()
     assert len(tokens) == 2 and tokens.evicted == 1
-    assert not tokens.check(first, D1, upload=False)
-    assert tokens.check(second, D1, upload=False)
-    assert tokens.check(third, D1, upload=False)
+    assert not tokens.check(first, D1)
+    assert tokens.check(second, D1)
+    assert tokens.check(third, D1)
 
 
 def test_ttl_and_digest_bounds() -> None:

@@ -84,6 +84,30 @@ class BlobStoreSettings(SectionModel):
             "is refused before or while it streams, and nothing is kept."
         ),
     )
+    max_concurrent_uploads: int = Field(
+        default=8,
+        ge=1,
+        le=256,
+        description=(
+            "Uploads that may stream at once (V0.4 D73); a further one waits up to "
+            "upload_wait_s, then is refused resource_busy (503)."
+        ),
+    )
+    upload_wait_s: float = Field(
+        default=30.0,
+        ge=0.1,
+        le=600.0,
+        description="How long an upload waits for a free upload slot.",
+    )
+    free_disk_floor_mb: int = Field(
+        default=1024,
+        ge=0,
+        le=1_048_576,
+        description=(
+            "Free space the store keeps on its disk: an upload that would go below "
+            "it is refused disk_full (507, insufficient storage). 0 = no floor."
+        ),
+    )
 
     @field_validator("dir", mode="before")
     @classmethod
@@ -111,6 +135,22 @@ class JobApiSettings(SectionModel):
             "Live per-attempt fetch tokens kept in memory (D48); the oldest is "
             "dropped above this, so a flood of attempts cannot grow the controller."
         ),
+    )
+    # --- outputs (V0.4 G5, D73) -------------------------------------------
+    max_output_bytes: int = Field(
+        default=2 * 1024**3,
+        ge=1024 * 1024,
+        le=64 * 1024**3,
+        description=(
+            "Bytes one attempt may upload in total (outputs archive + final logs); "
+            "enforced by the attempt's upload grant (D73)."
+        ),
+    )
+    max_output_blobs: int = Field(
+        default=3,
+        ge=1,
+        le=64,
+        description="Blobs one attempt may upload (outputs archive + 2 log files).",
     )
     # --- dispatch (V0.4 G4, D65/D66/D69) ------------------------------------
     dispatch_interval_s: float = Field(

@@ -30,6 +30,7 @@ from meshforge.controller.api.errors import ApiError
 if TYPE_CHECKING:
     from meshforge.controller.blobs import FetchTokens
     from meshforge.controller.fabric_token import FabricTokenVerifier
+    from meshforge.controller.upload_grants import UploadGrants
 
 __all__ = [
     "AUTH_STATE_KEY",
@@ -63,7 +64,9 @@ class ApiAuth:
 
     verifier: FabricTokenVerifier | None
     fetch_tokens: FetchTokens | None = None
-    """Per-attempt blob tokens (D48); accepted on ``/v1/blobs`` only."""
+    """Per-attempt blob tokens (D48, download-only); accepted on ``/v1/blobs``."""
+    upload_grants: UploadGrants | None = None
+    """Per-attempt upload grants (D73); accepted on ``PUT /v1/blobs`` only."""
 
 
 def get_auth(request: Request) -> ApiAuth:

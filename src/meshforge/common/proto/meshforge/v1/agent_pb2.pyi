@@ -1117,6 +1117,9 @@ class ExecutionSpec(_message.Message):
     GPU_INDICES_FIELD_NUMBER: _builtins.int
     TIMEOUT_S_FIELD_NUMBER: _builtins.int
     OUTPUT_GLOBS_FIELD_NUMBER: _builtins.int
+    UPLOAD_TOKEN_FIELD_NUMBER: _builtins.int
+    UPLOAD_MAX_BYTES_FIELD_NUMBER: _builtins.int
+    UPLOAD_MAX_BLOBS_FIELD_NUMBER: _builtins.int
     bundle_digest: _builtins.str
     """"sha256:<64 hex>" of the project bundle in the controller's blob store."""
     blob_url: _builtins.str
@@ -1126,8 +1129,8 @@ class ExecutionSpec(_message.Message):
     blob_port: _builtins.int
     """The controller's REST port, used when blob_url is empty."""
     fetch_token: _builtins.str
-    """Per-attempt fetch token (D48): may read exactly this attempt's digests (and
-    upload outputs from G5 on). A secret: never logged, never persisted.
+    """Per-attempt fetch token (D48): may read exactly this attempt's digests -
+    download-only (D73). A secret: never logged, never persisted.
     """
     manifest_json: _builtins.str
     """The canonical manifest JSON (common.manifest.Manifest.canonical_json())."""
@@ -1140,6 +1143,13 @@ class ExecutionSpec(_message.Message):
     cpus: _builtins.float
     timeout_s: _builtins.int
     """The workload's own time limit in seconds (manifest limits.timeout)."""
+    upload_token: _builtins.str
+    """Upload grant (V0.4 G5, D73): the only credential that may PUT blobs for this
+    attempt (outputs archive + final logs), within the two quotas below and only
+    while the attempt is live. A secret: never logged, never persisted.
+    """
+    upload_max_bytes: _builtins.int
+    upload_max_blobs: _builtins.int
     @_builtins.property
     def gpu_indices(self) -> _containers.RepeatedScalarFieldContainer[_builtins.int]:
         """NVML indices of the GPUs this attempt may use (HardwareSummary.Gpu.index);
@@ -1164,10 +1174,13 @@ class ExecutionSpec(_message.Message):
         gpu_indices: _abc.Iterable[_builtins.int] | None = ...,
         timeout_s: _builtins.int = ...,
         output_globs: _abc.Iterable[_builtins.str] | None = ...,
+        upload_token: _builtins.str = ...,
+        upload_max_bytes: _builtins.int = ...,
+        upload_max_blobs: _builtins.int = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["blob_port", b"blob_port", "blob_url", b"blob_url", "bundle_digest", b"bundle_digest", "cpus", b"cpus", "fetch_token", b"fetch_token", "gpu_indices", b"gpu_indices", "manifest_json", b"manifest_json", "memory_bytes", b"memory_bytes", "output_globs", b"output_globs", "runtime", b"runtime", "timeout_s", b"timeout_s"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["blob_port", b"blob_port", "blob_url", b"blob_url", "bundle_digest", b"bundle_digest", "cpus", b"cpus", "fetch_token", b"fetch_token", "gpu_indices", b"gpu_indices", "manifest_json", b"manifest_json", "memory_bytes", b"memory_bytes", "output_globs", b"output_globs", "runtime", b"runtime", "timeout_s", b"timeout_s", "upload_max_blobs", b"upload_max_blobs", "upload_max_bytes", b"upload_max_bytes", "upload_token", b"upload_token"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 

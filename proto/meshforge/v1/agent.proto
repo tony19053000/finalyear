@@ -402,8 +402,8 @@ message ExecutionSpec {
   string blob_url = 2;
   // The controller's REST port, used when blob_url is empty.
   uint32 blob_port = 3;
-  // Per-attempt fetch token (D48): may read exactly this attempt's digests (and
-  // upload outputs from G5 on). A secret: never logged, never persisted.
+  // Per-attempt fetch token (D48): may read exactly this attempt's digests -
+  // download-only (D73). A secret: never logged, never persisted.
   string fetch_token = 4;
   // The canonical manifest JSON (common.manifest.Manifest.canonical_json()).
   string manifest_json = 5;
@@ -420,6 +420,12 @@ message ExecutionSpec {
   uint32 timeout_s = 10;
   // Declared outputs (manifest `outputs`), collected in V0.4 G5.
   repeated string output_globs = 11;
+  // Upload grant (V0.4 G5, D73): the only credential that may PUT blobs for this
+  // attempt (outputs archive + final logs), within the two quotas below and only
+  // while the attempt is live. A secret: never logged, never persisted.
+  string upload_token = 12;
+  uint64 upload_max_bytes = 13;
+  uint32 upload_max_blobs = 14;
 }
 
 // Stop an attempt (D69). `release` (V0.4 G5, D75): the controller has already
