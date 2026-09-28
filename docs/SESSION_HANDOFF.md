@@ -239,6 +239,8 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
   **Tester round 1 was left running** (the one agent allowed). If this session died before it reported, re-run the
   G1 tester (prompt pattern: the G1 section of the brief + §4 checklist + "try to break D41's abandoned-admission
   linger and the Goodbye races"). Then the reviewer.
+- **G1 tester round 1: PASS** (`6f545ca`, 5 new tests; unit 1641 / component ctl+agent 290 / cluster 41, all G1 gates exit 0). Minor known gap: dropping `goodbye` from `_UNACKED` fails no test (the ended-session guard already drops the ack). **G1 reviewer running.**
+- ⚠️ **Possible G3 sandbox defect, found by the stopped G3 tester's parked file** `test_docker_sandbox_g3_tester.py`: `test_run_phase_network_is_off_even_though_setup_phase_had_it_on` FAILED in the G1 tester's component run — the run container may have network when the setup container had it. The G3 tester round must reproduce this first.
 - **G2** (0.4.1–0.4.5 + fabric token): implementer done — `1462e34` … `f92e4fd`. **Tester round 1 stopped part-way**
   (its unit gates were green, component gates not yet run). Its unfinished test files are parked in
   `docs/briefs/progress/parked-tests/` (read its README). Next: a fresh G2 tester round, then the reviewer.
