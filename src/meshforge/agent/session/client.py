@@ -679,6 +679,8 @@ class AgentSessionClient:
             session_id=self.session_id,
             replay_from_sequence=replay_from,
             replayed=len(pending),
+            first_connect=not replay,
+            held_attempts=len(held),
             replay_dropped=self.ring.dropped,
         )
         return pending[-1].sequence if pending else 0

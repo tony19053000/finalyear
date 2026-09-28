@@ -120,7 +120,13 @@ class Account:
         self.stop_window_s = (
             _utc(stopped["timestamp"]) - _utc(requested["timestamp"])
         ).total_seconds()
-        self.replays = proc.log.events("agent.session.reconciled")
+        # V0.4 G4: a first connect sends a Reconcile too (it lists held attempts,
+        # replays nothing); only reconnects are replays.
+        self.replays = [
+            r
+            for r in proc.log.events("agent.session.reconciled")
+            if not r.get("first_connect")
+        ]
         self.replayed: set[int] = set()
         for r in self.replays:
             first = int(r["replay_from_sequence"])
