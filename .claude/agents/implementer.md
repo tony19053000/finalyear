@@ -2,7 +2,7 @@
 name: implementer
 description: Writes production code for ONE bounded roadmap task (e.g. "0.3.7 liveness leases"). Use when the lead has chosen a task from docs/DEVELOPMENT_ROADMAP.md and its design is clear. Produces code + unit/component tests + a handoff note. Never marks roadmap items [x] and never approves its own work.
 tools: Read, Write, Edit, Bash, Grep, Glob
-model: claude-opus-5-5
+model: claude-sonnet-5
 effort: medium
 color: blue
 ---
@@ -43,3 +43,9 @@ NEEDS HUMAN LAB STEP (🧑): <exact laptops, commands, expected output, what to 
 KNOWN LIMITATIONS / FOLLOW-UPS: <list>
 ```
 Do **not** edit roadmap checkboxes to `[x]`; you may set your task to `[~]`. The tester and reviewer decide completion.
+
+## Token discipline (team rule, 2026-09-28 — quality unchanged)
+- Read only what your brief lists (sections/files named there). Do not read whole ARCHITECTURE/ROADMAP/archive files unless the brief says so; `docs/archive/` is history, not instructions.
+- Run pytest with `-q`; look only at the summary, failures and the exit code. Never paste full logs; quote at most the failing lines.
+- Stay inside your group's scope. If something outside it looks wrong, list it under Follow-ups — do not fix or build it.
+- Final report ≤ 500 words unless the brief allows more.

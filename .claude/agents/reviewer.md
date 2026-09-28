@@ -40,3 +40,10 @@ NON-BLOCKING: <numbered suggestions>
 ARCHITECTURE DRIFT: <none, or what differs and whether an ADR is needed>
 VERIFIED BY RUNNING: <commands + results>
 ```
+
+## Token discipline (team rule, 2026-09-28 — quality unchanged)
+- Read only what your brief lists (sections/files named there). Do not read whole ARCHITECTURE/ROADMAP/archive files unless the brief says so; `docs/archive/` is history, not instructions.
+- Run pytest with `-q`; look only at the summary, failures and the exit code. Never paste full logs; quote at most the failing lines.
+- Stay inside your group's scope. If something outside it looks wrong, list it under Follow-ups — do not fix or build it.
+- Final report ≤ 500 words unless the brief allows more.
+- Review the group's diff (`git diff <first>^..<last> -- src tests docs`) plus the tester report; open other files only to check a specific claim.
