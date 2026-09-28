@@ -39,9 +39,3 @@ FLAKY TESTS: <list or none>
 COMMANDS RUN + RESULTS: <exact commands, counts>
 LAB STEPS REQUIRED (🧑): <path to lab script/checklist, or none>
 ```
-
-## Token discipline (team rule, 2026-09-28 — quality unchanged)
-- Start from what your brief lists. Read anything else you need to be correct — never guess to save tokens — but read the needed section, not whole large files. `docs/archive/` is history, not instructions.
-- Run pytest with `-q`; look only at the summary, failures and the exit code. Never paste full logs; quote at most the failing lines.
-- Stay inside your group's scope. If something outside it looks wrong, list it under Follow-ups — do not fix or build it.
-- Keep the final report short (aim ≤ 500 words), but never drop a defect, its reproduction, or a gate result to fit.
