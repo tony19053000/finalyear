@@ -12,6 +12,7 @@ Ryuk disabled is SIGKILLed and the next child run's sweep removes its container.
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
 import os
 import queue
@@ -132,12 +133,24 @@ def docker_client() -> Iterator[Any]:
 
 
 def _labelled(client: Any, label: str) -> list[Any]:
-    return list(client.containers.list(all=True, filters={"label": label}))
+    """Containers with ``label`` that still exist.
+
+    ``containers.list`` lists ids, then inspects each one; a container Ryuk (or
+    a finalizer) removes between the two calls used to raise ``NotFound`` out of
+    this *observer* - the flake D62 carried to V0.4 G4. A container removed
+    while we look is simply not there: ``ignore_removed`` says exactly that.
+    """
+    return list(
+        client.containers.list(all=True, filters={"label": label}, ignore_removed=True)
+    )
 
 
 def _force_remove_all(client: Any, label: str) -> None:
+    import docker
+
     for container in _labelled(client, label):
-        container.remove(force=True, v=True)
+        with contextlib.suppress(docker.errors.NotFound):
+            container.remove(force=True, v=True)
 
 
 def _child_project(tmp_path: Path, test_source: str) -> Path:

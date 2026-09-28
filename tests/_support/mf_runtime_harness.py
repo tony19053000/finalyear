@@ -143,7 +143,9 @@ def containers_with_label(label: str) -> list[Any]:
     try:
         return list(
             client.containers.list(
-                all=True, filters={"label": f"{LABEL_AGENT}={label}"}
+                all=True,
+                filters={"label": f"{LABEL_AGENT}={label}"},
+                ignore_removed=True,
             )
         )
     finally:

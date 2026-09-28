@@ -251,6 +251,8 @@ def sweep_orphans(client: DockerClient, agent_label: str) -> int:
     for container in client.containers.list(
         all=True,
         filters={"label": [f"{LABEL_AGENT}={agent_label}", f"{LABEL_MANAGED}=1"]},
+        # a container removed between the list and its inspect is already gone
+        ignore_removed=True,
     ):
         labels = container.labels or {}
         try:

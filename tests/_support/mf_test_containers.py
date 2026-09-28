@@ -187,7 +187,7 @@ def sweep_stale_test_containers(client: Any) -> list[str]:
     host = socket.gethostname()
     try:
         candidates = client.containers.list(
-            all=True, filters={"label": f"{LABEL_TEST}=1"}
+            all=True, filters={"label": f"{LABEL_TEST}=1"}, ignore_removed=True
         )
     except Exception as exc:  # noqa: BLE001 - best-effort sweep
         _log.warning("stale test-container sweep: listing failed: %s", exc)
