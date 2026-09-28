@@ -46,6 +46,7 @@ from meshforge.common.logging import get_logger
 from meshforge.common.netaddr import BindAddress, parse_bind
 from meshforge.common.proto.meshforge.v1 import agent_pb2_grpc
 from meshforge.controller.api.auth import ApiAuth
+from meshforge.controller.api.job_routes import JobApi
 from meshforge.controller.blobs import BlobStore, FetchTokens
 from meshforge.controller.discovery import ServiceAdvertiser
 from meshforge.controller.fabric_token import (
@@ -54,6 +55,7 @@ from meshforge.controller.fabric_token import (
     load_or_create_token,
 )
 from meshforge.controller.http import create_http_app
+from meshforge.controller.jobs.store import JobStore
 from meshforge.controller.registry import Registry, SessionEndReason
 from meshforge.controller.resources import ResourceTracker
 from meshforge.controller.session.leases import LeaseTimer
@@ -121,6 +123,8 @@ class ControllerRuntime:
         self._stopped = False
         self.token_verifier: FabricTokenVerifier | None = None
         self.blobs: BlobStore | None = None
+        self.jobs: JobStore | None = None
+        """D49: the single writer of the job tables (G4 dispatches from it)."""
         self.fetch_tokens: FetchTokens | None = None
         """D48: G4 mints per-attempt tokens here and hands them to agents."""
         self.failed_task: str | None = None
@@ -166,6 +170,7 @@ class ControllerRuntime:
 
         registry = Registry(engine)
         self.registry = registry
+        self.jobs = JobStore(engine)
         swept = await registry.sweep_open_sessions(SessionEndReason.CONTROLLER_RESTART)
         offline = await registry.mark_live_nodes_offline()
         log.info(
@@ -234,6 +239,11 @@ class ControllerRuntime:
                     verifier=self.token_verifier, fetch_tokens=self.fetch_tokens
                 ),
                 blobs=blobs,
+                jobs=JobApi(
+                    store=self.jobs,
+                    blobs=blobs,
+                    max_request_bytes=cfg.jobs.max_request_bytes,
+                ),
             ),
             host=self._http_bind.host,
             port=self.http_port,
