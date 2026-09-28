@@ -12,7 +12,10 @@ compute get <JOB_ID>     # -> outputs/<JOB_ID>/results/{metrics.json,weights.bin
 For a CPU-vs-CPU comparison (criterion 1), force the CPU with a copy of the
 manifest whose entrypoint says `--device cpu` (the lab checklist does this).
 
-**What "reproducible" means here** (brief D76, honest version):
+**What "reproducible" means here** (brief D76, honest version). This is V0.4
+criterion 1 as the roadmap words it: **byte-identical on the same hardware
+class** (same CPU model for CPU runs; same GPU model + driver for GPU runs) and
+**within `compare.py`'s stated tolerance across different CPU/GPU models**.
 
 | compared runs | expectation |
 |---|---|
