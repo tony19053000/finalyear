@@ -7,10 +7,11 @@
 > **Cold-start prompt** (paste this as the first message on the new account):
 >
 > ```
-> Read docs/SESSION_HANDOFF.md (sections 0d and 2 especially), then docs/STATUS.md, then
-> docs/briefs/V0.4-remote-execution.md. V0.4 G1, G2, G3 were spawned in parallel on 2026-09-28 — check
-> docs/briefs/progress/V0.4-G{1,2,3}.md and git log for where each got to; relaunch only stopped lanes.
-> Then tester + reviewer per group, and write the G4 brief once G1–G3 have closed.
+> Read docs/SESSION_HANDOFF.md (§0e first, then §0d and §2), then docs/STATUS.md, then
+> docs/briefs/V0.4-remote-execution.md. RULE: run ONE subagent at a time (team decision 2026-09-28, token cost).
+> V0.4 G1–G3 code is written. Continue the per-group rounds strictly one after another: finish G1
+> (tester → reviewer), then G2 (tester → reviewer), then G3 (tester → reviewer), then write and run G4, then G5.
+> Check git log and docs/briefs/progress/ first to see which round last finished.
 > ```
 >
 > Order of truth: `PROJECT_BRIEF → ARCHITECTURE → ROADMAP → STATUS → this file`. If this file
@@ -30,7 +31,7 @@
 > throughput measurements and the reasoning; if you think the arithmetic or the trade is wrong,
 > **say so to the team before building on it.** Do not silently re-expand the scope either.
 
-**Last updated:** 2026-09-28 (**V0.4 brief written** — `docs/briefs/V0.4-remote-execution.md`, 5 groups, G1‖G2‖G3 parallel; ADR-0014 Proposed; **G1 spawned**) · **Updated by:** Lead session (account 2)
+**Last updated:** 2026-09-28 (**V0.4 G1–G3 code written; parallel running STOPPED — one subagent at a time from now on (§0e)**; G1 tester round 1 running) · **Updated by:** Lead session (account 2)
 
 ---
 
@@ -225,6 +226,27 @@ bugs every time — do **not** drop them.
 
 **Open team questions this raises:** the real deadline date; how many accounts; whether V0.4 coding may start before
 the 🧑 0.3.15 lab run closes V0.3 (the Lead recommends yes — the lab run is calendar-bound, not code-bound).
+
+## 0e. 🔴 ONE SUBAGENT AT A TIME — team decision 2026-09-28
+
+Running G1, G2 and G3 in parallel (§0d lever 1) **used tokens too fast** — three implementers, then three testers, at
+once. The team stopped it. **From now on the Lead runs exactly one subagent at a time** (implementer, tester or
+reviewer) and waits for it to finish before starting the next. This replaces the "three lanes in parallel" rule in
+the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
+
+**State at the stop (2026-09-28):**
+- **G1** (0.4.16 + 0.4.17 items 2, 5): implementer done — `bfbe960`, Goodbye inside `e189f86`, `483b7ab`, `ff9a785`.
+  **Tester round 1 was left running** (the one agent allowed). If this session died before it reported, re-run the
+  G1 tester (prompt pattern: the G1 section of the brief + §4 checklist + "try to break D41's abandoned-admission
+  linger and the Goodbye races"). Then the reviewer.
+- **G2** (0.4.1–0.4.5 + fabric token): implementer done — `1462e34` … `f92e4fd`. **Tester round 1 stopped part-way**
+  (its unit gates were green, component gates not yet run). Its unfinished test files are parked in
+  `docs/briefs/progress/parked-tests/` (read its README). Next: a fresh G2 tester round, then the reviewer.
+- **G3** (0.4.7, 0.4.8, 0.4.17 items 1/3/4/6/8): implementer done — `d625a45` … `b14baa3`. **Tester round 1 stopped**
+  after writing tests, before running them; files parked the same way. Next: a fresh G3 tester round, then the reviewer.
+- **Order from here:** G1 tester → G1 reviewer → G2 tester → G2 reviewer → G3 tester → G3 reviewer → G4 brief +
+  implementer → … → G5. Fix rounds, and a tester re-run after each fix, stay mandatory (§2a).
+- Commits: keep using `git commit -- <paths>` even with one agent — the Lead also commits docs.
 
 ## 1. Where the project is
 
