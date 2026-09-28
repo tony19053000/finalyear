@@ -526,7 +526,7 @@ stateDiagram-v2
 | Duplicate submission | `Idempotency-Key` unique constraint | returns the existing job |
 | Duplicate command delivery | command IDs, agent dedupe | at-least-once delivery, exactly-once effect |
 | Zombie attempt after reassignment | **fencing token** (monotonic attempt epoch) | controller rejects stale reports |
-| Outputs cannot be collected/uploaded (V0.4 G5) | agent: link/escape/quota/upload error; controller: digest not uploaded under the attempt's grant | `FAILED(output_error)`; the Failure's `retryable` says whether a retry may help |
+| Outputs cannot be collected/uploaded (V0.4 G5) | agent: link/escape/quota/upload error, or a listed output swapped before it was packed (the open descriptor is checked: `O_NOFOLLOW`, `O_NONBLOCK`, `fstat` regular file with the listed `(st_dev, st_ino)` - the Windows equivalent of `O_NOFOLLOW`); controller: digest not uploaded under the attempt's grant | `FAILED(output_error)`; the Failure's `retryable` says whether a retry may help |
 | Final status lost (dropped, evicted from the ring) (D75) | no Ack within `terminal_resend_s` | the agent re-sends it until acked; the controller acks + releases anything it already ended |
 | Log chunks dropped (flood, disconnect) (D71) | offset jump | gap recorded, never filled; the final log upload replaces the live copy |
 | Controller cannot write a live log file (disk full, permissions, symlink planted at the path) (D71) | `OSError` on open (`O_NOFOLLOW`) or write | never raised out of the log writer: logged `controller.logs.write_failed` (cause + errno, no bytes/paths, once per failing run), counted, handle closed, the unwritten range recorded as a gap; the next chunk retries; other attempts unaffected; the final log still replaces the live file |

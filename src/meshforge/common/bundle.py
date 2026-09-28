@@ -220,6 +220,9 @@ class _Entry:
     size: int = 0
     executable: bool = False
     link: str = ""
+    ident: tuple[int, int] = (0, 0)
+    """``(st_dev, st_ino)`` seen when the file was listed; the opened file must
+    be the same one (``0`` = unknown, e.g. ``scandir`` on Windows)."""
 
 
 @dataclass(slots=True)
@@ -389,7 +392,14 @@ def _scan(root: Path, limits: BundleLimits, exclude: frozenset[str]) -> _ScanSta
                 executable = (not _WINDOWS) and bool(st.st_mode & stat.S_IXUSR)
                 _add(
                     state,
-                    _Entry(rel, "file", path, size=st.st_size, executable=executable),
+                    _Entry(
+                        rel,
+                        "file",
+                        path,
+                        size=st.st_size,
+                        executable=executable,
+                        ident=(st.st_dev, st.st_ino),
+                    ),
                 )
             else:
                 if spec.match_file(rel):
@@ -436,14 +446,41 @@ def _tarinfo(entry: _Entry) -> tarfile.TarInfo:
     return info
 
 
-def _open_regular(path: Path, rel: str) -> BinaryIO:
-    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+def _open_regular(path: Path, rel: str, ident: tuple[int, int] = (0, 0)) -> BinaryIO:
+    """Open a listed file for packing, refusing anything swapped in since.
+
+    ``O_NOFOLLOW`` refuses a symlink put at the name (POSIX; Windows has no such
+    flag and would follow it) and ``O_NONBLOCK`` keeps a FIFO from blocking the
+    open. Then the *open descriptor* is checked: it must be a regular file and -
+    when the listing saw an inode - the same ``(st_dev, st_ino)``. That second
+    check is the Windows equivalent of ``O_NOFOLLOW`` (a followed link opens a
+    different file) and also catches a folder on the way swapped for a link.
+    """
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_BINARY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_NONBLOCK", 0)
+    )
     try:
         fd = os.open(path, flags)
     except OSError as exc:
         raise BundleError(
             f"cannot read file ({exc.strerror or exc})", path=rel
         ) from None
+    try:
+        st = os.fstat(fd)
+    except OSError as exc:
+        os.close(fd)
+        raise BundleError(
+            f"cannot read file ({exc.strerror or exc})", path=rel
+        ) from None
+    if not stat.S_ISREG(st.st_mode):
+        os.close(fd)
+        raise BundleError("file was replaced while packing", path=rel)
+    if ident[1] and st.st_ino and (st.st_dev, st.st_ino) != ident:
+        os.close(fd)
+        raise BundleError("file was replaced while packing", path=rel)
     return os.fdopen(fd, "rb")
 
 
@@ -512,7 +549,17 @@ def pack_files(
         if os.path.commonpath([os.path.realpath(path), root_real]) != root_real:
             raise BundleError("an output resolves outside the work folder", path=rel)
         executable = (not _WINDOWS) and bool(st.st_mode & stat.S_IXUSR)
-        _add(state, _Entry(rel, "file", path, size=st.st_size, executable=executable))
+        _add(
+            state,
+            _Entry(
+                rel,
+                "file",
+                path,
+                size=st.st_size,
+                executable=executable,
+                ident=(st.st_dev, st.st_ino),
+            ),
+        )
     state.entries.sort(key=lambda e: e.rel)
     return _pack_entries(state, out)
 
@@ -543,7 +590,7 @@ def _pack_entries(state: _ScanState, out: IO[bytes]) -> PackResult:
             if entry.kind != "file":
                 tar.addfile(info)
                 continue
-            with _open_regular(entry.path, entry.rel) as fh:
+            with _open_regular(entry.path, entry.rel, entry.ident) as fh:
                 try:
                     tar.addfile(info, fh)
                 except (OSError, tarfile.TarError):
