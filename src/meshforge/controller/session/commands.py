@@ -43,12 +43,15 @@ from meshforge.controller.session.live import (
     PendingCommand,
 )
 
-__all__ = ["UNACKED", "CommandChannel"]
+__all__ = ["STREAMED", "UNACKED", "CommandChannel"]
 
 log = get_logger(__name__)
 
-UNACKED: Final = frozenset({"ack", "pong", "goodbye"})
+UNACKED: Final = frozenset({"ack", "pong", "goodbye", "log_chunk"})
 """Agent payloads that get no Ack back (ADR-0002 Updates §4: never buffered)."""
+STREAMED: Final = frozenset({"log_chunk"})
+"""Best-effort payloads (V0.4 D71): no ``message_id`` dedupe (offsets dedupe
+them; a log flood must not churn the dedupe window of reports), no Ack."""
 
 
 class CommandChannel:

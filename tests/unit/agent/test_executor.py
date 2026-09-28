@@ -454,13 +454,17 @@ class WritingRuntime(FakeRuntime):
 class Uploads:
     def __init__(self, error: Exception | None = None) -> None:
         self.calls: list[tuple[str, str, bytes]] = []
+        self.logs: dict[str, tuple[str, bytes]] = {}
         self.error = error
 
     async def __call__(self, base: str, digest: Any, token: str, path: Path) -> int:
         if self.error is not None:
             raise self.error
         data = path.read_bytes()  # noqa: ASYNC240 - a test fake
-        self.calls.append((str(digest), token, data))
+        if path.suffix == ".log":
+            self.logs[path.stem] = (str(digest), data)
+        else:
+            self.calls.append((str(digest), token, data))
         return len(data)
 
 
@@ -491,6 +495,11 @@ async def test_outputs_are_packed_uploaded_and_reported(tmp_path: Path) -> None:
     assert final.output_digest == sent_digest == str(sha256_bytes(data))
     assert list(final.missing_outputs) == ["absent.bin"]
     assert final.phases.HasField("collect_s")
+    # D71: the final stdout log was uploaded with the grant and named in the status
+    log_digest, log_data = uploads.logs["stdout"]
+    assert log_data == b"hi\n" and final.stdout_log.digest == log_digest
+    assert final.stdout_log.bytes == 3 and not final.stdout_log.truncated
+    assert "stderr" not in uploads.logs and final.stderr_log.digest == ""  # empty
     # the archive was a temporary file outside the workdir: gone
     assert not (executor.work_root / f"{msg.start_attempt.attempt_id}.outputs").exists()
     await executor.close()

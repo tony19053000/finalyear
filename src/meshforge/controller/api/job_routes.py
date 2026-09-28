@@ -57,6 +57,7 @@ from meshforge.controller.api.context import FabricView, get_fabric
 from meshforge.controller.api.errors import ApiError
 from meshforge.controller.api.job_models import (
     AttemptSummary,
+    FinalLogSummary,
     JobCancelled,
     JobCreated,
     JobDetail,
@@ -68,6 +69,7 @@ from meshforge.controller.api.job_models import (
 )
 from meshforge.controller.blobs import BlobStore
 from meshforge.controller.jobs.dispatcher import Dispatcher
+from meshforge.controller.jobs.logs import LogHub
 from meshforge.controller.jobs.placement import PlacementError, check_placement
 from meshforge.controller.jobs.store import (
     AttemptRecord,
@@ -106,10 +108,13 @@ class JobApi:
         blobs: BlobStore,
         max_request_bytes: int,
         dispatcher: Dispatcher | None = None,
+        logs: LogHub | None = None,
     ) -> None:
         self.store = store
         self.blobs = blobs
         self.max_request_bytes = max_request_bytes
+        self.logs = logs
+        """D71/D72 log files and followers; None = logs are not served."""
         self.dispatcher = dispatcher
         """None in tests that mount the routes without a running controller: a
         job is then stored and stays queued, and cancel is refused."""
@@ -220,6 +225,11 @@ def _attempt(record: AttemptRecord) -> AttemptSummary:
         exit_code=record.exit_code,
         output_digest=record.output_digest,
         missing_outputs=list(record.missing_outputs),
+        logs={
+            stream: FinalLogSummary.model_validate(info)
+            for stream, info in (record.logs or {}).items()
+            if stream in ("stdout", "stderr") and isinstance(info, dict)
+        },
         started_at=record.started_at,
         ended_at=record.ended_at,
     )

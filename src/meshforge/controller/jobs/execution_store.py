@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import datetime as dt
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any, Final
 
@@ -158,6 +158,8 @@ class StatusReport:
     """Only on DONE, and only once the dispatcher verified this attempt's upload
     grant stored it (D73/D74)."""
     missing_outputs: tuple[str, ...] = ()
+    logs: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
+    """D71 final logs per stream; a digest only once verified under the grant."""
 
 
 class StatusKind(StrEnum):
@@ -541,6 +543,8 @@ async def _move_attempt(
         row.ended_at = func.clock_timestamp()
         if report.exit_code is not None:
             row.exit_code = report.exit_code
+    if target in ATTEMPT_TERMINAL_STATES and report.logs:
+        row.logs = {k: dict(v) for k, v in report.logs.items()}
     if target is AttemptState.DONE:
         row.output_digest = report.output_digest
         row.missing_outputs = list(report.missing_outputs) or None

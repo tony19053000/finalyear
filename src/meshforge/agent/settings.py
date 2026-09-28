@@ -508,6 +508,15 @@ class ExecutionSettings(SectionModel):
             "resource_busy (the controller sends one at a time in V0.4)."
         ),
     )
+    max_log_bytes: int = Field(
+        default=64 * 1024 * 1024,
+        ge=64 * 1024,
+        le=4 * 1024**3,
+        description=(
+            "Per stream (stdout, stderr): past this the log stops growing, is marked "
+            "truncated and ends with a marker line (V0.4 D71)."
+        ),
+    )
     terminal_resend_s: float = Field(
         default=5.0,
         ge=0.2,
@@ -582,6 +591,16 @@ class AgentSection(SectionModel):
         description=(
             "Un-acked reports kept for replay after a reconnect; overflow drops the "
             "oldest and counts it (ADR-0002 Updates §4)."
+        ),
+    )
+    log_queue_chunks: int = Field(
+        default=256,
+        ge=8,
+        le=65_536,
+        description=(
+            "Live log chunks (<= 64 KiB each) waiting to be written to the stream; "
+            "past it chunks are dropped (the final log upload is complete anyway). "
+            "Separate from the replay ring: logs never evict reports (V0.4 D71)."
         ),
     )
     discovery: DiscoverySettings = Field(default_factory=DiscoverySettings)

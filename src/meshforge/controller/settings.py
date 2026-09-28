@@ -51,6 +51,7 @@ DEFAULT_SERVICE_TYPE = "_meshforge-ctl._tcp.local."
 DEFAULT_ADMISSION_TIMEOUT_S = 5.0
 """D41: default Hello admission deadline (below the default 6 s lease)."""
 BLOBS_DIR_NAME = "blobs"
+LOGS_DIR_NAME = "logs"
 _ADVERTISE_URL = re.compile(
     r"https?://(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9.-]{1,253}):\d{1,5}"
 )
@@ -151,6 +152,35 @@ class JobApiSettings(SectionModel):
         ge=1,
         le=64,
         description="Blobs one attempt may upload (outputs archive + 2 log files).",
+    )
+    # --- logs (V0.4 G5, D71/D72) -------------------------------------------
+    max_log_bytes: int = Field(
+        default=64 * 1024 * 1024 + 64 * 1024,
+        ge=64 * 1024,
+        le=8 * 1024**3,
+        description=(
+            "Per attempt and stream: a live log chunk ending past this is refused "
+            "(the agent caps its logs at [agent.execution] max_log_bytes plus a "
+            "marker line)."
+        ),
+    )
+    log_queue_chunks: int = Field(
+        default=4096,
+        ge=16,
+        le=1_000_000,
+        description=(
+            "Live log chunks waiting for the log writer; past it chunks are "
+            "dropped (a recorded gap) so a flood never slows a session."
+        ),
+    )
+    log_subscriber_queue: int = Field(
+        default=1024,
+        ge=8,
+        le=100_000,
+        description="Log events buffered per follower; a slower one is disconnected.",
+    )
+    max_log_subscribers: int = Field(
+        default=8, ge=1, le=1024, description="Concurrent log followers per job."
     )
     # --- dispatch (V0.4 G4, D65/D66/D69) ------------------------------------
     dispatch_interval_s: float = Field(
@@ -546,6 +576,11 @@ class ControllerSettings(MeshForgeSettings):
     def token_path(self) -> Path:
         """Where the fabric token lives (``[controller] token_file`` or the default)."""
         return self.controller.token_file or default_token_path(self.data_dir)
+
+    @property
+    def logs_dir(self) -> Path:
+        """Attempt log files (``<data_dir>/controller/logs``, D71)."""
+        return self.data_dir / CONTROLLER_DIR_NAME / LOGS_DIR_NAME
 
     @property
     def blobs_dir(self) -> Path:

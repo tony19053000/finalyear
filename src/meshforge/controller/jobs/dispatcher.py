@@ -84,6 +84,7 @@ from meshforge.controller.jobs.execution_store import (
     StatusOutcome,
     StatusReport,
 )
+from meshforge.controller.jobs.logs import LogHub
 from meshforge.controller.jobs.reports import parse_status
 from meshforge.controller.jobs.spec import choose_gpus, execution_spec, start_snapshot
 from meshforge.controller.jobs.store import AttemptRecord, JobRecord, JobStoreError
@@ -169,6 +170,7 @@ class Dispatcher:
         settings: JobApiSettings,
         *,
         upload_grants: UploadGrants | None = None,
+        logs: LogHub | None = None,
         clock: Callable[[], float],
         blob_port: Callable[[], int],
         blob_url: str | None = None,
@@ -179,6 +181,7 @@ class Dispatcher:
         self._manager = manager
         self._tokens = fetch_tokens
         self._grants = upload_grants
+        self._logs = logs
         self._settings = settings
         self._clock = clock
         self._blob_port = blob_port
@@ -427,13 +430,14 @@ class Dispatcher:
                 release=True,
             )
         self._manager.ack_message(live, item.message_id)
-        self._after(outcome)
+        self._after(outcome, report)
 
     def _verified(self, report: StatusReport, live: LiveSession) -> StatusReport:
         """D73/D74: a DONE's ``output_digest`` counts only if this attempt's upload
         grant stored and verified that blob; otherwise the attempt did not deliver
         its outputs - it ends ``FAILED(output_error)``, never ``DONE`` with a
         digest nobody checked."""
+        report = self._verified_logs(report, live)
         digest = report.output_digest
         if report.state is not AttemptState.DONE or digest is None:
             return report
@@ -457,13 +461,40 @@ class Dispatcher:
             output_digest=None,
         )
 
-    def _after(self, outcome: StatusOutcome) -> None:
+    def _verified_logs(self, report: StatusReport, live: LiveSession) -> StatusReport:
+        """D71/D73: a final log digest counts only if this attempt's grant stored
+        it; an unverified one is dropped (the live copy stays), never trusted."""
+        if not report.logs:
+            return report
+        kept: dict[str, dict[str, object]] = {}
+        for stream, info in report.logs.items():
+            entry = dict(info)
+            digest = entry.get("digest")
+            if digest and not (
+                self._grants is not None
+                and self._grants.uploaded(report.attempt_id, str(digest))
+            ):
+                log.warning(
+                    "controller.jobs.log_not_uploaded",
+                    node_id=live.node_id,
+                    attempt_id=report.attempt_id,
+                    stream=stream,
+                )
+                entry["digest"] = None
+            kept[stream] = entry
+        return dataclasses.replace(report, logs=kept)
+
+    def _after(
+        self, outcome: StatusOutcome, report: StatusReport | None = None
+    ) -> None:
         """Token expiry at attempt end; a pending cancel re-sent to a live attempt."""
         attempt, job = outcome.attempt, outcome.job
         if attempt is None:
             return
         if outcome.ended:
             self._end_tokens(attempt.id)
+            if self._logs is not None and outcome.kind is StatusKind.APPLIED:
+                self._logs.finalize(attempt.id, None if report is None else report.logs)
         elif (
             job is not None
             and job.cancel_requested_at is not None
@@ -589,6 +620,13 @@ class Dispatcher:
                 node_id=attempt.node_id,
             )
             return
+        if self._logs is not None:
+            self._logs.open(
+                attempt.id,
+                job_id=job.id,
+                node_id=attempt.node_id,
+                token=attempt.fencing_token,
+            )
         if resend:
             self.stats.start_resent += 1
         else:
@@ -636,6 +674,13 @@ class Dispatcher:
             attempt, job = entry.attempt, entry.job
             known.add(attempt.id)
             if item.held.get(attempt.id) == attempt.fencing_token:
+                if self._logs is not None:  # after a controller restart, too
+                    self._logs.open(
+                        attempt.id,
+                        job_id=job.id,
+                        node_id=node_id,
+                        token=attempt.fencing_token,
+                    )
                 if job.cancel_requested_at is not None:
                     self._send_cancel(attempt, "cancelled by request")
                 continue
@@ -683,6 +728,8 @@ class Dispatcher:
         self._tokens.revoke(attempt.id)
         if self._grants is not None:
             self._grants.close(attempt.id)
+        if self._logs is not None and outcome.kind is StatusKind.APPLIED:
+            self._logs.finalize(attempt.id, None)
         if outcome.kind is StatusKind.APPLIED:
             self.stats.attempts_lost += 1
             log.warning(
@@ -715,4 +762,6 @@ class Dispatcher:
                 node_id=attempt.node_id,
             )
             self._end_tokens(attempt.id)
+            if self._logs is not None:
+                self._logs.finalize(attempt.id, None)
             self._send_cancel(attempt, "controller_backstop")

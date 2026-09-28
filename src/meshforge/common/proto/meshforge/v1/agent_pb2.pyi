@@ -896,6 +896,8 @@ class AttemptStatus(_message.Message):
     MISSING_OUTPUTS_FIELD_NUMBER: _builtins.int
     RUNTIME_FIELD_NUMBER: _builtins.int
     SIGNAL_FIELD_NUMBER: _builtins.int
+    STDOUT_LOG_FIELD_NUMBER: _builtins.int
+    STDERR_LOG_FIELD_NUMBER: _builtins.int
     job_id: _builtins.str
     attempt_id: _builtins.str
     fencing_token: _builtins.int
@@ -929,6 +931,15 @@ class AttemptStatus(_message.Message):
         error: listed so the user sees it (D54).
         """
 
+    @_builtins.property
+    def stdout_log(self) -> Global___FinalLog:
+        """The attempt's complete local logs, uploaded with its upload grant in the
+        terminal status (V0.4 G5, D71). Absent: not uploaded (stopped attempt, empty
+        log, upload failed) - the controller keeps its live copy then.
+        """
+
+    @_builtins.property
+    def stderr_log(self) -> Global___FinalLog: ...
     def __init__(
         self,
         *,
@@ -944,10 +955,12 @@ class AttemptStatus(_message.Message):
         missing_outputs: _abc.Iterable[_builtins.str] | None = ...,
         runtime: _builtins.str = ...,
         signal: _builtins.int | None = ...,
+        stdout_log: Global___FinalLog | None = ...,
+        stderr_log: Global___FinalLog | None = ...,
     ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _typing.Literal["_exit_code", b"_exit_code", "_signal", b"_signal", "exit_code", b"exit_code", "failure", b"failure", "observed_at", b"observed_at", "phases", b"phases", "signal", b"signal"]  # noqa: Y015
+    _HasFieldArgType: _TypeAlias = _typing.Literal["_exit_code", b"_exit_code", "_signal", b"_signal", "exit_code", b"exit_code", "failure", b"failure", "observed_at", b"observed_at", "phases", b"phases", "signal", b"signal", "stderr_log", b"stderr_log", "stdout_log", b"stdout_log"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["_exit_code", b"_exit_code", "_signal", b"_signal", "attempt_id", b"attempt_id", "exit_code", b"exit_code", "failure", b"failure", "fencing_token", b"fencing_token", "job_id", b"job_id", "missing_outputs", b"missing_outputs", "observed_at", b"observed_at", "output_digest", b"output_digest", "phases", b"phases", "runtime", b"runtime", "signal", b"signal", "state", b"state"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["_exit_code", b"_exit_code", "_signal", b"_signal", "attempt_id", b"attempt_id", "exit_code", b"exit_code", "failure", b"failure", "fencing_token", b"fencing_token", "job_id", b"job_id", "missing_outputs", b"missing_outputs", "observed_at", b"observed_at", "output_digest", b"output_digest", "phases", b"phases", "runtime", b"runtime", "signal", b"signal", "state", b"state", "stderr_log", b"stderr_log", "stdout_log", b"stdout_log"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     _WhichOneofReturnType__exit_code: _TypeAlias = _typing.Literal["exit_code"]  # noqa: Y015
     _WhichOneofArgType__exit_code: _TypeAlias = _typing.Literal["_exit_code", b"_exit_code"]  # noqa: Y015
@@ -959,6 +972,38 @@ class AttemptStatus(_message.Message):
     def WhichOneof(self, oneof_group: _WhichOneofArgType__signal) -> _WhichOneofReturnType__signal | None: ...
 
 Global___AttemptStatus: _TypeAlias = AttemptStatus  # noqa: Y015
+
+@_typing.final
+class FinalLog(_message.Message):
+    """One stream's final log (D71)."""
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    DIGEST_FIELD_NUMBER: _builtins.int
+    BYTES_FIELD_NUMBER: _builtins.int
+    TRUNCATED_FIELD_NUMBER: _builtins.int
+    digest: _builtins.str
+    """"sha256:<64 hex>" of the uploaded log blob; empty = not uploaded."""
+    bytes: _builtins.int
+    """Bytes of workload output kept (the cap stops the file growing)."""
+    truncated: _builtins.bool
+    """The workload wrote more than the per-stream cap; the rest was dropped and a
+    marker line says so at the end of the log.
+    """
+    def __init__(
+        self,
+        *,
+        digest: _builtins.str = ...,
+        bytes: _builtins.int = ...,
+        truncated: _builtins.bool = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["bytes", b"bytes", "digest", b"digest", "truncated", b"truncated"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___FinalLog: _TypeAlias = FinalLog  # noqa: Y015
 
 @_typing.final
 class PhaseTimings(_message.Message):
@@ -1011,6 +1056,11 @@ Global___PhaseTimings: _TypeAlias = PhaseTimings  # noqa: Y015
 
 @_typing.final
 class LogChunk(_message.Message):
+    """Live log bytes (D71): best-effort, never buffered or replayed, never acked.
+    `offset` is the byte position of `data` in the attempt's stream on the agent;
+    a chunk dropped on the way shows up as a jump (a gap the controller records).
+    """
+
     DESCRIPTOR: _descriptor.Descriptor
 
     class _Stream:

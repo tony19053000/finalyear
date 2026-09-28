@@ -86,6 +86,14 @@ class TransitionOut(ApiModel):
     at: Utc
 
 
+class FinalLogSummary(ApiModel):
+    """One stream's final log (D71): uploaded and verified, or only live."""
+
+    digest: str | None = None
+    bytes: int = 0
+    truncated: bool = False
+
+
 class AttemptSummary(ApiModel):
     attempt_id: str
     node_id: str
@@ -98,6 +106,8 @@ class AttemptSummary(ApiModel):
     """The packed outputs (``compute get``); verified under the attempt's grant."""
     missing_outputs: list[str] = Field(default_factory=list)
     """Declared outputs that matched nothing (D74) - listed, not an error."""
+    logs: dict[str, FinalLogSummary] = Field(default_factory=dict)
+    """Final logs per stream (D71); empty until the attempt ended with them."""
     started_at: Utc | None = None
     ended_at: Utc | None = None
 

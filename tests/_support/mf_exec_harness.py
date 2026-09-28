@@ -94,6 +94,7 @@ class ExecAgent:
             node_id=client.node_id,
             report=client.send_report,
             resend=client.resend_report,
+            log_sink=client.send_log,
             controller_host=lambda: controller_host(client.controller_target),
         )
         wire_executor(client, executor)

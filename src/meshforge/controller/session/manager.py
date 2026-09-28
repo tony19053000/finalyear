@@ -123,7 +123,7 @@ from meshforge.controller.session.admission import (
     unavailable,
 )
 from meshforge.controller.session.claims import AdmissionClaims
-from meshforge.controller.session.commands import UNACKED, CommandChannel
+from meshforge.controller.session.commands import STREAMED, UNACKED, CommandChannel
 from meshforge.controller.session.dispatch import (
     DispatchTable,
     check_envelope,
@@ -631,6 +631,9 @@ class SessionManager:
                 payload=msg.WhichOneof("payload"),
                 count=live.stale_messages,
             )
+            return
+        if which in STREAMED:
+            await self.dispatch.handler_for(which)(live, msg)
             return
         if which in self.commands.deferred:
             # Acked by its handler once stored (module docstring); a duplicate

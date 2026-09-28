@@ -44,7 +44,13 @@ Rules:
 * **Release (D75).** ``CancelAttempt{release}`` means the controller already ended
   (or never knew) the attempt: it is stopped if it runs, then forgotten and its
   workdir freed without waiting for an Ack.
-* Output bytes go to ``.meshforge/{stdout,stderr}.log`` in the workdir.
+* **Logs (D71).** Output bytes go to ``.meshforge/{stdout,stderr}.log`` in the
+  workdir (capped per stream, :mod:`.logs`) and, batched (64 KiB / 100 ms), to
+  the session's live log queue as ``LogChunk``. After a run that was not stopped
+  the two files are uploaded with the upload grant and named in the terminal
+  status (``stdout_log`` / ``stderr_log``) - best effort: a failed log upload
+  leaves the controller's live copy, it never fails the attempt. A stopped
+  (cancelled / agent-stop) attempt skips the upload so it ends within its grace.
 
 A failure anywhere is a typed ``failure_type`` in a ``FAILED`` report - never an
 exception out of the task (a bug is reported ``internal_error`` and logged with
@@ -59,11 +65,11 @@ import os
 import shutil
 import time
 from collections import OrderedDict
-from collections.abc import Awaitable, Callable, Collection, Sequence
+from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import IO, Any, Final, Protocol
+from typing import Any, Final, Protocol
 
 from meshforge.agent.execution.fetch import (
     FetchError,
@@ -72,6 +78,7 @@ from meshforge.agent.execution.fetch import (
     fetch_bundle,
     upload_blob,
 )
+from meshforge.agent.execution.logs import AttemptLogs, Chunk, file_sha256
 from meshforge.agent.execution.offer import ExecutionSetup
 from meshforge.agent.execution.outputs import Collected, OutputError, collect_outputs
 from meshforge.agent.execution.plan import AttemptPlan, PlanError, plan_attempt
@@ -79,19 +86,17 @@ from meshforge.agent.execution.runtime import RunObserver, RunResult, Stream
 from meshforge.agent.settings import AgentSettings
 from meshforge.common.bundle import BundleError, BundleLimits, unpack
 from meshforge.common.errors import FailureType, InvalidIdError
+from meshforge.common.hashing import Digest
 from meshforge.common.ids import validate_attempt_id, validate_job_id
 from meshforge.common.logging import get_logger
 from meshforge.common.proto.meshforge.v1 import agent_pb2, common_pb2
 from meshforge.common.proto_codec import attempt_state_to_proto, failure_type_to_proto
 from meshforge.common.states import AttemptState
 
-__all__ = ["MAX_LOG_BYTES", "Executor", "Reporter", "Resender", "work_root_for"]
+__all__ = ["Executor", "LogSink", "Reporter", "Resender", "work_root_for"]
 
 log = get_logger(__name__)
 
-MAX_LOG_BYTES: Final = 512 * 1024 * 1024
-"""Per stream: the local log file stops growing here (LogChunk streaming and its
-own budget are G5)."""
 _RECENT_FINISHED: Final = 4096
 _MISSING_MAX: Final = 64
 _MISSING_MAX_CHARS: Final = 512
@@ -115,6 +120,10 @@ class Reporter(Protocol):
     """``AgentSessionClient.send_report``'s shape."""
 
     async def __call__(self, payload_name: str, payload: Any) -> str: ...
+
+
+LogSink = Callable[[agent_pb2.LogChunk], bool]
+"""``AgentSessionClient.send_log``: queue a live chunk, False = dropped."""
 
 
 class Resender(Protocol):
@@ -171,35 +180,6 @@ class _Observer(RunObserver):
         self.started.set()
 
 
-class _Logs:
-    """The two local log files of one attempt (bounded, never following links)."""
-
-    def __init__(self, directory: Path) -> None:
-        directory.mkdir(exist_ok=True)
-        self._files: dict[Stream, IO[bytes]] = {}
-        self._sizes = {Stream.STDOUT: 0, Stream.STDERR: 0}
-        for stream in Stream:
-            fd = os.open(
-                directory / f"{stream.value}.log",
-                os.O_WRONLY | os.O_CREAT | os.O_APPEND | _NOFOLLOW,
-                0o600,
-            )
-            self._files[stream] = os.fdopen(fd, "ab", buffering=0)
-
-    async def write(self, stream: Stream, data: bytes) -> None:
-        size = self._sizes[stream]
-        if size >= MAX_LOG_BYTES:
-            return
-        room = MAX_LOG_BYTES - size
-        self._files[stream].write(data[:room])
-        self._sizes[stream] = size + min(len(data), room)
-
-    def close(self) -> None:
-        for fh in self._files.values():
-            with contextlib.suppress(OSError):
-                fh.close()
-
-
 class Executor:
     """See module docstring."""
 
@@ -216,6 +196,7 @@ class Executor:
         fetch: Callable[..., Awaitable[int]] = fetch_bundle,
         upload: Callable[..., Awaitable[int]] = upload_blob,
         resend: Resender | None = None,
+        log_sink: LogSink | None = None,
     ) -> None:
         self._settings = settings
         self._cfg = settings.agent.execution
@@ -228,6 +209,8 @@ class Executor:
         self._fetch = fetch
         self._upload = upload
         self._resend = resend
+        self._log_sink = log_sink
+        self.log_chunks_dropped = 0
         self.work_root = work_root_for(settings)
         self._attempts: dict[str, _Attempt] = {}
         self._finished: OrderedDict[tuple[str, int], None] = OrderedDict()
@@ -602,7 +585,12 @@ class Executor:
         stage_started = self._clock()
         await self._stage(attempt, plan, workdir)
         attempt.phases["stage_s"] = self._clock() - stage_started
-        logs = await asyncio.to_thread(_Logs, workdir / ".meshforge")
+        logs = await asyncio.to_thread(
+            AttemptLogs,
+            workdir / ".meshforge",
+            max_bytes=self._cfg.max_log_bytes,
+            clock=self._clock,
+        )
         try:
             await self._execute(attempt, plan, logs)
         finally:
@@ -634,11 +622,109 @@ class Executor:
         if os.name == "posix":
             self.work_root.chmod(0o700)
 
-    async def _execute(self, attempt: _Attempt, plan: AttemptPlan, logs: _Logs) -> None:
+    async def _execute(
+        self, attempt: _Attempt, plan: AttemptPlan, logs: AttemptLogs
+    ) -> None:
         runtime = self._setup.runtimes[plan.runtime]
         observer = _Observer(self._clock)
+        wake = asyncio.Event()
+
+        async def on_output(stream: Stream, data: bytes) -> None:
+            pending = logs.batcher.next_deadline() is not None
+            for chunk in logs.write(Stream(stream), data):
+                self._send_log(attempt, chunk)
+            if not pending:
+                wake.set()
+
+        flusher = asyncio.create_task(
+            self._flush_logs(attempt, logs, wake),
+            name=f"attempt-logs:{attempt.attempt_id}",
+        )
+        flusher.add_done_callback(self._task_done)
+        try:
+            await self._run_workload(attempt, plan, logs, runtime, observer, on_output)
+        finally:
+            flusher.cancel()
+            await asyncio.gather(flusher, return_exceptions=True)
+
+    async def _flush_logs(
+        self, attempt: _Attempt, logs: AttemptLogs, wake: asyncio.Event
+    ) -> None:
+        """Send a batch once its oldest byte waited 100 ms (D71)."""
+        while True:
+            deadline = logs.batcher.next_deadline()
+            if deadline is None:
+                wake.clear()
+                await wake.wait()
+                continue
+            await asyncio.sleep(max(0.0, deadline - self._clock()))
+            for chunk in logs.batcher.due():
+                self._send_log(attempt, chunk)
+
+    def _send_log(self, attempt: _Attempt, chunk: Chunk) -> None:
+        msg = agent_pb2.LogChunk(
+            job_id=attempt.job_id,
+            attempt_id=attempt.attempt_id,
+            stream=agent_pb2.LogChunk.STREAM_STDOUT
+            if chunk.stream is Stream.STDOUT
+            else agent_pb2.LogChunk.STREAM_STDERR,
+            offset=chunk.offset,
+            data=chunk.data,
+            fencing_token=attempt.token,
+        )
+        if self._log_sink is None or not self._log_sink(msg):
+            self.log_chunks_dropped += 1
+
+    async def _final_logs(
+        self, attempt: _Attempt, plan: AttemptPlan, logs: AttemptLogs
+    ) -> dict[Stream, agent_pb2.FinalLog]:
+        """Upload both local logs with the grant (best effort, D71)."""
+        result: dict[Stream, agent_pb2.FinalLog] = {}
+        base: str | None = None
+        for stream in Stream:
+            final = agent_pb2.FinalLog(
+                bytes=logs.kept[stream], truncated=logs.truncated[stream]
+            )
+            result[stream] = final
+            path = logs.path(stream)
+            if not plan.upload_token:
+                continue
+            try:
+                digest, size = await asyncio.to_thread(file_sha256, path)
+                if size == 0:
+                    continue
+                if base is None:
+                    base = blob_base_url(
+                        plan.blob_url, self._controller_host(), plan.blob_port
+                    )
+                await self._step(
+                    attempt,
+                    self._upload(base, Digest.parse(digest), plan.upload_token, path),
+                )
+            except (UploadError, FetchError, OSError) as exc:
+                log.warning(
+                    "agent.execution.log_upload_failed",
+                    node_id=self._node_id,
+                    job_id=attempt.job_id,
+                    attempt_id=attempt.attempt_id,
+                    stream=stream.value,
+                    cause=type(exc).__name__,
+                )
+                continue
+            final.digest = digest
+        return result
+
+    async def _run_workload(
+        self,
+        attempt: _Attempt,
+        plan: AttemptPlan,
+        logs: AttemptLogs,
+        runtime: Any,
+        observer: _Observer,
+        on_output: Callable[[Stream, bytes], Awaitable[None]],
+    ) -> None:
         run: asyncio.Task[RunResult] = asyncio.ensure_future(
-            runtime.run(plan.spec, logs.write, observer=observer)
+            runtime.run(plan.spec, on_output, observer=observer)
         )
         attempt.step = run
         started = asyncio.ensure_future(observer.started.wait())
@@ -657,6 +743,8 @@ class Executor:
         finally:
             attempt.step = None
         exited = self._clock()
+        for chunk in logs.batcher.flush():
+            self._send_log(attempt, chunk)
         if observer.run_started is not None:
             await self._announce_run(attempt)
         if observer.env_started is not None:
@@ -670,6 +758,8 @@ class Executor:
             return
         if result.ok:
             await self._send(attempt, AttemptState.UPLOADING)
+        final_logs = await self._final_logs(attempt, plan, logs)
+        if result.ok:
             try:
                 collected = await self._collect(attempt, plan)
             except (OutputError, UploadError) as exc:
@@ -679,6 +769,7 @@ class Executor:
                     AttemptState.FAILED,
                     failure=(FailureType.OUTPUT_ERROR, exc.message, exc.retryable),
                     exit_code=result.exit_code,
+                    logs=final_logs,
                 )
                 return
             attempt.phases["collect_s"] = self._clock() - exited
@@ -688,6 +779,7 @@ class Executor:
                 exit_code=result.exit_code,
                 output_digest=str(collected.digest) if collected.digest else "",
                 missing=collected.missing,
+                logs=final_logs,
             )
             return
         attempt.phases["collect_s"] = self._clock() - exited
@@ -698,6 +790,7 @@ class Executor:
             failure=(failure, _failure_text(result), failure in _RETRYABLE),
             exit_code=result.exit_code,
             signal=result.signal,
+            logs=final_logs,
         )
 
     async def _collect(self, attempt: _Attempt, plan: AttemptPlan) -> Collected:
@@ -785,6 +878,7 @@ class Executor:
         signal: int | None = None,
         output_digest: str = "",
         missing: Sequence[str] = (),
+        logs: Mapping[Stream, agent_pb2.FinalLog] | None = None,
     ) -> None:
         status = agent_pb2.AttemptStatus(
             job_id=attempt.job_id,
@@ -807,6 +901,9 @@ class Executor:
             )
         if exit_code is not None:
             status.exit_code = exit_code
+        if logs:
+            status.stdout_log.CopyFrom(logs[Stream.STDOUT])
+            status.stderr_log.CopyFrom(logs[Stream.STDERR])
         if signal is not None and 1 <= signal <= 64:
             status.signal = signal
         terminal = state in (AttemptState.DONE, AttemptState.FAILED)

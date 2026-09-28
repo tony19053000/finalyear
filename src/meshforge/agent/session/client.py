@@ -60,6 +60,15 @@ are out, and :meth:`AgentSessionClient.resend_report` writes a still-buffered
 report again with its own ``message_id`` - together they let the executor
 re-send a final ``AttemptStatus`` until it is acked (V0.4 D75).
 
+**Live logs (V0.4 D71)** never use ``send_report``: :meth:`AgentSessionClient.send_log`
+puts a ``LogChunk`` on a separate bounded queue (``[agent] log_queue_chunks``),
+and one pump task per accepted stream - after the Reconcile, like the heartbeat -
+writes them through the same write lock. A full queue or no stream drops the
+chunk (counted); nothing is buffered across a reconnect (the queue is cleared
+when a stream ends), so a log flood can neither evict reports from the replay
+ring nor delay the replay. The chunk's byte offset lets the controller see the
+gap; the final log upload fills it.
+
 Idempotency: a controller command with a foreign ``session_id`` is dropped and
 counted (``agent.session.stale_message``); a repeated ``message_id`` is acked again
 but has no second effect; a duplicate ``Ack`` for a report already removed from the
@@ -179,6 +188,8 @@ class SessionStats:
     reports_acked: int = 0
     replayed: int = 0
     reports_resent: int = 0
+    log_chunks_sent: int = 0
+    log_chunks_dropped: int = 0
     stale_epoch_retries: int = 0
     stream_ends: list[StreamEnd] = field(default_factory=list)
 
@@ -272,6 +283,10 @@ class AgentSessionClient:
         self._writes_closed = False
         """True once this call carried its Goodbye: nothing may follow it (D40)."""
         self._heartbeat_task: asyncio.Task[None] | None = None
+        self._log_task: asyncio.Task[None] | None = None
+        self._log_queue: asyncio.Queue[agent_pb2.LogChunk] = asyncio.Queue(
+            settings.agent.log_queue_chunks
+        )
         self._stop_waiter: asyncio.Task[bool] | None = None
         self._backoff: Backoff | None = None
         self._running = False
@@ -600,6 +615,10 @@ class AgentSessionClient:
             self._heartbeat_loop(call, gate), name=f"agent-heartbeat:{self.node_id}"
         )
         self._heartbeat_task.add_done_callback(self._on_heartbeat_done)
+        self._log_task = asyncio.create_task(
+            self._log_pump(gate), name=f"agent-logs:{self.node_id}"
+        )
+        self._log_task.add_done_callback(self._on_heartbeat_done)
         try:
             # ORDERING (D21): ``Reconcile`` must be the first ``AgentMessage`` of a
             # reconnect - otherwise a fresh report consumes the controller's armed
@@ -625,8 +644,13 @@ class AgentSessionClient:
             end = await self._read_loop(call)
         finally:
             self._heartbeat_task.cancel()
-            await asyncio.gather(self._heartbeat_task, return_exceptions=True)
+            self._log_task.cancel()
+            await asyncio.gather(
+                self._heartbeat_task, self._log_task, return_exceptions=True
+            )
             self._heartbeat_task = None
+            self._log_task = None
+            self._drop_queued_logs()
         if self._stop.is_set():
             # Requested stop: we said Goodbye and half-closed, the controller
             # answered with its final status (OK / agent_closed). Not a reconnect,
@@ -882,6 +906,38 @@ class AgentSessionClient:
                 cause=type(exc).__name__,
                 error=str(exc),
             )
+
+    # ----------------------------------------------------------------- logs
+
+    def send_log(self, chunk: agent_pb2.LogChunk) -> bool:
+        """Queue a live log chunk (never blocks). False = dropped: no stream, or
+        the log queue is full (see module docstring)."""
+        if self.state is not AgentState.ONLINE or self._gate is None:
+            self.stats.log_chunks_dropped += 1
+            return False
+        try:
+            self._log_queue.put_nowait(chunk)
+        except asyncio.QueueFull:
+            self.stats.log_chunks_dropped += 1
+            return False
+        return True
+
+    async def _log_pump(self, gate: _StreamGate) -> None:
+        await gate.ready.wait()  # nothing precedes the Reconcile (D21)
+        if self._gate is not gate:
+            return
+        try:
+            while True:
+                chunk = await self._log_queue.get()
+                await self._write(agent_pb2.AgentMessage(log_chunk=chunk))
+                self.stats.log_chunks_sent += 1
+        except (grpc.aio.AioRpcError, grpc.aio.UsageError, asyncio.InvalidStateError):
+            return
+
+    def _drop_queued_logs(self) -> None:
+        while not self._log_queue.empty():
+            self._log_queue.get_nowait()
+            self.stats.log_chunks_dropped += 1
 
     # -------------------------------------------------------------- reports
 

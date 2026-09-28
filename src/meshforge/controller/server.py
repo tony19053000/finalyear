@@ -58,6 +58,7 @@ from meshforge.controller.fabric_token import (
 from meshforge.controller.http import create_http_app
 from meshforge.controller.jobs.dispatcher import Dispatcher
 from meshforge.controller.jobs.execution_store import ExecutionStore
+from meshforge.controller.jobs.logs import LogHub
 from meshforge.controller.registry import Registry, SessionEndReason
 from meshforge.controller.resources import ResourceTracker
 from meshforge.controller.session.leases import LeaseTimer
@@ -135,6 +136,9 @@ class ControllerRuntime:
         """D48: G4 mints per-attempt tokens here and hands them to agents."""
         self.upload_grants: UploadGrants | None = None
         """D73: per-attempt upload quotas (outputs + final logs)."""
+        self.logs: LogHub | None = None
+        """D71/D72: live + final attempt logs and their followers."""
+        self._logs_task: asyncio.Task[None] | None = None
         self.failed_task: str | None = None
         """Name of the owned task whose crash caused the stop, if any (NB3): a
         controller that stopped because its lease timer died exits ``FAILURE``."""
@@ -216,6 +220,20 @@ class ControllerRuntime:
         self._lease_timer_task = self._spawn(
             LeaseTimer(manager, clock=loop.time).run(), "lease-timer"
         )
+        # D71: attempt logs - one writer task; the log_chunk handler registers
+        # before the gRPC server accepts a stream.
+        log_hub = LogHub(
+            self.settings.logs_dir,
+            blobs=blobs,
+            max_bytes=cfg.jobs.max_log_bytes,
+            queue_chunks=cfg.jobs.log_queue_chunks,
+            subscriber_queue=cfg.jobs.log_subscriber_queue,
+            max_subscribers=cfg.jobs.max_log_subscribers,
+        )
+        await asyncio.to_thread(log_hub.prepare)
+        manager.dispatch.register("log_chunk", log_hub.on_chunk)
+        self.logs = log_hub
+        self._logs_task = self._spawn(log_hub.run(), "log-writer")
         # Before the gRPC server accepts a stream: the dispatcher registers the
         # attempt_status handler and the session hooks (D64-D66).
         self.dispatcher = Dispatcher(
@@ -224,6 +242,7 @@ class ControllerRuntime:
             self.fetch_tokens,
             cfg.jobs,
             upload_grants=self.upload_grants,
+            logs=log_hub,
             clock=loop.time,
             blob_port=lambda: self.http_port,
             blob_url=cfg.api.advertise_url,
@@ -275,6 +294,7 @@ class ControllerRuntime:
                     blobs=blobs,
                     max_request_bytes=cfg.jobs.max_request_bytes,
                     dispatcher=self.dispatcher,
+                    logs=log_hub,
                 ),
             ),
             host=self._http_bind.host,
@@ -395,6 +415,9 @@ class ControllerRuntime:
                 await asyncio.wait_for(
                     self.manager.shutdown(drain_s=remaining()), remaining()
                 )
+        if self._logs_task is not None and not self._logs_task.done():
+            self._logs_task.cancel()  # forever by design; nothing left to write
+            await asyncio.gather(self._logs_task, return_exceptions=True)
         if self._lease_timer_task is not None and not self._lease_timer_task.done():
             # Runs forever by design; nothing to drain once the sessions are closed.
             self._lease_timer_task.cancel()

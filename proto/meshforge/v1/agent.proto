@@ -348,6 +348,22 @@ message AttemptStatus {
   string runtime = 11;
   // Signal number that ended the workload, when it died by one.
   optional int32 signal = 12;
+  // The attempt's complete local logs, uploaded with its upload grant in the
+  // terminal status (V0.4 G5, D71). Absent: not uploaded (stopped attempt, empty
+  // log, upload failed) - the controller keeps its live copy then.
+  FinalLog stdout_log = 13;
+  FinalLog stderr_log = 14;
+}
+
+// One stream's final log (D71).
+message FinalLog {
+  // "sha256:<64 hex>" of the uploaded log blob; empty = not uploaded.
+  string digest = 1;
+  // Bytes of workload output kept (the cap stops the file growing).
+  uint64 bytes = 2;
+  // The workload wrote more than the per-stream cap; the rest was dropped and a
+  // marker line says so at the end of the log.
+  bool truncated = 3;
 }
 
 // Durations in seconds on the agent's monotonic clock (ARCHITECTURE §17, D68).
@@ -362,6 +378,9 @@ message PhaseTimings {
   optional double collect_s = 4;
 }
 
+// Live log bytes (D71): best-effort, never buffered or replayed, never acked.
+// `offset` is the byte position of `data` in the attempt's stream on the agent;
+// a chunk dropped on the way shows up as a jump (a gap the controller records).
 message LogChunk {
   string job_id = 1;
   string attempt_id = 2;

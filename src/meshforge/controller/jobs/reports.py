@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import math
 import re
-from typing import Final
+from typing import Any, Final
 
 from meshforge.common.errors import FailureType, InvalidIdError
 from meshforge.common.ids import validate_attempt_id, validate_job_id
@@ -75,6 +75,35 @@ def _phases(status: agent_pb2.AttemptStatus) -> AgentPhases | str | None:
     return AgentPhases(**values)
 
 
+MAX_LOG_REPORT_BYTES: Final = 1 << 40
+"""Bound on ``FinalLog.bytes`` (the agent's cap is far below)."""
+
+
+def _final_logs(
+    status: agent_pb2.AttemptStatus,
+) -> dict[str, dict[str, Any]] | str:
+    """D71: ``{"stdout": {"digest", "bytes", "truncated"}, ...}`` or why refused."""
+    logs: dict[str, dict[str, Any]] = {}
+    present = (
+        ("stdout", status.HasField("stdout_log"), status.stdout_log),
+        ("stderr", status.HasField("stderr_log"), status.stderr_log),
+    )
+    for stream, has, final in present:
+        if not has:
+            continue
+        field_name = f"{stream}_log"
+        if final.digest and not _DIGEST.fullmatch(final.digest):
+            return f"AttemptStatus.{field_name}.digest is not sha256:<64 hex>"
+        if final.bytes > MAX_LOG_REPORT_BYTES:
+            return f"AttemptStatus.{field_name}.bytes is over {MAX_LOG_REPORT_BYTES}"
+        logs[stream] = {
+            "digest": final.digest or None,
+            "bytes": int(final.bytes),
+            "truncated": bool(final.truncated),
+        }
+    return logs
+
+
 def parse_status(status: agent_pb2.AttemptStatus) -> StatusReport | str:
     """The validated report, or why it is refused (see module docstring)."""
     try:
@@ -129,6 +158,9 @@ def parse_status(status: agent_pb2.AttemptStatus) -> StatusReport | str:
     phases = _phases(status)
     if isinstance(phases, str):
         return phases
+    logs = _final_logs(status)
+    if isinstance(logs, str):
+        return logs
     return StatusReport(
         attempt_id=attempt_id,
         fencing_token=int(status.fencing_token),
@@ -140,4 +172,5 @@ def parse_status(status: agent_pb2.AttemptStatus) -> StatusReport | str:
         phases=phases,
         output_digest=status.output_digest or None,
         missing_outputs=tuple(status.missing_outputs),
+        logs=logs,
     )
