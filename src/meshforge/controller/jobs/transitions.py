@@ -10,7 +10,8 @@ The tables are exactly the diagrams of §12. Arrows the diagrams do not have are
 refused on purpose, even where a later version will need one: adding an arrow is an
 ARCHITECTURE §12 change first, then one line here and a test. The 2026-09-28
 amendments (V0.4 D55: ``COLLECTING -> FAILED``, ``PLANNING -> CANCELLED``,
-``RETRYING -> CANCELLED``; G4/D69: ``COLLECTING -> CANCELLED``) are in both.
+``RETRYING -> CANCELLED``; G4: ``COLLECTING -> CANCELLED`` for D69 and
+``QUEUED -> FAILED`` for D65) are in both.
 """
 
 from __future__ import annotations
@@ -58,8 +59,9 @@ class JobEvent(StrEnum):
     RETRY = "retry"
     """PREPARING/RUNNING -> RETRYING (retryable attempt failure)."""
     FAIL = "fail"
-    """PREPARING/RUNNING/COLLECTING -> FAILED (non-retryable, retries exhausted,
-    or the output upload failed)."""
+    """QUEUED/PREPARING/RUNNING/COLLECTING -> FAILED (non-retryable, retries
+    exhausted, the output upload failed, or - QUEUED - the manually placed node
+    is gone, D65)."""
     CANCEL = "cancel"
     """SUBMITTED/PLANNING/QUEUED/PREPARING/RUNNING/COLLECTING/RETRYING -> CANCELLED."""
 
@@ -97,6 +99,7 @@ JOB_TRANSITIONS: Final[Mapping[tuple[JobState, JobEvent], JobState]] = _freeze(
         (J.PREPARING, JE.FAIL): J.FAILED,
         (J.RUNNING, JE.FAIL): J.FAILED,
         (J.COLLECTING, JE.FAIL): J.FAILED,  # D55
+        (J.QUEUED, JE.FAIL): J.FAILED,  # G4/D65: the placed node is gone
         (J.SUBMITTED, JE.CANCEL): J.CANCELLED,
         (J.PLANNING, JE.CANCEL): J.CANCELLED,  # D55
         (J.QUEUED, JE.CANCEL): J.CANCELLED,

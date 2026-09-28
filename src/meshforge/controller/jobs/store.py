@@ -83,7 +83,11 @@ __all__ = [
     "TransitionRecord",
     "UnknownAttemptError",
     "UnknownJobError",
+    "append_transition",
+    "attempt_record",
     "clean_detail",
+    "job_record",
+    "typed_store_call",
 ]
 
 log = get_logger(__name__)
@@ -149,6 +153,7 @@ class JobRecord:
     failure_detail: str | None
     created_at: dt.datetime
     updated_at: dt.datetime
+    cancel_requested_at: dt.datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -174,6 +179,8 @@ class AttemptRecord:
     started_at: dt.datetime | None
     ended_at: dt.datetime | None
     created_at: dt.datetime
+    start_acked_at: dt.datetime | None = None
+    runtime: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -181,9 +188,10 @@ class PhaseRecord:
     phase: str
     started_at: dt.datetime
     duration_ms: int
+    skipped: bool = False
 
 
-def _job(row: Job) -> JobRecord:
+def job_record(row: Job) -> JobRecord:
     return JobRecord(
         id=row.id,
         name=row.name,
@@ -198,10 +206,11 @@ def _job(row: Job) -> JobRecord:
         failure_detail=row.failure_detail,
         created_at=row.created_at,
         updated_at=row.updated_at,
+        cancel_requested_at=row.cancel_requested_at,
     )
 
 
-def _attempt(row: Attempt) -> AttemptRecord:
+def attempt_record(row: Attempt) -> AttemptRecord:
     return AttemptRecord(
         id=row.id,
         job_id=row.job_id,
@@ -216,10 +225,12 @@ def _attempt(row: Attempt) -> AttemptRecord:
         started_at=row.started_at,
         ended_at=row.ended_at,
         created_at=row.created_at,
+        start_acked_at=row.start_acked_at,
+        runtime=row.runtime,
     )
 
 
-def _typed[**P, R](
+def typed_store_call[**P, R](
     method: Callable[P, Awaitable[R]],
 ) -> Callable[P, Coroutine[Any, Any, R]]:
     @functools.wraps(method)
@@ -277,7 +288,7 @@ class JobStore:
 
     # ------------------------------------------------------------------ jobs
 
-    @_typed
+    @typed_store_call
     async def create_job(
         self,
         *,
@@ -328,7 +339,7 @@ class JobStore:
                         db, job_id, from_state, to_state, at=func.clock_timestamp()
                     )
                 row = await db.get_one(Job, job_id)
-                return _job(row), True
+                return job_record(row), True
         # Lost the key race (or a retry of an earlier request): read the winner.
         # ON CONFLICT waited for the winner's commit, so its whole path is visible.
         existing = await self.get_job_by_key(idempotency_key or "")
@@ -367,21 +378,21 @@ class JobStore:
             through=(JobEvent.PLAN, JobEvent.PLANNED),
         )
 
-    @_typed
+    @typed_store_call
     async def get_job(self, job_id: str) -> JobRecord | None:
         async with self._sessions() as db:
             row = await db.get(Job, job_id)
-            return _job(row) if row is not None else None
+            return job_record(row) if row is not None else None
 
-    @_typed
+    @typed_store_call
     async def get_job_by_key(self, idempotency_key: str) -> JobRecord | None:
         async with self._sessions() as db:
             row = await db.scalar(
                 select(Job).where(Job.idempotency_key == idempotency_key)
             )
-            return _job(row) if row is not None else None
+            return job_record(row) if row is not None else None
 
-    @_typed
+    @typed_store_call
     async def list_jobs(
         self, *, limit: int, state: JobState | None = None
     ) -> list[JobRecord]:
@@ -391,9 +402,9 @@ class JobStore:
         if state is not None:
             query = query.where(Job.state == state.value)
         async with self._sessions() as db:
-            return [_job(row) for row in await db.scalars(query)]
+            return [job_record(row) for row in await db.scalars(query)]
 
-    @_typed
+    @typed_store_call
     async def transitions(self, job_id: str) -> list[TransitionRecord]:
         async with self._sessions() as db:
             rows = await db.scalars(
@@ -411,7 +422,7 @@ class JobStore:
                 for r in rows
             ]
 
-    @_typed
+    @typed_store_call
     async def transition_job(
         self,
         job_id: str,
@@ -456,7 +467,7 @@ class JobStore:
                         "actual": actual,
                     },
                 )
-            record = _job(row)
+            record = job_record(row)
             await _append_transition(db, job_id, expected, target)
         log.info(
             "controller.jobs.transition",
@@ -469,7 +480,7 @@ class JobStore:
 
     # -------------------------------------------------------------- attempts
 
-    @_typed
+    @typed_store_call
     async def create_attempt(
         self, job_id: str, node_id: str, *, attempt_id: str
     ) -> AttemptRecord:
@@ -493,15 +504,15 @@ class JobStore:
             db.add(row)
             await db.flush()
             await db.refresh(row)
-            return _attempt(row)
+            return attempt_record(row)
 
-    @_typed
+    @typed_store_call
     async def get_attempt(self, attempt_id: str) -> AttemptRecord | None:
         async with self._sessions() as db:
             row = await db.get(Attempt, attempt_id)
-            return _attempt(row) if row is not None else None
+            return attempt_record(row) if row is not None else None
 
-    @_typed
+    @typed_store_call
     async def list_attempts(self, job_id: str) -> list[AttemptRecord]:
         async with self._sessions() as db:
             rows = await db.scalars(
@@ -509,9 +520,9 @@ class JobStore:
                 .where(Attempt.job_id == job_id)
                 .order_by(Attempt.fencing_token)
             )
-            return [_attempt(r) for r in rows]
+            return [attempt_record(r) for r in rows]
 
-    @_typed
+    @typed_store_call
     async def transition_attempt(
         self,
         attempt_id: str,
@@ -552,7 +563,7 @@ class JobStore:
                 .execution_options(synchronize_session=False)
             )
             if row is not None:
-                return _attempt(row)
+                return attempt_record(row)
             current = (
                 await db.execute(
                     select(Attempt.state, Attempt.fencing_token).where(
@@ -579,7 +590,7 @@ class JobStore:
             },
         )
 
-    @_typed
+    @typed_store_call
     async def record_phase(
         self,
         attempt_id: str,
@@ -605,7 +616,7 @@ class JobStore:
             )
             return inserted is not None
 
-    @_typed
+    @typed_store_call
     async def phases(self, attempt_id: str) -> Sequence[PhaseRecord]:
         async with self._sessions() as db:
             rows = await db.scalars(
@@ -615,7 +626,23 @@ class JobStore:
             )
             return [
                 PhaseRecord(
-                    phase=r.phase, started_at=r.started_at, duration_ms=r.duration_ms
+                    phase=r.phase,
+                    started_at=r.started_at,
+                    duration_ms=r.duration_ms,
+                    skipped=r.skipped,
                 )
                 for r in rows
             ]
+
+
+async def append_transition(
+    db: AsyncSession,
+    job_id: str,
+    from_state: JobState | None,
+    to_state: JobState,
+    *,
+    at: Any = None,
+) -> None:
+    """Public entry to the history writer (resolved at call time, so a test that
+    patches ``_append_transition`` patches every writer)."""
+    await _append_transition(db, job_id, from_state, to_state, at=at)

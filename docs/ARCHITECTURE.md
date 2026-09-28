@@ -435,6 +435,7 @@ stateDiagram-v2
     PLANNING --> QUEUED
     PLANNING --> FAILED: no feasible plan
     QUEUED --> PREPARING
+    QUEUED --> FAILED: placed node gone (manual placement)
     PREPARING --> RUNNING
     RUNNING --> COLLECTING
     COLLECTING --> SUCCEEDED
@@ -455,7 +456,7 @@ stateDiagram-v2
     FAILED --> [*]
     CANCELLED --> [*]
 ```
-*Amended 2026-09-28 (V0.4 brief D55): `COLLECTING → FAILED`, `PLANNING → CANCELLED`, `RETRYING → CANCELLED` added — a cancel or an output-upload failure can happen in those states and the original diagram had no arrow for them.* *Amended again 2026-09-28 (V0.4 G4, D69): `COLLECTING → CANCELLED` — D69 lets a user cancel a job whose attempt is uploading its outputs; the agent's `FAILED(cancelled)` report must be able to land.*
+*Amended 2026-09-28 (V0.4 brief D55): `COLLECTING → FAILED`, `PLANNING → CANCELLED`, `RETRYING → CANCELLED` added — a cancel or an output-upload failure can happen in those states and the original diagram had no arrow for them.* *Amended again 2026-09-28 (V0.4 G4, D69): `COLLECTING → CANCELLED` — D69 lets a user cancel a job whose attempt is uploading its outputs; the agent's `FAILED(cancelled)` report must be able to land. And `QUEUED → FAILED` (D65): with manual placement there is no planner to re-place a job whose chosen node went OFFLINE or stopped accepting jobs, so the job fails `node_lost`/`no_feasible_plan` instead of waiting forever; V0.6's planner turns this into re-planning.*
 
 Mode 3 jobs additionally track chunk states (`PENDING → LEASED → DONE | FAILED`), with lease expiry returning chunks to `PENDING`.
 

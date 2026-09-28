@@ -20,6 +20,7 @@ from typing import Any, Final
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     ForeignKey,
     Index,
@@ -27,6 +28,7 @@ from sqlalchemy import (
     PrimaryKeyConstraint,
     String,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -58,6 +60,8 @@ DIGEST_CHECK_SQL: Final = "{col} ~ '^sha256:[0-9a-f]{{64}}$'"
 MAX_IDEMPOTENCY_KEY_CHARS: Final = 128
 MAX_DETAIL_CHARS: Final = 1024
 MAX_JOB_NAME_CHARS: Final = 64
+RUNTIME_VALUES: Final = ("docker", "subprocess")
+RUNTIME_VALUES_SQL: Final = ", ".join(f"'{v}'" for v in RUNTIME_VALUES)
 
 
 def _digest_check(column: str, *, nullable: bool = False) -> str:
@@ -101,6 +105,8 @@ class Job(TimestampMixin, Base):
     failure_detail: Mapped[str | None] = mapped_column(
         String(MAX_DETAIL_CHARS), nullable=True
     )
+    cancel_requested_at: Mapped[dt.datetime | None] = mapped_column(nullable=True)
+    """``POST /v1/jobs/{id}/cancel`` on a live attempt (D69, migration 0007)."""
 
 
 class JobTransition(Base):
@@ -136,6 +142,9 @@ class Attempt(TimestampMixin, Base):
             _digest_check("output_digest", nullable=True), name="output_digest"
         ),
         CheckConstraint("fencing_token >= 1", name="fencing_token"),
+        CheckConstraint(
+            f"runtime IS NULL OR runtime IN ({RUNTIME_VALUES_SQL})", name="runtime"
+        ),
         UniqueConstraint("job_id", "fencing_token"),
         Index("ix_attempt_node_id", "node_id"),
     )
@@ -160,6 +169,10 @@ class Attempt(TimestampMixin, Base):
     )
     started_at: Mapped[dt.datetime | None] = mapped_column(nullable=True)
     ended_at: Mapped[dt.datetime | None] = mapped_column(nullable=True)
+    start_acked_at: Mapped[dt.datetime | None] = mapped_column(nullable=True)
+    """When the agent acked ``StartAttempt`` (D66: resend vs LOST; migration 0007)."""
+    runtime: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    """``docker`` / ``subprocess`` as the agent reported it (migration 0007)."""
 
 
 class AttemptPhaseRow(Base):
@@ -179,3 +192,7 @@ class AttemptPhaseRow(Base):
     Python; no CHECK, so a later phase such as ``compute`` needs no migration)."""
     started_at: Mapped[dt.datetime] = mapped_column(nullable=False)
     duration_ms: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    skipped: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+    """The phase never ran: ``duration_ms`` is 0 by convention, not measured (D68)."""
