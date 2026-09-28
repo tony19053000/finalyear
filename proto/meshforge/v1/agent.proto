@@ -32,8 +32,8 @@
 //   clock; the Timestamps in Heartbeat/HelloAck are for RTT and display only.
 //
 // Roadmap coverage: 0.1.5 envelopes/oneofs; 0.3.1 session/liveness/resource
-// payloads; 0.3.4 hardware scores. TODO(V0.4): attempt execution.
-// TODO(V0.5): cache/env payloads. TODO(V0.6): network probes for scheduling.
+// payloads; 0.3.4 hardware scores; 0.4.6 attempt execution (ExecutionSpec,
+// AttemptStatus results). TODO(V0.4 G5): LogChunk flow. TODO(V0.5): cache/env payloads. TODO(V0.6): network probes for scheduling.
 syntax = "proto3";
 
 package meshforge.v1;
@@ -320,6 +320,10 @@ message NetProbeResult {
   string probe_id = 1;
 }
 
+// One attempt state change, reported by the agent through send_report (buffered,
+// replayed after a reconnect, acked). The controller applies it idempotently on
+// (attempt_id, fencing_token, state) and drops a report whose fencing_token is not
+// the attempt's current one (counted as `fenced`). V0.4 D52/D67/D68.
 message AttemptStatus {
   string job_id = 1;
   string attempt_id = 2;
@@ -329,7 +333,33 @@ message AttemptStatus {
   // Set only when state == ATTEMPT_STATE_FAILED.
   Failure failure = 5;
   google.protobuf.Timestamp observed_at = 6;
-  // TODO(V0.4): exit code, phase timings (ARCHITECTURE §17), output refs.
+  // The workload's exit code, once it exited (absent: it never ran, or its status
+  // could not be read). On an env_error "setup_failed" it is the setup step's.
+  optional int32 exit_code = 7;
+  // Agent-measured phase durations (monotonic clock). Sent in the terminal status;
+  // an absent field means the phase never ran (the controller records it skipped).
+  PhaseTimings phases = 8;
+  // "sha256:<64 hex>" of the packed outputs (V0.4 G5); empty until then.
+  string output_digest = 9;
+  // Declared outputs (manifest `outputs`) that matched nothing (bounded). Not an
+  // error: listed so the user sees it (D54).
+  repeated string missing_outputs = 10;
+  // Runtime that ran (or was chosen to run) the attempt: "docker" | "subprocess".
+  string runtime = 11;
+  // Signal number that ended the workload, when it died by one.
+  optional int32 signal = 12;
+}
+
+// Durations in seconds on the agent's monotonic clock (ARCHITECTURE §17, D68).
+message PhaseTimings {
+  // Bundle fetch + digest check + unpack.
+  optional double stage_s = 1;
+  // Image pull + requirements install (the runtime's env phase).
+  optional double env_s = 2;
+  // Workload start to exit.
+  optional double run_s = 3;
+  // Workload exit to the terminal report (output packing/upload from G5 on).
+  optional double collect_s = 4;
 }
 
 message LogChunk {
@@ -352,11 +382,44 @@ message LogChunk {
 // Controller -> agent payloads
 // ---------------------------------------------------------------------------
 
+// Run one attempt (V0.4 D52/D67). The agent dedupes on (attempt_id,
+// fencing_token), not only on message_id: the controller resends the SAME
+// attempt after a reconnect or its own restart (D66), with a new message_id.
 message StartAttempt {
   string job_id = 1;
   string attempt_id = 2;
   uint64 fencing_token = 3;
-  // TODO(V0.4): execution spec (runtime, command, inputs, limits, env ref).
+  ExecutionSpec spec = 4;
+}
+
+// What to run and with what (V0.4 D52). Built by the controller from the job's
+// canonical manifest; every field is re-validated by the agent before use.
+message ExecutionSpec {
+  // "sha256:<64 hex>" of the project bundle in the controller's blob store.
+  string bundle_digest = 1;
+  // Base URL of the blob API ("http://host:port") when the controller has an
+  // advertised URL; empty = the agent uses http://<host it dialled>:<blob_port>.
+  string blob_url = 2;
+  // The controller's REST port, used when blob_url is empty.
+  uint32 blob_port = 3;
+  // Per-attempt fetch token (D48): may read exactly this attempt's digests (and
+  // upload outputs from G5 on). A secret: never logged, never persisted.
+  string fetch_token = 4;
+  // The canonical manifest JSON (common.manifest.Manifest.canonical_json()).
+  string manifest_json = 5;
+  // Runtime the controller asks for ("docker" | "subprocess"); empty = the agent
+  // chooses among what it offers (sandboxed first, D51). V0.4 sends empty.
+  string runtime = 6;
+  // 0 = the agent's default for that limit.
+  uint64 memory_bytes = 7;
+  double cpus = 8;
+  // NVML indices of the GPUs this attempt may use (HardwareSummary.Gpu.index);
+  // empty = no GPU.
+  repeated uint32 gpu_indices = 9;
+  // The workload's own time limit in seconds (manifest limits.timeout).
+  uint32 timeout_s = 10;
+  // Declared outputs (manifest `outputs`), collected in V0.4 G5.
+  repeated string output_globs = 11;
 }
 
 message CancelAttempt {

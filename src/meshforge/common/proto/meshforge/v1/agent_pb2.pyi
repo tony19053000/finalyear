@@ -40,8 +40,8 @@ Session fencing (ADR-0002 Updates 2026-09-20, roadmap 0.3.1):
   clock; the Timestamps in Heartbeat/HelloAck are for RTT and display only.
 
 Roadmap coverage: 0.1.5 envelopes/oneofs; 0.3.1 session/liveness/resource
-payloads; 0.3.4 hardware scores. TODO(V0.4): attempt execution.
-TODO(V0.5): cache/env payloads. TODO(V0.6): network probes for scheduling.
+payloads; 0.3.4 hardware scores; 0.4.6 attempt execution (ExecutionSpec,
+AttemptStatus results). TODO(V0.4 G5): LogChunk flow. TODO(V0.5): cache/env payloads. TODO(V0.6): network probes for scheduling.
 """
 
 from collections import abc as _abc
@@ -876,6 +876,12 @@ Global___NetProbeResult: _TypeAlias = NetProbeResult  # noqa: Y015
 
 @_typing.final
 class AttemptStatus(_message.Message):
+    """One attempt state change, reported by the agent through send_report (buffered,
+    replayed after a reconnect, acked). The controller applies it idempotently on
+    (attempt_id, fencing_token, state) and drops a report whose fencing_token is not
+    the attempt's current one (counted as `fenced`). V0.4 D52/D67/D68.
+    """
+
     DESCRIPTOR: _descriptor.Descriptor
 
     JOB_ID_FIELD_NUMBER: _builtins.int
@@ -884,18 +890,44 @@ class AttemptStatus(_message.Message):
     STATE_FIELD_NUMBER: _builtins.int
     FAILURE_FIELD_NUMBER: _builtins.int
     OBSERVED_AT_FIELD_NUMBER: _builtins.int
+    EXIT_CODE_FIELD_NUMBER: _builtins.int
+    PHASES_FIELD_NUMBER: _builtins.int
+    OUTPUT_DIGEST_FIELD_NUMBER: _builtins.int
+    MISSING_OUTPUTS_FIELD_NUMBER: _builtins.int
+    RUNTIME_FIELD_NUMBER: _builtins.int
+    SIGNAL_FIELD_NUMBER: _builtins.int
     job_id: _builtins.str
     attempt_id: _builtins.str
     fencing_token: _builtins.int
     """Monotonic attempt epoch; the controller rejects reports with a stale token."""
     state: _common_pb2.AttemptState.ValueType
+    exit_code: _builtins.int
+    """The workload's exit code, once it exited (absent: it never ran, or its status
+    could not be read). On an env_error "setup_failed" it is the setup step's.
+    """
+    output_digest: _builtins.str
+    """"sha256:<64 hex>" of the packed outputs (V0.4 G5); empty until then."""
+    runtime: _builtins.str
+    """Runtime that ran (or was chosen to run) the attempt: "docker" | "subprocess"."""
+    signal: _builtins.int
+    """Signal number that ended the workload, when it died by one."""
     @_builtins.property
     def failure(self) -> _common_pb2.Failure:
         """Set only when state == ATTEMPT_STATE_FAILED."""
 
     @_builtins.property
-    def observed_at(self) -> _timestamp_pb2.Timestamp:
-        """TODO(V0.4): exit code, phase timings (ARCHITECTURE §17), output refs."""
+    def observed_at(self) -> _timestamp_pb2.Timestamp: ...
+    @_builtins.property
+    def phases(self) -> Global___PhaseTimings:
+        """Agent-measured phase durations (monotonic clock). Sent in the terminal status;
+        an absent field means the phase never ran (the controller records it skipped).
+        """
+
+    @_builtins.property
+    def missing_outputs(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]:
+        """Declared outputs (manifest `outputs`) that matched nothing (bounded). Not an
+        error: listed so the user sees it (D54).
+        """
 
     def __init__(
         self,
@@ -906,14 +938,76 @@ class AttemptStatus(_message.Message):
         state: _common_pb2.AttemptState.ValueType = ...,
         failure: _common_pb2.Failure | None = ...,
         observed_at: _timestamp_pb2.Timestamp | None = ...,
+        exit_code: _builtins.int | None = ...,
+        phases: Global___PhaseTimings | None = ...,
+        output_digest: _builtins.str = ...,
+        missing_outputs: _abc.Iterable[_builtins.str] | None = ...,
+        runtime: _builtins.str = ...,
+        signal: _builtins.int | None = ...,
     ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _typing.Literal["failure", b"failure", "observed_at", b"observed_at"]  # noqa: Y015
+    _HasFieldArgType: _TypeAlias = _typing.Literal["_exit_code", b"_exit_code", "_signal", b"_signal", "exit_code", b"exit_code", "failure", b"failure", "observed_at", b"observed_at", "phases", b"phases", "signal", b"signal"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["attempt_id", b"attempt_id", "failure", b"failure", "fencing_token", b"fencing_token", "job_id", b"job_id", "observed_at", b"observed_at", "state", b"state"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["_exit_code", b"_exit_code", "_signal", b"_signal", "attempt_id", b"attempt_id", "exit_code", b"exit_code", "failure", b"failure", "fencing_token", b"fencing_token", "job_id", b"job_id", "missing_outputs", b"missing_outputs", "observed_at", b"observed_at", "output_digest", b"output_digest", "phases", b"phases", "runtime", b"runtime", "signal", b"signal", "state", b"state"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
-    def WhichOneof(self, oneof_group: _Never) -> None: ...
+    _WhichOneofReturnType__exit_code: _TypeAlias = _typing.Literal["exit_code"]  # noqa: Y015
+    _WhichOneofArgType__exit_code: _TypeAlias = _typing.Literal["_exit_code", b"_exit_code"]  # noqa: Y015
+    _WhichOneofReturnType__signal: _TypeAlias = _typing.Literal["signal"]  # noqa: Y015
+    _WhichOneofArgType__signal: _TypeAlias = _typing.Literal["_signal", b"_signal"]  # noqa: Y015
+    @_typing.overload
+    def WhichOneof(self, oneof_group: _WhichOneofArgType__exit_code) -> _WhichOneofReturnType__exit_code | None: ...
+    @_typing.overload
+    def WhichOneof(self, oneof_group: _WhichOneofArgType__signal) -> _WhichOneofReturnType__signal | None: ...
 
 Global___AttemptStatus: _TypeAlias = AttemptStatus  # noqa: Y015
+
+@_typing.final
+class PhaseTimings(_message.Message):
+    """Durations in seconds on the agent's monotonic clock (ARCHITECTURE §17, D68)."""
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    STAGE_S_FIELD_NUMBER: _builtins.int
+    ENV_S_FIELD_NUMBER: _builtins.int
+    RUN_S_FIELD_NUMBER: _builtins.int
+    COLLECT_S_FIELD_NUMBER: _builtins.int
+    stage_s: _builtins.float
+    """Bundle fetch + digest check + unpack."""
+    env_s: _builtins.float
+    """Image pull + requirements install (the runtime's env phase)."""
+    run_s: _builtins.float
+    """Workload start to exit."""
+    collect_s: _builtins.float
+    """Workload exit to the terminal report (output packing/upload from G5 on)."""
+    def __init__(
+        self,
+        *,
+        stage_s: _builtins.float | None = ...,
+        env_s: _builtins.float | None = ...,
+        run_s: _builtins.float | None = ...,
+        collect_s: _builtins.float | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["_collect_s", b"_collect_s", "_env_s", b"_env_s", "_run_s", b"_run_s", "_stage_s", b"_stage_s", "collect_s", b"collect_s", "env_s", b"env_s", "run_s", b"run_s", "stage_s", b"stage_s"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["_collect_s", b"_collect_s", "_env_s", b"_env_s", "_run_s", b"_run_s", "_stage_s", b"_stage_s", "collect_s", b"collect_s", "env_s", b"env_s", "run_s", b"run_s", "stage_s", b"stage_s"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    _WhichOneofReturnType__collect_s: _TypeAlias = _typing.Literal["collect_s"]  # noqa: Y015
+    _WhichOneofArgType__collect_s: _TypeAlias = _typing.Literal["_collect_s", b"_collect_s"]  # noqa: Y015
+    _WhichOneofReturnType__env_s: _TypeAlias = _typing.Literal["env_s"]  # noqa: Y015
+    _WhichOneofArgType__env_s: _TypeAlias = _typing.Literal["_env_s", b"_env_s"]  # noqa: Y015
+    _WhichOneofReturnType__run_s: _TypeAlias = _typing.Literal["run_s"]  # noqa: Y015
+    _WhichOneofArgType__run_s: _TypeAlias = _typing.Literal["_run_s", b"_run_s"]  # noqa: Y015
+    _WhichOneofReturnType__stage_s: _TypeAlias = _typing.Literal["stage_s"]  # noqa: Y015
+    _WhichOneofArgType__stage_s: _TypeAlias = _typing.Literal["_stage_s", b"_stage_s"]  # noqa: Y015
+    @_typing.overload
+    def WhichOneof(self, oneof_group: _WhichOneofArgType__collect_s) -> _WhichOneofReturnType__collect_s | None: ...
+    @_typing.overload
+    def WhichOneof(self, oneof_group: _WhichOneofArgType__env_s) -> _WhichOneofReturnType__env_s | None: ...
+    @_typing.overload
+    def WhichOneof(self, oneof_group: _WhichOneofArgType__run_s) -> _WhichOneofReturnType__run_s | None: ...
+    @_typing.overload
+    def WhichOneof(self, oneof_group: _WhichOneofArgType__stage_s) -> _WhichOneofReturnType__stage_s | None: ...
+
+Global___PhaseTimings: _TypeAlias = PhaseTimings  # noqa: Y015
 
 @_typing.final
 class LogChunk(_message.Message):
@@ -971,6 +1065,10 @@ class StartAttempt(_message.Message):
     """---------------------------------------------------------------------------
     Controller -> agent payloads
     ---------------------------------------------------------------------------
+
+    Run one attempt (V0.4 D52/D67). The agent dedupes on (attempt_id,
+    fencing_token), not only on message_id: the controller resends the SAME
+    attempt after a reconnect or its own restart (D66), with a new message_id.
     """
 
     DESCRIPTOR: _descriptor.Descriptor
@@ -978,24 +1076,102 @@ class StartAttempt(_message.Message):
     JOB_ID_FIELD_NUMBER: _builtins.int
     ATTEMPT_ID_FIELD_NUMBER: _builtins.int
     FENCING_TOKEN_FIELD_NUMBER: _builtins.int
+    SPEC_FIELD_NUMBER: _builtins.int
     job_id: _builtins.str
     attempt_id: _builtins.str
     fencing_token: _builtins.int
-    """TODO(V0.4): execution spec (runtime, command, inputs, limits, env ref)."""
+    @_builtins.property
+    def spec(self) -> Global___ExecutionSpec: ...
     def __init__(
         self,
         *,
         job_id: _builtins.str = ...,
         attempt_id: _builtins.str = ...,
         fencing_token: _builtins.int = ...,
+        spec: Global___ExecutionSpec | None = ...,
     ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    _HasFieldArgType: _TypeAlias = _typing.Literal["spec", b"spec"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["attempt_id", b"attempt_id", "fencing_token", b"fencing_token", "job_id", b"job_id"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["attempt_id", b"attempt_id", "fencing_token", b"fencing_token", "job_id", b"job_id", "spec", b"spec"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___StartAttempt: _TypeAlias = StartAttempt  # noqa: Y015
+
+@_typing.final
+class ExecutionSpec(_message.Message):
+    """What to run and with what (V0.4 D52). Built by the controller from the job's
+    canonical manifest; every field is re-validated by the agent before use.
+    """
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    BUNDLE_DIGEST_FIELD_NUMBER: _builtins.int
+    BLOB_URL_FIELD_NUMBER: _builtins.int
+    BLOB_PORT_FIELD_NUMBER: _builtins.int
+    FETCH_TOKEN_FIELD_NUMBER: _builtins.int
+    MANIFEST_JSON_FIELD_NUMBER: _builtins.int
+    RUNTIME_FIELD_NUMBER: _builtins.int
+    MEMORY_BYTES_FIELD_NUMBER: _builtins.int
+    CPUS_FIELD_NUMBER: _builtins.int
+    GPU_INDICES_FIELD_NUMBER: _builtins.int
+    TIMEOUT_S_FIELD_NUMBER: _builtins.int
+    OUTPUT_GLOBS_FIELD_NUMBER: _builtins.int
+    bundle_digest: _builtins.str
+    """"sha256:<64 hex>" of the project bundle in the controller's blob store."""
+    blob_url: _builtins.str
+    """Base URL of the blob API ("http://host:port") when the controller has an
+    advertised URL; empty = the agent uses http://<host it dialled>:<blob_port>.
+    """
+    blob_port: _builtins.int
+    """The controller's REST port, used when blob_url is empty."""
+    fetch_token: _builtins.str
+    """Per-attempt fetch token (D48): may read exactly this attempt's digests (and
+    upload outputs from G5 on). A secret: never logged, never persisted.
+    """
+    manifest_json: _builtins.str
+    """The canonical manifest JSON (common.manifest.Manifest.canonical_json())."""
+    runtime: _builtins.str
+    """Runtime the controller asks for ("docker" | "subprocess"); empty = the agent
+    chooses among what it offers (sandboxed first, D51). V0.4 sends empty.
+    """
+    memory_bytes: _builtins.int
+    """0 = the agent's default for that limit."""
+    cpus: _builtins.float
+    timeout_s: _builtins.int
+    """The workload's own time limit in seconds (manifest limits.timeout)."""
+    @_builtins.property
+    def gpu_indices(self) -> _containers.RepeatedScalarFieldContainer[_builtins.int]:
+        """NVML indices of the GPUs this attempt may use (HardwareSummary.Gpu.index);
+        empty = no GPU.
+        """
+
+    @_builtins.property
+    def output_globs(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]:
+        """Declared outputs (manifest `outputs`), collected in V0.4 G5."""
+
+    def __init__(
+        self,
+        *,
+        bundle_digest: _builtins.str = ...,
+        blob_url: _builtins.str = ...,
+        blob_port: _builtins.int = ...,
+        fetch_token: _builtins.str = ...,
+        manifest_json: _builtins.str = ...,
+        runtime: _builtins.str = ...,
+        memory_bytes: _builtins.int = ...,
+        cpus: _builtins.float = ...,
+        gpu_indices: _abc.Iterable[_builtins.int] | None = ...,
+        timeout_s: _builtins.int = ...,
+        output_globs: _abc.Iterable[_builtins.str] | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["blob_port", b"blob_port", "blob_url", b"blob_url", "bundle_digest", b"bundle_digest", "cpus", b"cpus", "fetch_token", b"fetch_token", "gpu_indices", b"gpu_indices", "manifest_json", b"manifest_json", "memory_bytes", b"memory_bytes", "output_globs", b"output_globs", "runtime", b"runtime", "timeout_s", b"timeout_s"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___ExecutionSpec: _TypeAlias = ExecutionSpec  # noqa: Y015
 
 @_typing.final
 class CancelAttempt(_message.Message):

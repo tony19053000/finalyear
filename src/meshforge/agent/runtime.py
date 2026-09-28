@@ -61,6 +61,7 @@ from meshforge.agent.benchmarks.service import (
     valid_cached_scores,
 )
 from meshforge.agent.benchmarks.wire import to_proto
+from meshforge.agent.execution.offer import build_execution
 from meshforge.agent.hardware import (
     HardwareFacts,
     HardwareProvider,
@@ -189,6 +190,15 @@ async def serve(
     if settings.agent.scores.enabled and facts is not None:
         hardware.capabilities[:] = clip_capabilities(
             [*hardware.capabilities, HARDWARE_SCORES_CAPABILITY]
+        )
+    # D45: the exec* tags only when the owner enabled execution and a runtime
+    # was found; the controller never dispatches to a node without ``exec``.
+    execution = await build_execution(
+        settings, node_id=node_id, host_has_nvidia_gpu=bool(hardware.gpus)
+    )
+    if execution.offer.capabilities:
+        hardware.capabilities[:] = clip_capabilities(
+            [*hardware.capabilities, *execution.offer.capabilities]
         )
     client = AgentSessionClient(
         settings,

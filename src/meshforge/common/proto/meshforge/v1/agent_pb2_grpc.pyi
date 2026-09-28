@@ -40,8 +40,8 @@ Session fencing (ADR-0002 Updates 2026-09-20, roadmap 0.3.1):
   clock; the Timestamps in Heartbeat/HelloAck are for RTT and display only.
 
 Roadmap coverage: 0.1.5 envelopes/oneofs; 0.3.1 session/liveness/resource
-payloads; 0.3.4 hardware scores. TODO(V0.4): attempt execution.
-TODO(V0.5): cache/env payloads. TODO(V0.6): network probes for scheduling.
+payloads; 0.3.4 hardware scores; 0.4.6 attempt execution (ExecutionSpec,
+AttemptStatus results). TODO(V0.4 G5): LogChunk flow. TODO(V0.5): cache/env payloads. TODO(V0.6): network probes for scheduling.
 """
 
 from collections import abc as _abc
