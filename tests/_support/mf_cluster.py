@@ -535,6 +535,8 @@ class Fabric:
         agent_keepalive: Mapping[str, Any] | None = None,
         agent_scores: Mapping[str, Any] | None = None,
         agent_env: Mapping[str, str] | None = None,
+        agent_execution: Mapping[str, Any] | None = None,
+        controller_jobs: Mapping[str, Any] | None = None,
         log_level: str = "INFO",
     ) -> None:
         self.workdir = workdir
@@ -550,6 +552,10 @@ class Fabric:
         # (``MESHFORGE_BENCH_DISABLE``), which the child inherits from its agent.
         self._agent_scores: dict[str, Any] = {"enabled": False, **(agent_scores or {})}
         self._agent_env = dict(agent_env or {})
+        # V0.4 G4: ``[agent.execution]`` (off unless a scenario enables it) and
+        # ``[controller.jobs]`` overrides for the dispatch scenarios.
+        self._agent_execution = dict(agent_execution or {})
+        self._controller_jobs = dict(controller_jobs or {})
         self._db_env = {
             "MESHFORGE_DATABASE__HOST": str(database.host),
             "MESHFORGE_DATABASE__PORT": str(database.port),
@@ -597,6 +603,7 @@ class Fabric:
             ),
             "controller.discovery": {"advertise": False},
             "controller.resources": self._controller_resources,
+            "controller.jobs": self._controller_jobs,
         }
         path = self.workdir / "controller.toml"
         path.write_text(_toml({k: v for k, v in tables.items() if v}), "utf-8")
@@ -618,6 +625,7 @@ class Fabric:
             # hardware-score run would put all-core benchmark load on the others'
             # liveness. Off by default; a scenario that tests scoring turns it on.
             "agent.scores": self._agent_scores,
+            "agent.execution": self._agent_execution,
         }
         path = self.workdir / f"agent{index}.toml"
         path.write_text(_toml({k: v for k, v in tables.items() if v}), "utf-8")
@@ -760,6 +768,19 @@ class Fabric:
         if resp.status_code != 200:
             return None
         return resp.json()
+
+    def fabric_token(self) -> str:
+        """The controller's fabric token (D44), read from its data dir."""
+        path = self.workdir / "controller-data" / "controller" / "fabric.token"
+        return path.read_text("utf-8").strip()
+
+    def call(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
+        """An authenticated REST call (jobs, blobs); raises on transport errors."""
+        headers = dict(kwargs.pop("headers", {}) or {})
+        headers["authorization"] = f"Bearer {self.fabric_token()}"
+        return self._http.request(
+            method, self.http_base + path, headers=headers, timeout=10.0, **kwargs
+        )
 
     def nodes_by_id(self) -> dict[str, dict[str, Any]] | None:
         body = self.get("/v1/nodes")
