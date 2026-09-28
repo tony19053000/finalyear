@@ -9,8 +9,11 @@ from start to its terminal report:
 fetch token, verify its digest, unpack it hostile-input-safe into
 ``<work root>/<attempt_id>``) -> ``ENV_READY`` + ``RUNNING`` (reported when the
 runtime starts the workload - image pull and requirements install happen before,
-in the runtime's env phase) -> ``UPLOADING`` (nothing to upload until G5) ->
-``DONE`` or ``FAILED(failure_type)``.
+in the runtime's env phase) -> ``UPLOADING`` (a successful run's declared outputs
+are collected, packed and uploaded with the attempt's upload grant,
+:mod:`.outputs`, D74) -> ``DONE`` (with ``output_digest`` and
+``missing_outputs``) or ``FAILED(failure_type)`` - ``output_error`` when the
+outputs could not be collected or uploaded.
 
 Every change is an ``AttemptStatus`` sent through the session's ``send_report``
 (buffered, replayed after a reconnect, acked); the terminal one carries the exit
@@ -56,7 +59,7 @@ import os
 import shutil
 import time
 from collections import OrderedDict
-from collections.abc import Awaitable, Callable, Collection
+from collections.abc import Awaitable, Callable, Collection, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -64,10 +67,13 @@ from typing import IO, Any, Final, Protocol
 
 from meshforge.agent.execution.fetch import (
     FetchError,
+    UploadError,
     blob_base_url,
     fetch_bundle,
+    upload_blob,
 )
 from meshforge.agent.execution.offer import ExecutionSetup
+from meshforge.agent.execution.outputs import Collected, OutputError, collect_outputs
 from meshforge.agent.execution.plan import AttemptPlan, PlanError, plan_attempt
 from meshforge.agent.execution.runtime import RunObserver, RunResult, Stream
 from meshforge.agent.settings import AgentSettings
@@ -87,6 +93,8 @@ MAX_LOG_BYTES: Final = 512 * 1024 * 1024
 """Per stream: the local log file stops growing here (LogChunk streaming and its
 own budget are G5)."""
 _RECENT_FINISHED: Final = 4096
+_MISSING_MAX: Final = 64
+_MISSING_MAX_CHARS: Final = 512
 _SHUTDOWN_SLACK_S: Final = 3.0
 _WORK_DIR_NAME: Final = "work"
 _NOFOLLOW: Final = getattr(os, "O_NOFOLLOW", 0)
@@ -206,6 +214,7 @@ class Executor:
         declared_gpus: Collection[int] = (),
         clock: Callable[[], float] = time.monotonic,
         fetch: Callable[..., Awaitable[int]] = fetch_bundle,
+        upload: Callable[..., Awaitable[int]] = upload_blob,
         resend: Resender | None = None,
     ) -> None:
         self._settings = settings
@@ -217,6 +226,7 @@ class Executor:
         self._declared_gpus = frozenset(declared_gpus)
         self._clock = clock
         self._fetch = fetch
+        self._upload = upload
         self._resend = resend
         self.work_root = work_root_for(settings)
         self._attempts: dict[str, _Attempt] = {}
@@ -660,8 +670,25 @@ class Executor:
             return
         if result.ok:
             await self._send(attempt, AttemptState.UPLOADING)
+            try:
+                collected = await self._collect(attempt, plan)
+            except (OutputError, UploadError) as exc:
+                attempt.phases["collect_s"] = self._clock() - exited
+                await self._send(
+                    attempt,
+                    AttemptState.FAILED,
+                    failure=(FailureType.OUTPUT_ERROR, exc.message, exc.retryable),
+                    exit_code=result.exit_code,
+                )
+                return
             attempt.phases["collect_s"] = self._clock() - exited
-            await self._send(attempt, AttemptState.DONE, exit_code=result.exit_code)
+            await self._send(
+                attempt,
+                AttemptState.DONE,
+                exit_code=result.exit_code,
+                output_digest=str(collected.digest) if collected.digest else "",
+                missing=collected.missing,
+            )
             return
         attempt.phases["collect_s"] = self._clock() - exited
         failure = result.failure_type or FailureType.INTERNAL_ERROR
@@ -672,6 +699,57 @@ class Executor:
             exit_code=result.exit_code,
             signal=result.signal,
         )
+
+    async def _collect(self, attempt: _Attempt, plan: AttemptPlan) -> Collected:
+        """D74: expand, pack and upload the declared outputs (cancellable)."""
+        patterns = tuple(plan.manifest.outputs)
+        if not patterns or attempt.workdir is None:
+            return Collected(None, None, 0, 0, ())
+        dest = self.work_root / f"{attempt.attempt_id}.outputs"
+        max_bytes = plan.upload_max_bytes or 0
+        try:
+            collected = await self._step(
+                attempt,
+                asyncio.to_thread(
+                    collect_outputs,
+                    attempt.workdir,
+                    patterns,
+                    dest,
+                    max_bytes=max_bytes if max_bytes > 0 else 2**62,
+                ),
+            )
+            if collected.archive is None or collected.digest is None:
+                return collected
+            if not plan.upload_token:
+                raise OutputError(
+                    "the controller gave this attempt no upload grant",
+                    retryable=False,
+                )
+            try:
+                base = blob_base_url(
+                    plan.blob_url, self._controller_host(), plan.blob_port
+                )
+            except FetchError as exc:  # no host to upload to
+                raise OutputError(exc.message, retryable=True) from None
+            started = self._clock()
+            await self._step(
+                attempt,
+                self._upload(base, collected.digest, plan.upload_token, dest),
+            )
+            log.info(
+                "agent.execution.outputs_uploaded",
+                node_id=self._node_id,
+                job_id=attempt.job_id,
+                attempt_id=attempt.attempt_id,
+                files=collected.files,
+                bytes=collected.compressed_bytes,
+                upload_s=round(self._clock() - started, 3),
+                missing=len(collected.missing),
+            )
+            return collected
+        finally:
+            with contextlib.suppress(OSError):
+                dest.unlink()
 
     async def _announce_run(self, attempt: _Attempt) -> None:
         """``ENV_READY`` then ``RUNNING``, once (the env phase is inside run())."""
@@ -705,6 +783,8 @@ class Executor:
         failure: tuple[FailureType, str, bool] | None = None,
         exit_code: int | None = None,
         signal: int | None = None,
+        output_digest: str = "",
+        missing: Sequence[str] = (),
     ) -> None:
         status = agent_pb2.AttemptStatus(
             job_id=attempt.job_id,
@@ -712,6 +792,8 @@ class Executor:
             fencing_token=attempt.token,
             state=attempt_state_to_proto(state),
             runtime=attempt.runtime,
+            output_digest=output_digest,
+            missing_outputs=[m[:_MISSING_MAX_CHARS] for m in missing[:_MISSING_MAX]],
         )
         status.observed_at.FromDatetime(datetime.now(UTC))
         if failure is not None:

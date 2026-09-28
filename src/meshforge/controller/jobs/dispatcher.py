@@ -57,6 +57,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import dataclasses
 import datetime as dt
 from collections import OrderedDict
 from collections.abc import Callable
@@ -70,7 +71,7 @@ from meshforge.common.ids import new_attempt_id
 from meshforge.common.logging import get_logger
 from meshforge.common.manifest import Manifest
 from meshforge.common.proto.meshforge.v1 import agent_pb2
-from meshforge.common.states import ATTEMPT_TERMINAL_STATES
+from meshforge.common.states import ATTEMPT_TERMINAL_STATES, AttemptState
 from meshforge.controller.blobs import MAX_FETCH_TOKEN_TTL_S, FetchTokens
 from meshforge.controller.jobs.execution_store import (
     Dispatch,
@@ -397,7 +398,7 @@ class Dispatcher:
         return True
 
     async def _apply_status(self, item: _Status) -> None:
-        report, live = item.report, item.live
+        report, live = self._verified(item.report, item.live), item.live
         outcome = await self._store.apply_status(report)
         if outcome.kind is StatusKind.APPLIED:
             self.stats.statuses_applied += 1
@@ -427,6 +428,34 @@ class Dispatcher:
             )
         self._manager.ack_message(live, item.message_id)
         self._after(outcome)
+
+    def _verified(self, report: StatusReport, live: LiveSession) -> StatusReport:
+        """D73/D74: a DONE's ``output_digest`` counts only if this attempt's upload
+        grant stored and verified that blob; otherwise the attempt did not deliver
+        its outputs - it ends ``FAILED(output_error)``, never ``DONE`` with a
+        digest nobody checked."""
+        digest = report.output_digest
+        if report.state is not AttemptState.DONE or digest is None:
+            return report
+        if self._grants is not None and self._grants.uploaded(
+            report.attempt_id, digest
+        ):
+            return report
+        log.warning(
+            "controller.jobs.output_not_uploaded",
+            node_id=live.node_id,
+            session_id=live.session_id,
+            attempt_id=report.attempt_id,
+            output_digest=digest,
+        )
+        return dataclasses.replace(
+            report,
+            state=AttemptState.FAILED,
+            failure_type=FailureType.OUTPUT_ERROR,
+            detail="the reported output digest was not uploaded under this "
+            "attempt's upload grant",
+            output_digest=None,
+        )
 
     def _after(self, outcome: StatusOutcome) -> None:
         """Token expiry at attempt end; a pending cancel re-sent to a live attempt."""

@@ -138,4 +138,6 @@ def parse_status(status: agent_pb2.AttemptStatus) -> StatusReport | str:
         exit_code=status.exit_code if status.HasField("exit_code") else None,
         runtime=status.runtime or None,
         phases=phases,
+        output_digest=status.output_digest or None,
+        missing_outputs=tuple(status.missing_outputs),
     )

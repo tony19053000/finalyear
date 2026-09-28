@@ -181,6 +181,9 @@ class AttemptRecord:
     created_at: dt.datetime
     start_acked_at: dt.datetime | None = None
     runtime: str | None = None
+    missing_outputs: tuple[str, ...] = ()
+    logs: Mapping[str, Any] | None = None
+    """Final logs per stream (D71): ``{"stdout": {"digest", "bytes", "truncated"}}``."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -227,6 +230,8 @@ def attempt_record(row: Attempt) -> AttemptRecord:
         created_at=row.created_at,
         start_acked_at=row.start_acked_at,
         runtime=row.runtime,
+        missing_outputs=tuple(row.missing_outputs or ()),
+        logs=dict(row.logs) if row.logs else None,
     )
 
 

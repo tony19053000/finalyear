@@ -95,6 +95,9 @@ class AttemptSummary(ApiModel):
     detail: str | None = None
     exit_code: int | None = None
     output_digest: str | None = None
+    """The packed outputs (``compute get``); verified under the attempt's grant."""
+    missing_outputs: list[str] = Field(default_factory=list)
+    """Declared outputs that matched nothing (D74) - listed, not an error."""
     started_at: Utc | None = None
     ended_at: Utc | None = None
 

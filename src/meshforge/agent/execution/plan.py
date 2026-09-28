@@ -88,6 +88,10 @@ class AttemptPlan:
     manifest: Manifest
     runtime: str
     spec: RunSpec
+    upload_token: str = ""
+    """D73 upload grant; empty = this attempt cannot upload (outputs/logs)."""
+    upload_max_bytes: int = 0
+    upload_max_blobs: int = 0
 
 
 def workload_env(
@@ -186,13 +190,10 @@ def plan_attempt(
     except (ValueError, MeshForgeError):
         raise PlanError("ExecutionSpec.bundle_digest is not sha256:<64 hex>") from None
     token_text = spec.fetch_token
-    if (
-        not token_text
-        or len(token_text) > MAX_FETCH_TOKEN_CHARS
-        or not token_text.isprintable()
-        or any(ch.isspace() for ch in token_text)
-    ):
+    if not token_text or not _token_shape(token_text):
         raise PlanError("ExecutionSpec.fetch_token is missing or malformed")
+    if spec.upload_token and not _token_shape(spec.upload_token):
+        raise PlanError("ExecutionSpec.upload_token is malformed")
     if spec.blob_url and (
         len(spec.blob_url) > MAX_BLOB_URL_CHARS
         or not _BLOB_URL.fullmatch(spec.blob_url)
@@ -254,6 +255,17 @@ def plan_attempt(
         manifest=manifest,
         runtime=runtime.name,
         spec=run_spec,
+        upload_token=spec.upload_token,
+        upload_max_bytes=int(spec.upload_max_bytes),
+        upload_max_blobs=int(spec.upload_max_blobs),
+    )
+
+
+def _token_shape(text: str) -> bool:
+    return (
+        len(text) <= MAX_FETCH_TOKEN_CHARS
+        and text.isprintable()
+        and not any(ch.isspace() for ch in text)
     )
 
 

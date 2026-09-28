@@ -94,6 +94,11 @@ class FailureType(StrEnum):
     """State conflict (e.g. illegal state transition, duplicate)."""
     INTERNAL_ERROR = "internal_error"
     """Bug or unexpected condition inside MeshForge."""
+    # --- added later (appended: proto numbers follow declaration order) ---------------
+    OUTPUT_ERROR = "output_error"
+    """The workload finished but its declared outputs could not be collected or
+    uploaded (V0.4 D74: a refused link/escape, over the quota, an upload failure).
+    The failure's own ``retryable`` flag says whether a retry may help."""
 
 
 DEFAULT_RETRYABLE: Mapping[FailureType, bool] = {
@@ -112,6 +117,7 @@ DEFAULT_RETRYABLE: Mapping[FailureType, bool] = {
     FailureType.DEADLINE_EXCEEDED: False,
     FailureType.RESOURCE_BUSY: True,
     FailureType.NO_FEASIBLE_PLAN: False,
+    FailureType.OUTPUT_ERROR: False,  # per instance: an upload blip is retryable
     FailureType.NETWORK_ERROR: True,
     FailureType.CONFIG_ERROR: False,
     FailureType.INVALID_INPUT: False,

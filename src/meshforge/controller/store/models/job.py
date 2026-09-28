@@ -173,6 +173,14 @@ class Attempt(TimestampMixin, Base):
     """When the agent acked ``StartAttempt`` (D66: resend vs LOST; migration 0007)."""
     runtime: Mapped[str | None] = mapped_column(String(16), nullable=True)
     """``docker`` / ``subprocess`` as the agent reported it (migration 0007)."""
+    missing_outputs: Mapped[list[str] | None] = mapped_column(
+        JSONB(none_as_null=True), nullable=True
+    )
+    """Declared output globs that matched nothing (D74; migration 0008)."""
+    logs: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB(none_as_null=True), nullable=True
+    )
+    """Final logs per stream: digest, bytes, truncated (D71; migration 0008)."""
 
 
 class AttemptPhaseRow(Base):

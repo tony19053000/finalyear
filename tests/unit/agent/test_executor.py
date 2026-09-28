@@ -437,3 +437,92 @@ async def test_release_of_a_running_attempt_stops_it_then_frees_it(
     last = reports.sent[-1][1]
     assert failure_type_from_proto(last.failure.failure_type).value == "cancelled"
     await executor.close()
+
+
+# ------------------------------------------------------------------ D74
+
+
+class WritingRuntime(FakeRuntime):
+    async def run(
+        self, spec: Any, on_output: Any, *, observer: RunObserver | None = None
+    ) -> RunResult:
+        (spec.workdir / "results").mkdir()
+        (spec.workdir / "results" / "r.txt").write_bytes(b"result")
+        return await super().run(spec, on_output, observer=observer)
+
+
+class Uploads:
+    def __init__(self, error: Exception | None = None) -> None:
+        self.calls: list[tuple[str, str, bytes]] = []
+        self.error = error
+
+    async def __call__(self, base: str, digest: Any, token: str, path: Path) -> int:
+        if self.error is not None:
+            raise self.error
+        data = path.read_bytes()  # noqa: ASYNC240 - a test fake
+        self.calls.append((str(digest), token, data))
+        return len(data)
+
+
+def _with_outputs(msg: agent_pb2.ControllerMessage, *, grant: str = "grant") -> None:
+    msg.start_attempt.spec.manifest_json = (
+        '{"name":"x","entrypoint":["python","main.py"],'
+        '"outputs":["results/","absent.bin"]}'
+    )
+    msg.start_attempt.spec.upload_token = grant
+    msg.start_attempt.spec.upload_max_bytes = 10**6
+    msg.start_attempt.spec.upload_max_blobs = 3
+
+
+@pytest.mark.asyncio
+async def test_outputs_are_packed_uploaded_and_reported(tmp_path: Path) -> None:
+    from meshforge.common.hashing import sha256_bytes
+
+    uploads, reports = Uploads(), Reports()
+    executor, digest = _executor(tmp_path, WritingRuntime(), reports, upload=uploads)
+    msg = _start(digest)
+    _with_outputs(msg)
+    executor.handle(msg)
+    await _settle(executor)
+    final = reports.sent[-1][1]
+    assert attempt_state_from_proto(final.state).value == "done", final
+    ((sent_digest, token, data),) = uploads.calls
+    assert token == "grant"  # the upload grant, never the fetch token
+    assert final.output_digest == sent_digest == str(sha256_bytes(data))
+    assert list(final.missing_outputs) == ["absent.bin"]
+    assert final.phases.HasField("collect_s")
+    # the archive was a temporary file outside the workdir: gone
+    assert not (executor.work_root / f"{msg.start_attempt.attempt_id}.outputs").exists()
+    await executor.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("grant", ["", "grant"])
+async def test_an_upload_failure_or_no_grant_is_output_error(
+    tmp_path: Path, grant: str
+) -> None:
+    from meshforge.agent.execution.fetch import UploadError
+
+    uploads = Uploads(UploadError("upload failed: HTTP 500", retryable=True))
+    reports = Reports()
+    executor, digest = _executor(tmp_path, WritingRuntime(), reports, upload=uploads)
+    msg = _start(digest)
+    _with_outputs(msg, grant=grant)
+    executor.handle(msg)
+    await _settle(executor)
+    final = reports.sent[-1][1]
+    assert attempt_state_from_proto(final.state).value == "failed"
+    assert failure_type_from_proto(final.failure.failure_type).value == "output_error"
+    assert final.failure.retryable is bool(grant)  # no grant: retrying won't help
+    assert final.exit_code == 0 and not final.output_digest
+    await executor.close()
+
+
+@pytest.mark.asyncio
+async def test_a_run_without_declared_outputs_uploads_nothing(tmp_path: Path) -> None:
+    uploads, reports = Uploads(), Reports()
+    executor, digest = _executor(tmp_path, WritingRuntime(), reports, upload=uploads)
+    executor.handle(_start(digest))
+    await _settle(executor)
+    assert uploads.calls == [] and reports.sent[-1][1].output_digest == ""
+    await executor.close()

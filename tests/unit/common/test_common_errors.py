@@ -49,6 +49,7 @@ _EXPECTED_RETRYABLE: dict[str, bool] = {
     "NOT_FOUND": False,
     "CONFLICT": False,
     "INTERNAL_ERROR": False,
+    "OUTPUT_ERROR": False,  # V0.4 G5, D74 (per-instance retryable on the wire)
 }
 
 

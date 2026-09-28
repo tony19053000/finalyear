@@ -3,7 +3,9 @@
 A **bundle** is a PAX tar of a project folder, compressed with zstd (level 3); the
 SHA-256 of the *compressed* bytes is the **bundle digest** - the name the blob store
 keeps it under (ADR-0003). The CLI packs, the agent unpacks, and output collection
-(G5) reuses both.
+(G5) reuses both: :func:`pack_files` packs an explicit selection of files (the
+declared outputs) with the same determinism and no ignore rules - a file the
+user declared as an output is never dropped by a ``.gitignore``.
 
 **Deterministic.** The same tree gives the same bytes on Linux and Windows, so the
 digest names the *content*, not the machine or the moment it was packed:
@@ -86,6 +88,7 @@ __all__ = [
     "PackResult",
     "check_member_name",
     "pack",
+    "pack_files",
     "pack_to_file",
     "unpack",
 ]
@@ -461,6 +464,60 @@ def pack(
     if not root.is_dir():
         raise BundleError("the project folder does not exist or is not a folder")
     state = _scan(root, limits, frozenset(exclude))
+    return _pack_entries(state, out)
+
+
+def pack_files(
+    root: Path,
+    rels: Iterable[str],
+    out: IO[bytes],
+    *,
+    limits: BundleLimits | None = None,
+) -> PackResult:
+    """Write a bundle of exactly the regular files ``rels`` (relative POSIX paths
+    under ``root``) and their parent folders; no ignore rules.
+
+    Every path must be a regular file whose real location is inside ``root`` - a
+    symlink (the file itself or a folder on its way) is refused, like anything
+    that is not a regular file. Raises :class:`BundleError`.
+    """
+    limits = limits or BundleLimits()
+    root = Path(root).resolve()
+    root_real = os.path.realpath(root)
+    state = _ScanState(root=root, limits=limits, exclude=frozenset())
+    dirs: set[str] = set()
+    for rel in sorted(set(rels)):
+        parts = check_member_name(rel)
+        rel = "/".join(parts)
+        _check_rel(rel)
+        path = root.joinpath(*parts)
+        for depth in range(1, len(parts)):
+            parent = "/".join(parts[:depth])
+            if parent in dirs:
+                continue
+            if root.joinpath(*parts[:depth]).is_symlink():
+                raise BundleError("an output folder is a symbolic link", path=parent)
+            dirs.add(parent)
+            _add(state, _Entry(parent, "dir", root.joinpath(*parts[:depth])))
+        try:
+            st = path.lstat()
+        except OSError as exc:
+            raise BundleError(
+                f"cannot read output ({exc.strerror or exc})", path=rel
+            ) from None
+        if stat.S_ISLNK(st.st_mode):
+            raise BundleError("an output is a symbolic link", path=rel)
+        if not stat.S_ISREG(st.st_mode):
+            raise BundleError("an output is not a regular file", path=rel)
+        if os.path.commonpath([os.path.realpath(path), root_real]) != root_real:
+            raise BundleError("an output resolves outside the work folder", path=rel)
+        executable = (not _WINDOWS) and bool(st.st_mode & stat.S_IXUSR)
+        _add(state, _Entry(rel, "file", path, size=st.st_size, executable=executable))
+    state.entries.sort(key=lambda e: e.rel)
+    return _pack_entries(state, out)
+
+
+def _pack_entries(state: _ScanState, out: IO[bytes]) -> PackResult:
     writer = _HashingWriter(out)
     stats = BundleStats(
         files=sum(1 for e in state.entries if e.kind == "file"),

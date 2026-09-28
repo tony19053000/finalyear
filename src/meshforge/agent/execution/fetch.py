@@ -16,15 +16,26 @@ renamed into place; anything else deletes the part file and raises
 * ``timeout`` - connect/read timed out.
 
 The token travels only in the ``Authorization`` header and is never logged.
+
+**Uploads (V0.4 G5, D73/D74).** :func:`upload_blob` ``PUT``s one file with the
+attempt's **upload grant** (never the fetch token, which is download-only),
+always with ``Content-Length`` (the grant reserves quota from it). A connection
+failure, a timeout or ``503`` (the controller's upload slots are busy) is
+retried with backoff a few times; the final failure is an :class:`UploadError`
+whose ``retryable`` says whether a later attempt may succeed: ``401/403``
+(grant refused, attempt ended) and ``411/413`` (quota) are not; ``507`` (the
+controller's disk) and transport errors are.
 """
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import hashlib
 import hmac
 import os
 import secrets
+from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Final
 
@@ -34,7 +45,14 @@ from meshforge.common.errors import FailureType, MeshForgeError
 from meshforge.common.hashing import Digest
 from meshforge.common.logging import get_logger
 
-__all__ = ["DEFAULT_MAX_BUNDLE_BYTES", "FetchError", "blob_base_url", "fetch_bundle"]
+__all__ = [
+    "DEFAULT_MAX_BUNDLE_BYTES",
+    "FetchError",
+    "UploadError",
+    "blob_base_url",
+    "fetch_bundle",
+    "upload_blob",
+]
 
 log = get_logger(__name__)
 
@@ -45,6 +63,16 @@ _CHUNK: Final = 1024 * 1024
 
 class FetchError(MeshForgeError):
     default_failure_type = FailureType.TRANSFER_ERROR
+
+
+class UploadError(MeshForgeError):
+    """An output/log upload failed; ``failure_type`` is always ``output_error``."""
+
+    default_failure_type = FailureType.OUTPUT_ERROR
+
+
+_UPLOAD_TRIES: Final = 4
+_UPLOAD_BACKOFF_S: Final = 0.5
 
 
 def blob_base_url(blob_url: str, controller_host: str | None, blob_port: int) -> str:
@@ -139,3 +167,74 @@ def _check_status(status: int) -> None:
             failure_type=FailureType.NOT_FOUND,
         )
     raise FetchError(f"bundle fetch answered HTTP {status}")
+
+
+async def upload_blob(
+    base_url: str,
+    digest: Digest,
+    token: str,
+    path: Path,
+    *,
+    timeout_s: float = 60.0,
+    transport: httpx.AsyncBaseTransport | None = None,
+) -> int:
+    """Upload ``path`` (whose SHA-256 is ``digest``) with the upload grant.
+
+    Returns the size sent. Raises :class:`UploadError` (see module docstring).
+    """
+    size = (await asyncio.to_thread(path.stat)).st_size
+    url = f"{base_url}/v1/blobs/{digest.hex}"
+    headers = {
+        "authorization": f"Bearer {token}",
+        "content-length": str(size),
+        "content-type": "application/octet-stream",
+    }
+    delay = _UPLOAD_BACKOFF_S
+    last = "no attempt made"
+    async with httpx.AsyncClient(
+        timeout=httpx.Timeout(timeout_s), transport=transport, trust_env=False
+    ) as client:
+        for attempt in range(1, _UPLOAD_TRIES + 1):
+            try:
+                response = await client.put(url, content=_chunks(path), headers=headers)
+            except httpx.TimeoutException:
+                last = "timed out"
+            except httpx.HTTPError as exc:
+                last = type(exc).__name__
+            else:
+                status = response.status_code
+                if status in (200, 201):
+                    return size
+                if status in (401, 403):
+                    raise UploadError(
+                        "the controller refused this attempt's upload grant "
+                        f"(HTTP {status})",
+                        retryable=False,
+                    )
+                if status in (411, 413):
+                    raise UploadError(
+                        "the upload is over this attempt's output quota "
+                        f"(HTTP {status})",
+                        retryable=False,
+                    )
+                if status == 507:
+                    raise UploadError(
+                        "the controller has no room for the upload (HTTP 507)",
+                        retryable=True,
+                    )
+                last = f"HTTP {status}"
+                if status != 503:
+                    break
+            if attempt < _UPLOAD_TRIES:
+                await asyncio.sleep(delay)
+                delay *= 2
+    raise UploadError(f"upload failed: {last}", retryable=True)
+
+
+async def _chunks(path: Path) -> AsyncIterator[bytes]:
+    fh = await asyncio.to_thread(path.open, "rb")
+    try:
+        while chunk := await asyncio.to_thread(fh.read, _CHUNK):
+            yield chunk
+    finally:
+        fh.close()

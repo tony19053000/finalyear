@@ -100,6 +100,10 @@ class _FailureTypeEnumTypeWrapper(_enum_type_wrapper._EnumTypeWrapper[_FailureTy
     """State conflict (illegal state transition, duplicate)."""
     FAILURE_TYPE_INTERNAL_ERROR: _FailureType.ValueType  # 22
     """Bug or unexpected condition inside MeshForge itself."""
+    FAILURE_TYPE_OUTPUT_ERROR: _FailureType.ValueType  # 23
+    """The workload finished but its declared outputs could not be collected or
+    uploaded (V0.4 G5, D74).
+    """
 
 class FailureType(_FailureType, metaclass=_FailureTypeEnumTypeWrapper):
     """Typed failure classes (ARCHITECTURE §13). Retry policy is per failure type.
@@ -150,6 +154,10 @@ FAILURE_TYPE_CONFLICT: FailureType.ValueType  # 21
 """State conflict (illegal state transition, duplicate)."""
 FAILURE_TYPE_INTERNAL_ERROR: FailureType.ValueType  # 22
 """Bug or unexpected condition inside MeshForge itself."""
+FAILURE_TYPE_OUTPUT_ERROR: FailureType.ValueType  # 23
+"""The workload finished but its declared outputs could not be collected or
+uploaded (V0.4 G5, D74).
+"""
 Global___FailureType: _TypeAlias = FailureType  # noqa: Y015
 
 class _AttemptState:

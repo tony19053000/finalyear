@@ -219,6 +219,7 @@ def _attempt(record: AttemptRecord) -> AttemptSummary:
         detail=record.detail,
         exit_code=record.exit_code,
         output_digest=record.output_digest,
+        missing_outputs=list(record.missing_outputs),
         started_at=record.started_at,
         ended_at=record.ended_at,
     )

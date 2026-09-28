@@ -6,7 +6,8 @@ back without losing information, for every failure type and for both the
 default and an overridden ``retryable``.
 
 Also locks down the exact cardinality of the parity set (22 non-zero
-``FailureType`` values per the 0.1.5 handoff) so a silent addition/removal on
+``FailureType`` values per the 0.1.5 handoff; 23 since V0.4 G5 added
+``output_error``, brief D74) so a silent addition/removal on
 either side is caught even if the name-set comparison in
 ``test_proto_enum_parity.py`` were ever weakened.
 """
@@ -34,10 +35,10 @@ def _failure_from_error(error: MeshForgeError) -> common_pb2.Failure:
     )
 
 
-def test_failure_type_cardinality_is_22_non_unspecified_values() -> None:
+def test_failure_type_cardinality_is_23_non_unspecified_values() -> None:
     non_zero = [v for v in common_pb2.FailureType.DESCRIPTOR.values if v.number != 0]
-    assert len(non_zero) == 22
-    assert len(FailureType) == 22
+    assert len(non_zero) == 23
+    assert len(FailureType) == 23
 
 
 @pytest.mark.parametrize("member", list(FailureType), ids=lambda m: m.name)

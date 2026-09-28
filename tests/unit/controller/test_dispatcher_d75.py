@@ -1,4 +1,4 @@
-"""V0.4 G5 D75, controller side, without a database: what the dispatcher answers.
+"""V0.4 G5 D75 (and D73/D74 digest checks), controller side, without a database.
 
 * a fenced / unknown report is **acked** and answered ``CancelAttempt{release}``
   (terminal or not - the controller is done with that attempt);
@@ -158,3 +158,68 @@ async def test_a_database_error_is_never_poison() -> None:
         with pytest.raises(JobStoreError):
             await dispatcher._handle(_item(AttemptState.DONE, attempt_id))
     assert manager.acked == [] and dispatcher.stats.statuses_poisoned == 0
+
+
+# ------------------------------------------------------------------ D73/D74
+
+
+def _grants_dispatcher() -> tuple[Dispatcher, FakeStore, Any]:
+    from meshforge.controller.upload_grants import UploadGrants
+
+    manager, store = FakeManager(), FakeStore()
+    grants = UploadGrants(clock=lambda: 0.0)
+    dispatcher = Dispatcher(
+        store=store,  # type: ignore[arg-type]
+        manager=manager,  # type: ignore[arg-type]
+        fetch_tokens=SimpleNamespace(),  # type: ignore[arg-type]
+        settings=JobApiSettings(),
+        upload_grants=grants,
+        clock=lambda: 0.0,
+        blob_port=lambda: 1,
+    )
+    return dispatcher, store, grants
+
+
+def _done(attempt_id: str, digest: str | None) -> StatusReport:
+    return StatusReport(
+        attempt_id=attempt_id,
+        fencing_token=1,
+        state=AttemptState.DONE,
+        exit_code=0,
+        output_digest=digest,
+        missing_outputs=("nope/",),
+    )
+
+
+async def test_a_done_digest_uploaded_under_the_grant_is_kept() -> None:
+    from meshforge.common.hashing import sha256_bytes
+
+    dispatcher, _, grants = _grants_dispatcher()
+    attempt_id = str(new_attempt_id())
+    token = grants.mint(attempt_id, ttl_s=60, max_blobs=3, max_bytes=100)
+    digest = sha256_bytes(b"outputs")
+    grants.finish(grants.begin(token.get_secret_value(), digest, 7), stored=True, size=7)
+    live = SimpleNamespace(node_id="n", session_id="s")
+    report = dispatcher._verified(_done(attempt_id, str(digest)), live)  # type: ignore[arg-type]
+    assert report.state is AttemptState.DONE and report.output_digest == str(digest)
+
+
+async def test_a_done_digest_not_uploaded_under_the_grant_fails_output_error() -> None:
+    from meshforge.common.errors import FailureType
+    from meshforge.common.hashing import sha256_bytes
+
+    dispatcher, _, grants = _grants_dispatcher()
+    attempt_id, other = str(new_attempt_id()), str(new_attempt_id())
+    grants.mint(attempt_id, ttl_s=60, max_blobs=3, max_bytes=100)
+    theirs = grants.mint(other, ttl_s=60, max_blobs=3, max_bytes=100)
+    digest = sha256_bytes(b"someone else's")
+    # uploaded - but under ANOTHER attempt's grant
+    grants.finish(grants.begin(theirs.get_secret_value(), digest, 5), stored=True, size=5)
+    live = SimpleNamespace(node_id="n", session_id="s")
+    report = dispatcher._verified(_done(attempt_id, str(digest)), live)  # type: ignore[arg-type]
+    assert report.state is AttemptState.FAILED
+    assert report.failure_type is FailureType.OUTPUT_ERROR
+    assert report.output_digest is None
+    # no digest at all (nothing declared / nothing matched): DONE stays DONE
+    plain = dispatcher._verified(_done(attempt_id, None), live)  # type: ignore[arg-type]
+    assert plain.state is AttemptState.DONE

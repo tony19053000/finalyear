@@ -70,6 +70,9 @@ enum FailureType {
   FAILURE_TYPE_CONFLICT = 21;
   // Bug or unexpected condition inside MeshForge itself.
   FAILURE_TYPE_INTERNAL_ERROR = 22;
+  // The workload finished but its declared outputs could not be collected or
+  // uploaded (V0.4 G5, D74).
+  FAILURE_TYPE_OUTPUT_ERROR = 23;
 }
 
 // Attempt lifecycle (ARCHITECTURE §12.2).

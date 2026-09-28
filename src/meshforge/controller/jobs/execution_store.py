@@ -154,6 +154,10 @@ class StatusReport:
     exit_code: int | None = None
     runtime: str | None = None
     phases: AgentPhases | None = None
+    output_digest: str | None = None
+    """Only on DONE, and only once the dispatcher verified this attempt's upload
+    grant stored it (D73/D74)."""
+    missing_outputs: tuple[str, ...] = ()
 
 
 class StatusKind(StrEnum):
@@ -537,6 +541,9 @@ async def _move_attempt(
         row.ended_at = func.clock_timestamp()
         if report.exit_code is not None:
             row.exit_code = report.exit_code
+    if target is AttemptState.DONE:
+        row.output_digest = report.output_digest
+        row.missing_outputs = list(report.missing_outputs) or None
     if target in (AttemptState.FAILED, AttemptState.LOST):
         row.failure_type = (report.failure_type or FailureType.INTERNAL_ERROR).value
         row.detail = clean_detail(report.detail)
