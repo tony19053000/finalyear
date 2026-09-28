@@ -82,7 +82,29 @@ grace_s = 3.0               # cancel/timeout: SIGTERM, then SIGKILL after this (
 # workdir_root = ""         # empty = <data dir>/work
 # default_memory_mb = 4096, default_pids = 1024, default_cpus = (no limit),
 # default_timeout_s = 3600, max_timeout_s = 86400, run_as = "auto"
+# keep_workdirs = false     # true = keep each finished job's folder + its logs
+# max_concurrent_attempts = 4
 ```
+
+**Check it took effect.** Restart the agent, then `compute nodes <node id>` (or
+`GET /v1/nodes/<node id>`) must list the capability `exec` plus `exec-docker`
+and/or `exec-subprocess` (and `exec-gpu` if a GPU can be handed to jobs). The agent
+log says `agent.execution.ready` with the same list, or `agent.execution.no_runtime`
+with the reason (e.g. `docker_permission_denied`: add your user to the `docker`
+group). A job placed on a node without `exec` is refused at submit (`409
+no_feasible_plan`).
+
+**Where things are on this laptop.** Each job runs in
+`<data dir>/work/<attempt id>/` (owner-only, `0700`); its output is also written to
+`.meshforge/stdout.log` / `stderr.log` there. The folder is deleted once the
+controller has stored the job's final status (keep it with `keep_workdirs = true`).
+Leftovers of a killed agent are removed at its next start.
+
+**Stopping the agent while a job runs** stops the job first (within `grace_s`), tells
+the controller `node_lost / agent_shutdown`, and only then disconnects. Killing the
+agent instead leaves the job to the controller: the node goes OFFLINE at the lease
+edge (≈ 6 s) and the job fails `node_lost` - never earlier, so a Wi-Fi blip does not
+kill work. Jobs are not retried until V0.6.
 
 - **Docker runtime (the sandbox, preferred).** Needs Docker Engine (Linux) or Docker
   Desktop with the WSL2 backend (Windows), and for GPU jobs the NVIDIA Container
@@ -103,8 +125,15 @@ grace_s = 3.0               # cancel/timeout: SIGTERM, then SIGKILL after this (
   for the lab, never on one with personal data.
 - **Found the controller by mDNS?** Then any machine on the Wi-Fi that pretends to be
   a controller could send this laptop work. With execution enabled, set
-  `[agent] controller_address` explicitly (once the executor lands, the agent warns
-  with `agent.execution.unpinned_controller` when you have not). V0.7 fixes this with mTLS.
+  `[agent] controller_address` explicitly (the agent warns with
+  `agent.execution.unpinned_controller` at start when you have not). V0.7 fixes this with mTLS.
+- **Running as root?** Then jobs run as `nobody` (never root) and each job folder is
+  handed to that user; an explicit `run_as` other than your own uid needs a root
+  agent (a normal agent refuses it with `config_error` rather than open the folder
+  to every local user).
+- **Controller on another address than agents dial?** Set `[controller.api]
+  advertise_url = "http://<lan ip>:47110"` on the controller; otherwise agents fetch
+  bundles from the host they dialled for gRPC, on the controller's REST port.
 - **Windows note:** cancel on Windows has no graceful signal for a background
   process; the job is ended after `grace_s` together with everything it started (a
   kill-on-close job object — also when the agent itself dies).
