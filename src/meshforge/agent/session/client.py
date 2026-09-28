@@ -45,6 +45,18 @@ ended - its gate is set on the way out, so a waiter never blocks forever), the
 state is not ONLINE, or the replay already carried it: the message is in the ring
 either way, and the next stream's replay sends it.
 
+**Execution hooks (V0.4 G4).** Attributes the agent process sets (all optional):
+``command_handler`` receives every new ``StartAttempt``/``CancelAttempt``
+synchronously *before* its Ack is written, so an Ack always means "the executor
+holds it" (D66); ``held_attempts`` fills ``Reconcile.running_attempts``, which is
+now sent on **every** accepted stream - on a first connect with
+``replay_from_sequence = 0`` and no replay, so the resource sink's behaviour is
+unchanged - because after an agent restart the controller must learn that the
+new process holds nothing; ``on_report_acked`` hears which buffered report the
+controller acknowledged; ``before_goodbye`` is awaited (bounded) on a requested
+stop before the Goodbye, so running attempts can report ``agent_shutdown``
+first (D52).
+
 Idempotency: a controller command with a foreign ``session_id`` is dropped and
 counted (``agent.session.stale_message``); a repeated ``message_id`` is acked again
 but has no second effect; a duplicate ``Ack`` for a report already removed from the
@@ -92,6 +104,9 @@ log = get_logger(__name__)
 _COMMAND_DEDUPE_WINDOW: Final = 10_000
 _CLOSE_GRACE_S: Final = 2.0
 """After half-closing on stop, how long to wait for the controller's final status."""
+BEFORE_GOODBYE_BOUND_S: Final = 10.0
+"""Longest wait for ``before_goodbye`` (running attempts stop within grace + 2 s)."""
+_COMMAND_PAYLOADS: Final = frozenset({"start_attempt", "cancel_attempt"})
 GOODBYE_DETAIL: Final = "agent stop requested"
 """``Goodbye.detail`` on a requested stop (well inside the controller's bound)."""
 #: Bounds on the controller-owned heartbeat interval. Below the minimum the
@@ -260,6 +275,15 @@ class AgentSessionClient:
         self._generation = 0
         """Bumped when a stream is accepted and again when it ends (D21)."""
         self._gate: _StreamGate | None = None
+        # V0.4 G4 execution hooks (module docstring); None = not wired.
+        self.command_handler: Callable[[agent_pb2.ControllerMessage], None] | None = (
+            None
+        )
+        self.held_attempts: Callable[[], list[agent_pb2.AttemptStatus]] | None = None
+        self.on_report_acked: Callable[[str], None] | None = None
+        self.before_goodbye: Callable[[], Awaitable[None]] | None = None
+        self.controller_target: str = ""
+        """The ``host:port`` this agent dialled for its current/last stream."""
 
     # ------------------------------------------------------------ lifecycle
 
@@ -357,6 +381,7 @@ class AgentSessionClient:
             await self._sleep_backoff()
             return
         self._transition(AgentEvent.CONTROLLER_FOUND, reason=target)
+        self.controller_target = target
 
         stale_retries = 0
         while True:
@@ -584,9 +609,10 @@ class AgentSessionClient:
             # tests/unit/agent/test_session_client_ordering.py.
             if self._on_online is not None:
                 await self._on_online()
-            reconciled = True
-            if reconnect:
-                reconciled = await self._reconcile_safely(gate)
+            # V0.4 G4 (D66): a Reconcile on every stream - on a first connect it
+            # replays nothing (replay_from_sequence 0) but tells the controller
+            # which attempts this process holds (none, after a restart).
+            reconciled = await self._reconcile_safely(gate, replay=reconnect)
             if reconciled:
                 gate.ready.set()
             end = await self._read_loop(call)
@@ -609,7 +635,7 @@ class AgentSessionClient:
             return _Outcome.STOP
         return await self._finish_stream(end)
 
-    async def _reconcile_safely(self, gate: _StreamGate) -> bool:
+    async def _reconcile_safely(self, gate: _StreamGate, *, replay: bool) -> bool:
         """Reconcile + replay; False if the stream died under it.
 
         A write failing here means the call already ended; the read loop that
@@ -617,7 +643,7 @@ class AgentSessionClient:
         a dead stream) until ``_online`` closes it on the way out.
         """
         try:
-            gate.replayed_through = await self._reconcile_and_replay()
+            gate.replayed_through = await self._reconcile_and_replay(replay=replay)
         except (grpc.aio.AioRpcError, grpc.aio.UsageError, asyncio.InvalidStateError):
             log.info(
                 "agent.session.reconcile_interrupted",
@@ -627,15 +653,20 @@ class AgentSessionClient:
             return False
         return True
 
-    async def _reconcile_and_replay(self) -> int:
-        """Write ``Reconcile`` and replay the ring; return the last sequence sent."""
-        pending = self.ring.pending()
+    async def _reconcile_and_replay(self, *, replay: bool = True) -> int:
+        """Write ``Reconcile`` and replay the ring; return the last sequence sent.
+
+        ``replay=False`` (a first connect): the Reconcile carries the held
+        attempts and ``replay_from_sequence = 0``, and nothing is replayed.
+        """
+        pending = self.ring.pending() if replay else []
         # Wire contract (agent.proto Reconcile): 0 when nothing is replayed.
-        replay_from = self.ring.first_sequence() or 0
+        replay_from = (self.ring.first_sequence() or 0) if pending else 0
+        held = self.held_attempts() if self.held_attempts is not None else []
         await self._write(
             agent_pb2.AgentMessage(
                 reconcile=agent_pb2.Reconcile(
-                    replay_from_sequence=replay_from, running_attempts=[]
+                    replay_from_sequence=replay_from, running_attempts=held
                 )
             )
         )
@@ -722,6 +753,7 @@ class AgentSessionClient:
                             node_id=self.node_id,
                             session_id=self.session_id or None,
                         )
+                        await self._before_goodbye()
                         await self._say_goodbye()
                         with contextlib.suppress(Exception):
                             await call.done_writing()
@@ -778,6 +810,8 @@ class AgentSessionClient:
         if which == "ack":
             if self.ring.ack(msg.ack.acked_message_id):
                 self.stats.reports_acked += 1
+                if self.on_report_acked is not None:
+                    self.on_report_acked(msg.ack.acked_message_id)
             return
         if which is None:
             log.warning(
@@ -791,8 +825,6 @@ class AgentSessionClient:
         if duplicate:
             self.stats.duplicates += 1
         else:
-            # Command handlers arrive with V0.4 (StartAttempt...) and later; in V0.3
-            # a command is received, logged and acked, and has no other effect.
             log.info(
                 "agent.session.command_received",
                 node_id=self.node_id,
@@ -800,6 +832,9 @@ class AgentSessionClient:
                 payload=which,
                 message_id=msg.message_id,
             )
+            if which in _COMMAND_PAYLOADS and self.command_handler is not None:
+                # Synchronous and before the Ack (D66: Acked = held).
+                self.command_handler(msg)
         if which not in _UNACKED_CONTROLLER_PAYLOADS and msg.message_id:
             await self._write(
                 agent_pb2.AgentMessage(
@@ -919,6 +954,22 @@ class AgentSessionClient:
         except (grpc.aio.AioRpcError, asyncio.CancelledError, grpc.aio.UsageError):
             return self._stream_end(None, "")
         return self._stream_end(code, details or "")
+
+    async def _before_goodbye(self) -> None:
+        """Let running attempts report ``agent_shutdown`` first (D52), bounded."""
+        if self.before_goodbye is None:
+            return
+        try:
+            await asyncio.wait_for(self.before_goodbye(), BEFORE_GOODBYE_BOUND_S)
+        except TimeoutError:
+            log.warning(
+                "agent.session.before_goodbye_timeout",
+                node_id=self.node_id,
+                session_id=self.session_id or None,
+                bound_s=BEFORE_GOODBYE_BOUND_S,
+            )
+        except Exception:  # the Goodbye must still go out
+            log.exception("agent.session.before_goodbye_failed", node_id=self.node_id)
 
     async def _say_goodbye(self) -> None:
         """Write ``Goodbye{SHUTDOWN}`` as the stream's last message (D40).

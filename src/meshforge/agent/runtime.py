@@ -38,9 +38,13 @@ Signals are Windows-safe: ``loop.add_signal_handler`` where it exists, else
 ``signal.signal`` + ``call_soon_threadsafe`` (ADR-0009: the agent runs natively on
 Windows). On Windows ``SIGBREAK`` (CTRL_BREAK_EVENT, which a supervisor sends
 with ``GenerateConsoleCtrlEvent`` to stop a console process group gracefully) is a
-stop too; unhandled, it would kill the agent without the half-close. On stop the
-agent half-closes its stream and exits 0; the controller records ``agent_closed``
-from the stream end - no farewell message is needed.
+stop too; unhandled, it would kill the agent without the half-close. On stop,
+running attempts are stopped and report ``node_lost/agent_shutdown`` (V0.4 D52),
+then the agent says ``Goodbye`` (D40), half-closes and exits 0.
+
+The executor (V0.4 G4, :mod:`meshforge.agent.execution.executor`) is wired into
+the session client here: commands before their Ack, held attempts into every
+``Reconcile``, report Acks, and the pre-Goodbye stop.
 
 Exit codes: ``OK`` after a requested stop; the error's own code for a typed failure
 (:class:`~meshforge.common.errors.IdentityError` / ``ConfigError`` ->
@@ -61,6 +65,7 @@ from meshforge.agent.benchmarks.service import (
     valid_cached_scores,
 )
 from meshforge.agent.benchmarks.wire import to_proto
+from meshforge.agent.execution.executor import Executor
 from meshforge.agent.execution.offer import build_execution
 from meshforge.agent.hardware import (
     HardwareFacts,
@@ -77,7 +82,7 @@ from meshforge.agent.identity import NodeIdentity, load_or_create
 from meshforge.agent.resources import ResourceMonitor, ResourceSampler
 from meshforge.agent.session.client import AgentSessionClient
 from meshforge.agent.session.hello import basic_hardware
-from meshforge.agent.settings import AgentSettings
+from meshforge.agent.settings import AgentSettings, parse_controller_address
 from meshforge.common.capabilities import HARDWARE_SCORES_CAPABILITY
 from meshforge.common.errors import ExitCode, MeshForgeError
 from meshforge.common.logging import get_logger
@@ -102,6 +107,16 @@ DISCOVERY_GRACE_S: Final = 1.0
 
 _NVML_CLOSE_TIMEOUT_S: Final = 2.0
 """``nvmlShutdown`` is a driver call too; shutdown never waits longer than this."""
+
+
+def controller_host(target: str) -> str | None:
+    """The host part of the ``host:port`` the agent dialled (None if unparsable)."""
+    if not target:
+        return None
+    try:
+        return parse_controller_address(target)[0]
+    except ValueError:
+        return None
 
 
 def stop_signals() -> tuple[signal.Signals, ...]:
@@ -206,6 +221,23 @@ async def serve(
         hardware=hardware,
         hardware_scores=await hello_scores(settings, node_id, facts),
     )
+    executor = Executor(
+        settings,
+        execution,
+        node_id=node_id,
+        report=client.send_report,
+        controller_host=lambda: controller_host(client.controller_target),
+        declared_gpus=[gpu.index for gpu in hardware.gpus],
+    )
+    # D45/D52/D66: every StartAttempt reaches the executor before its Ack (a
+    # disabled agent answers FAILED(unauthorized)); Reconcile lists what it holds;
+    # a requested stop lets running attempts report agent_shutdown, then Goodbye.
+    client.command_handler = executor.handle
+    client.held_attempts = executor.held
+    client.on_report_acked = executor.report_acked
+    client.before_goodbye = executor.shutdown
+    if execution.enabled:
+        await executor.start()
     install_signal_handlers(client.request_stop)
     log.info(
         "agent.started",
@@ -227,6 +259,8 @@ async def serve(
     try:
         await client.run()
     finally:
+        # Attempts first: their runtimes stop their containers/process trees.
+        await executor.close()
         # Cancelling the scoring task kills its benchmark child tree (runner).
         await stop_task(scores_task)
         if monitor is not None and monitor_task is not None:

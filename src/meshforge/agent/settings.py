@@ -492,6 +492,22 @@ class ExecutionSettings(SectionModel):
         default="auto",
         description='Container user: "auto" or "uid:gid" (numeric, neither 0).',
     )
+    keep_workdirs: bool = Field(
+        default=False,
+        description=(
+            "Keep each attempt's workdir (and its .meshforge/*.log files) after its "
+            "final status was acknowledged; off = deleted (V0.4 D67)."
+        ),
+    )
+    max_concurrent_attempts: int = Field(
+        default=4,
+        ge=1,
+        le=64,
+        description=(
+            "Attempts this agent holds at once; a StartAttempt beyond it fails "
+            "resource_busy (the controller sends one at a time in V0.4)."
+        ),
+    )
 
     @field_validator("run_as")
     @classmethod
