@@ -14,7 +14,9 @@ session id (D20) - and on the entry's ``fence_ids`` (D41).
 Nothing here awaits: all writes are enqueued on the entry's
 :class:`~.writer.WriteChain`. The tables (live, lingering) are the manager's,
 shared by reference; the manager decides *when* a session ends, this class *what*
-that end writes.
+that end writes. The ends of an admission that failed or was cut short (D41,
+D61-1) live here too: :meth:`SessionEnds.abandon_admission`,
+:meth:`SessionEnds.close_orphaned_admission`.
 """
 
 from __future__ import annotations
@@ -22,6 +24,7 @@ from __future__ import annotations
 import asyncio
 import functools
 from collections.abc import Callable
+from typing import Any
 
 from meshforge.common.logging import get_logger
 from meshforge.controller.liveness import (
@@ -31,8 +34,9 @@ from meshforge.controller.liveness import (
     next_state,
 )
 from meshforge.controller.registry import Registry, SessionEndReason
+from meshforge.controller.session.admission import AdmissionAttempt
 from meshforge.controller.session.claims import AdmissionClaims
-from meshforge.controller.session.live import LiveSession, end_event
+from meshforge.controller.session.live import Accepted, LiveSession, end_event
 from meshforge.controller.session.writer import WriteKind
 
 __all__ = ["SessionEnds"]
@@ -234,3 +238,72 @@ class SessionEnds:
             state=entry.state.value,
             pending_writes=entry.writer.pending,
         )
+
+    # ------------------------------------------------- abandoned admissions
+
+    def close_orphaned_admission(self, body: asyncio.Task[Any]) -> None:
+        """The Hello's handler was cancelled just as the admission *succeeded*
+        (D61-1).
+
+        The session is registered in ``live`` but nobody will ever start its
+        reader or drain its outbound queue: without this it would read ONLINE
+        (a phantom) until its lease expired. It is closed ``stream_lost`` - the
+        same end the servicer gives a call cancelled one step later.
+        """
+        if not body.done() or body.cancelled() or body.exception() is not None:
+            return
+        result = body.result()
+        if isinstance(result, Accepted):
+            log.info(
+                "session.admitted_without_handler",
+                node_id=result.live.node_id,
+                session_id=result.live.session_id,
+            )
+            self.close(result.live, SessionEndReason.STREAM_LOST)
+
+    def abandon_admission(
+        self,
+        attempt: AdmissionAttempt,
+        body: asyncio.Task[Any],
+        new_session: Callable[[AdmissionAttempt], LiveSession],
+    ) -> None:
+        """An admission failed or missed its deadline (D41); ``body`` was cancelled.
+
+        If it may already have written the node row (``row_written``), that row
+        could now read ONLINE for a session that will never exist - so the
+        attempt becomes a session lost at once: a lingering entry, SUSPECT now
+        and OFFLINE at the lease edge unless the agent's retry is admitted first.
+        It takes over the node's deferred end and lingering entry (no event of
+        their own), and its state writes are fenced on every session id the row
+        may still name (``fence_ids``); they wait for the abandoned task to
+        finish, so they land after whatever it committed.
+        """
+        if not attempt.row_written or attempt.admitted or attempt.state is None:
+            return
+        node_id = attempt.hello.node_id
+        fences = [] if attempt.superseded is None else [attempt.superseded.session_id]
+        deferred = self._claims.deferred_for(node_id)
+        if deferred is not None and self._claims.consume(deferred):
+            fences.append(deferred.session_id)
+            self.finish_end(deferred, fire_event=False)
+        lingering = self._lingering.get(node_id)
+        if lingering is not None:
+            fences.append(lingering.session_id)
+            self.end_linger(lingering, cause="replaced")
+        entry = new_session(attempt)
+        entry.fence_ids = tuple(fences)
+        entry.writer.enqueue(
+            "await_abandoned_admission",
+            WriteKind.STATE,
+            functools.partial(asyncio.wait, {body}),
+        )
+        entry.ended = True
+        entry.end_reason = SessionEndReason.INTERNAL_ERROR
+        entry.done.set()
+        log.warning(
+            "session.admission_abandoned",
+            node_id=node_id,
+            session_id=entry.session_id,
+            also_fenced_on=list(fences),
+        )
+        self.finish_end(entry, fire_event=True)

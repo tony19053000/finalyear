@@ -84,30 +84,23 @@ envelope work (stale session, ``message_id``, dedupe, Ack) and calls the handler
 registered for the payload in :class:`~.dispatch.DispatchTable`; report
 handlers and their counters live in :class:`~.reports.ReportHandlers`.
 
-**Commands (V0.4 D64).** :meth:`SessionManager.send_command` puts a
-``ControllerMessage`` on the session's one outbound queue (the handler task is
-still the only writer of the stream) and remembers it as awaiting its Ack; the
-agent's ``Ack`` resolves it and fires :attr:`SessionManager.hooks`
-``on_command_acked``. A payload registered with :meth:`SessionManager.defer_ack`
-(``attempt_status``) is not acked here: its handler acks it with
-:meth:`SessionManager.ack_message` once it is **persisted**, so an Ack always
-means "stored" and an unacked report is replayed after a reconnect. Such a
-payload reaches its (idempotent) handler even when its ``message_id`` was seen
-before - acking a duplicate before the first copy is stored would lose it.
+**Commands (V0.4 D64)** - everything written to a session's outbound queue
+(commands, Acks, deferred Acks for ``attempt_status``) and the job-layer hooks
+are :class:`~.commands.CommandChannel` (``self.commands``); its module docstring
+is the full rule.
 """
 
 from __future__ import annotations
 
 import asyncio
 import datetime as dt
-import functools
 from collections.abc import AsyncIterator, Callable
-from typing import Any, Final
+from typing import Any
 
 import grpc
 from google.protobuf.json_format import MessageToDict
 
-from meshforge.common.ids import new_command_id, new_session_id
+from meshforge.common.ids import new_session_id
 from meshforge.common.logging import get_logger
 from meshforge.common.proto.meshforge.v1 import agent_pb2
 from meshforge.controller.liveness import (
@@ -130,7 +123,7 @@ from meshforge.controller.session.admission import (
     unavailable,
 )
 from meshforge.controller.session.claims import AdmissionClaims
-from meshforge.controller.session.commands import CommandChannel
+from meshforge.controller.session.commands import UNACKED, CommandChannel
 from meshforge.controller.session.dispatch import (
     DispatchTable,
     check_envelope,
@@ -156,11 +149,7 @@ from meshforge.controller.session.live import (
     update_ewma,
 )
 from meshforge.controller.session.reports import ReportHandlers, declared_gpus
-from meshforge.controller.session.writer import (
-    DEFAULT_WRITE_CAPACITY,
-    WriteChain,
-    WriteKind,
-)
+from meshforge.controller.session.writer import DEFAULT_WRITE_CAPACITY, WriteChain
 
 __all__ = [
     "RTT_EWMA_ALPHA",
@@ -175,9 +164,6 @@ __all__ = [
 ]
 
 log = get_logger(__name__)
-
-_UNACKED: Final = frozenset({"ack", "pong", "goodbye"})
-"""Agent payloads that get no Ack back (ADR-0002 Updates §4: never buffered)."""
 
 
 class SessionManager:
@@ -224,17 +210,20 @@ class SessionManager:
         self.dispatch.register("pong", self.heartbeats.on_pong_message)
         self.commands = CommandChannel(
             live=self._live,
-            send=self.send,
             close=lambda live, reason: self._ends.close(live, reason),
+            closing=lambda: self.closing,
             queue_size=outbound_queue_size,
         )
-        """Commands to agents and their Acks (D64, :mod:`.commands`)."""
+        """Outbound messages, commands, Acks and hooks (D64, :mod:`.commands`)."""
+        self.send = self.commands.send
+        self.send_command = self.commands.send_command
+        self.defer_ack = self.commands.defer_ack
+        self.ack_message = self.commands.ack_message
         self.dispatch.register("ack", self.commands.on_ack)
         self.dispatch.register("goodbye", self._on_goodbye)
         for payload, handler in self.reports.handlers().items():
             self.dispatch.register(payload, handler)
-        self.reports.reconcile_listener = self._reconcile_hook
-        self._deferred_ack: set[str] = set()
+        self.reports.reconcile_listener = self.commands.on_reconcile
         self._tasks: set[asyncio.Task[Any]] = set()
         self._chains: set[WriteChain] = set()
         """Write chains not yet finished (closed sessions included until drained)."""
@@ -251,7 +240,7 @@ class SessionManager:
             claims=self._claims,
             owned=self.admission_pending,
             wake=self.wake,
-            on_offline=self._node_offline,
+            on_offline=self.commands.on_node_offline,
         )
         """What a session end writes (D19/D28, :mod:`.ends`)."""
 
@@ -356,7 +345,7 @@ class SessionManager:
             )
             return unavailable(self._admission_timeout_s)
         except BaseException:  # the admission raised, or our handler was cancelled
-            self._close_orphaned_admission(body)
+            self._ends.close_orphaned_admission(body)
             self._abandon(attempt, body)
             raise
         finally:
@@ -366,72 +355,20 @@ class SessionManager:
         async with self._lock:
             return await self._admit_locked(attempt)
 
-    def _close_orphaned_admission(self, body: asyncio.Task[Any]) -> None:
-        """Our handler was cancelled just as the admission *succeeded* (D61-1).
-
-        The session is registered in ``_live`` but nobody will ever start its
-        reader or drain its outbound queue: without this it would read ONLINE
-        (a phantom) until its lease expired. It is closed ``stream_lost`` - the
-        same end the servicer gives a call cancelled one step later.
-        """
-        if not body.done() or body.cancelled() or body.exception() is not None:
-            return
-        result = body.result()
-        if isinstance(result, Accepted):
-            log.info(
-                "session.admitted_without_handler",
-                node_id=result.live.node_id,
-                session_id=result.live.session_id,
-            )
-            self._ends.close(result.live, SessionEndReason.STREAM_LOST)
-
     def _abandon(self, attempt: AdmissionAttempt, body: asyncio.Task[Any]) -> None:
-        """An admission failed or missed its deadline (D41).
-
-        The task is cancelled (never awaited here) and tracked, so its outcome is
-        logged. If it may already have written the node row (``row_written``),
-        that row could now read ONLINE for a session that will never exist - so
-        the attempt becomes a session lost at once: a lingering entry, SUSPECT
-        now and OFFLINE at the lease edge unless the agent's retry is admitted
-        first. It takes over the node's deferred end and lingering entry (no
-        event of their own), and its state writes are fenced on every session id
-        the row may still name (``fence_ids``); they wait for the abandoned task
-        to finish, so they land after whatever it committed.
-        """
+        """An admission failed or missed its deadline (D41): cancel its task (never
+        awaited here, but tracked so its outcome is logged), then leave the node
+        row honest (:meth:`.ends.SessionEnds.abandon_admission`)."""
         if not body.done():
             body.cancel()
             self._track(body)
-        if not attempt.row_written or attempt.admitted or attempt.state is None:
-            return
-        node_id = attempt.hello.node_id
-        fences = [] if attempt.superseded is None else [attempt.superseded.session_id]
-        deferred = self._claims.deferred_for(node_id)
-        if deferred is not None and self._claims.consume(deferred):
-            fences.append(deferred.session_id)
-            self._ends.finish_end(deferred, fire_event=False)
-        lingering = self._lingering.get(node_id)
-        if lingering is not None:
-            fences.append(lingering.session_id)
-            self._ends.end_linger(lingering, cause="replaced")
-        entry = self._new_session(
-            attempt.hello, attempt.peer_address, attempt.session_id, attempt.state
+        self._ends.abandon_admission(
+            attempt,
+            body,
+            lambda a: self._new_session(
+                a.hello, a.peer_address, a.session_id, a.state or NodeState.SUSPECT
+            ),
         )
-        entry.fence_ids = tuple(fences)
-        entry.writer.enqueue(
-            "await_abandoned_admission",
-            WriteKind.STATE,
-            functools.partial(asyncio.wait, {body}),
-        )
-        entry.ended = True
-        entry.end_reason = SessionEndReason.INTERNAL_ERROR
-        entry.done.set()
-        log.warning(
-            "session.admission_abandoned",
-            node_id=node_id,
-            session_id=entry.session_id,
-            also_fenced_on=list(fences),
-        )
-        self._ends.finish_end(entry, fire_event=True)
 
     def _release_claim(self, node_id: str, epoch: int) -> None:
         """End one pending Hello's claim; settle a deferred end nobody owns now.
@@ -695,7 +632,7 @@ class SessionManager:
                 count=live.stale_messages,
             )
             return
-        if which in self._deferred_ack:
+        if which in self.commands.deferred:
             # Acked by its handler once stored (module docstring); a duplicate
             # goes to the idempotent handler too, never straight to an Ack.
             if live.seen.remember(msg.message_id):
@@ -713,12 +650,12 @@ class SessionManager:
             )
         else:
             await self.dispatch.handler_for(which)(live, msg)
-        if which not in _UNACKED:
+        if which not in UNACKED:
             # Receipts (Ack) and probe replies (Pong) are never acknowledged - they
             # are never buffered or replayed, and acking them would ping-pong
             # forever. Every other message is, duplicates included: the agent may
             # have missed the first Ack.
-            self.send(live, self._ack(live, msg.message_id))
+            self.commands.ack(live, msg.message_id)
 
     async def _on_heartbeat(
         self, live: LiveSession, _msg: agent_pb2.AgentMessage
@@ -756,74 +693,9 @@ class SessionManager:
         """Callbacks into the job layer (V0.4 G4, :mod:`.hooks`)."""
         return self.commands.hooks
 
-    def defer_ack(self, payload: str) -> None:
-        """Let ``payload``'s handler ack it (after persisting it) - module docstring."""
-        if payload in _UNACKED:
-            raise ValueError(f"{payload!r} is never acked")
-        self._deferred_ack.add(payload)
-
-    def ack_message(self, live: LiveSession, message_id: str) -> bool:
-        """Ack an agent message now (a deferred Ack). False if the session ended
-        or the Ack could not be queued (the agent then replays the report)."""
-        if live.ended:
-            return False
-        try:
-            self.send(live, self._ack(live, message_id))
-        except OutboundOverflowError:
-            self.commands.overflowed(live)
-            return False
-        return True
-
-    def send_command(
-        self,
-        node_id: str,
-        payload_name: str,
-        payload: Any,
-        *,
-        attempt_id: str = "",
-        fencing_token: int = 0,
-    ) -> str | None:
-        """D64 - see :meth:`.commands.CommandChannel.send_command`."""
-        return self.commands.send_command(
-            node_id,
-            payload_name,
-            payload,
-            attempt_id=attempt_id,
-            fencing_token=fencing_token,
-        )
-
-    def _reconcile_hook(
-        self, live: LiveSession, reconcile: agent_pb2.Reconcile
-    ) -> None:
-        self.commands.call_hook("on_reconcile", live, reconcile)
-
-    def _node_offline(self, live: LiveSession, event: LivenessEvent) -> None:
-        if not self.closing:  # a controller shutdown is not the agent leaving (D66)
-            self.commands.call_hook("on_node_offline", live, event)
-
     async def flush_touch(self, live: LiveSession, now: float) -> None:
         """Timer hook: queue a pending ``last_seen_at`` write once its window closed."""
         self.heartbeats.flush_touch(live, now)
-
-    def _ack(self, live: LiveSession, acked: str) -> agent_pb2.ControllerMessage:
-        return agent_pb2.ControllerMessage(
-            message_id=new_command_id(),
-            session_id=live.session_id,
-            ack=agent_pb2.Ack(acked_message_id=acked),
-        )
-
-    def send(self, live: LiveSession, msg: agent_pb2.ControllerMessage) -> None:
-        """Queue a controller->agent message. Raises :class:`OutboundOverflowError`."""
-        if live.ended:
-            return
-        try:
-            live.outbound.put_nowait(msg)
-        except asyncio.QueueFull:
-            raise OutboundOverflowError(
-                session_id=live.session_id,
-                node_id=live.node_id,
-                capacity=self._queue_size,
-            ) from None
 
     # ------------------------------------------------------------------- RTT
 
