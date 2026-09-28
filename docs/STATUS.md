@@ -29,7 +29,7 @@ V1.0    ░░░░░░░░░░░░░░░░░░░░   0%   0/8 
 █ done `[x]` · ▒ in progress or waiting on a 🧑 lab step `[~]` · ░ not started
 
 ## Current Version
-**V0.4 — Remote execution core** · started 2026-09-28; G1–G3 code written (0.4.1–0.4.5, 0.4.7, 0.4.8, 0.4.16, 0.4.17 `[~]`); **one subagent at a time** — **G1 closed** (0.4.16 `[x]`); **G2 closed** (0.4.1, 0.4.3, 0.4.4, 0.4.5 `[x]`; 0.4.2 `[~]` until the Windows CI golden-digest run); **G3 closed** (0.4.7 `[x]`; 0.4.8 `[~]` until a real PyTorch CUDA run in the pinned image); next: G4 brief + implementer, then G5
+**V0.4 — Remote execution core** · started 2026-09-28 · **G1–G4 closed** (0.4.1, 0.4.3–0.4.7, 0.4.11, 0.4.12, 0.4.16 `[x]`; 0.4.2 `[~]` Windows CI digest; 0.4.8 `[~]` real CUDA run; 0.4.17 `[~]`) · **G5 (0.4.9, 0.4.10, 0.4.13, 0.4.14) in its fix-verification loop** — see Current Task · then 🧑 0.4.15 lab run
 **V0.3 — Fabric core** · started 2026-09-20 on the team's decision (before the laptop 2–4 inventory); **G1–G7 closed agent-side** (0.3.1, 0.3.3, 0.3.4, 0.3.5, 0.3.6, 0.3.8, 0.3.9, 0.3.10, 0.3.11, 0.3.12, 0.3.14 `[x]`; 0.3.2 `[~]` Windows run; 0.3.7 `[~]` lab evidence; 0.3.13 `[~]` Windows logoff check). Remaining: **only 🧑 0.3.15 lab run** (+ the three 🧑 Windows checks)
 V0.2 — Lab setup & feasibility validation · agent-side complete, waiting on 🧑 lab runs
 V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4, 0.1.10)
@@ -40,7 +40,10 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 > V0.10. 129 tasks vs 140–180 capacity → **~1.5 tasks/session**. Needs the other three team members' approval.
 
 ## Current Task
-**V0.4 started 2026-09-28** — brief `docs/briefs/V0.4-remote-execution.md` (D40–D54; 17 tasks in 5 groups; G1‖G2‖G3 parallel on disjoint files). **In flight: G1 session hardening** (0.4.16 explicit `Goodbye`, admission deadline, `claims.py`/`reports.py` split, overflow signal; 0.4.17 items 2, 5). **Next:** Lead adds V0.4 deps → spawn G2 (job model & submission: 0.4.1–0.4.5) and G3 (runtimes & sandbox: 0.4.7, 0.4.8, 0.4.17 items 1/3/4/6/8) in parallel. New **ADR-0014 (Proposed)**: fabric bearer token + agent execution opt-in until V0.7 — team review needed.
+**V0.4 G5 — tester round 2 after the fix round** (brief `docs/briefs/V0.4-remote-execution.md` §2h D71–D78, §5f). State 2026-09-29:
+implementer done (`d6b12e1` … `b1d5cbc`) → tester 1 PASS (`e8e50c9`) → reviewer pass 1 APPROVE (partial → D78) → **reviewer pass 2 REQUEST_CHANGES** (log write OSError killed the controller; `compute get --force` deleted the target before download) → **fix round done** (`dd95547` … `4bc14b3`, `094a757`; unit 4619 / component ctl 170 + agent 198 / cluster 52, exit 0) → **tester round 2 STOPPED mid-run** (account switch). Its two unverified test files are committed as `wip` — the next tester must check/keep/fix them.
+**Next:** re-run G5 tester round 2 (prompt in SESSION_HANDOFF §2, with the SAFETY RULE) → reviewer pass 3 on the fixes → close G5 (0.4.9, 0.4.10, 0.4.13, 0.4.14 `[x]`) → 🧑 0.4.15 lab run with `lab/checklists/V0.4-remote-exec.md`.
+**Team decision open:** attempts stuck in UPLOADING have no controller backstop (Lead suggests extending the timeout backstop to UPLOADING).
 
 **Carried from G6 (tracked as roadmap 0.4.16, a hard prerequisite of V0.6):** replace the timing-based clean-close inference (`HALF_CLOSE_CONFIRM_S`, measured on grpcio 1.84 → `grpcio<1.85` cap) with an explicit agent `Goodbye`; claim deadline for D28; extract `session/claims.py`; write-queue overflow signal; test the shutdown deferred-end backstop.
 
@@ -112,6 +115,8 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 - Windows: not yet run (first real CI run will cover unit + fresh-clone on windows-latest)
 
 ## Next Recommended Task
+**2026-09-29: G5 tester round 2 (re-run) → reviewer pass 3 → close G5 → 🧑 0.4.15 lab.** Details in Current Task. Everything below is history.
+
 **Models (2026-09-24):** Lead, implementer and reviewer now run **`claude-opus-5-5`**; tester stays `claude-sonnet-5` (commit `6563c7d`, details in `SESSION_HANDOFF.md` §0c). §0b's throughput numbers were measured on Opus 5 — re-baseline after G6 before re-planning.
 
 **Agent-side, two things, can run in parallel (separate sessions, the fix task in its own worktree):**
