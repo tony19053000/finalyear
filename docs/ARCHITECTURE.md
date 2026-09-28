@@ -438,9 +438,12 @@ stateDiagram-v2
     PREPARING --> RUNNING
     RUNNING --> COLLECTING
     COLLECTING --> SUCCEEDED
+    COLLECTING --> FAILED: output upload failed / non-retryable
     PREPARING --> RETRYING: attempt failed (retryable)
     RUNNING --> RETRYING: attempt lost / failed (retryable)
     RETRYING --> PLANNING
+    PLANNING --> CANCELLED
+    RETRYING --> CANCELLED
     PREPARING --> FAILED: non-retryable
     RUNNING --> FAILED: non-retryable / retries exhausted
     SUBMITTED --> CANCELLED
@@ -451,6 +454,8 @@ stateDiagram-v2
     FAILED --> [*]
     CANCELLED --> [*]
 ```
+*Amended 2026-09-28 (V0.4 brief D55): `COLLECTING → FAILED`, `PLANNING → CANCELLED`, `RETRYING → CANCELLED` added — a cancel or an output-upload failure can happen in those states and the original diagram had no arrow for them.*
+
 Mode 3 jobs additionally track chunk states (`PENDING → LEASED → DONE | FAILED`), with lease expiry returning chunks to `PENDING`.
 
 ### 12.2 Attempt (one execution of a job/chunk on one node)
