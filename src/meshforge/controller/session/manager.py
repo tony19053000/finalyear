@@ -83,6 +83,17 @@ not exist (:meth:`SessionManager._abandon`).
 envelope work (stale session, ``message_id``, dedupe, Ack) and calls the handler
 registered for the payload in :class:`~.dispatch.DispatchTable`; report
 handlers and their counters live in :class:`~.reports.ReportHandlers`.
+
+**Commands (V0.4 D64).** :meth:`SessionManager.send_command` puts a
+``ControllerMessage`` on the session's one outbound queue (the handler task is
+still the only writer of the stream) and remembers it as awaiting its Ack; the
+agent's ``Ack`` resolves it and fires :attr:`SessionManager.hooks`
+``on_command_acked``. A payload registered with :meth:`SessionManager.defer_ack`
+(``attempt_status``) is not acked here: its handler acks it with
+:meth:`SessionManager.ack_message` once it is **persisted**, so an Ack always
+means "stored" and an unacked report is replayed after a reconnect. Such a
+payload reaches its (idempotent) handler even when its ``message_id`` was seen
+before - acking a duplicate before the first copy is stored would lose it.
 """
 
 from __future__ import annotations
@@ -119,10 +130,10 @@ from meshforge.controller.session.admission import (
     unavailable,
 )
 from meshforge.controller.session.claims import AdmissionClaims
+from meshforge.controller.session.commands import CommandChannel
 from meshforge.controller.session.dispatch import (
     DispatchTable,
     check_envelope,
-    log_ack,
     log_unhandled,
 )
 from meshforge.controller.session.ends import SessionEnds
@@ -132,6 +143,7 @@ from meshforge.controller.session.errors import (
     SessionProtocolError,
 )
 from meshforge.controller.session.heartbeats import HeartbeatRecorder
+from meshforge.controller.session.hooks import SessionHooks
 from meshforge.controller.session.limits import check_goodbye
 from meshforge.controller.session.live import (
     RTT_EWMA_ALPHA,
@@ -210,10 +222,19 @@ class SessionManager:
         """payload name -> handler (D42); later versions register theirs here."""
         self.dispatch.register("heartbeat", self._on_heartbeat)
         self.dispatch.register("pong", self.heartbeats.on_pong_message)
-        self.dispatch.register("ack", log_ack)
+        self.commands = CommandChannel(
+            live=self._live,
+            send=self.send,
+            close=lambda live, reason: self._ends.close(live, reason),
+            queue_size=outbound_queue_size,
+        )
+        """Commands to agents and their Acks (D64, :mod:`.commands`)."""
+        self.dispatch.register("ack", self.commands.on_ack)
         self.dispatch.register("goodbye", self._on_goodbye)
         for payload, handler in self.reports.handlers().items():
             self.dispatch.register(payload, handler)
+        self.reports.reconcile_listener = self._reconcile_hook
+        self._deferred_ack: set[str] = set()
         self._tasks: set[asyncio.Task[Any]] = set()
         self._chains: set[WriteChain] = set()
         """Write chains not yet finished (closed sessions included until drained)."""
@@ -230,6 +251,7 @@ class SessionManager:
             claims=self._claims,
             owned=self.admission_pending,
             wake=self.wake,
+            on_offline=self._node_offline,
         )
         """What a session end writes (D19/D28, :mod:`.ends`)."""
 
@@ -673,6 +695,13 @@ class SessionManager:
                 count=live.stale_messages,
             )
             return
+        if which in self._deferred_ack:
+            # Acked by its handler once stored (module docstring); a duplicate
+            # goes to the idempotent handler too, never straight to an Ack.
+            if live.seen.remember(msg.message_id):
+                live.duplicates += 1
+            await self.dispatch.handler_for(which)(live, msg)
+            return
         if live.seen.remember(msg.message_id):
             live.duplicates += 1
             log.debug(
@@ -719,6 +748,58 @@ class SessionManager:
             detail=msg.goodbye.detail or None,
         )
         self._ends.close(live, SessionEndReason.AGENT_CLOSED)
+
+    # ------------------------------------------------------------- commands
+
+    @property
+    def hooks(self) -> SessionHooks:
+        """Callbacks into the job layer (V0.4 G4, :mod:`.hooks`)."""
+        return self.commands.hooks
+
+    def defer_ack(self, payload: str) -> None:
+        """Let ``payload``'s handler ack it (after persisting it) - module docstring."""
+        if payload in _UNACKED:
+            raise ValueError(f"{payload!r} is never acked")
+        self._deferred_ack.add(payload)
+
+    def ack_message(self, live: LiveSession, message_id: str) -> bool:
+        """Ack an agent message now (a deferred Ack). False if the session ended
+        or the Ack could not be queued (the agent then replays the report)."""
+        if live.ended:
+            return False
+        try:
+            self.send(live, self._ack(live, message_id))
+        except OutboundOverflowError:
+            self.commands.overflowed(live)
+            return False
+        return True
+
+    def send_command(
+        self,
+        node_id: str,
+        payload_name: str,
+        payload: Any,
+        *,
+        attempt_id: str = "",
+        fencing_token: int = 0,
+    ) -> str | None:
+        """D64 - see :meth:`.commands.CommandChannel.send_command`."""
+        return self.commands.send_command(
+            node_id,
+            payload_name,
+            payload,
+            attempt_id=attempt_id,
+            fencing_token=fencing_token,
+        )
+
+    def _reconcile_hook(
+        self, live: LiveSession, reconcile: agent_pb2.Reconcile
+    ) -> None:
+        self.commands.call_hook("on_reconcile", live, reconcile)
+
+    def _node_offline(self, live: LiveSession, event: LivenessEvent) -> None:
+        if not self.closing:  # a controller shutdown is not the agent leaving (D66)
+            self.commands.call_hook("on_node_offline", live, event)
 
     async def flush_touch(self, live: LiveSession, now: float) -> None:
         """Timer hook: queue a pending ``last_seen_at`` write once its window closed."""

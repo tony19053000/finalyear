@@ -23,10 +23,12 @@ from meshforge.controller.registry import SessionEndReason
 from meshforge.controller.session.writer import WriteChain
 
 __all__ = [
+    "MAX_AWAITING_ACK",
     "RTT_EWMA_ALPHA",
     "Accepted",
     "AdmitResult",
     "LiveSession",
+    "PendingCommand",
     "Rejected",
     "SeenIds",
     "end_event",
@@ -35,6 +37,20 @@ __all__ = [
 
 RTT_EWMA_ALPHA: Final = 0.3
 """Weight of the newest RTT sample in ``rtt_ewma_ms`` (roadmap 0.3.10)."""
+MAX_AWAITING_ACK: Final = 4096
+"""Commands remembered as "sent, not yet acked" per session (D64); the oldest is
+forgotten above this - its Ack then only logs. Commands are rare (one per
+attempt start/cancel), so this bounds a broken agent, not normal use."""
+
+
+@dataclass(frozen=True, slots=True)
+class PendingCommand:
+    """A controller command waiting for the agent's Ack (D64)."""
+
+    payload: str
+    attempt_id: str = ""
+    fencing_token: int = 0
+
 
 _CLEAN_END: Final[frozenset[SessionEndReason]] = frozenset(
     {SessionEndReason.AGENT_CLOSED, SessionEndReason.CONTROLLER_SHUTDOWN}
@@ -146,6 +162,18 @@ class LiveSession:
     """When the last ``touch_node`` write was issued; None before the first."""
     touch_dirty: bool = False
     """Heartbeats arrived since ``last_touch_at`` that are not yet persisted."""
+    # commands and attempt reports (V0.4 G4, D64/D52)
+    awaiting_ack: dict[str, PendingCommand] = field(default_factory=dict)
+    """Commands sent on this session and not yet acked, by ``message_id``."""
+    commands_sent: int = 0
+    commands_acked: int = 0
+    attempt_status_received: int = 0
+    attempt_status_fenced: int = 0
+    """Reports for a stale token / an attempt the controller already ended."""
+    attempt_status_rejected: int = 0
+    """Reports that broke a bound (dropped, logged)."""
+    attempt_status_dropped: int = 0
+    """Reports not queued because the status queue was full (not acked: replayed)."""
 
     def summary(self) -> dict[str, int | float | None]:
         """Every per-session counter, for the ``session.closed`` log line (D43)."""
@@ -166,6 +194,13 @@ class LiveSession:
             "writes_failed": self.writer.failed,
             "writes_dropped": self.writer.dropped,
             "write_overflow_episodes": self.writer.overflow_episodes,
+            "commands_sent": self.commands_sent,
+            "commands_acked": self.commands_acked,
+            "commands_unacked": len(self.awaiting_ack),
+            "attempt_status_received": self.attempt_status_received,
+            "attempt_status_fenced": self.attempt_status_fenced,
+            "attempt_status_rejected": self.attempt_status_rejected,
+            "attempt_status_dropped": self.attempt_status_dropped,
         }
 
     def touch_due_at(self, interval_s: float) -> float | None:

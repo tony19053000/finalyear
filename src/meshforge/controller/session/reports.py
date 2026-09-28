@@ -65,6 +65,10 @@ class ReportHandlers:
         """Where ResourceUpdates go (roadmap 0.3.11); None = not recorded."""
         self.hardware_scores_rejected_total = 0
         """Score sets dropped by D38 validation across all sessions."""
+        self.reconcile_listener: (
+            Callable[[LiveSession, agent_pb2.Reconcile], None] | None
+        ) = None
+        """Also told about every Reconcile (the manager's job-layer hook, D66)."""
 
     def handlers(self) -> dict[str, Handler]:
         """The report payloads' dispatch handlers (D42), by payload name."""
@@ -143,11 +147,13 @@ class ReportHandlers:
         ``replay_from_sequence > 0`` means this is the *same* agent process
         replaying its un-acked reports, so the resource sink must keep its dedupe
         cursor and reject them; ``0`` (nothing buffered) leaves the reset armed by
-        the session's opening. ``running_attempts`` belongs to V0.4's executor and
-        is only counted here.
+        the session's opening. ``running_attempts`` go to
+        :attr:`reconcile_listener` (the dispatcher's D66 reconciliation).
         """
         if self._resources is not None:
             self._resources.begin_session(live.node_id, reconcile.replay_from_sequence)
+        if self.reconcile_listener is not None:
+            self.reconcile_listener(live, reconcile)
         log.info(
             "session.reconciled",
             node_id=live.node_id,

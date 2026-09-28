@@ -53,6 +53,7 @@ class SessionEnds:
         claims: AdmissionClaims,
         owned: Callable[[LiveSession], bool],
         wake: asyncio.Event,
+        on_offline: Callable[[LiveSession, LivenessEvent], None] | None = None,
     ) -> None:
         self._registry = registry
         self._clock = clock
@@ -62,6 +63,9 @@ class SessionEnds:
         self._owned = owned
         """``SessionManager.admission_pending``: a pending Hello owns the state."""
         self._wake = wake
+        self._on_offline = on_offline
+        """Called once per real ``-> OFFLINE`` arrow (V0.4 D66: the node's live
+        attempts are lost). Never for SUSPECT: a blip must not kill work."""
 
     def apply_event(
         self, live: LiveSession, event: LivenessEvent, *, silence_s: float
@@ -92,6 +96,8 @@ class SessionEnds:
         if new is old:
             return old
         live.state = new
+        if new is NodeState.OFFLINE and self._on_offline is not None:
+            self._on_offline(live, event)
         for fence in (live.session_id, *live.fence_ids):  # D41: at most one lands
             live.writer.enqueue(
                 "set_node_state",
