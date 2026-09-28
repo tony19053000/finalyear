@@ -17,7 +17,10 @@ optional ``Idempotency-Key`` header (1-128 printable ASCII characters):
    the job the GPU/VRAM/RAM/CPUs it asks for);
 5. only then is the job written: ``SUBMITTED -> PLANNING -> QUEUED``, each arrow
    recorded with its time (``PLANNING`` is a pass-through while placement is
-   manual). Answer ``201 {job_id, state: "queued", created: true}``.
+   manual) - the row and all three arrows commit in **one** transaction
+   (:meth:`JobStore.create_queued_job`), so no job is ever left half-submitted
+   and a replay always sees it ``queued`` or later. Answer
+   ``201 {job_id, state: "queued", created: true}``.
 
 **A rejected request never creates a row.** Concurrent duplicate POSTs with one
 key produce one row (the unique index), and every loser gets the winner's job.
@@ -63,7 +66,6 @@ from meshforge.controller.jobs.store import (
     JobRecord,
     JobStore,
 )
-from meshforge.controller.jobs.transitions import JobEvent
 
 __all__ = [
     "DEFAULT_JOB_LIMIT",
@@ -292,7 +294,7 @@ async def submit_job(
         raise ApiError(exc.failure_type, exc.message) from None
 
     try:
-        job, created = await jobs.store.create_job(
+        job, created = await jobs.store.create_queued_job(
             job_id=str(new_job_id()),
             name=manifest.name,
             manifest=canonical_manifest,
@@ -308,10 +310,6 @@ async def submit_job(
         ) from None
     if not created:  # lost a concurrent race for the same key, same request
         return _replay(job, digest, response)
-    await jobs.store.transition_job(job.id, JobEvent.PLAN, expected=JobState.SUBMITTED)
-    job = await jobs.store.transition_job(
-        job.id, JobEvent.PLANNED, expected=JobState.PLANNING
-    )
     log.info(
         "controller.jobs.submitted",
         job_id=job.id,

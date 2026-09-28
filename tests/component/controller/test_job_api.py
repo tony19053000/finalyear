@@ -17,11 +17,13 @@ import pytest
 import pytest_asyncio
 from mf_jobs_harness import api_client, g2_settings, running_controller, token_of
 from mf_session_client import FakeAgent
+from sqlalchemy import text
 
 from meshforge.common.hashing import sha256_bytes
 from meshforge.common.ids import new_node_id
 from meshforge.common.proto.meshforge.v1 import agent_pb2
 from meshforge.controller.server import ControllerRuntime
+from meshforge.controller.store.engine import create_engine
 from meshforge.controller.store.settings import DatabaseSettings
 
 pytestmark = pytest.mark.asyncio
@@ -168,6 +170,62 @@ async def test_concurrent_duplicate_posts_make_one_row(
         )
     assert sorted(r.status_code for r in responses) == [200] * 7 + [201]
     assert len({r.json()["job_id"] for r in responses}) == 1
+    # Atomic submission: no loser can observe the winner mid-flight.
+    assert {r.json()["state"] for r in responses} == {"queued"}
+    assert await _job_count(runtime) == 1
+
+
+async def test_submission_failing_after_the_insert_leaves_no_row(
+    runtime: ControllerRuntime,
+    agents: Any,
+    bundle: str,
+    pg_settings: DatabaseSettings,
+) -> None:
+    """A real database error on the last history row -> 503 and nothing stored;
+    the same Idempotency-Key then succeeds (it was never burned)."""
+    agent = await agents("exec")
+    engine = create_engine(pg_settings)
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(
+                text(
+                    "CREATE FUNCTION mf_test_break() RETURNS trigger AS $$ BEGIN "
+                    "IF NEW.to_state = 'queued' THEN RAISE EXCEPTION 'injected'; "
+                    "END IF; RETURN NEW; END $$ LANGUAGE plpgsql"
+                )
+            )
+            await conn.execute(
+                text(
+                    "CREATE TRIGGER mf_test_break BEFORE INSERT ON job_transition "
+                    "FOR EACH ROW EXECUTE FUNCTION mf_test_break()"
+                )
+            )
+        headers = {"Idempotency-Key": "broken-db"}
+        async with api_client(runtime, token=token_of(runtime)) as client:
+            failed = await client.post(
+                "/v1/jobs", json=_body(bundle, agent.node_id), headers=headers
+            )
+            assert failed.status_code == 503, failed.text
+            assert failed.json()["error"]["code"] == "network_error"
+            async with engine.connect() as conn:
+                counts = (
+                    await conn.execute(
+                        text(
+                            "SELECT (SELECT count(*) FROM job), "
+                            "(SELECT count(*) FROM job_transition)"
+                        )
+                    )
+                ).one()
+            assert tuple(counts) == (0, 0)
+            async with engine.begin() as conn:
+                await conn.execute(text("DROP TRIGGER mf_test_break ON job_transition"))
+            retried = await client.post(
+                "/v1/jobs", json=_body(bundle, agent.node_id), headers=headers
+            )
+            assert retried.status_code == 201, retried.text
+            assert retried.json()["state"] == "queued"
+    finally:
+        await engine.dispose()
     assert await _job_count(runtime) == 1
 
 

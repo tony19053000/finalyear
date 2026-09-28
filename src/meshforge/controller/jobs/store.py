@@ -14,6 +14,15 @@ concurrent POSTs with one key produce exactly one row (the unique index decides)
 and the losers read the winner's row and compare request hashes - equal is a
 replay (same job), different is :class:`IdempotencyConflictError`.
 
+**Atomic submission.** :meth:`JobStore.create_queued_job` inserts the job *and*
+its whole ``SUBMITTED -> PLANNING -> QUEUED`` history in one transaction (arrows
+from :func:`next_job_state`, each history row stamped with ``clock_timestamp()``
+so the pass-through still has real, ordered times). A crash, dropped connection
+or cancelled request anywhere inside leaves no row at all, never a job stuck in
+``SUBMITTED``/``PLANNING`` that nothing will ever dispatch; and because a key
+loser's ``ON CONFLICT`` waits for the winner's commit, every reader (replay or
+race loser) sees the job ``QUEUED`` or later.
+
 **Fencing tokens.** ``create_attempt`` allocates ``job.attempt_epoch + 1`` with one
 ``UPDATE ... RETURNING`` (atomic), so attempts of a job are numbered 1, 2, ...
 and a report carrying an older token is recognisably stale
@@ -21,7 +30,8 @@ and a report carrying an older token is recognisably stale
 
 Callers get frozen records, never ORM objects. Driver/network errors become
 :class:`JobStoreError` (``network_error``, retryable). Timestamps are the
-database's wall clock (``now()``); nothing here measures durations.
+database's wall clock (``now()``, or ``clock_timestamp()`` where several history
+rows share one transaction); nothing here measures durations.
 """
 
 from __future__ import annotations
@@ -228,9 +238,18 @@ def _typed[**P, R](
 
 
 async def _append_transition(
-    db: AsyncSession, job_id: str, from_state: JobState | None, to_state: JobState
+    db: AsyncSession,
+    job_id: str,
+    from_state: JobState | None,
+    to_state: JobState,
+    *,
+    at: Any = None,
 ) -> None:
-    """Next ``seq`` for the job; only called while this tx holds the job row."""
+    """Next ``seq`` for the job; only called while this tx holds the job row.
+
+    ``at`` defaults to ``now()`` (the transaction's start); pass
+    ``func.clock_timestamp()`` when one transaction appends several rows.
+    """
     last = await db.scalar(
         select(func.coalesce(func.max(JobTransition.seq), 0)).where(
             JobTransition.job_id == job_id
@@ -242,7 +261,7 @@ async def _append_transition(
             seq=int(last or 0) + 1,
             from_state=from_state.value if from_state is not None else None,
             to_state=to_state.value,
-            at=func.now(),
+            at=func.now() if at is None else at,
         )
     )
     await db.flush()
@@ -269,12 +288,22 @@ class JobStore:
         placement: Mapping[str, Any],
         request_hash: str,
         idempotency_key: str | None,
+        through: Sequence[JobEvent] = (),
     ) -> tuple[JobRecord, bool]:
-        """Insert a SUBMITTED job; ``(record, created)``. See module docstring."""
+        """Insert a job; ``(record, created)``. See module docstring.
+
+        The job starts ``SUBMITTED`` and is walked through ``through`` (each arrow
+        from :func:`next_job_state`, so an illegal path raises before any write);
+        the row, its final state and every history row commit together or not at
+        all. Most callers want :meth:`create_queued_job`.
+        """
+        path: list[tuple[JobState | None, JobState]] = [(None, JobState.SUBMITTED)]
+        for event in through:
+            path.append((path[-1][1], next_job_state(path[-1][1], event)))
         values = {
             "id": job_id,
             "name": name,
-            "state": JobState.SUBMITTED.value,
+            "state": path[-1][1].value,
             "manifest": dict(manifest),
             "bundle_digest": bundle_digest,
             "placement": dict(placement),
@@ -289,10 +318,14 @@ class JobStore:
                 )
             inserted = await db.scalar(statement.returning(Job.id))
             if inserted is not None:
-                await _append_transition(db, job_id, None, JobState.SUBMITTED)
+                for from_state, to_state in path:
+                    await _append_transition(
+                        db, job_id, from_state, to_state, at=func.clock_timestamp()
+                    )
                 row = await db.get_one(Job, job_id)
                 return _job(row), True
         # Lost the key race (or a retry of an earlier request): read the winner.
+        # ON CONFLICT waited for the winner's commit, so its whole path is visible.
         existing = await self.get_job_by_key(idempotency_key or "")
         if existing is None:  # pragma: no cover - the unique row cannot vanish
             raise JobStoreError("idempotency conflict without a row")
@@ -302,6 +335,32 @@ class JobStore:
                 details={"job_id": existing.id},
             )
         return existing, False
+
+    async def create_queued_job(
+        self,
+        *,
+        job_id: str,
+        name: str,
+        manifest: Mapping[str, Any],
+        bundle_digest: str,
+        placement: Mapping[str, Any],
+        request_hash: str,
+        idempotency_key: str | None,
+    ) -> tuple[JobRecord, bool]:
+        """Atomically submit a manually placed job (D50): ``SUBMITTED -> PLANNING
+        -> QUEUED`` in one transaction. ``created`` is False for an idempotent
+        replay / key-race loser (the existing job, already ``QUEUED`` or later).
+        """
+        return await self.create_job(
+            job_id=job_id,
+            name=name,
+            manifest=manifest,
+            bundle_digest=bundle_digest,
+            placement=placement,
+            request_hash=request_hash,
+            idempotency_key=idempotency_key,
+            through=(JobEvent.PLAN, JobEvent.PLANNED),
+        )
 
     @_typed
     async def get_job(self, job_id: str) -> JobRecord | None:
