@@ -378,3 +378,30 @@ def test_reconnect_cap_cannot_exceed_the_criterion_2_bound(
             data_dir=tmp_path,
             agent={"controller_address": "127.0.0.1:1", "reconnect": {"cap_s": cap_s}},
         )
+
+
+@pytest.mark.asyncio
+async def test_resend_report_rewrites_the_buffered_message_with_its_own_id(
+    client: AgentSessionClient,
+) -> None:
+    """D75: a final AttemptStatus is re-sent with the same message_id while the
+    ring holds it; offline it is left to the replay; gone -> False."""
+    status = agent_pb2.AttemptStatus(attempt_id="att_x", fencing_token=1)
+    mid = await client.send_report("attempt_status", status)
+    assert await client.resend_report(mid) is True  # offline: the replay has it
+    assert client.stats.reports_resent == 0
+    call = _online(client)
+    assert await client.resend_report(mid) is True
+    assert [m.message_id for m in call.written] == [mid]
+    assert call.written[0].attempt_status.attempt_id == "att_x"
+    assert call.written[0].session_id == client.session_id
+    assert client.stats.reports_resent == 1
+    await client._handle(
+        agent_pb2.ControllerMessage(
+            message_id=new_command_id(),
+            session_id=client.session_id,
+            ack=agent_pb2.Ack(acked_message_id=mid),
+        )
+    )
+    assert await client.resend_report(mid) is False  # acked: nothing to resend
+    assert await client.resend_report("cmd_unknown") is False

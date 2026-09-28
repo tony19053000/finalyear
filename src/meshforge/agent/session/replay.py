@@ -92,6 +92,10 @@ class ReplayRing:
         ack, or the entry was already dropped)."""
         return self._entries.pop(message_id, None) is not None
 
+    def get(self, message_id: str) -> ReplayEntry | None:
+        """The buffered entry for ``message_id`` (None once acked or evicted)."""
+        return self._entries.get(message_id)
+
     def pending(self) -> list[ReplayEntry]:
         """Entries in send order (oldest first)."""
         return list(self._entries.values())

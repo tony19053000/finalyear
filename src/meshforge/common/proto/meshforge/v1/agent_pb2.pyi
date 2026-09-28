@@ -1175,24 +1175,33 @@ Global___ExecutionSpec: _TypeAlias = ExecutionSpec  # noqa: Y015
 
 @_typing.final
 class CancelAttempt(_message.Message):
+    """Stop an attempt (D69). `release` (V0.4 G5, D75): the controller has already
+    ended this attempt (or never knew it) - stop it if it still runs, then forget
+    it and free its workdir at once, without waiting for an Ack of its terminal
+    report (nothing the agent reports about it will be applied).
+    """
+
     DESCRIPTOR: _descriptor.Descriptor
 
     ATTEMPT_ID_FIELD_NUMBER: _builtins.int
     FENCING_TOKEN_FIELD_NUMBER: _builtins.int
     REASON_FIELD_NUMBER: _builtins.int
+    RELEASE_FIELD_NUMBER: _builtins.int
     attempt_id: _builtins.str
     fencing_token: _builtins.int
     reason: _builtins.str
+    release: _builtins.bool
     def __init__(
         self,
         *,
         attempt_id: _builtins.str = ...,
         fencing_token: _builtins.int = ...,
         reason: _builtins.str = ...,
+        release: _builtins.bool = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["attempt_id", b"attempt_id", "fencing_token", b"fencing_token", "reason", b"reason"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["attempt_id", b"attempt_id", "fencing_token", b"fencing_token", "reason", b"reason", "release", b"release"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 

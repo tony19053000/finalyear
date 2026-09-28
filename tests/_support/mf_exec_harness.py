@@ -30,7 +30,7 @@ from meshforge.agent.execution.offer import ExecutionSetup, build_execution
 from meshforge.agent.execution.runtime import RuntimeAvailability
 from meshforge.agent.hardware.limits import clip_capabilities
 from meshforge.agent.identity import load_or_create
-from meshforge.agent.runtime import controller_host
+from meshforge.agent.runtime import controller_host, wire_executor
 from meshforge.agent.session.client import AgentSessionClient
 from meshforge.agent.session.hello import basic_hardware
 from meshforge.agent.session.state import AgentState
@@ -93,12 +93,10 @@ class ExecAgent:
             setup,
             node_id=client.node_id,
             report=client.send_report,
+            resend=client.resend_report,
             controller_host=lambda: controller_host(client.controller_target),
         )
-        client.command_handler = executor.handle
-        client.held_attempts = executor.held
-        client.on_report_acked = executor.report_acked
-        client.before_goodbye = executor.shutdown
+        wire_executor(client, executor)
         if setup.enabled:
             await executor.start()
         agent = cls(client, executor, setup)

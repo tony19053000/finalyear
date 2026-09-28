@@ -3,7 +3,8 @@
 A real bundle is packed and "fetched" by copying it; the runtime is a fake that
 records calls. Checked: state order, the disabled agent never calls a runtime,
 dedupe on (attempt_id, fencing_token), cancel and agent shutdown typing, and
-"held until the terminal report is acked".
+"held until the terminal report is acked", and the D75 re-send / release rules
+(clock injected: no real waits).
 """
 
 from __future__ import annotations
@@ -96,7 +97,12 @@ def _setup(runtime: FakeRuntime, *, enabled: bool = True) -> ExecutionSetup:
 
 
 def _executor(
-    tmp_path: Path, runtime: FakeRuntime, reports: Reports, *, enabled: bool = True
+    tmp_path: Path,
+    runtime: FakeRuntime,
+    reports: Reports,
+    *,
+    enabled: bool = True,
+    **extra: Any,
 ) -> tuple[Executor, str]:
     project = tmp_path / "proj"
     project.mkdir(exist_ok=True)
@@ -126,6 +132,7 @@ def _executor(
         report=reports,
         controller_host=lambda: "127.0.0.1",
         fetch=fake_fetch,
+        **extra,
     )
     return executor, digest
 
@@ -278,3 +285,155 @@ async def test_an_invalid_manifest_fails_typed_before_staging(tmp_path: Path) ->
     status = reports.sent[0][1]
     assert failure_type_from_proto(status.failure.failure_type).value == "invalid_input"
     assert runtime.calls == 0
+
+
+# ------------------------------------------------------------------ D75
+
+
+class Clock:
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+class Ring:
+    """What ``AgentSessionClient.resend_report`` sees: ids still buffered."""
+
+    def __init__(self) -> None:
+        self.buffered: set[str] = set()
+        self.rewritten: list[str] = []
+
+    async def __call__(self, message_id: str) -> bool:
+        if message_id not in self.buffered:
+            return False
+        self.rewritten.append(message_id)
+        return True
+
+
+async def _finished(
+    tmp_path: Path, **extra: Any
+) -> tuple[Executor, Reports, agent_pb2.ControllerMessage]:
+    runtime, reports = FakeRuntime(), Reports()
+    executor, digest = _executor(tmp_path, runtime, reports, **extra)
+    msg = _start(digest)
+    executor.handle(msg)
+    await _settle(executor)
+    assert reports.states()[-1] == "done"
+    return executor, reports, msg
+
+
+@pytest.mark.asyncio
+async def test_an_unacked_final_report_is_resent_until_acked(tmp_path: Path) -> None:
+    clock, ring = Clock(), Ring()
+    executor, reports, msg = await _finished(tmp_path, clock=clock, resend=ring)
+    first_id = reports.sent[-1][0]
+    ring.buffered.add(first_id)
+    period = executor._cfg.terminal_resend_s
+    clock.now += period - 0.01
+    assert await executor.resend_due() == 0  # not due yet
+    clock.now += 0.02
+    assert await executor.resend_due() == 1
+    assert ring.rewritten == [first_id]  # still buffered: the same message again
+    # the ring evicted it: a NEW report carrying the same final status
+    ring.buffered.clear()
+    clock.now += period
+    before = len(reports.sent)
+    assert await executor.resend_due() == 1
+    assert len(reports.sent) == before + 1
+    new_id, again = reports.sent[-1]
+    assert again.attempt_id == msg.start_attempt.attempt_id
+    assert attempt_state_from_proto(again.state).value == "done"
+    assert again.phases.HasField("run_s") and again.exit_code == 0
+    # an Ack of EITHER copy releases the attempt; then nothing is re-sent
+    executor.report_acked(new_id)
+    assert executor.held() == []
+    clock.now += 10 * period
+    assert await executor.resend_due() == 0
+    await executor.close()
+
+
+@pytest.mark.asyncio
+async def test_an_ack_of_the_first_copy_after_a_resend_releases_too(
+    tmp_path: Path,
+) -> None:
+    clock, ring = Clock(), Ring()
+    executor, reports, _ = await _finished(tmp_path, clock=clock, resend=ring)
+    first_id = reports.sent[-1][0]
+    clock.now += executor._cfg.terminal_resend_s
+    await executor.resend_due()  # evicted -> a second message id
+    executor.report_acked(first_id)
+    assert executor.held() == []
+    await executor.close()
+
+
+@pytest.mark.asyncio
+async def test_after_reconcile_makes_every_held_final_report_due(
+    tmp_path: Path,
+) -> None:
+    clock, ring = Clock(), Ring()
+    executor, reports, _ = await _finished(tmp_path, clock=clock, resend=ring)
+    ring.buffered.add(reports.sent[-1][0])
+    assert await executor.resend_due() == 0
+    executor.after_reconcile()
+    assert await executor.resend_due() == 1  # at once, no period to wait
+    await executor.close()
+
+
+@pytest.mark.asyncio
+async def test_release_frees_an_ended_attempt_without_an_ack(tmp_path: Path) -> None:
+    executor, _reports, msg = await _finished(tmp_path)
+    workdir = executor.work_root / msg.start_attempt.attempt_id
+    assert workdir.is_dir()
+    release = agent_pb2.ControllerMessage(
+        cancel_attempt=agent_pb2.CancelAttempt(
+            attempt_id=msg.start_attempt.attempt_id, fencing_token=1, release=True
+        )
+    )
+    executor.handle(release)
+    assert executor.held() == []
+    await asyncio.gather(*executor._cleanup)
+    assert not workdir.exists()
+    # a plain cancel of an ended attempt releases nothing (it waits for its Ack)
+    (tmp_path / "b").mkdir()
+    executor2, _, msg2 = await _finished(tmp_path / "b")
+    executor2.handle(
+        agent_pb2.ControllerMessage(
+            cancel_attempt=agent_pb2.CancelAttempt(
+                attempt_id=msg2.start_attempt.attempt_id, fencing_token=1
+            )
+        )
+    )
+    assert len(executor2.held()) == 1
+    await executor.close()
+    await executor2.close()
+
+
+@pytest.mark.asyncio
+async def test_release_of_a_running_attempt_stops_it_then_frees_it(
+    tmp_path: Path,
+) -> None:
+    runtime, reports = FakeRuntime(hang=True), Reports()
+    executor, digest = _executor(tmp_path, runtime, reports)
+    msg = _start(digest)
+    executor.handle(msg)
+    for _ in range(100):
+        if runtime.calls:
+            break
+        await asyncio.sleep(0.01)
+    wrong = agent_pb2.CancelAttempt(
+        attempt_id=msg.start_attempt.attempt_id, fencing_token=7, release=True
+    )
+    executor.handle(agent_pb2.ControllerMessage(cancel_attempt=wrong))
+    await asyncio.sleep(0.02)
+    assert len(executor.held()) == 1  # another token: not this attempt
+    right = agent_pb2.CancelAttempt(
+        attempt_id=msg.start_attempt.attempt_id, fencing_token=1, release=True
+    )
+    executor.handle(agent_pb2.ControllerMessage(cancel_attempt=right))
+    await _settle(executor)
+    assert executor.held() == []  # released right after its final report
+    last = reports.sent[-1][1]
+    assert failure_type_from_proto(last.failure.failure_type).value == "cancelled"
+    await executor.close()

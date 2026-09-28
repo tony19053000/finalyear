@@ -22,16 +22,22 @@ that stopped accepting jobs fails it ``no_feasible_plan``.
 **Reports (D52).** Validated (:mod:`.reports`), then applied by
 :meth:`~.execution_store.ExecutionStore.apply_status` and only **then** acked
 (:meth:`~..session.manager.SessionManager.ack_message`): an Ack means "stored",
-and a report lost to a crash before that is replayed by the agent. A stale token
-or a report for an attempt the controller already ended is dropped, counted
-``fenced`` and answered with ``CancelAttempt`` (the agent must stop it).
+and a report lost to a crash before that is replayed by the agent (and a final
+one re-sent until acked, D75). A stale token, or a report for an attempt the
+controller already ended or does not know, is **acked**, counted ``fenced`` and
+answered with ``CancelAttempt{release}``: the agent stops it if it still runs and
+frees it (D75). A report whose handler fails with anything but a database error
+is a *poison* report: after ``POISON_LIMIT`` failures of the same
+``(attempt_id, state)`` it is acked and logged ``error`` with the exception type
+only, so it cannot be replayed forever (D75).
 
 **Reconcile (D66).** For the node's live attempts: held by the agent -> continue
 (re-sending a pending cancel); not held and ``StartAttempt`` never acked ->
 re-send the same attempt (the agent dedupes on ``(attempt_id, fencing_token)``);
 not held but acked -> ``LOST``, job ``FAILED(node_lost, agent_lost_attempt)`` -
 re-running it could duplicate an execution. Attempts the agent holds that the
-controller does not consider live get ``CancelAttempt``.
+controller does not consider live (ended, or unknown) get
+``CancelAttempt{release}`` (D75).
 
 **OFFLINE (D66).** A node the *agent* took OFFLINE (lease expired, Goodbye) loses
 its live attempts (``LOST``, job ``FAILED(node_lost)``; no retry until V0.6) and
@@ -52,6 +58,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import datetime as dt
+from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Final
@@ -86,12 +93,15 @@ from meshforge.controller.session.live import LiveSession, PendingCommand
 from meshforge.controller.session.manager import SessionManager
 from meshforge.controller.settings import JobApiSettings
 
-__all__ = ["Dispatcher", "DispatcherStats"]
+__all__ = ["POISON_LIMIT", "Dispatcher", "DispatcherStats"]
 
 log = get_logger(__name__)
 
 _RETRY_BASE_S: Final = 0.2
 _RETRY_CAP_S: Final = 5.0
+POISON_LIMIT: Final = 3
+"""Failures of one ``(attempt_id, state)`` report before it is acked anyway (D75)."""
+_POISON_TRACKED: Final = 1024
 
 
 # ---------------------------------------------------------------- work items
@@ -141,6 +151,8 @@ class DispatcherStats:
     attempts_lost: int = 0
     backstops: int = 0
     cancels_sent: int = 0
+    releases_sent: int = 0
+    statuses_poisoned: int = 0
     db_retries: int = 0
 
 
@@ -174,6 +186,7 @@ class Dispatcher:
         self._stopping = False
         self._started_at = clock()
         self.stats = DispatcherStats()
+        self._poison: OrderedDict[tuple[str, str], int] = OrderedDict()
         manager.dispatch.register("attempt_status", self._on_status_message)
         manager.defer_ack("attempt_status")
         hooks = manager.hooks
@@ -336,7 +349,13 @@ class Dispatcher:
 
     async def _handle(self, item: _Item) -> None:
         if isinstance(item, _Status):
-            await self._apply_status(item)
+            try:
+                await self._apply_status(item)
+            except (JobStoreError, asyncio.CancelledError):
+                raise
+            except Exception as exc:
+                if not self._poisoned(item, exc):
+                    raise
         elif isinstance(item, _Acked):
             await self._store.mark_start_acked(item.attempt_id, item.fencing_token)
         elif isinstance(item, _Reconcile):
@@ -350,6 +369,29 @@ class Dispatcher:
         await self._sweep_orphans()
 
     # ------------------------------------------------------------ reports
+
+    def _poisoned(self, item: _Status, exc: Exception) -> bool:
+        """Count a handler failure; at ``POISON_LIMIT`` ack the report (D75).
+        True = it was acked (the caller swallows the exception)."""
+        key = (item.report.attempt_id, item.report.state.value)
+        count = self._poison.pop(key, 0) + 1
+        if count < POISON_LIMIT:
+            self._poison[key] = count
+            while len(self._poison) > _POISON_TRACKED:
+                self._poison.popitem(last=False)
+            return False
+        self.stats.statuses_poisoned += 1
+        log.error(  # the type only: no user bytes, no traceback
+            "controller.jobs.status_poisoned",
+            node_id=item.live.node_id,
+            session_id=item.live.session_id,
+            attempt_id=item.report.attempt_id,
+            reported=item.report.state.value,
+            failures=count,
+            cause=type(exc).__name__,
+        )
+        self._manager.ack_message(item.live, item.message_id)
+        return True
 
     async def _apply_status(self, item: _Status) -> None:
         report, live = item.report, item.live
@@ -371,10 +413,15 @@ class Dispatcher:
                 outcome=outcome.kind.value,
                 stored=None if outcome.attempt is None else outcome.attempt.state.value,
             )
-            if report.state not in ATTEMPT_TERMINAL_STATES:
-                self._cancel_on(
-                    live.node_id, report.attempt_id, report.fencing_token, "fenced"
-                )
+            # D75: the controller is done with this (attempt, token): the agent
+            # must stop it if it still runs and free it either way.
+            self._cancel_on(
+                live.node_id,
+                report.attempt_id,
+                report.fencing_token,
+                "fenced",
+                release=True,
+            )
         self._manager.ack_message(live, item.message_id)
         self._after(outcome)
 
@@ -506,19 +553,29 @@ class Dispatcher:
         self._cancel_on(attempt.node_id, attempt.id, attempt.fencing_token, reason)
 
     def _cancel_on(
-        self, node_id: str, attempt_id: str, fencing_token: int, reason: str
+        self,
+        node_id: str,
+        attempt_id: str,
+        fencing_token: int,
+        reason: str,
+        *,
+        release: bool = False,
     ) -> None:
         sent = self._manager.send_command(
             node_id,
             "cancel_attempt",
             agent_pb2.CancelAttempt(
-                attempt_id=attempt_id, fencing_token=fencing_token, reason=reason
+                attempt_id=attempt_id,
+                fencing_token=fencing_token,
+                reason=reason,
+                release=release,
             ),
             attempt_id=attempt_id,
             fencing_token=fencing_token,
         )
         if sent is not None:
             self.stats.cancels_sent += 1
+            self.stats.releases_sent += int(release)
 
     # ------------------------------------------------------------ D66
 
@@ -548,7 +605,9 @@ class Dispatcher:
             await self._lose(entry, "agent_lost_attempt")
         for attempt_id, token in item.held.items():
             if attempt_id not in known:
-                self._cancel_on(node_id, attempt_id, token, "not_live_on_controller")
+                self._cancel_on(
+                    node_id, attempt_id, token, "not_live_on_controller", release=True
+                )
 
     async def _offline(self, item: _Offline) -> None:
         for entry in await self._store.live_attempts(item.node_id):

@@ -55,7 +55,10 @@ unchanged - because after an agent restart the controller must learn that the
 new process holds nothing; ``on_report_acked`` hears which buffered report the
 controller acknowledged; ``before_goodbye`` is awaited (bounded) on a requested
 stop before the Goodbye, so running attempts can report ``agent_shutdown``
-first (D52).
+first (D52); ``after_reconcile`` is called once a stream's Reconcile and replay
+are out, and :meth:`AgentSessionClient.resend_report` writes a still-buffered
+report again with its own ``message_id`` - together they let the executor
+re-send a final ``AttemptStatus`` until it is acked (V0.4 D75).
 
 Idempotency: a controller command with a foreign ``session_id`` is dropped and
 counted (``agent.session.stale_message``); a repeated ``message_id`` is acked again
@@ -175,6 +178,7 @@ class SessionStats:
     reports_sent: int = 0
     reports_acked: int = 0
     replayed: int = 0
+    reports_resent: int = 0
     stale_epoch_retries: int = 0
     stream_ends: list[StreamEnd] = field(default_factory=list)
 
@@ -282,6 +286,7 @@ class AgentSessionClient:
         self.held_attempts: Callable[[], list[agent_pb2.AttemptStatus]] | None = None
         self.on_report_acked: Callable[[str], None] | None = None
         self.before_goodbye: Callable[[], Awaitable[None]] | None = None
+        self.after_reconcile: Callable[[], None] | None = None
         self.controller_target: str = ""
         """The ``host:port`` this agent dialled for its current/last stream."""
 
@@ -615,6 +620,8 @@ class AgentSessionClient:
             reconciled = await self._reconcile_safely(gate, replay=reconnect)
             if reconciled:
                 gate.ready.set()
+                if self.after_reconcile is not None:
+                    self.after_reconcile()
             end = await self._read_loop(call)
         finally:
             self._heartbeat_task.cancel()
@@ -916,6 +923,23 @@ class AgentSessionClient:
             await self._write(msg)
             self.stats.reports_sent += 1
         return msg.message_id
+
+    async def resend_report(self, message_id: str) -> bool:
+        """Write the buffered report ``message_id`` again, same ``message_id`` (the
+        controller's handlers are idempotent). False if the ring no longer holds
+        it (acked, or evicted - the caller then sends a new report); True if it
+        is still buffered, written now or - not ONLINE - left for the replay."""
+        entry = self.ring.get(message_id)
+        if entry is None:
+            return False
+        if await self._wait_for_stream() is None:
+            return True
+        with contextlib.suppress(
+            grpc.aio.AioRpcError, grpc.aio.UsageError, asyncio.InvalidStateError
+        ):
+            await self._write(entry.message)
+            self.stats.reports_resent += 1
+        return True
 
     # ---------------------------------------------------------------- ends
 

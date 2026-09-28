@@ -185,6 +185,21 @@ async def discover_hardware(
     return summary, facts
 
 
+def wire_executor(client: AgentSessionClient, executor: Executor) -> None:
+    """Connect the executor to the session client's hooks.
+
+    D45/D52/D66: every StartAttempt reaches the executor before its Ack (a
+    disabled agent answers FAILED(unauthorized)); Reconcile lists what it holds;
+    a requested stop lets running attempts report agent_shutdown, then Goodbye.
+    D75: every Reconcile is followed by a re-send of held final reports.
+    """
+    client.command_handler = executor.handle
+    client.held_attempts = executor.held
+    client.on_report_acked = executor.report_acked
+    client.before_goodbye = executor.shutdown
+    client.after_reconcile = executor.after_reconcile
+
+
 async def serve(
     settings: AgentSettings, *, identity: NodeIdentity | None = None
 ) -> AgentSessionClient:
@@ -226,16 +241,11 @@ async def serve(
         execution,
         node_id=node_id,
         report=client.send_report,
+        resend=client.resend_report,
         controller_host=lambda: controller_host(client.controller_target),
         declared_gpus=[gpu.index for gpu in hardware.gpus],
     )
-    # D45/D52/D66: every StartAttempt reaches the executor before its Ack (a
-    # disabled agent answers FAILED(unauthorized)); Reconcile lists what it holds;
-    # a requested stop lets running attempts report agent_shutdown, then Goodbye.
-    client.command_handler = executor.handle
-    client.held_attempts = executor.held
-    client.on_report_acked = executor.report_acked
-    client.before_goodbye = executor.shutdown
+    wire_executor(client, executor)
     if execution.enabled:
         await executor.start()
     install_signal_handlers(client.request_stop)

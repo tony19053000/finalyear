@@ -30,10 +30,18 @@ Rules:
 * **Agent stop (D52).** :meth:`Executor.shutdown` cancels every running attempt;
   each reports ``FAILED(node_lost, detail=agent_shutdown)`` - retryable in V0.6 -
   and the session sends its Goodbye only afterwards.
-* **Held until acked.** An attempt stays listed for ``Reconcile`` until its
+* **Held until acked (D75).** An attempt stays listed for ``Reconcile`` until its
   terminal report is acked; then its workdir is deleted (unless
-  ``keep_workdirs``). Output bytes go to ``.meshforge/{stdout,stderr}.log`` in the
-  workdir (LogChunk streaming is G5).
+  ``keep_workdirs``). Until then the terminal report is **re-sent** every
+  ``terminal_resend_s`` and after every Reconcile (:meth:`Executor.after_reconcile`):
+  the same buffered message while the session's ring still holds it, a new one if
+  the ring evicted it. A report the controller dropped (full queue) or never got
+  (evicted before a reconnect) therefore still lands - long before the
+  controller's timeout backstop could mislabel a finished attempt.
+* **Release (D75).** ``CancelAttempt{release}`` means the controller already ended
+  (or never knew) the attempt: it is stopped if it runs, then forgotten and its
+  workdir freed without waiting for an Ack.
+* Output bytes go to ``.meshforge/{stdout,stderr}.log`` in the workdir.
 
 A failure anywhere is a typed ``failure_type`` in a ``FAILED`` report - never an
 exception out of the task (a bug is reported ``internal_error`` and logged with
@@ -71,7 +79,7 @@ from meshforge.common.proto.meshforge.v1 import agent_pb2, common_pb2
 from meshforge.common.proto_codec import attempt_state_to_proto, failure_type_to_proto
 from meshforge.common.states import AttemptState
 
-__all__ = ["MAX_LOG_BYTES", "Executor", "Reporter", "work_root_for"]
+__all__ = ["MAX_LOG_BYTES", "Executor", "Reporter", "Resender", "work_root_for"]
 
 log = get_logger(__name__)
 
@@ -101,6 +109,12 @@ class Reporter(Protocol):
     async def __call__(self, payload_name: str, payload: Any) -> str: ...
 
 
+class Resender(Protocol):
+    """``AgentSessionClient.resend_report``'s shape (False = no longer buffered)."""
+
+    async def __call__(self, message_id: str) -> bool: ...
+
+
 def work_root_for(settings: AgentSettings) -> Path:
     """``[agent.execution] workdir_root`` or ``<data_dir>/work``."""
     configured = settings.agent.execution.workdir_root
@@ -123,6 +137,10 @@ class _Attempt:
     stop_reason: str | None = None
     """``cancelled`` or ``agent_shutdown`` once a stop was asked for."""
     terminal_message_id: str | None = None
+    terminal_status: agent_pb2.AttemptStatus | None = None
+    """The final report, kept until acked so it can be re-sent (D75)."""
+    terminal_sent_at: float = 0.0
+    release_requested: bool = False
     workdir: Path | None = None
     phases: dict[str, float] = field(default_factory=dict)
 
@@ -188,6 +206,7 @@ class Executor:
         declared_gpus: Collection[int] = (),
         clock: Callable[[], float] = time.monotonic,
         fetch: Callable[..., Awaitable[int]] = fetch_bundle,
+        resend: Resender | None = None,
     ) -> None:
         self._settings = settings
         self._cfg = settings.agent.execution
@@ -198,12 +217,17 @@ class Executor:
         self._declared_gpus = frozenset(declared_gpus)
         self._clock = clock
         self._fetch = fetch
+        self._resend = resend
         self.work_root = work_root_for(settings)
         self._attempts: dict[str, _Attempt] = {}
         self._finished: OrderedDict[tuple[str, int], None] = OrderedDict()
         self._by_terminal_message: dict[str, str] = {}
         self._closing = False
         self._cleanup: set[asyncio.Task[None]] = set()
+        self._resend_task: asyncio.Task[None] | None = None
+        self._resend_wake = asyncio.Event()
+        self.terminal_resends = 0
+        """Final reports re-sent because no Ack came (D75; tests read it)."""
 
     # ------------------------------------------------------------ lifecycle
 
@@ -262,6 +286,8 @@ class Executor:
         leftovers = [
             a.task for a in self._attempts.values() if a.task and not a.task.done()
         ]
+        if self._resend_task is not None:
+            leftovers.append(self._resend_task)
         for task in [*leftovers, *self._cleanup]:
             task.cancel()
         await asyncio.gather(*leftovers, *self._cleanup, return_exceptions=True)
@@ -294,17 +320,98 @@ class Executor:
         attempt_id = self._by_terminal_message.pop(message_id, None)
         if attempt_id is None:
             return
-        attempt = self._attempts.pop(attempt_id, None)
-        if attempt is None:
+        attempt = self._attempts.get(attempt_id)
+        if attempt is not None:
+            self._release(attempt, cause="acked")
+
+    def after_reconcile(self) -> None:
+        """A stream's Reconcile + replay went out: re-send every held final
+        report now (one evicted from the ring is not in that replay, D75)."""
+        for attempt in self._attempts.values():
+            if attempt.terminal_status is not None:
+                attempt.terminal_sent_at = float("-inf")
+        self._resend_wake.set()
+
+    def _release(self, attempt: _Attempt, *, cause: str) -> None:
+        """Forget ``attempt`` and free its workdir (terminal Ack or release)."""
+        if self._attempts.pop(attempt.attempt_id, None) is None:
             return
+        for message_id in [
+            m for m, a in self._by_terminal_message.items() if a == attempt.attempt_id
+        ]:
+            del self._by_terminal_message[message_id]
         self._remember_finished(attempt)
+        log.info(
+            "agent.execution.attempt_released",
+            node_id=self._node_id,
+            job_id=attempt.job_id,
+            attempt_id=attempt.attempt_id,
+            cause=cause,
+        )
         if attempt.workdir is not None and not self._cfg.keep_workdirs:
             task = asyncio.create_task(
                 asyncio.to_thread(shutil.rmtree, attempt.workdir, True),
-                name=f"attempt-cleanup:{attempt_id}",
+                name=f"attempt-cleanup:{attempt.attempt_id}",
             )
             self._cleanup.add(task)
             task.add_done_callback(self._cleanup.discard)
+
+    # ------------------------------------------------------------ D75 re-send
+
+    def _ensure_resend_loop(self) -> None:
+        if self._resend_task is None or self._resend_task.done():
+            self._resend_task = asyncio.create_task(
+                self._resend_loop(), name=f"attempt-resend:{self._node_id}"
+            )
+            self._resend_task.add_done_callback(self._task_done)
+
+    async def _resend_loop(self) -> None:
+        """Re-send unacked final reports every ``terminal_resend_s`` (D75)."""
+        while True:
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(
+                    self._resend_wake.wait(), self._cfg.terminal_resend_s / 2
+                )
+            self._resend_wake.clear()
+            await self.resend_due()
+
+    async def resend_due(self) -> int:
+        """Re-send every held final report last sent ``terminal_resend_s`` ago or
+        more (the loop calls this; tests call it with an injected clock)."""
+        now = self._clock()
+        due = [
+            a
+            for a in self._attempts.values()
+            if a.terminal_status is not None
+            and now - a.terminal_sent_at >= self._cfg.terminal_resend_s
+        ]
+        for attempt in due:
+            await self._resend_terminal(attempt)
+        return len(due)
+
+    async def _resend_terminal(self, attempt: _Attempt) -> None:
+        status = attempt.terminal_status
+        if status is None or attempt.attempt_id not in self._attempts:
+            return
+        attempt.terminal_sent_at = self._clock()
+        self.terminal_resends += 1
+        kept = attempt.terminal_message_id
+        if kept is not None and self._resend is not None and await self._resend(kept):
+            same = True
+        else:
+            message_id = await self._report("attempt_status", status)
+            if attempt.attempt_id in self._attempts:  # not released meanwhile
+                attempt.terminal_message_id = message_id
+                self._by_terminal_message[message_id] = attempt.attempt_id
+            same = False
+        log.info(
+            "agent.execution.terminal_resent",
+            node_id=self._node_id,
+            job_id=attempt.job_id,
+            attempt_id=attempt.attempt_id,
+            fencing_token=attempt.token,
+            same_message=same,
+        )
 
     def _remember_finished(self, attempt: _Attempt) -> None:
         self._finished[(attempt.attempt_id, attempt.token)] = None
@@ -364,12 +471,17 @@ class Executor:
 
     def _cancel(self, msg: agent_pb2.CancelAttempt) -> None:
         attempt = self._attempts.get(msg.attempt_id)
-        if attempt is None or attempt.token != msg.fencing_token or attempt.ended:
+        if (
+            attempt is None
+            or attempt.token != msg.fencing_token
+            or (attempt.ended and not msg.release)
+        ):
             log.info(
                 "agent.execution.cancel_ignored",
                 node_id=self._node_id,
                 attempt_id=msg.attempt_id[:40] or None,
                 known=attempt is not None,
+                release=msg.release,
             )
             return
         log.info(
@@ -378,7 +490,13 @@ class Executor:
             job_id=attempt.job_id,
             attempt_id=attempt.attempt_id,
             reason=msg.reason[:64] or None,
+            release=msg.release,
         )
+        if msg.release:
+            attempt.release_requested = True
+            if attempt.ended:
+                self._release(attempt, cause="released")
+                return
         self._stop(attempt, "cancelled")
 
     def _stop(self, attempt: _Attempt, reason: str) -> None:
@@ -614,10 +732,16 @@ class Executor:
             for name, value in attempt.phases.items():
                 setattr(status.phases, name, max(0.0, value))
         attempt.state = state
+        if terminal:
+            attempt.terminal_status = status
+            attempt.terminal_sent_at = self._clock()
+            self._ensure_resend_loop()
         message_id = await self._report("attempt_status", status)
         if terminal:
             attempt.terminal_message_id = message_id
             self._by_terminal_message[message_id] = attempt.attempt_id
+            if attempt.release_requested:
+                self._release(attempt, cause="released")
         log.info(
             "agent.execution.status",
             node_id=self._node_id,

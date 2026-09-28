@@ -422,10 +422,15 @@ message ExecutionSpec {
   repeated string output_globs = 11;
 }
 
+// Stop an attempt (D69). `release` (V0.4 G5, D75): the controller has already
+// ended this attempt (or never knew it) - stop it if it still runs, then forget
+// it and free its workdir at once, without waiting for an Ack of its terminal
+// report (nothing the agent reports about it will be applied).
 message CancelAttempt {
   string attempt_id = 1;
   uint64 fencing_token = 2;
   string reason = 3;
+  bool release = 4;
 }
 
 message ProbeRequest {

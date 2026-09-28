@@ -508,6 +508,15 @@ class ExecutionSettings(SectionModel):
             "resource_busy (the controller sends one at a time in V0.4)."
         ),
     )
+    terminal_resend_s: float = Field(
+        default=5.0,
+        ge=0.2,
+        le=300.0,
+        description=(
+            "An ended attempt's final status is re-sent this often (and after every "
+            "reconnect) until the controller acknowledges it (V0.4 D75)."
+        ),
+    )
 
     @field_validator("run_as")
     @classmethod
