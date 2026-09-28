@@ -35,6 +35,14 @@ dependencies = [
     # read-only REST surface and the SDK will use the same client - neither may
     # import `controller` (lint-imports: cli/sdk see only `common`). D15.
     "httpx>=0.28",
+    # V0.4 (brief D46/D47/D53): the CLI packs projects and the agent unpacks them via
+    # `common.bundle` (deterministic tar + zstd, .gitignore/.computeignore rules);
+    # `common.manifest` reads compute.yaml (safe_load only); `compute logs -f` follows
+    # a WebSocket. All four are needed on a base install (cli/common).
+    "zstandard>=0.23",
+    "pathspec>=0.12",
+    "pyyaml>=6.0",
+    "websockets>=15.0",
 ]
 
 [project.optional-dependencies]
@@ -57,6 +65,9 @@ agent = [
     # by the benchmark *child* process (agent/benchmarks/child.py), never by the
     # agent itself. torch, when present, is preferred by the child.
     "numpy>=2.3",
+    # V0.4 Docker runtime (ADR-0004, brief D51): blocking SDK calls run via
+    # asyncio.to_thread; nodes without Docker fall back to the subprocess runtime.
+    "docker>=7.1",
 ]
 # CPU/CUDA variant selection (PyTorch wheel index per platform) is decided in V0.2;
 # here torch comes from the default index. Only installed with `--extra gpu`.
@@ -86,6 +97,8 @@ dev = [
     "mypy-protobuf>=5.1",
     "types-protobuf>=7.35",
     "types-grpcio>=1.83",
+    "types-PyYAML>=6.0",
+    "types-docker>=7.1",
     "import-linter>=2.15",
     "pytest-timeout>=2.4",
 ]
