@@ -23,7 +23,8 @@ within 10 s (D27; criterion 3 alone would allow 15 s).
 
     STALE_EPOCH  -> RETRY_NOW while stale_retries < 3, then BACKOFF
     PROTOCOL_VERSION -> FATAL_CONFIG
-    INTERNAL / DUPLICATE_SESSION / UNSPECIFIED -> BACKOFF
+    UNAVAILABLE (admission missed its deadline, V0.4 D41) -> BACKOFF
+    INTERNAL / DUPLICATE_SESSION / UNSPECIFIED / unknown -> BACKOFF
 """
 
 from __future__ import annotations
@@ -110,6 +111,9 @@ def hello_reject_action(
         return HelloRejectAction.BACKOFF
     if reject_code == codes.REJECT_CODE_PROTOCOL_VERSION:
         return HelloRejectAction.FATAL_CONFIG
+    # UNAVAILABLE (D41: the controller's database is slow) is transient by
+    # definition; like every other code it is retried after a backoff - an
+    # immediate retry would only queue behind the same slow admission.
     return HelloRejectAction.BACKOFF
 
 

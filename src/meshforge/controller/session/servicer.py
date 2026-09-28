@@ -22,7 +22,7 @@ protocol/internal error, and a request stream that ended without a Goodbye
 (``stream_lost``). This handler labels the one only it can see - the call being
 **cancelled** (the agent's call cancelled, its channel closed, its process killed,
 the TCP path torn down by keepalive): grpc.aio cancels the handler task, and the
-``finally`` below closes the session ``stream_lost``. Because ``_close`` is
+``finally`` below closes the session ``stream_lost``. Because a close is
 idempotent and the first reason wins, the ``finally`` can never relabel a session
 that was already closed for a real reason (a Goodbye followed by a cancel stays
 ``agent_closed``). A done-callback on the RPC closes it ``stream_lost`` too, in

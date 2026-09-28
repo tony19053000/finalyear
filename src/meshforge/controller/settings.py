@@ -17,8 +17,9 @@ works on a base install.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, ValidationError, field_validator, model_validator
 
 from meshforge.common.config import MeshForgeSettings, SectionModel
 from meshforge.common.fabric_token import CONTROLLER_DIR_NAME, default_token_path
@@ -45,6 +46,8 @@ DEFAULT_GRPC_PORT = 47100
 DEFAULT_HTTP_PORT = 47110
 DEFAULT_SERVICE_TYPE = "_meshforge-ctl._tcp.local."
 """DNS-SD service type advertised for agents (must match ``[agent.discovery]``)."""
+DEFAULT_ADMISSION_TIMEOUT_S = 5.0
+"""D41: default Hello admission deadline (below the default 6 s lease)."""
 BLOBS_DIR_NAME = "blobs"
 
 
@@ -308,6 +311,18 @@ class ControllerSection(SectionModel):
         gt=0,
         description="A new stream must send Hello within this or is closed.",
     )
+    admission_timeout_s: float = Field(
+        default=DEFAULT_ADMISSION_TIMEOUT_S,
+        ge=0.5,
+        le=30.0,
+        description=(
+            "Deadline for admitting one Hello (lock wait + registry round trips, "
+            "V0.4 D41); past it the agent is told UNAVAILABLE and retries. Must be "
+            "below the lease (heartbeat_interval_s x lease_multiplier): while a "
+            "Hello is admitted, the node's older session gets no lease events. "
+            "Unset: 5 s, or lease - 1 s (at least 0.5 s) when the lease is shorter."
+        ),
+    )
     shutdown_drain_s: float = Field(
         default=5.0,
         ge=0,
@@ -351,6 +366,32 @@ class ControllerSection(SectionModel):
         if hi < lo:
             raise ValueError("max protocol version must be >= min")
         return value
+
+    @model_validator(mode="before")
+    @classmethod
+    def _admission_default(cls, data: Any) -> Any:
+        """Unset ``admission_timeout_s`` follows a shortened lease (D41), so an
+        operator who only retunes the heartbeat never trips the rule below."""
+        if not isinstance(data, dict) or "admission_timeout_s" in data:
+            return data
+        try:
+            liveness = LivenessSettings.model_validate(data.get("liveness") or {})
+        except ValidationError:
+            return data  # reported by the liveness field's own validation
+        offline_s = liveness.to_config().offline_after_s
+        default = min(DEFAULT_ADMISSION_TIMEOUT_S, max(0.5, offline_s - 1.0))
+        return {**data, "admission_timeout_s": default}
+
+    @model_validator(mode="after")
+    def _admission_within_lease(self) -> ControllerSection:
+        offline_s = self.liveness.to_config().offline_after_s
+        if not self.admission_timeout_s < offline_s:
+            raise ValueError(
+                f"admission_timeout_s ({self.admission_timeout_s}) must be below the "
+                f"OFFLINE edge ({offline_s} s = heartbeat_interval_s x "
+                "lease_multiplier): a pending Hello suspends its node's lease events"
+            )
+        return self
 
     @model_validator(mode="after")
     def _binds_allowed(self) -> ControllerSection:

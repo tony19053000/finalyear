@@ -383,7 +383,8 @@ message GcRequest {
 // Reply to Hello (ADR-0002 Updates §1-2). The controller's first message on
 // every stream. If `accepted` is false the controller closes the stream after
 // sending it; `reject_code` says why and the agent decides whether to retry
-// (STALE_EPOCH: bump epoch and reconnect; PROTOCOL_VERSION: never retry).
+// (STALE_EPOCH: bump epoch and reconnect; PROTOCOL_VERSION: never retry;
+// UNAVAILABLE / INTERNAL: back off and retry).
 message HelloAck {
   bool accepted = 1;
   // Set when accepted; both sides put it in envelope field 3 from now on.
@@ -402,6 +403,9 @@ message HelloAck {
     // Another stream for this node_id won a concurrent Hello race.
     REJECT_CODE_DUPLICATE_SESSION = 3;
     REJECT_CODE_INTERNAL = 4;
+    // The controller could not finish the admission in time (its database is
+    // slow or unreachable, V0.4 D41). Retryable: back off and try again.
+    REJECT_CODE_UNAVAILABLE = 5;
   }
   // Set only when accepted == false.
   RejectCode reject_code = 6;

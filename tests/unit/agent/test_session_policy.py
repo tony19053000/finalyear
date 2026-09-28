@@ -199,9 +199,20 @@ def test_stale_epoch_retries_are_bounded() -> None:
         (RejectCode.REJECT_CODE_INTERNAL, HelloRejectAction.BACKOFF),
         (RejectCode.REJECT_CODE_DUPLICATE_SESSION, HelloRejectAction.BACKOFF),
         (RejectCode.REJECT_CODE_UNSPECIFIED, HelloRejectAction.BACKOFF),
+        # V0.4 D41: the controller's admission missed its deadline - retryable.
+        (RejectCode.REJECT_CODE_UNAVAILABLE, HelloRejectAction.BACKOFF),
     ],
 )
 def test_reject_actions(
     code: agent_pb2.HelloAck.RejectCode.ValueType, action: HelloRejectAction
 ) -> None:
     assert hello_reject_action(code, 0) is action
+
+
+def test_unavailable_is_retried_even_after_many_attempts() -> None:
+    """Never fatal, never an immediate retry storm, however often it repeats."""
+    for stale_retries in (0, 1, MAX_STALE_EPOCH_RETRIES, 1000):
+        assert (
+            hello_reject_action(RejectCode.REJECT_CODE_UNAVAILABLE, stale_retries)
+            is HelloRejectAction.BACKOFF
+        )

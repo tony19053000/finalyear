@@ -12,6 +12,8 @@ manager, which owns the configuration and the table.
 from __future__ import annotations
 
 import datetime as dt
+from dataclasses import dataclass
+from typing import Final
 
 import grpc
 
@@ -20,11 +22,53 @@ from meshforge.common.ids import new_command_id, validate_node_id
 from meshforge.common.proto.meshforge.v1 import agent_pb2
 from meshforge.controller.liveness import LivenessConfig, LivenessEvent, NodeState
 from meshforge.controller.session.limits import check_hardware, check_hello_strings
-from meshforge.controller.session.live import Rejected
+from meshforge.controller.session.live import LiveSession, Rejected
 
-__all__ = ["RejectCode", "check_hello", "hello_ack", "hello_event", "shutting_down"]
+__all__ = [
+    "DEFAULT_ADMISSION_TIMEOUT_S",
+    "AdmissionAttempt",
+    "RejectCode",
+    "check_hello",
+    "hello_ack",
+    "hello_event",
+    "shutting_down",
+    "unavailable",
+]
 
 RejectCode = agent_pb2.HelloAck.RejectCode
+
+DEFAULT_ADMISSION_TIMEOUT_S: Final = 5.0
+"""D41: how long one admission (lock wait + registry round trips) may take."""
+
+
+@dataclass(slots=True)
+class AdmissionAttempt:
+    """What one admission has done so far - read if it has to be abandoned (D41).
+
+    ``row_written`` turns True right before ``upsert_node_on_hello`` is awaited:
+    from then on the node row may point at ``session_id`` (the write may or may
+    not have committed when the admission is cut short), so a failed admission
+    must leave that row honest, not ONLINE with no session behind it.
+    """
+
+    hello: agent_pb2.Hello
+    peer_address: str
+    session_id: str = ""
+    state: NodeState | None = None
+    """The state the admission wrote (or was writing) to the row."""
+    superseded: LiveSession | None = None
+    """The live session this admission closed as ``superseded``."""
+    row_written: bool = False
+    admitted: bool = False
+
+
+def unavailable(timeout_s: float) -> Rejected:
+    """The retryable refusal of a Hello whose admission missed its deadline."""
+    return Rejected(
+        RejectCode.REJECT_CODE_UNAVAILABLE,
+        f"admission did not finish within {timeout_s:g} s (the controller's "
+        "database is slow or unreachable); retry",
+    )
 
 
 def shutting_down() -> Rejected:

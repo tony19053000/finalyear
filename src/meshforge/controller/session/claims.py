@@ -9,7 +9,7 @@ admission returns, the Hello's epoch is *claimed* here (:meth:`AdmissionClaims.
 claim`). While an epoch **higher** than a session's is claimed for its node, that
 session is claimed too (:meth:`AdmissionClaims.owns`):
 
-* its end is **deferred**: the manager's ``_close`` still does everything in
+* its end is **deferred**: ``SessionEnds.close`` still does everything in
   memory (unregister, unblock the handler, stop the reader, record the reason)
   but parks the session here (:meth:`defer`) instead of applying the end's event
   and writing ``close_session``;

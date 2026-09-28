@@ -7,6 +7,8 @@
   typed session close and the liveness arrow it fires.
 * :mod:`.live` - :class:`LiveSession` and the admission results (the data model).
 * :mod:`.admission` - the pure Hello checks, the Hello's §12.3 arrow, HelloAck.
+* :mod:`.ends` - :class:`SessionEnds`: what a session end writes (the §12.3 arrow,
+  ``close_session``, the lingering lease).
 * :mod:`.claims` - :class:`AdmissionClaims`: a pending Hello owns its node's state
   and defers the previous session's end (D28).
 * :mod:`.dispatch` - :class:`DispatchTable`: payload name -> handler (D42).

@@ -1082,7 +1082,8 @@ class HelloAck(_message.Message):
     """Reply to Hello (ADR-0002 Updates §1-2). The controller's first message on
     every stream. If `accepted` is false the controller closes the stream after
     sending it; `reject_code` says why and the agent decides whether to retry
-    (STALE_EPOCH: bump epoch and reconnect; PROTOCOL_VERSION: never retry).
+    (STALE_EPOCH: bump epoch and reconnect; PROTOCOL_VERSION: never retry;
+    UNAVAILABLE / INTERNAL: back off and retry).
     """
 
     DESCRIPTOR: _descriptor.Descriptor
@@ -1101,6 +1102,10 @@ class HelloAck(_message.Message):
         REJECT_CODE_DUPLICATE_SESSION: HelloAck._RejectCode.ValueType  # 3
         """Another stream for this node_id won a concurrent Hello race."""
         REJECT_CODE_INTERNAL: HelloAck._RejectCode.ValueType  # 4
+        REJECT_CODE_UNAVAILABLE: HelloAck._RejectCode.ValueType  # 5
+        """The controller could not finish the admission in time (its database is
+        slow or unreachable, V0.4 D41). Retryable: back off and try again.
+        """
 
     class RejectCode(_RejectCode, metaclass=_RejectCodeEnumTypeWrapper): ...
     REJECT_CODE_UNSPECIFIED: HelloAck.RejectCode.ValueType  # 0
@@ -1111,6 +1116,10 @@ class HelloAck(_message.Message):
     REJECT_CODE_DUPLICATE_SESSION: HelloAck.RejectCode.ValueType  # 3
     """Another stream for this node_id won a concurrent Hello race."""
     REJECT_CODE_INTERNAL: HelloAck.RejectCode.ValueType  # 4
+    REJECT_CODE_UNAVAILABLE: HelloAck.RejectCode.ValueType  # 5
+    """The controller could not finish the admission in time (its database is
+    slow or unreachable, V0.4 D41). Retryable: back off and try again.
+    """
 
     ACCEPTED_FIELD_NUMBER: _builtins.int
     SESSION_ID_FIELD_NUMBER: _builtins.int

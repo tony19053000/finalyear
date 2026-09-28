@@ -34,7 +34,7 @@ holds at most ``dedupe_window`` x 30 bytes) and the Hello is bounded by
 :func:`~.admission.check_hello` before anything is persisted.
 
 **How a session ends decides the liveness arrow** (ARCHITECTURE §12.3 2026-09-24
-amendment, D19). Every end goes through :meth:`SessionManager._close`, which is
+amendment, D19). Every end goes through :meth:`.ends.SessionEnds.close`, which is
 idempotent (first reason wins) and maps the reason to an event:
 
 * clean - ``agent_closed`` (the agent said ``Goodbye``) and ``controller_shutdown`` ->
@@ -70,6 +70,15 @@ yet) and the lease timer skips it. Success consumes the deferred end with no
 event; any other outcome settles it with its event. The bookkeeping is
 :class:`~.claims.AdmissionClaims`; its module docstring is the full rule.
 
+**Admission has a deadline** (D41): the lock wait and the registry round trips
+of one Hello run as their own task under ``admission_timeout_s`` (< the lease).
+Past it the Hello gets ``HelloAck{REJECT_CODE_UNAVAILABLE}`` (retryable), the
+claim is released and a deferred end settled with its event, so a hung database
+suppresses a node's lease events for at most that long. An admission cut short
+after it may have written the node row becomes a lingering entry (SUSPECT, then
+OFFLINE at the lease edge) so the row never reads ONLINE for a session that does
+not exist (:meth:`SessionManager._abandon`).
+
 **Dispatch is a table** (D42): :meth:`SessionManager.handle_message` does the
 envelope work (stale session, ``message_id``, dedupe, Ack) and calls the handler
 registered for the payload in :class:`~.dispatch.DispatchTable`; report
@@ -82,7 +91,7 @@ import asyncio
 import datetime as dt
 import functools
 from collections.abc import AsyncIterator, Callable
-from typing import Final
+from typing import Any, Final
 
 import grpc
 from google.protobuf.json_format import MessageToDict
@@ -91,7 +100,6 @@ from meshforge.common.ids import new_command_id, new_session_id
 from meshforge.common.logging import get_logger
 from meshforge.common.proto.meshforge.v1 import agent_pb2
 from meshforge.controller.liveness import (
-    InvalidTransitionError,
     LeaseTracker,
     LivenessConfig,
     LivenessEvent,
@@ -101,11 +109,14 @@ from meshforge.controller.liveness import (
 from meshforge.controller.registry import Registry, SessionEndReason
 from meshforge.controller.resources import ResourceSink
 from meshforge.controller.session.admission import (
+    DEFAULT_ADMISSION_TIMEOUT_S,
+    AdmissionAttempt,
     RejectCode,
     check_hello,
     hello_ack,
     hello_event,
     shutting_down,
+    unavailable,
 )
 from meshforge.controller.session.claims import AdmissionClaims
 from meshforge.controller.session.dispatch import (
@@ -114,6 +125,7 @@ from meshforge.controller.session.dispatch import (
     log_ack,
     log_unhandled,
 )
+from meshforge.controller.session.ends import SessionEnds
 from meshforge.controller.session.epoch import MAX_SESSION_EPOCH
 from meshforge.controller.session.errors import (
     OutboundOverflowError,
@@ -171,7 +183,11 @@ class SessionManager:
         write_capacity: int = DEFAULT_WRITE_CAPACITY,
         wall_clock: Callable[[], dt.datetime] | None = None,
         resources: ResourceSink | None = None,
+        admission_timeout_s: float = DEFAULT_ADMISSION_TIMEOUT_S,
     ) -> None:
+        if not admission_timeout_s > 0:
+            raise ValueError("admission_timeout_s must be > 0")
+        self._admission_timeout_s = admission_timeout_s
         self._registry = registry
         self._liveness = liveness
         self._clock = clock
@@ -198,7 +214,7 @@ class SessionManager:
         self.dispatch.register("goodbye", self._on_goodbye)
         for payload, handler in self.reports.handlers().items():
             self.dispatch.register(payload, handler)
-        self._tasks: set[asyncio.Task[None]] = set()
+        self._tasks: set[asyncio.Task[Any]] = set()
         self._chains: set[WriteChain] = set()
         """Write chains not yet finished (closed sessions included until drained)."""
         self.wake = asyncio.Event()
@@ -206,6 +222,16 @@ class SessionManager:
         self.stale_messages_total = 0
         self.closing = False
         """True once :meth:`shutdown` started; new Hellos are refused."""
+        self._ends = SessionEnds(
+            registry,
+            clock=clock,
+            live=self._live,
+            lingering=self._lingering,
+            claims=self._claims,
+            owned=self.admission_pending,
+            wake=self.wake,
+        )
+        """What a session end writes (D19/D28, :mod:`.ends`)."""
 
     # ------------------------------------------------------------- read side
 
@@ -281,13 +307,89 @@ class SessionManager:
             )
         # D28: from here until this admission returns, the Hello claims the
         # node's state against any older session still ending (module docstring).
+        # D41: and that claim is bounded - the admission (lock wait + registry
+        # round trips) runs as its own task under ``admission_timeout_s``; past
+        # it the Hello is refused UNAVAILABLE (the agent backs off and retries)
+        # and the task is cancelled but not awaited: a hung database must not
+        # hold this handler, or the claim, past the deadline.
         node_id = hello.node_id
+        attempt = AdmissionAttempt(hello, peer_address)
         self._claims.claim(node_id, hello.session_epoch)
+        body = asyncio.create_task(
+            self._admit_body(attempt), name=f"session-admit:{node_id}"
+        )
         try:
-            async with self._lock:
-                return await self._admit_locked(hello, peer_address)
+            done, _ = await asyncio.wait({body}, timeout=self._admission_timeout_s)
+            if body in done:
+                return body.result()  # a registry error propagates as before
+            self._abandon(attempt, body)
+            log.warning(
+                "session.admission_timeout",
+                node_id=node_id,
+                session_id=attempt.session_id or None,
+                hello_epoch=hello.session_epoch,
+                timeout_s=self._admission_timeout_s,
+                row_written=attempt.row_written,
+                peer=peer_address,
+            )
+            return unavailable(self._admission_timeout_s)
+        except BaseException:  # the admission raised, or our handler was cancelled
+            self._abandon(attempt, body)
+            raise
         finally:
             self._release_claim(node_id, hello.session_epoch)
+
+    async def _admit_body(self, attempt: AdmissionAttempt) -> AdmitResult:
+        async with self._lock:
+            return await self._admit_locked(attempt)
+
+    def _abandon(self, attempt: AdmissionAttempt, body: asyncio.Task[Any]) -> None:
+        """An admission failed or missed its deadline (D41).
+
+        The task is cancelled (never awaited here) and tracked, so its outcome is
+        logged. If it may already have written the node row (``row_written``),
+        that row could now read ONLINE for a session that will never exist - so
+        the attempt becomes a session lost at once: a lingering entry, SUSPECT
+        now and OFFLINE at the lease edge unless the agent's retry is admitted
+        first. It takes over the node's deferred end and lingering entry (no
+        event of their own), and its state writes are fenced on every session id
+        the row may still name (``fence_ids``); they wait for the abandoned task
+        to finish, so they land after whatever it committed.
+        """
+        if not body.done():
+            body.cancel()
+            self._track(body)
+        if not attempt.row_written or attempt.admitted or attempt.state is None:
+            return
+        node_id = attempt.hello.node_id
+        fences = [] if attempt.superseded is None else [attempt.superseded.session_id]
+        deferred = self._claims.deferred_for(node_id)
+        if deferred is not None and self._claims.consume(deferred):
+            fences.append(deferred.session_id)
+            self._ends.finish_end(deferred, fire_event=False)
+        lingering = self._lingering.get(node_id)
+        if lingering is not None:
+            fences.append(lingering.session_id)
+            self._ends.end_linger(lingering, cause="replaced")
+        entry = self._new_session(
+            attempt.hello, attempt.peer_address, attempt.session_id, attempt.state
+        )
+        entry.fence_ids = tuple(fences)
+        entry.writer.enqueue(
+            "await_abandoned_admission",
+            WriteKind.STATE,
+            functools.partial(asyncio.wait, {body}),
+        )
+        entry.ended = True
+        entry.end_reason = SessionEndReason.INTERNAL_ERROR
+        entry.done.set()
+        log.warning(
+            "session.admission_abandoned",
+            node_id=node_id,
+            session_id=entry.session_id,
+            also_fenced_on=list(fences),
+        )
+        self._ends.finish_end(entry, fire_event=True)
 
     def _release_claim(self, node_id: str, epoch: int) -> None:
         """End one pending Hello's claim; settle a deferred end nobody owns now.
@@ -298,13 +400,12 @@ class SessionManager:
         """
         deferred = self._claims.release(node_id, epoch, closing=self.closing)
         if deferred is not None:
-            self._finish_end(deferred, fire_event=True)
+            self._ends.finish_end(deferred, fire_event=True)
         # The timer skipped this node's sessions while the claim stood.
         self.wake.set()
 
-    async def _admit_locked(
-        self, hello: agent_pb2.Hello, peer_address: str
-    ) -> AdmitResult:
+    async def _admit_locked(self, attempt: AdmissionAttempt) -> AdmitResult:
+        hello, peer_address = attempt.hello, attempt.peer_address
         node_id = hello.node_id
         # One read per Hello: the registry's high-water mark. Fencing must hold
         # across disconnects, not only against a live competitor (ADR-0002 §1).
@@ -338,7 +439,8 @@ class SessionManager:
             )
         if old is not None:
             prior = old.state
-            self._close(old, SessionEndReason.SUPERSEDED)
+            self._ends.close(old, SessionEndReason.SUPERSEDED)
+            attempt.superseded = old
         elif deferred is not None:
             # D28: the previous session ended while this Hello was pending; its
             # in-memory state (before any end event) is the truth, not ``record``,
@@ -360,20 +462,27 @@ class SessionManager:
         event = hello_event(prior)
         state = prior if event is None else next_state(prior, event)
 
-        now = self._clock()
         session_id = new_session_id()
         scores, scores_rejected = self.reports.hello_scores(hello, session_id)
-        await self._registry.upsert_node_on_hello(
-            node_id=node_id,
-            hostname=hello.hostname,
-            os=hello.os,
-            platform=hello.platform,
-            hardware=MessageToDict(hello.hardware, preserving_proto_field_name=True),
-            session_epoch=hello.session_epoch,
-            session_id=session_id,
-            state=state,
-            hardware_scores=scores,
-        )
+        attempt.session_id, attempt.state = session_id, state
+        attempt.row_written = True  # from here the row may name this session...
+        try:
+            await self._registry.upsert_node_on_hello(
+                node_id=node_id,
+                hostname=hello.hostname,
+                os=hello.os,
+                platform=hello.platform,
+                hardware=MessageToDict(
+                    hello.hardware, preserving_proto_field_name=True
+                ),
+                session_epoch=hello.session_epoch,
+                session_id=session_id,
+                state=state,
+                hardware_scores=scores,
+            )
+        except Exception:
+            attempt.row_written = False  # ...unless the store refused it (rolled back)
+            raise
         await self._registry.open_session(
             session_id=session_id,
             node_id=node_id,
@@ -386,32 +495,16 @@ class SessionManager:
             # Likewise only now: this Hello owns the state, so the deferred end
             # fires no event (D28). Had admission failed, ``_release_claim``
             # would have settled it with its event instead.
-            self._finish_end(deferred, fire_event=False)
+            self._ends.finish_end(deferred, fire_event=False)
         if lingering is not None:
             # Resolved only now that the new session is persisted: had admission
             # failed above, the old lease would still be running. Nothing is
             # written for it - its fenced writes still queued are stale by now.
-            self._end_linger(lingering, cause="reconnected")
-        writer = WriteChain(
-            node_id=node_id, session_id=session_id, capacity=self._write_capacity
-        )
-        live = LiveSession(
-            node_id=node_id,
-            session_id=session_id,
-            session_epoch=hello.session_epoch,
-            peer_address=peer_address,
-            tracker=LeaseTracker(self._liveness, self._clock),
-            state=state,
-            outbound=asyncio.Queue(maxsize=self._queue_size),
-            seen=SeenIds(self._dedupe_window),
-            next_ping_at=now,  # first RTT sample right away
-            writer=writer,
-            declared_gpus=declared_gpus(hello.hardware),
-            hardware_scores_received=int(scores is not None),
-            hardware_scores_rejected=int(scores_rejected),
-        )
-        self._chains.add(writer)
-        writer.start().add_done_callback(lambda _t: self._chains.discard(writer))
+            self._ends.end_linger(lingering, cause="reconnected")
+        live = self._new_session(hello, peer_address, session_id, state)
+        live.hardware_scores_received = int(scores is not None)
+        live.hardware_scores_rejected = int(scores_rejected)
+        attempt.admitted = True
         self._live[node_id] = live
         self.reports.begin_session(node_id, hello.session_epoch)
         self.wake.set()
@@ -435,6 +528,30 @@ class SessionManager:
         )
         return Accepted(live, hello_ack(session_id, self._liveness, self._wall_clock()))
 
+    def _new_session(
+        self, hello: agent_pb2.Hello, peer: str, session_id: str, state: NodeState
+    ) -> LiveSession:
+        """A LiveSession with a started write chain (tracked until it finishes)."""
+        writer = WriteChain(
+            node_id=hello.node_id, session_id=session_id, capacity=self._write_capacity
+        )
+        live = LiveSession(
+            node_id=hello.node_id,
+            session_id=session_id,
+            session_epoch=hello.session_epoch,
+            peer_address=peer,
+            tracker=LeaseTracker(self._liveness, self._clock),
+            state=state,
+            outbound=asyncio.Queue(maxsize=self._queue_size),
+            seen=SeenIds(self._dedupe_window),
+            next_ping_at=self._clock(),  # first RTT sample right away
+            writer=writer,
+            declared_gpus=declared_gpus(hello.hardware),
+        )
+        self._chains.add(writer)
+        writer.start().add_done_callback(lambda _t: self._chains.discard(writer))
+        return live
+
     # ---------------------------------------------------------------- reader
 
     def start_reader(
@@ -451,7 +568,7 @@ class SessionManager:
         self._track(task)
         return task
 
-    def _track(self, task: asyncio.Task[None]) -> None:
+    def _track(self, task: asyncio.Task[Any]) -> None:
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
         task.add_done_callback(_log_task_failure)
@@ -581,7 +698,7 @@ class SessionManager:
             else reason,
             detail=msg.goodbye.detail or None,
         )
-        self._close(live, SessionEndReason.AGENT_CLOSED)
+        self._ends.close(live, SessionEndReason.AGENT_CLOSED)
 
     async def flush_touch(self, live: LiveSession, now: float) -> None:
         """Timer hook: queue a pending ``last_seen_at`` write once its window closed."""
@@ -629,58 +746,9 @@ class SessionManager:
     ) -> NodeState:
         """Apply a §12.3 arrow to ``live``; queue the write and log a real change.
 
-        Never awaits the registry (the timer calls this for every session and
-        every lingering entry). See :meth:`_apply_event`.
+        Never awaits the registry (see :meth:`.ends.SessionEnds.apply_event`).
         """
-        return self._apply_event(live, event, silence_s=silence_s)
-
-    def _apply_event(
-        self, live: LiveSession, event: LivenessEvent, *, silence_s: float
-    ) -> NodeState:
-        """Synchronous core of :meth:`apply_event` (``_close`` needs it inline).
-
-        The write is **fenced** on this session (D20): it lands only while the
-        node's ``last_session_id`` is still this session, so a write queued
-        behind a slow chain can never overwrite a newer session's state. An
-        :class:`InvalidTransitionError` is a bug in the caller, not in the agent:
-        it is logged at error level and the state is left unchanged.
-        """
-        old = live.state
-        try:
-            new = next_state(old, event)
-        except InvalidTransitionError as exc:
-            log.exception(
-                "liveness.invalid_transition",
-                node_id=live.node_id,
-                session_id=live.session_id,
-                state=old.value,
-                liveness_event=event.value,
-                failure_type=exc.failure_type.value,
-            )
-            return old
-        if new is old:
-            return old
-        live.state = new
-        live.writer.enqueue(
-            "set_node_state",
-            WriteKind.STATE,
-            functools.partial(
-                self._registry.set_node_state,
-                live.node_id,
-                new,
-                session_id=live.session_id,
-            ),
-        )
-        log.info(
-            "node.state_changed",
-            node_id=live.node_id,
-            session_id=live.session_id,
-            **{"from": old.value, "to": new.value},
-            silence_s=round(silence_s, 3),
-            liveness_event=event.value,
-            lingering=live.lingering,
-        )
-        return new
+        return self._ends.apply_event(live, event, silence_s=silence_s)
 
     # --------------------------------------------------------------- closing
 
@@ -690,129 +758,15 @@ class SessionManager:
         Synchronous in memory (no lock, no database await) so the lease timer and
         a reader can close sessions while an admission is waiting on the registry.
         """
-        self._close(live, reason)
+        self._ends.close(live, reason)
 
     def end_session_nowait(self, live: LiveSession, reason: SessionEndReason) -> None:
         """:meth:`end_session` for synchronous callers (a gRPC done-callback)."""
-        self._close(live, reason)
-
-    def _close(self, live: LiveSession, reason: SessionEndReason) -> None:
-        if live.ended:
-            return  # first reason wins
-        live.ended = True
-        live.end_reason = reason
-        if self._live.get(live.node_id) is live:
-            del self._live[live.node_id]
-        # Unblock the gRPC handler: whatever is still queued is moot now.
-        while not live.outbound.empty():
-            live.outbound.get_nowait()
-        live.outbound.put_nowait(None)
-        task = live.reader_task
-        if task is not None and task is not asyncio.current_task() and not task.done():
-            task.cancel()
-        live.done.set()
-        if end_event(reason) is not None and self.admission_pending(live):
-            # D28: a newer Hello is being admitted and owns the state; its
-            # admission finishes this end (no event) or, if it fails, settles it
-            # with the event (``_release_claim``).
-            previous = self._claims.defer(live)
-            if previous is not None:  # pragma: no cover - one session per node ends
-                self._finish_end(previous, fire_event=True)
-            log.info(
-                "session.end_deferred",
-                node_id=live.node_id,
-                session_id=live.session_id,
-                end_reason=reason.value,
-                state=live.state.value,
-            )
-            return
-        self._finish_end(live, fire_event=True)
-
-    def _finish_end(self, live: LiveSession, *, fire_event: bool) -> None:
-        """The persistent half of a close: the end's event (D19), then
-        ``close_session`` on the chain, lingering if the loss left it SUSPECT.
-
-        ``fire_event=False`` is a deferred end a newer Hello took over (D28): no
-        state event, the chain simply ends with ``close_session``.
-        """
-        reason = live.end_reason
-        if reason is None:  # pragma: no cover - _close sets it before any call
-            raise RuntimeError("_finish_end called on a session that never closed")
-        # D19: the end decides the arrow; the state write goes on this session's
-        # chain *before* close_session, so the two can never be reordered.
-        event = end_event(reason) if fire_event else None
-        if event is not None:
-            self._apply_event(
-                live, event, silence_s=live.tracker.silence(self._clock())
-            )
-        linger = event is LivenessEvent.STREAM_LOST and live.state is NodeState.SUSPECT
-        close = functools.partial(self._registry.close_session, live.session_id, reason)
-        if linger:
-            # The loss already counts as the miss; LEASE_EXPIRED is all that is
-            # left, at last heartbeat + offline_after_s. close_session is written
-            # now (CLOSE), the chain stays open for that possible OFFLINE.
-            live.tracker.mark_missed()
-            live.lingering = True
-            previous = self._lingering.get(live.node_id)
-            if previous is not None and previous is not live:  # pragma: no cover
-                self._end_linger(previous, cause="replaced")  # admission resolves it
-            self._lingering[live.node_id] = live
-            live.writer.enqueue("close_session", WriteKind.CLOSE, close)
-            self.wake.set()  # the timer must learn the lingering deadline
-        else:
-            # The final write of this session's chain; the chain task ends after it.
-            live.writer.enqueue("close_session", WriteKind.END, close)
-        log.info(
-            "session.closed",
-            node_id=live.node_id,
-            session_id=live.session_id,
-            end_reason=reason.value,
-            liveness_event=event.value if event else None,
-            state=live.state.value,
-            lingering=linger,
-            owned_by_hello=not fire_event,
-            **live.summary(),
-        )
+        self._ends.close(live, reason)
 
     def expire_linger(self, entry: LiveSession, now: float) -> None:
-        """Lease timer hook: apply the lingering entry's due lease event (D19).
-
-        ``LEASE_EXPIRED`` writes ``SUSPECT -> OFFLINE`` on the entry's chain and
-        ends the linger (and with it the chain). A no-op for an entry that is no
-        longer lingering (a Hello resolved it) or whose lease is not due.
-        """
-        while entry.lingering:
-            event = entry.tracker.check(now)
-            if event is None:
-                return
-            silence = entry.tracker.silence(now)
-            self._apply_event(entry, event, silence_s=silence)
-            if event is LivenessEvent.LEASE_EXPIRED:
-                log.warning(
-                    "node.lease_expired",
-                    node_id=entry.node_id,
-                    session_id=entry.session_id,
-                    silence_s=round(silence, 3),
-                    lingering=True,
-                )
-                self._end_linger(entry, cause="lease_expired")
-
-    def _end_linger(self, entry: LiveSession, *, cause: str) -> None:
-        """Stop lingering: forget the entry and let its chain end (idempotent)."""
-        if not entry.lingering:
-            return
-        entry.lingering = False
-        if self._lingering.get(entry.node_id) is entry:
-            del self._lingering[entry.node_id]
-        entry.writer.finish()
-        log.info(
-            "session.linger_ended",
-            node_id=entry.node_id,
-            session_id=entry.session_id,
-            cause=cause,
-            state=entry.state.value,
-            pending_writes=entry.writer.pending,
-        )
+        """Lease timer hook: the lingering entry's due lease event (D19)."""
+        self._ends.expire_linger(entry, now)
 
     async def shutdown(self, *, drain_s: float = 5.0) -> None:
         """Refuse new Hellos, close every live session as ``controller_shutdown``
@@ -825,20 +779,20 @@ class SessionManager:
         self.closing = True
         async with self._lock:  # an admission in flight finishes (or refuses) first
             for live in list(self._live.values()):
-                self._close(live, SessionEndReason.CONTROLLER_SHUTDOWN)
+                self._ends.close(live, SessionEndReason.CONTROLLER_SHUTDOWN)
             # Unreachable in practice (every admission settles its claim before
             # the lock is free again); a backstop so no chain is left without END.
             for deferred in self._claims.drain():  # pragma: no cover
-                self._finish_end(deferred, fire_event=True)
+                self._ends.finish_end(deferred, fire_event=True)
             for entry in list(self._lingering.values()):
                 # No controller = no liveness claim, exactly like the start-up
                 # sweep: a lingering SUSPECT goes OFFLINE now.
-                self._apply_event(
+                self._ends.apply_event(
                     entry,
                     LivenessEvent.STREAM_CLOSED,
                     silence_s=entry.tracker.silence(self._clock()),
                 )
-                self._end_linger(entry, cause="controller_shutdown")
+                self._ends.end_linger(entry, cause="controller_shutdown")
         pending = [t for t in self._tasks if not t.done()]
         for task in pending:
             task.cancel()
@@ -856,7 +810,7 @@ class SessionManager:
             )
 
 
-def _log_task_failure(task: asyncio.Task[None]) -> None:
+def _log_task_failure(task: asyncio.Task[Any]) -> None:
     if task.cancelled():
         return
     exc = task.exception()

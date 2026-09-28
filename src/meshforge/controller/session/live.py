@@ -117,6 +117,11 @@ class LiveSession:
     """The stream ended abruptly and the lease is still running (D19): the entry
     sits in ``SessionManager._lingering`` until a Hello, the lease or a shutdown
     resolves it. Its ``writer`` stays open until then."""
+    fence_ids: tuple[str, ...] = ()
+    """Other session ids this entry's state writes are also fenced on (D41): an
+    abandoned admission cannot know whether its row write committed, so it writes
+    for its own id *and* for the sessions the row may still name; at most one
+    matches."""
     # counters
     heartbeats: int = 0
     stale_messages: int = 0

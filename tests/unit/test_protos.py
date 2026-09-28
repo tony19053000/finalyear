@@ -276,6 +276,7 @@ def test_hello_ack_is_reachable_in_controller_oneof() -> None:
         "REJECT_CODE_PROTOCOL_VERSION",
         "REJECT_CODE_DUPLICATE_SESSION",
         "REJECT_CODE_INTERNAL",
+        "REJECT_CODE_UNAVAILABLE",  # V0.4 D41
     }
 
 
