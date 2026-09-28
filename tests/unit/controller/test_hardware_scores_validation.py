@@ -27,6 +27,7 @@ from meshforge.agent.benchmarks.model import (
 from meshforge.agent.benchmarks.wire import to_proto
 from meshforge.common.ids import new_score_run_id
 from meshforge.common.proto.meshforge.v1 import agent_pb2
+from meshforge.common.score_codes import SCORE_REASON_CODES
 from meshforge.controller import scores as ctl_scores
 from meshforge.controller.session.limits import (
     MAX_GPUS,
@@ -149,6 +150,12 @@ REJECTIONS: list[tuple[str, Mutation, str]] = [
     ("unavailable with a mean", _set("scores.2.mean", 1.0), "carries a mean"),
     ("unavailable w/o reason", _set("scores.2.reason", ""), "scores[2].reason"),
     ("reason not a code", _set("scores.2.reason", "Timed Out!"), "scores[2].reason"),
+    # D60: well-formed snake_case is not enough - the code must be a known one.
+    (
+        "reason unknown code",
+        _set("scores.2.reason", "made_up_code"),
+        "scores[2].reason",
+    ),
     ("nan budget", _set("conditions.budget_s", math.nan), "budget_s"),
     ("zero budget", _set("conditions.budget_s", 0.0), "budget_s"),
     ("negative duration", _set("conditions.duration_s", -1.0), "duration_s"),
@@ -325,3 +332,11 @@ def test_a_declared_index_is_accepted() -> None:
 def test_host_metrics_need_no_gpu() -> None:
     host_only = to_proto(make_scoreset(metrics=(ok_metric(MetricName.MEM_TRIAD_GB_S),)))
     assert check_hardware_scores(host_only, frozenset()) is None
+
+
+@pytest.mark.parametrize("code", sorted(SCORE_REASON_CODES))
+def test_every_known_reason_code_is_accepted(code: str) -> None:
+    """D60: the controller accepts exactly common.score_codes (the frozen list)."""
+    scores = _valid()
+    _set("scores.2.reason", code)(scores)
+    assert check_hardware_scores(scores, ANY_GPU) is None

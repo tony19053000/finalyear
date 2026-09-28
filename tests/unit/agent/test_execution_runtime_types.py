@@ -237,3 +237,17 @@ def test_docker_is_preferred_and_gpu_is_advertised_only_when_capable() -> None:
     assert EXEC_GPU_CAPABILITY not in cpu_only.capabilities
     assert choose_runtime(cpu_only, GpuNeed.REQUIRED) is None
     assert choose_runtime(cpu_only, GpuNeed.PREFERRED) is DOCKER_CPU
+
+
+def test_exec_capability_tags_are_the_shared_common_constants() -> None:
+    """D60: one spelling for both sides - the agent re-exports common's objects."""
+    from meshforge.agent.execution import selection
+    from meshforge.common import capabilities
+
+    for name in (
+        "EXEC_CAPABILITY",
+        "EXEC_DOCKER_CAPABILITY",
+        "EXEC_GPU_CAPABILITY",
+        "EXEC_SUBPROCESS_CAPABILITY",
+    ):
+        assert getattr(selection, name) is getattr(capabilities, name)

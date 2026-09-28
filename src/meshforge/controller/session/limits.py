@@ -46,6 +46,7 @@ from google.protobuf.message import Message
 from meshforge.common.errors import InvalidIdError
 from meshforge.common.ids import IdKind, parse_id
 from meshforge.common.proto.meshforge.v1 import agent_pb2
+from meshforge.common.score_codes import SCORE_GPU_NOT_DECLARED, SCORE_REASON_CODES
 from meshforge.controller.caps import MAX_DISKS, MAX_GPUS
 from meshforge.controller.scores import GPU_METRICS, metric_name, status_name
 
@@ -430,12 +431,9 @@ SCORE_MAX_THREADS: Final = 4096
 SCORE_MAX_GPU_INDEX: Final = 1023
 """NVML indices are small; this only bounds a hostile value."""
 
-SCORE_GPU_NOT_DECLARED: Final = "gpu_index_not_declared"
-"""Reason code (D39): a GPU metric names a GPU the session's Hello did not declare."""
 
 _SCORE_RUN_ID_LENGTH: Final = len("score_") + 26
 _FINGERPRINT = re.compile(r"[0-9a-f]{64}")
-_REASON = re.compile(r"[a-z0-9_]{1,64}")
 
 
 def _finite(value: float) -> bool:
@@ -488,8 +486,10 @@ def _check_score(position: int, score: agent_pb2.Score) -> str | None:
         if score.HasField("mean") or score.HasField("stdev"):
             # "Unknown" is absence, never a number standing in for it (G4 rule).
             return f"{where} is {status} but carries a mean/stdev"
-        if not _REASON.fullmatch(score.reason):
-            return f"{where}.reason must be a snake_case code for a {status} metric"
+        if score.reason not in SCORE_REASON_CODES:
+            # D60: the frozen list (common.score_codes), not merely a snake_case
+            # shape - V0.15 trains on these codes, an invented one is noise.
+            return f"{where}.reason must be a known score reason code for a {status} metric"
     return None
 
 

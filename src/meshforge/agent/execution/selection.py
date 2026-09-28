@@ -14,18 +14,22 @@ The tags are **computed here but not sent yet**: G4 adds them to ``Hello``'s
   probe verified (or, without a local probe image, assumed) GPU pass-through, or the
   subprocess runtime on a host with an NVIDIA GPU.
 
-The constants are the wire spelling; they move to ``meshforge.common.capabilities``
-when the controller starts reading them (G2/G4 follow-up), so both sides share one
-definition.
+The constants are the wire spelling and live in :mod:`meshforge.common.capabilities`
+(D60), which the controller's placement check reads too; they are re-exported here.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Final
 
 from meshforge.agent.execution.runtime import RuntimeAvailability
+from meshforge.common.capabilities import (
+    EXEC_CAPABILITY,
+    EXEC_DOCKER_CAPABILITY,
+    EXEC_GPU_CAPABILITY,
+    EXEC_SUBPROCESS_CAPABILITY,
+)
 
 __all__ = [
     "EXEC_CAPABILITY",
@@ -37,11 +41,6 @@ __all__ = [
     "choose_runtime",
     "execution_offer",
 ]
-
-EXEC_CAPABILITY: Final = "exec"
-EXEC_DOCKER_CAPABILITY: Final = "exec-docker"
-EXEC_SUBPROCESS_CAPABILITY: Final = "exec-subprocess"
-EXEC_GPU_CAPABILITY: Final = "exec-gpu"
 
 
 class GpuNeed(StrEnum):

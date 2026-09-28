@@ -8,9 +8,8 @@ predictors will train on it. The values are therefore **frozen**, like
 add (``tests/unit/common/test_score_codes.py`` pins the full list). The agent's
 ``meshforge.agent.benchmarks.model.MetricReason`` *is* this enum.
 
-Until the controller switches from its snake_case pattern check to
-:data:`SCORE_REASON_CODES` (a G1-owned follow-up in ``controller/session/limits.py``),
-an unknown but well-formed code is still accepted there.
+The controller's ingestion check (``controller/session/limits.py``) accepts only
+:data:`SCORE_REASON_CODES` (V0.4 D60): an unknown code drops the whole set.
 """
 
 from __future__ import annotations
