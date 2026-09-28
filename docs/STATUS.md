@@ -2,9 +2,34 @@
 
 > Concise current state. Long-term plan: [`DEVELOPMENT_ROADMAP.md`](DEVELOPMENT_ROADMAP.md). Update at the end of every work session.
 
-**Last updated:** 2026-09-28 (**V0.4 brief written, G1 spawned**; V0.3 closed agent-side, formally closes on the 🧑 0.3.15 lab run)
+**Last updated:** 2026-09-28 (**V0.4 G1–G3 code written, tester rounds running; progress bars added**; V0.3 closed agent-side, formally closes on the 🧑 0.3.15 lab run)
+
+## Progress
+
+Generated from the roadmap checkboxes by `uv run python scripts/status_bars.py` — **re-run it and replace this block whenever checkboxes change.** Deferred versions (V0.11, V0.12, V0.13, V0.16) and deferred tasks are not counted. A task is only █ when it is `[x]` (tester + reviewer + evidence); written-but-unreviewed code is ▒.
+
+```
+TOTAL   ███▒▒▒░░░░░░░░░░░░░░  14%  22/154 done, 21 in progress
+
+V0.1    █████████████████▒▒▒  83%  10/12  Foundations & engineering system
+V0.2    ██▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░░   9%   1/11  Lab setup & feasibility validation
+V0.3    ███████████████▒▒▒▒░  73%  11/15  Fabric core: controller ⇄ agent
+V0.4    ▒▒▒▒▒▒▒▒▒▒▒░░░░░░░░░   0%   0/17  Remote execution core (Mode 1 foundation)
+V0.5    ░░░░░░░░░░░░░░░░░░░░   0%   0/11  Data plane & environments
+V0.6    ░░░░░░░░░░░░░░░░░░░░   0%   0/13  Scheduling & reliability — Mode 1 complete
+V0.7    ░░░░░░░░░░░░░░░░░░░░   0%   0/11  Security & pairing
+V0.8    ░░░░░░░░░░░░░░░░░░░░   0%   0/10  Dashboard & CLI v1
+V0.9    ░░░░░░░░░░░░░░░░░░░░   0%   0/10  Benchmark & telemetry system v1
+V0.10   ░░░░░░░░░░░░░░░░░░░░   0%   0/10  Mode 3 Task Splitting
+V0.14   ░░░░░░░░░░░░░░░░░░░░   0%   0/8   Unified planner v2
+V0.15   ░░░░░░░░░░░░░░░░░░░░   0%   0/10  ML planner
+V0.17   ░░░░░░░░░░░░░░░░░░░░   0%   0/8   Productization
+V1.0    ░░░░░░░░░░░░░░░░░░░░   0%   0/8   Release hardening & final evaluation
+```
+█ done `[x]` · ▒ in progress or waiting on a 🧑 lab step `[~]` · ░ not started
 
 ## Current Version
+**V0.4 — Remote execution core** · started 2026-09-28; G1–G3 code written (0.4.1–0.4.5, 0.4.7, 0.4.8, 0.4.16, 0.4.17 `[~]`), tester rounds running; G4, G5 next
 **V0.3 — Fabric core** · started 2026-09-20 on the team's decision (before the laptop 2–4 inventory); **G1–G7 closed agent-side** (0.3.1, 0.3.3, 0.3.4, 0.3.5, 0.3.6, 0.3.8, 0.3.9, 0.3.10, 0.3.11, 0.3.12, 0.3.14 `[x]`; 0.3.2 `[~]` Windows run; 0.3.7 `[~]` lab evidence; 0.3.13 `[~]` Windows logoff check). Remaining: **only 🧑 0.3.15 lab run** (+ the three 🧑 Windows checks)
 V0.2 — Lab setup & feasibility validation · agent-side complete, waiting on 🧑 lab runs
 V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4, 0.1.10)

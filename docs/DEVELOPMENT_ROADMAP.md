@@ -288,14 +288,14 @@ A version is **complete** only when all apply:
 **Prerequisites:** V0.3 complete.
 
 **Tasks**
-- [ ] **0.4.1** Manifest schema (`compute.yaml`, Pydantic) with validation, defaults, inferred entrypoint when absent
-- [ ] **0.4.2** Source bundling with ignore rules (`.gitignore`, `.computeignore`), deterministic tar + zstd, SHA-256
-- [ ] **0.4.3** Upload to controller store (simple path; CAS arrives in V0.5)
-- [ ] **0.4.4** Job, Attempt tables + transition module enforcing ARCHITECTURE §12 state machines
-- [ ] **0.4.5** `POST /v1/jobs` with `Idempotency-Key`; manual placement `--node`; local placement `--local`
+- [~] **0.4.1** Manifest schema (`compute.yaml`, Pydantic) with validation, defaults, inferred entrypoint when absent
+- [~] **0.4.2** Source bundling with ignore rules (`.gitignore`, `.computeignore`), deterministic tar + zstd, SHA-256
+- [~] **0.4.3** Upload to controller store (simple path; CAS arrives in V0.5)
+- [~] **0.4.4** Job, Attempt tables + transition module enforcing ARCHITECTURE §12 state machines
+- [~] **0.4.5** `POST /v1/jobs` with `Idempotency-Key`; manual placement `--node`; local placement `--local`
 - [ ] **0.4.6** Dispatcher → `StartAttempt` command; agent executor: fetch, unpack, run
-- [ ] **0.4.7** Runtime interface + **Docker runtime** (limits: CPU, RAM, pids; workdir-only mount; non-root user) + subprocess fallback
-- [ ] **0.4.8** GPU pass-through (`resources.gpu`) via NVIDIA Container Toolkit / Docker Desktop
+- [~] **0.4.7** Runtime interface + **Docker runtime** (limits: CPU, RAM, pids; workdir-only mount; non-root user) + subprocess fallback
+- [~] **0.4.8** GPU pass-through (`resources.gpu`) via NVIDIA Container Toolkit / Docker Desktop
 - [ ] **0.4.9** Log streaming agent → controller → client (WebSocket), persisted log file
 - [ ] **0.4.10** Exit code + declared outputs collected, uploaded, downloadable
 - [ ] **0.4.11** Cancel (graceful then forced) and timeout enforcement
@@ -304,7 +304,7 @@ A version is **complete** only when all apply:
 - [ ] **0.4.14** Example workloads in `workloads/examples/` (CPU script, PyTorch GPU training script)
 - [ ] **0.4.15** 🧑 Lab: run examples from Laptop 1 on each other laptop
 - [~] **0.4.16** **Explicit agent `Goodbye{reason}`** before the half-close; the controller's rule becomes "clean close = Goodbye seen *and* the request iterator ended", anything else is `STREAM_LOST`. Replaces the timing inference `HALF_CLOSE_CONFIRM_S` (kept only as a fallback for old agents) and lets the `grpcio<1.85` cap be lifted. **Must land before V0.6's retry-on-OFFLINE** — an abrupt end misread as clean makes OFFLINE early and would duplicate work. Also from the G6 review: a deadline on D28's admission claim (the lease timer skips a claimed node while its Hello waits on the admission lock), extract `session/claims.py` (`EndArbiter`) from `manager.py` (~1220 lines), a `registry.write_queue_overflow` signal, and a direct test for the shutdown deferred-end backstop (`manager.py` `# pragma: no cover`). *Raised 2026-09-24 by the G6 reviewer.*
-- [ ] **0.4.17** **G7 review follow-ups** (hardware scores; none blocked 0.3.4): (1) Windows `taskkill` in `agent/benchmarks/runner.py::kill_tree` still runs on the event loop (capped at 1 s) — move it off the loop without breaking cancel-safety, verified on Windows; (2) extract per-report handlers (`_on_resource_update`, `_on_hardware_scores`, `_hello_scores`, `_reject_scores`) from `controller/session/manager.py` (**1315 lines**) into `session/reports.py` **before V0.4 adds AttemptStatus/LogChunk handlers**; (3) split `ChildProcess`/`kill_tree` out of `runner.py` (780 lines); (4) publish score reason codes as shared constants (freeze into an enum before V0.15 trains on them); (5) surface `hardware_scores_rejected` next to the other session counters; (6) close the wedged-child-after-agent-SIGKILL gap (PDEATHSIG / Windows job object) and the cancel window during `create_subprocess_exec`; (7) the controller trusts the agent's score fingerprint — revisit with V0.7 identity/authorization; (8) track the flaky `tests/component/lab/test_s1_network.py::test_garbage_header_does_not_break_the_server` (`ENOTCONN` on `shutdown()` under load). *Raised 2026-09-25 by the G7 reviewer and tester.*
+- [~] **0.4.17** **G7 review follow-ups** (hardware scores; none blocked 0.3.4): (1) Windows `taskkill` in `agent/benchmarks/runner.py::kill_tree` still runs on the event loop (capped at 1 s) — move it off the loop without breaking cancel-safety, verified on Windows; (2) extract per-report handlers (`_on_resource_update`, `_on_hardware_scores`, `_hello_scores`, `_reject_scores`) from `controller/session/manager.py` (**1315 lines**) into `session/reports.py` **before V0.4 adds AttemptStatus/LogChunk handlers**; (3) split `ChildProcess`/`kill_tree` out of `runner.py` (780 lines); (4) publish score reason codes as shared constants (freeze into an enum before V0.15 trains on them); (5) surface `hardware_scores_rejected` next to the other session counters; (6) close the wedged-child-after-agent-SIGKILL gap (PDEATHSIG / Windows job object) and the cancel window during `create_subprocess_exec`; (7) the controller trusts the agent's score fingerprint — revisit with V0.7 identity/authorization; (8) track the flaky `tests/component/lab/test_s1_network.py::test_garbage_header_does_not_break_the_server` (`ENOTCONN` on `shutdown()` under load). *Raised 2026-09-25 by the G7 reviewer and tester.*
 
 **Testing:** component (executor + Docker) · cluster · lab 🧑.
 **Success criteria**
