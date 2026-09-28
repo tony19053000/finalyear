@@ -171,6 +171,7 @@ class Dispatcher:
         self._wall = wall_clock or (lambda: dt.datetime.now(dt.UTC))
         self._queue: asyncio.Queue[_Item] = asyncio.Queue(settings.status_queue_size)
         self._wake = asyncio.Event()
+        self._stopping = False
         self._started_at = clock()
         self.stats = DispatcherStats()
         manager.dispatch.register("attempt_status", self._on_status_message)
@@ -186,16 +187,29 @@ class Dispatcher:
         """A job was submitted (or cancelled): run a dispatch pass soon."""
         self._wake.set()
 
+    def request_stop(self) -> None:
+        """Finish the current step and return from :meth:`run` (no mid-query
+        cancel: a cancelled database call can leave driver tasks behind). Items
+        still queued are reports not yet acked - the agents replay them."""
+        self._stopping = True
+        self._wake.set()
+
+    @property
+    def stopping(self) -> bool:
+        return self._stopping
+
     async def run(self) -> None:
-        """Forever: work items, then the periodic steps (see module docstring)."""
+        """Until :meth:`request_stop`: work items, then the periodic steps."""
         interval = self._settings.dispatch_interval_s
         next_tick = self._clock()
-        while True:
+        while not self._stopping:
             timeout = max(0.0, next_tick - self._clock())
             if self._queue.empty() and not self._wake.is_set():
                 await self._wait(timeout)
-            while not self._queue.empty():
+            while not self._queue.empty() and not self.stopping:
                 await self._retrying(self._handle, self._queue.get_nowait())
+            if self.stopping:
+                return
             if self._wake.is_set() or self._clock() >= next_tick:
                 self._wake.clear()
                 await self._retrying(self._periodic, None)
@@ -288,7 +302,8 @@ class Dispatcher:
                 await asyncio.gather(getter, return_exceptions=True)
         if getter in done and not getter.cancelled():
             item = getter.result()
-            await self._retrying(self._handle, item)
+            if not self._stopping:
+                await self._retrying(self._handle, item)
 
     async def _retrying(self, step: Callable[..., object], arg: object) -> None:
         delay = _RETRY_BASE_S
@@ -296,6 +311,8 @@ class Dispatcher:
             try:
                 await step(arg)  # type: ignore[misc]
             except JobStoreError as exc:
+                if self._stopping:
+                    return
                 self.stats.db_retries += 1
                 log.warning(
                     "controller.jobs.db_retry",

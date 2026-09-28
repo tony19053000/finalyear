@@ -369,11 +369,12 @@ class ControllerRuntime:
         if self._advertiser is not None:
             # Withdraw the record first so agents stop finding a dying controller.
             await self._advertiser.stop()
-        if self._dispatcher_task is not None and not self._dispatcher_task.done():
-            # Before the sessions close: items still queued are reports not yet
-            # acked (the agents replay them) - nothing is lost by dropping them.
-            self._dispatcher_task.cancel()
-            await asyncio.gather(self._dispatcher_task, return_exceptions=True)
+        if self.dispatcher is not None:
+            # Ask, do not wait: it finishes its current step (never a query
+            # cancelled mid-flight - that leaves driver tasks behind) and is joined
+            # with the other owned tasks below, inside the same drain deadline.
+            # Items still queued are reports not yet acked: the agents replay them.
+            self.dispatcher.request_stop()
         if self.manager is not None:
             # Sessions first: their streams end with the reason persisted before the
             # transport is torn down under them.
