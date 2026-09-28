@@ -50,15 +50,16 @@ ADR-0012. This section and the roadmap's DEFERRED banners are what apply.
    every fix** — most past critical bugs were introduced by fixes.
 3. **Only the Lead** marks `[x]`, edits this file, STATUS and the roadmap. Agents append to
    `docs/briefs/progress/V0.4-G<n>.md` and commit with explicit paths (`git commit -- <paths>`). Nobody pushes.
-4. **Token rules (2026-09-28)** — quality stays the same, waste goes:
-   - Briefs give each agent a **short reading list** (exact sections/files, or the needed lines pasted in), never
-     "read ARCHITECTURE" whole.
+4. **Token rules (2026-09-28)** — cut waste only. **If a token rule ever conflicts with quality, quality wins.**
+   - Briefs give each agent a **short reading list** (exact sections/files); agents may read more whenever they
+     need it to be correct — never guess to save tokens.
    - Agents run pytest with `-q` and look only at the summary + failures (`scripts/pytest_exit_guard.py`, read the
      **exit code**). Never paste full test logs into a report.
-   - Tester: cover **every success criterion and every bound** (max ok, max+1 rejected) + 2–3 mutation checks; no
-     open-ended attack lists beyond that.
-   - Reviewer: reviews **the group's commits (`git diff <first>^..<last>`) + the tester report**, not the whole repo.
-   - Reports ≤ 500 words. **One Lead session per group** (fresh session per group, not one endless session).
+   - Tester: must cover **every success criterion and every bound** (max ok, max+1 rejected) + mutation checks,
+     and still **tries hard to break the code** — past testers found real bugs every group; never trim that.
+   - Reviewer: starts from **the group's commits (`git diff <first>^..<last>`) + the tester report**, plus the code
+     that diff touches or is called from.
+   - Reports short (~500 words) but never drop a defect or gate result to fit. **One Lead session per group** (fresh session per group, not one endless session).
    - Models (`.claude/agents/*.md`): implementer **Opus 5.5** (team decision 2026-09-28: the implementer is never
      downgraded to save tokens), tester Sonnet 5, reviewer Opus 5.5.
 5. Tests never depend on this machine (GPU, Docker, hostname); Docker/GPU tests SKIP with a reason elsewhere.
