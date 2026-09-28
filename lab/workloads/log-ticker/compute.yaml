@@ -1,0 +1,4 @@
+name: log-ticker
+entrypoint: python main.py 100 3
+resources: {gpu: none}
+limits: {timeout: 5m, network: none}
