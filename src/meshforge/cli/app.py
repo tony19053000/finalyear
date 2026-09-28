@@ -37,6 +37,8 @@ from __future__ import annotations
 import json
 import time
 from collections.abc import Callable, Mapping
+from contextvars import ContextVar
+from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, NoReturn
 
 import typer
@@ -101,11 +103,26 @@ def _settings() -> CliSettings:
         _die(exc.message, ExitCode.CONFIG_ERROR)
 
 
+_TOKEN_FILE: ContextVar[Path | None] = ContextVar("compute_token_file", default=None)
+"""``compute --token-file PATH`` for this invocation. Set by the root callback
+before any subcommand runs (a ContextVar rather than Typer's ``ctx.obj`` so that
+``_client(settings)`` keeps the one-argument signature the tests patch)."""
+
+
+def _token_file_option() -> Path | None:
+    return _TOKEN_FILE.get()
+
+
 def _client(settings: CliSettings) -> ControllerClient:
     from meshforge.cli.client import ControllerClient
+    from meshforge.cli.settings import resolve_token
 
+    try:
+        token = resolve_token(settings, _token_file_option())
+    except ConfigError as exc:
+        _die(exc.message, ExitCode.CONFIG_ERROR)
     return ControllerClient(
-        settings.cli.controller_url, timeout_s=settings.cli.timeout_s
+        settings.cli.controller_url, timeout_s=settings.cli.timeout_s, token=token
     )
 
 
@@ -159,8 +176,21 @@ def _root(
             is_eager=True,
         ),
     ] = False,
+    token_file: Annotated[
+        Path | None,
+        typer.Option(
+            "--token-file",
+            help=(
+                "File holding the fabric token for job/blob calls (overrides "
+                "[cli] token and MESHFORGE_CLI__TOKEN). Never pass the token itself "
+                "on the command line."
+            ),
+            dir_okay=False,
+        ),
+    ] = None,
 ) -> None:
     """MeshForge compute fabric command-line tool."""
+    _TOKEN_FILE.set(token_file)
 
 
 @app.command()

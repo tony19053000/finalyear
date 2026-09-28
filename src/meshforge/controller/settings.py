@@ -16,21 +16,27 @@ works on a base install.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from pydantic import Field, field_validator, model_validator
 
 from meshforge.common.config import MeshForgeSettings, SectionModel
+from meshforge.common.fabric_token import CONTROLLER_DIR_NAME, default_token_path
 from meshforge.common.netaddr import parse_bind
 from meshforge.controller.liveness import LivenessConfig
 from meshforge.controller.resources import DEFAULT_BUCKET_GRACE_S
 from meshforge.controller.store.settings import DatabaseSettings
 
 __all__ = [
+    "BLOBS_DIR_NAME",
     "DEFAULT_GRPC_PORT",
     "DEFAULT_HTTP_PORT",
     "DEFAULT_SERVICE_TYPE",
+    "BlobStoreSettings",
     "ControllerSection",
     "ControllerSettings",
     "DiscoverySettings",
+    "JobApiSettings",
     "LivenessSettings",
     "ResourceHistorySettings",
 ]
@@ -39,6 +45,65 @@ DEFAULT_GRPC_PORT = 47100
 DEFAULT_HTTP_PORT = 47110
 DEFAULT_SERVICE_TYPE = "_meshforge-ctl._tcp.local."
 """DNS-SD service type advertised for agents (must match ``[agent.discovery]``)."""
+BLOBS_DIR_NAME = "blobs"
+
+
+def _non_empty_path(value: object) -> object:
+    """``""`` would silently mean the current directory (same rule as data_dir)."""
+    if isinstance(value, str) and not value.strip():
+        raise ValueError("must not be empty (it would mean the current directory)")
+    return value
+
+
+class BlobStoreSettings(SectionModel):
+    """``[controller.blobs]`` - the controller's blob store (brief D48, ADR-0003).
+
+    Layout ``<dir>/sha256/<2 hex>/<64 hex>`` plus ``<dir>/tmp`` for uploads in
+    flight (swept at start). V0.5 adds chunking, peers and GC on the same layout.
+    """
+
+    dir: Path | None = Field(
+        default=None,
+        description="Blob store root; default <data_dir>/controller/blobs.",
+    )
+    max_blob_bytes: int = Field(
+        default=2 * 1024**3,
+        ge=1024 * 1024,
+        le=64 * 1024**3,
+        description=(
+            "Largest blob one PUT may store (bundles are capped at 1 GiB of "
+            "uncompressed content by default, outputs likewise). A larger upload "
+            "is refused before or while it streams, and nothing is kept."
+        ),
+    )
+
+    @field_validator("dir", mode="before")
+    @classmethod
+    def _dir_not_empty(cls, value: object) -> object:
+        return _non_empty_path(value)
+
+
+class JobApiSettings(SectionModel):
+    """``[controller.jobs]`` - bounds of the job submission API (brief D50)."""
+
+    max_request_bytes: int = Field(
+        default=256 * 1024,
+        ge=4 * 1024,
+        le=16 * 1024 * 1024,
+        description=(
+            "Largest POST /v1/jobs body. A manifest is a few hundred bytes; the "
+            "project itself travels as a blob, never in this body."
+        ),
+    )
+    fetch_token_capacity: int = Field(
+        default=10_000,
+        ge=16,
+        le=1_000_000,
+        description=(
+            "Live per-attempt fetch tokens kept in memory (D48); the oldest is "
+            "dropped above this, so a flood of attempts cannot grow the controller."
+        ),
+    )
 
 
 class DiscoverySettings(SectionModel):
@@ -253,6 +318,16 @@ class ControllerSection(SectionModel):
         ge=1,
         description="message_ids remembered per session for duplicate detection.",
     )
+    token_file: Path | None = Field(
+        default=None,
+        description=(
+            "The fabric token (D44, ADR-0014); created on first start. Default "
+            "<data_dir>/controller/fabric.token. `meshforge-controller token show` "
+            "prints it, `token rotate` replaces it (picked up within 1 s)."
+        ),
+    )
+    blobs: BlobStoreSettings = Field(default_factory=BlobStoreSettings)
+    jobs: JobApiSettings = Field(default_factory=JobApiSettings)
 
     @field_validator("grpc_bind", "http_bind")
     @classmethod
@@ -261,6 +336,11 @@ class ControllerSection(SectionModel):
         # by ControllerSettings once all fields are known.
         parse_bind(value, allow_any=True)
         return value.strip()
+
+    @field_validator("token_file", mode="before")
+    @classmethod
+    def _token_file_not_empty(cls, value: object) -> object:
+        return _non_empty_path(value)
 
     @field_validator("accepted_protocol_versions")
     @classmethod
@@ -288,3 +368,15 @@ class ControllerSettings(MeshForgeSettings):
 
     controller: ControllerSection = Field(default_factory=ControllerSection)
     database: DatabaseSettings = Field(default_factory=DatabaseSettings)
+
+    @property
+    def token_path(self) -> Path:
+        """Where the fabric token lives (``[controller] token_file`` or the default)."""
+        return self.controller.token_file or default_token_path(self.data_dir)
+
+    @property
+    def blobs_dir(self) -> Path:
+        """Blob store root (``[controller.blobs] dir`` or the default)."""
+        return self.controller.blobs.dir or (
+            self.data_dir / CONTROLLER_DIR_NAME / BLOBS_DIR_NAME
+        )

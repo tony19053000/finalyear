@@ -17,13 +17,20 @@ a base install.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Final
 from urllib.parse import urlsplit, urlunsplit
 
-from pydantic import Field, field_validator
+from pydantic import Field, SecretStr, field_validator
 
 from meshforge.common.config import MeshForgeSettings, SectionModel
 from meshforge.common.errors import ConfigError
+from meshforge.common.fabric_token import (
+    FabricTokenError,
+    default_token_path,
+    parse_token,
+    read_token_file,
+)
 
 __all__ = [
     "DEFAULT_CONTROLLER_URL",
@@ -31,6 +38,7 @@ __all__ = [
     "CliSection",
     "CliSettings",
     "normalise_controller_url",
+    "resolve_token",
 ]
 
 DEFAULT_CONTROLLER_URL: Final = "http://127.0.0.1:47110"
@@ -105,13 +113,82 @@ class CliSection(SectionModel):
         ),
     )
 
+    token: SecretStr | None = Field(
+        default=None,
+        description=(
+            "The fabric token (D44) sent as 'Authorization: Bearer' on job and blob "
+            "calls; `meshforge-controller token show` prints it. Env: "
+            "MESHFORGE_CLI__TOKEN. Never logged, never put in a URL."
+        ),
+    )
+    token_file: Path | None = Field(
+        default=None,
+        description=(
+            "A file holding the fabric token (used when `token` is unset). "
+            "Env: MESHFORGE_CLI__TOKEN_FILE; `compute --token-file` overrides both."
+        ),
+    )
+
     @field_validator("controller_url")
     @classmethod
     def _url(cls, value: str) -> str:
         return normalise_controller_url(value)
+
+    @field_validator("token")
+    @classmethod
+    def _token(cls, value: SecretStr | None) -> SecretStr | None:
+        if value is None:
+            return None
+        try:
+            return parse_token(value.get_secret_value())
+        except FabricTokenError as exc:
+            raise ValueError(exc.message) from None
+
+    @field_validator("token_file", mode="before")
+    @classmethod
+    def _token_file(cls, value: object) -> object:
+        if isinstance(value, str) and not value.strip():
+            raise ValueError("must not be empty (it would mean the current directory)")
+        return value
 
 
 class CliSettings(MeshForgeSettings):
     """Settings behind the ``compute`` console script."""
 
     cli: CliSection = Field(default_factory=CliSection)
+
+
+def resolve_token(
+    settings: CliSettings, token_file: Path | None = None
+) -> SecretStr | None:
+    """Which fabric token ``compute`` sends, highest precedence first.
+
+    1. ``--token-file`` (``token_file`` here);
+    2. ``[cli] token`` / ``MESHFORGE_CLI__TOKEN``;
+    3. ``[cli] token_file`` / ``MESHFORGE_CLI__TOKEN_FILE``;
+    4. the local controller's own ``<data_dir>/controller/fabric.token`` if this
+       laptop runs the controller (read-only; silently skipped when absent).
+
+    ``None`` means "send no token": the open node/session reads still work and a
+    protected call gets the controller's ``unauthorized`` answer. An explicitly
+    named file that is missing or malformed is a :class:`ConfigError` - a typo in
+    a path must not quietly fall through to "no token".
+    """
+    if token_file is not None:
+        return _read_named(token_file)
+    if settings.cli.token is not None:
+        return settings.cli.token
+    if settings.cli.token_file is not None:
+        return _read_named(settings.cli.token_file)
+    local = default_token_path(settings.data_dir)
+    try:
+        return read_token_file(local)
+    except FabricTokenError:
+        return None
+
+
+def _read_named(path: Path) -> SecretStr:
+    try:
+        return read_token_file(path)
+    except FabricTokenError as exc:
+        raise ConfigError(exc.message, details=exc.details) from None

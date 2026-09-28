@@ -24,7 +24,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 
 from meshforge import __version__
 from meshforge.controller.api import (
@@ -33,6 +33,7 @@ from meshforge.controller.api import (
     install_error_handlers,
     router,
 )
+from meshforge.controller.api.auth import AUTH_STATE_KEY, ApiAuth, guard_mutations
 from meshforge.controller.registry import Registry
 from meshforge.controller.resources import ResourceTracker
 from meshforge.controller.session.manager import SessionManager
@@ -48,16 +49,27 @@ def create_http_app(
     registry: Registry,
     resources: ResourceTracker,
     clock: Callable[[], float],
+    auth: ApiAuth | None = None,
 ) -> FastAPI:
-    """Build the controller's HTTP app. ``clock`` must be the loop's monotonic clock."""
+    """Build the controller's HTTP app. ``clock`` must be the loop's monotonic clock.
+
+    ``auth`` holds the fabric-token verifier (D44). Without it every call that
+    needs the token is refused (fail closed); the open GETs of D14 still work.
+    """
     app = FastAPI(
         title="MeshForge controller",
         version=__version__,
-        summary="Read-only view of the compute fabric (V0.3; unauthenticated, LAN only).",
+        summary=(
+            "The compute fabric's REST surface. Node/session reads are open (LAN "
+            "only); every mutation, every /v1/jobs read and every /v1/blobs call "
+            "needs the fabric token (D44)."
+        ),
         docs_url=None,
         redoc_url=None,
         openapi_url=OPENAPI_URL,
+        dependencies=[Depends(guard_mutations)],
     )
+    setattr(app.state, AUTH_STATE_KEY, auth or ApiAuth(verifier=None))
     setattr(
         app.state,
         FABRIC_STATE_KEY,

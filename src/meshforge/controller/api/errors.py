@@ -19,6 +19,7 @@ default ``text/plain`` ``Internal Server Error``, which has no ``code`` at all.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Final, cast
 
 from fastapi import FastAPI, Request, status
@@ -50,6 +51,9 @@ _STATUS_FOR: Final[dict[FailureType, int]] = {
     FailureType.INVALID_INPUT: status.HTTP_400_BAD_REQUEST,
     FailureType.UNAUTHORIZED: status.HTTP_401_UNAUTHORIZED,
     FailureType.CONFLICT: status.HTTP_409_CONFLICT,
+    FailureType.NO_FEASIBLE_PLAN: status.HTTP_409_CONFLICT,
+    FailureType.INTEGRITY_ERROR: status.HTTP_400_BAD_REQUEST,
+    FailureType.DISK_FULL: status.HTTP_507_INSUFFICIENT_STORAGE,
     FailureType.NETWORK_ERROR: status.HTTP_503_SERVICE_UNAVAILABLE,
     FailureType.TIMEOUT: status.HTTP_504_GATEWAY_TIMEOUT,
     FailureType.CONFIG_ERROR: status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -77,6 +81,7 @@ class ApiError(Exception):
         message: str,
         *,
         http_status: int | None = None,
+        headers: Mapping[str, str] | None = None,
     ) -> None:
         super().__init__(message)
         self.failure_type = failure_type
@@ -84,6 +89,7 @@ class ApiError(Exception):
         self.http_status = http_status or _STATUS_FOR.get(
             failure_type, status.HTTP_500_INTERNAL_SERVER_ERROR
         )
+        self.headers = dict(headers or {})
 
     @classmethod
     def not_found(cls, what: str) -> ApiError:
@@ -99,8 +105,18 @@ def error_body(failure_type: FailureType, message: str) -> dict[str, dict[str, s
     return {"error": {"code": failure_type.value, "message": message}}
 
 
-def error_response(failure_type: FailureType, message: str, code: int) -> JSONResponse:
-    return JSONResponse(status_code=code, content=error_body(failure_type, message))
+def error_response(
+    failure_type: FailureType,
+    message: str,
+    code: int,
+    *,
+    headers: Mapping[str, str] | None = None,
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=code,
+        content=error_body(failure_type, message),
+        headers=dict(headers) if headers else None,
+    )
 
 
 def install_error_handlers(app: FastAPI) -> None:
@@ -112,7 +128,12 @@ def install_error_handlers(app: FastAPI) -> None:
         # is a cast, not a runtime check, so these handlers do not depend on
         # ``assert`` (which ``python -O`` removes).
         error = cast("ApiError", exc)
-        return error_response(error.failure_type, error.message, error.http_status)
+        return error_response(
+            error.failure_type,
+            error.message,
+            error.http_status,
+            headers=error.headers,
+        )
 
     @app.exception_handler(RequestValidationError)
     async def _validation(_request: Request, exc: Exception) -> JSONResponse:

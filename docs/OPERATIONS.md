@@ -40,6 +40,36 @@ The agent needs **no inbound port** at all — it dials out
 a firewall rule (inbound TCP 47100, and 47110 if other laptops should run
 `compute`).
 
+### 0a. The fabric token (V0.4, D44 — [ADR-0014](adr/0014-interim-execution-trust.md))
+
+From V0.4 the REST surface can make code run on another laptop, so it is **no
+longer all open**. Every `POST`/`PUT`/`DELETE`, every `/v1/jobs*` read (job logs
+contain user output) and every `/v1/blobs*` call needs
+`Authorization: Bearer <fabric token>`; without it the answer is `401` with the
+error code `unauthorized`. The node and session reads above stay open.
+
+- **Where it lives:** the controller creates it on its first start in
+  `<data dir>/controller/fabric.token` (Linux `~/.local/share/meshforge/controller/`,
+  Windows `%LOCALAPPDATA%\MeshForge\controller\`), readable by you only
+  (`0600` / owner-only ACL). Override with `[controller] token_file`. A token file
+  other users can read, or one that is not a valid token, stops the controller
+  from starting (exit code 4) — fix it with `chmod 600` or `token rotate`.
+- **See it:** `meshforge-controller token show` (prints only the token on stdout).
+- **Replace it** (e.g. it leaked): `meshforge-controller token rotate`. A running
+  controller switches to the new token within about a second; the old one stops
+  working. Hand the new token to every laptop again.
+- **On each laptop that runs `compute`** set one of, highest precedence first:
+  `compute --token-file FILE …`, `MESHFORGE_CLI__TOKEN=<token>`, `[cli] token = "…"`
+  in its `config.toml`, or `[cli] token_file = "…"`. On the controller laptop
+  itself `compute` finds the controller's own token file and needs nothing.
+- **Never** paste the token into a URL or a chat log; `compute` sends it only as
+  a header and never prints or logs it. The controller logs only a 12-character
+  fingerprint (`controller.token.ready` / `.rotated`) so you can tell tokens apart.
+
+This is one shared secret for the whole fabric — no per-user identity, no audit.
+It keeps "anyone on the Wi-Fi" from running code on your laptops; it is not a
+substitute for V0.7's mTLS and user identity.
+
 ---
 
 ## 1. Run it by hand first

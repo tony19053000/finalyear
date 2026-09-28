@@ -25,6 +25,7 @@ from types import TracebackType
 from typing import Any, Final, Self
 
 import httpx
+from pydantic import SecretStr
 
 from meshforge.common.errors import ExitCode, FailureType, MeshForgeError
 
@@ -76,15 +77,22 @@ class ControllerClient:
         *,
         timeout_s: float,
         transport: httpx.BaseTransport | None = None,
+        token: SecretStr | None = None,
     ) -> None:
         self.controller_url = controller_url.rstrip("/")
         self.timeout_s = timeout_s
+        headers = {"accept": "application/json"}
+        if token is not None:
+            # D44: the header only - never a query parameter, never logged
+            # (httpx logs the request line, not headers; our redaction masks
+            # "Bearer ..." anyway).
+            headers["authorization"] = f"Bearer {token.get_secret_value()}"
         self._client = httpx.Client(
             base_url=self.controller_url,
             timeout=timeout_s,
             transport=transport,
             follow_redirects=False,
-            headers={"accept": "application/json"},
+            headers=headers,
         )
 
     def __enter__(self) -> Self:
@@ -172,6 +180,14 @@ class ControllerClient:
         failure_type = _failure_type(code)
         status = response.status_code
         detail = message or f"HTTP {status}"
+        if failure_type is FailureType.UNAUTHORIZED:
+            return ControllerError(
+                "the controller refused the request (401): it needs the fabric "
+                "token - set [cli] token, MESHFORGE_CLI__TOKEN or --token-file "
+                "(`meshforge-controller token show` prints it)",
+                failure_type=FailureType.UNAUTHORIZED,
+                details={"status": status, "path": path, "code": code},
+            )
         if failure_type is FailureType.NETWORK_ERROR:
             # 503: the controller is up but its database is not - to a caller this
             # is still "the fabric cannot answer right now", hence UNAVAILABLE.

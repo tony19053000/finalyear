@@ -45,7 +45,13 @@ from meshforge.common.errors import ConfigError, ExitCode, MeshForgeError
 from meshforge.common.logging import get_logger
 from meshforge.common.netaddr import BindAddress, parse_bind
 from meshforge.common.proto.meshforge.v1 import agent_pb2_grpc
+from meshforge.controller.api.auth import ApiAuth
 from meshforge.controller.discovery import ServiceAdvertiser
+from meshforge.controller.fabric_token import (
+    FabricTokenVerifier,
+    fingerprint,
+    load_or_create_token,
+)
 from meshforge.controller.http import create_http_app
 from meshforge.controller.registry import Registry, SessionEndReason
 from meshforge.controller.resources import ResourceTracker
@@ -112,6 +118,7 @@ class ControllerRuntime:
         self._tasks: set[asyncio.Task[None]] = set()
         self._stop_requested = asyncio.Event()
         self._stopped = False
+        self.token_verifier: FabricTokenVerifier | None = None
         self.failed_task: str | None = None
         """Name of the owned task whose crash caused the stop, if any (NB3): a
         controller that stopped because its lease timer died exits ``FAILURE``."""
@@ -125,6 +132,17 @@ class ControllerRuntime:
     async def _start(self) -> None:
         cfg = self.settings.controller
         loop = asyncio.get_running_loop()
+
+        # D44: before anything listens - a controller whose token file cannot be
+        # trusted refuses to start (config_error) instead of serving unprotected.
+        token_path = self.settings.token_path
+        token, created = await asyncio.to_thread(load_or_create_token, token_path)
+        self.token_verifier = FabricTokenVerifier(
+            token_path, clock=loop.time, initial=token
+        )
+        log.info(
+            "controller.token.ready", created=created, fingerprint=fingerprint(token)
+        )
 
         engine = create_engine(self.settings.database)
         self._engine = engine
@@ -158,6 +176,7 @@ class ControllerRuntime:
             outbound_queue_size=cfg.outbound_queue_size,
             dedupe_window=cfg.dedupe_window,
             resources=resources,
+            admission_timeout_s=cfg.admission_timeout_s,
         )
         self.manager = manager
         self._lease_timer_task = self._spawn(
@@ -197,6 +216,7 @@ class ControllerRuntime:
                 # The API reads sample ages against the same monotonic clock the
                 # session manager and the leases use (D16).
                 clock=loop.time,
+                auth=ApiAuth(verifier=self.token_verifier),
             ),
             host=self._http_bind.host,
             port=self.http_port,
