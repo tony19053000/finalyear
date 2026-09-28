@@ -30,7 +30,7 @@
 > throughput measurements and the reasoning; if you think the arithmetic or the trade is wrong,
 > **say so to the team before building on it.** Do not silently re-expand the scope either.
 
-**Last updated:** 2026-09-28 (**V0.4 G1–G3 code written; parallel running STOPPED — one subagent at a time from now on (§0e)**; G1 tester round 1 running) · **Updated by:** Lead session (account 2)
+**Last updated:** 2026-09-28 (**V0.4 G1 CLOSED** — 0.4.16 `[x]`, reviewer APPROVE, grpcio cap lifted; G2 and G3 code written, awaiting their tester → reviewer rounds; **one subagent at a time** (§0e); nothing running) · **Updated by:** Lead session
 
 ---
 
