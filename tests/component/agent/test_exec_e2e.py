@@ -394,3 +394,51 @@ async def test_backstop_fails_an_attempt_whose_agent_hangs(
         assert job["attempts"][0]["detail"] == "controller_backstop"
     finally:
         await hung.stop()
+
+
+def _docker_ready() -> bool:
+    try:
+        from meshforge.agent.execution.docker_support import open_client
+        from meshforge.agent.settings import PYTHON_CPU_IMAGE
+
+        client = open_client(10)
+    except Exception:  # noqa: BLE001
+        return False
+    try:
+        client.images.get(PYTHON_CPU_IMAGE)
+    except Exception:  # noqa: BLE001
+        return False
+    finally:
+        client.close()
+    return True
+
+
+@pytest.mark.docker
+async def test_docker_runtime_end_to_end(
+    grpc_target: str, http: httpx.AsyncClient, tmp_path: Path, data_dir: Path
+) -> None:
+    """The same path through the sandbox: the job cannot see the counter file on
+    the host, so it prints instead and the test reads the job's own result."""
+    if not await asyncio.to_thread(_docker_ready):
+        pytest.skip("Docker or the pinned python-cpu image is not available here")
+    docker_agent = await ExecAgent.start(
+        grpc_target, data_dir, execution={"allow_unsandboxed": False}, docker=True
+    )
+    try:
+        assert docker_agent.setup.runtimes.keys() == {"docker"}
+        project = tmp_path / "dproj"
+        project.mkdir()
+        (project / "main.py").write_text(
+            "import sys; print('in docker'); sys.exit(0)\n"
+        )
+        job_id = await submit(
+            http,
+            project,
+            docker_agent.node_id,
+            {"name": "d", "entrypoint": ["python", "main.py"]},
+        )
+        job = await wait_job(http, job_id, timeout_s=60)
+        assert job["state"] == "succeeded", job
+        assert job["attempts"][0]["exit_code"] == 0
+    finally:
+        await docker_agent.stop()
