@@ -20,13 +20,14 @@ on the one Typer application.
 
 ``compute get JOB`` downloads the outputs archive, checks its SHA-256 and
 unpacks it hostile-input-safe into ``./outputs/<job_id>/`` (``--dest``); a
-non-empty destination is refused unless ``--force``.
+non-empty destination is refused unless ``--force``, which swaps the new folder
+in only after everything succeeded (a failure leaves the old folder untouched)
+and is refused for the working directory, its ancestors, home and a root.
 """
 
 from __future__ import annotations
 
 import hashlib
-import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -333,19 +334,29 @@ def get(
         bool, typer.Option("--force", help="Replace a non-empty destination.")
     ] = False,
 ) -> None:
-    """Download a finished job's outputs (verified) and unpack them."""
+    """Download a finished job's outputs (verified) and unpack them.
+
+    Everything happens in a temporary folder next to the destination (same
+    filesystem): download, SHA-256 check, unpack. Only when all of that
+    succeeded is an existing destination moved aside and the new folder renamed
+    into place - a missing output, a network error or a digest mismatch leaves
+    the old folder exactly as it was.
+    """
     from meshforge.common.bundle import BundleError, unpack
 
     checked = _checked_job_id(job_id)
     target = dest if dest is not None else Path("outputs") / checked
     if target.is_symlink() or (target.exists() and not target.is_dir()):
         cli._die(f"{target} exists and is not a folder", ExitCode.USAGE_ERROR)
-    if target.is_dir() and any(target.iterdir()):
-        if not force:
+    if force:
+        refused = _unsafe_force_target(target)
+        if refused is not None:
             cli._die(
-                f"{target} is not empty; pass --force to replace it", ExitCode.FAILURE
+                f"refusing --force: {target} is {refused}; pick a dedicated folder",
+                ExitCode.USAGE_ERROR,
             )
-        shutil.rmtree(target)
+    if target.is_dir() and any(target.iterdir()) and not force:
+        cli._die(f"{target} is not empty; pass --force to replace it", ExitCode.FAILURE)
     settings = cli._settings()
     with cli._client(settings) as client:
         job = cli._fetch(lambda: client.job(checked))
@@ -368,10 +379,19 @@ def get(
                     "unpacked",
                     ExitCode.FAILURE,
                 )
+            fresh = Path(tmp) / "new"
             try:
-                stats = unpack(archive, target)
+                stats = unpack(archive, fresh)
             except BundleError as exc:
                 cli._die(f"cannot unpack the outputs: {exc.message}", ExitCode.FAILURE)
+            try:
+                _swap_in(fresh, target, Path(tmp) / "old")
+            except OSError as exc:
+                cli._die(
+                    f"cannot move the outputs into {target} ({type(exc).__name__}); "
+                    "the existing folder was left as it was",
+                    ExitCode.FAILURE,
+                )
     missing = attempt.get("missing_outputs") if attempt else None
     typer.echo(f"{stats.files} files -> {target}")
     if isinstance(missing, list) and missing:
@@ -380,6 +400,46 @@ def get(
             + ", ".join(str(m)[:100] for m in missing[:20]),
             err=True,
         )
+
+
+def _unsafe_force_target(target: Path) -> str | None:
+    """Why ``--force`` must not replace ``target`` (``None`` = it may).
+
+    ``--force`` replaces a whole folder; pointing it at the working directory,
+    one of its ancestors, the home folder or a filesystem root is a typo that
+    would delete far more than a job's outputs.
+    """
+    resolved = target.resolve()
+    cwd = Path.cwd().resolve()
+    if resolved == cwd:
+        return "the current directory"
+    if resolved.parent == resolved:
+        return "a filesystem root"
+    if resolved in cwd.parents:
+        return "an ancestor of the current directory"
+    try:
+        home = Path.home().resolve()
+    except (RuntimeError, OSError):
+        home = None
+    if home is not None and resolved == home:
+        return "the home folder"
+    return None
+
+
+def _swap_in(fresh: Path, target: Path, parked: Path) -> None:
+    """Rename ``fresh`` onto ``target``; an existing ``target`` is parked first
+    (and put back if the second rename fails). All three share one parent
+    filesystem, so both renames are atomic; the caller's temp folder then
+    deletes the parked copy."""
+    if not target.exists():
+        fresh.rename(target)
+        return
+    target.rename(parked)
+    try:
+        fresh.rename(target)
+    except OSError:
+        parked.rename(target)
+        raise
 
 
 def _sha256(path: Path) -> str:

@@ -156,7 +156,7 @@ compute run workloads/examples/cpu-deterministic --local -f            # this la
 compute jobs                       # recent jobs (--state running, --json)
 compute logs <JOB_ID> [-f]         # stdout to stdout, stderr to stderr; -f follows live
 compute cancel <JOB_ID>            # idempotent
-compute get <JOB_ID>               # outputs -> ./outputs/<JOB_ID>/ (--dest, --force)
+compute get <JOB_ID>               # outputs -> ./outputs/<JOB_ID>/ (--dest, --force: replaces only after a verified download)
 ```
 
 - `run` reads `compute.yaml` (or infers `main.py`), packs the folder (`.gitignore` /
