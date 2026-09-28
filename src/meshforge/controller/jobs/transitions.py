@@ -7,9 +7,10 @@ compare-and-set UPDATE), so an arrow that is not in these tables cannot happen -
 it raises :class:`IllegalTransitionError` (``conflict``).
 
 The tables are exactly the diagrams of §12. Arrows the diagrams do not have are
-refused on purpose, even where a later version will need one (e.g. ``COLLECTING ->
-FAILED`` when output upload fails): adding an arrow is an ARCHITECTURE §12 change
-first, then one line here and a test.
+refused on purpose, even where a later version will need one: adding an arrow is an
+ARCHITECTURE §12 change first, then one line here and a test. The 2026-09-28
+amendments (V0.4 D55: ``COLLECTING -> FAILED``, ``PLANNING -> CANCELLED``,
+``RETRYING -> CANCELLED``; G4/D69: ``COLLECTING -> CANCELLED``) are in both.
 """
 
 from __future__ import annotations
@@ -57,9 +58,10 @@ class JobEvent(StrEnum):
     RETRY = "retry"
     """PREPARING/RUNNING -> RETRYING (retryable attempt failure)."""
     FAIL = "fail"
-    """PREPARING/RUNNING -> FAILED (non-retryable, or retries exhausted)."""
+    """PREPARING/RUNNING/COLLECTING -> FAILED (non-retryable, retries exhausted,
+    or the output upload failed)."""
     CANCEL = "cancel"
-    """SUBMITTED/QUEUED/PREPARING/RUNNING -> CANCELLED."""
+    """SUBMITTED/PLANNING/QUEUED/PREPARING/RUNNING/COLLECTING/RETRYING -> CANCELLED."""
 
 
 class AttemptEvent(StrEnum):
@@ -94,10 +96,14 @@ JOB_TRANSITIONS: Final[Mapping[tuple[JobState, JobEvent], JobState]] = _freeze(
         (J.RUNNING, JE.RETRY): J.RETRYING,
         (J.PREPARING, JE.FAIL): J.FAILED,
         (J.RUNNING, JE.FAIL): J.FAILED,
+        (J.COLLECTING, JE.FAIL): J.FAILED,  # D55
         (J.SUBMITTED, JE.CANCEL): J.CANCELLED,
+        (J.PLANNING, JE.CANCEL): J.CANCELLED,  # D55
         (J.QUEUED, JE.CANCEL): J.CANCELLED,
         (J.PREPARING, JE.CANCEL): J.CANCELLED,
         (J.RUNNING, JE.CANCEL): J.CANCELLED,
+        (J.COLLECTING, JE.CANCEL): J.CANCELLED,  # D69 (G4)
+        (J.RETRYING, JE.CANCEL): J.CANCELLED,  # D55
     }
 )
 

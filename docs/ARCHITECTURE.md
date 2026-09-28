@@ -450,11 +450,12 @@ stateDiagram-v2
     QUEUED --> CANCELLED
     PREPARING --> CANCELLED
     RUNNING --> CANCELLED
+    COLLECTING --> CANCELLED
     SUCCEEDED --> [*]
     FAILED --> [*]
     CANCELLED --> [*]
 ```
-*Amended 2026-09-28 (V0.4 brief D55): `COLLECTING → FAILED`, `PLANNING → CANCELLED`, `RETRYING → CANCELLED` added — a cancel or an output-upload failure can happen in those states and the original diagram had no arrow for them.*
+*Amended 2026-09-28 (V0.4 brief D55): `COLLECTING → FAILED`, `PLANNING → CANCELLED`, `RETRYING → CANCELLED` added — a cancel or an output-upload failure can happen in those states and the original diagram had no arrow for them.* *Amended again 2026-09-28 (V0.4 G4, D69): `COLLECTING → CANCELLED` — D69 lets a user cancel a job whose attempt is uploading its outputs; the agent's `FAILED(cancelled)` report must be able to land.*
 
 Mode 3 jobs additionally track chunk states (`PENDING → LEASED → DONE | FAILED`), with lease expiry returning chunks to `PENDING`.
 

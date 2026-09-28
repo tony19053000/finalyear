@@ -43,6 +43,12 @@ JOB_ARROWS = {
     (J.QUEUED, E.CANCEL): J.CANCELLED,
     (J.PREPARING, E.CANCEL): J.CANCELLED,
     (J.RUNNING, E.CANCEL): J.CANCELLED,
+    # §12.1 amendment 2026-09-28 (V0.4 D55)
+    (J.COLLECTING, E.FAIL): J.FAILED,
+    (J.PLANNING, E.CANCEL): J.CANCELLED,
+    (J.RETRYING, E.CANCEL): J.CANCELLED,
+    # §12.1 amendment 2026-09-28 (V0.4 G4, D69: a cancel while outputs are collected)
+    (J.COLLECTING, E.CANCEL): J.CANCELLED,
 }
 
 A, AE = AttemptState, AttemptEvent
