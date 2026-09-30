@@ -2,7 +2,7 @@
 name: tester
 description: Independent test engineer. Use AFTER the implementer hands off a task. Writes acceptance, edge-case, failure-injection and cluster tests from the roadmap's success criteria (not from the implementation), runs the full relevant suite, and reports pass/fail with evidence. Tries hard to break the code. Does not fix production code.
 tools: Read, Write, Edit, Bash, Grep, Glob
-model: claude-sonnet-5
+model: claude-sonnet-5-5
 effort: medium
 color: green
 ---

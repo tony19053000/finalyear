@@ -142,7 +142,7 @@ decisions far better than mTLS does, and "AI has a real optimization role" is a 
 |---|---|---|---|
 | **Lead** (the main session) | `claude-opus-5-5` | — | the app's model picker / `/model claude-opus-5-5` |
 | implementer | `claude-opus-5-5` (was `claude-opus-5`) | medium | `.claude/agents/implementer.md` |
-| tester | `claude-sonnet-5` (unchanged) | medium | `.claude/agents/tester.md` |
+| tester | `claude-sonnet-5-5` (was `claude-sonnet-5`, switched 2026-10-01 by team decision) | medium | `.claude/agents/tester.md` |
 | reviewer | `claude-opus-5-5` (was `claude-opus-5`) | low | `.claude/agents/reviewer.md` |
 
 Commit `6563c7d`. **Subagent models are pinned by exact ID in the agent files** — switching the Lead's model does

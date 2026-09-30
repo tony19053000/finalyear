@@ -117,7 +117,7 @@ implementer done (`d6b12e1` … `b1d5cbc`) → tester 1 PASS (`e8e50c9`) → rev
 ## Next Recommended Task
 **2026-09-29: G5 tester round 2 (re-run) → reviewer pass 3 → close G5 → 🧑 0.4.15 lab.** Details in Current Task. Everything below is history.
 
-**Models (2026-09-24):** Lead, implementer and reviewer now run **`claude-opus-5-5`**; tester stays `claude-sonnet-5` (commit `6563c7d`, details in `SESSION_HANDOFF.md` §0c). §0b's throughput numbers were measured on Opus 5 — re-baseline after G6 before re-planning.
+**Models (2026-09-24):** Lead, implementer and reviewer now run **`claude-opus-5-5`**; tester moved to `claude-sonnet-5-5` on 2026-10-01 (was `claude-sonnet-5`, commit `6563c7d`, details in `SESSION_HANDOFF.md` §0c). §0b's throughput numbers were measured on Opus 5 — re-baseline after G6 before re-planning.
 
 **Agent-side, two things, can run in parallel (separate sessions, the fix task in its own worktree):**
 1. ~~Relaunch the exit-139 fix~~ — **done 2026-09-24** (see Known Bugs). Run pytest through `scripts/pytest_exit_guard.py` from now on.
