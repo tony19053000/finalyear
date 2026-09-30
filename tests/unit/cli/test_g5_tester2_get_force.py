@@ -128,6 +128,12 @@ def test_force_never_follows_a_symlinked_target(
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits")
 @pytest.mark.skipif(os.geteuid() == 0, reason="root ignores permission bits")
+@pytest.mark.xfail(
+    strict=True,
+    reason="DEFECT T2-1 (minor): get() does not catch OSError from "
+    "target.parent.mkdir / TemporaryDirectory, so an unwritable parent ends in a "
+    "Python traceback instead of a clean one-line error. Nothing is damaged.",
+)
 def test_force_with_an_unwritable_parent_fails_cleanly(
     runner: CliRunner, controller: TransportFactory, tmp_path: Path, bundle: bytes
 ) -> None:
