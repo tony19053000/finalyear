@@ -382,9 +382,12 @@ class FaultLink:
 
     async def _close(self) -> None:
         await self._stop_listening()
-        for conn in list(self._conns.values()):
+        conns = list(self._conns.values())
+        # Collect the tasks before closing: _close_conn removes each connection
+        # from _conns, so reading _conns afterwards found none to wait for.
+        tasks = [t for c in conns for t in c.tasks if t is not asyncio.current_task()]
+        for conn in conns:
             self._close_conn(conn)
-        tasks = [t for c in self._conns.values() for t in c.tasks]
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)

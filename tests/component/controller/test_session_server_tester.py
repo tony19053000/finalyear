@@ -598,7 +598,10 @@ async def test_two_controllers_on_the_same_db_second_startup_sweep_closes_first(
     controller-instance identity to distinguish "my sessions" from "someone
     else's" - acceptable for a single-controller deployment (ARCHITECTURE §3),
     worth flagging if multi-controller ever becomes a real deployment shape."""
-    settings1 = make_settings(pg_settings)
+    # TOLERANT_LIVENESS: the agent never heartbeats, and starting the second
+    # controller can take longer than FAST_LIVENESS's 0.6 s lease - the session
+    # then ends lease_expired before the sweep (seen in a full component run).
+    settings1 = make_settings(pg_settings, **tolerant_liveness())
     async with ControllerRuntime.start(settings1) as rt1:
         registry1 = rt1.registry
         assert registry1 is not None
