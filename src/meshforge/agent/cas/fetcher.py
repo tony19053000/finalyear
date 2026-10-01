@@ -49,6 +49,8 @@ log = get_logger(__name__)
 _STREAM: Final = 1024 * 1024
 DEFAULT_PARALLEL: Final = 4
 DEFAULT_CHUNK_RETRIES: Final = 2
+DEFAULT_MAX_REFETCHES: Final = 3
+"""Whole blobs one staging may fetch again after a mismatch (each blob once)."""
 
 
 class FetchError(MeshForgeError):
@@ -78,6 +80,8 @@ class FetchStats:
     """Chunks a previous, interrupted fetch had already verified and kept."""
     corrupt_chunks: int = 0
     manifest_hit: bool = False
+    refetches: int = 0
+    """Whole blobs fetched again after a mismatch (cached or in flight)."""
     sources: dict[str, int] = field(default_factory=dict)
     """Bytes per source node (``controller`` for the controller)."""
 
@@ -107,6 +111,7 @@ class BlobFetcher:
         parallel: int = DEFAULT_PARALLEL,
         chunk_retries: int = DEFAULT_CHUNK_RETRIES,
         tree_limits: TreeLimits | None = None,
+        max_refetches: int = DEFAULT_MAX_REFETCHES,
     ) -> None:
         listed = list(sources)
         if not listed:
@@ -120,6 +125,8 @@ class BlobFetcher:
         self._retries = chunk_retries
         self._limits = tree_limits or TreeLimits()
         self.stats = FetchStats()
+        self._refetch_left = max_refetches
+        self._refetched: set[str] = set()
 
     @property
     def _who(self) -> str:
@@ -220,12 +227,35 @@ class BlobFetcher:
             if store.has(digest):
                 self.stats.blobs_hit += 1
                 return False
-            if entry.chunks:
-                await self._fetch_chunked(entry, chunk_size)
-            else:
-                await self._fetch_whole(entry)
+            try:
+                await self._fetch_blob(entry, chunk_size)
+            except FetchError as exc:
+                if exc.failure_type is not FailureType.INTEGRITY_ERROR:
+                    raise
+                if not self.allow_refetch(digest):
+                    raise
+                log.warning(
+                    "agent.cas.blob_refetch", digest=str(digest), source=self._who
+                )
+                await self._fetch_blob(entry, chunk_size)
             self.stats.blobs_fetched += 1
             return True
+
+    def allow_refetch(self, digest: Digest) -> bool:
+        """Spend the refetch budget: each blob at most once, at most
+        ``max_refetches`` per staging (D3 of the G1 fix round)."""
+        if digest.hex in self._refetched or self._refetch_left <= 0:
+            return False
+        self._refetched.add(digest.hex)
+        self._refetch_left -= 1
+        self.stats.refetches += 1
+        return True
+
+    async def _fetch_blob(self, entry: TreeEntry, chunk_size: int) -> None:
+        if entry.chunks:
+            await self._fetch_chunked(entry, chunk_size)
+        else:
+            await self._fetch_whole(entry)
 
     async def _fetch_whole(self, entry: TreeEntry) -> None:
         digest = entry.digest

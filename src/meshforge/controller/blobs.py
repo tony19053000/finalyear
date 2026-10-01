@@ -49,6 +49,7 @@ monotonic clock.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import json
 import secrets
@@ -56,7 +57,7 @@ from collections import OrderedDict
 from collections.abc import AsyncIterator, Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final
+from typing import Any, Final
 
 from pydantic import SecretStr
 
@@ -183,7 +184,7 @@ class BlobStore:
         self.tree_limits = tree_limits or TreeLimits()
         self._upload_wait_s = upload_wait_s
         self._uploads = asyncio.Semaphore(max_concurrent_uploads)
-        self._part_locks: dict[str, asyncio.Lock] = {}
+        self._part_locks: dict[str, list[Any]] = {}
         self._trees: OrderedDict[str, Tree | None] = OrderedDict()
         self.uploads_refused_busy = 0
         self.parts_received = 0
@@ -283,15 +284,22 @@ class BlobStore:
 
     # -------------------------------------------------------------- parts
 
-    def _lock(self, digest: Digest) -> asyncio.Lock:
-        lock = self._part_locks.get(digest.hex)
-        if lock is None:
-            lock = self._part_locks[digest.hex] = asyncio.Lock()
-        return lock
-
-    def _drop_lock(self, digest: Digest, lock: asyncio.Lock) -> None:
-        if not lock.locked() and self._part_locks.get(digest.hex) is lock:
-            del self._part_locks[digest.hex]
+    @contextlib.asynccontextmanager
+    async def _holding(self, digest: Digest) -> AsyncIterator[None]:
+        """Exclusive per digest; the entry is dropped only when nobody holds or
+        waits for it (reference counted: a waiter never ends up on a lock a
+        newcomer no longer sees)."""
+        entry = self._part_locks.get(digest.hex)
+        if entry is None:
+            entry = self._part_locks[digest.hex] = [asyncio.Lock(), 0]
+        entry[1] += 1
+        try:
+            async with entry[0]:
+                yield
+        finally:
+            entry[1] -= 1
+            if entry[1] == 0:
+                self._part_locks.pop(digest.hex, None)
 
     def _check_shape(self, digest: Digest, size: int, chunk_size: int) -> None:
         if size > self.max_blob_bytes:
@@ -312,12 +320,10 @@ class BlobStore:
         _part, sidecar = self.cas.resume_paths(digest)
         if not sidecar.is_file():
             return None
-        lock = self._lock(digest)
-        try:
-            async with lock:
-                return await asyncio.to_thread(self._read_status, digest)
-        finally:
-            self._drop_lock(digest, lock)
+        async with self._holding(digest):
+            if (size := self.size(digest)) is not None:
+                return PartStatus(size=size, chunk_size=0, received=(), complete=True)
+            return await asyncio.to_thread(self._read_status, digest)
 
     def _read_status(self, digest: Digest) -> PartStatus | None:
         _part, sidecar = self.cas.resume_paths(digest)
@@ -349,7 +355,6 @@ class BlobStore:
         """
         self._check_shape(digest, size, chunk_size)
         await self._slot(digest)
-        lock = self._lock(digest)
         try:
             data = bytearray()
             limit = chunk_size
@@ -361,9 +366,9 @@ class BlobStore:
                         failure_type=FailureType.INVALID_INPUT,
                         details={"digest": str(digest), "index": index},
                     )
-            if self.size(digest) is not None:
-                return False
-            async with lock:
+            async with self._holding(digest):
+                if self.size(digest) is not None:
+                    return False
                 part = await asyncio.to_thread(
                     self.cas.resumable, digest, size, chunk_size
                 )
@@ -376,7 +381,6 @@ class BlobStore:
             raise BlobError(str(exc), failure_type=FailureType.INVALID_INPUT) from None
         finally:
             self._uploads.release()
-            self._drop_lock(digest, lock)
         if stored:
             self.parts_received += 1
             self.part_bytes_received += len(data)
@@ -386,15 +390,18 @@ class BlobStore:
         """Hash the assembled parts and install the blob (see module docstring)."""
         if (existing := self.size(digest)) is not None:
             return PutResult(digest=digest, size=existing, created=False)
-        status = await self.part_status(digest)
-        if status is None:
-            raise BlobNotFoundError(
-                "no part upload of this blob is in progress",
-                details={"digest": str(digest)},
-            )
-        lock = self._lock(digest)
         try:
-            async with lock:
+            async with self._holding(digest):
+                # Re-checked under the lock: a concurrent complete may have
+                # stored it meanwhile - then this one succeeds too (idempotent).
+                if (existing := self.size(digest)) is not None:
+                    return PutResult(digest=digest, size=existing, created=False)
+                status = await asyncio.to_thread(self._read_status, digest)
+                if status is None:
+                    raise BlobNotFoundError(
+                        "no part upload of this blob is in progress",
+                        details={"digest": str(digest)},
+                    )
                 part = await asyncio.to_thread(
                     self.cas.resumable, digest, status.size, status.chunk_size
                 )
@@ -415,8 +422,6 @@ class BlobStore:
             ) from None
         except CasError as exc:
             raise _translate(exc, digest) from None
-        finally:
-            self._drop_lock(digest, lock)
         log.info(
             "controller.blobs.stored", digest=str(digest), size=result.size, parts=True
         )

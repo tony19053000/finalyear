@@ -291,8 +291,22 @@ def build_tree(
 # ----------------------------------------------------------------------- parse
 
 
+def _utf8(text: str) -> bool:
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
 def _check_link(link: object, rel: str) -> str:
-    if not isinstance(link, str) or not link or "\x00" in link or "\\" in link:
+    if (
+        not isinstance(link, str)
+        or not link
+        or "\x00" in link
+        or "\\" in link
+        or not _utf8(link)
+    ):
         raise TreeError("symlink target is empty or malformed", path=rel)
     if len(link.encode("utf-8", "surrogatepass")) > MAX_PATH_BYTES:
         raise TreeError("symlink target too long", path=rel)
@@ -314,6 +328,9 @@ def _entry(raw: object, chunk_size: int, limits: TreeLimits) -> TreeEntry:
     path = raw.get("path")
     if not isinstance(path, str):
         raise TreeError("a tree entry has no path")
+    if not _utf8(path):
+        # JSON may carry a lone surrogate ("\ud800"): not a real file name.
+        raise TreeError("a tree path is not valid UTF-8")
     try:
         check_member_name(path)
     except PathError as exc:

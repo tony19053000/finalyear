@@ -337,6 +337,12 @@ async def submit_job(
         mode="local" if submission.placement.local else "offload", node_id=node_id
     )
     canonical_manifest = manifest.canonical_dict()
+    try:
+        json.dumps(canonical_manifest, ensure_ascii=False).encode("utf-8")
+    except UnicodeEncodeError:
+        raise ApiError.invalid(
+            "the manifest contains text that is not valid UTF-8"
+        ) from None
     digest = request_hash(
         canonical_manifest,
         submission.bundle_digest,

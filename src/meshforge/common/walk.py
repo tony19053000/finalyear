@@ -214,7 +214,11 @@ def _link_target(path: Path, rel: str, root_real: str, error: type[PathError]) -
         target = target.removeprefix("\\\\?\\").replace("\\", "/")
     elif "\\" in target:
         raise error("symlink target contains '\\' (not portable)", path=rel)
-    if not target or "\x00" in target or len(target.encode()) > MAX_PATH_BYTES:
+    try:
+        target_bytes = len(target.encode("utf-8"))
+    except UnicodeEncodeError:
+        raise error("symlink target is not valid UTF-8", path=rel) from None
+    if not target or "\x00" in target or target_bytes > MAX_PATH_BYTES:
         raise error("symlink target is empty or too long", path=rel)
     if target.startswith("/") or DRIVE_RE.match(target):
         raise error("symlink target is absolute (it must stay inside)", path=rel)

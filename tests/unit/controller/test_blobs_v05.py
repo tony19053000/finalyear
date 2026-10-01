@@ -183,3 +183,22 @@ async def test_fetch_token_grant_expires() -> None:
     assert tokens.grant("nope") is None and tokens.grant(None) is None
     now[0] = 111.0
     assert tokens.grant(token) is None
+
+
+async def test_concurrent_duplicate_completes_all_succeed(tmp_path: Path) -> None:
+    """G1 fix D2: once the blob is stored, every complete answers success."""
+    import asyncio
+
+    store = _store(tmp_path)
+    data = os.urandom(3 * CS)
+    digest = sha256_bytes(data)
+    for i, (chunk, hex_) in enumerate(_pieces(data)):
+        await store.put_part(
+            digest, i, size=len(data), chunk_size=CS, chunk_hex=hex_, body=_one(chunk)
+        )
+    results = await asyncio.gather(*(store.complete_parts(digest) for _ in range(6)))
+    assert sum(r.created for r in results) == 1
+    assert all(r.size == len(data) for r in results)
+    assert store.path_for(digest).read_bytes() == data
+    late = await store.complete_parts(digest)
+    assert not late.created

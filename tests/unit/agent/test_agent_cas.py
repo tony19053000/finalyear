@@ -398,3 +398,65 @@ def test_tree_sources_validation() -> None:
     many.sources.add(url="http://h:1", token="t")
     with pytest.raises(FetchError):
         tree_sources(many, None)
+
+
+@pytest.mark.asyncio
+async def test_stage_tree_refetches_two_corrupt_cached_blobs(tmp_path: Path) -> None:
+    """G1 fix D3: the budget is per blob (once each), not one per attempt."""
+    _root, built = _project(tmp_path)
+    server = _Server(built)
+    cas = _cas(tmp_path)
+    transport = httpx.MockTransport(server.handler)
+    kwargs = {
+        "tree_id": str(built.tree.tree_id),
+        "sources": [SOURCE],
+        "transport": transport,
+        "free_disk_floor_bytes": 0,
+    }
+    await stage_tree(cas, dest=tmp_path / "w1", **kwargs)  # type: ignore[arg-type]
+    big = next(e for e in built.tree.files() if e.path == "big.bin")
+    for digest in (sha256_bytes(b"print('hi')\n"), big.digest):
+        path = cas.store.path_for(digest)
+        path.chmod(0o600)
+        raw = bytearray(path.read_bytes())
+        raw[0] ^= 0xFF
+        path.write_bytes(bytes(raw))
+    report = await stage_tree(cas, dest=tmp_path / "w2", **kwargs)  # type: ignore[arg-type]
+    assert report.corrupt_refetches == 2 and report.blobs_fetched == 2
+    assert (tmp_path / "w2" / "big.bin").read_bytes() == (
+        _root / "big.bin"
+    ).read_bytes()
+
+
+@pytest.mark.asyncio
+async def test_refetch_budget_once_per_blob_and_bounded(tmp_path: Path) -> None:
+    async with httpx.AsyncClient() as client:
+        fetcher = BlobFetcher(_cas(tmp_path), [SOURCE], client, max_refetches=2)
+    a, b, c = (sha256_bytes(x) for x in (b"a", b"b", b"c"))
+    assert fetcher.allow_refetch(a)
+    assert not fetcher.allow_refetch(a)  # the same blob only once
+    assert fetcher.allow_refetch(b)
+    assert not fetcher.allow_refetch(c)  # total budget spent
+
+
+@pytest.mark.asyncio
+async def test_a_blob_corrupt_in_flight_twice_is_integrity_error(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "proj"
+    root.mkdir()
+    (root / "f.txt").write_bytes(b"payload")
+    built = build_tree(root, chunk_size=CS)
+    server = _Server(built)
+    target = sha256_bytes(b"payload").hex
+    server.mutate = lambda h, _s, d: b"PAYLOAD" if h == target else d
+    cas = _cas(tmp_path)
+    async with server.client() as client:
+        fetcher = BlobFetcher(cas, [SOURCE], client)
+        tree = await fetcher.tree(built.tree.tree_id)
+        with pytest.raises(FetchError) as info:
+            await fetcher.ensure_all(tree)
+    assert info.value.failure_type is FailureType.INTEGRITY_ERROR
+    assert fetcher.stats.refetches == 1
+    assert server.requests.count(target) == 2
+    assert not cas.store.has(Digest(target))

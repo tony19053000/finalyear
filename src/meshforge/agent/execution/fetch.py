@@ -378,10 +378,10 @@ async def stage_tree(
                 log.warning(
                     "agent.cas.blob_corrupt", digest=str(exc.digest), refetch=refetches
                 )
-                if refetches > 1:
+                if not fetcher.allow_refetch(exc.digest):
                     raise FetchError(
-                        f"blob {exc.digest} is corrupt again after a fresh fetch; "
-                        "it was not used",
+                        f"blob {exc.digest} is corrupt and its re-fetch budget is "
+                        "spent; it was not used",
                         failure_type=FailureType.INTEGRITY_ERROR,
                     ) from None
                 entry = next(e for e in tree.files() if e.sha256 == exc.digest.hex)
