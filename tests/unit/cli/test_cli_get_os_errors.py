@@ -246,3 +246,46 @@ def test_oserror_while_hashing_the_download_is_a_clean_error(
     assert len(out.strip().splitlines()) == 1
     assert _snapshot(existing) == before
     assert _temp_dirs(existing.parent) == []
+
+
+# ------------------------------------- reviewer: interrupted between renames
+
+
+def test_ctrl_c_between_the_renames_keeps_the_parked_folder(
+    runner: CliRunner,
+    served: Callable[[], None],
+    existing: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ctrl-C arrives after the old folder was parked and before the new one
+    is renamed into place: the staging folder (holding the only copy of the
+    old folder) must not be deleted, and the parked path is printed."""
+    before = _snapshot(existing)
+    served()
+    real = Path.rename
+
+    def rename(self: Path, target: str | os.PathLike[str]) -> Path:
+        if tmp_path in self.parents and self.name == "new":
+            raise KeyboardInterrupt
+        return real(self, target)
+
+    monkeypatch.setattr(Path, "rename", rename)
+    result = runner.invoke(app, ["get", JOB, "--dest", str(existing), "--force"])
+
+    assert isinstance(result.exception, KeyboardInterrupt) or result.exit_code != 0
+    match = re.search(r"the old folder is safe at (\S+)", result.output)
+    assert match is not None, result.output
+    parked = Path(match.group(1))
+    [staging] = _temp_dirs(existing.parent)
+    assert parked == staging / "old"
+    assert _snapshot(parked) == before
+    assert not existing.exists()
+
+
+def test_stranded_error_keeps_the_cause_filename(tmp_path: Path) -> None:
+    cause = PermissionError(errno.EACCES, os.strerror(errno.EACCES), "/x/new")
+    err = job_commands._StrandedError(cause, tmp_path / "old")
+    assert err.filename == "/x/new"
+    assert err.errno == errno.EACCES
+    assert err.parked == tmp_path / "old"

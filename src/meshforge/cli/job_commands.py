@@ -28,6 +28,7 @@ and is refused for the working directory, its ancestors, home and a root.
 from __future__ import annotations
 
 import hashlib
+import os
 import shutil
 import sys
 import tempfile
@@ -369,6 +370,7 @@ def get(
             )
         hex_digest = digest.removeprefix("sha256:")
         tmp = _staging_dir(target)
+        parked = tmp / "old"
         keep_tmp = False
         try:
             archive = tmp / "outputs.bundle"
@@ -399,7 +401,7 @@ def get(
                     ExitCode.FAILURE,
                 )
             try:
-                _swap_in(fresh, target, tmp / "old")
+                _swap_in(fresh, target, parked)
             except _StrandedError as exc:
                 keep_tmp = True
                 cli._die(
@@ -409,11 +411,20 @@ def get(
                 )
             except OSError as exc:
                 cli._die(
-                    f"cannot move the outputs into {target} ({type(exc).__name__}); "
+                    f"cannot move the outputs into {target} ({_os_cause(exc)}); "
                     "the existing folder was left as it was",
                     ExitCode.FAILURE,
                 )
         finally:
+            if not keep_tmp and _parked_only(parked, target):
+                # interrupted (Ctrl-C, any non-OSError) between parking the old
+                # folder and putting something back at ``target``: never delete it
+                keep_tmp = True
+                typer.echo(
+                    f"{cli.PROG_NAME}: interrupted while replacing {target}; the old "
+                    f"folder is safe at {parked}",
+                    err=True,
+                )
             if not keep_tmp:
                 shutil.rmtree(tmp, ignore_errors=True)
     missing = attempt.get("missing_outputs") if attempt else None
@@ -456,7 +467,7 @@ class _StrandedError(OSError):
     the path so the user can move it back by hand."""
 
     def __init__(self, cause: OSError, parked: Path) -> None:
-        super().__init__(cause.errno, cause.strerror or str(cause))
+        super().__init__(cause.errno, cause.strerror or str(cause), cause.filename)
         self.parked = parked
 
 
@@ -477,6 +488,12 @@ def _staging_dir(target: Path) -> Path:
 def _os_cause(exc: OSError) -> str:
     """The short human cause of an ``OSError`` (``strerror``, else its type)."""
     return exc.strerror or type(exc).__name__
+
+
+def _parked_only(parked: Path, target: Path) -> bool:
+    """The old folder sits at ``parked`` and nothing is at ``target``: deleting
+    the staging folder now would lose the user's only copy."""
+    return parked.is_dir() and not os.path.lexists(target)
 
 
 def _swap_in(fresh: Path, target: Path, parked: Path) -> None:
