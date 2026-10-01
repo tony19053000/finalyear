@@ -39,7 +39,7 @@ from meshforge.agent.session.hello import basic_hardware
 from meshforge.agent.session.state import AgentState
 from meshforge.common.bundle import pack_to_file
 
-__all__ = ["ExecAgent", "no_docker", "submit", "wait_job"]
+__all__ = ["TERMINAL", "ExecAgent", "no_docker", "submit", "wait_job"]
 
 TERMINAL = frozenset({"succeeded", "failed", "cancelled"})
 

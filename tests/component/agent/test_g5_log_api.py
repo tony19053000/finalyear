@@ -23,6 +23,7 @@ import pytest_asyncio
 pytest.importorskip("sqlalchemy", reason="needs the controller extra")
 
 from mf_agent_harness import make_controller_settings
+from mf_controller_harness import tolerant_liveness
 from mf_exec_harness import ExecAgent, submit, wait_job
 from mf_jobs_harness import token_of
 from websockets.asyncio.client import connect
@@ -59,6 +60,7 @@ def settings(pg_settings: Any) -> ControllerSettings:
             "log_subscriber_queue": 8,
             "max_log_subscribers": 2,
         },
+        **tolerant_liveness(),  # not a liveness test (see TOLERANT_LIVENESS)
     )
 
 

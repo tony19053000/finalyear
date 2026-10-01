@@ -22,6 +22,7 @@ import pytest_asyncio
 pytest.importorskip("sqlalchemy", reason="needs the controller extra")
 
 from mf_agent_harness import make_controller_settings
+from mf_controller_harness import tolerant_liveness
 from mf_exec_harness import ExecAgent, submit, wait_job
 from mf_jobs_harness import token_of
 
@@ -50,8 +51,13 @@ sys.exit(int(sys.argv[3]) if len(sys.argv) > 3 else 0)
 
 @pytest.fixture
 def settings(pg_settings: Any) -> ControllerSettings:
+    # Not a liveness test: the tolerant lease keeps a loaded machine's loop
+    # stall from turning a run into node_lost (every node loss here is a
+    # Goodbye or an explicit end_session, never silence).
     return make_controller_settings(
-        pg_settings, jobs={"dispatch_interval_s": 0.1, "backstop_grace_s": 1.0}
+        pg_settings,
+        jobs={"dispatch_interval_s": 0.1, "backstop_grace_s": 1.0},
+        **tolerant_liveness(),
     )
 
 

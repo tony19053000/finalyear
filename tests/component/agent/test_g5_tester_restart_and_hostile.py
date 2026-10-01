@@ -17,7 +17,6 @@ cover (roadmap 0.4.9/0.4.10, D71/D72/D73/D74/D75).
 
 from __future__ import annotations
 
-import asyncio
 import base64
 import json
 from collections.abc import AsyncIterator
@@ -30,7 +29,8 @@ import pytest_asyncio
 pytest.importorskip("sqlalchemy", reason="needs the controller extra")
 
 from mf_agent_harness import make_controller_settings
-from mf_exec_harness import ExecAgent, submit, wait_job
+from mf_controller_harness import tolerant_liveness
+from mf_exec_harness import TERMINAL, ExecAgent, submit, wait_job
 from mf_jobs_harness import token_of
 from websockets.asyncio.client import connect
 
@@ -47,7 +47,10 @@ pytestmark = [pytest.mark.timeout(180)]
 
 @pytest.fixture
 def settings(pg_settings: DatabaseSettings) -> ControllerSettings:
-    return make_controller_settings(pg_settings, jobs={"dispatch_interval_s": 0.1})
+    # Not a liveness test (see TOLERANT_LIVENESS); the restart below keeps it.
+    return make_controller_settings(
+        pg_settings, jobs={"dispatch_interval_s": 0.1}, **tolerant_liveness()
+    )
 
 
 RUN_THEN_OUTPUT = """\
@@ -91,20 +94,18 @@ async def test_controller_restart_while_a_job_is_running_never_strands_it(
             timeout=30,
         ) as http:
             job_id = await submit(http, project, agent.node_id, manifest)
-            # Wait until it is actually RUNNING before pulling the rug.
-            for _ in range(200):
-                state = (await http.get(f"/v1/jobs/{job_id}")).json()["state"]
-                if state == "running":
-                    break
-                await asyncio.sleep(0.02)
-            else:
-                raise AssertionError("job never reached running")
+            # Wait until it is actually RUNNING before pulling the rug (a
+            # deadline on the monotonic clock, not a count of polls whose
+            # length a loaded machine stretches).
+            job = await wait_job(http, job_id, states=frozenset({"running"}) | TERMINAL)
+            assert job["state"] == "running", job
 
         await runtime.stop()
 
         restarted = make_controller_settings(
             pg_settings,
             jobs={"dispatch_interval_s": 0.1},
+            **tolerant_liveness(),
             grpc_bind=f"127.0.0.1:{grpc_port}",
             http_bind=f"127.0.0.1:{http_port}",
         )

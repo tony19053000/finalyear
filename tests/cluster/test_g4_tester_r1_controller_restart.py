@@ -134,6 +134,6 @@ def test_real_controller_kill_and_restart_near_dispatch_commit_runs_exactly_once
         fabric.wait_all_connected(within=START_TIMEOUT_S)
 
         job = _wait(fabric, job_id, TERMINAL, 30)
-        assert job["state"] == "succeeded", job
+        assert job["state"] == "succeeded", (job["failure_type"], job["attempts"])
         assert len(job["attempts"]) == 1, job["attempts"]
         assert _runs(counter) == 1, f"job {i}: expected exactly one execution"
