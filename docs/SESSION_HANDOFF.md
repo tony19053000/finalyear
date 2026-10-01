@@ -226,7 +226,11 @@ bugs every time — do **not** drop them.
 **Open team questions this raises:** the real deadline date; how many accounts; whether V0.4 coding may start before
 the 🧑 0.3.15 lab run closes V0.3 (the Lead recommends yes — the lab run is calendar-bound, not code-bound).
 
-## 0e. 🔴 ONE SUBAGENT AT A TIME — team decision 2026-09-28
+## 0e. 🟢 PARALLEL AGENTS ALLOWED AGAIN — team decision 2026-10-01 (replaces the 2026-09-28 rule below)
+
+The user lifted the one-subagent rule on 2026-10-01: the Lead may run several agents at once on **independent** tasks (separate groups / files). Still sequential *within* a task (implementer → tester → reviewer). Watch the usage limit; if tokens burn too fast, the team may re-impose the rule.
+
+### (superseded) ONE SUBAGENT AT A TIME — team decision 2026-09-28
 
 Running G1, G2 and G3 in parallel (§0d lever 1) **used tokens too fast** — three implementers, then three testers, at
 once. The team stopped it. **From now on the Lead runs exactly one subagent at a time** (implementer, tester or
