@@ -76,6 +76,7 @@ from typing import Any, Final, Protocol
 from meshforge.agent.cas import AgentCas
 from meshforge.agent.execution.fetch import (
     FetchError,
+    StageReport,
     UploadError,
     blob_base_url,
     fetch_bundle,
@@ -220,6 +221,8 @@ class Executor:
         self.work_root = work_root_for(settings)
         self.cas = cas if cas is not None else AgentCas.at(settings.data_dir)
         """V0.5 G1: the blob cache tree jobs are staged from (D84)."""
+        self.last_stage: StageReport | None = None
+        """The latest tree staging's numbers (logged; tests read it)."""
         self._attempts: dict[str, _Attempt] = {}
         self._finished: OrderedDict[tuple[str, int], None] = OrderedDict()
         self._by_terminal_message: dict[str, str] = {}
@@ -647,6 +650,7 @@ class Executor:
             attempt,
             stage_tree(self.cas, tree_id=spec.tree_id, sources=sources, dest=workdir),
         )
+        self.last_stage = report
         log.info(
             "agent.cas.staged",
             node_id=self._node_id,
