@@ -2,20 +2,20 @@
 
 > Concise current state. Long-term plan: [`DEVELOPMENT_ROADMAP.md`](DEVELOPMENT_ROADMAP.md). Update at the end of every work session.
 
-**Last updated:** 2026-10-01 evening (**V0.4 G1–G5 closed** + G5 follow-up batch done; **V0.5: G3 CLOSED, G1 and G2 in fix rounds**; back to one agent at a time; V0.4 formally closes on the 🧑 0.4.15 lab run)
+**Last updated:** 2026-10-01 evening (**V0.4 G1–G5 closed** + G5 follow-up batch done; **V0.5: G1 + G3 CLOSED, G2 next**; back to one agent at a time; V0.4 formally closes on the 🧑 0.4.15 lab run)
 
 ## Progress
 
 Generated from the roadmap checkboxes by `uv run python scripts/status_bars.py` — **re-run it and replace this block whenever checkboxes change.** Deferred versions (V0.11, V0.12, V0.13, V0.16) and deferred tasks are not counted. A task is only █ when it is `[x]` (tester + reviewer + evidence); written-but-unreviewed code is ▒.
 
 ```
-TOTAL   █████▒▒░░░░░░░░░░░░░  22%  35/154 done, 19 in progress
+TOTAL   █████▒▒░░░░░░░░░░░░░  24%  37/154 done, 17 in progress
 
 V0.1    █████████████████▒▒▒  83%  10/12  Foundations & engineering system
 V0.2    ██▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░░   9%   1/11  Lab setup & feasibility validation
 V0.3    ███████████████▒▒▒▒░  73%  11/15  Fabric core: controller ⇄ agent
 V0.4    ███████████████▒▒▒▒░  76%  13/17  Remote execution core (Mode 1 foundation)
-V0.5    ▒▒▒▒▒▒▒░░░░░░░░░░░░░   0%   0/11  Data plane & environments
+V0.5    ████▒▒▒▒░░░░░░░░░░░░  18%   2/11  Data plane & environments
 V0.6    ░░░░░░░░░░░░░░░░░░░░   0%   0/13  Scheduling & reliability — Mode 1 complete
 V0.7    ░░░░░░░░░░░░░░░░░░░░   0%   0/11  Security & pairing
 V0.8    ░░░░░░░░░░░░░░░░░░░░   0%   0/10  Dashboard & CLI v1
@@ -30,7 +30,7 @@ V1.0    ░░░░░░░░░░░░░░░░░░░░   0%   0/8 
 
 ## Current Version
 **V0.4 — Remote execution core** · started 2026-09-28 · **G1–G5 closed** (0.4.1, 0.4.3–0.4.7, 0.4.9, 0.4.10, 0.4.11–0.4.14, 0.4.16 `[x]`; 0.4.2 `[~]` Windows CI digest; 0.4.8 `[~]` real CUDA run; 0.4.17 `[~]`) · closes on 🧑 0.4.15 lab run
-**V0.5 — Data plane & environments** · started 2026-10-01 · brief `docs/briefs/V0.5-data-plane.md` (D79–D94) · **G3 (V0.4 debt D94) CLOSED** · G1 (0.5.1, 0.5.2) fix round 2 · G2 (0.5.7, 0.5.8 local) awaiting tester round 3 · G4, G5 (wave 2) not started
+**V0.5 — Data plane & environments** · started 2026-10-01 · brief `docs/briefs/V0.5-data-plane.md` (D79–D94) · **G3 (V0.4 debt D94) CLOSED** · **G1 (0.5.1, 0.5.2) CLOSED** · G2 (0.5.7, 0.5.8 local) awaiting tester round 3 · G4, G5 (wave 2) not started
 **V0.3 — Fabric core** · started 2026-09-20 on the team's decision (before the laptop 2–4 inventory); **G1–G7 closed agent-side** (0.3.1, 0.3.3, 0.3.4, 0.3.5, 0.3.6, 0.3.8, 0.3.9, 0.3.10, 0.3.11, 0.3.12, 0.3.14 `[x]`; 0.3.2 `[~]` Windows run; 0.3.7 `[~]` lab evidence; 0.3.13 `[~]` Windows logoff check). Remaining: **only 🧑 0.3.15 lab run** (+ the three 🧑 Windows checks)
 V0.2 — Lab setup & feasibility validation · agent-side complete, waiting on 🧑 lab runs
 V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4, 0.1.10)
@@ -44,7 +44,7 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 **2026-10-01 (evening) — back to ONE agent at a time (team, handoff §0e has the queue).** State:
 - **V0.4 G5 follow-up batch:** T2-1 + `_swap_in` fixed (`5f13163`), tester PASS; D-1 fixed `5a1937f`; reviewer APPROVE; its 3 non-blocking items (Ctrl-C between renames kept the parked folder at risk, message style, filename) fixed `ce0c760` (unit 4646 exit 0) → **batch DONE 2026-10-01**.
 - **V0.5 G3** (V0.4 debt: upload deadline, log GC, log gaps) — ✅ **CLOSED 2026-10-01** (see Recently Completed).
-- **V0.5 G1** (CAS, tree manifests, have/need — 0.5.1, 0.5.2): implementer → tester FAIL (surrogate path → 500) → fix `2c23ad6` → tester round 2 PASS → reviewer REQUEST_CHANGES (tree-member authz O(N²) per GET; 2 GiB cap blocks the 5 GB criterion) → fix round 2 **done** (`f0febfe` `8dd958b` `b5441ac` `647c5fd`: tree member set cached, one parse per tree; 64 GiB defaults, 5 GiB sparse file end to end in ~2 min, slow test; disk floor during writes; resume sweep + cap 64) → tester round 3 **FAIL** (E1: disk floor never re-checked on the controller part path; E2: transfer cap not atomic) — cache, cap, sweep and the 5 GiB slow test verified → fixed `470b203` (floor checked on every part; cap atomic; unit 5157, component ctl+store 273 exit 0) → **reviewer pass 2 running**. Accepted deviations: `bundle_digest` = first digest fetched (tree id) until wave 2, bundle submit kept, limits as constructor defaults. Deferred to wave 2: drop that reuse, controller CAS scrub.
+- **V0.5 G1** (CAS, tree manifests, have/need) — ✅ **CLOSED 2026-10-01**: 0.5.1, 0.5.2  (see Recently Completed).
 - **V0.5 G2** (environments, venv runtime, base images — 0.5.7, 0.5.8 local): implementer → wired in (migration 0010) → cluster regression fixed `e930093` → tester FAIL (damaged env reused, local wheel refs) → fix `3921625` → tester round 2 FAIL (`--hash` lines broken, local VCS refs, untyped eviction, exclusions too broad) → fix round 2 **done `60de165`** → **next: tester round 3**.
 - **Stabilisation lane** (load-flaky V0.4 tests): slow-follower double count fixed `97f347e`; rest in `wip` `7e4525f` (its temporary probe file removed by the Lead — it broke ruff) → resumes after G1/G2.
 - **Then:** wave 2 briefs (G4 peers/parallel fetch/telemetry, G5 cache index/GC/named inputs/node prepare).
@@ -53,6 +53,7 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 **Open team question (NB-2), still unanswered:** where NVML is missing but `nvidia-smi` works, a node reports its GPUs in `Hello.hardware` but **never** GPU util/VRAM in any `ResourceUpdate` — so V0.9 telemetry and the V0.15 ML planner would train on a node that looks GPU-equipped and never uses it. Refusing a subprocess every 2 s was right; the option to cost is a low-cadence (~30 s, interpolated) `nvidia-smi` poll behind a setting.
 
 ## Recently Completed
+- 2026-10-01: **V0.5 G1 closed** — 0.5.1 CAS + 0.5.2 tree manifests/have-need . Whole-file CAS (part → verify → fsync → rename → read-only), deterministic tree manifests (), have/need upload with resumable 8 MiB parts, chunk-verified resumable agent fetch, materialise by copy/reflink (never hardlink), tree-scoped fetch tokens. Rounds: tester FAIL (surrogate path → 500) → fix → PASS → reviewer REQUEST_CHANGES (O(N²) authz, 2 GiB cap) → fix → tester FAIL (disk floor per part) → fix → reviewer APPROVE. Criteria 1, 3, 4 proven with real corrupting/cutting proxies; >5 GB file end to end (slow test). Commits  … . Deferred to wave 2 (G4/G5): drop  reuse, controller CAS scrub, member set off the event loop.
 - 2026-10-01: **V0.5 G3 closed (carried V0.4 debt D94)** — stuck UPLOADING attempts end `output_error` after a bounded deadline (grant + fetch token revoked); terminal-job log GC with retention (no starvation: skip-set cursor); log gaps persisted in a sidecar across restarts; FIFO/non-regular files refused on log opens (tester D1). Rounds: implementer → tester PASS (D1) → fix → reviewer APPROVE → non-blocking fixes. Commits `3cb6927` `b7039b0` `dbcef3a` `ee53e2e` `f5151d5` + tester tests. Unit ctl 1176 / component ctl 188, exit 0. Lead ruling: the deadline compares the PG-clock COLLECTING timestamp with the controller wall clock — accepted (lab runs controller + PG on one host); revisit if PG ever runs on a separate host.
 - 2026-10-01: **V0.4 G5 follow-up batch done** — `compute get` never prints a traceback on OS errors and never loses the old folder (T2-1, D-1, stranded/Ctrl-C windows). `5f13163` `5a1937f` `ce0c760`; tester PASS, reviewer APPROVE.
 - 2026-10-01: **V0.4 G5 closed** — 0.4.9 live logs (WebSocket + persisted file), 0.4.10 outputs collected/uploaded/downloadable, 0.4.13 `compute run/jobs/logs -f/cancel/get`, 0.4.14 example workloads `[x]`. Rounds: implementer → tester PASS → reviewer pass 1 partial → pass 2 REQUEST_CHANGES (a log-write OSError killed the controller; `get --force` deleted the target before download) → fix round → tester round 2 PASS on Sonnet 5.5 (`44dcf44`, both mutation checks caught) → reviewer pass 3 APPROVE. Component `-rs`: all 52 skips environment-only (35 = pinned `python:3.12-slim` image not pulled locally; rest GPU/Windows/slow/image).
@@ -124,7 +125,7 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 - Windows: not yet run (first real CI run will cover unit + fresh-clone on windows-latest)
 
 ## Next Recommended Task
-**2026-10-01 evening: one agent at a time — G1 fix round 2 → G1 tester 3 → G1 reviewer → G2 tester 3 → G2 reviewer → stabilisation → wave 2 briefs. 🧑 0.4.15 lab run.** Everything below is history.
+**2026-10-01 evening: one agent at a time — G2 tester 3 → G2 reviewer → stabilisation → wave 2 briefs. 🧑 0.4.15 lab run.** Everything below is history.
 
 **Models (2026-09-24):** Lead, implementer and reviewer now run **`claude-opus-5-5`**; tester moved to `claude-sonnet-5-5` on 2026-10-01 (was `claude-sonnet-5`, commit `6563c7d`, details in `SESSION_HANDOFF.md` §0c). §0b's throughput numbers were measured on Opus 5 — re-baseline after G6 before re-planning.
 

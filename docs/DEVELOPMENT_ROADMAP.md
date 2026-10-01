@@ -329,8 +329,8 @@ A version is **complete** only when all apply:
 **Prerequisites:** V0.4; S3 transport decision.
 
 **Tasks**
-- [~] **0.5.1** CAS store (controller + agents): write-then-rename, verify on read, chunking for large files
-- [~] **0.5.2** Tree manifests; client uploads only missing blobs (have/need)
+- [x] **0.5.1** CAS store (controller + agents): write-then-rename, verify on read, chunking for large files — ✅ G1 closed 2026-10-01: tester r3 + reviewer pass 2 APPROVE (`470b203`); 0 bytes on resubmit, resume, corruption never used (real proxies), 5 GiB sparse e2e 126.6 s on Laptop 1 (not a benchmark claim); unit 5157 / component ctl+store 273 exit 0
+- [x] **0.5.2** Tree manifests; client uploads only missing blobs (have/need) — ✅ G1 closed 2026-10-01: tester r3 + reviewer pass 2 APPROVE (`470b203`); 0 bytes on resubmit, resume, corruption never used (real proxies), 5 GiB sparse e2e 126.6 s on Laptop 1 (not a benchmark claim); unit 5157 / component ctl+store 273 exit 0
 - [ ] **0.5.3** Peer blob HTTP server in agent (range GET, short-lived tokens); fetch from nearest holder
 - [ ] **0.5.4** Parallel chunked download, resume after interruption, integrity check
 - [ ] **0.5.5** Cache reports → controller location index (blobs, envs, images per node)
