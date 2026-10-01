@@ -166,6 +166,8 @@ with the same requirements, base and Python - the second job installs nothing.
 - **Read-only to jobs.** Environments are made read-only before first use (Docker:
   the job's root filesystem is read-only anyway). On the unsandboxed runtimes this
   is a permission guard, not isolation: a job running as you could `chmod` it back.
+  On Windows only the files are read-only (Windows ignores that bit on folders, so
+  a job could add files to an environment).
 - **Disk.** One environment may be at most `[agent.envs] max_env_bytes` (16 GiB);
   a build is refused (`disk_full`) when less than `free_disk_floor_mb` (2 GiB) is
   free. There is **no automatic cleanup until V0.5 G5**: free space by hand with
