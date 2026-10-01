@@ -113,8 +113,9 @@ kill work. Jobs are not retried until V0.6.
   cannot see your processes, has no network unless its manifest asks, and is capped
   in memory, processes and (optionally) CPU. It gets exactly the GPUs it was
   assigned, none otherwise. The images are pinned by digest in
-  `[agent.execution.images]` (`python_cpu`, `cuda_pytorch`); the first job pulls them
-  (the PyTorch one is ~4 GB). Pull ahead with `docker pull <image>` on a fast link.
+  `[agent.execution.images]` (`python_cpu`, `cuda_pytorch`); a value without
+  `@sha256:` is refused. The first job pulls them (the PyTorch one is ~4 GB) - pull
+  ahead on a fast link with `meshforge-agent prepare` (see "Job environments" below).
 - **Containers are labelled** `meshforge.agent=<node id>`. If the agent is killed, its
   containers are removed the next time it starts; you can also list them with
   `docker ps -a --filter label=meshforge.managed=1`.
@@ -144,6 +145,56 @@ kill work. Jobs are not retried until V0.6.
   grant (at most 3 blobs / 2 GiB, `[controller.jobs] max_output_*`); a job's folder
   is kept until the controller has acknowledged its final status - the agent
   re-sends that status every `terminal_resend_s` (5 s) until it has.
+
+### 0b2. Job environments and `meshforge-agent prepare` (V0.5, D85-D87)
+
+A job's requirements (manifest `env.requirements`) are installed **once per
+laptop** into an environment named by its *env hash* and reused by every later job
+with the same requirements, base and Python - the second job installs nothing.
+
+> **Status (2026-10-01):** built and tested in the runtimes; the running agent
+> switches from the V0.4 per-job install to cached environments (and offers the
+> `venv` runtime, capability `exec-venv`) once its start-up passes the builder to
+> the runtimes - a pending one-file change (`agent/execution/offer.py`).
+> `meshforge-agent prepare` works now.
+
+- **Where they are:** `<data dir>/envs/` (`[agent.envs] dir`): `venv/<hash>/` (venv
+  runtime), `subprocess/<hash>/` (subprocess runtime), `uv-cache/`, `locks/`.
+  Docker keeps them as images: `docker images meshforge-env`. A folder ending in
+  `.building` is a build in progress (or one a crash interrupted - it is removed by
+  the next build of that hash).
+- **Read-only to jobs.** Environments are made read-only before first use (Docker:
+  the job's root filesystem is read-only anyway). On the unsandboxed runtimes this
+  is a permission guard, not isolation: a job running as you could `chmod` it back.
+- **Disk.** One environment may be at most `[agent.envs] max_env_bytes` (16 GiB);
+  a build is refused (`disk_full`) when less than `free_disk_floor_mb` (2 GiB) is
+  free. There is **no automatic cleanup until V0.5 G5**: free space by hand with
+  `rm -rf <data dir>/envs/venv <data dir>/envs/subprocess` (they are read-only:
+  `chmod -R u+w <data dir>/envs` first) and `docker image rm $(docker images -q
+  meshforge-env)` while no job runs.
+- **Offline / mirror installs.** `[agent.envs] find_links = "/path/to/wheels"` +
+  `no_index = true` installs only from a local wheelhouse (the Docker build then
+  has no network at all); `index_url = "https://mirror/simple"` uses a mirror
+  (no credentials in the URL).
+- **What is refused** (`env_error / requirements_rejected`): `-r`/`-c`/`-e` lines,
+  local paths and `file:` URLs - their contents are not covered by the env hash, so
+  two different environments could share one. Inline those requirements instead.
+- **Python version (venv runtime).** `env.python: "3.11"` uses a Python 3.11
+  already on this laptop (`uv python list --only-installed`); none = `python_not_found`.
+  Set `[agent.envs] allow_python_downloads = true` to let uv fetch one.
+
+**Prepare a lab laptop before a run** (local only, no controller needed):
+
+```
+meshforge-agent prepare                        # both bases
+meshforge-agent prepare --base python-cpu      # CPU-only laptop: skip the ~4 GB image
+meshforge-agent prepare --json
+```
+
+It prints `docker: available|unavailable: ...`, the `uv` version, and per base
+`present, <size>` or `pulled, <size>, pulled in <s>` (or `failed (<reason>)`, exit
+1). A laptop without Docker pulls nothing and exits 0 (the venv runtime needs no
+image).
 
 ### 0c. Submitting jobs and getting results (V0.4, `compute`)
 

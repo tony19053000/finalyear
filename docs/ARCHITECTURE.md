@@ -586,12 +586,19 @@ flowchart LR
 
 ## 15. Execution environments
 
-| Runtime | Default when | Isolation | Notes |
+| Runtime | Default when | Isolation | Environment (V0.5 D85-D87) |
 |---|---|---|---|
-| **Docker** | Linux nodes; Windows nodes with Docker Desktop | container: CPU/RAM/pids limits, workdir-only mounts, no privilege | GPU via NVIDIA Container Toolkit / Docker Desktop WSL2 backend |
-| **venv (uv)** | Docker unavailable; also used by GPU service | restricted process + workdir; weaker than containers (documented) | fast env creation; cached by env hash |
+| **Docker** | Linux nodes; Windows nodes with Docker Desktop | container: CPU/RAM/pids limits, workdir-only mounts, no privilege, read-only root fs | image `meshforge-env:<env hash>` = pinned base + requirements in `/env` (on `PYTHONPATH`) |
+| **venv (uv)** | Docker unavailable and `allow_unsandboxed`; also used by GPU service | **none** (runs as the agent's user, like subprocess; documented) | a uv venv `envs/venv/<hash>` (the job's `env.python`, only its packages) |
+| **subprocess** | last resort, `allow_unsandboxed` | none | the agent's interpreter + a `--target` dir `envs/subprocess/<hash>` on `PYTHONPATH` |
 
-**Env hash** = `sha256(base image id + python version + resolved lockfile)`. Built once per node, reused forever (until GC). Base images `python-cpu` and `cuda-pytorch` can be pre-pulled (`compute node prepare`).
+Selection order is **docker > venv > subprocess** (`agent/execution/selection.py`); venv and subprocess are both unsandboxed, they differ in which Python and packages a job sees. *Status 2026-10-01:* the runtimes take an `EnvBuilder` (`envs=`); the agent's start-up (`agent/execution/offer.py`) does not pass it nor register `VenvRuntime` yet, so a running agent still uses the V0.4 per-job install until that wiring lands. The controller also has to accept `"venv"` as an `AttemptStatus.runtime` (`controller/jobs/reports.py` `RUNTIMES`, DB check on `attempt.runtime`) before a venv attempt can report.
+
+**Env hash** (D85, `agent/envs/hash.py`) = `sha256` of canonical JSON `{v:1, runtime_kind, base, python, requirements_sha256, platform}`: `base` is the pinned base image's `sha256:` digest (Docker) or the interpreter (`cpython-3.12.3`); `platform` the local base image's `os/arch` or the interpreter's `sysconfig` platform; requirements are **normalised, not resolved** (comments, blank lines, order, duplicates, CRLF/BOM ignored - any version change changes the hash). Lines the hash cannot cover (`-r`/`-c`/`-e`, local paths, `file:` URLs) are refused (`env_error/requirements_rejected`); size and line count are bounded (`[agent.envs]`). No lockfile resolution in V0.5.
+
+**Build once per node** (D86, `agent/envs/builder.py`): under `envs/locks/<hash>.lock` (a file lock: one build per hash across processes and attempts; a waiter reuses the result), a build goes into `<hash>.building`, is size-checked (`max_env_bytes`), gets a marker naming its hash, is made **read-only** and only then renamed into place; free disk below `free_disk_floor_mb` refuses it (`disk_full`). A failed, cancelled or killed build leaves nothing visible (`env_error`/`timeout`). The installer is `uv pip install --link-mode copy` (never hardlinks into the uv cache) on the host; in Docker the base image's own `pip install --target /env` runs in an `envbuild` container (same hardening, writable root fs, network off with `no_index`) that is committed to the env image - the agent's `uv` binary is host-OS-specific and cannot run inside a Linux container on Windows. Build output goes to the triggering job's log. The runtime reports `env_hash` and `env_cache` (`hit`/`waited`/`built`, i.e. warm vs cold) with the `env` phase timing; they are logged (`agent.execution.env_ready`) - sending them to the controller is G4's telemetry work (D93).
+
+**Base images** (D87) `python-cpu` and `cuda-pytorch` are pinned by digest in `[agent.execution.images]` (an unpinned value is refused by the settings, and by the Docker runtime before any pull: `config_error/unpinned_base`). `meshforge-agent prepare` pre-pulls them locally and prints sizes and times; `compute node prepare` (controller-driven) is V0.5 wave 2.
 
 ---
 
@@ -829,7 +836,8 @@ The controller role is proposed for Laptop 1 (native Linux, simplest to keep run
 | PostgreSQL (dev) | `127.0.0.1:5432` | `[database]` |
 | Dev background-service assets (roadmap 0.3.13) | `deploy/systemd/*.service` (systemd **user** units), `deploy/windows/meshforge-agent-task.xml` (Task Scheduler). Installed by hand only — `scripts/print_service_setup.py` *prints* the commands and changes nothing (D17) | [`docs/OPERATIONS.md`](OPERATIONS.md) |
 | Agent attempt workdirs (V0.4 G4, D63-2/D67) | `<data dir>/work/<attempt_id>/` (root and each dir `0700`; logs in `.meshforge/{stdout,stderr}.log`, requirements in `.meshforge/deps`); deleted after the final status is acked, leftovers removed at agent start | `[agent.execution] workdir_root / keep_workdirs` |
-| Job containers (D51/D63-6) | labels `meshforge.managed=1`, `meshforge.agent=<node_id>`, `meshforge.attempt_id`, `meshforge.role` (`setup`/`run`/`probe`); containers with this agent's label are swept at its start | `docker ps -a --filter label=meshforge.managed=1` |
+| Job containers (D51/D63-6) | labels `meshforge.managed=1`, `meshforge.agent=<node_id>`, `meshforge.attempt_id`, `meshforge.role` (`setup`/`run`/`probe`/`envbuild`); containers with this agent's label are swept at its start | `docker ps -a --filter label=meshforge.managed=1` |
+| Cached job environments (V0.5 G2, D86) | `<data dir>/envs/{venv,subprocess}/<env hash>/` (read-only), builds in `<hash>.building`, `locks/<hash>.lock`, `staging/`, `uv-cache/` (root `0700`); Docker: images `meshforge-env:<env hash>` (labels `meshforge.env_hash`, `meshforge.base`). No GC before V0.5 G5 | `[agent.envs] dir / max_env_bytes / free_disk_floor_mb / find_links / no_index / index_url`; `meshforge-agent prepare` |
 | Blob URL agents fetch from (D67) | `http://<host the agent dialled>:<REST port>` unless set | `[controller.api] advertise_url` |
 | Agent log file on Windows (Task Scheduler has no console) | `%LOCALAPPDATA%\MeshForge\agent.log`, set in the task's command line; not rotated in V0.3 | `docs/OPERATIONS.md` §3 |
 
