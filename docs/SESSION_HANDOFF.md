@@ -229,6 +229,8 @@ the 🧑 0.3.15 lab run closes V0.3 (the Lead recommends yes — the lab run is 
 ## 0e. 🔴 ONE SUBAGENT AT A TIME AGAIN — team decision 2026-10-01 (evening)
 
 The user re-imposed the one-agent rule after the parallel wave hit the usage limit twice. **Run exactly one subagent at a time.**
+**State 2026-10-02 (usage limit hit):** V0.5 G1, G2, G3 CLOSED (0.5.1, 0.5.2, 0.5.7 `[x]`). Stabilisation lane DONE incl. D95 fetch-token refresh (`97f347e` … `732b77f`), **not yet reviewed**. Nothing running. **Next: (1) one reviewer over 97f347e … 732b77f (flaky-test fixes + D95 RefreshFetchToken payload 18 + agent staging retry); (2) Lead writes wave 2 briefs G4/G5 in docs/briefs/V0.5-data-plane.md (scope rows already list the carried items); (3) G4 implementer.** Old queue below is done.
+
 **Queue at the switch (in this order):** (1) G1 fix round 2 — resume from `wip` `f0febfe` (reviewer blocking: tree_members cache, 64 GiB cap + >5 GB sparse test; non-blocking items) → G1 tester round 3 → G1 reviewer pass 2 → close 0.5.1/0.5.2. (2) G2 tester round 3 on `60de165` → G2 reviewer → close 0.5.7/0.5.8-local. (3) Stabilisation lane — resume from `wip` `7e4525f` (`97f347e` already fixed the slow-follower double count; probe file `tests/component/agent/test_zz_stab_probe_tmp.py` is temporary and must be deleted). (4) Wave 2 briefs G4, G5.
 
 ### (superseded) PARALLEL AGENTS ALLOWED AGAIN — team decision 2026-10-01 (morning)
