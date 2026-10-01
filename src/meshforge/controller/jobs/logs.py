@@ -23,6 +23,14 @@ tells the subscribers the attempt is over (the WebSocket's end frame). An attemp
 that ended without final logs (lost, cancelled) keeps its live files and their
 gaps.
 
+**Gaps survive a restart (D94).** Every gap is also written to the attempt's
+``<attempt_id>.gaps`` sidecar (:mod:`.log_gaps`); :meth:`LogHub.open` (a
+Reconcile after a restart) continues from it at the right offset, and
+:meth:`LogHub.ended_state` reads an ended attempt's record back, so ``compute
+logs`` still reports the gap. A sidecar that cannot be written is logged
+(``controller.logs.gaps_persist_failed``, once per failing run) and counted;
+the live path carries on.
+
 **Subscribers** get a bounded queue each; one that falls behind is marked
 ``overflowed`` and dropped - the WebSocket closes it with a typed reason; the
 writer never waits for a client. At most ``max_subscribers`` per job.
@@ -58,6 +66,15 @@ from meshforge.common.ids import validate_attempt_id
 from meshforge.common.logging import get_logger
 from meshforge.common.proto.meshforge.v1 import agent_pb2
 from meshforge.controller.blobs import BlobStore
+from meshforge.controller.jobs.log_gaps import (
+    GAPS_SUFFIX,
+    GapRecord,
+    StreamGaps,
+    decode,
+    encode,
+    read_sidecar,
+    write_sidecar,
+)
 from meshforge.controller.session.live import LiveSession
 
 __all__ = [
@@ -103,6 +120,8 @@ class StreamMerge:
     """Bytes in the live file (= received bytes; gaps are not in it)."""
     gaps: list[tuple[int, int]] = field(default_factory=list)
     gaps_total: int = 0
+    lost: int = 0
+    """Total width of every gap, also those past ``MAX_GAPS_KEPT``."""
     write_failing: bool = False
     """The last live-file write failed (logged once per failing run)."""
 
@@ -113,6 +132,7 @@ class StreamMerge:
             return b""  # duplicate / replayed range
         if offset > self.received_to:
             self.gaps_total += 1
+            self.lost += offset - self.received_to
             if len(self.gaps) < MAX_GAPS_KEPT:
                 self.gaps.append((self.received_to, offset))
             piece = data
@@ -173,6 +193,8 @@ class AttemptLogState:
     ended: bool = False
     final: dict[str, bool] = field(default_factory=dict)
     """stream -> the live file was replaced by the verified final log."""
+    persist_failing: bool = False
+    """The last gaps-sidecar write failed (logged once per failing run)."""
 
     def gaps(self) -> dict[str, list[list[int]]]:
         return {s: [list(g) for g in m.gaps] for s, m in self.streams.items() if m.gaps}
@@ -190,6 +212,8 @@ class LogHubStats:
     slow_subscribers: int = 0
     write_failures: int = 0
     finals_overflowed: int = 0
+    gaps_persist_failures: int = 0
+    gaps_unreadable: int = 0
     gc_files_deleted: int = 0
     gc_failures: int = 0
 
@@ -250,6 +274,9 @@ class LogHub:
     def path(self, attempt_id: str, stream: str) -> Path:
         return self.root / f"{attempt_id}.{stream}"
 
+    def gaps_path(self, attempt_id: str) -> Path:
+        return self.root / f"{attempt_id}.{GAPS_SUFFIX}"
+
     # ----------------------------------------------------------- lifecycle
 
     def open(self, attempt_id: str, *, job_id: str, node_id: str, token: int) -> None:
@@ -259,14 +286,20 @@ class LogHub:
             state.fencing_token, state.node_id = token, node_id
             return
         state = AttemptLogState(job_id=job_id, node_id=node_id, fencing_token=token)
+        record = self._load(attempt_id)
         for stream in STREAMS:
+            merge = state.streams[stream]
+            if record is not None and stream in record.streams:
+                kept = record.streams[stream]
+                merge.gaps = list(kept.gaps)
+                merge.gaps_total, merge.lost = kept.gaps_total, kept.lost
             # After a controller restart the file already holds what arrived
-            # before; continue after it (earlier gaps are not known any more).
+            # before; continue after it and the gaps recorded before (D94).
             with contextlib.suppress(OSError):
                 info = self.path(attempt_id, stream).lstat()
                 size = info.st_size if stat.S_ISREG(info.st_mode) else 0
-                state.streams[stream].received_to = size
-                state.streams[stream].file_len = size
+                merge.received_to = size + merge.lost
+                merge.file_len = size
         self._attempts[attempt_id] = state
         for sub in self._by_job.get(job_id, ()):
             if sub.attempt_id == attempt_id:
@@ -297,7 +330,17 @@ class LogHub:
         self._queue.put_nowait(_Final(attempt_id, dict(logs or {})))
 
     def ended_state(self, attempt_id: str) -> AttemptLogState | None:
-        return self._ended.get(attempt_id)
+        """The ended attempt's state - also after a restart, read back from its
+        gaps sidecar when it ended with a gap (D94). ``None`` otherwise."""
+        state = self._ended.get(attempt_id)
+        if state is not None or attempt_id in self._attempts:
+            return state
+        record = self._load(attempt_id)
+        if record is None or not record.ended:
+            return None
+        state = _state_from(record)
+        self._remember_ended(attempt_id, state)
+        return state
 
     def live_state(self, attempt_id: str) -> AttemptLogState | None:
         return self._attempts.get(attempt_id)
@@ -368,6 +411,9 @@ class LogHub:
                 gap_from=merge.gaps[-1][0] if merge.gaps else None,
                 gap_to=item.offset,
             )
+            # Before the bytes after the gap: a crash in between then makes the
+            # re-opened stream record those bytes as a gap, never lose one.
+            self._persist(item.attempt_id, state)
         if not piece:
             self.stats.chunks_duplicate += 1
             return
@@ -425,6 +471,7 @@ class LogHub:
                 fh.close()
         lost = len(piece) - written
         merge.file_len -= lost
+        merge.lost += lost
         lost_from = merge.received_to - lost
         if merge.gaps and merge.gaps[-1][1] == lost_from:
             merge.gaps[-1] = (merge.gaps[-1][0], merge.received_to)
@@ -443,13 +490,19 @@ class LogHub:
                 cause=type(exc).__name__,
                 errno=exc.errno,
             )
+        self._persist(item.attempt_id, state)
 
     async def _apply_final(self, item: _Final) -> None:
         state = self._attempts.pop(item.attempt_id, None)
         if state is None:
             state = self._ended.get(item.attempt_id)
-            if state is None:
+        if state is None:
+            # Never opened by this process (ended right after a restart): its
+            # earlier gaps, if any, are in the sidecar.
+            record = self._load(item.attempt_id)
+            if record is None:
                 return
+            state = _state_from(record)
         _close_files(state)
         for stream, info in item.logs.items():
             digest = info.get("digest")
@@ -475,11 +528,84 @@ class LogHub:
 
     def _mark_ended(self, attempt_id: str, state: AttemptLogState) -> None:
         state.ended = True
+        self._remember_ended(attempt_id, state)
+        if any(
+            m.gaps_total and not state.final.get(s) for s, m in state.streams.items()
+        ):
+            self._persist(attempt_id, state)
+        else:
+            # Nothing left to report (no gap, or the final log replaced it).
+            try:
+                self.gaps_path(attempt_id).unlink()
+            except FileNotFoundError:
+                pass
+            except OSError as exc:
+                self.stats.gaps_persist_failures += 1
+                log.warning(
+                    "controller.logs.gaps_persist_failed",
+                    attempt_id=attempt_id,
+                    job_id=state.job_id,
+                    cause=type(exc).__name__,
+                )
+        for sub in list(state.subscribers):
+            sub.push(LogEvent("end"))
+
+    def _remember_ended(self, attempt_id: str, state: AttemptLogState) -> None:
         self._ended[attempt_id] = state
         while len(self._ended) > _ENDED_KEPT:
             self._ended.popitem(last=False)
-        for sub in list(state.subscribers):
-            sub.push(LogEvent("end"))
+
+    # ------------------------------------------------------- gaps sidecar
+
+    def _persist(self, attempt_id: str, state: AttemptLogState) -> None:
+        """Write the attempt's gaps sidecar; a failure is logged, never raised."""
+        record = GapRecord(
+            job_id=state.job_id,
+            node_id=state.node_id,
+            fencing_token=state.fencing_token,
+            ended=state.ended,
+            streams={
+                s: StreamGaps(
+                    gaps=tuple(m.gaps),
+                    gaps_total=m.gaps_total,
+                    lost=m.lost,
+                    final=bool(state.final.get(s)),
+                )
+                for s, m in state.streams.items()
+                if m.gaps_total
+            },
+        )
+        try:
+            write_sidecar(self.gaps_path(attempt_id), encode(record))
+        except OSError as exc:
+            self.stats.gaps_persist_failures += 1
+            if not state.persist_failing:
+                state.persist_failing = True
+                log.warning(
+                    "controller.logs.gaps_persist_failed",
+                    attempt_id=attempt_id,
+                    job_id=state.job_id,
+                    cause=type(exc).__name__,
+                    errno=exc.errno,
+                )
+        else:
+            state.persist_failing = False
+
+    def _load(self, attempt_id: str) -> GapRecord | None:
+        """The attempt's validated gaps record; ``None`` if absent or broken."""
+        try:
+            data = read_sidecar(self.gaps_path(attempt_id))
+            if data is None:
+                return None
+            return decode(data, streams=STREAMS, max_gaps=MAX_GAPS_KEPT)
+        except (OSError, ValueError) as exc:
+            self.stats.gaps_unreadable += 1
+            log.warning(
+                "controller.logs.gaps_unreadable",
+                attempt_id=attempt_id,
+                cause=type(exc).__name__,
+            )
+            return None
 
     # -------------------------------------------------------- subscribers
 
@@ -554,7 +680,7 @@ class LogHub:
         return deleted
 
 
-_GC_SUFFIXES: Final = frozenset(STREAMS)
+_GC_SUFFIXES: Final = frozenset((*STREAMS, GAPS_SUFFIX))
 
 
 def _scan(root: Path, cutoff: float) -> tuple[list[tuple[str, list[str]]], list[Path]]:
@@ -612,6 +738,22 @@ def _unlink_all(paths: list[Path], stats: LogHubStats) -> int:
             continue
         deleted += 1
     return deleted
+
+
+def _state_from(record: GapRecord) -> AttemptLogState:
+    state = AttemptLogState(
+        job_id=record.job_id,
+        node_id=record.node_id,
+        fencing_token=record.fencing_token,
+        ended=record.ended,
+    )
+    for stream, kept in record.streams.items():
+        merge = state.streams[stream]
+        merge.gaps = list(kept.gaps)
+        merge.gaps_total, merge.lost = kept.gaps_total, kept.lost
+        if kept.final:
+            state.final[stream] = True
+    return state
 
 
 def _close_files(state: AttemptLogState) -> None:

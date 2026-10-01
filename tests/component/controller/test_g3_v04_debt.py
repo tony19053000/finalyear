@@ -12,12 +12,18 @@ keeps the same deadline because it is anchored on the database row.
 terminal and unchanged for ``log_retention_s`` - the database decides; a live
 attempt, a terminal attempt of a job that is not terminal, and a terminal job
 inside the retention keep their files.
+
+**Log gaps across a restart.** A real controller receives live chunks with a
+gap, is stopped while the attempt still runs, and a second controller on the
+same data folder loses the attempt (the node never reconnects) - ``GET
+/v1/jobs/{id}/logs`` still reports the gap.
 """
 
 from __future__ import annotations
 
 import asyncio
 import datetime as dt
+import json
 import os
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -26,6 +32,8 @@ from typing import Any
 
 import pytest
 import pytest_asyncio
+from mf_controller_harness import make_settings
+from mf_jobs_harness import api_client, token_of
 
 pytest.importorskip("alembic", reason="needs the controller extra")
 
@@ -41,6 +49,7 @@ from meshforge.common.ids import (
     new_node_id,
     new_session_id,
 )
+from meshforge.common.proto.meshforge.v1 import agent_pb2
 from meshforge.common.states import AttemptState, JobState
 from meshforge.controller.blobs import FetchTokens
 from meshforge.controller.jobs.dispatcher import Dispatcher, _Status
@@ -54,6 +63,7 @@ from meshforge.controller.jobs.logs import LogHub
 from meshforge.controller.jobs.store import JobRecord
 from meshforge.controller.liveness import NodeState
 from meshforge.controller.registry import Registry
+from meshforge.controller.server import ControllerRuntime
 from meshforge.controller.settings import JobApiSettings
 from meshforge.controller.store.engine import create_engine
 from meshforge.controller.store.migrate import alembic_config
@@ -394,3 +404,63 @@ async def test_log_gc_runs_on_the_tick_interval(
     mono[0] = 60.0
     await dispatcher._periodic(None)
     assert not any(p.exists() for p in paths)
+
+
+# ------------------------------------------------------- gaps across a restart
+
+
+async def _until(check: Any, timeout_s: float = 10.0) -> None:
+    loop = asyncio.get_running_loop()
+    end = loop.time() + timeout_s
+    while not check():
+        assert loop.time() < end, "condition not reached"
+        await asyncio.sleep(0.02)
+
+
+async def test_log_gaps_survive_a_controller_restart(
+    store: ExecutionStore, node_id: str, pg_settings: DatabaseSettings
+) -> None:
+    job_id, attempt_id = await _attempt_in(store, node_id, AttemptState.RUNNING)
+    live = SimpleNamespace(node_id=node_id)
+
+    first = make_settings(pg_settings, jobs={"reconnect_grace_s": 3600.0})
+    async with ControllerRuntime.start(first) as runtime:
+        hub = runtime.logs
+        assert hub is not None
+        hub.open(attempt_id, job_id=job_id, node_id=node_id, token=1)
+        for offset, data in ((0, b"abc"), (10, b"xyz")):
+            chunk = agent_pb2.LogChunk(
+                attempt_id=attempt_id,
+                job_id=job_id,
+                stream=agent_pb2.LogChunk.STREAM_STDOUT,
+                offset=offset,
+                data=data,
+                fencing_token=1,
+            )
+            await hub.on_chunk(live, agent_pb2.AgentMessage(log_chunk=chunk))  # type: ignore[arg-type]
+        await _until(lambda: hub.stats.chunks_appended == 2)
+    # Stopped while the attempt runs; the node never comes back.
+
+    second = make_settings(
+        pg_settings, jobs={"reconnect_grace_s": 0.0, "dispatch_interval_s": 0.1}
+    )
+    async with ControllerRuntime.start(second) as runtime:
+        hub = runtime.logs
+        assert hub is not None
+        await _until(lambda: hub.ended_state(attempt_id) is not None)
+        attempt = await store.get_attempt(attempt_id)
+        assert attempt is not None and attempt.state is AttemptState.LOST
+        async with api_client(runtime, token=token_of(runtime)) as http:
+            response = await http.get(f"/v1/jobs/{job_id}/logs?stream=stdout")
+        assert response.status_code == 200
+        assert response.content == b"abcxyz"
+        gaps = json.loads(response.headers["X-MeshForge-Log-Gaps"])
+        assert gaps == {"stdout": [[3, 10]]}
+
+    # And once more, with nothing left running: read back from the sidecar.
+    async with ControllerRuntime.start(second) as runtime:
+        async with api_client(runtime, token=token_of(runtime)) as http:
+            response = await http.get(f"/v1/jobs/{job_id}/logs?stream=stdout")
+        assert json.loads(response.headers["X-MeshForge-Log-Gaps"]) == {
+            "stdout": [[3, 10]]
+        }
