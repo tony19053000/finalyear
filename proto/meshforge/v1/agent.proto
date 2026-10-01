@@ -344,7 +344,7 @@ message AttemptStatus {
   // Declared outputs (manifest `outputs`) that matched nothing (bounded). Not an
   // error: listed so the user sees it (D54).
   repeated string missing_outputs = 10;
-  // Runtime that ran (or was chosen to run) the attempt: "docker" | "subprocess".
+  // Runtime that ran (or was chosen to run) the attempt: "docker" | "venv" | "subprocess".
   string runtime = 11;
   // Signal number that ended the workload, when it died by one.
   optional int32 signal = 12;
@@ -428,7 +428,7 @@ message ExecutionSpec {
   string fetch_token = 4;
   // The canonical manifest JSON (common.manifest.Manifest.canonical_json()).
   string manifest_json = 5;
-  // Runtime the controller asks for ("docker" | "subprocess"); empty = the agent
+  // Runtime the controller asks for ("docker" | "venv" | "subprocess"); empty = the agent
   // chooses among what it offers (sandboxed first, D51). V0.4 sends empty.
   string runtime = 6;
   // 0 = the agent's default for that limit.

@@ -45,7 +45,7 @@ MAX_MISSING_OUTPUTS: Final = 64
 MISSING_OUTPUT_MAX_LENGTH: Final = 512
 MAX_FENCING_TOKEN: Final = 2**63 - 1
 """``attempt.fencing_token`` is a BIGINT."""
-RUNTIMES: Final = frozenset({"docker", "subprocess"})
+RUNTIMES: Final = frozenset({"docker", "subprocess", "venv"})
 _DIGEST: Final = re.compile(r"sha256:[0-9a-f]{64}")
 _MAX_SIGNAL: Final = 64
 

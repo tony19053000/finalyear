@@ -910,7 +910,7 @@ class AttemptStatus(_message.Message):
     output_digest: _builtins.str
     """"sha256:<64 hex>" of the packed outputs (V0.4 G5); empty until then."""
     runtime: _builtins.str
-    """Runtime that ran (or was chosen to run) the attempt: "docker" | "subprocess"."""
+    """Runtime that ran (or was chosen to run) the attempt: "docker" | "venv" | "subprocess"."""
     signal: _builtins.int
     """Signal number that ended the workload, when it died by one."""
     @_builtins.property
@@ -1190,7 +1190,7 @@ class ExecutionSpec(_message.Message):
     manifest_json: _builtins.str
     """The canonical manifest JSON (common.manifest.Manifest.canonical_json())."""
     runtime: _builtins.str
-    """Runtime the controller asks for ("docker" | "subprocess"); empty = the agent
+    """Runtime the controller asks for ("docker" | "venv" | "subprocess"); empty = the agent
     chooses among what it offers (sandboxed first, D51). V0.4 sends empty.
     """
     memory_bytes: _builtins.int

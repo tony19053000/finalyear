@@ -60,7 +60,7 @@ DIGEST_CHECK_SQL: Final = "{col} ~ '^sha256:[0-9a-f]{{64}}$'"
 MAX_IDEMPOTENCY_KEY_CHARS: Final = 128
 MAX_DETAIL_CHARS: Final = 1024
 MAX_JOB_NAME_CHARS: Final = 64
-RUNTIME_VALUES: Final = ("docker", "subprocess")
+RUNTIME_VALUES: Final = ("docker", "subprocess", "venv")
 RUNTIME_VALUES_SQL: Final = ", ".join(f"'{v}'" for v in RUNTIME_VALUES)
 
 
@@ -183,7 +183,8 @@ class Attempt(TimestampMixin, Base):
     start_acked_at: Mapped[dt.datetime | None] = mapped_column(nullable=True)
     """When the agent acked ``StartAttempt`` (D66: resend vs LOST; migration 0007)."""
     runtime: Mapped[str | None] = mapped_column(String(16), nullable=True)
-    """``docker`` / ``subprocess`` as the agent reported it (migration 0007)."""
+    """``docker`` / ``venv`` / ``subprocess`` as the agent reported it (migrations
+    0007, 0010)."""
     missing_outputs: Mapped[list[str] | None] = mapped_column(
         JSONB(none_as_null=True), nullable=True
     )
