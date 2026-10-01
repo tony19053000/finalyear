@@ -193,3 +193,45 @@ async def test_non_ascii_urls_and_headers_on_blob_routes_never_500(
         assert r.status_code == 401
         r = await c.get(f"/v1/blobs/{H}", headers=[(b"authorization", b"\xed\xa0\x80")])
         assert r.status_code == 401
+
+
+async def test_the_65th_resumable_transfer_is_503_over_http_and_recovers(
+    runtime: ControllerRuntime,
+) -> None:
+    import hashlib
+    import os
+
+    def hdr(size: int, chunk: bytes) -> dict[str, str]:
+        return {
+            "x-meshforge-blob-size": str(size),
+            "x-meshforge-chunk-size": str(CS),
+            "x-meshforge-chunk-sha256": hashlib.sha256(chunk).hexdigest(),
+        }
+
+    blobs = [os.urandom(2 * CS) + i.to_bytes(4, "big") for i in range(66)]
+
+    async def first(c: Any, b: bytes) -> Any:
+        d = sha256_bytes(b)
+        return await c.put(
+            f"/v1/blobs/{d.hex}/parts/0", content=b[:CS], headers=hdr(len(b), b[:CS])
+        )
+
+    async with api_client(runtime, token=token_of(runtime)) as c:
+        for b in blobs[:64]:
+            assert (await first(c, b)).status_code == 201
+        r = await first(c, blobs[64])
+        assert r.status_code == 503, (r.status_code, r.text)
+        assert r.json()["error"]["code"] == "resource_busy"
+        # finish transfer 0 -> a slot frees
+        b = blobs[0]
+        d = sha256_bytes(b)
+        for k, piece in ((1, b[CS : 2 * CS]), (2, b[2 * CS :])):
+            assert (
+                await c.put(
+                    f"/v1/blobs/{d.hex}/parts/{k}",
+                    content=piece,
+                    headers=hdr(len(b), piece),
+                )
+            ).status_code in (200, 201)
+        assert (await c.post(f"/v1/blobs/{d.hex}/complete")).status_code in (200, 201)
+        assert (await first(c, blobs[64])).status_code == 201
