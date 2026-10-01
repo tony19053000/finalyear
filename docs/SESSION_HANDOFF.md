@@ -226,7 +226,12 @@ bugs every time — do **not** drop them.
 **Open team questions this raises:** the real deadline date; how many accounts; whether V0.4 coding may start before
 the 🧑 0.3.15 lab run closes V0.3 (the Lead recommends yes — the lab run is calendar-bound, not code-bound).
 
-## 0e. 🟢 PARALLEL AGENTS ALLOWED AGAIN — team decision 2026-10-01 (replaces the 2026-09-28 rule below)
+## 0e. 🔴 ONE SUBAGENT AT A TIME AGAIN — team decision 2026-10-01 (evening)
+
+The user re-imposed the one-agent rule after the parallel wave hit the usage limit twice. **Run exactly one subagent at a time.**
+**Queue at the switch (in this order):** (1) G1 fix round 2 — resume from `wip` `f0febfe` (reviewer blocking: tree_members cache, 64 GiB cap + >5 GB sparse test; non-blocking items) → G1 tester round 3 → G1 reviewer pass 2 → close 0.5.1/0.5.2. (2) G2 tester round 3 on `60de165` → G2 reviewer → close 0.5.7/0.5.8-local. (3) Stabilisation lane — resume from `wip` `7e4525f` (`97f347e` already fixed the slow-follower double count; probe file `tests/component/agent/test_zz_stab_probe_tmp.py` is temporary and must be deleted). (4) Wave 2 briefs G4, G5.
+
+### (superseded) PARALLEL AGENTS ALLOWED AGAIN — team decision 2026-10-01 (morning)
 
 The user lifted the one-subagent rule on 2026-10-01: the Lead may run several agents at once on **independent** tasks (separate groups / files). Still sequential *within* a task (implementer → tester → reviewer). Watch the usage limit; if tokens burn too fast, the team may re-impose the rule.
 
