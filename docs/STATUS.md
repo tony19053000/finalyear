@@ -42,7 +42,7 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 
 ## Current Task
 **2026-10-01 — parallel agents allowed again (team, handoff §0e).** Running now:
-- **V0.4 G5 follow-up batch:** T2-1 + `_swap_in` fixed (`5f13163`), tester PASS; one more traceback found (D-1: OSError while writing the download) → implementer fixing; then reviewer → done.
+- **V0.4 G5 follow-up batch:** T2-1 + `_swap_in` fixed (`5f13163`), tester PASS; D-1 (OSError while saving/hashing the download) fixed `5a1937f` (unit 4644 exit 0) → **reviewer running** → done.
 - **V0.5 wave 1** (brief `docs/briefs/V0.5-data-plane.md`): **G1** CAS + tree manifests + have/need upload · **G2** cached environments + venv runtime (uv) + pinned base images · **G3** V0.4 debt (UPLOADING deadline, log-file GC, persisted log gaps). Each → tester → reviewer. Then wave 2 briefs (G4 peers/parallel fetch/telemetry, G5 cache index/GC/named inputs/node prepare).
 - 🧑 in parallel: **0.4.15 lab run** (`lab/checklists/V0.4-remote-exec.md`), S3 two-laptop runs (calibrate V0.5 transport).
 
@@ -98,7 +98,7 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 - Fixed this session: secret leak + O(n²) in log scrubber; duplicate IDs after fork; plain-`uv sync` test collection crash; CRLF-dependent codegen output.
 
 ## Technical Debt
-- **G5 follow-ups:** T2-1 and `_swap_in` FIXED (`5f13163`); D-1 (download OSError traceback) being fixed; UPLOADING backstop → V0.5 G3 (in progress). Also: 35 Docker sandbox component tests skip unless `python:3.12-slim@sha256:f77ac9…` is pulled locally.
+- **G5 follow-ups:** T2-1 and `_swap_in` FIXED (`5f13163`); D-1 fixed (`5a1937f`), reviewer pending; UPLOADING backstop → V0.5 G3 (in progress). Also: 35 Docker sandbox component tests skip unless `python:3.12-slim@sha256:f77ac9…` is pulled locally.
 - **G7 follow-ups (roadmap 0.4.17):** Windows `taskkill` runs on the event loop (capped 1 s); `controller/session/manager.py` is 1315 lines — extract report handlers before V0.4; `agent/benchmarks/runner.py` 780 lines; a SIGKILLed agent can leave a wedged benchmark child; score reason codes are free strings (freeze before V0.15); the controller trusts the agent's score fingerprint (V0.7).
 - Leftover `nvidia-driver-590-open` metapackage alongside 595 on Laptop 1 (clean up after driver fix)
 - Dev DB has a default password (`meshforge-dev`, DB bound to 127.0.0.1); product/non-dev must refuse to start without an explicit secret (V0.7/V0.17)
