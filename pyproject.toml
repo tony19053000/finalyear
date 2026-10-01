@@ -69,6 +69,10 @@ agent = [
     # V0.4 Docker runtime (ADR-0004, brief D51): blocking SDK calls run via
     # asyncio.to_thread; nodes without Docker fall back to the subprocess runtime.
     "docker>=7.1",
+    # V0.5 (brief D86): the venv runtime and environment builder call the `uv` binary
+    # shipped by this wheel (found via `uv.find_uv_bin()`), so every node has the same
+    # pinned uv without a separate install step - Windows included.
+    "uv>=0.10",
 ]
 # CPU/CUDA variant selection (PyTorch wheel index per platform) is decided in V0.2;
 # here torch comes from the default index. Only installed with `--extra gpu`.
