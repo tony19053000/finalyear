@@ -162,6 +162,16 @@ def test_an_include_inside_a_comment_is_not_a_line() -> None:
     assert normalize_requirements(b"numpy==1 # -r other.txt\n# -e .\n") == b"numpy==1\n"
 
 
+@pytest.mark.parametrize(
+    "line", ["pkg @ /abs/pkg.whl", "pkg @ ./pkg", "pkg @ ../x", "pkg @ C:\\x\\a.whl"]
+)
+def test_direct_reference_to_a_local_path_is_refused(line: str) -> None:
+    """Same class as ``pkg @ file:...``: the file's contents are not in the env
+    hash. (Real uv installs ``mfdemo @ /abs/x.whl``: see the component test.)"""
+    with pytest.raises(EnvError):
+        normalize_requirements((line + "\n").encode())
+
+
 @pytest.mark.parametrize("raw", [b"a\x00b\n", b"\xff\xfe=\n", b"a\x1bb\n"])
 def test_binary_and_non_utf8_are_refused(raw: bytes) -> None:
     with pytest.raises(EnvError) as info:
