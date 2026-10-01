@@ -5,9 +5,11 @@
 * :mod:`.builder` - build an environment **once per hash per node** under a file
   lock, crash-safe (``<hash>.building`` -> rename), read-only to jobs (D86).
 * :mod:`.errors` - :class:`EnvError`, the typed failure every step raises.
+* :mod:`.prepare` - ``meshforge-agent prepare``: pre-pull the pinned bases (D87).
 
 The runtimes (:mod:`meshforge.agent.execution`) call the builder in their ``env``
-phase; this package imports nothing from them.
+phase; apart from :mod:`.prepare` (which reuses the Docker runtime's pull, imported
+lazily) this package imports nothing from them.
 """
 
 from meshforge.agent.envs.errors import EnvError

@@ -7,6 +7,7 @@ Commands::
     meshforge-agent identity reset --yes [--config FILE]
     meshforge-agent hardware show [--config FILE] [--json]
     meshforge-agent hardware score [--config FILE] [--json] [--force]
+    meshforge-agent prepare [--config FILE] [--base NAME]... [--timeout S] [--json]
 
 Everything beyond ``--version``/``--help`` is imported inside the command so the
 module runs on a base install (no agent extra). ``run`` itself needs only core
@@ -17,6 +18,9 @@ dependencies when ``controller_address`` is configured; mDNS discovery needs the
 §5g D34): they never contact the controller. The controller receives the clipped
 ``Hello.hardware`` summary and nothing else, so per-probe status, duration and
 reason can only be seen here.
+
+``prepare`` (V0.5 D87) is local too: it pre-pulls the digest-pinned base images
+of ``[agent.execution.images]`` and prints their sizes and pull times.
 """
 
 from __future__ import annotations
@@ -369,6 +373,66 @@ def hardware_score(
         score_lines(scores, source="measured"),
     )
     raise typer.Exit(exit_code)
+
+
+@app.command()
+def prepare(
+    config: ConfigOption = None,
+    base: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--base",
+            help="Base to pre-pull: python-cpu or cuda-pytorch (repeatable; "
+            "default: both).",
+        ),
+    ] = None,
+    timeout: Annotated[
+        float | None,
+        typer.Option(
+            "--timeout",
+            min=1.0,
+            help="Seconds per image pull (default: [agent.execution] env_timeout_s).",
+        ),
+    ] = None,
+    as_json: Annotated[
+        bool, typer.Option("--json", help="Machine-readable output.")
+    ] = False,
+) -> None:
+    """Pre-pull the pinned base images so the first job does not wait for them.
+
+    Local only: no controller. Images already present (by digest) are not pulled
+    again. A laptop without Docker reports it and pulls nothing (exit 0: the venv
+    runtime needs no image). Exit 1 if a pull failed.
+    """
+    import asyncio
+
+    from meshforge.agent.envs.prepare import BASES
+    from meshforge.agent.envs.prepare import prepare as run_prepare
+
+    settings = _load_settings(config)
+    _quiet_logging(settings)
+    chosen = tuple(base) if base else BASES
+    unknown = [name for name in chosen if name not in BASES]
+    if unknown:
+        typer.echo(
+            f"{PROG_NAME}: unknown base {', '.join(unknown)!s}; choose from "
+            f"{', '.join(BASES)}",
+            err=True,
+        )
+        raise typer.Exit(ExitCode.USAGE_ERROR)
+    if not as_json:
+        typer.echo(f"preparing {', '.join(chosen)} (Ctrl-C stops it) ...", err=True)
+    try:
+        report = asyncio.run(run_prepare(settings, bases=chosen, timeout_s=timeout))
+    except KeyboardInterrupt:
+        typer.echo(f"{PROG_NAME}: interrupted; the pull was stopped", err=True)
+        raise typer.Exit(ExitCode.FAILURE) from None
+    if as_json:
+        typer.echo(json.dumps(report.as_dict(), sort_keys=True))
+    else:
+        for line in report.lines():
+            typer.echo(line)
+    raise typer.Exit(ExitCode.OK if report.ok else ExitCode.FAILURE)
 
 
 def _print_scores(as_json: bool, payload: dict[str, object], lines: list[str]) -> None:
