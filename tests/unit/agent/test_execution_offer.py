@@ -106,8 +106,14 @@ async def test_unsandboxed_needs_its_own_opt_in(tmp_path: Path) -> None:
         host_has_nvidia_gpu=True,
         docker_factory=_factory(missing),
     )
-    assert with_opt_in.offer.capabilities == ("exec", "exec-gpu", "exec-subprocess")
-    assert set(with_opt_in.runtimes) == {"subprocess"}
+    # V0.5 G2: the venv runtime (uv wheel, agent extra) is unsandboxed too
+    assert with_opt_in.offer.capabilities == (
+        "exec",
+        "exec-gpu",
+        "exec-subprocess",
+        "exec-venv",
+    )
+    assert set(with_opt_in.runtimes) == {"subprocess", "venv"}
 
 
 @pytest.mark.asyncio

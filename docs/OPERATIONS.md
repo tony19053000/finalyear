@@ -88,7 +88,7 @@ grace_s = 3.0               # cancel/timeout: SIGTERM, then SIGKILL after this (
 
 **Check it took effect.** Restart the agent, then `compute nodes <node id>` (or
 `GET /v1/nodes/<node id>`) must list the capability `exec` plus `exec-docker`
-and/or `exec-subprocess` (and `exec-gpu` if a GPU can be handed to jobs). The agent
+and/or `exec-subprocess` / `exec-venv` (and `exec-gpu` if a GPU can be handed to jobs). The agent
 log says `agent.execution.ready` with the same list, or `agent.execution.no_runtime`
 with the reason (e.g. `docker_permission_denied`: add your user to the `docker`
 group). A job placed on a node without `exec` is refused at submit (`409
@@ -152,11 +152,10 @@ A job's requirements (manifest `env.requirements`) are installed **once per
 laptop** into an environment named by its *env hash* and reused by every later job
 with the same requirements, base and Python - the second job installs nothing.
 
-> **Status (2026-10-01):** built and tested in the runtimes; the running agent
-> switches from the V0.4 per-job install to cached environments (and offers the
-> `venv` runtime, capability `exec-venv`) once its start-up passes the builder to
-> the runtimes - a pending one-file change (`agent/execution/offer.py`).
-> `meshforge-agent prepare` works now.
+With `allow_unsandboxed = true` the agent also offers the **venv runtime**
+(capability `exec-venv`): an unsandboxed job in its own cached uv venv - its
+`env.python` version and only its packages. Order of preference: docker > venv >
+subprocess.
 
 - **Where they are:** `<data dir>/envs/` (`[agent.envs] dir`): `venv/<hash>/` (venv
   runtime), `subprocess/<hash>/` (subprocess runtime), `uv-cache/`, `locks/`.

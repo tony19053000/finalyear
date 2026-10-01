@@ -6,7 +6,9 @@ Imported as ``mf_exec_harness`` by ``tests/component/agent/test_exec_*.py``.
   :class:`Executor` exactly as ``agent/runtime.serve`` wires them, running in the
   test's event loop. By default the offer is **subprocess only** (a Docker probe
   that reports "unavailable"), so the tier needs no Docker; ``docker=True`` probes
-  the real daemon.
+  the real daemon. The V0.5 venv runtime (preferred over subprocess when offered)
+  is dropped unless ``venv=True``, so V0.4 tests keep exercising the subprocess
+  runtime; ``agent_overrides`` adds ``[agent]`` sections (e.g. ``envs``).
 * :func:`submit` packs a project folder, uploads the bundle and posts the job
   through the REST API with the fabric token - the product surface, nothing else.
 * :func:`wait_job` polls ``GET /v1/jobs/{id}`` on the monotonic clock.
@@ -16,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import dataclasses
 import time
 from collections.abc import Mapping
 from pathlib import Path
@@ -70,11 +73,15 @@ class ExecAgent:
         *,
         execution: Mapping[str, Any] | None = None,
         docker: bool = False,
+        venv: bool = False,
         setup: ExecutionSetup | None = None,
+        agent_overrides: Mapping[str, Any] | None = None,
     ) -> ExecAgent:
         exec_cfg = {"enabled": True, "allow_unsandboxed": True, "grace_s": 1.0}
         exec_cfg.update(execution or {})
-        settings = make_agent_settings(data_dir, controller_address, execution=exec_cfg)
+        settings = make_agent_settings(
+            data_dir, controller_address, execution=exec_cfg, **(agent_overrides or {})
+        )
         identity = load_or_create(settings.identity_dir)
         hardware = basic_hardware()
         if setup is None:
@@ -84,6 +91,12 @@ class ExecAgent:
                 host_has_nvidia_gpu=False,
                 docker_factory=None if docker else no_docker,
             )
+            if not venv:
+                setup = dataclasses.replace(
+                    setup,
+                    offer=dataclasses.replace(setup.offer, venv=None),
+                    runtimes={k: v for k, v in setup.runtimes.items() if k != "venv"},
+                )
         hardware.capabilities[:] = clip_capabilities(
             [*hardware.capabilities, *setup.offer.capabilities]
         )

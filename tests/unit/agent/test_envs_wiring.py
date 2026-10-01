@@ -291,3 +291,43 @@ def test_check_pinned_accepts_the_default_bases() -> None:
 
     for image in (PYTHON_CPU_IMAGE, CUDA_PYTORCH_IMAGE):
         assert dr._check_pinned(image) == image.split("@", 1)[1]
+
+
+# ------------------------------------------------------- agent start-up wiring
+@pytest.mark.asyncio
+async def test_build_execution_gives_every_runtime_one_shared_builder(
+    tmp_path: Path,
+) -> None:
+    from meshforge.agent.execution.offer import build_execution
+    from meshforge.agent.execution.subprocess_runtime import SubprocessRuntime
+    from meshforge.agent.execution.venv_runtime import VenvRuntime
+    from meshforge.agent.settings import AgentSettings
+
+    settings = AgentSettings.load(
+        data_dir=tmp_path / "data",
+        agent={
+            "controller_address": "127.0.0.1:1",
+            "execution": {"enabled": True, "allow_unsandboxed": True},
+        },
+    )
+    built: list[DockerRuntime] = []
+
+    class NoDocker(DockerRuntime):
+        async def probe(self) -> RuntimeAvailability:
+            return RuntimeAvailability("docker", False, reason="docker_sdk_missing")
+
+    def factory(config: DockerConfig) -> DockerRuntime:
+        runtime = NoDocker(config)
+        built.append(runtime)
+        return runtime
+
+    setup = await build_execution(
+        settings, node_id="node_x", host_has_nvidia_gpu=False, docker_factory=factory
+    )
+    venv = setup.runtimes["venv"]
+    sub = setup.runtimes["subprocess"]
+    assert isinstance(venv, VenvRuntime) and isinstance(sub, SubprocessRuntime)
+    envs = venv._envs
+    assert envs is not None and sub._envs is envs
+    assert envs.root == tmp_path / "data" / "envs"
+    assert [r.name for r in setup.offer.offered()] == ["venv", "subprocess"]

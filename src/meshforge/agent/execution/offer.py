@@ -9,7 +9,9 @@ instances the executor may use. Rules (ADR-0014):
   ``StartAttempt`` is refused ``unauthorized``;
 * the Docker runtime is probed (bounded: a wedged daemon cannot delay the first
   Hello past :data:`PROBE_GRACE_S` over ``docker_timeout_s``);
-* the subprocess runtime exists only with ``allow_unsandboxed = true``;
+* the subprocess and venv runtimes exist only with ``allow_unsandboxed = true``;
+* one :class:`~meshforge.agent.envs.builder.EnvBuilder` (``[agent.envs]``) is shared
+  by every runtime: requirements are installed once per env hash (V0.5 D86);
 * enabled + the controller found by **mDNS** -> ``agent.execution.unpinned_controller``
   (warning): until V0.7 mTLS, a rogue controller on the LAN could send work.
 
@@ -24,10 +26,12 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Final
 
+from meshforge.agent.envs.builder import EnvBuilder, EnvsConfig
 from meshforge.agent.execution.docker_runtime import DockerConfig, DockerRuntime
 from meshforge.agent.execution.runtime import Runtime, RuntimeAvailability
 from meshforge.agent.execution.selection import ExecutionOffer, execution_offer
 from meshforge.agent.execution.subprocess_runtime import SubprocessRuntime
+from meshforge.agent.execution.venv_runtime import VenvRuntime
 from meshforge.agent.settings import AgentSettings
 from meshforge.common.logging import get_logger
 
@@ -46,7 +50,7 @@ class ExecutionSetup:
 
     offer: ExecutionOffer
     runtimes: Mapping[str, Runtime] = field(default_factory=dict)
-    """Offered **and available** runtimes by name (``docker``, ``subprocess``)."""
+    """Offered **and available** runtimes by name (``docker``, ``venv``, ``subprocess``)."""
     docker: DockerRuntime | None = None
     """The Docker runtime when available (for the start-up orphan sweep)."""
 
@@ -85,28 +89,45 @@ async def build_execution(
                 "[agent] controller_address to pin it"
             ),
         )
-    docker = (docker_factory or DockerRuntime)(
-        DockerConfig.from_settings(
-            cfg, agent_label=node_id, host_has_nvidia_gpu=host_has_nvidia_gpu
-        )
+    envs = EnvBuilder(EnvsConfig.from_settings(settings))  # V0.5 D86: one per agent
+    docker_config = DockerConfig.from_settings(
+        cfg, agent_label=node_id, host_has_nvidia_gpu=host_has_nvidia_gpu
+    )
+    docker = (
+        docker_factory(docker_config)
+        if docker_factory is not None
+        else DockerRuntime(docker_config, envs=envs)
     )
     docker_found = await _probe(docker, cfg.docker_timeout_s + PROBE_GRACE_S)
     subprocess_rt: SubprocessRuntime | None = None
     subprocess_found: RuntimeAvailability | None = None
+    venv_rt: VenvRuntime | None = None
+    venv_found: RuntimeAvailability | None = None
     if cfg.allow_unsandboxed:
         subprocess_rt = SubprocessRuntime(
-            host_has_nvidia_gpu=host_has_nvidia_gpu, env_timeout_s=cfg.env_timeout_s
+            host_has_nvidia_gpu=host_has_nvidia_gpu,
+            env_timeout_s=cfg.env_timeout_s,
+            envs=envs,
         )
         subprocess_found = await subprocess_rt.probe()
+        venv_rt = VenvRuntime(
+            envs=envs,
+            host_has_nvidia_gpu=host_has_nvidia_gpu,
+            env_timeout_s=cfg.env_timeout_s,
+        )
+        venv_found = await venv_rt.probe()
     offer = execution_offer(
         enabled=True,
         allow_unsandboxed=cfg.allow_unsandboxed,
         docker=docker_found,
         subprocess=subprocess_found,
+        venv=venv_found,
     )
     runtimes: dict[str, Runtime] = {}
     if docker_found.available:
         runtimes[docker.name] = docker
+    if venv_rt is not None and venv_found is not None and venv_found.available:
+        runtimes[venv_rt.name] = venv_rt
     if (
         subprocess_rt is not None
         and subprocess_found is not None
