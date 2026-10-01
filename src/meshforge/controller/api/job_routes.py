@@ -2,8 +2,11 @@
 
 Every route needs the fabric token (D44: job reads expose user output).
 
-**Submit** ``{manifest, bundle_digest, placement: {node_id, local?}}`` with an
-optional ``Idempotency-Key`` header (1-128 printable ASCII characters):
+**Submit** ``{manifest, tree_id | bundle_digest, placement: {node_id, local?}}``
+with an optional ``Idempotency-Key`` header (1-128 printable ASCII characters).
+``tree_id`` (V0.5 D83) names a tree manifest already uploaded with have/need
+(``POST /v1/blobs/have``); ``bundle_digest`` is the V0.4 single-bundle path, kept
+for existing callers:
 
 1. the body is read with a hard size cap and validated (shape, then the manifest
    with the same model the CLI and agent use - errors carry YAML paths);
@@ -11,7 +14,9 @@ optional ``Idempotency-Key`` header (1-128 printable ASCII characters):
    (``200``, ``created: false``: no second job, no second execution); with a
    **different** request it is ``409 conflict``;
 3. the bundle must already be in the blob store (``409 conflict`` naming the
-   digest - upload it with ``PUT /v1/blobs/{sha256}`` first);
+   digest - upload it with ``PUT /v1/blobs/{sha256}`` first); for a tree, the
+   manifest must be stored and valid (``409`` absent, ``400`` not a valid tree)
+   and so must every blob it lists (``409`` naming up to 20 missing digests);
 4. placement is checked (``404`` unknown node; ``409 no_feasible_plan`` for a node
    that is not online, has no live session, does not accept jobs, or cannot give
    the job the GPU/VRAM/RAM/CPUs it asks for);
@@ -52,6 +57,7 @@ from meshforge.common.ids import new_job_id, validate_job_id, validate_node_id
 from meshforge.common.logging import get_logger
 from meshforge.common.manifest import ManifestError, parse_manifest_data
 from meshforge.common.states import JOB_TERMINAL_STATES, JobState
+from meshforge.common.tree import TreeError
 from meshforge.controller.api.auth import FabricTokenRequired
 from meshforge.controller.api.context import FabricView, get_fabric
 from meshforge.controller.api.errors import ApiError
@@ -96,6 +102,7 @@ MAX_JOB_LIMIT: Final = 500
 IDEMPOTENCY_KEY_MAX_CHARS: Final = 128
 _KEY_RE: Final = re.compile(r"[\x21-\x7e]{1,128}")
 _JOB_ID_MAX: Final = 40
+_MISSING_SHOWN: Final = 20
 
 
 class JobApi:
@@ -133,13 +140,25 @@ Fabric = Annotated[FabricView, Depends(get_fabric)]
 
 
 def request_hash(
-    manifest: dict[str, Any], bundle_digest: str, placement: Placement
+    manifest: dict[str, Any],
+    bundle_digest: str | None,
+    placement: Placement,
+    *,
+    tree_id: str | None = None,
 ) -> str:
-    """SHA-256 of the canonical request: what "the same request" means for a key."""
+    """SHA-256 of the canonical request: what "the same request" means for a key.
+
+    A bundle request hashes exactly as in V0.4; a tree request names ``tree_id``.
+    """
+    source = (
+        {"tree_id": tree_id}
+        if tree_id is not None
+        else {"bundle_digest": bundle_digest}
+    )
     canonical = json.dumps(
         {
             "manifest": manifest,
-            "bundle_digest": bundle_digest,
+            **source,
             "placement": placement.model_dump(mode="json"),
         },
         sort_keys=True,
@@ -205,7 +224,8 @@ def _summary_fields(job: JobRecord) -> dict[str, Any]:
         "job_id": job.id,
         "name": job.name,
         "state": job.state,
-        "bundle_digest": job.bundle_digest,
+        "bundle_digest": job.stored_bundle_digest,
+        "tree_id": job.tree_id,
         "placement": Placement.model_validate(dict(job.placement)),
         "failure_type": job.failure_type,
         "failure_detail": job.failure_detail,
@@ -262,6 +282,32 @@ def _replay(existing: JobRecord, digest: str, response: Response) -> JobCreated:
     return JobCreated(job_id=existing.id, state=existing.state, created=False)
 
 
+async def _check_tree(blobs: BlobStore, tree_id: Digest) -> None:
+    """The tree manifest and every blob it lists are stored (D82/D83)."""
+    try:
+        tree = await blobs.tree(tree_id)
+    except TreeError as exc:
+        raise ApiError.invalid(
+            f"tree {tree_id} is not a valid tree: {exc.message}"
+        ) from None
+    if tree is None:
+        raise ApiError(
+            FailureType.CONFLICT,
+            f"tree {tree_id} is not in the blob store; upload the manifest with "
+            f"PUT /v1/blobs/{tree_id.hex} first",
+        )
+    missing = blobs.missing(Digest(h) for h in tree.blob_sizes())
+    if missing:
+        shown = ", ".join(str(d) for d in missing[:_MISSING_SHOWN])
+        more = len(missing) - _MISSING_SHOWN
+        raise ApiError(
+            FailureType.CONFLICT,
+            f"{len(missing)} blob(s) of tree {tree_id} are not in the blob store "
+            f"(ask POST /v1/blobs/have, upload them, retry): {shown}"
+            + (f" and {more} more" if more > 0 else ""),
+        )
+
+
 @job_router.post(
     "",
     status_code=status.HTTP_201_CREATED,
@@ -291,20 +337,28 @@ async def submit_job(
         mode="local" if submission.placement.local else "offload", node_id=node_id
     )
     canonical_manifest = manifest.canonical_dict()
-    digest = request_hash(canonical_manifest, submission.bundle_digest, placement)
+    digest = request_hash(
+        canonical_manifest,
+        submission.bundle_digest,
+        placement,
+        tree_id=submission.tree_id,
+    )
 
     if key is not None:
         existing = await jobs.store.get_job_by_key(key)
         if existing is not None:
             return _replay(existing, digest, response)
 
-    bundle_hex = submission.bundle_digest.removeprefix("sha256:")
-    if jobs.blobs.size(Digest(bundle_hex)) is None:
-        raise ApiError(
-            FailureType.CONFLICT,
-            f"bundle {submission.bundle_digest} is not in the blob store; upload it "
-            f"with PUT /v1/blobs/{bundle_hex} first",
-        )
+    if submission.tree_id is not None:
+        await _check_tree(jobs.blobs, Digest.parse(submission.tree_id))
+    else:
+        bundle_hex = (submission.bundle_digest or "").removeprefix("sha256:")
+        if jobs.blobs.size(Digest(bundle_hex)) is None:
+            raise ApiError(
+                FailureType.CONFLICT,
+                f"bundle {submission.bundle_digest} is not in the blob store; "
+                f"upload it with PUT /v1/blobs/{bundle_hex} first",
+            )
     node = await fabric.registry.get_node(node_id)
     try:
         check_placement(
@@ -331,6 +385,7 @@ async def submit_job(
             placement=placement.model_dump(mode="json"),
             request_hash=digest,
             idempotency_key=key,
+            tree_id=submission.tree_id,
         )
     except IdempotencyConflictError:
         raise ApiError(
@@ -345,6 +400,7 @@ async def submit_job(
         node_id=node_id,
         mode=placement.mode,
         bundle_digest=submission.bundle_digest,
+        tree_id=submission.tree_id,
         idempotency_key_set=key is not None,
     )
     if jobs.dispatcher is not None:

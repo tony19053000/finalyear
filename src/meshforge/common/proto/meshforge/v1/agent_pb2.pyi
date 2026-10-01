@@ -1170,8 +1170,13 @@ class ExecutionSpec(_message.Message):
     UPLOAD_TOKEN_FIELD_NUMBER: _builtins.int
     UPLOAD_MAX_BYTES_FIELD_NUMBER: _builtins.int
     UPLOAD_MAX_BLOBS_FIELD_NUMBER: _builtins.int
+    TREE_ID_FIELD_NUMBER: _builtins.int
+    SOURCES_FIELD_NUMBER: _builtins.int
     bundle_digest: _builtins.str
-    """"sha256:<64 hex>" of the project bundle in the controller's blob store."""
+    """"sha256:<64 hex>" of what the attempt fetches first: the project bundle (V0.4
+    jobs) or, when tree_id is set, the tree manifest blob (equal to tree_id) - so
+    an agent that validates this field keeps working for tree jobs.
+    """
     blob_url: _builtins.str
     """Base URL of the blob API ("http://host:port") when the controller has an
     advertised URL; empty = the agent uses http://<host it dialled>:<blob_port>.
@@ -1200,6 +1205,11 @@ class ExecutionSpec(_message.Message):
     """
     upload_max_bytes: _builtins.int
     upload_max_blobs: _builtins.int
+    tree_id: _builtins.str
+    """V0.5 D83: "sha256:<64 hex>" of the project's tree manifest (D81); empty = a
+    V0.4 bundle job. The agent fetches the manifest and the blobs it names into
+    its CAS, verifying every chunk and blob, then copies them into the workdir.
+    """
     @_builtins.property
     def gpu_indices(self) -> _containers.RepeatedScalarFieldContainer[_builtins.int]:
         """NVML indices of the GPUs this attempt may use (HardwareSummary.Gpu.index);
@@ -1209,6 +1219,12 @@ class ExecutionSpec(_message.Message):
     @_builtins.property
     def output_globs(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]:
         """Declared outputs (manifest `outputs`), collected in V0.4 G5."""
+
+    @_builtins.property
+    def sources(self) -> _containers.RepeatedCompositeFieldContainer[Global___BlobSource]:
+        """Where the blobs may be fetched (V0.5 D83/D89). Wave 1 lists only the
+        controller; V0.5 wave 2 adds peers that hold them.
+        """
 
     def __init__(
         self,
@@ -1227,14 +1243,50 @@ class ExecutionSpec(_message.Message):
         upload_token: _builtins.str = ...,
         upload_max_bytes: _builtins.int = ...,
         upload_max_blobs: _builtins.int = ...,
+        tree_id: _builtins.str = ...,
+        sources: _abc.Iterable[Global___BlobSource] | None = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["blob_port", b"blob_port", "blob_url", b"blob_url", "bundle_digest", b"bundle_digest", "cpus", b"cpus", "fetch_token", b"fetch_token", "gpu_indices", b"gpu_indices", "manifest_json", b"manifest_json", "memory_bytes", b"memory_bytes", "output_globs", b"output_globs", "runtime", b"runtime", "timeout_s", b"timeout_s", "upload_max_blobs", b"upload_max_blobs", "upload_max_bytes", b"upload_max_bytes", "upload_token", b"upload_token"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["blob_port", b"blob_port", "blob_url", b"blob_url", "bundle_digest", b"bundle_digest", "cpus", b"cpus", "fetch_token", b"fetch_token", "gpu_indices", b"gpu_indices", "manifest_json", b"manifest_json", "memory_bytes", b"memory_bytes", "output_globs", b"output_globs", "runtime", b"runtime", "sources", b"sources", "timeout_s", b"timeout_s", "tree_id", b"tree_id", "upload_max_blobs", b"upload_max_blobs", "upload_max_bytes", b"upload_max_bytes", "upload_token", b"upload_token"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___ExecutionSpec: _TypeAlias = ExecutionSpec  # noqa: Y015
+
+@_typing.final
+class BlobSource(_message.Message):
+    """One place an agent may download blobs from (V0.5 D83)."""
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    URL_FIELD_NUMBER: _builtins.int
+    TOKEN_FIELD_NUMBER: _builtins.int
+    NODE_ID_FIELD_NUMBER: _builtins.int
+    url: _builtins.str
+    """Base URL "http(s)://host:port"; empty = the controller at the host this agent
+    dialled and ExecutionSpec.blob_port.
+    """
+    token: _builtins.str
+    """Bearer token for that source (the attempt's fetch token for the controller).
+    A secret: never logged, never persisted.
+    """
+    node_id: _builtins.str
+    """The holder's node_id; empty = the controller."""
+    def __init__(
+        self,
+        *,
+        url: _builtins.str = ...,
+        token: _builtins.str = ...,
+        node_id: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["node_id", b"node_id", "token", b"token", "url", b"url"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___BlobSource: _TypeAlias = BlobSource  # noqa: Y015
 
 @_typing.final
 class CancelAttempt(_message.Message):

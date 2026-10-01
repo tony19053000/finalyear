@@ -17,31 +17,58 @@ blob or byte quota). See :mod:`meshforge.controller.blobs` for the storage rules
   ``resource_busy`` when every upload slot stayed taken, ``507`` disk full or
   below the free-disk floor (insufficient storage).
 * ``HEAD`` answers "do you have it" (``200`` + ``Content-Length`` / ``404``).
-* ``GET`` streams the file.
+* ``GET`` streams the file; a ``Range: bytes=a-b`` request is answered ``206``
+  with that slice (resumable, chunked fetches - V0.5 D80).
+
+**V0.5 data plane (D82), fabric token only:**
+
+* ``POST /v1/blobs/have`` ``{"digests": ["sha256:<hex>", ...]}`` (at most
+  :data:`~meshforge.controller.blobs.MAX_HAVE_DIGESTS`, body at most 1 MiB) ->
+  ``{"missing": [...]}``: upload only those.
+* ``PUT /v1/blobs/{sha256}/parts/{index}`` with ``X-MeshForge-Blob-Size``,
+  ``X-MeshForge-Chunk-Size`` and ``X-MeshForge-Chunk-Sha256`` (the part's own
+  digest, from the tree manifest) and an exact ``Content-Length``: the part is
+  verified and written at its offset (``201`` stored, ``200`` already there or the
+  whole blob already stored; ``400 integrity_error`` for a corrupt part - nothing
+  kept).
+* ``GET /v1/blobs/{sha256}/parts`` -> ``{size, chunk_size, received, complete}``
+  (``404`` when no part upload is in progress): what a resumed upload can skip.
+* ``POST /v1/blobs/{sha256}/complete`` hashes the assembled parts and stores the
+  blob (``201``/``200``; ``409`` parts missing; ``400 integrity_error`` - the
+  upload starts over).
+
+**Fetch-token scope (V0.5 D83):** a fetch token reads the digests it was minted
+for and, when one of them is a stored tree manifest, every blob that tree lists.
 """
 
 from __future__ import annotations
 
+import json
+import re
 from collections.abc import AsyncIterator
-from typing import Annotated, Final
+from typing import Annotated, Any, Final
 
 from fastapi import APIRouter, Depends, Path, Request, Response, status
 from fastapi.responses import FileResponse
 from starlette.requests import ClientDisconnect
 
+from meshforge.common.cas import MAX_CHUNK_SIZE, MIN_CHUNK_SIZE, chunk_span
 from meshforge.common.errors import FailureType
 from meshforge.common.hashing import Digest
 from meshforge.common.logging import get_logger
 from meshforge.controller.api.auth import (
     ApiAuth,
+    FabricTokenRequired,
     bearer_token,
     get_auth,
     unauthorized,
 )
 from meshforge.controller.api.errors import ApiError
 from meshforge.controller.blobs import (
+    MAX_HAVE_DIGESTS,
     BlobError,
     BlobIntegrityError,
+    BlobNotFoundError,
     BlobStore,
     BlobTooLargeError,
 )
@@ -54,10 +81,16 @@ log = get_logger(__name__)
 BLOBS_STATE_KEY: Final = "meshforge_blobs"
 _HEX_PATTERN: Final = r"^[0-9a-f]{64}$"
 _MAX_CONTENT_LENGTH_CHARS: Final = 20
+MAX_HAVE_BODY_BYTES: Final = 1024 * 1024
+_DIGEST_RE: Final = re.compile(r"sha256:[0-9a-f]{64}")
+_HEX_RE: Final = re.compile(r"[0-9a-f]{64}")
+MAX_PART_INDEX: Final = 1 << 20
 
 _BLOB_ERROR_STATUS: Final = {
     FailureType.DISK_FULL: status.HTTP_507_INSUFFICIENT_STORAGE,
     FailureType.RESOURCE_BUSY: status.HTTP_503_SERVICE_UNAVAILABLE,
+    FailureType.CONFLICT: status.HTTP_409_CONFLICT,
+    FailureType.NOT_FOUND: status.HTTP_404_NOT_FOUND,
 }
 
 blob_router = APIRouter(prefix="/v1/blobs", tags=["blobs"])
@@ -94,13 +127,21 @@ _GRANT_STATUS: Final = {
 }
 
 
-def _authorize(request: Request, auth: ApiAuth, digest: Digest) -> str:
-    """Reads: ``fabric`` or ``fetch``, or raise 401."""
+async def _authorize(
+    request: Request, auth: ApiAuth, store: BlobStore, digest: Digest
+) -> str:
+    """Reads: ``fabric`` or ``fetch`` (its digests, or a tree's members), else 401."""
     token = bearer_token(request)
     if auth.verifier is not None and auth.verifier.verify(token):
         return "fabric"
-    if auth.fetch_tokens is not None and auth.fetch_tokens.check(token, digest):
+    grant = None if auth.fetch_tokens is None else auth.fetch_tokens.grant(token)
+    if grant is None:
+        raise unauthorized()
+    if digest.hex in grant.digests:
         return "fetch"
+    for root in grant.digests:
+        if digest.hex in await store.tree_members(Digest(root)):
+            return "fetch"
     raise unauthorized()
 
 
@@ -219,7 +260,7 @@ async def head_blob(
     request: Request, sha256: Sha256, store: Store, auth: Auth
 ) -> Response:
     digest = Digest(sha256)
-    _authorize(request, auth, digest)
+    await _authorize(request, auth, store, digest)
     size = store.size(digest)
     if size is None:
         return Response(status_code=status.HTTP_404_NOT_FOUND)
@@ -234,7 +275,7 @@ async def get_blob(
     request: Request, sha256: Sha256, store: Store, auth: Auth
 ) -> Response:
     digest = Digest(sha256)
-    _authorize(request, auth, digest)
+    await _authorize(request, auth, store, digest)
     if store.size(digest) is None:
         raise ApiError.not_found("blob")
     return FileResponse(
@@ -242,3 +283,198 @@ async def get_blob(
         media_type="application/octet-stream",
         headers={"etag": f'"{digest}"'},
     )
+
+
+# ================================================================ V0.5 (D82)
+
+
+def _blob_error(exc: BlobError) -> ApiError:
+    if isinstance(exc, BlobTooLargeError):
+        return ApiError(
+            FailureType.INVALID_INPUT,
+            exc.message,
+            http_status=status.HTTP_413_CONTENT_TOO_LARGE,
+        )
+    return ApiError(
+        exc.failure_type,
+        exc.message,
+        http_status=_BLOB_ERROR_STATUS.get(
+            exc.failure_type, status.HTTP_400_BAD_REQUEST
+        ),
+        headers={"Retry-After": "5"}
+        if exc.failure_type is FailureType.RESOURCE_BUSY
+        else None,
+    )
+
+
+async def _bounded_body(request: Request, limit: int) -> bytes:
+    declared = _declared_size(request)
+    if declared is not None and declared > limit:
+        raise ApiError(
+            FailureType.INVALID_INPUT,
+            f"request body larger than {limit} bytes",
+            http_status=status.HTTP_413_CONTENT_TOO_LARGE,
+        )
+    data = bytearray()
+    async for chunk in request.stream():
+        data += chunk
+        if len(data) > limit:
+            raise ApiError(
+                FailureType.INVALID_INPUT,
+                f"request body larger than {limit} bytes",
+                http_status=status.HTTP_413_CONTENT_TOO_LARGE,
+            )
+    return bytes(data)
+
+
+@blob_router.post("/have", summary="Which of these blobs are missing? (have/need)")
+async def have_blobs(
+    request: Request, _auth: FabricTokenRequired, store: Store
+) -> dict[str, list[str]]:
+    raw = await _bounded_body(request, MAX_HAVE_BODY_BYTES)
+    try:
+        body: Any = json.loads(raw)
+    except (ValueError, RecursionError):
+        raise ApiError.invalid("the request body is not valid JSON") from None
+    digests = body.get("digests") if isinstance(body, dict) else None
+    if (
+        not isinstance(body, dict)
+        or set(body) != {"digests"}
+        or not isinstance(digests, list)
+    ):
+        raise ApiError.invalid('the body must be {"digests": ["sha256:<hex>", ...]}')
+    if len(digests) > MAX_HAVE_DIGESTS:
+        raise ApiError(
+            FailureType.INVALID_INPUT,
+            f"at most {MAX_HAVE_DIGESTS} digests per call",
+            http_status=status.HTTP_413_CONTENT_TOO_LARGE,
+        )
+    if not all(isinstance(d, str) and _DIGEST_RE.fullmatch(d) for d in digests):
+        raise ApiError.invalid("every digest must be sha256:<64 lower-case hex>")
+    missing = store.missing(Digest.parse(d) for d in digests)
+    return {"missing": [str(d) for d in missing]}
+
+
+def _int_header(request: Request, name: str) -> int:
+    raw = request.headers.get(name)
+    if raw is None or len(raw) > _MAX_CONTENT_LENGTH_CHARS or not raw.isdigit():
+        raise ApiError.invalid(f"{name} must be a non-negative integer")
+    return int(raw)
+
+
+PartIndex = Annotated[int, Path(ge=0, lt=MAX_PART_INDEX)]
+
+
+@blob_router.put(
+    "/{sha256}/parts/{index}",
+    status_code=status.HTTP_201_CREATED,
+    summary="Upload one verified part of a large blob (resumable)",
+)
+async def put_part(
+    request: Request,
+    response: Response,
+    sha256: Sha256,
+    index: PartIndex,
+    _auth: FabricTokenRequired,
+    store: Store,
+) -> dict[str, object]:
+    digest = Digest(sha256)
+    size = _int_header(request, "x-meshforge-blob-size")
+    chunk_size = _int_header(request, "x-meshforge-chunk-size")
+    chunk_hex = request.headers.get("x-meshforge-chunk-sha256", "")
+    if not _HEX_RE.fullmatch(chunk_hex):
+        raise ApiError.invalid("X-MeshForge-Chunk-Sha256 must be 64 lower-case hex")
+    if not MIN_CHUNK_SIZE <= chunk_size <= MAX_CHUNK_SIZE:
+        raise ApiError.invalid(
+            f"X-MeshForge-Chunk-Size must be in [{MIN_CHUNK_SIZE}, {MAX_CHUNK_SIZE}]"
+        )
+    if size > store.max_blob_bytes:
+        raise ApiError(
+            FailureType.INVALID_INPUT,
+            f"blob larger than the {store.max_blob_bytes}-byte limit",
+            http_status=status.HTTP_413_CONTENT_TOO_LARGE,
+        )
+    try:
+        _start, length = chunk_span(index, size, chunk_size)
+    except ValueError as exc:
+        raise ApiError.invalid(str(exc)) from None
+    declared = _declared_size(request)
+    if declared is None:
+        raise ApiError(
+            FailureType.INVALID_INPUT,
+            "a part upload needs Content-Length",
+            http_status=status.HTTP_411_LENGTH_REQUIRED,
+        )
+    if declared != length:
+        raise ApiError.invalid(f"part {index} must be exactly {length} bytes")
+
+    async def body() -> AsyncIterator[bytes]:
+        async for chunk in request.stream():
+            yield chunk
+
+    try:
+        stored = await store.put_part(
+            digest,
+            index,
+            size=size,
+            chunk_size=chunk_size,
+            chunk_hex=chunk_hex,
+            body=body(),
+        )
+    except BlobIntegrityError:
+        log.warning(
+            "controller.blobs.part_integrity_error", digest=str(digest), index=index
+        )
+        raise ApiError(
+            FailureType.INTEGRITY_ERROR,
+            f"part {index} does not hash to its declared digest; nothing was kept",
+        ) from None
+    except ClientDisconnect:
+        raise ApiError(
+            FailureType.TRANSFER_ERROR,
+            "the part upload was interrupted; send it again",
+        ) from None
+    except BlobError as exc:
+        raise _blob_error(exc) from None
+    if not stored:
+        response.status_code = status.HTTP_200_OK
+    return {"digest": str(digest), "index": index, "stored": stored}
+
+
+@blob_router.get("/{sha256}/parts", summary="Parts already received (resume)")
+async def part_status(
+    sha256: Sha256, _auth: FabricTokenRequired, store: Store
+) -> dict[str, object]:
+    digest = Digest(sha256)
+    found = await store.part_status(digest)
+    if found is None:
+        raise ApiError.not_found("part upload")
+    return {
+        "digest": str(digest),
+        "size": found.size,
+        "chunk_size": found.chunk_size,
+        "received": list(found.received),
+        "complete": found.complete,
+    }
+
+
+@blob_router.post(
+    "/{sha256}/complete",
+    status_code=status.HTTP_201_CREATED,
+    summary="Verify the assembled parts and store the blob",
+)
+async def complete_parts(
+    response: Response, sha256: Sha256, _auth: FabricTokenRequired, store: Store
+) -> dict[str, object]:
+    digest = Digest(sha256)
+    try:
+        result = await store.complete_parts(digest)
+    except BlobIntegrityError as exc:
+        raise ApiError(FailureType.INTEGRITY_ERROR, exc.message) from None
+    except BlobNotFoundError:
+        raise ApiError.not_found("part upload") from None
+    except BlobError as exc:
+        raise _blob_error(exc) from None
+    if not result.created:
+        response.status_code = status.HTTP_200_OK
+    return {"digest": str(digest), "size": result.size, "created": result.created}

@@ -414,7 +414,9 @@ message StartAttempt {
 // What to run and with what (V0.4 D52). Built by the controller from the job's
 // canonical manifest; every field is re-validated by the agent before use.
 message ExecutionSpec {
-  // "sha256:<64 hex>" of the project bundle in the controller's blob store.
+  // "sha256:<64 hex>" of what the attempt fetches first: the project bundle (V0.4
+  // jobs) or, when tree_id is set, the tree manifest blob (equal to tree_id) - so
+  // an agent that validates this field keeps working for tree jobs.
   string bundle_digest = 1;
   // Base URL of the blob API ("http://host:port") when the controller has an
   // advertised URL; empty = the agent uses http://<host it dialled>:<blob_port>.
@@ -445,6 +447,25 @@ message ExecutionSpec {
   string upload_token = 12;
   uint64 upload_max_bytes = 13;
   uint32 upload_max_blobs = 14;
+  // V0.5 D83: "sha256:<64 hex>" of the project's tree manifest (D81); empty = a
+  // V0.4 bundle job. The agent fetches the manifest and the blobs it names into
+  // its CAS, verifying every chunk and blob, then copies them into the workdir.
+  string tree_id = 15;
+  // Where the blobs may be fetched (V0.5 D83/D89). Wave 1 lists only the
+  // controller; V0.5 wave 2 adds peers that hold them.
+  repeated BlobSource sources = 16;
+}
+
+// One place an agent may download blobs from (V0.5 D83).
+message BlobSource {
+  // Base URL "http(s)://host:port"; empty = the controller at the host this agent
+  // dialled and ExecutionSpec.blob_port.
+  string url = 1;
+  // Bearer token for that source (the attempt's fetch token for the controller).
+  // A secret: never logged, never persisted.
+  string token = 2;
+  // The holder's node_id; empty = the controller.
+  string node_id = 3;
 }
 
 // Stop an attempt (D69). `release` (V0.4 G5, D75): the controller has already

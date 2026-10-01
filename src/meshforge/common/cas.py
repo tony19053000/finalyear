@@ -283,6 +283,11 @@ class CasStore:
                         if not name.endswith(_SIDECAR_SUFFIX):
                             expired += 1
                 continue
+            if not (
+                name.endswith(".part")
+                or (name.startswith(".") and name.endswith(".tmp"))
+            ):
+                continue  # not ours: never delete what this store did not write
             with contextlib.suppress(OSError):
                 entry.unlink()
                 swept += 1

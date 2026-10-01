@@ -77,7 +77,13 @@ class Job(TimestampMixin, Base):
             f"failure_type IS NULL OR failure_type IN ({sql_in_list(FailureType)})",
             name="failure_type",
         ),
-        CheckConstraint(_digest_check("bundle_digest"), name="bundle_digest"),
+        CheckConstraint(
+            _digest_check("bundle_digest", nullable=True), name="bundle_digest"
+        ),
+        CheckConstraint(_digest_check("tree_id", nullable=True), name="tree_id"),
+        CheckConstraint(
+            "bundle_digest IS NOT NULL OR tree_id IS NOT NULL", name="job_source"
+        ),
         CheckConstraint("attempt_epoch >= 0", name="attempt_epoch"),
         UniqueConstraint("idempotency_key"),
         Index("ix_job_created_at", "created_at"),
@@ -89,7 +95,12 @@ class Job(TimestampMixin, Base):
     state: Mapped[str] = mapped_column(String(16), nullable=False)
     manifest: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     """The canonical manifest (``Manifest.canonical_dict()``)."""
-    bundle_digest: Mapped[str] = mapped_column(String(DIGEST_LENGTH), nullable=False)
+    bundle_digest: Mapped[str | None] = mapped_column(
+        String(DIGEST_LENGTH), nullable=True
+    )
+    """V0.4 bundle (``sha256:``); NULL for a tree job (migration 0009)."""
+    tree_id: Mapped[str | None] = mapped_column(String(DIGEST_LENGTH), nullable=True)
+    """The project's tree manifest (V0.5 D81/D83, migration 0009)."""
     placement: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     """``{"mode": "local"|"offload", "node_id": ...}`` (manual placement, V0.4)."""
     idempotency_key: Mapped[str | None] = mapped_column(

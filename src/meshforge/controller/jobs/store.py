@@ -145,6 +145,8 @@ class JobRecord:
     state: JobState
     manifest: Mapping[str, Any]
     bundle_digest: str
+    """The digest an attempt fetches first (its fetch token is minted for it): the
+    V0.4 bundle, or for a tree job the tree manifest blob (== ``tree_id``)."""
     placement: Mapping[str, Any]
     idempotency_key: str | None
     request_hash: str
@@ -154,6 +156,13 @@ class JobRecord:
     created_at: dt.datetime
     updated_at: dt.datetime
     cancel_requested_at: dt.datetime | None = None
+    tree_id: str | None = None
+    """V0.5 D83: the project's tree manifest; None = a V0.4 bundle job."""
+
+    @property
+    def stored_bundle_digest(self) -> str | None:
+        """The bundle column as stored (None for a tree job)."""
+        return None if self.tree_id is not None else self.bundle_digest
 
 
 @dataclass(frozen=True, slots=True)
@@ -200,7 +209,7 @@ def job_record(row: Job) -> JobRecord:
         name=row.name,
         state=JobState(row.state),
         manifest=dict(row.manifest),
-        bundle_digest=row.bundle_digest,
+        bundle_digest=row.bundle_digest or row.tree_id or "",
         placement=dict(row.placement),
         idempotency_key=row.idempotency_key,
         request_hash=row.request_hash,
@@ -210,6 +219,7 @@ def job_record(row: Job) -> JobRecord:
         created_at=row.created_at,
         updated_at=row.updated_at,
         cancel_requested_at=row.cancel_requested_at,
+        tree_id=row.tree_id,
     )
 
 
@@ -300,11 +310,12 @@ class JobStore:
         job_id: str,
         name: str,
         manifest: Mapping[str, Any],
-        bundle_digest: str,
+        bundle_digest: str | None,
         placement: Mapping[str, Any],
         request_hash: str,
         idempotency_key: str | None,
         through: Sequence[JobEvent] = (),
+        tree_id: str | None = None,
     ) -> tuple[JobRecord, bool]:
         """Insert a job; ``(record, created)``. See module docstring.
 
@@ -318,6 +329,8 @@ class JobStore:
         the row, its final state and every history row commit together or not at
         all. Most callers want :meth:`create_queued_job`.
         """
+        if (bundle_digest is None) == (tree_id is None):
+            raise ValueError("give exactly one of bundle_digest and tree_id")
         path: list[tuple[JobState | None, JobState]] = [(None, JobState.SUBMITTED)]
         for event in through:
             path.append((path[-1][1], next_job_state(path[-1][1], event)))
@@ -327,6 +340,7 @@ class JobStore:
             "state": path[-1][1].value,
             "manifest": dict(manifest),
             "bundle_digest": bundle_digest,
+            "tree_id": tree_id,
             "placement": dict(placement),
             "idempotency_key": idempotency_key,
             "request_hash": request_hash,
@@ -363,10 +377,11 @@ class JobStore:
         job_id: str,
         name: str,
         manifest: Mapping[str, Any],
-        bundle_digest: str,
+        bundle_digest: str | None,
         placement: Mapping[str, Any],
         request_hash: str,
         idempotency_key: str | None,
+        tree_id: str | None = None,
     ) -> tuple[JobRecord, bool]:
         """Atomically submit a manually placed job (D50): ``SUBMITTED -> PLANNING
         -> QUEUED`` in one transaction. ``created`` is False for an idempotent
@@ -381,6 +396,7 @@ class JobStore:
             request_hash=request_hash,
             idempotency_key=idempotency_key,
             through=(JobEvent.PLAN, JobEvent.PLANNED),
+            tree_id=tree_id,
         )
 
     @typed_store_call

@@ -57,7 +57,8 @@ async def test_put_stores_under_the_adr_0003_layout(tmp_path: Path) -> None:
     digest = sha256_bytes(data)
     result = await store.put(digest, _chunks([data[:3], data[3:]]), declared_size=10)
     assert result.created and result.size == 10
-    path = store.root / "sha256" / digest.hex[:2] / digest.hex
+    # V0.5 D79: two hex levels (sha256/<aa>/<bb>/<hex>).
+    path = store.root / "sha256" / digest.hex[:2] / digest.hex[2:4] / digest.hex
     assert path.read_bytes() == data
     assert store.size(digest) == 10
     assert _leftovers(store) == []

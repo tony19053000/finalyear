@@ -10,6 +10,9 @@
 * :func:`execution_spec` - the ``ExecutionSpec`` (D52) built from the job's
   canonical manifest and the attempt's snapshot, so a re-sent ``StartAttempt``
   (D66) carries exactly what the first one did (only the fetch token is new).
+  A tree job (V0.5 D83) also carries ``tree_id`` and its blob ``sources`` - in
+  wave 1 only the controller, with the attempt's fetch token (whose scope covers
+  the tree's blobs because it names the tree manifest).
 """
 
 from __future__ import annotations
@@ -115,4 +118,8 @@ def execution_spec(
         gpu_indices=[int(i) for i in gpus],
         timeout_s=int(manifest.limits.timeout),
         output_globs=list(manifest.outputs),
+        tree_id=job.tree_id or "",
+        sources=[agent_pb2.BlobSource(url=blob_url, token=fetch_token, node_id="")]
+        if job.tree_id
+        else [],
     )

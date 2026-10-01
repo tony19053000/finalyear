@@ -1,33 +1,46 @@
-"""The controller's blob store and per-attempt fetch tokens (brief D48, ADR-0003).
+"""The controller's blob store and per-attempt fetch tokens (D48, ADR-0003, V0.5 D79-D82).
 
-**Store.** Immutable blobs named by SHA-256 under ``<root>/sha256/<2 hex>/<64 hex>``
-- ADR-0003's layout from day one, so V0.5 adds chunking, peers and GC without
-moving data. An upload streams into ``<root>/tmp/<random>.part`` while it is hashed
-and counted; only when the stream ended, the size is within the cap and the digest
-matches the name is the file fsync'ed and renamed into place (**verify, then
-rename**). Anything else - a wrong digest, an oversized body, a client that went
+**Store.** A :class:`~meshforge.common.cas.CasStore` (the same module agents use):
+immutable whole-file blobs named by SHA-256 under ``<root>/sha256/<aa>/<bb>/<hex>``
+(V0.4's one-level layout is migrated at :meth:`BlobStore.prepare`). An upload
+streams into a part file in ``<root>/tmp/`` while it is hashed and counted; only
+when the stream ended, the size is within the cap and the digest matches the name
+is it fsync'ed and renamed into place (**verify, then rename**), then made
+read-only. Anything else - a wrong digest, an oversized body, a client that went
 away, a cancelled request, a full disk - deletes the part file, so a half-written
-blob can never appear under a real name. The rename is atomic, which makes
-concurrent uploads of one digest safe (both write identical bytes; the second
-rename replaces the first with the same content). An upload of a digest that
-already exists is still hashed (a client sending other bytes under that name is
-told ``integrity_error``) but nothing is written: idempotent, ``created=False``.
-Part files left by a crash are swept at start (:meth:`BlobStore.prepare`).
+blob can never appear under a real name. An upload of a digest that already exists
+is still hashed (a client sending other bytes under that name is told
+``integrity_error``) but nothing is written: idempotent, ``created=False``.
 
-**Admission (D73).** At most ``max_concurrent_uploads`` uploads stream at once
-(a further one waits up to ``upload_wait_s``, then is refused ``resource_busy``),
-and an upload that would leave less than ``free_disk_floor_bytes`` free on the
-store's disk is refused ``disk_full`` before it writes (checked again every
-64 MiB while it streams) - so a burst of outputs cannot fill the controller's
-disk and take the database down with it.
+**Have/need (D82).** :meth:`BlobStore.missing` answers which of a bounded list of
+digests are absent, so a client uploads only those.
+
+**Resumable part uploads (D80/D82).** A large file is sent as chunk-sized parts
+(:meth:`BlobStore.put_part`), each verified against the chunk digest the client
+declares (from its tree manifest) and written at its offset; a bitmap sidecar
+remembers what arrived, so an interrupted upload resumes with the missing parts
+only (:meth:`BlobStore.part_status`). :meth:`BlobStore.complete_parts` hashes the
+whole file and installs it only if it matches its name. Parts of one digest are
+serialised by a per-digest lock; resumable transfers older than a day are swept
+at start.
+
+**Trees (D81).** :meth:`BlobStore.tree` loads and validates a stored tree manifest
+(cached, bounded); :meth:`BlobStore.tree_members` is what a tree-scoped fetch
+token may read.
+
+**Admission (D73).** At most ``max_concurrent_uploads`` uploads (whole blobs or
+parts) stream at once (a further one waits up to ``upload_wait_s``, then is
+refused ``resource_busy``), and an upload that would leave less than
+``free_disk_floor_bytes`` free on the store's disk is refused ``disk_full`` before
+it writes (checked again every 64 MiB while it streams).
 
 **Fetch tokens.** An agent must never hold the fabric token (ADR-0014 §3). For each
 attempt the controller mints a random token bound to that attempt's digests and a
-lifetime; G4 hands it to the agent in ``StartAttempt`` and calls
-:meth:`FetchTokens.expire_after` when the attempt ends. A fetch token is
-**download-only** (D73): uploads use the attempt's quota-bound upload grant
-(:mod:`meshforge.controller.upload_grants`). Tokens live in memory
-(a controller restart invalidates them; G4 re-mints on re-dispatch), keyed by the
+lifetime. A digest that names a **tree manifest** also grants the blobs that tree
+lists (V0.5 D83: the scope of a tree job's token is "this tree's blobs"). A fetch
+token is **download-only** (D73): uploads use the attempt's quota-bound upload
+grant (:mod:`meshforge.controller.upload_grants`). Tokens live in memory (a
+controller restart invalidates them; G4 re-mints on re-dispatch), keyed by the
 SHA-256 of the token so the table never holds a usable secret, bounded by
 ``capacity`` (oldest dropped) and pruned on expiry. Time is the controller's
 monotonic clock.
@@ -36,28 +49,34 @@ monotonic clock.
 from __future__ import annotations
 
 import asyncio
-import contextlib
-import errno
 import hashlib
-import hmac
-import os
+import json
 import secrets
-import shutil
 from collections import OrderedDict
 from collections.abc import AsyncIterator, Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import BinaryIO, Final
+from typing import Final
 
 from pydantic import SecretStr
 
+from meshforge.common.cas import (
+    CasError,
+    CasFullError,
+    CasIntegrityError,
+    CasStore,
+    CasTooLargeError,
+    chunk_count,
+)
 from meshforge.common.errors import FailureType, MeshForgeError
 from meshforge.common.hashing import Digest
 from meshforge.common.logging import get_logger
+from meshforge.common.tree import Tree, TreeError, TreeLimits, parse_tree
 
 __all__ = [
     "MAX_FETCH_TOKEN_DIGESTS",
     "MAX_FETCH_TOKEN_TTL_S",
+    "MAX_HAVE_DIGESTS",
     "BlobError",
     "BlobIntegrityError",
     "BlobNotFoundError",
@@ -65,6 +84,7 @@ __all__ = [
     "BlobTooLargeError",
     "FetchGrant",
     "FetchTokens",
+    "PartStatus",
     "PutResult",
 ]
 
@@ -73,9 +93,10 @@ log = get_logger(__name__)
 MAX_FETCH_TOKEN_TTL_S: Final = 7 * 24 * 3600 + 3600
 """The longest job limit (7 days) plus an hour of grace."""
 MAX_FETCH_TOKEN_DIGESTS: Final = 1024
-_DISK_CHECK_EVERY: Final = 64 * 1024 * 1024
-_TMP_DIR: Final = "tmp"
-_ALGO_DIR: Final = "sha256"
+MAX_HAVE_DIGESTS: Final = 10_000
+"""Digests one have/need call may ask about (the client batches above this)."""
+_TREE_CACHE: Final = 64
+_ZSTD_MAGIC: Final = b"\x28\xb5\x2f\xfd"
 
 
 class BlobError(MeshForgeError):
@@ -104,6 +125,36 @@ class PutResult:
     """False when the blob already existed (nothing was written)."""
 
 
+@dataclass(frozen=True, slots=True)
+class PartStatus:
+    size: int
+    chunk_size: int
+    received: tuple[int, ...]
+    complete: bool
+    """True when the blob is already stored (no parts needed)."""
+
+
+def _translate(exc: CasError, digest: Digest) -> BlobError:
+    details = {**exc.details, "digest": str(digest)}
+    if isinstance(exc, CasTooLargeError):
+        return BlobTooLargeError(exc.message, details=details)
+    if isinstance(exc, CasIntegrityError):
+        return BlobIntegrityError(exc.message, details=details)
+    if isinstance(exc, CasFullError):
+        reason = exc.details.get("reason")
+        if reason == "insufficient_storage":
+            message = (
+                "insufficient storage: the upload would leave the controller's disk "
+                "below its free floor"
+            )
+        elif reason == "quota":
+            message = "the controller's blob quota is full"
+        else:
+            message = "the controller's disk is full"
+        return BlobError(message, failure_type=FailureType.DISK_FULL, details=details)
+    return BlobError(exc.message, failure_type=exc.failure_type, details=details)
+
+
 class BlobStore:
     """See module docstring. Safe for concurrent use from one event loop."""
 
@@ -116,44 +167,54 @@ class BlobStore:
         upload_wait_s: float = 30.0,
         free_disk_floor_bytes: int = 0,
         disk_free: Callable[[Path], int] | None = None,
+        tree_limits: TreeLimits | None = None,
     ) -> None:
         if max_concurrent_uploads < 1:
             raise ValueError("max_concurrent_uploads must be positive")
+        self.cas = CasStore(
+            root,
+            max_blob_bytes=max_blob_bytes,
+            free_disk_floor_bytes=free_disk_floor_bytes,
+            disk_free=disk_free,
+        )
         self.root = root
         self.max_blob_bytes = max_blob_bytes
         self.free_disk_floor_bytes = free_disk_floor_bytes
+        self.tree_limits = tree_limits or TreeLimits()
         self._upload_wait_s = upload_wait_s
         self._uploads = asyncio.Semaphore(max_concurrent_uploads)
-        self._disk_free = disk_free or _disk_free
-        self._tmp = root / _TMP_DIR
+        self._part_locks: dict[str, asyncio.Lock] = {}
+        self._trees: OrderedDict[str, Tree | None] = OrderedDict()
         self.uploads_refused_busy = 0
-        self.uploads_refused_disk = 0
+        self.parts_received = 0
+        self.part_bytes_received = 0
+
+    @property
+    def uploads_refused_disk(self) -> int:
+        return self.cas.refused_disk
 
     # ------------------------------------------------------------- layout
 
     def prepare(self) -> int:
-        """Create the layout and delete part files left by a crash (blocking).
+        """Create the layout, sweep crash leftovers, migrate V0.4 blobs (blocking).
 
-        Returns how many part files were swept.
+        Returns how many one-shot part files were swept.
         """
-        (self.root / _ALGO_DIR).mkdir(parents=True, exist_ok=True)
-        self._tmp.mkdir(parents=True, exist_ok=True)
-        swept = 0
-        for leftover in self._tmp.glob("*.part"):
-            with contextlib.suppress(OSError):
-                leftover.unlink()
-                swept += 1
-        return swept
+        report = self.cas.prepare()
+        if report.migrated or report.expired_resumes:
+            log.info(
+                "controller.blobs.prepared",
+                migrated=report.migrated,
+                expired_resumes=report.expired_resumes,
+            )
+        return report.swept
 
     def path_for(self, digest: Digest) -> Path:
-        return self.root / _ALGO_DIR / digest.hex[:2] / digest.hex
+        return self.cas.path_for(digest)
 
     def size(self, digest: Digest) -> int | None:
         """Size of the stored blob, or ``None`` when it is not here."""
-        try:
-            return self.path_for(digest).stat().st_size
-        except FileNotFoundError:
-            return None
+        return self.cas.size(digest)
 
     def open_path(self, digest: Digest) -> Path:
         path = self.path_for(digest)
@@ -161,7 +222,30 @@ class BlobStore:
             raise BlobNotFoundError("no such blob", details={"digest": str(digest)})
         return path
 
+    def missing(self, digests: Iterable[Digest]) -> list[Digest]:
+        """The digests (in order, de-duplicated) this store does not hold."""
+        seen: set[str] = set()
+        out: list[Digest] = []
+        for digest in digests:
+            if digest.hex in seen:
+                continue
+            seen.add(digest.hex)
+            if not self.cas.has(digest):
+                out.append(digest)
+        return out
+
     # ---------------------------------------------------------------- put
+
+    async def _slot(self, digest: Digest) -> None:
+        try:
+            await asyncio.wait_for(self._uploads.acquire(), self._upload_wait_s)
+        except TimeoutError:
+            self.uploads_refused_busy += 1
+            raise BlobError(
+                "the controller is busy with other uploads; retry shortly",
+                failure_type=FailureType.RESOURCE_BUSY,
+                details={"digest": str(digest)},
+            ) from None
 
     async def put(
         self,
@@ -181,126 +265,214 @@ class BlobStore:
                 f"blob larger than the {self.max_blob_bytes}-byte limit",
                 details={"digest": str(digest), "declared": declared_size},
             )
+        await self._slot(digest)
         try:
-            await asyncio.wait_for(self._uploads.acquire(), self._upload_wait_s)
-        except TimeoutError:
-            self.uploads_refused_busy += 1
-            raise BlobError(
-                "the controller is busy with other uploads; retry shortly",
-                failure_type=FailureType.RESOURCE_BUSY,
-                details={"digest": str(digest)},
-            ) from None
-        try:
-            return await self._put(digest, chunks, declared_size)
+            with self.cas.writer(digest, declared_size) as writer:
+                async for chunk in chunks:
+                    # Page-cache writes are microseconds; the fsync in commit is
+                    # the slow part and runs in a thread.
+                    writer.write(chunk)
+                result = await asyncio.to_thread(writer.commit)
+        except CasError as exc:
+            raise _translate(exc, digest) from None
         finally:
             self._uploads.release()
+        if result.created:
+            log.info("controller.blobs.stored", digest=str(digest), size=result.size)
+        return PutResult(digest=digest, size=result.size, created=result.created)
 
-    def _check_disk(self, digest: Digest, needed: int) -> None:
-        if self.free_disk_floor_bytes <= 0:
-            return
-        free = self._disk_free(self.root)
-        if free - needed < self.free_disk_floor_bytes:
-            self.uploads_refused_disk += 1
-            raise BlobError(
-                "insufficient storage: the upload would leave the controller's "
-                f"disk below its {self.free_disk_floor_bytes}-byte free floor",
-                failure_type=FailureType.DISK_FULL,
-                details={"digest": str(digest), "reason": "insufficient_storage"},
+    # -------------------------------------------------------------- parts
+
+    def _lock(self, digest: Digest) -> asyncio.Lock:
+        lock = self._part_locks.get(digest.hex)
+        if lock is None:
+            lock = self._part_locks[digest.hex] = asyncio.Lock()
+        return lock
+
+    def _drop_lock(self, digest: Digest, lock: asyncio.Lock) -> None:
+        if not lock.locked() and self._part_locks.get(digest.hex) is lock:
+            del self._part_locks[digest.hex]
+
+    def _check_shape(self, digest: Digest, size: int, chunk_size: int) -> None:
+        if size > self.max_blob_bytes:
+            raise BlobTooLargeError(
+                f"blob larger than the {self.max_blob_bytes}-byte limit",
+                details={"digest": str(digest), "declared": size},
             )
+        try:
+            chunk_count(size, chunk_size)
+        except ValueError as exc:
+            raise BlobError(str(exc), failure_type=FailureType.INVALID_INPUT) from None
 
-    async def _put(
+    async def part_status(self, digest: Digest) -> PartStatus | None:
+        """What a resumable upload of ``digest`` already holds (None = nothing)."""
+        size = self.size(digest)
+        if size is not None:
+            return PartStatus(size=size, chunk_size=0, received=(), complete=True)
+        _part, sidecar = self.cas.resume_paths(digest)
+        if not sidecar.is_file():
+            return None
+        lock = self._lock(digest)
+        try:
+            async with lock:
+                return await asyncio.to_thread(self._read_status, digest)
+        finally:
+            self._drop_lock(digest, lock)
+
+    def _read_status(self, digest: Digest) -> PartStatus | None:
+        _part, sidecar = self.cas.resume_paths(digest)
+        try:
+            data = json.loads(sidecar.read_bytes()[: 1 << 20])
+            size, chunk_size = int(data["size"]), int(data["chunk_size"])
+            part = self.cas.resumable(digest, size, chunk_size)
+        except (OSError, ValueError, KeyError, TypeError, CasError):
+            return None
+        done = tuple(i for i in range(part.count) if part.is_done(i))
+        return PartStatus(
+            size=size, chunk_size=chunk_size, received=done, complete=False
+        )
+
+    async def put_part(
         self,
         digest: Digest,
-        chunks: AsyncIterator[bytes],
-        declared_size: int | None,
-    ) -> PutResult:
-        exists = self.size(digest) is not None
-        if not exists:
-            self._check_disk(digest, declared_size or 0)
-        hasher = hashlib.sha256()
-        count = 0
-        part: Path | None = None
-        fh: BinaryIO | None = None
-        try:
-            if not exists:
-                part = self._tmp / f"{secrets.token_hex(12)}.part"
-                fh = part.open("xb")
-            async for chunk in chunks:
-                if not chunk:
-                    continue
-                count += len(chunk)
-                if count > self.max_blob_bytes:
-                    raise BlobTooLargeError(
-                        f"blob larger than the {self.max_blob_bytes}-byte limit",
-                        details={"digest": str(digest)},
-                    )
-                hasher.update(chunk)
-                if fh is not None and count // _DISK_CHECK_EVERY != (
-                    (count - len(chunk)) // _DISK_CHECK_EVERY
-                ):
-                    self._check_disk(digest, 0)
-                if fh is not None:
-                    # Page-cache writes are microseconds; the fsync below is the
-                    # slow part and runs in a thread.
-                    fh.write(chunk)
-            if declared_size is not None and count != declared_size:
-                raise BlobError(
-                    "upload ended early (body shorter than Content-Length)",
-                    failure_type=FailureType.TRANSFER_ERROR,
-                    details={"digest": str(digest)},
-                )
-            actual = hasher.hexdigest()
-            if not hmac.compare_digest(actual, digest.hex):
-                raise BlobIntegrityError(
-                    "uploaded bytes do not match the digest they were sent under",
-                    details={"expected": str(digest), "actual": f"sha256:{actual}"},
-                )
-            if fh is not None and part is not None:
-                await asyncio.to_thread(self._commit, fh, part, digest)
-                fh = None
-                part = None
-                log.info("controller.blobs.stored", digest=str(digest), size=count)
-                return PutResult(digest=digest, size=count, created=True)
-            return PutResult(digest=digest, size=count, created=False)
-        except OSError as exc:
-            if exc.errno == errno.ENOSPC:
-                raise BlobError(
-                    "the controller's disk is full",
-                    failure_type=FailureType.DISK_FULL,
-                    details={"digest": str(digest)},
-                ) from None
-            raise
-        finally:
-            if fh is not None:
-                with contextlib.suppress(OSError):
-                    fh.close()
-            if part is not None:
-                with contextlib.suppress(OSError):
-                    part.unlink()
+        index: int,
+        *,
+        size: int,
+        chunk_size: int,
+        chunk_hex: str,
+        body: AsyncIterator[bytes],
+    ) -> bool:
+        """Store part ``index`` of ``digest`` (verified against ``chunk_hex``).
 
-    def _commit(self, fh: BinaryIO, part: Path, digest: Digest) -> None:
-        """fsync, close, rename into place (blocking; runs in a thread)."""
+        Returns False when the part (or the whole blob) was already here. Raises
+        :class:`BlobError` subclasses like :meth:`put`.
+        """
+        self._check_shape(digest, size, chunk_size)
+        await self._slot(digest)
+        lock = self._lock(digest)
         try:
-            fh.flush()
-            os.fsync(fh.fileno())
+            data = bytearray()
+            limit = chunk_size
+            async for piece in body:
+                data += piece
+                if len(data) > limit:
+                    raise BlobError(
+                        "part larger than the chunk size",
+                        failure_type=FailureType.INVALID_INPUT,
+                        details={"digest": str(digest), "index": index},
+                    )
+            if self.size(digest) is not None:
+                return False
+            async with lock:
+                part = await asyncio.to_thread(
+                    self.cas.resumable, digest, size, chunk_size
+                )
+                stored = await asyncio.to_thread(
+                    part.write_chunk, index, bytes(data), chunk_hex
+                )
+        except CasError as exc:
+            raise _translate(exc, digest) from None
+        except ValueError as exc:  # index out of range
+            raise BlobError(str(exc), failure_type=FailureType.INVALID_INPUT) from None
         finally:
-            fh.close()
-        final = self.path_for(digest)
-        final.parent.mkdir(parents=True, exist_ok=True)
-        os.replace(part, final)
-        if os.name == "posix":
-            fd = os.open(final.parent, os.O_RDONLY)
-            try:
-                os.fsync(fd)
-            finally:
-                os.close(fd)
+            self._uploads.release()
+            self._drop_lock(digest, lock)
+        if stored:
+            self.parts_received += 1
+            self.part_bytes_received += len(data)
+        return stored
+
+    async def complete_parts(self, digest: Digest) -> PutResult:
+        """Hash the assembled parts and install the blob (see module docstring)."""
+        if (existing := self.size(digest)) is not None:
+            return PutResult(digest=digest, size=existing, created=False)
+        status = await self.part_status(digest)
+        if status is None:
+            raise BlobNotFoundError(
+                "no part upload of this blob is in progress",
+                details={"digest": str(digest)},
+            )
+        lock = self._lock(digest)
+        try:
+            async with lock:
+                part = await asyncio.to_thread(
+                    self.cas.resumable, digest, status.size, status.chunk_size
+                )
+                missing = part.missing()
+                if missing:
+                    raise BlobError(
+                        f"{len(missing)} part(s) still missing",
+                        failure_type=FailureType.CONFLICT,
+                        details={"digest": str(digest), "missing": missing[:20]},
+                    )
+                result = await asyncio.to_thread(part.complete)
+        except CasIntegrityError:
+            log.warning("controller.blobs.parts_integrity_error", digest=str(digest))
+            raise BlobIntegrityError(
+                "the assembled parts do not hash to the blob's name; the upload "
+                "starts over",
+                details={"digest": str(digest)},
+            ) from None
+        except CasError as exc:
+            raise _translate(exc, digest) from None
+        finally:
+            self._drop_lock(digest, lock)
+        log.info(
+            "controller.blobs.stored", digest=str(digest), size=result.size, parts=True
+        )
+        return PutResult(digest=digest, size=result.size, created=result.created)
+
+    # -------------------------------------------------------------- trees
+
+    async def tree(self, tree_id: Digest) -> Tree | None:
+        """The validated tree stored under ``tree_id``; None = absent or not a tree.
+
+        Raises :class:`~meshforge.common.tree.TreeError` when the blob is present
+        but is not an acceptable manifest (the caller reports it).
+        """
+        cached = self._trees.get(tree_id.hex)
+        if cached is not None:
+            self._trees.move_to_end(tree_id.hex)
+            return cached
+        size = self.size(tree_id)
+        if size is None:
+            return None
+        if size > self.tree_limits.max_manifest_bytes:
+            raise TreeError("the blob is too large to be a tree manifest")
+        data = await asyncio.to_thread(self.path_for(tree_id).read_bytes)
+        if data[:4] == _ZSTD_MAGIC:
+            raise TreeError("the blob is a bundle, not a tree manifest")
+        tree = await asyncio.to_thread(
+            parse_tree, data, expected=tree_id, limits=self.tree_limits
+        )
+        self._remember(tree_id.hex, tree)
+        return tree
+
+    def _remember(self, key: str, tree: Tree | None) -> None:
+        self._trees[key] = tree
+        self._trees.move_to_end(key)
+        while len(self._trees) > _TREE_CACHE:
+            self._trees.popitem(last=False)
+
+    async def tree_members(self, root: Digest) -> frozenset[str]:
+        """Hex digests a token for ``root`` may read when ``root`` is a tree.
+
+        Empty for anything that is not a stored, valid tree (a bundle, say).
+        """
+        if root.hex in self._trees and self._trees[root.hex] is None:
+            return frozenset()
+        try:
+            tree = await self.tree(root)
+        except (TreeError, OSError):
+            tree = None
+        if tree is None:
+            if self.size(root) is not None:
+                self._remember(root.hex, None)  # a stored non-tree: never parse again
+            return frozenset()
+        return frozenset(e.sha256 for e in tree.files())
 
 
 # ================================================================ fetch tokens
-
-
-def _disk_free(path: Path) -> int:
-    return shutil.disk_usage(path).free
 
 
 @dataclass(frozen=True, slots=True)
@@ -361,6 +533,18 @@ class FetchTokens:
             self.evicted += 1
             log.warning("controller.blobs.fetch_token_evicted", capacity=self._capacity)
         return SecretStr(token)
+
+    def grant(self, token: str | None) -> FetchGrant | None:
+        """The live grant of ``token`` (None = unknown or expired)."""
+        if not token:
+            return None
+        grant = self._grants.get(self._key(token))
+        if grant is None:
+            return None
+        if grant.expires_at <= self._clock():
+            self._grants.pop(self._key(token), None)
+            return None
+        return grant
 
     def check(self, token: str | None, digest: Digest) -> bool:
         """True when ``token`` is live and may read ``digest`` (never upload)."""

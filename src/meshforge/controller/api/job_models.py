@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from meshforge.common.errors import FailureType
 from meshforge.common.states import AttemptState, JobState
@@ -46,11 +46,22 @@ class PlacementRequest(_Request):
 
 
 class JobSubmission(_Request):
-    """Body of ``POST /v1/jobs``."""
+    """Body of ``POST /v1/jobs``: exactly one of ``tree_id`` (V0.5 D83, what
+    ``compute run`` sends) and ``bundle_digest`` (the V0.4 bundle path, kept for
+    existing callers)."""
 
     manifest: dict[str, Any]
-    bundle_digest: str = Field(pattern=_DIGEST_PATTERN, max_length=71)
+    bundle_digest: str | None = Field(
+        default=None, pattern=_DIGEST_PATTERN, max_length=71
+    )
+    tree_id: str | None = Field(default=None, pattern=_DIGEST_PATTERN, max_length=71)
     placement: PlacementRequest
+
+    @model_validator(mode="after")
+    def _one_source(self) -> JobSubmission:
+        if (self.bundle_digest is None) == (self.tree_id is None):
+            raise ValueError("give exactly one of tree_id and bundle_digest")
+        return self
 
 
 class Placement(ApiModel):
@@ -116,7 +127,10 @@ class JobSummary(ApiModel):
     job_id: str
     name: str
     state: JobState
-    bundle_digest: str
+    bundle_digest: str | None = None
+    """The V0.4 bundle; None for a tree job."""
+    tree_id: str | None = None
+    """V0.5 D83: the project's tree manifest; None for a V0.4 bundle job."""
     placement: Placement
     failure_type: FailureType | None = None
     failure_detail: str | None = None
