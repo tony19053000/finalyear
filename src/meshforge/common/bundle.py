@@ -21,7 +21,8 @@ digest names the *content*, not the machine or the moment it was packed:
   bytes" then costs one re-upload). ``tests/unit/common/test_common_bundle.py``
   pins a golden digest that CI checks on Linux and Windows.
 
-**Ignored:** the built-ins (:data:`BUILTIN_IGNORES`), then every ``.gitignore`` and
+**Ignored** (the walk lives in :mod:`meshforge.common.walk`, shared with tree
+manifests, V0.5 D81): the built-ins (:data:`BUILTIN_IGNORES`), then every ``.gitignore`` and
 ``.computeignore`` in the tree, with git's semantics via ``pathspec``
 (``GitIgnoreSpec``): a nested ignore file applies below its own folder, a later rule
 (a deeper folder, or ``.computeignore`` after ``.gitignore``) overrides an earlier
@@ -55,22 +56,34 @@ import errno
 import hashlib
 import os
 import posixpath
-import re
 import secrets
 import shutil
 import stat
-import sys
 import tarfile
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import IO, Any, BinaryIO, Final, Literal, cast
+from typing import IO, Any, Final, cast
 
-import pathspec
 import zstandard
 
-from meshforge.common.errors import FailureType, MeshForgeError
+from meshforge.common.errors import FailureType
 from meshforge.common.hashing import Digest
+from meshforge.common.walk import (
+    BUILTIN_IGNORES,
+    DRIVE_RE,
+    IGNORE_FILE_NAMES,
+    MAX_COMPONENT_BYTES,
+    MAX_IGNORE_FILE_BYTES,
+    MAX_PATH_BYTES,
+    WINDOWS,
+    PathError,
+    ScanState,
+    WalkEntry,
+    check_rel,
+    open_regular,
+    scan_tree,
+)
 
 __all__ = [
     "BUILTIN_IGNORES",
@@ -97,9 +110,6 @@ DEFAULT_MAX_TOTAL_BYTES: Final = 1024**3
 """1 GiB of uncompressed file content per bundle (a setting on each side)."""
 DEFAULT_MAX_FILES: Final = 100_000
 """Entries (files + folders + symlinks) per bundle."""
-MAX_PATH_BYTES: Final = 4096
-MAX_COMPONENT_BYTES: Final = 255
-MAX_IGNORE_FILE_BYTES: Final = 1024 * 1024
 MAX_META_BYTES: Final = 16 * 1024
 """Largest PAX extended header / GNU long name accepted on unpack. Our packer
 writes at most a path and a link target (each <= 4 KiB) there; tarfile reads the
@@ -108,22 +118,17 @@ ZSTD_LEVEL: Final = 3
 MAX_WINDOW_SIZE: Final = 1 << 24
 """Decompression window cap (16 MiB). Level 3 uses <= 2 MiB; a hostile frame
 asking for more is refused instead of allocating it."""
-BUILTIN_IGNORES: Final = (".git/", "__pycache__/", ".venv/", "node_modules/", "*.pyc")
-IGNORE_FILE_NAMES: Final = (".gitignore", ".computeignore")
-"""Read in this order in every folder; a later rule wins."""
-
 _COPY_CHUNK: Final = 1024 * 1024
 _PER_MEMBER_OVERHEAD: Final = 3 * tarfile.BLOCKSIZE + MAX_META_BYTES
 _FIXED_OVERHEAD: Final = 4 * tarfile.RECORDSIZE
-_WINDOWS: Final = sys.platform.startswith("win")
-_DRIVE_RE: Final = re.compile(r"[A-Za-z]:")
+_WINDOWS: Final = WINDOWS
+_DRIVE_RE: Final = DRIVE_RE
 _WINDOWS_BAD_CHARS: Final = frozenset('<>:"|?*')
 _WINDOWS_RESERVED: Final = frozenset(
     {"CON", "PRN", "AUX", "NUL"}
     | {f"COM{i}" for i in range(1, 10)}
     | {f"LPT{i}" for i in range(1, 10)}
 )
-_GLOB_SPECIAL: Final = re.compile(r"([\[\]*?!#\\])")
 _META_TYPES: Final = frozenset(
     {
         tarfile.XHDTYPE,
@@ -135,34 +140,12 @@ _META_TYPES: Final = frozenset(
 )
 
 
-class BundleError(MeshForgeError, ValueError):
+class BundleError(PathError):
     """The tree cannot be packed, or the archive must not be unpacked.
 
     ``details["path"]`` is the offending *relative* POSIX path when there is one
     (bounded; never an absolute path on this machine).
     """
-
-    default_failure_type = FailureType.INVALID_INPUT
-
-    def __init__(
-        self,
-        message: str,
-        *,
-        path: str | None = None,
-        failure_type: FailureType | None = None,
-    ) -> None:
-        shown = _shown(path) if path is not None else None
-        super().__init__(
-            f"{message}: {shown}" if shown else message,
-            failure_type=failure_type,
-            details={"path": shown} if shown else {},
-        )
-
-
-def _shown(path: str) -> str:
-    """A path for an error message: printable, at most 200 characters."""
-    flat = "".join(ch if ch.isprintable() else "?" for ch in path)
-    return flat if len(flat) <= 200 else flat[:197] + "..."
 
 
 @dataclass(frozen=True, slots=True)
@@ -212,206 +195,6 @@ class PackResult:
 # =========================================================================== pack
 
 
-@dataclass(slots=True)
-class _Entry:
-    rel: str
-    kind: Literal["file", "dir", "symlink"]
-    path: Path
-    size: int = 0
-    executable: bool = False
-    link: str = ""
-    ident: tuple[int, int] = (0, 0)
-    """``(st_dev, st_ino)`` seen when the file was listed; the opened file must
-    be the same one (``0`` = unknown, e.g. ``scandir`` on Windows)."""
-
-
-@dataclass(slots=True)
-class _ScanState:
-    root: Path
-    limits: BundleLimits
-    exclude: frozenset[str]
-    entries: list[_Entry] = field(default_factory=list)
-    total: int = 0
-    ignored: int = 0
-
-
-def _escape_glob(text: str) -> str:
-    return _GLOB_SPECIAL.sub(r"\\\1", text)
-
-
-def _rebase(line: str, rel_dir: str) -> str | None:
-    """A gitignore line from the file in ``rel_dir`` rewritten relative to the root."""
-    line = line.rstrip("\r\n")
-    if not line.strip() or line.startswith("#"):
-        return None
-    if not rel_dir:
-        return line
-    negate = line.startswith("!")
-    body = line[1:] if negate else line
-    prefix = _escape_glob(rel_dir)
-    # git: a pattern with a slash anywhere but at the end is anchored to the
-    # folder of its .gitignore; otherwise it matches at any depth below it.
-    anchored = "/" in body.rstrip("/")
-    rebased = prefix + body.lstrip("/") if anchored else prefix + "**/" + body
-    return ("!" if negate else "") + rebased
-
-
-def _read_ignore_lines(directory: Path, rel_dir: str) -> list[str]:
-    lines: list[str] = []
-    for name in IGNORE_FILE_NAMES:
-        path = directory / name
-        try:
-            st = path.lstat()
-        except FileNotFoundError:
-            continue
-        except OSError as exc:
-            raise BundleError(
-                f"cannot read {name} ({exc.strerror or exc})", path=rel_dir + name
-            ) from None
-        if not stat.S_ISREG(st.st_mode):
-            continue  # a symlinked/odd ignore file is not read (deterministic)
-        if st.st_size > MAX_IGNORE_FILE_BYTES:
-            raise BundleError(
-                f"{name} is larger than {MAX_IGNORE_FILE_BYTES} bytes",
-                path=rel_dir + name,
-            )
-        try:
-            text = path.read_bytes()[: MAX_IGNORE_FILE_BYTES + 1].decode("utf-8")
-        except UnicodeDecodeError:
-            raise BundleError(f"{name} is not UTF-8", path=rel_dir + name) from None
-        except OSError as exc:
-            raise BundleError(
-                f"cannot read {name} ({exc.strerror or exc})", path=rel_dir + name
-            ) from None
-        for raw in text.removeprefix("﻿").splitlines():
-            rebased = _rebase(raw, rel_dir)
-            if rebased is not None:
-                lines.append(rebased)
-    return lines
-
-
-def _check_rel(rel: str) -> None:
-    try:
-        encoded = rel.encode("utf-8")
-    except UnicodeEncodeError:
-        raise BundleError(
-            "a file name is not valid UTF-8 and cannot be bundled portably",
-            path=rel.encode("utf-8", "replace").decode("utf-8"),
-        ) from None
-    if len(encoded) > MAX_PATH_BYTES:
-        raise BundleError(f"path longer than {MAX_PATH_BYTES} bytes", path=rel)
-    if len(rel.rsplit("/", 1)[-1].encode("utf-8")) > MAX_COMPONENT_BYTES:
-        raise BundleError(f"name longer than {MAX_COMPONENT_BYTES} bytes", path=rel)
-    if "\\" in rel and not _WINDOWS:
-        raise BundleError("a file name contains '\\' (not portable)", path=rel)
-
-
-def _link_target(path: Path, rel: str, root_real: str) -> str:
-    try:
-        target = os.readlink(path)
-    except OSError as exc:
-        raise BundleError(
-            f"cannot read symlink ({exc.strerror or exc})", path=rel
-        ) from None
-    if _WINDOWS:
-        target = target.removeprefix("\\\\?\\").replace("\\", "/")
-    elif "\\" in target:
-        raise BundleError("symlink target contains '\\' (not portable)", path=rel)
-    if not target or "\x00" in target or len(target.encode()) > MAX_PATH_BYTES:
-        raise BundleError("symlink target is empty or too long", path=rel)
-    if target.startswith("/") or _DRIVE_RE.match(target):
-        raise BundleError("symlink target is absolute (it must stay inside)", path=rel)
-    joined = posixpath.normpath(posixpath.join(posixpath.dirname(rel), target))
-    if joined == ".." or joined.startswith("../"):
-        raise BundleError("symlink points outside the project folder", path=rel)
-    real = os.path.realpath(path)
-    if os.path.commonpath([real, root_real]) != root_real:
-        raise BundleError("symlink resolves outside the project folder", path=rel)
-    return target
-
-
-def _add(state: _ScanState, entry: _Entry) -> None:
-    state.entries.append(entry)
-    if len(state.entries) > state.limits.max_files:
-        raise BundleError(
-            f"more than {state.limits.max_files} files and folders "
-            "(add rules to .computeignore, or raise the limit)"
-        )
-    state.total += entry.size
-    if state.total > state.limits.max_total_bytes:
-        raise BundleError(
-            f"project is larger than {state.limits.max_total_bytes} bytes "
-            "(add rules to .computeignore, or raise the limit)"
-        )
-
-
-def _scan(root: Path, limits: BundleLimits, exclude: frozenset[str]) -> _ScanState:
-    state = _ScanState(root=root, limits=limits, exclude=exclude)
-    root_real = os.path.realpath(root)
-    # Explicit stack (no recursion): a deep tree must not hit the recursion limit.
-    stack: list[tuple[Path, str, list[str]]] = [(root, "", list(BUILTIN_IGNORES))]
-    while stack:
-        directory, rel_dir, inherited = stack.pop()
-        rules = inherited + _read_ignore_lines(directory, rel_dir)
-        spec = pathspec.GitIgnoreSpec.from_lines(rules)
-        try:
-            with os.scandir(directory) as it:
-                children = sorted(it, key=lambda e: e.name)
-        except OSError as exc:
-            raise BundleError(
-                f"cannot list folder ({exc.strerror or exc})", path=rel_dir or "."
-            ) from None
-        for child in children:
-            rel = rel_dir + child.name
-            if rel in exclude:
-                continue
-            _check_rel(rel)
-            path = Path(child.path)
-            if child.is_junction():
-                if spec.match_file(rel + "/"):
-                    state.ignored += 1
-                    continue
-                raise BundleError("Windows junctions cannot be bundled", path=rel)
-            if child.is_symlink():
-                if spec.match_file(rel):
-                    state.ignored += 1
-                    continue
-                link = _link_target(path, rel, root_real)
-                _add(state, _Entry(rel, "symlink", path, link=link))
-            elif child.is_dir(follow_symlinks=False):
-                if spec.match_file(rel + "/"):
-                    state.ignored += 1
-                    continue
-                _add(state, _Entry(rel, "dir", path))
-                stack.append((path, rel + "/", rules))
-            elif child.is_file(follow_symlinks=False):
-                if spec.match_file(rel):
-                    state.ignored += 1
-                    continue
-                st = child.stat(follow_symlinks=False)
-                executable = (not _WINDOWS) and bool(st.st_mode & stat.S_IXUSR)
-                _add(
-                    state,
-                    _Entry(
-                        rel,
-                        "file",
-                        path,
-                        size=st.st_size,
-                        executable=executable,
-                        ident=(st.st_dev, st.st_ino),
-                    ),
-                )
-            else:
-                if spec.match_file(rel):
-                    state.ignored += 1
-                    continue
-                raise BundleError(
-                    "devices, FIFOs and sockets cannot be bundled", path=rel
-                )
-    state.entries.sort(key=lambda e: e.rel)
-    return state
-
-
 class _HashingWriter:
     """Counts and hashes every byte on its way to ``raw``."""
 
@@ -430,7 +213,7 @@ class _HashingWriter:
         self._raw.flush()
 
 
-def _tarinfo(entry: _Entry) -> tarfile.TarInfo:
+def _tarinfo(entry: WalkEntry) -> tarfile.TarInfo:
     info = tarfile.TarInfo(entry.rel)
     info.mtime = 0
     info.uid = info.gid = 0
@@ -444,44 +227,6 @@ def _tarinfo(entry: _Entry) -> tarfile.TarInfo:
         info.mode = 0o755 if entry.executable else 0o644
         info.size = entry.size
     return info
-
-
-def _open_regular(path: Path, rel: str, ident: tuple[int, int] = (0, 0)) -> BinaryIO:
-    """Open a listed file for packing, refusing anything swapped in since.
-
-    ``O_NOFOLLOW`` refuses a symlink put at the name (POSIX; Windows has no such
-    flag and would follow it) and ``O_NONBLOCK`` keeps a FIFO from blocking the
-    open. Then the *open descriptor* is checked: it must be a regular file and -
-    when the listing saw an inode - the same ``(st_dev, st_ino)``. That second
-    check is the Windows equivalent of ``O_NOFOLLOW`` (a followed link opens a
-    different file) and also catches a folder on the way swapped for a link.
-    """
-    flags = (
-        os.O_RDONLY
-        | getattr(os, "O_BINARY", 0)
-        | getattr(os, "O_NOFOLLOW", 0)
-        | getattr(os, "O_NONBLOCK", 0)
-    )
-    try:
-        fd = os.open(path, flags)
-    except OSError as exc:
-        raise BundleError(
-            f"cannot read file ({exc.strerror or exc})", path=rel
-        ) from None
-    try:
-        st = os.fstat(fd)
-    except OSError as exc:
-        os.close(fd)
-        raise BundleError(
-            f"cannot read file ({exc.strerror or exc})", path=rel
-        ) from None
-    if not stat.S_ISREG(st.st_mode):
-        os.close(fd)
-        raise BundleError("file was replaced while packing", path=rel)
-    if ident[1] and st.st_ino and (st.st_dev, st.st_ino) != ident:
-        os.close(fd)
-        raise BundleError("file was replaced while packing", path=rel)
-    return os.fdopen(fd, "rb")
 
 
 def pack(
@@ -500,7 +245,13 @@ def pack(
     root = Path(root).resolve()
     if not root.is_dir():
         raise BundleError("the project folder does not exist or is not a folder")
-    state = _scan(root, limits, frozenset(exclude))
+    state = scan_tree(
+        root,
+        max_files=limits.max_files,
+        max_total_bytes=limits.max_total_bytes,
+        error=BundleError,
+        exclude=exclude,
+    )
     return _pack_entries(state, out)
 
 
@@ -521,12 +272,17 @@ def pack_files(
     limits = limits or BundleLimits()
     root = Path(root).resolve()
     root_real = os.path.realpath(root)
-    state = _ScanState(root=root, limits=limits, exclude=frozenset())
+    state = ScanState(
+        root=root,
+        max_files=limits.max_files,
+        max_total_bytes=limits.max_total_bytes,
+        error=BundleError,
+    )
     dirs: set[str] = set()
     for rel in sorted(set(rels)):
         parts = check_member_name(rel)
         rel = "/".join(parts)
-        _check_rel(rel)
+        check_rel(rel, BundleError)
         path = root.joinpath(*parts)
         for depth in range(1, len(parts)):
             parent = "/".join(parts[:depth])
@@ -535,7 +291,7 @@ def pack_files(
             if root.joinpath(*parts[:depth]).is_symlink():
                 raise BundleError("an output folder is a symbolic link", path=parent)
             dirs.add(parent)
-            _add(state, _Entry(parent, "dir", root.joinpath(*parts[:depth])))
+            state.add(WalkEntry(parent, "dir", root.joinpath(*parts[:depth])))
         try:
             st = path.lstat()
         except OSError as exc:
@@ -549,9 +305,8 @@ def pack_files(
         if os.path.commonpath([os.path.realpath(path), root_real]) != root_real:
             raise BundleError("an output resolves outside the work folder", path=rel)
         executable = (not _WINDOWS) and bool(st.st_mode & stat.S_IXUSR)
-        _add(
-            state,
-            _Entry(
+        state.add(
+            WalkEntry(
                 rel,
                 "file",
                 path,
@@ -564,7 +319,7 @@ def pack_files(
     return _pack_entries(state, out)
 
 
-def _pack_entries(state: _ScanState, out: IO[bytes]) -> PackResult:
+def _pack_entries(state: ScanState, out: IO[bytes]) -> PackResult:
     writer = _HashingWriter(out)
     stats = BundleStats(
         files=sum(1 for e in state.entries if e.kind == "file"),
@@ -590,7 +345,7 @@ def _pack_entries(state: _ScanState, out: IO[bytes]) -> PackResult:
             if entry.kind != "file":
                 tar.addfile(info)
                 continue
-            with _open_regular(entry.path, entry.rel, entry.ident) as fh:
+            with open_regular(entry.path, entry.rel, BundleError, entry.ident) as fh:
                 try:
                     tar.addfile(info, fh)
                 except (OSError, tarfile.TarError):
