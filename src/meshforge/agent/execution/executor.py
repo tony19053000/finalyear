@@ -43,6 +43,12 @@ Rules:
   the ring evicted it. A report the controller dropped (full queue) or never got
   (evicted before a reconnect) therefore still lands - long before the
   controller's timeout backstop could mislabel a finished attempt.
+* **Staging retries (D95).** A fetch that could not reach the controller
+  (``transfer_error``/``timeout``) is retried with backoff; one whose token was
+  refused (``unauthorized``) waits for a ``RefreshFetchToken`` (a restarted
+  controller sends one after Reconcile) and retries with it - a tree resumes
+  the chunks it already verified. Past ``staging_retry_s`` the attempt fails
+  ``transfer_error``; ``staging_retry_s = 0`` fails at the first error, typed.
 * **Release (D75).** ``CancelAttempt{release}`` means the controller already ended
   (or never knew) the attempt: it is stopped if it runs, then forgotten and its
   workdir freed without waiting for an Ack.
@@ -79,8 +85,10 @@ from meshforge.agent.execution.fetch import (
     StageReport,
     UploadError,
     blob_base_url,
+    blob_url_ok,
     fetch_bundle,
     stage_tree,
+    token_ok,
     tree_sources,
     upload_blob,
 )
@@ -109,6 +117,13 @@ _MISSING_MAX_CHARS: Final = 512
 _SHUTDOWN_SLACK_S: Final = 3.0
 _WORK_DIR_NAME: Final = "work"
 _NOFOLLOW: Final = getattr(os, "O_NOFOLLOW", 0)
+_STAGE_RETRYABLE: Final = frozenset(
+    {FailureType.TRANSFER_ERROR, FailureType.TIMEOUT, FailureType.UNAUTHORIZED}
+)
+"""Staging failures that a controller restart causes (connection refused/reset,
+a timeout, the old fetch token refused): retried until ``staging_retry_s`` (D95)."""
+_STAGE_RETRY_BASE_S: Final = 0.25
+_STAGE_RETRY_CAP_S: Final = 5.0
 _RETRYABLE: Final = frozenset(
     {
         FailureType.NODE_LOST,
@@ -166,6 +181,15 @@ class _Attempt:
     release_requested: bool = False
     workdir: Path | None = None
     phases: dict[str, float] = field(default_factory=dict)
+    fetch_token: str = ""
+    """The current fetch token (StartAttempt's, or a RefreshFetchToken's). A
+    secret: never logged."""
+    blob_url: str | None = None
+    blob_port: int | None = None
+    """Set by a RefreshFetchToken: where the (restarted) controller serves
+    blobs now; None = the StartAttempt's values."""
+    token_changed: asyncio.Event = field(default_factory=asyncio.Event)
+    stage_retries: int = 0
 
     @property
     def ended(self) -> bool:
@@ -305,6 +329,8 @@ class Executor:
             self._start(msg.start_attempt)
         elif which == "cancel_attempt":
             self._cancel(msg.cancel_attempt)
+        elif which == "refresh_fetch_token":
+            self._refresh_token(msg.refresh_fetch_token)
 
     def held(self) -> list[agent_pb2.AttemptStatus]:
         """Every attempt this process holds, for ``Reconcile`` (D66): running ones
@@ -503,6 +529,34 @@ class Executor:
                 return
         self._stop(attempt, "cancelled")
 
+    def _refresh_token(self, msg: agent_pb2.RefreshFetchToken) -> None:
+        """D95: a fresh fetch token for a held attempt (after a controller
+        restart). Applied only to that (attempt_id, fencing_token) while it has
+        not ended; a staging waiting for it retries at once."""
+        attempt = self._attempts.get(msg.attempt_id)
+        applied = (
+            attempt is not None
+            and attempt.token == msg.fencing_token
+            and not attempt.ended
+            and token_ok(msg.fetch_token)
+            and 0 < msg.blob_port < 65536
+            and blob_url_ok(msg.blob_url)
+        )
+        log.info(
+            "agent.execution.fetch_token_refreshed"
+            if applied
+            else "agent.execution.fetch_token_refresh_ignored",
+            node_id=self._node_id,
+            attempt_id=msg.attempt_id[:40] or None,
+            known=attempt is not None,
+        )
+        if attempt is None or not applied:
+            return
+        attempt.fetch_token = msg.fetch_token
+        attempt.blob_url = msg.blob_url
+        attempt.blob_port = int(msg.blob_port)
+        attempt.token_changed.set()
+
     def _stop(self, attempt: _Attempt, reason: str) -> None:
         if attempt.stop_reason is None:
             attempt.stop_reason = reason
@@ -615,15 +669,80 @@ class Executor:
         spec: agent_pb2.ExecutionSpec,
     ) -> None:
         await asyncio.to_thread(self._prepare_work_root_only)
+        if not attempt.fetch_token:
+            attempt.fetch_token = plan.fetch_token
+        deadline = self._clock() + self._cfg.staging_retry_s
+        delay = _STAGE_RETRY_BASE_S
+        while True:
+            used = attempt.fetch_token
+            attempt.token_changed.clear()
+            try:
+                await self._stage_once(attempt, plan, workdir, spec, used)
+            except FetchError as exc:
+                if (
+                    exc.failure_type not in _STAGE_RETRYABLE
+                    or self._cfg.staging_retry_s <= 0
+                ):
+                    raise
+                last = exc
+            else:
+                return
+            # D95: a controller restart refuses the old token (401) or is not
+            # reachable for a while; the controller re-mints after Reconcile.
+            remaining = deadline - self._clock()
+            if attempt.fetch_token == used and remaining > 0:
+                # Refused: only a new token can help. Unreachable: back off.
+                wait = (
+                    remaining
+                    if last.failure_type is FailureType.UNAUTHORIZED
+                    else min(delay, remaining)
+                )
+                delay = min(delay * 2, _STAGE_RETRY_CAP_S)
+                await self._step(attempt, self._token_wait(attempt, wait))
+            if attempt.fetch_token == used and self._clock() >= deadline:
+                raise FetchError(
+                    f"staging did not succeed within {self._cfg.staging_retry_s:g} s "
+                    f"of retries (last: {last.message})",
+                    failure_type=FailureType.TRANSFER_ERROR,
+                ) from None
+            attempt.stage_retries += 1
+            log.info(
+                "agent.execution.stage_retry",
+                node_id=self._node_id,
+                job_id=attempt.job_id,
+                attempt_id=attempt.attempt_id,
+                cause=last.failure_type.value,
+                refreshed=attempt.fetch_token != used,
+                retries=attempt.stage_retries,
+            )
+
+    @staticmethod
+    async def _token_wait(attempt: _Attempt, wait_s: float) -> None:
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(attempt.token_changed.wait(), wait_s)
+
+    async def _stage_once(
+        self,
+        attempt: _Attempt,
+        plan: AttemptPlan,
+        workdir: Path,
+        spec: agent_pb2.ExecutionSpec,
+        token: str,
+    ) -> None:
+        """One staging try with ``token`` (a tree resumes what it verified)."""
         if spec.tree_id:
-            await self._stage_tree(attempt, workdir, spec)
+            await self._stage_tree(attempt, workdir, _refreshed(spec, attempt, token))
             return
         bundle = self.work_root / f"{attempt.attempt_id}.bundle"
-        base = blob_base_url(plan.blob_url, self._controller_host(), plan.blob_port)
+        base = blob_base_url(
+            plan.blob_url if attempt.blob_url is None else attempt.blob_url,
+            self._controller_host(),
+            plan.blob_port if attempt.blob_port is None else attempt.blob_port,
+        )
         try:
             await self._step(
                 attempt,
-                self._fetch(base, plan.digest, plan.fetch_token, bundle),
+                self._fetch(base, plan.digest, token, bundle),
             )
             # Unpacking is not interruptible: it runs to completion in its thread
             # (its caps bound how long) and a stop asked meanwhile is honoured
@@ -991,3 +1110,25 @@ def _failure_text(result: RunResult) -> str:
 def _bounded(text: str) -> str:
     cleaned = "".join(ch if ch.isprintable() else "?" for ch in text)
     return cleaned[:1024]
+
+
+def _refreshed(
+    spec: agent_pb2.ExecutionSpec, attempt: _Attempt, token: str
+) -> agent_pb2.ExecutionSpec:
+    """``spec`` with the controller's fetch token and blob location replaced by
+    a RefreshFetchToken's (D95): the spec's own fields and every controller
+    source (``node_id`` empty)."""
+    if token == spec.fetch_token and attempt.blob_port is None:
+        return spec
+    copy = agent_pb2.ExecutionSpec()
+    copy.CopyFrom(spec)
+    copy.fetch_token = token
+    if attempt.blob_port is not None:
+        copy.blob_port = attempt.blob_port
+        copy.blob_url = attempt.blob_url or ""
+    for source in copy.sources:
+        if not source.node_id:
+            source.token = token
+            if attempt.blob_port is not None:
+                source.url = attempt.blob_url or ""
+    return copy

@@ -45,7 +45,10 @@ re-send the same attempt (the agent dedupes on ``(attempt_id, fencing_token)``);
 not held but acked -> ``LOST``, job ``FAILED(node_lost, agent_lost_attempt)`` -
 re-running it could duplicate an execution. Attempts the agent holds that the
 controller does not consider live (ended, or unknown) get
-``CancelAttempt{release}`` (D75).
+``CancelAttempt{release}`` (D75). A held attempt still ``ASSIGNED``/``STAGING``
+for which this process has no live fetch token (a controller restart forgets
+them all; they are never persisted) gets ``RefreshFetchToken`` with a new
+download-only token of the same scope and the current blob location (D95).
 
 **OFFLINE (D66).** A node the *agent* took OFFLINE (lease expired, Goodbye) loses
 its live attempts (``LOST``, job ``FAILED(node_lost)``; no retry until V0.6) and
@@ -83,6 +86,8 @@ from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Final
+
+from pydantic import SecretStr
 
 from meshforge.common.capabilities import EXEC_CAPABILITY, EXEC_GPU_CAPABILITY
 from meshforge.common.errors import FailureType
@@ -130,6 +135,9 @@ _RETRY_CAP_S: Final = 5.0
 POISON_LIMIT: Final = 3
 """Failures of one ``(attempt_id, state)`` report before it is acked anyway (D75)."""
 _POISON_TRACKED: Final = 1024
+_MAY_FETCH: Final = frozenset({AttemptState.ASSIGNED, AttemptState.STAGING})
+"""Attempt states (as stored) in which the agent may still fetch from the
+controller; the store is never ahead of the agent, so this is a superset (D95)."""
 
 
 # ---------------------------------------------------------------- work items
@@ -171,6 +179,7 @@ class DispatcherStats:
     dispatched: int = 0
     start_sent: int = 0
     start_resent: int = 0
+    fetch_tokens_refreshed: int = 0
     statuses_applied: int = 0
     statuses_duplicate: int = 0
     statuses_fenced: int = 0
@@ -610,17 +619,7 @@ class Dispatcher:
     def _send_start(
         self, job: JobRecord, attempt: AttemptRecord, *, resend: bool
     ) -> None:
-        # One token per send: a re-send after a controller restart must work even
-        # though the old token died with the old process (tokens live in memory).
-        self._tokens.revoke(attempt.id)
-        ttl = min(
-            float(job.manifest.get("limits", {}).get("timeout", 0))
-            + self._settings.fetch_token_grace_s,
-            float(MAX_FETCH_TOKEN_TTL_S),
-        )
-        token = self._tokens.mint(  # download-only (D73)
-            attempt.id, [Digest.parse(job.bundle_digest)], ttl_s=ttl
-        )
+        token, ttl = self._mint_fetch_token(job, attempt)
         spec = execution_spec(
             job,
             attempt,
@@ -674,6 +673,56 @@ class Dispatcher:
         else:
             self.stats.start_sent += 1
 
+    def _mint_fetch_token(
+        self, job: JobRecord, attempt: AttemptRecord
+    ) -> tuple[SecretStr, float]:
+        """A new download-only token for ``attempt`` (D73) and its TTL; every
+        older token of the attempt is revoked. One token per send: a re-send or
+        a refresh after a controller restart must work although the old token
+        died with the old process (tokens live in memory, never persisted).
+        Scope = the job's ``bundle_digest`` - the bundle, or for a tree job the
+        tree manifest, which grants exactly that tree's blobs."""
+        self._tokens.revoke(attempt.id)
+        ttl = min(
+            float(job.manifest.get("limits", {}).get("timeout", 0))
+            + self._settings.fetch_token_grace_s,
+            float(MAX_FETCH_TOKEN_TTL_S),
+        )
+        token = self._tokens.mint(
+            attempt.id, [Digest.parse(job.bundle_digest)], ttl_s=ttl
+        )
+        return token, ttl
+
+    def _refresh_fetch_token(self, job: JobRecord, attempt: AttemptRecord) -> None:
+        """D95: a held attempt that may still be fetching has no live token in
+        this process (the controller restarted): mint one, send it."""
+        token, _ttl = self._mint_fetch_token(job, attempt)
+        sent = self._manager.send_command(
+            attempt.node_id,
+            "refresh_fetch_token",
+            agent_pb2.RefreshFetchToken(
+                attempt_id=attempt.id,
+                fencing_token=attempt.fencing_token,
+                fetch_token=token.get_secret_value(),
+                blob_url=self._blob_url,
+                blob_port=self._blob_port(),
+            ),
+            attempt_id=attempt.id,
+            fencing_token=attempt.fencing_token,
+        )
+        if sent is None:
+            # No live session: nobody holds this token; drop it so the next
+            # Reconcile sees "no live token" and refreshes again.
+            self._tokens.revoke(attempt.id)
+            return
+        self.stats.fetch_tokens_refreshed += 1
+        log.info(
+            "controller.jobs.fetch_token_refreshed",
+            job_id=job.id,
+            attempt_id=attempt.id,
+            node_id=attempt.node_id,
+        )
+
     # ------------------------------------------------------------ cancel
 
     def _send_cancel(self, attempt: AttemptRecord, reason: str) -> None:
@@ -725,6 +774,8 @@ class Dispatcher:
                     )
                 if job.cancel_requested_at is not None:
                     self._send_cancel(attempt, "cancelled by request")
+                elif attempt.state in _MAY_FETCH and not self._tokens.has(attempt.id):
+                    self._refresh_fetch_token(job, attempt)
                 continue
             if attempt.start_acked_at is None:
                 log.info(

@@ -173,6 +173,7 @@ def test_envelopes_cover_architecture_payloads() -> None:
         "Ack",
         "HelloAck",
         "Ping",
+        "RefreshFetchToken",  # V0.5 D95
     }
 
 

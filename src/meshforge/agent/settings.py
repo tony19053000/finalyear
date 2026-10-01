@@ -529,6 +529,19 @@ class ExecutionSettings(SectionModel):
             "reconnect) until the controller acknowledges it (V0.4 D75)."
         ),
     )
+    staging_retry_s: float = Field(
+        default=60.0,
+        ge=0.0,
+        le=3600.0,
+        description=(
+            "How long staging keeps retrying a fetch the controller refused (old "
+            "token) or could not answer (connection refused/reset, timeout) - "
+            "e.g. across a controller restart, after which the controller sends "
+            "a fresh fetch token (V0.5 D95). A tree job resumes the chunks it "
+            "already verified. Past it the attempt fails transfer_error; 0 = no "
+            "retry."
+        ),
+    )
 
     @field_validator("run_as")
     @classmethod

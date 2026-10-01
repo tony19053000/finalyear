@@ -104,6 +104,11 @@ message ControllerMessage {
     HelloAck hello_ack = 16;
     // RTT probe (roadmap 0.3.10); the agent answers with Pong{same ping_id}.
     Ping ping = 17;
+    // A fresh fetch token for an attempt the agent still holds (V0.5, D95):
+    // sent after Reconcile when this controller process has no live token for
+    // a held attempt that may still be fetching (a controller restart forgets
+    // every token - they are never persisted).
+    RefreshFetchToken refresh_fetch_token = 18;
   }
 }
 
@@ -477,6 +482,23 @@ message CancelAttempt {
   uint64 fencing_token = 2;
   string reason = 3;
   bool release = 4;
+}
+
+// Replaces the fetch token of a held attempt (V0.5, D95). Same scope as the
+// token in its StartAttempt (download-only, the attempt's bundle or tree); the
+// old token is not revived. The agent applies it only to the attempt with this
+// (attempt_id, fencing_token) and only while it still stages; a staging that
+// was refused (401) or could not reach the controller retries with it.
+message RefreshFetchToken {
+  string attempt_id = 1;
+  uint64 fencing_token = 2;
+  // A secret: never logged, never persisted.
+  string fetch_token = 3;
+  // Where the restarted controller serves blobs now (like ExecutionSpec fields
+  // 2/3): a restart may come up on another port or advertised URL. Replaces
+  // the StartAttempt's values for this attempt's controller fetches.
+  string blob_url = 4;
+  uint32 blob_port = 5;
 }
 
 message ProbeRequest {

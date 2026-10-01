@@ -631,6 +631,14 @@ class FetchTokens:
             return False
         return digest.hex in grant.digests
 
+    def has(self, attempt_id: str) -> bool:
+        """True when ``attempt_id`` holds at least one live (unexpired) token."""
+        now = self._clock()
+        return any(
+            g.attempt_id == attempt_id and g.expires_at > now
+            for g in self._grants.values()
+        )
+
     def expire_after(self, attempt_id: str, grace_s: float) -> int:
         """Shorten every token of ``attempt_id`` to ``now + grace_s``; returns count."""
         deadline = self._clock() + max(grace_s, 0.0)

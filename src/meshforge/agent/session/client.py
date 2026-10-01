@@ -118,7 +118,9 @@ _CLOSE_GRACE_S: Final = 2.0
 """After half-closing on stop, how long to wait for the controller's final status."""
 BEFORE_GOODBYE_BOUND_S: Final = 10.0
 """Longest wait for ``before_goodbye`` (running attempts stop within grace + 2 s)."""
-_COMMAND_PAYLOADS: Final = frozenset({"start_attempt", "cancel_attempt"})
+_COMMAND_PAYLOADS: Final = frozenset(
+    {"start_attempt", "cancel_attempt", "refresh_fetch_token"}
+)
 GOODBYE_DETAIL: Final = "agent stop requested"
 """``Goodbye.detail`` on a requested stop (well inside the controller's bound)."""
 #: Bounds on the controller-owned heartbeat interval. Below the minimum the

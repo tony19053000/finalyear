@@ -76,8 +76,10 @@ __all__ = [
     "StageReport",
     "UploadError",
     "blob_base_url",
+    "blob_url_ok",
     "fetch_bundle",
     "stage_tree",
+    "token_ok",
     "tree_sources",
     "upload_blob",
 ]
@@ -274,7 +276,13 @@ async def _chunks(path: Path) -> AsyncIterator[bytes]:
 # ===================================================================== trees
 
 
-def _token_ok(token: str) -> bool:
+def blob_url_ok(url: str) -> bool:
+    """Empty (= the dialled host) or a bounded ``http(s)://host:port``."""
+    return not url or (len(url) <= _MAX_URL_CHARS and bool(_SOURCE_URL.fullmatch(url)))
+
+
+def token_ok(token: str) -> bool:
+    """A bearer token of a sane shape (bounded, printable, no whitespace)."""
     return (
         0 < len(token) <= _MAX_TOKEN_CHARS
         and token.isprintable()
@@ -297,12 +305,12 @@ def tree_sources(
     out: list[BlobSource] = []
     for source in listed:
         url = source.url
-        if url and (len(url) > _MAX_URL_CHARS or not _SOURCE_URL.fullmatch(url)):
+        if not blob_url_ok(url):
             raise FetchError(
                 "a blob source URL is not http(s)://host:port",
                 failure_type=FailureType.INVALID_INPUT,
             )
-        if not _token_ok(source.token):
+        if not token_ok(source.token):
             raise FetchError(
                 "a blob source token is missing or malformed",
                 failure_type=FailureType.INVALID_INPUT,

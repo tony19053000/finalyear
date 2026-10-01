@@ -249,6 +249,7 @@ class ControllerMessage(_message.Message):
     ACK_FIELD_NUMBER: _builtins.int
     HELLO_ACK_FIELD_NUMBER: _builtins.int
     PING_FIELD_NUMBER: _builtins.int
+    REFRESH_FETCH_TOKEN_FIELD_NUMBER: _builtins.int
     message_id: _builtins.str
     """Unique per message (ULID); the command ID the agent deduplicates on."""
     session_id: _builtins.str
@@ -277,6 +278,14 @@ class ControllerMessage(_message.Message):
     def ping(self) -> Global___Ping:
         """RTT probe (roadmap 0.3.10); the agent answers with Pong{same ping_id}."""
 
+    @_builtins.property
+    def refresh_fetch_token(self) -> Global___RefreshFetchToken:
+        """A fresh fetch token for an attempt the agent still holds (V0.5, D95):
+        sent after Reconcile when this controller process has no live token for
+        a held attempt that may still be fetching (a controller restart forgets
+        every token - they are never persisted).
+        """
+
     def __init__(
         self,
         *,
@@ -291,12 +300,13 @@ class ControllerMessage(_message.Message):
         ack: Global___Ack | None = ...,
         hello_ack: Global___HelloAck | None = ...,
         ping: Global___Ping | None = ...,
+        refresh_fetch_token: Global___RefreshFetchToken | None = ...,
     ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _typing.Literal["ack", b"ack", "cancel_attempt", b"cancel_attempt", "gc", b"gc", "hello_ack", b"hello_ack", "payload", b"payload", "ping", b"ping", "prepare_env", b"prepare_env", "probe_request", b"probe_request", "sent_at", b"sent_at", "start_attempt", b"start_attempt"]  # noqa: Y015
+    _HasFieldArgType: _TypeAlias = _typing.Literal["ack", b"ack", "cancel_attempt", b"cancel_attempt", "gc", b"gc", "hello_ack", b"hello_ack", "payload", b"payload", "ping", b"ping", "prepare_env", b"prepare_env", "probe_request", b"probe_request", "refresh_fetch_token", b"refresh_fetch_token", "sent_at", b"sent_at", "start_attempt", b"start_attempt"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["ack", b"ack", "cancel_attempt", b"cancel_attempt", "gc", b"gc", "hello_ack", b"hello_ack", "message_id", b"message_id", "payload", b"payload", "ping", b"ping", "prepare_env", b"prepare_env", "probe_request", b"probe_request", "sent_at", b"sent_at", "session_id", b"session_id", "start_attempt", b"start_attempt"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["ack", b"ack", "cancel_attempt", b"cancel_attempt", "gc", b"gc", "hello_ack", b"hello_ack", "message_id", b"message_id", "payload", b"payload", "ping", b"ping", "prepare_env", b"prepare_env", "probe_request", b"probe_request", "refresh_fetch_token", b"refresh_fetch_token", "sent_at", b"sent_at", "session_id", b"session_id", "start_attempt", b"start_attempt"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
-    _WhichOneofReturnType_payload: _TypeAlias = _typing.Literal["start_attempt", "cancel_attempt", "probe_request", "prepare_env", "gc", "ack", "hello_ack", "ping"]  # noqa: Y015
+    _WhichOneofReturnType_payload: _TypeAlias = _typing.Literal["start_attempt", "cancel_attempt", "probe_request", "prepare_env", "gc", "ack", "hello_ack", "ping", "refresh_fetch_token"]  # noqa: Y015
     _WhichOneofArgType_payload: _TypeAlias = _typing.Literal["payload", b"payload"]  # noqa: Y015
     def WhichOneof(self, oneof_group: _WhichOneofArgType_payload) -> _WhichOneofReturnType_payload | None: ...
 
@@ -1321,6 +1331,49 @@ class CancelAttempt(_message.Message):
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___CancelAttempt: _TypeAlias = CancelAttempt  # noqa: Y015
+
+@_typing.final
+class RefreshFetchToken(_message.Message):
+    """Replaces the fetch token of a held attempt (V0.5, D95). Same scope as the
+    token in its StartAttempt (download-only, the attempt's bundle or tree); the
+    old token is not revived. The agent applies it only to the attempt with this
+    (attempt_id, fencing_token) and only while it still stages; a staging that
+    was refused (401) or could not reach the controller retries with it.
+    """
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    ATTEMPT_ID_FIELD_NUMBER: _builtins.int
+    FENCING_TOKEN_FIELD_NUMBER: _builtins.int
+    FETCH_TOKEN_FIELD_NUMBER: _builtins.int
+    BLOB_URL_FIELD_NUMBER: _builtins.int
+    BLOB_PORT_FIELD_NUMBER: _builtins.int
+    attempt_id: _builtins.str
+    fencing_token: _builtins.int
+    fetch_token: _builtins.str
+    """A secret: never logged, never persisted."""
+    blob_url: _builtins.str
+    """Where the restarted controller serves blobs now (like ExecutionSpec fields
+    2/3): a restart may come up on another port or advertised URL. Replaces
+    the StartAttempt's values for this attempt's controller fetches.
+    """
+    blob_port: _builtins.int
+    def __init__(
+        self,
+        *,
+        attempt_id: _builtins.str = ...,
+        fencing_token: _builtins.int = ...,
+        fetch_token: _builtins.str = ...,
+        blob_url: _builtins.str = ...,
+        blob_port: _builtins.int = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["attempt_id", b"attempt_id", "blob_port", b"blob_port", "blob_url", b"blob_url", "fencing_token", b"fencing_token", "fetch_token", b"fetch_token"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___RefreshFetchToken: _TypeAlias = RefreshFetchToken  # noqa: Y015
 
 @_typing.final
 class ProbeRequest(_message.Message):

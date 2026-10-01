@@ -18,6 +18,7 @@ from typing import Any
 import pytest
 
 from meshforge.agent.execution.executor import Executor
+from meshforge.agent.execution.fetch import FetchError
 from meshforge.agent.execution.offer import ExecutionSetup
 from meshforge.agent.execution.runtime import (
     RunObserver,
@@ -27,6 +28,7 @@ from meshforge.agent.execution.runtime import (
 from meshforge.agent.execution.selection import execution_offer
 from meshforge.agent.settings import AgentSettings
 from meshforge.common.bundle import pack_to_file
+from meshforge.common.errors import FailureType
 from meshforge.common.ids import new_attempt_id, new_command_id, new_job_id
 from meshforge.common.proto.meshforge.v1 import agent_pb2, common_pb2
 from meshforge.common.proto_codec import (
@@ -102,6 +104,7 @@ def _executor(
     reports: Reports,
     *,
     enabled: bool = True,
+    execution: dict[str, Any] | None = None,
     **extra: Any,
 ) -> tuple[Executor, str]:
     project = tmp_path / "proj"
@@ -122,6 +125,7 @@ def _executor(
                 "enabled": enabled,
                 "allow_unsandboxed": True,
                 "grace_s": 0.5,
+                **(execution or {}),
             },
         },
     )
@@ -131,8 +135,7 @@ def _executor(
         node_id="node_x",
         report=reports,
         controller_host=lambda: "127.0.0.1",
-        fetch=fake_fetch,
-        **extra,
+        **{"fetch": fake_fetch, **extra},
     )
     return executor, digest
 
@@ -535,3 +538,172 @@ async def test_a_run_without_declared_outputs_uploads_nothing(tmp_path: Path) ->
     await _settle(executor)
     assert uploads.calls == [] and reports.sent[-1][1].output_digest == ""
     await executor.close()
+
+
+# ------------------------------------------------------- D95 staging retries
+
+
+class FlakyFetch:
+    """Fails with the queued errors (token seen recorded), then copies the
+    bundle - the controller is down / restarted, then back."""
+
+    def __init__(self, bundle: Path, errors: list[FetchError]) -> None:
+        self.bundle = bundle
+        self.errors = errors
+        self.tokens: list[str] = []
+        self.bases: list[str] = []
+
+    async def __call__(self, base: str, _digest: Any, token: str, dest: Path) -> int:
+        self.tokens.append(token)
+        self.bases.append(base)
+        if self.errors:
+            raise self.errors.pop(0)
+        shutil.copyfile(self.bundle, dest)
+        return dest.stat().st_size  # noqa: ASYNC240 - a test fake
+
+
+def _refresh(
+    msg: agent_pb2.ControllerMessage,
+    token: str,
+    fencing: int | None = None,
+    port: int = 47999,
+) -> agent_pb2.ControllerMessage:
+    start = msg.start_attempt
+    return agent_pb2.ControllerMessage(
+        message_id=str(new_command_id()),
+        refresh_fetch_token=agent_pb2.RefreshFetchToken(
+            attempt_id=start.attempt_id,
+            fencing_token=start.fencing_token if fencing is None else fencing,
+            fetch_token=token,
+            blob_port=port,
+        ),
+    )
+
+
+def _down() -> FetchError:
+    return FetchError("bundle fetch failed: ConnectError")
+
+
+def _refused() -> FetchError:
+    return FetchError("refused", failure_type=FailureType.UNAUTHORIZED)
+
+
+@pytest.mark.asyncio
+async def test_staging_retries_an_unreachable_controller_then_succeeds(
+    tmp_path: Path,
+) -> None:
+    runtime, reports = FakeRuntime(), Reports()
+    flaky = FlakyFetch(tmp_path / "src.bundle", [_down(), _down()])
+    executor, digest = _executor(
+        tmp_path, runtime, reports, execution={"staging_retry_s": 10}, fetch=flaky
+    )
+    executor.handle(_start(digest))
+    await _settle(executor)
+    assert reports.states()[-1] == "done" and runtime.calls == 1
+    assert flaky.tokens == ["tok", "tok", "tok"]  # backed off, same token
+
+
+@pytest.mark.asyncio
+async def test_a_refused_token_waits_for_the_refresh_and_uses_it(
+    tmp_path: Path,
+) -> None:
+    runtime, reports = FakeRuntime(), Reports()
+    flaky = FlakyFetch(tmp_path / "src.bundle", [_refused()])
+    executor, digest = _executor(
+        tmp_path, runtime, reports, execution={"staging_retry_s": 30}, fetch=flaky
+    )
+    msg = _start(digest)
+    executor.handle(msg)
+    for _ in range(200):
+        if flaky.tokens:
+            break
+        await asyncio.sleep(0.01)
+    await asyncio.sleep(0.3)
+    assert flaky.tokens == ["tok"]  # a 401 is not retried with the same token
+    executor.handle(_refresh(msg, "tok-other-attempt", fencing=99))  # wrong fence
+    executor.handle(_refresh(msg, "bad token"))  # malformed
+    executor.handle(_refresh(msg, "tok3", port=0))  # no blob port
+    await asyncio.sleep(0.1)
+    assert flaky.tokens == ["tok"]
+    executor.handle(_refresh(msg, "tok2"))  # the restarted controller's port
+    await _settle(executor)
+    assert flaky.tokens == ["tok", "tok2"]
+    assert flaky.bases == ["http://127.0.0.1:47110", "http://127.0.0.1:47999"]
+    assert reports.states()[-1] == "done" and runtime.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_staging_past_its_retry_deadline_is_transfer_error(
+    tmp_path: Path,
+) -> None:
+    runtime, reports = FakeRuntime(), Reports()
+    flaky = FlakyFetch(tmp_path / "src.bundle", [_refused()] * 50)
+    executor, digest = _executor(
+        tmp_path, runtime, reports, execution={"staging_retry_s": 0.3}, fetch=flaky
+    )
+    executor.handle(_start(digest))
+    await _settle(executor)
+    final = reports.sent[-1][1]
+    assert attempt_state_from_proto(final.state).value == "failed"
+    assert failure_type_from_proto(final.failure.failure_type).value == (
+        "transfer_error"
+    )
+    assert "refused" in final.failure.message and final.failure.retryable
+    assert runtime.calls == 0 and flaky.tokens == ["tok"]
+
+
+@pytest.mark.asyncio
+async def test_no_retry_budget_or_a_non_transient_failure_fails_at_once(
+    tmp_path: Path,
+) -> None:
+    runtime, reports = FakeRuntime(), Reports()
+    flaky = FlakyFetch(tmp_path / "src.bundle", [_refused()])
+    executor, digest = _executor(
+        tmp_path, runtime, reports, execution={"staging_retry_s": 0}, fetch=flaky
+    )
+    executor.handle(_start(digest))
+    await _settle(executor)
+    final = reports.sent[-1][1]
+    assert failure_type_from_proto(final.failure.failure_type).value == "unauthorized"
+    runtime2, reports2 = FakeRuntime(), Reports()
+    missing = FlakyFetch(
+        tmp_path / "src.bundle",
+        [FetchError("gone", failure_type=FailureType.NOT_FOUND)],
+    )
+    executor2, _ = _executor(
+        tmp_path, runtime2, reports2, execution={"staging_retry_s": 30}, fetch=missing
+    )
+    executor2.handle(_start(digest))
+    await _settle(executor2)
+    final2 = reports2.sent[-1][1]
+    assert failure_type_from_proto(final2.failure.failure_type).value == "not_found"
+    assert missing.tokens == ["tok"]
+
+
+@pytest.mark.asyncio
+async def test_a_cancel_while_staging_waits_for_a_token_is_prompt(
+    tmp_path: Path,
+) -> None:
+    runtime, reports = FakeRuntime(), Reports()
+    flaky = FlakyFetch(tmp_path / "src.bundle", [_refused()])
+    executor, digest = _executor(
+        tmp_path, runtime, reports, execution={"staging_retry_s": 600}, fetch=flaky
+    )
+    msg = _start(digest)
+    executor.handle(msg)
+    for _ in range(200):
+        if flaky.tokens:
+            break
+        await asyncio.sleep(0.01)
+    start = msg.start_attempt
+    executor.handle(
+        agent_pb2.ControllerMessage(
+            message_id=str(new_command_id()),
+            cancel_attempt=agent_pb2.CancelAttempt(
+                attempt_id=start.attempt_id, fencing_token=start.fencing_token
+            ),
+        )
+    )
+    await _settle(executor)
+    final = reports.sent[-1][1]
+    assert failure_type_from_proto(final.failure.failure_type).value == "cancelled"
