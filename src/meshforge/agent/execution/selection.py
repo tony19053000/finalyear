@@ -9,6 +9,9 @@ The tags are **computed here but not sent yet**: G4 adds them to ``Hello``'s
 * ``exec-docker`` when the Docker probe found a usable daemon.
 * ``exec-subprocess`` only with ``allow_unsandboxed = true`` (the second opt-in):
   otherwise the unsandboxed runtime is neither advertised nor chosen.
+* ``exec-venv`` (V0.5 D86) likewise only with ``allow_unsandboxed = true``: the venv
+  runtime is unsandboxed too (it differs from ``subprocess`` in *which* Python and
+  packages a job sees, not in isolation).
 * ``exec`` when at least one runtime is offered.
 * ``exec-gpu`` when an offered runtime can give a job an NVIDIA GPU: Docker whose
   probe verified (or, without a local probe image, assumed) GPU pass-through, or the
@@ -16,12 +19,20 @@ The tags are **computed here but not sent yet**: G4 adds them to ``Hello``'s
 
 The constants are the wire spelling and live in :mod:`meshforge.common.capabilities`
 (D60), which the controller's placement check reads too; they are re-exported here.
+``exec-venv`` is defined here: the controller does not act on runtime-specific tags
+(placement reads ``exec`` / ``exec-gpu`` only), so it has no shared constant yet.
+
+**Preference order** (:meth:`ExecutionOffer.offered`, :func:`choose_runtime`):
+**docker > venv > subprocess** - the sandbox first; then the venv runtime (the
+job's own interpreter version and packages only, cached by env hash); the plain
+subprocess runtime (the agent's interpreter) last.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import Final
 
 from meshforge.agent.execution.runtime import RuntimeAvailability
 from meshforge.common.capabilities import (
@@ -36,11 +47,16 @@ __all__ = [
     "EXEC_DOCKER_CAPABILITY",
     "EXEC_GPU_CAPABILITY",
     "EXEC_SUBPROCESS_CAPABILITY",
+    "EXEC_VENV_CAPABILITY",
     "ExecutionOffer",
     "GpuNeed",
     "choose_runtime",
     "execution_offer",
 ]
+
+
+EXEC_VENV_CAPABILITY: Final = "exec-venv"
+"""The venv runtime (V0.5 D86), only with ``allow_unsandboxed``."""
 
 
 class GpuNeed(StrEnum):
@@ -59,13 +75,17 @@ class ExecutionOffer:
     docker: RuntimeAvailability | None
     subprocess: RuntimeAvailability | None
     """``None`` when not offered (``allow_unsandboxed`` off) - not merely unavailable."""
+    venv: RuntimeAvailability | None = None
+    """Same rule as ``subprocess`` (V0.5)."""
 
     def offered(self) -> tuple[RuntimeAvailability, ...]:
-        """Usable, offered runtimes in preference order (sandboxed first)."""
+        """Usable, offered runtimes in preference order: docker > venv > subprocess."""
         if not self.enabled:
             return ()
         found = [
-            r for r in (self.docker, self.subprocess) if r is not None and r.available
+            r
+            for r in (self.docker, self.venv, self.subprocess)
+            if r is not None and r.available
         ]
         return tuple(found)
 
@@ -77,11 +97,12 @@ class ExecutionOffer:
             return ()
         tags = {EXEC_CAPABILITY}
         for runtime in offered:
-            tags.add(
-                EXEC_DOCKER_CAPABILITY
-                if runtime is self.docker
-                else EXEC_SUBPROCESS_CAPABILITY
-            )
+            if runtime is self.docker:
+                tags.add(EXEC_DOCKER_CAPABILITY)
+            elif runtime is self.venv:
+                tags.add(EXEC_VENV_CAPABILITY)
+            else:
+                tags.add(EXEC_SUBPROCESS_CAPABILITY)
             if runtime.gpu_capable:
                 tags.add(EXEC_GPU_CAPABILITY)
         return tuple(sorted(tags))
@@ -93,19 +114,21 @@ def execution_offer(
     allow_unsandboxed: bool,
     docker: RuntimeAvailability | None,
     subprocess: RuntimeAvailability | None,
+    venv: RuntimeAvailability | None = None,
 ) -> ExecutionOffer:
     """Combine the settings and the probes into what the node offers."""
     return ExecutionOffer(
         enabled=enabled,
         docker=docker,
         subprocess=subprocess if allow_unsandboxed else None,
+        venv=venv if allow_unsandboxed else None,
     )
 
 
 def choose_runtime(offer: ExecutionOffer, gpu: GpuNeed) -> RuntimeAvailability | None:
     """The runtime to run a job with, or None when nothing offered fits.
 
-    Sandboxed first (Docker), then the subprocess runtime. ``required`` needs a
+    docker > venv > subprocess (:meth:`ExecutionOffer.offered`). ``required`` needs a
     GPU-capable runtime; ``preferred`` takes a GPU-capable one if any, else any;
     ``none`` takes the first offered.
     """

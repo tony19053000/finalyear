@@ -24,9 +24,16 @@ without it).
 **Interpreter.** In Docker, ``python`` is the image's. The subprocess runtime
 maps a leading ``python``/``python3`` to the agent's own interpreter
 (``sys.executable``) - on Windows there may be no ``python`` on ``PATH``, and the
-agent's interpreter is the one whose version the node advertises. Requirements
-are installed with ``python -m pip install --target <workdir>/.meshforge/deps``;
-an interpreter without pip fails the setup step (``env_error``).
+agent's interpreter is the one whose version the node advertises. The venv
+runtime keeps ``python`` and runs it as its cached venv's interpreter.
+
+**Environment (V0.5 D85/D86).** Every plan carries ``RunSpec.env_request``
+(manifest ``env``: base, python, requirements); a runtime with an environment
+builder resolves it to an environment cached by env hash - built once per node,
+reused by every later job with the same inputs. ``setup_argv`` (the V0.4 per-job
+``python -m pip install --target <workdir>/.meshforge/deps``) is still planned for
+the Docker and subprocess runtimes and used only by a runtime constructed without
+a builder.
 """
 
 from __future__ import annotations
@@ -43,6 +50,7 @@ from typing import Final
 from meshforge.agent.execution.docker_runtime import CONTAINER_WORKDIR
 from meshforge.agent.execution.runtime import (
     DEPS_SUBDIR,
+    EnvRequest,
     RunLimits,
     RunSpec,
     RuntimeAvailability,
@@ -142,16 +150,21 @@ def _manifest(text: str) -> Manifest:
 
 def _argv(manifest: Manifest, runtime: str) -> tuple[str, ...]:
     argv = manifest.entrypoint
-    if runtime != "docker" and argv[0] in _PYTHONS:
+    if runtime == "subprocess" and argv[0] in _PYTHONS:
         return (sys.executable, *argv[1:])
     return argv
+
+
+def _env_request(manifest: Manifest) -> EnvRequest:
+    env = manifest.env
+    return EnvRequest(base=env.base, python=env.python, requirements=env.requirements)
 
 
 def _setup_argv(
     manifest: Manifest, runtime: str, workdir: Path
 ) -> tuple[str, ...] | None:
     requirements = manifest.env.requirements
-    if requirements is None:
+    if requirements is None or runtime not in ("docker", "subprocess"):
         return None
     if runtime == "docker":
         python, target = "python", f"{CONTAINER_WORKDIR}/{DEPS_SUBDIR}"
@@ -243,6 +256,7 @@ def plan_attempt(
         gpu_indices=gpus,
         network=manifest.limits.network != "none",
         grace_s=settings.grace_s,
+        env_request=_env_request(manifest),
     )
     return AttemptPlan(
         job_id=job_id,

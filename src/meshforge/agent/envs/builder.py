@@ -191,6 +191,11 @@ class EnvBuilder:
 
     # ---------------------------------------------------------------- paths
     @property
+    def clock(self) -> Callable[[], float]:
+        """The monotonic clock deadlines given to this builder are measured on."""
+        return self._clock
+
+    @property
     def root(self) -> Path:
         return self.config.root
 

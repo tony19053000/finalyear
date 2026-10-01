@@ -36,8 +36,16 @@ this contract and one parametrised test module:
   ``internal_error`` (``reason = output_consumer_failed``).
 * Environment: exactly ``RunSpec.env`` (plus what the runtime documents it adds,
   e.g. ``HOME``/``PYTHONPATH``) - never the agent's own environment.
-* Phase durations come from the monotonic clock: ``env_s`` (image pull + setup
-  container / requirements install) and ``run_s`` (workload start to exit).
+* Phase durations come from the monotonic clock: ``env_s`` (image pull + the
+  environment: a cache hit, a wait for another build, or a build) and ``run_s``
+  (workload start to exit).
+* **Cached environments (V0.5 D85/D86).** A runtime constructed with an
+  :class:`~meshforge.agent.envs.builder.EnvBuilder` resolves
+  ``RunSpec.env_request`` in its env phase into an environment cached by env hash
+  (built once per node, read-only to jobs) and reports ``env_hash`` and
+  ``env_cache`` (``hit`` / ``waited`` / ``built``) in the result - cold build vs
+  warm reuse. Without a builder it falls back to the V0.4 per-job
+  ``setup_argv`` install.
 """
 
 from __future__ import annotations
@@ -57,11 +65,13 @@ from meshforge.common.ids import validate_attempt_id
 __all__ = [
     "DEFAULT_GRACE_S",
     "DEPS_SUBDIR",
+    "ENV_CACHE_STATES",
     "MAX_ARGV_ITEMS",
     "MAX_ARG_LENGTH",
     "MAX_ENV_ITEMS",
     "MAX_ENV_VALUE_LENGTH",
     "MAX_GPU_INDEX",
+    "EnvRequest",
     "OutputCallback",
     "Phase",
     "RunLimits",
@@ -85,6 +95,9 @@ MAX_ENV_ITEMS: Final = 1024
 MAX_ENV_VALUE_LENGTH: Final = 32_768
 MAX_GPU_INDEX: Final = 1023
 _DETAIL_MAX: Final = 500
+ENV_CACHE_STATES: Final = frozenset({"hit", "waited", "built"})
+"""``RunResult.env_cache``: reused / reused after waiting for another build / built
+by this run (V0.5 D86)."""
 _ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,127}")
 
 
@@ -143,6 +156,21 @@ class RunLimits:
 
 
 @dataclass(frozen=True, slots=True)
+class EnvRequest:
+    """What the job's environment must contain (manifest ``env``; V0.5 D85).
+
+    ``base`` is the manifest base (``python-cpu`` / ``cuda-pytorch``) - the Docker
+    runtime maps it to ``RunSpec.image``; ``python`` the requested version (or
+    None); ``requirements`` a project-relative path (already validated by the
+    manifest model; the builder re-checks it stays inside the workdir).
+    """
+
+    base: str = "python-cpu"
+    python: str | None = None
+    requirements: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class RunSpec:
     """Everything a runtime needs for one attempt (brief D51). Validated on creation.
 
@@ -153,7 +181,9 @@ class RunSpec:
     by the Docker runtime and ignored by the subprocess runtime. ``gpu_indices``
     are NVML indices (= ``HardwareSummary.Gpu.index``); empty = no GPU at all.
     ``setup_argv`` (e.g. a ``pip install --target <workdir>/.meshforge/deps``) runs
-    first with the network on; its duration is the ``env`` phase.
+    first with the network on; its duration is the ``env`` phase - the V0.4 path,
+    used only by a runtime without an environment builder. ``env_request`` is the
+    V0.5 path: the runtime resolves it to a cached environment (module docstring).
     """
 
     attempt_id: str
@@ -166,6 +196,7 @@ class RunSpec:
     gpu_indices: tuple[int, ...] = ()
     network: bool = False
     grace_s: float = DEFAULT_GRACE_S
+    env_request: EnvRequest | None = None
 
     def __post_init__(self) -> None:
         validate_attempt_id(self.attempt_id)
@@ -228,9 +259,15 @@ class RunResult:
     detail: str = ""
     env_s: float = 0.0
     run_s: float = 0.0
+    env_hash: str | None = None
+    """The cached environment's hash (V0.5), when one was resolved."""
+    env_cache: str | None = None
+    """``hit`` / ``waited`` / ``built`` (:data:`ENV_CACHE_STATES`); None = no cache."""
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "detail", _clip(self.detail))
+        if self.env_cache is not None and self.env_cache not in ENV_CACHE_STATES:
+            raise ValueError(f"env_cache must be one of {sorted(ENV_CACHE_STATES)}")
 
     @property
     def phases(self) -> dict[str, float]:
@@ -284,6 +321,9 @@ class RunObserver:
     signal: int | None = None
     ident: str | None = None
     """Container id or process id of the current step (for logs)."""
+    env_hash: str | None = None
+    env_cache: str | None = None
+    """Set by the runtime once the cached environment is resolved (V0.5)."""
     extra: dict[str, str] = field(default_factory=dict)
 
     def enter_env(self) -> None:
@@ -321,6 +361,8 @@ class RunObserver:
             detail=detail,
             env_s=self.env_s,
             run_s=self.run_s,
+            env_hash=self.env_hash,
+            env_cache=self.env_cache,
         )
 
 

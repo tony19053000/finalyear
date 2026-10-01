@@ -11,9 +11,14 @@
 What it does guarantee (same contract and the same test module as the Docker
 runtime):
 
-* the environment is exactly ``RunSpec.env`` (+ ``PYTHONPATH`` for the deps dir when
-  there is a setup step, ``CUDA_VISIBLE_DEVICES`` / ``CUDA_DEVICE_ORDER`` for GPUs -
-  an empty ``CUDA_VISIBLE_DEVICES`` when no GPU was asked for);
+* the environment is exactly ``RunSpec.env`` (+ ``PYTHONPATH`` for the requirements,
+  ``CUDA_VISIBLE_DEVICES`` / ``CUDA_DEVICE_ORDER`` for GPUs - an empty
+  ``CUDA_VISIBLE_DEVICES`` when no GPU was asked for);
+* **requirements (V0.5 D86):** with an environment builder, the job's requirements
+  are installed **once per node** into a read-only ``--target`` dir cached by env
+  hash (``envs/subprocess/<hash>``) and put on ``PYTHONPATH``; a second job with
+  the same requirements installs nothing. Without a builder: the V0.4 per-job
+  ``setup_argv`` install into ``<workdir>/.meshforge/deps``;
 * ``cwd`` is the workdir; the child is the root of its own killable tree with
   parent-death cleanup and lowered priority (:mod:`meshforge.agent.process`);
 * the time limit (``deadline_exceeded`` within 2 s), cancellation (SIGTERM, SIGKILL
@@ -31,13 +36,15 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import dataclasses
 import signal
 import sys
 import time
-from collections.abc import Callable
-from dataclasses import dataclass
-from typing import Final
+from collections.abc import Awaitable, Callable, Mapping
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, ClassVar, Final
 
+from meshforge.agent.envs.errors import EnvError
 from meshforge.agent.execution._pump import OutputPump
 from meshforge.agent.execution.runtime import (
     OutputCallback,
@@ -53,7 +60,10 @@ from meshforge.agent.process import ProcessHandle, SpawnError, spawn
 from meshforge.common.errors import FailureType
 from meshforge.common.logging import get_logger
 
-__all__ = ["SUBPROCESS_RUNTIME_NAME", "SubprocessRuntime"]
+if TYPE_CHECKING:
+    from meshforge.agent.envs.builder import BuiltEnv, EnvBuilder
+
+__all__ = ["SUBPROCESS_RUNTIME_NAME", "EnvUse", "SubprocessRuntime", "pump_sink"]
 
 log = get_logger(__name__)
 
@@ -62,6 +72,7 @@ _READ_CHUNK: Final = 65536
 _STOP_SLACK_S: Final = 2.0
 _DRAIN_S: Final = 1.0
 _PATH_SEP: Final = ";" if sys.platform == "win32" else ":"
+_PYTHONS: Final = frozenset({"python", "python3"})
 
 
 @dataclass(slots=True)
@@ -70,10 +81,30 @@ class _Exit:
     timed_out: bool = False
 
 
+@dataclass(frozen=True, slots=True)
+class EnvUse:
+    """How a run uses a resolved cached environment."""
+
+    built: BuiltEnv
+    env: Mapping[str, str] = field(default_factory=dict)
+    """Variables to *prepend* (``PATH``/``PYTHONPATH``, joined with the OS path
+    separator) or set (anything else) in the workload's environment."""
+    argv0: str | None = None
+    """Replacement for a leading ``python``/``python3`` (the env's interpreter)."""
+
+
+def _merge_env(env: dict[str, str], extra: Mapping[str, str]) -> None:
+    for key, value in extra.items():
+        if key in ("PATH", "PYTHONPATH") and env.get(key):
+            env[key] = f"{value}{_PATH_SEP}{env[key]}"
+        else:
+            env[key] = value
+
+
 class SubprocessRuntime:
     """Unsandboxed runtime on :mod:`meshforge.agent.process`. Runs may overlap."""
 
-    name: Final = SUBPROCESS_RUNTIME_NAME
+    name: ClassVar[str] = SUBPROCESS_RUNTIME_NAME
 
     def __init__(
         self,
@@ -82,11 +113,79 @@ class SubprocessRuntime:
         env_timeout_s: float = 1800.0,
         lower_priority: bool = True,
         clock: Callable[[], float] = time.monotonic,
+        envs: EnvBuilder | None = None,
     ) -> None:
         self._gpu = host_has_nvidia_gpu
         self._env_timeout_s = env_timeout_s
         self._lower_priority = lower_priority
         self._clock = clock
+        self._envs = envs
+
+    # ------------------------------------------------------- cached envs
+    def _uses_env_cache(self, spec: RunSpec) -> bool:
+        """The subprocess runtime caches only when there is something to install."""
+        return (
+            self._envs is not None
+            and spec.env_request is not None
+            and spec.env_request.requirements is not None
+        )
+
+    async def _resolve_env(self, spec: RunSpec, pump: OutputPump) -> EnvUse:
+        """The ``--target`` dir for the agent's interpreter (raises EnvError)."""
+        envs, request = self._envs, spec.env_request
+        if envs is None or request is None or request.requirements is None:
+            raise RuntimeError("_resolve_env called without a builder or requirements")
+        requirements = await asyncio.to_thread(
+            envs.read_requirements, spec.workdir, request.requirements
+        )
+        built = await envs.ensure_target(
+            requirements=requirements,
+            deadline=envs.clock() + self._env_timeout_s,
+            on_output=pump_sink(pump),
+            log_fields={"attempt_id": spec.attempt_id, "runtime": self.name},
+        )
+        return EnvUse(built, env={"PYTHONPATH": str(built.path)})
+
+    async def _env_phase(
+        self, spec: RunSpec, pump: OutputPump, obs: RunObserver
+    ) -> EnvUse | RunResult:
+        """Resolve the cached env: an :class:`EnvUse`, or the failed result."""
+        fields = {"attempt_id": spec.attempt_id, "runtime": self.name}
+        try:
+            try:
+                use = await self._resolve_env(spec, pump)
+            except OSError as exc:  # the envs dir itself (permissions, I/O)
+                raise EnvError(
+                    f"environment storage failed: {exc.strerror or type(exc).__name__}",
+                    reason="env_io_failed",
+                    failure_type=FailureType.INTERNAL_ERROR,
+                ) from None
+        except EnvError as exc:
+            obs.finish()
+            await pump.close(_DRAIN_S)
+            log.warning(
+                "agent.execution.run_failed",
+                **fields,
+                failure_type=exc.failure_type.value,
+                reason=exc.reason,
+            )
+            return RunResult(
+                exit_code=None,
+                failure_type=exc.failure_type,
+                reason=exc.reason,
+                detail=exc.message,
+                env_s=obs.env_s,
+                env_hash=obs.env_hash,
+            )
+        obs.env_hash, obs.env_cache = use.built.env_hash, use.built.cache
+        log.info(
+            "agent.execution.env_ready",
+            **fields,
+            env_hash=use.built.env_hash,
+            env_cache=use.built.cache,
+            build_s=round(use.built.build_s, 3),
+        )
+        return use
 
     async def probe(self) -> RuntimeAvailability:
         return RuntimeAvailability(
@@ -117,8 +216,17 @@ class SubprocessRuntime:
             )
         pump = OutputPump(on_output, name=spec.attempt_id)
         pump.start()
+        use: EnvUse | None = None
         try:
-            if spec.setup_argv is not None:
+            if self._uses_env_cache(spec):
+                obs.enter_env()
+                resolved = await self._env_phase(spec, pump, obs)
+                if isinstance(resolved, RunResult):
+                    return resolved
+                use = resolved
+                if use.argv0 is not None and spec.argv[0] in _PYTHONS:
+                    spec = dataclasses.replace(spec, argv=(use.argv0, *spec.argv[1:]))
+            elif spec.setup_argv is not None:
                 obs.enter_env()
                 setup = await self._step(spec, spec.setup_argv, pump, obs, setup=True)
                 if setup.timed_out or setup.returncode != 0:
@@ -136,7 +244,7 @@ class SubprocessRuntime:
                         env_s=obs.env_s,
                     )
             obs.enter_run()
-            outcome = await self._step(spec, spec.argv, pump, obs, setup=False)
+            outcome = await self._step(spec, spec.argv, pump, obs, setup=False, use=use)
             obs.finish()
         except SpawnError as exc:
             in_setup = obs.phase is Phase.ENV
@@ -193,6 +301,8 @@ class SubprocessRuntime:
             detail=_describe(outcome, spec, sig),
             env_s=obs.env_s,
             run_s=obs.run_s,
+            env_hash=obs.env_hash,
+            env_cache=obs.env_cache,
         )
         log.info(
             "agent.execution.run_finished",
@@ -202,13 +312,18 @@ class SubprocessRuntime:
             failure_type=None if failure is None else failure.value,
             env_s=round(obs.env_s, 3),
             run_s=round(obs.run_s, 3),
+            env_cache=obs.env_cache,
         )
         return result
 
     # ------------------------------------------------------------- internals
-    def _env(self, spec: RunSpec, *, setup: bool) -> dict[str, str]:
+    def _env(
+        self, spec: RunSpec, *, setup: bool, use: EnvUse | None = None
+    ) -> dict[str, str]:
         env = dict(spec.env)
-        if spec.setup_argv is not None and not setup:
+        if use is not None:
+            _merge_env(env, use.env)
+        elif spec.setup_argv is not None and not setup:
             deps = str(spec.deps_dir)
             old = env.get("PYTHONPATH")
             env["PYTHONPATH"] = f"{deps}{_PATH_SEP}{old}" if old else deps
@@ -227,10 +342,11 @@ class SubprocessRuntime:
         obs: RunObserver,
         *,
         setup: bool,
+        use: EnvUse | None = None,
     ) -> _Exit:
         handle = await spawn(
             argv,
-            env=self._env(spec, setup=setup),
+            env=self._env(spec, setup=setup, use=use),
             cwd=spec.workdir,
             lower_priority=self._lower_priority,
         )
@@ -301,6 +417,15 @@ class SubprocessRuntime:
             return
         handle.kill_now()
         await handle.wait(_STOP_SLACK_S)
+
+
+def pump_sink(pump: OutputPump) -> Callable[[str, bytes], Awaitable[None]]:
+    """The builder's output goes to the job's log, like the V0.4 setup step's."""
+
+    async def put(stream: str, data: bytes) -> None:
+        await pump.put(Stream(stream), data)
+
+    return put
 
 
 async def _finish_readers(readers: list[asyncio.Task[None]]) -> None:

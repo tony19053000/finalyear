@@ -27,6 +27,7 @@ class EnvError(MeshForgeError):
     ``disk_full``               disk_full       free disk under the floor
     ``env_timeout``             timeout         lock wait + build over the budget
     ``env_lock_failed``         internal_error  the lock file cannot be opened
+    ``env_io_failed``           internal_error  the envs directory failed (I/O)
     ==========================  ==============  ===================================
     """
 

@@ -21,11 +21,34 @@ Every workload container is created with (and each is covered by a sandbox test)
 ``labels``                ``meshforge.*`` - orphans are swept at agent start
 ========================  =====================================================
 
-Requirements (``RunSpec.setup_argv``) run first in a **setup container** with the
-same hardening but the network on, writing into ``/work/.meshforge/deps``; the run
-container gets that directory first on ``PYTHONPATH`` and keeps its own network
-setting. The image pull and the setup container are the ``env`` phase, bounded by
-``env_timeout_s`` (``timeout`` - retryable - when exceeded).
+**Requirements - cached env images (V0.5 D85-D87).** With an environment builder
+(``envs``), a job's requirements are installed **once per node** into an image
+``meshforge-env:<env hash>`` and every later job with the same inputs starts from
+it with nothing to install. The env hash covers the base image's pinned digest
+(an unpinned base is refused, ``config_error``/``unpinned_base``), the platform of
+the local base image, ``env.python`` and the normalised requirements. A build:
+
+1. takes the builder's lock for the hash (one build per node; a second attempt
+   waits and then reuses it) and checks the envs disk floor;
+2. creates an ``envbuild`` container from the base with the same hardening as
+   every container (non-root ``run_as`` user, no capabilities, no-new-privileges,
+   pids/memory limits, ``/tmp`` tmpfs) except a **writable root filesystem** (the
+   packages land in the container layer) and the network on (off with
+   ``[agent.envs] no_index``); before it starts, an empty ``/env`` owned by that
+   user is put into it; it runs ``python -m pip install --target /env -r
+   /req/requirements.txt`` (the base image's own pip: the agent's ``uv`` binary is
+   built for the host OS, which is not the container's on Windows);
+3. on exit 0 checks the layer size against ``max_env_bytes`` and **commits** the
+   container to ``meshforge-env:<hash>`` (labels ``meshforge.env_hash``,
+   ``meshforge.base``); the build container is always removed. A failed or killed
+   build leaves no image (a commit is atomic; a stray container is swept by label).
+
+The run container then starts from that image with ``/env`` first on
+``PYTHONPATH``; ``/env`` is read-only to the job because the run container's root
+filesystem is. Without a builder (V0.4 path), ``RunSpec.setup_argv`` runs per job
+in a **setup container** writing into ``/work/.meshforge/deps``. The image pull and
+the environment are the ``env`` phase, bounded by ``env_timeout_s`` (``timeout`` -
+retryable - when exceeded).
 
 Environment added to ``RunSpec.env``: ``HOME=/tmp`` (unless given - the numeric
 user has no home), ``PYTHONPATH`` (setup only), ``NVIDIA_VISIBLE_DEVICES=void``
@@ -51,17 +74,23 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import io
 import os
+import re
 import socket
 import struct
 import sys
+import tarfile
 import threading
 import time
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Awaitable, Callable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final
 
+from meshforge.agent.envs.errors import EnvError
+from meshforge.agent.envs.fsutil import remove_tree
+from meshforge.agent.envs.hash import EnvInputs, env_hash
 from meshforge.agent.execution._pump import OutputPump
 from meshforge.agent.execution.docker_support import (
     DOCKER_RUNTIME_NAME,
@@ -94,10 +123,14 @@ if TYPE_CHECKING:
     from docker import DockerClient
     from docker.models.containers import Container
 
+    from meshforge.agent.envs.builder import EnvBuilder
     from meshforge.agent.settings import ExecutionSettings
 
 __all__ = [
     "CONTAINER_WORKDIR",
+    "ENV_IMAGE_REPO",
+    "LABEL_BASE",
+    "LABEL_ENV_HASH",
     "WORKDIR_MODE",
     "DockerConfig",
     "DockerRuntime",
@@ -108,6 +141,13 @@ __all__ = [
 log = get_logger(__name__)
 
 CONTAINER_WORKDIR: Final = "/work"
+CONTAINER_ENV: Final = "/env"
+"""Where a cached env image holds the job's packages (on ``PYTHONPATH``)."""
+ENV_IMAGE_REPO: Final = "meshforge-env"
+LABEL_ENV_HASH: Final = "meshforge.env_hash"
+LABEL_BASE: Final = "meshforge.base"
+_CONTAINER_REQ: Final = "/req"
+_CONTAINER_WHEELS: Final = "/wheels"
 NOBODY: Final = "65534:65534"
 _CONTAINER_TMP: Final = "/tmp"  # noqa: S108 - a private tmpfs inside the container
 _READ_CHUNK: Final = 65536
@@ -445,9 +485,11 @@ class DockerRuntime:
         config: DockerConfig,
         *,
         clock: Callable[[], float] = time.monotonic,
+        envs: EnvBuilder | None = None,
     ) -> None:
         self.config = config
         self._clock = clock
+        self._envs = envs
         self._background: set[asyncio.Task[None]] = set()
         self._user = resolve_run_as(config.run_as)
 
@@ -530,6 +572,7 @@ class DockerRuntime:
                 detail=fault.detail,
                 env_s=obs.env_s,
                 run_s=obs.run_s,
+                env_hash=obs.env_hash,
             )
         except asyncio.CancelledError:
             obs.finish()
@@ -550,6 +593,7 @@ class DockerRuntime:
             else result.failure_type.value,
             env_s=round(obs.env_s, 3),
             run_s=round(obs.run_s, 3),
+            env_cache=obs.env_cache,
         )
         return result
 
@@ -564,9 +608,18 @@ class DockerRuntime:
     ) -> _Exit:
         """Image, setup container, run container. Raises :class:`_FaultError`."""
         self._prepare_workdir(spec)
+        cached = (
+            self._envs is not None
+            and spec.env_request is not None
+            and spec.env_request.requirements is not None
+        )
+        if cached:
+            _check_pinned(image)  # before any pull: the hash must name the base
         env_deadline = self._clock() + self.config.env_timeout_s
         await self._ensure_image(client, image, env_deadline, fields)
-        if spec.setup_argv is not None:
+        if cached:
+            image = await self._ensure_env_image(client, spec, image, pump, obs, fields)
+        elif spec.setup_argv is not None:
             setup = await self._container(
                 client, spec, image, pump, obs, role="setup", deadline=env_deadline
             )
@@ -586,7 +639,14 @@ class DockerRuntime:
         obs.enter_run()
         # deadline None: the time limit starts when the run container has started
         outcome = await self._container(
-            client, spec, image, pump, obs, role="run", deadline=None
+            client,
+            spec,
+            image,
+            pump,
+            obs,
+            role="run",
+            deadline=None,
+            kwargs=self._create_kwargs(docker_module(), spec, "run", env_image=cached),
         )
         obs.finish()
         if pump.failed is not None:
@@ -651,11 +711,329 @@ class DockerRuntime:
         if error is not None:
             raise _FaultError(FailureType.ENV_ERROR, "image_pull_failed", error)
 
-    def _create_kwargs(self, docker: Any, spec: RunSpec, role: str) -> dict[str, Any]:
+    # ------------------------------------------------- cached env images
+    async def _ensure_env_image(
+        self,
+        client: DockerClient,
+        spec: RunSpec,
+        base: str,
+        pump: OutputPump,
+        obs: RunObserver,
+        fields: Mapping[str, Any],
+    ) -> str:
+        """``meshforge-env:<hash>`` for this job's requirements on ``base``, built
+        once (module docstring). Raises :class:`_FaultError`."""
+        envs, request = self._envs, spec.env_request
+        if envs is None or request is None or request.requirements is None:
+            raise RuntimeError("_ensure_env_image called without a builder")
+        base_digest = _check_pinned(base)
+        deadline = envs.clock() + self.config.env_timeout_s
+        try:
+            requirements = await asyncio.to_thread(
+                envs.read_requirements, spec.workdir, request.requirements
+            )
+            platform = await self._image_platform(client, base)
+            digest = env_hash(
+                EnvInputs(
+                    runtime_kind="docker",
+                    base=base_digest,
+                    python=request.python or "",
+                    requirements=requirements,
+                    platform=platform,
+                )
+            )
+            obs.env_hash = digest
+            tag = f"{ENV_IMAGE_REPO}:{digest}"
+            started = envs.clock()
+            if await self._env_image_ready(client, tag, digest):
+                obs.env_cache = "hit"
+            else:
+                async with envs.lock(digest, deadline=deadline):
+                    if await self._env_image_ready(client, tag, digest):
+                        obs.env_cache = "waited"
+                    else:
+                        await asyncio.to_thread(envs.check_free_disk)
+                        await self._build_env_image(
+                            client,
+                            spec,
+                            base,
+                            digest,
+                            requirements,
+                            pump,
+                            obs,
+                            deadline,
+                        )
+                        obs.env_cache = "built"
+        except EnvError as exc:
+            raise _FaultError(exc.failure_type, exc.reason, exc.message) from None
+        except OSError as exc:
+            raise _FaultError(
+                FailureType.INTERNAL_ERROR,
+                "env_io_failed",
+                f"environment storage failed: {exc.strerror or type(exc).__name__}",
+            ) from None
+        log.info(
+            "agent.execution.env_ready",
+            **fields,
+            env_hash=digest,
+            env_cache=obs.env_cache,
+            build_s=round(envs.clock() - started, 3),
+        )
+        return tag
+
+    async def _image_platform(self, client: DockerClient, image: str) -> str:
+        """``<os>/<arch>[/<variant>]`` of the local image (an env hash input)."""
+        try:
+            found = await asyncio.to_thread(client.images.get, image)
+        except docker_errors() as exc:
+            raise _FaultError(
+                FailureType.ENV_ERROR, "docker_unavailable", type(exc).__name__
+            ) from exc
+        attrs = found.attrs if isinstance(found.attrs, dict) else {}
+        parts = [str(attrs.get("Os") or "linux"), str(attrs.get("Architecture") or "")]
+        if attrs.get("Variant"):
+            parts.append(str(attrs["Variant"]))
+        return "/".join(parts)[:100]
+
+    async def _env_image_ready(
+        self, client: DockerClient, tag: str, digest: str
+    ) -> bool:
+        """The env image exists and its label names this hash."""
+        docker = docker_module()
+        try:
+            found = await asyncio.to_thread(client.images.get, tag)
+        except docker_errors() as exc:
+            if docker is not None and isinstance(exc, docker.errors.ImageNotFound):
+                return False
+            raise _FaultError(
+                FailureType.ENV_ERROR, "docker_unavailable", type(exc).__name__
+            ) from exc
+        labels = found.labels if isinstance(found.labels, dict) else {}
+        return labels.get(LABEL_ENV_HASH) == digest
+
+    def _stage_requirements(self, digest: str, requirements: bytes) -> Path:
+        """``staging/<hash>/requirements.txt`` readable by the container user."""
+        envs = self._envs
+        if envs is None:
+            raise RuntimeError("no environment builder")
+        staging = envs.staging_dir(digest)
+        remove_tree(staging)
+        staging.mkdir(parents=True)
+        path = staging / "requirements.txt"
+        path.write_bytes(requirements)
+        prepare_workdir(staging, self._user)
+        if sys.platform != "win32" and os.geteuid() == 0:  # pragma: no cover - root
+            uid, _, gid = self._user.partition(":")
+            os.chown(path, int(uid), int(gid))
+        return staging
+
+    def _envbuild_kwargs(
+        self, docker: Any, spec: RunSpec, base: str, digest: str, staging: Path
+    ) -> dict[str, Any]:
+        envs = self._envs
+        if envs is None:
+            raise RuntimeError("no environment builder")
+        cfg = envs.config
+        command = [
+            "python",
+            "-m",
+            "pip",
+            "install",
+            "--no-cache-dir",
+            "--disable-pip-version-check",
+            "--no-warn-script-location",
+            "--target",
+            CONTAINER_ENV,
+        ]
+        mounts = [
+            docker.types.Mount(
+                target=_CONTAINER_REQ, source=str(staging), type="bind", read_only=True
+            )
+        ]
+        if cfg.index_url:
+            command += ["--index-url", cfg.index_url]
+        if cfg.find_links is not None:
+            command += ["--find-links", _CONTAINER_WHEELS]
+            mounts.append(
+                docker.types.Mount(
+                    target=_CONTAINER_WHEELS,
+                    source=str(cfg.find_links),
+                    type="bind",
+                    read_only=True,
+                )
+            )
+        if cfg.no_index:
+            command.append("--no-index")
+        command += ["-r", f"{_CONTAINER_REQ}/requirements.txt"]
+        limits = spec.limits
+        return {
+            "command": command,
+            "name": f"mf-{spec.attempt_id.lower()}-envbuild",
+            "hostname": "meshforge-envbuild",
+            "user": self._user,
+            "working_dir": _CONTAINER_TMP,
+            # minimal on purpose: the committed image keeps this environment
+            "environment": {"HOME": _CONTAINER_TMP, "PYTHONDONTWRITEBYTECODE": "1"},
+            "labels": {
+                LABEL_MANAGED: "1",
+                LABEL_AGENT: self.config.agent_label,
+                LABEL_ATTEMPT: spec.attempt_id,
+                LABEL_ROLE: "envbuild",
+                LABEL_ENV_HASH: digest,
+                LABEL_BASE: base,
+            },
+            "mounts": mounts,
+            "cap_drop": ["ALL"],
+            "security_opt": ["no-new-privileges:true"],
+            "read_only": False,  # the packages land in the container layer
+            "tmpfs": {
+                _CONTAINER_TMP: f"rw,nosuid,nodev,size={self.config.tmp_size_mb}m"
+            },
+            "pids_limit": limits.pids,
+            "mem_limit": limits.memory_bytes,
+            "memswap_limit": limits.memory_bytes,
+            "network_mode": "none" if cfg.no_index else "bridge",
+            "init": True,
+            "log_config": docker.types.LogConfig(type="none"),
+            "stdin_open": False,
+            "tty": False,
+        }
+
+    def _env_dir_archive(self) -> bytes:
+        """A tar holding one empty directory ``env`` owned by the container user."""
+        uid, _, gid = self._user.partition(":")
+        info = tarfile.TarInfo("env")
+        info.type = tarfile.DIRTYPE
+        info.mode = 0o755
+        info.uid, info.gid = int(uid), int(gid)
+        buffer = io.BytesIO()
+        with tarfile.open(fileobj=buffer, mode="w") as tar:
+            tar.addfile(info)
+        return buffer.getvalue()
+
+    async def _build_env_image(
+        self,
+        client: DockerClient,
+        spec: RunSpec,
+        base: str,
+        digest: str,
+        requirements: bytes,
+        pump: OutputPump,
+        obs: RunObserver,
+        deadline: float,
+    ) -> None:
+        """Steps 2-3 of the module docstring (under the lock). Raises _FaultError."""
+        envs = self._envs
+        if envs is None:
+            raise RuntimeError("no environment builder")
+        staging = await asyncio.to_thread(
+            self._stage_requirements, digest, requirements
+        )
+        archive = self._env_dir_archive()
+        tag = f"{ENV_IMAGE_REPO}:{digest}"
+
+        def put_env_dir(container: Container) -> None:
+            if not container.put_archive("/", archive):
+                raise _FaultError(
+                    FailureType.ENV_ERROR,
+                    "env_build_failed",
+                    "could not create /env in the build container",
+                )
+
+        async def commit(container: Container, outcome: _Exit) -> None:
+            if outcome.timed_out or outcome.oom_killed or outcome.exit_code != 0:
+                return
+            await self._commit_env(container, tag, deadline)
+
+        try:
+            outcome = await self._container(
+                client,
+                spec,
+                base,
+                pump,
+                obs,
+                role="envbuild",
+                deadline=deadline,
+                kwargs=self._envbuild_kwargs(
+                    docker_module(), spec, base, digest, staging
+                ),
+                before_start=put_env_dir,
+                after_exit=commit,
+            )
+        finally:
+            await asyncio.shield(asyncio.to_thread(remove_tree, staging))
+        if outcome.timed_out:
+            raise _FaultError(
+                FailureType.TIMEOUT,
+                "env_timeout",
+                f"requirements install exceeded {self.config.env_timeout_s:g} s",
+            )
+        if outcome.oom_killed or outcome.exit_code != 0:
+            raise _FaultError(
+                FailureType.ENV_ERROR,
+                "setup_failed",
+                f"requirements install failed (exit {outcome.exit_code}"
+                f"{', out of memory' if outcome.oom_killed else ''})",
+            )
+
+    async def _commit_env(
+        self, container: Container, tag: str, deadline: float
+    ) -> None:
+        """Size check, then commit the build container to ``tag``. A commit of a
+        large layer outlives a normal API call, so it gets its own client whose
+        timeout is the remaining env budget."""
+        envs = self._envs
+        if envs is None:
+            raise RuntimeError("no environment builder")
+        remaining = deadline - self._clock()
+        if remaining <= 0:
+            raise _FaultError(
+                FailureType.TIMEOUT,
+                "env_timeout",
+                "no time left to save the environment",
+            )
+        container_id = str(container.id)
+        repo, _, name = tag.partition(":")
+        sizes: list[int] = []
+
+        def inspect_and_commit() -> None:
+            committer = open_client(max(self.config.api_timeout_s, remaining))
+            try:
+                listed = committer.api.containers(
+                    all=True, filters={"id": container_id}, size=True
+                )
+                info = listed[0] if listed else {}
+                size = int(info.get("SizeRw") or 0) if isinstance(info, Mapping) else 0
+                sizes.append(size)
+                envs.check_size(size)  # EnvError before anything is saved
+                committer.api.commit(container_id, repository=repo, tag=name)
+            finally:
+                committer.close()
+
+        try:
+            await asyncio.shield(asyncio.to_thread(inspect_and_commit))
+        except EnvError as exc:
+            raise _FaultError(exc.failure_type, exc.reason, exc.message) from None
+        except docker_errors() as exc:
+            raise _FaultError(
+                FailureType.ENV_ERROR, "env_commit_failed", _short(exc)
+            ) from exc
+        size = sizes[0] if sizes else 0
+        log.info("agent.execution.env_image_committed", env_hash=name, size_bytes=size)
+
+    def _create_kwargs(
+        self, docker: Any, spec: RunSpec, role: str, *, env_image: bool = False
+    ) -> dict[str, Any]:
         setup = role == "setup"
         env = dict(spec.env)
         env.setdefault("HOME", _CONTAINER_TMP)
-        if spec.setup_argv is not None and not setup:
+        if env_image and not setup:
+            env["PYTHONPATH"] = (
+                f"{CONTAINER_ENV}:{env['PYTHONPATH']}"
+                if env.get("PYTHONPATH")
+                else CONTAINER_ENV
+            )
+        elif spec.setup_argv is not None and not setup:
             deps = f"{CONTAINER_WORKDIR}/{DEPS_SUBDIR}"
             env["PYTHONPATH"] = (
                 f"{deps}:{env['PYTHONPATH']}" if env.get("PYTHONPATH") else deps
@@ -729,11 +1107,19 @@ class DockerRuntime:
         *,
         role: str,
         deadline: float | None,
+        kwargs: dict[str, Any] | None = None,
+        before_start: Callable[[Container], None] | None = None,
+        after_exit: Callable[[Container, _Exit], Awaitable[None]] | None = None,
     ) -> _Exit:
-        """Create, attach, start and wait for one container; always remove it."""
+        """Create, attach, start and wait for one container; always remove it.
+
+        ``before_start`` runs (in a thread) on the created container before it
+        starts; ``after_exit`` runs on the exited container before its removal
+        (the env build commits it there)."""
         errors = docker_errors()
         docker = docker_module()
-        kwargs = self._create_kwargs(docker, spec, role)
+        if kwargs is None:
+            kwargs = self._create_kwargs(docker, spec, role)
         container: Container | None = None
         watcher: _Watcher | None = None
         try:
@@ -745,6 +1131,13 @@ class DockerRuntime:
                 raise _create_fault(exc, docker, role) from exc
             container_id = str(container.id)
             obs.ident = container_id[:12]
+            if before_start is not None:
+                try:
+                    await asyncio.to_thread(before_start, container)
+                except errors as exc:
+                    raise _FaultError(
+                        FailureType.ENV_ERROR, "env_build_failed", _short(exc)
+                    ) from exc
             sock = await asyncio.to_thread(
                 client.api.attach_socket,
                 container_id,
@@ -770,6 +1163,8 @@ class DockerRuntime:
             outcome = await self._await_exit(
                 container, watcher, pump, obs, spec, deadline
             )
+            if after_exit is not None:
+                await after_exit(container, outcome)
         except asyncio.CancelledError:
             obs.phase = Phase.STOPPING
             if container is not None:
@@ -887,6 +1282,23 @@ class DockerRuntime:
             )
 
 
+_PINNED_DIGEST: Final = re.compile(r"sha256:[0-9a-f]{64}")
+
+
+def _check_pinned(image: str) -> str:
+    """The ``sha256:<hex>`` an image reference is pinned to; ``_FaultError``
+    (``config_error``/``unpinned_base``) when it is not pinned (V0.5 D87)."""
+    _, at, digest = image.partition("@")
+    if not at or not _PINNED_DIGEST.fullmatch(digest):
+        raise _FaultError(
+            FailureType.CONFIG_ERROR,
+            "unpinned_base",
+            "the base image is not pinned by digest (name@sha256:<64 hex>); "
+            "refusing to build an environment whose hash cannot name its base",
+        )
+    return digest
+
+
 def _create_fault(exc: BaseException, docker: Any, role: str) -> _FaultError:
     status = getattr(getattr(exc, "response", None), "status_code", None)
     if status == 409:
@@ -930,6 +1342,8 @@ def _result(outcome: _Exit, spec: RunSpec, obs: RunObserver) -> RunResult:
         detail=_describe(outcome, spec),
         env_s=obs.env_s,
         run_s=obs.run_s,
+        env_hash=obs.env_hash,
+        env_cache=obs.env_cache,
     )
 
 
