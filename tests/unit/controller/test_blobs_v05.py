@@ -202,3 +202,70 @@ async def test_concurrent_duplicate_completes_all_succeed(tmp_path: Path) -> Non
     assert store.path_for(digest).read_bytes() == data
     late = await store.complete_parts(digest)
     assert not late.created
+
+
+def _manifest_of(root: Path, files: dict[str, bytes]) -> bytes:
+    root.mkdir()
+    for name, data in files.items():
+        (root / name).write_bytes(data)
+    return build_tree(root).manifest
+
+
+async def _tree_in(store: BlobStore, root: Path, files: dict[str, bytes]) -> Digest:
+    return await _put(store, _manifest_of(root, files))
+
+
+async def test_tree_members_are_built_once_per_tree(tmp_path: Path) -> None:
+    """Review BLOCKING 1: an authorised read is a lookup, never a rebuild."""
+    store = _store(tmp_path)
+    tree_id = await _tree_in(
+        store, tmp_path / "p", {f"f{i}": bytes([i]) for i in range(50)}
+    )
+    first = await store.tree_members(tree_id)
+    for _ in range(200):
+        assert await store.tree_members(tree_id) is first  # the same set object
+    assert store.trees_parsed == 1 and len(first) == 50
+    garbage = await _put(store, b'{"not": "a tree"}')
+    for _ in range(3):
+        assert await store.tree_members(garbage) == frozenset()
+        with pytest.raises(TreeError):
+            await store.tree(garbage)
+    assert store.trees_parsed == 1  # a non-tree is remembered, not re-parsed
+
+
+async def test_tree_cache_is_bounded_by_entries(tmp_path: Path) -> None:
+    store = BlobStore(tmp_path / "blobs", max_blob_bytes=1 << 20, tree_cache_entries=12)
+    store.prepare()
+    a = await _tree_in(store, tmp_path / "a", {f"a{i}": b"a%d" % i for i in range(10)})
+    b = await _tree_in(store, tmp_path / "b", {f"b{i}": b"b%d" % i for i in range(10)})
+    await store.tree_members(a)
+    await store.tree_members(b)  # 11 + 11 > 12: a is evicted
+    await store.tree_members(a)
+    assert store.trees_parsed == 3
+
+
+async def test_abandoned_part_uploads_are_swept_periodically(tmp_path: Path) -> None:
+    import os as _os
+
+    mono = [0.0]
+    store = BlobStore(
+        tmp_path / "blobs",
+        max_blob_bytes=1 << 20,
+        clock=lambda: mono[0],
+        resume_sweep_s=10,
+    )
+    store.prepare()
+    old = sha256_bytes(b"abandoned")
+    part, sidecar = store.cas.resume_paths(old)
+    part.write_bytes(b"x")
+    sidecar.write_bytes(b"{}")
+    stale = 1_000.0
+    _os.utime(part, (stale, stale))
+    _os.utime(sidecar, (stale, stale))
+    data = os.urandom(CS)
+    chunk, hex_ = _pieces(data)[0]
+    mono[0] = 11.0
+    await store.put_part(
+        sha256_bytes(data), 0, size=CS, chunk_size=CS, chunk_hex=hex_, body=_one(chunk)
+    )
+    assert store.resumes_swept == 1 and not part.exists() and not sidecar.exists()

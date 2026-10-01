@@ -215,6 +215,17 @@ def _link(entry: TreeEntry, dest: Path, real_dest: str) -> None:
 
 
 def _fill(store: CasStore, tree: Tree, dest: Path, stats: MaterialiseStats) -> None:
+    """Folders and files first, symlinks last.
+
+    Why this is safe against a hostile tree: while files are written no symlink
+    exists in ``dest`` yet, so ``_place``'s ``mkdir(parents=True)`` and the
+    ``O_EXCL | O_NOFOLLOW`` create can only ever touch real folders inside
+    ``dest`` (``parse_tree`` already refused ``..``, absolute paths and entries
+    under a file or link; a case-insensitive collision fails ``O_EXCL``). Each
+    link is checked to resolve inside ``dest`` right after it is made, and any
+    failure empties ``dest`` (:func:`materialise`), so a refused tree never
+    leaves a link or a partial file behind for the job to use.
+    """
     links: list[TreeEntry] = []
     for entry in tree.entries:
         if entry.kind == "symlink":

@@ -328,3 +328,39 @@ def test_resumable_complete_refuses_missing_chunks(tmp_path: Path) -> None:
     part.write_chunk(0, pieces[0], hexes[0])
     with pytest.raises(CasError):
         part.complete()
+
+
+def test_chunk_writes_recheck_the_disk_floor(tmp_path: Path) -> None:
+    """Review fix: the floor is checked while chunks land, not only at the end."""
+    big = 8 * 1024 * 1024
+    free = [10**12]
+    store = _store(
+        tmp_path,
+        max_blob_bytes=1 << 30,
+        free_disk_floor_bytes=1024,
+        disk_free=lambda _p: free[0],
+    )
+    data = b"\x01" * big
+    digest = sha256_bytes(data * 10)
+    part = store.resumable(digest, 10 * big, big)
+    hex_ = hashlib.sha256(data).hexdigest()
+    for i in range(7):
+        part.write_chunk(i, data, hex_)
+    free[0] = 2 * big  # the disk filled up meanwhile (by someone else)
+    with pytest.raises(CasFullError):
+        part.write_chunk(7, data, hex_)  # crosses 64 MiB: re-checked, refused
+    assert part.missing() == [7, 8, 9]  # nothing marked that was not kept
+
+
+def test_resumable_transfers_are_capped_and_swept(tmp_path: Path) -> None:
+    now = [time.time()]
+    store = _store(tmp_path, max_resumable=1, wall_clock=lambda: now[0])
+    first = sha256_bytes(b"first" * CS)
+    store.resumable(first, CS, CS)
+    store.resumable(first, CS, CS)  # continuing the same one is fine
+    with pytest.raises(CasError) as info:
+        store.resumable(sha256_bytes(b"second"), CS, CS)
+    assert info.value.failure_type is FailureType.RESOURCE_BUSY
+    now[0] += 2 * 24 * 3600  # untouched for two days
+    assert store.sweep_resumes() == 1
+    store.resumable(sha256_bytes(b"second"), CS, CS)  # room again

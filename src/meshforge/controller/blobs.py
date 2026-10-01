@@ -53,6 +53,7 @@ import contextlib
 import hashlib
 import json
 import secrets
+import time
 from collections import OrderedDict
 from collections.abc import AsyncIterator, Callable, Iterable
 from dataclasses import dataclass
@@ -96,7 +97,8 @@ MAX_FETCH_TOKEN_TTL_S: Final = 7 * 24 * 3600 + 3600
 MAX_FETCH_TOKEN_DIGESTS: Final = 1024
 MAX_HAVE_DIGESTS: Final = 10_000
 """Digests one have/need call may ask about (the client batches above this)."""
-_TREE_CACHE: Final = 64
+DEFAULT_TREE_CACHE_ENTRIES: Final = 500_000
+"""Cached trees are bounded by their total entries (about 100 B each), not count."""
 _ZSTD_MAGIC: Final = b"\x28\xb5\x2f\xfd"
 
 
@@ -169,6 +171,9 @@ class BlobStore:
         free_disk_floor_bytes: int = 0,
         disk_free: Callable[[Path], int] | None = None,
         tree_limits: TreeLimits | None = None,
+        tree_cache_entries: int = DEFAULT_TREE_CACHE_ENTRIES,
+        clock: Callable[[], float] = time.monotonic,
+        resume_sweep_s: float = 3600.0,
     ) -> None:
         if max_concurrent_uploads < 1:
             raise ValueError("max_concurrent_uploads must be positive")
@@ -185,7 +190,15 @@ class BlobStore:
         self._upload_wait_s = upload_wait_s
         self._uploads = asyncio.Semaphore(max_concurrent_uploads)
         self._part_locks: dict[str, list[Any]] = {}
-        self._trees: OrderedDict[str, Tree | None] = OrderedDict()
+        self._trees: OrderedDict[str, _CachedTree] = OrderedDict()
+        self._tree_weight = 0
+        self._tree_cache_entries = tree_cache_entries
+        self.trees_parsed = 0
+        self._clock = clock
+        self._resume_sweep_s = resume_sweep_s
+        self._last_sweep = clock()
+        self.resumes_swept = 0
+        """Manifests parsed (each tree once while cached; tests read it)."""
         self.uploads_refused_busy = 0
         self.parts_received = 0
         self.part_bytes_received = 0
@@ -354,6 +367,7 @@ class BlobStore:
         :class:`BlobError` subclasses like :meth:`put`.
         """
         self._check_shape(digest, size, chunk_size)
+        await self._maybe_sweep()
         await self._slot(digest)
         try:
             data = bytearray()
@@ -385,6 +399,18 @@ class BlobStore:
             self.parts_received += 1
             self.part_bytes_received += len(data)
         return stored
+
+    async def _maybe_sweep(self) -> None:
+        """Abandoned resumable uploads are swept at start and then at most once
+        per ``resume_sweep_s`` from the part-upload path (no extra task)."""
+        now = self._clock()
+        if now - self._last_sweep < self._resume_sweep_s:
+            return
+        self._last_sweep = now
+        swept = await asyncio.to_thread(self.cas.sweep_resumes)
+        if swept:
+            self.resumes_swept += swept
+            log.info("controller.blobs.resumes_swept", count=swept)
 
     async def complete_parts(self, digest: Digest) -> PutResult:
         """Hash the assembled parts and install the blob (see module docstring)."""
@@ -433,48 +459,85 @@ class BlobStore:
         """The validated tree stored under ``tree_id``; None = absent or not a tree.
 
         Raises :class:`~meshforge.common.tree.TreeError` when the blob is present
-        but is not an acceptable manifest (the caller reports it).
+        but is not an acceptable manifest (the caller reports it). Parsed once per
+        tree while it stays in the cache (see :meth:`tree_members`).
         """
-        cached = self._trees.get(tree_id.hex)
-        if cached is not None:
-            self._trees.move_to_end(tree_id.hex)
-            return cached
-        size = self.size(tree_id)
-        if size is None:
+        cached = await self._cached_tree(tree_id)
+        if cached is None:
             return None
-        if size > self.tree_limits.max_manifest_bytes:
-            raise TreeError("the blob is too large to be a tree manifest")
-        data = await asyncio.to_thread(self.path_for(tree_id).read_bytes)
-        if data[:4] == _ZSTD_MAGIC:
-            raise TreeError("the blob is a bundle, not a tree manifest")
-        tree = await asyncio.to_thread(
-            parse_tree, data, expected=tree_id, limits=self.tree_limits
-        )
-        self._remember(tree_id.hex, tree)
-        return tree
+        if cached.tree is None:  # remembered: stored, but not a valid tree
+            raise TreeError("the blob is not a valid tree manifest")
+        return cached.tree
 
-    def _remember(self, key: str, tree: Tree | None) -> None:
-        self._trees[key] = tree
-        self._trees.move_to_end(key)
-        while len(self._trees) > _TREE_CACHE:
-            self._trees.popitem(last=False)
+    async def _cached_tree(self, tree_id: Digest) -> _CachedTree | None:
+        hit = self._trees.get(tree_id.hex)
+        if hit is not None:
+            self._trees.move_to_end(tree_id.hex)
+            return hit
+        async with self._holding(tree_id):  # one parse per tree, even when racing
+            hit = self._trees.get(tree_id.hex)
+            if hit is not None:
+                return hit
+            size = self.size(tree_id)
+            if size is None:
+                return None
+            if size > self.tree_limits.max_manifest_bytes:
+                self._remember(tree_id.hex, _NOT_A_TREE)
+                raise TreeError("the blob is too large to be a tree manifest")
+            data = await asyncio.to_thread(self.path_for(tree_id).read_bytes)
+            if data[:4] == _ZSTD_MAGIC:
+                self._remember(tree_id.hex, _NOT_A_TREE)
+                raise TreeError("the blob is a bundle, not a tree manifest")
+            try:
+                tree = await asyncio.to_thread(
+                    parse_tree, data, expected=tree_id, limits=self.tree_limits
+                )
+            except TreeError:
+                self._remember(tree_id.hex, _NOT_A_TREE)
+                raise
+            self.trees_parsed += 1
+            # The member set is built here, once, next to the parsed tree: an
+            # authorised GET is then O(roots) set lookups, never a rebuild.
+            cached = _CachedTree(tree, frozenset(e.sha256 for e in tree.files()))
+            self._remember(tree_id.hex, cached)
+            return cached
+
+    def _remember(self, key: str, cached: _CachedTree) -> None:
+        old = self._trees.pop(key, None)
+        if old is not None:
+            self._tree_weight -= old.weight
+        self._trees[key] = cached
+        self._tree_weight += cached.weight
+        while self._tree_weight > self._tree_cache_entries and len(self._trees) > 1:
+            _key, evicted = self._trees.popitem(last=False)
+            self._tree_weight -= evicted.weight
 
     async def tree_members(self, root: Digest) -> frozenset[str]:
         """Hex digests a token for ``root`` may read when ``root`` is a tree.
 
         Empty for anything that is not a stored, valid tree (a bundle, say).
+        Cached with the tree (bounded by total entries), so repeated calls cost a
+        dictionary lookup.
         """
-        if root.hex in self._trees and self._trees[root.hex] is None:
-            return frozenset()
         try:
-            tree = await self.tree(root)
+            cached = await self._cached_tree(root)
         except (TreeError, OSError):
-            tree = None
-        if tree is None:
-            if self.size(root) is not None:
-                self._remember(root.hex, None)  # a stored non-tree: never parse again
             return frozenset()
-        return frozenset(e.sha256 for e in tree.files())
+        return frozenset() if cached is None else cached.members
+
+
+@dataclass(frozen=True, slots=True)
+class _CachedTree:
+    tree: Tree | None
+    members: frozenset[str]
+
+    @property
+    def weight(self) -> int:
+        """Cache cost: the tree's entries (a negative entry costs 1)."""
+        return 1 + (0 if self.tree is None else len(self.tree.entries))
+
+
+_NOT_A_TREE: Final = _CachedTree(None, frozenset())
 
 
 # ================================================================ fetch tokens

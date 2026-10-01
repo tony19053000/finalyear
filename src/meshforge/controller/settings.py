@@ -76,13 +76,15 @@ class BlobStoreSettings(SectionModel):
         description="Blob store root; default <data_dir>/controller/blobs.",
     )
     max_blob_bytes: int = Field(
-        default=2 * 1024**3,
+        default=64 * 1024**3,
         ge=1024 * 1024,
         le=64 * 1024**3,
         description=(
-            "Largest blob one PUT may store (bundles are capped at 1 GiB of "
-            "uncompressed content by default, outputs likewise). A larger upload "
-            "is refused before or while it streams, and nothing is kept."
+            "Largest blob the store keeps, whole or assembled from parts (V0.5: "
+            "64 GiB, the tree limit, so one multi-GB dataset file fits; bundles "
+            "stay capped at 1 GiB of content and outputs by [controller.jobs] "
+            "max_output_bytes). A larger upload is refused before or while it "
+            "streams, and nothing is kept."
         ),
     )
     max_concurrent_uploads: int = Field(

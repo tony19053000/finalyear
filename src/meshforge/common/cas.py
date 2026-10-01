@@ -102,6 +102,8 @@ _HEX_RE: Final = re.compile(r"[0-9a-f]{64}")
 _HEX2_RE: Final = re.compile(r"[0-9a-f]{2}")
 _READ_ONLY: Final = stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH
 _RESUME_TTL_S: Final = 24 * 3600.0
+DEFAULT_MAX_RESUMABLE: Final = 64
+"""Resumable transfers in progress at once (each reserves its full size on disk)."""
 
 
 class CasError(MeshForgeError):
@@ -242,6 +244,7 @@ class CasStore:
         disk_free: Callable[[Path], int] | None = None,
         resume_ttl_s: float = _RESUME_TTL_S,
         wall_clock: Callable[[], float] = time.time,
+        max_resumable: int = DEFAULT_MAX_RESUMABLE,
     ) -> None:
         if max_blob_bytes < 0:
             raise ValueError("max_blob_bytes must be >= 0")
@@ -255,6 +258,7 @@ class CasStore:
         self._resume_ttl_s = resume_ttl_s
         self._wall = wall_clock
         self.tmp = self.root / _TMP_DIR
+        self.max_resumable = max_resumable
         self._lock = threading.Lock()
         self._used = 0
         self._reserved = 0
@@ -268,21 +272,12 @@ class CasStore:
         algo = self.root / _ALGO_DIR
         algo.mkdir(parents=True, exist_ok=True)
         self.tmp.mkdir(parents=True, exist_ok=True)
-        swept = expired = 0
-        now = self._wall()
+        expired = self.sweep_resumes()
+        swept = 0
         for entry in list(self.tmp.iterdir()):
             name = entry.name
             if name.startswith(_RESUME_PREFIX):
-                try:
-                    age = now - entry.stat().st_mtime
-                except OSError:
-                    continue
-                if age > self._resume_ttl_s:
-                    with contextlib.suppress(OSError):
-                        entry.unlink()
-                        if not name.endswith(_SIDECAR_SUFFIX):
-                            expired += 1
-                continue
+                continue  # resumable transfers survive a restart (TTL above)
             if not (
                 name.endswith(".part")
                 or (name.startswith(".") and name.endswith(".tmp"))
@@ -303,7 +298,53 @@ class CasStore:
             swept=swept, expired_resumes=expired, migrated=migrated, used_bytes=used
         )
 
+    def sweep_resumes(self) -> int:
+        """Delete resumable transfers untouched for longer than the TTL.
+
+        Run at :meth:`prepare` and periodically by long-lived owners (the
+        controller sweeps from its part-upload path). An active transfer touches
+        its files on every chunk, so it is never old. Returns transfers removed.
+        """
+        expired = 0
+        now = self._wall()
+        try:
+            entries = list(self.tmp.iterdir())
+        except FileNotFoundError:
+            return 0
+        for entry in entries:
+            name = entry.name
+            if not name.startswith(_RESUME_PREFIX):
+                continue
+            try:
+                age = now - entry.stat().st_mtime
+            except OSError:
+                continue
+            if age > self._resume_ttl_s:
+                with contextlib.suppress(OSError):
+                    entry.unlink()
+                    if not name.endswith(_SIDECAR_SUFFIX):
+                        expired += 1
+        return expired
+
+    def resumes_in_progress(self) -> int:
+        try:
+            return sum(
+                1
+                for e in self.tmp.iterdir()
+                if e.name.startswith(_RESUME_PREFIX)
+                and e.name.endswith(_SIDECAR_SUFFIX)
+            )
+        except FileNotFoundError:
+            return 0
+
     def _migrate_legacy(self, algo: Path) -> int:
+        """Move V0.4 one-level blobs into the two-level layout.
+
+        The files are **moved, not re-hashed**: they were verified when V0.4
+        stored them, and re-hashing gigabytes at every start would be costly. A
+        V0.4 blob corrupted on disk since is caught where every blob is: by the
+        receiver's verification (agents verify every chunk and blob, D80/D84).
+        """
         moved = 0
         for top in algo.iterdir():
             if not (top.is_dir() and _HEX2_RE.fullmatch(top.name)):
@@ -636,6 +677,7 @@ class ResumablePart:
         self._done = done
         self.part, self.sidecar = store.resume_paths(digest)
         self.resumed_chunks = sum(1 for i in range(self.count) if self.is_done(i))
+        self._since_check = 0
 
     @classmethod
     def open(
@@ -647,6 +689,16 @@ class ResumablePart:
         part, sidecar = store.resume_paths(digest)
         done = cls._load(sidecar, size, chunk_size, count)
         if done is None or not part.is_file() or part.stat().st_size != size:
+            if (
+                not sidecar.exists()
+                and store.resumes_in_progress() >= store.max_resumable
+            ):
+                raise CasError(
+                    f"{store.max_resumable} resumable transfers are already in "
+                    "progress; retry later",
+                    failure_type=FailureType.RESOURCE_BUSY,
+                    details={"digest": str(digest)},
+                )
             store._admit(digest, size)
             try:
                 store._release(size)
@@ -716,6 +768,13 @@ class ResumablePart:
             )
         if self.is_done(index):
             return False
+        self._since_check += length
+        if self._since_check >= _DISK_CHECK_EVERY:
+            # The part file is sparse: its blocks are allocated as chunks land,
+            # so the floor is re-checked against what is still to be written.
+            self._since_check = 0
+            remaining = sum(self.span(i)[1] for i in self.missing())
+            self.store._check_disk(self.digest, remaining)
         try:
             fd = os.open(self.part, os.O_WRONLY | getattr(os, "O_BINARY", 0))
             try:
