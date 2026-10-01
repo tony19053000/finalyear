@@ -247,3 +247,23 @@ async def test_submit_by_tree_checks_the_manifest_and_its_blobs(
         assert both.status_code == 400
         neither = await client.post("/v1/jobs", json=_submission(None))
         assert neither.status_code == 400
+
+
+async def test_repeated_token_reads_parse_and_build_the_tree_once(
+    runtime: ControllerRuntime, tmp_path: Path
+) -> None:
+    """Review BLOCKING 1: authorised GET/HEAD reuse one cached member set."""
+    files = {f"f{i}.txt": f"file {i}".encode() for i in range(300)}
+    async with api_client(runtime, token=token_of(runtime)) as client:
+        tree_id = await _upload_tree(client, _project(tmp_path / "many", files))
+    assert runtime.blobs is not None and runtime.fetch_tokens is not None
+    before = runtime.blobs.trees_parsed
+    token = runtime.fetch_tokens.mint("attempt_r", [tree_id], ttl_s=60)
+    async with api_client(runtime, token=token.get_secret_value()) as agent:
+        for name, data in files.items():
+            got = await agent.get(f"/v1/blobs/{sha256_bytes(data).hex}")
+            assert got.status_code == 200, name
+            assert (
+                await agent.head(f"/v1/blobs/{sha256_bytes(data).hex}")
+            ).status_code == 200
+    assert runtime.blobs.trees_parsed == before + 1  # 600 reads, exactly one parse
