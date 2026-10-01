@@ -113,7 +113,14 @@ async def test_follow_from_submit_to_end_equals_the_persisted_log(
     http: httpx.AsyncClient,
     agent: ExecAgent,
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # A follower's idle wait for a hub event (1 s in production) made huge: a
+    # follower that ever falls back to it (instead of the hub's end event, or
+    # the already-ended check for a late joiner) blows the wait_for bounds
+    # below. Deterministic, unlike the wall-clock "< 0.9 s" this replaced,
+    # which a loaded machine could miss with no wait taken at all.
+    monkeypatch.setattr(log_routes, "_LIVE_WAIT_S", 3600.0)
     manifest = {"name": "talk", "entrypoint": ["python", "main.py"]}
     job_id = await submit(http, _project(tmp_path, TALKER), agent.node_id, manifest)
     got, end = await asyncio.wait_for(
@@ -129,13 +136,12 @@ async def test_follow_from_submit_to_end_equals_the_persisted_log(
     assert plain.content[split:] == got["stderr"]
     only_err = await http.get(f"/v1/jobs/{job_id}/logs", params={"stream": "stderr"})
     assert only_err.content == got["stderr"]
-    # a follower joining after the end gets everything and the end frame at once
-    started = asyncio.get_running_loop().time()
+    # a follower joining after the end gets everything and the end frame at
+    # once - no idle wait (it would be _LIVE_WAIT_S = 1 h here)
     again, end2 = await asyncio.wait_for(
-        _follow(_ws_url(runtime, job_id), _auth(runtime)), 10
+        _follow(_ws_url(runtime, job_id), _auth(runtime)), 30
     )
     assert again == got and end2["state"] == "succeeded"
-    assert asyncio.get_running_loop().time() - started < 0.9  # no 1 s poll wait
 
 
 async def test_resume_from_an_offset(

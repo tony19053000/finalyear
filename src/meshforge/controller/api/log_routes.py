@@ -60,6 +60,9 @@ log_router = APIRouter(prefix="/v1/jobs", tags=["logs"])
 _JOB_ID_MAX: Final = 40
 _FRAME_BYTES: Final = 64 * 1024
 _POLL_S: Final = 0.25
+_LIVE_WAIT_S: Final = 1.0
+"""While following a live attempt: how long to wait for a hub event before
+checking the store for an end the hub will not announce (controller restart)."""
 _SEND_TIMEOUT_S: Final = 10.0
 _CLOSE_WAIT_S: Final = 30.0
 """A close frame to a client that stopped reading is written once it reads
@@ -330,7 +333,7 @@ async def _follow(f: _Follower, job_id: str) -> Subscription | None:
             await _close_slow(f.ws)
             return sub
         try:
-            event = await asyncio.wait_for(sub.queue.get(), 1.0)
+            event = await asyncio.wait_for(sub.queue.get(), _LIVE_WAIT_S)
         except TimeoutError:
             if await _ended_without_hub(f, attempt.id):
                 break

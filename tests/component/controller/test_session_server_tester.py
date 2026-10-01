@@ -37,7 +37,7 @@ if TYPE_CHECKING:
 
 pytestmark = pytest.mark.component
 
-from mf_controller_harness import make_settings  # noqa: E402
+from mf_controller_harness import make_settings, tolerant_liveness  # noqa: E402
 
 UINT64_MAX = 2**64 - 1
 
@@ -355,7 +355,7 @@ async def test_message_larger_than_default_grpc_max_ends_cleanly(
 
 @pytest.mark.asyncio
 async def test_twenty_nodes_each_with_three_racing_epochs(
-    channel: grpc.aio.Channel, registry: Registry
+    pg_settings: DatabaseSettings, registry: Registry
 ) -> None:
     # Higher epoch always wins regardless of arrival order (ADR-0002 Updates
     # §1: never compares across node_ids, and lower-arriving-later is simply
@@ -363,6 +363,22 @@ async def test_twenty_nodes_each_with_three_racing_epochs(
     # eventual sole survivor. It is heartbeated to stay alive while the
     # (slower, DB-serialised-under-one-lock) admissions for all 60 streams
     # settle, isolating the fencing invariant from unrelated lease timing.
+    #
+    # Its own controller with TOLERANT_LIVENESS: under FAST_LIVENESS the
+    # admission deadline is 0.5 s (lease - 1 s, floored), and 60 Hellos
+    # admitted one at a time on a loaded machine overran it - the epoch-3
+    # Hello was refused with UNAVAILABLE ("retry", D41), which is the
+    # admission contract working, not a fencing outcome. The fencing
+    # assertions below are unchanged.
+    settings = make_settings(pg_settings, hello_timeout_s=5.0, **tolerant_liveness())
+    async with (
+        ControllerRuntime.start(settings) as runtime,
+        grpc.aio.insecure_channel(f"127.0.0.1:{runtime.grpc_port}") as channel,
+    ):
+        await _twenty_nodes_race(channel, registry)
+
+
+async def _twenty_nodes_race(channel: grpc.aio.Channel, registry: Registry) -> None:
     node_ids = [new_node_id() for _ in range(20)]
     all_agents: list[FakeAgent] = []
     try:
