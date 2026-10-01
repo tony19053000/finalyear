@@ -18,7 +18,12 @@ import pytest_asyncio
 from meshforge.common.hashing import sha256_bytes
 from meshforge.common.proto.meshforge.v1 import agent_pb2
 from meshforge.controller.blobs import BlobStore
-from meshforge.controller.jobs.logs import MAX_CHUNK_BYTES, LogHub, StreamMerge
+from meshforge.controller.jobs.logs import (
+    MAX_CHUNK_BYTES,
+    LogEvent,
+    LogHub,
+    StreamMerge,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -170,8 +175,32 @@ async def test_a_slow_subscriber_is_marked_not_waited_for(tmp_path: Path) -> Non
         await hub.on_chunk(LIVE, _msg(i, b"x", token=1))  # type: ignore[arg-type]
     await _drain(hub)
     assert sub.overflowed and hub.stats.chunks_appended == 20
+    assert hub.stats.slow_subscribers == 1
+    # the WebSocket route also finds the same reader slow (a send timed out):
+    # still one slow subscriber, not two
+    assert sub.mark_slow() is False
+    assert hub.stats.slow_subscribers == 1
     task.cancel()
     await asyncio.gather(task, return_exceptions=True)
+
+
+def test_a_reader_found_slow_by_a_send_timeout_first_is_counted_once(
+    tmp_path: Path,
+) -> None:
+    hub = LogHub(tmp_path, blobs=None, max_bytes=10, subscriber_queue=1)
+    sub = hub.subscribe(A, J)
+    other = hub.subscribe(A, J)
+    assert sub is not None and other is not None
+    assert sub.mark_slow() is True  # send timeout seen first
+    sub.push(_event())
+    sub.push(_event())  # then its queue overflows as well
+    assert sub.overflowed and hub.stats.slow_subscribers == 1
+    assert other.mark_slow() is True  # a second slow reader is its own count
+    assert hub.stats.slow_subscribers == 2
+
+
+def _event() -> LogEvent:
+    return LogEvent(kind="data", stream="stdout", file_offset=0, data=b"x")
 
 
 def test_subscribers_per_job_max_accepted_max_plus_one_refused(tmp_path: Path) -> None:

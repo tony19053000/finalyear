@@ -279,8 +279,12 @@ async def follow_logs(
         return
     except TimeoutError:
         # A send blocked for _SEND_TIMEOUT_S: the client is not reading.
+        # Its queue has usually overflowed too while the send was blocked: one
+        # slow follower is counted once (Subscription.mark_slow).
         log.info("controller.logs.slow_follower", job_id=job_id, cause="send_timeout")
-        if jobs.logs is not None:
+        if follower is not None and follower.sub is not None:
+            follower.sub.mark_slow()
+        elif jobs.logs is not None:
             jobs.logs.stats.slow_subscribers += 1
         await _close_slow(websocket)
         return

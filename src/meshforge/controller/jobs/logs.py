@@ -164,7 +164,19 @@ class Subscription:
         self.job_id = job_id
         self.queue: asyncio.Queue[LogEvent] = asyncio.Queue(size)
         self.overflowed = False
+        self.slow = False
+        """Counted in ``stats.slow_subscribers`` (at most once per reader)."""
         self.wake = asyncio.Event()
+
+    def mark_slow(self) -> bool:
+        """Count this reader as slow once, whichever way it was found slow (its
+        queue overflowed, or a send to it timed out - often both, in either
+        order). True the first time."""
+        if self.slow:
+            return False
+        self.slow = True
+        self.hub.stats.slow_subscribers += 1
+        return True
 
     def push(self, event: LogEvent) -> None:
         if self.overflowed:
@@ -173,7 +185,7 @@ class Subscription:
             self.queue.put_nowait(event)
         except asyncio.QueueFull:
             self.overflowed = True
-            self.hub.stats.slow_subscribers += 1
+            self.mark_slow()
         self.wake.set()
 
     def close(self) -> None:
