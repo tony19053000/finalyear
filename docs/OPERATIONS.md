@@ -189,7 +189,10 @@ environment (subprocess runtime; install torch there with `uv sync --extra gpu`)
   --generate-hashes` work (hash-checking install).
 - **Damaged environments are rebuilt.** Each environment remembers its file list
   (names and sizes); one whose files no longer match (deleted, added, resized) is
-  logged as `agent.envs.cache_damaged`, removed and rebuilt before any job uses it.
+  logged as `agent.envs.cache_damaged`, set aside as `<hash>.evicted-…` (deleted by a
+  later build after `[agent.envs] evicted_keep_s`, 1 day) and rebuilt before any job
+  uses it. Changing `find_links` (or its wheels), `index_url` or `no_index` gives new
+  environments (the package sources are part of the env hash).
 - **Python version (venv runtime).** `env.python: "3.11"` uses a Python 3.11
   already on this laptop (`uv python list --only-installed`); none = `python_not_found`.
   Set `[agent.envs] allow_python_downloads = true` to let uv fetch one.

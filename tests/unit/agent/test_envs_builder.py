@@ -174,7 +174,12 @@ async def test_crash_leftovers_are_cleared_before_a_rebuild(tmp_path: Path) -> N
     built = await builder.ensure_dir_env("venv", DIGEST, Recorder(), deadline=FAR)
     assert built.cache == "built"
     assert not (final / "partial.py").exists()
-    assert _visible(builder) == [DIGEST]
+    # the damaged dir is set aside (a job may still use it), the building one gone
+    names = _visible(builder)
+    assert DIGEST in names and f"{DIGEST}.building" not in names
+    assert [n for n in names if n != DIGEST] == [
+        n for n in names if n.startswith(f"{DIGEST}.evicted-")
+    ]
 
 
 @pytest.mark.asyncio
@@ -434,3 +439,98 @@ def test_a_symlink_named_pyc_in_pycache_is_damage(tmp_path: Path) -> None:
     before = tree_summary(root)
     (root / "lib" / "__pycache__" / "a.cpython-312.pyc").symlink_to("/etc/passwd")
     assert tree_summary(root) != before
+
+
+# --------------------------------------------- package sources in the hash (v3)
+def _wheels(folder: Path, files: dict[str, bytes]) -> Path:
+    folder.mkdir(parents=True, exist_ok=True)
+    for name, data in files.items():
+        (folder / name).write_bytes(data)
+    return folder
+
+
+def test_default_index_has_an_empty_source(tmp_path: Path) -> None:
+    assert EnvsConfig(root=tmp_path).source_digest() == ""
+
+
+def test_source_follows_the_wheelhouse_contents_not_its_path(tmp_path: Path) -> None:
+    files = {"a-1.0-py3-none-any.whl": b"aaaa", "b-2.0-py3-none-any.whl": b"bb"}
+    one = EnvsConfig(root=tmp_path, find_links=_wheels(tmp_path / "w1", files))
+    two = EnvsConfig(root=tmp_path, find_links=_wheels(tmp_path / "w2", files))
+    assert one.source_digest() == two.source_digest() != ""
+    before = one.source_digest()
+    (tmp_path / "w1" / "c-1.0-py3-none-any.whl").write_bytes(b"c")  # a new wheel
+    added = one.source_digest()
+    assert added != before
+    (tmp_path / "w1" / "a-1.0-py3-none-any.whl").write_bytes(b"aaaaa")  # rebuilt wheel
+    assert one.source_digest() not in {before, added}
+
+
+def test_source_follows_the_index_settings(tmp_path: Path) -> None:
+    wheels = _wheels(tmp_path / "w", {"a.whl": b"a"})
+    digests = {
+        EnvsConfig(root=tmp_path).source_digest(),
+        EnvsConfig(
+            root=tmp_path, index_url="https://m1.example/simple"
+        ).source_digest(),
+        EnvsConfig(
+            root=tmp_path, index_url="https://m2.example/simple"
+        ).source_digest(),
+        EnvsConfig(root=tmp_path, find_links=wheels).source_digest(),
+        EnvsConfig(root=tmp_path, find_links=wheels, no_index=True).source_digest(),
+    }
+    assert len(digests) == 5
+
+
+def test_a_missing_wheelhouse_still_gives_a_stable_source(tmp_path: Path) -> None:
+    config = EnvsConfig(root=tmp_path, find_links=tmp_path / "nope")
+    assert config.source_digest() == config.source_digest() != ""
+
+
+# ------------------------------------------- eviction never pulls a running env
+@pytest.mark.asyncio
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission bits")
+async def test_eviction_renames_an_env_in_use_and_a_later_build_sweeps_it(
+    tmp_path: Path,
+) -> None:
+    now = [1_000_000.0]
+    config = EnvsConfig(
+        root=tmp_path / "envs", free_disk_floor_bytes=0, evicted_keep_s=60
+    )
+    builder = EnvBuilder(
+        config, uv_argv=("u",), disk_free=lambda _p: 10**15, wall=lambda: now[0]
+    )
+    step = Recorder()
+    built = await builder.ensure_dir_env("venv", DIGEST, step, deadline=FAR)
+    with (built.path / "lib" / "mod.py").open("rb") as held:  # a job using the env
+        os.chmod(built.path / "lib", 0o700)
+        (built.path / "lib" / "planted.py").write_bytes(b"x")  # damage
+        again = await builder.ensure_dir_env("venv", DIGEST, step, deadline=FAR)
+        assert again.cache == "built"
+        (evicted,) = [p for p in _paths(builder) if ".evicted-" in p.name]
+        # renamed, not deleted: the job's files are all still there
+        assert (evicted / "lib" / "mod.py").read_bytes() == b"x" * 10
+        assert held.read() == b"x" * 10
+    now[0] += 59  # still within evicted_keep_s: another build keeps it
+    await builder.ensure_dir_env("venv", "cd" * 32, Recorder(), deadline=FAR)
+    assert evicted.exists()
+    now[0] += 2  # past it: the next build (any hash) sweeps it
+    await builder.ensure_dir_env("venv", "ef" * 32, Recorder(), deadline=FAR)
+    assert not evicted.exists()
+
+
+def _paths(builder: EnvBuilder) -> list[Path]:
+    return sorted((builder.root / "venv").iterdir())
+
+
+@pytest.mark.asyncio
+async def test_check_time_is_logged_with_the_cache_result(tmp_path: Path) -> None:
+    import structlog
+
+    builder = _builder(tmp_path)
+    await builder.ensure_dir_env("venv", DIGEST, Recorder(), deadline=FAR)
+    with structlog.testing.capture_logs() as logs:
+        hit = await builder.ensure_dir_env("venv", DIGEST, Recorder(), deadline=FAR)
+    assert hit.cache == "hit"
+    (event,) = [e for e in logs if e["event"] == "agent.envs.cache_hit"]
+    assert isinstance(event["check_s"], float) and event["check_s"] >= 0

@@ -40,7 +40,9 @@ the local base image, ``env.python`` and the normalised requirements. A build:
    built for the host OS, which is not the container's on Windows);
 3. on exit 0 checks the layer size against ``max_env_bytes`` and **commits** the
    container to ``meshforge-env:<hash>`` (labels ``meshforge.env_hash``,
-   ``meshforge.base``); the build container is always removed. A failed or killed
+   ``meshforge.base``; the base's Cmd/WorkingDir/User restored and the build's
+   cleanup labels blanked, :func:`env_image_changes`); the build container is
+   always removed. A failed or killed
    build leaves no image (a commit is atomic; a stray container is swept by label).
 
 The run container then starts from that image with ``/env`` first on
@@ -75,6 +77,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import io
+import json
 import os
 import re
 import socket
@@ -134,6 +137,7 @@ __all__ = [
     "WORKDIR_MODE",
     "DockerConfig",
     "DockerRuntime",
+    "env_image_changes",
     "prepare_workdir",
     "resolve_run_as",
 ]
@@ -740,6 +744,7 @@ class DockerRuntime:
                     python=request.python or "",
                     requirements=requirements,
                     platform=platform,
+                    source=await asyncio.to_thread(envs.config.source_digest),
                 )
             )
             obs.env_hash = digest
@@ -943,7 +948,7 @@ class DockerRuntime:
         async def commit(container: Container, outcome: _Exit) -> None:
             if outcome.timed_out or outcome.oom_killed or outcome.exit_code != 0:
                 return
-            await self._commit_env(container, tag, deadline)
+            await self._commit_env(container, tag, deadline, base)
 
         try:
             outcome = await self._container(
@@ -977,7 +982,7 @@ class DockerRuntime:
             )
 
     async def _commit_env(
-        self, container: Container, tag: str, deadline: float
+        self, container: Container, tag: str, deadline: float, base: str
     ) -> None:
         """Size check, then commit the build container to ``tag``. A commit of a
         large layer outlives a normal API call, so it gets its own client whose
@@ -1006,7 +1011,13 @@ class DockerRuntime:
                 size = int(info.get("SizeRw") or 0) if isinstance(info, Mapping) else 0
                 sizes.append(size)
                 envs.check_size(size)  # EnvError before anything is saved
-                committer.api.commit(container_id, repository=repo, tag=name)
+                base_config = committer.images.get(base).attrs.get("Config") or {}
+                committer.api.commit(
+                    container_id,
+                    repository=repo,
+                    tag=name,
+                    changes=env_image_changes(base_config),
+                )
             finally:
                 committer.close()
 
@@ -1280,6 +1291,30 @@ class DockerRuntime:
                 "agent.execution.cleanup_failed",
                 cause=type(task.exception()).__name__,
             )
+
+
+_BUILD_ONLY_LABELS: Final = (LABEL_MANAGED, LABEL_AGENT, LABEL_ATTEMPT, LABEL_ROLE)
+
+
+def env_image_changes(base_config: Mapping[str, Any]) -> list[str]:
+    """Dockerfile instructions applied at commit so the env image looks like its
+    base plus ``/env``: the base's ``Cmd``/``WorkingDir``/``User`` back (not the
+    build's ``pip install``, ``/tmp``, build user), and the build container's
+    cleanup labels (agent, attempt, role, managed) **blanked** - Docker merges a
+    container's labels into the committed image and cannot delete one, so they are
+    set to ``""`` (no label filter matches an empty value). The image keeps
+    ``meshforge.env_hash`` and ``meshforge.base`` (and the base's own labels)."""
+    cmd = base_config.get("Cmd")
+    user = str(base_config.get("User") or "") or "root"
+    workdir = str(base_config.get("WorkingDir") or "") or "/"
+    changes = [
+        "LABEL " + " ".join(f'{label}=""' for label in _BUILD_ONLY_LABELS),
+        f"WORKDIR {workdir}",
+        f"USER {user}",
+    ]
+    if isinstance(cmd, list) and cmd:
+        changes.append("CMD " + json.dumps([str(part) for part in cmd]))
+    return changes
 
 
 _PINNED_DIGEST: Final = re.compile(r"sha256:[0-9a-f]{64}")

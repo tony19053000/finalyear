@@ -287,10 +287,10 @@ def _docker_image_local(image: str) -> bool:
     return True
 
 
-def _images_for(label: str) -> list[str]:
-    """Env images this test's runtime built: the image inherits the build
-    container's ``meshforge.agent=<label>`` (unique per test), so this never
-    touches another test's or lane's images."""
+def _images_for(env_hash: str | None) -> list[str]:
+    """The env image of one hash (unique per test: its package name is random)."""
+    if not env_hash:
+        return []
     from meshforge.agent.execution.docker_support import open_client
 
     client = open_client(30)
@@ -298,7 +298,7 @@ def _images_for(label: str) -> list[str]:
         return [
             tag
             for image in client.images.list(
-                filters={"label": f"meshforge.agent={label}"}
+                filters={"label": f"meshforge.env_hash={env_hash}"}
             )
             for tag in image.tags
         ]
@@ -330,6 +330,7 @@ async def test_docker_env_image_built_once_then_reused_read_only(
 ) -> None:
     pytest.importorskip("docker", reason="needs the agent extra (docker SDK)")
     from meshforge.agent.execution.docker_runtime import (
+        ENV_IMAGE_REPO,
         DockerConfig,
         DockerRuntime,
     )
@@ -343,7 +344,7 @@ async def test_docker_env_image_built_once_then_reused_read_only(
     cold, cold_log, _ = await _run(
         runtime, _job(tmp_path, "docker", package, image=PYTHON_CPU_IMAGE)
     )
-    env_images.extend(_images_for(label))
+    env_images.extend(_images_for(cold.env_hash))
     assert cold.ok, cold_log.text()
     assert cold.env_cache == "built"
     assert "BLOCKED 2" in cold_log.text()  # /env is read-only to the job
@@ -356,6 +357,29 @@ async def test_docker_env_image_built_once_then_reused_read_only(
     assert "Successfully installed" not in warm_log.text()
     assert warm.env_s <= ENV_OVERHEAD_BOUND_S
     _report("docker", cold, warm)
+    # the env image looks like its base plus /env: no build command, no build
+    # user/workdir, no per-agent/attempt labels (blanked: Docker cannot delete them)
+    from meshforge.agent.execution.docker_support import open_client as _open
+
+    inspector = _open(30)
+    try:
+        config = inspector.images.get(f"{ENV_IMAGE_REPO}:{cold.env_hash}").attrs[
+            "Config"
+        ]
+        base_config = inspector.images.get(PYTHON_CPU_IMAGE).attrs["Config"]
+    finally:
+        inspector.close()
+    labels = {k: v for k, v in (config.get("Labels") or {}).items() if v}
+    base_labels = {k: v for k, v in (base_config.get("Labels") or {}).items() if v}
+    assert labels == {
+        **base_labels,
+        "meshforge.env_hash": cold.env_hash,
+        "meshforge.base": PYTHON_CPU_IMAGE,
+    }
+    assert config["Cmd"] == base_config["Cmd"]
+    assert "pip" not in " ".join(config.get("Cmd") or [])
+    assert config["WorkingDir"] in (base_config.get("WorkingDir") or "/", "/")
+    assert config["User"] in ("root", base_config.get("User") or "root")
     # nothing left behind: no build or run container with this test's label
     from meshforge.agent.execution.docker_support import open_client
 
@@ -398,6 +422,6 @@ async def test_docker_failed_build_leaves_no_image(
     result, log, _ = await _run(runtime, spec)
     assert result.failure_type is FailureType.ENV_ERROR, log.text()
     assert result.reason == "setup_failed"
-    env_images.extend(_images_for(label))
+    env_images.extend(_images_for(result.env_hash))
     assert result.env_hash
     assert not _docker_image_local(f"{ENV_IMAGE_REPO}:{result.env_hash}")

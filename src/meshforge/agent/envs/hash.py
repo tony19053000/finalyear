@@ -11,6 +11,9 @@
 ``requirements``   the **normalised** requirements bytes (below), hashed
 ``platform``       Docker: ``<os>/<arch>`` of the local base image;
                    venv/subprocess: the interpreter's ``sysconfig.get_platform()``
+``source``         sha256 of the node's package sources (``[agent.envs]``
+                   ``index_url``, ``no_index`` and the file names + sizes of a
+                   ``find_links`` wheelhouse); ``""`` = the default index
 =================  ==========================================================
 
 The canonical form is JSON with sorted keys, no whitespace, ASCII only, plus a
@@ -57,8 +60,10 @@ __all__ = [
     "normalize_requirements",
 ]
 
-ENV_HASH_VERSION: Final = 2
-"""2 (2026-10-01): PEP 503 names + canonical specifier spelling (G2 fix round)."""
+ENV_HASH_VERSION: Final = 3
+"""2 (2026-10-01): PEP 503 names + canonical specifier spelling (G2 fix round);
+3 (2026-10-01): the node's package sources (``source``) are an input (G2 review)."""
+_HEX64: Final = re.compile(r"[0-9a-f]{64}")
 RUNTIME_KINDS: Final = frozenset({"docker", "venv", "subprocess"})
 _FIELD_MAX: Final = 256
 _COMMENT: Final = re.compile(r"(^|\s)#.*$")
@@ -102,8 +107,14 @@ class EnvInputs:
     requirements: bytes
     """Already normalised (:func:`normalize_requirements`)."""
     platform: str
+    source: str = ""
+    """sha256 hex of the node's package sources (``[agent.envs]`` index_url /
+    find_links contents / no_index, :meth:`EnvsConfig.source_digest`); ``""`` =
+    the default index. Same requirements from another wheelhouse are another env."""
 
     def __post_init__(self) -> None:
+        if self.source and not _HEX64.fullmatch(self.source):
+            raise ValueError("source must be empty or 64 lowercase hex characters")
         if self.runtime_kind not in RUNTIME_KINDS:
             raise ValueError(f"runtime_kind must be one of {sorted(RUNTIME_KINDS)}")
         for name in ("base", "python", "platform"):
@@ -125,6 +136,7 @@ def canonical_bytes(inputs: EnvInputs) -> bytes:
         "python": inputs.python,
         "requirements_sha256": hashlib.sha256(inputs.requirements).hexdigest(),
         "platform": inputs.platform,
+        "source": inputs.source,
     }
     return json.dumps(
         document, sort_keys=True, separators=(",", ":"), ensure_ascii=True

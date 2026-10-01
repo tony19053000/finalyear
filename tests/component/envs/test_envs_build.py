@@ -257,3 +257,14 @@ async def test_hashed_requirements_file_builds_and_a_wrong_hash_fails(
             deadline=1e18,
         )
     assert info.value.reason == "setup_failed"
+
+
+@pytest.mark.asyncio
+async def test_a_changed_wheelhouse_gives_a_new_env(
+    tmp_path: Path, wheelhouse: Path
+) -> None:
+    builder = offline_builder(tmp_path / "envs", wheelhouse)
+    one = await builder.ensure_target(requirements=REQ, deadline=1e18)
+    make_wheel(wheelhouse, "mfother", "1.0")  # the node's wheelhouse changed
+    two = await builder.ensure_target(requirements=REQ, deadline=1e18)
+    assert two.env_hash != one.env_hash and two.cache == "built"

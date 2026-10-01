@@ -409,3 +409,19 @@ def test_cuda_pytorch_with_only_venv_offered_is_no_feasible_plan(
             workdir=tmp_path,
         )
     assert info.value.failure_type is FailureType.NO_FEASIBLE_PLAN
+
+
+def test_env_image_changes_restore_the_base_and_blank_build_labels() -> None:
+    changes = dr.env_image_changes(
+        {"Cmd": ["python3"], "WorkingDir": "", "User": "", "Labels": {"x": "1"}}
+    )
+    assert changes[0] == (
+        'LABEL meshforge.managed="" meshforge.agent="" meshforge.attempt_id="" '
+        'meshforge.role=""'
+    )
+    assert "WORKDIR /" in changes and "USER root" in changes
+    assert 'CMD ["python3"]' in changes
+    assert not any("pip" in c for c in changes)
+    torch = dr.env_image_changes({"Cmd": None, "WorkingDir": "/workspace", "User": "1"})
+    assert "WORKDIR /workspace" in torch and "USER 1" in torch
+    assert not any(c.startswith("CMD") for c in torch)

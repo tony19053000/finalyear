@@ -27,10 +27,11 @@ pytestmark = pytest.mark.unit
 REQ = b"# deps\nrequests==2.32.3\nnumpy==2.1.0  # pinned\n\n"
 NORMALISED = b"numpy==2.1.0\nrequests==2.32.3\n"
 # v2 (2026-10-01, G2 fix round): PEP 503 names + canonical specifiers - re-pinned
-GOLDEN_VENV = "11c093e4cf21898b4672d8777aa468a1fb421d4e5408426c6694cba3b465e59d"
-GOLDEN_DOCKER = "cd1894daab0cd44e70980fad4b3371d39784b717110c669508a1ea9fc7d0ac3b"
+# v3 (2026-10-01, G2 review): `source` (node package sources) added - re-pinned
+GOLDEN_VENV = "29660febbaa2fb13c6b1e73137b1eb758c6a708d0735d8ef992115baa9d1870e"
+GOLDEN_DOCKER = "5289250a9339d224cb4534e29ac29876e742926013c8d3a709c94c95f097ef88"
 GOLDEN_EMPTY_SUBPROCESS = (
-    "92299e8d4084d0cc4630badb9e7f441fc151e99a53ba16e5647ca37a9654cbbc"
+    "249e4d14b06ffea1b505291396b6143db4d60571312911f95c88f4bfcc92d2e9"
 )
 
 
@@ -55,11 +56,11 @@ def test_canonical_bytes_golden() -> None:
         b'{"base":"cpython-3.12.3","platform":"linux-x86_64","python":"3.12",'
         b'"requirements_sha256":"'
         + hashlib.sha256(NORMALISED).hexdigest().encode()
-        + b'","runtime_kind":"venv","v":2}'
+        + b'","runtime_kind":"venv","source":"","v":3}'
     )
     assert canonical_bytes(_venv()) == expected
     assert hashlib.sha256(expected).hexdigest() == GOLDEN_VENV
-    assert ENV_HASH_VERSION == 2
+    assert ENV_HASH_VERSION == 3
 
 
 def test_env_hash_golden_values() -> None:
@@ -134,6 +135,7 @@ def test_url_fragment_hash_sign_is_not_a_comment() -> None:
         ("python", "3.11"),
         ("python", ""),
         ("platform", "win-amd64"),
+        ("source", "cd" * 32),
     ],
 )
 def test_each_input_changes_the_hash(field: str, value: str) -> None:
@@ -281,3 +283,9 @@ def test_glued_or_empty_source_options_are_refused(line: bytes) -> None:
 )
 def test_other_or_network_options_are_kept(line: bytes) -> None:
     assert line in normalize_requirements(line + b"\n")
+
+
+@pytest.mark.parametrize("bad", ["x", "AB" * 32, "ab" * 31])
+def test_source_must_be_empty_or_hex64(bad: str) -> None:
+    with pytest.raises(ValueError, match="source"):
+        _venv(NORMALISED, source=bad)

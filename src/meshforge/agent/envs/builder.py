@@ -16,7 +16,10 @@ build time (entry count, bytes, sha256 of the sorted path/type/size listing: one
 ``lstat`` per file, ~10-50 ms for a venv of a few thousand files; no file is
 read, so a same-size in-place edit is not caught - the tree is read-only). A
 damaged env is never used: it is logged (``agent.envs.cache_damaged``), evicted
-and rebuilt under the lock. Otherwise it takes the build lock, checks again (another process
+(renamed ``<hash>.evicted-<time>-<id>``, deleted by a later build after
+``evicted_keep_s``: a job still running in it is not pulled from under) and rebuilt
+under the lock. The check time is logged as ``check_s`` with every cache result.
+Otherwise it takes the build lock, checks again (another process
 may have finished meanwhile - the waiter then reuses it: ``cache = "waited"``),
 removes any leftover ``.building`` (a crashed build), checks the free-disk floor,
 builds into ``<hash>.building``, checks the size cap, writes the marker, makes the
@@ -39,8 +42,10 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import errno
+import hashlib
 import json
 import os
+import secrets
 import shutil
 import sys
 import time
@@ -124,6 +129,7 @@ class EnvsConfig:
     no_index: bool = False
     index_url: str | None = None
     allow_python_downloads: bool = False
+    evicted_keep_s: float = 86_400.0
 
     @classmethod
     def from_settings(cls, settings: AgentSettings) -> EnvsConfig:
@@ -138,7 +144,35 @@ class EnvsConfig:
             no_index=cfg.no_index,
             index_url=cfg.index_url,
             allow_python_downloads=cfg.allow_python_downloads,
+            evicted_keep_s=cfg.evicted_keep_s,
         )
+
+    def source_digest(self) -> str:
+        """The env hash ``source`` input: sha256 of the canonical package-source
+        settings, ``""`` for the default index. A ``find_links`` wheelhouse is
+        represented by the names and sizes of its files (not its path: two nodes
+        with the same wheels share envs; a changed wheel gives a new env). Blocking
+        (one ``scandir``)."""
+        if self.index_url is None and self.find_links is None and not self.no_index:
+            return ""
+        wheels: list[list[object]] | str | None = None
+        if self.find_links is not None:
+            try:
+                with os.scandir(self.find_links) as found:
+                    wheels = sorted(
+                        [entry.name, entry.stat(follow_symlinks=False).st_size]
+                        for entry in found
+                        if entry.is_file(follow_symlinks=False)
+                    )
+            except OSError:
+                wheels = "unreadable"
+        document = {
+            "index_url": self.index_url,
+            "no_index": self.no_index,
+            "find_links": wheels,
+        }
+        canonical = json.dumps(document, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(canonical.encode("utf-8", "surrogatepass")).hexdigest()
 
     def index_options(self) -> list[str]:
         """Installer options for the configured index / wheelhouse."""
@@ -198,10 +232,12 @@ class EnvBuilder:
         uv_argv: Sequence[str] | None = None,
         clock: Callable[[], float] = time.monotonic,
         disk_free: Callable[[Path], int] | None = None,
+        wall: Callable[[], float] = time.time,
     ) -> None:
         self.config = config
         self.uv_argv = tuple(uv_argv) if uv_argv is not None else default_uv_argv()
         self._clock = clock
+        self._wall = wall
         self._disk_free = disk_free or _disk_free
         self._interpreters: dict[str, Interpreter] = {}
 
@@ -335,13 +371,15 @@ class EnvBuilder:
         missing (module docstring)."""
         fields = {"env_hash": digest, "kind": kind, **(log_fields or {})}
         final = self.env_dir(kind, digest)
+        checked = self._clock()
         state = await _to_thread(self.env_state, kind, digest)
+        check_s = round(self._clock() - checked, 4)
         if state == "ready":
-            log.info("agent.envs.cache_hit", **fields)
+            log.info("agent.envs.cache_hit", **fields, check_s=check_s)
             return BuiltEnv(digest, kind, final, "hit")
         if state == "damaged":
             # never used: evicted and rebuilt under the lock below
-            log.warning("agent.envs.cache_damaged", **fields)
+            log.warning("agent.envs.cache_damaged", **fields, check_s=check_s)
         started = self._clock()
         async with self.lock(digest, deadline=deadline):
             if await _to_thread(self.is_ready, kind, digest):
@@ -389,13 +427,43 @@ class EnvBuilder:
         return BuiltEnv(digest, kind, final, "built", build_s=build_s, size_bytes=size)
 
     def _clear(self, final: Path, building: Path) -> None:
-        """Under the lock: a leftover ``.building`` is a crashed build; a ``<hash>``
-        without a valid marker is damaged - both go."""
+        """Under the lock: a leftover ``.building`` (a crashed build) is removed; a
+        ``<hash>`` that is not ready (damaged, or no marker) is **renamed** to
+        ``<hash>.evicted-<unix time>-<id>`` - never deleted here, because a running
+        job may still be using it (Windows cannot delete files in use, and a POSIX
+        job would lose files under it). Evicted dirs older than
+        ``evicted_keep_s`` are deleted (best effort) by :meth:`_sweep_evicted`."""
         final.parent.mkdir(parents=True, exist_ok=True)
         if os.name == "posix":
             final.parent.chmod(0o700)
         remove_tree(building)
-        remove_tree(final)
+        if os.path.lexists(final):
+            evicted = final.with_name(
+                f"{final.name}.evicted-{int(self._wall())}-{secrets.token_hex(3)}"
+            )
+            os.replace(final, evicted)
+            log.warning(
+                "agent.envs.evicted", env_hash=final.name, kind=final.parent.name
+            )
+        self._sweep_evicted(final.parent)
+
+    def _sweep_evicted(self, folder: Path) -> None:
+        """Delete ``*.evicted-<time>-*`` dirs in ``folder`` older than
+        ``evicted_keep_s``; one that cannot be removed now stays for the next sweep."""
+        now = self._wall()
+        for entry in folder.glob("*.evicted-*"):
+            try:
+                stamp = int(entry.name.rsplit(".evicted-", 1)[1].split("-", 1)[0])
+            except (IndexError, ValueError):
+                stamp = 0
+            if now - stamp < self.config.evicted_keep_s:
+                continue
+            try:
+                remove_tree(entry)
+            except OSError as exc:
+                log.info(
+                    "agent.envs.evicted_kept", path=entry.name, cause=type(exc).__name__
+                )
 
     def _seal(
         self, building: Path, final: Path, kind: str, digest: str, size: int
@@ -548,6 +616,7 @@ class EnvBuilder:
                 python=python or "",
                 requirements=requirements,
                 platform=interpreter.platform,
+                source=await _to_thread(self.config.source_digest),
             )
         )
 
@@ -611,6 +680,7 @@ class EnvBuilder:
                 python="",
                 requirements=requirements,
                 platform=_platform(),
+                source=await _to_thread(self.config.source_digest),
             )
         )
 

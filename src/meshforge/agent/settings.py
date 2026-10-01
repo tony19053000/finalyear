@@ -608,6 +608,15 @@ class EnvsSettings(SectionModel):
         default=None,
         description="Package index URL (http(s), no credentials); empty = PyPI.",
     )
+    evicted_keep_s: float = Field(
+        default=86_400.0,
+        ge=0.0,
+        le=30 * 86_400.0,
+        description=(
+            "A damaged env is renamed <hash>.evicted-<time>-<id> (a running job may "
+            "still use it) and deleted by a later build once older than this."
+        ),
+    )
     allow_python_downloads: bool = Field(
         default=False,
         description=(
