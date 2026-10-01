@@ -264,3 +264,20 @@ def test_env_error_survives_pickling() -> None:
 def test_normalisation_is_idempotent(raw: bytes) -> None:
     once = normalize_requirements(raw)
     assert normalize_requirements(once) == once
+
+
+@pytest.mark.parametrize(
+    "line",
+    [b"-ifile:///srv/index", b"-f/abs/wheels", b"--find-links", b"-f https:///nohost"],
+)
+def test_glued_or_empty_source_options_are_refused(line: bytes) -> None:
+    with pytest.raises(EnvError):
+        normalize_requirements(line + b"\nfoo==1\n")
+
+
+@pytest.mark.parametrize(
+    "line",
+    [b"--trusted-host mirror.example", b"--prefer-binary", b"-i https://m.example/s"],
+)
+def test_other_or_network_options_are_kept(line: bytes) -> None:
+    assert line in normalize_requirements(line + b"\n")

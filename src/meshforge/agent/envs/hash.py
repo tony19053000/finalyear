@@ -80,8 +80,12 @@ _REQUIREMENT: Final = re.compile(
     r"(?P<spec>[^;@]*?)\s*"
     r"(?:;\s*(?P<marker>.*))?"
 )
-_REMOTE_URL: Final = re.compile(
-    r"(?:https?|(?:git|hg|svn|bzr)\+(?:https?|ssh|git))://\S+", re.IGNORECASE
+_HTTP_URL: Final = re.compile(r"https?://[^\s/\\][^\s]*", re.IGNORECASE)
+_VCS_URL: Final = re.compile(
+    r"(?:git|hg|svn|bzr)\+(?:https?|ssh|git)://[^\s/\\][^\s]*", re.IGNORECASE
+)
+_URL_OPTIONS: Final = frozenset(
+    {"--index-url", "-i", "--extra-index-url", "--find-links", "-f"}
 )
 """Direct references the hash can stand for: http(s), or a VCS over a network
 scheme. ``git+file://``, ``git+/path``, ``ftp:``, ``data:`` ... are refused."""
@@ -182,10 +186,38 @@ def _pep503(name: str) -> str:
     return _NAME_RUNS.sub("-", name).lower()
 
 
+def is_remote_url(value: str, *, vcs: bool) -> bool:
+    """The one network-URL rule for everything the hash names but does not contain:
+    an ``http(s)://host...`` URL, or (``vcs``) a ``git+/hg+/svn+/bzr+`` URL over
+    http(s)/ssh/git. Local paths, ``file:``, ``data:`` ... are not."""
+    return bool(_HTTP_URL.fullmatch(value) or (vcs and _VCS_URL.fullmatch(value)))
+
+
+def _check_option_line(line: str, number: int) -> None:
+    """Global options whose value is a package source must name a network URL
+    (``--index-url``/``-i``, ``--extra-index-url``, ``--find-links``/``-f``)."""
+    first, _, rest = line.partition(" ")
+    if first.startswith("--") and "=" in first:
+        name, value = first.split("=", 1)
+    elif not first.startswith("--") and len(first) > 2:
+        name, value = first[:2], first[2:]  # -f../w, -ifile:///x
+    else:
+        name, value = first, rest.strip()
+    if name in _URL_OPTIONS and not is_remote_url(value.strip(), vcs=False):
+        raise _rejected(
+            f"requirements line {number}: {name} must be an http(s) URL - a local "
+            "index or wheel folder is not covered by the env hash (use "
+            "[agent.envs] find_links on the node instead)"
+        )
+
+
 def _canonical_line(line: str, number: int) -> str:
     """One requirement line in its single spelling (module docstring); option
     lines (``--index-url ...``) and bare URLs are kept as written."""
-    if line.startswith("-") or "://" in line.split("@", 1)[0]:
+    if line.startswith("-"):
+        _check_option_line(line, number)
+        return line
+    if "://" in line.split("@", 1)[0]:
         return line
     parts = _OPTION_SPLIT.split(line, maxsplit=1)
     canonical = _canonical_requirement(parts[0], number)
@@ -237,7 +269,7 @@ def _canonical_requirement(line: str, number: int) -> str:
     tail = f" ; {_SPACES.sub(' ', marker).strip()}" if marker else ""
     url = match["url"]
     if url is not None:
-        if not _REMOTE_URL.fullmatch(url):
+        if not is_remote_url(url, vcs=True):
             raise _rejected(
                 f"requirements line {number}: a direct reference must be an http(s) "
                 "or VCS URL - a local path's contents are not covered by the env hash"

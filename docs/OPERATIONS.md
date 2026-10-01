@@ -181,7 +181,8 @@ environment (subprocess runtime; install torch there with `uv sync --extra gpu`)
   (no credentials in the URL).
 - **What is refused** (`env_error / requirements_rejected`): `-r`/`-c`/`-e` lines,
   local paths, `file:` URLs and `name @ <anything but an http(s) URL or a git+/hg+/svn+/bzr+
-  URL over http(s)/ssh/git>` (so `git+file://` is refused too) - their contents are not covered by the env hash, so two different
+  URL over http(s)/ssh/git>` (so `git+file://` is refused too), and `--index-url`/`--extra-index-url`/`--find-links`
+  lines whose value is not an http(s) URL - their contents are not covered by the env hash, so two different
   environments could share one. Inline those requirements, or serve the wheel from
   `[agent.envs] find_links`. Name spelling does not matter: `Requests == 2` and
   `requests==2` share one environment. Hashed files from `pip-compile

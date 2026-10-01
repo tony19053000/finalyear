@@ -422,3 +422,15 @@ def test_a_marker_without_a_summary_is_damaged(tmp_path: Path) -> None:
         '{"v": 1, "env_hash": "' + DIGEST + '", "kind": "venv"}'
     )
     assert builder.env_state("venv", DIGEST) == "damaged"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="symlinks need privileges there")
+def test_a_symlink_named_pyc_in_pycache_is_damage(tmp_path: Path) -> None:
+    from meshforge.agent.envs.fsutil import tree_summary
+
+    root = tmp_path / "t"
+    (root / "lib" / "__pycache__").mkdir(parents=True)
+    (root / "lib" / "a.py").write_text("x")
+    before = tree_summary(root)
+    (root / "lib" / "__pycache__" / "a.cpython-312.pyc").symlink_to("/etc/passwd")
+    assert tree_summary(root) != before

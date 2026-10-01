@@ -179,9 +179,9 @@ def tree_summary(root: Path, *, skip_root_names: Collection[str] = ()) -> TreeSu
         for name in [*filenames, *links]:
             if at_root and name in skip_root_names:
                 continue
-            if in_bytecode_dir and name.endswith(".pyc") and name not in links:
-                continue
             info = os.lstat(os.path.join(dirpath, name))
+            if in_bytecode_dir and name.endswith(".pyc") and stat.S_ISREG(info.st_mode):
+                continue  # regular bytecode only: a symlink there is damage
             kind = "l" if stat.S_ISLNK(info.st_mode) else "f"
             rel = name if at_root else f"{rel_dir}/{name}"
             entries.append(f"{rel.replace(os.sep, '/')}\0{kind}\0{info.st_size}")
