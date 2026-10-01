@@ -372,8 +372,16 @@ def get(
         keep_tmp = False
         try:
             archive = tmp / "outputs.bundle"
-            cli._fetch(lambda: client.download_blob(hex_digest, archive))
-            if _sha256(archive) != hex_digest:
+            try:
+                cli._fetch(lambda: client.download_blob(hex_digest, archive))
+                matches = _sha256(archive) == hex_digest
+            except OSError as exc:
+                cli._die(
+                    f"cannot save the outputs to {archive}: {_os_cause(exc)}; "
+                    f"{target} was left as it was",
+                    ExitCode.FAILURE,
+                )
+            if not matches:
                 cli._die(
                     "the downloaded outputs do not match their digest; nothing was "
                     "unpacked",

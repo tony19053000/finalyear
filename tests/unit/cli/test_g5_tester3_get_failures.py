@@ -223,11 +223,6 @@ def test_corrupt_bundle_with_matching_digest_is_a_bundle_error(
 # ------------------------------------------------- download / verify failures
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT: OSError while writing the download (disk full) is not caught "
-    "by `compute get` and escapes as a traceback",
-)
 def test_download_oserror_is_one_clean_line(
     runner: CliRunner,
     served: Callable[[], None],

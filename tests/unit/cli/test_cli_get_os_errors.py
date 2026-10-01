@@ -221,3 +221,28 @@ def test_get_keeps_the_parked_folder_when_the_rollback_fails(
     assert not existing.exists()
     [staging] = _temp_dirs(existing.parent)
     assert parked == staging / "old"
+
+
+# ------------------------------------------------ D-1: download / sha256
+
+
+def test_oserror_while_hashing_the_download_is_a_clean_error(
+    runner: CliRunner,
+    served: Callable[[], None],
+    existing: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    before = _snapshot(existing)
+    served()
+
+    def unreadable(path: Path) -> str:
+        raise OSError(errno.EIO, os.strerror(errno.EIO), str(path))
+
+    monkeypatch.setattr(job_commands, "_sha256", unreadable)
+    code, out = _get(runner, existing)
+    assert code == ExitCode.FAILURE, out
+    assert "cannot save the outputs to" in out and "outputs.bundle" in out
+    assert os.strerror(errno.EIO) in out
+    assert len(out.strip().splitlines()) == 1
+    assert _snapshot(existing) == before
+    assert _temp_dirs(existing.parent) == []
