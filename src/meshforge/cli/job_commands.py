@@ -8,10 +8,13 @@ on the one Typer application.
 
 ``compute run [PATH] (--node ID | --local) [-f]``:
 
-1. read the manifest (``compute.yaml``, or inferred - D46) and pack the project
-   into a deterministic bundle (D47) in a temporary folder;
-2. ``HEAD`` the bundle; ``PUT`` it only when the controller does not have it;
-3. ``POST /v1/jobs`` with an ``Idempotency-Key``: ``--idempotency-key`` or a
+1. read the manifest (``compute.yaml``, or inferred - D46) and build the
+   project's tree manifest (V0.5 D81: one blob per file, same ignore rules as
+   bundles);
+2. upload only what the controller lacks (:mod:`.transfer`: have/need, large
+   files in resumable parts) and print ``uploaded N files / X bytes, skipped M``
+   to stderr - an unchanged project uploads nothing;
+3. ``POST /v1/jobs`` with the ``tree_id`` and an ``Idempotency-Key``: ``--idempotency-key`` or a
    generated one, **printed to stderr** so re-running the same command after a
    network error can pass it back and get the same job, not a second one;
 4. with ``--follow``: stream the logs until the job ends and exit with the job's
@@ -112,9 +115,10 @@ def run(
     ] = None,
 ) -> None:
     """Submit a project as a job (and optionally follow it)."""
-    from meshforge.common.bundle import BundleError, pack_to_file
+    from meshforge.cli.transfer import TransferError, upload_tree
     from meshforge.common.local_node import LocalNodeError, read_local_node_id
     from meshforge.common.manifest import ManifestError, load_manifest, sanitize_name
+    from meshforge.common.tree import TreeError, build_tree
 
     if (node is None) == (not local):
         cli._die("give exactly one of --node NODE_ID or --local", ExitCode.USAGE_ERROR)
@@ -140,37 +144,50 @@ def run(
     body_manifest = manifest.canonical_dict()
     if name is not None:
         body_manifest["name"] = sanitize_name(name)
-    with tempfile.TemporaryDirectory(prefix="meshforge-run-") as tmp:
-        bundle = Path(tmp) / "project.bundle"
+    try:
+        built = build_tree(project)
+    except (TreeError, OSError) as exc:
+        reason = exc.message if isinstance(exc, TreeError) else type(exc).__name__
+        cli._die(f"cannot read {path}: {reason}", ExitCode.FAILURE)
+    with cli._client(settings) as client:
         try:
-            packed = pack_to_file(project, bundle)
-        except BundleError as exc:
-            cli._die(f"cannot pack {path}: {exc.message}", ExitCode.FAILURE)
-        with cli._client(settings) as client:
-            hex_digest = packed.digest.hex
-            if not cli._fetch(lambda: client.has_blob(hex_digest)):
-                cli._fetch(lambda: client.put_blob(hex_digest, bundle))
-            if idempotency_key is None:
-                typer.echo(
-                    f"{cli.PROG_NAME}: idempotency key {key} (after a network error, "
-                    f"re-run with --idempotency-key {key} to avoid a second job)",
-                    err=True,
-                )
-            created = cli._fetch(
-                lambda: client.submit_job(
-                    {
-                        "manifest": body_manifest,
-                        "bundle_digest": str(packed.digest),
-                        "placement": {"node_id": node_id, "local": local},
-                    },
-                    idempotency_key=key,
-                )
+            report = cli._fetch(lambda: upload_tree(client, built))
+        except (TransferError, OSError) as exc:
+            reason = (
+                exc.message if isinstance(exc, TransferError) else type(exc).__name__
             )
-            job_id = str(created.get("job_id"))
-            typer.echo(job_id)
-            if not follow:
-                return
-            _follow_to_exit(client, job_id, settings.cli.timeout_s)
+            cli._die(f"upload failed: {reason}", ExitCode.FAILURE)
+        typer.echo(
+            f"{cli.PROG_NAME}: uploaded {report.uploaded_blobs} files / "
+            f"{report.uploaded_bytes} bytes, skipped {report.skipped_blobs}"
+            + (
+                f" (resumed {report.resumed_parts} parts)"
+                if report.resumed_parts
+                else ""
+            ),
+            err=True,
+        )
+        if idempotency_key is None:
+            typer.echo(
+                f"{cli.PROG_NAME}: idempotency key {key} (after a network error, "
+                f"re-run with --idempotency-key {key} to avoid a second job)",
+                err=True,
+            )
+        created = cli._fetch(
+            lambda: client.submit_job(
+                {
+                    "manifest": body_manifest,
+                    "tree_id": str(built.tree.tree_id),
+                    "placement": {"node_id": node_id, "local": local},
+                },
+                idempotency_key=key,
+            )
+        )
+        job_id = str(created.get("job_id"))
+        typer.echo(job_id)
+        if not follow:
+            return
+        _follow_to_exit(client, job_id, settings.cli.timeout_s)
 
 
 def _new_key() -> str:
