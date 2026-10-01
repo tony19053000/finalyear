@@ -5,9 +5,11 @@ One :class:`Executor` per agent process. The session client hands it every new
 means "held", D66); each accepted attempt then runs as **one task** that owns it
 from start to its terminal report:
 
-``ASSIGNED`` (the command) -> ``STAGING`` (fetch the bundle with the attempt's
-fetch token, verify its digest, unpack it hostile-input-safe into
-``<work root>/<attempt_id>``) -> ``ENV_READY`` + ``RUNNING`` (reported when the
+``ASSIGNED`` (the command) -> ``STAGING`` (a tree job, V0.5: fetch the tree's
+missing blobs into the agent's CAS and copy them into ``<work root>/<attempt_id>``
+hashing while copying, :func:`.fetch.stage_tree`; a V0.4 bundle job: fetch the
+bundle with the attempt's fetch token, verify its digest, unpack it
+hostile-input-safe) -> ``ENV_READY`` + ``RUNNING`` (reported when the
 runtime starts the workload - image pull and requirements install happen before,
 in the runtime's env phase) -> ``UPLOADING`` (a successful run's declared outputs
 are collected, packed and uploaded with the attempt's upload grant,
@@ -71,11 +73,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Final, Protocol
 
+from meshforge.agent.cas import AgentCas
 from meshforge.agent.execution.fetch import (
     FetchError,
     UploadError,
     blob_base_url,
     fetch_bundle,
+    stage_tree,
+    tree_sources,
     upload_blob,
 )
 from meshforge.agent.execution.logs import AttemptLogs, Chunk, file_sha256
@@ -197,6 +202,7 @@ class Executor:
         upload: Callable[..., Awaitable[int]] = upload_blob,
         resend: Resender | None = None,
         log_sink: LogSink | None = None,
+        cas: AgentCas | None = None,
     ) -> None:
         self._settings = settings
         self._cfg = settings.agent.execution
@@ -212,6 +218,8 @@ class Executor:
         self._log_sink = log_sink
         self.log_chunks_dropped = 0
         self.work_root = work_root_for(settings)
+        self.cas = cas if cas is not None else AgentCas.at(settings.data_dir)
+        """V0.5 G1: the blob cache tree jobs are staged from (D84)."""
         self._attempts: dict[str, _Attempt] = {}
         self._finished: OrderedDict[tuple[str, int], None] = OrderedDict()
         self._by_terminal_message: dict[str, str] = {}
@@ -583,7 +591,7 @@ class Executor:
         attempt.runtime = plan.runtime
         await self._send(attempt, AttemptState.STAGING)
         stage_started = self._clock()
-        await self._stage(attempt, plan, workdir)
+        await self._stage(attempt, plan, workdir, msg.spec)
         attempt.phases["stage_s"] = self._clock() - stage_started
         logs = await asyncio.to_thread(
             AttemptLogs,
@@ -596,8 +604,17 @@ class Executor:
         finally:
             logs.close()
 
-    async def _stage(self, attempt: _Attempt, plan: AttemptPlan, workdir: Path) -> None:
+    async def _stage(
+        self,
+        attempt: _Attempt,
+        plan: AttemptPlan,
+        workdir: Path,
+        spec: agent_pb2.ExecutionSpec,
+    ) -> None:
         await asyncio.to_thread(self._prepare_work_root_only)
+        if spec.tree_id:
+            await self._stage_tree(attempt, workdir, spec)
+            return
         bundle = self.work_root / f"{attempt.attempt_id}.bundle"
         base = blob_base_url(plan.blob_url, self._controller_host(), plan.blob_port)
         try:
@@ -614,6 +631,36 @@ class Executor:
         finally:
             with contextlib.suppress(OSError):
                 bundle.unlink()
+        if os.name == "posix":
+            await asyncio.to_thread(workdir.chmod, 0o700)
+
+    async def _stage_tree(
+        self, attempt: _Attempt, workdir: Path, spec: agent_pb2.ExecutionSpec
+    ) -> None:
+        """V0.5 D84: fetch into the CAS, then copy into the workdir (verified).
+
+        The copy is not interruptible (like an unpack: it runs to completion in
+        its thread); a stop asked meanwhile is honoured right after.
+        """
+        sources = tree_sources(spec, self._controller_host())
+        report = await self._step(
+            attempt,
+            stage_tree(self.cas, tree_id=spec.tree_id, sources=sources, dest=workdir),
+        )
+        log.info(
+            "agent.cas.staged",
+            node_id=self._node_id,
+            job_id=attempt.job_id,
+            attempt_id=attempt.attempt_id,
+            tree_id=spec.tree_id,
+            blobs_hit=report.blobs_hit,
+            blobs_fetched=report.blobs_fetched,
+            bytes_fetched=report.bytes_fetched,
+            chunks_resumed=report.chunks_resumed,
+            duration_s=round(report.duration_s, 3),
+        )
+        if attempt.stop_reason is not None:
+            raise _StoppedError
         if os.name == "posix":
             await asyncio.to_thread(workdir.chmod, 0o700)
 
