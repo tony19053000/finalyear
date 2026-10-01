@@ -335,8 +335,8 @@ A version is **complete** only when all apply:
 - [ ] **0.5.4** Parallel chunked download, resume after interruption, integrity check
 - [ ] **0.5.5** Cache reports → controller location index (blobs, envs, images per node)
 - [ ] **0.5.6** Named, versioned inputs (datasets/models registered once, referenced by name@hash)
-- [~] **0.5.7** Environment builder: env hash; Docker image per env hash; **venv runtime (uv)** with same interface
-- [~] **0.5.8** Base images `python-cpu`, `cuda-pytorch`; `compute node prepare` pre-pulls
+- [x] **0.5.7** Environment builder: env hash; Docker image per env hash; **venv runtime (uv)** with same interface — ✅ G2 closed 2026-10-01: env hash (D85, v3 incl. package source), build-once cached envs (venv/uv, Docker image per hash, cached --target), damaged-env detection, local-path refusal; criterion 5 warm env 0.42 s incl. interpreter start on Laptop 1 (not a benchmark claim). Tester ×3 rounds, reviewer APPROVE; commits `81e0ead` … `7819323`; unit 5232 exit 0, cluster 52 passed.
+- [~] **0.5.8** Base images `python-cpu`, `cuda-pytorch`; `compute node prepare` pre-pulls *(Local part done in G2 2026-10-01: pinned base images by digest, `meshforge-agent prepare`; controller-driven `compute node prepare` → G5.)*
 - [ ] **0.5.9** GC: LRU with per-node quota; pinned items
 - [ ] **0.5.10** Transfer telemetry (bytes, source node, throughput, cache hit/miss)
 - [ ] **0.5.11** 🧑 Lab: multi-GB dataset tests on Wi-Fi and Ethernet
