@@ -11,8 +11,8 @@ into ``AttemptStatus FAILED`` - never an exception that escapes, never a run.
 * the time limit must not exceed this node's ``[agent.execution] max_timeout_s``;
 * GPU indices must be GPUs this node declared in its ``Hello``;
 * the runtime is the controller's choice when it names one this node offers,
-  else :func:`~.selection.choose_runtime` (sandboxed first); none fitting is
-  ``no_feasible_plan``.
+  else :func:`~.selection.choose_runtime` (docker > venv > subprocess; the venv
+  runtime only for the ``python-cpu`` base); none fitting is ``no_feasible_plan``.
 
 **Environment (D51).** The workload gets an explicit allowlist, never the agent's
 environment: ``PATH`` (the image's for Docker, the agent's for the subprocess
@@ -55,7 +55,12 @@ from meshforge.agent.execution.runtime import (
     RunSpec,
     RuntimeAvailability,
 )
-from meshforge.agent.execution.selection import ExecutionOffer, GpuNeed, choose_runtime
+from meshforge.agent.execution.selection import (
+    ExecutionOffer,
+    GpuNeed,
+    choose_runtime,
+    runtime_fits_base,
+)
 from meshforge.agent.settings import ExecutionSettings
 from meshforge.common.errors import FailureType, InvalidIdError, MeshForgeError
 from meshforge.common.hashing import Digest
@@ -226,7 +231,9 @@ def plan_attempt(
             "ExecutionSpec.gpu_indices names a GPU this node did not declare",
             failure_type=FailureType.CONFIG_ERROR,
         )
-    runtime = _runtime(spec.runtime, offer, GpuNeed(manifest.resources.gpu))
+    runtime = _runtime(
+        spec.runtime, offer, GpuNeed(manifest.resources.gpu), manifest.env.base
+    )
     if not runtime.gpu_capable:
         gpus = ()  # "preferred" on a runtime without GPU pass-through: run on CPU
     image_by_base = (
@@ -284,7 +291,7 @@ def _token_shape(text: str) -> bool:
 
 
 def _runtime(
-    requested: str, offer: ExecutionOffer, gpu: GpuNeed
+    requested: str, offer: ExecutionOffer, gpu: GpuNeed, base: str
 ) -> RuntimeAvailability:
     offered = {r.name: r for r in offer.offered()}
     if requested:
@@ -295,8 +302,13 @@ def _runtime(
                 "does not offer",
                 failure_type=FailureType.NO_FEASIBLE_PLAN,
             )
+        if not runtime_fits_base(found, base):
+            raise PlanError(
+                f"the {requested!r} runtime cannot provide the {base!r} base",
+                failure_type=FailureType.NO_FEASIBLE_PLAN,
+            )
         return found
-    chosen = choose_runtime(offer, gpu)
+    chosen = choose_runtime(offer, gpu, base)
     if chosen is None:
         raise PlanError(
             "no runtime on this node fits the job"

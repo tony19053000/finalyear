@@ -155,7 +155,9 @@ with the same requirements, base and Python - the second job installs nothing.
 With `allow_unsandboxed = true` the agent also offers the **venv runtime**
 (capability `exec-venv`): an unsandboxed job in its own cached uv venv - its
 `env.python` version and only its packages. Order of preference: docker > venv >
-subprocess.
+subprocess. The venv runtime provides only the `python-cpu` base: a `cuda-pytorch` job
+(it needs torch) runs in Docker's image or, without Docker, on the agent's own
+environment (subprocess runtime; install torch there with `uv sync --extra gpu`).
 
 - **Where they are:** `<data dir>/envs/` (`[agent.envs] dir`): `venv/<hash>/` (venv
   runtime), `subprocess/<hash>/` (subprocess runtime), `uv-cache/`, `locks/`.

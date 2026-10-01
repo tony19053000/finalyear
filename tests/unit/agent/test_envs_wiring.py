@@ -331,3 +331,81 @@ async def test_build_execution_gives_every_runtime_one_shared_builder(
     assert envs is not None and sub._envs is envs
     assert envs.root == tmp_path / "data" / "envs"
     assert [r.name for r in setup.offer.offered()] == ["venv", "subprocess"]
+
+
+# ------------------------------------------------- bases the venv can provide
+def _offer_venv_sub() -> Any:
+    return execution_offer(
+        enabled=True, allow_unsandboxed=True, docker=None, subprocess=SUB, venv=VENV
+    )
+
+
+def test_cuda_pytorch_never_goes_to_the_venv_runtime() -> None:
+    offer = _offer_venv_sub()
+    assert choose_runtime(offer, GpuNeed.NONE, "python-cpu") is VENV
+    assert choose_runtime(offer, GpuNeed.NONE, "cuda-pytorch") is SUB
+    with_docker = execution_offer(
+        enabled=True, allow_unsandboxed=True, docker=DOCKER, subprocess=SUB, venv=VENV
+    )
+    assert choose_runtime(with_docker, GpuNeed.NONE, "cuda-pytorch") is DOCKER
+
+
+def test_cuda_pytorch_plan_on_a_venv_and_subprocess_node(tmp_path: Path) -> None:
+    manifest = {
+        "name": "x",
+        "entrypoint": ["python", "main.py"],
+        "env": {"base": "cuda-pytorch"},
+    }
+    plan = plan_attempt(
+        _msg(manifest),
+        settings=ExecutionSettings(),
+        offer=_offer_venv_sub(),
+        declared_gpus=(),
+        workdir=tmp_path,
+    )
+    assert plan.runtime == "subprocess"  # the agent's interpreter (torch), as in V0.4
+
+
+def test_an_explicit_venv_request_for_cuda_pytorch_is_no_feasible_plan(
+    tmp_path: Path,
+) -> None:
+    from meshforge.agent.execution.plan import PlanError
+
+    manifest = {
+        "name": "x",
+        "entrypoint": ["python", "main.py"],
+        "env": {"base": "cuda-pytorch"},
+    }
+    with pytest.raises(PlanError) as info:
+        plan_attempt(
+            _msg(manifest, "venv"),
+            settings=ExecutionSettings(),
+            offer=_offer_venv_sub(),
+            declared_gpus=(),
+            workdir=tmp_path,
+        )
+    assert info.value.failure_type is FailureType.NO_FEASIBLE_PLAN
+
+
+def test_cuda_pytorch_with_only_venv_offered_is_no_feasible_plan(
+    tmp_path: Path,
+) -> None:
+    from meshforge.agent.execution.plan import PlanError
+
+    offer = execution_offer(
+        enabled=True, allow_unsandboxed=True, docker=None, subprocess=None, venv=VENV
+    )
+    manifest = {
+        "name": "x",
+        "entrypoint": ["python", "main.py"],
+        "env": {"base": "cuda-pytorch"},
+    }
+    with pytest.raises(PlanError) as info:
+        plan_attempt(
+            _msg(manifest),
+            settings=ExecutionSettings(),
+            offer=offer,
+            declared_gpus=(),
+            workdir=tmp_path,
+        )
+    assert info.value.failure_type is FailureType.NO_FEASIBLE_PLAN

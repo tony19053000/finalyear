@@ -172,6 +172,9 @@ def test_criterion_1_pytorch_on_cpu(
     (project / "compute.yaml").write_text(
         "name: pytorch-train-cpu\n"
         "entrypoint: python main.py --steps 200 --device cpu\n"
+        # the base that promises torch (as the example and lab checklist D1 say);
+        # python-cpu would be a clean interpreter (venv / python-cpu image) - no torch
+        "env: {base: cuda-pytorch}\n"
         "resources: {gpu: none}\noutputs: [results/]\nlimits: {timeout: 10m}\n"
     )
     fabric = _fabric(make_fabric)

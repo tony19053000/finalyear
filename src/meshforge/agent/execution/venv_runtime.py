@@ -16,8 +16,10 @@ What it adds over the plain subprocess runtime:
   (``VIRTUAL_ENV`` set), so console scripts of installed packages resolve too.
 
 Selection order (:func:`~meshforge.agent.execution.selection.choose_runtime`):
-docker > venv > subprocess. The probe says ``available`` only when the pinned
-``uv`` binary (the ``uv`` wheel, agent extra) runs.
+docker > venv > subprocess - and only for the ``python-cpu`` base: a fresh venv has
+no PyTorch, so ``cuda-pytorch`` jobs go to Docker or the subprocess runtime. The
+probe says ``available`` only when the pinned ``uv`` binary (the ``uv`` wheel, agent
+extra) runs.
 """
 
 from __future__ import annotations

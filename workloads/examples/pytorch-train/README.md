@@ -29,5 +29,7 @@ class** (same CPU model for CPU runs; same GPU model + driver for GPU runs) and
 `DIFFERENT` - it never calls a tolerance match identical. `run.json` records the
 device, GPU name and torch version to explain a difference.
 
-Needs torch: in the `cuda-pytorch` image (Docker runtime) or in the agent's own
-environment (`uv sync --extra gpu`) for the subprocess runtime.
+Needs torch, which is why `compute.yaml` declares `env: {base: cuda-pytorch}` (keep it in
+any copy): Docker runs it in the `cuda-pytorch` image, the subprocess runtime on the
+agent's own environment (`uv sync --extra gpu`). The venv runtime (V0.5) provides only
+the `python-cpu` base - a clean interpreter - so a `cuda-pytorch` job never runs there.
