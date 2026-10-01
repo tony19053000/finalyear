@@ -22,13 +22,19 @@ tests pin it).
 resolution: the text is decoded as UTF-8 (a BOM is dropped), newlines unified,
 ``\\`` continuations joined, comments (``#`` at the start or after whitespace)
 and blank lines removed, runs of whitespace collapsed to one space, duplicates
-dropped, and the lines sorted. Comment or order changes therefore keep the hash;
-any version change alters it.
+dropped, and the lines sorted. Requirement lines are also put in one spelling
+(format version 2): the project name and extras normalised per PEP 503 (lowercase,
+runs of ``-_.`` -> ``-``; extras sorted), no whitespace inside the version
+specifier, and the environment marker after ``" ; "``. ``Requests == 2`` and
+``requests==2`` therefore share an env. Comment, order or spelling changes keep
+the hash; any version change alters it.
 
 Lines the hash **cannot cover** are refused (``requirements_rejected``), because
 two different environments would get the same hash: ``-r``/``-c`` includes and
-``-e`` editables (other files), and local paths / ``file:`` URLs (their contents
-are not in this file). Size and line count are bounded (settings).
+``-e`` editables (other files), local paths / ``file:`` URLs, and any direct
+reference (``name @ ...``) that is not an ``http(s)://`` or VCS (``git+``, ``hg+``,
+``svn+``, ``bzr+``) URL (their contents are not in this file). Size and line count
+are bounded (settings).
 """
 
 from __future__ import annotations
@@ -50,7 +56,8 @@ __all__ = [
     "normalize_requirements",
 ]
 
-ENV_HASH_VERSION: Final = 1
+ENV_HASH_VERSION: Final = 2
+"""2 (2026-10-01): PEP 503 names + canonical specifier spelling (G2 fix round)."""
 RUNTIME_KINDS: Final = frozenset({"docker", "venv", "subprocess"})
 _FIELD_MAX: Final = 256
 _COMMENT: Final = re.compile(r"(^|\s)#.*$")
@@ -64,6 +71,15 @@ _INCLUDE_OPTIONS: Final = (
     "--editable",
 )
 _DRIVE: Final = re.compile(r"[A-Za-z]:[\\/]")
+_NAME_RUNS: Final = re.compile(r"[-_.]+")
+_REQUIREMENT: Final = re.compile(
+    r"(?P<name>[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)\s*"
+    r"(?:\[(?P<extras>[^\]]*)\])?\s*"
+    r"(?:@\s*(?P<url>\S+)\s*)?"
+    r"(?P<spec>[^;@]*?)\s*"
+    r"(?:;\s*(?P<marker>.*))?"
+)
+_REMOTE_SCHEMES: Final = ("http://", "https://", "git+", "hg+", "svn+", "bzr+")
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,6 +172,46 @@ def _check_line(line: str, number: int) -> None:
         )
 
 
+def _pep503(name: str) -> str:
+    return _NAME_RUNS.sub("-", name).lower()
+
+
+def _canonical_line(line: str, number: int) -> str:
+    """One requirement line in its single spelling (module docstring); option
+    lines (``--index-url ...``) and bare URLs are kept as written."""
+    if line.startswith("-") or "://" in line.split("@", 1)[0]:
+        return line
+    match = _REQUIREMENT.fullmatch(line)
+    if match is None:
+        if "@" in line:  # an unparsed direct reference: cannot prove it is remote
+            raise _rejected(
+                f"requirements line {number}: a direct reference this parser cannot "
+                "read; write it as `name @ https://...`"
+            )
+        return line  # pip will say what is wrong with it; the hash stays exact
+    name = _pep503(match["name"])
+    extras = ""
+    if match["extras"] is not None:
+        parts = sorted(
+            {_pep503(e.strip()) for e in match["extras"].split(",") if e.strip()}
+        )
+        extras = f"[{','.join(parts)}]" if parts else ""
+    marker = match["marker"]
+    tail = f" ; {_SPACES.sub(' ', marker).strip()}" if marker else ""
+    url = match["url"]
+    if url is not None:
+        if not url.lower().startswith(_REMOTE_SCHEMES):
+            raise _rejected(
+                f"requirements line {number}: a direct reference must be an http(s) "
+                "or VCS URL - a local path's contents are not covered by the env hash"
+            )
+        if match["spec"]:
+            return line  # unusual shape: keep it exact
+        return f"{name}{extras} @ {url}{tail}"
+    spec = _SPACES.sub("", match["spec"])
+    return f"{name}{extras}{spec}{tail}"
+
+
 def normalize_requirements(
     data: bytes, *, max_bytes: int = 65_536, max_lines: int = 1000
 ) -> bytes:
@@ -176,7 +232,7 @@ def normalize_requirements(
         if not line:
             continue
         _check_line(line, number)
-        kept.add(line)
+        kept.add(_canonical_line(line, number))
         if len(kept) > max_lines:
             raise _rejected(f"the requirements file has more than {max_lines} entries")
     if not kept:

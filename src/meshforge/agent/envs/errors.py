@@ -24,7 +24,9 @@ class EnvError(MeshForgeError):
     ``uv_missing``              env_error       the ``uv`` binary cannot be started
     ``env_too_large``           env_error       built env over ``max_env_bytes``
     ``unpinned_base``           config_error    a base image without ``@sha256:``
-    ``disk_full``               disk_full       free disk under the floor
+    ``disk_full``               disk_full       free disk under the floor, or
+                                                ENOSPC/EDQUOT during a build
+    ``build_io_failed``         env_error       another OSError during a build
     ``env_timeout``             timeout         lock wait + build over the budget
     ``env_lock_failed``         internal_error  the lock file cannot be opened
     ``env_io_failed``           internal_error  the envs directory failed (I/O)

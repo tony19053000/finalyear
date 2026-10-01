@@ -11,7 +11,12 @@ Layout under the envs root (``[agent.envs] dir``, default ``<data_dir>/envs``)::
 
 **Build once.** :meth:`EnvBuilder.ensure_dir_env` returns at once when
 ``<kind>/<hash>`` holds a valid marker (``.meshforge-env.json`` naming the hash,
-written last). Otherwise it takes the build lock, checks again (another process
+written last) **and** the files still match the summary the marker recorded at
+build time (entry count, bytes, sha256 of the sorted path/type/size listing: one
+``lstat`` per file, ~10-50 ms for a venv of a few thousand files; no file is
+read, so a same-size in-place edit is not caught - the tree is read-only). A
+damaged env is never used: it is logged (``agent.envs.cache_damaged``), evicted
+and rebuilt under the lock. Otherwise it takes the build lock, checks again (another process
 may have finished meanwhile - the waiter then reuses it: ``cache = "waited"``),
 removes any leftover ``.building`` (a crashed build), checks the free-disk floor,
 builds into ``<hash>.building``, checks the size cap, writes the marker, makes the
@@ -33,6 +38,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import errno
 import json
 import os
 import shutil
@@ -52,7 +58,13 @@ from meshforge.agent.envs._tool import (
     venv_python,
 )
 from meshforge.agent.envs.errors import EnvError
-from meshforge.agent.envs.fsutil import env_lock, make_read_only, remove_tree, tree_size
+from meshforge.agent.envs.fsutil import (
+    env_lock,
+    make_read_only,
+    remove_tree,
+    tree_size,
+    tree_summary,
+)
 from meshforge.agent.envs.hash import EnvInputs, env_hash, normalize_requirements
 from meshforge.common.atomic import atomic_write_bytes
 from meshforge.common.errors import FailureType
@@ -80,6 +92,10 @@ _PROBE_SCRIPT: Final = (
     "'%d.%d.%d' % sys.version_info[:3], sysconfig.get_platform()]))"
 )
 CacheState = Literal["hit", "waited", "built"]
+EnvState = Literal["ready", "damaged", "missing"]
+_DISK_FULL_ERRNOS: Final = frozenset(
+    code for code in (errno.ENOSPC, getattr(errno, "EDQUOT", None)) if code is not None
+)
 
 
 def default_uv_argv() -> tuple[str, ...]:
@@ -278,18 +294,33 @@ class EnvBuilder:
         ):
             yield
 
-    def is_ready(self, kind: str, digest: str) -> bool:
-        """``<kind>/<hash>`` exists and its marker names this hash and kind."""
-        marker = self.env_dir(kind, digest) / MARKER_NAME
+    def env_state(self, kind: str, digest: str) -> EnvState:
+        """``ready``: ``<kind>/<hash>`` has a marker naming this hash and kind *and*
+        its files still match the summary recorded at build time (one ``lstat`` per
+        file, no reads - see :class:`~.fsutil.TreeSummary`); ``damaged``: a marker
+        but the files differ (or an older marker without a summary); ``missing``:
+        no usable marker."""
+        final = self.env_dir(kind, digest)
         try:
-            data = json.loads(marker.read_bytes())
+            data = json.loads((final / MARKER_NAME).read_bytes())
         except (OSError, ValueError):
-            return False
-        return (
+            return "missing"
+        if not (
             isinstance(data, dict)
             and data.get("env_hash") == digest
             and data.get("kind") == kind
-        )
+        ):
+            return "missing"
+        try:
+            summary = tree_summary(final, skip_names=(MARKER_NAME,))
+        except OSError:
+            return "damaged"
+        recorded = data.get("summary")
+        return "ready" if recorded == summary.as_dict() else "damaged"
+
+    def is_ready(self, kind: str, digest: str) -> bool:
+        """:meth:`env_state` is ``ready``."""
+        return self.env_state(kind, digest) == "ready"
 
     async def ensure_dir_env(
         self,
@@ -304,9 +335,13 @@ class EnvBuilder:
         missing (module docstring)."""
         fields = {"env_hash": digest, "kind": kind, **(log_fields or {})}
         final = self.env_dir(kind, digest)
-        if await _to_thread(self.is_ready, kind, digest):
+        state = await _to_thread(self.env_state, kind, digest)
+        if state == "ready":
             log.info("agent.envs.cache_hit", **fields)
             return BuiltEnv(digest, kind, final, "hit")
+        if state == "damaged":
+            # never used: evicted and rebuilt under the lock below
+            log.warning("agent.envs.cache_damaged", **fields)
         started = self._clock()
         async with self.lock(digest, deadline=deadline):
             if await _to_thread(self.is_ready, kind, digest):
@@ -318,10 +353,13 @@ class EnvBuilder:
             await _to_thread(self.check_free_disk)
             log.info("agent.envs.build_started", **fields)
             try:
-                await build(building)
-                size = await _to_thread(tree_size, building)
-                self.check_size(size)
-                await _to_thread(self._seal, building, final, kind, digest, size)
+                try:
+                    await build(building)
+                    size = await _to_thread(tree_size, building)
+                    self.check_size(size)
+                    await _to_thread(self._seal, building, final, kind, digest, size)
+                except OSError as exc:
+                    raise _io_error(exc) from exc
             except BaseException as exc:
                 await _shielded(remove_tree, building)
                 log.warning(
@@ -352,10 +390,11 @@ class EnvBuilder:
         self, building: Path, final: Path, kind: str, digest: str, size: int
     ) -> None:
         marker = {
-            "v": 1,
+            "v": 2,
             "env_hash": digest,
             "kind": kind,
             "size_bytes": size,
+            "summary": tree_summary(building, skip_names=(MARKER_NAME,)).as_dict(),
             "built_at": datetime.now(UTC).isoformat(timespec="seconds"),
         }
         atomic_write_bytes(
@@ -365,6 +404,13 @@ class EnvBuilder:
         )
         make_read_only(building)
         os.replace(building, final)
+
+    def _normalised(self, requirements: bytes) -> bytes:
+        return normalize_requirements(
+            requirements,
+            max_bytes=self.config.max_requirements_bytes,
+            max_lines=self.config.max_requirements_lines,
+        )
 
     # ------------------------------------------------------------- the tools
     def _uv(self) -> tuple[str, ...]:
@@ -478,8 +524,10 @@ class EnvBuilder:
         on_output: OutputSink | None = None,
         log_fields: dict[str, str] | None = None,
     ) -> BuiltEnv:
-        """A uv venv with ``requirements`` (normalised; ``b""`` = none) for the
-        interpreter matching ``python`` (venv runtime)."""
+        """A uv venv with ``requirements`` (``b""`` = none) for the interpreter
+        matching ``python`` (venv runtime). The bytes are normalised (again - it is
+        idempotent) so a caller can never install a line the hash refuses."""
+        requirements = self._normalised(requirements)
         uv = self._uv()
         interpreter = await self.find_interpreter(python)
         digest = env_hash(
@@ -539,7 +587,9 @@ class EnvBuilder:
         log_fields: dict[str, str] | None = None,
     ) -> BuiltEnv:
         """A ``--target`` dir with ``requirements`` for this agent's own interpreter
-        (``sys.executable``; subprocess runtime)."""
+        (``sys.executable``; subprocess runtime). ``requirements`` is normalised
+        as in :meth:`ensure_venv`."""
+        requirements = self._normalised(requirements)
         uv = self._uv()
         interpreter_path = Path(sys.executable)
         version = ".".join(str(part) for part in sys.version_info[:3])
@@ -581,6 +631,22 @@ class EnvBuilder:
         return await self.ensure_dir_env(
             "subprocess", digest, build, deadline=deadline, log_fields=log_fields
         )
+
+
+def _io_error(exc: OSError) -> EnvError:
+    """An OSError during a build, typed: a full disk / quota is ``disk_full``,
+    anything else ``env_error`` (``build_io_failed``)."""
+    why = exc.strerror or type(exc).__name__
+    if exc.errno in _DISK_FULL_ERRNOS:
+        return EnvError(
+            f"the disk filled up while building the environment: {why}",
+            reason="disk_full",
+            failure_type=FailureType.DISK_FULL,
+        )
+    return EnvError(
+        f"the environment build failed on the filesystem: {why}",
+        reason="build_io_failed",
+    )
 
 
 def _platform() -> str:

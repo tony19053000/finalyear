@@ -20,12 +20,14 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import os
 import shutil
 import stat
 import sys
 import time
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Collection
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
@@ -34,10 +36,12 @@ from meshforge.common.errors import FailureType
 from meshforge.common.filelock import locked
 
 __all__ = [
+    "TreeSummary",
     "env_lock",
     "make_read_only",
     "remove_tree",
     "tree_size",
+    "tree_summary",
 ]
 
 _POLL_S: Final = 0.05
@@ -139,3 +143,48 @@ def tree_size(root: Path) -> int:
                 if stat.S_ISREG(info.st_mode):
                     total += info.st_size
     return total
+
+
+@dataclass(frozen=True, slots=True)
+class TreeSummary:
+    """A cheap fingerprint of a tree: entry count, total bytes and the sha256 of the
+    sorted ``path<NUL>type<NUL>size`` listing. Costs one ``lstat`` per entry (no
+    file is read): it catches a deleted, added, renamed or resized file, not a
+    same-size in-place edit."""
+
+    files: int
+    bytes: int
+    listing_sha256: str
+
+    def as_dict(self) -> dict[str, int | str]:
+        return {
+            "files": self.files,
+            "bytes": self.bytes,
+            "listing_sha256": self.listing_sha256,
+        }
+
+
+def tree_summary(root: Path, *, skip_names: Collection[str] = ()) -> TreeSummary:
+    """:class:`TreeSummary` of ``root``. Files named in ``skip_names`` (at any depth)
+    and everything under ``__pycache__`` (an interpreter may write bytecode where
+    the OS lets it, e.g. on Windows) are left out; symlinks are not followed."""
+    entries: list[str] = []
+    total = 0
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d != "__pycache__"]
+        rel_dir = os.path.relpath(dirpath, root)
+        names = list(filenames) + [
+            d for d in dirnames if os.path.islink(os.path.join(dirpath, d))
+        ]
+        for name in names:
+            if name in skip_names:
+                continue
+            info = os.lstat(os.path.join(dirpath, name))
+            kind = "l" if stat.S_ISLNK(info.st_mode) else "f"
+            rel = name if rel_dir == "." else f"{rel_dir}/{name}"
+            entries.append(f"{rel.replace(os.sep, '/')}\0{kind}\0{info.st_size}")
+            if kind == "f":
+                total += info.st_size
+    entries.sort()
+    digest = hashlib.sha256("\n".join(entries).encode("utf-8", "surrogatepass"))
+    return TreeSummary(len(entries), total, digest.hexdigest())

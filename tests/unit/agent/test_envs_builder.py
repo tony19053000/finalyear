@@ -378,3 +378,47 @@ def test_bad_envs_settings_are_refused(bad: dict[str, object]) -> None:
 
 def test_blank_index_url_means_pypi() -> None:
     assert EnvsSettings(index_url="  ").index_url is None
+
+
+# ------------------------------------------------------ integrity summary (D1)
+@pytest.mark.asyncio
+async def test_bytecode_written_into_an_env_does_not_make_it_damaged(
+    tmp_path: Path,
+) -> None:
+    # Windows ignores the read-only bit on folders: an interpreter may add
+    # __pycache__ there. That must not turn every later job into a rebuild.
+    builder = _builder(tmp_path)
+    step = Recorder()
+    built = await builder.ensure_dir_env("venv", DIGEST, step, deadline=FAR)
+    cache = built.path / "lib" / "__pycache__"
+    os.chmod(built.path / "lib", 0o700)  # what Windows effectively allows
+    cache.mkdir()
+    (cache / "mod.cpython-312.pyc").write_bytes(b"\x00" * 50)
+    assert builder.env_state("venv", DIGEST) == "ready"
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission bits")
+async def test_an_added_file_is_damaged_then_evicted_and_rebuilt(
+    tmp_path: Path,
+) -> None:
+    builder = _builder(tmp_path)
+    step = Recorder()
+    built = await builder.ensure_dir_env("venv", DIGEST, step, deadline=FAR)
+    os.chmod(built.path / "lib", 0o700)
+    (built.path / "lib" / "planted.py").write_bytes(b"x")
+    assert builder.env_state("venv", DIGEST) == "damaged"
+    again = await builder.ensure_dir_env("venv", DIGEST, step, deadline=FAR)
+    assert again.cache == "built" and step.calls == 2
+    assert not (again.path / "lib" / "planted.py").exists()
+    assert builder.env_state("venv", DIGEST) == "ready"
+
+
+def test_a_marker_without_a_summary_is_damaged(tmp_path: Path) -> None:
+    builder = _builder(tmp_path)
+    final = builder.env_dir("venv", DIGEST)
+    final.mkdir(parents=True)
+    (final / MARKER_NAME).write_text(
+        '{"v": 1, "env_hash": "' + DIGEST + '", "kind": "venv"}'
+    )
+    assert builder.env_state("venv", DIGEST) == "damaged"

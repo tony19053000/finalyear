@@ -180,8 +180,14 @@ environment (subprocess runtime; install torch there with `uv sync --extra gpu`)
   has no network at all); `index_url = "https://mirror/simple"` uses a mirror
   (no credentials in the URL).
 - **What is refused** (`env_error / requirements_rejected`): `-r`/`-c`/`-e` lines,
-  local paths and `file:` URLs - their contents are not covered by the env hash, so
-  two different environments could share one. Inline those requirements instead.
+  local paths, `file:` URLs and `name @ <anything but an http(s) or git+/hg+/svn+/bzr+
+  URL>` - their contents are not covered by the env hash, so two different
+  environments could share one. Inline those requirements, or serve the wheel from
+  `[agent.envs] find_links`. Name spelling does not matter: `Requests == 2` and
+  `requests==2` share one environment.
+- **Damaged environments are rebuilt.** Each environment remembers its file list
+  (names and sizes); one whose files no longer match (deleted, added, resized) is
+  logged as `agent.envs.cache_damaged`, removed and rebuilt before any job uses it.
 - **Python version (venv runtime).** `env.python: "3.11"` uses a Python 3.11
   already on this laptop (`uv python list --only-installed`); none = `python_not_found`.
   Set `[agent.envs] allow_python_downloads = true` to let uv fetch one.

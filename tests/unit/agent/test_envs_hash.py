@@ -26,10 +26,11 @@ pytestmark = pytest.mark.unit
 
 REQ = b"# deps\nrequests==2.32.3\nnumpy==2.1.0  # pinned\n\n"
 NORMALISED = b"numpy==2.1.0\nrequests==2.32.3\n"
-GOLDEN_VENV = "b4d485ceefd111b81e7314c5f0fb384db407a119f43df4d3a356363552d98d33"
-GOLDEN_DOCKER = "749a3a9bd78a8f1032048503e3299fc506f26aaa823ef221e50342e1a7f65029"
+# v2 (2026-10-01, G2 fix round): PEP 503 names + canonical specifiers - re-pinned
+GOLDEN_VENV = "11c093e4cf21898b4672d8777aa468a1fb421d4e5408426c6694cba3b465e59d"
+GOLDEN_DOCKER = "cd1894daab0cd44e70980fad4b3371d39784b717110c669508a1ea9fc7d0ac3b"
 GOLDEN_EMPTY_SUBPROCESS = (
-    "81f73ddbe78f477b534f755aca39b3d6123a9df76f46e18c51c992bbd8676a79"
+    "92299e8d4084d0cc4630badb9e7f441fc151e99a53ba16e5647ca37a9654cbbc"
 )
 
 
@@ -54,11 +55,11 @@ def test_canonical_bytes_golden() -> None:
         b'{"base":"cpython-3.12.3","platform":"linux-x86_64","python":"3.12",'
         b'"requirements_sha256":"'
         + hashlib.sha256(NORMALISED).hexdigest().encode()
-        + b'","runtime_kind":"venv","v":1}'
+        + b'","runtime_kind":"venv","v":2}'
     )
     assert canonical_bytes(_venv()) == expected
     assert hashlib.sha256(expected).hexdigest() == GOLDEN_VENV
-    assert ENV_HASH_VERSION == 1
+    assert ENV_HASH_VERSION == 2
 
 
 def test_env_hash_golden_values() -> None:
@@ -97,6 +98,25 @@ def test_env_hash_golden_values() -> None:
 def test_comment_order_and_whitespace_changes_keep_the_hash(variant: bytes) -> None:
     assert normalize_requirements(variant) == NORMALISED
     assert env_hash(_venv(normalize_requirements(variant))) == GOLDEN_VENV
+
+
+@pytest.mark.parametrize(
+    ("variant", "canonical"),
+    [
+        (b"Requests == 2.32.3", b"requests==2.32.3\n"),
+        (b"requests==2.32.3", b"requests==2.32.3\n"),
+        (b"REQUESTS>= 2 ,< 3", b"requests>=2,<3\n"),
+        (b"Zope.Interface_x", b"zope-interface-x\n"),
+        (b"pkg[Socks, B] == 1", b"pkg[b,socks]==1\n"),
+        (
+            b"pkg>=1;python_version>='3.10'",
+            b"pkg>=1 ; python_version>='3.10'\n",
+        ),
+        (b"Pkg @ https://e.org/p.whl", b"pkg @ https://e.org/p.whl\n"),
+    ],
+)
+def test_requirement_spelling_is_canonical(variant: bytes, canonical: bytes) -> None:
+    assert normalize_requirements(variant) == canonical
 
 
 def test_url_fragment_hash_sign_is_not_a_comment() -> None:
@@ -159,6 +179,12 @@ def test_empty_requirements_are_empty_bytes() -> None:
         b"pkg @ file:///tmp/x.whl",
         b"pkg@file:///tmp/x.whl",
         b"pkg \x07bell",
+        b"pkg @ /abs/pkg.whl",
+        b"pkg @ ./pkg",
+        b"pkg @ ../x",
+        b"pkg @ C:\\x\\a.whl",
+        b"pkg@ftp://host/pkg.whl",
+        b"pkg @ ~/pkg",
     ],
 )
 def test_lines_the_hash_cannot_cover_are_rejected(line: bytes) -> None:
@@ -175,6 +201,7 @@ def test_lines_the_hash_cannot_cover_are_rejected(line: bytes) -> None:
         b"--extra-index-url https://example.org/simple",
         b"requests[socks]>=2 ; python_version >= '3.10'",
         b"pkg @ https://example.org/pkg.whl",
+        b"pkg @ git+https://github.com/org/pkg@v1.0",
     ],
 )
 def test_ordinary_lines_are_accepted(line: bytes) -> None:
@@ -223,3 +250,17 @@ def test_env_error_survives_pickling() -> None:
     back = pickle.loads(pickle.dumps(err))
     assert back.reason == "disk_full"
     assert back.failure_type is FailureType.DISK_FULL
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        REQ,
+        b"Zope.Interface_x[Socks, B]>= 1.0 , <2 ; python_version >= '3.10'\n",
+        b"pkg @ git+https://github.com/org/pkg@v1 ; os_name == 'nt'\n",
+        b"--index-url https://mirror.example/simple\nRequests == 2\n",
+    ],
+)
+def test_normalisation_is_idempotent(raw: bytes) -> None:
+    once = normalize_requirements(raw)
+    assert normalize_requirements(once) == once
