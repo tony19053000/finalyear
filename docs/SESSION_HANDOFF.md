@@ -230,6 +230,8 @@ the 🧑 0.3.15 lab run closes V0.3 (the Lead recommends yes — the lab run is 
 
 The user lifted the one-subagent rule on 2026-10-01: the Lead may run several agents at once on **independent** tasks (separate groups / files). Still sequential *within* a task (implementer → tester → reviewer). Watch the usage limit; if tokens burn too fast, the team may re-impose the rule.
 
+**2026-10-01 autonomous run:** the user is away and told the Lead not to wait for input — after each finished step, proceed straight to the next roadmap task (tester → reviewer → close → next group/wave brief) and keep docs current.
+
 ### (superseded) ONE SUBAGENT AT A TIME — team decision 2026-09-28
 
 Running G1, G2 and G3 in parallel (§0d lever 1) **used tokens too fast** — three implementers, then three testers, at
