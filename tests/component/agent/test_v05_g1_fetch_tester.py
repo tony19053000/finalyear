@@ -631,3 +631,81 @@ async def test_materialise_refuses_a_hostile_tree_symlink_chain_out_of_the_workd
         assert os.path.commonpath([target, os.path.realpath(work)]) == str(
             os.path.realpath(work)
         ), (link, target)
+
+
+# ------------------------------------------------ round 2: refetch budget bounds
+
+
+def _many(root: Path, n: int) -> list[bytes]:
+    root.mkdir()
+    blobs = [os.urandom(2000 + i) for i in range(n)]
+    for i, b in enumerate(blobs):
+        (root / f"f{i}.bin").write_bytes(b)
+    return blobs
+
+
+@pytest.mark.parametrize("damaged", [1, 3])
+async def test_refetch_budget_up_to_three_damaged_blobs_is_ok(
+    runtime: ControllerRuntime,
+    proxy: CorruptingProxy,
+    tmp_path: Path,
+    damaged: int,
+) -> None:
+    blobs = _many(tmp_path / "p", 4)
+    built = build_tree(tmp_path / "p", chunk_size=CS)
+    await _upload(runtime, built)
+    cas = AgentCas.at(tmp_path / "agent", free_disk_floor_bytes=0)
+    await _stage(runtime, proxy, built, cas, tmp_path / "w1")
+    for b in blobs[:damaged]:
+        await _damage("flip", cas.store.path_for(sha256_bytes(b)))
+    report = await _stage(runtime, proxy, built, cas, tmp_path / "w2", "a2")
+    assert report.corrupt_refetches == damaged
+    for i, b in enumerate(blobs):
+        assert (tmp_path / "w2" / f"f{i}.bin").read_bytes() == b
+
+
+async def test_fourth_damaged_blob_exceeds_the_budget_and_nothing_wrong_is_used(
+    runtime: ControllerRuntime, proxy: CorruptingProxy, tmp_path: Path
+) -> None:
+    blobs = _many(tmp_path / "p", 4)
+    built = build_tree(tmp_path / "p", chunk_size=CS)
+    await _upload(runtime, built)
+    cas = AgentCas.at(tmp_path / "agent", free_disk_floor_bytes=0)
+    await _stage(runtime, proxy, built, cas, tmp_path / "w1")
+    for b in blobs:
+        await _damage("flip", cas.store.path_for(sha256_bytes(b)))
+    with pytest.raises(FetchError) as info:
+        await _stage(runtime, proxy, built, cas, tmp_path / "w2", "a2")
+    assert info.value.failure_type is FailureType.INTEGRITY_ERROR
+    workdir = tmp_path / "w2"
+    assert not workdir.exists() or not any(workdir.iterdir())
+    # The 4th is gone from the cache (evicted), never served corrupt; retry heals.
+    assert sum(cas.store.has(sha256_bytes(b)) for b in blobs) == 3
+    await _stage(runtime, proxy, built, cas, tmp_path / "w3", "a3")
+    for i, b in enumerate(blobs):
+        assert (tmp_path / "w3" / f"f{i}.bin").read_bytes() == b
+
+
+async def test_whole_file_corrupted_in_flight_always_gets_one_refetch_then_fails(
+    runtime: ControllerRuntime, proxy: CorruptingProxy, tmp_path: Path
+) -> None:
+    blobs = _many(tmp_path / "p", 1)
+    built = build_tree(tmp_path / "p", chunk_size=CS)
+    await _upload(runtime, built)
+    cas = AgentCas.at(tmp_path / "agent", free_disk_floor_bytes=0)
+    await cas.prepare()
+    cas.store.put_bytes(built.manifest, built.tree.tree_id)
+    proxy.arm("flip", 1)  # one damaged answer: the single refetch heals it
+    await _stage(runtime, proxy, built, cas, tmp_path / "w")
+    assert proxy.damaged == 1
+    assert (tmp_path / "w" / "f0.bin").read_bytes() == blobs[0]
+    cas2 = AgentCas.at(tmp_path / "agent2", free_disk_floor_bytes=0)
+    await cas2.prepare()
+    cas2.store.put_bytes(built.manifest, built.tree.tree_id)
+    proxy.arm("flip", -1)  # always damaged: refetch also fails
+    before = proxy.damaged
+    with pytest.raises(FetchError) as info:
+        await _stage(runtime, proxy, built, cas2, tmp_path / "w2", "a2")
+    assert info.value.failure_type is FailureType.INTEGRITY_ERROR
+    assert proxy.damaged - before == 2  # first fetch + exactly one refetch
+    assert not cas2.store.has(sha256_bytes(blobs[0]))

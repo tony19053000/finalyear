@@ -334,9 +334,7 @@ async def test_concurrent_part_uploads_same_and_different_and_complete(
         # A duplicate complete racing the winner may see 404 or 409 (the sidecar is gone
         # a moment before the size is visible): a minor defect, reported. Once
         # the winner is done, complete must be an idempotent 200.
-        assert all(r.status_code in (200, 201, 404, 409) for r in done), [
-            r.text for r in done
-        ]
+        assert all(r.status_code in (200, 201) for r in done), [r.text for r in done]
         assert any(r.status_code == 201 for r in done)
         assert (await c.post(f"{base}/complete")).status_code == 200
         assert (await c.get(base)).content == data
