@@ -14,7 +14,8 @@ keepalive from the same section; the replay ring size from Updates §4. Hardware
 discovery (``[agent.hardware]``, roadmap 0.3.3) and the live resource monitor
 (``[agent.resources]``, roadmap 0.3.5) and hardware scores (``[agent.scores]``,
 roadmap 0.3.4: ``<data_dir>/scores.json`` + ``scores.lock``) and job execution
-(``[agent.execution]``, V0.4 D45/D51: off by default, ``<data_dir>/work``) are
+(``[agent.execution]``, V0.4 D45/D51: off by default, ``<data_dir>/work``) and
+cached job environments (``[agent.envs]``, V0.5 D86: ``<data_dir>/envs``) are
 documented on their own sections below.
 
 This module imports no agent-extra package so ``meshforge-agent --version`` works
@@ -36,12 +37,14 @@ from meshforge.common.errors import ConfigError
 __all__ = [
     "CUDA_PYTORCH_IMAGE",
     "DEFAULT_SERVICE_TYPE",
+    "ENVS_DIR_NAME",
     "GRACE_BOUND_S",
     "IDENTITY_DIR_NAME",
     "PYTHON_CPU_IMAGE",
     "AgentSection",
     "AgentSettings",
     "DiscoverySettings",
+    "EnvsSettings",
     "ExecutionImages",
     "ExecutionSettings",
     "HardwareSettings",
@@ -544,6 +547,94 @@ class ExecutionSettings(SectionModel):
         return self
 
 
+ENVS_DIR_NAME: Final = "envs"
+"""Sub-directory of ``data_dir`` holding cached environments (V0.5 D86)."""
+_INDEX_URL = re.compile(r"https?://[^\s@/]+(:\d{1,5})?(/[^\s]*)?")
+
+
+class EnvsSettings(SectionModel):
+    """``[agent.envs]`` - cached job environments, one per env hash (V0.5 D85/D86).
+
+    A job's requirements are installed **once per node** into an environment named
+    by its env hash and reused by every later job with the same inputs: a uv venv
+    (``envs/venv/<hash>``), a ``--target`` dir for the subprocess runtime
+    (``envs/subprocess/<hash>``) or a Docker image ``meshforge-env:<hash>``. A build
+    happens in ``<hash>.building`` and is renamed into place only when complete;
+    one build per hash at a time (``envs/locks/<hash>.lock``). Environments are
+    read-only to jobs. ``dir`` empty = ``<data_dir>/envs``. No GC before V0.5 G5:
+    remove ``envs/`` (and ``docker image rm meshforge-env:...``) by hand.
+
+    ``find_links`` / ``no_index`` / ``index_url`` let a lab install from a local
+    wheelhouse (offline) or a mirror; ``index_url`` must not carry credentials
+    (it would end up in process listings).
+    """
+
+    dir: Path | None = Field(
+        default=None, description="Where environments live; empty = <data_dir>/envs."
+    )
+    max_env_bytes: int = Field(
+        default=16 * 1024**3,
+        ge=1,
+        le=1024**4,
+        description="Largest built environment; a bigger one is deleted (env_error).",
+    )
+    free_disk_floor_mb: int = Field(
+        default=2048,
+        ge=0,
+        le=1_048_576,
+        description="A build is refused (disk_full) when less is free on the envs disk.",
+    )
+    max_requirements_bytes: int = Field(
+        default=65_536,
+        ge=1,
+        le=1024 * 1024,
+        description="Largest requirements file a job may name.",
+    )
+    max_requirements_lines: int = Field(
+        default=1000,
+        ge=1,
+        le=100_000,
+        description="Most distinct requirement lines a job may name.",
+    )
+    find_links: Path | None = Field(
+        default=None,
+        description="A local wheelhouse directory passed to the installer (--find-links).",
+    )
+    no_index: bool = Field(
+        default=False,
+        description="Install only from find_links (no package index; offline labs).",
+    )
+    index_url: str | None = Field(
+        default=None,
+        description="Package index URL (http(s), no credentials); empty = PyPI.",
+    )
+    allow_python_downloads: bool = Field(
+        default=False,
+        description=(
+            "venv runtime: let uv download a Python matching env.python when none is "
+            "installed (off = only interpreters already on this laptop)."
+        ),
+    )
+
+    @field_validator("index_url")
+    @classmethod
+    def _index_url_shape(cls, value: str | None) -> str | None:
+        if value is None or not value.strip():
+            return None
+        value = value.strip()
+        if len(value) > 300 or not _INDEX_URL.fullmatch(value):
+            raise ValueError(
+                "index_url must be an http(s) URL without credentials (no user@)"
+            )
+        return value
+
+    @model_validator(mode="after")
+    def _no_index_needs_links(self) -> EnvsSettings:
+        if self.no_index and self.find_links is None:
+            raise ValueError("envs.no_index needs envs.find_links (a wheelhouse)")
+        return self
+
+
 class DiscoverySettings(SectionModel):
     """``[agent.discovery]`` - mDNS lookup of the controller (roadmap 0.3.9).
 
@@ -608,6 +699,7 @@ class AgentSection(SectionModel):
     resources: ResourceSettings = Field(default_factory=ResourceSettings)
     scores: ScoreSettings = Field(default_factory=ScoreSettings)
     execution: ExecutionSettings = Field(default_factory=ExecutionSettings)
+    envs: EnvsSettings = Field(default_factory=EnvsSettings)
     hello_timeout_s: float = Field(
         default=3.0,
         gt=0,
@@ -681,3 +773,9 @@ class AgentSettings(MeshForgeSettings):
     def identity_dir(self) -> Path:
         """``data_dir/identity`` - where :mod:`meshforge.agent.identity` keeps the node."""
         return self.data_dir / IDENTITY_DIR_NAME
+
+    @property
+    def envs_dir(self) -> Path:
+        """``[agent.envs] dir`` or ``data_dir/envs`` (cached environments, D86)."""
+        configured = self.agent.envs.dir
+        return configured if configured is not None else self.data_dir / ENVS_DIR_NAME
