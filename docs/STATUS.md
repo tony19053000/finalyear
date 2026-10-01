@@ -29,7 +29,7 @@ V1.0    ░░░░░░░░░░░░░░░░░░░░   0%   0/8 
 █ done `[x]` · ▒ in progress or waiting on a 🧑 lab step `[~]` · ░ not started
 
 ## Current Version
-**V0.4 — Remote execution core** · started 2026-09-28 · **G1–G4 closed** (0.4.1, 0.4.3–0.4.7, 0.4.11, 0.4.12, 0.4.16 `[x]`; 0.4.2 `[~]` Windows CI digest; 0.4.8 `[~]` real CUDA run; 0.4.17 `[~]`) · **G5 (0.4.9, 0.4.10, 0.4.13, 0.4.14) in its fix-verification loop** — see Current Task · then 🧑 0.4.15 lab run
+**V0.4 — Remote execution core** · started 2026-09-28 · **G1–G5 closed** (0.4.1, 0.4.3–0.4.7, 0.4.9, 0.4.10, 0.4.11–0.4.14, 0.4.16 `[x]`; 0.4.2 `[~]` Windows CI digest; 0.4.8 `[~]` real CUDA run; 0.4.17 `[~]`) · next: 🧑 0.4.15 lab run
 **V0.3 — Fabric core** · started 2026-09-20 on the team's decision (before the laptop 2–4 inventory); **G1–G7 closed agent-side** (0.3.1, 0.3.3, 0.3.4, 0.3.5, 0.3.6, 0.3.8, 0.3.9, 0.3.10, 0.3.11, 0.3.12, 0.3.14 `[x]`; 0.3.2 `[~]` Windows run; 0.3.7 `[~]` lab evidence; 0.3.13 `[~]` Windows logoff check). Remaining: **only 🧑 0.3.15 lab run** (+ the three 🧑 Windows checks)
 V0.2 — Lab setup & feasibility validation · agent-side complete, waiting on 🧑 lab runs
 V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4, 0.1.10)
@@ -40,16 +40,14 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 > V0.10. 129 tasks vs 140–180 capacity → **~1.5 tasks/session**. Needs the other three team members' approval.
 
 ## Current Task
-**V0.4 G5 — tester round 2 after the fix round** (brief `docs/briefs/V0.4-remote-execution.md` §2h D71–D78, §5f). State 2026-09-29:
-implementer done (`d6b12e1` … `b1d5cbc`) → tester 1 PASS (`e8e50c9`) → reviewer pass 1 APPROVE (partial → D78) → **reviewer pass 2 REQUEST_CHANGES** (log write OSError killed the controller; `compute get --force` deleted the target before download) → **fix round done** (`dd95547` … `4bc14b3`, `094a757`; unit 4619 / component ctl 170 + agent 198 / cluster 52, exit 0) → **tester round 2 STOPPED mid-run** (account switch). Its two unverified test files are committed as `wip` — the next tester must check/keep/fix them.
-**Next:** re-run G5 tester round 2 (prompt in SESSION_HANDOFF §2, with the SAFETY RULE) → reviewer pass 3 on the fixes → close G5 (0.4.9, 0.4.10, 0.4.13, 0.4.14 `[x]`) → 🧑 0.4.15 lab run with `lab/checklists/V0.4-remote-exec.md`.
-**Team decision open:** attempts stuck in UPLOADING have no controller backstop (Lead suggests extending the timeout backstop to UPLOADING).
+**V0.4 agent-side groups G1–G5 closed (2026-10-01).** Next: **🧑 0.4.15 lab run** with `lab/checklists/V0.4-remote-exec.md`, plus a small agent-side fix batch from G5 reviewer pass 3 (see Technical Debt): T2-1, `_swap_in` rollback.
 
 **Carried from G6 (tracked as roadmap 0.4.16, a hard prerequisite of V0.6):** replace the timing-based clean-close inference (`HALF_CLOSE_CONFIRM_S`, measured on grpcio 1.84 → `grpcio<1.85` cap) with an explicit agent `Goodbye`; claim deadline for D28; extract `session/claims.py`; write-queue overflow signal; test the shutdown deferred-end backstop.
 
 **Open team question (NB-2), still unanswered:** where NVML is missing but `nvidia-smi` works, a node reports its GPUs in `Hello.hardware` but **never** GPU util/VRAM in any `ResourceUpdate` — so V0.9 telemetry and the V0.15 ML planner would train on a node that looks GPU-equipped and never uses it. Refusing a subprocess every 2 s was right; the option to cost is a low-cadence (~30 s, interpolated) `nvidia-smi` poll behind a setting.
 
 ## Recently Completed
+- 2026-10-01: **V0.4 G5 closed** — 0.4.9 live logs (WebSocket + persisted file), 0.4.10 outputs collected/uploaded/downloadable, 0.4.13 `compute run/jobs/logs -f/cancel/get`, 0.4.14 example workloads `[x]`. Rounds: implementer → tester PASS → reviewer pass 1 partial → pass 2 REQUEST_CHANGES (a log-write OSError killed the controller; `get --force` deleted the target before download) → fix round → tester round 2 PASS on Sonnet 5.5 (`44dcf44`, both mutation checks caught) → reviewer pass 3 APPROVE. Component `-rs`: all 52 skips environment-only (35 = pinned `python:3.12-slim` image not pulled locally; rest GPU/Windows/slow/image).
 - 2026-09-28: **V0.4 G3 closed** — runtimes & sandbox: `Runtime` contract (D51), hardened Docker runtime (non-root, cap_drop ALL, no-new-privileges, read-only rootfs, network none, limits, labels + orphan sweep, separate setup container), GPU by exact NVML index, unsandboxed subprocess fallback behind `allow_unsandboxed`, shared `agent/process.py` tree-kill with pdeathsig/job object, score reason codes in common. Tester PASS (suspected network leak ruled out), reviewer APPROVE. Follow-ups → **D63** for G4 (incl. a workdir-permission security fix and a hermetic network test).
 - 2026-09-28: **V0.4 G2 closed** — job model & submission: `compute.yaml` manifest (D46), deterministic hostile-safe bundles (D47), token-protected blob store + fetch tokens (D48), Job/Attempt tables + transitions + CAS JobStore (D49), `POST/GET /v1/jobs` with Idempotency-Key and manual placement (D50), fabric token (D44). Rounds: tester PASS → reviewer REQUEST_CHANGES (submit was 3 transactions; a crash could strand a job) → fix: one-transaction submit → tester round 2 PASS (killed DB connection / random cancellation leave no row) → reviewer APPROVE. Lead fixed 3 small pre-existing unit-gate test failures (`d901810`). Follow-ups → D62 (G4).
 - 2026-09-28: **V0.4 G1 closed** — 0.4.16 `[x]` explicit `Goodbye`, admission deadline, manager split, overflow signal; grpcio cap lifted.
@@ -98,6 +96,7 @@ implementer done (`d6b12e1` … `b1d5cbc`) → tester 1 PASS (`e8e50c9`) → rev
 - Fixed this session: secret leak + O(n²) in log scrubber; duplicate IDs after fork; plain-`uv sync` test collection crash; CRLF-dependent codegen output.
 
 ## Technical Debt
+- **G5 follow-ups (reviewer pass 3):** T2-1 `compute get` prints a traceback on an unwritable dest parent / non-BundleError OSError in unpack (`cli/job_commands.py:370-373`; strict-xfail test waiting) → clean `_die`; `_swap_in` loses the parked old folder if the rollback rename also fails → keep it and print its path; **attempts stuck in UPLOADING have no controller backstop** → bounded upload deadline in V0.5. Also: 35 Docker sandbox component tests skip unless `python:3.12-slim@sha256:f77ac9…` is pulled locally.
 - **G7 follow-ups (roadmap 0.4.17):** Windows `taskkill` runs on the event loop (capped 1 s); `controller/session/manager.py` is 1315 lines — extract report handlers before V0.4; `agent/benchmarks/runner.py` 780 lines; a SIGKILLed agent can leave a wedged benchmark child; score reason codes are free strings (freeze before V0.15); the controller trusts the agent's score fingerprint (V0.7).
 - Leftover `nvidia-driver-590-open` metapackage alongside 595 on Laptop 1 (clean up after driver fix)
 - Dev DB has a default password (`meshforge-dev`, DB bound to 127.0.0.1); product/non-dev must refuse to start without an explicit secret (V0.7/V0.17)
@@ -105,6 +104,7 @@ implementer done (`d6b12e1` … `b1d5cbc`) → tester 1 PASS (`e8e50c9`) → rev
 - `.venv` on Laptop 1 has all extras incl. torch installed (`uv sync --all-extras`, re-done in G1) — **torch 2.14 with CUDA 13.0 and no numpy**; the S7 GPU cases run for real here now. Note for ADR-0011: this is not the cu126 index it proposes; check what `uv` resolved before deciding
 
 ## Test Status
+- **Core (2026-10-01, after G5):** gates clean; `-m unit` 4623 passed, 3 skipped, 3 xfailed; whole `-m component` 619 passed, 52 skipped (env-only), exit 0 (15 min 34 s); `-m cluster` 52 passed, 6 skipped, exit 0.
 - **Core (2026-09-25, after G7):** ruff check + format clean (447 files); `mypy src` clean (105); lint-imports 7/0; gen_protos clean; `-m unit` **3725 passed, 2 skipped, 2 xfailed, exit 0**; **whole** `-m component` **462 passed, 6 skipped, exit 0** (13 min 24 s); `-m cluster` **40 passed, 6 skipped, exit 0**. Flaky once (tracked in 0.4.17): `tests/component/lab/test_s1_network.py::test_garbage_header_does_not_break_the_server`.
 - Lab suites (2026-09-20, after 0.2.13): `ruff check` / `ruff format --check` clean; `mypy lab tests/unit/lab tests/component/lab` clean (132 files); `pytest tests/unit/lab` **1360 passed**; `pytest tests/component/lab` **240 passed, 3 skipped** (5 min 51 s, on 0.2.13); after the protocol move + flood-test fix **240 passed, 3 skipped** again (5 min 50 s)
 - **Core (2026-09-24, after G6):** ruff check + format clean (410 files); `mypy src` clean (90); lint-imports 7/0; gen_protos clean; `-m unit` **3475 passed, 2 skipped, 2 xfailed, exit 0**; component controller 87 / agent 72 / store 17 exit 0 (whole component suite not re-run after G6); `-m cluster` **39 passed exit 0** (3 repeated runs ~105 s); slow cluster set exit 0.
@@ -115,7 +115,7 @@ implementer done (`d6b12e1` … `b1d5cbc`) → tester 1 PASS (`e8e50c9`) → rev
 - Windows: not yet run (first real CI run will cover unit + fresh-clone on windows-latest)
 
 ## Next Recommended Task
-**2026-09-29: G5 tester round 2 (re-run) → reviewer pass 3 → close G5 → 🧑 0.4.15 lab.** Details in Current Task. Everything below is history.
+**2026-10-01: 🧑 0.4.15 lab run; agent-side, the G5 follow-up fix batch (T2-1 + `_swap_in`).** Everything below is history.
 
 **Models (2026-09-24):** Lead, implementer and reviewer now run **`claude-opus-5-5`**; tester moved to `claude-sonnet-5-5` on 2026-10-01 (was `claude-sonnet-5`, commit `6563c7d`, details in `SESSION_HANDOFF.md` §0c). §0b's throughput numbers were measured on Opus 5 — re-baseline after G6 before re-planning.
 
