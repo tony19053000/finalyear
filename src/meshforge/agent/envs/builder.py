@@ -312,7 +312,7 @@ class EnvBuilder:
         ):
             return "missing"
         try:
-            summary = tree_summary(final, skip_names=(MARKER_NAME,))
+            summary = tree_summary(final, skip_root_names=(MARKER_NAME,))
         except OSError:
             return "damaged"
         recorded = data.get("summary")
@@ -349,7 +349,18 @@ class EnvBuilder:
                 log.info("agent.envs.cache_waited", **fields, wait_s=round(waited, 3))
                 return BuiltEnv(digest, kind, final, "waited", build_s=waited)
             building = final.with_name(f"{digest}.building")
-            await _to_thread(self._clear, final, building)
+            try:
+                await _to_thread(self._clear, final, building)
+            except OSError as exc:
+                # never build over a tree we could not remove; no retry loop
+                log.warning(
+                    "agent.envs.evict_failed", **fields, cause=type(exc).__name__
+                )
+                raise EnvError(
+                    "a damaged or partial environment could not be removed: "
+                    f"{exc.strerror or type(exc).__name__}",
+                    reason="evict_failed",
+                ) from exc
             await _to_thread(self.check_free_disk)
             log.info("agent.envs.build_started", **fields)
             try:
@@ -394,7 +405,7 @@ class EnvBuilder:
             "env_hash": digest,
             "kind": kind,
             "size_bytes": size,
-            "summary": tree_summary(building, skip_names=(MARKER_NAME,)).as_dict(),
+            "summary": tree_summary(building, skip_root_names=(MARKER_NAME,)).as_dict(),
             "built_at": datetime.now(UTC).isoformat(timespec="seconds"),
         }
         atomic_write_bytes(

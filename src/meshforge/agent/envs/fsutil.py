@@ -164,24 +164,26 @@ class TreeSummary:
         }
 
 
-def tree_summary(root: Path, *, skip_names: Collection[str] = ()) -> TreeSummary:
-    """:class:`TreeSummary` of ``root``. Files named in ``skip_names`` (at any depth)
-    and everything under ``__pycache__`` (an interpreter may write bytecode where
-    the OS lets it, e.g. on Windows) are left out; symlinks are not followed."""
+def tree_summary(root: Path, *, skip_root_names: Collection[str] = ()) -> TreeSummary:
+    """:class:`TreeSummary` of ``root``. Left out, and nothing else: files named in
+    ``skip_root_names`` **directly in** ``root`` (the marker), and ``*.pyc`` files
+    **directly in** a ``__pycache__`` directory (an interpreter may write bytecode
+    where the OS lets it, e.g. on Windows). Symlinks are not followed."""
     entries: list[str] = []
     total = 0
     for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [d for d in dirnames if d != "__pycache__"]
         rel_dir = os.path.relpath(dirpath, root)
-        names = list(filenames) + [
-            d for d in dirnames if os.path.islink(os.path.join(dirpath, d))
-        ]
-        for name in names:
-            if name in skip_names:
+        at_root = rel_dir == "."
+        in_bytecode_dir = os.path.basename(dirpath) == "__pycache__" and not at_root
+        links = [d for d in dirnames if os.path.islink(os.path.join(dirpath, d))]
+        for name in [*filenames, *links]:
+            if at_root and name in skip_root_names:
+                continue
+            if in_bytecode_dir and name.endswith(".pyc") and name not in links:
                 continue
             info = os.lstat(os.path.join(dirpath, name))
             kind = "l" if stat.S_ISLNK(info.st_mode) else "f"
-            rel = name if rel_dir == "." else f"{rel_dir}/{name}"
+            rel = name if at_root else f"{rel_dir}/{name}"
             entries.append(f"{rel.replace(os.sep, '/')}\0{kind}\0{info.st_size}")
             if kind == "f":
                 total += info.st_size

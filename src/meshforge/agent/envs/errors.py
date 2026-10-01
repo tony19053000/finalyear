@@ -27,6 +27,7 @@ class EnvError(MeshForgeError):
     ``disk_full``               disk_full       free disk under the floor, or
                                                 ENOSPC/EDQUOT during a build
     ``build_io_failed``         env_error       another OSError during a build
+    ``evict_failed``            env_error       a damaged/partial env cannot be removed
     ``env_timeout``             timeout         lock wait + build over the budget
     ``env_lock_failed``         internal_error  the lock file cannot be opened
     ``env_io_failed``           internal_error  the envs directory failed (I/O)

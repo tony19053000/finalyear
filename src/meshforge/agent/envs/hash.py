@@ -25,7 +25,8 @@ and blank lines removed, runs of whitespace collapsed to one space, duplicates
 dropped, and the lines sorted. Requirement lines are also put in one spelling
 (format version 2): the project name and extras normalised per PEP 503 (lowercase,
 runs of ``-_.`` -> ``-``; extras sorted), no whitespace inside the version
-specifier, and the environment marker after ``" ; "``. ``Requests == 2`` and
+specifier, the environment marker after ``" ; "``, and per-requirement options
+(``--hash=...``) kept after one space, as ``--name=value``, sorted. ``Requests == 2`` and
 ``requests==2`` therefore share an env. Comment, order or spelling changes keep
 the hash; any version change alters it.
 
@@ -79,7 +80,12 @@ _REQUIREMENT: Final = re.compile(
     r"(?P<spec>[^;@]*?)\s*"
     r"(?:;\s*(?P<marker>.*))?"
 )
-_REMOTE_SCHEMES: Final = ("http://", "https://", "git+", "hg+", "svn+", "bzr+")
+_REMOTE_URL: Final = re.compile(
+    r"(?:https?|(?:git|hg|svn|bzr)\+(?:https?|ssh|git))://\S+", re.IGNORECASE
+)
+"""Direct references the hash can stand for: http(s), or a VCS over a network
+scheme. ``git+file://``, ``git+/path``, ``ftp:``, ``data:`` ... are refused."""
+_OPTION_SPLIT: Final = re.compile(r"\s+(?=--)")
 
 
 @dataclass(frozen=True, slots=True)
@@ -181,6 +187,37 @@ def _canonical_line(line: str, number: int) -> str:
     lines (``--index-url ...``) and bare URLs are kept as written."""
     if line.startswith("-") or "://" in line.split("@", 1)[0]:
         return line
+    parts = _OPTION_SPLIT.split(line, maxsplit=1)
+    canonical = _canonical_requirement(parts[0], number)
+    options = _canonical_options(parts[1:])
+    return f"{canonical} {options}" if options else canonical
+
+
+def _canonical_options(parts: list[str]) -> str:
+    """Per-requirement options (``--hash=sha256:...`` from pip-compile
+    ``--generate-hashes``): kept, each as ``--name=value``, sorted (their order
+    does not matter to the installer), separated from the requirement."""
+    if not parts:
+        return ""
+    tokens = parts[0].split()
+    options: list[str] = []
+    i = 0
+    while i < len(tokens):
+        token = tokens[i]
+        if (
+            token.startswith("--")
+            and "=" not in token
+            and i + 1 < len(tokens)
+            and not tokens[i + 1].startswith("-")
+        ):
+            token = f"{token}={tokens[i + 1]}"
+            i += 1
+        options.append(token)
+        i += 1
+    return " ".join(sorted(set(options)))
+
+
+def _canonical_requirement(line: str, number: int) -> str:
     match = _REQUIREMENT.fullmatch(line)
     if match is None:
         if "@" in line:  # an unparsed direct reference: cannot prove it is remote
@@ -200,7 +237,7 @@ def _canonical_line(line: str, number: int) -> str:
     tail = f" ; {_SPACES.sub(' ', marker).strip()}" if marker else ""
     url = match["url"]
     if url is not None:
-        if not url.lower().startswith(_REMOTE_SCHEMES):
+        if not _REMOTE_URL.fullmatch(url):
             raise _rejected(
                 f"requirements line {number}: a direct reference must be an http(s) "
                 "or VCS URL - a local path's contents are not covered by the env hash"
