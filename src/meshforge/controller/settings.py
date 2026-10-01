@@ -243,6 +243,71 @@ class JobApiSettings(SectionModel):
             "acked (the agent replays it after its next reconnect)."
         ),
     )
+    # --- V0.4 debt carried into V0.5 (G3, D94) -------------------------------
+    upload_deadline_s: float | None = Field(
+        default=None,
+        ge=60.0,
+        le=7 * 86_400.0,
+        description=(
+            "D94: an attempt still UPLOADING this long after it entered UPLOADING "
+            "(the job's COLLECTING transition, persisted - a controller restart "
+            "keeps it) is failed output_error and its upload grant revoked. Empty = "
+            "upload_deadline_base_s + max_output_bytes / upload_min_rate_bytes_s."
+        ),
+    )
+    upload_deadline_base_s: float = Field(
+        default=600.0,
+        ge=30.0,
+        le=86_400.0,
+        description=(
+            "Fixed part of the derived upload deadline (collecting + packing the "
+            "outputs, the final logs, retries)."
+        ),
+    )
+    upload_min_rate_bytes_s: int = Field(
+        default=1024 * 1024,
+        ge=64 * 1024,
+        le=10 * 1024**3,
+        description=(
+            "Slowest upload rate the derived deadline still allows for a full "
+            "max_output_bytes upload (default 1 MiB/s: 2 GiB -> 2048 s + base)."
+        ),
+    )
+    log_retention_s: float = Field(
+        default=7 * 86_400.0,
+        ge=3600.0,
+        le=365 * 86_400.0,
+        description=(
+            "D94: log files of an attempt whose job is terminal are deleted this "
+            "long after the job's last change. A non-terminal job's logs are "
+            "never deleted."
+        ),
+    )
+    log_gc_interval_s: float = Field(
+        default=3600.0,
+        ge=10.0,
+        le=86_400.0,
+        description="How often the controller sweeps the logs folder (D94).",
+    )
+    log_gc_batch: int = Field(
+        default=1000,
+        ge=1,
+        le=100_000,
+        description=(
+            "Attempts whose log files are old enough that one sweep checks "
+            "against the database; the rest wait for the next sweep."
+        ),
+    )
+
+    @property
+    def upload_deadline_total_s(self) -> float:
+        """The effective UPLOADING deadline in seconds (see ``upload_deadline_s``)."""
+        if self.upload_deadline_s is not None:
+            return self.upload_deadline_s
+        return (
+            self.upload_deadline_base_s
+            + self.max_output_bytes / self.upload_min_rate_bytes_s
+        )
 
 
 class ApiSettings(SectionModel):

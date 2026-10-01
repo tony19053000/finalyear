@@ -36,8 +36,8 @@ another path: the next Reconcile finds it acked-but-not-held -> ``LOST``
 (``agent_lost_attempt``, job ``FAILED(node_lost)``); an agent OFFLINE -> ``LOST``;
 or, if it is still ``RUNNING`` in the store, the backstop ->
 ``FAILED(deadline_exceeded, controller_backstop)``. The backstop only covers
-``RUNNING``: a poisoned report of an attempt stored as ``UPLOADING`` waits for
-the next Reconcile or OFFLINE.
+``RUNNING``; an attempt stored as ``UPLOADING`` ends by the upload deadline
+(D94) if no Reconcile or OFFLINE ends it first.
 
 **Reconcile (D66).** For the node's live attempts: held by the agent -> continue
 (re-sending a pending cancel); not held and ``StartAttempt`` never acked ->
@@ -55,6 +55,14 @@ does. After a controller restart, attempts of nodes that do not reconnect within
 
 **Backstop (D69).** An attempt still RUNNING ``backstop_grace_s`` past its job's
 time limit is failed ``deadline_exceeded`` (``controller_backstop``) and cancelled.
+
+**Upload deadline (D94).** An attempt still UPLOADING
+``upload_deadline_total_s`` after it entered UPLOADING is failed
+``output_error`` (``upload_deadline_exceeded``), its upload grant and fetch
+token are **revoked** (a late ``PUT`` is refused, a late ``DONE`` is fenced) and
+it is cancelled. The start of UPLOADING is the job's persisted ``COLLECTING``
+transition, so a controller restart keeps the deadline; it is compared with the
+controller's wall clock (both are timestamps, not intervals measured here).
 
 A database failure while applying an item (``JobStoreError``, retryable) is retried
 with backoff, keeping the item; anything else is a bug: logged with its traceback,
@@ -79,7 +87,11 @@ from meshforge.common.ids import new_attempt_id
 from meshforge.common.logging import get_logger
 from meshforge.common.manifest import Manifest
 from meshforge.common.proto.meshforge.v1 import agent_pb2
-from meshforge.common.states import ATTEMPT_TERMINAL_STATES, AttemptState
+from meshforge.common.states import (
+    ATTEMPT_TERMINAL_STATES,
+    AttemptState,
+    JobState,
+)
 from meshforge.controller.blobs import MAX_FETCH_TOKEN_TTL_S, FetchTokens
 from meshforge.controller.jobs.execution_store import (
     Dispatch,
@@ -165,6 +177,7 @@ class DispatcherStats:
     releases_sent: int = 0
     statuses_poisoned: int = 0
     db_retries: int = 0
+    upload_deadlines: int = 0
 
 
 class Dispatcher:
@@ -202,6 +215,8 @@ class Dispatcher:
         self._started_at = clock()
         self.stats = DispatcherStats()
         self._poison: OrderedDict[tuple[str, str], int] = OrderedDict()
+        self._uploading_since: dict[str, dt.datetime] = {}
+        """attempt_id -> when it entered UPLOADING (from the job history)."""
         manager.dispatch.register("attempt_status", self._on_status_message)
         manager.defer_ack("attempt_status")
         hooks = manager.hooks
@@ -381,6 +396,7 @@ class Dispatcher:
     async def _periodic(self, _: object) -> None:
         await self._dispatch()
         await self._backstop()
+        await self._upload_deadline()
         await self._sweep_orphans()
 
     # ------------------------------------------------------------ reports
@@ -777,3 +793,65 @@ class Dispatcher:
             if self._logs is not None:
                 self._logs.finalize(attempt.id, None)
             self._send_cancel(attempt, "controller_backstop")
+
+    # ------------------------------------------------------------ D94
+
+    async def _upload_deadline(self) -> None:
+        """End attempts UPLOADING longer than ``upload_deadline_total_s``."""
+        uploading = [
+            entry
+            for entry in await self._store.live_attempts()
+            if entry.attempt.state is AttemptState.UPLOADING
+        ]
+        ids = {entry.attempt.id for entry in uploading}
+        for gone in set(self._uploading_since) - ids:
+            del self._uploading_since[gone]
+        if not uploading:
+            return
+        deadline = dt.timedelta(seconds=self._settings.upload_deadline_total_s)
+        now = self._wall()
+        for entry in uploading:
+            attempt = entry.attempt
+            since = self._uploading_since.get(attempt.id)
+            if since is None:
+                since = await self._upload_start(entry)
+                self._uploading_since[attempt.id] = since
+            if now - since < deadline:
+                continue
+            outcome = await self._store.end_attempt(
+                attempt.id,
+                attempt.fencing_token,
+                event=AttemptEvent.FAIL,
+                failure_type=FailureType.OUTPUT_ERROR,
+                detail="upload_deadline_exceeded",
+            )
+            self._uploading_since.pop(attempt.id, None)
+            if outcome.kind is not StatusKind.APPLIED:
+                continue
+            self.stats.upload_deadlines += 1
+            log.warning(
+                "controller.jobs.upload_deadline",
+                job_id=attempt.job_id,
+                attempt_id=attempt.id,
+                node_id=attempt.node_id,
+                uploading_s=round((now - since).total_seconds(), 1),
+            )
+            # Revoked, not closed: nothing this attempt uploads or reports from
+            # now on is accepted (a late PUT is refused, a late DONE is fenced).
+            self._tokens.revoke(attempt.id)
+            if self._grants is not None:
+                self._grants.revoke(attempt.id)
+            if self._logs is not None:
+                self._logs.finalize(attempt.id, None)
+            self._send_cancel(attempt, "upload_deadline_exceeded")
+
+    async def _upload_start(self, entry: LiveAttempt) -> dt.datetime:
+        """When the attempt entered UPLOADING: the job's last ``COLLECTING``
+        transition (written in the same transaction). Without one (the job arrow
+        was skipped) the earliest bound known - the attempt's start - so the
+        deadline can only come sooner, never later."""
+        history = await self._store.history(entry.job.id)
+        for _from, to_state, at in reversed(history):
+            if to_state is JobState.COLLECTING:
+                return at
+        return entry.attempt.started_at or entry.attempt.created_at
