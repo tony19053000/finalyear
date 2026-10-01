@@ -28,6 +28,7 @@ and is refused for the working directory, its ancestors, home and a root.
 from __future__ import annotations
 
 import hashlib
+import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -367,11 +368,10 @@ def get(
                 f"{checked} has no outputs (state {job.get('state')})", ExitCode.FAILURE
             )
         hex_digest = digest.removeprefix("sha256:")
-        target.parent.mkdir(parents=True, exist_ok=True)
-        with tempfile.TemporaryDirectory(
-            dir=target.parent, prefix=".compute-get-"
-        ) as tmp:
-            archive = Path(tmp) / "outputs.bundle"
+        tmp = _staging_dir(target)
+        keep_tmp = False
+        try:
+            archive = tmp / "outputs.bundle"
             cli._fetch(lambda: client.download_blob(hex_digest, archive))
             if _sha256(archive) != hex_digest:
                 cli._die(
@@ -379,19 +379,35 @@ def get(
                     "unpacked",
                     ExitCode.FAILURE,
                 )
-            fresh = Path(tmp) / "new"
+            fresh = tmp / "new"
             try:
                 stats = unpack(archive, fresh)
             except BundleError as exc:
                 cli._die(f"cannot unpack the outputs: {exc.message}", ExitCode.FAILURE)
+            except OSError as exc:
+                cli._die(
+                    f"cannot unpack the outputs into {tmp}: {_os_cause(exc)}; "
+                    f"{target} was left as it was",
+                    ExitCode.FAILURE,
+                )
             try:
-                _swap_in(fresh, target, Path(tmp) / "old")
+                _swap_in(fresh, target, tmp / "old")
+            except _StrandedError as exc:
+                keep_tmp = True
+                cli._die(
+                    f"cannot move the outputs into {target} ({_os_cause(exc)}) and "
+                    f"cannot put the old folder back; it is safe at {exc.parked}",
+                    ExitCode.FAILURE,
+                )
             except OSError as exc:
                 cli._die(
                     f"cannot move the outputs into {target} ({type(exc).__name__}); "
                     "the existing folder was left as it was",
                     ExitCode.FAILURE,
                 )
+        finally:
+            if not keep_tmp:
+                shutil.rmtree(tmp, ignore_errors=True)
     missing = attempt.get("missing_outputs") if attempt else None
     typer.echo(f"{stats.files} files -> {target}")
     if isinstance(missing, list) and missing:
@@ -426,19 +442,52 @@ def _unsafe_force_target(target: Path) -> str | None:
     return None
 
 
+class _StrandedError(OSError):
+    """Both renames of :func:`_swap_in` failed: the old folder is at ``parked``
+    and must not be deleted - the caller keeps its staging folder and prints
+    the path so the user can move it back by hand."""
+
+    def __init__(self, cause: OSError, parked: Path) -> None:
+        super().__init__(cause.errno, cause.strerror or str(cause))
+        self.parked = parked
+
+
+def _staging_dir(target: Path) -> Path:
+    """Create the ``.compute-get-*`` staging folder next to ``target`` (same
+    filesystem, so the final rename is atomic). An unwritable or missing parent
+    is a clean one-line error, never a traceback."""
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        return Path(tempfile.mkdtemp(dir=target.parent, prefix=".compute-get-"))
+    except OSError as exc:
+        cli._die(
+            f"cannot create a staging folder in {target.parent}: {_os_cause(exc)}",
+            ExitCode.FAILURE,
+        )
+
+
+def _os_cause(exc: OSError) -> str:
+    """The short human cause of an ``OSError`` (``strerror``, else its type)."""
+    return exc.strerror or type(exc).__name__
+
+
 def _swap_in(fresh: Path, target: Path, parked: Path) -> None:
     """Rename ``fresh`` onto ``target``; an existing ``target`` is parked first
     (and put back if the second rename fails). All three share one parent
-    filesystem, so both renames are atomic; the caller's temp folder then
-    deletes the parked copy."""
+    filesystem, so both renames are atomic; the caller then deletes its staging
+    folder with the parked copy in it. If putting the old folder back fails
+    too, :class:`_StrandedError` names where it is and the caller must keep it."""
     if not target.exists():
         fresh.rename(target)
         return
     target.rename(parked)
     try:
         fresh.rename(target)
-    except OSError:
-        parked.rename(target)
+    except OSError as exc:
+        try:
+            parked.rename(target)
+        except OSError:
+            raise _StrandedError(exc, parked) from exc
         raise
 
 
