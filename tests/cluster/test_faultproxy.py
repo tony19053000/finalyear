@@ -15,12 +15,15 @@ may arrive after the restore either.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import socket
 import threading
 import time
 from collections.abc import Callable, Iterator
+from typing import Any
 
+import mf_faultproxy
 import pytest
 from mf_faultproxy import FaultLink, FaultLoop
 
@@ -369,10 +372,17 @@ def test_upstream_gone_resets_the_client_promptly(fault_loop: FaultLoop) -> None
     port = dead.getsockname()[1]
     dead.close()  # nothing listens here any more
     link = fault_loop.link(("127.0.0.1", port))
-    with _connect(link) as client:
-        start = time.monotonic()
-        _assert_reset(client)
-        assert time.monotonic() - start < 1.0
+    try:
+        client = _connect(link)
+    except ConnectionResetError:
+        # The proxy's RST can land between the handshake and connect()'s own
+        # SO_ERROR check (seen on a loaded machine): the same reset, sooner.
+        pass
+    else:
+        with client:
+            start = time.monotonic()
+            _assert_reset(client)
+            assert time.monotonic() - start < 1.0
     assert link.counters().upstream_failures == 1
 
 
@@ -403,6 +413,39 @@ def test_buffers_are_bounded_under_a_stalled_link(
         # point is that it is finite, not its exact size.
         assert sent < 64 * 1024 * 1024
         link.bandwidth(None)
+
+
+def test_close_racing_an_upstream_connect_is_still_a_clean_close(
+    upstream: Upstream, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The ordering a loaded machine produced: the proxy's upstream connect has
+    completed, but the accepting coroutine resumes only after ``close()`` has
+    closed the connection. The upstream must still see a FIN, not a RST."""
+    gate: list[asyncio.Event] = []
+    real_open = asyncio.open_connection
+    real_close = FaultLink._close
+
+    async def gated_open(*args: Any, **kwargs: Any) -> Any:
+        gate.append(asyncio.Event())
+        opened = await real_open(*args, **kwargs)
+        await gate[0].wait()  # runnable again only once close() has started
+        return opened
+
+    async def close_releasing(self: FaultLink) -> None:
+        for event in gate:
+            event.set()
+        await real_close(self)
+
+    monkeypatch.setattr(mf_faultproxy.asyncio, "open_connection", gated_open)
+    monkeypatch.setattr(FaultLink, "_close", close_releasing)
+    loop = FaultLoop("faultproxy-close-race")
+    link = loop.link(upstream.address)
+    client = _connect(link)
+    server = upstream.wait_accepted(1)
+    loop.close()
+    assert client.recv(10) == b""
+    assert server.recv(10) == b""
+    client.close()
 
 
 def test_close_releases_every_socket_and_the_thread(upstream: Upstream) -> None:

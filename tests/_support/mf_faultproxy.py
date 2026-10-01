@@ -213,6 +213,8 @@ class _Conn:
         """Bytes were dropped: this byte stream can never be resumed."""
         self.tasks: list[asyncio.Task[None]] = []
         self.closed = False
+        self.reset = False
+        """Closed by a reset (RST both ways), not a clean link close (FIN)."""
 
     def is_poisoned(self) -> bool:
         """``poisoned`` re-read after an ``await`` (a method, so it is not narrowed)."""
@@ -413,8 +415,14 @@ class FaultLink:
             self._upstream_failures += 1
             self._reset_conn(conn)
             return
-        if conn.closed:  # reset/down while we were connecting
-            _rst(up_writer)
+        if conn.closed:  # reset/down/close while we were connecting
+            # The same way the client side went: a reset/down is a RST, a link
+            # close a FIN. (Seen on a loaded machine: close() ran after the
+            # upstream connect completed but before this coroutine resumed.)
+            if conn.reset:
+                _rst(up_writer)
+            else:
+                up_writer.close()
             return
         conn.upstream = up_writer
         pumps = [
@@ -435,6 +443,7 @@ class FaultLink:
         if conn.closed:
             return
         conn.closed = True
+        conn.reset = True
         _rst(conn.client)
         _rst(conn.upstream)
         for task in conn.tasks:
