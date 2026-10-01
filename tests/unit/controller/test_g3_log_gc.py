@@ -154,3 +154,31 @@ async def test_an_unlink_failure_is_counted_not_raised(tmp_path: Path) -> None:
 async def test_a_missing_folder_is_not_an_error(tmp_path: Path) -> None:
     hub = LogHub(tmp_path / "never-made", blobs=None, max_bytes=1000)
     assert await hub.collect_garbage(Expired(), older_than=CUTOFF, limit=10) == 0
+
+
+async def test_old_not_expired_candidates_cannot_starve_newer_expired_ones(
+    tmp_path: Path,
+) -> None:
+    hub = _hub(tmp_path)
+    kept = [str(new_attempt_id()) for _ in range(2)]
+    for age, attempt in enumerate(kept):
+        _files(hub, attempt, mtime=OLD - 3600 - age)  # the oldest two
+    newer = str(new_attempt_id())
+    newer_paths = _files(hub, newer, mtime=OLD)
+
+    class OnlyNewer(Expired):
+        async def __call__(self, attempt_id: str) -> bool:
+            self.asked.append(attempt_id)
+            return attempt_id == newer
+
+    expired = OnlyNewer()
+    deleted = 0
+    for _ in range(3):  # bounded: reached on the second pass
+        deleted += await hub.collect_garbage(expired, older_than=CUTOFF, limit=2)
+        if deleted:
+            break
+    assert deleted == 2 and not any(p.exists() for p in newer_paths)
+    assert expired.asked == [kept[1], kept[0], newer]
+    # The round completed: the kept ones are checked again on the next call.
+    await hub.collect_garbage(expired, older_than=CUTOFF, limit=2)
+    assert expired.asked[3:] == [kept[1], kept[0]]

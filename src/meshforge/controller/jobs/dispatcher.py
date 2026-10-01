@@ -222,8 +222,8 @@ class Dispatcher:
         self.stats = DispatcherStats()
         self._poison: OrderedDict[tuple[str, str], int] = OrderedDict()
         self._uploading_since: dict[str, dt.datetime] = {}
-        self._next_log_gc = self._started_at + settings.log_gc_interval_s
         """attempt_id -> when it entered UPLOADING (from the job history)."""
+        self._next_log_gc = self._started_at + settings.log_gc_interval_s
         manager.dispatch.register("attempt_status", self._on_status_message)
         manager.defer_ack("attempt_status")
         hooks = manager.hooks
@@ -403,8 +403,12 @@ class Dispatcher:
     async def _periodic(self, _: object) -> None:
         await self._dispatch()
         await self._backstop()
-        await self._upload_deadline()
-        await self._sweep_orphans()
+        # One read of the live attempts for both sweeps. An attempt the first
+        # one ends is still listed for the second: ending it again is a no-op
+        # (end_attempt answers DUPLICATE).
+        live = await self._store.live_attempts()
+        await self._upload_deadline(live)
+        await self._sweep_orphans(live)
         if self._logs is not None and self._clock() >= self._next_log_gc:
             self._next_log_gc = self._clock() + self._settings.log_gc_interval_s
             await self._log_gc()
@@ -743,10 +747,12 @@ class Dispatcher:
         for entry in await self._store.live_attempts(item.node_id):
             await self._lose(entry, "node_offline")
 
-    async def _sweep_orphans(self) -> None:
+    async def _sweep_orphans(self, live: list[LiveAttempt] | None = None) -> None:
         if self._clock() - self._started_at < self._settings.reconnect_grace_s:
             return
-        for entry in await self._store.live_attempts():
+        if live is None:
+            live = await self._store.live_attempts()
+        for entry in live:
             node_id = entry.attempt.node_id
             if (
                 self._manager.get(node_id) is None
@@ -806,12 +812,14 @@ class Dispatcher:
 
     # ------------------------------------------------------------ D94
 
-    async def _upload_deadline(self) -> None:
-        """End attempts UPLOADING longer than ``upload_deadline_total_s``."""
+    async def _upload_deadline(self, live: list[LiveAttempt] | None = None) -> None:
+        """End attempts UPLOADING longer than ``upload_deadline_total_s``
+        (``live`` = the store's live attempts, read once per tick; None = read
+        them here)."""
+        if live is None:
+            live = await self._store.live_attempts()
         uploading = [
-            entry
-            for entry in await self._store.live_attempts()
-            if entry.attempt.state is AttemptState.UPLOADING
+            entry for entry in live if entry.attempt.state is AttemptState.UPLOADING
         ]
         ids = {entry.attempt.id for entry in uploading}
         for gone in set(self._uploading_since) - ids:

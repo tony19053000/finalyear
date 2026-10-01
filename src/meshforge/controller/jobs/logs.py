@@ -264,6 +264,9 @@ class LogHub:
         self._ended: OrderedDict[str, AttemptLogState] = OrderedDict()
         self._by_job: dict[str, set[Subscription]] = {}
         self._unreadable_warned: OrderedDict[str, None] = OrderedDict()
+        self._gc_kept: set[str] = set()
+        """GC candidates found not expired in the current round (only ids that
+        still have files, so bounded by the folder)."""
         """Attempts whose broken gaps sidecar was already logged (bounded)."""
         self.stats = LogHubStats()
 
@@ -667,18 +670,27 @@ class LogHub:
         ``older_than`` **and** for which ``expired(attempt_id)`` is true; at most
         ``limit`` attempts are checked per call (oldest first). Returns the number
         of files deleted. Never raises for a file system error (logged, counted).
+
+        A candidate found *not* expired is skipped by the following calls until
+        one call gets through the whole candidate list (then every candidate is
+        checked again), so old logs of a still-live job cannot starve newer
+        expired ones of the ``limit``.
         """
         cutoff = older_than.timestamp()
         candidates, leftovers = await asyncio.to_thread(_scan, self.root, cutoff)
         deleted = await asyncio.to_thread(_unlink_all, leftovers, self.stats)
+        self._gc_kept &= {attempt_id for attempt_id, _ in candidates}
         checked = 0
+        complete = True
         for attempt_id, names in candidates:
+            if attempt_id in self._attempts or attempt_id in self._gc_kept:
+                continue  # live in this hub (never collected) / kept this round
             if checked >= limit:
+                complete = False
                 break
-            if attempt_id in self._attempts:
-                continue  # live in this hub: never collected
             checked += 1
             if not await expired(attempt_id):
+                self._gc_kept.add(attempt_id)
                 continue
             if attempt_id in self._attempts:
                 continue  # re-opened while the check ran
@@ -686,6 +698,8 @@ class LogHub:
                 _unlink_all, [self.root / n for n in names], self.stats
             )
             self._ended.pop(attempt_id, None)
+        if complete:
+            self._gc_kept.clear()  # a full round: check everything again next time
         self.stats.gc_files_deleted += deleted
         if deleted or checked:
             log.info("controller.logs.gc", checked=checked, files_deleted=deleted)
