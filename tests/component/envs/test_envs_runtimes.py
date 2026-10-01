@@ -161,6 +161,10 @@ async def test_venv_probe_is_available_with_the_uv_wheel(tmp_path: Path) -> None
     assert found.version.startswith("uv ")
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="Windows ignores the read-only bit on directories (documented limit)",
+)
 @pytest.mark.asyncio
 async def test_venv_runs_in_its_cached_env_read_only(
     tmp_path: Path, wheelhouse: Path, package: str
