@@ -2,7 +2,7 @@
 
 > Concise current state. Long-term plan: [`DEVELOPMENT_ROADMAP.md`](DEVELOPMENT_ROADMAP.md). Update at the end of every work session.
 
-**Last updated:** 2026-10-01 (**V0.4 G1–G5 closed** + G5 follow-up batch done; **V0.5 wave 1 (G1, G2, G3) running in parallel**; V0.4 formally closes on the 🧑 0.4.15 lab run)
+**Last updated:** 2026-10-01 evening (**V0.4 G1–G5 closed** + G5 follow-up batch done; **V0.5: G3 CLOSED, G1 and G2 in fix rounds**; back to one agent at a time; V0.4 formally closes on the 🧑 0.4.15 lab run)
 
 ## Progress
 
@@ -30,7 +30,7 @@ V1.0    ░░░░░░░░░░░░░░░░░░░░   0%   0/8 
 
 ## Current Version
 **V0.4 — Remote execution core** · started 2026-09-28 · **G1–G5 closed** (0.4.1, 0.4.3–0.4.7, 0.4.9, 0.4.10, 0.4.11–0.4.14, 0.4.16 `[x]`; 0.4.2 `[~]` Windows CI digest; 0.4.8 `[~]` real CUDA run; 0.4.17 `[~]`) · closes on 🧑 0.4.15 lab run
-**V0.5 — Data plane & environments** · started 2026-10-01 · brief `docs/briefs/V0.5-data-plane.md` (D79–D94) · **wave 1 running in parallel: G1 (0.5.1, 0.5.2), G2 (0.5.7, 0.5.8 local), G3 (V0.4 debt D94)**
+**V0.5 — Data plane & environments** · started 2026-10-01 · brief `docs/briefs/V0.5-data-plane.md` (D79–D94) · **G3 (V0.4 debt D94) CLOSED** · G1 (0.5.1, 0.5.2) fix round 2 · G2 (0.5.7, 0.5.8 local) awaiting tester round 3 · G4, G5 (wave 2) not started
 **V0.3 — Fabric core** · started 2026-09-20 on the team's decision (before the laptop 2–4 inventory); **G1–G7 closed agent-side** (0.3.1, 0.3.3, 0.3.4, 0.3.5, 0.3.6, 0.3.8, 0.3.9, 0.3.10, 0.3.11, 0.3.12, 0.3.14 `[x]`; 0.3.2 `[~]` Windows run; 0.3.7 `[~]` lab evidence; 0.3.13 `[~]` Windows logoff check). Remaining: **only 🧑 0.3.15 lab run** (+ the three 🧑 Windows checks)
 V0.2 — Lab setup & feasibility validation · agent-side complete, waiting on 🧑 lab runs
 V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4, 0.1.10)
@@ -43,7 +43,11 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 ## Current Task
 **2026-10-01 (evening) — back to ONE agent at a time (team, handoff §0e has the queue).** State:
 - **V0.4 G5 follow-up batch:** T2-1 + `_swap_in` fixed (`5f13163`), tester PASS; D-1 fixed `5a1937f`; reviewer APPROVE; its 3 non-blocking items (Ctrl-C between renames kept the parked folder at risk, message style, filename) fixed `ce0c760` (unit 4646 exit 0) → **batch DONE 2026-10-01**.
-- **V0.5 wave 1** (brief `docs/briefs/V0.5-data-plane.md`): **G1** CAS + tree manifests + have/need upload — implementer DONE (`060e768` … `7e02748`; unit 4899, component ctl+store 209, agent 201 exit 0; 1 GiB resubmit 0 bytes in 1.4 s on Laptop 1, not a benchmark claim) → tester **FAIL**: D1 major (lone-surrogate path in a manifest → HTTP 500), D2/D3 minor; criteria 1/3/4 hold (real corrupting/cutting proxies) → fixed `2c23ad6` (also a real lock-drop race in controller part locks) → tester round 2 **PASS** → reviewer **REQUEST_CHANGES**: tree-member authz rebuilt per GET (O(N²) on the event loop); 2 GiB blob cap blocks criterion 2 (5 GB) → **fix round 2 running**. Deferred to wave 2: drop `bundle_digest` reuse, controller CAS scrub, bundle-submit deprecation. Accepted deviations: `bundle_digest` = first digest fetched (tree id for tree jobs), bundle submit kept, limits as constructor defaults until a settings block · **G2** cached environments + venv runtime (uv) + pinned base images — built (`81e0ead` … `f9b4ded`, unit 4894 exit 0); wired in (`0a828bd` migration 0010 runtime `venv`, `2bc443c` offer.py; venv e2e built→hit; unit 4899 exit 0) → **regression found:** cluster `test_criterion_1_pytorch_on_cpu` fails (venv runtime has no torch) → fixed `e930093` (venv runtime serves only base `python-cpu`; `cuda-pytorch` → docker or subprocess; cluster 52 passed exit 0) → tester **FAIL**: D1 major (damaged cached env reused silently), D2 major (local-path `pkg @ /x.whl` not covered by the env hash), D3 minor (ENOSPC untyped); criterion 5 passes (warm 0.42 s) → fixed `3921625` (env marker v2 file summary checked before reuse; non-URL direct refs refused; ENOSPC → disk_full; PEP 503 names, ENV_HASH_VERSION 2) → tester round 2 **FAIL**: D4 major regression (`--hash` options glued to the specifier → hashed requirement files fail to install), D5 local VCS repos, D6 untyped eviction error, D7 summary exclusions too broad → **fix round 2 running** · **G3** V0.4 debt — **CLOSED 2026-10-01** (see Recently Completed). Each → tester → reviewer. **Lane rule (2026-10-01):** commit with `git commit --only <paths>` — the lanes share one git index (G1's `060e768` swept in a G3 file). Then wave 2 briefs (G4 peers/parallel fetch/telemetry, G5 cache index/GC/named inputs/node prepare).
+- **V0.5 G3** (V0.4 debt: upload deadline, log GC, log gaps) — ✅ **CLOSED 2026-10-01** (see Recently Completed).
+- **V0.5 G1** (CAS, tree manifests, have/need — 0.5.1, 0.5.2): implementer → tester FAIL (surrogate path → 500) → fix `2c23ad6` → tester round 2 PASS → reviewer REQUEST_CHANGES (tree-member authz O(N²) per GET; 2 GiB cap blocks the 5 GB criterion) → **fix round 2 running** (resumed from `wip` `f0febfe`). Accepted deviations: `bundle_digest` = first digest fetched (tree id) until wave 2, bundle submit kept, limits as constructor defaults. Deferred to wave 2: drop that reuse, controller CAS scrub.
+- **V0.5 G2** (environments, venv runtime, base images — 0.5.7, 0.5.8 local): implementer → wired in (migration 0010) → cluster regression fixed `e930093` → tester FAIL (damaged env reused, local wheel refs) → fix `3921625` → tester round 2 FAIL (`--hash` lines broken, local VCS refs, untyped eviction, exclusions too broad) → fix round 2 **done `60de165`** → **next: tester round 3**.
+- **Stabilisation lane** (load-flaky V0.4 tests): slow-follower double count fixed `97f347e`; rest in `wip` `7e4525f` → resumes after G1/G2.
+- **Then:** wave 2 briefs (G4 peers/parallel fetch/telemetry, G5 cache index/GC/named inputs/node prepare).
 - 🧑 in parallel: **0.4.15 lab run** (`lab/checklists/V0.4-remote-exec.md`), S3 two-laptop runs (calibrate V0.5 transport).
 
 **Open team question (NB-2), still unanswered:** where NVML is missing but `nvidia-smi` works, a node reports its GPUs in `Hello.hardware` but **never** GPU util/VRAM in any `ResourceUpdate` — so V0.9 telemetry and the V0.15 ML planner would train on a node that looks GPU-equipped and never uses it. Refusing a subprocess every 2 s was right; the option to cost is a low-cadence (~30 s, interpolated) `nvidia-smi` poll behind a setting.
@@ -120,7 +124,7 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 - Windows: not yet run (first real CI run will cover unit + fresh-clone on windows-latest)
 
 ## Next Recommended Task
-**2026-10-01: finish V0.5 wave 1 (G1–G3 → tester → reviewer) and the D-1 fix; write wave 2 briefs. 🧑 0.4.15 lab run.** Everything below is history.
+**2026-10-01 evening: one agent at a time — G1 fix round 2 → G1 tester 3 → G1 reviewer → G2 tester 3 → G2 reviewer → stabilisation → wave 2 briefs. 🧑 0.4.15 lab run.** Everything below is history.
 
 **Models (2026-09-24):** Lead, implementer and reviewer now run **`claude-opus-5-5`**; tester moved to `claude-sonnet-5-5` on 2026-10-01 (was `claude-sonnet-5`, commit `6563c7d`, details in `SESSION_HANDOFF.md` §0c). §0b's throughput numbers were measured on Opus 5 — re-baseline after G6 before re-planning.
 
