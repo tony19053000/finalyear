@@ -27,6 +27,11 @@ gaps.
 ``overflowed`` and dropped - the WebSocket closes it with a typed reason; the
 writer never waits for a client. At most ``max_subscribers`` per job.
 
+**GC (D94).** :meth:`LogHub.collect_garbage` deletes the files of attempts the
+caller's ``expired`` check (the database: the job is terminal and past the
+retention) confirms. Only names this hub writes are touched; an attempt the hub
+still tracks as live is never a candidate, whatever the check says.
+
 All state is owned by the event loop (single-threaded); the writer's file
 writes are small appends to the page cache, the final copy runs in a thread.
 """
@@ -35,18 +40,21 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import datetime as dt
 import errno
 import os
 import secrets
 import shutil
 import stat
 from collections import OrderedDict
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import IO, Any, Final
 
+from meshforge.common.errors import InvalidIdError
 from meshforge.common.hashing import Digest
+from meshforge.common.ids import validate_attempt_id
 from meshforge.common.logging import get_logger
 from meshforge.common.proto.meshforge.v1 import agent_pb2
 from meshforge.controller.blobs import BlobStore
@@ -182,6 +190,8 @@ class LogHubStats:
     slow_subscribers: int = 0
     write_failures: int = 0
     finals_overflowed: int = 0
+    gc_files_deleted: int = 0
+    gc_failures: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -505,6 +515,103 @@ class LogHub:
             return self.path(attempt_id, stream).stat().st_size
         except OSError:
             return 0
+
+    # ---------------------------------------------------------------- GC
+
+    async def collect_garbage(
+        self,
+        expired: Callable[[str], Awaitable[bool]],
+        *,
+        older_than: dt.datetime,
+        limit: int,
+    ) -> int:
+        """Delete the files of attempts whose newest file is older than
+        ``older_than`` **and** for which ``expired(attempt_id)`` is true; at most
+        ``limit`` attempts are checked per call (oldest first). Returns the number
+        of files deleted. Never raises for a file system error (logged, counted).
+        """
+        cutoff = older_than.timestamp()
+        candidates, leftovers = await asyncio.to_thread(_scan, self.root, cutoff)
+        deleted = await asyncio.to_thread(_unlink_all, leftovers, self.stats)
+        checked = 0
+        for attempt_id, names in candidates:
+            if checked >= limit:
+                break
+            if attempt_id in self._attempts:
+                continue  # live in this hub: never collected
+            checked += 1
+            if not await expired(attempt_id):
+                continue
+            if attempt_id in self._attempts:
+                continue  # re-opened while the check ran
+            deleted += await asyncio.to_thread(
+                _unlink_all, [self.root / n for n in names], self.stats
+            )
+            self._ended.pop(attempt_id, None)
+        self.stats.gc_files_deleted += deleted
+        if deleted or checked:
+            log.info("controller.logs.gc", checked=checked, files_deleted=deleted)
+        return deleted
+
+
+_GC_SUFFIXES: Final = frozenset(STREAMS)
+
+
+def _scan(root: Path, cutoff: float) -> tuple[list[tuple[str, list[str]]], list[Path]]:
+    """``([(attempt_id, [file names])] oldest first, [stale temp files])`` of the
+    attempts whose every file was last modified before ``cutoff``. Names this hub
+    does not write are ignored, never deleted."""
+    newest: dict[str, float] = {}
+    names: dict[str, list[str]] = {}
+    leftovers: list[Path] = []
+    try:
+        entries = list(os.scandir(root))
+    except OSError as exc:
+        log.warning("controller.logs.gc_scan_failed", cause=type(exc).__name__)
+        return [], []
+    for entry in entries:
+        try:
+            info = entry.stat(follow_symlinks=False)
+        except OSError:
+            continue
+        name = entry.name
+        if name.startswith(".") and name.endswith(".tmp"):
+            # A temp file of _replace_with / the gaps sidecar left by a crash.
+            if info.st_mtime < cutoff:
+                leftovers.append(Path(entry.path))
+            continue
+        stem, _, suffix = name.rpartition(".")
+        if suffix not in _GC_SUFFIXES:
+            continue
+        try:
+            attempt_id = str(validate_attempt_id(stem))
+        except InvalidIdError:
+            continue
+        newest[attempt_id] = max(newest.get(attempt_id, 0.0), info.st_mtime)
+        names.setdefault(attempt_id, []).append(name)
+    old = sorted(
+        (mtime, attempt_id) for attempt_id, mtime in newest.items() if mtime < cutoff
+    )
+    return [(attempt_id, names[attempt_id]) for _, attempt_id in old], leftovers
+
+
+def _unlink_all(paths: list[Path], stats: LogHubStats) -> int:
+    deleted = 0
+    for path in paths:
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            stats.gc_failures += 1
+            log.warning(
+                "controller.logs.gc_unlink_failed",
+                file=path.name,
+                cause=type(exc).__name__,
+            )
+            continue
+        deleted += 1
+    return deleted
 
 
 def _close_files(state: AttemptLogState) -> None:

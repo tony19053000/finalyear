@@ -1,18 +1,26 @@
-"""V0.5 G3 (D94): the UPLOADING backstop on real PostgreSQL.
+"""V0.5 G3 (D94): the carried V0.4 debt on real PostgreSQL.
 
+**UPLOADING backstop.**
 An attempt that entered UPLOADING and never finished is failed ``output_error``
 once ``upload_deadline_total_s`` has passed since the job's persisted
 ``COLLECTING`` transition - measured with an injected wall clock. Its upload
 grant is revoked (a late ``PUT`` is refused), a late ``DONE`` is fenced and
 released, and a controller restart (a new dispatcher, new in-memory grants)
 keeps the same deadline because it is anchored on the database row.
+
+**Log GC.** The dispatcher's sweep deletes the log files of attempts whose job is
+terminal and unchanged for ``log_retention_s`` - the database decides; a live
+attempt, a terminal attempt of a job that is not terminal, and a terminal job
+inside the retention keep their files.
 """
 
 from __future__ import annotations
 
 import asyncio
 import datetime as dt
+import os
 from collections.abc import AsyncIterator
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -22,6 +30,7 @@ import pytest_asyncio
 pytest.importorskip("alembic", reason="needs the controller extra")
 
 from alembic import command
+from sqlalchemy import text
 
 from meshforge.common.errors import FailureType
 from meshforge.common.hashing import Digest
@@ -41,6 +50,7 @@ from meshforge.controller.jobs.execution_store import (
     NodeView,
     StatusReport,
 )
+from meshforge.controller.jobs.logs import LogHub
 from meshforge.controller.jobs.store import JobRecord
 from meshforge.controller.liveness import NodeState
 from meshforge.controller.registry import Registry
@@ -59,6 +69,7 @@ MANIFEST: dict[str, Any] = {
     "limits": {"timeout": 60, "network": "default"},
 }
 DEADLINE_S = 120.0
+RETENTION_S = 7 * 86_400.0
 
 
 class FakeManager:
@@ -155,7 +166,7 @@ async def _attempt_in(
 
 
 def _dispatcher(
-    store: ExecutionStore, wall: Wall
+    store: ExecutionStore, wall: Wall, logs: LogHub | None = None
 ) -> tuple[Dispatcher, FakeManager, UploadGrants, FetchTokens]:
     manager = FakeManager()
     grants = UploadGrants(clock=lambda: 0.0)
@@ -164,8 +175,9 @@ def _dispatcher(
         store,
         manager,  # type: ignore[arg-type]
         tokens,
-        JobApiSettings(upload_deadline_s=DEADLINE_S),
+        JobApiSettings(upload_deadline_s=DEADLINE_S, log_retention_s=RETENTION_S),
         upload_grants=grants,
+        logs=logs,
         clock=lambda: 0.0,
         blob_port=lambda: 1,
         wall_clock=wall,
@@ -296,3 +308,89 @@ async def test_the_derived_default_deadline() -> None:
         JobApiSettings(upload_deadline_s=59.9)
     with pytest.raises(ValueError, match="upload_min_rate_bytes_s"):
         JobApiSettings(upload_min_rate_bytes_s=64 * 1024 - 1)
+
+
+# ------------------------------------------------------------------ log GC
+
+
+def _log_files(hub: LogHub, attempt_id: str) -> list[Path]:
+    old = (dt.datetime.now(dt.UTC) - dt.timedelta(days=365)).timestamp()
+    paths = [hub.path(attempt_id, s) for s in ("stdout", "stderr")]
+    for path in paths:
+        path.write_bytes(b"output")
+        os.utime(path, (old, old))  # the mtime pre-filter never decides here
+    return paths
+
+
+async def test_log_gc_removes_only_terminal_job_logs_past_retention(
+    store: ExecutionStore,
+    node_id: str,
+    pg_settings: DatabaseSettings,
+    tmp_path: Path,
+) -> None:
+    hub = LogHub(tmp_path / "logs", blobs=None, max_bytes=1 << 20)
+    hub.prepare()
+    wall = Wall()
+    dispatcher, _, _, _ = _dispatcher(store, wall, hub)
+
+    done_job, done = await _attempt_in(store, node_id, AttemptState.DONE)
+    _, running = await _attempt_in(store, node_id, AttemptState.RUNNING)
+    half_job, half = await _attempt_in(store, node_id, AttemptState.RUNNING)
+    # A terminal attempt whose job is not terminal (a retry in V0.6 looks like
+    # this): the attempt guard alone would delete it; the job guard keeps it.
+    engine = create_engine(pg_settings)
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(
+                text(
+                    "UPDATE attempt SET state = 'failed', ended_at = now() WHERE id = :i"
+                ),
+                {"i": half},
+            )
+    finally:
+        await engine.dispose()
+    files = {a: _log_files(hub, a) for a in (done, running, half)}
+    done_record = await store.get_job(done_job)
+    assert done_record is not None and done_record.state is JobState.SUCCEEDED
+    half_record = await store.get_job(half_job)
+    assert half_record is not None and half_record.state is JobState.RUNNING
+
+    # Inside the retention: everything stays.
+    wall.now = done_record.updated_at + dt.timedelta(seconds=RETENTION_S - 1)
+    await dispatcher._log_gc()
+    assert all(p.exists() for paths in files.values() for p in paths)
+
+    # Past it: only the terminal job's files go.
+    wall.now = done_record.updated_at + dt.timedelta(seconds=RETENTION_S + 1)
+    await dispatcher._log_gc()
+    assert not any(p.exists() for p in files[done])
+    assert all(p.exists() for p in files[running])
+    assert all(p.exists() for p in files[half])
+    assert dispatcher.stats.log_files_deleted == 2
+
+
+async def test_log_gc_runs_on_the_tick_interval(
+    store: ExecutionStore, node_id: str, tmp_path: Path
+) -> None:
+    hub = LogHub(tmp_path / "logs", blobs=None, max_bytes=1 << 20)
+    hub.prepare()
+    _, done = await _attempt_in(store, node_id, AttemptState.DONE)
+    paths = _log_files(hub, done)
+    wall = Wall()
+    wall.now += dt.timedelta(seconds=RETENTION_S + 60)
+    mono = [0.0]
+    dispatcher = Dispatcher(
+        store,
+        FakeManager(),  # type: ignore[arg-type]
+        FetchTokens(clock=lambda: mono[0]),
+        JobApiSettings(log_retention_s=RETENTION_S, log_gc_interval_s=60),
+        logs=hub,
+        clock=lambda: mono[0],
+        blob_port=lambda: 1,
+        wall_clock=wall,
+    )
+    await dispatcher._periodic(None)
+    assert all(p.exists() for p in paths)  # not yet due
+    mono[0] = 60.0
+    await dispatcher._periodic(None)
+    assert not any(p.exists() for p in paths)

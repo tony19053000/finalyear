@@ -64,6 +64,10 @@ it is cancelled. The start of UPLOADING is the job's persisted ``COLLECTING``
 transition, so a controller restart keeps the deadline; it is compared with the
 controller's wall clock (both are timestamps, not intervals measured here).
 
+**Log GC (D94).** Every ``log_gc_interval_s`` the log files of attempts whose
+job is terminal and unchanged for ``log_retention_s`` are deleted
+(:meth:`~.logs.LogHub.collect_garbage`); only the database decides "terminal".
+
 A database failure while applying an item (``JobStoreError``, retryable) is retried
 with backoff, keeping the item; anything else is a bug: logged with its traceback,
 the item dropped (a report then stays un-acked and is replayed after a reconnect).
@@ -89,6 +93,7 @@ from meshforge.common.manifest import Manifest
 from meshforge.common.proto.meshforge.v1 import agent_pb2
 from meshforge.common.states import (
     ATTEMPT_TERMINAL_STATES,
+    JOB_TERMINAL_STATES,
     AttemptState,
     JobState,
 )
@@ -178,6 +183,7 @@ class DispatcherStats:
     statuses_poisoned: int = 0
     db_retries: int = 0
     upload_deadlines: int = 0
+    log_files_deleted: int = 0
 
 
 class Dispatcher:
@@ -216,6 +222,7 @@ class Dispatcher:
         self.stats = DispatcherStats()
         self._poison: OrderedDict[tuple[str, str], int] = OrderedDict()
         self._uploading_since: dict[str, dt.datetime] = {}
+        self._next_log_gc = self._started_at + settings.log_gc_interval_s
         """attempt_id -> when it entered UPLOADING (from the job history)."""
         manager.dispatch.register("attempt_status", self._on_status_message)
         manager.defer_ack("attempt_status")
@@ -398,6 +405,9 @@ class Dispatcher:
         await self._backstop()
         await self._upload_deadline()
         await self._sweep_orphans()
+        if self._logs is not None and self._clock() >= self._next_log_gc:
+            self._next_log_gc = self._clock() + self._settings.log_gc_interval_s
+            await self._log_gc()
 
     # ------------------------------------------------------------ reports
 
@@ -855,3 +865,31 @@ class Dispatcher:
             if to_state is JobState.COLLECTING:
                 return at
         return entry.attempt.started_at or entry.attempt.created_at
+
+    async def _log_gc(self) -> None:
+        """Delete the log files of terminal jobs past ``log_retention_s``."""
+        if self._logs is None:
+            return
+        retention = dt.timedelta(seconds=self._settings.log_retention_s)
+        now = self._wall()
+
+        async def expired(attempt_id: str) -> bool:
+            # The terminal guard: only the database decides a job is over.
+            attempt = await self._store.get_attempt(attempt_id)
+            if attempt is None:
+                return True  # no such attempt (its job was deleted): orphan file
+            if attempt.state not in ATTEMPT_TERMINAL_STATES:
+                return False
+            job = await self._store.get_job(attempt.job_id)
+            if job is None:
+                return True
+            return (
+                job.state in JOB_TERMINAL_STATES and now - job.updated_at >= retention
+            )
+
+        deleted = await self._logs.collect_garbage(
+            expired,
+            older_than=now - retention,
+            limit=self._settings.log_gc_batch,
+        )
+        self.stats.log_files_deleted += deleted

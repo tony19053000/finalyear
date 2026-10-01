@@ -329,14 +329,14 @@ A version is **complete** only when all apply:
 **Prerequisites:** V0.4; S3 transport decision.
 
 **Tasks**
-- [ ] **0.5.1** CAS store (controller + agents): write-then-rename, verify on read, chunking for large files
-- [ ] **0.5.2** Tree manifests; client uploads only missing blobs (have/need)
+- [~] **0.5.1** CAS store (controller + agents): write-then-rename, verify on read, chunking for large files
+- [~] **0.5.2** Tree manifests; client uploads only missing blobs (have/need)
 - [ ] **0.5.3** Peer blob HTTP server in agent (range GET, short-lived tokens); fetch from nearest holder
 - [ ] **0.5.4** Parallel chunked download, resume after interruption, integrity check
 - [ ] **0.5.5** Cache reports → controller location index (blobs, envs, images per node)
 - [ ] **0.5.6** Named, versioned inputs (datasets/models registered once, referenced by name@hash)
-- [ ] **0.5.7** Environment builder: env hash; Docker image per env hash; **venv runtime (uv)** with same interface
-- [ ] **0.5.8** Base images `python-cpu`, `cuda-pytorch`; `compute node prepare` pre-pulls
+- [~] **0.5.7** Environment builder: env hash; Docker image per env hash; **venv runtime (uv)** with same interface
+- [~] **0.5.8** Base images `python-cpu`, `cuda-pytorch`; `compute node prepare` pre-pulls
 - [ ] **0.5.9** GC: LRU with per-node quota; pinned items
 - [ ] **0.5.10** Transfer telemetry (bytes, source node, throughput, cache hit/miss)
 - [ ] **0.5.11** 🧑 Lab: multi-GB dataset tests on Wi-Fi and Ethernet
