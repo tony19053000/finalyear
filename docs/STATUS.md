@@ -29,7 +29,8 @@ V1.0    ░░░░░░░░░░░░░░░░░░░░   0%   0/8 
 █ done `[x]` · ▒ in progress or waiting on a 🧑 lab step `[~]` · ░ not started
 
 ## Current Version
-**V0.4 — Remote execution core** · started 2026-09-28 · **G1–G5 closed** (0.4.1, 0.4.3–0.4.7, 0.4.9, 0.4.10, 0.4.11–0.4.14, 0.4.16 `[x]`; 0.4.2 `[~]` Windows CI digest; 0.4.8 `[~]` real CUDA run; 0.4.17 `[~]`) · next: 🧑 0.4.15 lab run
+**V0.4 — Remote execution core** · started 2026-09-28 · **G1–G5 closed** (0.4.1, 0.4.3–0.4.7, 0.4.9, 0.4.10, 0.4.11–0.4.14, 0.4.16 `[x]`; 0.4.2 `[~]` Windows CI digest; 0.4.8 `[~]` real CUDA run; 0.4.17 `[~]`) · closes on 🧑 0.4.15 lab run
+**V0.5 — Data plane & environments** · started 2026-10-01 · brief `docs/briefs/V0.5-data-plane.md` (D79–D94) · **wave 1 running in parallel: G1 (0.5.1, 0.5.2), G2 (0.5.7, 0.5.8 local), G3 (V0.4 debt D94)**
 **V0.3 — Fabric core** · started 2026-09-20 on the team's decision (before the laptop 2–4 inventory); **G1–G7 closed agent-side** (0.3.1, 0.3.3, 0.3.4, 0.3.5, 0.3.6, 0.3.8, 0.3.9, 0.3.10, 0.3.11, 0.3.12, 0.3.14 `[x]`; 0.3.2 `[~]` Windows run; 0.3.7 `[~]` lab evidence; 0.3.13 `[~]` Windows logoff check). Remaining: **only 🧑 0.3.15 lab run** (+ the three 🧑 Windows checks)
 V0.2 — Lab setup & feasibility validation · agent-side complete, waiting on 🧑 lab runs
 V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4, 0.1.10)
@@ -40,9 +41,10 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 > V0.10. 129 tasks vs 140–180 capacity → **~1.5 tasks/session**. Needs the other three team members' approval.
 
 ## Current Task
-**V0.4 agent-side groups G1–G5 closed (2026-10-01).** Next: **🧑 0.4.15 lab run** with `lab/checklists/V0.4-remote-exec.md`, plus a small agent-side fix batch from G5 reviewer pass 3 (see Technical Debt): T2-1, `_swap_in` rollback.
-
-**Carried from G6 (tracked as roadmap 0.4.16, a hard prerequisite of V0.6):** replace the timing-based clean-close inference (`HALF_CLOSE_CONFIRM_S`, measured on grpcio 1.84 → `grpcio<1.85` cap) with an explicit agent `Goodbye`; claim deadline for D28; extract `session/claims.py`; write-queue overflow signal; test the shutdown deferred-end backstop.
+**2026-10-01 — parallel agents allowed again (team, handoff §0e).** Running now:
+- **V0.4 G5 follow-up batch:** T2-1 + `_swap_in` fixed (`5f13163`), tester PASS; one more traceback found (D-1: OSError while writing the download) → implementer fixing; then reviewer → done.
+- **V0.5 wave 1** (brief `docs/briefs/V0.5-data-plane.md`): **G1** CAS + tree manifests + have/need upload · **G2** cached environments + venv runtime (uv) + pinned base images · **G3** V0.4 debt (UPLOADING deadline, log-file GC, persisted log gaps). Each → tester → reviewer. Then wave 2 briefs (G4 peers/parallel fetch/telemetry, G5 cache index/GC/named inputs/node prepare).
+- 🧑 in parallel: **0.4.15 lab run** (`lab/checklists/V0.4-remote-exec.md`), S3 two-laptop runs (calibrate V0.5 transport).
 
 **Open team question (NB-2), still unanswered:** where NVML is missing but `nvidia-smi` works, a node reports its GPUs in `Hello.hardware` but **never** GPU util/VRAM in any `ResourceUpdate` — so V0.9 telemetry and the V0.15 ML planner would train on a node that looks GPU-equipped and never uses it. Refusing a subprocess every 2 s was right; the option to cost is a low-cadence (~30 s, interpolated) `nvidia-smi` poll behind a setting.
 
@@ -96,7 +98,7 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 - Fixed this session: secret leak + O(n²) in log scrubber; duplicate IDs after fork; plain-`uv sync` test collection crash; CRLF-dependent codegen output.
 
 ## Technical Debt
-- **G5 follow-ups (reviewer pass 3):** T2-1 `compute get` prints a traceback on an unwritable dest parent / non-BundleError OSError in unpack (`cli/job_commands.py:370-373`; strict-xfail test waiting) → clean `_die`; `_swap_in` loses the parked old folder if the rollback rename also fails → keep it and print its path; **attempts stuck in UPLOADING have no controller backstop** → bounded upload deadline in V0.5. Also: 35 Docker sandbox component tests skip unless `python:3.12-slim@sha256:f77ac9…` is pulled locally.
+- **G5 follow-ups:** T2-1 and `_swap_in` FIXED (`5f13163`); D-1 (download OSError traceback) being fixed; UPLOADING backstop → V0.5 G3 (in progress). Also: 35 Docker sandbox component tests skip unless `python:3.12-slim@sha256:f77ac9…` is pulled locally.
 - **G7 follow-ups (roadmap 0.4.17):** Windows `taskkill` runs on the event loop (capped 1 s); `controller/session/manager.py` is 1315 lines — extract report handlers before V0.4; `agent/benchmarks/runner.py` 780 lines; a SIGKILLed agent can leave a wedged benchmark child; score reason codes are free strings (freeze before V0.15); the controller trusts the agent's score fingerprint (V0.7).
 - Leftover `nvidia-driver-590-open` metapackage alongside 595 on Laptop 1 (clean up after driver fix)
 - Dev DB has a default password (`meshforge-dev`, DB bound to 127.0.0.1); product/non-dev must refuse to start without an explicit secret (V0.7/V0.17)
@@ -115,7 +117,7 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 - Windows: not yet run (first real CI run will cover unit + fresh-clone on windows-latest)
 
 ## Next Recommended Task
-**2026-10-01: 🧑 0.4.15 lab run; agent-side, the G5 follow-up fix batch (T2-1 + `_swap_in`).** Everything below is history.
+**2026-10-01: finish V0.5 wave 1 (G1–G3 → tester → reviewer) and the D-1 fix; write wave 2 briefs. 🧑 0.4.15 lab run.** Everything below is history.
 
 **Models (2026-09-24):** Lead, implementer and reviewer now run **`claude-opus-5-5`**; tester moved to `claude-sonnet-5-5` on 2026-10-01 (was `claude-sonnet-5`, commit `6563c7d`, details in `SESSION_HANDOFF.md` §0c). §0b's throughput numbers were measured on Opus 5 — re-baseline after G6 before re-planning.
 
