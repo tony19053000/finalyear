@@ -224,7 +224,7 @@ async def test_concurrent_new_transfers_cannot_blow_far_past_the_cap(
     assert all(r is True or isinstance(r, BlobError) for r in res)
     # The cap is soft under concurrency: at most the upload slots (8) may race
     # past it (minor, reported). It must never be unbounded.
-    assert store.cas.resumes_in_progress() <= 5 + 8 - 1, ok
+    assert store.cas.resumes_in_progress() == 5 == ok  # exact since fix E2
 
 
 async def test_failed_first_chunks_must_not_leak_uncounted_sparse_parts(

@@ -259,6 +259,8 @@ class CasStore:
         self._wall = wall_clock
         self.tmp = self.root / _TMP_DIR
         self.max_resumable = max_resumable
+        self.resume_lock = threading.Lock()
+        """Serialises opening resumable transfers (the cap is exact)."""
         self._lock = threading.Lock()
         self._used = 0
         self._reserved = 0
@@ -686,6 +688,15 @@ class ResumablePart:
         count = chunk_count(size, chunk_size)
         if count > MAX_CHUNKS:
             raise CasTooLargeError(f"more than {MAX_CHUNKS} chunks")
+        with store.resume_lock:
+            # Count + create under one lock: concurrent new transfers (threads)
+            # cannot all see "below the cap" and all start (exact cap).
+            return cls._open_locked(store, digest, size, chunk_size, count)
+
+    @classmethod
+    def _open_locked(
+        cls, store: CasStore, digest: Digest, size: int, chunk_size: int, count: int
+    ) -> ResumablePart:
         part, sidecar = store.resume_paths(digest)
         done = cls._load(sidecar, size, chunk_size, count)
         if done is None or not part.is_file() or part.stat().st_size != size:
@@ -746,8 +757,19 @@ class ResumablePart:
     def span(self, index: int) -> tuple[int, int]:
         return chunk_span(index, self.size, self.chunk_size)
 
-    def write_chunk(self, index: int, data: bytes, expected_hex: str | None) -> bool:
+    def write_chunk(
+        self,
+        index: int,
+        data: bytes,
+        expected_hex: str | None,
+        *,
+        check_disk: bool = False,
+    ) -> bool:
         """Verify (when ``expected_hex``) and store chunk ``index``.
+
+        The free-disk floor is re-checked every 64 MiB written through this
+        object, or on this write when ``check_disk`` (callers that open one part
+        per chunk, like the controller's part route, pass it every time).
 
         Returns False when it was already done (nothing written). Raises
         :class:`CasIntegrityError` on a hash mismatch (nothing written) and
@@ -769,7 +791,7 @@ class ResumablePart:
         if self.is_done(index):
             return False
         self._since_check += length
-        if self._since_check >= _DISK_CHECK_EVERY:
+        if check_disk or self._since_check >= _DISK_CHECK_EVERY:
             # The part file is sparse: its blocks are allocated as chunks land,
             # so the floor is re-checked against what is still to be written.
             self._since_check = 0

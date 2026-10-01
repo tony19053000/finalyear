@@ -50,6 +50,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import functools
 import hashlib
 import json
 import secrets
@@ -386,8 +387,12 @@ class BlobStore:
                 part = await asyncio.to_thread(
                     self.cas.resumable, digest, size, chunk_size
                 )
+                # One request = one part, so the floor is checked on every part
+                # (a statvfs) against the bytes still to come (review E1).
                 stored = await asyncio.to_thread(
-                    part.write_chunk, index, bytes(data), chunk_hex
+                    functools.partial(
+                        part.write_chunk, index, bytes(data), chunk_hex, check_disk=True
+                    )
                 )
         except CasError as exc:
             raise _translate(exc, digest) from None
