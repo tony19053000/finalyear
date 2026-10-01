@@ -75,11 +75,6 @@ def test_truncated_and_binary_sidecars_never_raise_out_of_the_hub(
 
 
 @posix_only
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT: read_sidecar opens a FIFO named <attempt>.gaps with a blocking "
-    "open(O_RDONLY) (no O_NONBLOCK), hanging the caller (the event loop)",
-)
 def test_a_fifo_sidecar_does_not_hang_the_reader(tmp_path: Path) -> None:
     fifo = tmp_path / "x.gaps"
     os.mkfifo(fifo)

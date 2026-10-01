@@ -369,3 +369,22 @@ async def test_gc_takes_the_sidecar_with_the_logs(hubs: Hubs) -> None:
     assert await hub.collect_garbage(expired, older_than=cutoff, limit=10) == 2
     assert not hub.gaps_path(attempt).exists()
     assert hub.ended_state(attempt) is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.timeout(10)
+async def test_fifos_at_the_sidecar_and_live_paths_never_block(hubs: Hubs) -> None:
+    if not hasattr(os, "mkfifo"):
+        pytest.skip("no FIFOs on this platform")
+    attempt = str(new_attempt_id())
+    hub = hubs.start()
+    os.mkfifo(hub.gaps_path(attempt))
+    os.mkfifo(hub.path(attempt, "stdout"))
+    assert hub.ended_state(attempt) is None
+    assert hub.ended_state(attempt) is None
+    assert hub.stats.gaps_unreadable == 2
+    assert list(hub._unreadable_warned) == [attempt]  # logged once
+    hub.open(attempt, job_id=J, node_id=N, token=2)
+    before = hub.stats.write_failures
+    await hub.on_chunk(LIVE, _msg(attempt, 0, b"abc"))  # type: ignore[arg-type]
+    await _until(lambda: hub.stats.write_failures > before)

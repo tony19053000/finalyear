@@ -183,8 +183,11 @@ def write_sidecar(path: Path, data: bytes) -> None:
 def read_sidecar(path: Path) -> bytes | None:
     """The sidecar's bytes; ``None`` when there is none. Raises
     :class:`OSError` / :class:`ValueError` for one that cannot be read safely."""
+    # O_NONBLOCK: opening a FIFO planted at the path must not block the event
+    # loop; anything but a regular file is refused before a byte is read.
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
     try:
-        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        fd = os.open(path, flags)
     except FileNotFoundError:
         return None
     with os.fdopen(fd, "rb") as fh:

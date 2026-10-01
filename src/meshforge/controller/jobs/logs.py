@@ -263,6 +263,8 @@ class LogHub:
         self._attempts: dict[str, AttemptLogState] = {}
         self._ended: OrderedDict[str, AttemptLogState] = OrderedDict()
         self._by_job: dict[str, set[Subscription]] = {}
+        self._unreadable_warned: OrderedDict[str, None] = OrderedDict()
+        """Attempts whose broken gaps sidecar was already logged (bounded)."""
         self.stats = LogHubStats()
 
     def prepare(self) -> None:
@@ -440,7 +442,13 @@ class LogHub:
     def _open_live(self, attempt_id: str, stream: str) -> IO[bytes]:
         fd = os.open(
             self.path(attempt_id, stream),
-            os.O_WRONLY | os.O_CREAT | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0),
+            # O_NONBLOCK: a FIFO planted at the path fails (ENXIO) instead of
+            # blocking the writer; _require_regular refuses it either way.
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_APPEND
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_NONBLOCK", 0),
             0o600,
         )
         try:
@@ -600,11 +608,15 @@ class LogHub:
             return decode(data, streams=STREAMS, max_gaps=MAX_GAPS_KEPT)
         except (OSError, ValueError) as exc:
             self.stats.gaps_unreadable += 1
-            log.warning(
-                "controller.logs.gaps_unreadable",
-                attempt_id=attempt_id,
-                cause=type(exc).__name__,
-            )
+            if attempt_id not in self._unreadable_warned:
+                self._unreadable_warned[attempt_id] = None
+                while len(self._unreadable_warned) > _ENDED_KEPT:
+                    self._unreadable_warned.popitem(last=False)
+                log.warning(
+                    "controller.logs.gaps_unreadable",
+                    attempt_id=attempt_id,
+                    cause=type(exc).__name__,
+                )
             return None
 
     # -------------------------------------------------------- subscribers
