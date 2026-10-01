@@ -221,7 +221,7 @@ def test_prepare_without_docker_reports_unavailable_and_does_not_fail(
         "DOCKER_HOST": "unix:///nonexistent/mf-no-docker.sock",
         "MESHFORGE_DATA_DIR": str(tmp_path / "data"),
     }
-    out = subprocess.run(  # noqa: ASYNC221
+    out = subprocess.run(
         [sys.executable, "-m", "meshforge.agent", "prepare", "--json"],
         capture_output=True,
         text=True,
