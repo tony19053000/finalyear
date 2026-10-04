@@ -13,6 +13,9 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 import pytest
+
+pytest.importorskip("sqlalchemy", reason="needs the controller extra")
+
 from sqlalchemy import delete, func, select
 
 from meshforge.common.ids import new_command_id
