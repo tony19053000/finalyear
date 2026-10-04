@@ -26,12 +26,6 @@ def _on_disk(store: CasStore) -> int:
     return sum(1 for p in store.tmp.iterdir() if p.name.endswith(".part.chunks"))
 
 
-@pytest.mark.xfail(
-    strict=False,  # a race: it drifts in roughly one run in four, so XPASS is normal
-    reason="DEFECT-6: the in-memory resumable counter undercounts after racing "
-    "open / discard / sweep (discard and the sweep forget a digest outside the "
-    "lock that open holds), so the cap can be exceeded",
-)
 def test_counter_equals_the_sidecars_on_disk_after_racing_open_discard_sweep(
     tmp_path: Path,
 ) -> None:
@@ -50,8 +44,6 @@ def test_counter_equals_the_sidecars_on_disk_after_racing_open_discard_sweep(
                 part = store.resumable(sha256_bytes(data), len(data), CS)
                 if rnd.random() < 0.5:
                     part.discard()
-            except FileNotFoundError:
-                pass  # the open/sweep race (DEFECT-5 in the report) - tolerated here
             except Exception as exc:  # noqa: BLE001
                 errors.append(exc)
 

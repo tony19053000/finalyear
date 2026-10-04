@@ -331,18 +331,23 @@ class CasStore:
             name = entry.name
             if not name.startswith(_RESUME_PREFIX):
                 continue
-            try:
-                age = now - entry.stat().st_mtime
-            except OSError:
-                continue
-            if age > self._resume_ttl_s:
-                with contextlib.suppress(OSError):
+            # stat + unlink + count change under the lock open/discard/complete
+            # hold: the in-memory count always equals the sidecars on disk.
+            with self.resume_lock:
+                try:
+                    age = now - entry.stat().st_mtime
+                except OSError:
+                    continue
+                if age <= self._resume_ttl_s:
+                    continue
+                try:
                     entry.unlink()
-                    if not name.endswith(_SIDECAR_SUFFIX):
-                        expired += 1
-                    else:
-                        with self.resume_lock:
-                            self.resume_forgotten(_resume_hex(name))
+                except OSError:
+                    continue
+                if name.endswith(_SIDECAR_SUFFIX):
+                    self.resume_forgotten(_resume_hex(name))
+                else:
+                    expired += 1
         return expired
 
     def _listed_resumes(self) -> Iterator[str]:
@@ -901,17 +906,19 @@ class ResumablePart:
             created = self.store._install(self.part, self.digest, self.size)
         except OSError as exc:
             raise _os_error(exc, self.digest) from None
-        with contextlib.suppress(OSError):
-            self.sidecar.unlink()
         with self.store.resume_lock:
+            with contextlib.suppress(OSError):
+                self.sidecar.unlink()
             self.store.resume_forgotten(self.digest.hex)
         return PutResult(digest=self.digest, size=self.size, created=created)
 
     def discard(self) -> None:
-        for path in (self.sidecar, self.part):
-            with contextlib.suppress(OSError):
-                path.unlink()
+        # Unlink and forget under one lock (see sweep_resumes): a concurrent
+        # open of the same digest cannot slip in between and be forgotten.
         with self.store.resume_lock:
+            for path in (self.sidecar, self.part):
+                with contextlib.suppress(OSError):
+                    path.unlink()
             self.store.resume_forgotten(self.digest.hex)
 
 
