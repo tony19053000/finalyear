@@ -110,20 +110,12 @@ def test_threads_hammer_open_write_complete_discard_sweep() -> None:
         assert not errors, [repr(e) for e in errors[:5]]
         assert not over_cap, over_cap[:5]
         store._resume_ttl_s = 600.0
-        # (Counter == sidecars is NOT asserted here: complete() racing open() of
-        # the same digest drifts it - DEFECT-R2-3, xfail below. open/discard/sweep
-        # alone are exact: test_v05_g4_tester_resume_count.)
+        # Counter == sidecars: test_same_digest_completes_only_counter_equals_sidecars.
         assert installed, "nothing completed; the hammer proved nothing"
         for hex_ in installed:
             assert store.verify(Digest(hex_))
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT-R2-2: complete() hashes the part, then installs it by path; a "
-    "concurrent discard()+open() of the same digest swaps in a fresh zero-filled "
-    "part in between, so a blob NOT matching its digest is installed",
-)
 def test_same_digest_complete_vs_discard_never_installs_a_wrong_blob() -> None:
     """Many uploaders of ONE blob; some abandon (discard). Whatever interleaving,
     the CAS must never hold a file whose hash is not its name (retry up to 8 x
@@ -177,13 +169,6 @@ def test_same_digest_complete_vs_discard_never_installs_a_wrong_blob() -> None:
             assert store.resumes_in_progress() == _on_disk(store)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT-R2-3: complete() installs the part and only then unlinks the "
-    "sidecar/forgets under the lock; an open() of the same digest in between "
-    "re-creates part+sidecar, and its next write re-saves a sidecar the counter "
-    "no longer counts (counter 0, sidecar 1)",
-)
 def test_same_digest_completes_only_counter_equals_sidecars() -> None:
     import tempfile
 

@@ -60,7 +60,7 @@ import time
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import BinaryIO, Final, Self
+from typing import Any, BinaryIO, Final, Self
 
 from meshforge.common.atomic import atomic_write_bytes
 from meshforge.common.errors import FailureType, MeshForgeError
@@ -264,6 +264,8 @@ class CasStore:
         self.max_resumable = max_resumable
         self.resume_lock = threading.Lock()
         """Serialises opening resumable transfers (the cap is exact)."""
+        self._digest_locks: dict[str, list[Any]] = {}
+        self._digest_locks_guard = threading.Lock()
         self._resumes: set[str] = set()
         """Digests (hex) with a resumable transfer on disk: counted in memory
         (V0.5 G4) - listed once at :meth:`prepare`, then kept by open / complete
@@ -365,6 +367,24 @@ class CasStore:
     def resumes_in_progress(self) -> int:
         """Resumable transfers on disk (an in-memory count, see ``_resumes``)."""
         return len(self._resumes)
+
+    @contextlib.contextmanager
+    def digest_lock(self, hex_: str) -> Iterator[None]:
+        """Exclusive per digest across this process's threads (reference
+        counted). Order: a digest lock before ``resume_lock``, never after."""
+        with self._digest_locks_guard:
+            entry = self._digest_locks.get(hex_)
+            if entry is None:
+                entry = self._digest_locks[hex_] = [threading.Lock(), 0]
+            entry[1] += 1
+        try:
+            with entry[0]:
+                yield
+        finally:
+            with self._digest_locks_guard:
+                entry[1] -= 1
+                if entry[1] == 0:
+                    self._digest_locks.pop(hex_, None)
 
     def resume_started(self, hex_: str) -> None:
         self._resumes.add(hex_)
@@ -724,6 +744,13 @@ class ResumablePart:
         self.part, self.sidecar = store.resume_paths(digest)
         self.resumed_chunks = sum(1 for i in range(self.count) if self.is_done(i))
         self._since_check = 0
+        try:
+            info = self.part.stat()
+            self._identity: tuple[int, int] | None = (info.st_dev, info.st_ino)
+        except OSError:
+            self._identity = None
+        """The part file this object assembles: a part replaced meanwhile (a
+        discard + a fresh open elsewhere) is never written or installed."""
 
     @classmethod
     def open(
@@ -732,9 +759,10 @@ class ResumablePart:
         count = chunk_count(size, chunk_size)
         if count > MAX_CHUNKS:
             raise CasTooLargeError(f"more than {MAX_CHUNKS} chunks")
-        with store.resume_lock:
-            # Count + create under one lock: concurrent new transfers (threads)
-            # cannot all see "below the cap" and all start (exact cap).
+        # The digest lock first (complete/write/discard of this digest wait),
+        # then count + create under resume_lock: concurrent new transfers
+        # cannot all see "below the cap" and all start (exact cap).
+        with store.digest_lock(digest.hex), store.resume_lock:
             return cls._open_locked(store, digest, size, chunk_size, count)
 
     @classmethod
@@ -766,7 +794,11 @@ class ResumablePart:
                 store._release(size)
                 with contextlib.suppress(FileNotFoundError):
                     sidecar.unlink()
-                with part.open("wb") as fh:
+                # A NEW file (unlink, then exclusive create), never a truncation
+                # of an inode another object may have hashed.
+                with contextlib.suppress(FileNotFoundError):
+                    part.unlink()
+                with part.open("xb") as fh:
                     fh.truncate(size)
                 done = bytearray(-(-count // 8))
                 cls._save(sidecar, size, chunk_size, done)
@@ -849,9 +881,17 @@ class ResumablePart:
             self._since_check = 0
             remaining = sum(self.span(i)[1] for i in self.missing())
             self.store._check_disk(self.digest, remaining)
-        try:
-            fd = os.open(self.part, os.O_WRONLY | getattr(os, "O_BINARY", 0))
+        with self.store.digest_lock(self.digest.hex):
             try:
+                fd = os.open(self.part, os.O_WRONLY | getattr(os, "O_BINARY", 0))
+            except FileNotFoundError:
+                raise self._gone() from None
+            except OSError as exc:
+                raise _os_error(exc, self.digest) from None
+            try:
+                info = os.fstat(fd)
+                if (info.st_dev, info.st_ino) != self._identity:
+                    raise self._gone()
                 written = 0
                 while written < length:
                     if hasattr(os, "pwrite"):
@@ -860,62 +900,104 @@ class ResumablePart:
                         os.lseek(fd, offset + written, os.SEEK_SET)
                         written += os.write(fd, data[written:])
                 os.fsync(fd)  # bytes durable before the bitmap says so
+            except OSError as exc:
+                raise _os_error(exc, self.digest) from None
             finally:
                 os.close(fd)
             self._done[index // 8] |= 1 << (index % 8)
-            self._save(self.sidecar, self.size, self.chunk_size, self._done)
-        except OSError as exc:
-            raise _os_error(exc, self.digest) from None
+            with self.store.resume_lock:
+                if self.digest.hex not in self.store._resumes:
+                    # Completed / discarded / swept meanwhile: never re-create
+                    # a sidecar the counter does not count.
+                    raise self._gone()
+                try:
+                    self._save(self.sidecar, self.size, self.chunk_size, self._done)
+                except OSError as exc:
+                    raise _os_error(exc, self.digest) from None
         return True
+
+    def _gone(self) -> CasError:
+        return CasError(
+            "the partial transfer was removed or restarted meanwhile; start over",
+            details={"digest": str(self.digest)},
+        )
 
     def complete(self) -> PutResult:
         """Hash the whole part; install it as the blob (checklist 15).
 
-        A mismatch deletes the part and the sidecar (the next try starts over) and
-        raises :class:`CasIntegrityError`.
+        Hash and install are one step per digest (G4 fix round 2): under the
+        digest lock (no chunk is written meanwhile) the file that was hashed -
+        checked by inode, never re-resolved - is the one renamed into place,
+        under ``resume_lock`` together with the sidecar removal and the count.
+        A part replaced or removed meanwhile is a typed :class:`CasError`. A
+        mismatch deletes this part and its sidecar and raises
+        :class:`CasIntegrityError`.
         """
         if self.missing():
             raise CasError(
                 f"{len(self.missing())} chunk(s) still missing",
                 details={"digest": str(self.digest)},
             )
-        hasher = hashlib.sha256()
-        try:
-            with self.part.open("rb") as fh:
-                while data := fh.read(_READ):
-                    hasher.update(data)
-        except FileNotFoundError:
-            # Swept (TTL) or discarded meanwhile: typed, the transfer starts over.
-            raise CasError(
-                "the partial transfer was removed before it completed; start over",
-                details={"digest": str(self.digest)},
-            ) from None
-        except OSError as exc:
-            raise _os_error(exc, self.digest) from None
-        if not hmac.compare_digest(hasher.hexdigest(), self.digest.hex):
-            self.discard()
-            raise CasIntegrityError(
-                "the assembled blob does not match its digest; the transfer "
-                "starts over",
-                details={"digest": str(self.digest)},
-            )
-        try:
-            self.store._check_disk(self.digest, 0)
-            with self.part.open("rb+") as fh:
-                os.fsync(fh.fileno())
-            created = self.store._install(self.part, self.digest, self.size)
-        except OSError as exc:
-            raise _os_error(exc, self.digest) from None
-        with self.store.resume_lock:
-            with contextlib.suppress(OSError):
-                self.sidecar.unlink()
-            self.store.resume_forgotten(self.digest.hex)
+        with self.store.digest_lock(self.digest.hex):
+            hasher = hashlib.sha256()
+            try:
+                with self.part.open("rb+") as fh:
+                    info = os.fstat(fh.fileno())
+                    identity = (info.st_dev, info.st_ino)
+                    if identity != self._identity:
+                        raise self._gone()
+                    while data := fh.read(_READ):
+                        hasher.update(data)
+                    os.fsync(fh.fileno())
+            except FileNotFoundError:
+                # Swept (TTL) or discarded meanwhile: typed, starts over.
+                raise self._gone() from None
+            except OSError as exc:
+                raise _os_error(exc, self.digest) from None
+            if not hmac.compare_digest(hasher.hexdigest(), self.digest.hex):
+                self._discard_locked(identity)
+                raise CasIntegrityError(
+                    "the assembled blob does not match its digest; the transfer "
+                    "starts over",
+                    details={"digest": str(self.digest)},
+                )
+            try:
+                self.store._check_disk(self.digest, 0)
+            except OSError as exc:
+                raise _os_error(exc, self.digest) from None
+            with self.store.resume_lock:
+                try:
+                    now = self.part.stat()
+                except FileNotFoundError:
+                    raise self._gone() from None
+                if (now.st_dev, now.st_ino) != identity:
+                    raise self._gone()  # a different file is at the path now
+                try:
+                    created = self.store._install(self.part, self.digest, self.size)
+                except OSError as exc:
+                    raise _os_error(exc, self.digest) from None
+                with contextlib.suppress(OSError):
+                    self.sidecar.unlink()
+                self.store.resume_forgotten(self.digest.hex)
         return PutResult(digest=self.digest, size=self.size, created=created)
 
     def discard(self) -> None:
+        """Delete this transfer's part and sidecar (if they are still this
+        transfer's: a part restarted elsewhere is left alone)."""
+        with self.store.digest_lock(self.digest.hex):
+            self._discard_locked(self._identity)
+
+    def _discard_locked(self, identity: tuple[int, int] | None) -> None:
         # Unlink and forget under one lock (see sweep_resumes): a concurrent
         # open of the same digest cannot slip in between and be forgotten.
         with self.store.resume_lock:
+            try:
+                info = self.part.stat()
+                ours = (info.st_dev, info.st_ino) == identity
+            except FileNotFoundError:
+                ours = True  # nothing left but (maybe) the sidecar
+            if not ours:
+                return
             for path in (self.sidecar, self.part):
                 with contextlib.suppress(OSError):
                     path.unlink()
