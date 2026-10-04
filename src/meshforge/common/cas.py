@@ -738,7 +738,14 @@ class ResumablePart:
     ) -> ResumablePart:
         part, sidecar = store.resume_paths(digest)
         done = cls._load(sidecar, size, chunk_size, count)
-        if done is None or not part.is_file() or part.stat().st_size != size:
+        try:
+            # One stat, not is_file() + stat(): a part removed in between (a
+            # discard or sweep elsewhere) is simply "no part", never a raw error.
+            info = part.stat()
+            usable = stat.S_ISREG(info.st_mode) and info.st_size == size
+        except FileNotFoundError:
+            usable = False
+        if done is None or not usable:
             if (
                 not sidecar.exists()
                 and store.resumes_in_progress() >= store.max_resumable
@@ -868,9 +875,18 @@ class ResumablePart:
                 details={"digest": str(self.digest)},
             )
         hasher = hashlib.sha256()
-        with self.part.open("rb") as fh:
-            while data := fh.read(_READ):
-                hasher.update(data)
+        try:
+            with self.part.open("rb") as fh:
+                while data := fh.read(_READ):
+                    hasher.update(data)
+        except FileNotFoundError:
+            # Swept (TTL) or discarded meanwhile: typed, the transfer starts over.
+            raise CasError(
+                "the partial transfer was removed before it completed; start over",
+                details={"digest": str(self.digest)},
+            ) from None
+        except OSError as exc:
+            raise _os_error(exc, self.digest) from None
         if not hmac.compare_digest(hasher.hexdigest(), self.digest.hex):
             self.discard()
             raise CasIntegrityError(
