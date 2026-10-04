@@ -6,10 +6,12 @@ module, import it below (and write a migration with the next ``NNNN`` revision i
 
 Tables so far: ``node``, ``node_session`` (V0.3, :mod:`.node`),
 ``resource_snapshot`` (V0.3 0.3.11, :mod:`.resource`), ``job``,
-``job_transition``, ``attempt``, ``attempt_phase`` (V0.4 D49, :mod:`.job`).
+``job_transition``, ``attempt``, ``attempt_phase`` (V0.4 D49, :mod:`.job`),
+``cache_location`` (V0.5 D101, :mod:`.cache`).
 """
 
 from meshforge.controller.store.base import Base
+from meshforge.controller.store.models.cache import CacheLocation
 from meshforge.controller.store.models.job import (
     Attempt,
     AttemptPhaseRow,
@@ -23,6 +25,7 @@ __all__ = [
     "Attempt",
     "AttemptPhaseRow",
     "Base",
+    "CacheLocation",
     "Job",
     "JobTransition",
     "Node",
