@@ -120,3 +120,52 @@ async def test_tree_member_set_is_built_in_the_parse_thread(
     assert members == frozenset(e.sha256 for e in built.tree.files())
     assert seen and seen[0] != loop_thread
     await asyncio.sleep(0)
+
+
+def test_a_transfer_swept_between_hash_and_rename_is_never_installed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """G4 fix round 3: the generation is checked again at the rename, in the
+    same lock hold. Here the sweep removes the transfer's sidecar (ending its
+    generation) right after the hash; the part file itself - same inode - is
+    still there, so only the generation check can refuse the install."""
+    store = _store(tmp_path)
+    (digest, data) = _blob(7)
+    part = store.resumable(digest, len(data), CS)
+    for i in range(part.count):
+        start, length = part.span(i)
+        part.write_chunk(i, data[start : start + length], None)
+    real = store._check_disk
+
+    def sweep_sidecar_now(d: object, needed: int) -> None:
+        real(d, needed)  # type: ignore[arg-type]
+        with store.resume_lock:
+            part.sidecar.unlink()
+            store.resume_forgotten(digest.hex)
+
+    monkeypatch.setattr(store, "_check_disk", sweep_sidecar_now)
+    with pytest.raises(CasError):
+        part.complete()
+    assert not store.has(digest)
+
+
+def test_a_stale_owner_is_refused_before_it_hashes_anything(tmp_path: Path) -> None:
+    """G4 fix round 3: complete() checks its generation before hashing - a
+    stale owner gets the typed "restarted meanwhile" refusal, never an
+    integrity verdict about another owner's (partly empty) part."""
+    from meshforge.common.cas import CasIntegrityError
+
+    store = _store(tmp_path)
+    (digest, data) = _blob(8)
+    stale = store.resumable(digest, len(data), CS)
+    for i in range(stale.count):
+        start, length = stale.span(i)
+        stale.write_chunk(i, data[start : start + length], None)
+    store.resumable(digest, len(data), CS).discard()
+    fresh = store.resumable(digest, len(data), CS)
+    with pytest.raises(CasError) as info:
+        stale.complete()
+    assert not isinstance(info.value, CasIntegrityError)
+    assert "restarted" in info.value.message
+    assert fresh.missing() == list(range(fresh.count))
+    assert store.resumes_in_progress() == 1

@@ -175,7 +175,6 @@ def _restart(store: CasStore, digest, data: bytes):
     return store.resumable(digest, len(data), CS)
 
 
-@pytest.mark.xfail(strict=True, reason=_R32)
 def test_stale_owner_cannot_write_into_a_restarted_transfer(tmp_path: Path) -> None:
     store = _store(tmp_path / "cas")
     data = os.urandom(CS * 2)
@@ -189,7 +188,6 @@ def test_stale_owner_cannot_write_into_a_restarted_transfer(tmp_path: Path) -> N
     assert part.read_bytes() == bytes(len(data))  # nothing leaked into B's file
 
 
-@pytest.mark.xfail(strict=True, reason=_R32)
 def test_stale_owner_cannot_complete_a_restarted_transfer(tmp_path: Path) -> None:
     store = _store(tmp_path / "cas")
     data = os.urandom(CS * 2)

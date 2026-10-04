@@ -267,6 +267,13 @@ class CasStore:
         self._digest_locks: dict[str, list[Any]] = {}
         self._digest_locks_guard = threading.Lock()
         self._resumes: set[str] = set()
+        self._generation: dict[str, int] = {}
+        """Digest hex -> the generation of its live resumable transfer (G4 fix
+        round 3). A fresh value - unique in this process - is set whenever a
+        transfer is (re)created; the entry is dropped when it is completed,
+        discarded or swept. Guarded by ``resume_lock``. A ResumablePart whose
+        generation is not the current one may neither write nor install."""
+        self._generation_seq = 0
         """Digests (hex) with a resumable transfer on disk: counted in memory
         (V0.5 G4) - listed once at :meth:`prepare`, then kept by open / complete
         / discard / sweep, so the cap check never lists ``tmp/``."""
@@ -349,6 +356,8 @@ class CasStore:
                 if name.endswith(_SIDECAR_SUFFIX):
                     self.resume_forgotten(_resume_hex(name))
                 else:
+                    # The part is gone: no owner of it may write or install.
+                    self._generation.pop(_resume_hex(name), None)
                     expired += 1
         return expired
 
@@ -391,6 +400,17 @@ class CasStore:
 
     def resume_forgotten(self, hex_: str) -> None:
         self._resumes.discard(hex_)
+        self._generation.pop(hex_, None)
+
+    def _new_generation(self, hex_: str) -> int:
+        """A fresh generation for ``hex_`` (call under ``resume_lock``)."""
+        self._generation_seq += 1
+        self._generation[hex_] = self._generation_seq
+        return self._generation_seq
+
+    def is_current(self, hex_: str, generation: int) -> bool:
+        """``generation`` is the live transfer of ``hex_`` (under ``resume_lock``)."""
+        return self._generation.get(hex_) == generation
 
     def _migrate_legacy(self, algo: Path) -> int:
         """Move V0.4 one-level blobs into the two-level layout.
@@ -734,8 +754,12 @@ class ResumablePart:
         size: int,
         chunk_size: int,
         done: bytearray,
+        *,
+        generation: int = 0,
     ) -> None:
         self.store = store
+        self.generation = generation
+        """The transfer generation this object owns (see CasStore._generation)."""
         self.digest = digest
         self.size = size
         self.chunk_size = chunk_size
@@ -778,7 +802,8 @@ class ResumablePart:
             usable = stat.S_ISREG(info.st_mode) and info.st_size == size
         except FileNotFoundError:
             usable = False
-        if done is None or not usable:
+        restarted = done is None or not usable
+        if restarted:
             if (
                 not sidecar.exists()
                 and store.resumes_in_progress() >= store.max_resumable
@@ -804,8 +829,13 @@ class ResumablePart:
                 cls._save(sidecar, size, chunk_size, done)
             except OSError as exc:
                 raise _os_error(exc, digest) from None
+        if done is None:  # pragma: no cover - set by the restart branch above
+            raise CasError("resumable transfer state missing")
         store.resume_started(digest.hex)
-        return cls(store, digest, size, chunk_size, done)
+        generation = store._generation.get(digest.hex)
+        if restarted or generation is None:
+            generation = store._new_generation(digest.hex)
+        return cls(store, digest, size, chunk_size, done, generation=generation)
 
     @staticmethod
     def _load(
@@ -882,6 +912,7 @@ class ResumablePart:
             remaining = sum(self.span(i)[1] for i in self.missing())
             self.store._check_disk(self.digest, remaining)
         with self.store.digest_lock(self.digest.hex):
+            self._check_current()  # primary guard: a restarted transfer is not ours
             try:
                 fd = os.open(self.part, os.O_WRONLY | getattr(os, "O_BINARY", 0))
             except FileNotFoundError:
@@ -906,7 +937,7 @@ class ResumablePart:
                 os.close(fd)
             self._done[index // 8] |= 1 << (index % 8)
             with self.store.resume_lock:
-                if self.digest.hex not in self.store._resumes:
+                if not self.store.is_current(self.digest.hex, self.generation):
                     # Completed / discarded / swept meanwhile: never re-create
                     # a sidecar the counter does not count.
                     raise self._gone()
@@ -915,6 +946,11 @@ class ResumablePart:
                 except OSError as exc:
                     raise _os_error(exc, self.digest) from None
         return True
+
+    def _check_current(self) -> None:
+        with self.store.resume_lock:
+            if not self.store.is_current(self.digest.hex, self.generation):
+                raise self._gone()
 
     def _gone(self) -> CasError:
         return CasError(
@@ -939,6 +975,7 @@ class ResumablePart:
                 details={"digest": str(self.digest)},
             )
         with self.store.digest_lock(self.digest.hex):
+            self._check_current()  # (1) before hashing
             hasher = hashlib.sha256()
             try:
                 with self.part.open("rb+") as fh:
@@ -955,7 +992,7 @@ class ResumablePart:
             except OSError as exc:
                 raise _os_error(exc, self.digest) from None
             if not hmac.compare_digest(hasher.hexdigest(), self.digest.hex):
-                self._discard_locked(identity)
+                self._discard_locked()
                 raise CasIntegrityError(
                     "the assembled blob does not match its digest; the transfer "
                     "starts over",
@@ -966,6 +1003,11 @@ class ResumablePart:
             except OSError as exc:
                 raise _os_error(exc, self.digest) from None
             with self.store.resume_lock:
+                # (2) at the rename, in the same lock hold: the generation is
+                # the primary guard (inode numbers are reused after an unlink);
+                # the inode comparison is only extra defence.
+                if not self.store.is_current(self.digest.hex, self.generation):
+                    raise self._gone()
                 try:
                     now = self.part.stat()
                 except FileNotFoundError:
@@ -985,19 +1027,14 @@ class ResumablePart:
         """Delete this transfer's part and sidecar (if they are still this
         transfer's: a part restarted elsewhere is left alone)."""
         with self.store.digest_lock(self.digest.hex):
-            self._discard_locked(self._identity)
+            self._discard_locked()
 
-    def _discard_locked(self, identity: tuple[int, int] | None) -> None:
+    def _discard_locked(self) -> None:
         # Unlink and forget under one lock (see sweep_resumes): a concurrent
         # open of the same digest cannot slip in between and be forgotten.
         with self.store.resume_lock:
-            try:
-                info = self.part.stat()
-                ours = (info.st_dev, info.st_ino) == identity
-            except FileNotFoundError:
-                ours = True  # nothing left but (maybe) the sidecar
-            if not ours:
-                return
+            if not self.store.is_current(self.digest.hex, self.generation):
+                return  # restarted / completed / swept by someone else: not ours
             for path in (self.sidecar, self.part):
                 with contextlib.suppress(OSError):
                     path.unlink()
