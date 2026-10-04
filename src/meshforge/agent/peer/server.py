@@ -60,6 +60,7 @@ _PATH_RE: Final = re.compile(rb"/v1/blobs/([0-9a-f]{64})")
 _RANGE_RE: Final = re.compile(rb"bytes=(\d{0,19})-(\d{0,19})")
 _NOFOLLOW: Final = getattr(os, "O_NOFOLLOW", 0)
 _BINARY: Final = getattr(os, "O_BINARY", 0)
+_NONBLOCK: Final = getattr(os, "O_NONBLOCK", 0)
 _SERVER: Final = b"meshforge-peer"
 _REASONS: Final = {
     400: b"Bad Request",
@@ -539,10 +540,14 @@ class PeerBlobServer:
     def _open(self, digest: Digest) -> BinaryIO:
         """Open the CAS file of ``digest`` read-only; never a link, never a dir."""
         path = self._cas.store.path_for(digest)
-        fd = os.open(path, os.O_RDONLY | _NOFOLLOW | _BINARY)
+        # O_NONBLOCK: a FIFO (or device) planted at a blob path must not block
+        # open() on the event loop; it opens at once and fstat refuses it.
+        fd = os.open(path, os.O_RDONLY | _NOFOLLOW | _BINARY | _NONBLOCK)
         regular = False
         try:
             regular = stat.S_ISREG(os.fstat(fd).st_mode)
+            if regular and _NONBLOCK:
+                os.set_blocking(fd, True)
         finally:
             if not regular:
                 os.close(fd)

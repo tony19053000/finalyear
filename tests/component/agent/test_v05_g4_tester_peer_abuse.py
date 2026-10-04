@@ -427,10 +427,6 @@ async def test_a_directory_at_a_blob_path_is_404(env: Env) -> None:
 
 
 @POSIX
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT-1: a FIFO planted at a blob path blocks open() on the event loop",
-)
 async def test_a_fifo_at_a_blob_path_does_not_stall_the_server(env: Env) -> None:
     """A FIFO named like a blob blocks ``os.open(O_RDONLY)`` until a writer shows
     up. The server opens on the loop, so every other client waits too. (Threads
@@ -456,7 +452,10 @@ async def test_a_fifo_at_a_blob_path_does_not_stall_the_server(env: Env) -> None
 
     def release() -> None:
         time.sleep(3.0)
-        fd = os.open(path, os.O_WRONLY | os.O_NONBLOCK)
+        try:
+            fd = os.open(path, os.O_WRONLY | os.O_NONBLOCK)
+        except OSError:  # ENXIO: no reader is blocked on it (the fixed server)
+            return
         os.close(fd)
 
     threads = [
