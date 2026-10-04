@@ -143,12 +143,6 @@ async def test_steady_state_reconcile_of_many_blobs_does_not_block_the_loop(
 
 @pytest.mark.asyncio
 @pytest.mark.timeout(120)
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT-R2-4: reconcile_disk holds the inventory lock across the whole "
-    "repair loop; the loop thread's pending_count()/counts() then block on it "
-    "(measured: 50k blobs deleted behind the cache = 1.2 s loop stall; 50k added = 0.6 s)",
-)
 async def test_repairing_many_blobs_does_not_block_the_loop(tmp_path: Path) -> None:
     store = _store(tmp_path)
     for i in range(N):

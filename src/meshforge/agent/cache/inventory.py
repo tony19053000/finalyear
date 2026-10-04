@@ -31,6 +31,7 @@ import contextlib
 import json
 import re
 import threading
+import time
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -53,6 +54,8 @@ __all__ = [
 log = get_logger(__name__)
 
 TREES_INDEX_NAME: Final = "trees.idx"
+_REPAIR_BATCH: Final = 256
+"""Index repairs applied per lock hold in :meth:`CacheInventory.reconcile_disk`."""
 _HEX_RE: Final = re.compile(r"[0-9a-f]{64}")
 _ENV_KINDS: Final = ("venv", "subprocess")
 _ENV_MARKER: Final = ".meshforge-env.json"
@@ -193,21 +196,33 @@ class CacheInventory:
         Returns ``(added, removed)``.
         """
         on_disk = scan_cas(self._store)
-        added = removed = 0
         with self._lock:
-            for hex_ in [h for h in self._blobs if h not in on_disk]:
-                if self._store.has(Digest(hex_)):
-                    continue
-                size = self._blobs.pop(hex_)
-                self._mark("blob", hex_, False, size)
-                for tree_hex in list(self._trees_of.get(hex_, ())):
-                    self._drop_tree_locked(tree_hex)
-                removed += 1
-            for hex_, size in on_disk.items():
-                if hex_ not in self._blobs and self._store.has(Digest(hex_)):
-                    self._blobs[hex_] = size
-                    self._mark("blob", hex_, True, size)
+            gone = [h for h in self._blobs if h not in on_disk]
+        unseen = [h for h in on_disk if h not in self._blobs]
+        added = removed = 0
+        # Bounded batches, the lock released (and the GIL yielded) between them:
+        # the event loop's pending_count()/counts() never wait for the whole
+        # repair (G4 fix round 2). Each candidate is re-checked inside its batch.
+        for start in range(0, len(gone), _REPAIR_BATCH):
+            with self._lock:
+                for hex_ in gone[start : start + _REPAIR_BATCH]:
+                    if hex_ not in self._blobs or self._store.has(Digest(hex_)):
+                        continue
+                    size = self._blobs.pop(hex_)
+                    self._mark("blob", hex_, False, size)
+                    for tree_hex in list(self._trees_of.get(hex_, ())):
+                        self._drop_tree_locked(tree_hex)
+                    removed += 1
+            time.sleep(0)
+        for start in range(0, len(unseen), _REPAIR_BATCH):
+            with self._lock:
+                for hex_ in unseen[start : start + _REPAIR_BATCH]:
+                    if hex_ in self._blobs or not self._store.has(Digest(hex_)):
+                        continue
+                    self._blobs[hex_] = on_disk[hex_]
+                    self._mark("blob", hex_, True, on_disk[hex_])
                     added += 1
+            time.sleep(0)
         if added or removed:
             log.warning("agent.cache.index_repaired", added=added, removed=removed)
         return added, removed
