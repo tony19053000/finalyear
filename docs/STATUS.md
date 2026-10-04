@@ -46,7 +46,7 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 - **V0.5 G3** (V0.4 debt: upload deadline, log GC, log gaps) — ✅ **CLOSED 2026-10-01** (see Recently Completed).
 - **V0.5 G1** (CAS, tree manifests, have/need) — ✅ **CLOSED 2026-10-01**: 0.5.1, 0.5.2  (see Recently Completed).
 - **V0.5 G2** (environments, venv runtime, base images) — ✅ **CLOSED 2026-10-01**: 0.5.7 `[x]`, 0.5.8 `[~]` (controller part in G5).
-- **Stabilisation lane** (load-flaky V0.4 tests): slow-follower double count fixed `97f347e`; flaky tests fixed (`35c5274` `861d712`) + D95 fetch-token refresh (`c76288e` `732b77f`) → **next: ONE reviewer over 97f347e … 732b77f**.
+- **Stabilisation lane** (load-flaky V0.4 tests): slow-follower double count fixed `97f347e`; flaky tests fixed (`35c5274` `861d712`) + D95 fetch-token refresh (`c76288e` `732b77f`) → **reviewer RUNNING (2026-10-04)** over 97f347e … 732b77f.
 - **Then:** wave 2 briefs (G4 peers/parallel fetch/telemetry, G5 cache index/GC/named inputs/node prepare).
 - 🧑 in parallel: **0.4.15 lab run** (`lab/checklists/V0.4-remote-exec.md`), S3 two-laptop runs (calibrate V0.5 transport).
 
