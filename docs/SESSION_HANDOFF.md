@@ -7,9 +7,10 @@
 > **Cold-start prompt** (paste this as the first message on the new account):
 >
 > ```
-> Read docs/SESSION_HANDOFF.md (§0e first, then §0d and §2), then docs/STATUS.md, then
-> docs/briefs/V0.4-remote-execution.md. RULE: run ONE subagent at a time (team decision 2026-09-28, token cost).
-> V0.4 G1–G4 are CLOSED. Next: the Lead writes the G5 brief (§5d + D70), then runs G5 implementer → tester → reviewer.
+> Read docs/SESSION_HANDOFF.md (§0e first, then §1 and §2), then docs/STATUS.md, then
+> docs/briefs/V0.5-data-plane.md. RULE: run ONE subagent at a time (team, re-imposed 2026-10-01).
+> V0.5 G1, G2, G3 are CLOSED. Next: one reviewer over the stabilisation lane + D95 (commits
+> 97f347e … 732b77f), then the Lead writes the wave 2 briefs (G4, G5) and spawns the G4 implementer.
 > Check git log and docs/briefs/progress/ first to see which round last finished.
 > ```
 >
@@ -30,7 +31,7 @@
 > throughput measurements and the reasoning; if you think the arithmetic or the trade is wrong,
 > **say so to the team before building on it.** Do not silently re-expand the scope either.
 
-**Last updated:** 2026-09-28 (**V0.4 G1 + G2 + G3 CLOSED; next: G4 brief**; earlier: **V0.4 G1 CLOSED** — 0.4.16 `[x]`, reviewer APPROVE, grpcio cap lifted; G2 and G3 code written, awaiting their tester → reviewer rounds; **one subagent at a time** (§0e); nothing running) · **Updated by:** Lead session
+**Last updated:** 2026-10-04 (**V0.4 agent-side closed; V0.5 G1 + G2 + G3 CLOSED** — 0.5.1, 0.5.2, 0.5.7 `[x]`; stabilisation lane + D95 done but **not reviewed**; **one subagent at a time** (§0e); nothing running) · **Updated by:** Lead session
 
 ---
 
@@ -264,16 +265,16 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
-- **Version: V0.3 (fabric core).** **G1–G7 are closed agent-side — all agent-side V0.3 work is done.** A live controller ⇄ agent fabric works
-  in-process: identity, sessions, leases, RTT, reconnect, mDNS discovery, hardware discovery, resource monitoring,
-  downsampled snapshots in Postgres — **and now an operator surface**: a read-only REST `/v1`, a `compute` CLI that
-  speaks REST only, `meshforge-agent hardware show`, documented service units — **and (G6) liveness that is honest on
-  session end, plus a real multi-process cluster test tier with fault injection and the 0.3.15 lab kit.**
-  - `[x]` 0.3.1, 0.3.3, **0.3.4**, 0.3.5, 0.3.6, 0.3.8, 0.3.9, 0.3.10, 0.3.11, 0.3.12, 0.3.14
-  - `[~]` 0.3.2 (awaits a 🧑 Windows unit run), 0.3.7 (awaits 🧑 lab evidence in 0.3.15),
-    **0.3.13** (awaits the 🧑 Windows logoff check in `docs/OPERATIONS.md` §3 — the docs say "unverified" on
-    purpose; do not let anyone replace that with a guess)
-  - Remaining: only the 🧑 0.3.15 lab run (+ Windows checks for 0.3.2, 0.3.13 and G7)
+**Overall: 24 % (38/154 tasks `[x]`, 16 `[~]`).** Progress bars: `docs/STATUS.md` (regenerate with `uv run python scripts/status_bars.py` whenever a checkbox changes).
+
+- **Version: V0.5 (data plane & environments), 3/11 done.** Brief `docs/briefs/V0.5-data-plane.md` (D79–D95).
+  - `[x]` **0.5.1** CAS store, **0.5.2** tree manifests + have/need (G1); **0.5.7** cached environments + venv runtime (G2).
+  - `[~]` **0.5.8** base images — local part (pinned digests, `meshforge-agent prepare`) done in G2; controller-driven `compute node prepare` is G5.
+  - G3 (V0.4 debt: upload deadline, log GC, persisted log gaps) closed — not a roadmap checkbox.
+  - Stabilisation lane done, **unreviewed**: flaky tests made load-robust (slow-follower double count was a real bug), **D95** a controller restart during staging re-mints the fetch token (`RefreshFetchToken`, ControllerMessage payload 18) and the agent retries within `staging_retry_s`.
+  - Not started: wave 2 — **G4** (0.5.3 peer blob server, 0.5.4 parallel multi-source fetch, 0.5.10 transfer telemetry + carried items) and **G5** (0.5.5 cache index, 0.5.6 named inputs, 0.5.9 GC, 0.5.8 controller part, controller CAS scrub). Scope rows with carried items are in the brief §3. 🧑 0.5.11 lab after them.
+- **V0.4 (remote execution): agent-side CLOSED** (13/17 `[x]`). Left: 🧑 0.4.15 lab run (`lab/checklists/V0.4-remote-exec.md`), 0.4.2 (Windows CI digest), 0.4.8 (real PyTorch CUDA run), 0.4.17 (Windows item).
+- **V0.3:** closed agent-side; only 🧑 0.3.15 lab run + Windows checks (0.3.2, 0.3.13, G7) remain.
 - **V0.2:** all agent-side spike work is complete with reviewer APPROVE (S1 `ef065ac`, S2 `633d474`, S3 `81d620f`,
   S7 `8072b9f`, inventory `75d8df5`, 0.2.13 done). Every one is `[~]` **only** because it awaits runs on real
   laptops. **0.2.12 must wait for real lab data — never run it on loopback numbers.**
@@ -282,6 +283,16 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
   `torch.cuda.is_available()` needs torch installed (ADR-0011 / 0.2.3).
 
 ## 2. In flight right now
+
+> **2026-10-04 — nothing running.** Exact next steps, ONE agent at a time:
+> 1. **Reviewer** over the stabilisation lane + D95: commits `97f347e` `35c5274` `861d712` `c76288e` `732b77f` (LogHub slow-follower count, tolerant liveness profile in `tests/_support/mf_controller_harness.py` used only where the lease is not under test, FaultLink FIN-vs-RST close, D95 RefreshFetchToken + agent staging retry). Known limitation to rule on: upload grants are not refreshed across a restart (→ `output_error`).
+> 2. **Lead writes the wave 2 briefs** (G4, G5) in `docs/briefs/V0.5-data-plane.md` §5d/§5e (decisions D88–D93 already settled; §3 scope rows list carried items: drop G1's `bundle_digest` reuse, env_hash/env_cache to the controller, delayed-ACK check, member set off the event loop, controller CAS scrub).
+> 3. **G4 implementer** → tester → reviewer → close; then G5 the same way.
+> Rules learned this version: commit with `git commit --only <paths>`; never leave files staged; resume a usage-limited agent via SendMessage (cheap) and commit its uncommitted edits as `wip` first; regenerate the progress bars on every checkbox change.
+
+---
+
+**Older history below (V0.4 and before).**
 
 > **2026-09-28 — V0.4 started.** Brief: `docs/briefs/V0.4-remote-execution.md` (decisions D40–D54, groups G1–G5, pasteable briefs for G1–G3). **G1 (0.4.16 + 0.4.17 items 2, 5) spawned** as an implementer; it logs progress to `docs/briefs/progress/V0.4-G1.md` and commits `refactor/feat(V0.4-G1): …`. If this session died, read that file + `git log`, commit any wip, and relaunch G1 with the §5 brief plus "resume from <last done item>".
 > **All three implementers done (2026-09-28).** G2: `1462e34` `4293cd9` `2c2a5fe` `bbd03df` `9cebb8b` `f92e4fd` (0.4.1–0.4.5 + token). G3: `d625a45` `e189f86` `e149da5` `c3e48e5` `bc0c4c4` `b14baa3` (0.4.7, 0.4.8, 0.4.17 items 1/3/4/6/8). **Tester round 1 running for G1, G2 and G3 in parallel.** Deviations accepted as D55–D60 in the brief (§2f). 🧑 G3 Windows check + the pytorch image pull (Laptop 1 has only ~3 GB disk free — needs ~12 GB) listed in G3's handoff. Next: reviewer per group after its tester PASS; then the G4 brief.
