@@ -35,8 +35,9 @@ In V0.3 the controller exposes:
   Until then the project's security baseline (`CLAUDE.md` §9) is "trusted LAN
   machines only".
 
-The agent needs **no inbound port** at all — it dials out
-([ADR-0002](adr/0002-agent-initiated-grpc-session.md)). Only the controller laptop needs
+The agent needs **no inbound port** for the control plane — it dials out
+([ADR-0002](adr/0002-agent-initiated-grpc-session.md)); only its optional peer
+blob server (TCP 47120, V0.5, §0d) listens. Only the controller laptop needs
 a firewall rule (inbound TCP 47100, and 47110 if other laptops should run
 `compute`).
 
@@ -242,6 +243,49 @@ compute get <JOB_ID>               # outputs -> ./outputs/<JOB_ID>/ (--dest, --f
   disconnected (`slow_consumer`); `compute logs <JOB_ID>` then prints the stored log.
 
 ---
+
+### 0d. Peer blob serving between laptops (V0.5 G4, D97-D101)
+
+An agent can serve the job files it already caches to the other agents, so a
+second laptop running the same project fetches most bytes from a nearby peer
+instead of the controller. **Off by default.** To turn it on, on each agent laptop:
+
+```toml
+[agent.peer]
+bind = "192.168.1.21"     # this laptop's LAN IP (never 0.0.0.0 unless allow_any_bind)
+# port = 47120            # default
+```
+
+and open **inbound TCP 47120 on the LAN / private firewall profile only** - never
+on a public profile, never to the internet:
+
+```
+# Linux (ufw)
+sudo ufw allow from 192.168.1.0/24 to any port 47120 proto tcp
+# Windows (PowerShell as administrator)
+New-NetFirewallRule -DisplayName "MeshForge peer blobs" -Direction Inbound `
+  -Protocol TCP -LocalPort 47120 -Profile Private -Action Allow
+```
+
+What a peer serves: read-only `GET`/`HEAD` of blobs in its own cache, only to a
+request that carries a token the controller signed for that exact project (tree),
+that holder, that attempt, for at most 10 minutes. The controller keeps the
+signing key in `<data dir>/controller/peer_signing.key` (keep it private, like
+`fabric.token`). The controller lists a peer only when the address it advertises
+is the address its connection comes from; for a NAT'd lab setup set
+`[controller] trust_peer_endpoints = true` on the controller.
+
+Check it: `compute nodes <node_id> --json` (or `GET /v1/nodes/<id>`) shows
+`peer_endpoint` and the `cache` counts per kind; the agent log line
+`agent.cas.staged` lists per source the bytes and units it fetched and why a
+source was dropped. A peer that is unreachable, slow, refuses or serves bad bytes
+is dropped for that transfer and the others (the controller always among them)
+finish - nothing is ever used before its SHA-256 is checked.
+
+Tuning (`[agent.fetch]`): `per_source` requests in flight per source (2; each
+holds up to one chunk in memory), `slow_source_factor` (4), `endgame_after_s`
+(0.5), `request_timeout_s` (60). `[controller.jobs] max_peer_sources` (4) caps how
+many peers one attempt is given.
 
 ## 1. Run it by hand first
 
@@ -449,7 +493,9 @@ volume**).
 |---|---|---|
 | `compute` prints `cannot reach the controller …` and exits **6** | controller not running, or `[cli] controller_url` points elsewhere | `systemctl --user status meshforge-controller`; check `MESHFORGE_CLI__CONTROLLER_URL`; `curl http://HOST:47110/healthz` |
 | `compute status` says reachable, `nodes` is empty | no agent has ever enrolled | run the agent by hand and watch its log; check it can reach TCP 47100 on the controller |
-| Agent log repeats connect/backoff | firewall on the controller laptop, or the wrong address | open inbound TCP 47100 **on the controller only**; agents need no inbound rule |
+| Agent log repeats connect/backoff | firewall on the controller laptop, or the wrong address | open inbound TCP 47100 **on the controller only**; agents need no inbound rule (except 47120 when peer serving is on, §0d) |
+| `agent.cas.source_dropped` for a peer on every job | the peer's port 47120 is blocked, or it advertises an address the controller cannot reach | open TCP 47120 on the peer's LAN profile (§0d); check `peer_endpoint` in `GET /v1/nodes/<id>`; the job still succeeds from the controller |
+| Agent log `agent.peer.start_failed` | port 47120 taken or `bind` is not this laptop's IP | free the port or set `[agent.peer] port`; the agent runs without serving peers meanwhile |
 | Controller exits **4** at startup | PostgreSQL unreachable or bad `[database]` settings | `docker compose -f deploy/docker-compose.dev.yml up -d --wait`, then check `[database]` |
 | Agent exits **5** immediately | another agent process already owns this identity | stop the other one, or give this one its own `data_dir` |
 | A node shows `STATE suspect` and `CONN no` | the node's connection dropped without a goodbye (Wi-Fi blip, laptop suspended, agent killed) | Normal for a few seconds: the controller keeps the node's lease running and marks it `offline` when the lease runs out (3 × heartbeat, 6 s by default, from the last heartbeat) unless the agent reconnects first — then it goes straight back to `online`. `GET /v1/sessions?node_id=…` shows that session's `end_reason` as `stream_lost`. A cleanly stopped agent (`systemctl --user stop`, Ctrl-C) is `offline` at once with end reason `agent_closed` (ARCHITECTURE §12.3, D19) |
