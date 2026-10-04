@@ -50,6 +50,7 @@ __all__ = [
     "EnvsSettings",
     "ExecutionImages",
     "ExecutionSettings",
+    "FetchSettings",
     "HardwareSettings",
     "KeepaliveSettings",
     "PeerSettings",
@@ -766,6 +767,54 @@ class PeerSettings(SectionModel):
         return self
 
 
+class FetchSettings(SectionModel):
+    """``[agent.fetch]`` - downloading a job's blobs from several sources (V0.5 D89).
+
+    The controller and the peers holding the tree are fetched from in parallel,
+    work-stealing (a faster source takes more chunks).
+    """
+
+    per_source: int = Field(
+        default=2,
+        ge=1,
+        le=16,
+        description=(
+            "Requests in flight per source. Each holds up to one chunk (8 MiB "
+            "default) in memory until it is verified and written."
+        ),
+    )
+    slow_source_factor: float = Field(
+        default=4.0,
+        ge=1.5,
+        le=100.0,
+        description=(
+            "A peer whose rate is below the sources' median divided by this is "
+            "dropped for the transfer (never the controller)."
+        ),
+    )
+    slow_min_units: int = Field(
+        default=2,
+        ge=1,
+        le=1000,
+        description="Units a source must have finished before it is judged slow.",
+    )
+    endgame_after_s: float = Field(
+        default=0.5,
+        ge=0.05,
+        le=600.0,
+        description=(
+            "With nothing left to start, an idle source re-asks a unit in flight "
+            "elsewhere for longer than this; the first verified answer wins."
+        ),
+    )
+    request_timeout_s: float = Field(
+        default=60.0,
+        ge=1.0,
+        le=3600.0,
+        description="Connect/read timeout of one blob request.",
+    )
+
+
 class CacheSettings(SectionModel):
     """``[agent.cache]`` - cache reports to the controller (V0.5 D90/D101).
 
@@ -875,6 +924,7 @@ class AgentSection(SectionModel):
     envs: EnvsSettings = Field(default_factory=EnvsSettings)
     peer: PeerSettings = Field(default_factory=PeerSettings)
     cache: CacheSettings = Field(default_factory=CacheSettings)
+    fetch: FetchSettings = Field(default_factory=FetchSettings)
     hello_timeout_s: float = Field(
         default=3.0,
         gt=0,

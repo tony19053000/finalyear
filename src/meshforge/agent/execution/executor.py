@@ -80,6 +80,7 @@ from pathlib import Path
 from typing import Any, Final, Protocol
 
 from meshforge.agent.cas import AgentCas
+from meshforge.agent.cas.fetcher import FetchTuning
 from meshforge.agent.execution.fetch import (
     FetchError,
     StageReport,
@@ -188,6 +189,9 @@ class _Attempt:
     blob_port: int | None = None
     """Set by a RefreshFetchToken: where the (restarted) controller serves
     blobs now; None = the StartAttempt's values."""
+    sources: list[agent_pb2.BlobSource] | None = None
+    """Set by a RefreshFetchToken that carries a source list (V0.5 G4, D98):
+    the controller with the new token plus re-minted peers. Secrets inside."""
     token_changed: asyncio.Event = field(default_factory=asyncio.Event)
     stage_retries: int = 0
 
@@ -231,6 +235,7 @@ class Executor:
     ) -> None:
         self._settings = settings
         self._cfg = settings.agent.execution
+        self._fetch_cfg = settings.agent.fetch
         self._setup = setup
         self._node_id = node_id
         self._report = report
@@ -555,6 +560,9 @@ class Executor:
         attempt.fetch_token = msg.fetch_token
         attempt.blob_url = msg.blob_url
         attempt.blob_port = int(msg.blob_port)
+        if msg.sources:
+            # Validated like StartAttempt's sources when staging uses them.
+            attempt.sources = list(msg.sources)
         attempt.token_changed.set()
 
     def _stop(self, attempt: _Attempt, reason: str) -> None:
@@ -730,9 +738,11 @@ class Executor:
         token: str,
     ) -> None:
         """One staging try with ``token`` (a tree resumes what it verified)."""
-        if spec.tree_id:
+        if plan.tree_id is not None:
             await self._stage_tree(attempt, workdir, _refreshed(spec, attempt, token))
             return
+        if plan.digest is None:  # pragma: no cover - plan_attempt guarantees one
+            raise FetchError("nothing to fetch", failure_type=FailureType.INVALID_INPUT)
         bundle = self.work_root / f"{attempt.attempt_id}.bundle"
         base = blob_base_url(
             plan.blob_url if attempt.blob_url is None else attempt.blob_url,
@@ -767,7 +777,19 @@ class Executor:
         sources = tree_sources(spec, self._controller_host())
         report = await self._step(
             attempt,
-            stage_tree(self.cas, tree_id=spec.tree_id, sources=sources, dest=workdir),
+            stage_tree(
+                self.cas,
+                tree_id=spec.tree_id,
+                sources=sources,
+                dest=workdir,
+                timeout_s=self._fetch_cfg.request_timeout_s,
+                tuning=FetchTuning(
+                    per_source=self._fetch_cfg.per_source,
+                    slow_source_factor=self._fetch_cfg.slow_source_factor,
+                    slow_min_units=self._fetch_cfg.slow_min_units,
+                    endgame_after_s=self._fetch_cfg.endgame_after_s,
+                ),
+            ),
         )
         self.last_stage = report
         log.info(
@@ -1117,7 +1139,8 @@ def _refreshed(
 ) -> agent_pb2.ExecutionSpec:
     """``spec`` with the controller's fetch token and blob location replaced by
     a RefreshFetchToken's (D95): the spec's own fields and every controller
-    source (``node_id`` empty)."""
+    source (``node_id`` empty); the source list itself when the refresh carried
+    one (V0.5 G4, D98)."""
     if token == spec.fetch_token and attempt.blob_port is None:
         return spec
     copy = agent_pb2.ExecutionSpec()
@@ -1126,6 +1149,10 @@ def _refreshed(
     if attempt.blob_port is not None:
         copy.blob_port = attempt.blob_port
         copy.blob_url = attempt.blob_url or ""
+    if attempt.sources is not None:
+        # V0.5 G4 (D98): the refresh re-minted the whole list (fresh peer tokens).
+        del copy.sources[:]
+        copy.sources.extend(attempt.sources)
     for source in copy.sources:
         if not source.node_id:
             source.token = token

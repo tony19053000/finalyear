@@ -4,8 +4,9 @@ The command comes from the network: every field is checked before it is used
 (checklist item 9) and a problem is a typed :class:`PlanError` the executor turns
 into ``AttemptStatus FAILED`` - never an exception that escapes, never a run.
 
-* ids and the fencing token have their canonical shapes; the digest is
-  ``sha256:<64 hex>``; the fetch token is bounded and printable;
+* ids and the fencing token have their canonical shapes; exactly one of the
+  bundle digest and the tree id is set, ``sha256:<64 hex>`` (V0.5 G4: a tree job
+  is named by ``tree_id`` alone); the fetch token is bounded and printable;
 * ``manifest_json`` is re-validated with the same model the CLI and the
   controller use (:mod:`meshforge.common.manifest`);
 * the time limit must not exceed this node's ``[agent.execution] max_timeout_s``;
@@ -94,7 +95,8 @@ class AttemptPlan:
     job_id: str
     attempt_id: str
     fencing_token: int
-    digest: Digest
+    digest: Digest | None
+    """The V0.4 bundle; None for a tree job."""
     fetch_token: str
     blob_url: str
     blob_port: int
@@ -105,6 +107,8 @@ class AttemptPlan:
     """D73 upload grant; empty = this attempt cannot upload (outputs/logs)."""
     upload_max_bytes: int = 0
     upload_max_blobs: int = 0
+    tree_id: Digest | None = None
+    """V0.5 D83: the tree a tree job stages; None for a bundle job."""
 
 
 def workload_env(
@@ -203,10 +207,7 @@ def plan_attempt(
     """Validate ``msg`` and build its plan (see module docstring)."""
     job_id, attempt_id, token = _validated_ids(msg)
     spec = msg.spec
-    try:
-        digest = Digest.parse(spec.bundle_digest)
-    except (ValueError, MeshForgeError):
-        raise PlanError("ExecutionSpec.bundle_digest is not sha256:<64 hex>") from None
+    digest, tree_id = _what_to_fetch(spec)
     token_text = spec.fetch_token
     if not token_text or not _token_shape(token_text):
         raise PlanError("ExecutionSpec.fetch_token is missing or malformed")
@@ -270,6 +271,7 @@ def plan_attempt(
         attempt_id=attempt_id,
         fencing_token=token,
         digest=digest,
+        tree_id=tree_id,
         fetch_token=token_text,
         blob_url=spec.blob_url,
         blob_port=int(spec.blob_port),
@@ -280,6 +282,29 @@ def plan_attempt(
         upload_max_bytes=int(spec.upload_max_bytes),
         upload_max_blobs=int(spec.upload_max_blobs),
     )
+
+
+def _what_to_fetch(
+    spec: agent_pb2.ExecutionSpec,
+) -> tuple[Digest | None, Digest | None]:
+    """``(bundle, tree)``: exactly one is set (V0.5 G4: explicit tree path).
+
+    A tree job names ``tree_id``; its ``bundle_digest`` is empty (a V0.5 wave-1
+    controller sent the tree id there too - accepted only when equal). A V0.4
+    bundle job names ``bundle_digest`` and no ``tree_id``.
+    """
+    if spec.tree_id:
+        try:
+            tree = Digest.parse(spec.tree_id)
+        except (ValueError, MeshForgeError):
+            raise PlanError("ExecutionSpec.tree_id is not sha256:<64 hex>") from None
+        if spec.bundle_digest and spec.bundle_digest != spec.tree_id:
+            raise PlanError("ExecutionSpec names both a bundle and a tree")
+        return None, tree
+    try:
+        return Digest.parse(spec.bundle_digest), None
+    except (ValueError, MeshForgeError):
+        raise PlanError("ExecutionSpec.bundle_digest is not sha256:<64 hex>") from None
 
 
 def _token_shape(text: str) -> bool:

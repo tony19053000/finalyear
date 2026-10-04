@@ -47,7 +47,7 @@ import re
 import secrets
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Final
 
@@ -61,7 +61,7 @@ from meshforge.agent.cas import (
     MaterialiseError,
     materialise,
 )
-from meshforge.agent.cas.fetcher import FetchError
+from meshforge.agent.cas.fetcher import FetchError, FetchTuning, SourceStats
 from meshforge.agent.cas.store import DEFAULT_FREE_DISK_FLOOR_BYTES
 from meshforge.common.errors import FailureType, MeshForgeError
 from meshforge.common.hashing import Digest
@@ -339,6 +339,8 @@ class StageReport:
     chunks_resumed: int
     corrupt_refetches: int
     duration_s: float
+    sources: dict[str, SourceStats] = field(default_factory=dict)
+    """Bytes / request time / units per source (V0.5 D89; telemetry in G5)."""
 
 
 async def stage_tree(
@@ -351,6 +353,7 @@ async def stage_tree(
     transport: httpx.AsyncBaseTransport | None = None,
     free_disk_floor_bytes: int = DEFAULT_FREE_DISK_FLOOR_BYTES,
     clock: Callable[[], float] = time.monotonic,
+    tuning: FetchTuning | None = None,
 ) -> StageReport:
     """Fetch ``tree_id`` into the cache and copy it into ``dest``."""
     try:
@@ -366,7 +369,7 @@ async def stage_tree(
     async with httpx.AsyncClient(
         timeout=httpx.Timeout(timeout_s), transport=transport, trust_env=False
     ) as client:
-        fetcher = BlobFetcher(cas, sources, client)
+        fetcher = BlobFetcher(cas, sources, client, tuning=tuning, clock=clock)
         tree = await fetcher.tree(digest)
         await fetcher.ensure_all(tree)
         while True:
@@ -407,6 +410,7 @@ async def stage_tree(
         chunks_resumed=stats.chunks_resumed,
         corrupt_refetches=refetches,
         duration_s=clock() - started,
+        sources=dict(stats.sources),
     )
 
 

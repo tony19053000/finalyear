@@ -144,9 +144,9 @@ class JobRecord:
     name: str
     state: JobState
     manifest: Mapping[str, Any]
-    bundle_digest: str
-    """The digest an attempt fetches first (its fetch token is minted for it): the
-    V0.4 bundle, or for a tree job the tree manifest blob (== ``tree_id``)."""
+    bundle_digest: str | None
+    """The V0.4 bundle; None for a tree job (V0.5 G4: the tree is named only by
+    ``tree_id`` - no reuse of this field for the manifest)."""
     placement: Mapping[str, Any]
     idempotency_key: str | None
     request_hash: str
@@ -158,11 +158,6 @@ class JobRecord:
     cancel_requested_at: dt.datetime | None = None
     tree_id: str | None = None
     """V0.5 D83: the project's tree manifest; None = a V0.4 bundle job."""
-
-    @property
-    def stored_bundle_digest(self) -> str | None:
-        """The bundle column as stored (None for a tree job)."""
-        return None if self.tree_id is not None else self.bundle_digest
 
 
 @dataclass(frozen=True, slots=True)
@@ -209,7 +204,7 @@ def job_record(row: Job) -> JobRecord:
         name=row.name,
         state=JobState(row.state),
         manifest=dict(row.manifest),
-        bundle_digest=row.bundle_digest or row.tree_id or "",
+        bundle_digest=row.bundle_digest,
         placement=dict(row.placement),
         idempotency_key=row.idempotency_key,
         request_hash=row.request_hash,

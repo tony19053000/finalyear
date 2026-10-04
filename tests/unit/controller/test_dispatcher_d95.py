@@ -3,7 +3,8 @@ a held attempt that may still be fetching gets a fresh fetch token.
 
 * a held ASSIGNED/STAGING attempt with no live token in this process is sent
   ``RefreshFetchToken`` with a new token scoped like the original (the job's
-  ``bundle_digest``, which for a tree job is the tree manifest);
+  bundle; a tree job's scope is covered by tests/unit/controller/
+  test_dispatcher_g4.py);
 * the old token stays refused (it was never persisted, and a refresh revokes
   whatever the attempt held);
 * a held attempt that still has a live token, or is past fetching
@@ -64,6 +65,7 @@ def _entry(node_id: str, state: AttemptState) -> Any:
         id=str(new_job_id()),
         manifest={"limits": {"timeout": 60}},
         bundle_digest=DIGEST,
+        tree_id=None,
         cancel_requested_at=None,
     )
     attempt = SimpleNamespace(

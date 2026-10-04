@@ -1286,9 +1286,8 @@ class ExecutionSpec(_message.Message):
     TREE_ID_FIELD_NUMBER: _builtins.int
     SOURCES_FIELD_NUMBER: _builtins.int
     bundle_digest: _builtins.str
-    """"sha256:<64 hex>" of what the attempt fetches first: the project bundle (V0.4
-    jobs) or, when tree_id is set, the tree manifest blob (equal to tree_id) - so
-    an agent that validates this field keeps working for tree jobs.
+    """"sha256:<64 hex>" of the project bundle of a V0.4 bundle job. Empty for a
+    tree job (V0.5 G4: a tree job is named only by tree_id).
     """
     blob_url: _builtins.str
     """Base URL of the blob API ("http://host:port") when the controller has an
@@ -1335,8 +1334,10 @@ class ExecutionSpec(_message.Message):
 
     @_builtins.property
     def sources(self) -> _containers.RepeatedCompositeFieldContainer[Global___BlobSource]:
-        """Where the blobs may be fetched (V0.5 D83/D89). Wave 1 lists only the
-        controller; V0.5 wave 2 adds peers that hold them.
+        """Where the blobs may be fetched (V0.5 D83/D89/D100): the controller first,
+        then up to [controller.jobs] max_peer_sources ONLINE peers holding the
+        tree, each with its own signed peer token (D98). The agent fetches from all
+        of them in parallel, work-stealing.
         """
 
     def __init__(

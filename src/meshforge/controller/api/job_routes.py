@@ -224,7 +224,7 @@ def _summary_fields(job: JobRecord) -> dict[str, Any]:
         "job_id": job.id,
         "name": job.name,
         "state": job.state,
-        "bundle_digest": job.stored_bundle_digest,
+        "bundle_digest": job.bundle_digest,
         "tree_id": job.tree_id,
         "placement": Placement.model_validate(dict(job.placement)),
         "failure_type": job.failure_type,

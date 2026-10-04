@@ -60,6 +60,7 @@ from meshforge.controller.http import create_http_app
 from meshforge.controller.jobs.dispatcher import Dispatcher
 from meshforge.controller.jobs.execution_store import ExecutionStore
 from meshforge.controller.jobs.logs import LogHub
+from meshforge.controller.jobs.peers import PeerSources
 from meshforge.controller.peer_signing import (
     PeerTokenIssuer,
     load_or_create_signing_key,
@@ -272,6 +273,12 @@ class ControllerRuntime:
             blob_port=lambda: self.http_port,
             blob_url=cfg.api.advertise_url,
             resources=resources,
+            peers=PeerSources(
+                manager,
+                self.cache_index.store,
+                self.peer_tokens,
+                max_sources=cfg.jobs.max_peer_sources,
+            ),
         )
         self._dispatcher_task = self._spawn(self.dispatcher.run(), "dispatcher")
         flusher = SnapshotFlusher(resources, registry, cfg.resources, clock=loop.time)

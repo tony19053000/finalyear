@@ -80,7 +80,12 @@ def settings(pg_settings: DatabaseSettings) -> ControllerSettings:
 @pytest_asyncio.fixture
 async def agent(grpc_target: str, data_dir: Path) -> AsyncIterator[ExecAgent]:
     running = await ExecAgent.start(
-        grpc_target, data_dir, execution={"staging_retry_s": 30}
+        grpc_target,
+        data_dir,
+        execution={"staging_retry_s": 30},
+        # One request at a time: "the 3rd chunk request is held" stays exact
+        # with the V0.5 G4 multi-request fetcher.
+        agent_overrides={"fetch": {"per_source": 1}},
     )
     yield running
     await running.stop()
@@ -171,11 +176,11 @@ async def test_tree_job_survives_a_controller_restart_mid_fetch_and_resumes(
     real_range = BlobFetcher._range
 
     async def gated_range(
-        self: BlobFetcher, digest: Any, start: int, length: int
+        self: BlobFetcher, source: Any, digest: Any, start: int, length: int
     ) -> bytes:
-        gate.tokens.append(self._source.token)
+        gate.tokens.append(source.src.token)
         await gate.hold()
-        return await real_range(self, digest, start, length)
+        return await real_range(self, source, digest, start, length)
 
     monkeypatch.setattr(BlobFetcher, "_range", gated_range)
     counter = tmp_path / "out.txt"

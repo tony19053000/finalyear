@@ -115,6 +115,7 @@ from meshforge.controller.jobs.execution_store import (
     StatusReport,
 )
 from meshforge.controller.jobs.logs import LogHub
+from meshforge.controller.jobs.peers import PeerSources
 from meshforge.controller.jobs.reports import parse_status
 from meshforge.controller.jobs.spec import choose_gpus, execution_spec, start_snapshot
 from meshforge.controller.jobs.store import AttemptRecord, JobRecord, JobStoreError
@@ -195,6 +196,18 @@ class DispatcherStats:
     log_files_deleted: int = 0
 
 
+def fetch_scope(job: JobRecord) -> list[Digest]:
+    """What an attempt's controller fetch token may read: the tree (its manifest
+    plus every member, :class:`~meshforge.controller.blobs.FetchTokens`) for a
+    tree job, the bundle for a V0.4 bundle job. The same for StartAttempt and
+    every RefreshFetchToken (D95)."""
+    if job.tree_id:
+        return [Digest.parse(job.tree_id)]
+    if not job.bundle_digest:
+        raise ValueError(f"job {job.id} has neither a tree nor a bundle")
+    return [Digest.parse(job.bundle_digest)]
+
+
 class Dispatcher:
     """See module docstring. ``run()`` is one task owned by ``ControllerRuntime``."""
 
@@ -212,8 +225,11 @@ class Dispatcher:
         blob_url: str | None = None,
         resources: ResourceTracker | None = None,
         wall_clock: Callable[[], dt.datetime] | None = None,
+        peers: PeerSources | None = None,
     ) -> None:
         self._store = store
+        self._peers = peers
+        """V0.5 D89/D100: peer holders listed next to the controller (tree jobs)."""
         self._manager = manager
         self._tokens = fetch_tokens
         self._grants = upload_grants
@@ -573,7 +589,7 @@ class Dispatcher:
         for result in results:
             if result.attempt is not None:
                 self.stats.dispatched += 1
-                self._send_start(result.job, result.attempt, resend=False)
+                await self._send_start(result.job, result.attempt, resend=False)
 
     def _decide(self, job: JobRecord, node: NodeView | None) -> DispatchDecision:
         node_id = str(job.placement.get("node_id", ""))
@@ -616,9 +632,17 @@ class Dispatcher:
         )
         return Dispatch(attempt_id=str(new_attempt_id()), start_snapshot=snapshot)
 
-    def _send_start(
+    async def _peer_sources(
+        self, job: JobRecord, attempt: AttemptRecord
+    ) -> list[agent_pb2.BlobSource]:
+        if self._peers is None:
+            return []
+        return await self._peers.for_attempt(job, attempt)
+
+    async def _send_start(
         self, job: JobRecord, attempt: AttemptRecord, *, resend: bool
     ) -> None:
+        peers = await self._peer_sources(job, attempt)
         token, ttl = self._mint_fetch_token(job, attempt)
         spec = execution_spec(
             job,
@@ -627,6 +651,7 @@ class Dispatcher:
             blob_url=self._blob_url,
             blob_port=self._blob_port(),
         )
+        spec.sources.extend(peers)
         if self._grants is not None:
             # D73: the only credential that may upload for this attempt; a
             # re-send keeps what the previous grant already stored.
@@ -680,32 +705,42 @@ class Dispatcher:
         older token of the attempt is revoked. One token per send: a re-send or
         a refresh after a controller restart must work although the old token
         died with the old process (tokens live in memory, never persisted).
-        Scope = the job's ``bundle_digest`` - the bundle, or for a tree job the
-        tree manifest, which grants exactly that tree's blobs."""
+        Scope (:func:`fetch_scope`) = the tree for a tree job (which grants
+        exactly that tree's blobs), the bundle for a V0.4 bundle job."""
         self._tokens.revoke(attempt.id)
         ttl = min(
             float(job.manifest.get("limits", {}).get("timeout", 0))
             + self._settings.fetch_token_grace_s,
             float(MAX_FETCH_TOKEN_TTL_S),
         )
-        token = self._tokens.mint(
-            attempt.id, [Digest.parse(job.bundle_digest)], ttl_s=ttl
-        )
+        token = self._tokens.mint(attempt.id, fetch_scope(job), ttl_s=ttl)
         return token, ttl
 
-    def _refresh_fetch_token(self, job: JobRecord, attempt: AttemptRecord) -> None:
+    async def _refresh_fetch_token(
+        self, job: JobRecord, attempt: AttemptRecord
+    ) -> None:
         """D95: a held attempt that may still be fetching has no live token in
-        this process (the controller restarted): mint one, send it."""
+        this process (the controller restarted): mint one, send it - with the
+        whole source list re-minted (D98: fresh peer tokens; the controller
+        first, carrying the new fetch token)."""
+        peers = await self._peer_sources(job, attempt)
         token, _ttl = self._mint_fetch_token(job, attempt)
+        secret = token.get_secret_value()
+        sources = (
+            [agent_pb2.BlobSource(url=self._blob_url, token=secret, node_id="")]
+            if job.tree_id
+            else []
+        )
         sent = self._manager.send_command(
             attempt.node_id,
             "refresh_fetch_token",
             agent_pb2.RefreshFetchToken(
                 attempt_id=attempt.id,
                 fencing_token=attempt.fencing_token,
-                fetch_token=token.get_secret_value(),
+                fetch_token=secret,
                 blob_url=self._blob_url,
                 blob_port=self._blob_port(),
+                sources=[*sources, *peers],
             ),
             attempt_id=attempt.id,
             fencing_token=attempt.fencing_token,
@@ -775,7 +810,7 @@ class Dispatcher:
                 if job.cancel_requested_at is not None:
                     self._send_cancel(attempt, "cancelled by request")
                 elif attempt.state in _MAY_FETCH and not self._tokens.has(attempt.id):
-                    self._refresh_fetch_token(job, attempt)
+                    await self._refresh_fetch_token(job, attempt)
                 continue
             if attempt.start_acked_at is None:
                 log.info(
@@ -785,7 +820,7 @@ class Dispatcher:
                     job_id=job.id,
                     attempt_id=attempt.id,
                 )
-                self._send_start(job, attempt, resend=True)
+                await self._send_start(job, attempt, resend=True)
                 continue
             await self._lose(entry, "agent_lost_attempt")
         for attempt_id, token in item.held.items():
