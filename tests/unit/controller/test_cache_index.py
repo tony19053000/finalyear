@@ -117,17 +117,17 @@ def test_snapshot_pages_then_deltas() -> None:
         Decision.DELTA,
         Decision.DELTA,
     ]
-    assert state.phase is Phase.LIVE and state.next_seq == 15
+    assert state.phase is Phase.LIVE and state.last_seq == 14
 
 
-def test_delta_before_snapshot_last_is_dropped() -> None:
+def test_delta_before_the_snapshot_is_dropped_and_inside_it_is_a_gap() -> None:
     state = NodeCacheState("s1")
-    assert _run(state, (5, False, False)) == [Decision.EARLY]  # before any page
-    assert _run(state, (6, True, False), (4, False, False)) == [
-        Decision.REPLACE,
-        Decision.EARLY,
+    assert _run(state, (5, False, False)) == [Decision.EARLY]  # an old replay
+    assert _run(state, (6, True, False), (7, False, False)) == [
+        Decision.REPLACE,  # right after a delta: a clean start
+        Decision.GAP,  # a delta inside a snapshot: never interleaved
     ]
-    assert state.phase is Phase.COLLECTING
+    assert state.phase is Phase.STALE
 
 
 def test_duplicates_are_ignored() -> None:
@@ -138,39 +138,34 @@ def test_duplicates_are_ignored() -> None:
         Decision.DUPLICATE,
         Decision.DUPLICATE,
     ]
-    assert state.phase is Phase.LIVE and state.next_seq == 3
+    assert state.phase is Phase.LIVE and state.last_seq == 2
 
 
 def test_replay_after_reconnect_then_new_snapshot() -> None:
-    """A new session first sees the old session's replayed reports (lower seq),
-    then its own snapshot: the replay may start a collection, the new snapshot
-    replaces it, and the old deltas never apply after it."""
+    """A new session first sees the old session's unacked suffix (contiguous
+    seqs, possibly starting mid-snapshot), then its own snapshot right after:
+    the new snapshot replaces whatever the replay built."""
     state = NodeCacheState("s2")
     assert _run(
         state,
-        (7, False, False),  # old delta replayed before any page: early
-        (5, True, False),  # old snapshot page replayed: starts a collection
-        (6, True, True),  # ... and finishes it
-        (7, False, False),  # old delta continuing it: applied (superseded next)
-        (20, True, False),  # the new session's own snapshot: replace
-        (8, False, False),  # an old delta after it: early (collecting)
-        (21, True, True),
-        (8, False, False),  # old: duplicate
-        (22, False, False),
+        (5, True, False),  # replay starts mid-way through an old snapshot
+        (6, True, True),
+        (7, False, False),  # an old delta
+        (8, True, False),  # the new session's own snapshot, after a boundary
+        (9, True, True),
+        (10, False, False),
     ) == [
-        Decision.EARLY,
         Decision.REPLACE,
         Decision.ADD_PAGE,
         Decision.DELTA,
         Decision.REPLACE,
-        Decision.EARLY,
         Decision.ADD_PAGE,
-        Decision.DUPLICATE,
         Decision.DELTA,
     ]
+    assert state.phase is Phase.LIVE
 
 
-def test_gap_makes_the_node_stale_until_the_next_snapshot() -> None:
+def test_gap_makes_the_node_stale_until_a_clean_snapshot() -> None:
     state = NodeCacheState("s1")
     _run(state, (1, True, True))
     assert _run(state, (3, False, False), (4, False, False)) == [
@@ -178,11 +173,23 @@ def test_gap_makes_the_node_stale_until_the_next_snapshot() -> None:
         Decision.STALE,
     ]
     assert state.phase is Phase.STALE
-    assert _run(state, (1, True, True), (9, True, True), (10, False, False)) == [
-        Decision.DUPLICATE,  # below next: an old page
-        Decision.REPLACE,
-        Decision.DELTA,
+    assert _run(state, (1, True, True), (5, True, False), (6, True, True)) == [
+        Decision.DUPLICATE,
+        Decision.REPLACE,  # right after the delta 4: a clean start
+        Decision.ADD_PAGE,
     ]
+    assert state.phase is Phase.LIVE
+
+
+def test_a_lost_page_inside_a_snapshot_never_goes_live() -> None:
+    state = NodeCacheState("s1")
+    assert _run(
+        state, (1, True, False), (3, True, False), (4, True, True), (5, False, False)
+    ) == [Decision.REPLACE, Decision.GAP, Decision.GAP, Decision.STALE]
+    assert state.phase is Phase.STALE
+    # The next periodic snapshot (after a boundary) heals it.
+    assert _run(state, (6, True, True)) == [Decision.REPLACE]
+    assert state.phase is Phase.LIVE
 
 
 def test_periodic_resnapshot_replaces() -> None:

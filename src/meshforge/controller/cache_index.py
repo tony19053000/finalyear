@@ -13,9 +13,11 @@ Per node, :class:`CacheIndex` keeps one small state machine for the node's
 
 * ``await_snapshot`` - every new session starts here. Deltas are dropped (they
   are old replays; the snapshot to come supersedes them).
-* a snapshot page that does not continue the current collection **starts a new
-  snapshot**: the node's rows are replaced by the page (``collecting``, or
-  ``live`` when it is also ``snapshot_last``); continuing pages are added.
+* a snapshot page is the **first page of a new snapshot** only as the
+  session's first report or right after a boundary (a delta or a snapshot's
+  last page, seq contiguous): the node's rows are replaced by it
+  (``collecting``, or ``live`` when it is also ``snapshot_last``); contiguous
+  pages are added; a page after a gap makes the node ``stale`` (fix round 1).
 * ``live`` - a delta with ``seq == next`` is applied; ``seq < next`` is a
   duplicate (ignored); ``seq > next`` is a **gap**: the node goes ``stale`` and
   every delta is dropped until the next snapshot (the agent resnapshots at every
@@ -152,30 +154,49 @@ class Decision(enum.StrEnum):
 class NodeCacheState:
     session_id: str
     phase: Phase = Phase.AWAIT_SNAPSHOT
-    next_seq: int = 0
-    """The seq expected next (collecting: next page; live: next delta)."""
+    last_seq: int = 0
+    """Highest ``seq`` seen on this session (0 = none yet)."""
+    boundary: bool = True
+    """The message at ``last_seq`` ended something (a delta or a snapshot's last
+    page): a snapshot page right after it is the first page of a new snapshot."""
 
 
 def decide(state: NodeCacheState, *, seq: int, snapshot: bool, last: bool) -> Decision:
-    """Apply one report's sequencing to ``state`` (mutated); return what to do."""
-    if snapshot:
-        continuing = state.phase is Phase.COLLECTING and seq == state.next_seq
-        old = state.phase is not Phase.AWAIT_SNAPSHOT and seq < state.next_seq
-        if old:
-            return Decision.DUPLICATE
-        state.next_seq = seq + 1
-        state.phase = Phase.LIVE if last else Phase.COLLECTING
-        return Decision.ADD_PAGE if continuing else Decision.REPLACE
-    if state.phase in (Phase.AWAIT_SNAPSHOT, Phase.COLLECTING):
-        return Decision.EARLY
-    if state.phase is Phase.STALE:
-        return Decision.STALE
-    if seq < state.next_seq:
+    """Apply one report's sequencing to ``state`` (mutated); return what to do.
+
+    Snapshot pages must be **contiguous** (G4 fix round 1): a page is the first
+    of a new snapshot only as the session's first report or right after a
+    boundary (a delta or a snapshot's last page); any other non-contiguous page
+    means a page was lost, and the node goes ``stale`` until a snapshot starts
+    cleanly - it never goes ``live`` with part of a snapshot.
+    """
+    if state.last_seq and seq <= state.last_seq:
         return Decision.DUPLICATE
-    if seq > state.next_seq:
+    first = state.last_seq == 0
+    contiguous = first or seq == state.last_seq + 1
+    after_boundary = contiguous and state.boundary
+    state.last_seq = seq
+    state.boundary = (not snapshot) or last
+    if snapshot:
+        if state.phase is Phase.COLLECTING and contiguous and not first:
+            if last:
+                state.phase = Phase.LIVE
+            return Decision.ADD_PAGE
+        if first or after_boundary:
+            state.phase = Phase.LIVE if last else Phase.COLLECTING
+            return Decision.REPLACE
         state.phase = Phase.STALE
         return Decision.GAP
-    state.next_seq = seq + 1
+    if state.phase is Phase.AWAIT_SNAPSHOT:
+        return Decision.EARLY  # an old replay: the snapshot to come supersedes it
+    if state.phase is Phase.COLLECTING:
+        state.phase = Phase.STALE  # a snapshot must not be interleaved
+        return Decision.GAP
+    if state.phase is Phase.STALE:
+        return Decision.STALE
+    if not contiguous:
+        state.phase = Phase.STALE
+        return Decision.GAP
     return Decision.DELTA
 
 
@@ -322,6 +343,9 @@ class CacheIndex:
         checked = validate_report(report)
         if isinstance(checked, str):
             state.phase = Phase.STALE
+            if report.seq > state.last_seq:
+                # Its seq is used up; what it ended is unknown.
+                state.last_seq, state.boundary = report.seq, False
             self._drop(live, checked, report)
             return
         added, removed = checked

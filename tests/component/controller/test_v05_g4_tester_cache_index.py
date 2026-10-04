@@ -192,11 +192,6 @@ async def test_gap_makes_stale_then_next_snapshot_heals_and_deltas_resume(
     await expect(runtime, a.node_id, {d("a"), d("1"), d("2")})
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT-2: a skipped page inside a multi-page snapshot is not detected; "
-    "the index goes live with the pages that arrived",
-)
 async def test_a_lost_snapshot_page_must_not_leave_the_node_live(
     runtime: ControllerRuntime, agents: Any
 ) -> None:
