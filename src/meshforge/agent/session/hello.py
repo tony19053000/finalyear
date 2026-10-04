@@ -114,12 +114,14 @@ def build_hello(
     hardware: agent_pb2.HardwareSummary | None = None,
     facts: tuple[str, str, str] | None = None,
     hardware_scores: agent_pb2.HardwareScores | None = None,
+    peer_endpoint: str = "",
 ) -> agent_pb2.Hello:
     """The Hello for one attempt. ``hardware``/``facts`` are injectable for tests.
 
     ``hardware_scores`` is the cached score run when it is valid for this machine
     (roadmap 0.3.4, D37); ``None`` leaves the field absent, which the controller
-    reads as "not measured for this hardware" (pending).
+    reads as "not measured for this hardware" (pending). ``peer_endpoint`` is
+    ``host:port`` of this node's peer blob server (V0.5 D99), empty = none.
     """
     hostname, os_text, plat = facts if facts is not None else host_facts()
     hello = agent_pb2.Hello(
@@ -131,6 +133,7 @@ def build_hello(
         os=os_text,
         platform=plat,
         hardware=hardware if hardware is not None else basic_hardware(),
+        peer_endpoint=peer_endpoint,
     )
     if hardware_scores is not None:
         hello.hardware_scores.CopyFrom(hardware_scores)

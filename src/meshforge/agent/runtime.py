@@ -65,6 +65,7 @@ from meshforge.agent.benchmarks.service import (
     valid_cached_scores,
 )
 from meshforge.agent.benchmarks.wire import to_proto
+from meshforge.agent.cas import AgentCas
 from meshforge.agent.execution.executor import Executor
 from meshforge.agent.execution.offer import build_execution
 from meshforge.agent.hardware import (
@@ -79,6 +80,7 @@ from meshforge.agent.hardware.deadline import (
     DeadlineThread,
 )
 from meshforge.agent.identity import NodeIdentity, load_or_create
+from meshforge.agent.peer import PeerAuthorizer, PeerBlobServer
 from meshforge.agent.resources import ResourceMonitor, ResourceSampler
 from meshforge.agent.session.client import AgentSessionClient
 from meshforge.agent.session.hello import basic_hardware
@@ -95,6 +97,7 @@ __all__ = [
     "install_signal_handlers",
     "run_agent",
     "serve",
+    "start_peer",
     "start_scores",
     "stop_signals",
     "stop_task",
@@ -236,9 +239,12 @@ async def serve(
         hardware=hardware,
         hardware_scores=await hello_scores(settings, node_id, facts),
     )
+    cas = AgentCas.at(settings.data_dir)
+    peer = await start_peer(settings, cas, client)
     executor = Executor(
         settings,
         execution,
+        cas=cas,
         node_id=node_id,
         report=client.send_report,
         resend=client.resend_report,
@@ -272,6 +278,8 @@ async def serve(
     finally:
         # Attempts first: their runtimes stop their containers/process trees.
         await executor.close()
+        if peer is not None:
+            await peer.close()
         # Cancelling the scoring task kills its benchmark child tree (runner).
         await stop_task(scores_task)
         if monitor is not None and monitor_task is not None:
@@ -280,6 +288,54 @@ async def serve(
             # its finally block; gather so a crash in it is reported, never swallowed.
             await asyncio.gather(monitor_task, return_exceptions=True)
     return client
+
+
+async def start_peer(
+    settings: AgentSettings, cas: AgentCas, client: AgentSessionClient
+) -> PeerBlobServer | None:
+    """Start the peer blob server (V0.5 D97) when ``[agent.peer] bind`` is set.
+
+    Wires the session hooks: every accepted HelloAck installs the controller's
+    peer-token key (D98, current session only) and every Hello advertises the
+    endpoint (D99). A server that cannot start (port taken) is logged and the
+    node runs without it - peers are an optimisation, the controller still
+    serves every blob.
+    """
+    cfg = settings.agent.peer
+    if cfg.bind is None:
+        log.info("agent.peer.disabled", node_id=client.node_id)
+        return None
+    authorizer = PeerAuthorizer(
+        cas, node_id=client.node_id, cache_entries=cfg.tree_cache_entries
+    )
+    server = PeerBlobServer(cas, authorizer, cfg, node_id=client.node_id)
+    try:
+        await cas.prepare()
+        await server.start()
+    except OSError as exc:
+        log.error(  # noqa: TRY400 - typed reason, no traceback needed
+            "agent.peer.start_failed",
+            node_id=client.node_id,
+            failure_type="config_error",
+            bind=cfg.bind,
+            port=cfg.port,
+            error=exc.strerror or type(exc).__name__,
+        )
+        return None
+
+    def on_ack(ack: agent_pb2.HelloAck) -> None:
+        if not authorizer.set_key(ack.peer_token_key):
+            log.warning(
+                "agent.peer.no_token_key",
+                node_id=client.node_id,
+                session_id=ack.session_id,
+            )
+
+    client.on_hello_ack = on_ack
+    client.peer_endpoint = lambda: server.endpoint(
+        controller_host(client.controller_target)
+    )
+    return server
 
 
 async def hello_scores(

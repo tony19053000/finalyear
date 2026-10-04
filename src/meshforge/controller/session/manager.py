@@ -119,6 +119,7 @@ from meshforge.controller.session.admission import (
     check_hello,
     hello_ack,
     hello_event,
+    peer_endpoint_of,
     shutting_down,
     unavailable,
 )
@@ -182,10 +183,15 @@ class SessionManager:
         wall_clock: Callable[[], dt.datetime] | None = None,
         resources: ResourceSink | None = None,
         admission_timeout_s: float = DEFAULT_ADMISSION_TIMEOUT_S,
+        peer_token_key: bytes = b"",
+        trust_peer_endpoints: bool = False,
     ) -> None:
         if not admission_timeout_s > 0:
             raise ValueError("admission_timeout_s must be > 0")
         self._admission_timeout_s = admission_timeout_s
+        self._peer_token_key = peer_token_key
+        """D98: the controller's Ed25519 public key, sent in every HelloAck."""
+        self._trust_peer_endpoints = trust_peer_endpoints
         self._registry = registry
         self._liveness = liveness
         self._clock = clock
@@ -505,7 +511,15 @@ class SessionManager:
             agent_version=hello.agent_version,
             superseded=old.session_id if old else None,
         )
-        return Accepted(live, hello_ack(session_id, self._liveness, self._wall_clock()))
+        return Accepted(
+            live,
+            hello_ack(
+                session_id,
+                self._liveness,
+                self._wall_clock(),
+                peer_token_key=self._peer_token_key,
+            ),
+        )
 
     def _new_session(
         self, hello: agent_pb2.Hello, peer: str, session_id: str, state: NodeState
@@ -527,6 +541,17 @@ class SessionManager:
             writer=writer,
             declared_gpus=declared_gpus(hello.hardware),
         )
+        endpoint, refusal = peer_endpoint_of(
+            hello, peer, trust=self._trust_peer_endpoints
+        )
+        live.peer_endpoint = endpoint
+        if refusal is not None:
+            log.warning(
+                "session.peer_endpoint_ignored",
+                node_id=hello.node_id,
+                session_id=session_id,
+                reason=refusal,
+            )
         self._chains.add(writer)
         writer.start().add_done_callback(lambda _t: self._chains.discard(writer))
         return live

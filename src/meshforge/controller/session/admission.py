@@ -12,6 +12,7 @@ manager, which owns the configuration and the table.
 from __future__ import annotations
 
 import datetime as dt
+import ipaddress
 from dataclasses import dataclass
 from typing import Final
 
@@ -26,11 +27,13 @@ from meshforge.controller.session.live import LiveSession, Rejected
 
 __all__ = [
     "DEFAULT_ADMISSION_TIMEOUT_S",
+    "MAX_PEER_ENDPOINT_CHARS",
     "AdmissionAttempt",
     "RejectCode",
     "check_hello",
     "hello_ack",
     "hello_event",
+    "peer_endpoint_of",
     "shutting_down",
     "unavailable",
 ]
@@ -125,14 +128,91 @@ def hello_event(prior: NodeState) -> LivenessEvent | None:
 
 
 def hello_ack(
-    session_id: str, liveness: LivenessConfig, now: dt.datetime
+    session_id: str,
+    liveness: LivenessConfig,
+    now: dt.datetime,
+    peer_token_key: bytes = b"",
 ) -> agent_pb2.ControllerMessage:
-    """The accepting ``HelloAck``: the session id and the controller-owned timing."""
+    """The accepting ``HelloAck``: the session id, the controller-owned timing
+    and the public key that signs peer blob tokens (V0.5 D98)."""
     ack = agent_pb2.HelloAck(
         accepted=True,
         session_id=session_id,
         heartbeat_interval_ms=round(liveness.heartbeat_interval_s * 1000),
         lease_ms=round(liveness.offline_after_s * 1000),
+        peer_token_key=peer_token_key,
     )
     ack.controller_time.FromDatetime(now)
     return agent_pb2.ControllerMessage(message_id=new_command_id(), hello_ack=ack)
+
+
+MAX_PEER_ENDPOINT_CHARS: Final = 64
+"""``[ipv6]:65535`` fits; anything longer is not an endpoint."""
+
+
+def _ip(text: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+    try:
+        addr = ipaddress.ip_address(text)
+    except ValueError:
+        return None
+    if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped is not None:
+        return addr.ipv4_mapped
+    return addr
+
+
+def _split_host_port(text: str) -> tuple[str, int] | None:
+    if text.startswith("["):
+        host, sep, rest = text[1:].partition("]")
+        if not sep or not rest.startswith(":"):
+            return None
+        port_text = rest[1:]
+    else:
+        host, sep, port_text = text.rpartition(":")
+        if not sep or ":" in host:
+            return None
+    if not port_text.isdigit() or len(port_text) > 5:
+        return None
+    return host, int(port_text)
+
+
+def _transport_host(peer_address: str) -> str | None:
+    """The IP of a gRPC peer string (``ipv4:1.2.3.4:5``, ``ipv6:[::1]:5``)."""
+    scheme, sep, rest = peer_address.partition(":")
+    if not sep or scheme not in ("ipv4", "ipv6"):
+        return None
+    split = _split_host_port(rest)
+    return None if split is None else split[0]
+
+
+def peer_endpoint_of(
+    hello: agent_pb2.Hello, peer_address: str, *, trust: bool
+) -> tuple[str, str | None]:
+    """D99: ``(endpoint, refusal)`` for ``Hello.peer_endpoint``.
+
+    Accepted (``refusal`` None) only when it is ``host:port`` with an IP host,
+    1 <= port <= 65535 and - unless ``trust`` (``[controller]
+    trust_peer_endpoints``) - the host is the address the session comes from.
+    A refused endpoint is ignored (the node simply serves no peers), never an
+    admission failure. Returns the normalised ``host:port``.
+    """
+    raw = hello.peer_endpoint
+    if not raw:
+        return "", None
+    if len(raw) > MAX_PEER_ENDPOINT_CHARS or not raw.isprintable():
+        return "", "malformed"
+    split = _split_host_port(raw)
+    if split is None:
+        return "", "malformed"
+    host_text, port = split
+    host = _ip(host_text)
+    if host is None or host.is_unspecified or host.is_multicast:
+        return "", "bad_host"
+    if not 1 <= port <= 65535:
+        return "", "bad_port"
+    if not trust:
+        seen = _transport_host(peer_address)
+        seen_ip = None if seen is None else _ip(seen)
+        if seen_ip is None or seen_ip != host:
+            return "", "host_mismatch"
+    shown = f"[{host}]" if host.version == 6 else str(host)
+    return f"{shown}:{port}", None

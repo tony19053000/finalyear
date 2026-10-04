@@ -34,7 +34,7 @@ T0 = dt.datetime(2026, 1, 2, 3, 4, 5, tzinfo=dt.UTC)
 
 
 class _FakeLiveSession:
-    """Only the four attributes ``shape`` reads off a live session.
+    """Only the attributes ``shape`` reads off a live session.
 
     A real :class:`LiveSession` needs a lease tracker, an outbound queue and a
     write chain; none of that is part of the shaping contract.
@@ -47,8 +47,10 @@ class _FakeLiveSession:
         peer_address: str = "127.0.0.1:50000",
         last_rtt_ms: float | None = 4.5,
         rtt_ewma_ms: float | None = 5.5,
+        peer_endpoint: str = "",
     ) -> None:
         self.session_id = session_id
+        self.peer_endpoint = peer_endpoint
         self.peer_address = peer_address
         self.last_rtt_ms = last_rtt_ms
         self.rtt_ewma_ms = rtt_ewma_ms

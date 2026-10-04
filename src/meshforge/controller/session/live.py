@@ -145,6 +145,9 @@ class LiveSession:
     resource_updates: int = 0
     resource_updates_clamped: int = 0
     """Reports that broke a D12 cap; logged once, counted always."""
+    peer_endpoint: str = ""
+    """V0.5 D99: validated ``host:port`` of the node's peer blob server ("" =
+    none or refused). Only live (ONLINE) sessions are listed as blob sources."""
     declared_gpus: frozenset[int] = frozenset()
     """``Hello.hardware.gpus[].index`` of this session: the only GPU indices its
     score reports may name (D39)."""

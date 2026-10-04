@@ -183,6 +183,7 @@ def node_detail(
             if live is not None
             else (session.peer_address if session is not None else None)
         ),
+        peer_endpoint=(live.peer_endpoint or None) if live is not None else None,
         hardware=dict(node.hardware),
     )
 

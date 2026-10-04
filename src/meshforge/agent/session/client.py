@@ -304,6 +304,14 @@ class AgentSessionClient:
         self.on_report_acked: Callable[[str], None] | None = None
         self.before_goodbye: Callable[[], Awaitable[None]] | None = None
         self.after_reconcile: Callable[[], None] | None = None
+        # V0.5 G4 hooks (D97-D101); None/empty = not wired.
+        self.peer_endpoint: Callable[[], str] | None = None
+        """``host:port`` for ``Hello.peer_endpoint`` (asked for every Hello)."""
+        self.on_hello_ack: Callable[[agent_pb2.HelloAck], None] | None = None
+        """Called with every ACCEPTED HelloAck before anything else of the
+        session runs (the peer server installs ``peer_token_key`` from it)."""
+        self.after_reconcile_hooks: list[Callable[[], None]] = []
+        """Called after ``after_reconcile`` on every stream (cache snapshot)."""
         self.controller_target: str = ""
         """The ``host:port`` this agent dialled for its current/last stream."""
 
@@ -454,6 +462,7 @@ class AgentSessionClient:
                 hardware=self._hardware,
                 facts=self._facts,
                 hardware_scores=self.hardware_scores,
+                peer_endpoint=self._peer_endpoint(),
             )
             try:
                 await self._write(agent_pb2.AgentMessage(hello=hello))
@@ -556,8 +565,19 @@ class AgentSessionClient:
 
     # --------------------------------------------------------------- online
 
+    def _peer_endpoint(self) -> str:
+        if self.peer_endpoint is None:
+            return ""
+        try:
+            return self.peer_endpoint()
+        except Exception:  # a broken hook must not stop enrolment
+            log.exception("agent.session.peer_endpoint_failed", node_id=self.node_id)
+            return ""
+
     async def _online(self, call: Any, ack: agent_pb2.HelloAck) -> _Outcome:
         self.session_id = ack.session_id
+        if self.on_hello_ack is not None:
+            self.on_hello_ack(ack)
         requested_s = ack.heartbeat_interval_ms / 1000.0
         self.heartbeat_interval_s = clamp_heartbeat_interval_s(requested_s)
         if requested_s > 0 and self.heartbeat_interval_s != requested_s:
@@ -643,6 +663,8 @@ class AgentSessionClient:
                 gate.ready.set()
                 if self.after_reconcile is not None:
                     self.after_reconcile()
+                for hook in self.after_reconcile_hooks:
+                    hook()
             end = await self._read_loop(call)
         finally:
             self._heartbeat_task.cancel()

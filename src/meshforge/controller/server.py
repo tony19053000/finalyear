@@ -232,6 +232,8 @@ class ControllerRuntime:
             dedupe_window=cfg.dedupe_window,
             resources=resources,
             admission_timeout_s=cfg.admission_timeout_s,
+            peer_token_key=self.peer_tokens.public_key,
+            trust_peer_endpoints=cfg.trust_peer_endpoints,
         )
         self.manager = manager
         self._lease_timer_task = self._spawn(
@@ -490,7 +492,11 @@ class _RuntimeContext:
 
 def _bind_socket(bind: BindAddress) -> socket.socket:
     family = socket.AF_INET6 if ":" in bind.host else socket.AF_INET
-    sock = socket.socket(family, socket.SOCK_STREAM)
+    # proto IPPROTO_TCP, not 0: accepted sockets inherit it, and asyncio sets
+    # TCP_NODELAY only on sockets whose proto is TCP. With proto 0 every response
+    # whose head and body are separate writes (all of them but HEAD) waited for
+    # the client's delayed ACK - ~40 ms per small request (V0.5 G4, D97).
+    sock = socket.socket(family, socket.SOCK_STREAM, socket.IPPROTO_TCP)
     try:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.bind((bind.host, bind.port))

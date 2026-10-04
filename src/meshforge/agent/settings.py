@@ -15,8 +15,9 @@ discovery (``[agent.hardware]``, roadmap 0.3.3) and the live resource monitor
 (``[agent.resources]``, roadmap 0.3.5) and hardware scores (``[agent.scores]``,
 roadmap 0.3.4: ``<data_dir>/scores.json`` + ``scores.lock``) and job execution
 (``[agent.execution]``, V0.4 D45/D51: off by default, ``<data_dir>/work``) and
-cached job environments (``[agent.envs]``, V0.5 D86: ``<data_dir>/envs``) are
-documented on their own sections below.
+cached job environments (``[agent.envs]``, V0.5 D86: ``<data_dir>/envs``) and the
+peer blob server (``[agent.peer]``, V0.5 D97: port 47120, off until ``bind`` is
+set) are documented on their own sections below.
 
 This module imports no agent-extra package so ``meshforge-agent --version`` works
 on a base install.
@@ -36,6 +37,7 @@ from meshforge.common.errors import ConfigError
 
 __all__ = [
     "CUDA_PYTORCH_IMAGE",
+    "DEFAULT_PEER_PORT",
     "DEFAULT_SERVICE_TYPE",
     "ENVS_DIR_NAME",
     "GRACE_BOUND_S",
@@ -49,6 +51,7 @@ __all__ = [
     "ExecutionSettings",
     "HardwareSettings",
     "KeepaliveSettings",
+    "PeerSettings",
     "ReconnectSettings",
     "ResourceSettings",
     "ScoreSettings",
@@ -657,6 +660,111 @@ class EnvsSettings(SectionModel):
         return self
 
 
+DEFAULT_PEER_PORT: Final = 47120
+"""TCP port of the agent's read-only peer blob server (V0.5 D97, ARCHITECTURE §23)."""
+
+
+class PeerSettings(SectionModel):
+    """``[agent.peer]`` - the read-only peer blob server (V0.5 D97/D98/D99).
+
+    Serves this node's CAS blobs (GET/HEAD, one ``Range``) to other agents that
+    present a controller-signed peer token. **Off until ``bind`` is set.** The
+    bind must be a LAN/loopback IP literal; the wildcard needs ``allow_any_bind``
+    (the advertised host is then the local address facing the controller, or
+    ``advertise_host``). Open the port on the LAN firewall profile only.
+    """
+
+    bind: str | None = Field(
+        default=None,
+        description=(
+            "IP the peer blob server listens on (e.g. this laptop's LAN address). "
+            "Empty = no peer server: this node never serves blobs to peers."
+        ),
+    )
+    port: int = Field(
+        default=DEFAULT_PEER_PORT,
+        ge=0,
+        le=_PORT_MAX,
+        description="TCP port (0 = any free port, tests).",
+    )
+    allow_any_bind: bool = Field(
+        default=False,
+        description="Permit the wildcard (0.0.0.0 / ::) or a public address.",
+    )
+    advertise_host: str | None = Field(
+        default=None,
+        description=(
+            "Host sent to the controller in Hello.peer_endpoint. Empty = the bind "
+            "IP, or (wildcard bind) the local address facing the controller."
+        ),
+    )
+    max_connections: int = Field(
+        default=32,
+        ge=1,
+        le=4096,
+        description="Concurrent peer connections; one more is answered 503 and closed.",
+    )
+    max_requests_per_conn: int = Field(
+        default=1000,
+        ge=1,
+        le=1_000_000,
+        description="Requests served on one keep-alive connection before it is closed.",
+    )
+    header_bytes: int = Field(
+        default=16 * 1024,
+        ge=1024,
+        le=1024 * 1024,
+        description="Largest request head (request line + headers); more -> 431.",
+    )
+    idle_timeout_s: float = Field(
+        default=15.0,
+        ge=0.1,
+        le=600.0,
+        description=(
+            "A request head must arrive completely within this (slowloris bound), "
+            "and an idle keep-alive connection is closed after it."
+        ),
+    )
+    min_send_rate_bytes_s: int = Field(
+        default=64 * 1024,
+        ge=1024,
+        le=10 * 1024**3,
+        description=(
+            "A response may take idle_timeout_s + size / this rate; a reader that "
+            "is slower is disconnected (a stalled peer cannot hold a slot)."
+        ),
+    )
+    tree_cache_entries: int = Field(
+        default=200_000,
+        ge=1,
+        le=10_000_000,
+        description=(
+            "Tree-manifest entries kept parsed for token membership checks (D98)."
+        ),
+    )
+
+    @field_validator("bind", "advertise_host")
+    @classmethod
+    def _ip_shape(cls, value: str | None) -> str | None:
+        if value is None or not value.strip():
+            return None
+        import ipaddress
+
+        try:
+            ipaddress.ip_address(value.strip())
+        except ValueError:
+            raise ValueError("must be an IP literal (no hostnames)") from None
+        return value.strip()
+
+    @model_validator(mode="after")
+    def _bind_allowed(self) -> PeerSettings:
+        if self.bind is not None:
+            from meshforge.common.netaddr import check_bind_address
+
+            check_bind_address(self.bind, allow_any=self.allow_any_bind)
+        return self
+
+
 class DiscoverySettings(SectionModel):
     """``[agent.discovery]`` - mDNS lookup of the controller (roadmap 0.3.9).
 
@@ -722,6 +830,7 @@ class AgentSection(SectionModel):
     scores: ScoreSettings = Field(default_factory=ScoreSettings)
     execution: ExecutionSettings = Field(default_factory=ExecutionSettings)
     envs: EnvsSettings = Field(default_factory=EnvsSettings)
+    peer: PeerSettings = Field(default_factory=PeerSettings)
     hello_timeout_s: float = Field(
         default=3.0,
         gt=0,

@@ -186,6 +186,13 @@ class NodeDetail(NodeSummary):
     )
     protocol_version: int | None = None
     peer_address: str | None = None
+    peer_endpoint: str | None = Field(
+        default=None,
+        description=(
+            "V0.5 D99: host:port of the node's peer blob server, as accepted from "
+            "its live session's Hello (null = offline, no server, or refused)."
+        ),
+    )
     hardware: dict[str, Any] = Field(
         default_factory=dict,
         description=(
