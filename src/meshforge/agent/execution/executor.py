@@ -695,24 +695,18 @@ class Executor:
                 last = exc
             else:
                 return
+            self._check_stage_deadline(deadline, last)
             # D95: a controller restart refuses the old token (401) or is not
             # reachable for a while; the controller re-mints after Reconcile.
-            remaining = deadline - self._clock()
-            if attempt.fetch_token == used and remaining > 0:
-                # Refused: only a new token can help. Unreachable: back off.
-                wait = (
-                    remaining
-                    if last.failure_type is FailureType.UNAUTHORIZED
-                    else min(delay, remaining)
-                )
+            # Only the CONTROLLER's refusal waits for that refresh: a peer's
+            # 401/403 never reaches here (the fetcher drops the peer, V0.5 G4).
+            if attempt.fetch_token == used:
+                remaining = deadline - self._clock()
+                wait = remaining if _controller_refused(last) else min(delay, remaining)
                 delay = min(delay * 2, _STAGE_RETRY_CAP_S)
                 await self._step(attempt, self._token_wait(attempt, wait))
-            if attempt.fetch_token == used and self._clock() >= deadline:
-                raise FetchError(
-                    f"staging did not succeed within {self._cfg.staging_retry_s:g} s "
-                    f"of retries (last: {last.message})",
-                    failure_type=FailureType.TRANSFER_ERROR,
-                ) from None
+            # Checked before EVERY retry, a refreshed token included.
+            self._check_stage_deadline(deadline, last)
             attempt.stage_retries += 1
             log.info(
                 "agent.execution.stage_retry",
@@ -720,8 +714,17 @@ class Executor:
                 job_id=attempt.job_id,
                 attempt_id=attempt.attempt_id,
                 cause=last.failure_type.value,
+                source=last.source or None,
                 refreshed=attempt.fetch_token != used,
                 retries=attempt.stage_retries,
+            )
+
+    def _check_stage_deadline(self, deadline: float, last: FetchError) -> None:
+        if self._clock() >= deadline:
+            raise FetchError(
+                f"staging did not succeed within {self._cfg.staging_retry_s:g} s "
+                f"of retries (last: {last.message})",
+                failure_type=FailureType.TRANSFER_ERROR,
             )
 
     @staticmethod
@@ -1132,6 +1135,15 @@ def _failure_text(result: RunResult) -> str:
 def _bounded(text: str) -> str:
     cleaned = "".join(ch if ch.isprintable() else "?" for ch in text)
     return cleaned[:1024]
+
+
+def _controller_refused(error: FetchError) -> bool:
+    """A 401/403 from the controller (a bundle fetch names no source: it is
+    always the controller). Only this waits for RefreshFetchToken (D95)."""
+    return error.failure_type is FailureType.UNAUTHORIZED and error.source in (
+        "",
+        "controller",
+    )
 
 
 def _refreshed(

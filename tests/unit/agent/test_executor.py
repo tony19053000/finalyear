@@ -707,3 +707,74 @@ async def test_a_cancel_while_staging_waits_for_a_token_is_prompt(
     await _settle(executor)
     final = reports.sent[-1][1]
     assert failure_type_from_proto(final.failure.failure_type).value == "cancelled"
+
+
+# ------------------------------------------------ V0.5 G4 staging retry fixes
+
+
+def _peer_refused() -> FetchError:
+    return FetchError(
+        "a peer refused its token",
+        failure_type=FailureType.UNAUTHORIZED,
+        details={"source": "node_01J8Z3K5Q9V6W2X4Y7A0B1C2D3"},
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_peer_refusal_never_waits_for_a_controller_refresh(
+    tmp_path: Path,
+) -> None:
+    """V0.5 G4: only the controller's 401/403 waits for RefreshFetchToken; a
+    peer's (should one ever surface) is retried after the short backoff."""
+    runtime, reports = FakeRuntime(), Reports()
+    flaky = FlakyFetch(tmp_path / "src.bundle", [_peer_refused()])
+    executor, digest = _executor(
+        tmp_path, runtime, reports, execution={"staging_retry_s": 600}, fetch=flaky
+    )
+    executor.handle(_start(digest))
+    await asyncio.wait_for(_settle_strict(executor), 5)
+    assert reports.states()[-1] == "done"
+    assert flaky.tokens == ["tok", "tok"]  # retried with the same token, no wait
+
+
+@pytest.mark.asyncio
+async def test_the_deadline_is_checked_before_a_retry_with_a_refreshed_token(
+    tmp_path: Path,
+) -> None:
+    """V0.5 G4: a refresh that arrives after staging_retry_s does not buy a
+    retry - the deadline is checked before every retry."""
+    now = [0.0]
+    runtime, reports = FakeRuntime(), Reports()
+    flaky = FlakyFetch(tmp_path / "src.bundle", [_refused()])
+    executor, digest = _executor(
+        tmp_path,
+        runtime,
+        reports,
+        execution={"staging_retry_s": 5},
+        fetch=flaky,
+        clock=lambda: now[0],
+    )
+    msg = _start(digest)
+    executor.handle(msg)
+    for _ in range(200):
+        if flaky.tokens:
+            break
+        await asyncio.sleep(0.01)
+    await asyncio.sleep(0.02)  # now waiting for the refresh
+    now[0] = 10.0  # the deadline (5 s) has passed meanwhile
+    executor.handle(_refresh(msg, "tok2"))
+    await asyncio.wait_for(_settle_strict(executor), 5)
+    final = reports.sent[-1][1]
+    assert failure_type_from_proto(final.failure.failure_type).value == (
+        "transfer_error"
+    )
+    assert flaky.tokens == ["tok"]  # no retry past the deadline
+    assert runtime.calls == 0
+
+
+async def _settle_strict(executor: Executor) -> None:
+    while True:
+        tasks = [a.task for a in executor._attempts.values() if a.task]
+        if tasks and all(t.done() for t in tasks):
+            return
+        await asyncio.sleep(0.01)
