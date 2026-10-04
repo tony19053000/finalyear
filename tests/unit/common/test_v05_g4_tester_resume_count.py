@@ -39,10 +39,10 @@ def test_counter_equals_the_sidecars_on_disk_after_racing_open_discard_sweep(
     def worker(seed: int) -> None:
         rnd = random.Random(seed)  # noqa: S311  (test jitter, not crypto)
         while not stop.is_set():
-            data = rnd.choice(blobs)  # noqa: S311
+            data = rnd.choice(blobs)
             try:
                 part = store.resumable(sha256_bytes(data), len(data), CS)
-                if rnd.random() < 0.5:  # noqa: S311
+                if rnd.random() < 0.5:
                     part.discard()
             except FileNotFoundError:
                 pass  # the open/sweep race (DEFECT-5 in the report) - tolerated here
