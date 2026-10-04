@@ -806,6 +806,15 @@ class Executor:
             bytes_fetched=report.bytes_fetched,
             chunks_resumed=report.chunks_resumed,
             duration_s=round(report.duration_s, 3),
+            # Per source (V0.5 D89): bytes received, units won, why dropped.
+            sources={
+                name: {
+                    "bytes": src.bytes,
+                    "units": src.units,
+                    "dropped": src.dropped,
+                }
+                for name, src in report.sources.items()
+            },
         )
         if attempt.stop_reason is not None:
             raise _StoppedError

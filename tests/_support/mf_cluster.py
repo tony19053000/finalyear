@@ -537,6 +537,7 @@ class Fabric:
         agent_env: Mapping[str, str] | None = None,
         agent_execution: Mapping[str, Any] | None = None,
         controller_jobs: Mapping[str, Any] | None = None,
+        agent_extra: Mapping[str, Mapping[str, Any]] | None = None,
         log_level: str = "INFO",
     ) -> None:
         self.workdir = workdir
@@ -556,6 +557,9 @@ class Fabric:
         # ``[controller.jobs]`` overrides for the dispatch scenarios.
         self._agent_execution = dict(agent_execution or {})
         self._controller_jobs = dict(controller_jobs or {})
+        # V0.5 G4: more ``[agent.<section>]`` tables, e.g. ``{"peer": {...},
+        # "fetch": {...}, "cache": {...}}`` for the peer-fetch scenarios.
+        self._agent_extra = {k: dict(v) for k, v in (agent_extra or {}).items()}
         self._db_env = {
             "MESHFORGE_DATABASE__HOST": str(database.host),
             "MESHFORGE_DATABASE__PORT": str(database.port),
@@ -626,6 +630,7 @@ class Fabric:
             # liveness. Off by default; a scenario that tests scoring turns it on.
             "agent.scores": self._agent_scores,
             "agent.execution": self._agent_execution,
+            **{f"agent.{name}": table for name, table in self._agent_extra.items()},
         }
         path = self.workdir / f"agent{index}.toml"
         path.write_text(_toml({k: v for k, v in tables.items() if v}), "utf-8")
