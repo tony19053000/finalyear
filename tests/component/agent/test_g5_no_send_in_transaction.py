@@ -101,11 +101,11 @@ async def test_no_command_is_sent_while_a_store_session_is_open(
     real_start = dispatcher._send_start
     lost: list[str] = []
 
-    def lose_first(job: Any, attempt: Any, *, resend: bool) -> None:
+    async def lose_first(job: Any, attempt: Any, *, resend: bool) -> None:
         if not resend and not lost:
             lost.append(attempt.id)
             return
-        real_start(job, attempt, resend=resend)
+        await real_start(job, attempt, resend=resend)
 
     monkeypatch.setattr(dispatcher, "_send_start", lose_first)
 

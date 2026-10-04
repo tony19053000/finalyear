@@ -201,7 +201,7 @@ async def test_start_attempt_delivered_twice_and_after_a_reconnect_runs_once(
     (live,) = await store.live_attempts(agent.node_id)
     dispatcher = runtime.dispatcher
     assert dispatcher is not None and runtime.manager is not None
-    dispatcher._send_start(live.job, live.attempt, resend=True)  # a second copy
+    await dispatcher._send_start(live.job, live.attempt, resend=True)  # a second copy
     # and a reconnect while it runs: Reconcile lists it -> it continues
     session = runtime.manager.get(agent.node_id)
     assert session is not None
@@ -226,11 +226,11 @@ async def test_commit_without_send_is_resent_on_reconnect_and_runs_once(
     real = dispatcher._send_start
     dropped: list[str] = []
 
-    def lose_first(job: Any, attempt: Any, *, resend: bool) -> None:
+    async def lose_first(job: Any, attempt: Any, *, resend: bool) -> None:
         if not resend and not dropped:
             dropped.append(attempt.id)
             return  # "crashed" between commit and send
-        real(job, attempt, resend=resend)
+        await real(job, attempt, resend=resend)
 
     monkeypatch.setattr(dispatcher, "_send_start", lose_first)
     counter = tmp_path / "count.txt"
