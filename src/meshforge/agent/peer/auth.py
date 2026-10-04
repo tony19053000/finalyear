@@ -159,9 +159,3 @@ class PeerAuthorizer:
         while self._weight > self._cache_entries and len(self._trees) > 1:
             _key, evicted = self._trees.popitem(last=False)
             self._weight -= 1 + len(evicted)
-
-    def forget_tree(self, tree_id: Digest) -> None:
-        """Drop a cached member set (its manifest was evicted)."""
-        old = self._trees.pop(tree_id.hex, None)
-        if old is not None:
-            self._weight -= 1 + len(old)
