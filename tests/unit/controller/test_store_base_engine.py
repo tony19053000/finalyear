@@ -103,7 +103,8 @@ def test_base_metadata_uses_convention_and_registers_every_model() -> None:
 
     # V0.1 had no domain tables; V0.3 G2 added the node registry (0.3.6) and G4
     # the resource history (0.3.11). Every model module must be imported by
-    # models/__init__ or Alembic cannot see it. V0.4 G2 (0006) adds the job tables.
+    # models/__init__ or Alembic cannot see it. V0.4 G2 (0006) adds the job tables,
+    # V0.5 G4 (0011) the cache location index.
     assert set(Base.metadata.tables) == {
         "node",
         "node_session",
@@ -112,6 +113,7 @@ def test_base_metadata_uses_convention_and_registers_every_model() -> None:
         "job_transition",
         "attempt",
         "attempt_phase",
+        "cache_location",
     }
 
 

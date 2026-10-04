@@ -14,12 +14,16 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from fastapi import Request
 
 from meshforge.controller.registry import Registry
 from meshforge.controller.resources import ResourceTracker
 from meshforge.controller.session.manager import SessionManager
+
+if TYPE_CHECKING:
+    from meshforge.controller.cache_index import CacheLocationStore
 
 __all__ = ["FABRIC_STATE_KEY", "FabricView", "get_fabric"]
 
@@ -35,6 +39,8 @@ class FabricView:
     resources: ResourceTracker
     clock: Callable[[], float]
     """The controller's **monotonic** clock (``loop.time``), never a wall clock."""
+    cache: CacheLocationStore | None = None
+    """V0.5 D101: the cache location index (node detail counts); None = absent."""
 
 
 def get_fabric(request: Request) -> FabricView:

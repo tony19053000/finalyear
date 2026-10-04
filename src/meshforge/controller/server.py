@@ -49,6 +49,7 @@ from meshforge.common.proto.meshforge.v1 import agent_pb2_grpc
 from meshforge.controller.api.auth import ApiAuth
 from meshforge.controller.api.job_routes import JobApi
 from meshforge.controller.blobs import BlobStore, FetchTokens
+from meshforge.controller.cache_index import CacheIndex, CacheLocationStore
 from meshforge.controller.discovery import ServiceAdvertiser
 from meshforge.controller.fabric_token import (
     FabricTokenVerifier,
@@ -139,6 +140,8 @@ class ControllerRuntime:
         self._dispatcher_task: asyncio.Task[None] | None = None
         self.fetch_tokens: FetchTokens | None = None
         """D48: G4 mints per-attempt tokens here and hands them to agents."""
+        self.cache_index: CacheIndex | None = None
+        """D101: cache reports -> ``cache_location`` (peer listing, node detail)."""
         self.peer_tokens: PeerTokenIssuer | None = None
         """D98: signs peer blob tokens; its public key goes out in HelloAck."""
         self.upload_grants: UploadGrants | None = None
@@ -206,6 +209,7 @@ class ControllerRuntime:
 
         registry = Registry(engine)
         self.registry = registry
+        self.cache_index = CacheIndex(CacheLocationStore(engine))
         self.jobs = ExecutionStore(engine)
         swept = await registry.sweep_open_sessions(SessionEndReason.CONTROLLER_RESTART)
         offline = await registry.mark_live_nodes_offline()
@@ -236,6 +240,8 @@ class ControllerRuntime:
             trust_peer_endpoints=cfg.trust_peer_endpoints,
         )
         self.manager = manager
+        # D101: cache reports -> the location index (before any stream).
+        manager.dispatch.register("cache_report", self.cache_index.on_message)
         self._lease_timer_task = self._spawn(
             LeaseTimer(manager, clock=loop.time).run(), "lease-timer"
         )
@@ -308,6 +314,7 @@ class ControllerRuntime:
                     upload_grants=self.upload_grants,
                 ),
                 blobs=blobs,
+                cache=self.cache_index.store,
                 jobs=JobApi(
                     store=self.jobs,
                     blobs=blobs,

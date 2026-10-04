@@ -78,6 +78,10 @@ class WriteKind(StrEnum):
     report arrived, so a write the DB refuses is logged (``registry.write_failed``)
     and lost until the next Hello re-delivers the cached run. Rare (about one per
     node lifetime), so it cannot fill the queue."""
+    CACHE = "cache"
+    """A cache-report write (V0.5 D101) - never dropped from the queue: a dropped
+    page would leave the node's location index wrong. A write that fails marks
+    the node's index stale until its next snapshot (:mod:`..cache_index`)."""
     END = "end"
     """``close_session`` - never dropped; the chain ends after it."""
     CLOSE = "close"

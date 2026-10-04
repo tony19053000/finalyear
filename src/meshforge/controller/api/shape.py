@@ -14,6 +14,7 @@ from typing import Any, TypedDict
 
 from meshforge.common.capabilities import HARDWARE_SCORES_CAPABILITY
 from meshforge.controller.api.models import (
+    CacheCount,
     DiskUsage,
     GpuUsage,
     NodeDetail,
@@ -169,8 +170,10 @@ def node_detail(
     sample: LiveSample | None,
     session: SessionRecord | None,
     now: float,
+    cache: Mapping[str, tuple[int, int]] | None = None,
 ) -> NodeDetail:
-    """``session`` is the node's most recent session row (``last_session_id``)."""
+    """``session`` is the node's most recent session row (``last_session_id``);
+    ``cache`` is ``kind -> (count, bytes)`` from the location index."""
     return NodeDetail(
         **_summary_fields(node, live=live, sample=sample, now=now),
         first_seen_at=node.first_seen_at,
@@ -184,6 +187,10 @@ def node_detail(
             else (session.peer_address if session is not None else None)
         ),
         peer_endpoint=(live.peer_endpoint or None) if live is not None else None,
+        cache={
+            kind: CacheCount(count=count, bytes=size)
+            for kind, (count, size) in sorted((cache or {}).items())
+        },
         hardware=dict(node.hardware),
     )
 

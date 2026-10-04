@@ -134,12 +134,14 @@ async def get_node(fabric: Fabric, node_id: NodeId) -> NodeDetail:
         if record.last_session_id
         else None
     )
+    cache = await fabric.cache.summary(checked) if fabric.cache is not None else None
     return node_detail(
         record,
         live=fabric.manager.get(checked),
         sample=fabric.resources.latest(checked),
         session=session,
         now=now,
+        cache=cache,
     )
 
 

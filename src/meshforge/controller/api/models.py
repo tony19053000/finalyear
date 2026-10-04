@@ -174,6 +174,13 @@ class NodeSummary(ApiModel):
     scores: NodeScores = Field(default_factory=lambda: NodeScores(status="none"))
 
 
+class CacheCount(ApiModel):
+    """Items of one kind in a node's caches (V0.5 D101)."""
+
+    count: int
+    bytes: int
+
+
 class NodeDetail(NodeSummary):
     """``GET /v1/nodes/{node_id}``: the summary plus what only one node needs."""
 
@@ -191,6 +198,13 @@ class NodeDetail(NodeSummary):
         description=(
             "V0.5 D99: host:port of the node's peer blob server, as accepted from "
             "its live session's Hello (null = offline, no server, or refused)."
+        ),
+    )
+    cache: dict[str, CacheCount] = Field(
+        default_factory=dict,
+        description=(
+            "V0.5 D101: what the node reported it caches, per kind (blob, tree, "
+            "env, image): item count and bytes. Empty until its first snapshot."
         ),
     )
     hardware: dict[str, Any] = Field(
