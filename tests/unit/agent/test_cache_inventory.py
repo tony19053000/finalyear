@@ -7,6 +7,7 @@ list instead of a session.
 from __future__ import annotations
 
 import asyncio
+import itertools
 import json
 import os
 from pathlib import Path
@@ -335,3 +336,36 @@ async def test_cache_reports_can_be_turned_off(tmp_path: Path) -> None:
     assert AgentSettings(
         data_dir=tmp_path, agent={"controller_address": "127.0.0.1:1"}
     ).agent.cache.enabled
+
+
+@pytest.mark.asyncio
+async def test_a_big_snapshot_yields_to_the_loop_between_pages(tmp_path: Path) -> None:
+    """G4 fix round 2: even when send_report never suspends (offline: it only
+    appends to the ring), other tasks (heartbeats) run between pages."""
+    store = _store(tmp_path)
+    for i in range(30):
+        store.put_bytes(f"blob {i}".encode())
+    inv = CacheInventory(store)
+    inv.load()
+    order: list[str] = []
+
+    async def no_suspend(name: str, payload: Any) -> str:
+        order.append("page")
+        return "m"
+
+    async def heartbeat() -> None:
+        while True:
+            order.append("hb")
+            await asyncio.sleep(0)
+
+    reporter = CacheReporter(
+        inv, no_suspend, CacheSettings(page_items=3), node_id="n", online=lambda: True
+    )
+    beat = asyncio.create_task(heartbeat())
+    try:
+        assert await reporter.send_snapshot() == 10
+    finally:
+        beat.cancel()
+        await asyncio.gather(beat, return_exceptions=True)
+    pages = [i for i, x in enumerate(order) if x == "page"]
+    assert all("hb" in order[a:b] for a, b in itertools.pairwise(pages)), order

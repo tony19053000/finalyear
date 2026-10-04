@@ -199,14 +199,16 @@ async def test_slow_peer_is_dropped(tmp_path: Path) -> None:
     hosts = {
         "ctl": Host(delay_s=0.001),
         "pa": Host(delay_s=0.001),
-        "pb": Host(delay_s=0.04),
+        "pb": Host(delay_s=0.045),
     }
+    # Factor 2 (not 4): on a loaded machine the fast sources' CPU-bound time
+    # shrinks the measured ratio; pb is still >= 10x slower when idle.
     fetcher, cas, data, _ = await _fetch(
         tmp_path,
         hosts,
         [CTL, PA, PB],
         tuning=FetchTuning(
-            per_source=1, slow_source_factor=4.0, slow_min_units=1, endgame_after_s=5.0
+            per_source=1, slow_source_factor=2.0, slow_min_units=1, endgame_after_s=5.0
         ),
         chunks=24,
     )

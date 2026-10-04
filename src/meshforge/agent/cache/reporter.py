@@ -189,7 +189,10 @@ class CacheReporter:
         behind the cache (and every tree it completed) leaves the index at the
         next snapshot (G4 fix round 1)."""
         await asyncio.to_thread(self._inv.reconcile_disk)
-        items = self._inv.snapshot()
+        # Built in a thread (tens of thousands of items), and the loop is
+        # yielded after every page: a big snapshot right after a Hello never
+        # starves the session's heartbeats (G4 fix round 2).
+        items = await asyncio.to_thread(self._inv.snapshot)
         size = self._cfg.page_items
         pages = [items[i : i + size] for i in range(0, len(items), size)] or [[]]
         for index, page in enumerate(pages):
@@ -203,6 +206,7 @@ class CacheReporter:
                     added=to_proto(page),
                 ),
             )
+            await asyncio.sleep(0)
         self._snapshotted = True
         self.snapshots_sent += 1
         self.pages_sent += len(pages)
@@ -235,5 +239,6 @@ class CacheReporter:
                 ),
             )
             sent += 1
+            await asyncio.sleep(0)
         self.deltas_sent += sent
         return sent
