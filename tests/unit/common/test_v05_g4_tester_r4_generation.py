@@ -129,8 +129,11 @@ def test_generation_survives_restart_of_store_as_new_value(tmp_path):
 
 @pytest.mark.xfail(
     strict=True,
-    reason="DEFECT-R4-1: _generation_seq is per CasStore instance, so two "
-    "instances on one dir hand out colliding generations (both 1)",
+    reason="R4-1 accepted limitation (Lead, 2026-10-05): the stale-owner guard is "
+    "per CasStore instance; production runs exactly one store per directory "
+    "(controller/blobs.py, agent/cas/store.py). A second instance (or process) on "
+    "one dir is protected only by the inode check. Generations are now "
+    "process-unique, but B's own table never sees A's restart.",
 )
 def test_two_stores_one_dir_stale_owner_not_confused(tmp_path):
     """Two CasStore instances on one directory in one process: instance A's

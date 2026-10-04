@@ -27,6 +27,17 @@ from meshforge.controller.store.models.node import Node
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.timeout(90)]
 
+
+@pytest.fixture
+def settings(pg_settings: Any) -> Any:
+    """Tolerant lease + admission deadline: no test here is about liveness, and
+    the 0.5 s FAST admission deadline failed a Hello under whole-suite load
+    (tester round 4, 2026-10-05)."""
+    from mf_controller_harness import make_settings, tolerant_liveness
+
+    return make_settings(pg_settings, **tolerant_liveness())
+
+
 BLOB = agent_pb2.CacheItem.KIND_BLOB
 TREE = agent_pb2.CacheItem.KIND_TREE
 ENV = agent_pb2.CacheItem.KIND_ENV

@@ -49,6 +49,7 @@ import contextlib
 import errno
 import hashlib
 import hmac
+import itertools
 import json
 import os
 import re
@@ -97,6 +98,8 @@ MAX_CHUNKS: Final = 1 << 20
 
 _ALGO_DIR: Final = "sha256"
 _TMP_DIR: Final = "tmp"
+_GENERATIONS: Final = itertools.count(1)
+"""Transfer generations, unique across every CasStore in this process (tester R4-1)."""
 _RESUME_PREFIX: Final = "resume-"
 _SIDECAR_SUFFIX: Final = ".chunks"
 _DISK_CHECK_EVERY: Final = 64 * 1024 * 1024
@@ -273,7 +276,6 @@ class CasStore:
         transfer is (re)created; the entry is dropped when it is completed,
         discarded or swept. Guarded by ``resume_lock``. A ResumablePart whose
         generation is not the current one may neither write nor install."""
-        self._generation_seq = 0
         """Digests (hex) with a resumable transfer on disk: counted in memory
         (V0.5 G4) - listed once at :meth:`prepare`, then kept by open / complete
         / discard / sweep, so the cap check never lists ``tmp/``."""
@@ -404,9 +406,9 @@ class CasStore:
 
     def _new_generation(self, hex_: str) -> int:
         """A fresh generation for ``hex_`` (call under ``resume_lock``)."""
-        self._generation_seq += 1
-        self._generation[hex_] = self._generation_seq
-        return self._generation_seq
+        generation = next(_GENERATIONS)
+        self._generation[hex_] = generation
+        return generation
 
     def is_current(self, hex_: str, generation: int) -> bool:
         """``generation`` is the live transfer of ``hex_`` (under ``resume_lock``)."""

@@ -15,6 +15,7 @@ import multiprocessing as mp
 import os
 import random
 import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -103,7 +104,12 @@ def test_threads_hammer_open_write_complete_discard_sweep() -> None:
         ts += [threading.Thread(target=sweeper), threading.Thread(target=watcher)]
         for t in ts:
             t.start()
+        # At least 4 s of churn, and on a loaded machine keep going (up to 30 s)
+        # until something completed, so the hammer always proves something.
         threading.Event().wait(4.0)
+        deadline = time.monotonic() + 26.0
+        while not installed and time.monotonic() < deadline:
+            threading.Event().wait(0.1)
         stop.set()
         for t in ts:
             t.join(20)
