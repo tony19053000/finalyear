@@ -183,6 +183,35 @@ class CacheInventory:
             for tree_hex in list(self._trees_of.get(digest.hex, ())):
                 self._drop_tree_locked(tree_hex)
 
+    def reconcile_disk(self) -> tuple[int, int]:
+        """Re-list the CAS and repair the index (blocking; run in a thread).
+
+        A blob deleted behind the CAS (no observer call) is removed - with every
+        tree it belonged to - and a blob that appeared unseen is added; both as
+        pending changes. Each candidate is re-checked under the lock, so a blob
+        installed or evicted through the CAS meanwhile is never mis-reported.
+        Returns ``(added, removed)``.
+        """
+        on_disk = scan_cas(self._store)
+        added = removed = 0
+        with self._lock:
+            for hex_ in [h for h in self._blobs if h not in on_disk]:
+                if self._store.has(Digest(hex_)):
+                    continue
+                size = self._blobs.pop(hex_)
+                self._mark("blob", hex_, False, size)
+                for tree_hex in list(self._trees_of.get(hex_, ())):
+                    self._drop_tree_locked(tree_hex)
+                removed += 1
+            for hex_, size in on_disk.items():
+                if hex_ not in self._blobs and self._store.has(Digest(hex_)):
+                    self._blobs[hex_] = size
+                    self._mark("blob", hex_, True, size)
+                    added += 1
+        if added or removed:
+            log.warning("agent.cache.index_repaired", added=added, removed=removed)
+        return added, removed
+
     def tree_complete(self, tree: Tree) -> bool:
         """A staging verified ``tree`` (manifest + every member in the CAS).
 

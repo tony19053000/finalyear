@@ -289,3 +289,29 @@ def test_agent_cas_tree_staged_hook(tmp_path: Path) -> None:
     cas.on_tree_complete = lambda tree: seen.append(str(tree.tree_id))
     cas.tree_staged(built.tree)
     assert seen == [str(built.tree.tree_id)]
+
+
+def test_reconcile_disk_repairs_blobs_changed_behind_the_cache(tmp_path: Path) -> None:
+    """G4 fix round 1: a blob unlinked (or added) behind the CAS is repaired by
+    the snapshot-time re-listing, and the tree it completed is withdrawn."""
+    store = _store(tmp_path)
+    built = _built(tmp_path)
+    inv = CacheInventory(store)
+    inv.load()
+    store.on_change = inv.on_cas_change
+    _hold(store, built)
+    assert inv.tree_complete(built.tree)
+    inv.take_delta()
+    member = next(iter(built.sources))
+    path = store.path_for(Digest(member))
+    path.chmod(0o600)
+    path.unlink()  # no observer call
+    store.on_change = None
+    extra = store.put_bytes(b"appeared unseen").digest
+    assert inv.reconcile_disk() == (1, 1)
+    added, removed = inv.take_delta()
+    assert ("blob", str(extra)) in _keys(added)
+    assert ("blob", f"sha256:{member}") in _keys(removed)
+    assert ("tree", str(built.tree.tree_id)) in _keys(removed)
+    assert not inv.has_tree(built.tree.tree_id)
+    assert inv.reconcile_disk() == (0, 0)  # idempotent

@@ -183,7 +183,12 @@ class CacheReporter:
         return self._seq
 
     async def send_snapshot(self) -> int:
-        """Send the whole inventory as pages; returns the page count."""
+        """Send the whole inventory as pages; returns the page count.
+
+        The CAS is re-listed first, off the event loop, so a blob deleted
+        behind the cache (and every tree it completed) leaves the index at the
+        next snapshot (G4 fix round 1)."""
+        await asyncio.to_thread(self._inv.reconcile_disk)
         items = self._inv.snapshot()
         size = self._cfg.page_items
         pages = [items[i : i + size] for i in range(0, len(items), size)] or [[]]

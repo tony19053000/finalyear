@@ -154,12 +154,6 @@ async def test_blob_deleted_behind_the_cache_job_still_succeeds(
     assert stage.sources["controller"].units >= 1
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT-3: a blob removed behind the agent's CAS stays in the "
-    "controller's index across every periodic resnapshot (snapshots are built "
-    "from memory, never re-listing the CAS); only an agent restart repairs it",
-)
 async def test_resnapshot_repairs_an_index_entry_for_a_blob_deleted_behind_the_cache(
     wired: ControllerRuntime, agents: tuple[Any, Any], tmp_path: Path
 ) -> None:
