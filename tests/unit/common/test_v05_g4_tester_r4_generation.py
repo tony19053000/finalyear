@@ -185,7 +185,7 @@ def test_concurrent_restart_and_stale_writes_never_corrupt(tmp_path):
         _force_inode_reuse(a, b)
         errs: list[BaseException] = []
 
-        def stale() -> None:
+        def stale(a=a, errs=errs) -> None:
             try:
                 a.write_chunk(0, data[:CS], sha256_bytes(data[:CS]).hex)
             except CasError as e:
