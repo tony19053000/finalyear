@@ -674,7 +674,7 @@ def test_v05_g4_field_numbers_are_pinned() -> None:
         "size": 3,
     }
     kind = agent_pb2.CacheItem.Kind
-    assert {name: kind.Value(name) for name in kind.keys()} == {
+    assert dict(kind.items()) == {
         "KIND_UNSPECIFIED": 0,
         "KIND_BLOB": 1,
         "KIND_TREE": 2,

@@ -220,7 +220,15 @@ def test_payload_size_bound_max_and_max_plus_one(key: Ed25519PrivateKey) -> None
 
 @pytest.mark.parametrize(
     "token",
-    ["", ".", "abc", "abc.def", "a$b." + "A" * 86, "A." + "A" * 85 + "=", "é." + "A" * 86],
+    [
+        "",
+        ".",
+        "abc",
+        "abc.def",
+        "a$b." + "A" * 86,
+        "A." + "A" * 85 + "=",
+        "é." + "A" * 86,
+    ],
 )
 def test_garbage_is_malformed(key: Ed25519PrivateKey, token: str) -> None:
     assert _reason(key, token, new_node_id()) in {"malformed", "bad_signature"}
@@ -233,5 +241,5 @@ def test_non_string_token(key: Ed25519PrivateKey) -> None:
 
 def test_error_pickles_with_reason() -> None:
     err = PeerTokenError("expired", "the peer token has expired")
-    again = pickle.loads(pickle.dumps(err))  # noqa: S301 - our own object
+    again = pickle.loads(pickle.dumps(err))
     assert again.reason == "expired"
