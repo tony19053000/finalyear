@@ -288,7 +288,8 @@ async def serve(
         await executor.close()
         if peer is not None:
             await peer.close()
-        await cache.close()
+        if cache is not None:
+            await cache.close()
         # Cancelling the scoring task kills its benchmark child tree (runner).
         await stop_task(scores_task)
         if monitor is not None and monitor_task is not None:
@@ -353,10 +354,14 @@ async def start_cache(
     client: AgentSessionClient,
     *,
     docker: bool = False,
-) -> CacheReporter:
+) -> CacheReporter | None:
     """The cache inventory + reporter (V0.5 D90/D101), wired to the CAS and the
-    session: a snapshot after every Reconcile, deltas after."""
+    session: a snapshot after every Reconcile, deltas after. None when
+    ``[agent.cache] enabled`` is off."""
     cfg = settings.agent.cache
+    if not cfg.enabled:
+        log.info("agent.cache.reports_disabled", node_id=client.node_id)
+        return None
     await cas.prepare()
     inventory = CacheInventory(cas.store, max_trees=cfg.max_trees)
     cas.store.on_change = inventory.on_cas_change

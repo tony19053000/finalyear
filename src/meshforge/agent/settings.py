@@ -822,6 +822,14 @@ class CacheSettings(SectionModel):
     (CAS blobs, complete trees, built environments, env images), then deltas.
     """
 
+    enabled: bool = Field(
+        default=True,
+        description=(
+            "Send cache reports. Off = the controller never lists this node as "
+            "a peer holder (a cluster test that counts report sequences turns it "
+            "off; production keeps it on)."
+        ),
+    )
     page_items: int = Field(
         default=1024,
         ge=1,

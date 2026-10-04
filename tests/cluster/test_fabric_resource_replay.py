@@ -83,8 +83,13 @@ def _bucket(moment: dt.datetime, bucket_s: float) -> dt.datetime:
     return EPOCH + dt.timedelta(seconds=(offset // bucket_s) * bucket_s)
 
 
-def _dense_fabric(make_fabric: MakeFabric, bucket_s: float) -> Fabric:
+def _dense_fabric(
+    make_fabric: MakeFabric, bucket_s: float, *, cache_reports: bool = True
+) -> Fabric:
     return make_fabric(
+        # V0.5 G4: cache reports share the per-process report sequence; the
+        # exact 1..N accounting of test_f needs resource reports only.
+        agent_extra={} if cache_reports else {"cache": {"enabled": False}},
         agents=1,
         timing=FAST,
         log_level="DEBUG",  # controller.resources.duplicate_update is DEBUG
@@ -207,7 +212,7 @@ class Account:
 
 def test_f_replayed_reports_are_never_counted_twice(make_fabric: MakeFabric) -> None:
     bucket_s = 5.0
-    fabric = _dense_fabric(make_fabric, bucket_s)
+    fabric = _dense_fabric(make_fabric, bucket_s, cache_reports=False)
     node = fabric.nodes[0]
     fabric.wait_until(
         lambda: (fabric.node_view(node) or {}).get("sample_age_s") is not None,

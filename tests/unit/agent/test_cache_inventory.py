@@ -315,3 +315,23 @@ def test_reconcile_disk_repairs_blobs_changed_behind_the_cache(tmp_path: Path) -
     assert ("tree", str(built.tree.tree_id)) in _keys(removed)
     assert not inv.has_tree(built.tree.tree_id)
     assert inv.reconcile_disk() == (0, 0)  # idempotent
+
+
+@pytest.mark.asyncio
+async def test_cache_reports_can_be_turned_off(tmp_path: Path) -> None:
+    from types import SimpleNamespace
+
+    from meshforge.agent.runtime import start_cache
+    from meshforge.agent.settings import AgentSettings
+
+    settings = AgentSettings(
+        data_dir=tmp_path,
+        agent={"controller_address": "127.0.0.1:1", "cache": {"enabled": False}},
+    )
+    client = SimpleNamespace(node_id="node_x", after_reconcile_hooks=[])
+    cas = AgentCas(_store(tmp_path))
+    assert await start_cache(settings, cas, client) is None  # type: ignore[arg-type]
+    assert client.after_reconcile_hooks == [] and cas.store.on_change is None
+    assert AgentSettings(
+        data_dir=tmp_path, agent={"controller_address": "127.0.0.1:1"}
+    ).agent.cache.enabled
