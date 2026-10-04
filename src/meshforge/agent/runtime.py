@@ -55,6 +55,7 @@ Exit codes: ``OK`` after a requested stop; the error's own code for a typed fail
 from __future__ import annotations
 
 import asyncio
+import functools
 import signal
 from collections.abc import Callable
 from typing import Final
@@ -65,6 +66,8 @@ from meshforge.agent.benchmarks.service import (
     valid_cached_scores,
 )
 from meshforge.agent.benchmarks.wire import to_proto
+from meshforge.agent.cache import CacheInventory, CacheReporter, scan_envs
+from meshforge.agent.cache.images import list_env_images
 from meshforge.agent.cas import AgentCas
 from meshforge.agent.execution.executor import Executor
 from meshforge.agent.execution.offer import build_execution
@@ -84,6 +87,7 @@ from meshforge.agent.peer import PeerAuthorizer, PeerBlobServer
 from meshforge.agent.resources import ResourceMonitor, ResourceSampler
 from meshforge.agent.session.client import AgentSessionClient
 from meshforge.agent.session.hello import basic_hardware
+from meshforge.agent.session.state import AgentState
 from meshforge.agent.settings import AgentSettings, parse_controller_address
 from meshforge.common.capabilities import HARDWARE_SCORES_CAPABILITY
 from meshforge.common.errors import ExitCode, MeshForgeError
@@ -97,6 +101,7 @@ __all__ = [
     "install_signal_handlers",
     "run_agent",
     "serve",
+    "start_cache",
     "start_peer",
     "start_scores",
     "stop_signals",
@@ -241,6 +246,9 @@ async def serve(
     )
     cas = AgentCas.at(settings.data_dir)
     peer = await start_peer(settings, cas, client)
+    cache = await start_cache(
+        settings, cas, client, docker=execution.docker is not None
+    )
     executor = Executor(
         settings,
         execution,
@@ -280,6 +288,7 @@ async def serve(
         await executor.close()
         if peer is not None:
             await peer.close()
+        await cache.close()
         # Cancelling the scoring task kills its benchmark child tree (runner).
         await stop_task(scores_task)
         if monitor is not None and monitor_task is not None:
@@ -336,6 +345,34 @@ async def start_peer(
         controller_host(client.controller_target)
     )
     return server
+
+
+async def start_cache(
+    settings: AgentSettings,
+    cas: AgentCas,
+    client: AgentSessionClient,
+    *,
+    docker: bool = False,
+) -> CacheReporter:
+    """The cache inventory + reporter (V0.5 D90/D101), wired to the CAS and the
+    session: a snapshot after every Reconcile, deltas after."""
+    cfg = settings.agent.cache
+    await cas.prepare()
+    inventory = CacheInventory(cas.store, max_trees=cfg.max_trees)
+    cas.store.on_change = inventory.on_cas_change
+    cas.on_tree_complete = inventory.tree_complete
+    reporter = CacheReporter(
+        inventory,
+        client.send_report,
+        cfg,
+        node_id=client.node_id,
+        online=lambda: client.state is AgentState.ONLINE,
+        scan_envs=functools.partial(scan_envs, settings.envs_dir),
+        list_images=list_env_images if docker else None,
+    )
+    await reporter.start()
+    client.after_reconcile_hooks.append(reporter.request_snapshot)
+    return reporter
 
 
 async def hello_scores(

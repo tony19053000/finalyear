@@ -864,8 +864,9 @@ class CacheReport(_message.Message):
     accepted Hello the agent sends a paged SNAPSHOT (snapshot=true on every page,
     snapshot_last=true on the final one), then deltas (snapshot=false). The
     controller replaces the node's rows on the first snapshot page of a new
-    session and applies deltas only after snapshot_last; a delta that arrives
-    before it, or out of `seq` order, makes the agent resnapshot. At most 1024
+    session and applies deltas only after snapshot_last. A delta that arrives
+    before it is dropped; one with a gap in `seq` marks the node's index stale
+    until the agent's next snapshot (every Hello and periodically). At most 1024
     items in added + removed together; keys are validated by kind.
     """
 
@@ -877,7 +878,9 @@ class CacheReport(_message.Message):
     ADDED_FIELD_NUMBER: _builtins.int
     REMOVED_FIELD_NUMBER: _builtins.int
     seq: _builtins.int
-    """Monotonic per session, starting at 1 with the first snapshot page."""
+    """Monotonic per agent PROCESS (never reset by a reconnect), > 0: a report
+    replayed from an earlier session of the same process is recognisably old.
+    """
     snapshot: _builtins.bool
     """This message is a page of a full snapshot (added = what is held now)."""
     snapshot_last: _builtins.bool

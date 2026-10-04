@@ -396,6 +396,8 @@ async def stage_tree(
                 await fetcher.ensure(entry, tree.chunk_size)
             except MaterialiseError as exc:
                 raise FetchError(exc.message, failure_type=exc.failure_type) from None
+    # Every member was just verified while copying: the tree is complete here.
+    cas.tree_staged(tree)
     stats = fetcher.stats
     return StageReport(
         tree=tree,

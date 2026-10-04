@@ -27,6 +27,7 @@ from typing import Any
 import httpx
 from mf_agent_harness import make_agent_settings
 
+from meshforge.agent.cache import CacheReporter
 from meshforge.agent.cas import AgentCas
 from meshforge.agent.execution.docker_runtime import DockerConfig, DockerRuntime
 from meshforge.agent.execution.executor import Executor
@@ -35,7 +36,12 @@ from meshforge.agent.execution.runtime import RuntimeAvailability
 from meshforge.agent.hardware.limits import clip_capabilities
 from meshforge.agent.identity import load_or_create
 from meshforge.agent.peer import PeerBlobServer
-from meshforge.agent.runtime import controller_host, start_peer, wire_executor
+from meshforge.agent.runtime import (
+    controller_host,
+    start_cache,
+    start_peer,
+    wire_executor,
+)
 from meshforge.agent.session.client import AgentSessionClient
 from meshforge.agent.session.hello import basic_hardware
 from meshforge.agent.session.state import AgentState
@@ -66,6 +72,7 @@ class ExecAgent:
         self.setup = setup
         self.node_id = client.node_id
         self.peer: PeerBlobServer | None = None
+        self.cache: CacheReporter | None = None
         self.task: asyncio.Task[None] = asyncio.create_task(client.run())
 
     @classmethod
@@ -108,6 +115,7 @@ class ExecAgent:
         # V0.5 G4: the peer server starts only when [agent.peer] bind is set
         # (agent_overrides={"peer": {"bind": "127.0.0.1", "port": 0}}).
         peer = await start_peer(settings, cas, client)
+        cache = await start_cache(settings, cas, client)
         executor = Executor(
             settings,
             setup,
@@ -123,6 +131,7 @@ class ExecAgent:
             await executor.start()
         agent = cls(client, executor, setup)
         agent.peer = peer
+        agent.cache = cache
         await client.wait_for_state(AgentState.ONLINE, timeout_s=15.0)
         return agent
 
@@ -136,6 +145,8 @@ class ExecAgent:
         await self.executor.close()
         if self.peer is not None:
             await self.peer.close()
+        if self.cache is not None:
+            await self.cache.close()
 
 
 async def submit(

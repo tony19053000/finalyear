@@ -10,13 +10,13 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from typing import Any, Final
 
 from meshforge.common.cas import CasStore
 from meshforge.common.hashing import Digest
-from meshforge.common.tree import DEFAULT_MAX_TOTAL_BYTES
+from meshforge.common.tree import DEFAULT_MAX_TOTAL_BYTES, Tree
 
 __all__ = ["CAS_DIR_NAME", "DEFAULT_FREE_DISK_FLOOR_BYTES", "AgentCas"]
 
@@ -31,6 +31,13 @@ class AgentCas:
         self.store = store
         self._locks: dict[str, list[Any]] = {}
         self._prepared = False
+        self.on_tree_complete: Callable[[Tree], object] | None = None
+        """V0.5 G4 (D100): told after a staging verified a whole tree in the
+        cache (the cache inventory then reports ``tree <tree_id>``)."""
+
+    def tree_staged(self, tree: Tree) -> None:
+        if self.on_tree_complete is not None:
+            self.on_tree_complete(tree)
 
     @classmethod
     def at(

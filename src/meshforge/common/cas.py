@@ -65,6 +65,7 @@ from typing import BinaryIO, Final, Self
 from meshforge.common.atomic import atomic_write_bytes
 from meshforge.common.errors import FailureType, MeshForgeError
 from meshforge.common.hashing import Digest
+from meshforge.common.logging import get_logger
 
 __all__ = [
     "DEFAULT_CHUNK_SIZE",
@@ -84,6 +85,8 @@ __all__ = [
     "chunk_span",
     "iter_file",
 ]
+
+log = get_logger(__name__)
 
 DEFAULT_CHUNK_SIZE: Final = 8 * 1024 * 1024
 """Transfer chunk (D80); S3's numbers may change it (V0.5 brief, transport note)."""
@@ -266,6 +269,11 @@ class CasStore:
         self._reserved = 0
         self.refused_quota = 0
         self.refused_disk = 0
+        self.on_change: Callable[[bool, Digest, int], None] | None = None
+        """Observer ``(added, digest, size)`` called after a blob becomes visible
+        (``added=True``) or is evicted (V0.5 G4: the agent's cache reports, D101).
+        Called on the writing thread; it must be cheap and thread-safe, and an
+        exception in it is logged by the caller's thread, never undoes the write."""
 
     # ---------------------------------------------------------------- layout
 
@@ -477,6 +485,7 @@ class CasStore:
         _fsync_dir(final.parent)
         with self._lock:
             self._used += size
+        self._notify(True, digest, size)
         return True
 
     # ------------------------------------------------------------------ read
@@ -517,7 +526,17 @@ class CasStore:
             return False
         with self._lock:
             self._used = max(0, self._used - size)
+        self._notify(False, digest, size)
         return True
+
+    def _notify(self, added: bool, digest: Digest, size: int) -> None:
+        observer = self.on_change
+        if observer is None:
+            return
+        try:
+            observer(added, digest, size)
+        except Exception:  # an observer bug must never undo a write or eviction
+            log.exception("cas.observer_failed", digest=str(digest))
 
     # ------------------------------------------------------------- resumable
 

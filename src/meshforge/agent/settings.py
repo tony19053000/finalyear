@@ -45,6 +45,7 @@ __all__ = [
     "PYTHON_CPU_IMAGE",
     "AgentSection",
     "AgentSettings",
+    "CacheSettings",
     "DiscoverySettings",
     "EnvsSettings",
     "ExecutionImages",
@@ -765,6 +766,48 @@ class PeerSettings(SectionModel):
         return self
 
 
+class CacheSettings(SectionModel):
+    """``[agent.cache]`` - cache reports to the controller (V0.5 D90/D101).
+
+    After every accepted Hello the agent sends a paged snapshot of what it caches
+    (CAS blobs, complete trees, built environments, env images), then deltas.
+    """
+
+    page_items: int = Field(
+        default=1024,
+        ge=1,
+        le=1024,
+        description="Items per CacheReport message (the controller refuses > 1024).",
+    )
+    flush_s: float = Field(
+        default=1.0,
+        ge=0.05,
+        le=60.0,
+        description="Pending changes are sent as a delta at most this often.",
+    )
+    snapshot_interval_s: float = Field(
+        default=900.0,
+        ge=10.0,
+        le=86_400.0,
+        description=(
+            "A full snapshot is re-sent this often while online (heals a lost "
+            "delta; the controller marks a node stale after a gap)."
+        ),
+    )
+    rescan_s: float = Field(
+        default=60.0,
+        ge=1.0,
+        le=86_400.0,
+        description="How often built environments and env images are re-listed.",
+    )
+    max_trees: int = Field(
+        default=10_000,
+        ge=1,
+        le=1_000_000,
+        description="Complete trees remembered (and reported) at most.",
+    )
+
+
 class DiscoverySettings(SectionModel):
     """``[agent.discovery]`` - mDNS lookup of the controller (roadmap 0.3.9).
 
@@ -831,6 +874,7 @@ class AgentSection(SectionModel):
     execution: ExecutionSettings = Field(default_factory=ExecutionSettings)
     envs: EnvsSettings = Field(default_factory=EnvsSettings)
     peer: PeerSettings = Field(default_factory=PeerSettings)
+    cache: CacheSettings = Field(default_factory=CacheSettings)
     hello_timeout_s: float = Field(
         default=3.0,
         gt=0,
