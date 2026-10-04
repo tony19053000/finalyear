@@ -264,6 +264,10 @@ class CasStore:
         self.max_resumable = max_resumable
         self.resume_lock = threading.Lock()
         """Serialises opening resumable transfers (the cap is exact)."""
+        self._resumes: set[str] = set()
+        """Digests (hex) with a resumable transfer on disk: counted in memory
+        (V0.5 G4) - listed once at :meth:`prepare`, then kept by open / complete
+        / discard / sweep, so the cap check never lists ``tmp/``."""
         self._lock = threading.Lock()
         self._used = 0
         self._reserved = 0
@@ -296,6 +300,8 @@ class CasStore:
             with contextlib.suppress(OSError):
                 entry.unlink()
                 swept += 1
+        with self.resume_lock:
+            self._resumes = set(self._listed_resumes())
         migrated = self._migrate_legacy(algo)
         used = 0
         for path in algo.glob("*/*/*"):
@@ -334,18 +340,32 @@ class CasStore:
                     entry.unlink()
                     if not name.endswith(_SIDECAR_SUFFIX):
                         expired += 1
+                    else:
+                        with self.resume_lock:
+                            self.resume_forgotten(_resume_hex(name))
         return expired
 
-    def resumes_in_progress(self) -> int:
+    def _listed_resumes(self) -> Iterator[str]:
         try:
-            return sum(
-                1
-                for e in self.tmp.iterdir()
-                if e.name.startswith(_RESUME_PREFIX)
-                and e.name.endswith(_SIDECAR_SUFFIX)
-            )
+            entries = list(self.tmp.iterdir())
         except FileNotFoundError:
-            return 0
+            return
+        for entry in entries:
+            name = entry.name
+            if name.startswith(_RESUME_PREFIX) and name.endswith(_SIDECAR_SUFFIX):
+                hex_ = _resume_hex(name)
+                if _HEX_RE.fullmatch(hex_):
+                    yield hex_
+
+    def resumes_in_progress(self) -> int:
+        """Resumable transfers on disk (an in-memory count, see ``_resumes``)."""
+        return len(self._resumes)
+
+    def resume_started(self, hex_: str) -> None:
+        self._resumes.add(hex_)
+
+    def resume_forgotten(self, hex_: str) -> None:
+        self._resumes.discard(hex_)
 
     def _migrate_legacy(self, algo: Path) -> int:
         """Move V0.4 one-level blobs into the two-level layout.
@@ -740,6 +760,7 @@ class ResumablePart:
                 cls._save(sidecar, size, chunk_size, done)
             except OSError as exc:
                 raise _os_error(exc, digest) from None
+        store.resume_started(digest.hex)
         return cls(store, digest, size, chunk_size, done)
 
     @staticmethod
@@ -866,12 +887,21 @@ class ResumablePart:
             raise _os_error(exc, self.digest) from None
         with contextlib.suppress(OSError):
             self.sidecar.unlink()
+        with self.store.resume_lock:
+            self.store.resume_forgotten(self.digest.hex)
         return PutResult(digest=self.digest, size=self.size, created=created)
 
     def discard(self) -> None:
         for path in (self.sidecar, self.part):
             with contextlib.suppress(OSError):
                 path.unlink()
+        with self.store.resume_lock:
+            self.store.resume_forgotten(self.digest.hex)
+
+
+def _resume_hex(name: str) -> str:
+    """``resume-<hex>.part.chunks`` -> ``<hex>``."""
+    return name.removeprefix(_RESUME_PREFIX).split(".", 1)[0]
 
 
 def iter_file(fh: BinaryIO, size: int = _READ) -> Iterator[bytes]:

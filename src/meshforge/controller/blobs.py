@@ -494,16 +494,17 @@ class BlobStore:
                 self._remember(tree_id.hex, _NOT_A_TREE)
                 raise TreeError("the blob is a bundle, not a tree manifest")
             try:
-                tree = await asyncio.to_thread(
-                    parse_tree, data, expected=tree_id, limits=self.tree_limits
+                # Parsed AND its member set built in the worker thread: a tree
+                # of 100 000 entries never builds a big set on the event loop.
+                cached = await asyncio.to_thread(
+                    _parse_cached, data, tree_id, self.tree_limits
                 )
             except TreeError:
                 self._remember(tree_id.hex, _NOT_A_TREE)
                 raise
             self.trees_parsed += 1
-            # The member set is built here, once, next to the parsed tree: an
-            # authorised GET is then O(roots) set lookups, never a rebuild.
-            cached = _CachedTree(tree, frozenset(e.sha256 for e in tree.files()))
+            # Built once, next to the parsed tree: an authorised GET is then
+            # O(roots) set lookups, never a rebuild.
             self._remember(tree_id.hex, cached)
             return cached
 
@@ -543,6 +544,12 @@ class _CachedTree:
 
 
 _NOT_A_TREE: Final = _CachedTree(None, frozenset())
+
+
+def _parse_cached(data: bytes, tree_id: Digest, limits: TreeLimits) -> _CachedTree:
+    """Parse a manifest and build its member set (run in a worker thread)."""
+    tree = parse_tree(data, expected=tree_id, limits=limits)
+    return _CachedTree(tree, frozenset(e.sha256 for e in tree.files()))
 
 
 # ================================================================ fetch tokens
