@@ -877,6 +877,7 @@ class CacheReport(_message.Message):
     SNAPSHOT_LAST_FIELD_NUMBER: _builtins.int
     ADDED_FIELD_NUMBER: _builtins.int
     REMOVED_FIELD_NUMBER: _builtins.int
+    PAGE_FIELD_NUMBER: _builtins.int
     seq: _builtins.int
     """Monotonic per agent PROCESS (never reset by a reconnect), > 0: a report
     replayed from an earlier session of the same process is recognisably old.
@@ -885,6 +886,13 @@ class CacheReport(_message.Message):
     """This message is a page of a full snapshot (added = what is held now)."""
     snapshot_last: _builtins.bool
     """The final page of the snapshot; deltas follow."""
+    page: _builtins.int
+    """V0.5 G4 fix round 2 (additive): index of this page within its snapshot,
+    0 = the first page; 0 on a delta. Only page 0 starts (replaces) a
+    snapshot, so a session whose first report is the TAIL of a snapshot (its
+    head acked on an earlier session) never goes live with partial rows - the
+    D101 fields alone cannot tell a first page from a tail after a loss.
+    """
     @_builtins.property
     def added(self) -> _containers.RepeatedCompositeFieldContainer[Global___CacheItem]: ...
     @_builtins.property
@@ -899,10 +907,11 @@ class CacheReport(_message.Message):
         snapshot_last: _builtins.bool = ...,
         added: _abc.Iterable[Global___CacheItem] | None = ...,
         removed: _abc.Iterable[Global___CacheItem] | None = ...,
+        page: _builtins.int = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["added", b"added", "removed", b"removed", "seq", b"seq", "snapshot", b"snapshot", "snapshot_last", b"snapshot_last"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["added", b"added", "page", b"page", "removed", b"removed", "seq", b"seq", "snapshot", b"snapshot", "snapshot_last", b"snapshot_last"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 

@@ -22,11 +22,13 @@ pytestmark = pytest.mark.unit
 
 def _stream(
     rnd: random.Random,
-) -> tuple[list[tuple[int, bool, bool, set[int], set[int]]], list[frozenset[int]]]:
+) -> tuple[list[tuple[int, bool, bool, set[int], set[int], int]], list[frozenset[int]]]:
     """True stream (seq, snapshot, last, added, removed) + the agent states that
     are consistent (after each completed message)."""
     state: set[int] = set()
-    msgs: list[tuple[int, bool, bool, set[int], set[int]]] = []
+    # (seq, snapshot, last, added, removed, page) - page = CacheReport.page
+    # (fix round 2: the index of a page within its snapshot, 0 = first).
+    msgs: list[tuple[int, bool, bool, set[int], set[int], int]] = []
     boundary_states: list[frozenset[int]] = []
     seq = rnd.randint(1, 5)
     for _ in range(rnd.randint(2, 7)):
@@ -36,14 +38,14 @@ def _stream(
             items = sorted(state)
             pages = [items[i : i + 2] for i in range(0, len(items), 2)] or [[]]
             for n, page in enumerate(pages):
-                msgs.append((seq, True, n == len(pages) - 1, set(page), set()))
+                msgs.append((seq, True, n == len(pages) - 1, set(page), set(), n))
                 seq += 1
             boundary_states.append(frozenset(state))
         else:
             add = {rnd.randint(0, 20) for _ in range(rnd.randint(0, 3))}
             rem = {rnd.randint(0, 20) for _ in range(rnd.randint(0, 3))} - add
             state = (state | add) - rem
-            msgs.append((seq, False, False, add, rem))
+            msgs.append((seq, False, False, add, rem, 0))
             seq += 1
             boundary_states.append(frozenset(state))
     return msgs, boundary_states
@@ -69,8 +71,8 @@ def _perturb(rnd: random.Random, msgs: list, *, keep_head: bool = False) -> list
 def _run(received: list) -> tuple[NodeCacheState, set[int]]:
     st = NodeCacheState("s1")
     rows: set[int] = set()
-    for seq, snap, last, add, rem in received:
-        d = decide(st, seq=seq, snapshot=snap, last=last)
+    for seq, snap, last, add, rem, page in received:
+        d = decide(st, seq=seq, snapshot=snap, last=last, page=page if snap else None)
         if d is Decision.REPLACE:
             rows = set(add)
         elif d is Decision.ADD_PAGE:
@@ -86,12 +88,6 @@ def test_live_rows_are_a_consistent_state_when_the_session_starts_at_a_stream_he
     _fuzz(keep_head=True)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT-R2-1: a session whose FIRST report is the tail page of a "
-    "snapshot (older pages acked on the previous session, the replay starts mid-"
-    "snapshot) goes LIVE with only that page until the next snapshot",
-)
 def test_live_rows_are_a_consistent_state_even_when_the_head_is_lost() -> None:
     _fuzz(keep_head=False)
 

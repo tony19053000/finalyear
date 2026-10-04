@@ -116,6 +116,8 @@ def validate_report(
         return "last_without_snapshot"
     if report.snapshot and report.removed:
         return "removed_in_snapshot"
+    if report.page and not report.snapshot:
+        return "page_without_snapshot"
     added: list[CacheRow] = []
     removed: list[CacheRow] = []
     for items, out in ((report.added, added), (report.removed, removed)):
@@ -161,7 +163,14 @@ class NodeCacheState:
     page): a snapshot page right after it is the first page of a new snapshot."""
 
 
-def decide(state: NodeCacheState, *, seq: int, snapshot: bool, last: bool) -> Decision:
+def decide(
+    state: NodeCacheState,
+    *,
+    seq: int,
+    snapshot: bool,
+    last: bool,
+    page: int | None = None,
+) -> Decision:
     """Apply one report's sequencing to ``state`` (mutated); return what to do.
 
     Snapshot pages must be **contiguous** (G4 fix round 1): a page is the first
@@ -169,6 +178,11 @@ def decide(state: NodeCacheState, *, seq: int, snapshot: bool, last: bool) -> De
     boundary (a delta or a snapshot's last page); any other non-contiguous page
     means a page was lost, and the node goes ``stale`` until a snapshot starts
     cleanly - it never goes ``live`` with part of a snapshot.
+
+    ``page`` (``CacheReport.page``, fix round 2): when known, only page 0 starts
+    a snapshot and a page > 0 only continues one - a session whose first report
+    is the tail of a snapshot goes ``stale``, never ``live``. ``None`` (callers
+    without the field) keeps the seq-only rule above.
     """
     if state.last_seq and seq <= state.last_seq:
         return Decision.DUPLICATE
@@ -177,6 +191,16 @@ def decide(state: NodeCacheState, *, seq: int, snapshot: bool, last: bool) -> De
     after_boundary = contiguous and state.boundary
     state.last_seq = seq
     state.boundary = (not snapshot) or last
+    if snapshot and page is not None:
+        if page == 0:
+            state.phase = Phase.LIVE if last else Phase.COLLECTING
+            return Decision.REPLACE
+        if state.phase is Phase.COLLECTING and contiguous and not first:
+            if last:
+                state.phase = Phase.LIVE
+            return Decision.ADD_PAGE
+        state.phase = Phase.STALE
+        return Decision.GAP
     if snapshot:
         if state.phase is Phase.COLLECTING and contiguous and not first:
             if last:
@@ -350,7 +374,11 @@ class CacheIndex:
             return
         added, removed = checked
         decision = decide(
-            state, seq=report.seq, snapshot=report.snapshot, last=report.snapshot_last
+            state,
+            seq=report.seq,
+            snapshot=report.snapshot,
+            last=report.snapshot_last,
+            page=report.page if report.snapshot else None,
         )
         if decision in (Decision.REPLACE, Decision.ADD_PAGE, Decision.DELTA):
             self.stats.applied += 1

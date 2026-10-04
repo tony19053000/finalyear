@@ -340,6 +340,12 @@ message CacheReport {
   repeated CacheItem added = 4;
   // Always empty on a snapshot page.
   repeated CacheItem removed = 5;
+  // V0.5 G4 fix round 2 (additive): index of this page within its snapshot,
+  // 0 = the first page; 0 on a delta. Only page 0 starts (replaces) a
+  // snapshot, so a session whose first report is the TAIL of a snapshot (its
+  // head acked on an earlier session) never goes live with partial rows - the
+  // D101 fields alone cannot tell a first page from a tail after a loss.
+  uint32 page = 6;
 }
 
 // One cached thing (V0.5 D100).

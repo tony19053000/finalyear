@@ -667,6 +667,7 @@ def test_v05_g4_field_numbers_are_pinned() -> None:
         "snapshot_last": 3,
         "added": 4,
         "removed": 5,
+        "page": 6,  # fix round 2, additive
     }
     assert {f.name: f.number for f in agent_pb2.CacheItem.DESCRIPTOR.fields} == {
         "kind": 1,

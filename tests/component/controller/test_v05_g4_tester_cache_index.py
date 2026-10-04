@@ -47,9 +47,11 @@ def report(
     last: bool = False,
     add: tuple[agent_pb2.CacheItem, ...] = (),
     rem: tuple[agent_pb2.CacheItem, ...] = (),
+    page: int = 0,
 ) -> agent_pb2.CacheReport:
+    # page = CacheReport.page (fix round 2): the page's index in its snapshot.
     return agent_pb2.CacheReport(
-        seq=seq, snapshot=snap, snapshot_last=last, added=add, removed=rem
+        seq=seq, snapshot=snap, snapshot_last=last, added=add, removed=rem, page=page
     )
 
 
@@ -199,7 +201,7 @@ async def test_a_lost_snapshot_page_must_not_leave_the_node_live(
     await a.connect()
     await send(a, report(1, snap=True, add=(item(BLOB, d("8")),)))
     # page seq 2 never arrives (e.g. it was refused as invalid and dropped)
-    await send(a, report(3, snap=True, last=True, add=(item(BLOB, d("9")),)))
+    await send(a, report(3, snap=True, last=True, page=2, add=(item(BLOB, d("9")),)))
     await settle(runtime, 2)
     state = runtime.cache_index.state(a.node_id)  # type: ignore[union-attr]
     assert state is not None and state.phase.value != "live"
@@ -328,8 +330,8 @@ async def test_snapshot_of_many_pages_replaces_exactly(
         for p in range(3)
     ]
     await send(a, report(2, snap=True, add=pages[0]))
-    await send(a, report(3, snap=True, add=pages[1]))
-    await send(a, report(4, snap=True, last=True, add=pages[2]))
+    await send(a, report(3, snap=True, page=1, add=pages[1]))
+    await send(a, report(4, snap=True, last=True, page=2, add=pages[2]))
     await settle(runtime, 4)
     got = await keys(runtime, a.node_id)
     assert len(got) == 3 * 1024 and not (got & {i.key for i in first})

@@ -199,6 +199,7 @@ class CacheReporter:
                     seq=self._next_seq(),
                     snapshot=True,
                     snapshot_last=index == len(pages) - 1,
+                    page=index,
                     added=to_proto(page),
                 ),
             )
