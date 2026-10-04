@@ -49,10 +49,15 @@ def report(
     rem: tuple[agent_pb2.CacheItem, ...] = (),
     page: int = 0,
 ) -> agent_pb2.CacheReport:
-    # page = CacheReport.page (fix round 2): the page's index in its snapshot.
-    return agent_pb2.CacheReport(
-        seq=seq, snapshot=snap, snapshot_last=last, added=add, removed=rem, page=page
+    # page = CacheReport.page (fix round 2): the page's index in its snapshot;
+    # optional since fix round 3, so it is set on snapshot pages only (a delta
+    # carrying it is refused, as the agent never sends one).
+    rep = agent_pb2.CacheReport(
+        seq=seq, snapshot=snap, snapshot_last=last, added=add, removed=rem
     )
+    if snap:
+        rep.page = page
+    return rep
 
 
 async def send(agent: Any, rep: agent_pb2.CacheReport) -> None:

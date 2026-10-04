@@ -73,19 +73,27 @@ def test_old_agent_single_page_snapshot_goes_live() -> None:
     assert st.phase is Phase.LIVE
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT-R3-1: old agent's multi-page snapshot (page always 0) is REPLACE on "
-    "every page: node goes LIVE holding only the last page's rows",
-)
 def test_old_agent_multipage_snapshot_must_not_lose_rows() -> None:
+    """Fix round 3 rule: ``page`` is optional; a snapshot page WITHOUT it (an
+    older agent) is accepted only as a whole single-page snapshot. A multi-page
+    one makes the node stale - its rows are never silently cut to the last
+    page."""
+    rep = _rep(1, snap=True, last=False)
+    assert not rep.HasField("page")  # absent, not "page 0"
     st = NodeCacheState("s")
     decisions = [
-        decide(st, seq=1, snapshot=True, last=False, page=0),
-        decide(st, seq=2, snapshot=True, last=False, page=0),
-        decide(st, seq=3, snapshot=True, last=True, page=0),
+        decide(st, seq=1, snapshot=True, last=False, page_missing=True),
+        decide(st, seq=2, snapshot=True, last=False, page_missing=True),
+        decide(st, seq=3, snapshot=True, last=True, page_missing=True),
     ]
-    assert decisions.count(Decision.REPLACE) == 1 or st.phase is not Phase.LIVE
+    assert Decision.REPLACE not in decisions
+    assert st.phase is not Phase.LIVE
+    # A genuine single-page snapshot from such an agent is still accepted, after
+    # a boundary (here: right after the stale multi-page one's last page).
+    assert decide(st, seq=4, snapshot=True, last=True, page_missing=True) is (
+        Decision.REPLACE
+    )
+    assert st.phase is Phase.LIVE
 
 
 # ------------------------------------------- through the handler (mutation guard)
@@ -138,3 +146,28 @@ def test_handler_page_zero_replaces_and_following_pages_add() -> None:
     index.on_report(live, _rep(2, snap=True, last=True, page=1))
     reps = [op.keywords["replace"] for op in live.writer.ops]  # type: ignore[attr-defined]
     assert reps == [True, False]
+
+
+def test_handler_unpaged_multipage_snapshot_is_stale_and_counted() -> None:
+    """Fix round 3, through the handler: no write is queued, the reason is
+    counted (and logged as a warning)."""
+    from types import SimpleNamespace
+
+    from meshforge.controller.cache_index import CacheIndex
+
+    class _W:
+        def __init__(self) -> None:
+            self.ops: list[object] = []
+
+        def enqueue(self, op: str, kind: object, factory: object) -> bool:
+            self.ops.append(factory)
+            return True
+
+    index = CacheIndex(store=None)  # type: ignore[arg-type]
+    live = SimpleNamespace(node_id="n", session_id="s", writer=_W())
+    index.on_report(live, _rep(1, snap=True))  # type: ignore[arg-type]
+    index.on_report(live, _rep(2, snap=True, last=True))  # type: ignore[arg-type]
+    assert live.writer.ops == []
+    assert index.stats.dropped.get("unpaged") == 2  # both pages refused
+    state = index.state("n")
+    assert state is not None and state.phase is Phase.STALE

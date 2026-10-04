@@ -116,7 +116,7 @@ def validate_report(
         return "last_without_snapshot"
     if report.snapshot and report.removed:
         return "removed_in_snapshot"
-    if report.page and not report.snapshot:
+    if report.HasField("page") and not report.snapshot:
         return "page_without_snapshot"
     added: list[CacheRow] = []
     removed: list[CacheRow] = []
@@ -150,6 +150,9 @@ class Decision(enum.StrEnum):
     GAP = "gap"
     STALE = "stale"
     """Dropped: the node's index is stale until the next snapshot."""
+    UNPAGED = "unpaged"
+    """A multi-page snapshot without ``page`` (an older agent): the node is
+    stale until a snapshot it can trust (logged as a warning)."""
 
 
 @dataclass(slots=True)
@@ -170,6 +173,7 @@ def decide(
     snapshot: bool,
     last: bool,
     page: int | None = None,
+    page_missing: bool = False,
 ) -> Decision:
     """Apply one report's sequencing to ``state`` (mutated); return what to do.
 
@@ -183,6 +187,11 @@ def decide(
     a snapshot and a page > 0 only continues one - a session whose first report
     is the tail of a snapshot goes ``stale``, never ``live``. ``None`` (callers
     without the field) keeps the seq-only rule above.
+
+    ``page_missing`` (fix round 3): a snapshot page from an agent that sends no
+    ``page`` at all. It is accepted only as a whole single-page snapshot (the
+    last page, right where a snapshot may start); any other unpaged page makes
+    the node ``stale`` - its earlier pages cannot be told apart from a lost head.
     """
     if state.last_seq and seq <= state.last_seq:
         return Decision.DUPLICATE
@@ -191,6 +200,12 @@ def decide(
     after_boundary = contiguous and state.boundary
     state.last_seq = seq
     state.boundary = (not snapshot) or last
+    if snapshot and page_missing:
+        if last and (first or after_boundary):
+            state.phase = Phase.LIVE
+            return Decision.REPLACE
+        state.phase = Phase.STALE
+        return Decision.UNPAGED
     if snapshot and page is not None:
         if page == 0:
             state.phase = Phase.LIVE if last else Phase.COLLECTING
@@ -379,6 +394,7 @@ class CacheIndex:
             snapshot=report.snapshot,
             last=report.snapshot_last,
             page=report.page if report.snapshot else None,
+            page_missing=report.snapshot and not report.HasField("page"),
         )
         if decision in (Decision.REPLACE, Decision.ADD_PAGE, Decision.DELTA):
             self.stats.applied += 1

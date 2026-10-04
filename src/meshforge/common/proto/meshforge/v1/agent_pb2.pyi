@@ -892,6 +892,9 @@ class CacheReport(_message.Message):
     snapshot, so a session whose first report is the TAIL of a snapshot (its
     head acked on an earlier session) never goes live with partial rows - the
     D101 fields alone cannot tell a first page from a tail after a loss.
+    `optional` (fix round 3): an agent that predates the field sends none, and
+    "absent" must not read as "page 0" - the controller then accepts only a
+    single-page snapshot; a multi-page one makes the node stale (logged).
     """
     @_builtins.property
     def added(self) -> _containers.RepeatedCompositeFieldContainer[Global___CacheItem]: ...
@@ -907,13 +910,15 @@ class CacheReport(_message.Message):
         snapshot_last: _builtins.bool = ...,
         added: _abc.Iterable[Global___CacheItem] | None = ...,
         removed: _abc.Iterable[Global___CacheItem] | None = ...,
-        page: _builtins.int = ...,
+        page: _builtins.int | None = ...,
     ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    _HasFieldArgType: _TypeAlias = _typing.Literal["_page", b"_page", "page", b"page"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["added", b"added", "page", b"page", "removed", b"removed", "seq", b"seq", "snapshot", b"snapshot", "snapshot_last", b"snapshot_last"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["_page", b"_page", "added", b"added", "page", b"page", "removed", b"removed", "seq", b"seq", "snapshot", b"snapshot", "snapshot_last", b"snapshot_last"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
-    def WhichOneof(self, oneof_group: _Never) -> None: ...
+    _WhichOneofReturnType__page: _TypeAlias = _typing.Literal["page"]  # noqa: Y015
+    _WhichOneofArgType__page: _TypeAlias = _typing.Literal["_page", b"_page"]  # noqa: Y015
+    def WhichOneof(self, oneof_group: _WhichOneofArgType__page) -> _WhichOneofReturnType__page | None: ...
 
 Global___CacheReport: _TypeAlias = CacheReport  # noqa: Y015
 

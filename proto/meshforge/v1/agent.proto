@@ -345,7 +345,10 @@ message CacheReport {
   // snapshot, so a session whose first report is the TAIL of a snapshot (its
   // head acked on an earlier session) never goes live with partial rows - the
   // D101 fields alone cannot tell a first page from a tail after a loss.
-  uint32 page = 6;
+  // `optional` (fix round 3): an agent that predates the field sends none, and
+  // "absent" must not read as "page 0" - the controller then accepts only a
+  // single-page snapshot; a multi-page one makes the node stale (logged).
+  optional uint32 page = 6;
 }
 
 // One cached thing (V0.5 D100).
