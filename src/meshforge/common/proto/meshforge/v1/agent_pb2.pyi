@@ -41,7 +41,7 @@ Session fencing (ADR-0002 Updates 2026-09-20, roadmap 0.3.1):
 
 Roadmap coverage: 0.1.5 envelopes/oneofs; 0.3.1 session/liveness/resource
 payloads; 0.3.4 hardware scores; 0.4.6 attempt execution (ExecutionSpec,
-AttemptStatus results). TODO(V0.4 G5): LogChunk flow. TODO(V0.5): cache/env payloads. TODO(V0.6): network probes for scheduling.
+AttemptStatus results). TODO(V0.4 G5): LogChunk flow. V0.5: CacheReport (D101), peer endpoint/key (D98/D99). TODO(V0.6): network probes for scheduling.
 """
 
 from collections import abc as _abc
@@ -332,6 +332,7 @@ class Hello(_message.Message):
     PLATFORM_FIELD_NUMBER: _builtins.int
     HARDWARE_FIELD_NUMBER: _builtins.int
     HARDWARE_SCORES_FIELD_NUMBER: _builtins.int
+    PEER_ENDPOINT_FIELD_NUMBER: _builtins.int
     node_id: _builtins.str
     protocol_version: _common_pb2.ProtocolVersion.ValueType
     """Must be set; the controller accepts a configured range of versions and
@@ -348,6 +349,13 @@ class Hello(_message.Message):
     """Operating system, e.g. "Ubuntu 24.04", "Windows 11"."""
     platform: _builtins.str
     """Normalised platform tag, e.g. "linux-x86_64", "windows-amd64"."""
+    peer_endpoint: _builtins.str
+    """"host:port" the agent's peer blob server listens on (V0.5 D97/D99); empty =
+    no peer server. The controller accepts it only when host equals the address
+    the session comes from (or [controller] trust_peer_endpoints) and 1 <= port
+    <= 65535; otherwise it is ignored (logged), never an admission failure.
+    TODO(V0.7): node identity is proven by mTLS, not by node_id.
+    """
     @_builtins.property
     def hardware(self) -> Global___HardwareSummary:
         """Static hardware inventory (roadmap 0.3.3); dynamic usage is ResourceUpdate."""
@@ -358,7 +366,6 @@ class Hello(_message.Message):
         current fingerprint (roadmap 0.3.4, D37), so a controller restart never loses
         them. Absent = "not measured for this hardware": the controller clears what
         it stored and shows the scores as pending.
-        TODO(V0.7): node identity is proven by mTLS, not by node_id.
         """
 
     def __init__(
@@ -373,10 +380,11 @@ class Hello(_message.Message):
         platform: _builtins.str = ...,
         hardware: Global___HardwareSummary | None = ...,
         hardware_scores: Global___HardwareScores | None = ...,
+        peer_endpoint: _builtins.str = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _typing.Literal["hardware", b"hardware", "hardware_scores", b"hardware_scores"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["agent_version", b"agent_version", "hardware", b"hardware", "hardware_scores", b"hardware_scores", "hostname", b"hostname", "node_id", b"node_id", "os", b"os", "platform", b"platform", "protocol_version", b"protocol_version", "session_epoch", b"session_epoch"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["agent_version", b"agent_version", "hardware", b"hardware", "hardware_scores", b"hardware_scores", "hostname", b"hostname", "node_id", b"node_id", "os", b"os", "peer_endpoint", b"peer_endpoint", "platform", b"platform", "protocol_version", b"protocol_version", "session_epoch", b"session_epoch"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
@@ -851,18 +859,110 @@ Global___ResourceUpdate: _TypeAlias = ResourceUpdate  # noqa: Y015
 
 @_typing.final
 class CacheReport(_message.Message):
+    """What a node holds in its caches (V0.5 D90/D100/D101). A report: buffered,
+    replayed after a reconnect and acked like ResourceUpdate. After every
+    accepted Hello the agent sends a paged SNAPSHOT (snapshot=true on every page,
+    snapshot_last=true on the final one), then deltas (snapshot=false). The
+    controller replaces the node's rows on the first snapshot page of a new
+    session and applies deltas only after snapshot_last; a delta that arrives
+    before it, or out of `seq` order, makes the agent resnapshot. At most 1024
+    items in added + removed together; keys are validated by kind.
+    """
+
     DESCRIPTOR: _descriptor.Descriptor
+
+    SEQ_FIELD_NUMBER: _builtins.int
+    SNAPSHOT_FIELD_NUMBER: _builtins.int
+    SNAPSHOT_LAST_FIELD_NUMBER: _builtins.int
+    ADDED_FIELD_NUMBER: _builtins.int
+    REMOVED_FIELD_NUMBER: _builtins.int
+    seq: _builtins.int
+    """Monotonic per session, starting at 1 with the first snapshot page."""
+    snapshot: _builtins.bool
+    """This message is a page of a full snapshot (added = what is held now)."""
+    snapshot_last: _builtins.bool
+    """The final page of the snapshot; deltas follow."""
+    @_builtins.property
+    def added(self) -> _containers.RepeatedCompositeFieldContainer[Global___CacheItem]: ...
+    @_builtins.property
+    def removed(self) -> _containers.RepeatedCompositeFieldContainer[Global___CacheItem]:
+        """Always empty on a snapshot page."""
 
     def __init__(
         self,
+        *,
+        seq: _builtins.int = ...,
+        snapshot: _builtins.bool = ...,
+        snapshot_last: _builtins.bool = ...,
+        added: _abc.Iterable[Global___CacheItem] | None = ...,
+        removed: _abc.Iterable[Global___CacheItem] | None = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["added", b"added", "removed", b"removed", "seq", b"seq", "snapshot", b"snapshot", "snapshot_last", b"snapshot_last"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___CacheReport: _TypeAlias = CacheReport  # noqa: Y015
+
+@_typing.final
+class CacheItem(_message.Message):
+    """One cached thing (V0.5 D100)."""
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    class _Kind:
+        ValueType = _typing.NewType("ValueType", _builtins.int)
+        V: _TypeAlias = ValueType  # noqa: Y015
+
+    class _KindEnumTypeWrapper(_enum_type_wrapper._EnumTypeWrapper[CacheItem._Kind.ValueType], _builtins.type):
+        DESCRIPTOR: _descriptor.EnumDescriptor
+        KIND_UNSPECIFIED: CacheItem._Kind.ValueType  # 0
+        KIND_BLOB: CacheItem._Kind.ValueType  # 1
+        """A CAS blob; key "sha256:<64 hex>"."""
+        KIND_TREE: CacheItem._Kind.ValueType  # 2
+        """A complete tree: the manifest and every member blob are in the CAS;
+        key = tree_id "sha256:<64 hex>".
+        """
+        KIND_ENV: CacheItem._Kind.ValueType  # 3
+        """A built environment; key = env hash (64 hex)."""
+        KIND_IMAGE: CacheItem._Kind.ValueType  # 4
+        """A container image the agent built or pinned; key "sha256:<64 hex>" image id."""
+
+    class Kind(_Kind, metaclass=_KindEnumTypeWrapper): ...
+    KIND_UNSPECIFIED: CacheItem.Kind.ValueType  # 0
+    KIND_BLOB: CacheItem.Kind.ValueType  # 1
+    """A CAS blob; key "sha256:<64 hex>"."""
+    KIND_TREE: CacheItem.Kind.ValueType  # 2
+    """A complete tree: the manifest and every member blob are in the CAS;
+    key = tree_id "sha256:<64 hex>".
+    """
+    KIND_ENV: CacheItem.Kind.ValueType  # 3
+    """A built environment; key = env hash (64 hex)."""
+    KIND_IMAGE: CacheItem.Kind.ValueType  # 4
+    """A container image the agent built or pinned; key "sha256:<64 hex>" image id."""
+
+    KIND_FIELD_NUMBER: _builtins.int
+    KEY_FIELD_NUMBER: _builtins.int
+    SIZE_FIELD_NUMBER: _builtins.int
+    kind: Global___CacheItem.Kind.ValueType
+    key: _builtins.str
+    size: _builtins.int
+    """Bytes on disk (0 when unknown)."""
+    def __init__(
+        self,
+        *,
+        kind: Global___CacheItem.Kind.ValueType = ...,
+        key: _builtins.str = ...,
+        size: _builtins.int = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["key", b"key", "kind", b"kind", "size", b"size"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___CacheItem: _TypeAlias = CacheItem  # noqa: Y015
 
 @_typing.final
 class NetProbeResult(_message.Message):
@@ -1348,6 +1448,7 @@ class RefreshFetchToken(_message.Message):
     FETCH_TOKEN_FIELD_NUMBER: _builtins.int
     BLOB_URL_FIELD_NUMBER: _builtins.int
     BLOB_PORT_FIELD_NUMBER: _builtins.int
+    SOURCES_FIELD_NUMBER: _builtins.int
     attempt_id: _builtins.str
     fencing_token: _builtins.int
     fetch_token: _builtins.str
@@ -1358,6 +1459,13 @@ class RefreshFetchToken(_message.Message):
     the StartAttempt's values for this attempt's controller fetches.
     """
     blob_port: _builtins.int
+    @_builtins.property
+    def sources(self) -> _containers.RepeatedCompositeFieldContainer[Global___BlobSource]:
+        """The attempt's source list re-minted (V0.5 D98): the controller first (its
+        token = fetch_token above) then peer holders with fresh peer tokens.
+        Replaces the StartAttempt's ExecutionSpec.sources for this attempt.
+        """
+
     def __init__(
         self,
         *,
@@ -1366,10 +1474,11 @@ class RefreshFetchToken(_message.Message):
         fetch_token: _builtins.str = ...,
         blob_url: _builtins.str = ...,
         blob_port: _builtins.int = ...,
+        sources: _abc.Iterable[Global___BlobSource] | None = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["attempt_id", b"attempt_id", "blob_port", b"blob_port", "blob_url", b"blob_url", "fencing_token", b"fencing_token", "fetch_token", b"fetch_token"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["attempt_id", b"attempt_id", "blob_port", b"blob_port", "blob_url", b"blob_url", "fencing_token", b"fencing_token", "fetch_token", b"fetch_token", "sources", b"sources"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
@@ -1481,6 +1590,7 @@ class HelloAck(_message.Message):
     CONTROLLER_TIME_FIELD_NUMBER: _builtins.int
     REJECT_CODE_FIELD_NUMBER: _builtins.int
     REJECT_REASON_FIELD_NUMBER: _builtins.int
+    PEER_TOKEN_KEY_FIELD_NUMBER: _builtins.int
     accepted: _builtins.bool
     session_id: _builtins.str
     """Set when accepted; both sides put it in envelope field 3 from now on."""
@@ -1491,6 +1601,11 @@ class HelloAck(_message.Message):
     """Set only when accepted == false."""
     reject_reason: _builtins.str
     """Human-readable detail for logs; must never contain secrets."""
+    peer_token_key: _builtins.bytes
+    """The controller's Ed25519 public key (raw 32 bytes) that signs peer blob
+    tokens (V0.5 D98). Set when accepted; the agent's peer server verifies
+    tokens with the key of its CURRENT session only.
+    """
     @_builtins.property
     def controller_time(self) -> _timestamp_pb2.Timestamp:
         """Controller wall clock when the ack was sent (clock-skew estimate only)."""
@@ -1505,10 +1620,11 @@ class HelloAck(_message.Message):
         controller_time: _timestamp_pb2.Timestamp | None = ...,
         reject_code: Global___HelloAck.RejectCode.ValueType = ...,
         reject_reason: _builtins.str = ...,
+        peer_token_key: _builtins.bytes = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _typing.Literal["controller_time", b"controller_time"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["accepted", b"accepted", "controller_time", b"controller_time", "heartbeat_interval_ms", b"heartbeat_interval_ms", "lease_ms", b"lease_ms", "reject_code", b"reject_code", "reject_reason", b"reject_reason", "session_id", b"session_id"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["accepted", b"accepted", "controller_time", b"controller_time", "heartbeat_interval_ms", b"heartbeat_interval_ms", "lease_ms", b"lease_ms", "peer_token_key", b"peer_token_key", "reject_code", b"reject_code", "reject_reason", b"reject_reason", "session_id", b"session_id"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 

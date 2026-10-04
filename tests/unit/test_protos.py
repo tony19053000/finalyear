@@ -242,11 +242,10 @@ def test_v01_field_numbers_are_unchanged() -> None:
             field = desc.fields_by_name.get(name)
             assert field is not None, f"{message}.{name} was removed"
             assert field.number == number, f"{message}.{name} renumbered"
-    # The two payloads that were placeholders in V0.1 must still have no other
-    # message squatting on their reserved range.
-    for message in ("CacheReport", "GcRequest"):
-        desc = agent_pb2.DESCRIPTOR.message_types_by_name[message]
-        assert desc.fields == [], f"{message} must stay empty until its version"
+    # GcRequest is still a V0.1 placeholder: nothing may squat on its reserved
+    # range. CacheReport was filled in V0.5 (D101, pinned below).
+    desc = agent_pb2.DESCRIPTOR.message_types_by_name["GcRequest"]
+    assert desc.fields == [], "GcRequest must stay empty until its version"
 
 
 def test_session_id_is_envelope_field_3_on_both_envelopes() -> None:
@@ -644,3 +643,58 @@ def test_goodbye_field_numbers_are_pinned() -> None:
     parsed = agent_pb2.AgentMessage.FromString(wire)
     assert parsed.WhichOneof("payload") == "goodbye"
     assert parsed.goodbye.detail == "stop"
+
+
+# ---------------------------------------------------------------------------
+# V0.5 G4: peers and cache reports (D98, D99, D101)
+# ---------------------------------------------------------------------------
+
+
+def test_v05_g4_field_numbers_are_pinned() -> None:
+    hello_ack = agent_pb2.HelloAck.DESCRIPTOR.fields_by_name["peer_token_key"]
+    assert hello_ack.number == 8
+    assert hello_ack.type == hello_ack.TYPE_BYTES
+    hello = agent_pb2.Hello.DESCRIPTOR.fields_by_name["peer_endpoint"]
+    assert hello.number == 10
+    assert hello.type == hello.TYPE_STRING
+    refresh = agent_pb2.RefreshFetchToken.DESCRIPTOR.fields_by_name["sources"]
+    assert refresh.number == 6
+    assert refresh.is_repeated
+    assert refresh.message_type is agent_pb2.BlobSource.DESCRIPTOR
+    assert {f.name: f.number for f in agent_pb2.CacheReport.DESCRIPTOR.fields} == {
+        "seq": 1,
+        "snapshot": 2,
+        "snapshot_last": 3,
+        "added": 4,
+        "removed": 5,
+    }
+    assert {f.name: f.number for f in agent_pb2.CacheItem.DESCRIPTOR.fields} == {
+        "kind": 1,
+        "key": 2,
+        "size": 3,
+    }
+    kind = agent_pb2.CacheItem.Kind
+    assert {name: kind.Value(name) for name in kind.keys()} == {
+        "KIND_UNSPECIFIED": 0,
+        "KIND_BLOB": 1,
+        "KIND_TREE": 2,
+        "KIND_ENV": 3,
+        "KIND_IMAGE": 4,
+    }
+    wire = agent_pb2.AgentMessage(
+        message_id="m-1",
+        session_id="sess-1",
+        cache_report=agent_pb2.CacheReport(
+            seq=1,
+            snapshot=True,
+            snapshot_last=True,
+            added=[
+                agent_pb2.CacheItem(
+                    kind=agent_pb2.CacheItem.KIND_TREE, key="sha256:" + "a" * 64
+                )
+            ],
+        ),
+    ).SerializeToString()
+    parsed = agent_pb2.AgentMessage.FromString(wire)
+    assert parsed.WhichOneof("payload") == "cache_report"
+    assert parsed.cache_report.added[0].kind == agent_pb2.CacheItem.KIND_TREE

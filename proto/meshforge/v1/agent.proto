@@ -33,7 +33,7 @@
 //
 // Roadmap coverage: 0.1.5 envelopes/oneofs; 0.3.1 session/liveness/resource
 // payloads; 0.3.4 hardware scores; 0.4.6 attempt execution (ExecutionSpec,
-// AttemptStatus results). TODO(V0.4 G5): LogChunk flow. TODO(V0.5): cache/env payloads. TODO(V0.6): network probes for scheduling.
+// AttemptStatus results). TODO(V0.4 G5): LogChunk flow. V0.5: CacheReport (D101), peer endpoint/key (D98/D99). TODO(V0.6): network probes for scheduling.
 syntax = "proto3";
 
 package meshforge.v1;
@@ -139,6 +139,11 @@ message Hello {
   // them. Absent = "not measured for this hardware": the controller clears what
   // it stored and shows the scores as pending.
   HardwareScores hardware_scores = 9;
+  // "host:port" the agent's peer blob server listens on (V0.5 D97/D99); empty =
+  // no peer server. The controller accepts it only when host equals the address
+  // the session comes from (or [controller] trust_peer_endpoints) and 1 <= port
+  // <= 65535; otherwise it is ignored (logged), never an admission failure.
+  string peer_endpoint = 10;
   // TODO(V0.7): node identity is proven by mTLS, not by node_id.
 }
 
@@ -315,9 +320,44 @@ message ResourceUpdate {
   uint64 sequence = 7;
 }
 
+// What a node holds in its caches (V0.5 D90/D100/D101). A report: buffered,
+// replayed after a reconnect and acked like ResourceUpdate. After every
+// accepted Hello the agent sends a paged SNAPSHOT (snapshot=true on every page,
+// snapshot_last=true on the final one), then deltas (snapshot=false). The
+// controller replaces the node's rows on the first snapshot page of a new
+// session and applies deltas only after snapshot_last; a delta that arrives
+// before it, or out of `seq` order, makes the agent resnapshot. At most 1024
+// items in added + removed together; keys are validated by kind.
 message CacheReport {
-  // TODO(V0.5): digests present in the node's CAS blob cache.
-  reserved 1 to 9;
+  // Monotonic per session, starting at 1 with the first snapshot page.
+  uint64 seq = 1;
+  // This message is a page of a full snapshot (added = what is held now).
+  bool snapshot = 2;
+  // The final page of the snapshot; deltas follow.
+  bool snapshot_last = 3;
+  repeated CacheItem added = 4;
+  // Always empty on a snapshot page.
+  repeated CacheItem removed = 5;
+}
+
+// One cached thing (V0.5 D100).
+message CacheItem {
+  enum Kind {
+    KIND_UNSPECIFIED = 0;
+    // A CAS blob; key "sha256:<64 hex>".
+    KIND_BLOB = 1;
+    // A complete tree: the manifest and every member blob are in the CAS;
+    // key = tree_id "sha256:<64 hex>".
+    KIND_TREE = 2;
+    // A built environment; key = env hash (64 hex).
+    KIND_ENV = 3;
+    // A container image the agent built or pinned; key "sha256:<64 hex>" image id.
+    KIND_IMAGE = 4;
+  }
+  Kind kind = 1;
+  string key = 2;
+  // Bytes on disk (0 when unknown).
+  uint64 size = 3;
 }
 
 message NetProbeResult {
@@ -499,6 +539,10 @@ message RefreshFetchToken {
   // the StartAttempt's values for this attempt's controller fetches.
   string blob_url = 4;
   uint32 blob_port = 5;
+  // The attempt's source list re-minted (V0.5 D98): the controller first (its
+  // token = fetch_token above) then peer holders with fresh peer tokens.
+  // Replaces the StartAttempt's ExecutionSpec.sources for this attempt.
+  repeated BlobSource sources = 6;
 }
 
 message ProbeRequest {
@@ -547,6 +591,10 @@ message HelloAck {
   RejectCode reject_code = 6;
   // Human-readable detail for logs; must never contain secrets.
   string reject_reason = 7;
+  // The controller's Ed25519 public key (raw 32 bytes) that signs peer blob
+  // tokens (V0.5 D98). Set when accepted; the agent's peer server verifies
+  // tokens with the key of its CURRENT session only.
+  bytes peer_token_key = 8;
 }
 
 // Receipt used in both directions (ADR-0002): in ControllerMessage it acks an
