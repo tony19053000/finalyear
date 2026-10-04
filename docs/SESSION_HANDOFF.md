@@ -9,8 +9,8 @@
 > ```
 > Read docs/SESSION_HANDOFF.md (§0e first, then §1 and §2), then docs/STATUS.md, then
 > docs/briefs/V0.5-data-plane.md. RULE: run ONE subagent at a time (team, re-imposed 2026-10-01).
-> V0.5 G1, G2, G3 + stabilisation are CLOSED; wave 2 briefs are in §5d/§5e. Next: continue G4
-> (implementer → tester → reviewer, see §2), then G5 the same way.
+> V0.5 G1, G2, G3 + stabilisation CLOSED. G4 (brief §5d): implementer + fix round 1 done, tester
+> round 2 was running — see §2 "G4 state". Next: G4 tester r2 result → reviewer → close; then G5 (§5e).
 > Check git log and docs/briefs/progress/ first to see which round last finished.
 > ```
 >
@@ -31,7 +31,7 @@
 > throughput measurements and the reasoning; if you think the arithmetic or the trade is wrong,
 > **say so to the team before building on it.** Do not silently re-expand the scope either.
 
-**Last updated:** 2026-10-04 (**V0.4 agent-side closed; V0.5 G1 + G2 + G3 CLOSED** — 0.5.1, 0.5.2, 0.5.7 `[x]`; stabilisation lane + D95 done but **not reviewed**; **one subagent at a time** (§0e); nothing running) · **Updated by:** Lead session
+**Last updated:** 2026-10-04 late (**V0.5 G1 + G2 + G3 + stabilisation CLOSED**; wave 2 briefs written (§5d G4, §5e G5, D96–D101); **G4: implementer + fix round 1 done, tester round 2 RUNNING**; one subagent at a time (§0e)) · **Updated by:** Lead session
 
 ---
 
@@ -230,7 +230,7 @@ the 🧑 0.3.15 lab run closes V0.3 (the Lead recommends yes — the lab run is 
 ## 0e. 🔴 ONE SUBAGENT AT A TIME AGAIN — team decision 2026-10-01 (evening)
 
 The user re-imposed the one-agent rule after the parallel wave hit the usage limit twice. **Run exactly one subagent at a time.**
-**State 2026-10-02 (usage limit hit):** V0.5 G1, G2, G3 CLOSED (0.5.1, 0.5.2, 0.5.7 `[x]`). Stabilisation lane DONE incl. D95 fetch-token refresh (`97f347e` … `732b77f`), **not yet reviewed**. Nothing running. **Next: (1) one reviewer over 97f347e … 732b77f (flaky-test fixes + D95 RefreshFetchToken payload 18 + agent staging retry); (2) Lead writes wave 2 briefs G4/G5 in docs/briefs/V0.5-data-plane.md (scope rows already list the carried items); (3) G4 implementer.** Old queue below is done.
+**State 2026-10-04 late:** V0.5 G1, G2, G3 and the stabilisation lane (+ D95, reviewer APPROVE) CLOSED. Wave 2 briefs written. **G4 tester round 2 RUNNING** — see §2 "G4 state" for exactly where G4 is.
 
 **Queue at the switch (in this order):** (1) G1 fix round 2 — resume from `wip` `f0febfe` (reviewer blocking: tree_members cache, 64 GiB cap + >5 GB sparse test; non-blocking items) → G1 tester round 3 → G1 reviewer pass 2 → close 0.5.1/0.5.2. (2) G2 tester round 3 on `60de165` → G2 reviewer → close 0.5.7/0.5.8-local. (3) Stabilisation lane — resume from `wip` `7e4525f` (`97f347e` already fixed the slow-follower double count; probe file `tests/component/agent/test_zz_stab_probe_tmp.py` is temporary and must be deleted). (4) Wave 2 briefs G4, G5.
 
@@ -271,8 +271,9 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
   - `[x]` **0.5.1** CAS store, **0.5.2** tree manifests + have/need (G1); **0.5.7** cached environments + venv runtime (G2).
   - `[~]` **0.5.8** base images — local part (pinned digests, `meshforge-agent prepare`) done in G2; controller-driven `compute node prepare` is G5.
   - G3 (V0.4 debt: upload deadline, log GC, persisted log gaps) closed — not a roadmap checkbox.
-  - Stabilisation lane done, **unreviewed**: flaky tests made load-robust (slow-follower double count was a real bug), **D95** a controller restart during staging re-mints the fetch token (`RefreshFetchToken`, ControllerMessage payload 18) and the agent retries within `staging_retry_s`.
-  - Not started: wave 2 — **G4** (0.5.3 peer blob server, 0.5.4 parallel multi-source fetch, 0.5.10 transfer telemetry + carried items) and **G5** (0.5.5 cache index, 0.5.6 named inputs, 0.5.9 GC, 0.5.8 controller part, controller CAS scrub). Scope rows with carried items are in the brief §3. 🧑 0.5.11 lab after them.
+  - Stabilisation lane (closed, see below): flaky tests made load-robust (slow-follower double count was a real bug), **D95** a controller restart during staging re-mints the fetch token (`RefreshFetchToken`, ControllerMessage payload 18) and the agent retries within `staging_retry_s`.
+  - Wave 2 (D96 regrouping): **G4** (0.5.3 peer server, 0.5.4 multi-source fetch, 0.5.5 cache index) — implementer + fix round 1 done, tester r2 running (§2 "G4 state"); **G5** (0.5.6 named inputs, 0.5.9 GC, 0.5.10 telemetry, 0.5.8 controller part, CAS scrub, 0.5.11 lab checklist) — brief §5e ready. 🧑 0.5.11 lab after them.
+  - Stabilisation lane + D95: reviewer APPROVE 2026-10-04 → CLOSED; upload-grant refresh → roadmap 0.6.14.
 - **V0.4 (remote execution): agent-side CLOSED** (13/17 `[x]`). Left: 🧑 0.4.15 lab run (`lab/checklists/V0.4-remote-exec.md`), 0.4.2 (Windows CI digest), 0.4.8 (real PyTorch CUDA run), 0.4.17 (Windows item).
 - **V0.3:** closed agent-side; only 🧑 0.3.15 lab run + Windows checks (0.3.2, 0.3.13, G7) remain.
 - **V0.2:** all agent-side spike work is complete with reviewer APPROVE (S1 `ef065ac`, S2 `633d474`, S3 `81d620f`,
@@ -284,6 +285,15 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 2. In flight right now
 
+> ### G4 state (2026-10-04 late) — read this first
+> - **Scope** (brief §5d, D96 regrouping): 0.5.3 peer blob server, 0.5.4 multi-source parallel fetch, 0.5.5 cache reports + location index, + carried items. `h11` added to the agent extra (D97, `a38ad8c`).
+> - **Implementer DONE:** `7945c60` … `b8d12b3` (8 deliverables). Its deviations D1–D7: CacheReport.seq process-wide; no resnapshot request (gap → stale, agent resnapshots at Hello + every 900 s); >256 KiB bodies = header + sendfile; bad peer endpoint ignored not rejected; 401 no token / 403 other; peer tokens 10 min, not refreshed mid-transfer (peers dropped, controller finishes); `common/cas.py` on_change hook + optional `JobRecord.bundle_digest`. Found delayed-ACK cause (REST listener socket not IPPROTO_TCP → no TCP_NODELAY): 43 ms → 1.7 ms. Loopback 1 GiB from 2 peers 4.88 s (not a benchmark claim).
+> - **Tester round 1: FAIL** (`69e393a` … `f15c1f9`, ~110 tests): 2 major regressions (cluster resource-replay test; cas.py stat race from `98a2478`), resume-counter drift, FIFO stalls peer server, lost snapshot page → LIVE, deleted-behind-cache blob kept.
+> - **Fix round 1 DONE:** `3cb1e7b` `da1bc88` `71f7e71` `d873279` `4ff6714` `fcd9727` `32c31fb` `c57bb61` (new `[agent.cache] enabled`, off only in the resource-replay cluster test). Unit 5382 / cluster 55 exit 0; whole component 931 passed + **2 load-only failures** (`test_g5_log_write_failure` symlink test: node SUSPECT at submit; `test_controller_process` SIGTERM: gRPC INTERNAL) — pass alone, not G4 code; tester r2 to judge whether G4 load contributes.
+> - **Tester round 2 RUNNING** (verify 6 fixes, mutation-check 2, investigate the 2 load failures vs pre-G4 `7290a75`, full exit list). If the session died: check `git log --grep 'test(V0.5-G4)'` after `c57bb61`, then re-spawn a tester with that scope.
+> - **Then:** reviewer → close G4 (0.5.3, 0.5.4, 0.5.5 `[x]` with evidence, bars, STATUS, PROJECT_SUMMARY if needed) → G5 implementer from §5e.
+> - **Follow-ups noted (not blocking):** split `agent/cas/fetcher.py` (~850 lines); peer-token refresh for >10 min transfers; controller cannot request a resnapshot; cache reports share the replay ring with attempt statuses; `tests/component/lab/test_s1_server_upload_limit.py` pre-existing flake (1/12); 🧑 lab: open TCP 47120 on LAN profile + `[agent.peer] bind` (OPERATIONS §0d).
+>
 > **2026-10-04 (session 2) — stabilisation lane + D95 reviewer APPROVE → CLOSED** (step 1 below done; its 3 non-blocking items carried into G4). Wave 2 briefs WRITTEN (brief §5d G4, §5e G5; D96–D101; `h11` dep added). **G4 implementer DONE** (all 8 deliverables, `7945c60` … `64cefa1`; unit 5377, component agent+controller 494, gates exit 0; handoff `b8d12b3`; deviations D1–D7 in its report, summarised in the tester prompt). **G4 tester round 1: FAIL** (`69e393a` … `f15c1f9`): 2 major regressions — cluster `test_fabric_resource_replay` red since `7772e7c` (cache reports share the report sequence), `common/cas.py` `_open_locked` stat race from `98a2478` (13/25 flaky) — plus resume-counter undercount (major), FIFO blocks peer server, lost snapshot page → LIVE, deleted-behind-cache blob never repaired. **G4 fix round 1 DONE** (`32c31fb` … `c57bb61`; unit 5382 / cluster 55 exit 0; whole component 931 passed + 2 load-only failures: test_g5_log_write_failure symlink (node SUSPECT at submit), test_controller_process SIGTERM (gRPC INTERNAL)). **G4 tester round 2 RUNNING.** If it died: re-spawn a tester on §5d + commits `7945c60` … `b8d12b3`; whole component suite was NOT re-run by the implementer after `4771940`. If this session died: check `git log --grep V0.5-G4` + `docs/briefs/progress/V0.5-G4.md`, commit its uncommitted edits as `wip`, relaunch the implementer with §5d + "resume from <last done item>". Then G4 tester → reviewer → close; then G5.
 >
 > Exact next steps, ONE agent at a time:
