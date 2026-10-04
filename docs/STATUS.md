@@ -2,7 +2,7 @@
 
 > Concise current state. Long-term plan: [`DEVELOPMENT_ROADMAP.md`](DEVELOPMENT_ROADMAP.md). Update at the end of every work session.
 
-**Last updated:** 2026-10-01 evening (**V0.4 G1–G5 closed** + G5 follow-up batch done; **V0.5: G1, G2, G3 CLOSED; stabilisation next, then wave 2**; back to one agent at a time; V0.4 formally closes on the 🧑 0.4.15 lab run)
+**Last updated:** 2026-10-04 (**V0.5: G1, G2, G3 + stabilisation CLOSED; wave 2 briefs written (G4 §5d, G5 §5e; D96–D101); G4 implementer RUNNING**; one agent at a time)
 
 ## Progress
 
@@ -31,7 +31,7 @@ V1.0    ░░░░░░░░░░░░░░░░░░░░   0%   0/8 
 
 ## Current Version
 **V0.4 — Remote execution core** · started 2026-09-28 · **G1–G5 closed** (0.4.1, 0.4.3–0.4.7, 0.4.9, 0.4.10, 0.4.11–0.4.14, 0.4.16 `[x]`; 0.4.2 `[~]` Windows CI digest; 0.4.8 `[~]` real CUDA run; 0.4.17 `[~]`) · closes on 🧑 0.4.15 lab run
-**V0.5 — Data plane & environments** · started 2026-10-01 · brief `docs/briefs/V0.5-data-plane.md` (D79–D94) · **G3 (V0.4 debt D94) CLOSED** · **G1 (0.5.1, 0.5.2) CLOSED** · **G2 (0.5.7) CLOSED** · G4, G5 (wave 2) not started
+**V0.5 — Data plane & environments** · started 2026-10-01 · brief `docs/briefs/V0.5-data-plane.md` (D79–D94) · **G3 (V0.4 debt D94) CLOSED** · **G1 (0.5.1, 0.5.2) CLOSED** · **G2 (0.5.7) CLOSED** · G4 implementer running, G5 brief ready
 **V0.3 — Fabric core** · started 2026-09-20 on the team's decision (before the laptop 2–4 inventory); **G1–G7 closed agent-side** (0.3.1, 0.3.3, 0.3.4, 0.3.5, 0.3.6, 0.3.8, 0.3.9, 0.3.10, 0.3.11, 0.3.12, 0.3.14 `[x]`; 0.3.2 `[~]` Windows run; 0.3.7 `[~]` lab evidence; 0.3.13 `[~]` Windows logoff check). Remaining: **only 🧑 0.3.15 lab run** (+ the three 🧑 Windows checks)
 V0.2 — Lab setup & feasibility validation · agent-side complete, waiting on 🧑 lab runs
 V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4, 0.1.10)
@@ -48,7 +48,7 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 - **V0.5 G1** (CAS, tree manifests, have/need) — ✅ **CLOSED 2026-10-01**: 0.5.1, 0.5.2  (see Recently Completed).
 - **V0.5 G2** (environments, venv runtime, base images) — ✅ **CLOSED 2026-10-01**: 0.5.7 `[x]`, 0.5.8 `[~]` (controller part in G5).
 - **Stabilisation lane** (load-flaky V0.4 tests): slow-follower double count fixed `97f347e`; flaky tests fixed (`35c5274` `861d712`) + D95 fetch-token refresh (`c76288e` `732b77f`) → ✅ **reviewer APPROVE 2026-10-04** (no blocking; gates + targeted tests exit 0). Non-blocking → G4: peer-401 must not wait for a controller refresh; deadline check before every staging retry; unit test that refresh scope == StartAttempt scope. Upload grants not refreshed: accepted for V0.5, roadmap item added to V0.6. **Stabilisation lane CLOSED.**
-- **Then:** wave 2 briefs (G4 peers/parallel fetch/telemetry, G5 cache index/GC/named inputs/node prepare).
+- **Wave 2 briefs written 2026-10-04** (D96 regroups: G4 = 0.5.3/0.5.4/0.5.5 peers + multi-source fetch + cache index; G5 = 0.5.6/0.5.9/0.5.10/0.5.8-ctl GC, named inputs, telemetry, node prepare). `h11` made explicit in the agent extra (D97). **G4 implementer RUNNING** — progress `docs/briefs/progress/V0.5-G4.md`, commits `feat(V0.5-G4)`.
 - 🧑 in parallel: **0.4.15 lab run** (`lab/checklists/V0.4-remote-exec.md`), S3 two-laptop runs (calibrate V0.5 transport).
 
 **Open team question (NB-2), still unanswered:** where NVML is missing but `nvidia-smi` works, a node reports its GPUs in `Hello.hardware` but **never** GPU util/VRAM in any `ResourceUpdate` — so V0.9 telemetry and the V0.15 ML planner would train on a node that looks GPU-equipped and never uses it. Refusing a subprocess every 2 s was right; the option to cost is a low-cadence (~30 s, interpolated) `nvidia-smi` poll behind a setting.

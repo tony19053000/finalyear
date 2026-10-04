@@ -73,6 +73,9 @@ agent = [
     # shipped by this wheel (found via `uv.find_uv_bin()`), so every node has the same
     # pinned uv without a separate install step - Windows included.
     "uv>=0.10",
+    # V0.5 G4 (brief D97): the agent's read-only peer blob server parses HTTP/1.1 with
+    # h11 (already installed via httpx/httpcore; explicit because the agent imports it).
+    "h11>=0.16",
 ]
 # CPU/CUDA variant selection (PyTorch wheel index per platform) is decided in V0.2;
 # here torch comes from the default index. Only installed with `--extra gpu`.

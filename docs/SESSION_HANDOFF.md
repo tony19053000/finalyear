@@ -9,8 +9,8 @@
 > ```
 > Read docs/SESSION_HANDOFF.md (§0e first, then §1 and §2), then docs/STATUS.md, then
 > docs/briefs/V0.5-data-plane.md. RULE: run ONE subagent at a time (team, re-imposed 2026-10-01).
-> V0.5 G1, G2, G3 are CLOSED. Next: one reviewer over the stabilisation lane + D95 (commits
-> 97f347e … 732b77f), then the Lead writes the wave 2 briefs (G4, G5) and spawns the G4 implementer.
+> V0.5 G1, G2, G3 + stabilisation are CLOSED; wave 2 briefs are in §5d/§5e. Next: continue G4
+> (implementer → tester → reviewer, see §2), then G5 the same way.
 > Check git log and docs/briefs/progress/ first to see which round last finished.
 > ```
 >
@@ -284,7 +284,7 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 2. In flight right now
 
-> **2026-10-04 (session 2) — stabilisation lane + D95 reviewer APPROVE → CLOSED** (step 1 below done; its 3 non-blocking items carried into G4). Lead is writing the wave 2 briefs (G4/G5) now; nothing running.
+> **2026-10-04 (session 2) — stabilisation lane + D95 reviewer APPROVE → CLOSED** (step 1 below done; its 3 non-blocking items carried into G4). Wave 2 briefs WRITTEN (brief §5d G4, §5e G5; D96–D101; `h11` dep added). **G4 implementer RUNNING (the only agent).** If this session died: check `git log --grep V0.5-G4` + `docs/briefs/progress/V0.5-G4.md`, commit its uncommitted edits as `wip`, relaunch the implementer with §5d + "resume from <last done item>". Then G4 tester → reviewer → close; then G5.
 >
 > Exact next steps, ONE agent at a time:
 > 1. **Reviewer** over the stabilisation lane + D95: commits `97f347e` `35c5274` `861d712` `c76288e` `732b77f` (LogHub slow-follower count, tolerant liveness profile in `tests/_support/mf_controller_harness.py` used only where the lease is not under test, FaultLink FIN-vs-RST close, D95 RefreshFetchToken + agent staging retry). Known limitation to rule on: upload grants are not refreshed across a restart (→ `output_error`).

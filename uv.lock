@@ -693,6 +693,7 @@ dependencies = [
 [package.optional-dependencies]
 agent = [
     { name = "docker" },
+    { name = "h11" },
     { name = "numpy" },
     { name = "nvidia-ml-py" },
     { name = "psutil" },
@@ -738,6 +739,7 @@ requires-dist = [
     { name = "docker", marker = "extra == 'agent'", specifier = ">=7.1" },
     { name = "fastapi", marker = "extra == 'controller'", specifier = ">=0.141" },
     { name = "grpcio", specifier = ">=1.84" },
+    { name = "h11", marker = "extra == 'agent'", specifier = ">=0.16" },
     { name = "httpx", specifier = ">=0.28" },
     { name = "numpy", marker = "extra == 'agent'", specifier = ">=2.3" },
     { name = "nvidia-ml-py", marker = "extra == 'agent'", specifier = ">=13.610" },
