@@ -284,7 +284,7 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 2. In flight right now
 
-> **2026-10-04 (session 2) — stabilisation REVIEWER RUNNING** (the only agent). If this session died: re-spawn the reviewer with the §2 step 1 scope below. Lead is drafting the wave 2 briefs (G4/G5) meanwhile.
+> **2026-10-04 (session 2) — stabilisation lane + D95 reviewer APPROVE → CLOSED** (step 1 below done; its 3 non-blocking items carried into G4). Lead is writing the wave 2 briefs (G4/G5) now; nothing running.
 >
 > Exact next steps, ONE agent at a time:
 > 1. **Reviewer** over the stabilisation lane + D95: commits `97f347e` `35c5274` `861d712` `c76288e` `732b77f` (LogHub slow-follower count, tolerant liveness profile in `tests/_support/mf_controller_harness.py` used only where the lease is not under test, FaultLink FIN-vs-RST close, D95 RefreshFetchToken + agent staging retry). Known limitation to rule on: upload grants are not refreshed across a restart (→ `output_error`).

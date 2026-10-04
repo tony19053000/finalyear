@@ -377,6 +377,7 @@ A version is **complete** only when all apply:
 - [ ] **0.6.11** Local execution path via the submitting laptop's own agent
 - [ ] **0.6.12** Chaos suite in cluster harness (random kills, partitions, controller restarts)
 - [ ] **0.6.13** 🧑 Lab: 100-job mixed run on 4 laptops with scripted disruptions
+- [ ] **0.6.14** Refresh upload grants on Reconcile for RUNNING/UPLOADING attempts (mirror V0.5 D95; today a controller restart during an upload ends the attempt `output_error`) — from the V0.5 stabilisation review 2026-10-04
 
 **Testing:** unit (policies, feasibility, estimator) · cluster chaos · lab 🧑.
 **Success criteria**

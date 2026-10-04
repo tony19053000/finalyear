@@ -9,14 +9,14 @@
 Generated from the roadmap checkboxes by `uv run python scripts/status_bars.py` — **re-run it and replace this block whenever checkboxes change.** Deferred versions (V0.11, V0.12, V0.13, V0.16) and deferred tasks are not counted. A task is only █ when it is `[x]` (tester + reviewer + evidence); written-but-unreviewed code is ▒.
 
 ```
-TOTAL   █████▒▒░░░░░░░░░░░░░  24%  38/154 done, 16 in progress
+TOTAL   █████▒▒░░░░░░░░░░░░░  24%  38/155 done, 16 in progress
 
 V0.1    █████████████████▒▒▒  83%  10/12  Foundations & engineering system
 V0.2    ██▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░░   9%   1/11  Lab setup & feasibility validation
 V0.3    ███████████████▒▒▒▒░  73%  11/15  Fabric core: controller ⇄ agent
 V0.4    ███████████████▒▒▒▒░  76%  13/17  Remote execution core (Mode 1 foundation)
 V0.5    █████▒▒░░░░░░░░░░░░░  27%   3/11  Data plane & environments
-V0.6    ░░░░░░░░░░░░░░░░░░░░   0%   0/13  Scheduling & reliability — Mode 1 complete
+V0.6    ░░░░░░░░░░░░░░░░░░░░   0%   0/14  Scheduling & reliability — Mode 1 complete
 V0.7    ░░░░░░░░░░░░░░░░░░░░   0%   0/11  Security & pairing
 V0.8    ░░░░░░░░░░░░░░░░░░░░   0%   0/10  Dashboard & CLI v1
 V0.9    ░░░░░░░░░░░░░░░░░░░░   0%   0/10  Benchmark & telemetry system v1
@@ -26,6 +26,7 @@ V0.15   ░░░░░░░░░░░░░░░░░░░░   0%   0/10
 V0.17   ░░░░░░░░░░░░░░░░░░░░   0%   0/8   Productization
 V1.0    ░░░░░░░░░░░░░░░░░░░░   0%   0/8   Release hardening & final evaluation
 ```
+█ done `[x]` · ▒ in progress or waiting on a 🧑 lab step `[~]` · ░ not started
 █ done `[x]` · ▒ in progress or waiting on a 🧑 lab step `[~]` · ░ not started
 
 ## Current Version
@@ -46,7 +47,7 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 - **V0.5 G3** (V0.4 debt: upload deadline, log GC, log gaps) — ✅ **CLOSED 2026-10-01** (see Recently Completed).
 - **V0.5 G1** (CAS, tree manifests, have/need) — ✅ **CLOSED 2026-10-01**: 0.5.1, 0.5.2  (see Recently Completed).
 - **V0.5 G2** (environments, venv runtime, base images) — ✅ **CLOSED 2026-10-01**: 0.5.7 `[x]`, 0.5.8 `[~]` (controller part in G5).
-- **Stabilisation lane** (load-flaky V0.4 tests): slow-follower double count fixed `97f347e`; flaky tests fixed (`35c5274` `861d712`) + D95 fetch-token refresh (`c76288e` `732b77f`) → **reviewer RUNNING (2026-10-04)** over 97f347e … 732b77f.
+- **Stabilisation lane** (load-flaky V0.4 tests): slow-follower double count fixed `97f347e`; flaky tests fixed (`35c5274` `861d712`) + D95 fetch-token refresh (`c76288e` `732b77f`) → ✅ **reviewer APPROVE 2026-10-04** (no blocking; gates + targeted tests exit 0). Non-blocking → G4: peer-401 must not wait for a controller refresh; deadline check before every staging retry; unit test that refresh scope == StartAttempt scope. Upload grants not refreshed: accepted for V0.5, roadmap item added to V0.6. **Stabilisation lane CLOSED.**
 - **Then:** wave 2 briefs (G4 peers/parallel fetch/telemetry, G5 cache index/GC/named inputs/node prepare).
 - 🧑 in parallel: **0.4.15 lab run** (`lab/checklists/V0.4-remote-exec.md`), S3 two-laptop runs (calibrate V0.5 transport).
 
