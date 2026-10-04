@@ -26,6 +26,7 @@ from meshforge.common.config import MeshForgeSettings, SectionModel
 from meshforge.common.fabric_token import CONTROLLER_DIR_NAME, default_token_path
 from meshforge.common.netaddr import parse_bind
 from meshforge.controller.liveness import LivenessConfig
+from meshforge.controller.peer_signing import KEY_FILE_NAME as PEER_KEY_FILE_NAME
 from meshforge.controller.resources import DEFAULT_BUCKET_GRACE_S
 from meshforge.controller.store.settings import DatabaseSettings
 
@@ -290,6 +291,25 @@ class JobApiSettings(SectionModel):
         ge=10.0,
         le=86_400.0,
         description="How often the controller sweeps the logs folder (D94).",
+    )
+    # --- peers (V0.5 G4, D89/D98/D100) ---------------------------------------
+    max_peer_sources: int = Field(
+        default=4,
+        ge=0,
+        le=16,
+        description=(
+            "D100: ONLINE nodes holding a job's tree listed as extra blob sources "
+            "next to the controller (never the target node). 0 = controller only."
+        ),
+    )
+    peer_token_ttl_s: int = Field(
+        default=600,
+        ge=60,
+        le=600,
+        description=(
+            "D98: lifetime of a signed peer blob token (at most 10 minutes); "
+            "renewed with every StartAttempt and RefreshFetchToken."
+        ),
     )
     log_gc_batch: int = Field(
         default=1000,
@@ -569,6 +589,25 @@ class ControllerSection(SectionModel):
             "prints it, `token rotate` replaces it (picked up within 1 s)."
         ),
     )
+    peer_key_file: Path | None = Field(
+        default=None,
+        description=(
+            "V0.5 D98: Ed25519 key that signs peer blob tokens; created on first "
+            "start (0600, refused when other users can read it). Default "
+            "<data_dir>/controller/peer_signing.key. Its public half goes to every "
+            "agent in HelloAck; keeping the file keeps issued tokens valid across "
+            "a restart."
+        ),
+    )
+    trust_peer_endpoints: bool = Field(
+        default=False,
+        description=(
+            "V0.5 D99: accept an agent's advertised peer endpoint (Hello."
+            "peer_endpoint) even when its host differs from the address the "
+            "session comes from. Only for NAT'd lab setups; off by default so a "
+            "node cannot advertise another machine as its own."
+        ),
+    )
     blobs: BlobStoreSettings = Field(default_factory=BlobStoreSettings)
     jobs: JobApiSettings = Field(default_factory=JobApiSettings)
     api: ApiSettings = Field(default_factory=ApiSettings)
@@ -581,7 +620,7 @@ class ControllerSection(SectionModel):
         parse_bind(value, allow_any=True)
         return value.strip()
 
-    @field_validator("token_file", mode="before")
+    @field_validator("token_file", "peer_key_file", mode="before")
     @classmethod
     def _token_file_not_empty(cls, value: object) -> object:
         return _non_empty_path(value)
@@ -643,6 +682,13 @@ class ControllerSettings(MeshForgeSettings):
     def token_path(self) -> Path:
         """Where the fabric token lives (``[controller] token_file`` or the default)."""
         return self.controller.token_file or default_token_path(self.data_dir)
+
+    @property
+    def peer_key_path(self) -> Path:
+        """Peer-token signing key (``[controller] peer_key_file`` or the default)."""
+        return self.controller.peer_key_file or (
+            self.data_dir / CONTROLLER_DIR_NAME / PEER_KEY_FILE_NAME
+        )
 
     @property
     def logs_dir(self) -> Path:

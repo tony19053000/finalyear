@@ -59,6 +59,11 @@ from meshforge.controller.http import create_http_app
 from meshforge.controller.jobs.dispatcher import Dispatcher
 from meshforge.controller.jobs.execution_store import ExecutionStore
 from meshforge.controller.jobs.logs import LogHub
+from meshforge.controller.peer_signing import (
+    PeerTokenIssuer,
+    load_or_create_signing_key,
+    public_key_fingerprint,
+)
 from meshforge.controller.registry import Registry, SessionEndReason
 from meshforge.controller.resources import ResourceTracker
 from meshforge.controller.session.leases import LeaseTimer
@@ -134,6 +139,8 @@ class ControllerRuntime:
         self._dispatcher_task: asyncio.Task[None] | None = None
         self.fetch_tokens: FetchTokens | None = None
         """D48: G4 mints per-attempt tokens here and hands them to agents."""
+        self.peer_tokens: PeerTokenIssuer | None = None
+        """D98: signs peer blob tokens; its public key goes out in HelloAck."""
         self.upload_grants: UploadGrants | None = None
         """D73: per-attempt upload quotas (outputs + final logs)."""
         self.logs: LogHub | None = None
@@ -162,6 +169,16 @@ class ControllerRuntime:
         )
         log.info(
             "controller.token.ready", created=created, fingerprint=fingerprint(token)
+        )
+        # D98: the peer-token signing key, same trust rules as the token file.
+        peer_key, key_created = await asyncio.to_thread(
+            load_or_create_signing_key, self.settings.peer_key_path
+        )
+        self.peer_tokens = PeerTokenIssuer(peer_key, ttl_s=cfg.jobs.peer_token_ttl_s)
+        log.info(
+            "controller.peer_key.ready",
+            created=key_created,
+            fingerprint=public_key_fingerprint(peer_key),
         )
         # D48: the blob store (and a sweep of part files a crash left behind).
         blobs = BlobStore(
