@@ -445,7 +445,11 @@ class PeerBlobServer:
             await simple(result.status, result.reason, extra, digest=digest)
             return
         try:
-            fh = await asyncio.to_thread(self._open, digest)
+            # Opened on the loop, not in a thread: an open() + fstat() of a local
+            # CAS file is microseconds, and a thread's result would leak its
+            # descriptor if this request were cancelled meanwhile.
+            fh = self._open(digest)
+            owner = _Owner()
         except FileNotFoundError:
             await simple(404, "absent", digest=digest, requester=requester)
             return
@@ -498,7 +502,7 @@ class PeerBlobServer:
                     writer.write(head + conn.send(h11.EndOfMessage()))
                     await writer.drain()
                 elif length <= COALESCE_BYTES:
-                    body = await asyncio.to_thread(_pread, fh, start, length)
+                    body = await _read_owned(fh, start, length, owner)
                     # One buffer: head + body (no small-write pair, D97).
                     writer.write(
                         head
@@ -529,7 +533,8 @@ class PeerBlobServer:
                 bytes=0 if method == b"HEAD" else length,
             )
         finally:
-            fh.close()
+            if owner.owns:
+                fh.close()
 
     def _open(self, digest: Digest) -> BinaryIO:
         """Open the CAS file of ``digest`` read-only; never a link, never a dir."""
@@ -544,6 +549,30 @@ class PeerBlobServer:
         if not regular:
             raise FileNotFoundError(str(digest))
         return os.fdopen(fd, "rb", buffering=0)
+
+
+class _Owner:
+    """Who closes the file: the request, or a read thread still using it."""
+
+    owns = True
+
+
+async def _read_owned(fh: BinaryIO, start: int, length: int, owner: _Owner) -> bytes:
+    """Read in a thread; if the request is cancelled meanwhile, the thread's
+    completion closes the file (never closed under a running read)."""
+    read = asyncio.ensure_future(asyncio.to_thread(_pread, fh, start, length))
+    try:
+        return await asyncio.shield(read)
+    except asyncio.CancelledError:
+        owner.owns = False
+
+        def close(done: asyncio.Future[bytes]) -> None:
+            if not done.cancelled():
+                done.exception()  # retrieved: the request is gone anyway
+            fh.close()
+
+        read.add_done_callback(close)
+        raise
 
 
 def _pread(fh: BinaryIO, start: int, length: int) -> bytes:
