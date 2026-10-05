@@ -20,7 +20,9 @@ Grants live in memory like fetch tokens, keyed by the SHA-256 of the token,
 bounded by ``capacity`` and pruned on expiry (controller monotonic clock). A
 controller restart forgets them; after the agent's Reconcile the dispatcher
 mints a new grant for every held attempt that has none here and sends it in
-``RefreshUploadGrant`` (V0.6 G1, D114).
+``RefreshUploadGrant`` (V0.6 G1, D114). A re-mint keeps what the attempt
+already stored, and an upload still in flight under the replaced grant is
+credited to its successor when it finishes (never after a revoke).
 
 **Resumable uploads under a grant (V0.6 G1, D114).** The agent uploads through
 the parts API (``PUT /v1/blobs/{d}/parts/{i}``, ``GET .../parts``, ``POST
@@ -248,12 +250,24 @@ class UploadGrants:
         """D114: a ``complete`` assembled and verified the blob: it counts as
         uploaded under this grant (its reservation becomes the stored size)."""
         grant = self._grants.get(ticket.key)
-        if grant is None or ticket.free:
+        if ticket.free:
+            return
+        if grant is None:
+            self._credit_successor(ticket, size)
             return
         reserved = grant.pending.pop(ticket.digest, None)
         if reserved is not None:
             grant.reserved_bytes -= reserved
         grant.uploaded[ticket.digest] = size
+
+    def _credit_successor(self, ticket: UploadTicket, size: int) -> None:
+        """The ticket's grant was replaced while its upload was in flight (a
+        refresh minted for the same attempt, D114): the verified blob counts for
+        the attempt's current grant. A revoked attempt has none - nothing."""
+        key = self._by_attempt.get(ticket.attempt_id)
+        successor = None if key is None else self._grants.get(key)
+        if successor is not None:
+            successor.uploaded[ticket.digest] = size
 
     def release(self, ticket: UploadTicket) -> None:
         """Give a resumable reservation back (the blob was not credited)."""
@@ -290,7 +304,11 @@ class UploadGrants:
     def finish(self, ticket: UploadTicket, *, stored: bool, size: int = 0) -> None:
         """Settle a reservation: ``stored`` = the blob is in place and verified."""
         grant = self._grants.get(ticket.key)
-        if grant is None or ticket.free:
+        if ticket.free:
+            return
+        if grant is None:
+            if stored:
+                self._credit_successor(ticket, size)
             return
         if grant.pending.pop(ticket.digest, None) is not None:
             grant.reserved_bytes -= ticket.reserved

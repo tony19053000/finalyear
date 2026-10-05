@@ -102,3 +102,31 @@ def test_a_re_mint_keeps_what_was_stored_not_what_was_in_flight() -> None:
     assert grants.begin_parts(new, B, 70).reserved == 70  # 30 + 70 = 100 fits
     with pytest.raises(GrantRefusal):
         grants.check(old)
+
+
+@pytest.mark.parametrize("via", ["put", "parts"])
+def test_an_upload_in_flight_across_a_re_mint_counts_for_the_new_grant(
+    via: str,
+) -> None:
+    """A refresh replaced the grant while a PUT / complete under the old one
+    was still running: the verified blob counts for the attempt (its DONE must
+    not fail output_error); after a revoke it counts for nobody."""
+    grants = _grants([1.0])
+    old = grants.mint("att", ttl_s=10, max_blobs=3, max_bytes=100).get_secret_value()
+    ticket = (
+        grants.begin(old, A, 30) if via == "put" else grants.begin_parts(old, A, 30)
+    )
+    grants.mint("att", ttl_s=10, max_blobs=3, max_bytes=100)  # the refresh
+    if via == "put":
+        grants.finish(ticket, stored=True, size=30)
+    else:
+        grants.credit(ticket, 30)
+    assert grants.uploaded("att", A)
+    revoked = grants.begin(
+        grants.mint("att2", ttl_s=10, max_blobs=3, max_bytes=100).get_secret_value(),
+        B,
+        5,
+    )
+    grants.revoke("att2")
+    grants.finish(revoked, stored=True, size=5)
+    assert not grants.uploaded("att2", B)
