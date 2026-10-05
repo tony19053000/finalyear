@@ -350,6 +350,8 @@ class Hello(_message.Message):
     HARDWARE_FIELD_NUMBER: _builtins.int
     HARDWARE_SCORES_FIELD_NUMBER: _builtins.int
     PEER_ENDPOINT_FIELD_NUMBER: _builtins.int
+    MAX_CPU_JOBS_FIELD_NUMBER: _builtins.int
+    MAX_GPU_JOBS_FIELD_NUMBER: _builtins.int
     node_id: _builtins.str
     protocol_version: _common_pb2.ProtocolVersion.ValueType
     """Must be set; the controller accepts a configured range of versions and
@@ -371,8 +373,17 @@ class Hello(_message.Message):
     no peer server. The controller accepts it only when host equals the address
     the session comes from (or [controller] trust_peer_endpoints) and 1 <= port
     <= 65535; otherwise it is ignored (logged), never an admission failure.
-    TODO(V0.7): node identity is proven by mTLS, not by node_id.
     """
+    max_cpu_jobs: _builtins.int
+    """Slots (V0.6 D105): how many jobs of each kind the owner lets this node run
+    at once ([agent.execution] max_cpu_jobs / max_gpu_jobs). Absent = not said
+    (an older agent): the controller assumes 1 CPU slot, and 1 GPU slot only
+    with the exec-gpu capability. 0 = no jobs of that kind. The controller
+    ignores a value above 64 (logged) and caps the total per node with its own
+    [controller.jobs] max_attempts_per_node.
+    """
+    max_gpu_jobs: _builtins.int
+    """TODO(V0.7): node identity is proven by mTLS, not by node_id."""
     @_builtins.property
     def hardware(self) -> Global___HardwareSummary:
         """Static hardware inventory (roadmap 0.3.3); dynamic usage is ResourceUpdate."""
@@ -398,12 +409,21 @@ class Hello(_message.Message):
         hardware: Global___HardwareSummary | None = ...,
         hardware_scores: Global___HardwareScores | None = ...,
         peer_endpoint: _builtins.str = ...,
+        max_cpu_jobs: _builtins.int | None = ...,
+        max_gpu_jobs: _builtins.int | None = ...,
     ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _typing.Literal["hardware", b"hardware", "hardware_scores", b"hardware_scores"]  # noqa: Y015
+    _HasFieldArgType: _TypeAlias = _typing.Literal["_max_cpu_jobs", b"_max_cpu_jobs", "_max_gpu_jobs", b"_max_gpu_jobs", "hardware", b"hardware", "hardware_scores", b"hardware_scores", "max_cpu_jobs", b"max_cpu_jobs", "max_gpu_jobs", b"max_gpu_jobs"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["agent_version", b"agent_version", "hardware", b"hardware", "hardware_scores", b"hardware_scores", "hostname", b"hostname", "node_id", b"node_id", "os", b"os", "peer_endpoint", b"peer_endpoint", "platform", b"platform", "protocol_version", b"protocol_version", "session_epoch", b"session_epoch"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["_max_cpu_jobs", b"_max_cpu_jobs", "_max_gpu_jobs", b"_max_gpu_jobs", "agent_version", b"agent_version", "hardware", b"hardware", "hardware_scores", b"hardware_scores", "hostname", b"hostname", "max_cpu_jobs", b"max_cpu_jobs", "max_gpu_jobs", b"max_gpu_jobs", "node_id", b"node_id", "os", b"os", "peer_endpoint", b"peer_endpoint", "platform", b"platform", "protocol_version", b"protocol_version", "session_epoch", b"session_epoch"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
-    def WhichOneof(self, oneof_group: _Never) -> None: ...
+    _WhichOneofReturnType__max_cpu_jobs: _TypeAlias = _typing.Literal["max_cpu_jobs"]  # noqa: Y015
+    _WhichOneofArgType__max_cpu_jobs: _TypeAlias = _typing.Literal["_max_cpu_jobs", b"_max_cpu_jobs"]  # noqa: Y015
+    _WhichOneofReturnType__max_gpu_jobs: _TypeAlias = _typing.Literal["max_gpu_jobs"]  # noqa: Y015
+    _WhichOneofArgType__max_gpu_jobs: _TypeAlias = _typing.Literal["_max_gpu_jobs", b"_max_gpu_jobs"]  # noqa: Y015
+    @_typing.overload
+    def WhichOneof(self, oneof_group: _WhichOneofArgType__max_cpu_jobs) -> _WhichOneofReturnType__max_cpu_jobs | None: ...
+    @_typing.overload
+    def WhichOneof(self, oneof_group: _WhichOneofArgType__max_gpu_jobs) -> _WhichOneofReturnType__max_gpu_jobs | None: ...
 
 Global___Hello: _TypeAlias = Hello  # noqa: Y015
 

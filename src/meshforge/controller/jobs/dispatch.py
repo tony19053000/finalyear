@@ -4,13 +4,14 @@ carries the attempt's credentials (V0.4 G4 D65, V0.5 D95; split out of
 
 :class:`DispatchSteps` is the part of the :class:`~.dispatcher.Dispatcher`
 that places a job and talks to the agent about one attempt: the dispatch pass
-(``FOR UPDATE SKIP LOCKED``, attempt row + next fencing token committed
-**before** ``StartAttempt`` is sent), the placement decision for a pinned job
-(:meth:`DispatchSteps._decide`), ``StartAttempt`` with a fresh download-only
-fetch token and an upload grant, ``RefreshFetchToken`` after a controller
-restart (D95), and ``CancelAttempt``. It holds no state of its own: every
-attribute is the dispatcher's (set in :meth:`~.dispatcher.Dispatcher.__init__`),
-and it runs only inside the dispatcher's one task (checklist item 5).
+(``FOR UPDATE SKIP LOCKED``, attempt row + next fencing token + the
+planner's decision row committed **before** ``StartAttempt`` is sent; the
+placement itself is :class:`~.planning.DispatchPlanner`, V0.6 G2),
+``StartAttempt`` with a fresh download-only fetch token and an upload grant,
+``RefreshFetchToken`` after a controller restart (D95), and ``CancelAttempt``.
+It holds no state of its own: every attribute is the dispatcher's (set in
+:meth:`~.dispatcher.Dispatcher.__init__`), and it runs only inside the
+dispatcher's one task (checklist item 5).
 """
 
 from __future__ import annotations
@@ -21,30 +22,22 @@ from dataclasses import dataclass
 
 from pydantic import SecretStr
 
-from meshforge.common.capabilities import EXEC_CAPABILITY, EXEC_GPU_CAPABILITY
-from meshforge.common.errors import FailureType
 from meshforge.common.hashing import Digest
-from meshforge.common.ids import new_attempt_id
 from meshforge.common.logging import get_logger
-from meshforge.common.manifest import Manifest
 from meshforge.common.proto.meshforge.v1 import agent_pb2
 from meshforge.controller.blobs import MAX_FETCH_TOKEN_TTL_S, FetchTokens
 from meshforge.controller.jobs.execution_store import (
-    Dispatch,
-    DispatchDecision,
-    DispatchFailure,
     ExecutionStore,
-    NodeView,
 )
 from meshforge.controller.jobs.logs import LogHub
 from meshforge.controller.jobs.peers import PeerSources
-from meshforge.controller.jobs.spec import choose_gpus, execution_spec, start_snapshot
+from meshforge.controller.jobs.planning import DispatchPlanner
+from meshforge.controller.jobs.spec import execution_spec
 from meshforge.controller.jobs.store import AttemptRecord, JobRecord
-from meshforge.controller.liveness import NodeState
 from meshforge.controller.named_inputs import NamedInputStore, ResolvedInput
 from meshforge.controller.resources import ResourceTracker
 from meshforge.controller.session.manager import SessionManager
-from meshforge.controller.settings import JobApiSettings
+from meshforge.controller.settings import JobApiSettings, PlannerSettings
 from meshforge.controller.upload_grants import UploadGrants
 
 __all__ = ["DispatchSteps", "DispatcherStats", "fetch_scope"]
@@ -107,61 +100,25 @@ class DispatchSteps:
     _wall: Callable[[], dt.datetime]
     _started_at: float
     _grant_unacked: dict[str, str]
+    _planner: DispatchPlanner
+    _planner_settings: PlannerSettings
     stats: DispatcherStats
 
     # ------------------------------------------------------------ dispatch
 
     async def _dispatch(self) -> None:
-        results = await self._store.dispatch_queued(
-            self._decide,
+        results = await self._store.dispatch_planned(
+            self._planner.decide,
             limit=self._settings.dispatch_batch,
             max_per_node=self._settings.max_attempts_per_node,
+            now=self._wall(),
+            aging_s=self._planner_settings.priority_aging_s,
+            history_runs=self._planner_settings.history_runs,
         )
         for result in results:
             if result.attempt is not None:
                 self.stats.dispatched += 1
                 await self._send_start(result.job, result.attempt, resend=False)
-
-    def _decide(self, job: JobRecord, node: NodeView | None) -> DispatchDecision:
-        node_id = str(job.placement.get("node_id", ""))
-        live = self._manager.get(node_id)
-        if live is None:
-            if self._manager.get_lingering(node_id) is not None:
-                return None  # SUSPECT: a blip must not fail the job (D19)
-            if self._clock() - self._started_at < self._settings.reconnect_grace_s:
-                return None  # just restarted: agents are still reconnecting
-            return DispatchFailure(FailureType.NODE_LOST, "placed_node_offline")
-        if node is None:
-            return DispatchFailure(FailureType.NODE_LOST, "placed_node_deleted")
-        if live.state is not NodeState.ONLINE:
-            return None  # SUSPECT / DRAINING: wait
-        caps = node.hardware.get("capabilities")
-        tags = (
-            {c for c in caps if isinstance(c, str)} if isinstance(caps, list) else set()
-        )
-        if EXEC_CAPABILITY not in tags:
-            return DispatchFailure(
-                FailureType.NO_FEASIBLE_PLAN, "node_no_longer_accepts_jobs"
-            )
-        manifest = Manifest.model_validate(dict(job.manifest))
-        if manifest.resources.gpu == "required" and EXEC_GPU_CAPABILITY not in tags:
-            return DispatchFailure(
-                FailureType.NO_FEASIBLE_PLAN, "node_can_no_longer_provide_a_gpu"
-            )
-        if node.active_attempts >= self._settings.max_attempts_per_node:
-            return None
-        gpus = choose_gpus(manifest, node.hardware)
-        snapshot = start_snapshot(
-            hardware=node.hardware,
-            hardware_scores=node.hardware_scores,
-            node_state=live.state.value,
-            rtt_ms=live.rtt_ewma_ms,
-            sample=None if self._resources is None else self._resources.latest(node_id),
-            monotonic_now=self._clock(),
-            wall_now=self._wall(),
-            gpu_indices=gpus,
-        )
-        return Dispatch(attempt_id=str(new_attempt_id()), start_snapshot=snapshot)
 
     # ------------------------------------------------------------ sources
 

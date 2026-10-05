@@ -12,13 +12,14 @@ from meshforge.common.errors import FailureType
 from meshforge.common.ids import new_attempt_id, new_job_id, new_node_id
 from meshforge.common.proto.meshforge.v1 import agent_pb2, common_pb2
 from meshforge.common.states import AttemptState, JobState
-from meshforge.controller.jobs.dispatcher import Dispatcher
 from meshforge.controller.jobs.execution_store import (
     Dispatch,
     DispatchFailure,
-    NodeView,
+    Wait,
 )
+from meshforge.controller.jobs.planning import DispatchPlanner
 from meshforge.controller.jobs.progress import MAX_PHASE_S
+from meshforge.controller.jobs.queue_reads import FabricRows, NodeRow
 from meshforge.controller.jobs.reports import (
     FAILURE_MESSAGE_MAX_LENGTH,
     MAX_MISSING_OUTPUTS,
@@ -27,7 +28,7 @@ from meshforge.controller.jobs.reports import (
 )
 from meshforge.controller.jobs.store import JobRecord
 from meshforge.controller.liveness import NodeState
-from meshforge.controller.settings import JobApiSettings
+from meshforge.controller.settings import JobApiSettings, PlannerSettings
 
 pytestmark = pytest.mark.unit
 
@@ -172,59 +173,82 @@ def _job(node_id: str, gpu: str = "none") -> JobRecord:
     )
 
 
-def _node(node_id: str, caps: list[str], active: int = 0, gpus: Any = ()) -> NodeView:
-    return NodeView(
-        node_id=node_id,
-        state="online",
-        hardware={"capabilities": caps, "gpus": list(gpus)},
-        hardware_scores=None,
-        active_attempts=active,
+def _fabric(
+    node_id: str, caps: list[str], active: int = 0, gpus: Any = ()
+) -> FabricRows:
+    return FabricRows(
+        nodes={
+            node_id: NodeRow(
+                node_id=node_id,
+                state="online",
+                hardware={"capabilities": caps, "gpus": list(gpus)},
+                hardware_scores=None,
+                cpu_slots=None,
+                gpu_slots=None,
+            )
+        },
+        used={node_id: [active, 0]},
     )
 
 
-def _dispatcher(manager: FakeManager, clock: Clock) -> Dispatcher:
-    return Dispatcher(
-        store=None,  # type: ignore[arg-type]
+def _planner(manager: FakeManager, clock: Clock) -> DispatchPlanner:
+    return DispatchPlanner(
         manager=manager,  # type: ignore[arg-type]
-        fetch_tokens=None,  # type: ignore[arg-type]
         settings=JobApiSettings(),
+        planner=PlannerSettings(),
         clock=clock,
-        blob_port=lambda: 1,
+        wall_clock=lambda: dt.datetime.now(dt.UTC),
+        started_at=clock(),
     )
 
 
-def test_decide_rules() -> None:
+def _live(state: NodeState) -> SimpleNamespace:
+    return SimpleNamespace(state=state, rtt_ewma_ms=None, session_id="s")
+
+
+def test_pinned_decide_rules_keep_v04_behaviour() -> None:
+    """D65/D103: a pinned job keeps V0.4's outcomes, now via the planner."""
     manager, clock = FakeManager(), Clock()
-    d = _dispatcher(manager, clock)
+    d = _planner(manager, clock)
     node = str(new_node_id())
     caps = ["exec", "exec-subprocess"]
+    empty = FabricRows(nodes={})
     # just started, node not back yet: wait (agents are reconnecting)
-    assert d._decide(_job(node), None) is None
+    assert isinstance(d.decide(_job(node), empty), Wait)
     clock.now += JobApiSettings().reconnect_grace_s + 1
-    gone = d._decide(_job(node), None)
+    gone = d.decide(_job(node), empty)
     assert (
         isinstance(gone, DispatchFailure) and gone.failure_type is FailureType.NODE_LOST
     )
+    assert gone.detail == "placed_node_offline"
     # SUSPECT (lingering): wait, never fail on a blip
     manager.lingering[node] = object()
-    assert d._decide(_job(node), None) is None
+    lingering = d.decide(_job(node), _fabric(node, caps))
+    assert isinstance(lingering, Wait) and lingering.record is not None
     del manager.lingering[node]
-    live = SimpleNamespace(state=NodeState.SUSPECT, rtt_ewma_ms=None)
-    manager.live[node] = live
-    assert d._decide(_job(node), _node(node, caps)) is None
-    live.state = NodeState.ONLINE
-    refused = d._decide(_job(node), _node(node, ["docker"]))
+    manager.live[node] = _live(NodeState.SUSPECT)
+    assert isinstance(d.decide(_job(node), _fabric(node, caps)), Wait)
+    manager.live[node].state = NodeState.ONLINE
+    deleted = d.decide(_job(node), empty)
+    assert isinstance(deleted, DispatchFailure)
+    assert deleted.detail == "placed_node_deleted"
+    refused = d.decide(_job(node), _fabric(node, ["docker"]))
     assert isinstance(refused, DispatchFailure)
     assert refused.failure_type is FailureType.NO_FEASIBLE_PLAN
-    no_gpu = d._decide(_job(node, gpu="required"), _node(node, caps))
+    assert refused.detail == "node_no_longer_accepts_jobs"
+    no_gpu = d.decide(_job(node, gpu="required"), _fabric(node, caps))
     assert isinstance(no_gpu, DispatchFailure)
-    assert d._decide(_job(node), _node(node, caps, active=1)) is None  # busy
-    go = d._decide(_job(node), _node(node, caps))
+    assert no_gpu.detail == "node_can_no_longer_provide_a_gpu"
+    busy = d.decide(_job(node), _fabric(node, caps, active=1))  # 1 CPU slot used
+    assert isinstance(busy, Wait) and busy.record is not None
+    go = d.decide(_job(node), _fabric(node, caps))
     assert isinstance(go, Dispatch)
+    assert go.node_id == node and go.slot == "cpu"
     assert go.start_snapshot["gpu_indices"] == []
+    assert go.record is not None and go.record.chosen_node_id == node
     gpus = [{"index": 0, "vram_bytes": "4"}, {"index": 1, "vram_bytes": "8"}]
-    with_gpu = d._decide(
-        _job(node, gpu="preferred"), _node(node, [*caps, "exec-gpu"], gpus=gpus)
+    with_gpu = d.decide(
+        _job(node, gpu="preferred"), _fabric(node, [*caps, "exec-gpu"], gpus=gpus)
     )
-    assert isinstance(with_gpu, Dispatch)
+    assert isinstance(with_gpu, Dispatch) and with_gpu.slot == "gpu"
     assert with_gpu.start_snapshot["gpu_indices"] == [1]  # the largest GPU

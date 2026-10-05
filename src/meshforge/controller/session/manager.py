@@ -121,6 +121,7 @@ from meshforge.controller.session.admission import (
     hello_event,
     peer_endpoint_of,
     shutting_down,
+    slots_of,
     unavailable,
 )
 from meshforge.controller.session.claims import AdmissionClaims
@@ -454,6 +455,14 @@ class SessionManager:
 
         session_id = new_session_id()
         scores, scores_rejected = self.reports.hello_scores(hello, session_id)
+        cpu_slots, gpu_slots, slots_refused = slots_of(hello)
+        if slots_refused is not None:
+            log.warning(
+                "session.hello_slots_ignored",
+                node_id=node_id,
+                session_id=session_id,
+                fields=slots_refused,
+            )
         attempt.session_id, attempt.state = session_id, state
         attempt.row_written = True  # from here the row may name this session...
         try:
@@ -469,6 +478,8 @@ class SessionManager:
                 session_id=session_id,
                 state=state,
                 hardware_scores=scores,
+                cpu_slots=cpu_slots,
+                gpu_slots=gpu_slots,
             )
         except Exception:
             attempt.row_written = False  # ...unless the store refused it (rolled back)

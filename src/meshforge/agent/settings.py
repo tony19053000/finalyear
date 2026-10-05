@@ -514,7 +514,27 @@ class ExecutionSettings(SectionModel):
         le=64,
         description=(
             "Attempts this agent holds at once; a StartAttempt beyond it fails "
-            "resource_busy (the controller sends one at a time in V0.4)."
+            "resource_busy. Must be at least max_cpu_jobs + max_gpu_jobs (the "
+            "controller schedules by those, V0.6 D105)."
+        ),
+    )
+    max_cpu_jobs: int = Field(
+        default=1,
+        ge=0,
+        le=64,
+        description=(
+            "V0.6 D105: jobs without a GPU this node runs at once (its CPU "
+            "slots), advertised in Hello. 0 = no CPU jobs (a GPU-only node)."
+        ),
+    )
+    max_gpu_jobs: int | None = Field(
+        default=None,
+        ge=0,
+        le=64,
+        description=(
+            "V0.6 D105: GPU jobs this node runs at once (its GPU slots). Empty "
+            "= one per GPU the agent found; 0 = no GPU jobs. Only counts when a "
+            "runtime can pass a GPU to a job (exec-gpu)."
         ),
     )
     max_log_bytes: int = Field(
@@ -601,7 +621,23 @@ class ExecutionSettings(SectionModel):
     def _timeouts_ordered(self) -> ExecutionSettings:
         if self.default_timeout_s > self.max_timeout_s:
             raise ValueError("execution.default_timeout_s must be <= max_timeout_s")
+        slots = self.max_cpu_jobs + (self.max_gpu_jobs or 0)
+        if slots > self.max_concurrent_attempts:
+            raise ValueError(
+                "execution.max_cpu_jobs + max_gpu_jobs must be <= "
+                "max_concurrent_attempts (the agent would refuse the extra "
+                "attempts the controller sends)"
+            )
         return self
+
+    def slots(self, *, gpu_count: int) -> tuple[int, int]:
+        """``(cpu, gpu)`` slots for ``Hello`` (D105). An unset ``max_gpu_jobs``
+        is one per GPU, trimmed so the total never exceeds
+        ``max_concurrent_attempts``."""
+        cpu = self.max_cpu_jobs
+        if self.max_gpu_jobs is not None:
+            return cpu, self.max_gpu_jobs
+        return cpu, max(0, min(gpu_count, self.max_concurrent_attempts - cpu))
 
 
 ENVS_DIR_NAME: Final = "envs"

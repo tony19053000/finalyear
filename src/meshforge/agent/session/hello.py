@@ -115,6 +115,7 @@ def build_hello(
     facts: tuple[str, str, str] | None = None,
     hardware_scores: agent_pb2.HardwareScores | None = None,
     peer_endpoint: str = "",
+    slots: tuple[int, int] | None = None,
 ) -> agent_pb2.Hello:
     """The Hello for one attempt. ``hardware``/``facts`` are injectable for tests.
 
@@ -122,6 +123,8 @@ def build_hello(
     (roadmap 0.3.4, D37); ``None`` leaves the field absent, which the controller
     reads as "not measured for this hardware" (pending). ``peer_endpoint`` is
     ``host:port`` of this node's peer blob server (V0.5 D99), empty = none.
+    ``slots`` = ``(max_cpu_jobs, max_gpu_jobs)`` (V0.6 D105); None leaves both
+    fields absent (execution is off - the node takes no jobs anyway).
     """
     hostname, os_text, plat = facts if facts is not None else host_facts()
     hello = agent_pb2.Hello(
@@ -137,4 +140,6 @@ def build_hello(
     )
     if hardware_scores is not None:
         hello.hardware_scores.CopyFrom(hardware_scores)
+    if slots is not None:
+        hello.max_cpu_jobs, hello.max_gpu_jobs = slots
     return hello

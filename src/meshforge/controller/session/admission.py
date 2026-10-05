@@ -24,9 +24,11 @@ from meshforge.common.proto.meshforge.v1 import agent_pb2
 from meshforge.controller.liveness import LivenessConfig, LivenessEvent, NodeState
 from meshforge.controller.session.limits import check_hardware, check_hello_strings
 from meshforge.controller.session.live import LiveSession, Rejected
+from meshforge.controller.store.models.node import MAX_SLOTS
 
 __all__ = [
     "DEFAULT_ADMISSION_TIMEOUT_S",
+    "MAX_HELLO_SLOTS",
     "MAX_PEER_ENDPOINT_CHARS",
     "AdmissionAttempt",
     "RejectCode",
@@ -35,6 +37,7 @@ __all__ = [
     "hello_event",
     "peer_endpoint_of",
     "shutting_down",
+    "slots_of",
     "unavailable",
 ]
 
@@ -147,6 +150,8 @@ def hello_ack(
 
 
 MAX_PEER_ENDPOINT_CHARS: Final = 64
+MAX_HELLO_SLOTS: Final = MAX_SLOTS
+"""Largest ``Hello.max_cpu_jobs`` / ``max_gpu_jobs`` accepted (V0.6 D105)."""
 """``[ipv6]:65535`` fits; anything longer is not an endpoint."""
 
 
@@ -182,6 +187,23 @@ def _transport_host(peer_address: str) -> str | None:
         return None
     split = _split_host_port(rest)
     return None if split is None else split[0]
+
+
+def slots_of(hello: agent_pb2.Hello) -> tuple[int | None, int | None, str | None]:
+    """V0.6 D105: ``(max_cpu_jobs, max_gpu_jobs, refusal)``. A field the agent
+    did not send is None (an older agent - the planner's defaults apply); a value
+    above :data:`MAX_HELLO_SLOTS` is ignored (None, ``refusal`` names it), never
+    an admission failure."""
+    cpu = hello.max_cpu_jobs if hello.HasField("max_cpu_jobs") else None
+    gpu = hello.max_gpu_jobs if hello.HasField("max_gpu_jobs") else None
+    refused = []
+    if cpu is not None and cpu > MAX_HELLO_SLOTS:
+        cpu = None
+        refused.append("max_cpu_jobs")
+    if gpu is not None and gpu > MAX_HELLO_SLOTS:
+        gpu = None
+        refused.append("max_gpu_jobs")
+    return cpu, gpu, ",".join(refused) or None
 
 
 def peer_endpoint_of(

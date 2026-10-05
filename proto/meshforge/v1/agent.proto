@@ -151,6 +151,14 @@ message Hello {
   // the session comes from (or [controller] trust_peer_endpoints) and 1 <= port
   // <= 65535; otherwise it is ignored (logged), never an admission failure.
   string peer_endpoint = 10;
+  // Slots (V0.6 D105): how many jobs of each kind the owner lets this node run
+  // at once ([agent.execution] max_cpu_jobs / max_gpu_jobs). Absent = not said
+  // (an older agent): the controller assumes 1 CPU slot, and 1 GPU slot only
+  // with the exec-gpu capability. 0 = no jobs of that kind. The controller
+  // ignores a value above 64 (logged) and caps the total per node with its own
+  // [controller.jobs] max_attempts_per_node.
+  optional uint32 max_cpu_jobs = 11;
+  optional uint32 max_gpu_jobs = 12;
   // TODO(V0.7): node identity is proven by mTLS, not by node_id.
 }
 

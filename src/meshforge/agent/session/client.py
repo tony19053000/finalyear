@@ -470,6 +470,7 @@ class AgentSessionClient:
                 facts=self._facts,
                 hardware_scores=self.hardware_scores,
                 peer_endpoint=self._peer_endpoint(),
+                slots=self._slots(),
             )
             try:
                 await self._write(agent_pb2.AgentMessage(hello=hello))
@@ -571,6 +572,14 @@ class AgentSessionClient:
         return _Outcome.BACKOFF
 
     # --------------------------------------------------------------- online
+
+    def _slots(self) -> tuple[int, int] | None:
+        """D105: the owner's slot limits for Hello (None = execution is off)."""
+        execution = self.settings.agent.execution
+        if not execution.enabled:
+            return None
+        gpus = 0 if self._hardware is None else len(self._hardware.gpus)
+        return execution.slots(gpu_count=gpus)
 
     def _peer_endpoint(self) -> str:
         if self.peer_endpoint is None:

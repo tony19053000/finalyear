@@ -7,11 +7,15 @@ it changes (``FOR UPDATE``) and derives every arrow from :mod:`.transitions` via
 :mod:`.progress`, so two writers racing on one attempt serialise on its row and
 the loser sees the winner's state:
 
-* :meth:`ExecutionStore.dispatch_queued` - ``SELECT ... WHERE state = 'queued'
-  ... FOR UPDATE SKIP LOCKED`` (D62-2), a caller decision per job, and for each
-  dispatched job the new attempt (next fencing token), ``QUEUED -> PREPARING``
-  and its start snapshot - all committed **before** the caller sends anything
-  (D65: commit-before-send);
+* :meth:`ExecutionStore.dispatch_planned` - ``SELECT ... WHERE state = 'queued'
+  ... FOR UPDATE SKIP LOCKED`` (D62-2) in priority order (V0.6 D106), the
+  tick's fabric rows (:mod:`.queue_reads`: slot use derived from live
+  attempts, D105), a caller decision per job, and for each dispatched job the
+  new attempt (next fencing token, its slot), ``QUEUED -> PREPARING``, its
+  start snapshot and its ``plan_decision`` row (D112) - all committed
+  **before** the caller sends anything (D65: commit-before-send);
+  :meth:`ExecutionStore.dispatch_queued` is the V0.4 one-node-view interface
+  over it;
 * :meth:`ExecutionStore.apply_status` - an agent report: fenced on the attempt's
   token, idempotent on its state, the job moved with it, and - when the attempt
   ends - all five phase rows written in the same transaction (D68);
@@ -27,6 +31,7 @@ History rows written together in one transaction are stamped with
 
 from __future__ import annotations
 
+import dataclasses
 import datetime as dt
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -50,6 +55,11 @@ from meshforge.controller.jobs.progress import (
     attempt_path,
     job_event_for,
     phase_rows,
+)
+from meshforge.controller.jobs.queue_reads import (
+    FabricRows,
+    queued_jobs,
+    read_fabric,
 )
 from meshforge.controller.jobs.store import (
     AttemptRecord,
@@ -76,10 +86,14 @@ from meshforge.controller.store.models.job import (
     Job,
     JobTransition,
 )
-from meshforge.controller.store.models.node import Node
+from meshforge.controller.store.models.plan import (
+    MAX_DECISION_CANDIDATES,
+    PlanDecision,
+)
 
 __all__ = [
     "CancelOutcome",
+    "DecisionRecord",
     "Dispatch",
     "DispatchFailure",
     "DispatchResult",
@@ -90,6 +104,7 @@ __all__ = [
     "StatusOutcome",
     "StatusReport",
     "TransferRow",
+    "Wait",
 ]
 
 log = get_logger(__name__)
@@ -97,6 +112,7 @@ log = get_logger(__name__)
 LIVE_ATTEMPT_STATES: Final = tuple(
     s.value for s in AttemptState if s not in ATTEMPT_TERMINAL_STATES
 )
+_DEFAULT_AGING_S: Final = 600.0
 _CANCELLABLE_NOW: Final = frozenset(
     {JobState.SUBMITTED, JobState.PLANNING, JobState.QUEUED, JobState.RETRYING}
 )
@@ -121,21 +137,53 @@ class NodeView:
 
 
 @dataclass(frozen=True, slots=True)
+class DecisionRecord:
+    """One ``plan_decision`` row to write with the tick's outcome (D112)."""
+
+    policy: str
+    snapshot_digest: str
+    reason_key: str
+    candidates: Sequence[Mapping[str, Any]]
+    chosen_node_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class Dispatch:
     attempt_id: str
     start_snapshot: Mapping[str, Any]
+    node_id: str | None = None
+    """The node the attempt goes to; None = the job's pinned
+    ``placement.node_id`` (the V0.4 decider interface)."""
+    slot: str = "cpu"
+    """D105: ``cpu`` or ``gpu``."""
+    record: DecisionRecord | None = None
+    """Written as ``dispatched`` with the attempt, in the same transaction."""
 
 
 @dataclass(frozen=True, slots=True)
 class DispatchFailure:
     failure_type: FailureType
     detail: str
+    record: DecisionRecord | None = None
+    """Written as ``failed`` with the job's FAIL arrow."""
 
 
-type DispatchDecision = Dispatch | DispatchFailure | None
-"""``None`` = leave the job queued (try again on a later tick)."""
+@dataclass(frozen=True, slots=True)
+class Wait:
+    """The job stays queued; ``record`` is written as ``waiting`` only when its
+    reason key differs from the job's latest decision (D104)."""
+
+    record: DecisionRecord | None = None
+
+
+type DispatchDecision = Dispatch | DispatchFailure | Wait | None
+"""``None`` / :class:`Wait` = leave the job queued (try again on a later tick)."""
 
 type Decide = Callable[[JobRecord, NodeView | None], DispatchDecision]
+"""The V0.4 decider (pinned jobs, one node view)."""
+
+type PlanDecide = Callable[[JobRecord, FabricRows], DispatchDecision]
+"""The V0.6 decider: the whole tick's fabric rows (D102)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -211,45 +259,51 @@ class ExecutionStore(JobStore):
     """:class:`JobStore` plus the dispatch-time writes (see module docstring)."""
 
     @typed_store_call
-    async def dispatch_queued(
-        self, decide: Decide, *, limit: int, max_per_node: int
+    async def dispatch_planned(
+        self,
+        decide: PlanDecide,
+        *,
+        limit: int,
+        max_per_node: int,
+        now: dt.datetime,
+        aging_s: float,
+        history_runs: int = 20,
     ) -> list[DispatchResult]:
-        """One pass over queued jobs, oldest first; see module docstring."""
+        """One pass over the queue in priority order (D106; see module
+        docstring and :mod:`.queue_reads`). Per job the decider's answer is
+        applied in this transaction: an attempt (+ its ``dispatched``
+        decision), a FAIL arrow (+ ``failed`` decision), or nothing (+ a
+        ``waiting`` decision when the reasons changed). A job that cannot be
+        placed never blocks the jobs behind it (no head-of-line blocking)."""
         results: list[DispatchResult] = []
         async with self._sessions() as db, db.begin():
-            jobs = list(
-                await db.scalars(
-                    select(Job)
-                    .where(Job.state == JobState.QUEUED.value)
-                    .order_by(Job.created_at, Job.id)
-                    .limit(max(1, limit))
-                    .with_for_update(skip_locked=True)
-                )
-            )
+            jobs = await queued_jobs(db, limit=limit, now=now, aging_s=aging_s)
             if not jobs:
                 return results
-            active = await _active_by_node(db)
+            fabric = await read_fabric(
+                db, jobs, history_runs=history_runs, keys_of=_project_keys
+            )
             for row in jobs:
                 job = job_record(row)
-                node_id = str(job.placement.get("node_id", ""))
-                node_row = await db.get(Node, node_id) if node_id else None
-                view = (
-                    None
-                    if node_row is None
-                    else NodeView(
-                        node_id=node_row.node_id,
-                        state=node_row.state,
-                        hardware=dict(node_row.hardware),
-                        hardware_scores=node_row.hardware_scores,
-                        active_attempts=active.get(node_id, 0),
-                    )
-                )
-                decision = decide(job, view)
+                decision = decide(job, fabric)
                 if isinstance(decision, Dispatch):
-                    if view is None or view.active_attempts >= max_per_node:
+                    node_id = decision.node_id or str(job.placement.get("node_id", ""))
+                    if node_id not in fabric.nodes or (
+                        sum(fabric.used_slots(node_id)) >= max_per_node
+                    ):
                         continue  # the decider must not over-book; defensive
                     attempt = await self._create_dispatched(db, row, node_id, decision)
-                    active[node_id] = active.get(node_id, 0) + 1
+                    fabric.took(node_id, decision.slot)
+                    if decision.record is not None:
+                        await _record_decision(
+                            db,
+                            job.id,
+                            attempt.fencing_token,
+                            "dispatched",
+                            decision.record,
+                            attempt_id=attempt.id,
+                        )
+                        fabric.last_reason[job.id] = decision.record.reason_key
                     await _fresh(db, row)
                     results.append(DispatchResult(job=job_record(row), attempt=attempt))
                 elif isinstance(decision, DispatchFailure):
@@ -260,15 +314,69 @@ class ExecutionStore(JobStore):
                         failure_type=decision.failure_type,
                         detail=decision.detail,
                     )
+                    if decision.record is not None:
+                        await _record_decision(
+                            db,
+                            job.id,
+                            int(row.attempt_epoch) + 1,
+                            "failed",
+                            decision.record,
+                        )
                     await _fresh(db, row)
                     results.append(
                         DispatchResult(
                             job=job_record(row), attempt=None, failure=decision
                         )
                     )
+                elif isinstance(decision, Wait) and decision.record is not None:
+                    key = decision.record.reason_key
+                    if fabric.last_reason.get(job.id) != key:
+                        await _record_decision(
+                            db,
+                            job.id,
+                            int(row.attempt_epoch) + 1,
+                            "waiting",
+                            decision.record,
+                        )
+                        fabric.last_reason[job.id] = key
         for result in results:
             _log_dispatch(result)
         return results
+
+    async def dispatch_queued(
+        self, decide: Decide, *, limit: int, max_per_node: int
+    ) -> list[DispatchResult]:
+        """The V0.4 interface: ``decide(job, view of its pinned node)``; the
+        queue order is V0.6's (priority, aging, ``queued_at``)."""
+
+        def adapt(job: JobRecord, fabric: FabricRows) -> DispatchDecision:
+            node_id = str(job.placement.get("node_id") or "")
+            row = fabric.nodes.get(node_id)
+            view = (
+                None
+                if row is None
+                else NodeView(
+                    node_id=row.node_id,
+                    state=row.state,
+                    hardware=row.hardware,
+                    hardware_scores=row.hardware_scores,
+                    active_attempts=sum(fabric.used_slots(node_id)),
+                )
+            )
+            decision = decide(job, view)
+            if isinstance(decision, Dispatch):
+                if view is None or view.active_attempts >= max_per_node:
+                    return None
+                return dataclasses.replace(decision, node_id=node_id)
+            return decision
+
+        return await self.dispatch_planned(
+            adapt,
+            limit=limit,
+            max_per_node=max_per_node,
+            now=dt.datetime.now(dt.UTC),
+            aging_s=_DEFAULT_AGING_S,
+        )
 
     async def _create_dispatched(
         self, db: AsyncSession, row: Job, node_id: str, decision: Dispatch
@@ -281,6 +389,7 @@ class ExecutionStore(JobStore):
             fencing_token=row.attempt_epoch,
             state=AttemptState.ASSIGNED.value,
             start_snapshot=dict(decision.start_snapshot),
+            slot=decision.slot,
         )
         db.add(attempt)
         await _move_job(db, row, JobEvent.DISPATCHED)
@@ -483,13 +592,37 @@ async def _fresh(db: AsyncSession, *rows: Any) -> None:
         await db.refresh(row)
 
 
-async def _active_by_node(db: AsyncSession) -> dict[str, int]:
-    rows = await db.execute(
-        select(Attempt.node_id, func.count())
-        .where(Attempt.state.in_(LIVE_ATTEMPT_STATES))
-        .group_by(Attempt.node_id)
+def _project_keys(row: Job) -> list[str]:
+    key = row.tree_id or row.bundle_digest
+    return [key] if key else []
+
+
+async def _record_decision(
+    db: AsyncSession,
+    job_id: str,
+    attempt_no: int,
+    outcome: str,
+    record: DecisionRecord,
+    *,
+    attempt_id: str | None = None,
+) -> None:
+    """D112: one ``plan_decision`` row in the caller's transaction."""
+    if attempt_id is not None:
+        await db.flush()  # the attempt row first (foreign key)
+    db.add(
+        PlanDecision(
+            job_id=job_id,
+            attempt_no=max(1, attempt_no),
+            attempt_id=attempt_id,
+            outcome=outcome,
+            policy=record.policy,
+            chosen_node_id=record.chosen_node_id,
+            snapshot_digest=record.snapshot_digest,
+            reason_key=record.reason_key,
+            candidates=[dict(c) for c in record.candidates][:MAX_DECISION_CANDIDATES],
+        )
     )
-    return {str(node): int(count) for node, count in rows.all()}
+    await db.flush()
 
 
 async def _move_job(

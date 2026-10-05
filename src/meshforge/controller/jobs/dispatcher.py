@@ -113,6 +113,7 @@ from meshforge.controller.jobs.execution_store import (
 )
 from meshforge.controller.jobs.logs import LogHub
 from meshforge.controller.jobs.peers import PeerSources
+from meshforge.controller.jobs.planning import DispatchPlanner
 from meshforge.controller.jobs.recovery import RecoverySteps, _Offline, _Reconcile
 from meshforge.controller.jobs.reports import parse_status
 from meshforge.controller.jobs.store import JobRecord, JobStoreError
@@ -121,7 +122,7 @@ from meshforge.controller.named_inputs import NamedInputStore
 from meshforge.controller.resources import ResourceTracker
 from meshforge.controller.session.live import LiveSession, PendingCommand
 from meshforge.controller.session.manager import SessionManager
-from meshforge.controller.settings import JobApiSettings
+from meshforge.controller.settings import JobApiSettings, PlannerSettings
 from meshforge.controller.upload_grants import UploadGrants
 
 __all__ = [
@@ -184,6 +185,8 @@ class Dispatcher(RecoverySteps):
         on_integrity_failure: Callable[[str], None] | None = None,
         inputs: NamedInputStore | None = None,
         known_bad_envs: KnownBadEnvs | None = None,
+        planner: PlannerSettings | None = None,
+        cache_live: Callable[[str, str], bool] | None = None,
     ) -> None:
         self._store = store
         self.known_bad_envs = known_bad_envs
@@ -219,6 +222,19 @@ class Dispatcher(RecoverySteps):
         agent has not acked it: a broken stream may have taken it along, so a
         Reconcile that finds the attempt held mints and sends another."""
         self._next_log_gc = self._started_at + settings.log_gc_interval_s
+        self._planner_settings = planner or PlannerSettings()
+        self._planner = DispatchPlanner(
+            manager=manager,
+            settings=settings,
+            planner=self._planner_settings,
+            clock=clock,
+            wall_clock=self._wall,
+            started_at=self._started_at,
+            resources=resources,
+            known_bad_envs=known_bad_envs,
+            cache_live=cache_live,
+        )
+        """V0.6 G2 (D102): builds the tick's snapshot and decides per job."""
         manager.dispatch.register("attempt_status", self._on_status_message)
         manager.defer_ack("attempt_status")
         hooks = manager.hooks

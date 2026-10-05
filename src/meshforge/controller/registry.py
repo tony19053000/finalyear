@@ -271,8 +271,14 @@ class Registry:
         session_id: str,
         state: NodeState,
         hardware_scores: Mapping[str, Any] | None = None,
+        cpu_slots: int | None = None,
+        gpu_slots: int | None = None,
     ) -> NodeRecord:
         """Insert the node on its first Hello, else refresh it; sets ``state``.
+
+        ``cpu_slots`` / ``gpu_slots`` (V0.6 D105) are the Hello's validated
+        ``max_cpu_jobs`` / ``max_gpu_jobs``, always written like the scores:
+        None = this agent did not say (the planner's defaults apply).
 
         ``hardware_scores`` is the validated score document the Hello carried, or
         ``None``: **always written**, so a Hello without scores clears the column
@@ -306,6 +312,8 @@ class Registry:
                     platform=platform,
                     hardware=dict(hardware),
                     hardware_scores=scores,
+                    cpu_slots=cpu_slots,
+                    gpu_slots=gpu_slots,
                     state=state.value,
                     last_seen_at=now,
                     last_session_id=session_id,
@@ -327,6 +335,8 @@ class Registry:
                     platform=platform,
                     hardware=dict(hardware),
                     hardware_scores=scores,
+                    cpu_slots=cpu_slots,
+                    gpu_slots=gpu_slots,
                     state=state.value,
                     first_seen_at=now,
                     last_seen_at=now,

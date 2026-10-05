@@ -93,6 +93,8 @@ class FakeRegistry:
         session_id: str,
         state: NodeState,
         hardware_scores: Mapping[str, Any] | None = None,
+        cpu_slots: int | None = None,
+        gpu_slots: int | None = None,
     ) -> NodeRecord:
         self._record("upsert_node_on_hello", node_id=node_id, state=state)
         now = dt.datetime.now(dt.UTC)
@@ -109,6 +111,8 @@ class FakeRegistry:
             last_session_id=session_id,
             session_epoch=session_epoch,
             hardware_scores=hardware_scores,
+            cpu_slots=cpu_slots,
+            gpu_slots=gpu_slots,
         )
         self.nodes[node_id] = rec
         return rec

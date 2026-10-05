@@ -24,6 +24,7 @@ from pydantic import Field, ValidationError, field_validator, model_validator
 
 from meshforge.common.config import MeshForgeSettings, SectionModel
 from meshforge.common.fabric_token import CONTROLLER_DIR_NAME, default_token_path
+from meshforge.common.manifest import PolicyName
 from meshforge.common.netaddr import parse_bind
 from meshforge.controller.liveness import LivenessConfig
 from meshforge.controller.peer_signing import KEY_FILE_NAME as PEER_KEY_FILE_NAME
@@ -43,6 +44,7 @@ __all__ = [
     "GcSettings",
     "JobApiSettings",
     "LivenessSettings",
+    "PlannerSettings",
     "ResourceHistorySettings",
 ]
 
@@ -247,10 +249,14 @@ class JobApiSettings(SectionModel):
         default=100, ge=1, le=10_000, description="Queued jobs examined per tick."
     )
     max_attempts_per_node: int = Field(
-        default=1,
+        default=8,
         ge=1,
         le=64,
-        description="Live attempts one node runs at a time (V0.4: one).",
+        description=(
+            "Upper bound on live attempts per node, whatever its slots say "
+            "(V0.6 D105: each node's own CPU/GPU slots - [agent.execution] "
+            "max_cpu_jobs / max_gpu_jobs - decide below it; V0.4's default was 1)."
+        ),
     )
     backstop_grace_s: float = Field(
         default=30.0,
@@ -395,6 +401,81 @@ class JobApiSettings(SectionModel):
             self.upload_deadline_base_s
             + self.max_output_bytes / self.upload_min_rate_bytes_s
         )
+
+
+class PlannerSettings(SectionModel):
+    """``[controller.planner]`` - automatic placement (V0.6 G2, D102-D108).
+
+    The planner runs on every dispatch tick over a snapshot of the fabric; the
+    defaults below stand in for numbers nothing has measured yet, and every
+    estimate built on them is shown as ``assumed`` by ``compute explain``.
+    """
+
+    default_policy: PolicyName = Field(
+        default="cost_model",
+        description=(
+            "D107: the placement policy for a job that names none (manifest "
+            "`policy:` or POST placement.policy override it): random, "
+            "round_robin, least_loaded, strongest_suitable, resource_score, "
+            "cache_affinity or cost_model."
+        ),
+    )
+    priority_aging_s: float = Field(
+        default=600.0,
+        ge=1.0,
+        le=86_400.0,
+        description=(
+            "D106: a queued job's effective priority rises by 1 per this many "
+            "seconds of waiting, up to the maximum priority (10), so a low "
+            "priority job is never starved."
+        ),
+    )
+    default_bw_bytes_s: float = Field(
+        default=50e6,
+        ge=1e3,
+        le=1e11,
+        description=(
+            "Assumed bandwidth (bytes/s) for the transfer estimate until links "
+            "are measured (V0.6 G4)."
+        ),
+    )
+    default_compute_s: float = Field(
+        default=60.0,
+        ge=0.0,
+        le=7 * 86_400.0,
+        description=(
+            "Assumed run time of a workload with no recorded history on any node."
+        ),
+    )
+    default_env_s: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=86_400.0,
+        description="Assumed environment build time until it is measured (G4).",
+    )
+    resource_weights: tuple[float, float, float] = Field(
+        default=(1.0, 1.0, 1.0),
+        description=(
+            "resource_score policy weights: (free RAM in GiB, free slots, "
+            "hardware score normalised to the best candidate). Each 0-1000."
+        ),
+    )
+    history_runs: int = Field(
+        default=20,
+        ge=1,
+        le=1000,
+        description=(
+            "Most recent successful runs per (workload, node) the compute-time "
+            "median is taken over."
+        ),
+    )
+
+    @field_validator("resource_weights")
+    @classmethod
+    def _weights(cls, value: tuple[float, float, float]) -> tuple[float, float, float]:
+        if any(not 0.0 <= w <= 1000.0 for w in value):
+            raise ValueError("each resource weight must be between 0 and 1000")
+        return value
 
 
 class ApiSettings(SectionModel):
@@ -696,6 +777,7 @@ class ControllerSection(SectionModel):
     blobs: BlobStoreSettings = Field(default_factory=BlobStoreSettings)
     gc: GcSettings = Field(default_factory=GcSettings)
     jobs: JobApiSettings = Field(default_factory=JobApiSettings)
+    planner: PlannerSettings = Field(default_factory=PlannerSettings)
     api: ApiSettings = Field(default_factory=ApiSettings)
 
     @field_validator("grpc_bind", "http_bind")

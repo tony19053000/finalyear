@@ -339,6 +339,8 @@ class ControllerRuntime:
             ),
             inputs=self.inputs,
             known_bad_envs=self.known_bad_envs,
+            planner=cfg.planner,
+            cache_live=self.cache_index.is_live,
             on_integrity_failure=(
                 functools.partial(
                     self.scrubber.suspect_tree_soon, why="attempt_integrity_error"
