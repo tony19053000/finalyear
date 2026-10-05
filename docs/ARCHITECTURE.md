@@ -539,6 +539,18 @@ stateDiagram-v2
 
 Retry policy is per failure type (`retryable` vs not), with max attempts and backoff. All failures carry a typed `failure_type` for telemetry and ML.
 
+**Command delivery audit (V0.6 G1, D113) - at-least-once delivery, exactly-once effect, shown per command.** Every `ControllerMessage` carries a `message_id` (a ULID): that is the command id. Layer 1: the agent keeps the last 10 000 command ids of its process (`RecentIds`) - a repeated id is **acked again but never applied again** (the controller may have missed the first Ack). Layer 2: a command that arrives again in a **new** envelope (Reconcile re-sends, a new agent process) is idempotent by its own key. Re-delivery is either **Reconcile-driven** (attempt commands: the controller decides on every accepted stream what still matters, D66) or a **controller re-send on a missing Ack** (`[controller] command_resend_s` 10 s, at most `command_resend_tries` 5 re-sends of the same envelope, then logged `session.command_unacked`; driven by the lease timer). A stream that ends takes its pending commands with it; the next session's Hello/Reconcile re-sends what matters.
+
+| Command | Effect idempotent by | Re-delivery trigger | Test |
+|---|---|---|---|
+| `StartAttempt` | `(attempt_id, fencing_token)`: a held or recently finished (4096) attempt is not started again | Reconcile: live on the controller, not held, `start_acked_at` NULL -> same attempt/token, new envelope | `tests/unit/agent/test_executor.py::test_a_duplicate_start_while_running_runs_once`, `::test_state_order_and_release_after_ack`; `tests/component/agent/test_exec_e2e.py::test_start_attempt_delivered_twice_and_after_a_reconnect_runs_once`, `::test_commit_without_send_is_resent_on_reconnect_and_runs_once` |
+| `CancelAttempt` | attempt + token: a stop that is already stopping is a no-op; `release` frees once | Reconcile (held + cancel requested -> sent again); a fenced/unknown report -> `release` | `tests/unit/agent/test_v06_g1_command_dedupe.py::test_a_cancel_in_new_envelopes_stops_once_and_reports_once` |
+| `RefreshFetchToken` | `(attempt_id, fencing_token)`, newest applied (the last one sent wins; attempt commands are never re-sent with an old envelope, and a stream is FIFO) | Reconcile: held `ASSIGNED`/`STAGING` with no live token in this process (D95) | `test_v06_g1_command_dedupe.py::test_a_refresh_in_new_envelopes_applies_the_newest` |
+| `GcRequest` | `set_pins`: replaces the whole set, newest wins even when two requests overlap (generation + FIFO lock); `run_now`: the command id (a new request is a new pass) | controller re-send on a missing Ack; pins also after every Hello | `test_v06_g1_command_dedupe.py::test_overlapping_pin_requests_newest_wins`; `tests/component/agent/test_v06_g1_command_resend_e2e.py` (Ack dropped -> re-sent -> one pass) |
+| `PrepareEnv` | `request_id` (a known request only re-reports its status) | controller re-send on a missing Ack; resent on Reconcile while pending (V0.5 G5 N2) | `tests/unit/agent/test_node_prepare.py::test_env_built_then_hit_and_a_replayed_request_runs_once` |
+| `ProbeRequest` / `ProbeLink` (V0.6 G4) | the command id (G4: its probe id) | controller re-send on a missing Ack | G4 |
+| any command, same envelope twice | the command id (`RecentIds`, per process) | - | `test_v06_g1_command_dedupe.py::test_a_repeated_message_id_reaches_the_handler_once`; controller side `tests/unit/controller/test_v06_g1_command_resend.py` |
+
 **Failure taxonomy** (`meshforge.common.errors.FailureType`; value = lowercase name). Values are permanent — they are DB columns and ML labels, so never rename, only add. The proto `FailureType` mirrors this list 1:1 (parity test in 0.1.5).
 
 | `failure_type` | Meaning | Default retryable |

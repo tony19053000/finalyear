@@ -624,6 +624,26 @@ class ControllerSection(SectionModel):
         gt=0,
         description="A new stream must send Hello within this or is closed.",
     )
+    command_resend_s: float = Field(
+        default=10.0,
+        ge=1.0,
+        le=300.0,
+        description=(
+            "V0.6 D113: a GcRequest / PrepareEnv / ProbeLink the agent has not "
+            "acked this long after it was sent is sent again (same message_id: "
+            "the agent drops a copy it already applied). Attempt commands are "
+            "re-sent by Reconcile instead."
+        ),
+    )
+    command_resend_tries: int = Field(
+        default=5,
+        ge=0,
+        le=20,
+        description=(
+            "Re-sends of one unacked command before it is logged "
+            "session.command_unacked and no longer re-sent (0 = never re-send)."
+        ),
+    )
     admission_timeout_s: float = Field(
         default=DEFAULT_ADMISSION_TIMEOUT_S,
         ge=0.5,

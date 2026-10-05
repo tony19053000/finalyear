@@ -285,6 +285,8 @@ class ControllerRuntime:
             admission_timeout_s=cfg.admission_timeout_s,
             peer_token_key=self.peer_tokens.public_key,
             trust_peer_endpoints=cfg.trust_peer_endpoints,
+            command_resend_s=cfg.command_resend_s,
+            command_resend_tries=cfg.command_resend_tries,
         )
         self.manager = manager
         # D101: cache reports -> the location index (before any stream).

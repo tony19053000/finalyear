@@ -43,13 +43,21 @@ forgotten above this - its Ack then only logs. Commands are rare (one per
 attempt start/cancel), so this bounds a broken agent, not normal use."""
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class PendingCommand:
-    """A controller command waiting for the agent's Ack (D64)."""
+    """A controller command waiting for the agent's Ack (D64).
+
+    V0.6 G1 (D113): a command re-sent on a missing Ack keeps its ``message``
+    (the exact envelope, same ``message_id``: the agent's dedupe drops a copy
+    it already applied) and when it was last sent; attempt commands keep no
+    message - Reconcile re-sends what still matters for them."""
 
     payload: str
     attempt_id: str = ""
     fencing_token: int = 0
+    message: agent_pb2.ControllerMessage | None = None
+    sent_at: float = 0.0
+    sends: int = 1
 
 
 _CLEAN_END: Final[frozenset[SessionEndReason]] = frozenset(
@@ -170,6 +178,8 @@ class LiveSession:
     """Commands sent on this session and not yet acked, by ``message_id``."""
     commands_sent: int = 0
     commands_acked: int = 0
+    commands_resent: int = 0
+    """Commands queued again on a missing Ack (V0.6 G1, D113)."""
     attempt_status_received: int = 0
     attempt_status_fenced: int = 0
     """Reports for a stale token / an attempt the controller already ended."""
@@ -199,6 +209,7 @@ class LiveSession:
             "write_overflow_episodes": self.writer.overflow_episodes,
             "commands_sent": self.commands_sent,
             "commands_acked": self.commands_acked,
+            "commands_resent": self.commands_resent,
             "commands_unacked": len(self.awaiting_ack),
             "attempt_status_received": self.attempt_status_received,
             "attempt_status_fenced": self.attempt_status_fenced,

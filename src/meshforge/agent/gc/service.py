@@ -63,6 +63,11 @@ class GcService:
         """The next pass scans the disk (start, periodic, a controller request);
         a pass asked for after a staging trusts the index."""
         self._pin_tasks: set[asyncio.Task[int]] = set()
+        self._pins_lock = asyncio.Lock()
+        self._pins_gen = 0
+        """V0.6 D113: the newest pin request wins - each GcRequest{set_pins}
+        gets a generation; an older one still waiting is skipped."""
+        self.pins_superseded = 0
         self._task: asyncio.Task[None] | None = None
         self.passes = 0
         self.last: GcReport | None = None
@@ -178,8 +183,10 @@ class GcService:
         """A controller ``GcRequest`` (synchronous, before its Ack): pins are
         replaced in a kept task, a pass is requested."""
         if request.set_pins:
+            self._pins_gen += 1
             task = asyncio.create_task(
-                self.set_pins(list(request.pinned_trees)), name="agent-gc-pins"
+                self._set_pins_newest(self._pins_gen, list(request.pinned_trees)),
+                name="agent-gc-pins",
             )
             self._pin_tasks.add(task)
             task.add_done_callback(self._pin_done)
@@ -196,6 +203,23 @@ class GcService:
             )
 
     # ----------------------------------------------------------------- pins
+
+    async def _set_pins_newest(self, generation: int, trees: list[str]) -> int:
+        """Apply one pin request unless a newer one arrived meanwhile (D113:
+        two requests in flight must never leave the older set applied). The
+        lock is FIFO, so requests apply in arrival order and the newest is
+        always applied last."""
+        async with self._pins_lock:
+            if generation != self._pins_gen:
+                self.pins_superseded += 1
+                log.info(
+                    "agent.gc.pins_superseded",
+                    node_id=self._node_id,
+                    generation=generation,
+                    newest=self._pins_gen,
+                )
+                return -1
+            return await self.set_pins(trees)
 
     async def set_pins(self, trees: Iterable[str]) -> int:
         """Replace the pinned trees (``sha256:<hex>`` each; malformed refused

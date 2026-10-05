@@ -8,9 +8,19 @@ stays the only writer of the stream:
   command); a full queue raises :class:`~.errors.OutboundOverflowError`.
 * :meth:`CommandChannel.send_command` sends a command and remembers it as
   awaiting its Ack (bounded by :data:`~.live.MAX_AWAITING_ACK`); the agent's
-  ``Ack`` resolves it and fires ``SessionHooks.on_command_acked``. There is no
-  generic retry layer: the attempt logic decides what to re-send (D66). A full
-  outbound queue means the agent is not reading: the session is ended
+  ``Ack`` resolves it and fires ``SessionHooks.on_command_acked``. **Re-send
+  on a missing Ack (V0.6 G1, D113):** a command in :data:`RESEND_ON_TIMEOUT`
+  (``gc``, ``prepare_env``, ``probe_request``) not acked ``command_resend_s``
+  after it was sent is queued again - the **same envelope, same
+  ``message_id``**, so an agent that applied it but whose Ack was lost drops
+  the copy and acks again - at most ``command_resend_tries`` times, then logged
+  ``session.command_unacked`` (kept waiting: a late Ack still resolves it).
+  The lease timer drives it (:meth:`CommandChannel.resend_due`). Attempt
+  commands are never re-sent by a timer: Reconcile decides what still matters
+  for an attempt (D66) and re-sends with a fresh envelope. Within one stream
+  nothing is lost; a stream that ends takes its pending commands with it
+  (the next session's Hello/Reconcile re-sends pins, prepares and attempts).
+  A full outbound queue means the agent is not reading: the session is ended
   ``protocol_error`` (the agent reconnects and reconciles, which re-sends
   whatever still matters).
 * **Deferred Acks.** A payload registered with :meth:`CommandChannel.defer_ack`
@@ -43,12 +53,15 @@ from meshforge.controller.session.live import (
     PendingCommand,
 )
 
-__all__ = ["STREAMED", "UNACKED", "CommandChannel"]
+__all__ = ["RESEND_ON_TIMEOUT", "STREAMED", "UNACKED", "CommandChannel"]
 
 log = get_logger(__name__)
 
 UNACKED: Final = frozenset({"ack", "pong", "goodbye", "log_chunk"})
 """Agent payloads that get no Ack back (ADR-0002 Updates §4: never buffered)."""
+RESEND_ON_TIMEOUT: Final = frozenset({"gc", "prepare_env", "probe_request"})
+"""Commands the controller re-sends itself on a missing Ack (D113); attempt
+commands are re-sent by Reconcile instead (D66)."""
 STREAMED: Final = frozenset({"log_chunk"})
 """Best-effort payloads (V0.4 D71): no ``message_id`` dedupe (offsets dedupe
 them; a log flood must not churn the dedupe window of reports), no Ack."""
@@ -64,11 +77,21 @@ class CommandChannel:
         close: Callable[[LiveSession, SessionEndReason], None],
         closing: Callable[[], bool],
         queue_size: int,
+        clock: Callable[[], float] | None = None,
+        resend_s: float = 10.0,
+        resend_tries: int = 5,
     ) -> None:
+        if not resend_s > 0 or resend_tries < 0:
+            raise ValueError("resend_s must be > 0 and resend_tries >= 0")
         self._live = live
         self._close = close
         self._closing = closing
         self._queue_size = queue_size
+        self._clock = clock or (lambda: 0.0)
+        self.resend_s = resend_s
+        self.resend_tries = resend_tries
+        self.resent = 0
+        self.unacked = 0
         self.hooks = SessionHooks()
         self.deferred: set[str] = set()
         """Payloads whose handler acks them once stored (:meth:`defer_ack`)."""
@@ -143,7 +166,11 @@ class CommandChannel:
         if len(live.awaiting_ack) >= MAX_AWAITING_ACK:
             live.awaiting_ack.pop(next(iter(live.awaiting_ack)))
         live.awaiting_ack[msg.message_id] = PendingCommand(
-            payload_name, attempt_id, fencing_token
+            payload_name,
+            attempt_id,
+            fencing_token,
+            message=msg if payload_name in RESEND_ON_TIMEOUT else None,
+            sent_at=self._clock(),
         )
         live.commands_sent += 1
         log.info(
@@ -155,6 +182,54 @@ class CommandChannel:
             attempt_id=attempt_id or None,
         )
         return msg.message_id
+
+    def resend_due(self, live: LiveSession, now: float) -> float | None:
+        """D113: re-send every :data:`RESEND_ON_TIMEOUT` command of ``live`` not
+        acked ``resend_s`` after its last send (same envelope); give up after
+        ``resend_tries`` re-sends. Returns the next time one is due (None =
+        nothing waiting). Called by the lease timer."""
+        if live.ended:
+            return None
+        next_due: float | None = None
+        for message_id, pending in list(live.awaiting_ack.items()):
+            if pending.message is None:
+                continue
+            due = pending.sent_at + self.resend_s
+            if now < due:
+                next_due = due if next_due is None else min(next_due, due)
+                continue
+            if pending.sends > self.resend_tries:
+                pending.message = None  # stop; a late Ack still resolves it
+                self.unacked += 1
+                log.warning(
+                    "session.command_unacked",
+                    node_id=live.node_id,
+                    session_id=live.session_id,
+                    message_id=message_id,
+                    payload=pending.payload,
+                    sends=pending.sends,
+                )
+                continue
+            try:
+                self.send(live, pending.message)
+            except OutboundOverflowError:
+                self.overflowed(live)
+                return None
+            pending.sends += 1
+            pending.sent_at = now
+            self.resent += 1
+            live.commands_resent += 1
+            log.info(
+                "session.command_resent",
+                node_id=live.node_id,
+                session_id=live.session_id,
+                message_id=message_id,
+                payload=pending.payload,
+                sends=pending.sends,
+            )
+            due = now + self.resend_s
+            next_due = due if next_due is None else min(next_due, due)
+        return next_due
 
     def overflowed(self, live: LiveSession) -> None:
         log.warning(

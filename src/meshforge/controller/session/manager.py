@@ -185,6 +185,8 @@ class SessionManager:
         admission_timeout_s: float = DEFAULT_ADMISSION_TIMEOUT_S,
         peer_token_key: bytes = b"",
         trust_peer_endpoints: bool = False,
+        command_resend_s: float = 10.0,
+        command_resend_tries: int = 5,
     ) -> None:
         if not admission_timeout_s > 0:
             raise ValueError("admission_timeout_s must be > 0")
@@ -219,6 +221,9 @@ class SessionManager:
             close=lambda live, reason: self._ends.close(live, reason),
             closing=lambda: self.closing,
             queue_size=outbound_queue_size,
+            clock=clock,
+            resend_s=command_resend_s,
+            resend_tries=command_resend_tries,
         )
         """Outbound messages, commands, Acks and hooks (D64, :mod:`.commands`)."""
         self.send = self.commands.send
