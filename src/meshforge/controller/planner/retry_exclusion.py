@@ -3,8 +3,9 @@
 An automatically placed job that failed retryably is tried again **elsewhere**
 first, so one sick laptop cannot eat every attempt:
 
-* ``node_lost``, ``transfer_error``, ``integrity_error``, ``timeout`` - the
-  node it failed on, for ``retry_exclude_s`` after that attempt ended;
+* ``node_lost``, ``transfer_error``, ``integrity_error``, ``timeout``,
+  ``disk_full`` (D126) - the node it failed on, for ``retry_exclude_s``
+  after that attempt ended;
 * ``vram_oom`` - every node whose largest GPU is no larger than the GPU that
   ran out of memory (that node included), for the rest of the job: a retry
   only helps on a bigger GPU;
@@ -29,7 +30,7 @@ from meshforge.controller.planner.types import NodeSnapshot
 __all__ = ["EXCLUDE_NODE_FOR", "PastFailure", "exclusions"]
 
 EXCLUDE_NODE_FOR: Final = frozenset(
-    {"node_lost", "transfer_error", "integrity_error", "timeout"}
+    {"node_lost", "transfer_error", "integrity_error", "timeout", "disk_full"}
 )
 """Failure types (values) that exclude the node they happened on (D110)."""
 _VRAM_OOM: Final = "vram_oom"

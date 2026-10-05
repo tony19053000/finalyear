@@ -53,7 +53,7 @@ def verdict(**kw: Any) -> Any:
         (F.USER_ERROR, False),
         (F.OOM, False),
         (F.ENV_ERROR, False),
-        (F.DISK_FULL, False),
+        (F.DISK_FULL, True),  # D126: auto-placed (pinned: test_v06_g3_fix1_policy)
         (F.DEADLINE_EXCEEDED, False),
         (F.OUTPUT_ERROR, False),
         (F.INTERNAL_ERROR, False),

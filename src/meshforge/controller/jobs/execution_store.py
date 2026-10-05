@@ -77,6 +77,7 @@ from meshforge.controller.jobs.retry import (
     RetryReason,
     RetryVerdict,
     exhausted_detail,
+    first_failure_detail,
     retry_verdict,
 )
 from meshforge.controller.jobs.store import (
@@ -349,12 +350,19 @@ class ExecutionStore(DecisionReads):
                     await _fresh(db, row)
                     results.append(DispatchResult(job=job_record(row), attempt=attempt))
                 elif isinstance(decision, DispatchFailure):
+                    why: str | None = decision.detail
+                    if int(row.attempt_epoch) > 0:  # a retried job: keep the root cause
+                        why = first_failure_detail(
+                            decision.failure_type,
+                            await _first_failure_type(db, row.id),
+                            why,
+                        )
                     await _move_job(
                         db,
                         row,
                         JobEvent.FAIL,
                         failure_type=decision.failure_type,
-                        detail=decision.detail,
+                        detail=why,
                     )
                     if decision.record is not None:
                         await _record_decision(
@@ -823,9 +831,11 @@ async def _fail_or_retry(
     backoff (the database's clock, the one ``queued_at`` uses), every arrow
     in the history - so the attempt's end and the job's next queue entry
     commit together or not at all. ``queued_at`` keeps its first value: a
-    retry does not lose its place to jobs submitted after it. Otherwise the
-    job fails with the attempt's failure type (``retries_exhausted`` in the
-    detail when that was the reason) - or nothing, when the job already moved
+    retry does not lose its place to jobs submitted after it. A cancel
+    requested before the attempt ended ends the job ``CANCELLED`` (D127).
+    Otherwise the job fails with the attempt's failure type (``retries_
+    exhausted`` in the detail when that was the reason; the first failed
+    attempt's type when it differs) - or nothing, when the job already moved
     on (e.g. it was cancelled; the soft arrow logs it).
     """
     verdict = retry_verdict(
@@ -837,6 +847,7 @@ async def _fail_or_retry(
         base_backoff_s=float(job.retry_backoff_s),
         on_lost_retry=bool(job.on_lost_retry),
         cancel_requested=job.cancel_requested_at is not None,
+        pinned=bool((job.placement or {}).get("node_id")),
     )
     if verdict.retry and await _move_job(db, job, JobEvent.RETRY, soft=True):
         await _move_job(db, job, JobEvent.PLAN)
@@ -847,12 +858,42 @@ async def _fail_or_retry(
         return verdict
     if verdict.retry:  # the job had already moved on (soft arrow skipped)
         return RetryVerdict(RetryReason.NOT_RETRYABLE)
+    if verdict.reason is RetryReason.CANCELLED:
+        # D127: the user asked to stop it; how the attempt ended is the detail.
+        ended = f"{failure_type.value}: {detail}" if detail else failure_type.value
+        await _move_job(
+            db,
+            job,
+            JobEvent.CANCEL,
+            detail=f"cancelled by request (the attempt ended {ended})",
+            soft=True,
+        )
+        return verdict
     if verdict.reason is RetryReason.RETRIES_EXHAUSTED:
         detail = exhausted_detail(int(job.attempt_epoch), detail)
+    if int(job.attempt_epoch) > 1:
+        detail = first_failure_detail(
+            failure_type, await _first_failure_type(db, job.id), detail
+        )
     await _move_job(
         db, job, JobEvent.FAIL, failure_type=failure_type, detail=detail, soft=True
     )
     return verdict
+
+
+async def _first_failure_type(db: AsyncSession, job_id: str) -> str | None:
+    """The failure type of the job's first failed/lost attempt (root cause)."""
+    first = await db.scalar(
+        select(Attempt.failure_type)
+        .where(
+            Attempt.job_id == job_id,
+            Attempt.state.in_((AttemptState.FAILED.value, AttemptState.LOST.value)),
+            Attempt.failure_type.is_not(None),
+        )
+        .order_by(Attempt.fencing_token)
+        .limit(1)
+    )
+    return None if first is None else str(first)
 
 
 async def _move_attempt(

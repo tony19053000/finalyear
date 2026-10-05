@@ -10,16 +10,22 @@ failed nor queued, and nothing a crash could leave half-done.
 The rules, in order:
 
 1. ``cancelled`` is never retried (the user, or the controller for the user,
-   stopped it); neither is anything once a cancel was requested.
+   stopped it); neither is anything once a cancel was requested - and then
+   the job ends ``CANCELLED``, whatever ended the attempt (D127: the user
+   asked to stop it; a ``FAILED(node_lost)`` they never asked for would lie).
 2. A **loss** - the controller ending the attempt ``LOST``, or the agent
    reporting ``node_lost`` (``agent_shutdown``) - is retried unless the job
    opted out with ``retry: {on_lost: false}`` (D117: a non-idempotent
    workload that may have run partly must not run again).
-3. Otherwise the failure's own ``retryable`` flag decides (the agent sends
+3. ``disk_full`` is a condition of the node, not of the job (D126): an
+   automatically placed job is retried (the planner then avoids that node,
+   :mod:`~meshforge.controller.planner.retry_exclusion`); a pinned job is not
+   - its one node would fail it again. The per-instance flag is not read.
+4. Otherwise the failure's own ``retryable`` flag decides (the agent sends
    one per instance - e.g. an ``output_error`` from an upload blip is
    retryable, one from a refused symlink is not); a report without one falls
    back to the type's default (ARCHITECTURE §13 table).
-4. A retryable failure of the job's ``max_attempts``-th attempt ends the job
+5. A retryable failure of the job's ``max_attempts``-th attempt ends the job
    ``FAILED(<that failure type>)`` with ``retries_exhausted`` in the detail.
 
 Backoff: ``backoff_s * 2^(attempts - 1)``, capped at :data:`MAX_BACKOFF_S`
@@ -40,6 +46,7 @@ __all__ = [
     "RetryVerdict",
     "backoff_s",
     "exhausted_detail",
+    "first_failure_detail",
     "retry_verdict",
 ]
 
@@ -84,6 +91,7 @@ def retry_verdict(
     base_backoff_s: float,
     on_lost_retry: bool,
     cancel_requested: bool,
+    pinned: bool = False,
 ) -> RetryVerdict:
     """See module docstring. ``attempts_used`` = attempts the job has had,
     the one ending now included (= its fencing token)."""
@@ -94,6 +102,8 @@ def retry_verdict(
         if not on_lost_retry:
             return RetryVerdict(RetryReason.ON_LOST_DISABLED)
         may_retry = True
+    elif failure_type is FailureType.DISK_FULL:
+        may_retry = not pinned  # D126
     else:
         may_retry = retryable if retryable is not None else is_retryable(failure_type)
     if not may_retry:
@@ -107,3 +117,15 @@ def exhausted_detail(attempts_used: int, detail: str | None) -> str:
     """The job's ``failure_detail`` when its last retry failed (D110)."""
     head = f"retries_exhausted after {attempts_used} attempts"
     return f"{head}: {detail}" if detail else head
+
+
+def first_failure_detail(
+    final_type: FailureType, first_type: str | None, detail: str | None
+) -> str | None:
+    """The failed job's detail, led by the root cause when its first failed
+    attempt had another type (e.g. an ``integrity_error`` whose retry then
+    ended ``not_found``): ``"first failure: integrity_error; <detail>"``."""
+    if first_type is None or first_type == final_type.value:
+        return detail
+    head = f"first failure: {first_type}"
+    return f"{head}; {detail}" if detail else head

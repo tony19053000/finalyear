@@ -107,9 +107,7 @@ def test_a_failure_with_no_end_time_is_still_excluded() -> None:
     assert got == {"a": "node_lost"}
 
 
-@pytest.mark.parametrize(
-    "kind", ["disk_full", "user_error", "oom", "env_error", "output_error"]
-)
+@pytest.mark.parametrize("kind", ["user_error", "oom", "env_error", "output_error"])
 def test_non_listed_types_exclude_nothing(kind: str) -> None:
     assert (
         exclusions([failed("a", kind)], (node("a"), node("b")), now=NOW, exclude_s=600)

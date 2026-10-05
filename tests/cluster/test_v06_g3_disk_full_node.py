@@ -1,11 +1,16 @@
-"""V0.6 G3 (D118): the chaos suite's disk-full fault, checked on its own.
+"""V0.6 G3 (D118, D126): the chaos suite's disk-full fault, checked on its own.
 
 One agent process runs in its own user + mount namespace with its workdir on
 a 4 MiB tmpfs (``mf_cluster`` ``agent_tmpfs_workdir``; no root). A job runs
 fine; the tmpfs is then filled from outside (``/proc/<pid>/root``) and the
-next job's staging hits a real ``ENOSPC``: ``FAILED(disk_full)`` - not
-retryable by default, so **not** retried (one attempt). Freed again, a third
-job succeeds on the same node.
+next job's staging hits a real ``ENOSPC``:
+
+* **one node** - a job pinned to it fails ``disk_full`` after one attempt
+  (D126: its node would fail it again); an auto-placed job is retried (D126)
+  but no other node could ever run it, so the exclusion is lifted and it
+  fails ``disk_full`` with ``retries_exhausted``. Freed again, a job succeeds;
+* **two nodes** (fix round 1) - with the first node full, auto jobs all
+  succeed: an attempt that hit the full disk is retried on the other node.
 """
 
 from __future__ import annotations
@@ -51,7 +56,7 @@ def _terminal(fabric: Fabric, job_id: str, within: float = 30) -> dict[str, Any]
     fabric.fail(f"job {job_id} not terminal: {view}")
 
 
-def test_a_full_workdir_fails_disk_full_without_retry_and_recovers(
+def test_a_full_workdir_fails_disk_full_and_recovers(
     make_fabric: Callable[..., Fabric], tmp_path: Path
 ) -> None:
     reason = tmpfs_unsupported_reason()
@@ -68,16 +73,63 @@ def test_a_full_workdir_fails_disk_full_without_retry_and_recovers(
     (node,) = fabric.nodes
     ledger = make_ledger(tmp_path / "ledger")
     digest = upload_workload(fabric, tmp_path)
-    manifest = ledger_manifest(ledger, sleep_s=0.1, retry={"backoff_s": 0})
+    manifest = ledger_manifest(
+        ledger, sleep_s=0.1, retry={"backoff_s": 0, "max_attempts": 2}
+    )
 
     ok = _terminal(fabric, submit(fabric, digest, manifest))
     assert ok["state"] == "succeeded", ok
 
     assert node.fill_disk() > 0
-    full = _terminal(fabric, submit(fabric, digest, manifest))
-    assert (full["state"], full["failure_type"]) == ("failed", "disk_full"), full
-    assert len(full["attempts"]) == 1  # disk_full is not retried by default
+    pinned = _terminal(
+        fabric, submit(fabric, digest, manifest, {"node_id": node.node_id})
+    )
+    assert (pinned["state"], pinned["failure_type"]) == ("failed", "disk_full")
+    assert len(pinned["attempts"]) == 1, pinned  # D126: pinned is not retried
+
+    lone = _terminal(fabric, submit(fabric, digest, manifest))
+    assert (lone["state"], lone["failure_type"]) == ("failed", "disk_full"), lone
+    assert [a["failure_type"] for a in lone["attempts"]] == ["disk_full"] * 2
+    assert "retries_exhausted" in (lone["failure_detail"] or ""), lone
 
     node.free_disk()
     again = _terminal(fabric, submit(fabric, digest, manifest))
     assert again["state"] == "succeeded", again
+
+
+def test_auto_jobs_hitting_a_full_node_are_retried_on_the_other(
+    make_fabric: Callable[..., Fabric], tmp_path: Path
+) -> None:
+    reason = tmpfs_unsupported_reason()
+    if reason is not None:
+        pytest.skip(reason)
+    fabric = make_fabric(
+        agents=2,
+        timing=TIMING,
+        agent_execution=EXEC,
+        controller_jobs={"dispatch_interval_s": 0.1},
+        agent_env={"DOCKER_HOST": "unix:///nonexistent/meshforge-test.sock"},
+        agent_tmpfs_workdir={0: 4 * 1024 * 1024},
+    )
+    full, healthy = fabric.nodes
+    ledger = make_ledger(tmp_path / "ledger")
+    digest = upload_workload(fabric, tmp_path)
+    manifest = ledger_manifest(ledger, sleep_s=0.1, retry={"backoff_s": 0})
+    assert full.fill_disk() > 0
+
+    jobs = [submit(fabric, digest, manifest) for _ in range(8)]
+    hit = 0
+    for job_id in jobs:
+        view = _terminal(fabric, job_id)
+        assert view["state"] == "succeeded", view
+        *failed, last = view["attempts"]
+        assert last["node_id"] == healthy.node_id, view
+        for attempt in failed:
+            assert (attempt["node_id"], attempt["failure_type"]) == (
+                full.node_id,
+                "disk_full",
+            ), view
+        assert len(failed) <= 1, view  # the full node is excluded after one
+        hit += len(failed)
+    # one CPU slot per agent: the first tick puts a job on each node
+    assert hit >= 1, "no job was ever placed on the full node"

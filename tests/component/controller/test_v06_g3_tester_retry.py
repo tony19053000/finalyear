@@ -544,10 +544,6 @@ async def test_cancel_while_waiting_out_not_before_ends_cancelled_for_good(
     assert again is not None and not again.cancelled_now
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="tester D-1: cancel requested then node lost -> FAILED(node_lost)",
-)
 async def test_a_loss_after_a_cancel_request_is_not_reported_as_node_lost(
     store: ExecutionStore, pg_settings: DatabaseSettings
 ) -> None:
@@ -596,7 +592,6 @@ async def test_cancel_racing_the_retry_transaction_never_leaves_a_live_retry(
     store: ExecutionStore, pg_settings: DatabaseSettings
 ) -> None:
     (node, _) = await _nodes(pg_settings)
-    seen: set[str] = set()
     for _round in range(25):
         a = await _running(store, node)
         cancel, out = await asyncio.gather(
@@ -606,10 +601,10 @@ async def test_cancel_racing_the_retry_transaction_never_leaves_a_live_retry(
         assert cancel is not None and out.kind is StatusKind.APPLIED
         job = await store.get_job(a.job_id)
         assert job is not None
-        seen.add(job.state.value)
-        # either cancel won (job FAILED: no retry after a request) or the
-        # retry committed first and the cancel then ended the queued job.
-        assert job.state in (JobState.CANCELLED, JobState.FAILED), job.state
+        # either the cancel request committed first (D127: the failure then
+        # ends the job CANCELLED, no retry) or the retry committed first and
+        # the cancel then ended the queued job - CANCELLED either way.
+        assert job.state is JobState.CANCELLED, job.state
         rows = await _sql(
             pg_settings, "SELECT count(*) FROM attempt WHERE job_id = :j", j=a.job_id
         )
