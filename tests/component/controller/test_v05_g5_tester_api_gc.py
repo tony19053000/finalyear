@@ -258,13 +258,6 @@ async def test_concurrent_pushes_never_duplicate_a_version_and_same_tree_is_idem
     assert other.status_code == 201 and other.json()["version"] == 1
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT G5-T2 (minor): NamedInputStore.push retries a version "
-    "collision only 5 times with no back-off, so 12 concurrent pushes of "
-    "different trees under one name make some callers fail with 409 "
-    "'concurrent pushes kept colliding' although a retry would succeed.",
-)
 async def test_twelve_concurrent_pushes_to_one_name_all_succeed(
     runtime: ControllerRuntime, http: httpx.AsyncClient, tmp_path: Path
 ) -> None:

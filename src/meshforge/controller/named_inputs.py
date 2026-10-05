@@ -19,12 +19,14 @@ submitted with.
 
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
+import random
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
@@ -53,7 +55,9 @@ __all__ = [
 log = get_logger(__name__)
 
 MAX_LISTED: Final = 1000
-_PUSH_RETRIES: Final = 5
+_PUSH_RETRIES: Final = 12
+_PUSH_BACKOFF_S: Final = 0.02
+_NAME_LOCK: Final = text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))")
 _TERMINAL: Final = tuple(s.value for s in JOB_TERMINAL_STATES)
 
 
@@ -115,10 +119,17 @@ class NamedInputStore:
         self, name: str, tree_id: str, *, size: int, files: int, pinned: bool
     ) -> tuple[NamedInputRecord, bool]:
         """Register ``tree_id`` under ``name``: ``(record, created)``. The same
-        tree again returns its version (pinned if asked now)."""
-        for _ in range(_PUSH_RETRIES):
+        tree again returns its version (pinned if asked now).
+
+        Pushes to one name are serialised by a transaction-scoped advisory
+        lock on the name, so concurrent pushes take versions one after the
+        other instead of colliding on ``(name, version)``; a collision that
+        still happens (e.g. another writer without the lock) is retried with a
+        jittered, growing back-off (G5-T2)."""
+        for attempt in range(_PUSH_RETRIES):
             try:
                 async with self._sessions() as db, db.begin():
+                    await db.execute(_NAME_LOCK, {"key": f"named_input:{name}"})
                     existing = await db.scalar(
                         select(NamedInput).where(
                             NamedInput.name == name, NamedInput.tree_id == tree_id
@@ -147,7 +158,10 @@ class NamedInputStore:
                     await db.refresh(row)
                     return _record(row), True
             except IntegrityError:
-                continue  # a concurrent push took that version: read again
+                # A concurrent push took that version: read again, later.
+                delay = _PUSH_BACKOFF_S * (attempt + 1)
+                await asyncio.sleep(random.uniform(0, delay))  # noqa: S311 - jitter
+                continue
         raise NamedInputError(
             "could not register the input (concurrent pushes kept colliding)",
             failure_type=FailureType.CONFLICT,
