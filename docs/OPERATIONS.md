@@ -262,7 +262,12 @@ what it evicted. `compute node gc <NODE_ID>|--all` runs a pass now.
 **The controller's blob store** has the same policy (`[controller.gc] cas_bytes`,
 100 GB by default, `min_age_s` 1 day): it never evicts what an unfinished job or
 a pinned named input references. A finished job's outputs **can** be evicted
-after a day under quota pressure - `compute get` them before. The store is also
+after a day under quota pressure - `compute get` them before (afterwards a download
+can return 404). Keep `[controller.gc] min_age_s` at 10 minutes or more: it is
+what protects blobs uploaded but not yet referenced by a submitted job (a slow
+upload-then-submit otherwise fails with a clean 409 and must be re-run). The
+quota is soft: it is enforced by GC passes, not by refusing writes. Pin the
+named inputs you need - an unpinned one can be evicted once no job uses it. The store is also
 **scrubbed**: every blob is re-hashed at `scrub_bytes_per_s` (32 MiB/s) once a
 day, and at once when a job failed `integrity_error`; a corrupt blob is removed
 (`controller.blobs.scrub_corrupt`) and the next `compute run` / `compute data
