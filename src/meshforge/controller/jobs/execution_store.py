@@ -70,6 +70,7 @@ from meshforge.controller.jobs.progress import (
 )
 from meshforge.controller.jobs.queue_reads import (
     FabricRows,
+    NetworkReads,
     queued_jobs,
     read_fabric,
 )
@@ -303,6 +304,7 @@ class ExecutionStore(DecisionReads):
         now: dt.datetime,
         aging_s: float,
         history_runs: int = 20,
+        network: NetworkReads | None = None,
     ) -> list[DispatchResult]:
         """One pass over the queue in priority order (D106; see module
         docstring and :mod:`.queue_reads`). Per job the decider's answer is
@@ -318,7 +320,11 @@ class ExecutionStore(DecisionReads):
             if not jobs:
                 return results
             fabric = await read_fabric(
-                db, jobs, history_runs=history_runs, keys_of=_project_keys
+                db,
+                jobs,
+                history_runs=history_runs,
+                keys_of=_project_keys,
+                network=network,
             )
             for row in jobs:
                 try:

@@ -3,7 +3,7 @@ policy, as a pure function of ``(request, snapshot, policy, now)``.
 
 * :mod:`.types` - the frozen inputs and outputs;
 * :mod:`.feasibility` - static and live rejection rules, slot choice;
-* :mod:`.estimator` - predicted completion time (v0 stub until V0.6 G4);
+* :mod:`.estimator` - predicted completion time (estimator v0, V0.6 G4);
 * :mod:`.policies` - the seven ranking policies (D107);
 * :mod:`.plan` - the pipeline;
 * :mod:`.retry_exclusion` - which nodes a retry avoids (V0.6 G3, D110);

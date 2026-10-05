@@ -117,6 +117,7 @@ class DispatchPlanner:
         resources: ResourceTracker | None = None,
         known_bad_envs: KnownBadEnvs | None = None,
         cache_live: Callable[[str, str], bool] | None = None,
+        link_stale_after_s: float = 3600.0,
     ) -> None:
         self._manager = manager
         self._settings = settings
@@ -139,6 +140,7 @@ class DispatchPlanner:
             default_env_s=planner.default_env_s,
             max_attempts_per_node=settings.max_attempts_per_node,
             resource_weights=planner.resource_weights,
+            link_stale_after_s=link_stale_after_s,
         )
 
     # ------------------------------------------------------------ snapshot
@@ -155,11 +157,13 @@ class DispatchPlanner:
         )
         used_cpu, used_gpu = fabric.used_slots(row.node_id)
         cached = fabric.holdings.get(row.node_id, frozenset())
+        envs: dict[str, int] = fabric.env_holdings.get(row.node_id, {})
         if live is None or (
             self._cache_live is not None
             and not self._cache_live(row.node_id, live.session_id)
         ):
             cached = frozenset()  # a stale or unknown index is not a measurement
+            envs = {}
         return node_snapshot(
             row.node_id,
             state=state,
@@ -180,6 +184,7 @@ class DispatchPlanner:
             else max(d.free_bytes for d in sample.disks),
             cached=cached,
             busy_gpus=fabric.busy_gpus(row.node_id),
+            cached_envs=envs,
         )
 
     def snapshot(self, fabric: FabricRows) -> ClusterSnapshot:
@@ -192,6 +197,9 @@ class DispatchPlanner:
                 ),
                 round_robin_after=self.round_robin_after,
                 config=self.config,
+                links=dict(fabric.links),
+                controller_links=dict(fabric.controller_links),
+                env_builds=dict(fabric.env_builds),
             )
         return fabric.snapshot
 

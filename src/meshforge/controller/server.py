@@ -359,6 +359,7 @@ class ControllerRuntime:
             inputs=self.inputs,
             known_bad_envs=self.known_bad_envs,
             planner=cfg.planner,
+            network=cfg.network,
             cache_live=self.cache_index.is_live,
             on_integrity_failure=(
                 functools.partial(

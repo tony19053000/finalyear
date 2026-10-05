@@ -11,6 +11,7 @@ is an argument of :func:`~.plan.plan` (D102).
 
 from __future__ import annotations
 
+import datetime as dt
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -20,11 +21,14 @@ __all__ = [
     "STATIC_CODES",
     "CandidateEval",
     "ClusterSnapshot",
+    "ControllerLinkStat",
     "Decision",
+    "EnvBuildStat",
     "Estimate",
     "EstimateTerm",
     "GpuNeed",
     "History",
+    "LinkStat",
     "Mode",
     "NodeSnapshot",
     "PlanRequest",
@@ -148,6 +152,13 @@ class History:
     by_node_s: Mapping[str, float] = field(default_factory=dict)
     """node_id -> median run seconds on that node."""
     samples_by_node: Mapping[str, int] = field(default_factory=dict)
+    output_bytes: float | None = None
+    """V0.6 G4 (D108): median bytes the fingerprint's successful attempts
+    uploaded (outputs + final logs); None = never recorded."""
+    output_samples: int = 0
+    env_hash_by_node: Mapping[str, str] = field(default_factory=dict)
+    """node_id -> the env hash the fingerprint's latest attempt there reported
+    (with :attr:`NodeSnapshot.cached_envs`: is the env still built there?)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -221,6 +232,9 @@ class NodeSnapshot:
     """Tree ids / digests (from the request's trees) this node holds whole."""
     known_bad_envs: frozenset[str] = frozenset()
     """Env keys that failed to build here recently (D116)."""
+    cached_envs: Mapping[str, int] = field(default_factory=dict)
+    """V0.6 G4: env hash -> bytes of the built environments this node holds
+    (cache index, only the hashes the tick's jobs care about)."""
 
     @property
     def free_cpu_slots(self) -> int:
@@ -249,6 +263,35 @@ class NodeSnapshot:
 
 
 @dataclass(frozen=True, slots=True)
+class LinkStat:
+    """V0.6 G4 (D111): one measured link - ``src`` downloaded from ``dst``'s
+    peer server (data flows dst -> src). EWMA values."""
+
+    bw_bytes_s: float
+    rtt_ms: float
+    samples: int
+    measured_at: dt.datetime
+
+
+@dataclass(frozen=True, slots=True)
+class ControllerLinkStat:
+    """V0.6 G4 (D111): controller -> node bandwidth from transfer history
+    (median of recent controller transfers)."""
+
+    bw_bytes_s: float
+    samples: int
+
+
+@dataclass(frozen=True, slots=True)
+class EnvBuildStat:
+    """V0.6 G4 (D108): median environment build time for one ``env.base``
+    (env phases long enough to be a build, not a cache hit)."""
+
+    median_s: float
+    samples: int
+
+
+@dataclass(frozen=True, slots=True)
 class PlannerConfig:
     """``[controller.planner]`` values the pure planner needs."""
 
@@ -258,6 +301,8 @@ class PlannerConfig:
     max_attempts_per_node: int = 8
     resource_weights: tuple[float, float, float] = (1.0, 1.0, 1.0)
     """``resource_score``: (free RAM GiB, free slots, normalised score)."""
+    link_stale_after_s: float = 3600.0
+    """V0.6 G4 (D111): a link measured longer ago than this is not used."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -267,6 +312,13 @@ class ClusterSnapshot:
     round_robin_after: str | None = None
     """``round_robin``'s cursor: the node chosen last (D107; in memory)."""
     config: PlannerConfig = field(default_factory=PlannerConfig)
+    links: Mapping[tuple[str, str], LinkStat] = field(default_factory=dict)
+    """V0.6 G4: ``(src, dst) -> LinkStat`` - the network matrix (stale rows
+    included; the estimator judges age against ``now``)."""
+    controller_links: Mapping[str, ControllerLinkStat] = field(default_factory=dict)
+    """V0.6 G4: node_id -> controller -> node bandwidth (transfer history)."""
+    env_builds: Mapping[str, EnvBuildStat] = field(default_factory=dict)
+    """V0.6 G4: ``env.base`` -> environment build time history."""
 
     def node(self, node_id: str) -> NodeSnapshot | None:
         for node in self.nodes:

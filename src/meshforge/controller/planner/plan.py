@@ -151,9 +151,8 @@ def plan(
     policy: str,
     now: dt.datetime | None = None,
 ) -> Decision:
-    """See module docstring. ``now`` is accepted for the D102 signature and
-    future staleness rules; v0 needs no time."""
-    del now
+    """See module docstring. ``now`` judges the age of network-matrix links
+    (V0.6 G4, D111); without it no link counts as fresh."""
     config = snapshot.config
     request = _with_exclusion(request, snapshot)
     evals: list[CandidateEval] = []
@@ -174,7 +173,7 @@ def plan(
         slot = choose_slot(request, node)
         if slot is None:  # pragma: no cover - live_rejection already said slots_full
             raise AssertionError("a feasible candidate without a slot")
-        guess = estimate(request, node, slot, snapshot, local=local)
+        guess = estimate(request, node, slot, snapshot, local=local, now=now)
         scored.append(Scored(node=node, slot=slot, local=local, estimate=guess))
         evals.append(
             CandidateEval(node.node_id, mode, feasible=True, slot=slot, estimate=guess)

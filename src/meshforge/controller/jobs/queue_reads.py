@@ -22,7 +22,13 @@ PostgreSQL into a :class:`FabricRows`:
   is running;
 * which nodes hold which of the batch's trees whole (``cache_location``);
 * the batch's named-input sizes;
-* the run-time history of the batch's workload fingerprints (D108);
+* the run-time history of the batch's workload fingerprints (D108), and (V0.6
+  G4) their median uploaded bytes and the env hash their latest attempt on
+  each node reported, with which of those environments each node still holds;
+* the environment build-time history of the batch's ``env.base`` values (env
+  phases of at least :data:`ENV_BUILD_MIN_MS` - shorter ones were cache hits);
+* the network matrix (``network_link``) and the controller -> node bandwidth
+  from transfer history (V0.6 G4, D111);
 * the reason key of each job's latest decision (D104: a waiting job's
   decision is recorded again only when it changes);
 * the failed / lost attempts of the batch's retried jobs (V0.6 G3, D110:
@@ -45,8 +51,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from meshforge.common.manifest import MAX_PRIORITY
 from meshforge.common.states import AttemptPhase, AttemptState, JobState
+from meshforge.controller.network.store import controller_links, read_links
 from meshforge.controller.planner.retry_exclusion import PastFailure
-from meshforge.controller.planner.types import ClusterSnapshot, History
+from meshforge.controller.planner.types import (
+    ClusterSnapshot,
+    ControllerLinkStat,
+    EnvBuildStat,
+    History,
+    LinkStat,
+)
 from meshforge.controller.store.models.cache import CacheLocation
 from meshforge.controller.store.models.data import JobInput, NamedInput
 from meshforge.controller.store.models.job import Attempt, AttemptPhaseRow, Job
@@ -54,9 +67,11 @@ from meshforge.controller.store.models.node import Node
 from meshforge.controller.store.models.plan import PlanDecision
 
 __all__ = [
+    "ENV_BUILD_MIN_MS",
     "MAX_HISTORY_FINGERPRINTS",
     "MAX_NODES",
     "FabricRows",
+    "NetworkReads",
     "NodeRow",
     "queued_jobs",
     "read_fabric",
@@ -65,8 +80,21 @@ __all__ = [
 MAX_NODES: Final = 1000
 MAX_HISTORY_FINGERPRINTS: Final = 500
 _MAX_HOLDINGS: Final = 100_000
+_MAX_ENV_HOLDINGS: Final = 100_000
+_DEFAULT_BASE: Final = "python-cpu"
+"""The manifest's ``env.base`` default (a stored manifest may omit it)."""
+ENV_BUILD_MIN_MS: Final = 1000
+"""An env phase shorter than this was a cache hit, not a build."""
 _MAX_PAST_PER_JOB: Final = 16
 """More than the manifest's 10 attempts, so no job's failures are cut."""
+
+
+@dataclass(frozen=True, slots=True)
+class NetworkReads:
+    """``[controller.network]`` values the tick's reads need (D111)."""
+
+    transfer_min_bytes: int = 1024 * 1024
+    transfer_history: int = 20
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,6 +126,14 @@ class FabricRows:
     """job_id -> reason_key of its latest plan_decision."""
     past_failures: dict[str, tuple[PastFailure, ...]] = field(default_factory=dict)
     """job_id -> its ended ``failed``/``lost`` attempts (retried jobs only)."""
+    env_holdings: dict[str, dict[str, int]] = field(default_factory=dict)
+    """node_id -> {env hash: bytes} of the batch's environments it holds."""
+    env_builds: dict[str, EnvBuildStat] = field(default_factory=dict)
+    """``env.base`` -> build-time history (V0.6 G4)."""
+    links: dict[tuple[str, str], LinkStat] = field(default_factory=dict)
+    """(src, dst) -> the network matrix row (V0.6 G4, D111)."""
+    controller_links: dict[str, ControllerLinkStat] = field(default_factory=dict)
+    """node_id -> controller -> node bandwidth from transfer history."""
     snapshot: ClusterSnapshot | None = None
     """The planner snapshot built from these rows (the dispatcher's, cached
     for the tick and patched by :meth:`took`)."""
@@ -207,12 +243,131 @@ async def _history(
         grouped.setdefault(str(fp), {}).setdefault(str(node_id), []).append(
             int(ms) / 1000.0
         )
-    return {
-        fp: History(
+    outputs = await _output_history(db, fingerprints, runs)
+    envs = await _env_hashes(db, fingerprints)
+    out: dict[str, History] = {}
+    for fp in sorted(set(grouped) | set(outputs) | set(envs)):
+        per_node = grouped.get(fp, {})
+        sizes = outputs.get(fp, [])
+        out[fp] = History(
             by_node_s={n: _median(v) for n, v in sorted(per_node.items())},
             samples_by_node={n: len(v) for n, v in sorted(per_node.items())},
+            output_bytes=_median(sizes) if sizes else None,
+            output_samples=len(sizes),
+            env_hash_by_node=dict(sorted(envs.get(fp, {}).items())),
         )
-        for fp, per_node in grouped.items()
+    return out
+
+
+async def _output_history(
+    db: AsyncSession, fingerprints: Sequence[str], runs: int
+) -> dict[str, list[float]]:
+    """fingerprint -> uploaded bytes of its latest ``runs`` DONE attempts."""
+    ranked = (
+        select(
+            Job.fingerprint.label("fp"),
+            Attempt.output_bytes.label("size"),
+            func.row_number()
+            .over(
+                partition_by=Job.fingerprint,
+                order_by=(Attempt.ended_at.desc(), Attempt.id),
+            )
+            .label("n"),
+        )
+        .join(Attempt, Attempt.job_id == Job.id)
+        .where(
+            Job.fingerprint.in_(fingerprints[:MAX_HISTORY_FINGERPRINTS]),
+            Attempt.state == AttemptState.DONE.value,
+            Attempt.output_bytes.is_not(None),
+        )
+        .subquery()
+    )
+    rows = await db.execute(
+        select(ranked.c.fp, ranked.c.size).where(ranked.c.n <= runs)
+    )
+    out: dict[str, list[float]] = {}
+    for fp, size in rows.all():
+        out.setdefault(str(fp), []).append(float(size))
+    return out
+
+
+async def _env_hashes(
+    db: AsyncSession, fingerprints: Sequence[str]
+) -> dict[str, dict[str, str]]:
+    """fingerprint -> {node_id: env hash its latest attempt there reported}."""
+    rows = await db.execute(
+        select(Job.fingerprint, Attempt.node_id, Attempt.env_hash)
+        .join(Attempt, Attempt.job_id == Job.id)
+        .where(
+            Job.fingerprint.in_(fingerprints[:MAX_HISTORY_FINGERPRINTS]),
+            Attempt.env_hash.is_not(None),
+        )
+        .distinct(Job.fingerprint, Attempt.node_id)
+        .order_by(Job.fingerprint, Attempt.node_id, Attempt.ended_at.desc())
+        .limit(MAX_HISTORY_FINGERPRINTS * MAX_NODES)
+    )
+    out: dict[str, dict[str, str]] = {}
+    for fp, node_id, env_hash in rows.all():
+        out.setdefault(str(fp), {})[str(node_id)] = str(env_hash)
+    return out
+
+
+async def _env_builds(
+    db: AsyncSession, bases: Sequence[str], runs: int
+) -> dict[str, EnvBuildStat]:
+    """``env.base`` -> median env phase of its latest ``runs`` builds."""
+    if not bases:
+        return {}
+    base = func.coalesce(Job.manifest["env"]["base"].astext, _DEFAULT_BASE)
+    ranked = (
+        select(
+            base.label("base"),
+            AttemptPhaseRow.duration_ms.label("ms"),
+            func.row_number()
+            .over(partition_by=base, order_by=AttemptPhaseRow.started_at.desc())
+            .label("n"),
+        )
+        .join(Attempt, Attempt.job_id == Job.id)
+        .join(AttemptPhaseRow, AttemptPhaseRow.attempt_id == Attempt.id)
+        .where(
+            base.in_(sorted(bases)),
+            AttemptPhaseRow.phase == AttemptPhase.ENV.value,
+            AttemptPhaseRow.skipped.is_(False),
+            AttemptPhaseRow.duration_ms >= ENV_BUILD_MIN_MS,
+        )
+        .subquery()
+    )
+    rows = await db.execute(
+        select(ranked.c.base, ranked.c.ms).where(ranked.c.n <= runs)
+    )
+    grouped: dict[str, list[float]] = {}
+    for name, ms in rows.all():
+        grouped.setdefault(str(name), []).append(int(ms) / 1000.0)
+    return {
+        name: EnvBuildStat(median_s=_median(v), samples=len(v))
+        for name, v in sorted(grouped.items())
+    }
+
+
+async def _network(db: AsyncSession, reads: NetworkReads, fabric: FabricRows) -> None:
+    fabric.links = {
+        (r.src_node_id, r.dst_node_id): LinkStat(
+            bw_bytes_s=r.bw_bytes_s,
+            rtt_ms=r.rtt_ms,
+            samples=r.samples,
+            measured_at=r.measured_at,
+        )
+        for r in await read_links(db)
+    }
+    fabric.controller_links = {
+        node: ControllerLinkStat(bw_bytes_s=c.bw_bytes_s, samples=c.samples)
+        for node, c in (
+            await controller_links(
+                db,
+                min_bytes=reads.transfer_min_bytes,
+                per_node=reads.transfer_history,
+            )
+        ).items()
     }
 
 
@@ -242,6 +397,7 @@ async def read_fabric(
     *,
     history_runs: int,
     keys_of: Callable[[Job], Sequence[str]],
+    network: NetworkReads | None = None,
 ) -> FabricRows:
     """See module docstring. ``keys_of(job)`` = the job's project tree (or
     bundle) key; its named inputs are added here."""
@@ -308,6 +464,20 @@ async def read_fabric(
         fabric.holdings = {n: frozenset(k) for n, k in holdings.items()}
     fingerprints = sorted({j.fingerprint for j in jobs if j.fingerprint})
     fabric.history = await _history(db, fingerprints, history_runs)
+    env_hashes = sorted(
+        {h for hist in fabric.history.values() for h in hist.env_hash_by_node.values()}
+    )
+    if env_hashes:
+        envs = await db.execute(
+            select(CacheLocation.node_id, CacheLocation.key, CacheLocation.size)
+            .where(CacheLocation.kind == "env", CacheLocation.key.in_(env_hashes))
+            .limit(_MAX_ENV_HOLDINGS)
+        )
+        for node_id, key, size in envs.all():
+            fabric.env_holdings.setdefault(str(node_id), {})[str(key)] = int(size)
+    bases = sorted({_base_of(j) for j in jobs})
+    fabric.env_builds = await _env_builds(db, bases, history_runs)
+    await _network(db, network or NetworkReads(), fabric)
     last = await db.execute(
         select(PlanDecision.job_id, PlanDecision.reason_key)
         .where(PlanDecision.job_id.in_(job_ids))
@@ -319,6 +489,12 @@ async def read_fabric(
         db, [j.id for j in jobs if int(j.attempt_epoch) > 0]
     )
     return fabric
+
+
+def _base_of(job: Job) -> str:
+    env = job.manifest.get("env") if isinstance(job.manifest, dict) else None
+    base = env.get("base") if isinstance(env, dict) else None
+    return str(base or _DEFAULT_BASE)
 
 
 async def _past_failures(

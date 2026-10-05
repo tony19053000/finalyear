@@ -147,6 +147,7 @@ def node_snapshot(
     cached: Iterable[str] = (),
     known_bad_envs: Iterable[str] = (),
     busy_gpus: Iterable[int] = (),
+    cached_envs: Mapping[str, int] | None = None,
 ) -> NodeSnapshot:
     caps = capabilities_of(hardware)
     vram = gpu_vram_of(hardware)
@@ -180,6 +181,7 @@ def node_snapshot(
         gpu_score=gpu_score,
         cached=frozenset(cached),
         known_bad_envs=frozenset(known_bad_envs),
+        cached_envs=dict(sorted((cached_envs or {}).items())),
     )
 
 

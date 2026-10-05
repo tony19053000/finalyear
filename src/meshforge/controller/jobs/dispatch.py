@@ -34,13 +34,18 @@ from meshforge.controller.jobs.execution_store import (
 from meshforge.controller.jobs.logs import LogHub
 from meshforge.controller.jobs.peers import PeerSources
 from meshforge.controller.jobs.planning import DispatchPlanner
+from meshforge.controller.jobs.queue_reads import NetworkReads
 from meshforge.controller.jobs.retry import RetryReason
 from meshforge.controller.jobs.spec import execution_spec
 from meshforge.controller.jobs.store import AttemptRecord, JobRecord
 from meshforge.controller.named_inputs import NamedInputStore, ResolvedInput
 from meshforge.controller.resources import ResourceTracker
 from meshforge.controller.session.manager import SessionManager
-from meshforge.controller.settings import JobApiSettings, PlannerSettings
+from meshforge.controller.settings import (
+    JobApiSettings,
+    NetworkSettings,
+    PlannerSettings,
+)
 from meshforge.controller.upload_grants import UploadGrants
 
 __all__ = ["DispatchSteps", "DispatcherStats", "fetch_scope"]
@@ -112,6 +117,7 @@ class DispatchSteps:
     _grant_unacked: dict[str, str]
     _planner: DispatchPlanner
     _planner_settings: PlannerSettings
+    _network_settings: NetworkSettings
     stats: DispatcherStats
 
     # ------------------------------------------------------------ dispatch
@@ -124,6 +130,10 @@ class DispatchSteps:
             now=self._wall(),
             aging_s=self._planner_settings.priority_aging_s,
             history_runs=self._planner_settings.history_runs,
+            network=NetworkReads(
+                transfer_min_bytes=self._network_settings.transfer_min_bytes,
+                transfer_history=self._network_settings.transfer_history,
+            ),
         )
         for result in results:
             if result.attempt is not None:

@@ -125,7 +125,11 @@ from meshforge.controller.named_inputs import NamedInputStore
 from meshforge.controller.resources import ResourceTracker
 from meshforge.controller.session.live import LiveSession, PendingCommand
 from meshforge.controller.session.manager import SessionManager
-from meshforge.controller.settings import JobApiSettings, PlannerSettings
+from meshforge.controller.settings import (
+    JobApiSettings,
+    NetworkSettings,
+    PlannerSettings,
+)
 from meshforge.controller.upload_grants import UploadGrants
 
 __all__ = [
@@ -189,6 +193,7 @@ class Dispatcher(RecoverySteps):
         inputs: NamedInputStore | None = None,
         known_bad_envs: KnownBadEnvs | None = None,
         planner: PlannerSettings | None = None,
+        network: NetworkSettings | None = None,
         cache_live: Callable[[str, str], bool] | None = None,
     ) -> None:
         self._store = store
@@ -228,6 +233,8 @@ class Dispatcher(RecoverySteps):
         Reconcile that finds the attempt held mints and sends another."""
         self._next_log_gc = self._started_at + settings.log_gc_interval_s
         self._planner_settings = planner or PlannerSettings()
+        self._network_settings = network or NetworkSettings(enabled=False)
+        """V0.6 G4 (D111): link staleness and the transfer-history window."""
         self._planner = DispatchPlanner(
             manager=manager,
             settings=settings,
@@ -238,6 +245,7 @@ class Dispatcher(RecoverySteps):
             resources=resources,
             known_bad_envs=known_bad_envs,
             cache_live=cache_live,
+            link_stale_after_s=self._network_settings.stale_after_s,
         )
         """V0.6 G2 (D102): builds the tick's snapshot and decides per job."""
         manager.dispatch.register("attempt_status", self._on_status_message)

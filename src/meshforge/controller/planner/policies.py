@@ -16,7 +16,10 @@ time (checklist 16).
   normalised to the best feasible one (weights ``[controller.planner]
   resource_weights``); missing numbers count 0.
 * ``cache_affinity`` - most bytes of the job's trees already on the node (a
-  seeded Local candidate holds the project tree); ties -> ``least_loaded``.
+  seeded Local candidate holds the project tree) plus the size of the job's
+  built environment when the node still holds it (V0.6 G4: the env hash the
+  workload's last attempt there reported, in the cache index); ties ->
+  ``least_loaded``.
 * ``cost_model`` - lowest estimated completion time (:mod:`.estimator`).
 """
 
@@ -81,6 +84,9 @@ def _cached_bytes(request: PlanRequest, item: Scored) -> int:
             tree.key in item.node.cached
         ):
             held += tree.size
+    env_hash = request.history.env_hash_by_node.get(item.node.node_id)
+    if env_hash is not None:
+        held += item.node.cached_envs.get(env_hash, 0)
     return held
 
 
