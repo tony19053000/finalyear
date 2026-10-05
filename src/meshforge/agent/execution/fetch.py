@@ -291,10 +291,14 @@ def token_ok(token: str) -> bool:
 
 
 def tree_sources(
-    spec: agent_pb2.ExecutionSpec, controller_host: str | None
+    spec: agent_pb2.ExecutionSpec,
+    controller_host: str | None,
+    *,
+    sources: Sequence[agent_pb2.BlobSource] | None = None,
 ) -> list[BlobSource]:
-    """The validated blob sources of ``spec`` (see module docstring)."""
-    listed = list(spec.sources)
+    """The validated blob sources of ``spec`` (see module docstring), or of
+    ``sources`` (a named input's list, V0.5 G5) with the spec's blob location."""
+    listed = list(spec.sources if sources is None else sources)
     if len(listed) > MAX_SOURCES:
         raise FetchError(
             f"more than {MAX_SOURCES} blob sources",

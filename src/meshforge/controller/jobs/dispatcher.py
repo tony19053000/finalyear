@@ -83,7 +83,7 @@ import contextlib
 import dataclasses
 import datetime as dt
 from collections import OrderedDict
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Final
 
@@ -121,6 +121,7 @@ from meshforge.controller.jobs.spec import choose_gpus, execution_spec, start_sn
 from meshforge.controller.jobs.store import AttemptRecord, JobRecord, JobStoreError
 from meshforge.controller.jobs.transitions import AttemptEvent
 from meshforge.controller.liveness import LivenessEvent, NodeState
+from meshforge.controller.named_inputs import NamedInputStore, ResolvedInput
 from meshforge.controller.resources import ResourceTracker
 from meshforge.controller.session.live import LiveSession, PendingCommand
 from meshforge.controller.session.manager import SessionManager
@@ -196,13 +197,15 @@ class DispatcherStats:
     log_files_deleted: int = 0
 
 
-def fetch_scope(job: JobRecord) -> list[Digest]:
+def fetch_scope(job: JobRecord, inputs: Sequence[str] = ()) -> list[Digest]:
     """What an attempt's controller fetch token may read: the tree (its manifest
     plus every member, :class:`~meshforge.controller.blobs.FetchTokens`) for a
-    tree job, the bundle for a V0.4 bundle job. The same for StartAttempt and
-    every RefreshFetchToken (D95)."""
+    tree job, plus every named input tree of the job (V0.5 G5, D92); the
+    bundle for a V0.4 bundle job. The same for StartAttempt and every
+    RefreshFetchToken (D95)."""
     if job.tree_id:
-        return [Digest.parse(job.tree_id)]
+        extra = [Digest.parse(t) for t in dict.fromkeys(inputs) if t != job.tree_id]
+        return [Digest.parse(job.tree_id), *extra]
     if not job.bundle_digest:
         raise ValueError(f"job {job.id} has neither a tree nor a bundle")
     return [Digest.parse(job.bundle_digest)]
@@ -227,8 +230,11 @@ class Dispatcher:
         wall_clock: Callable[[], dt.datetime] | None = None,
         peers: PeerSources | None = None,
         on_integrity_failure: Callable[[str], None] | None = None,
+        inputs: NamedInputStore | None = None,
     ) -> None:
         self._store = store
+        self._inputs = inputs
+        """V0.5 G5 (D92): the job's resolved named inputs (job_input rows)."""
         self._on_integrity_failure = on_integrity_failure
         """V0.5 G5: a tree attempt failed integrity_error -> the scrubber
         re-hashes that tree's blobs on the controller first."""
@@ -647,17 +653,52 @@ class Dispatcher:
         return Dispatch(attempt_id=str(new_attempt_id()), start_snapshot=snapshot)
 
     async def _peer_sources(
-        self, job: JobRecord, attempt: AttemptRecord
+        self, job: JobRecord, attempt: AttemptRecord, tree_id: str | None = None
     ) -> list[agent_pb2.BlobSource]:
         if self._peers is None:
             return []
-        return await self._peers.for_attempt(job, attempt)
+        if tree_id is None:
+            return await self._peers.for_attempt(job, attempt)
+        return await self._peers.for_tree(tree_id, job, attempt)
+
+    async def _job_inputs(self, job: JobRecord) -> list[ResolvedInput]:
+        if self._inputs is None or not job.tree_id:
+            return []
+        return await self._inputs.job_inputs(job.id)
+
+    async def _input_trees(
+        self,
+        job: JobRecord,
+        attempt: AttemptRecord,
+        inputs: Sequence[ResolvedInput],
+        secret: str,
+    ) -> list[agent_pb2.InputTree]:
+        """ExecutionSpec.inputs: per input the controller (with the attempt's
+        fetch token, which covers every input tree) then peers holding it."""
+        out: list[agent_pb2.InputTree] = []
+        for item in inputs:
+            peers = await self._peer_sources(job, attempt, item.tree_id)
+            out.append(
+                agent_pb2.InputTree(
+                    tree_id=item.tree_id,
+                    mount=item.mount,
+                    ref=item.ref,
+                    sources=[
+                        agent_pb2.BlobSource(
+                            url=self._blob_url, token=secret, node_id=""
+                        ),
+                        *peers,
+                    ],
+                )
+            )
+        return out
 
     async def _send_start(
         self, job: JobRecord, attempt: AttemptRecord, *, resend: bool
     ) -> None:
         peers = await self._peer_sources(job, attempt)
-        token, ttl = self._mint_fetch_token(job, attempt)
+        inputs = await self._job_inputs(job)
+        token, ttl = self._mint_fetch_token(job, attempt, inputs)
         spec = execution_spec(
             job,
             attempt,
@@ -666,6 +707,9 @@ class Dispatcher:
             blob_port=self._blob_port(),
         )
         spec.sources.extend(peers)
+        spec.inputs.extend(
+            await self._input_trees(job, attempt, inputs, token.get_secret_value())
+        )
         if self._grants is not None:
             # D73: the only credential that may upload for this attempt; a
             # re-send keeps what the previous grant already stored.
@@ -713,7 +757,10 @@ class Dispatcher:
             self.stats.start_sent += 1
 
     def _mint_fetch_token(
-        self, job: JobRecord, attempt: AttemptRecord
+        self,
+        job: JobRecord,
+        attempt: AttemptRecord,
+        inputs: Sequence[ResolvedInput] = (),
     ) -> tuple[SecretStr, float]:
         """A new download-only token for ``attempt`` (D73) and its TTL; every
         older token of the attempt is revoked. One token per send: a re-send or
@@ -727,7 +774,9 @@ class Dispatcher:
             + self._settings.fetch_token_grace_s,
             float(MAX_FETCH_TOKEN_TTL_S),
         )
-        token = self._tokens.mint(attempt.id, fetch_scope(job), ttl_s=ttl)
+        token = self._tokens.mint(
+            attempt.id, fetch_scope(job, [i.tree_id for i in inputs]), ttl_s=ttl
+        )
         return token, ttl
 
     async def _refresh_fetch_token(
@@ -738,7 +787,8 @@ class Dispatcher:
         whole source list re-minted (D98: fresh peer tokens; the controller
         first, carrying the new fetch token)."""
         peers = await self._peer_sources(job, attempt)
-        token, _ttl = self._mint_fetch_token(job, attempt)
+        inputs = await self._job_inputs(job)
+        token, _ttl = self._mint_fetch_token(job, attempt, inputs)
         secret = token.get_secret_value()
         sources = (
             [agent_pb2.BlobSource(url=self._blob_url, token=secret, node_id="")]
@@ -755,6 +805,7 @@ class Dispatcher:
                 blob_url=self._blob_url,
                 blob_port=self._blob_port(),
                 sources=[*sources, *peers],
+                inputs=await self._input_trees(job, attempt, inputs, secret),
             ),
             attempt_id=attempt.id,
             fencing_token=attempt.fencing_token,

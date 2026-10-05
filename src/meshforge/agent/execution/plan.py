@@ -70,11 +70,19 @@ from meshforge.common.manifest import (
     MAX_MANIFEST_BYTES,
     Manifest,
     ManifestError,
+    check_mount,
+    mounts_overlap,
     parse_manifest_data,
 )
 from meshforge.common.proto.meshforge.v1 import agent_pb2
 
-__all__ = ["AttemptPlan", "PlanError", "plan_attempt", "workload_env"]
+__all__ = [
+    "AttemptPlan",
+    "PlanError",
+    "PlannedInput",
+    "plan_attempt",
+    "workload_env",
+]
 
 MAX_FETCH_TOKEN_CHARS: Final = 512
 MAX_BLOB_URL_CHARS: Final = 300
@@ -109,6 +117,44 @@ class AttemptPlan:
     upload_max_blobs: int = 0
     tree_id: Digest | None = None
     """V0.5 D83: the tree a tree job stages; None for a bundle job."""
+    inputs: tuple[PlannedInput, ...] = ()
+    """V0.5 G5 (D92): named input trees, copied read-only to their mounts."""
+
+
+@dataclass(frozen=True, slots=True)
+class PlannedInput:
+    tree_id: Digest
+    mount: str
+    ref: str
+
+
+MAX_INPUTS: Final = 16
+
+
+def _inputs(
+    spec: agent_pb2.ExecutionSpec, tree_id: Digest | None
+) -> tuple[PlannedInput, ...]:
+    """``ExecutionSpec.inputs`` validated as network input (V0.5 G5): bounded,
+    tree ids well-formed, mounts plain relative folders that do not overlap."""
+    if not spec.inputs:
+        return ()
+    if tree_id is None:
+        raise PlanError("named inputs need a tree job")
+    if len(spec.inputs) > MAX_INPUTS:
+        raise PlanError(f"more than {MAX_INPUTS} named inputs")
+    out: list[PlannedInput] = []
+    for item in spec.inputs:
+        try:
+            digest = Digest.parse(item.tree_id)
+            mount = check_mount(item.mount)
+        except ValueError:
+            raise PlanError("an ExecutionSpec input is malformed") from None
+        if len(item.ref) > 140 or not item.ref.isprintable():
+            raise PlanError("an ExecutionSpec input ref is malformed")
+        if any(mounts_overlap(mount, other.mount) for other in out):
+            raise PlanError("two ExecutionSpec inputs have overlapping mounts")
+        out.append(PlannedInput(digest, mount, item.ref))
+    return tuple(out)
 
 
 def workload_env(
@@ -272,6 +318,7 @@ def plan_attempt(
         fencing_token=token,
         digest=digest,
         tree_id=tree_id,
+        inputs=_inputs(spec, tree_id),
         fetch_token=token_text,
         blob_url=spec.blob_url,
         blob_port=int(spec.blob_port),

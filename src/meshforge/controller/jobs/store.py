@@ -63,6 +63,7 @@ from meshforge.controller.jobs.transitions import (
     next_job_state,
 )
 from meshforge.controller.store.engine import create_session_factory
+from meshforge.controller.store.models.data import JobInput
 from meshforge.controller.store.models.job import (
     MAX_DETAIL_CHARS,
     Attempt,
@@ -311,6 +312,7 @@ class JobStore:
         idempotency_key: str | None,
         through: Sequence[JobEvent] = (),
         tree_id: str | None = None,
+        inputs: Sequence[tuple[str, str, str, int, str]] = (),
     ) -> tuple[JobRecord, bool]:
         """Insert a job; ``(record, created)``. See module docstring.
 
@@ -348,6 +350,19 @@ class JobStore:
                 )
             inserted = await db.scalar(statement.returning(Job.id))
             if inserted is not None:
+                # V0.5 D92: (mount, ref, name, version, tree_id) per input, in
+                # the same transaction as the job row.
+                for mount, ref, input_name, version, input_tree in inputs:
+                    db.add(
+                        JobInput(
+                            job_id=job_id,
+                            mount=mount,
+                            ref=ref,
+                            name=input_name,
+                            version=version,
+                            tree_id=input_tree,
+                        )
+                    )
                 for from_state, to_state in path:
                     await _append_transition(
                         db, job_id, from_state, to_state, at=func.clock_timestamp()
@@ -377,6 +392,7 @@ class JobStore:
         request_hash: str,
         idempotency_key: str | None,
         tree_id: str | None = None,
+        inputs: Sequence[tuple[str, str, str, int, str]] = (),
     ) -> tuple[JobRecord, bool]:
         """Atomically submit a manually placed job (D50): ``SUBMITTED -> PLANNING
         -> QUEUED`` in one transaction. ``created`` is False for an idempotent
@@ -392,6 +408,7 @@ class JobStore:
             idempotency_key=idempotency_key,
             through=(JobEvent.PLAN, JobEvent.PLANNED),
             tree_id=tree_id,
+            inputs=inputs,
         )
 
     @typed_store_call

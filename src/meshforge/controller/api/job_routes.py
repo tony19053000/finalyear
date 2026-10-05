@@ -46,6 +46,7 @@ import hashlib
 import hmac
 import json
 import re
+from collections.abc import Sequence
 from typing import Annotated, Any, Final
 
 from fastapi import APIRouter, Depends, Path, Query, Request, Response, status
@@ -55,9 +56,13 @@ from meshforge.common.errors import FailureType, InvalidIdError
 from meshforge.common.hashing import Digest
 from meshforge.common.ids import new_job_id, validate_job_id, validate_node_id
 from meshforge.common.logging import get_logger
-from meshforge.common.manifest import ManifestError, parse_manifest_data
+from meshforge.common.manifest import (
+    ManifestError,
+    mounts_overlap,
+    parse_manifest_data,
+)
 from meshforge.common.states import JOB_TERMINAL_STATES, JobState
-from meshforge.common.tree import TreeError
+from meshforge.common.tree import Tree, TreeError
 from meshforge.controller.api.auth import FabricTokenRequired
 from meshforge.controller.api.context import FabricView, get_fabric
 from meshforge.controller.api.errors import ApiError
@@ -83,6 +88,12 @@ from meshforge.controller.jobs.store import (
     JobRecord,
     JobStore,
 )
+from meshforge.controller.named_inputs import (
+    NamedInputError,
+    NamedInputStore,
+    PinBroadcaster,
+    ResolvedInput,
+)
 
 __all__ = [
     "DEFAULT_JOB_LIMIT",
@@ -90,6 +101,8 @@ __all__ = [
     "JOBS_STATE_KEY",
     "MAX_JOB_LIMIT",
     "JobApi",
+    "check_tree",
+    "get_job_api",
     "job_router",
     "request_hash",
 ]
@@ -116,8 +129,13 @@ class JobApi:
         max_request_bytes: int,
         dispatcher: Dispatcher | None = None,
         logs: LogHub | None = None,
+        inputs: NamedInputStore | None = None,
+        pins: PinBroadcaster | None = None,
     ) -> None:
         self.store = store
+        self.inputs = inputs
+        """V0.5 G5 (D92): named inputs; None = /v1/data is off, inputs refused."""
+        self.pins = pins
         self.blobs = blobs
         self.max_request_bytes = max_request_bytes
         self.logs = logs
@@ -282,7 +300,7 @@ def _replay(existing: JobRecord, digest: str, response: Response) -> JobCreated:
     return JobCreated(job_id=existing.id, state=existing.state, created=False)
 
 
-async def _check_tree(blobs: BlobStore, tree_id: Digest) -> None:
+async def check_tree(blobs: BlobStore, tree_id: Digest) -> Tree:
     """The tree manifest and every blob it lists are stored (D82/D83)."""
     try:
         tree = await blobs.tree(tree_id)
@@ -306,6 +324,24 @@ async def _check_tree(blobs: BlobStore, tree_id: Digest) -> None:
             f"(ask POST /v1/blobs/have, upload them, retry): {shown}"
             + (f" and {more} more" if more > 0 else ""),
         )
+    return tree
+
+
+def _check_mounts(project: Tree | None, inputs: Sequence[ResolvedInput]) -> None:
+    """V0.5 D92: an input mount must not hide or mix with project files."""
+    if project is None:
+        if inputs:
+            raise ApiError.invalid(
+                "named inputs need a tree job (compute run sends one)"
+            )
+        return
+    for item in inputs:
+        for entry in project.entries:
+            if mounts_overlap(entry.path, item.mount):
+                raise ApiError.invalid(
+                    f"input mount {item.mount!r} overlaps the project path "
+                    f"{entry.path!r}; choose a folder the project does not use"
+                )
 
 
 @job_router.post(
@@ -358,9 +394,23 @@ async def submit_job(
     # V0.5 G5: from the blob check to the job row, no GC pass may remove a blob
     # this job references (the pass holds the same guard).
     async with jobs.blobs.gc_guard.shared():
+        resolved: list[ResolvedInput] = []
+        if manifest.inputs:
+            if jobs.inputs is None:
+                raise ApiError(
+                    FailureType.CONFIG_ERROR, "named inputs are not configured"
+                )
+            try:
+                resolved = await jobs.inputs.resolve(manifest.inputs)
+            except NamedInputError as exc:
+                raise ApiError(exc.failure_type, exc.message) from None
+        project: Tree | None = None
         if submission.tree_id is not None:
-            await _check_tree(jobs.blobs, Digest.parse(submission.tree_id))
-        else:
+            project = await check_tree(jobs.blobs, Digest.parse(submission.tree_id))
+        _check_mounts(project, resolved)
+        for item in resolved:
+            await check_tree(jobs.blobs, Digest.parse(item.tree_id))
+        if submission.tree_id is None:
             bundle_hex = (submission.bundle_digest or "").removeprefix("sha256:")
             if jobs.blobs.size(Digest(bundle_hex)) is None:
                 raise ApiError(
@@ -395,6 +445,9 @@ async def submit_job(
                 request_hash=digest,
                 idempotency_key=key,
                 tree_id=submission.tree_id,
+                inputs=[
+                    (i.mount, i.ref, i.name, i.version, i.tree_id) for i in resolved
+                ],
             )
         except IdempotencyConflictError:
             raise ApiError(

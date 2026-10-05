@@ -46,7 +46,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from meshforge.common.errors import ConfigError, ExitCode, MeshForgeError
 from meshforge.common.logging import get_logger
 from meshforge.common.netaddr import BindAddress, parse_bind
-from meshforge.common.proto.meshforge.v1 import agent_pb2_grpc
+from meshforge.common.proto.meshforge.v1 import agent_pb2, agent_pb2_grpc
 from meshforge.controller.api.auth import ApiAuth
 from meshforge.controller.api.job_routes import JobApi
 from meshforge.controller.blobs import BlobStore, FetchTokens
@@ -63,6 +63,7 @@ from meshforge.controller.jobs.dispatcher import Dispatcher
 from meshforge.controller.jobs.execution_store import ExecutionStore
 from meshforge.controller.jobs.logs import LogHub
 from meshforge.controller.jobs.peers import PeerSources
+from meshforge.controller.named_inputs import NamedInputStore, PinBroadcaster
 from meshforge.controller.peer_signing import (
     PeerTokenIssuer,
     load_or_create_signing_key,
@@ -71,6 +72,7 @@ from meshforge.controller.peer_signing import (
 from meshforge.controller.registry import Registry, SessionEndReason
 from meshforge.controller.resources import ResourceTracker
 from meshforge.controller.session.leases import LeaseTimer
+from meshforge.controller.session.live import LiveSession
 from meshforge.controller.session.manager import SessionManager
 from meshforge.controller.session.servicer import AgentControlServicer
 from meshforge.controller.settings import ControllerSettings
@@ -150,6 +152,9 @@ class ControllerRuntime:
         self.upload_grants: UploadGrants | None = None
         """D73: per-attempt upload quotas (outputs + final logs)."""
         self.logs: LogHub | None = None
+        self.inputs: NamedInputStore | None = None
+        """V0.5 G5 (D92): named, versioned inputs (``/v1/data``)."""
+        self.pins: PinBroadcaster | None = None
         self.gc: ControllerGc | None = None
         """V0.5 G5 (D91): LRU GC of the blob store under [controller.gc]."""
         self.scrubber: BlobScrubber | None = None
@@ -237,6 +242,7 @@ class ControllerRuntime:
         self.registry = registry
         self.cache_index = CacheIndex(CacheLocationStore(engine))
         self.jobs = ExecutionStore(engine)
+        self.inputs = NamedInputStore(engine)
         swept = await registry.sweep_open_sessions(SessionEndReason.CONTROLLER_RESTART)
         offline = await registry.mark_live_nodes_offline()
         log.info(
@@ -305,6 +311,7 @@ class ControllerRuntime:
                 max_sources=cfg.jobs.max_peer_sources,
                 index_live=self.cache_index.is_live,
             ),
+            inputs=self.inputs,
             on_integrity_failure=(
                 functools.partial(
                     self.scrubber.suspect_tree_soon, why="attempt_integrity_error"
@@ -314,6 +321,19 @@ class ControllerRuntime:
             ),
         )
         self._dispatcher_task = self._spawn(self.dispatcher.run(), "dispatcher")
+        # V0.5 G5 (D92): the pinned named inputs go to every agent after its
+        # Reconcile (chained behind the dispatcher's hook) and on every change.
+        self.pins = PinBroadcaster(self.inputs, manager)
+        await self.pins.refresh(broadcast=False)
+        dispatcher_reconcile = manager.hooks.on_reconcile
+        pins = self.pins
+
+        def on_reconcile(live: LiveSession, reconcile: agent_pb2.Reconcile) -> None:
+            if dispatcher_reconcile is not None:
+                dispatcher_reconcile(live, reconcile)
+            pins.on_reconcile(live)
+
+        manager.hooks.on_reconcile = on_reconcile
         flusher = SnapshotFlusher(resources, registry, cfg.resources, clock=loop.time)
         self.flusher = flusher
         self._flusher_task = self._spawn(flusher.run(), "snapshot-flusher")
@@ -361,6 +381,8 @@ class ControllerRuntime:
                     max_request_bytes=cfg.jobs.max_request_bytes,
                     dispatcher=self.dispatcher,
                     logs=log_hub,
+                    inputs=self.inputs,
+                    pins=self.pins,
                 ),
             ),
             host=self._http_bind.host,

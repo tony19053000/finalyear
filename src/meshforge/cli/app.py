@@ -328,3 +328,8 @@ from meshforge.cli.job_commands import cancel, get, jobs, logs, run  # noqa: E40
 
 for _command in (run, jobs, logs, cancel, get):
     app.command()(_command)
+
+# V0.5 G5: `compute data ...` (named inputs).
+from meshforge.cli.data_commands import data_app  # noqa: E402
+
+app.add_typer(data_app)

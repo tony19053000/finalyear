@@ -65,7 +65,16 @@ class PeerSources:
         self, job: JobRecord, attempt: AttemptRecord
     ) -> list[agent_pb2.BlobSource]:
         """The peer sources of ``attempt`` (empty for a bundle job)."""
-        if not job.tree_id or self._max <= 0:
+        if not job.tree_id:
+            return []
+        return await self.for_tree(job.tree_id, job, attempt)
+
+    async def for_tree(
+        self, tree_id: str, job: JobRecord, attempt: AttemptRecord
+    ) -> list[agent_pb2.BlobSource]:
+        """Peers holding ``tree_id`` for ``attempt`` - its project tree or one
+        of its named input trees (V0.5 G5); each token is scoped to that tree."""
+        if self._max <= 0:
             return []
         candidates = {
             live.node_id: live
@@ -79,7 +88,7 @@ class PeerSources:
         if not candidates:
             return []
         try:
-            rows = await self._cache.holders("tree", job.tree_id, among=candidates)
+            rows = await self._cache.holders("tree", tree_id, among=candidates)
         except Exception as exc:  # noqa: BLE001 - peers are optional (docstring)
             self.lookup_failures += 1
             log.warning(
@@ -90,7 +99,7 @@ class PeerSources:
             )
             return []
         rows.sort(key=lambda row: row[1], reverse=True)
-        tree = Digest.parse(job.tree_id)
+        tree = Digest.parse(tree_id)
         sources: list[agent_pb2.BlobSource] = []
         for node_id, _seen in rows[: self._max]:
             live = candidates.get(node_id)

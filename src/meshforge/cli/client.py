@@ -182,6 +182,28 @@ class ControllerClient:
             headers={"idempotency-key": idempotency_key},
         )
 
+    # V0.5 G5 named inputs (D92)
+    def push_input(self, name: str, tree_id: str, *, pinned: bool) -> Mapping[str, Any]:
+        return self._request(
+            "POST",
+            "/v1/data",
+            json_body={"name": name, "tree_id": tree_id, "pinned": pinned},
+        )
+
+    def inputs(self) -> Mapping[str, Any]:
+        return self._get("/v1/data")
+
+    def input_versions(self, name: str) -> Mapping[str, Any]:
+        return self._get(f"/v1/data/{name}")
+
+    def pin_input(self, name: str, version: int, *, pinned: bool) -> Mapping[str, Any]:
+        return self._request(
+            "PATCH", f"/v1/data/{name}/{version}", json_body={"pinned": pinned}
+        )
+
+    def remove_input(self, name: str, version: int) -> Mapping[str, Any]:
+        return self._request("DELETE", f"/v1/data/{name}/{version}")
+
     def jobs(self, *, state: str | None = None, limit: int = 50) -> Mapping[str, Any]:
         params = {"limit": str(limit)}
         if state:

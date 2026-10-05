@@ -70,7 +70,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import os
-import shutil
+import stat
 import time
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
@@ -81,6 +81,7 @@ from typing import TYPE_CHECKING, Any, Final, Protocol
 
 from meshforge.agent.cas import AgentCas
 from meshforge.agent.cas.fetcher import FetchTuning
+from meshforge.agent.envs.fsutil import make_read_only, remove_tree
 from meshforge.agent.execution.fetch import (
     FetchError,
     StageReport,
@@ -105,6 +106,7 @@ from meshforge.common.errors import FailureType, InvalidIdError
 from meshforge.common.hashing import Digest
 from meshforge.common.ids import validate_attempt_id, validate_job_id
 from meshforge.common.logging import get_logger
+from meshforge.common.manifest import check_mount
 from meshforge.common.proto.meshforge.v1 import agent_pb2, common_pb2
 from meshforge.common.proto_codec import attempt_state_to_proto, failure_type_to_proto
 from meshforge.common.states import AttemptState
@@ -200,6 +202,12 @@ class _Attempt:
     stage_retries: int = 0
     leases: AttemptLeases | None = None
     """What this attempt holds against GC (V0.5 G5, D91): its trees and env."""
+    inputs: list[agent_pb2.InputTree] | None = None
+    """Set by a RefreshFetchToken that carries inputs (V0.5 G5): their source
+    lists re-minted. Secrets inside."""
+    stages: list[StageReport] = field(default_factory=list)
+    """Every tree staged for this attempt (project first, then inputs): the
+    transfer telemetry of its terminal report (V0.5 G5, D93)."""
 
     @property
     def ended(self) -> bool:
@@ -300,7 +308,9 @@ class Executor:
             # A previous process's attempts: the controller has lost them (they
             # were not in this process's Reconcile), nothing will collect them.
             if leftover.is_dir() and not leftover.is_symlink():
-                shutil.rmtree(leftover, ignore_errors=True)
+                # remove_tree: read-only named inputs (V0.5 G5) included.
+                with contextlib.suppress(OSError):
+                    remove_tree(leftover)
             else:
                 with contextlib.suppress(OSError):
                     leftover.unlink()
@@ -395,7 +405,7 @@ class Executor:
         )
         if attempt.workdir is not None and not self._cfg.keep_workdirs:
             task = asyncio.create_task(
-                asyncio.to_thread(shutil.rmtree, attempt.workdir, True),
+                asyncio.to_thread(_remove_quietly, attempt.workdir),
                 name=f"attempt-cleanup:{attempt.attempt_id}",
             )
             self._cleanup.add(task)
@@ -573,6 +583,8 @@ class Executor:
         if msg.sources:
             # Validated like StartAttempt's sources when staging uses them.
             attempt.sources = list(msg.sources)
+        if msg.inputs:
+            attempt.inputs = list(msg.inputs)
         attempt.token_changed.set()
 
     def _stop(self, attempt: _Attempt, reason: str) -> None:
@@ -791,8 +803,13 @@ class Executor:
         """V0.5 D84: fetch into the CAS, then copy into the workdir (verified).
 
         The copy is not interruptible (like an unpack: it runs to completion in
-        its thread); a stop asked meanwhile is honoured right after.
+        its thread); a stop asked meanwhile is honoured right after. A staging
+        retry (D95) skips the trees already in the workdir (V0.5 G5: the
+        project, then each named input in order).
         """
+        if attempt.stages:
+            await self._stage_inputs(attempt, workdir, spec)
+            return
         sources = tree_sources(spec, self._controller_host())
         leases = attempt.leases
         tree_hex = spec.tree_id.removeprefix("sha256:")
@@ -844,8 +861,69 @@ class Executor:
         )
         if attempt.stop_reason is not None:
             raise _StoppedError
+        attempt.stages = [report]
+        await self._stage_inputs(attempt, workdir, spec)
         if os.name == "posix":
             await asyncio.to_thread(workdir.chmod, 0o700)
+
+    async def _stage_inputs(
+        self, attempt: _Attempt, workdir: Path, spec: agent_pb2.ExecutionSpec
+    ) -> None:
+        """V0.5 G5 (D92): each named input tree is fetched like the project
+        (cache, peers, verified chunks) and copied to ``workdir/<mount>``, then
+        made read-only. A mount that meets anything the project put there - a
+        file, a link, or a folder - is refused (``invalid_input``): an input
+        never hides or mixes with project files."""
+        if not spec.inputs:
+            return
+        leases = attempt.leases
+        done = max(0, len(attempt.stages) - 1)  # stages[0] is the project
+        for item in list(spec.inputs)[done:]:
+            mount = check_mount(item.mount)
+            dest = await asyncio.to_thread(_free_mount, workdir, mount)
+            tree_hex = item.tree_id.removeprefix("sha256:")
+            if leases is not None:
+                await leases.add("tree", tree_hex)
+            report = await self._step(
+                attempt,
+                stage_tree(
+                    self.cas,
+                    tree_id=item.tree_id,
+                    sources=tree_sources(
+                        spec, self._controller_host(), sources=item.sources
+                    ),
+                    dest=dest,
+                    timeout_s=self._fetch_cfg.request_timeout_s,
+                    tuning=self._tuning(),
+                    on_tree=leases.tree if leases is not None else None,
+                ),
+            )
+            if leases is not None:
+                await leases.touch_tree(tree_hex)
+            await asyncio.to_thread(make_read_only, dest)
+            attempt.stages.append(report)
+            log.info(
+                "agent.cas.input_staged",
+                node_id=self._node_id,
+                job_id=attempt.job_id,
+                attempt_id=attempt.attempt_id,
+                tree_id=item.tree_id,
+                ref=item.ref,
+                mount=mount,
+                blobs_hit=report.blobs_hit,
+                blobs_fetched=report.blobs_fetched,
+                bytes_fetched=report.bytes_fetched,
+            )
+            if attempt.stop_reason is not None:
+                raise _StoppedError
+
+    def _tuning(self) -> FetchTuning:
+        return FetchTuning(
+            per_source=self._fetch_cfg.per_source,
+            slow_source_factor=self._fetch_cfg.slow_source_factor,
+            slow_min_units=self._fetch_cfg.slow_min_units,
+            endgame_after_s=self._fetch_cfg.endgame_after_s,
+        )
 
     def _prepare_work_root_only(self) -> None:
         self.work_root.mkdir(parents=True, exist_ok=True)
@@ -1200,9 +1278,46 @@ def _refreshed(
         # V0.5 G4 (D98): the refresh re-minted the whole list (fresh peer tokens).
         del copy.sources[:]
         copy.sources.extend(attempt.sources)
-    for source in copy.sources:
+    if attempt.inputs is not None:
+        # V0.5 G5: the inputs with their sources re-minted too.
+        del copy.inputs[:]
+        copy.inputs.extend(attempt.inputs)
+    listed = [*copy.sources, *(s for i in copy.inputs for s in i.sources)]
+    for source in listed:
         if not source.node_id:
             source.token = token
             if attempt.blob_port is not None:
                 source.url = attempt.blob_url or ""
     return copy
+
+
+def _free_mount(workdir: Path, mount: str) -> Path:
+    """``workdir/mount`` after checking that nothing the project staged is in
+    the way: every parent is absent or a real folder (never a link), the
+    mount itself does not exist. Creates the parents. Blocking."""
+    current = workdir
+    parts = mount.split("/")
+    for part in parts[:-1]:
+        current = current / part
+        try:
+            info = os.lstat(current)
+        except FileNotFoundError:
+            continue
+        if not stat.S_ISDIR(info.st_mode):
+            raise FetchError(
+                f"input mount {mount!r} goes through a project file or link",
+                failure_type=FailureType.INVALID_INPUT,
+            )
+    dest = workdir / mount
+    if os.path.lexists(dest):
+        raise FetchError(
+            f"input mount {mount!r} overlaps project files",
+            failure_type=FailureType.INVALID_INPUT,
+        )
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    return dest
+
+
+def _remove_quietly(path: Path) -> None:
+    with contextlib.suppress(OSError):
+        remove_tree(path)

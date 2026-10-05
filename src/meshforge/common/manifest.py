@@ -96,6 +96,7 @@ __all__ = [
     "Manifest",
     "ManifestError",
     "ResourcesSpec",
+    "check_mount",
     "infer_entrypoint",
     "load_manifest",
     "mounts_overlap",
@@ -323,13 +324,7 @@ class InputSpec(_Spec):
     @field_validator("mount")
     @classmethod
     def _mount(cls, value: str) -> str:
-        _check_relative_path(value, allow_glob=False)
-        parts = PurePosixPath(value).parts
-        if not parts or any(p in (".", "") for p in value.split("/")):
-            raise ValueError("must be a plain folder path (no '.', no empty parts)")
-        if parts[0] == ".meshforge":
-            raise ValueError("must not be under .meshforge (the agent's own folder)")
-        return value
+        return check_mount(value)
 
     @property
     def name(self) -> str:
@@ -347,6 +342,20 @@ class InputSpec(_Spec):
         """The ``@sha256:<hex>`` part (None for a ``@<version>`` ref)."""
         match = _INPUT_REF_RE.fullmatch(self.ref)
         return match.group("tree") if match is not None else None
+
+
+def check_mount(value: str) -> str:
+    """A named input's mount: a plain relative folder inside the workdir, not
+    under ``.meshforge``, at most :data:`MAX_MOUNT_CHARS` (``ValueError``)."""
+    if len(value) > MAX_MOUNT_CHARS:
+        raise ValueError(f"at most {MAX_MOUNT_CHARS} characters")
+    _check_relative_path(value, allow_glob=False)
+    parts = PurePosixPath(value).parts
+    if not parts or any(p in (".", "") for p in value.split("/")):
+        raise ValueError("must be a plain folder path (no '.', no empty parts)")
+    if parts[0] == ".meshforge":
+        raise ValueError("must not be under .meshforge (the agent's own folder)")
+    return value
 
 
 def mounts_overlap(a: str, b: str) -> bool:

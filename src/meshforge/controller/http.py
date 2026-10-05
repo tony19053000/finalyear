@@ -35,6 +35,7 @@ from meshforge.controller.api import (
 )
 from meshforge.controller.api.auth import AUTH_STATE_KEY, ApiAuth, guard_mutations
 from meshforge.controller.api.blob_routes import BLOBS_STATE_KEY, blob_router
+from meshforge.controller.api.data_routes import data_router
 from meshforge.controller.api.job_routes import JOBS_STATE_KEY, JobApi, job_router
 from meshforge.controller.api.log_routes import log_router
 from meshforge.controller.blobs import BlobStore
@@ -104,4 +105,6 @@ def create_http_app(
         setattr(app.state, JOBS_STATE_KEY, jobs)
         app.include_router(job_router)
         app.include_router(log_router)
+        if jobs.inputs is not None:
+            app.include_router(data_router)  # V0.5 G5 named inputs
     return app
