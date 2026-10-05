@@ -42,6 +42,8 @@ unchanged.
 
 from __future__ import annotations
 
+import asyncio
+import bisect
 import hashlib
 import hmac
 import json
@@ -58,7 +60,6 @@ from meshforge.common.ids import new_job_id, validate_job_id, validate_node_id
 from meshforge.common.logging import get_logger
 from meshforge.common.manifest import (
     ManifestError,
-    mounts_overlap,
     parse_manifest_data,
 )
 from meshforge.common.states import JOB_TERMINAL_STATES, JobState
@@ -363,7 +364,27 @@ async def check_tree(blobs: BlobStore, tree_id: Digest) -> Tree:
     return tree
 
 
-def _check_mounts(project: Tree | None, inputs: Sequence[ResolvedInput]) -> None:
+def _mount_conflict(project: Tree, mounts: Sequence[str]) -> tuple[str, str] | None:
+    """``(mount, project path)`` of the first overlap, else None. O(inputs x
+    (depth + log n)): a project path equal to the mount or one of its parent
+    folders (a set), or any project path under the mount (bisect on the sorted
+    paths). Blocking for a large tree: run it in a thread."""
+    paths = sorted(entry.path for entry in project.entries)
+    known = set(paths)
+    for mount in mounts:
+        parts = mount.split("/")
+        for depth in range(1, len(parts) + 1):
+            prefix = "/".join(parts[:depth])
+            if prefix in known:
+                return mount, prefix
+        below = mount + "/"
+        index = bisect.bisect_left(paths, below)
+        if index < len(paths) and paths[index].startswith(below):
+            return mount, paths[index]
+    return None
+
+
+async def _check_mounts(project: Tree | None, inputs: Sequence[ResolvedInput]) -> None:
     """V0.5 D92: an input mount must not hide or mix with project files."""
     if project is None:
         if inputs:
@@ -371,13 +392,17 @@ def _check_mounts(project: Tree | None, inputs: Sequence[ResolvedInput]) -> None
                 "named inputs need a tree job (compute run sends one)"
             )
         return
-    for item in inputs:
-        for entry in project.entries:
-            if mounts_overlap(entry.path, item.mount):
-                raise ApiError.invalid(
-                    f"input mount {item.mount!r} overlaps the project path "
-                    f"{entry.path!r}; choose a folder the project does not use"
-                )
+    if not inputs:
+        return
+    conflict = await asyncio.to_thread(
+        _mount_conflict, project, [item.mount for item in inputs]
+    )
+    if conflict is not None:
+        mount, path = conflict
+        raise ApiError.invalid(
+            f"input mount {mount!r} overlaps the project path {path!r}; choose a "
+            "folder the project does not use"
+        )
 
 
 @job_router.post(
@@ -443,7 +468,7 @@ async def submit_job(
         project: Tree | None = None
         if submission.tree_id is not None:
             project = await check_tree(jobs.blobs, Digest.parse(submission.tree_id))
-        _check_mounts(project, resolved)
+        await _check_mounts(project, resolved)
         for item in resolved:
             await check_tree(jobs.blobs, Digest.parse(item.tree_id))
         if submission.tree_id is None:
