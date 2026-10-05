@@ -105,7 +105,7 @@ Leftovers of a killed agent are removed at its next start.
 the controller `node_lost / agent_shutdown`, and only then disconnects. Killing the
 agent instead leaves the job to the controller: the node goes OFFLINE at the lease
 edge (≈ 6 s) and the job fails `node_lost` - never earlier, so a Wi-Fi blip does not
-kill work. Jobs are not retried until V0.6.
+kill work. Jobs are not retried until V0.6 (G3).
 
 - **Docker runtime (the sandbox, preferred).** Needs Docker Engine (Linux) or Docker
   Desktop with the WSL2 backend (Windows), and for GPU jobs the NVIDIA Container
@@ -146,6 +146,24 @@ kill work. Jobs are not retried until V0.6.
   grant (at most 3 blobs / 2 GiB, `[controller.jobs] max_output_*`); a job's folder
   is kept until the controller has acknowledged its final status - the agent
   re-sends that status every `terminal_resend_s` (5 s) until it has.
+- **Uploads across a controller restart (V0.6 G1).** Outputs larger than one part
+  go up in parts (`[agent.execution] upload_part_bytes`, 8 MiB); if the controller
+  restarts mid-upload, the agent waits for a fresh upload grant (sent after it
+  reconnects) and sends only the parts the controller does not have yet. It keeps
+  trying for `upload_retry_s` (120 s, counted from the first failed upload;
+  `0` = fail at once); after that the job fails `output_error` (retryable).
+  Agent log: `agent.execution.upload_retry` (with `refused` / `refreshed`).
+- **Killed agent, subprocess jobs (V0.6 G1, Linux).** Each job runs in its own
+  process group watched by a tiny helper process; when the job's main process
+  ends - also because the agent was killed with `kill -9` - everything it started
+  is killed too. A job that deliberately detaches with `setsid` can escape it
+  (not a sandbox: use the Docker runtime for untrusted code).
+- **Why did it fail? (V0.6 G1).** `oom` = out of RAM (the kernel or Docker killed
+  it, or Python raised `MemoryError`); `vram_oom` = a CUDA out-of-memory error in
+  the job's output; `disk_full` = no space on this laptop while fetching, building
+  the environment or packing outputs; `env_error` = the environment could not be
+  built - the controller then avoids that environment on this laptop for
+  `[controller.jobs] env_bad_ttl_s` (1 h).
 
 ### 0b2. Job environments and `meshforge-agent prepare` (V0.5, D85-D87)
 
@@ -590,6 +608,7 @@ volume**).
 | Controller log `controller.blobs.scrub_corrupt` | a blob on the controller's disk no longer matches its name (disk error, hand edit) | nothing to do for jobs: it is removed and re-uploaded by the next `compute run` / `data push`; check the disk if it repeats |
 | `compute node prepare` item `failed (no_feasible_plan/runtime_unavailable)` | the node has no runtime for that env (e.g. `runtime: docker` without Docker, `cuda-pytorch` asked of the venv runtime) | drop `runtime:` to let the node choose, or install Docker there |
 | Agent log `agent.peer.start_failed` | port 47120 taken or `bind` is not this laptop's IP | free the port or set `[agent.peer] port`; the agent runs without serving peers meanwhile |
+| A job fails `output_error` with "the upload did not succeed within 120 s of retries" | the agent could not reach the controller's blob port (TCP 47110), or the restarted controller never sent a new upload grant (the agent never reconnected) | check that the controller is up and the agent reconnected (`compute nodes`); raise `[agent.execution] upload_retry_s` on a slow or flaky link |
 | Controller exits **4** at startup | PostgreSQL unreachable or bad `[database]` settings | `docker compose -f deploy/docker-compose.dev.yml up -d --wait`, then check `[database]` |
 | Agent exits **5** immediately | another agent process already owns this identity | stop the other one, or give this one its own `data_dir` |
 | A node shows `STATE suspect` and `CONN no` | the node's connection dropped without a goodbye (Wi-Fi blip, laptop suspended, agent killed) | Normal for a few seconds: the controller keeps the node's lease running and marks it `offline` when the lease runs out (3 × heartbeat, 6 s by default, from the last heartbeat) unless the agent reconnects first — then it goes straight back to `online`. `GET /v1/sessions?node_id=…` shows that session's `end_reason` as `stream_lost`. A cleanly stopped agent (`systemctl --user stop`, Ctrl-C) is `offline` at once with end reason `agent_closed` (ARCHITECTURE §12.3, D19) |

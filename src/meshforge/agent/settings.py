@@ -554,11 +554,12 @@ class ExecutionSettings(SectionModel):
         le=3600.0,
         description=(
             "V0.6 D114: how long the uploads of one attempt (final logs, then "
-            "the outputs) keep retrying when the controller refuses the upload "
-            "grant (a restarted controller sends a fresh one after Reconcile) or "
-            "cannot be reached; parts the controller already holds are not sent "
-            "again. Past it the attempt fails output_error (retryable); 0 = no "
-            "retry. The controller's upload deadline still bounds the whole upload."
+            "the outputs) keep retrying, counted from the first failed upload, "
+            "when the controller refuses the upload grant (a restarted "
+            "controller sends a fresh one after Reconcile) or cannot be "
+            "reached; parts the controller already holds are not sent again. "
+            "Past it the attempt fails output_error (retryable); 0 = no retry. "
+            "The controller's upload deadline still bounds the whole upload."
         ),
     )
     upload_part_bytes: int = Field(
@@ -566,8 +567,9 @@ class ExecutionSettings(SectionModel):
         ge=64 * 1024,
         le=64 * 1024 * 1024,
         description=(
-            "Part size of a resumable output/log upload (D114): what one "
-            "interrupted request can lose."
+            "Part size of a resumable output/log upload (D114): a blob up to "
+            "this size goes up in one PUT; a larger one in parts of this size "
+            "(the controller's size wins when it already holds some)."
         ),
     )
 

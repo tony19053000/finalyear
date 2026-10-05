@@ -80,7 +80,8 @@ with backoff, keeping the item; anything else is a bug: logged with its tracebac
 the item dropped (a report then stays un-acked and is replayed after a reconnect).
 **Layout (V0.6 G1, D119).** This module is the loop, the work queue and the
 report path; :mod:`.dispatch` places jobs and sends attempt commands
-(``StartAttempt``, ``RefreshFetchToken``, ``CancelAttempt``); :mod:`.recovery`
+(``StartAttempt``, ``RefreshFetchToken``, ``RefreshUploadGrant``,
+``CancelAttempt``); :mod:`.recovery`
 holds Reconcile, OFFLINE, the orphan sweep, the backstop, the upload deadline
 and log GC. They are one class (:class:`Dispatcher` <- ``RecoverySteps`` <-
 ``DispatchSteps``) on purpose: one object, one task, one owner of attempts.
