@@ -87,7 +87,8 @@ class RejectCode(StrEnum):
     """V0.6 G3 (D110): an earlier attempt of this job failed here in a way
     another node may avoid (lost, transfer/integrity error, timeout, or a
     GPU no larger than the one that ran out of VRAM). Auto jobs only; lifted
-    when no other node could ever run the job."""
+    by the D129 rule (:mod:`.retry_exclusion`) when no other node could ever
+    run the job."""
 
 
 STATIC_CODES: frozenset[RejectCode] = frozenset(

@@ -605,6 +605,7 @@ class Fabric:
         controller_jobs: Mapping[str, Any] | None = None,
         agent_extra: Mapping[str, Mapping[str, Any]] | None = None,
         agent_tmpfs_workdir: Mapping[int, int] | None = None,
+        controller_extra: Mapping[str, Mapping[str, Any]] | None = None,
         log_level: str = "INFO",
     ) -> None:
         self.workdir = workdir
@@ -629,6 +630,11 @@ class Fabric:
         self._agent_extra = {k: dict(v) for k, v in (agent_extra or {}).items()}
         # V0.6 G3: agent index -> tmpfs size in bytes (Linux; see _TMPFS_BOOT).
         self._agent_tmpfs = dict(agent_tmpfs_workdir or {})
+        # V0.6 G4: more ``[controller.<section>]`` tables, e.g.
+        # ``{"planner": {"retry_exclude_s": 3}, "network": {...}}``.
+        self._controller_extra = {
+            k: dict(v) for k, v in (controller_extra or {}).items()
+        }
         self._db_env = {
             "MESHFORGE_DATABASE__HOST": str(database.host),
             "MESHFORGE_DATABASE__PORT": str(database.port),
@@ -677,6 +683,7 @@ class Fabric:
             "controller.discovery": {"advertise": False},
             "controller.resources": self._controller_resources,
             "controller.jobs": self._controller_jobs,
+            **{f"controller.{k}": v for k, v in self._controller_extra.items()},
         }
         path = self.workdir / "controller.toml"
         path.write_text(_toml({k: v for k, v in tables.items() if v}), "utf-8")

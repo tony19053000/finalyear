@@ -38,7 +38,9 @@ are faulted at once. Then every fault is undone.
 The seed is printed (and put in every failure message): replay one with
 ``MESHFORGE_CHAOS_SEEDS=<seed> pytest tests/cluster/chaos --run-chaos``.
 ``MESHFORGE_CHAOS_JOBS`` sets N (default 50). A JSON summary per seed is
-written to ``$MESHFORGE_CHAOS_REPORT`` (a directory) when set.
+written to ``$MESHFORGE_CHAOS_REPORT`` (a directory) when set, with every
+job's attempts as ``node:state:failure_type`` (``job_attempts``); the printed
+summary carries the histogram ``attempts_per_job``.
 """
 
 from __future__ import annotations
@@ -349,10 +351,15 @@ def _run(
     overlaps = 0
     retries = 0
     states: collections.Counter[str] = collections.Counter()
+    per_job: dict[str, list[str]] = {}
     for job_id in jobs:
         view, plan = views[job_id], plan_of[job_id]
         attempts = view["attempts"]
         retries += max(0, len(attempts) - 1)
+        per_job[job_id] = [
+            f"{a['node_id']}:{a['state']}:{a.get('failure_type') or '-'}"
+            for a in attempts
+        ]
         state, ftype = view["state"], view["failure_type"]
         states[state if state != "failed" else f"failed:{ftype}"] += 1
         done = [a for a in attempts if a["state"] == "done"]
@@ -425,6 +432,9 @@ def _run(
         "jobs": len(jobs),
         "states": dict(states),
         "retries": retries,
+        "attempts_per_job": dict(
+            sorted(collections.Counter(len(v) for v in per_job.values()).items())
+        ),
         "faults": dict(chaos.counts),
         "ledger_overlaps": overlaps,
         "overlap_events": events["controller.jobs.execution_overlap"],
@@ -439,7 +449,10 @@ def _run(
     if out:
         Path(out).mkdir(parents=True, exist_ok=True)
         (Path(out) / f"chaos-{seed}.json").write_text(
-            json.dumps({**summary, "fault_log": chaos.log}, indent=1)
+            json.dumps(
+                {**summary, "fault_log": chaos.log, "job_attempts": per_job},
+                indent=1,
+            )
         )
     assert not problems, "\n".join(problems[:40]) + f"\nfaults: {chaos.log}"
 

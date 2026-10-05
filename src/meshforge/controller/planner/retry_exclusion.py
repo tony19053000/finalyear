@@ -12,10 +12,26 @@ first, so one sick laptop cannot eat every attempt:
 * anything else (``resource_busy``, ``network_error``, a retryable
   ``output_error``...) - no exclusion.
 
-The planner makes it soft (:func:`~.plan._with_exclusion`): a pinned job never
-excludes, and when no other node could ever run the job the exclusion is
-lifted. The result maps ``node_id -> failure type`` so ``compute explain``
-can say why a node was skipped.
+The planner makes it soft (:func:`~.plan._with_exclusion`), by the **D129
+lift rule** (V0.6 G4, replacing G3's all-or-nothing lift):
+
+1. a pinned job never excludes (it retries on its own node only);
+2. while some node outside the excluded set could ever run the job (passes
+   the static rules), nothing is lifted - the job waits for that node;
+3. otherwise exclusions are lifted one tier of :data:`LIFT_ORDER` at a time -
+   ``node_lost``/``timeout`` first (transient), then ``transfer_error``/
+   ``integrity_error``, ``vram_oom`` last - and only for the tier's nodes that
+   would take the job **right now** (online, connected, a free slot; every
+   live rule but the exclusion). The first tier with such a node wins;
+4. :data:`NEVER_LIFTED` (``disk_full``) is never lifted early: the node's disk
+   sample is its largest disk, not its workdir, so nothing says the space is
+   back - the window (``retry_exclude_s``) is the signal;
+5. no usable node in any tier -> the job stays ``QUEUED`` until a node
+   recovers or the earliest exclusion expires. Attempts are not burned on a
+   node that would fail the job again for the same reason.
+
+The result maps ``node_id -> failure type`` so ``compute explain`` can say why
+a node was skipped.
 """
 
 from __future__ import annotations
@@ -27,13 +43,29 @@ from typing import Final
 
 from meshforge.controller.planner.types import NodeSnapshot
 
-__all__ = ["EXCLUDE_NODE_FOR", "PastFailure", "exclusions"]
+__all__ = [
+    "EXCLUDE_NODE_FOR",
+    "LIFT_ORDER",
+    "NEVER_LIFTED",
+    "PastFailure",
+    "exclusions",
+]
 
 EXCLUDE_NODE_FOR: Final = frozenset(
     {"node_lost", "transfer_error", "integrity_error", "timeout", "disk_full"}
 )
 """Failure types (values) that exclude the node they happened on (D110)."""
 _VRAM_OOM: Final = "vram_oom"
+
+LIFT_ORDER: Final[tuple[frozenset[str], ...]] = (
+    frozenset({"node_lost", "timeout"}),
+    frozenset({"transfer_error", "integrity_error"}),
+    frozenset({_VRAM_OOM}),
+)
+"""D129: the order exclusions are lifted in when every capable node is
+excluded (module docstring, rule 3)."""
+NEVER_LIFTED: Final = frozenset({"disk_full"})
+"""D129: excluded until the window ends, never lifted early (rule 4)."""
 
 
 @dataclass(frozen=True, slots=True)

@@ -384,8 +384,11 @@ compute get <JOB_ID>               # outputs -> ./outputs/<JOB_ID>/ (--dest, --f
   job fails with the last error and `retries_exhausted after N attempts` in its
   detail. An automatically placed retry avoids the laptop it failed on for
   `[controller.planner] retry_exclude_s` (600 s; for `vram_oom`: every GPU no
-  larger) unless no other laptop could run it; a `--node`/`--local` job retries
-  on its own laptop only. **Duplicate runs:** a laptop whose Wi-Fi drops keeps
+  larger). When no other laptop could ever run it, the avoided laptop is used
+  again as soon as it can take the job right now (V0.6 D129: a lost or
+  timed-out laptop first, a too-small GPU last; a laptop that ran out of disk
+  only after the 600 s) - until then the job waits `queued` rather than
+  wasting attempts; a `--node`/`--local` job retries on its own laptop only. **Duplicate runs:** a laptop whose Wi-Fi drops keeps
   running its job while the retry runs elsewhere; only one result is ever
   kept, and the controller logs `controller.jobs.execution_overlap` when the
   old laptop comes back. A job that must never run twice (it sends e-mails,
@@ -671,7 +674,7 @@ volume**).
 | Agent log `agent.peer.start_failed` | port 47120 taken or `bind` is not this laptop's IP | free the port or set `[agent.peer] port`; the agent runs without serving peers meanwhile |
 | A job fails `output_error` with "the upload did not succeed within 120 s of retries" | the agent could not reach the controller's blob port (TCP 47110), or the restarted controller never sent a new upload grant (the agent never reconnected) | check that the controller is up and the agent reconnected (`compute nodes`); raise `[agent.execution] upload_retry_s` on a slow or flaky link |
 | A job is `queued` again with a second (third...) attempt | its attempt was lost or failed retryably (V0.6 G3); `compute explain <JOB_ID> --attempt N` shows why the retry went where it went (`retry_excluded` = it avoids the node it failed on) | nothing, normally. If a job ran twice and must not, give it `retry: {on_lost: false}`; check the controller log for `controller.jobs.execution_overlap` |
-| Jobs fail `disk_full` | auto jobs are retried on another laptop and the full one is avoided for `retry_exclude_s` (V0.6 D126), so this means the job was **pinned** to the full laptop, or no other laptop could run it (retries exhausted) | free disk on that laptop and resubmit |
+| Jobs fail `disk_full` | auto jobs are retried on another laptop and the full one is avoided for `retry_exclude_s` (V0.6 D126), so this means the job was **pinned** to the full laptop, or no other laptop could run it and the laptop was still full after `retry_exclude_s` (retries exhausted; D129 waits the window out instead of retrying at once) | free disk on that laptop and resubmit |
 | A job stays `queued` | no node can take it **now** (V0.6): every capable node is busy (`slots_full`, `node_cap`), offline / suspect, or its environment failed there recently (`env_known_bad`) | `compute explain <JOB_ID>` lists each node's reason; free a slot, start an agent, raise `[agent.execution] max_cpu_jobs` / `max_gpu_jobs`, or cancel it |
 | `compute run` exits with `no_feasible_plan` and a list of nodes | **no** enrolled node could ever run it (V0.6 D104): no `exec`, no GPU / too little VRAM / RAM / CPUs, no runtime for `env.base`, the owner allows no jobs of that kind | each line names the node and the reason; change the manifest's `resources:` or enable execution / a runtime on a node |
 | `compute run` prints `local agent cache not seeded (...)` | the CLI could not copy the project into this laptop's agent cache: `no_cache` (the agent never ran with this data dir), `not_writable`, `over_quota` (project > `[cli] seed_max_bytes`), `disk_full`, `changed` (a file changed while copied) | nothing breaks: a job placed here downloads the project; fix the reason to save that download |

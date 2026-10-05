@@ -33,6 +33,7 @@ from meshforge.controller.planner.feasibility import (
     static_rejection,
 )
 from meshforge.controller.planner.policies import Scored, rank
+from meshforge.controller.planner.retry_exclusion import LIFT_ORDER
 from meshforge.controller.planner.types import (
     CandidateEval,
     ClusterSnapshot,
@@ -85,23 +86,63 @@ def _reason_key(evals: list[CandidateEval]) -> str:
     return hashlib.sha256("\n".join(parts).encode("ascii")).hexdigest()
 
 
+def _usable_now(
+    request: PlanRequest, node: NodeSnapshot, *, local: bool, cap: int
+) -> bool:
+    """``node`` would take ``request`` right now if it were not excluded."""
+    lifted = replace(
+        request,
+        excluded={k: v for k, v in request.excluded.items() if k != node.node_id},
+    )
+    return rejection(lifted, node, max_attempts_per_node=cap, local=local) is None
+
+
 def _with_exclusion(request: PlanRequest, snapshot: ClusterSnapshot) -> PlanRequest:
-    """D110 retry exclusion, made *soft* (V0.6 G3): a pinned job never
-    excludes (it retries on its node only), and when no node outside the
-    excluded set could **ever** run the job (all rejected statically) the
-    exclusion is lifted - the job retries where it failed instead of waiting
-    out ``retry_exclude_s`` for a node that does not exist (a one-laptop
-    fabric whose agent restarted). Its attempts stay bounded by
-    ``max_attempts``."""
+    """D110 retry exclusion, made *soft* by the D129 lift rule (V0.6 G4).
+
+    * A pinned job never excludes (it retries on its node only).
+    * While some node **outside** the excluded set could ever run the job
+      (passes the static rules), nothing is lifted: the job waits for it.
+    * Otherwise (every node that could run it is excluded - a one-laptop
+      fabric, or several nodes failing at once) exclusions are lifted **one
+      failure-type tier at a time**, in :data:`~.retry_exclusion.LIFT_ORDER`
+      (transient ``node_lost``/``timeout`` first, ``vram_oom`` last), and only
+      for the nodes of that tier that would take the job **right now** (all
+      live rules pass: online, connected, a free slot...). A node still
+      failing for its reason - still offline, still busy - is never lifted
+      onto. ``disk_full`` is never lifted early (:data:`~.retry_exclusion.
+      NEVER_LIFTED`): no signal says the workdir has space again.
+    * Nothing usable in any tier -> the exclusions stand and the job waits
+      (``QUEUED``) until a node recovers or the earliest exclusion expires,
+      instead of burning attempts on a node that would fail it again (chaos
+      seed 22: three ``node_lost`` nodes offline + one full disk).
+
+    Deterministic: tiers in a fixed order, nodes in node-id order."""
     if not request.excluded:
         return request
     if request.pinned_node_id is not None:
         return replace(request, excluded={})
+    pairs = candidates(request, snapshot)
     elsewhere = any(
         node.node_id not in request.excluded and static_rejection(request, node) is None
-        for node, _local in candidates(request, snapshot)
+        for node, _local in pairs
     )
-    return request if elsewhere else replace(request, excluded={})
+    if elsewhere:
+        return request
+    cap = snapshot.config.max_attempts_per_node
+    for tier in LIFT_ORDER:
+        usable = {
+            node.node_id
+            for node, local in pairs
+            if request.excluded.get(node.node_id) in tier
+            and _usable_now(request, node, local=local, cap=cap)
+        }
+        if usable:
+            return replace(
+                request,
+                excluded={k: v for k, v in request.excluded.items() if k not in usable},
+            )
+    return request
 
 
 def plan(

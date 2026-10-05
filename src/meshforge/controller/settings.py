@@ -476,9 +476,12 @@ class PlannerSettings(SectionModel):
         description=(
             "V0.6 D110: after an automatically placed attempt is lost or fails "
             "transfer_error / integrity_error / timeout, its retry avoids that "
-            "node for this many seconds (unless no other node could ever run "
-            "the job). 0 = no exclusion by time (vram_oom still excludes GPUs "
-            "no larger than the one that ran out)."
+            "node for this many seconds (disk_full too, D126). When no other "
+            "node could ever run the job, D129 lifts exclusions early only "
+            "onto a node that would take the job now (node_lost/timeout "
+            "first, vram_oom last; disk_full never). 0 = no exclusion by time "
+            "(vram_oom still excludes GPUs no larger than the one that ran "
+            "out)."
         ),
     )
 

@@ -6,15 +6,18 @@ fine; the tmpfs is then filled from outside (``/proc/<pid>/root``) and the
 next job's staging hits a real ``ENOSPC``:
 
 * **one node** - a job pinned to it fails ``disk_full`` after one attempt
-  (D126: its node would fail it again); an auto-placed job is retried (D126)
-  but no other node could ever run it, so the exclusion is lifted and it
-  fails ``disk_full`` with ``retries_exhausted``. Freed again, a job succeeds;
+  (D126: its node would fail it again); an auto-placed job is retried (D126),
+  and although no other node could ever run it the ``disk_full`` exclusion is
+  **not** lifted early (D129): the retry waits out ``retry_exclude_s`` before
+  its second attempt, then fails ``disk_full`` with ``retries_exhausted``.
+  Freed again, a job succeeds;
 * **two nodes** (fix round 1) - with the first node full, auto jobs all
   succeed: an attempt that hit the full disk is retried on the other node.
 """
 
 from __future__ import annotations
 
+import datetime as dt
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -41,6 +44,7 @@ TIMING = Timing(
     agent_reconnect_cap_s=1.0,
     agent_hello_timeout_s=3.0,
 )
+EXCLUDE_S = 4.0
 EXEC = {"enabled": True, "allow_unsandboxed": True, "grace_s": 1.0}
 TERMINAL = {"succeeded", "failed", "cancelled"}
 
@@ -69,6 +73,7 @@ def test_a_full_workdir_fails_disk_full_and_recovers(
         controller_jobs={"dispatch_interval_s": 0.1},
         agent_env={"DOCKER_HOST": "unix:///nonexistent/meshforge-test.sock"},
         agent_tmpfs_workdir={0: 4 * 1024 * 1024},
+        controller_extra={"planner": {"retry_exclude_s": EXCLUDE_S}},
     )
     (node,) = fabric.nodes
     ledger = make_ledger(tmp_path / "ledger")
@@ -87,10 +92,20 @@ def test_a_full_workdir_fails_disk_full_and_recovers(
     assert (pinned["state"], pinned["failure_type"]) == ("failed", "disk_full")
     assert len(pinned["attempts"]) == 1, pinned  # D126: pinned is not retried
 
-    lone = _terminal(fabric, submit(fabric, digest, manifest))
+    lone = _terminal(fabric, submit(fabric, digest, manifest), within=30 + EXCLUDE_S)
     assert (lone["state"], lone["failure_type"]) == ("failed", "disk_full"), lone
-    assert [a["failure_type"] for a in lone["attempts"]] == ["disk_full"] * 2
+    first, second = lone["attempts"]
+    assert [first["failure_type"], second["failure_type"]] == ["disk_full"] * 2
     assert "retries_exhausted" in (lone["failure_detail"] or ""), lone
+    # D129: the full node was not lifted onto before its window ended
+    dispatched = [
+        dt.datetime.fromisoformat(t["at"])
+        for t in lone["transitions"]
+        if (t["from_state"], t["to_state"]) == ("queued", "preparing")
+    ]
+    assert len(dispatched) == 2, lone
+    gap = dispatched[1] - dt.datetime.fromisoformat(first["ended_at"])
+    assert gap.total_seconds() >= EXCLUDE_S - 0.5, lone
 
     node.free_disk()
     again = _terminal(fabric, submit(fabric, digest, manifest))

@@ -87,6 +87,11 @@ def test_endless_upload_is_cut_off_and_recorded(server: S1Server) -> None:
     assert stats["bytes"] > 0
     assert stats["t_last"] - stats["t_first"] >= LIMIT_S
     assert stats["t_last"] - stats["t_first"] < LIMIT_S + 2
+    # the server's handler thread finishes its bookkeeping after the reply;
+    # under full-suite load that can lag the client by a beat (G3 follow-up)
+    deadline = time.monotonic() + 5.0
+    while server.open_connections != 0 and time.monotonic() < deadline:
+        time.sleep(0.02)
     assert server.open_connections == 0
     assert hello(ep)["name"] == "limited"
 
