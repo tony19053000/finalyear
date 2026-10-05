@@ -2,21 +2,21 @@
 
 > Concise current state. Long-term plan: [`DEVELOPMENT_ROADMAP.md`](DEVELOPMENT_ROADMAP.md). Update at the end of every work session.
 
-**Last updated:** 2026-10-05 (**V0.6 G1 CLOSED** — 0.6.9, 0.6.10, 0.6.14 `[x]` (reviewer APPROVE, `03b1354`); **next: V0.6 G2 planner core implementer** (brief §5b); V0.5 closes on 🧑 0.5.11 lab; one agent at a time)
+**Last updated:** 2026-10-05 (**V0.6 G1 + G2 CLOSED** — 0.6.9/10/14 + 0.6.1/2/3/5/11 `[x]`; **next: V0.6 G3 implementer** (brief §5c + reviewer N-1); V0.5 closes on 🧑 0.5.11 lab; one agent at a time)
 
 ## Progress
 
 Generated from the roadmap checkboxes by `uv run python scripts/status_bars.py` — **re-run it and replace this block whenever checkboxes change.** Deferred versions (V0.11, V0.12, V0.13, V0.16) and deferred tasks are not counted. A task is only █ when it is `[x]` (tester + reviewer + evidence); written-but-unreviewed code is ▒.
 
 ```
-TOTAL   ██████▒▒░░░░░░░░░░░░  30%  48/155 done, 15 in progress
+TOTAL   ███████▒▒░░░░░░░░░░░  34%  53/155 done, 15 in progress
 
 V0.1    █████████████████▒▒▒  83%  10/12  Foundations & engineering system
 V0.2    ██▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░░   9%   1/11  Lab setup & feasibility validation
 V0.3    ███████████████▒▒▒▒░  73%  11/15  Fabric core: controller ⇄ agent
 V0.4    ███████████████▒▒▒▒░  76%  13/17  Remote execution core (Mode 1 foundation)
 V0.5    ██████████████████░░  90%  10/11  Data plane & environments
-V0.6    ████░░░░░░░░░░░░░░░░  21%   3/14  Scheduling & reliability — Mode 1 complete
+V0.6    ███████████░░░░░░░░░  57%   8/14  Scheduling & reliability — Mode 1 complete
 V0.7    ░░░░░░░░░░░░░░░░░░░░   0%   0/11  Security & pairing
 V0.8    ░░░░░░░░░░░░░░░░░░░░   0%   0/10  Dashboard & CLI v1
 V0.9    ░░░░░░░░░░░░░░░░░░░░   0%   0/10  Benchmark & telemetry system v1
@@ -29,7 +29,7 @@ V1.0    ░░░░░░░░░░░░░░░░░░░░   0%   0/8 
 █ done `[x]` · ▒ in progress or waiting on a 🧑 lab step `[~]` · ░ not started
 
 ## Current Version
-**V0.6 — Scheduling & reliability** · started 2026-10-05 · brief `docs/briefs/V0.6-scheduling-reliability.md` · **G1 CLOSED** (0.6.9, 0.6.10, 0.6.14 `[x]`) · next G2 planner core
+**V0.6 — Scheduling & reliability** · started 2026-10-05 · brief `docs/briefs/V0.6-scheduling-reliability.md` · **G1 CLOSED** (0.6.9, 0.6.10, 0.6.14 `[x]`) · **G2 CLOSED** (0.6.1, 0.6.2, 0.6.3, 0.6.5, 0.6.11 `[x]`) · next G3 retries/recovery/chaos
 **V0.4 — Remote execution core** · started 2026-09-28 · **G1–G5 closed** (0.4.1, 0.4.3–0.4.7, 0.4.9, 0.4.10, 0.4.11–0.4.14, 0.4.16 `[x]`; 0.4.2 `[~]` Windows CI digest; 0.4.8 `[~]` real CUDA run; 0.4.17 `[~]`) · closes on 🧑 0.4.15 lab run
 **V0.5 — Data plane & environments** · started 2026-10-01 · brief `docs/briefs/V0.5-data-plane.md` (D79–D94) · **G3 (V0.4 debt D94) CLOSED** · **G1 (0.5.1, 0.5.2) CLOSED** · **G2 (0.5.7) CLOSED** · G4, G5 CLOSED — closes on 🧑 0.5.11 lab
 **V0.3 — Fabric core** · started 2026-09-20 on the team's decision (before the laptop 2–4 inventory); **G1–G7 closed agent-side** (0.3.1, 0.3.3, 0.3.4, 0.3.5, 0.3.6, 0.3.8, 0.3.9, 0.3.10, 0.3.11, 0.3.12, 0.3.14 `[x]`; 0.3.2 `[~]` Windows run; 0.3.7 `[~]` lab evidence; 0.3.13 `[~]` Windows logoff check). Remaining: **only 🧑 0.3.15 lab run** (+ the three 🧑 Windows checks)
@@ -42,6 +42,9 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 > V0.10. 129 tasks vs 140–180 capacity → **~1.5 tasks/session**. Needs the other three team members' approval.
 
 ## Current Task
+**2026-10-05 — V0.6 G2 CLOSED** (implementer `13fcdce..88d5182` → tester FAIL D-1..D-3 `527d633` → fixes `f4a37ce` `600a70a` `d573197` → reviewer APPROVE, targeted review). Decisions D120–D125 in the brief. **Next: V0.6 G3 (retries, recovery, chaos), brief §5c — implementer round.** 🧑 team: review ADR-0015 before G3 merges.
+G3 must ALSO take (reviewer N-1, item 0): D-1 catch-all in `controller/jobs/planning.py:213` fails jobs on *any* exception — only manifest/ValidationError should fail; other exceptions log `exc_info` and leave the job QUEUED + counter, with a test per branch. Other G2 follow-ups: N-4 explain "seeded (may re-download)"; `slots_full` text when the free GPU is too small; cache_affinity env bytes (G4); node revocation has no production trigger.
+
 **2026-10-05 — V0.6 G1 CLOSED** (implementer → tester PASS → fix D-1/D-2 `8eb3f71` → reviewer APPROVE). **Next: V0.6 G2 (planner core), brief §5b — implementer round.**
 Reviewer non-blocking follow-ups (carry into G2/G3): (1) `mint` should carry `pending` reservations to the successor grant and drop the successor-credit path; (2) don't store "" in `_grant_unacked` for an unsent start (or comment it); (3) uploaded parts not attributed to sender — fix before V0.7 authz; (4) D95 fetch-token lost-on-broken-stream gap — mirror `_grant_unacked`; (5) flaky under load: `test_rest_cli_g5_adversarial::…no_resource_sample_ever`, `test_v05_g5_tester_e2e::…prepare_requests_all_finish`, `lab/test_inventory_acceptance::…orphaned_process_running`; (6) full suite >15 min — consider pytest-xdist.
 
@@ -103,6 +106,7 @@ Reviewer non-blocking follow-ups (carry into G2/G3): (1) `mint` should carry `pe
 - Hardware of laptops 2–4 unknown; AI-agent access to Windows laptops undecided; Ethernet switch not purchased
 
 ## Known Bugs
+- ⚠️ **Load-flaky (2026-10-05):** `test_v05_g5_tester_e2e::test_gc_on_both_sides_never_breaks_ten_concurrent_jobs` (in-process agent lease expires under the GC hammer → LOST; passes alone 3/3; check whether the D123 dispatch lock adds latency). Also `test_session_server.py::test_second_hello_on_open_stream_is_protocol_error`, `test_session_server_tester.py::test_heartbeat_just_under_suspect_threshold_never_flaps`.
 - ✅ **Load-flaky tests fixed 2026-10-01 (stabilisation lane, `97f347e` `35c5274` `861d712`):** slow-follower double count was a real LogHub bug; in-process exec tests now use a tolerant liveness profile only where the lease is not under test; twenty-nodes, faultproxy close race (FIN vs RST) fixed; 5 consecutive passes at load ~35. Unit 5232 / component agent+ctl 483 / cluster 53, exit 0.
 - ✅ **Fixed 2026-10-02 (D95, `c76288e` `732b77f`, NOT yet reviewed):** controller restart during staging no longer loses the fetch token — `RefreshFetchToken` (payload 18) on Reconcile + agent staging retry within `staging_retry_s` (60 s), verified chunks resumed. Upload grants are still not refreshed (upload across a restart → `output_error`). Unit 5245 / component agent+ctl 486 / cluster 53, exit 0; restart test 5/5 under load.
 - ✅ **Fixed 2026-09-24: `pytest -m unit` exited 139 (SIGSEGV) after a fully green summary.** **Not grpc** — gdb put it on the main thread in `Py_FinalizeEx → _PyModule_Clear` of **`torch._C._functions`**. `tests/unit/lab/test_s7_child.py`'s stdlib tests imported the *real* torch in-process; `filterwarnings = error` turned torch's "Failed to initialize NumPy" warning (this venv has torch, no numpy) into an exception half-way through `torch/__init__`; `_s7/child.py::_module` swallowed it and the next calls re-ran `torch/__init__` over the loaded C extension — the third attempt corrupts it (minimal repro: 3× `try: import torch` under `python -W error` → 139). The earlier per-directory bisection missed `tests/unit/lab`, which crashes alone. Fix + guards: `_module` is cached (a failed import is never retried); the S7 tests block torch/numpy via `sys.modules`; `tests/conftest.py` fails a session that leaves any package half-imported, **naming it**; **`scripts/pytest_exit_guard.py`** wraps pytest and fails loudly on a green summary with a non-zero exit (CI unit + component steps and the implementer/tester agents now use it). **CI was never actually exposed** — it syncs without the `gpu` extra, so no torch — only dev venvs with torch were. Commits `ff7095d` `d9ec26f` `bc6042b` `db2ceec` `a99bfe2`; reviewer APPROVE; tester PASS on every round but the last — its DEFECT-7 fix (bounded kill after Ctrl-C) was verified by the Lead on a real SIGINT-deaf pytest. **Still true: a green summary is not a green run — read the exit code.**
@@ -113,6 +117,7 @@ Reviewer non-blocking follow-ups (carry into G2/G3): (1) `mint` should carry `pe
 - Fixed this session: secret leak + O(n²) in log scrubber; duplicate IDs after fork; plain-`uv sync` test collection crash; CRLF-dependent codegen output.
 
 ## Technical Debt
+- **V0.6 G2:** estimator v0 is a stub until G4 (env/output terms assumed, default bw, env key = request key); `submitter_node_id` spoofable by any token holder (V0.7); CLI-seeded CAS files may have wrong owner under a service-user agent; `disk_short` uses largest free disk (optimistic); agent CAS byte counter unaware of seeded bytes until restart.
 - **V0.5 G2:** the V0.4 per-job `setup_argv` install path is kept only for the runtime-contract tests — remove once every runtime has an env builder; env_hash/env_cache reach the controller in wave 2 G4.
 - **G5 follow-ups:** T2-1 and `_swap_in` FIXED (`5f13163`); D-1 + reviewer items fixed (`5a1937f`, `ce0c760`) — DONE; UPLOADING backstop done in V0.5 G3. Also: 35 Docker sandbox component tests skip unless `python:3.12-slim@sha256:f77ac9…` is pulled locally.
 - **G7 follow-ups (roadmap 0.4.17):** Windows `taskkill` runs on the event loop (capped 1 s); `controller/session/manager.py` is 1315 lines — extract report handlers before V0.4; `agent/benchmarks/runner.py` 780 lines; a SIGKILLed agent can leave a wedged benchmark child; score reason codes are free strings (freeze before V0.15); the controller trusts the agent's score fingerprint (V0.7).
@@ -122,6 +127,7 @@ Reviewer non-blocking follow-ups (carry into G2/G3): (1) `mint` should carry `pe
 - `.venv` on Laptop 1 has all extras incl. torch installed (`uv sync --all-extras`, re-done in G1) — **torch 2.14 with CUDA 13.0 and no numpy**; the S7 GPU cases run for real here now. Note for ADR-0011: this is not the cu126 index it proposes; check what `uv` resolved before deciding
 
 ## Test Status
+- **Core (2026-10-05, after V0.6 G2 fixes `d573197`):** ruff/format (809 files)/mypy/lint-imports/gen_protos clean; `-m unit` 5878 passed, 3 skipped, 3 xfailed, exit 0; whole `-m component` 1170 passed, 1 failed (known load-flaky above), 10 skipped; `-m cluster` 57 passed, 6 skipped, exit 0.
 - **Core (2026-10-01, after G5):** gates clean; `-m unit` 4623 passed, 3 skipped, 3 xfailed; whole `-m component` 619 passed, 52 skipped (env-only), exit 0 (15 min 34 s); `-m cluster` 52 passed, 6 skipped, exit 0.
 - **Core (2026-09-25, after G7):** ruff check + format clean (447 files); `mypy src` clean (105); lint-imports 7/0; gen_protos clean; `-m unit` **3725 passed, 2 skipped, 2 xfailed, exit 0**; **whole** `-m component` **462 passed, 6 skipped, exit 0** (13 min 24 s); `-m cluster` **40 passed, 6 skipped, exit 0**. Flaky once (tracked in 0.4.17): `tests/component/lab/test_s1_network.py::test_garbage_header_does_not_break_the_server`.
 - Lab suites (2026-09-20, after 0.2.13): `ruff check` / `ruff format --check` clean; `mypy lab tests/unit/lab tests/component/lab` clean (132 files); `pytest tests/unit/lab` **1360 passed**; `pytest tests/component/lab` **240 passed, 3 skipped** (5 min 51 s, on 0.2.13); after the protocol move + flood-test fix **240 passed, 3 skipped** again (5 min 50 s)
@@ -133,6 +139,8 @@ Reviewer non-blocking follow-ups (carry into G2/G3): (1) `mint` should carry `pe
 - Windows: not yet run (first real CI run will cover unit + fresh-clone on windows-latest)
 
 ## Next Recommended Task
+**V0.6 G3 implementer** with brief §5c + item 0 = reviewer N-1 (see Current Task). Then tester → fix → reviewer → close 0.6.7/0.6.8/0.6.12.
+
 **2026-10-05 (later): V0.6 started.** Brief `docs/briefs/V0.6-scheduling-reliability.md` (D102–D119, ADR-0015 Proposed). **G1 implementer RUNNING** (0.6.9, 0.6.10, 0.6.14 + dispatcher/gc_index splits + D59); progress `docs/briefs/progress/V0.6-G1.md`. Then G1 tester → reviewer → G2. 🧑 0.5.11 lab still closes V0.5; 🧑 team: review ADR-0015 before G3.
 
 **2026-10-05: V0.5 G5 CLOSED.** Agent-side next: write the **V0.6 brief** (first: split `common/gc_index.py`, confirm controller `gc.py:133` `_on_change` write is off the event loop). 🧑 **0.5.11 lab** (lab/checklists/V0.5-data-plane.md, ~10 GB free per agent) closes V0.5; 🧑 0.4.15 still open.

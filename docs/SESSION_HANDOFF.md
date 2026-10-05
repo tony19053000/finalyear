@@ -31,7 +31,7 @@
 > throughput measurements and the reasoning; if you think the arithmetic or the trade is wrong,
 > **say so to the team before building on it.** Do not silently re-expand the scope either.
 
-**Last updated:** 2026-10-05 (**V0.5 CLOSED agent-side** (🧑 0.5.11 lab open) · **V0.6 started**: brief + ADR-0015 written (`94b8b64`), 4 sequential groups G1–G4, **G1 CLOSED** (0.6.9/0.6.10/0.6.14 `[x]`, reviewer APPROVE); **next: G2 implementer** (brief §5b) — see §2 "V0.6 state") · **Updated by:** Lead session
+**Last updated:** 2026-10-05 (**V0.5 CLOSED agent-side** (🧑 0.5.11 lab open) · **V0.6 started**: brief + ADR-0015 written (`94b8b64`), 4 sequential groups G1–G4, **G1 + G2 CLOSED**; **next: G3 implementer** (brief §5c + N-1) — see §2 "V0.6 state") · **Updated by:** Lead session
 
 ---
 
@@ -288,7 +288,7 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 > ### V0.6 state (2026-10-05) — read this first
 >
-> **UPDATE 2026-10-05: G2** implementer DONE (`13fcdce..88d5182`) → tester FAIL D-1..D-3 (`527d633`) → fixes `f4a37ce` `600a70a` `d573197` (tester tests pass). **Next = G2 reviewer**, then close 0.6.1/0.6.2/0.6.3/0.6.5/0.6.11. New flaky: `test_v05_g5_tester_e2e::test_gc_on_both_sides_never_breaks_ten_concurrent_jobs`.
+> **UPDATE 2026-10-05: G2 CLOSED** (0.6.1/0.6.2/0.6.3/0.6.5/0.6.11 `[x]`; tester D-1..D-3 fixed; reviewer APPROVE; D120–D125 in the brief). **Next = G3 implementer** with brief §5c **plus item 0 = reviewer N-1** (planning.py:213 catch-all: only manifest errors fail the job; other exceptions log exc_info + leave QUEUED). See STATUS Current Task.
 > **UPDATE 2026-10-05 late: G1 CLOSED** (last commit `8eb3f71` + docs close). Next = **G2 implementer** with brief §5b. Reviewer follow-ups are listed in STATUS "Current Task".
 > - **Brief written:** `docs/briefs/V0.6-scheduling-reliability.md` (D102–D119), **ADR-0015 Proposed** (team to review before G3). Groups strictly sequential: G1 reliability floor → G2 planner core → G3 retries/recovery/chaos → G4 network matrix + estimator.
 > - **G1 implementer progress (2026-10-05):** done + committed 0a dispatcher split (`091d622`), 0b gc_index split (`cfd7382`), 0c GC writes off-loop test (`e4a2501`), 1 D59 grandchildren (`8dc550a`), 2 0.6.10 classification (`cef959d`; proto AttemptStatus.env_hash = 16, KnownBadEnvs for G2), 3 0.6.9 command resend/dedupe (`ea7265b`; command id = message_id, no proto change). Hit the usage limit once, resumed. **Remaining: 4 = 0.6.14 RefreshUploadGrant (D114) + restart-mid-upload test, 5 = docs, then full exit list + hand-off.** Item 4 partial edits saved as wip `ed6d5a5` + `50deaea` (agent side; implementer STOPPED by the user before tests ran) (unverified: proto, upload_grants, dispatch/recovery, blob_routes, new agent/execution/uploader.py). Account switch while it was on item 4: check `git log --grep V0.6-G1` and progress file; commit any uncommitted G1 edits as `wip(V0.6-G1): …` (explicit paths), then spawn a fresh implementer with brief §5a + "items 0–3 done; resume from item 4 (or the last done item)".
