@@ -2,21 +2,21 @@
 
 > Concise current state. Long-term plan: [`DEVELOPMENT_ROADMAP.md`](DEVELOPMENT_ROADMAP.md). Update at the end of every work session.
 
-**Last updated:** 2026-10-05 (**V0.5: G1–G4 + stabilisation CLOSED** — 0.5.1–0.5.5, 0.5.7 `[x]`; **G5 CLOSED** (0.5.6, 0.5.8, 0.5.9, 0.5.10 `[x]`); next: 🧑 0.5.11 lab closes V0.5; agent-side next: V0.6 brief; one agent at a time)
+**Last updated:** 2026-10-05 (**V0.6 G1 CLOSED** — 0.6.9, 0.6.10, 0.6.14 `[x]` (reviewer APPROVE, `03b1354`); **next: V0.6 G2 planner core implementer** (brief §5b); V0.5 closes on 🧑 0.5.11 lab; one agent at a time)
 
 ## Progress
 
 Generated from the roadmap checkboxes by `uv run python scripts/status_bars.py` — **re-run it and replace this block whenever checkboxes change.** Deferred versions (V0.11, V0.12, V0.13, V0.16) and deferred tasks are not counted. A task is only █ when it is `[x]` (tester + reviewer + evidence); written-but-unreviewed code is ▒.
 
 ```
-TOTAL   ██████▒▒░░░░░░░░░░░░  29%  45/155 done, 15 in progress
+TOTAL   ██████▒▒░░░░░░░░░░░░  30%  48/155 done, 15 in progress
 
 V0.1    █████████████████▒▒▒  83%  10/12  Foundations & engineering system
 V0.2    ██▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░░   9%   1/11  Lab setup & feasibility validation
 V0.3    ███████████████▒▒▒▒░  73%  11/15  Fabric core: controller ⇄ agent
 V0.4    ███████████████▒▒▒▒░  76%  13/17  Remote execution core (Mode 1 foundation)
 V0.5    ██████████████████░░  90%  10/11  Data plane & environments
-V0.6    ░░░░░░░░░░░░░░░░░░░░   0%   0/14  Scheduling & reliability — Mode 1 complete
+V0.6    ████░░░░░░░░░░░░░░░░  21%   3/14  Scheduling & reliability — Mode 1 complete
 V0.7    ░░░░░░░░░░░░░░░░░░░░   0%   0/11  Security & pairing
 V0.8    ░░░░░░░░░░░░░░░░░░░░   0%   0/10  Dashboard & CLI v1
 V0.9    ░░░░░░░░░░░░░░░░░░░░   0%   0/10  Benchmark & telemetry system v1
