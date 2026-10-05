@@ -13,9 +13,11 @@ the loser sees the winner's state:
   attempts, D105), a caller decision per job, and for each dispatched job the
   new attempt (next fencing token, its slot), ``QUEUED -> PREPARING``, its
   start snapshot and its ``plan_decision`` row (D112) - all committed
-  **before** the caller sends anything (D65: commit-before-send). A queued row
-  that cannot be read or planned is failed on its own (``internal_error``)
-  and the rest of the batch goes on;
+  **before** the caller sends anything (D65: commit-before-send). Ticks of
+  overlapping dispatchers are serialised by a transaction-scoped advisory
+  lock taken first, so slot use read from the database is never stale; a
+  queued row that cannot be read or planned is failed on its own
+  (``internal_error``) and the rest of the batch goes on;
   :meth:`ExecutionStore.dispatch_queued` is the V0.4 one-node-view interface
   over it;
 * :meth:`ExecutionStore.apply_status` - an agent report: fenced on the attempt's
@@ -40,7 +42,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any, Final
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -115,6 +117,14 @@ LIVE_ATTEMPT_STATES: Final = tuple(
     s.value for s in AttemptState if s not in ATTEMPT_TERMINAL_STATES
 )
 _DEFAULT_AGING_S: Final = 600.0
+_DISPATCH_LOCK: Final = text(
+    "SELECT pg_advisory_xact_lock(hashtextextended('meshforge.dispatch', 0))"
+)
+"""G2 fix D-3: slot accounting is serialised across dispatchers (an old
+controller process still draining while its successor ticks). Taken as the
+dispatch transaction's first statement, before any row lock, so it cannot
+deadlock; released at commit, after which the next holder's reads see the
+attempts this tick created."""
 _CANCELLABLE_NOW: Final = frozenset(
     {JobState.SUBMITTED, JobState.PLANNING, JobState.QUEUED, JobState.RETRYING}
 )
@@ -280,6 +290,7 @@ class ExecutionStore(DecisionReads):
         results: list[DispatchResult] = []
         recorded: list[tuple[str, str | None, str, DecisionRecord]] = []
         async with self._sessions() as db, db.begin():
+            await db.execute(_DISPATCH_LOCK)
             jobs = await queued_jobs(db, limit=limit, now=now, aging_s=aging_s)
             if not jobs:
                 return results
