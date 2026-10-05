@@ -2,20 +2,20 @@
 
 > Concise current state. Long-term plan: [`DEVELOPMENT_ROADMAP.md`](DEVELOPMENT_ROADMAP.md). Update at the end of every work session.
 
-**Last updated:** 2026-10-05 (**V0.5: G1–G4 + stabilisation CLOSED** — 0.5.1–0.5.5, 0.5.7 `[x]`; next: G5 implementer from brief §5e; one agent at a time)
+**Last updated:** 2026-10-05 (**V0.5: G1–G4 + stabilisation CLOSED** — 0.5.1–0.5.5, 0.5.7 `[x]`; **G5 CLOSED** (0.5.6, 0.5.8, 0.5.9, 0.5.10 `[x]`); next: 🧑 0.5.11 lab closes V0.5; agent-side next: V0.6 brief; one agent at a time)
 
 ## Progress
 
 Generated from the roadmap checkboxes by `uv run python scripts/status_bars.py` — **re-run it and replace this block whenever checkboxes change.** Deferred versions (V0.11, V0.12, V0.13, V0.16) and deferred tasks are not counted. A task is only █ when it is `[x]` (tester + reviewer + evidence); written-but-unreviewed code is ▒.
 
 ```
-TOTAL   █████▒▒░░░░░░░░░░░░░  26%  41/155 done, 16 in progress
+TOTAL   ██████▒▒░░░░░░░░░░░░  29%  45/155 done, 15 in progress
 
 V0.1    █████████████████▒▒▒  83%  10/12  Foundations & engineering system
 V0.2    ██▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░░   9%   1/11  Lab setup & feasibility validation
 V0.3    ███████████████▒▒▒▒░  73%  11/15  Fabric core: controller ⇄ agent
 V0.4    ███████████████▒▒▒▒░  76%  13/17  Remote execution core (Mode 1 foundation)
-V0.5    ███████████▒▒░░░░░░░  54%   6/11  Data plane & environments
+V0.5    ██████████████████░░  90%  10/11  Data plane & environments
 V0.6    ░░░░░░░░░░░░░░░░░░░░   0%   0/14  Scheduling & reliability — Mode 1 complete
 V0.7    ░░░░░░░░░░░░░░░░░░░░   0%   0/11  Security & pairing
 V0.8    ░░░░░░░░░░░░░░░░░░░░   0%   0/10  Dashboard & CLI v1
@@ -27,12 +27,10 @@ V0.17   ░░░░░░░░░░░░░░░░░░░░   0%   0/8 
 V1.0    ░░░░░░░░░░░░░░░░░░░░   0%   0/8   Release hardening & final evaluation
 ```
 █ done `[x]` · ▒ in progress or waiting on a 🧑 lab step `[~]` · ░ not started
-█ done `[x]` · ▒ in progress or waiting on a 🧑 lab step `[~]` · ░ not started
-█ done `[x]` · ▒ in progress or waiting on a 🧑 lab step `[~]` · ░ not started
 
 ## Current Version
 **V0.4 — Remote execution core** · started 2026-09-28 · **G1–G5 closed** (0.4.1, 0.4.3–0.4.7, 0.4.9, 0.4.10, 0.4.11–0.4.14, 0.4.16 `[x]`; 0.4.2 `[~]` Windows CI digest; 0.4.8 `[~]` real CUDA run; 0.4.17 `[~]`) · closes on 🧑 0.4.15 lab run
-**V0.5 — Data plane & environments** · started 2026-10-01 · brief `docs/briefs/V0.5-data-plane.md` (D79–D94) · **G3 (V0.4 debt D94) CLOSED** · **G1 (0.5.1, 0.5.2) CLOSED** · **G2 (0.5.7) CLOSED** · G4 CLOSED, G5 next
+**V0.5 — Data plane & environments** · started 2026-10-01 · brief `docs/briefs/V0.5-data-plane.md` (D79–D94) · **G3 (V0.4 debt D94) CLOSED** · **G1 (0.5.1, 0.5.2) CLOSED** · **G2 (0.5.7) CLOSED** · G4, G5 CLOSED — closes on 🧑 0.5.11 lab
 **V0.3 — Fabric core** · started 2026-09-20 on the team's decision (before the laptop 2–4 inventory); **G1–G7 closed agent-side** (0.3.1, 0.3.3, 0.3.4, 0.3.5, 0.3.6, 0.3.8, 0.3.9, 0.3.10, 0.3.11, 0.3.12, 0.3.14 `[x]`; 0.3.2 `[~]` Windows run; 0.3.7 `[~]` lab evidence; 0.3.13 `[~]` Windows logoff check). Remaining: **only 🧑 0.3.15 lab run** (+ the three 🧑 Windows checks)
 V0.2 — Lab setup & feasibility validation · agent-side complete, waiting on 🧑 lab runs
 V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4, 0.1.10)
@@ -131,6 +129,8 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 - Windows: not yet run (first real CI run will cover unit + fresh-clone on windows-latest)
 
 ## Next Recommended Task
+**2026-10-05: V0.5 G5 CLOSED.** Agent-side next: write the **V0.6 brief** (first: split `common/gc_index.py`, confirm controller `gc.py:133` `_on_change` write is off the event loop). 🧑 **0.5.11 lab** (lab/checklists/V0.5-data-plane.md, ~10 GB free per agent) closes V0.5; 🧑 0.4.15 still open.
+
 **2026-10-02: one agent at a time — reviewer for the stabilisation lane + D95 (commits 97f347e … 732b77f) → write wave 2 briefs (G4, G5) → G4 implementer. 🧑 0.4.15 lab run.** Everything below is history.
 
 **Models (2026-09-24):** Lead, implementer and reviewer now run **`claude-opus-5-5`**; tester moved to `claude-sonnet-5-5` on 2026-10-01 (was `claude-sonnet-5`, commit `6563c7d`, details in `SESSION_HANDOFF.md` §0c). §0b's throughput numbers were measured on Opus 5 — re-baseline after G6 before re-planning.
