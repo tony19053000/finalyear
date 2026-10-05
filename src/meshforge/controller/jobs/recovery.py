@@ -6,9 +6,10 @@ D119).
 
 * **Reconcile (D66)** - for the node's live attempts: held -> continue
   (re-sending a pending cancel, refreshing a fetch token this process lacks,
-  D95); not held and ``StartAttempt`` never acked -> re-send it; not held but
-  acked -> ``LOST``. Attempts the agent holds that the controller does not
-  consider live get ``CancelAttempt{release}`` (D75).
+  D95, and an upload grant it lacks, V0.6 D114); not held and
+  ``StartAttempt`` never acked -> re-send it; not held but acked -> ``LOST``.
+  Attempts the agent holds that the controller does not consider live get
+  ``CancelAttempt{release}`` (D75).
 * **OFFLINE** caused by the agent -> its live attempts ``LOST``.
 * **Orphan sweep** - after ``reconnect_grace_s`` of controller uptime, live
   attempts of nodes with no live or lingering session are ``LOST``.
@@ -90,8 +91,13 @@ class RecoverySteps(DispatchSteps):
                     )
                 if job.cancel_requested_at is not None:
                     self._send_cancel(attempt, "cancelled by request")
-                elif attempt.state in _MAY_FETCH and not self._tokens.has(attempt.id):
+                    continue
+                if attempt.state in _MAY_FETCH and not self._tokens.has(attempt.id):
                     await self._refresh_fetch_token(job, attempt)
+                if self._grants is not None and not self._grants.has(attempt.id):
+                    # D114: any live stored state - reports may still wait for
+                    # their replay, so the agent can be further than the store.
+                    await self._refresh_upload_grant(job, attempt)
                 continue
             if attempt.start_acked_at is None:
                 log.info(

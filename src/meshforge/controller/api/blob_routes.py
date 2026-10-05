@@ -20,7 +20,9 @@ blob or byte quota). See :mod:`meshforge.controller.blobs` for the storage rules
 * ``GET`` streams the file; a ``Range: bytes=a-b`` request is answered ``206``
   with that slice (resumable, chunked fetches - V0.5 D80).
 
-**V0.5 data plane (D82), fabric token only:**
+**V0.5 data plane (D82), fabric token only** - except the three part routes,
+which also take an attempt's upload grant since V0.6 G1 (D114, see
+:mod:`meshforge.controller.upload_grants`; ``complete`` answers ``credited``):
 
 * ``POST /v1/blobs/have`` ``{"digests": ["sha256:<hex>", ...]}`` (at most
   :data:`~meshforge.controller.blobs.MAX_HAVE_DIGESTS`, body at most 1 MiB) ->
@@ -158,24 +160,48 @@ def _authorize_upload(
     try:
         return grants.begin(token, digest, declared)
     except GrantRefusal as refusal:
-        if refusal.reason == "unknown":
-            # Not a grant at all: an unauthenticated request - no log line, so
-            # random tokens cannot flood the log.
-            raise unauthorized() from None
-        log.warning(
-            "controller.blobs.upload_refused",
-            digest=str(digest),
-            reason=refusal.reason,
-        )
-        if refusal.reason == "expired":
-            raise unauthorized() from None
-        raise ApiError(
-            FailureType.UNAUTHORIZED
-            if refusal.reason == "closed"
-            else FailureType.INVALID_INPUT,
-            refusal.message,
-            http_status=_GRANT_STATUS[refusal.reason],
-        ) from None
+        raise _refused(refusal, digest) from None
+
+
+def _refused(refusal: GrantRefusal, digest: Digest) -> ApiError:
+    """The HTTP answer to a grant refusal (``unknown`` is not logged: random
+    tokens must not flood the log)."""
+    if refusal.reason == "unknown":
+        return unauthorized()
+    log.warning(
+        "controller.blobs.upload_refused", digest=str(digest), reason=refusal.reason
+    )
+    if refusal.reason == "expired":
+        return unauthorized()
+    return ApiError(
+        FailureType.UNAUTHORIZED
+        if refusal.reason == "closed"
+        else FailureType.INVALID_INPUT,
+        refusal.message,
+        http_status=_GRANT_STATUS[refusal.reason],
+    )
+
+
+def _authorize_parts(
+    request: Request, auth: ApiAuth, digest: Digest, size: int | None
+) -> UploadTicket | None:
+    """Part routes (V0.6 G1, D114): ``None`` for the fabric token; else an
+    attempt's upload grant - ``size`` given: the whole blob is reserved once per
+    digest (:meth:`~meshforge.controller.upload_grants.UploadGrants.begin_parts`);
+    ``size`` None (reading the part status): the grant must only be usable."""
+    token = bearer_token(request)
+    if auth.verifier is not None and auth.verifier.verify(token):
+        return None
+    grants = auth.upload_grants
+    if token is None or grants is None:
+        raise unauthorized()
+    try:
+        if size is None:
+            grants.check(token)
+            return None
+        return grants.begin_parts(token, digest, size)
+    except GrantRefusal as refusal:
+        raise _refused(refusal, digest) from None
 
 
 def _declared_size(request: Request) -> int | None:
@@ -379,7 +405,7 @@ async def put_part(
     response: Response,
     sha256: Sha256,
     index: PartIndex,
-    _auth: FabricTokenRequired,
+    auth: Auth,
     store: Store,
 ) -> dict[str, object]:
     digest = Digest(sha256)
@@ -411,6 +437,7 @@ async def put_part(
         )
     if declared != length:
         raise ApiError.invalid(f"part {index} must be exactly {length} bytes")
+    _authorize_parts(request, auth, digest, size)  # D114: or the upload grant
 
     async def body() -> AsyncIterator[bytes]:
         async for chunk in request.stream():
@@ -447,9 +474,10 @@ async def put_part(
 
 @blob_router.get("/{sha256}/parts", summary="Parts already received (resume)")
 async def part_status(
-    sha256: Sha256, _auth: FabricTokenRequired, store: Store
+    request: Request, sha256: Sha256, auth: Auth, store: Store
 ) -> dict[str, object]:
     digest = Digest(sha256)
+    _authorize_parts(request, auth, digest, None)
     found = await store.part_status(digest)
     if found is None:
         raise ApiError.not_found("part upload")
@@ -468,9 +496,29 @@ async def part_status(
     summary="Verify the assembled parts and store the blob",
 )
 async def complete_parts(
-    response: Response, sha256: Sha256, _auth: FabricTokenRequired, store: Store
+    request: Request, response: Response, sha256: Sha256, auth: Auth, store: Store
 ) -> dict[str, object]:
     digest = Digest(sha256)
+    token = bearer_token(request)
+    fabric = auth.verifier is not None and auth.verifier.verify(token)
+    ticket: UploadTicket | None = None
+    already = False
+    if not fabric:
+        found = await store.part_status(digest)
+        if found is None or found.complete:
+            _authorize_parts(request, auth, digest, None)
+            if found is None:
+                raise ApiError.not_found("part upload")
+            # Stored before this call: credited only if THIS grant uploaded it.
+            already = (
+                auth.upload_grants is not None
+                and token is not None
+                and auth.upload_grants.uploaded(auth.upload_grants.check(token), digest)
+            )
+        else:
+            # D114: under an upload grant the blob is reserved (once) before
+            # the parts are assembled; the size is the upload's own.
+            ticket = _authorize_parts(request, auth, digest, found.size)
     try:
         result = await store.complete_parts(digest)
     except BlobIntegrityError as exc:
@@ -479,6 +527,22 @@ async def complete_parts(
         raise ApiError.not_found("part upload") from None
     except BlobError as exc:
         raise _blob_error(exc) from None
+    credited = fabric or already
+    if ticket is not None and auth.upload_grants is not None:
+        if result.created or ticket.free:
+            # Assembled and verified by THIS call (or uploaded before under
+            # this grant): it counts for the grant.
+            auth.upload_grants.credit(ticket, result.size)
+            credited = True
+        else:
+            # Someone else completed it meanwhile: nothing proves this attempt
+            # sent it - the agent uploads the bytes with PUT.
+            auth.upload_grants.release(ticket)
     if not result.created:
         response.status_code = status.HTTP_200_OK
-    return {"digest": str(digest), "size": result.size, "created": result.created}
+    return {
+        "digest": str(digest),
+        "size": result.size,
+        "created": result.created,
+        "credited": credited,
+    }

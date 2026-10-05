@@ -112,6 +112,10 @@ message ControllerMessage {
     // a held attempt that may still be fetching (a controller restart forgets
     // every token - they are never persisted).
     RefreshFetchToken refresh_fetch_token = 18;
+    // A fresh upload grant for an attempt the agent still holds (V0.6 G1,
+    // D114): sent after Reconcile when this controller process has no grant
+    // for it (a restart forgets every grant - they are never persisted).
+    RefreshUploadGrant refresh_upload_grant = 19;
   }
 }
 
@@ -624,6 +628,22 @@ message RefreshFetchToken {
   repeated BlobSource sources = 6;
   // The attempt's named inputs with their sources re-minted (V0.5 G5).
   repeated InputTree inputs = 7;
+}
+
+// Replaces the upload grant of a held attempt (V0.6 G1, D114). Same quota as
+// the grant in its StartAttempt (what earlier grants of the attempt already
+// stored is NOT known to a restarted controller). Applied only to the attempt
+// with this (attempt_id, fencing_token) while it has not ended; an upload that
+// was refused (401) or could not reach the controller retries with it,
+// resuming the parts the controller already holds.
+message RefreshUploadGrant {
+  string attempt_id = 1;
+  uint64 fencing_token = 2;
+  // A secret: never logged, never persisted.
+  string upload_token = 3;
+  // Where the controller serves blobs now (like ExecutionSpec fields 2/3).
+  string blob_url = 4;
+  uint32 blob_port = 5;
 }
 
 message ProbeRequest {

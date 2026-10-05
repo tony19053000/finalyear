@@ -58,6 +58,7 @@ class DispatcherStats:
     start_sent: int = 0
     start_resent: int = 0
     fetch_tokens_refreshed: int = 0
+    upload_grants_refreshed: int = 0
     statuses_applied: int = 0
     statuses_duplicate: int = 0
     statuses_fenced: int = 0
@@ -282,11 +283,7 @@ class DispatchSteps:
         Scope (:func:`fetch_scope`) = the tree for a tree job (which grants
         exactly that tree's blobs), the bundle for a V0.4 bundle job."""
         self._tokens.revoke(attempt.id)
-        ttl = min(
-            float(job.manifest.get("limits", {}).get("timeout", 0))
-            + self._settings.fetch_token_grace_s,
-            float(MAX_FETCH_TOKEN_TTL_S),
-        )
+        ttl = self._token_ttl(job)
         token = self._tokens.mint(
             attempt.id, fetch_scope(job, [i.tree_id for i in inputs]), ttl_s=ttl
         )
@@ -334,6 +331,53 @@ class DispatchSteps:
             job_id=job.id,
             attempt_id=attempt.id,
             node_id=attempt.node_id,
+        )
+
+    async def _refresh_upload_grant(
+        self, job: JobRecord, attempt: AttemptRecord
+    ) -> None:
+        """D114: a held attempt has no upload grant in this process (the
+        controller restarted): mint one with the StartAttempt's quota and send
+        it with where this controller serves blobs now."""
+        if self._grants is None:
+            return
+        grant = self._grants.mint(
+            attempt.id,
+            ttl_s=self._token_ttl(job),
+            max_blobs=self._settings.max_output_blobs,
+            max_bytes=self._settings.max_output_bytes,
+        )
+        sent = self._manager.send_command(
+            attempt.node_id,
+            "refresh_upload_grant",
+            agent_pb2.RefreshUploadGrant(
+                attempt_id=attempt.id,
+                fencing_token=attempt.fencing_token,
+                upload_token=grant.get_secret_value(),
+                blob_url=self._blob_url,
+                blob_port=self._blob_port(),
+            ),
+            attempt_id=attempt.id,
+            fencing_token=attempt.fencing_token,
+        )
+        if sent is None:
+            # Nobody holds it: drop it so the next Reconcile refreshes again.
+            self._grants.revoke(attempt.id)
+            return
+        self.stats.upload_grants_refreshed += 1
+        log.info(
+            "controller.jobs.upload_grant_refreshed",
+            job_id=job.id,
+            attempt_id=attempt.id,
+            node_id=attempt.node_id,
+        )
+
+    def _token_ttl(self, job: JobRecord) -> float:
+        """Lifetime of an attempt's fetch token and upload grant."""
+        return min(
+            float(job.manifest.get("limits", {}).get("timeout", 0))
+            + self._settings.fetch_token_grace_s,
+            float(MAX_FETCH_TOKEN_TTL_S),
         )
 
     def _end_tokens(self, attempt_id: str) -> None:

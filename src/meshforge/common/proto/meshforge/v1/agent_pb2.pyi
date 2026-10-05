@@ -258,6 +258,7 @@ class ControllerMessage(_message.Message):
     HELLO_ACK_FIELD_NUMBER: _builtins.int
     PING_FIELD_NUMBER: _builtins.int
     REFRESH_FETCH_TOKEN_FIELD_NUMBER: _builtins.int
+    REFRESH_UPLOAD_GRANT_FIELD_NUMBER: _builtins.int
     message_id: _builtins.str
     """Unique per message (ULID); the command ID the agent deduplicates on."""
     session_id: _builtins.str
@@ -294,6 +295,13 @@ class ControllerMessage(_message.Message):
         every token - they are never persisted).
         """
 
+    @_builtins.property
+    def refresh_upload_grant(self) -> Global___RefreshUploadGrant:
+        """A fresh upload grant for an attempt the agent still holds (V0.6 G1,
+        D114): sent after Reconcile when this controller process has no grant
+        for it (a restart forgets every grant - they are never persisted).
+        """
+
     def __init__(
         self,
         *,
@@ -309,12 +317,13 @@ class ControllerMessage(_message.Message):
         hello_ack: Global___HelloAck | None = ...,
         ping: Global___Ping | None = ...,
         refresh_fetch_token: Global___RefreshFetchToken | None = ...,
+        refresh_upload_grant: Global___RefreshUploadGrant | None = ...,
     ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _typing.Literal["ack", b"ack", "cancel_attempt", b"cancel_attempt", "gc", b"gc", "hello_ack", b"hello_ack", "payload", b"payload", "ping", b"ping", "prepare_env", b"prepare_env", "probe_request", b"probe_request", "refresh_fetch_token", b"refresh_fetch_token", "sent_at", b"sent_at", "start_attempt", b"start_attempt"]  # noqa: Y015
+    _HasFieldArgType: _TypeAlias = _typing.Literal["ack", b"ack", "cancel_attempt", b"cancel_attempt", "gc", b"gc", "hello_ack", b"hello_ack", "payload", b"payload", "ping", b"ping", "prepare_env", b"prepare_env", "probe_request", b"probe_request", "refresh_fetch_token", b"refresh_fetch_token", "refresh_upload_grant", b"refresh_upload_grant", "sent_at", b"sent_at", "start_attempt", b"start_attempt"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["ack", b"ack", "cancel_attempt", b"cancel_attempt", "gc", b"gc", "hello_ack", b"hello_ack", "message_id", b"message_id", "payload", b"payload", "ping", b"ping", "prepare_env", b"prepare_env", "probe_request", b"probe_request", "refresh_fetch_token", b"refresh_fetch_token", "sent_at", b"sent_at", "session_id", b"session_id", "start_attempt", b"start_attempt"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["ack", b"ack", "cancel_attempt", b"cancel_attempt", "gc", b"gc", "hello_ack", b"hello_ack", "message_id", b"message_id", "payload", b"payload", "ping", b"ping", "prepare_env", b"prepare_env", "probe_request", b"probe_request", "refresh_fetch_token", b"refresh_fetch_token", "refresh_upload_grant", b"refresh_upload_grant", "sent_at", b"sent_at", "session_id", b"session_id", "start_attempt", b"start_attempt"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
-    _WhichOneofReturnType_payload: _TypeAlias = _typing.Literal["start_attempt", "cancel_attempt", "probe_request", "prepare_env", "gc", "ack", "hello_ack", "ping", "refresh_fetch_token"]  # noqa: Y015
+    _WhichOneofReturnType_payload: _TypeAlias = _typing.Literal["start_attempt", "cancel_attempt", "probe_request", "prepare_env", "gc", "ack", "hello_ack", "ping", "refresh_fetch_token", "refresh_upload_grant"]  # noqa: Y015
     _WhichOneofArgType_payload: _TypeAlias = _typing.Literal["payload", b"payload"]  # noqa: Y015
     def WhichOneof(self, oneof_group: _WhichOneofArgType_payload) -> _WhichOneofReturnType_payload | None: ...
 
@@ -1680,6 +1689,47 @@ class RefreshFetchToken(_message.Message):
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___RefreshFetchToken: _TypeAlias = RefreshFetchToken  # noqa: Y015
+
+@_typing.final
+class RefreshUploadGrant(_message.Message):
+    """Replaces the upload grant of a held attempt (V0.6 G1, D114). Same quota as
+    the grant in its StartAttempt (what earlier grants of the attempt already
+    stored is NOT known to a restarted controller). Applied only to the attempt
+    with this (attempt_id, fencing_token) while it has not ended; an upload that
+    was refused (401) or could not reach the controller retries with it,
+    resuming the parts the controller already holds.
+    """
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    ATTEMPT_ID_FIELD_NUMBER: _builtins.int
+    FENCING_TOKEN_FIELD_NUMBER: _builtins.int
+    UPLOAD_TOKEN_FIELD_NUMBER: _builtins.int
+    BLOB_URL_FIELD_NUMBER: _builtins.int
+    BLOB_PORT_FIELD_NUMBER: _builtins.int
+    attempt_id: _builtins.str
+    fencing_token: _builtins.int
+    upload_token: _builtins.str
+    """A secret: never logged, never persisted."""
+    blob_url: _builtins.str
+    """Where the controller serves blobs now (like ExecutionSpec fields 2/3)."""
+    blob_port: _builtins.int
+    def __init__(
+        self,
+        *,
+        attempt_id: _builtins.str = ...,
+        fencing_token: _builtins.int = ...,
+        upload_token: _builtins.str = ...,
+        blob_url: _builtins.str = ...,
+        blob_port: _builtins.int = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["attempt_id", b"attempt_id", "blob_port", b"blob_port", "blob_url", b"blob_url", "fencing_token", b"fencing_token", "upload_token", b"upload_token"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___RefreshUploadGrant: _TypeAlias = RefreshUploadGrant  # noqa: Y015
 
 @_typing.final
 class ProbeRequest(_message.Message):

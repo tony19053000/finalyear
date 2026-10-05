@@ -16,10 +16,24 @@ digest). Uploads - the packed outputs and the two final log files - use a separa
   if :meth:`UploadGrants.uploaded` says this attempt's grant stored and verified
   that blob - a digest merely *named* in a report proves nothing.
 
-Grants live in memory like fetch tokens (a controller restart invalidates them -
-an attempt uploading across a restart ends ``output_error``; persistence is V0.6's
-restart work), keyed by the SHA-256 of the token, bounded by ``capacity`` and
-pruned on expiry (controller monotonic clock).
+Grants live in memory like fetch tokens, keyed by the SHA-256 of the token,
+bounded by ``capacity`` and pruned on expiry (controller monotonic clock). A
+controller restart forgets them; after the agent's Reconcile the dispatcher
+mints a new grant for every held attempt that has none here and sends it in
+``RefreshUploadGrant`` (V0.6 G1, D114).
+
+**Resumable uploads under a grant (V0.6 G1, D114).** The agent uploads through
+the parts API (``PUT /v1/blobs/{d}/parts/{i}``, ``GET .../parts``, ``POST
+.../complete``) so an upload interrupted by a restart resumes from the parts the
+controller already stored. :meth:`UploadGrants.begin_parts` reserves the whole
+blob once per digest (later parts reuse it); :meth:`UploadGrants.credit` records
+the blob as uploaded under the grant only when a ``complete`` call **assembled
+and verified** it. A ``complete`` that finds the blob already stored proves
+nothing about this attempt: the grant is not credited (the answer says
+``credited: false``) and the agent uploads the bytes again with ``PUT``. Parts
+received before a restart count for the new grant once it completes them: the
+bytes are verified against the digest at completion, but which credential sent
+each part is not recorded (parts outlive a restart, their uploader does not).
 """
 
 from __future__ import annotations
@@ -176,8 +190,15 @@ class UploadGrants:
 
     # --------------------------------------------------------------- uploads
 
-    def begin(self, token: str, digest: Digest, declared: int | None) -> UploadTicket:
-        """Reserve room for one upload or raise :class:`GrantRefusal`."""
+    def has(self, attempt_id: str) -> bool:
+        """Does ``attempt_id`` hold a usable grant in this process (D114)?"""
+        key = self._by_attempt.get(attempt_id)
+        if key is None:
+            return False
+        grant = self._grants[key]
+        return not grant.closed and grant.expires_at > self._clock()
+
+    def _live(self, token: str) -> tuple[str, UploadGrant]:
         key = self._key(token)
         grant = self._grants.get(key)
         if grant is None:
@@ -187,6 +208,59 @@ class UploadGrants:
             raise GrantRefusal("expired", "the upload grant expired")
         if grant.closed:
             raise GrantRefusal("closed", "the attempt already ended")
+        return key, grant
+
+    def check(self, token: str) -> str:
+        """The attempt of a usable grant (raises :class:`GrantRefusal`)."""
+        return self._live(token)[1].attempt_id
+
+    def begin_parts(self, token: str, digest: Digest, size: int) -> UploadTicket:
+        """D114: reserve ``size`` bytes for a resumable upload of ``digest``
+        once; a later part (or ``complete``) of the same digest reuses it."""
+        key, grant = self._live(token)
+        if digest.hex in grant.uploaded:
+            return UploadTicket(key, grant.attempt_id, digest.hex, 0, free=True)
+        if digest.hex in grant.pending:
+            return UploadTicket(
+                key, grant.attempt_id, digest.hex, grant.pending[digest.hex], False
+            )
+        if grant.used_blobs + 1 > grant.max_blobs:
+            raise GrantRefusal(
+                "blob_quota",
+                f"this attempt may upload at most {grant.max_blobs} blobs",
+            )
+        if grant.used_bytes + size > grant.max_bytes:
+            raise GrantRefusal(
+                "byte_quota",
+                f"this attempt may upload at most {grant.max_bytes} bytes",
+            )
+        grant.pending[digest.hex] = size
+        grant.reserved_bytes += size
+        return UploadTicket(key, grant.attempt_id, digest.hex, size, free=False)
+
+    def credit(self, ticket: UploadTicket, size: int) -> None:
+        """D114: a ``complete`` assembled and verified the blob: it counts as
+        uploaded under this grant (its reservation becomes the stored size)."""
+        grant = self._grants.get(ticket.key)
+        if grant is None or ticket.free:
+            return
+        reserved = grant.pending.pop(ticket.digest, None)
+        if reserved is not None:
+            grant.reserved_bytes -= reserved
+        grant.uploaded[ticket.digest] = size
+
+    def release(self, ticket: UploadTicket) -> None:
+        """Give a resumable reservation back (the blob was not credited)."""
+        grant = self._grants.get(ticket.key)
+        if grant is None or ticket.free:
+            return
+        reserved = grant.pending.pop(ticket.digest, None)
+        if reserved is not None:
+            grant.reserved_bytes -= reserved
+
+    def begin(self, token: str, digest: Digest, declared: int | None) -> UploadTicket:
+        """Reserve room for one upload or raise :class:`GrantRefusal`."""
+        key, grant = self._live(token)
         if digest.hex in grant.uploaded:
             return UploadTicket(key, grant.attempt_id, digest.hex, 0, free=True)
         if declared is None:
