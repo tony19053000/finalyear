@@ -40,3 +40,18 @@ def test_upload_part_bytes_bounds_accepted(value: int) -> None:
 def test_upload_part_bytes_bounds_refused(value: int) -> None:
     with pytest.raises(ValidationError):
         ExecutionSettings(upload_part_bytes=value)
+
+
+@pytest.mark.parametrize("value", [0.0, 600.0])
+def test_log_upload_retry_s_bounds_accepted(value: float) -> None:
+    assert ExecutionSettings(log_upload_retry_s=value).log_upload_retry_s == value
+
+
+@pytest.mark.parametrize("value", [-0.001, 600.001])
+def test_log_upload_retry_s_bounds_refused(value: float) -> None:
+    with pytest.raises(ValidationError):
+        ExecutionSettings(log_upload_retry_s=value)
+
+
+def test_log_upload_retry_s_default_is_small() -> None:
+    assert ExecutionSettings().log_upload_retry_s == 10.0

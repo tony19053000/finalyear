@@ -41,13 +41,6 @@ class LogsDownOutputFlaky:
         return 1
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT (minor): final logs are best-effort but share the attempt's one "
-    "upload_retry_s budget; a controller outage that exhausts it on the logs "
-    "leaves the OUTPUT upload zero retries (a single transient error -> "
-    "output_error) and delays every final report by up to upload_retry_s",
-)
 async def test_best_effort_log_retries_do_not_consume_the_output_budget(
     tmp_path: Path,
 ) -> None:
@@ -88,7 +81,9 @@ async def test_exhausted_budget_ends_in_a_retryable_output_error_not_a_hang(
         WritingRuntime(),
         reports,
         upload=uploads,
-        execution={"upload_retry_s": 5},
+        # Logs have their own budget since the D-2 fix; 0 keeps this test about
+        # the OUTPUT budget (and inside _settle's 2 s of real time).
+        execution={"upload_retry_s": 5, "log_upload_retry_s": 0},
         clock=lambda: now[0],
     )
     msg = _start(digest)

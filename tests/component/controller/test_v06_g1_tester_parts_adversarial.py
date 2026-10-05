@@ -51,7 +51,7 @@ async def test_concurrent_completes_of_one_grant_credit_once_and_leak_no_reserva
     assert grants is not None and grants.uploaded("att_conc", digest)
     async with api_client(runtime, token=token) as agent:
         assert (await _complete(agent, data)).json()["credited"] is True
-    grant = next(g for g in grants._grants.values() if g.attempt_id == "att_conc")  # noqa: SLF001
+    grant = next(g for g in grants._grants.values() if g.attempt_id == "att_conc")
     assert grant.reserved_bytes == 0 and not grant.pending
     assert grant.used_bytes == len(data)
 
@@ -65,9 +65,10 @@ async def test_two_attempts_racing_to_complete_one_blob_credit_exactly_one(
     digest = sha256_bytes(data)
     first = _grant(runtime, "att_r1")
     second = _grant(runtime, "att_r2")
-    async with api_client(runtime, token=first) as a, api_client(
-        runtime, token=second
-    ) as b:
+    async with (
+        api_client(runtime, token=first) as a,
+        api_client(runtime, token=second) as b,
+    ):
         await _parts(a, data, range(chunk_count(len(data), CS)))
         got = await asyncio.gather(_complete(a, data), _complete(b, data))
         credited = [r.json()["credited"] for r in got]

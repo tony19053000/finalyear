@@ -22,7 +22,8 @@ controller restart forgets them; after the agent's Reconcile the dispatcher
 mints a new grant for every held attempt that has none here and sends it in
 ``RefreshUploadGrant`` (V0.6 G1, D114). A re-mint keeps what the attempt
 already stored, and an upload still in flight under the replaced grant is
-credited to its successor when it finishes (never after a revoke).
+credited to its successor when it finishes - within the successor's quota,
+never after a revoke.
 
 **Resumable uploads under a grant (V0.6 G1, D114).** The agent uploads through
 the parts API (``PUT /v1/blobs/{d}/parts/{i}``, ``GET .../parts``, ``POST
@@ -263,11 +264,30 @@ class UploadGrants:
     def _credit_successor(self, ticket: UploadTicket, size: int) -> None:
         """The ticket's grant was replaced while its upload was in flight (a
         refresh minted for the same attempt, D114): the verified blob counts for
-        the attempt's current grant. A revoked attempt has none - nothing."""
+        the attempt's current grant - but only within that grant's quota (a
+        re-mint does not carry in-flight reservations, so the new grant may
+        have reserved the room meanwhile). Over it, or for a revoked attempt
+        (no current grant), nothing is credited: a DONE naming that blob then
+        fails ``output_error`` - the quota is never exceeded."""
         key = self._by_attempt.get(ticket.attempt_id)
         successor = None if key is None else self._grants.get(key)
-        if successor is not None:
-            successor.uploaded[ticket.digest] = size
+        if successor is None or ticket.digest in successor.uploaded:
+            return
+        reserved = successor.pending.get(ticket.digest, 0)
+        fits = (
+            successor.used_bytes - reserved + size <= successor.max_bytes
+            and successor.used_blobs + (0 if reserved else 1) <= successor.max_blobs
+        )
+        if not fits:
+            log.warning(
+                "controller.blobs.successor_credit_over_quota",
+                attempt_id=ticket.attempt_id,
+                digest=f"sha256:{ticket.digest}",
+            )
+            return
+        if ticket.digest in successor.pending:
+            successor.reserved_bytes -= successor.pending.pop(ticket.digest)
+        successor.uploaded[ticket.digest] = size
 
     def release(self, ticket: UploadTicket) -> None:
         """Give a resumable reservation back (the blob was not credited)."""

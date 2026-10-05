@@ -130,3 +130,22 @@ def test_an_upload_in_flight_across_a_re_mint_counts_for_the_new_grant(
     grants.revoke("att2")
     grants.finish(revoked, stored=True, size=5)
     assert not grants.uploaded("att2", B)
+
+
+def test_a_successor_credit_respects_the_blob_count_and_takes_its_reservation() -> None:
+    grants = _grants([1.0])
+    old = grants.mint("att", ttl_s=10, max_blobs=1, max_bytes=100).get_secret_value()
+    in_flight = grants.begin_parts(old, A, 10)
+    new = grants.mint("att", ttl_s=10, max_blobs=1, max_bytes=100).get_secret_value()
+    grants.begin_parts(new, B, 10)  # the one blob the new grant allows
+    grants.credit(in_flight, 10)
+    assert not grants.uploaded("att", A)  # over max_blobs: not credited
+    # same digest reserved under the new grant: the credit settles that reservation
+    old2 = grants.mint("a2", ttl_s=10, max_blobs=1, max_bytes=100).get_secret_value()
+    t_old = grants.begin_parts(old2, A, 60)
+    new2 = grants.mint("a2", ttl_s=10, max_blobs=1, max_bytes=100).get_secret_value()
+    grants.begin_parts(new2, A, 60)
+    grants.credit(t_old, 60)
+    assert grants.uploaded("a2", A)
+    key = grants._by_attempt["a2"]
+    assert grants._grants[key].used_bytes == 60

@@ -553,13 +553,27 @@ class ExecutionSettings(SectionModel):
         ge=0.0,
         le=3600.0,
         description=(
-            "V0.6 D114: how long the uploads of one attempt (final logs, then "
-            "the outputs) keep retrying, counted from the first failed upload, "
+            "V0.6 D114: how long the output upload of one attempt keeps "
+            "retrying, counted from its first failed upload (the final logs "
+            "have their own log_upload_retry_s), "
             "when the controller refuses the upload grant (a restarted "
             "controller sends a fresh one after Reconcile) or cannot be "
             "reached; parts the controller already holds are not sent again. "
             "Past it the attempt fails output_error (retryable); 0 = no retry. "
             "The controller's upload deadline still bounds the whole upload."
+        ),
+    )
+    log_upload_retry_s: float = Field(
+        default=10.0,
+        ge=0.0,
+        le=600.0,
+        description=(
+            "V0.6 G1: retry budget of the best-effort final-log uploads of one "
+            "attempt (both logs together, counted from the first failed log "
+            "upload), separate from upload_retry_s so a log outage neither "
+            "uses up the outputs' retries nor delays the final report long. "
+            "Past it the log is reported without a digest (the live copy "
+            "stays); 0 = no retry."
         ),
     )
     upload_part_bytes: int = Field(

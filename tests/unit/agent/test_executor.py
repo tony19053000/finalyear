@@ -524,7 +524,7 @@ async def test_an_upload_failure_or_no_grant_is_output_error(
         WritingRuntime(),
         reports,
         upload=uploads,
-        execution={"upload_retry_s": 0},
+        execution={"upload_retry_s": 0, "log_upload_retry_s": 0},
     )
     msg = _start(digest)
     _with_outputs(msg, grant=grant)

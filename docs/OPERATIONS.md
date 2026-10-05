@@ -152,6 +152,8 @@ kill work. Jobs are not retried until V0.6 (G3).
   reconnects) and sends only the parts the controller does not have yet. It keeps
   trying for `upload_retry_s` (120 s, counted from the first failed upload;
   `0` = fail at once); after that the job fails `output_error` (retryable).
+  The two log files (best effort) get only `log_upload_retry_s` (10 s) of
+  retries; a log that cannot be uploaded is reported without its final copy.
   Agent log: `agent.execution.upload_retry` (with `refused` / `refreshed`).
 - **Killed agent, subprocess jobs (V0.6 G1, Linux).** Each job runs in its own
   process group watched by a tiny helper process; when the job's main process

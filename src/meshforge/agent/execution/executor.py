@@ -237,8 +237,12 @@ class _Attempt:
     upload_port: int | None = None
     grant_changed: asyncio.Event = field(default_factory=asyncio.Event)
     upload_deadline: float | None = None
-    """When the upload retries give up: ``upload_retry_s`` after the first
-    failed upload (one budget for logs and outputs)."""
+    """When the OUTPUT upload retries give up: ``upload_retry_s`` after its
+    first failed upload."""
+    log_upload_deadline: float | None = None
+    """When the best-effort final-log upload retries give up:
+    ``log_upload_retry_s`` after the first failed log upload (both logs share
+    it; separate from the outputs' budget)."""
     upload_retries: int = 0
     uploads: UploadProgress = field(default_factory=UploadProgress)
     """What the resumable uploads of this attempt sent (D114)."""
@@ -690,15 +694,26 @@ class Executor:
         )
 
     async def _upload_retrying(
-        self, attempt: _Attempt, plan: AttemptPlan, digest: Digest, path: Path
+        self,
+        attempt: _Attempt,
+        plan: AttemptPlan,
+        digest: Digest,
+        path: Path,
+        *,
+        best_effort: bool = False,
     ) -> None:
         """One blob up with the attempt's grant (D114): a refused grant waits
         for ``RefreshUploadGrant``, an unreachable controller is retried with
         backoff (0.25 s doubling to 5 s) - parts already stored are not sent
-        again - for at most ``upload_retry_s`` counted from the attempt's first
-        failed upload (one budget for its logs and outputs together), then
-        :class:`UploadError` (retryable -> ``output_error``). The controller's
-        upload deadline (D94) still bounds the whole upload."""
+        again - for at most ``upload_retry_s`` counted from the outputs' first
+        failed upload, then :class:`UploadError` (retryable ->
+        ``output_error``). ``best_effort`` (the final logs) has its own, smaller
+        budget ``log_upload_retry_s``, so a log outage neither eats the outputs'
+        retries nor delays the final report long. The controller's upload
+        deadline (D94) still bounds the whole upload."""
+        budget = (
+            self._cfg.log_upload_retry_s if best_effort else self._cfg.upload_retry_s
+        )
         if not attempt.upload_token:
             attempt.upload_token = plan.upload_token
         delay = _STAGE_RETRY_BASE_S
@@ -721,22 +736,27 @@ class Executor:
             except FetchError as exc:  # no host to upload to
                 last = UploadError(exc.message, retryable=True)
             except UploadError as exc:
-                if not exc.retryable or self._cfg.upload_retry_s <= 0:
+                if not exc.retryable or budget <= 0:
                     raise
                 last, refused = exc, bool(exc.details.get("refused"))
             else:
                 return
-            if attempt.upload_deadline is None:
-                attempt.upload_deadline = self._clock() + self._cfg.upload_retry_s
-            deadline = attempt.upload_deadline
-            self._check_upload_deadline(deadline, last)
+            if best_effort:
+                if attempt.log_upload_deadline is None:
+                    attempt.log_upload_deadline = self._clock() + budget
+                deadline = attempt.log_upload_deadline
+            else:
+                if attempt.upload_deadline is None:
+                    attempt.upload_deadline = self._clock() + budget
+                deadline = attempt.upload_deadline
+            self._check_upload_deadline(deadline, budget, last)
             if attempt.upload_token == used:
                 remaining = max(0.0, deadline - self._clock())
                 wait = remaining if refused else min(delay, remaining)
                 delay = min(delay * 2, _STAGE_RETRY_CAP_S)
                 await self._step(attempt, self._grant_wait(attempt, wait))
             # Checked before EVERY retry, one with a refreshed grant included.
-            self._check_upload_deadline(deadline, last)
+            self._check_upload_deadline(deadline, budget, last)
             attempt.upload_retries += 1
             log.info(
                 "agent.execution.upload_retry",
@@ -747,12 +767,15 @@ class Executor:
                 refused=refused,
                 refreshed=attempt.upload_token != used,
                 retries=attempt.upload_retries,
+                best_effort=best_effort,
             )
 
-    def _check_upload_deadline(self, deadline: float, last: UploadError) -> None:
+    def _check_upload_deadline(
+        self, deadline: float, budget: float, last: UploadError
+    ) -> None:
         if self._clock() >= deadline:
             raise UploadError(
-                f"the upload did not succeed within {self._cfg.upload_retry_s:g} s "
+                f"the upload did not succeed within {budget:g} s "
                 f"of retries (last: {last.message})",
                 retryable=True,
             )
@@ -1200,7 +1223,9 @@ class Executor:
                 digest, size = await asyncio.to_thread(file_sha256, path)
                 if size == 0:
                     continue
-                await self._upload_retrying(attempt, plan, Digest.parse(digest), path)
+                await self._upload_retrying(
+                    attempt, plan, Digest.parse(digest), path, best_effort=True
+                )
             except (UploadError, FetchError, OSError) as exc:
                 log.warning(
                     "agent.execution.log_upload_failed",
