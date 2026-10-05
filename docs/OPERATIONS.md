@@ -371,6 +371,25 @@ compute get <JOB_ID>               # outputs -> ./outputs/<JOB_ID>/ (--dest, --f
   (`[cli] seed_local`, up to `seed_max_bytes`, 2 GiB; one stderr line says
   whether it did and why not) - so running here needs no download, and
   `cost_model` prefers it for a job whose transfer would dominate.
+- **Retries (V0.6 G3, D110, [ADR-0015](adr/0015-retry-and-duplicate-execution.md)).**
+  A job whose attempt is lost (its laptop went offline, the agent restarted
+  and forgot it, the controller restarted and the laptop never came back) or
+  fails with a *retryable* error (`transfer_error`, `integrity_error`,
+  `timeout`, `vram_oom`, `resource_busy`, an upload blip...) goes back to
+  `queued` by itself - `compute jobs` shows it queued again with a new attempt
+  later. The manifest controls it:
+  `retry: {max_attempts: 3, backoff_s: 5, on_lost: true}` (1-10 attempts in
+  total; the wait doubles per retry up to 300 s). After the last attempt the
+  job fails with the last error and `retries_exhausted after N attempts` in its
+  detail. An automatically placed retry avoids the laptop it failed on for
+  `[controller.planner] retry_exclude_s` (600 s; for `vram_oom`: every GPU no
+  larger) unless no other laptop could run it; a `--node`/`--local` job retries
+  on its own laptop only. **Duplicate runs:** a laptop whose Wi-Fi drops keeps
+  running its job while the retry runs elsewhere; only one result is ever
+  kept, and the controller logs `controller.jobs.execution_overlap` when the
+  old laptop comes back. A job that must never run twice (it sends e-mails,
+  charges money...) should say `retry: {on_lost: false}`: it then fails
+  `node_lost` instead of being retried after a loss.
 - `compute explain <JOB_ID>` prints every candidate of every planner decision:
   rank, Local/offload, slot, score, the predicted time split into queue /
   transfer / env / compute / output **with where each number came from**
@@ -650,6 +669,8 @@ volume**).
 | `compute node prepare` item `failed (no_feasible_plan/runtime_unavailable)` | the node has no runtime for that env (e.g. `runtime: docker` without Docker, `cuda-pytorch` asked of the venv runtime) | drop `runtime:` to let the node choose, or install Docker there |
 | Agent log `agent.peer.start_failed` | port 47120 taken or `bind` is not this laptop's IP | free the port or set `[agent.peer] port`; the agent runs without serving peers meanwhile |
 | A job fails `output_error` with "the upload did not succeed within 120 s of retries" | the agent could not reach the controller's blob port (TCP 47110), or the restarted controller never sent a new upload grant (the agent never reconnected) | check that the controller is up and the agent reconnected (`compute nodes`); raise `[agent.execution] upload_retry_s` on a slow or flaky link |
+| A job is `queued` again with a second (third...) attempt | its attempt was lost or failed retryably (V0.6 G3); `compute explain <JOB_ID> --attempt N` shows why the retry went where it went (`retry_excluded` = it avoids the node it failed on) | nothing, normally. If a job ran twice and must not, give it `retry: {on_lost: false}`; check the controller log for `controller.jobs.execution_overlap` |
+| Many jobs fail `disk_full` on one laptop | that laptop's disk is full; `disk_full` is not retried, and the planner keeps choosing an idle laptop | free disk there (or stop its agent) and resubmit; see the V0.6 follow-up on retrying `disk_full` elsewhere |
 | A job stays `queued` | no node can take it **now** (V0.6): every capable node is busy (`slots_full`, `node_cap`), offline / suspect, or its environment failed there recently (`env_known_bad`) | `compute explain <JOB_ID>` lists each node's reason; free a slot, start an agent, raise `[agent.execution] max_cpu_jobs` / `max_gpu_jobs`, or cancel it |
 | `compute run` exits with `no_feasible_plan` and a list of nodes | **no** enrolled node could ever run it (V0.6 D104): no `exec`, no GPU / too little VRAM / RAM / CPUs, no runtime for `env.base`, the owner allows no jobs of that kind | each line names the node and the reason; change the manifest's `resources:` or enable execution / a runtime on a node |
 | `compute run` prints `local agent cache not seeded (...)` | the CLI could not copy the project into this laptop's agent cache: `no_cache` (the agent never ran with this data dir), `not_writable`, `over_quota` (project > `[cli] seed_max_bytes`), `disk_full`, `changed` (a file changed while copied) | nothing breaks: a job placed here downloads the project; fix the reason to save that download |
