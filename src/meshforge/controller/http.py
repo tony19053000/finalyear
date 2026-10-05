@@ -38,6 +38,7 @@ from meshforge.controller.api.blob_routes import BLOBS_STATE_KEY, blob_router
 from meshforge.controller.api.data_routes import data_router
 from meshforge.controller.api.job_routes import JOBS_STATE_KEY, JobApi, job_router
 from meshforge.controller.api.log_routes import log_router
+from meshforge.controller.api.prepare_routes import prepare_router
 from meshforge.controller.blobs import BlobStore
 from meshforge.controller.cache_index import CacheLocationStore
 from meshforge.controller.registry import Registry
@@ -107,4 +108,6 @@ def create_http_app(
         app.include_router(log_router)
         if jobs.inputs is not None:
             app.include_router(data_router)  # V0.5 G5 named inputs
+        if jobs.prepare is not None:
+            app.include_router(prepare_router)  # V0.5 G5 compute node prepare
     return app

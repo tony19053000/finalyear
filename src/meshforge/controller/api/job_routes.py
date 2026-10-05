@@ -96,6 +96,7 @@ from meshforge.controller.named_inputs import (
     PinBroadcaster,
     ResolvedInput,
 )
+from meshforge.controller.prepare import PrepareTracker
 
 __all__ = [
     "DEFAULT_JOB_LIMIT",
@@ -133,8 +134,11 @@ class JobApi:
         logs: LogHub | None = None,
         inputs: NamedInputStore | None = None,
         pins: PinBroadcaster | None = None,
+        prepare: PrepareTracker | None = None,
     ) -> None:
         self.store = store
+        self.prepare = prepare
+        """V0.5 G5 (0.5.8): `compute node prepare` requests; None = off."""
         self.inputs = inputs
         """V0.5 G5 (D92): named inputs; None = /v1/data is off, inputs refused."""
         self.pins = pins

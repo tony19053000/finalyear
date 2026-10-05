@@ -39,6 +39,7 @@ REPORT_PAYLOADS: Final[frozenset[str]] = frozenset(
         "net_probe_result",
         "attempt_status",
         "log_chunk",
+        "prepare_env_status",  # V0.5 G5 (0.5.8)
     }
 )
 """``AgentMessage`` payload names that are reports (buffered + replayed)."""

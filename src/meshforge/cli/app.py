@@ -331,5 +331,7 @@ for _command in (run, jobs, logs, cancel, get):
 
 # V0.5 G5: `compute data ...` (named inputs).
 from meshforge.cli.data_commands import data_app  # noqa: E402
+from meshforge.cli.node_commands import node_app  # noqa: E402
 
 app.add_typer(data_app)
+app.add_typer(node_app)

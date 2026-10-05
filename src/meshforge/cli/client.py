@@ -182,6 +182,15 @@ class ControllerClient:
             headers={"idempotency-key": idempotency_key},
         )
 
+    # V0.5 G5 node prepare (0.5.8)
+    def start_prepare(self, node_id: str, body: Mapping[str, Any]) -> Mapping[str, Any]:
+        return self._request(
+            "POST", f"/v1/nodes/{node_id}/prepare", json_body=dict(body)
+        )
+
+    def prepare_status(self, node_id: str, request_id: str) -> Mapping[str, Any]:
+        return self._get(f"/v1/nodes/{node_id}/prepare/{request_id}")
+
     # V0.5 G5 named inputs (D92)
     def push_input(self, name: str, tree_id: str, *, pinned: bool) -> Mapping[str, Any]:
         return self._request(

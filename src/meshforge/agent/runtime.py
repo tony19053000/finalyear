@@ -73,6 +73,7 @@ from meshforge.agent.cache.images import (
     remove_env_image,
 )
 from meshforge.agent.cas import AgentCas
+from meshforge.agent.envs.node_prepare import PrepareService
 from meshforge.agent.execution.executor import Executor
 from meshforge.agent.execution.offer import build_execution
 from meshforge.agent.gc.collector import GarbageCollector, GcConfig
@@ -346,7 +347,15 @@ async def serve(
         gc=gc,
     )
     wire_executor(client, executor)
-    client.command_handler = route_commands(executor, gc=gc)
+    # 0.5.8 controller part: `compute node prepare` (only where jobs may run).
+    preparer = (
+        PrepareService(settings, execution, client.send_report, node_id=node_id)
+        if execution.enabled
+        else None
+    )
+    client.command_handler = route_commands(
+        executor, gc=gc, prepare=preparer.handle if preparer is not None else None
+    )
     if execution.enabled:
         await executor.start()
     install_signal_handlers(client.request_stop)
@@ -374,6 +383,8 @@ async def serve(
         await executor.close()
         if peer is not None:
             await peer.close()
+        if preparer is not None:
+            await preparer.close()
         if gc is not None:
             await gc.close()
         if cache is not None:

@@ -602,6 +602,46 @@ class DockerRuntime:
         )
         return result
 
+    async def prepare_env(
+        self, spec: RunSpec, on_output: OutputCallback
+    ) -> tuple[str, str]:
+        """Pull the pinned base and build (or find) ``meshforge-env:<hash>``
+        for ``spec`` without running anything (``compute node prepare``, V0.5
+        G5): ``(env_hash, cache)``; raises :class:`EnvError` (typed)."""
+        if spec.image is None or self._envs is None:
+            raise EnvError("no image or environment builder", reason="env_io_failed")
+        if spec.env_request is None or spec.env_request.requirements is None:
+            raise EnvError(
+                "nothing to prepare without requirements", reason="requirements_missing"
+            )
+        fields = {"attempt_id": spec.attempt_id, "runtime": self.name}
+        pump = OutputPump(on_output, name=spec.attempt_id)
+        pump.start()
+        obs = RunObserver(self._clock)
+        client: DockerClient | None = None
+        try:
+            try:
+                client = await asyncio.to_thread(open_client, self.config.api_timeout_s)
+            except Exception as exc:
+                raise _FaultError(
+                    FailureType.ENV_ERROR,
+                    "docker_unavailable",
+                    f"cannot reach the Docker daemon: {type(exc).__name__}",
+                ) from exc
+            _check_pinned(spec.image)
+            deadline = self._clock() + self.config.env_timeout_s
+            await self._ensure_image(client, spec.image, deadline, fields)
+            await self._ensure_env_image(client, spec, spec.image, pump, obs, fields)
+        except _FaultError as fault:
+            raise EnvError(
+                fault.detail, reason=fault.reason, failure_type=fault.failure_type
+            ) from None
+        finally:
+            if client is not None:
+                await self._close_client(client)
+            await pump.close(_DRAIN_S)
+        return obs.env_hash or "", obs.env_cache or ""
+
     async def _steps(
         self,
         client: DockerClient,

@@ -69,6 +69,7 @@ from meshforge.controller.peer_signing import (
     load_or_create_signing_key,
     public_key_fingerprint,
 )
+from meshforge.controller.prepare import PrepareTracker
 from meshforge.controller.registry import Registry, SessionEndReason
 from meshforge.controller.resources import ResourceTracker
 from meshforge.controller.session.leases import LeaseTimer
@@ -155,6 +156,7 @@ class ControllerRuntime:
         self.inputs: NamedInputStore | None = None
         """V0.5 G5 (D92): named, versioned inputs (``/v1/data``)."""
         self.pins: PinBroadcaster | None = None
+        self.prepare: PrepareTracker | None = None
         self.gc: ControllerGc | None = None
         """V0.5 G5 (D91): LRU GC of the blob store under [controller.gc]."""
         self.scrubber: BlobScrubber | None = None
@@ -274,6 +276,9 @@ class ControllerRuntime:
         self.manager = manager
         # D101: cache reports -> the location index (before any stream).
         manager.dispatch.register("cache_report", self.cache_index.on_message)
+        # V0.5 G5 (0.5.8): `compute node prepare` progress reports.
+        self.prepare = PrepareTracker(manager)
+        manager.dispatch.register("prepare_env_status", self.prepare.on_message)
         self._lease_timer_task = self._spawn(
             LeaseTimer(manager, clock=loop.time).run(), "lease-timer"
         )
@@ -383,6 +388,7 @@ class ControllerRuntime:
                     logs=log_hub,
                     inputs=self.inputs,
                     pins=self.pins,
+                    prepare=self.prepare,
                 ),
             ),
             host=self._http_bind.host,

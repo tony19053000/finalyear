@@ -187,6 +187,32 @@ class SubprocessRuntime:
         )
         return use
 
+    async def prepare_env(
+        self, spec: RunSpec, on_output: OutputCallback
+    ) -> tuple[str, str]:
+        """Build (or find) the env of ``spec`` without running anything
+        (``compute node prepare``, V0.5 G5): ``(env_hash, cache)``; raises
+        :class:`EnvError` like a job's env phase would fail."""
+        if not self._uses_env_cache(spec):
+            raise EnvError(
+                "this runtime has nothing to prepare without requirements",
+                reason="requirements_missing",
+            )
+        pump = OutputPump(on_output, name=spec.attempt_id)
+        pump.start()
+        try:
+            try:
+                use = await self._resolve_env(spec, pump)
+            except OSError as exc:
+                raise EnvError(
+                    f"environment storage failed: {exc.strerror or type(exc).__name__}",
+                    reason="env_io_failed",
+                    failure_type=FailureType.INTERNAL_ERROR,
+                ) from None
+        finally:
+            await pump.close(_DRAIN_S)
+        return use.built.env_hash, use.built.cache
+
     async def probe(self) -> RuntimeAvailability:
         return RuntimeAvailability(
             self.name,

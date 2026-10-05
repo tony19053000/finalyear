@@ -29,6 +29,7 @@ from mf_agent_harness import make_agent_settings
 
 from meshforge.agent.cache import CacheReporter
 from meshforge.agent.cas import AgentCas
+from meshforge.agent.envs.node_prepare import PrepareService
 from meshforge.agent.execution.docker_runtime import DockerConfig, DockerRuntime
 from meshforge.agent.execution.executor import Executor
 from meshforge.agent.execution.offer import ExecutionSetup, build_execution
@@ -77,6 +78,7 @@ class ExecAgent:
         self.peer: PeerBlobServer | None = None
         self.cache: CacheReporter | None = None
         self.gc: GcService | None = None
+        self.preparer: PrepareService | None = None
         self.task: asyncio.Task[None] = asyncio.create_task(client.run())
 
     @classmethod
@@ -134,13 +136,21 @@ class ExecAgent:
             gc=gc,
         )
         wire_executor(client, executor)
-        client.command_handler = route_commands(executor, gc=gc)
+        preparer = (
+            PrepareService(settings, setup, client.send_report, node_id=client.node_id)
+            if setup.enabled
+            else None
+        )
+        client.command_handler = route_commands(
+            executor, gc=gc, prepare=preparer.handle if preparer is not None else None
+        )
         if setup.enabled:
             await executor.start()
         agent = cls(client, executor, setup)
         agent.peer = peer
         agent.cache = cache
         agent.gc = gc
+        agent.preparer = preparer
         await client.wait_for_state(AgentState.ONLINE, timeout_s=15.0)
         return agent
 
@@ -154,6 +164,8 @@ class ExecAgent:
         await self.executor.close()
         if self.peer is not None:
             await self.peer.close()
+        if self.preparer is not None:
+            await self.preparer.close()
         if self.gc is not None:
             await self.gc.close()
         if self.cache is not None:
