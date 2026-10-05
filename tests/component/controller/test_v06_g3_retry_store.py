@@ -485,3 +485,43 @@ async def test_stranded_retrying_and_planning_jobs_are_requeued(
     ]
     assert await store.requeue_stranded() == []
     assert isinstance(Wait(), Wait)
+
+
+async def test_the_failed_attempt_keeps_its_own_queue_phase(
+    store: ExecutionStore, pg_settings: DatabaseSettings
+) -> None:
+    """The terminal phase rows are computed before the retry's new QUEUED
+    entry exists: attempt 1's queue phase is its own wait, not skipped."""
+    node, other = await _nodes(pg_settings)
+    attempt = await _running(store, node)
+    await store.apply_status(_fail(attempt, FailureType.TIMEOUT))
+    lost_job = await _running(store, node)
+    await store.end_attempt(
+        lost_job.id,
+        lost_job.fencing_token,
+        event=AttemptEvent.LOSE,
+        failure_type=FailureType.NODE_LOST,
+        detail="node_offline",
+    )
+    for ended in (attempt, lost_job):
+        phases = {p.phase: p for p in await store.phases(ended.id)}
+        assert set(phases) == {"queue", "stage", "env", "run", "collect"}
+        assert phases["queue"].skipped is False, phases["queue"]
+    # the retry was dispatched by the second job's tick (backoff 0)
+    retried = [
+        a for a in await store.list_attempts(attempt.job_id) if a.fencing_token == 2
+    ]
+    if not retried:
+        retried = [
+            r.attempt
+            for r in await _tick(store, OnNode(other))
+            if r.job.id == attempt.job_id
+        ]
+    second = await _run(store, retried[0])
+    await store.apply_status(StatusReport(second.id, 2, AttemptState.UPLOADING))
+    await store.apply_status(StatusReport(second.id, 2, AttemptState.DONE))
+    phases = {p.phase: p for p in await store.phases(second.id)}
+    assert phases["queue"].skipped is False
+    first = {p.phase: p for p in await store.phases(attempt.id)}
+    # the retry's queue wait is its own (it started after the first one ended)
+    assert phases["queue"].started_at > first["queue"].started_at

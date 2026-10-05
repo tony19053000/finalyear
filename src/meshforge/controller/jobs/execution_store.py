@@ -521,19 +521,13 @@ class ExecutionStore(DecisionReads):
                 # the job's next epoch, so this is defence in depth.
                 return StatusOutcome(StatusKind.FENCED, attempt=attempt_record(row))
             verdict: RetryVerdict | None = None
+            failed = False
             for event, _ in path:
                 await _move_attempt(db, row, event, report)
                 reached = AttemptState(row.state)
                 job_event = job_event_for(reached, report.failure_type)
                 if job_event is JobEvent.FAIL:
-                    verdict = await _fail_or_retry(
-                        db,
-                        job,
-                        failure_type=report.failure_type or FailureType.INTERNAL_ERROR,
-                        detail=report.detail,
-                        retryable=report.retryable,
-                        lost=False,
-                    )
+                    failed = True  # decided below, after the phase rows
                 elif job_event is not None:
                     await _move_job(
                         db,
@@ -545,8 +539,19 @@ class ExecutionStore(DecisionReads):
                     )
             ended = AttemptState(row.state) in ATTEMPT_TERMINAL_STATES
             if ended:
+                # Before a retry's new QUEUED entry: the queue phase is this
+                # attempt's own wait (phase_rows reads the job history).
                 await _write_phases(db, row, report.phases)
                 await _write_transfers(db, row, report.transfers)
+            if failed:
+                verdict = await _fail_or_retry(
+                    db,
+                    job,
+                    failure_type=report.failure_type or FailureType.INTERNAL_ERROR,
+                    detail=report.detail,
+                    retryable=report.retryable,
+                    lost=False,
+                )
             await _fresh(db, row, job)
             return StatusOutcome(
                 StatusKind.APPLIED,
@@ -591,6 +596,7 @@ class ExecutionStore(DecisionReads):
                 detail=detail,
             )
             await _move_attempt(db, row, event, report)
+            await _write_phases(db, row, None)  # before a retry's new QUEUED
             verdict: RetryVerdict | None = None
             if int(row.fencing_token) == int(job.attempt_epoch):
                 verdict = await _fail_or_retry(
@@ -601,7 +607,6 @@ class ExecutionStore(DecisionReads):
                     retryable=retryable,
                     lost=event is AttemptEvent.LOSE,
                 )
-            await _write_phases(db, row, None)
             await _fresh(db, row, job)
             return StatusOutcome(
                 StatusKind.APPLIED,
