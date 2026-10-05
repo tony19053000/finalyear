@@ -195,7 +195,9 @@ def test_a_job_whose_stored_manifest_no_longer_validates_is_failed_alone() -> No
     assert isinstance(planner.decide(_job(GPU_JOB), fabric), Dispatch)
 
 
-def test_any_exception_while_planning_one_job_is_that_job_s_failure() -> None:
+def test_a_planner_bug_while_planning_one_job_leaves_it_queued() -> None:
+    """Reviewer N-1 (V0.6 G3) narrowed D-1: an error that is not the job's
+    fault keeps the job QUEUED; the branches are in test_v06_g3_planning_errors."""
     node = str(new_node_id())
     planner = _planner(node)
     fabric = _fabric(node)
@@ -205,7 +207,5 @@ def test_any_exception_while_planning_one_job_is_that_job_s_failure() -> None:
             raise KeyError(node_id)
 
     boom = Boom(nodes=fabric.nodes)
-    failed = planner.decide(_job(GPU_JOB), boom)
-    assert isinstance(failed, DispatchFailure)
-    assert failed.failure_type is FailureType.INTERNAL_ERROR
-    assert "KeyError" in failed.detail
+    assert isinstance(planner.decide(_job(GPU_JOB), boom), Wait)
+    assert planner.planning_errors == 1

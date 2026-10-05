@@ -36,13 +36,16 @@ from __future__ import annotations
 
 import dataclasses
 import datetime as dt
+from collections import OrderedDict
 from collections.abc import Callable
 from typing import Final
 
-from meshforge.common.errors import FailureType
+from pydantic import ValidationError
+
+from meshforge.common.errors import FailureType, InvalidIdError
 from meshforge.common.ids import new_attempt_id
 from meshforge.common.logging import get_logger
-from meshforge.common.manifest import Manifest
+from meshforge.common.manifest import Manifest, ManifestError
 from meshforge.controller.jobs.env_health import KnownBadEnvs, env_key
 from meshforge.controller.jobs.execution_store import (
     DecisionRecord,
@@ -74,6 +77,11 @@ from meshforge.controller.settings import JobApiSettings, PlannerSettings
 __all__ = ["DispatchPlanner", "decision_record"]
 
 log = get_logger(__name__)
+
+_JOB_IS_BAD: Final = (ValidationError, ManifestError, InvalidIdError)
+"""Errors that mean the stored job itself is unusable (reviewer N-1): only
+these fail the job; any other planning error leaves it queued."""
+_ERRORS_LOGGED_MAX: Final = 1024
 
 _GPU_GONE: Final = frozenset(
     {RejectCode.NO_GPU, RejectCode.NO_GPU_RUNTIME, RejectCode.NO_GPU_SLOTS}
@@ -116,6 +124,10 @@ class DispatchPlanner:
         self._known_bad = known_bad_envs
         self._cache_live = cache_live
         self.round_robin_after: str | None = None
+        self.planning_errors = 0
+        """Reviewer N-1: jobs left queued because planning them raised an
+        error that is not the job's fault (the metric; see :meth:`decide`)."""
+        self._errors_logged: OrderedDict[tuple[str, str], None] = OrderedDict()
         """D107: the node ``round_robin`` chose last (memory only)."""
         self.config = PlannerConfig(
             default_bw_bytes_s=planner.default_bw_bytes_s,
@@ -204,13 +216,21 @@ class DispatchPlanner:
         return job.scheduling.policy or self._planner.default_policy
 
     def decide(self, job: JobRecord, fabric: FabricRows) -> DispatchDecision:
-        """The job's decision. A job that cannot be planned at all (its stored
-        manifest no longer validates, or anything else raised while planning
-        it) is failed on its own - one bad row never stops the queue (G2 fix
-        D-1)."""
+        """The job's decision, isolated per job (G2 fix D-1, reviewer N-1).
+
+        * The **job is bad** - its stored manifest no longer validates, or a
+          stored id/manifest value is refused (:data:`_JOB_IS_BAD`) -> that job
+          alone is failed ``internal_error`` (it will never plan; submitting
+          it again is the fix).
+        * **Anything else** is a bug or a transient fault on *our* side, not
+          the job's: the job stays ``QUEUED`` (:class:`Wait`, no decision
+          row), :attr:`planning_errors` counts it and the first occurrence per
+          ``(job, error type)`` is logged with its traceback - so a planner bug
+          can never wipe the queue, and the rest of the batch still plans.
+        """
         try:
             return self._decide(job, fabric)
-        except Exception as exc:  # noqa: BLE001 - per-job isolation (docstring)
+        except _JOB_IS_BAD as exc:
             log.error(  # noqa: TRY400 - typed event; stored values stay out of logs
                 "controller.jobs.unplannable_job",
                 job_id=job.id,
@@ -221,6 +241,19 @@ class DispatchPlanner:
                 f"the stored job could not be planned ({type(exc).__name__}); "
                 "submit it again",
             )
+        except Exception as exc:  # our fault, not the job's: keep it queued
+            self.planning_errors += 1
+            key = (job.id, type(exc).__name__)
+            if key not in self._errors_logged:
+                self._errors_logged[key] = None
+                while len(self._errors_logged) > _ERRORS_LOGGED_MAX:
+                    self._errors_logged.popitem(last=False)
+                log.exception(
+                    "controller.jobs.planning_error",
+                    job_id=job.id,
+                    error_type=type(exc).__name__,
+                )
+            return Wait()
 
     def _decide(self, job: JobRecord, fabric: FabricRows) -> DispatchDecision:
         manifest = Manifest.model_validate(dict(job.manifest))
