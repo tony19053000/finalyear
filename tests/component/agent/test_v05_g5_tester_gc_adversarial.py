@@ -261,13 +261,6 @@ async def test_a_min_age_blob_is_kept_even_when_far_over_quota(
         index.close()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT G5-T1 (minor): a corrupt/non-sqlite gc.sqlite raises "
-    "DatabaseError from GcIndex.open() so GcService.start() - and with it the "
-    "whole agent - cannot start; the index is derived data (reconcile rebuilds "
-    "it) and should be quarantined and recreated.",
-)
 async def test_a_corrupt_gc_index_file_is_recreated_not_fatal(tmp_path: Path) -> None:
     root = tmp_path / "gc"
     root.mkdir()

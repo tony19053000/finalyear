@@ -1,4 +1,5 @@
-"""V0.5 G5 fix round 1: the GC index's ``blob_lru.held`` flag (G5-T4).
+"""V0.5 G5 fix round 1: the GC index's ``blob_lru.held`` flag (G5-T4) and the
+corrupt-index quarantine (G5-T1).
 
 ``held`` is only an optimisation (the victim query re-checks every candidate),
 but a stale ``held = 1`` would make a blob unevictable forever and a stale
@@ -174,6 +175,34 @@ def test_an_index_from_before_blob_lru_is_migrated(tmp_path: Path) -> None:
         assert _mismatches(index) == []
     finally:
         index.close()
+
+
+def test_a_corrupted_page_is_quarantined_and_the_index_rebuilt(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "gc"
+    index = GcIndex(root)
+    index.open()
+    with index.tx() as db:
+        db.executemany(
+            "INSERT INTO item VALUES ('blob', ?, 1, 1.0)",
+            ((hx(n),) for n in range(3000)),
+        )
+    index.close()
+    data = bytearray((root / DB_NAME).read_bytes())
+    assert len(data) > 4 * 4096
+    data[2 * 4096 : 3 * 4096] = b"\xa5" * 4096  # a b-tree page smashed
+    (root / DB_NAME).write_bytes(bytes(data))
+    again = GcIndex(root)
+    again.open()  # not fatal
+    try:
+        assert again.usage("blob") == 0  # a fresh index: the next pass reconciles
+        again.reconcile("blob", {hx(1): 7})
+        assert again.usage("blob") == 7
+    finally:
+        again.close()
+    aside = sorted(p.name for p in root.iterdir() if ".corrupt-" in p.name)
+    assert aside and aside[0].startswith(f"{DB_NAME}.corrupt-")
 
 
 def test_a_locked_index_is_never_quarantined(tmp_path: Path) -> None:

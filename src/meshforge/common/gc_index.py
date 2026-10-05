@@ -44,6 +44,17 @@ some files are gone; :meth:`GcIndex.reconcile` at the next start deletes rows
 whose files are missing (old or new state per item, never a half-written one -
 removal is an ``unlink`` / a directory ``rename``).
 
+**A corrupt index file** (not a SQLite database, or failing ``quick_check``
+at open) is renamed aside (``gc.sqlite.corrupt-<time>-<rand>``, logged
+``gc.index_quarantined``) and a fresh index is created: it is derived data.
+The next pass's disk reconcile re-adds every item (last use = now, so the LRU
+history and ``min_age_s`` restart); tree members are re-recorded when a tree is
+staged or pinned again; pins come back from their source (an agent: the
+controller re-sends the pinned trees after every Reconcile; the controller:
+recomputed from PostgreSQL before every pass). Leases of *other live
+processes* on that data dir are lost with the old file. A locked database is
+never treated as corrupt.
+
 Thread-safe: one connection per process behind an ``RLock``; transactions nest
 (an eviction's CAS observer deletes the row inside the same transaction).
 """
@@ -133,6 +144,7 @@ WHEN OLD.kind = 'blob' BEGIN
 END;
 """.replace("@HELD", _held("NEW.key"))
 _SCHEMA_VERSION: Final = 1
+_CORRUPT_ERRORS: Final = frozenset({"SQLITE_NOTADB", "SQLITE_CORRUPT"})
 _MIRROR: Final = (
     "INSERT INTO blob_lru SELECT key, last_use, @HELD FROM item WHERE kind = 'blob'"
 ).replace("@HELD", _held("item.key"))
@@ -216,7 +228,13 @@ class GcIndex:
                 raise RuntimeError("GC owner lock unexpectedly held")
             self._owner_fh = fh
             try:
-                conn = self._connect()
+                try:
+                    conn = self._connect()
+                except sqlite3.DatabaseError as exc:
+                    if not _is_corrupt(exc):
+                        raise  # e.g. locked: never quarantined
+                    self._quarantine(exc)
+                    conn = self._connect()
                 self._conn = conn
                 with self.tx() as db:
                     db.execute(
@@ -244,6 +262,7 @@ class GcIndex:
         try:
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("PRAGMA synchronous=NORMAL")
+            _quick_check(conn)
             conn.executescript(_SCHEMA + _TRIGGERS)
             (version,) = conn.execute("PRAGMA user_version").fetchone()
             if version < _SCHEMA_VERSION:
@@ -257,6 +276,24 @@ class GcIndex:
             conn.close()
             raise
         return conn
+
+    def _quarantine(self, exc: sqlite3.DatabaseError) -> None:
+        """Move a corrupt index (and its WAL/SHM files) aside; it is rebuilt."""
+        stamp = f"{int(self._wall())}-{secrets.token_hex(3)}"
+        aside = self.root / f"{DB_NAME}.corrupt-{stamp}"
+        self.path.rename(aside)
+        for suffix in ("-wal", "-shm"):
+            with contextlib.suppress(FileNotFoundError):
+                (self.root / f"{DB_NAME}{suffix}").rename(
+                    self.root / f"{aside.name}{suffix}"
+                )
+        log.warning(
+            "gc.index_quarantined",
+            path=str(aside),
+            cause=getattr(exc, "sqlite_errorname", None) or type(exc).__name__,
+            error=str(exc)[:200],
+            detail="corrupt GC index moved aside; a fresh one is rebuilt from disk",
+        )
 
     def close(self) -> None:
         with self._lock:
@@ -553,6 +590,22 @@ class GcIndex:
                 raise ValueError(f"unknown GC kind {kind!r}")
             rows = db.execute(sql, {"cutoff": cutoff, "limit": limit}).fetchall()
         return [Victim(kind, str(k), int(s)) for k, s in rows]
+
+
+class _CorruptIndexError(sqlite3.DatabaseError):
+    """``PRAGMA quick_check`` found damage."""
+
+
+def _quick_check(conn: sqlite3.Connection) -> None:
+    (check,) = conn.execute("PRAGMA quick_check(1)").fetchone()
+    if check != "ok":
+        raise _CorruptIndexError(f"quick_check: {str(check)[:100]}")
+
+
+def _is_corrupt(exc: sqlite3.DatabaseError) -> bool:
+    return isinstance(exc, _CorruptIndexError) or (
+        getattr(exc, "sqlite_errorname", "") in _CORRUPT_ERRORS
+    )
 
 
 def _tree_protected(db: sqlite3.Connection, tree: str) -> bool:
