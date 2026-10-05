@@ -17,11 +17,11 @@ import pytest
 from meshforge.agent.cache.inventory import CacheInventory
 from meshforge.agent.cas import AgentCas
 from meshforge.agent.gc.collector import GarbageCollector, GcConfig
-from meshforge.agent.gc.index import GcIndex
 from meshforge.agent.gc.leases import AttemptLeases, lease_env
 from meshforge.agent.gc.service import GcService
 from meshforge.common.cas import MIN_CHUNK_SIZE, CasStore
 from meshforge.common.filelock import locked
+from meshforge.common.gc_index import GcIndex
 from meshforge.common.hashing import Digest, sha256_bytes
 from meshforge.common.tree import Tree, build_tree
 

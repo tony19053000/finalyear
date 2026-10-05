@@ -453,6 +453,15 @@ class CasStore:
     def has(self, digest: Digest) -> bool:
         return self.path_for(digest).is_file()
 
+    def listing(self) -> dict[str, int]:
+        """Every stored blob: hex -> size (blocking; one directory walk)."""
+        out: dict[str, int] = {}
+        for path in (self.root / _ALGO_DIR).glob("*/*/*"):
+            if _HEX_RE.fullmatch(path.name):
+                with contextlib.suppress(OSError):
+                    out[path.name] = path.stat().st_size
+        return out
+
     @property
     def used_bytes(self) -> int:
         with self._lock:

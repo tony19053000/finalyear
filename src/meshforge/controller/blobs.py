@@ -56,7 +56,7 @@ import json
 import secrets
 import time
 from collections import OrderedDict
-from collections.abc import AsyncIterator, Callable, Iterable
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
@@ -87,6 +87,7 @@ __all__ = [
     "BlobTooLargeError",
     "FetchGrant",
     "FetchTokens",
+    "GcGuard",
     "PartStatus",
     "PutResult",
 ]
@@ -159,6 +160,52 @@ def _translate(exc: CasError, digest: Digest) -> BlobError:
     return BlobError(exc.message, failure_type=exc.failure_type, details=details)
 
 
+class GcGuard:
+    """Shared/exclusive lock on one event loop (V0.5 G5): many holders of
+    :meth:`shared` at once, or one of :meth:`exclusive`. A waiting exclusive
+    holder blocks new shared ones, so a GC pass is never starved by a stream of
+    submissions."""
+
+    def __init__(self) -> None:
+        self._cond = asyncio.Condition()
+        self._shared = 0
+        self._exclusive = False
+        self._waiting = 0
+
+    @contextlib.asynccontextmanager
+    async def shared(self) -> AsyncIterator[None]:
+        async with self._cond:
+            await self._cond.wait_for(lambda: not self._exclusive and not self._waiting)
+            self._shared += 1
+        try:
+            yield
+        finally:
+            async with self._cond:
+                self._shared -= 1
+                self._cond.notify_all()
+
+    @contextlib.asynccontextmanager
+    async def exclusive(self) -> AsyncIterator[None]:
+        async with self._cond:
+            self._waiting += 1
+            try:
+                await self._cond.wait_for(
+                    lambda: not self._exclusive and not self._shared
+                )
+            except BaseException:
+                self._waiting -= 1
+                self._cond.notify_all()  # readers held back by this waiter
+                raise
+            self._waiting -= 1
+            self._exclusive = True
+        try:
+            yield
+        finally:
+            async with self._cond:
+                self._exclusive = False
+                self._cond.notify_all()
+
+
 class BlobStore:
     """See module docstring. Safe for concurrent use from one event loop."""
 
@@ -203,6 +250,15 @@ class BlobStore:
         self.uploads_refused_busy = 0
         self.parts_received = 0
         self.part_bytes_received = 0
+        self.gc_guard = GcGuard()
+        """V0.5 G5: held exclusively by a GC pass and shared by whatever makes a
+        blob referenced (a job submission from its tree check to its row, a
+        named-input push), so a pass never removes a blob a new job is being
+        created on - and submissions never wait for each other."""
+        self.corrupt_evicted = 0
+        self.used: Callable[[list[Digest]], Awaitable[None]] | None = None
+        """V0.5 G5: told which stored blobs a client was just answered 'have'
+        for (GC last use: they are about to be referenced by a job)."""
 
     @property
     def uploads_refused_disk(self) -> int:
@@ -500,6 +556,17 @@ class BlobStore:
                     _parse_cached, data, tree_id, self.tree_limits
                 )
             except TreeError:
+                if hashlib.sha256(data).hexdigest() != tree_id.hex:
+                    # V0.5 G5 scrub on a read mismatch: the stored bytes are not
+                    # the blob they are named after - removed, never served.
+                    await asyncio.to_thread(self.cas.evict, tree_id)
+                    self.corrupt_evicted += 1
+                    log.error(  # noqa: TRY400 - typed event, no traceback wanted
+                        "controller.blobs.scrub_corrupt",
+                        digest=str(tree_id),
+                        detail="a stored manifest does not match its name; removed",
+                    )
+                    return None
                 self._remember(tree_id.hex, _NOT_A_TREE)
                 raise
             self.trees_parsed += 1
@@ -517,6 +584,12 @@ class BlobStore:
         while self._tree_weight > self._tree_cache_entries and len(self._trees) > 1:
             _key, evicted = self._trees.popitem(last=False)
             self._tree_weight -= evicted.weight
+
+    def forget_tree(self, digest: Digest) -> None:
+        """Drop a cached tree (its manifest blob was evicted or found corrupt)."""
+        old = self._trees.pop(digest.hex, None)
+        if old is not None:
+            self._tree_weight -= old.weight
 
     async def tree_members(self, root: Digest) -> frozenset[str]:
         """Hex digests a token for ``root`` may read when ``root`` is a tree.

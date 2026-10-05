@@ -40,9 +40,9 @@ from pathlib import Path
 from typing import Final
 
 from meshforge.agent.envs.fsutil import remove_tree
-from meshforge.agent.gc.index import GcIndex, Victim
 from meshforge.common.cas import CasStore
 from meshforge.common.filelock import locked
+from meshforge.common.gc_index import GcIndex, Victim, collect_kind
 from meshforge.common.hashing import Digest
 from meshforge.common.logging import get_logger
 
@@ -96,15 +96,7 @@ class GcReport:
 
 def scan_blobs(store: CasStore) -> dict[str, int]:
     """Every blob in ``store``: hex -> size (blocking)."""
-    out: dict[str, int] = {}
-    algo = store.root / "sha256"
-    if not algo.is_dir():
-        return out
-    for path in algo.glob("*/*/*"):
-        if _HEX_RE.fullmatch(path.name):
-            with contextlib.suppress(OSError):
-                out[path.name] = path.stat().st_size
-    return out
+    return store.listing()
 
 
 def scan_env_dirs(root: Path) -> dict[str, int]:
@@ -231,43 +223,26 @@ class GarbageCollector:
         return report
 
     def _collect(self, kind: str, quota: int, report: GcReport) -> None:
-        usage = self.index.usage(kind)
-        skip: set[str] = set()
-        while quota and usage > quota:
-            cutoff = self._wall() - self.config.min_age_s
-            progressed = False
-            with self.index.tx():
-                victims = [
-                    v
-                    for v in self.index.victims(
-                        kind, cutoff=cutoff, limit=self.config.batch + len(skip)
-                    )
-                    if v.key not in skip
-                ]
-                for victim in victims:
-                    if usage <= quota:
-                        break
-                    if kind == "blob":
-                        removed = self._evict_blob(victim)
-                    else:
-                        removed = self._evict_env(victim)
-                    if removed:
-                        usage -= victim.size
-                        report.count(victim)
-                        progressed = True
-                    else:
-                        skip.add(victim.key)
-                        report.skipped += 1
-            self._finish_env_removals()
-            if not victims or (not progressed and len(skip) >= len(victims)):
-                break
-        report.usage[kind] = max(0, usage)
-        if quota and usage > quota:
+        result = collect_kind(
+            self.index,
+            kind,
+            quota,
+            cutoff=lambda: self._wall() - self.config.min_age_s,
+            batch=self.config.batch,
+            evict=self._evict_blob if kind == "blob" else self._evict_env,
+            after_batch=self._finish_env_removals,
+        )
+        if result.evicted:
+            report.evicted[kind] = result.evicted
+            report.evicted_bytes[kind] = result.evicted_bytes
+        report.skipped += result.skipped
+        report.usage[kind] = result.usage
+        if result.over_quota:
             report.over_quota.append(kind)
             log.warning(
                 "agent.gc.over_quota",
                 kind=kind,
-                usage=usage,
+                usage=result.usage,
                 quota=quota,
                 detail="everything left is in use, pinned or younger than min_age_s",
             )

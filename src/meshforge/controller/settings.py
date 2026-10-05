@@ -40,6 +40,7 @@ __all__ = [
     "ControllerSection",
     "ControllerSettings",
     "DiscoverySettings",
+    "GcSettings",
     "JobApiSettings",
     "LivenessSettings",
     "ResourceHistorySettings",
@@ -117,6 +118,53 @@ class BlobStoreSettings(SectionModel):
     @classmethod
     def _dir_not_empty(cls, value: object) -> object:
         return _non_empty_path(value)
+
+
+class GcSettings(SectionModel):
+    """``[controller.gc]`` - GC and scrub of the controller's blob store (V0.5 G5).
+
+    Never evicted: anything a non-terminal job references (tree, bundle, inputs,
+    outputs, logs), pinned named inputs, and blobs used within ``min_age_s``.
+    The scrub re-hashes stored blobs at a bounded rate and removes corrupt ones.
+    """
+
+    enabled: bool = Field(default=True, description="Run GC passes and the scrub.")
+    cas_bytes: int = Field(
+        default=100 * 1024**3,
+        ge=0,
+        description="Quota of the controller's blob store (bytes; 0 = none).",
+    )
+    min_age_s: float = Field(
+        default=86_400.0,
+        ge=0.0,
+        le=365 * 86_400.0,
+        description=(
+            "Blobs used (uploaded, answered 'have', downloaded) within this many "
+            "seconds are never evicted - this covers a client between have/need "
+            "and its submit, and recent outputs not downloaded yet."
+        ),
+    )
+    interval_s: float = Field(
+        default=3600.0, ge=1.0, le=86_400.0, description="A GC pass runs this often."
+    )
+    batch: int = Field(
+        default=256, ge=1, le=10_000, description="Victims removed per transaction."
+    )
+    scrub_bytes_per_s: int = Field(
+        default=32 * 1024**2,
+        ge=1024,
+        description="Scrub read rate (bytes/s): bounded so it never starves uploads.",
+    )
+    scrub_interval_s: float = Field(
+        default=86_400.0,
+        ge=1.0,
+        le=30 * 86_400.0,
+        description=(
+            "Pause between full scrub cycles over the store; suspected blobs "
+            "(an agent's integrity_error on a controller-served tree) are "
+            "checked at once."
+        ),
+    )
 
 
 class JobApiSettings(SectionModel):
@@ -609,6 +657,7 @@ class ControllerSection(SectionModel):
         ),
     )
     blobs: BlobStoreSettings = Field(default_factory=BlobStoreSettings)
+    gc: GcSettings = Field(default_factory=GcSettings)
     jobs: JobApiSettings = Field(default_factory=JobApiSettings)
     api: ApiSettings = Field(default_factory=ApiSettings)
 
@@ -694,6 +743,11 @@ class ControllerSettings(MeshForgeSettings):
     def logs_dir(self) -> Path:
         """Attempt log files (``<data_dir>/controller/logs``, D71)."""
         return self.data_dir / CONTROLLER_DIR_NAME / LOGS_DIR_NAME
+
+    @property
+    def gc_dir(self) -> Path:
+        """GC last-use index of the blob store (``<data_dir>/controller/gc``)."""
+        return self.data_dir / CONTROLLER_DIR_NAME / "gc"
 
     @property
     def blobs_dir(self) -> Path:

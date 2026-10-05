@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import functools
 import signal
 import socket
 from collections.abc import Coroutine, Iterator
@@ -56,6 +57,7 @@ from meshforge.controller.fabric_token import (
     fingerprint,
     load_or_create_token,
 )
+from meshforge.controller.gc import BlobScrubber, ControllerGc
 from meshforge.controller.http import create_http_app
 from meshforge.controller.jobs.dispatcher import Dispatcher
 from meshforge.controller.jobs.execution_store import ExecutionStore
@@ -148,6 +150,10 @@ class ControllerRuntime:
         self.upload_grants: UploadGrants | None = None
         """D73: per-attempt upload quotas (outputs + final logs)."""
         self.logs: LogHub | None = None
+        self.gc: ControllerGc | None = None
+        """V0.5 G5 (D91): LRU GC of the blob store under [controller.gc]."""
+        self.scrubber: BlobScrubber | None = None
+        """V0.5 G5: re-hashes stored blobs (suspects first), removes corrupt ones."""
         """D71/D72: live + final attempt logs and their followers."""
         self._logs_task: asyncio.Task[None] | None = None
         self.failed_task: str | None = None
@@ -207,6 +213,25 @@ class ControllerRuntime:
         await check_connection(engine, self.settings.database)
         # Alembic is synchronous (and runs its own loop inside env.py).
         await asyncio.to_thread(upgrade_to_head, self.settings.database)
+
+        if cfg.gc.enabled:
+            self.gc = ControllerGc(
+                blobs,
+                engine,
+                index_dir=self.settings.gc_dir,
+                quota_bytes=cfg.gc.cas_bytes,
+                min_age_s=cfg.gc.min_age_s,
+                interval_s=cfg.gc.interval_s,
+                batch=cfg.gc.batch,
+            )
+            await self.gc.start()
+            blobs.used = self.gc.touch
+            self.scrubber = BlobScrubber(
+                blobs,
+                bytes_per_s=cfg.gc.scrub_bytes_per_s,
+                interval_s=cfg.gc.scrub_interval_s,
+            )
+            self.scrubber.start()
 
         registry = Registry(engine)
         self.registry = registry
@@ -279,6 +304,13 @@ class ControllerRuntime:
                 self.peer_tokens,
                 max_sources=cfg.jobs.max_peer_sources,
                 index_live=self.cache_index.is_live,
+            ),
+            on_integrity_failure=(
+                functools.partial(
+                    self.scrubber.suspect_tree_soon, why="attempt_integrity_error"
+                )
+                if self.scrubber is not None
+                else None
             ),
         )
         self._dispatcher_task = self._spawn(self.dispatcher.run(), "dispatcher")
@@ -477,6 +509,10 @@ class ControllerRuntime:
                 await asyncio.gather(*still, return_exceptions=True)
         if self._http_sock is not None:
             self._http_sock.close()
+        if self.scrubber is not None:
+            await self.scrubber.close()
+        if self.gc is not None:
+            await self.gc.close()
         if self._engine is not None:
             await self._engine.dispose()
         log.info("controller.stopped", took_s=round(drain - remaining(), 3))

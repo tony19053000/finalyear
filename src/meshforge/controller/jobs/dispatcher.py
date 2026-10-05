@@ -226,8 +226,12 @@ class Dispatcher:
         resources: ResourceTracker | None = None,
         wall_clock: Callable[[], dt.datetime] | None = None,
         peers: PeerSources | None = None,
+        on_integrity_failure: Callable[[str], None] | None = None,
     ) -> None:
         self._store = store
+        self._on_integrity_failure = on_integrity_failure
+        """V0.5 G5: a tree attempt failed integrity_error -> the scrubber
+        re-hashes that tree's blobs on the controller first."""
         self._peers = peers
         """V0.5 D89/D100: peer holders listed next to the controller (tree jobs)."""
         self._manager = manager
@@ -562,6 +566,16 @@ class Dispatcher:
             self._end_tokens(attempt.id)
             if self._logs is not None and outcome.kind is StatusKind.APPLIED:
                 self._logs.finalize(attempt.id, None if report is None else report.logs)
+            if (
+                self._on_integrity_failure is not None
+                and outcome.kind is StatusKind.APPLIED
+                and report is not None
+                and report.failure_type is FailureType.INTEGRITY_ERROR
+                and job is not None
+                and job.tree_id
+            ):
+                # The bytes may have come from the controller's own disk.
+                self._on_integrity_failure(job.tree_id)
         elif (
             job is not None
             and job.cancel_requested_at is not None

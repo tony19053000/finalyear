@@ -26,10 +26,10 @@ from mf_jobs_harness import token_of
 from pydantic import SecretStr
 
 from meshforge.agent.gc.collector import GarbageCollector, GcConfig
-from meshforge.agent.gc.index import GcIndex
 from meshforge.cli.client import ControllerClient
 from meshforge.cli.transfer import upload_tree
 from meshforge.common.cas import MIN_CHUNK_SIZE, CasStore
+from meshforge.common.gc_index import GcIndex
 from meshforge.common.hashing import Digest
 from meshforge.common.tree import BuiltTree, build_tree
 from meshforge.controller.server import ControllerRuntime
@@ -180,7 +180,7 @@ async def test_the_next_job_after_eviction_fetches_again_and_succeeds(
 HOLDER = """
 import sys, time
 from pathlib import Path
-from meshforge.agent.gc.index import GcIndex
+from meshforge.common.gc_index import GcIndex
 root, tree, members = sys.argv[1], sys.argv[2], sys.argv[3].split(",")
 index = GcIndex(Path(root))
 index.open()
@@ -254,7 +254,7 @@ CRASHER = """
 import os, sys
 from pathlib import Path
 from meshforge.agent.gc.collector import GarbageCollector, GcConfig
-from meshforge.agent.gc.index import GcIndex
+from meshforge.common.gc_index import GcIndex
 from meshforge.common.cas import CasStore
 root, after = Path(sys.argv[1]), int(sys.argv[2])
 store = CasStore(root, max_blob_bytes=1 << 30)

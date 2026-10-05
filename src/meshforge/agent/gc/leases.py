@@ -27,8 +27,8 @@ from contextvars import ContextVar
 from typing import Final
 
 from meshforge.agent.envs.errors import EnvError
-from meshforge.agent.gc.index import GcIndex
 from meshforge.common.errors import FailureType
+from meshforge.common.gc_index import GcIndex
 from meshforge.common.logging import get_logger
 from meshforge.common.tree import Tree
 

@@ -351,7 +351,11 @@ async def have_blobs(
         )
     if not all(isinstance(d, str) and _DIGEST_RE.fullmatch(d) for d in digests):
         raise ApiError.invalid("every digest must be sha256:<64 lower-case hex>")
-    missing = store.missing(Digest.parse(d) for d in digests)
+    asked = [Digest.parse(d) for d in digests]
+    missing = store.missing(asked)
+    if store.used is not None:
+        absent = {d.hex for d in missing}
+        await store.used([d for d in asked if d.hex not in absent])
     return {"missing": [str(d) for d in missing]}
 
 

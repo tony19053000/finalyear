@@ -355,49 +355,52 @@ async def submit_job(
         if existing is not None:
             return _replay(existing, digest, response)
 
-    if submission.tree_id is not None:
-        await _check_tree(jobs.blobs, Digest.parse(submission.tree_id))
-    else:
-        bundle_hex = (submission.bundle_digest or "").removeprefix("sha256:")
-        if jobs.blobs.size(Digest(bundle_hex)) is None:
+    # V0.5 G5: from the blob check to the job row, no GC pass may remove a blob
+    # this job references (the pass holds the same guard).
+    async with jobs.blobs.gc_guard.shared():
+        if submission.tree_id is not None:
+            await _check_tree(jobs.blobs, Digest.parse(submission.tree_id))
+        else:
+            bundle_hex = (submission.bundle_digest or "").removeprefix("sha256:")
+            if jobs.blobs.size(Digest(bundle_hex)) is None:
+                raise ApiError(
+                    FailureType.CONFLICT,
+                    f"bundle {submission.bundle_digest} is not in the blob store; "
+                    f"upload it with PUT /v1/blobs/{bundle_hex} first",
+                )
+        node = await fabric.registry.get_node(node_id)
+        try:
+            check_placement(
+                manifest, node, connected=fabric.manager.get(node_id) is not None
+            )
+        except PlacementError as exc:
+            # No job_id on purpose: a refused request creates no job (D50, D62-5).
+            log.info(
+                "controller.jobs.placement_refused",
+                node_id=node_id,
+                failure_type=exc.failure_type.value,
+                reason=exc.message,
+            )
+            if exc.failure_type is FailureType.NOT_FOUND:
+                raise ApiError.not_found("node") from None
+            raise ApiError(exc.failure_type, exc.message) from None
+
+        try:
+            job, created = await jobs.store.create_queued_job(
+                job_id=str(new_job_id()),
+                name=manifest.name,
+                manifest=canonical_manifest,
+                bundle_digest=submission.bundle_digest,
+                placement=placement.model_dump(mode="json"),
+                request_hash=digest,
+                idempotency_key=key,
+                tree_id=submission.tree_id,
+            )
+        except IdempotencyConflictError:
             raise ApiError(
                 FailureType.CONFLICT,
-                f"bundle {submission.bundle_digest} is not in the blob store; "
-                f"upload it with PUT /v1/blobs/{bundle_hex} first",
-            )
-    node = await fabric.registry.get_node(node_id)
-    try:
-        check_placement(
-            manifest, node, connected=fabric.manager.get(node_id) is not None
-        )
-    except PlacementError as exc:
-        # No job_id on purpose: a refused request creates no job (D50, D62-5).
-        log.info(
-            "controller.jobs.placement_refused",
-            node_id=node_id,
-            failure_type=exc.failure_type.value,
-            reason=exc.message,
-        )
-        if exc.failure_type is FailureType.NOT_FOUND:
-            raise ApiError.not_found("node") from None
-        raise ApiError(exc.failure_type, exc.message) from None
-
-    try:
-        job, created = await jobs.store.create_queued_job(
-            job_id=str(new_job_id()),
-            name=manifest.name,
-            manifest=canonical_manifest,
-            bundle_digest=submission.bundle_digest,
-            placement=placement.model_dump(mode="json"),
-            request_hash=digest,
-            idempotency_key=key,
-            tree_id=submission.tree_id,
-        )
-    except IdempotencyConflictError:
-        raise ApiError(
-            FailureType.CONFLICT,
-            "this Idempotency-Key was already used for a different request",
-        ) from None
+                "this Idempotency-Key was already used for a different request",
+            ) from None
     if not created:  # lost a concurrent race for the same key, same request
         return _replay(job, digest, response)
     log.info(

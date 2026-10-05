@@ -1,7 +1,9 @@
-"""The agent's last-use index, pins and leases for GC (V0.5 G5, D91).
+"""The last-use index, pins and leases for GC of a CAS (V0.5 G5, D91).
 
-One stdlib ``sqlite3`` database next to the CAS (``<data dir>/cas/gc.sqlite``,
-WAL) shared by every process that uses this data dir. Tables:
+Used by the agent (``<data dir>/gc/gc.sqlite``) and the controller
+(``<data dir>/controller/gc/gc.sqlite``) alike - one module, no
+controller<->agent import. One stdlib ``sqlite3`` database (WAL) next to the
+CAS, shared by every process that uses that data dir. Tables:
 
 * ``item(kind, key, size, last_use)`` - what can be evicted: ``blob`` (key = the
   64-hex digest; tree manifests are blobs too) and ``env`` (key =
@@ -10,8 +12,11 @@ WAL) shared by every process that uses this data dir. Tables:
 * ``tree_member(tree, blob)`` + ``tree_known(tree)`` - the member blobs of trees
   that were leased or pinned (recorded from the verified manifest), so a lease
   on one tree protects its manifest and every member with one SQL join.
-* ``pin(kind, key)`` - never evicted: trees pinned by the controller (pinned
-  named inputs). Base images are never items at all.
+* ``pin(kind, key)`` - never evicted: ``tree`` pins protect the manifest and
+  every member, ``blob`` pins one blob. On an agent: pinned named inputs (from
+  the controller). On the controller: everything a non-terminal job or a pinned
+  named input references, re-computed from PostgreSQL before every pass.
+  Base images are never items at all.
 * ``lease(owner, lease_id, kind, key)`` + ``owner(owner)`` - what running
   attempts use right now (a ``tree`` or an ``env``). Every process registers an
   owner id and holds an exclusive lock on ``gc-owners/<owner>.lock`` for its
@@ -52,8 +57,10 @@ from meshforge.common.logging import get_logger
 __all__ = [
     "DB_NAME",
     "KINDS",
+    "CollectResult",
     "GcIndex",
     "Victim",
+    "collect_kind",
 ]
 
 log = get_logger(__name__)
@@ -85,7 +92,7 @@ _BLOB_VICTIMS: Final = """
 SELECT key, size FROM item
 WHERE kind = 'blob' AND last_use <= :cutoff
   AND key NOT IN (SELECT key FROM lease WHERE kind IN ('tree', 'blob'))
-  AND key NOT IN (SELECT key FROM pin WHERE kind = 'tree')
+  AND key NOT IN (SELECT key FROM pin WHERE kind IN ('tree', 'blob'))
   AND key NOT IN (
     SELECT blob FROM tree_member WHERE tree IN (
       SELECT key FROM lease WHERE kind = 'tree'
@@ -429,3 +436,59 @@ class GcIndex:
                 raise ValueError(f"unknown GC kind {kind!r}")
             rows = db.execute(sql, {"cutoff": cutoff, "limit": limit}).fetchall()
         return [Victim(kind, str(k), int(s)) for k, s in rows]
+
+
+@dataclass(slots=True)
+class CollectResult:
+    evicted: int = 0
+    evicted_bytes: int = 0
+    skipped: int = 0
+    usage: int = 0
+    over_quota: bool = False
+
+
+def collect_kind(
+    index: GcIndex,
+    kind: str,
+    quota: int,
+    *,
+    cutoff: Callable[[], float],
+    batch: int,
+    evict: Callable[[Victim], bool],
+    after_batch: Callable[[], None] | None = None,
+) -> CollectResult:
+    """Evict LRU ``kind`` victims until usage <= ``quota`` (0 = no quota).
+
+    Each batch is selected **and** removed inside one index transaction
+    (``evict`` runs there; True = removed, False = leave it for now). Stops when
+    nothing evictable is left; ``over_quota`` then says the rest is protected.
+    ``after_batch`` runs outside the transaction (slow deletions of things
+    already renamed aside)."""
+    result = CollectResult(usage=index.usage(kind))
+    skip: set[str] = set()
+    while quota and result.usage > quota:
+        progressed = False
+        with index.tx():
+            victims = [
+                v
+                for v in index.victims(kind, cutoff=cutoff(), limit=batch + len(skip))
+                if v.key not in skip
+            ]
+            for victim in victims:
+                if result.usage <= quota:
+                    break
+                if evict(victim):
+                    result.usage -= victim.size
+                    result.evicted += 1
+                    result.evicted_bytes += victim.size
+                    progressed = True
+                else:
+                    skip.add(victim.key)
+                    result.skipped += 1
+        if after_batch is not None:
+            after_batch()
+        if not victims or not progressed:
+            break
+    result.usage = max(0, result.usage)
+    result.over_quota = bool(quota) and result.usage > quota
+    return result

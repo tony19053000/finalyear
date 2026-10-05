@@ -76,7 +76,6 @@ from meshforge.agent.cas import AgentCas
 from meshforge.agent.execution.executor import Executor
 from meshforge.agent.execution.offer import build_execution
 from meshforge.agent.gc.collector import GarbageCollector, GcConfig
-from meshforge.agent.gc.index import GcIndex
 from meshforge.agent.gc.service import GcService
 from meshforge.agent.hardware import (
     HardwareFacts,
@@ -98,6 +97,7 @@ from meshforge.agent.session.state import AgentState
 from meshforge.agent.settings import AgentSettings, parse_controller_address
 from meshforge.common.capabilities import HARDWARE_SCORES_CAPABILITY
 from meshforge.common.errors import ExitCode, MeshForgeError
+from meshforge.common.gc_index import GcIndex
 from meshforge.common.logging import get_logger
 from meshforge.common.proto.meshforge.v1 import agent_pb2
 
@@ -247,7 +247,7 @@ async def start_gc(
         return None
     await cas.prepare()
     collector = GarbageCollector(
-        GcIndex(cas.store.root),
+        GcIndex(settings.gc_dir),
         cas.store,
         GcConfig(
             cas_bytes=cfg.cas_bytes,

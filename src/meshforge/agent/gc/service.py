@@ -25,9 +25,9 @@ from collections.abc import Awaitable, Callable, Iterable
 from typing import Final
 
 from meshforge.agent.gc.collector import GarbageCollector, GcReport
-from meshforge.agent.gc.index import GcIndex
 from meshforge.agent.gc.leases import AttemptLeases
 from meshforge.common.cas import CasStore
+from meshforge.common.gc_index import GcIndex
 from meshforge.common.hashing import Digest
 from meshforge.common.logging import get_logger
 from meshforge.common.proto.meshforge.v1 import agent_pb2

@@ -871,7 +871,7 @@ class GcSettings(SectionModel):
 
     LRU per kind down to its quota; never evicted: anything a running attempt
     holds (leases), trees pinned by the controller (pinned named inputs), base
-    images, and items used within ``min_age_s``. Index: ``<data dir>/cas/gc.sqlite``.
+    images, and items used within ``min_age_s``. Index: ``<data dir>/gc/gc.sqlite``.
     """
 
     enabled: bool = Field(
@@ -1056,6 +1056,12 @@ class AgentSettings(MeshForgeSettings):
     def identity_dir(self) -> Path:
         """``data_dir/identity`` - where :mod:`meshforge.agent.identity` keeps the node."""
         return self.data_dir / IDENTITY_DIR_NAME
+
+    @property
+    def gc_dir(self) -> Path:
+        """GC last-use index, pins and leases (``<data_dir>/gc``, V0.5 G5): next
+        to the CAS and the env cache it covers."""
+        return self.data_dir / "gc"
 
     @property
     def envs_dir(self) -> Path:
