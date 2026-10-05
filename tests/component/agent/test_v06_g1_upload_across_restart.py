@@ -226,9 +226,10 @@ async def test_output_upload_survives_a_controller_restart_and_resumes(
     assert progress.parts_skipped == HOLD_AT_PART - 1
     assert progress.whole_puts == 0
     # Part bytes only (the logs went up with whole PUTs before the outputs).
-    assert sum(
-        min(PART, archive_size - i * PART) for i in progress.sent_indices
-    ) == archive_size
+    assert (
+        sum(min(PART, archive_size - i * PART) for i in progress.sent_indices)
+        == archive_size
+    )
 
 
 async def test_no_fresh_grant_within_upload_retry_s_is_output_error(
@@ -266,8 +267,6 @@ async def test_no_fresh_grant_within_upload_retry_s_is_output_error(
         assert job["state"] == "failed", job
         assert job["failure_type"] == "output_error", job
         (attempt,) = job["attempts"]
-        assert "upload did not succeed within 2 s" in (attempt["detail"] or ""), (
-            attempt
-        )
+        assert "upload did not succeed within 2 s" in (attempt["detail"] or ""), attempt
     finally:
         await short.stop()

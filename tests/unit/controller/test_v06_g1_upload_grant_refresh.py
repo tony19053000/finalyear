@@ -113,9 +113,7 @@ def _reconcile(node_id: str, entries: list[Any]) -> _Reconcile:
 
 async def _ack(dispatcher: Dispatcher, node: str, entry: Any, message_id: str) -> None:
     live = SimpleNamespace(node_id=node, session_id="sess_x")
-    pending = PendingCommand(
-        payload=NAME, attempt_id=entry.attempt.id, fencing_token=7
-    )
+    pending = PendingCommand(payload=NAME, attempt_id=entry.attempt.id, fencing_token=7)
     dispatcher._on_command_acked(live, message_id, pending)  # type: ignore[arg-type]
     await dispatcher._handle(dispatcher._queue.get_nowait())
 
@@ -207,7 +205,7 @@ async def test_an_unacked_refresh_is_sent_again_and_an_acked_one_is_not() -> Non
     await _ack(dispatcher, node, entry, third_id)
     await dispatcher._handle(_reconcile(node, [entry]))
     assert len(manager.named(NAME)) == 3
-    assert dispatcher._grant_refresh_unacked == {}
+    assert dispatcher._grant_unacked == {}
     assert second_id != third_id
 
 
@@ -216,9 +214,9 @@ async def test_an_ended_attempt_forgets_its_unacked_refresh() -> None:
     entry = _entry(node, AttemptState.UPLOADING)
     dispatcher, _manager, _ = _dispatcher([entry])
     await dispatcher._handle(_reconcile(node, [entry]))
-    assert entry.attempt.id in dispatcher._grant_refresh_unacked
+    assert entry.attempt.id in dispatcher._grant_unacked
     dispatcher._end_tokens(entry.attempt.id)
-    assert dispatcher._grant_refresh_unacked == {}
+    assert dispatcher._grant_unacked == {}
 
 
 async def test_a_cancel_pending_attempt_gets_no_grant() -> None:
@@ -228,3 +226,50 @@ async def test_a_cancel_pending_attempt_gets_no_grant() -> None:
     await dispatcher._handle(_reconcile(node, [cancelled]))
     assert manager.named(NAME) == []
     assert [c[1] for c in manager.commands] == ["cancel_attempt"]
+
+
+async def test_a_held_attempt_whose_start_grant_was_never_acked_is_refreshed() -> None:
+    """A re-sent StartAttempt replaced the grant; the stream broke before the
+    agent acked it - the agent still holds the OLD grant, which is revoked. The
+    StartAttempt's Ack (matching message id) clears it; a stale Ack does not."""
+    node = str(new_node_id())
+    entry = _entry(node, AttemptState.RUNNING)
+    dispatcher, manager, grants = _dispatcher([entry])
+    acked: list[str] = []
+
+    async def mark_start_acked(attempt_id: str, _token: int) -> bool:
+        acked.append(attempt_id)
+        return True
+
+    dispatcher._store.mark_start_acked = mark_start_acked  # type: ignore[attr-defined]
+    grants.mint(entry.attempt.id, ttl_s=60, max_blobs=3, max_bytes=100)
+    dispatcher._grant_unacked[entry.attempt.id] = "msg-start-2"
+    live = SimpleNamespace(node_id=node, session_id="sess_x")
+
+    def start_ack(message_id: str) -> None:
+        pending = PendingCommand(
+            payload="start_attempt", attempt_id=entry.attempt.id, fencing_token=7
+        )
+        dispatcher._on_command_acked(live, message_id, pending)  # type: ignore[arg-type]
+
+    start_ack("msg-start-1")  # the FIRST copy's Ack: not the latest grant
+    await dispatcher._handle(dispatcher._queue.get_nowait())
+    assert acked == [entry.attempt.id]
+    assert entry.attempt.id in dispatcher._grant_unacked
+    await dispatcher._handle(_reconcile(node, [entry]))
+    ((_, _, payload, refresh_id),) = manager.named(NAME)
+    assert dispatcher._grant_unacked[entry.attempt.id] == refresh_id
+    await _ack(dispatcher, node, entry, refresh_id)
+    await dispatcher._handle(_reconcile(node, [entry]))
+    assert len(manager.named(NAME)) == 1
+    assert grants.check(payload.upload_token) == entry.attempt.id
+
+
+async def test_an_unsent_start_counts_as_unacked() -> None:
+    node = str(new_node_id())
+    entry = _entry(node, AttemptState.RUNNING)
+    dispatcher, manager, grants = _dispatcher([entry])
+    grants.mint(entry.attempt.id, ttl_s=60, max_blobs=3, max_bytes=100)
+    dispatcher._grant_unacked[entry.attempt.id] = ""  # _send_start: not sent
+    await dispatcher._handle(_reconcile(node, [entry]))
+    assert len(manager.named(NAME)) == 1

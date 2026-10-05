@@ -529,6 +529,8 @@ class Executor:
                 fencing_token=token,
                 held_token=None if existing is None else existing.token,
             )
+            if existing is not None and existing.token == token and not existing.ended:
+                self._adopt_resent(existing, msg.spec)
             return
         attempt = _Attempt(job_id=job_id, attempt_id=attempt_id, token=token)
         self._attempts[attempt_id] = attempt
@@ -625,6 +627,28 @@ class Executor:
             attempt.inputs = list(msg.inputs)
         attempt.token_changed.set()
 
+    def _adopt_resent(self, attempt: _Attempt, spec: agent_pb2.ExecutionSpec) -> None:
+        """A re-sent ``StartAttempt`` of an attempt this agent already runs (same
+        fencing token) is not run again, but its credentials replace the held
+        ones: the controller minted new ones for it and revoked the old fetch
+        token and upload grant (V0.6 G1, D114 - like a refresh)."""
+        if not (0 < spec.blob_port < 65536 and blob_url_ok(spec.blob_url)):
+            return
+        if token_ok(spec.fetch_token):
+            attempt.fetch_token = spec.fetch_token
+            attempt.blob_url = spec.blob_url
+            attempt.blob_port = int(spec.blob_port)
+            if spec.sources:
+                attempt.sources = list(spec.sources)
+            if spec.inputs:
+                attempt.inputs = list(spec.inputs)
+            attempt.token_changed.set()
+        if token_ok(spec.upload_token):
+            attempt.upload_token = spec.upload_token
+            attempt.upload_url = spec.blob_url
+            attempt.upload_port = int(spec.blob_port)
+            attempt.grant_changed.set()
+
     def _refresh_grant(self, msg: agent_pb2.RefreshUploadGrant) -> None:
         """D114: a fresh upload grant for a held attempt (after a controller
         restart). Applied only to that (attempt_id, fencing_token) while it has
@@ -711,9 +735,8 @@ class Executor:
                 wait = remaining if refused else min(delay, remaining)
                 delay = min(delay * 2, _STAGE_RETRY_CAP_S)
                 await self._step(attempt, self._grant_wait(attempt, wait))
-                if attempt.upload_token == used:
-                    # Checked again after the wait: no refresh came in time.
-                    self._check_upload_deadline(deadline, last)
+            # Checked before EVERY retry, one with a refreshed grant included.
+            self._check_upload_deadline(deadline, last)
             attempt.upload_retries += 1
             log.info(
                 "agent.execution.upload_retry",

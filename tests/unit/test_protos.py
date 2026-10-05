@@ -175,6 +175,7 @@ def test_envelopes_cover_architecture_payloads() -> None:
         "HelloAck",
         "Ping",
         "RefreshFetchToken",  # V0.5 D95
+        "RefreshUploadGrant",  # V0.6 D114
     }
 
 

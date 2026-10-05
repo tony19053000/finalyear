@@ -43,6 +43,9 @@ COMMANDS: dict[str, Any] = {
     "start_attempt": agent_pb2.StartAttempt(attempt_id="a", fencing_token=1),
     "cancel_attempt": agent_pb2.CancelAttempt(attempt_id="a", fencing_token=1),
     "refresh_fetch_token": agent_pb2.RefreshFetchToken(attempt_id="a", fencing_token=1),
+    "refresh_upload_grant": agent_pb2.RefreshUploadGrant(
+        attempt_id="a", fencing_token=1
+    ),
     "gc": agent_pb2.GcRequest(run_now=True),
     "prepare_env": agent_pb2.PrepareEnv(request_id="r"),
 }
@@ -147,6 +150,43 @@ async def test_a_refresh_in_new_envelopes_applies_the_newest(tmp_path: Path) -> 
     )
     assert attempt.fetch_token == "tok-2"
     assert runtime.calls == 1  # nothing re-ran
+    await executor.close()
+
+
+async def test_an_upload_grant_refresh_in_new_envelopes_applies_the_newest(
+    tmp_path: Path,
+) -> None:
+    """V0.6 D114: RefreshUploadGrant re-sent in new envelopes (each Reconcile
+    mints a new one) -> the last applies; another fencing token never does."""
+    runtime, reports = FakeRuntime(hang=True), Reports()
+    executor, digest = _executor(tmp_path, runtime, reports)
+    start = _start(digest)
+    attempt_id = start.start_attempt.attempt_id
+    executor.handle(start)
+    for _ in range(200):
+        if runtime.calls:
+            break
+        await asyncio.sleep(0.01)
+
+    def refresh(token: str, fencing: int = 1) -> agent_pb2.ControllerMessage:
+        return agent_pb2.ControllerMessage(
+            message_id=new_command_id(),
+            refresh_upload_grant=agent_pb2.RefreshUploadGrant(
+                attempt_id=attempt_id,
+                fencing_token=fencing,
+                upload_token=token,
+                blob_url="http://127.0.0.1:9",
+                blob_port=9,
+            ),
+        )
+
+    for token in ("grant-1", "grant-2", "grant-2"):
+        executor.handle(refresh(token))
+    attempt = executor._attempts[attempt_id]
+    assert attempt.upload_token == "grant-2"
+    executor.handle(refresh("zombie", fencing=2))
+    assert attempt.upload_token == "grant-2"
+    assert runtime.calls == 1
     await executor.close()
 
 

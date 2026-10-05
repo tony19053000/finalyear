@@ -96,11 +96,12 @@ class RecoverySteps(DispatchSteps):
                     await self._refresh_fetch_token(job, attempt)
                 if self._grants is not None and (
                     not self._grants.has(attempt.id)
-                    or attempt.id in self._grant_refresh_unacked
+                    or attempt.id in self._grant_unacked
                 ):
                     # D114: any live stored state - reports may still wait for
                     # their replay, so the agent can be further than the store.
-                    # A refresh never acked may have died with the old stream.
+                    # A grant whose message was never acked (a re-sent start,
+                    # a refresh) may have died with the old stream.
                     await self._refresh_upload_grant(job, attempt)
                 continue
             if attempt.start_acked_at is None:
@@ -147,7 +148,7 @@ class RecoverySteps(DispatchSteps):
             detail=detail,
         )
         self._tokens.revoke(attempt.id)
-        self._grant_refresh_unacked.pop(attempt.id, None)
+        self._grant_unacked.pop(attempt.id, None)
         if self._grants is not None:
             self._grants.close(attempt.id)
         if self._logs is not None and outcome.kind is StatusKind.APPLIED:
@@ -235,7 +236,7 @@ class RecoverySteps(DispatchSteps):
             # Revoked, not closed: nothing this attempt uploads or reports from
             # now on is accepted (a late PUT is refused, a late DONE is fenced).
             self._tokens.revoke(attempt.id)
-            self._grant_refresh_unacked.pop(attempt.id, None)
+            self._grant_unacked.pop(attempt.id, None)
             if self._grants is not None:
                 self._grants.revoke(attempt.id)
             if self._logs is not None:
