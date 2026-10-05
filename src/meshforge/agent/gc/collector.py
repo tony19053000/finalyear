@@ -206,11 +206,15 @@ class GarbageCollector:
 
     # ------------------------------------------------------------------ pass
 
-    def run_pass(self, reason: str = "periodic") -> GcReport:
+    def run_pass(self, reason: str = "periodic", *, reconcile: bool = True) -> GcReport:
+        """One pass. ``reconcile=False`` trusts the index rows (kept current by
+        the CAS observer and leases) and skips the disk scan - the cheap pass
+        asked for after every staging."""
         started = self._clock()
         report = GcReport(reason)
         self.index.reap_dead_owners()
-        self.reconcile()
+        if reconcile:
+            self.reconcile()
         self._collect("blob", self.config.cas_bytes, report)
         self._collect("env", self.config.envs_bytes, report)
         report.duration_s = self._clock() - started

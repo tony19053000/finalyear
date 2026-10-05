@@ -77,7 +77,7 @@ from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Final, Protocol
+from typing import TYPE_CHECKING, Any, Final, Protocol
 
 from meshforge.agent.cas import AgentCas
 from meshforge.agent.cas.fetcher import FetchTuning
@@ -98,6 +98,7 @@ from meshforge.agent.execution.offer import ExecutionSetup
 from meshforge.agent.execution.outputs import Collected, OutputError, collect_outputs
 from meshforge.agent.execution.plan import AttemptPlan, PlanError, plan_attempt
 from meshforge.agent.execution.runtime import RunObserver, RunResult, Stream
+from meshforge.agent.gc.leases import AttemptLeases, LeaseError
 from meshforge.agent.settings import AgentSettings
 from meshforge.common.bundle import BundleError, BundleLimits, unpack
 from meshforge.common.errors import FailureType, InvalidIdError
@@ -107,6 +108,9 @@ from meshforge.common.logging import get_logger
 from meshforge.common.proto.meshforge.v1 import agent_pb2, common_pb2
 from meshforge.common.proto_codec import attempt_state_to_proto, failure_type_to_proto
 from meshforge.common.states import AttemptState
+
+if TYPE_CHECKING:
+    from meshforge.agent.gc.service import GcService
 
 __all__ = ["Executor", "LogSink", "Reporter", "Resender", "work_root_for"]
 
@@ -194,6 +198,8 @@ class _Attempt:
     the controller with the new token plus re-minted peers. Secrets inside."""
     token_changed: asyncio.Event = field(default_factory=asyncio.Event)
     stage_retries: int = 0
+    leases: AttemptLeases | None = None
+    """What this attempt holds against GC (V0.5 G5, D91): its trees and env."""
 
     @property
     def ended(self) -> bool:
@@ -232,6 +238,7 @@ class Executor:
         resend: Resender | None = None,
         log_sink: LogSink | None = None,
         cas: AgentCas | None = None,
+        gc: GcService | None = None,
     ) -> None:
         self._settings = settings
         self._cfg = settings.agent.execution
@@ -250,6 +257,9 @@ class Executor:
         self.work_root = work_root_for(settings)
         self.cas = cas if cas is not None else AgentCas.at(settings.data_dir)
         """V0.5 G1: the blob cache tree jobs are staged from (D84)."""
+        self.gc = gc
+        """V0.5 G5 (D91): leases per attempt; a pass is asked for after a
+        staging (the CAS may be over its quota now)."""
         self.last_stage: StageReport | None = None
         """The latest tree staging's numbers (logged; tests read it)."""
         self._attempts: dict[str, _Attempt] = {}
@@ -600,11 +610,15 @@ class Executor:
         )
 
     async def _lifecycle(self, attempt: _Attempt, msg: agent_pb2.StartAttempt) -> None:
+        leases = attempt.leases = AttemptLeases(
+            self.gc.index if self.gc is not None else None, attempt.attempt_id
+        )
         try:
-            await self._run(attempt, msg)
+            with leases.current():
+                await self._run(attempt, msg)
         except _StoppedError:
             await self._stopped(attempt, exit_code=None, signal=None)
-        except (PlanError, FetchError, BundleError) as exc:
+        except (PlanError, FetchError, BundleError, LeaseError) as exc:
             await self._send(
                 attempt,
                 AttemptState.FAILED,
@@ -627,6 +641,8 @@ class Executor:
                 AttemptState.FAILED,
                 failure=(FailureType.INTERNAL_ERROR, "the executor failed", False),
             )
+        finally:
+            await leases.release()
 
     async def _step[T](self, attempt: _Attempt, awaitable: Awaitable[T]) -> T:
         """Run one cancellable step; a purposeful stop becomes :class:`_StoppedError`."""
@@ -778,6 +794,11 @@ class Executor:
         its thread); a stop asked meanwhile is honoured right after.
         """
         sources = tree_sources(spec, self._controller_host())
+        leases = attempt.leases
+        tree_hex = spec.tree_id.removeprefix("sha256:")
+        if leases is not None:
+            # Held BEFORE the staging looks at the cache (V0.5 G5, D91).
+            await leases.add("tree", tree_hex)
         report = await self._step(
             attempt,
             stage_tree(
@@ -792,9 +813,14 @@ class Executor:
                     slow_min_units=self._fetch_cfg.slow_min_units,
                     endgame_after_s=self._fetch_cfg.endgame_after_s,
                 ),
+                on_tree=leases.tree if leases is not None else None,
             ),
         )
         self.last_stage = report
+        if leases is not None:
+            await leases.touch_tree(tree_hex)
+        if self.gc is not None:
+            self.gc.request("staged")
         log.info(
             "agent.cas.staged",
             node_id=self._node_id,

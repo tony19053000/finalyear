@@ -33,12 +33,15 @@ from meshforge.agent.execution.docker_runtime import DockerConfig, DockerRuntime
 from meshforge.agent.execution.executor import Executor
 from meshforge.agent.execution.offer import ExecutionSetup, build_execution
 from meshforge.agent.execution.runtime import RuntimeAvailability
+from meshforge.agent.gc.service import GcService
 from meshforge.agent.hardware.limits import clip_capabilities
 from meshforge.agent.identity import load_or_create
 from meshforge.agent.peer import PeerBlobServer
 from meshforge.agent.runtime import (
     controller_host,
+    route_commands,
     start_cache,
+    start_gc,
     start_peer,
     wire_executor,
 )
@@ -73,6 +76,7 @@ class ExecAgent:
         self.node_id = client.node_id
         self.peer: PeerBlobServer | None = None
         self.cache: CacheReporter | None = None
+        self.gc: GcService | None = None
         self.task: asyncio.Task[None] = asyncio.create_task(client.run())
 
     @classmethod
@@ -116,6 +120,8 @@ class ExecAgent:
         # (agent_overrides={"peer": {"bind": "127.0.0.1", "port": 0}}).
         peer = await start_peer(settings, cas, client)
         cache = await start_cache(settings, cas, client)
+        # V0.5 G5: GC as in serve() ([agent.gc] via agent_overrides={"gc": {...}}).
+        gc = await start_gc(settings, cas, node_id=client.node_id, cache=cache)
         executor = Executor(
             settings,
             setup,
@@ -125,13 +131,16 @@ class ExecAgent:
             resend=client.resend_report,
             log_sink=client.send_log,
             controller_host=lambda: controller_host(client.controller_target),
+            gc=gc,
         )
         wire_executor(client, executor)
+        client.command_handler = route_commands(executor, gc=gc)
         if setup.enabled:
             await executor.start()
         agent = cls(client, executor, setup)
         agent.peer = peer
         agent.cache = cache
+        agent.gc = gc
         await client.wait_for_state(AgentState.ONLINE, timeout_s=15.0)
         return agent
 
@@ -145,6 +154,8 @@ class ExecAgent:
         await self.executor.close()
         if self.peer is not None:
             await self.peer.close()
+        if self.gc is not None:
+            await self.gc.close()
         if self.cache is not None:
             await self.cache.close()
 

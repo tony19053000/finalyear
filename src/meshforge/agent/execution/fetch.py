@@ -354,8 +354,12 @@ async def stage_tree(
     free_disk_floor_bytes: int = DEFAULT_FREE_DISK_FLOOR_BYTES,
     clock: Callable[[], float] = time.monotonic,
     tuning: FetchTuning | None = None,
+    on_tree: Callable[[Tree], Awaitable[None]] | None = None,
 ) -> StageReport:
-    """Fetch ``tree_id`` into the cache and copy it into ``dest``."""
+    """Fetch ``tree_id`` into the cache and copy it into ``dest``.
+
+    ``on_tree`` runs once the manifest is verified and before any blob is
+    looked at (V0.5 G5: the GC lease records the tree's members there)."""
     try:
         digest = Digest.parse(tree_id)
     except ValueError:
@@ -371,6 +375,8 @@ async def stage_tree(
     ) as client:
         fetcher = BlobFetcher(cas, sources, client, tuning=tuning, clock=clock)
         tree = await fetcher.tree(digest)
+        if on_tree is not None:
+            await on_tree(tree)
         await fetcher.ensure_all(tree)
         while True:
             try:

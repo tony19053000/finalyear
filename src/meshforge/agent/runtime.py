@@ -67,10 +67,17 @@ from meshforge.agent.benchmarks.service import (
 )
 from meshforge.agent.benchmarks.wire import to_proto
 from meshforge.agent.cache import CacheInventory, CacheReporter, scan_envs
-from meshforge.agent.cache.images import list_env_images
+from meshforge.agent.cache.images import (
+    list_env_image_hashes,
+    list_env_images,
+    remove_env_image,
+)
 from meshforge.agent.cas import AgentCas
 from meshforge.agent.execution.executor import Executor
 from meshforge.agent.execution.offer import build_execution
+from meshforge.agent.gc.collector import GarbageCollector, GcConfig
+from meshforge.agent.gc.index import GcIndex
+from meshforge.agent.gc.service import GcService
 from meshforge.agent.hardware import (
     HardwareFacts,
     HardwareProvider,
@@ -99,9 +106,11 @@ __all__ = [
     "discover_hardware",
     "hello_scores",
     "install_signal_handlers",
+    "route_commands",
     "run_agent",
     "serve",
     "start_cache",
+    "start_gc",
     "start_peer",
     "start_scores",
     "stop_signals",
@@ -193,6 +202,74 @@ async def discover_hardware(
     return summary, facts
 
 
+def route_commands(
+    executor: Executor,
+    *,
+    gc: GcService | None = None,
+    prepare: Callable[[agent_pb2.PrepareEnv], None] | None = None,
+) -> Callable[[agent_pb2.ControllerMessage], None]:
+    """One synchronous command handler: attempts to the executor, ``GcRequest``
+    to GC (V0.5 G5), ``PrepareEnv`` to the prepare service (0.5.8). A command
+    for a part that is off is logged and dropped (it is still acked)."""
+
+    def handle(msg: agent_pb2.ControllerMessage) -> None:
+        which = msg.WhichOneof("payload")
+        if which == "gc":
+            if gc is not None:
+                gc.handle(msg.gc)
+            else:
+                log.info("agent.gc.request_ignored", reason="gc_disabled")
+        elif which == "prepare_env":
+            if prepare is not None:
+                prepare(msg.prepare_env)
+            else:
+                log.info("agent.prepare.request_ignored", reason="prepare_unavailable")
+        else:
+            executor.handle(msg)
+
+    return handle
+
+
+async def start_gc(
+    settings: AgentSettings,
+    cas: AgentCas,
+    *,
+    node_id: str,
+    docker: bool = False,
+    cache: CacheReporter | None = None,
+) -> GcService | None:
+    """The GC service (V0.5 G5, D91) when ``[agent.gc] enabled``: index opened,
+    a pass at start, then every ``interval_s``; the CAS observer keeps last-use
+    rows; a pass that removed envs makes the cache reporter re-list them."""
+    cfg = settings.agent.gc
+    if not cfg.enabled:
+        log.info("agent.gc.disabled", node_id=node_id)
+        return None
+    await cas.prepare()
+    collector = GarbageCollector(
+        GcIndex(cas.store.root),
+        cas.store,
+        GcConfig(
+            cas_bytes=cfg.cas_bytes,
+            envs_bytes=cfg.envs_bytes,
+            min_age_s=cfg.min_age_s,
+            batch=cfg.batch,
+        ),
+        envs_root=settings.envs_dir,
+        list_images=list_env_image_hashes if docker else None,
+        remove_image=remove_env_image if docker else None,
+    )
+    service = GcService(
+        collector,
+        interval_s=cfg.interval_s,
+        node_id=node_id,
+        on_envs_changed=cache.rescan_now if cache is not None else None,
+    )
+    await service.start()
+    cas.add_observer(service.on_cas_change)
+    return service
+
+
 def wire_executor(client: AgentSessionClient, executor: Executor) -> None:
     """Connect the executor to the session client's hooks.
 
@@ -249,6 +326,13 @@ async def serve(
     cache = await start_cache(
         settings, cas, client, docker=execution.docker is not None
     )
+    gc = await start_gc(
+        settings,
+        cas,
+        node_id=node_id,
+        docker=execution.docker is not None,
+        cache=cache,
+    )
     executor = Executor(
         settings,
         execution,
@@ -259,8 +343,10 @@ async def serve(
         log_sink=client.send_log,
         controller_host=lambda: controller_host(client.controller_target),
         declared_gpus=[gpu.index for gpu in hardware.gpus],
+        gc=gc,
     )
     wire_executor(client, executor)
+    client.command_handler = route_commands(executor, gc=gc)
     if execution.enabled:
         await executor.start()
     install_signal_handlers(client.request_stop)
@@ -288,6 +374,8 @@ async def serve(
         await executor.close()
         if peer is not None:
             await peer.close()
+        if gc is not None:
+            await gc.close()
         if cache is not None:
             await cache.close()
         # Cancelling the scoring task kills its benchmark child tree (runner).

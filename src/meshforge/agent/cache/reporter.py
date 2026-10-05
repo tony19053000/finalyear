@@ -164,6 +164,11 @@ class CacheReporter:
                 await self.send_delta()
             await asyncio.to_thread(self._inv.save_trees)
 
+    async def rescan_now(self) -> None:
+        """Re-list envs and env images now (after a GC pass removed some, V0.5
+        G5); the change goes out with the next delta."""
+        await self._rescan()
+
     async def _rescan(self) -> None:
         if self._scan_envs is not None:
             try:

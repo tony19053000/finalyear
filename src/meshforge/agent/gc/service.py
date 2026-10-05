@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import functools
 import re
 from collections.abc import Awaitable, Callable, Iterable
 from typing import Final
@@ -29,6 +30,7 @@ from meshforge.agent.gc.leases import AttemptLeases
 from meshforge.common.cas import CasStore
 from meshforge.common.hashing import Digest
 from meshforge.common.logging import get_logger
+from meshforge.common.proto.meshforge.v1 import agent_pb2
 from meshforge.common.tree import TreeError, TreeLimits, parse_tree
 
 __all__ = ["MAX_PINS", "GcService"]
@@ -57,6 +59,10 @@ class GcService:
         self.on_envs_changed = on_envs_changed
         self._wake = asyncio.Event()
         self._reasons: list[str] = []
+        self._reconcile = True
+        """The next pass scans the disk (start, periodic, a controller request);
+        a pass asked for after a staging trusts the index."""
+        self._pin_tasks: set[asyncio.Task[int]] = set()
         self._task: asyncio.Task[None] | None = None
         self.passes = 0
         self.last: GcReport | None = None
@@ -70,11 +76,14 @@ class GcService:
 
     async def start(self) -> None:
         await asyncio.to_thread(self.index.open)
-        self.request("start")
+        self.request("start", reconcile=True)
         self._task = asyncio.create_task(self._run(), name="agent-gc")
         self._task.add_done_callback(self._on_done)
 
     async def close(self) -> None:
+        for pin_task in list(self._pin_tasks):
+            pin_task.cancel()
+        await asyncio.gather(*self._pin_tasks, return_exceptions=True)
         if self._task is not None:
             self._task.cancel()
             await asyncio.gather(self._task, return_exceptions=True)
@@ -106,9 +115,10 @@ class GcService:
 
     # --------------------------------------------------------------- passes
 
-    def request(self, reason: str) -> None:
+    def request(self, reason: str, *, reconcile: bool = False) -> None:
         """Run a pass soon (coalesced)."""
         self._reasons.append(reason)
+        self._reconcile = self._reconcile or reconcile
         self._idle.clear()
         self._wake.set()
 
@@ -125,13 +135,21 @@ class GcService:
 
     async def _run(self) -> None:
         while True:
+            woken = False
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(self._wake.wait(), self._interval_s)
+                woken = True
             self._wake.clear()
             reason = ",".join(dict.fromkeys(self._reasons)) or "periodic"
             self._reasons.clear()
+            reconcile = self._reconcile or not woken
+            self._reconcile = False
             try:
-                report = await asyncio.to_thread(self.collector.run_pass, reason)
+                report = await asyncio.to_thread(
+                    functools.partial(
+                        self.collector.run_pass, reason, reconcile=reconcile
+                    )
+                )
             except Exception as exc:  # noqa: BLE001 - a failed pass is retried later
                 log.warning(
                     "agent.gc.pass_failed",
@@ -153,6 +171,29 @@ class GcService:
                 await self.on_envs_changed()
             except Exception as exc:  # noqa: BLE001 - reporting is best effort
                 log.info("agent.gc.envs_hook_failed", cause=type(exc).__name__)
+
+    # ------------------------------------------------------------- commands
+
+    def handle(self, request: agent_pb2.GcRequest) -> None:
+        """A controller ``GcRequest`` (synchronous, before its Ack): pins are
+        replaced in a kept task, a pass is requested."""
+        if request.set_pins:
+            task = asyncio.create_task(
+                self.set_pins(list(request.pinned_trees)), name="agent-gc-pins"
+            )
+            self._pin_tasks.add(task)
+            task.add_done_callback(self._pin_done)
+        if request.run_now:
+            self.request("controller", reconcile=True)
+
+    def _pin_done(self, task: asyncio.Task[int]) -> None:
+        self._pin_tasks.discard(task)
+        if not task.cancelled() and task.exception() is not None:
+            log.warning(
+                "agent.gc.pins_failed",
+                node_id=self._node_id,
+                cause=type(task.exception()).__name__,
+            )
 
     # ----------------------------------------------------------------- pins
 
