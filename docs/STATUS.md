@@ -42,6 +42,8 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 > V0.10. 129 tasks vs 140–180 capacity → **~1.5 tasks/session**. Needs the other three team members' approval.
 
 ## Current Task
+**2026-10-06 — V0.6 G4 implementer: items 0–5 committed (`9b602dd`..`e1360ae` + wip `6fea3d6`, unverified); exit list not yet run.** Next: resume implementer (finish wip + exit list) → tester → reviewer. See handoff §2.
+
 **2026-10-06 — V0.6 G3 CLOSED** (implementer `60020d8..1000d68` → tester PASS `7d8a707` `ae054a4` (D-1..D-3) → fix round D126–D128 `8e6ff54`..`db58508` → reviewer APPROVE, no blocking). 0.6.7 / 0.6.8 / 0.6.12 `[x]`; chaos 6 seeds × 50 jobs exit 0. **Next: V0.6 G4 (network matrix + estimator v0), brief §5d — implementer round**, plus item 0 = reviewer G3 N-1/N-2/N-5: exclusion lift is all-or-nothing and ignores live NOT_ONLINE (plan.py:100–104) → lift per failure type (vram_oom last), never lift onto a node still failing for the same reason; chaos-seed regression; document in §13 + decision log.
 Other G3 follow-ups: S1 spike test `test_s1_server_upload_limit::test_endless_upload_is_cut_off_and_recorded` flaky under full-suite load (poll with deadline); chaos report should record per-job attempts; N-3 extra query per failed retried job (fine for now).
 
