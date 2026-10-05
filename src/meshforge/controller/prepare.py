@@ -16,7 +16,9 @@ Reconcile) while a request is unfinished - an agent that restarted within its
 lease has forgotten it - the same ``PrepareEnv`` (same ``request_id``) is sent
 again: a still-running agent only re-reports where it stands, a restarted one
 runs it again (idempotent: what is built is a ``hit``); a re-send that cannot
-be queued ends the request ``node_lost`` / ``resend_failed``.
+be queued ends the request ``node_lost`` / ``resend_failed``. A request goes to
+each session **at most once** (the session it was sent on is remembered), so an
+agent that repeats Reconcile within one session never piles up copies.
 
 Reports are hostile input: a status for a request this controller did not send
 to *that* node is dropped; items are bounded and every string is printable and
@@ -70,6 +72,8 @@ class PrepareRecord:
     updated_at: dt.datetime | None = None
     command: agent_pb2.PrepareEnv | None = None
     """What was sent (re-sent to a new session of the node while unfinished)."""
+    session_id: str | None = None
+    """The session it was last sent on (never sent twice to one session)."""
 
     def as_dict(self) -> dict[str, Any]:
         failed = [i for i in self.items if i.get("state") == "failed"]
@@ -119,6 +123,8 @@ class PrepareTracker:
             envs=len(envs),
             command=command,
         )
+        live = self._manager.get(node_id)
+        record.session_id = live.session_id if live is not None else None
         self._records[request_id] = record
         while len(self._records) > MAX_TRACKED:
             self._records.popitem(last=False)
@@ -209,10 +215,12 @@ class PrepareTracker:
 
     def on_reconcile(self, live: LiveSession) -> None:
         """Session hook (synchronous): a new session of the node - re-send its
-        unfinished requests (same ``request_id``; see module docstring)."""
+        unfinished requests (same ``request_id``; once per session - see
+        module docstring)."""
         for record in self._unfinished(live.node_id):
-            if record.command is None:
+            if record.command is None or record.session_id == live.session_id:
                 continue
+            record.session_id = live.session_id
             sent = self._manager.send_command(
                 live.node_id, "prepare_env", record.command
             )

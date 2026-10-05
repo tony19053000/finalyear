@@ -221,11 +221,6 @@ async def test_node_lost_by_silence_ends_the_request(
         await a.close()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="G5-R2-3: every Reconcile re-sends every unfinished PrepareEnv - an "
-    "agent repeating Reconcile gets one copy per message (no per-session guard)",
-)
 async def test_repeated_reconciles_in_one_session_do_not_pile_up_resends_unboundedly(
     runtime: ControllerRuntime, http: httpx.AsyncClient
 ) -> None:
