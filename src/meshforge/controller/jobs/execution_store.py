@@ -34,6 +34,7 @@ from enum import StrEnum
 from typing import Any, Final
 
 from sqlalchemy import func, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from meshforge.common.errors import FailureType
@@ -54,6 +55,7 @@ from meshforge.controller.jobs.store import (
     AttemptRecord,
     JobRecord,
     JobStore,
+    TransferRow,
     append_transition,
     attempt_record,
     clean_detail,
@@ -67,6 +69,7 @@ from meshforge.controller.jobs.transitions import (
     next_attempt_state,
     next_job_state,
 )
+from meshforge.controller.store.models.data import TransferEvent
 from meshforge.controller.store.models.job import (
     Attempt,
     AttemptPhaseRow,
@@ -86,6 +89,7 @@ __all__ = [
     "StatusKind",
     "StatusOutcome",
     "StatusReport",
+    "TransferRow",
 ]
 
 log = get_logger(__name__)
@@ -160,6 +164,8 @@ class StatusReport:
     missing_outputs: tuple[str, ...] = ()
     logs: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
     """D71 final logs per stream; a digest only once verified under the grant."""
+    transfers: tuple[TransferRow, ...] = ()
+    """V0.5 G5 (D93): transfer telemetry of the terminal report."""
 
 
 class StatusKind(StrEnum):
@@ -329,6 +335,7 @@ class ExecutionStore(JobStore):
             ended = AttemptState(row.state) in ATTEMPT_TERMINAL_STATES
             if ended:
                 await _write_phases(db, row, report.phases)
+                await _write_transfers(db, row, report.transfers)
             await _fresh(db, row, job)
             return StatusOutcome(
                 StatusKind.APPLIED,
@@ -576,6 +583,37 @@ async def _history(
         (JobState(r.from_state) if r.from_state else None, JobState(r.to_state), r.at)
         for r in rows
     ]
+
+
+async def _write_transfers(
+    db: AsyncSession, row: Attempt, transfers: Sequence[TransferRow]
+) -> None:
+    """V0.5 G5 (D93): one row per (tree, source); a replayed terminal report
+    (or a duplicate key) never doubles a row (ON CONFLICT DO NOTHING)."""
+    if not transfers:
+        return
+    statement = pg_insert(TransferEvent).values(
+        [
+            {
+                "attempt_id": row.id,
+                "job_id": row.job_id,
+                "tree_id": t.tree_id,
+                "source": t.source,
+                "bytes": t.bytes,
+                "duration_ms": t.duration_ms,
+                "units": t.units,
+                "failures": t.failures,
+                "resumed_chunks": t.resumed_chunks,
+                "dropped": t.dropped,
+            }
+            for t in transfers
+        ]
+    )
+    await db.execute(
+        statement.on_conflict_do_nothing(
+            index_elements=["attempt_id", "tree_id", "source"]
+        )
+    )
 
 
 async def _write_phases(

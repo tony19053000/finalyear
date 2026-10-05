@@ -345,6 +345,35 @@ class StageReport:
     duration_s: float
     sources: dict[str, SourceStats] = field(default_factory=dict)
     """Bytes / request time / units per source (V0.5 D89; telemetry in G5)."""
+    bytes_hit: int = 0
+    manifest_hit: bool = False
+
+    def to_proto(self) -> agent_pb2.TransferSummary:
+        """The transfer telemetry of this tree (V0.5 G5, D93): bounded - at
+        most :data:`MAX_SOURCES` + 1 sources, as listed."""
+        summary = agent_pb2.TransferSummary(
+            tree_id=str(self.tree.tree_id),
+            blobs_hit=self.blobs_hit,
+            bytes_hit=self.bytes_hit,
+            blobs_fetched=self.blobs_fetched,
+            bytes_fetched=self.bytes_fetched,
+            chunks_resumed=self.chunks_resumed,
+            corrupt_refetches=self.corrupt_refetches,
+            manifest_hit=self.manifest_hit,
+            duration_s=max(0.0, self.duration_s),
+        )
+        for name, src in list(self.sources.items())[: MAX_SOURCES + 1]:
+            summary.sources.append(
+                agent_pb2.TransferSource(
+                    node_id="" if name == "controller" else name,
+                    bytes=src.bytes,
+                    duration_s=max(0.0, src.duration_s),
+                    units=src.units,
+                    failures=src.failures,
+                    dropped=src.dropped or "",
+                )
+            )
+        return summary
 
 
 async def stage_tree(
@@ -421,6 +450,8 @@ async def stage_tree(
         corrupt_refetches=refetches,
         duration_s=clock() - started,
         sources=dict(stats.sources),
+        bytes_hit=stats.bytes_hit,
+        manifest_hit=stats.manifest_hit,
     )
 
 

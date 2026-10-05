@@ -22,7 +22,7 @@ from meshforge.common.proto_codec import (
     failure_type_from_proto,
 )
 from meshforge.common.states import AttemptState
-from meshforge.controller.jobs.execution_store import StatusReport
+from meshforge.controller.jobs.execution_store import StatusReport, TransferRow
 from meshforge.controller.jobs.progress import (
     AGENT_REPORTABLE,
     MAX_PHASE_S,
@@ -161,6 +161,9 @@ def parse_status(status: agent_pb2.AttemptStatus) -> StatusReport | str:
     logs = _final_logs(status)
     if isinstance(logs, str):
         return logs
+    transfers = _transfers(status, state)
+    if isinstance(transfers, str):
+        return transfers
     return StatusReport(
         attempt_id=attempt_id,
         fencing_token=int(status.fencing_token),
@@ -173,4 +176,99 @@ def parse_status(status: agent_pb2.AttemptStatus) -> StatusReport | str:
         output_digest=status.output_digest or None,
         missing_outputs=tuple(status.missing_outputs),
         logs=logs,
+        transfers=transfers,
     )
+
+
+MAX_TRANSFERS: Final = 17
+"""The project tree + at most 16 named inputs."""
+MAX_TRANSFER_SOURCES: Final = 17
+"""The controller + at most 16 listed peers."""
+_DROPPED: Final = re.compile(r"[a-z_]{1,32}")
+_NODE_ID: Final = re.compile(r"node_[0-9A-HJKMNP-TV-Z]{26}")
+_INT32: Final = 2**31 - 1
+
+
+def _ms(value: float) -> int | None:
+    if not math.isfinite(value) or not 0 <= value <= MAX_PHASE_S:
+        return None
+    return round(value * 1000)
+
+
+def _transfers(
+    status: agent_pb2.AttemptStatus, state: AttemptState
+) -> tuple[TransferRow, ...] | str:
+    """``AttemptStatus.transfers`` (V0.5 G5, D93) -> transfer_event rows: per
+    tree a ``cache`` row (hits) and one row per source; bounded, validated,
+    rows of one (tree, source) merged. Only on a terminal report."""
+    if not status.transfers:
+        return ()
+    if state not in (AttemptState.DONE, AttemptState.FAILED):
+        return "AttemptStatus.transfers is set on a non-terminal report"
+    if len(status.transfers) > MAX_TRANSFERS:
+        return f"AttemptStatus.transfers has more than {MAX_TRANSFERS} entries"
+    rows: dict[tuple[str, str], TransferRow] = {}
+
+    def add(row: TransferRow) -> None:
+        key = (row.tree_id, row.source)
+        old = rows.get(key)
+        if old is None:
+            rows[key] = row
+            return
+        rows[key] = TransferRow(
+            tree_id=row.tree_id,
+            source=row.source,
+            bytes=old.bytes + row.bytes,
+            duration_ms=old.duration_ms + row.duration_ms,
+            units=min(_INT32, old.units + row.units),
+            failures=min(_INT32, old.failures + row.failures),
+            resumed_chunks=min(_INT32, old.resumed_chunks + row.resumed_chunks),
+            dropped=old.dropped or row.dropped,
+        )
+
+    for index, summary in enumerate(status.transfers):
+        where = f"AttemptStatus.transfers[{index}]"
+        if not _DIGEST.fullmatch(summary.tree_id):
+            return f"{where}.tree_id is not sha256:<64 hex>"
+        if len(summary.sources) > MAX_TRANSFER_SOURCES:
+            return f"{where} has more than {MAX_TRANSFER_SOURCES} sources"
+        duration = _ms(summary.duration_s)
+        if duration is None:
+            return f"{where}.duration_s is not a duration"
+        counts = (summary.blobs_hit, summary.corrupt_refetches, summary.chunks_resumed)
+        if any(c > _INT32 for c in counts) or any(
+            s.units > _INT32 or s.failures > _INT32 for s in summary.sources
+        ):
+            return f"{where}: a count is over 2^31-1"
+        add(
+            TransferRow(
+                tree_id=summary.tree_id,
+                source="cache",
+                bytes=int(summary.bytes_hit),
+                duration_ms=duration,
+                units=int(summary.blobs_hit),
+                failures=int(summary.corrupt_refetches),
+                resumed_chunks=int(summary.chunks_resumed),
+            )
+        )
+        for source in summary.sources:
+            name = source.node_id or "controller"
+            if source.node_id and not _NODE_ID.fullmatch(source.node_id):
+                return f"{where}: a source node_id is not a canonical node id"
+            if source.dropped and not _DROPPED.fullmatch(source.dropped):
+                return f"{where}: a source's dropped reason is malformed"
+            spent = _ms(source.duration_s)
+            if spent is None:
+                return f"{where}: a source duration_s is not a duration"
+            add(
+                TransferRow(
+                    tree_id=summary.tree_id,
+                    source=name,
+                    bytes=int(source.bytes),
+                    duration_ms=spent,
+                    units=int(source.units),
+                    failures=int(source.failures),
+                    dropped=source.dropped or None,
+                )
+            )
+    return tuple(rows.values())

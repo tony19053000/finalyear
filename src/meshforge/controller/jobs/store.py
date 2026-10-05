@@ -63,7 +63,7 @@ from meshforge.controller.jobs.transitions import (
     next_job_state,
 )
 from meshforge.controller.store.engine import create_session_factory
-from meshforge.controller.store.models.data import JobInput
+from meshforge.controller.store.models.data import JobInput, TransferEvent
 from meshforge.controller.store.models.job import (
     MAX_DETAIL_CHARS,
     Attempt,
@@ -81,6 +81,7 @@ __all__ = [
     "PhaseRecord",
     "StaleFencingTokenError",
     "StaleStateError",
+    "TransferRow",
     "TransitionRecord",
     "UnknownAttemptError",
     "UnknownJobError",
@@ -159,6 +160,20 @@ class JobRecord:
     cancel_requested_at: dt.datetime | None = None
     tree_id: str | None = None
     """V0.5 D83: the project's tree manifest; None = a V0.4 bundle job."""
+
+
+@dataclass(frozen=True, slots=True)
+class TransferRow:
+    """One ``transfer_event`` row (V0.5 G5, D93; see the model)."""
+
+    tree_id: str
+    source: str
+    bytes: int
+    duration_ms: int
+    units: int
+    failures: int
+    resumed_chunks: int = 0
+    dropped: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -410,6 +425,34 @@ class JobStore:
             tree_id=tree_id,
             inputs=inputs,
         )
+
+    @typed_store_call
+    async def transfers(self, job_id: str) -> list[tuple[str, TransferRow]]:
+        """``(attempt_id, row)`` of every transfer_event of a job (V0.5 G5),
+        oldest attempt first, the cache row first within a tree."""
+        async with self._sessions() as db:
+            rows = await db.scalars(
+                select(TransferEvent)
+                .where(TransferEvent.job_id == job_id)
+                .order_by(TransferEvent.id)
+                .limit(2000)
+            )
+            return [
+                (
+                    r.attempt_id,
+                    TransferRow(
+                        tree_id=r.tree_id,
+                        source=r.source,
+                        bytes=int(r.bytes),
+                        duration_ms=int(r.duration_ms),
+                        units=int(r.units),
+                        failures=int(r.failures),
+                        resumed_chunks=int(r.resumed_chunks),
+                        dropped=r.dropped,
+                    ),
+                )
+                for r in rows
+            ]
 
     @typed_store_call
     async def get_job(self, job_id: str) -> JobRecord | None:

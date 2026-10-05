@@ -93,6 +93,8 @@ class SourceStats:
 @dataclass(slots=True)
 class FetchStats:
     blobs_hit: int = 0
+    bytes_hit: int = 0
+    """Bytes of the blobs that were already cached (V0.5 G5 telemetry)."""
     blobs_fetched: int = 0
     bytes_fetched: int = 0
     """Payload bytes received (chunks re-requested after corruption included)."""

@@ -513,4 +513,37 @@ def job_detail_table(payload: Mapping[str, Any]) -> Table:
                 f"missing={missing_text}"
             ),
         )
+        transfers = attempt.get("transfers")
+        for row in transfers if isinstance(transfers, list) else []:
+            if isinstance(row, Mapping):
+                table.add_row(_cell("  transfer"), _cell(_transfer_text(row)))
+    inputs = payload.get("inputs")
+    for item in inputs if isinstance(inputs, list) else []:
+        if isinstance(item, Mapping):
+            table.add_row(
+                _cell("input"),
+                _cell(
+                    f"{item.get('ref')} -> {item.get('mount')} ({item.get('tree_id')})"
+                ),
+            )
     return table
+
+
+def _transfer_text(row: Mapping[str, Any]) -> str:
+    """One transfer_event row (V0.5 G5): hits from the cache, or a source's share."""
+    tree = str(row.get("tree_id") or "")[:19]
+    source = row.get("source")
+    bytes_ = _num(row.get("bytes"))
+    ms = _num(row.get("duration_ms"))
+    units = row.get("units")
+    size = DASH if bytes_ is None else f"{bytes_ / 1024**2:.1f} MiB"
+    took = DASH if ms is None else f"{ms / 1000:.2f} s"
+    if source == "cache":
+        return (
+            f"{tree} cache hits={units} ({size}) staged in {took} "
+            f"resumed_chunks={row.get('resumed_chunks')} refetched={row.get('failures')}"
+        )
+    dropped = row.get("dropped")
+    return f"{tree} from {source}: {size} in {took}, units={units}" + (
+        f" dropped={dropped}" if dropped else ""
+    )

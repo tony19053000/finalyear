@@ -97,7 +97,12 @@ from meshforge.agent.execution.fetch import (
 from meshforge.agent.execution.logs import AttemptLogs, Chunk, file_sha256
 from meshforge.agent.execution.offer import ExecutionSetup
 from meshforge.agent.execution.outputs import Collected, OutputError, collect_outputs
-from meshforge.agent.execution.plan import AttemptPlan, PlanError, plan_attempt
+from meshforge.agent.execution.plan import (
+    MAX_INPUTS,
+    AttemptPlan,
+    PlanError,
+    plan_attempt,
+)
 from meshforge.agent.execution.runtime import RunObserver, RunResult, Stream
 from meshforge.agent.gc.leases import AttemptLeases, LeaseError
 from meshforge.agent.settings import AgentSettings
@@ -1218,6 +1223,10 @@ class Executor:
         if terminal:
             for name, value in attempt.phases.items():
                 setattr(status.phases, name, max(0.0, value))
+            # V0.5 G5 (D93): what staging each tree cost (project, then inputs).
+            status.transfers.extend(
+                stage.to_proto() for stage in attempt.stages[: 1 + MAX_INPUTS]
+            )
         attempt.state = state
         if terminal:
             attempt.terminal_status = status

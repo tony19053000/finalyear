@@ -105,6 +105,32 @@ class FinalLogSummary(ApiModel):
     truncated: bool = False
 
 
+class TransferOut(ApiModel):
+    """One transfer_event row (V0.5 G5, D93): ``source`` is ``cache`` (hits:
+    ``units`` blobs / ``bytes`` already cached, ``duration_ms`` = the tree's
+    whole staging), ``controller`` or a peer's node id (bytes received, request
+    time, units won, ``dropped`` = why it was dropped)."""
+
+    tree_id: str
+    source: str
+    bytes: int
+    duration_ms: int
+    units: int
+    failures: int
+    resumed_chunks: int = 0
+    dropped: str | None = None
+
+
+class InputOut(ApiModel):
+    """A named input the job was submitted with (V0.5 G5, D92)."""
+
+    ref: str
+    name: str
+    version: int
+    tree_id: str
+    mount: str
+
+
 class AttemptSummary(ApiModel):
     attempt_id: str
     node_id: str
@@ -121,6 +147,8 @@ class AttemptSummary(ApiModel):
     """Final logs per stream (D71); empty until the attempt ended with them."""
     started_at: Utc | None = None
     ended_at: Utc | None = None
+    transfers: list[TransferOut] = Field(default_factory=list)
+    """What staging cost per tree and source (V0.5 G5); empty until it ended."""
 
 
 class JobSummary(ApiModel):
@@ -142,6 +170,7 @@ class JobDetail(JobSummary):
     manifest: dict[str, Any]
     transitions: tuple[TransitionOut, ...]
     attempts: tuple[AttemptSummary, ...]
+    inputs: tuple[InputOut, ...] = ()
 
 
 class JobList(ApiModel):

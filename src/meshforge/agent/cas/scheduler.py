@@ -214,6 +214,7 @@ class TransferScheduler:
         async with slots, self._cas.holding(digest):
             if store.has(digest):
                 self.stats.blobs_hit += 1
+                self.stats.bytes_hit += entry.size
                 return
             loop = asyncio.get_running_loop()
             if entry.chunks:

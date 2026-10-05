@@ -69,6 +69,7 @@ from meshforge.controller.api.errors import ApiError
 from meshforge.controller.api.job_models import (
     AttemptSummary,
     FinalLogSummary,
+    InputOut,
     JobCancelled,
     JobCreated,
     JobDetail,
@@ -76,6 +77,7 @@ from meshforge.controller.api.job_models import (
     JobSubmission,
     JobSummary,
     Placement,
+    TransferOut,
     TransitionOut,
 )
 from meshforge.controller.blobs import BlobStore
@@ -273,9 +275,26 @@ def _attempt(record: AttemptRecord) -> AttemptSummary:
     )
 
 
-async def _detail(store: JobStore, job: JobRecord) -> JobDetail:
+async def _detail(
+    store: JobStore, job: JobRecord, inputs: NamedInputStore | None = None
+) -> JobDetail:
     transitions = await store.transitions(job.id)
     attempts = await store.list_attempts(job.id)
+    by_attempt: dict[str, list[TransferOut]] = {}
+    for attempt_id, row in await store.transfers(job.id):
+        by_attempt.setdefault(attempt_id, []).append(
+            TransferOut(
+                tree_id=row.tree_id,
+                source=row.source,
+                bytes=row.bytes,
+                duration_ms=row.duration_ms,
+                units=row.units,
+                failures=row.failures,
+                resumed_chunks=row.resumed_chunks,
+                dropped=row.dropped,
+            )
+        )
+    used = [] if inputs is None else await inputs.job_inputs(job.id)
     return JobDetail(
         **_summary_fields(job),
         manifest=dict(job.manifest),
@@ -285,7 +304,20 @@ async def _detail(store: JobStore, job: JobRecord) -> JobDetail:
             )
             for t in transitions
         ),
-        attempts=tuple(_attempt(a) for a in attempts),
+        attempts=tuple(
+            _attempt(a).model_copy(update={"transfers": by_attempt.get(a.id, [])})
+            for a in attempts
+        ),
+        inputs=tuple(
+            InputOut(
+                ref=i.ref,
+                name=i.name,
+                version=i.version,
+                tree_id=i.tree_id,
+                mount=i.mount,
+            )
+            for i in used
+        ),
     )
 
 
@@ -499,7 +531,7 @@ async def get_job(
     job = await jobs.store.get_job(checked)
     if job is None:
         raise ApiError.not_found("job")
-    return await _detail(jobs.store, job)
+    return await _detail(jobs.store, job, jobs.inputs)
 
 
 @job_router.post(

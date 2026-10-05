@@ -247,6 +247,13 @@ def _follow_to_exit(client: Any, job_id: str, timeout_s: float) -> None:
 
 
 def jobs(
+    job_id: Annotated[
+        str | None,
+        typer.Argument(
+            metavar="[JOB_ID]",
+            help="Show one job: attempts, named inputs, transfer telemetry.",
+        ),
+    ] = None,
     state: Annotated[
         str | None,
         typer.Option(
@@ -259,8 +266,19 @@ def jobs(
         typer.Option("--json", help="Print the controller's raw JSON on one line."),
     ] = False,
 ) -> None:
-    """List recent jobs, newest first."""
-    from meshforge.cli.render import jobs_table
+    """List recent jobs, newest first (or show one job in detail)."""
+    from meshforge.cli.render import job_detail_table, jobs_table
+
+    if job_id is not None:
+        checked = _checked_job_id(job_id)
+        settings = cli._settings()
+        with cli._client(settings) as client:
+            detail = cli._fetch(lambda: client.job(checked))
+        if json_output:
+            cli._echo_json(detail)
+        else:
+            cli._out().print(job_detail_table(detail))
+        return
 
     if state is not None and state not in _JOB_STATES:
         cli._die(
