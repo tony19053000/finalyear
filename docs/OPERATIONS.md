@@ -172,10 +172,8 @@ environment (subprocess runtime; install torch there with `uv sync --extra gpu`)
   a job could add files to an environment).
 - **Disk.** One environment may be at most `[agent.envs] max_env_bytes` (16 GiB);
   a build is refused (`disk_full`) when less than `free_disk_floor_mb` (2 GiB) is
-  free. There is **no automatic cleanup until V0.5 G5**: free space by hand with
-  `rm -rf <data dir>/envs/venv <data dir>/envs/subprocess` (they are read-only:
-  `chmod -R u+w <data dir>/envs` first) and `docker image rm $(docker images -q
-  meshforge-env)` while no job runs.
+  free. Environments are cleaned up by GC (§0e): least recently used first, down
+  to `[agent.gc] envs_bytes`, never one a running job uses.
 - **Offline / mirror installs.** `[agent.envs] find_links = "/path/to/wheels"` +
   `no_index = true` installs only from a local wheelhouse (the Docker build then
   has no network at all); `index_url = "https://mirror/simple"` uses a mirror
@@ -210,6 +208,92 @@ It prints `docker: available|unavailable: ...`, the `uv` version, and per base
 `present, <size>` or `pulled, <size>, pulled in <s>` (or `failed (<reason>)`, exit
 1). A laptop without Docker pulls nothing and exits 0 (the venv runtime needs no
 image).
+
+**Prepare nodes from the controller laptop** (V0.5 G5; the agents must be online
+with execution enabled):
+
+```
+compute node prepare <NODE_ID> --image python-cpu --image cuda-pytorch
+compute node prepare --all --envs envs.yaml      # build environments too
+```
+
+`envs.yaml`:
+```yaml
+envs:
+  - base: python-cpu        # or cuda-pytorch
+    python: "3.12"          # optional
+    requirements: requirements.txt   # path relative to envs.yaml
+    runtime: venv           # optional: docker | venv | subprocess
+```
+
+Each node pulls the images and builds each environment through the runtime a job
+would use, so the next job with those requirements starts with `env_cache=hit`.
+Output per item: `hit` (already there), `pulled` / `built` (done now) or `failed
+(<failure_type>/<reason>: ...)` - e.g. `env_error/docker_unavailable`,
+`no_feasible_plan/runtime_unavailable` (the node has no such runtime),
+`timeout/pull_timeout`, `env_error/requirements_rejected`. Exit 1 when anything
+failed. Running it again only reports `hit`. The controller remembers the newest
+256 requests in memory; after a controller restart `compute node prepare` reports
+the request unknown, but the work on the node is done and the next run says `hit`.
+
+### 0e. Caches, GC and named inputs (V0.5 G5, D91-D93)
+
+**Every laptop's caches are bounded.** An agent keeps the blobs it fetched
+(`<data dir>/cas`) and the environments it built (`<data dir>/envs`, Docker images
+`meshforge-env:*`). A GC pass runs at start, every `[agent.gc] interval_s` (10
+min), after every job's staging, and when the controller asks; it evicts the
+least recently used items while the cache is over its quota:
+
+```toml
+[agent.gc]
+cas_bytes  = 20_000_000_000   # blob cache quota (0 = unlimited)
+envs_bytes = 30_000_000_000   # env dirs + env images together (0 = unlimited)
+min_age_s  = 300              # never evict anything used in the last 5 minutes
+```
+
+Never evicted: anything a running job uses (its project and input trees, its
+environment), pinned named inputs (below), base images, and items used within
+`min_age_s`. When only such items are left the agent logs `agent.gc.over_quota`
+- raise the quota or free disk. The GC index is `<data dir>/gc/gc.sqlite`; it is
+safe to delete it while the agent is stopped (it is rebuilt from the disk at
+start; last-use times restart from "now"). Each pass logs `agent.gc.pass` with
+what it evicted.
+
+**The controller's blob store** has the same policy (`[controller.gc] cas_bytes`,
+100 GB by default, `min_age_s` 1 day): it never evicts what an unfinished job or
+a pinned named input references. A finished job's outputs **can** be evicted
+after a day under quota pressure - `compute get` them before. The store is also
+**scrubbed**: every blob is re-hashed at `scrub_bytes_per_s` (32 MiB/s) once a
+day, and at once when a job failed `integrity_error`; a corrupt blob is removed
+(`controller.blobs.scrub_corrupt`) and the next `compute run` / `compute data
+push` uploads it again.
+
+**Named inputs** - register a dataset or model once, use it by name:
+
+```
+compute data push imagenet-mini ./data/imagenet-mini --pin   # -> imagenet-mini@1
+compute data ls
+compute data show imagenet-mini
+compute data pin imagenet-mini@1 --off
+compute data rm imagenet-mini@1        # refused while an unfinished job uses it
+```
+
+In a job's `compute.yaml`:
+```yaml
+inputs:
+  - ref: imagenet-mini@1                # or imagenet-mini@sha256:<tree id>
+    mount: data/imagenet                # a folder the project does not use
+```
+
+The input is fetched like the project (only what the node lacks, from peers
+where possible) and copied **read-only** to `data/imagenet` in the job's
+folder; the job reads it, cannot change it. Pushing the same folder again
+uploads nothing and answers the same version; a changed folder becomes the next
+version. `--pin` keeps it on every node's cache and on the controller (GC never
+evicts it) - pin the inputs you use often, unpin the old versions.
+
+**What a transfer cost:** `compute jobs <JOB_ID>` lists, per attempt and tree,
+the cache hits and the bytes and time per source (controller or peer node).
 
 ### 0c. Submitting jobs and getting results (V0.4, `compute`)
 
@@ -495,6 +579,10 @@ volume**).
 | `compute status` says reachable, `nodes` is empty | no agent has ever enrolled | run the agent by hand and watch its log; check it can reach TCP 47100 on the controller |
 | Agent log repeats connect/backoff | firewall on the controller laptop, or the wrong address | open inbound TCP 47100 **on the controller only**; agents need no inbound rule (except 47120 when peer serving is on, §0d) |
 | `agent.cas.source_dropped` for a peer on every job | the peer's port 47120 is blocked, or it advertises an address the controller cannot reach | open TCP 47120 on the peer's LAN profile (§0d); check `peer_endpoint` in `GET /v1/nodes/<id>`; the job still succeeds from the controller |
+| Agent log `agent.gc.over_quota` | everything left in the cache is in use, pinned or used in the last `min_age_s` | raise `[agent.gc] cas_bytes` / `envs_bytes`, unpin old named inputs (`compute data pin NAME@V --off`), or free disk |
+| A job fails `internal_error` with reason `gc_lease_failed` | the agent could not write its GC index (`<data dir>/gc/gc.sqlite`: disk full, permissions) | free disk / fix permissions; with the agent stopped the index can be deleted (rebuilt at start) |
+| Controller log `controller.blobs.scrub_corrupt` | a blob on the controller's disk no longer matches its name (disk error, hand edit) | nothing to do for jobs: it is removed and re-uploaded by the next `compute run` / `data push`; check the disk if it repeats |
+| `compute node prepare` item `failed (no_feasible_plan/runtime_unavailable)` | the node has no runtime for that env (e.g. `runtime: docker` without Docker, `cuda-pytorch` asked of the venv runtime) | drop `runtime:` to let the node choose, or install Docker there |
 | Agent log `agent.peer.start_failed` | port 47120 taken or `bind` is not this laptop's IP | free the port or set `[agent.peer] port`; the agent runs without serving peers meanwhile |
 | Controller exits **4** at startup | PostgreSQL unreachable or bad `[database]` settings | `docker compose -f deploy/docker-compose.dev.yml up -d --wait`, then check `[database]` |
 | Agent exits **5** immediately | another agent process already owns this identity | stop the other one, or give this one its own `data_dir` |
