@@ -364,3 +364,32 @@ async def test_a_decision_that_cannot_be_written_rolls_back_the_attempt(
         j=job.id,
     )
     assert counts == [(0, 0, 3)]
+
+
+async def test_gpus_held_by_live_attempts_are_read_back_from_the_database(
+    store: ExecutionStore, pg_settings: DatabaseSettings
+) -> None:
+    """G2 fix D-2: the GPU indices a live attempt was given are part of the
+    tick's fabric rows (a new engine, as after a controller restart)."""
+    node = await _node(pg_settings)
+    await _queued(store)
+    await _queued(store)
+    await _tick(
+        store,
+        Recorder(
+            lambda _j, _f: Dispatch(
+                attempt_id=str(new_attempt_id()),
+                start_snapshot={"gpu_indices": [1]},
+                node_id=node,
+                slot="gpu",
+            )
+        ),
+    )
+    await _queued(store)  # something to tick for
+    engine = create_engine(pg_settings)
+    try:
+        recorder = Recorder()
+        await _tick(ExecutionStore(engine), recorder)
+    finally:
+        await engine.dispose()
+    assert recorder.fabrics and recorder.fabrics[0].busy_gpus(node) == {1}

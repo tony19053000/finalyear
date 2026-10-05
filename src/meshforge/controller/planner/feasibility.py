@@ -146,11 +146,22 @@ def static_rejection(request: PlanRequest, node: NodeSnapshot) -> Rejection | No
     return None
 
 
+def _gpu_free(request: PlanRequest, node: NodeSnapshot) -> bool:
+    """A GPU slot is free and a GPU no live attempt holds can take the job
+    (its VRAM is enough, or not reported - the static rule's reading)."""
+    if node.free_gpu_slots <= 0:
+        return False
+    need = request.vram_bytes
+    return need is None or any(
+        vram == 0 or vram >= need for vram in node.free_gpu_vram_bytes
+    )
+
+
 def choose_slot(request: PlanRequest, node: NodeSnapshot) -> Slot | None:
     """The slot ``request`` takes on ``node`` now (D105), or None = none free."""
     if request.gpu == "required":
-        return "gpu" if node.free_gpu_slots > 0 else None
-    if request.gpu == "preferred" and _gpu_usable(node) and node.free_gpu_slots > 0:
+        return "gpu" if _gpu_free(request, node) else None
+    if request.gpu == "preferred" and _gpu_usable(node) and _gpu_free(request, node):
         return "gpu"
     return "cpu" if node.free_cpu_slots > 0 else None
 

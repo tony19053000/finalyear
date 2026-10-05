@@ -294,7 +294,9 @@ class ExecutionStore(DecisionReads):
                     ):
                         continue  # the decider must not over-book; defensive
                     attempt = await self._create_dispatched(db, row, node_id, decision)
-                    fabric.took(node_id, decision.slot)
+                    fabric.took(
+                        node_id, decision.slot, _gpu_indices(decision.start_snapshot)
+                    )
                     if decision.record is not None:
                         await _record_decision(
                             db,
@@ -607,6 +609,13 @@ async def _fresh(db: AsyncSession, *rows: Any) -> None:
     await db.flush()
     for row in rows:
         await db.refresh(row)
+
+
+def _gpu_indices(snapshot: Mapping[str, Any]) -> tuple[int, ...]:
+    raw = snapshot.get("gpu_indices")
+    if not isinstance(raw, list | tuple):
+        return ()
+    return tuple(i for i in raw if isinstance(i, int) and not isinstance(i, bool))
 
 
 def _project_keys(row: Job) -> list[str]:

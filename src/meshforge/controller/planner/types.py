@@ -189,6 +189,12 @@ class NodeSnapshot:
     cpu_threads: int | None = None
     gpu_vram_bytes: tuple[int, ...] = ()
     """VRAM of each GPU (0 = the node did not say)."""
+    gpu_indices: tuple[int, ...] = ()
+    """NVML index of each GPU, parallel to ``gpu_vram_bytes`` (empty = the
+    positions are the indices)."""
+    busy_gpus: frozenset[int] = frozenset()
+    """NVML indices held by live attempts on this node: a GPU serves one job
+    at a time, so a GPU slot is free only while a GPU is (G2 fix D-2)."""
     cpu_slots: int = 1
     gpu_slots: int = 0
     used_cpu_slots: int = 0
@@ -212,8 +218,25 @@ class NodeSnapshot:
         return max(0, self.cpu_slots - self.used_cpu_slots)
 
     @property
+    def free_gpu_vram_bytes(self) -> tuple[int, ...]:
+        """VRAM of each GPU no live attempt holds."""
+        indices = self.gpu_indices or tuple(range(len(self.gpu_vram_bytes)))
+        return tuple(
+            vram
+            for index, vram in zip(indices, self.gpu_vram_bytes, strict=False)
+            if index not in self.busy_gpus
+        )
+
+    @property
     def free_gpu_slots(self) -> int:
-        return max(0, self.gpu_slots - self.used_gpu_slots)
+        """GPU slots not in use, and never more than the GPUs not in use."""
+        return max(
+            0,
+            min(
+                self.gpu_slots - self.used_gpu_slots,
+                len(self.free_gpu_vram_bytes),
+            ),
+        )
 
 
 @dataclass(frozen=True, slots=True)

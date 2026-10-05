@@ -1,8 +1,9 @@
 """What the controller sends with ``StartAttempt`` and records at dispatch (V0.4 G4).
 
 * :func:`choose_gpus` - the NVML indices a job may use on its node: none for
-  ``resources.gpu: none``, otherwise the node's GPU with the most VRAM (one GPU
-  per job in V0.4; Mode 4 is where several GPUs serve one program).
+  ``resources.gpu: none``, otherwise the node's GPU with the most VRAM among
+  those no live attempt holds (one GPU per job in V0.4; one job per GPU since
+  the V0.6 G2 fix D-2; Mode 4 is where several GPUs serve one program).
 * :func:`start_snapshot` - the **start snapshot** (roadmap 0.4.12, ARCHITECTURE
   §17): the node's latest live resource sample and stored hardware scores at
   dispatch, plus the GPU choice - what V0.9's telemetry and V0.15's model learn
@@ -20,12 +21,13 @@ from __future__ import annotations
 
 import dataclasses
 import datetime as dt
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from typing import Any, Final
 
 from meshforge.common.manifest import Manifest
 from meshforge.common.proto.meshforge.v1 import agent_pb2
 from meshforge.controller.jobs.store import AttemptRecord, JobRecord
+from meshforge.controller.planner.inputs import gpu_indices_of, gpu_vram_of
 from meshforge.controller.resources import LiveSample
 
 __all__ = ["SNAPSHOT_VERSION", "choose_gpus", "execution_spec", "start_snapshot"]
@@ -34,24 +36,21 @@ SNAPSHOT_VERSION: Final = 1
 _GIB: Final = 1024**3
 
 
-def _int(value: Any) -> int:
-    try:
-        return max(0, int(value))
-    except (TypeError, ValueError):
-        return 0
-
-
-def choose_gpus(manifest: Manifest, hardware: Mapping[str, Any]) -> tuple[int, ...]:
-    """``()`` or the index of the node's largest GPU (see module docstring)."""
+def choose_gpus(
+    manifest: Manifest,
+    hardware: Mapping[str, Any],
+    busy: Collection[int] = (),
+) -> tuple[int, ...]:
+    """``()`` or the index of the node's largest GPU that no live attempt
+    holds (``busy``); ``()`` too when every GPU is held (see module docstring)."""
     if manifest.resources.gpu == "none":
         return ()
-    gpus = hardware.get("gpus")
-    if not isinstance(gpus, list):
-        return ()
     candidates = [
-        (_int(g.get("vram_bytes")), -_int(g.get("index")), _int(g.get("index")))
-        for g in gpus
-        if isinstance(g, Mapping)
+        (vram, -index, index)
+        for index, vram in zip(
+            gpu_indices_of(hardware), gpu_vram_of(hardware), strict=True
+        )
+        if index not in busy
     ]
     if not candidates:
         return ()

@@ -163,6 +163,7 @@ class DispatchPlanner:
             if sample is None or not sample.disks
             else max(d.free_bytes for d in sample.disks),
             cached=cached,
+            busy_gpus=fabric.busy_gpus(row.node_id),
         )
 
     def snapshot(self, fabric: FabricRows) -> ClusterSnapshot:
@@ -296,13 +297,19 @@ class DispatchPlanner:
         decision: Decision,
         fabric: FabricRows,
         record: DecisionRecord,
-    ) -> Dispatch:
+    ) -> Dispatch | Wait:
         chosen = decision.chosen
         if chosen is None or chosen.slot is None:  # pragma: no cover - caller checked
             raise ValueError("dispatch without a chosen candidate")
         row = fabric.nodes[chosen.node_id]
         live = self._manager.get(chosen.node_id)
-        gpus = choose_gpus(manifest, row.hardware) if chosen.slot == "gpu" else ()
+        gpus = (
+            choose_gpus(manifest, row.hardware, fabric.busy_gpus(chosen.node_id))
+            if chosen.slot == "gpu"
+            else ()
+        )
+        if chosen.slot == "gpu" and not gpus:  # pragma: no cover - planner checked
+            return Wait(record)
         snapshot = start_snapshot(
             hardware=row.hardware,
             hardware_scores=row.hardware_scores,

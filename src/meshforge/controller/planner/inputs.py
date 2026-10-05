@@ -7,7 +7,8 @@
   Hello said.
 * :func:`node_snapshot` - a :class:`~.types.NodeSnapshot` from the node row's
   ``hardware`` JSON (proto field names; 64-bit values as JSON strings), its
-  stored hardware scores and the live numbers the caller passes in.
+  stored hardware scores and the live numbers the caller passes in (slot use
+  and the GPU indices live attempts hold).
 * :func:`plan_request` - a :class:`~.types.PlanRequest` from a validated
   manifest and the job's planner fields.
 * :func:`workload_fingerprint` - D108: same project, entrypoint and env request
@@ -35,6 +36,7 @@ from meshforge.controller.planner.types import (
 __all__ = [
     "capabilities_of",
     "effective_slots",
+    "gpu_indices_of",
     "gpu_vram_of",
     "node_snapshot",
     "plan_request",
@@ -68,6 +70,22 @@ def gpu_vram_of(hardware: Mapping[str, Any]) -> tuple[int, ...]:
     return tuple(
         _positive(g.get("vram_bytes")) or 0 for g in gpus if isinstance(g, Mapping)
     )
+
+
+def gpu_indices_of(hardware: Mapping[str, Any]) -> tuple[int, ...]:
+    """NVML index of each GPU in ``hardware``, parallel to :func:`gpu_vram_of`
+    (a missing index is 0 - protobuf JSON leaves a zero field out)."""
+    gpus = hardware.get("gpus")
+    if not isinstance(gpus, list):
+        return ()
+    return tuple(_index(g.get("index")) for g in gpus if isinstance(g, Mapping))
+
+
+def _index(value: Any) -> int:
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 0
 
 
 def effective_slots(
@@ -128,6 +146,7 @@ def node_snapshot(
     disk_free_bytes: int | None = None,
     cached: Iterable[str] = (),
     known_bad_envs: Iterable[str] = (),
+    busy_gpus: Iterable[int] = (),
 ) -> NodeSnapshot:
     caps = capabilities_of(hardware)
     vram = gpu_vram_of(hardware)
@@ -147,6 +166,8 @@ def node_snapshot(
         cpu_threads=_positive(hardware.get("cpu_threads"))
         or _positive(hardware.get("cpu_cores")),
         gpu_vram_bytes=vram,
+        gpu_indices=gpu_indices_of(hardware),
+        busy_gpus=frozenset(busy_gpus),
         cpu_slots=cpu_slots,
         gpu_slots=gpu_slots,
         used_cpu_slots=used_cpu_slots,
