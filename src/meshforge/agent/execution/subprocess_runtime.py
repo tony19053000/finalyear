@@ -29,9 +29,11 @@ runtime):
 * output bytes stream as they arrive, per stream in order, from one task.
 
 What it does **not** enforce: ``limits.memory_bytes``, ``limits.pids`` and
-``limits.cpus`` (no cgroups here), network off, filesystem isolation. ``oom`` can
-therefore not be detected - a workload the kernel OOM-kills ends ``user_error``
-with ``signal = 9``.
+``limits.cpus`` (no cgroups here), network off, filesystem isolation. ``oom`` is
+still **detected** (V0.6 D116, :mod:`.failure_evidence`): a workload that died of a
+SIGKILL the agent did not send while the kernel's ``oom_kill`` counter moved, or
+that exited with a Windows out-of-memory status, ends ``oom`` (``signal = 9`` is
+kept); the executor adds the stderr-based ``MemoryError`` / CUDA rules.
 """
 
 from __future__ import annotations
@@ -48,6 +50,7 @@ from typing import TYPE_CHECKING, ClassVar, Final
 
 from meshforge.agent.envs.errors import EnvError
 from meshforge.agent.execution._pump import OutputPump
+from meshforge.agent.execution.failure_evidence import OomEvidence, windows_oom_exit
 from meshforge.agent.execution.runtime import (
     OutputCallback,
     Phase,
@@ -75,6 +78,7 @@ _STOP_SLACK_S: Final = 2.0
 _DRAIN_S: Final = 1.0
 _PATH_SEP: Final = ";" if sys.platform == "win32" else ":"
 _PYTHONS: Final = frozenset({"python", "python3"})
+_SIGKILL: Final = int(getattr(signal, "SIGKILL", 9))
 
 
 @dataclass(slots=True)
@@ -177,7 +181,7 @@ class SubprocessRuntime:
                 reason=exc.reason,
                 detail=exc.message,
                 env_s=obs.env_s,
-                env_hash=obs.env_hash,
+                env_hash=obs.env_hash or exc.env_hash,
             )
         obs.env_hash, obs.env_cache = use.built.env_hash, use.built.cache
         log.info(
@@ -272,6 +276,7 @@ class SubprocessRuntime:
                         env_s=obs.env_s,
                     )
             obs.enter_run()
+            evidence = OomEvidence.snapshot()
             outcome = await self._step(spec, spec.argv, pump, obs, setup=False, use=use)
             obs.finish()
         except SpawnError as exc:
@@ -309,11 +314,19 @@ class SubprocessRuntime:
         rc = outcome.returncode
         sig = -rc if rc is not None and rc < 0 else None
         exit_code = rc if rc is not None and rc >= 0 else None
+        # D116: a SIGKILL nobody here sent, while the kernel OOM-killed
+        # something, is the OOM killer; so is a Windows out-of-memory status.
+        oom_killed = windows_oom_exit(rc) or (
+            sig == _SIGKILL
+            and not outcome.timed_out
+            and not consumer_failed
+            and evidence.fired()
+        )
         failure = classify(
             exit_code=exit_code,
             signal=sig,
             timed_out=outcome.timed_out,
-            oom_killed=False,
+            oom_killed=oom_killed,
         )
         reason = None
         if consumer_failed:
@@ -324,9 +337,10 @@ class SubprocessRuntime:
             exit_code=exit_code,
             signal=sig,
             timed_out=outcome.timed_out,
+            oom_killed=oom_killed,
             failure_type=failure,
-            reason=reason,
-            detail=_describe(outcome, spec, sig),
+            reason=reason or ("oom_killed" if oom_killed else None),
+            detail=_describe(outcome, spec, sig, oom_killed=oom_killed),
             env_s=obs.env_s,
             run_s=obs.run_s,
             env_hash=obs.env_hash,
@@ -467,9 +481,13 @@ async def _finish_readers(readers: list[asyncio.Task[None]]) -> None:
         await asyncio.gather(*readers, return_exceptions=True)
 
 
-def _describe(outcome: _Exit, spec: RunSpec, sig: int | None) -> str:
+def _describe(
+    outcome: _Exit, spec: RunSpec, sig: int | None, *, oom_killed: bool = False
+) -> str:
     if outcome.timed_out:
         return f"time limit of {spec.limits.timeout_s:g} s exceeded; stopped"
+    if oom_killed:
+        return "out of memory: killed by the operating system's OOM handling"
     if sig is not None:
         with contextlib.suppress(ValueError):
             return f"killed by signal {signal.Signals(sig).name}"

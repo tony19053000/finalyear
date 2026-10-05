@@ -41,7 +41,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import errno
 import hashlib
 import json
 import os
@@ -71,6 +70,11 @@ from meshforge.agent.envs.fsutil import (
     tree_summary,
 )
 from meshforge.agent.envs.hash import EnvInputs, env_hash, normalize_requirements
+from meshforge.agent.execution.failure_evidence import (
+    DISK_FULL_ERRNOS,
+    DISK_FULL_MARKER,
+    OutputTail,
+)
 from meshforge.agent.gc.leases import lease_env
 from meshforge.common.atomic import atomic_write_bytes
 from meshforge.common.errors import FailureType
@@ -99,9 +103,9 @@ _PROBE_SCRIPT: Final = (
 )
 CacheState = Literal["hit", "waited", "built"]
 EnvState = Literal["ready", "damaged", "missing"]
-_DISK_FULL_ERRNOS: Final = frozenset(
-    code for code in (errno.ENOSPC, getattr(errno, "EDQUOT", None)) if code is not None
-)
+_DISK_FULL_ERRNOS: Final = DISK_FULL_ERRNOS
+_INSTALL_TAIL_BYTES: Final = 8192
+"""The end of the installer's output searched for its out-of-disk message."""
 
 
 def default_uv_argv() -> tuple[str, ...]:
@@ -369,7 +373,25 @@ class EnvBuilder:
         log_fields: dict[str, str] | None = None,
     ) -> BuiltEnv:
         """The directory environment ``<kind>/<digest>``, built by ``build`` if
-        missing (module docstring)."""
+        missing (module docstring). An :class:`EnvError` carries ``digest`` as
+        its ``env_hash`` (V0.6 D116: the controller remembers a known-bad env)."""
+        try:
+            return await self._ensure_dir_env(
+                kind, digest, build, deadline=deadline, log_fields=log_fields
+            )
+        except EnvError as exc:
+            exc.details.setdefault("env_hash", digest)
+            raise
+
+    async def _ensure_dir_env(
+        self,
+        kind: str,
+        digest: str,
+        build: BuildStep,
+        *,
+        deadline: float,
+        log_fields: dict[str, str] | None = None,
+    ) -> BuiltEnv:
         fields = {"env_hash": digest, "kind": kind, **(log_fields or {})}
         final = self.env_dir(kind, digest)
         # V0.5 G5 (D91): held by the current attempt BEFORE the readiness check,
@@ -583,15 +605,29 @@ class EnvBuilder:
         deadline: float,
         on_output: OutputSink | None,
     ) -> None:
+        tail = OutputTail(_INSTALL_TAIL_BYTES)
+
+        async def watched(stream: str, data: bytes) -> None:
+            tail.add(data)
+            if on_output is not None:
+                await on_output(stream, data)
+
         code = await run_tool(
             argv,
             env=self._uv_env(),
             cwd=self.root,
             deadline=deadline,
-            on_output=on_output,
+            on_output=watched,
             clock=self._clock,
             what="the requirements install",
         )
+        if code != 0 and DISK_FULL_MARKER.search(tail.data):
+            # D116: the installer ran out of disk (its own ENOSPC message).
+            raise EnvError(
+                f"the disk filled up during the requirements install (exit {code})",
+                reason="disk_full",
+                failure_type=FailureType.DISK_FULL,
+            )
         if code != 0:
             raise EnvError(
                 f"requirements install failed (exit {code})", reason="setup_failed"

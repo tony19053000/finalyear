@@ -82,6 +82,12 @@ from typing import TYPE_CHECKING, Any, Final, Protocol
 from meshforge.agent.cas import AgentCas
 from meshforge.agent.cas.fetcher import FetchTuning
 from meshforge.agent.envs.fsutil import make_read_only, remove_tree
+from meshforge.agent.execution.failure_evidence import (
+    STDERR_TAIL_BYTES,
+    OutputTail,
+    disk_full_cause,
+    refine_result,
+)
 from meshforge.agent.execution.fetch import (
     FetchError,
     StageReport,
@@ -213,6 +219,9 @@ class _Attempt:
     stages: list[StageReport] = field(default_factory=list)
     """Every tree staged for this attempt (project first, then inputs): the
     transfer telemetry of its terminal report (V0.5 G5, D93)."""
+    env_hash: str = ""
+    """The environment the runtime resolved or tried to build (V0.6 D116);
+    sent in the terminal report."""
 
     @property
     def ended(self) -> bool:
@@ -647,7 +656,27 @@ class Executor:
             )
         except asyncio.CancelledError:
             raise
-        except Exception:
+        except Exception as exc:
+            full = disk_full_cause(exc)
+            if full is not None:
+                # D116: ENOSPC anywhere (workdir, logs, staging) is disk_full.
+                log.warning(
+                    "agent.execution.disk_full",
+                    node_id=self._node_id,
+                    job_id=attempt.job_id,
+                    attempt_id=attempt.attempt_id,
+                    state=attempt.state.value,
+                )
+                await self._send(
+                    attempt,
+                    AttemptState.FAILED,
+                    failure=(
+                        FailureType.DISK_FULL,
+                        f"no disk space on this node ({full.strerror})",
+                        False,
+                    ),
+                )
+                return
             log.exception(
                 "agent.execution.attempt_crashed",
                 node_id=self._node_id,
@@ -941,8 +970,11 @@ class Executor:
         runtime = self._setup.runtimes[plan.runtime]
         observer = _Observer(self._clock)
         wake = asyncio.Event()
+        stderr_tail = OutputTail(STDERR_TAIL_BYTES)
 
         async def on_output(stream: Stream, data: bytes) -> None:
+            if stream == Stream.STDERR:
+                stderr_tail.add(data)  # D116: classification evidence
             pending = logs.batcher.next_deadline() is not None
             for chunk in logs.write(Stream(stream), data):
                 self._send_log(attempt, chunk)
@@ -955,7 +987,9 @@ class Executor:
         )
         flusher.add_done_callback(self._task_done)
         try:
-            await self._run_workload(attempt, plan, logs, runtime, observer, on_output)
+            await self._run_workload(
+                attempt, plan, logs, runtime, observer, on_output, stderr_tail
+            )
         finally:
             flusher.cancel()
             await asyncio.gather(flusher, return_exceptions=True)
@@ -1035,6 +1069,7 @@ class Executor:
         runtime: Any,
         observer: _Observer,
         on_output: Callable[[Stream, bytes], Awaitable[None]],
+        stderr_tail: OutputTail | None = None,
     ) -> None:
         run: asyncio.Task[RunResult] = asyncio.ensure_future(
             runtime.run(plan.spec, on_output, observer=observer)
@@ -1055,6 +1090,9 @@ class Executor:
             result = observer.cancelled_result()
         finally:
             attempt.step = None
+        if stderr_tail is not None:
+            result = refine_result(result, stderr_tail.data)  # D116
+        attempt.env_hash = result.env_hash or attempt.env_hash
         exited = self._clock()
         for chunk in logs.batcher.flush():
             self._send_log(attempt, chunk)
@@ -1080,7 +1118,8 @@ class Executor:
                 await self._send(
                     attempt,
                     AttemptState.FAILED,
-                    failure=(FailureType.OUTPUT_ERROR, exc.message, exc.retryable),
+                    # output_error, or disk_full when packing hit ENOSPC (D116)
+                    failure=(exc.failure_type, exc.message, exc.retryable),
                     exit_code=result.exit_code,
                     logs=final_logs,
                 )
@@ -1227,6 +1266,7 @@ class Executor:
             status.transfers.extend(
                 stage.to_proto() for stage in attempt.stages[: 1 + MAX_INPUTS]
             )
+            status.env_hash = attempt.env_hash  # D116 (empty = none computed)
         attempt.state = state
         if terminal:
             attempt.terminal_status = status

@@ -99,6 +99,7 @@ from meshforge.common.proto.meshforge.v1 import agent_pb2
 from meshforge.common.states import ATTEMPT_TERMINAL_STATES, AttemptState
 from meshforge.controller.blobs import FetchTokens
 from meshforge.controller.jobs.dispatch import DispatcherStats, fetch_scope
+from meshforge.controller.jobs.env_health import KnownBadEnvs, env_key
 from meshforge.controller.jobs.execution_store import (
     ExecutionStore,
     StatusKind,
@@ -174,8 +175,11 @@ class Dispatcher(RecoverySteps):
         peers: PeerSources | None = None,
         on_integrity_failure: Callable[[str], None] | None = None,
         inputs: NamedInputStore | None = None,
+        known_bad_envs: KnownBadEnvs | None = None,
     ) -> None:
         self._store = store
+        self.known_bad_envs = known_bad_envs
+        """V0.6 G1 (D116): (node, env) pairs that failed env_error recently."""
         self._inputs = inputs
         """V0.5 G5 (D92): the job's resolved named inputs (job_input rows)."""
         self._on_integrity_failure = on_integrity_failure
@@ -451,6 +455,7 @@ class Dispatcher(RecoverySteps):
             )
         self._manager.ack_message(live, item.message_id)
         self._after(outcome, report)
+        self._remember_bad_env(outcome, report)
         await self._suspect_trees(outcome, report)
 
     def _verified(self, report: StatusReport, live: LiveSession) -> StatusReport:
@@ -523,6 +528,26 @@ class Dispatcher(RecoverySteps):
             and outcome.kind is StatusKind.APPLIED
         ):
             self._send_cancel(attempt, "cancelled by request")
+
+    def _remember_bad_env(self, outcome: StatusOutcome, report: StatusReport) -> None:
+        """D116: an attempt that ended env_error makes (node, env) known-bad."""
+        attempt, job = outcome.attempt, outcome.job
+        if (
+            self.known_bad_envs is None
+            or not outcome.ended
+            or outcome.kind is not StatusKind.APPLIED
+            or report.failure_type is not FailureType.ENV_ERROR
+            or attempt is None
+            or job is None
+        ):
+            return
+        self.known_bad_envs.record(
+            attempt.node_id,
+            env_key(job.manifest, tree_id=job.tree_id, bundle_digest=job.bundle_digest),
+            env_hash=report.env_hash,
+            job_id=job.id,
+            attempt_id=attempt.id,
+        )
 
     async def _suspect_trees(
         self, outcome: StatusOutcome, report: StatusReport

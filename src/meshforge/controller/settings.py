@@ -368,6 +368,23 @@ class JobApiSettings(SectionModel):
             "against the database; the rest wait for the next sweep."
         ),
     )
+    # --- reliability floor (V0.6 G1, D116) ---------------------------------
+    env_bad_ttl_s: float = Field(
+        default=3600.0,
+        ge=0.0,
+        le=7 * 86_400.0,
+        description=(
+            "D116: after an attempt fails env_error, that node + environment "
+            "request is remembered as known-bad this long (in memory; a restart "
+            "forgets it) so the planner can avoid it. 0 = never remembered."
+        ),
+    )
+    known_bad_envs_max: int = Field(
+        default=10_000,
+        ge=1,
+        le=1_000_000,
+        description="Known-bad (node, env) entries kept; the oldest is dropped.",
+    )
 
     @property
     def upload_deadline_total_s(self) -> float:

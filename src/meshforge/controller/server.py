@@ -61,6 +61,7 @@ from meshforge.controller.fabric_token import (
 from meshforge.controller.gc import BlobScrubber, ControllerGc
 from meshforge.controller.http import create_http_app
 from meshforge.controller.jobs.dispatcher import Dispatcher
+from meshforge.controller.jobs.env_health import KnownBadEnvs
 from meshforge.controller.jobs.execution_store import ExecutionStore
 from meshforge.controller.jobs.logs import LogHub
 from meshforge.controller.jobs.peers import PeerSources
@@ -144,6 +145,7 @@ class ControllerRuntime:
         self.jobs: ExecutionStore | None = None
         """D49: the single writer of the job tables."""
         self.dispatcher: Dispatcher | None = None
+        self.known_bad_envs: KnownBadEnvs | None = None
         """D65: queued jobs -> attempts; the one task that writes attempts."""
         self._dispatcher_task: asyncio.Task[None] | None = None
         self.fetch_tokens: FetchTokens | None = None
@@ -309,6 +311,12 @@ class ControllerRuntime:
         self._logs_task = self._spawn(log_hub.run(), "log-writer")
         # Before the gRPC server accepts a stream: the dispatcher registers the
         # attempt_status handler and the session hooks (D64-D66).
+        # V0.6 G1 (D116): G2's feasibility asks known_bad_envs.is_bad(node, key).
+        self.known_bad_envs = KnownBadEnvs(
+            ttl_s=cfg.jobs.env_bad_ttl_s,
+            clock=loop.time,
+            max_entries=cfg.jobs.known_bad_envs_max,
+        )
         self.dispatcher = Dispatcher(
             self.jobs,
             manager,
@@ -328,6 +336,7 @@ class ControllerRuntime:
                 index_live=self.cache_index.is_live,
             ),
             inputs=self.inputs,
+            known_bad_envs=self.known_bad_envs,
             on_integrity_failure=(
                 functools.partial(
                     self.scrubber.suspect_tree_soon, why="attempt_integrity_error"

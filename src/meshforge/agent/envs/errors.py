@@ -51,3 +51,10 @@ class EnvError(MeshForgeError):
     def reason(self) -> str:
         # kept in ``details`` so it survives MeshForgeError's pickling round trip
         return str(self.details.get("reason", ""))
+
+    @property
+    def env_hash(self) -> str | None:
+        """The env hash being resolved when it failed (V0.6 D116), if known:
+        set by the builder once the hash was computed."""
+        value = self.details.get("env_hash")
+        return str(value) if value else None

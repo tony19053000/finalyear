@@ -1034,6 +1034,7 @@ class AttemptStatus(_message.Message):
     STDOUT_LOG_FIELD_NUMBER: _builtins.int
     STDERR_LOG_FIELD_NUMBER: _builtins.int
     TRANSFERS_FIELD_NUMBER: _builtins.int
+    ENV_HASH_FIELD_NUMBER: _builtins.int
     job_id: _builtins.str
     attempt_id: _builtins.str
     fencing_token: _builtins.int
@@ -1049,6 +1050,12 @@ class AttemptStatus(_message.Message):
     """Runtime that ran (or was chosen to run) the attempt: "docker" | "venv" | "subprocess"."""
     signal: _builtins.int
     """Signal number that ended the workload, when it died by one."""
+    env_hash: _builtins.str
+    """The environment the runtime resolved or tried to build (V0.6 G1, D116):
+    64 lowercase hex of the agent's env hash, empty when none was computed.
+    Terminal statuses only. An env_error with a hash makes the controller
+    remember (node, env) as known-bad for [controller.jobs] env_bad_ttl_s.
+    """
     @_builtins.property
     def failure(self) -> _common_pb2.Failure:
         """Set only when state == ATTEMPT_STATE_FAILED."""
@@ -1101,10 +1108,11 @@ class AttemptStatus(_message.Message):
         stdout_log: Global___FinalLog | None = ...,
         stderr_log: Global___FinalLog | None = ...,
         transfers: _abc.Iterable[Global___TransferSummary] | None = ...,
+        env_hash: _builtins.str = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _typing.Literal["_exit_code", b"_exit_code", "_signal", b"_signal", "exit_code", b"exit_code", "failure", b"failure", "observed_at", b"observed_at", "phases", b"phases", "signal", b"signal", "stderr_log", b"stderr_log", "stdout_log", b"stdout_log"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["_exit_code", b"_exit_code", "_signal", b"_signal", "attempt_id", b"attempt_id", "exit_code", b"exit_code", "failure", b"failure", "fencing_token", b"fencing_token", "job_id", b"job_id", "missing_outputs", b"missing_outputs", "observed_at", b"observed_at", "output_digest", b"output_digest", "phases", b"phases", "runtime", b"runtime", "signal", b"signal", "state", b"state", "stderr_log", b"stderr_log", "stdout_log", b"stdout_log", "transfers", b"transfers"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["_exit_code", b"_exit_code", "_signal", b"_signal", "attempt_id", b"attempt_id", "env_hash", b"env_hash", "exit_code", b"exit_code", "failure", b"failure", "fencing_token", b"fencing_token", "job_id", b"job_id", "missing_outputs", b"missing_outputs", "observed_at", b"observed_at", "output_digest", b"output_digest", "phases", b"phases", "runtime", b"runtime", "signal", b"signal", "state", b"state", "stderr_log", b"stderr_log", "stdout_log", b"stdout_log", "transfers", b"transfers"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     _WhichOneofReturnType__exit_code: _TypeAlias = _typing.Literal["exit_code"]  # noqa: Y015
     _WhichOneofArgType__exit_code: _TypeAlias = _typing.Literal["_exit_code", b"_exit_code"]  # noqa: Y015

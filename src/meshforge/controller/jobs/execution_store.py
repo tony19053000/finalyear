@@ -166,6 +166,8 @@ class StatusReport:
     """D71 final logs per stream; a digest only once verified under the grant."""
     transfers: tuple[TransferRow, ...] = ()
     """V0.5 G5 (D93): transfer telemetry of the terminal report."""
+    env_hash: str | None = None
+    """V0.6 G1 (D116): the agent's env hash (64 hex), terminal reports only."""
 
 
 class StatusKind(StrEnum):

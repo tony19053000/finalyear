@@ -63,6 +63,7 @@ from meshforge.agent.cas import (
 )
 from meshforge.agent.cas.fetcher import FetchError, FetchTuning, SourceStats
 from meshforge.agent.cas.store import DEFAULT_FREE_DISK_FLOOR_BYTES
+from meshforge.agent.execution.failure_evidence import DISK_FULL_ERRNOS
 from meshforge.common.errors import FailureType, MeshForgeError
 from meshforge.common.hashing import Digest
 from meshforge.common.logging import get_logger
@@ -180,6 +181,13 @@ async def fetch_bundle(
         ) from None
     except httpx.HTTPError as exc:
         raise FetchError(f"bundle fetch failed: {type(exc).__name__}") from None
+    except OSError as exc:
+        # The local side (the part file): typed, never an untyped crash (D116).
+        full = exc.errno in DISK_FULL_ERRNOS
+        raise FetchError(
+            f"cannot store the bundle: {exc.strerror or type(exc).__name__}",
+            failure_type=FailureType.DISK_FULL if full else FailureType.INTERNAL_ERROR,
+        ) from None
     finally:
         with contextlib.suppress(OSError):
             part.unlink()

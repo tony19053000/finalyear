@@ -416,6 +416,11 @@ message AttemptStatus {
   // tree first, then named inputs), sent with the terminal status. At most
   // 1 + 16 entries; the controller persists them as transfer_event rows.
   repeated TransferSummary transfers = 15;
+  // The environment the runtime resolved or tried to build (V0.6 G1, D116):
+  // 64 lowercase hex of the agent's env hash, empty when none was computed.
+  // Terminal statuses only. An env_error with a hash makes the controller
+  // remember (node, env) as known-bad for [controller.jobs] env_bad_ttl_s.
+  string env_hash = 16;
 }
 
 // What staging one tree cost (V0.5 G5, D93). Agent-measured, monotonic clock.

@@ -30,6 +30,7 @@ from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Final
 
+from meshforge.agent.execution.failure_evidence import DISK_FULL_ERRNOS
 from meshforge.common.bundle import BundleError, BundleLimits, pack_files
 from meshforge.common.errors import FailureType, MeshForgeError
 from meshforge.common.hashing import Digest
@@ -191,6 +192,12 @@ def collect_outputs(
         ) from None
     except OSError as exc:
         dest.unlink(missing_ok=True)
+        if exc.errno in DISK_FULL_ERRNOS:  # D116: typed, not an output_error
+            raise OutputError(
+                f"no disk space to pack the outputs ({exc.strerror})",
+                failure_type=FailureType.DISK_FULL,
+                retryable=False,
+            ) from None
         raise OutputError(
             f"cannot pack the outputs ({exc.strerror or type(exc).__name__})",
             retryable=True,

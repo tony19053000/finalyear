@@ -47,6 +47,7 @@ MAX_FENCING_TOKEN: Final = 2**63 - 1
 """``attempt.fencing_token`` is a BIGINT."""
 RUNTIMES: Final = frozenset({"docker", "subprocess", "venv"})
 _DIGEST: Final = re.compile(r"sha256:[0-9a-f]{64}")
+_ENV_HASH: Final = re.compile(r"[0-9a-f]{64}")
 _MAX_SIGNAL: Final = 64
 
 
@@ -164,6 +165,8 @@ def parse_status(status: agent_pb2.AttemptStatus) -> StatusReport | str:
     transfers = _transfers(status, state)
     if isinstance(transfers, str):
         return transfers
+    if status.env_hash and not _ENV_HASH.fullmatch(status.env_hash):
+        return "AttemptStatus.env_hash is not 64 lowercase hex characters"
     return StatusReport(
         attempt_id=attempt_id,
         fencing_token=int(status.fencing_token),
@@ -177,6 +180,7 @@ def parse_status(status: agent_pb2.AttemptStatus) -> StatusReport | str:
         missing_outputs=tuple(status.missing_outputs),
         logs=logs,
         transfers=transfers,
+        env_hash=status.env_hash or None,
     )
 
 
