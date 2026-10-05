@@ -3,7 +3,8 @@
 Prints, per planner decision of the job (``GET /v1/jobs/{id}/decisions``):
 the policy and outcome; **every candidate** - rank, node, Local/offload, slot,
 the policy's score and the predicted total, or the rejection code and reason;
-the predicted terms of each ranked candidate **with their source**
+the predicted terms of each ranked candidate **with their source** (and,
+V0.6 G4, the node or ``controller`` a transfer's bandwidth was measured from)
 (``measured`` / ``history`` / ``scaled`` / ``assumed`` - checklist 18: nothing
 assumed reads as measured); and, once the attempt ran, predicted vs actual
 (``transfer``~``stage``, ``env``~``env``, ``compute``~``run``,
@@ -44,9 +45,20 @@ def _seconds(value: Any) -> str:
 
 
 def _term_cell(term: Any) -> str:
+    """``<seconds> (<source>)``; a transfer also names where its bandwidth came
+    from (V0.6 G4: ``from <node...>`` for a probed link, ``from controller``
+    for transfer history) and a cached environment says so."""
     if not isinstance(term, Mapping):
         return _DASH
-    return f"{_seconds(term.get('seconds'))} ({term.get('source')})"
+    detail = term.get("detail")
+    detail = detail if isinstance(detail, Mapping) else {}
+    extra = ""
+    source = detail.get("bw_from")
+    if isinstance(source, str) and source:
+        extra = f", from {source if source == 'controller' else source[-8:]}"
+    elif detail.get("env_cached") is True:
+        extra = ", cached"
+    return f"{_seconds(term.get('seconds'))} ({term.get('source')}{extra})"
 
 
 def _candidates_table(decision: Mapping[str, Any]) -> Table:
