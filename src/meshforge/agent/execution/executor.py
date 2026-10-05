@@ -17,6 +17,14 @@ are collected, packed and uploaded with the attempt's upload grant,
 ``missing_outputs``) or ``FAILED(failure_type)`` - ``output_error`` when the
 outputs could not be collected or uploaded.
 
+**Uploads across a controller restart (V0.6 G1, D114).** Logs and outputs go up
+resumably (:mod:`.uploader`: parts the controller already holds are not sent
+again). A refused grant (``401``: a restarted controller forgot it) waits for
+``RefreshUploadGrant``, which replaces the attempt's grant and blob location
+(only for the same ``(attempt_id, fencing_token)`` while it has not ended); an
+unreachable controller is retried with backoff. Both stop after
+``upload_retry_s`` from the first failure -> ``output_error`` (retryable).
+
 Every change is an ``AttemptStatus`` sent through the session's ``send_report``
 (buffered, replayed after a reconnect, acked); the terminal one carries the exit
 code and the phase durations (``stage``/``env``/``run``/``collect``, monotonic
@@ -229,7 +237,8 @@ class _Attempt:
     upload_port: int | None = None
     grant_changed: asyncio.Event = field(default_factory=asyncio.Event)
     upload_deadline: float | None = None
-    """When the upload retries give up (one budget for logs and outputs)."""
+    """When the upload retries give up: ``upload_retry_s`` after the first
+    failed upload (one budget for logs and outputs)."""
     upload_retries: int = 0
     uploads: UploadProgress = field(default_factory=UploadProgress)
     """What the resumable uploads of this attempt sent (D114)."""
@@ -662,13 +671,12 @@ class Executor:
         """One blob up with the attempt's grant (D114): a refused grant waits
         for ``RefreshUploadGrant``, an unreachable controller is retried with
         backoff (0.25 s doubling to 5 s) - parts already stored are not sent
-        again - until ``upload_retry_s`` (one budget per attempt), then
-        :class:`UploadError` (retryable -> ``output_error``)."""
+        again - for at most ``upload_retry_s`` counted from the attempt's first
+        failed upload (one budget for its logs and outputs together), then
+        :class:`UploadError` (retryable -> ``output_error``). The controller's
+        upload deadline (D94) still bounds the whole upload."""
         if not attempt.upload_token:
             attempt.upload_token = plan.upload_token
-        if attempt.upload_deadline is None:
-            attempt.upload_deadline = self._clock() + self._cfg.upload_retry_s
-        deadline = attempt.upload_deadline
         delay = _STAGE_RETRY_BASE_S
         while True:
             used = attempt.upload_token
@@ -694,17 +702,18 @@ class Executor:
                 last, refused = exc, bool(exc.details.get("refused"))
             else:
                 return
-            if self._clock() >= deadline:
-                raise UploadError(
-                    f"the upload did not succeed within "
-                    f"{self._cfg.upload_retry_s:g} s of retries (last: {last.message})",
-                    retryable=True,
-                )
+            if attempt.upload_deadline is None:
+                attempt.upload_deadline = self._clock() + self._cfg.upload_retry_s
+            deadline = attempt.upload_deadline
+            self._check_upload_deadline(deadline, last)
             if attempt.upload_token == used:
                 remaining = max(0.0, deadline - self._clock())
                 wait = remaining if refused else min(delay, remaining)
                 delay = min(delay * 2, _STAGE_RETRY_CAP_S)
                 await self._step(attempt, self._grant_wait(attempt, wait))
+                if attempt.upload_token == used:
+                    # Checked again after the wait: no refresh came in time.
+                    self._check_upload_deadline(deadline, last)
             attempt.upload_retries += 1
             log.info(
                 "agent.execution.upload_retry",
@@ -712,8 +721,17 @@ class Executor:
                 job_id=attempt.job_id,
                 attempt_id=attempt.attempt_id,
                 cause=last.message[:120],
+                refused=refused,
                 refreshed=attempt.upload_token != used,
                 retries=attempt.upload_retries,
+            )
+
+    def _check_upload_deadline(self, deadline: float, last: UploadError) -> None:
+        if self._clock() >= deadline:
+            raise UploadError(
+                f"the upload did not succeed within {self._cfg.upload_retry_s:g} s "
+                f"of retries (last: {last.message})",
+                retryable=True,
             )
 
     @staticmethod

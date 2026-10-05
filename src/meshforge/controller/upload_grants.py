@@ -65,7 +65,7 @@ _MAX_TTL_S: Final = 7 * 24 * 3600 + 3600
 class GrantRefusal(Exception):  # noqa: N818 - a refusal, not a crash
     """The grant does not allow this upload. ``reason`` is a stable code:
     ``unknown`` / ``expired`` / ``closed`` / ``length_required`` /
-    ``blob_quota`` / ``byte_quota``."""
+    ``blob_quota`` / ``byte_quota`` / ``size_mismatch`` (D114 parts)."""
 
     def __init__(self, reason: str, message: str) -> None:
         super().__init__(message)
@@ -221,9 +221,15 @@ class UploadGrants:
         if digest.hex in grant.uploaded:
             return UploadTicket(key, grant.attempt_id, digest.hex, 0, free=True)
         if digest.hex in grant.pending:
-            return UploadTicket(
-                key, grant.attempt_id, digest.hex, grant.pending[digest.hex], False
-            )
+            reserved = grant.pending[digest.hex]
+            if reserved != size:
+                # The reservation is the blob's size: a part declaring another
+                # size would write past what the quota reserved.
+                raise GrantRefusal(
+                    "size_mismatch",
+                    "this upload was reserved with another blob size",
+                )
+            return UploadTicket(key, grant.attempt_id, digest.hex, reserved, False)
         if grant.used_blobs + 1 > grant.max_blobs:
             raise GrantRefusal(
                 "blob_quota",

@@ -126,6 +126,7 @@ _GRANT_STATUS: Final = {
     "length_required": status.HTTP_411_LENGTH_REQUIRED,
     "blob_quota": status.HTTP_413_CONTENT_TOO_LARGE,
     "byte_quota": status.HTTP_413_CONTENT_TOO_LARGE,
+    "size_mismatch": status.HTTP_400_BAD_REQUEST,
 }
 
 
@@ -502,23 +503,15 @@ async def complete_parts(
     token = bearer_token(request)
     fabric = auth.verifier is not None and auth.verifier.verify(token)
     ticket: UploadTicket | None = None
-    already = False
     if not fabric:
         found = await store.part_status(digest)
-        if found is None or found.complete:
+        if found is None:
             _authorize_parts(request, auth, digest, None)
-            if found is None:
-                raise ApiError.not_found("part upload")
-            # Stored before this call: credited only if THIS grant uploaded it.
-            already = (
-                auth.upload_grants is not None
-                and token is not None
-                and auth.upload_grants.uploaded(auth.upload_grants.check(token), digest)
-            )
-        else:
-            # D114: under an upload grant the blob is reserved (once) before
-            # the parts are assembled; the size is the upload's own.
-            ticket = _authorize_parts(request, auth, digest, found.size)
+            raise ApiError.not_found("part upload")
+        # D114: under an upload grant the whole blob is reserved (once per
+        # digest) before anything is assembled - also when it is already
+        # stored, so the reservation of parts sent earlier is settled below.
+        ticket = _authorize_parts(request, auth, digest, found.size)
     try:
         result = await store.complete_parts(digest)
     except BlobIntegrityError as exc:
@@ -527,16 +520,18 @@ async def complete_parts(
         raise ApiError.not_found("part upload") from None
     except BlobError as exc:
         raise _blob_error(exc) from None
-    credited = fabric or already
+    credited = fabric
     if ticket is not None and auth.upload_grants is not None:
-        if result.created or ticket.free:
-            # Assembled and verified by THIS call (or uploaded before under
-            # this grant): it counts for the grant.
+        if ticket.free:
+            credited = True  # stored and credited under this grant before
+        elif result.created:
+            # Assembled and verified by THIS call: it counts for the grant.
             auth.upload_grants.credit(ticket, result.size)
             credited = True
         else:
-            # Someone else completed it meanwhile: nothing proves this attempt
-            # sent it - the agent uploads the bytes with PUT.
+            # Stored before this call (by someone else, or by this attempt
+            # under a grant a restarted controller forgot): nothing proves this
+            # attempt sent it - the agent proves it with a plain PUT.
             auth.upload_grants.release(ticket)
     if not result.created:
         response.status_code = status.HTTP_200_OK

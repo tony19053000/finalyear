@@ -31,9 +31,11 @@ attempt's **upload grant** (never the fetch token, which is download-only),
 always with ``Content-Length`` (the grant reserves quota from it). A connection
 failure, a timeout or ``503`` (the controller's upload slots are busy) is
 retried with backoff a few times; the final failure is an :class:`UploadError`
-whose ``retryable`` says whether a later attempt may succeed: ``401/403``
-(grant refused, attempt ended) and ``411/413`` (quota) are not; ``507`` (the
-controller's disk) and transport errors are.
+whose ``retryable`` says whether a later attempt may succeed: ``403`` (the
+attempt ended) and ``411/413`` (quota) are not; ``507`` (the controller's disk)
+and transport errors are. ``401`` (the controller does not know the grant - after
+a restart it sends a new one, V0.6 D114) is retryable with ``details["refused"]``:
+the caller waits for ``RefreshUploadGrant``.
 """
 
 from __future__ import annotations
@@ -246,10 +248,15 @@ async def upload_blob(
                 status = response.status_code
                 if status in (200, 201):
                     return size
-                if status in (401, 403):
+                if status == 401:
                     raise UploadError(
-                        "the controller refused this attempt's upload grant "
-                        f"(HTTP {status})",
+                        "the controller refused this attempt's upload grant (HTTP 401)",
+                        retryable=True,
+                        details={"refused": True},
+                    )
+                if status == 403:
+                    raise UploadError(
+                        "the attempt already ended for the controller (HTTP 403)",
                         retryable=False,
                     )
                 if status in (411, 413):

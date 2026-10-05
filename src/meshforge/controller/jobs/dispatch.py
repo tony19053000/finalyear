@@ -106,6 +106,7 @@ class DispatchSteps:
     _resources: ResourceTracker | None
     _wall: Callable[[], dt.datetime]
     _started_at: float
+    _grant_refresh_unacked: dict[str, str]
     stats: DispatcherStats
 
     # ------------------------------------------------------------ dispatch
@@ -364,6 +365,9 @@ class DispatchSteps:
             # Nobody holds it: drop it so the next Reconcile refreshes again.
             self._grants.revoke(attempt.id)
             return
+        # Until the agent acks it, a stream that breaks may have taken it along:
+        # the next Reconcile then mints and sends another (one live grant).
+        self._grant_refresh_unacked[attempt.id] = sent
         self.stats.upload_grants_refreshed += 1
         log.info(
             "controller.jobs.upload_grant_refreshed",
@@ -384,6 +388,7 @@ class DispatchSteps:
         """The attempt ended: its fetch token lives ``fetch_token_end_grace_s``
         more, its upload grant takes no new upload (D60/D73)."""
         grace = self._settings.fetch_token_end_grace_s
+        self._grant_refresh_unacked.pop(attempt_id, None)
         self._tokens.expire_after(attempt_id, grace)
         if self._grants is not None:
             self._grants.close(attempt_id, grace)

@@ -49,6 +49,9 @@ controller does not consider live (ended, or unknown) get
 for which this process has no live fetch token (a controller restart forgets
 them all; they are never persisted) gets ``RefreshFetchToken`` with a new
 download-only token of the same scope and the current blob location (D95).
+Any held attempt without a live upload grant in this process gets
+``RefreshUploadGrant`` with a new grant of the StartAttempt's quota (V0.6 G1,
+D114); one sent but never acked is re-minted on the next Reconcile.
 
 **OFFLINE (D66).** A node the *agent* took OFFLINE (lease expired, Goodbye) loses
 its live attempts (``LOST``, job ``FAILED(node_lost)``; no retry until V0.6) and
@@ -150,6 +153,9 @@ class _Acked:
     node_id: str
     attempt_id: str
     fencing_token: int
+    payload: str = "start_attempt"
+    """``start_attempt`` or ``refresh_upload_grant`` (V0.6 G1, D114)."""
+    message_id: str = ""
 
 
 type _Item = _Status | _Acked | _Reconcile | _Offline
@@ -205,6 +211,9 @@ class Dispatcher(RecoverySteps):
         self._poison: OrderedDict[tuple[str, str], int] = OrderedDict()
         self._uploading_since: dict[str, dt.datetime] = {}
         """attempt_id -> when it entered UPLOADING (from the job history)."""
+        self._grant_refresh_unacked: dict[str, str] = {}
+        """D114: attempt_id -> message_id of a RefreshUploadGrant sent but not
+        acked yet (the next Reconcile re-mints and re-sends it)."""
         self._next_log_gc = self._started_at + settings.log_gc_interval_s
         manager.dispatch.register("attempt_status", self._on_status_message)
         manager.defer_ack("attempt_status")
@@ -289,10 +298,18 @@ class Dispatcher(RecoverySteps):
             )
 
     def _on_command_acked(
-        self, live: LiveSession, _message_id: str, pending: PendingCommand
+        self, live: LiveSession, message_id: str, pending: PendingCommand
     ) -> None:
-        if pending.payload == "start_attempt":
-            self._put(_Acked(live.node_id, pending.attempt_id, pending.fencing_token))
+        if pending.payload in ("start_attempt", "refresh_upload_grant"):
+            self._put(
+                _Acked(
+                    live.node_id,
+                    pending.attempt_id,
+                    pending.fencing_token,
+                    pending.payload,
+                    message_id,
+                )
+            )
 
     def _on_reconcile(self, live: LiveSession, reconcile: agent_pb2.Reconcile) -> None:
         held = {
@@ -376,7 +393,11 @@ class Dispatcher(RecoverySteps):
                 if not self._poisoned(item, exc):
                     raise
         elif isinstance(item, _Acked):
-            await self._store.mark_start_acked(item.attempt_id, item.fencing_token)
+            if item.payload == "refresh_upload_grant":
+                if self._grant_refresh_unacked.get(item.attempt_id) == item.message_id:
+                    del self._grant_refresh_unacked[item.attempt_id]
+            else:
+                await self._store.mark_start_acked(item.attempt_id, item.fencing_token)
         elif isinstance(item, _Reconcile):
             await self._reconcile(item)
         else:
