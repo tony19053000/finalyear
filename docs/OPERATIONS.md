@@ -85,7 +85,18 @@ grace_s = 3.0               # cancel/timeout: SIGTERM, then SIGKILL after this (
 # default_timeout_s = 3600, max_timeout_s = 86400, run_as = "auto"
 # keep_workdirs = false     # true = keep each finished job's folder + its logs
 # max_concurrent_attempts = 4
+# max_cpu_jobs = 1          # V0.6: jobs without a GPU run at once (0 = none)
+# max_gpu_jobs = (empty)    # V0.6: GPU jobs at once; empty = one per GPU, 0 = none
 ```
+
+**How many jobs at once (V0.6, D105).** The controller schedules by the slots
+this laptop advertises in every Hello: `max_cpu_jobs` CPU slots and
+`max_gpu_jobs` GPU slots (a `gpu: required` job takes a GPU slot; `preferred` a
+GPU slot when one is free, else a CPU slot; others a CPU slot). Their sum must
+not exceed `max_concurrent_attempts` (the agent refuses to start otherwise).
+The controller also caps every node at `[controller.jobs] max_attempts_per_node`
+(default 8). `max_cpu_jobs = 0` makes a GPU-only node: CPU jobs that nothing
+else can run are refused at submit with the reason `no_cpu_slots`.
 
 **Check it took effect.** Restart the agent, then `compute nodes <node id>` (or
 `GET /v1/nodes/<node id>`) must list the capability `exec` plus `exec-docker`
@@ -326,8 +337,11 @@ From any laptop with the fabric token (§0a) and the controller's URL
 (`MESHFORGE_CLI__CONTROLLER_URL=http://<controller ip>:47110`):
 
 ```bash
-compute run workloads/examples/cpu-deterministic --node <NODE_ID> -f   # Mode 1
-compute run workloads/examples/cpu-deterministic --local -f            # this laptop's agent
+compute run workloads/examples/cpu-deterministic -f                    # the planner places it (V0.6)
+compute run workloads/examples/cpu-deterministic --policy least_loaded --priority 5
+compute run workloads/examples/cpu-deterministic --node <NODE_ID> -f   # pinned: Mode 1 on that node
+compute run workloads/examples/cpu-deterministic --local -f            # pinned: this laptop's agent
+compute explain <JOB_ID> [--attempt N]   # why it went where it went (V0.6)
 compute jobs                       # recent jobs (--state running, --json)
 compute logs <JOB_ID> [-f]         # stdout to stdout, stderr to stderr; -f follows live
 compute cancel <JOB_ID>            # idempotent
@@ -339,6 +353,31 @@ compute get <JOB_ID>               # outputs -> ./outputs/<JOB_ID>/ (--dest, --f
   and prints the job id. It also prints an **idempotency key** on stderr: after a
   network error, re-run the same command with `--idempotency-key <key>` and you get
   the same job back instead of a second one.
+- **Automatic placement (V0.6, D102-D107).** Without `--node`/`--local` the
+  controller's planner picks the node on every dispatch tick: it rejects nodes
+  that cannot run the job (no `exec`, no GPU / VRAM / RAM / CPU threads, no
+  runtime for `env.base`, owner slot settings, recent environment failure,
+  offline, slots full) and ranks the rest with the job's **policy** -
+  `random`, `round_robin`, `least_loaded`, `strongest_suitable`,
+  `resource_score`, `cache_affinity` or `cost_model` (default; lowest predicted
+  completion time). Precedence: `--policy` > the manifest's `policy:` >
+  `[controller.planner] default_policy`. A job **no** node could ever run is
+  refused at once (`409 no_feasible_plan`, each node's reason printed); one that
+  only has to wait (busy, offline) stays `queued`. `priority:` (-10..10, or
+  `--priority`) orders the queue; waiting raises a job one level per
+  `[controller.planner] priority_aging_s` (600 s), so nothing starves.
+- **Local.** When this laptop runs an enrolled agent, `run` names it as the
+  job's Local candidate and first copies the project into that agent's cache
+  (`[cli] seed_local`, up to `seed_max_bytes`, 2 GiB; one stderr line says
+  whether it did and why not) - so running here needs no download, and
+  `cost_model` prefers it for a job whose transfer would dominate.
+- `compute explain <JOB_ID>` prints every candidate of every planner decision:
+  rank, Local/offload, slot, score, the predicted time split into queue /
+  transfer / env / compute / output **with where each number came from**
+  (`measured`, `history`, `scaled`, `assumed` - V0.6 G2 still assumes the
+  bandwidth and an unknown run time; G4 measures links), the reason for each
+  rejected node, and - once it ran - the actual phase times next to the
+  prediction (`GET /v1/jobs/<id>/decisions`, `--json`).
 - `run -f` streams the logs and exits like the job: `0` succeeded; the workload's own
   exit code (1-125) when it failed; `126` when the fabric failed it (the failure type
   is printed: `node_lost`, `deadline_exceeded`, `output_error` …); `128` cancelled.
@@ -611,6 +650,9 @@ volume**).
 | `compute node prepare` item `failed (no_feasible_plan/runtime_unavailable)` | the node has no runtime for that env (e.g. `runtime: docker` without Docker, `cuda-pytorch` asked of the venv runtime) | drop `runtime:` to let the node choose, or install Docker there |
 | Agent log `agent.peer.start_failed` | port 47120 taken or `bind` is not this laptop's IP | free the port or set `[agent.peer] port`; the agent runs without serving peers meanwhile |
 | A job fails `output_error` with "the upload did not succeed within 120 s of retries" | the agent could not reach the controller's blob port (TCP 47110), or the restarted controller never sent a new upload grant (the agent never reconnected) | check that the controller is up and the agent reconnected (`compute nodes`); raise `[agent.execution] upload_retry_s` on a slow or flaky link |
+| A job stays `queued` | no node can take it **now** (V0.6): every capable node is busy (`slots_full`, `node_cap`), offline / suspect, or its environment failed there recently (`env_known_bad`) | `compute explain <JOB_ID>` lists each node's reason; free a slot, start an agent, raise `[agent.execution] max_cpu_jobs` / `max_gpu_jobs`, or cancel it |
+| `compute run` exits with `no_feasible_plan` and a list of nodes | **no** enrolled node could ever run it (V0.6 D104): no `exec`, no GPU / too little VRAM / RAM / CPUs, no runtime for `env.base`, the owner allows no jobs of that kind | each line names the node and the reason; change the manifest's `resources:` or enable execution / a runtime on a node |
+| `compute run` prints `local agent cache not seeded (...)` | the CLI could not copy the project into this laptop's agent cache: `no_cache` (the agent never ran with this data dir), `not_writable`, `over_quota` (project > `[cli] seed_max_bytes`), `disk_full`, `changed` (a file changed while copied) | nothing breaks: a job placed here downloads the project; fix the reason to save that download |
 | Controller exits **4** at startup | PostgreSQL unreachable or bad `[database]` settings | `docker compose -f deploy/docker-compose.dev.yml up -d --wait`, then check `[database]` |
 | Agent exits **5** immediately | another agent process already owns this identity | stop the other one, or give this one its own `data_dir` |
 | A node shows `STATE suspect` and `CONN no` | the node's connection dropped without a goodbye (Wi-Fi blip, laptop suspended, agent killed) | Normal for a few seconds: the controller keeps the node's lease running and marks it `offline` when the lease runs out (3 × heartbeat, 6 s by default, from the last heartbeat) unless the agent reconnects first — then it goes straight back to `online`. `GET /v1/sessions?node_id=…` shows that session's `end_reason` as `stream_lost`. A cleanly stopped agent (`systemctl --user stop`, Ctrl-C) is `offline` at once with end reason `agent_closed` (ARCHITECTURE §12.3, D19) |
