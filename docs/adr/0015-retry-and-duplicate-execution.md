@@ -23,3 +23,8 @@ V0.6 (roadmap 0.6.7, 0.6.8) turns a lost or retryable attempt into a new attempt
 
 ## Consequences
 ARCHITECTURE §12.1/§13 amended in V0.6 G3; chaos suite (D118) asserts the invariants; lab checklist 0.6.13 reports overlaps separately. Revisit if the lab shows frequent overlaps on Wi-Fi.
+
+## Addendum 2026-10-05 (V0.6 G1, D114)
+- Upload-grant refresh on Reconcile fires when there is no live grant **or** the last grant-carrying message (StartAttempt, re-sent StartAttempt, RefreshUploadGrant) was never acked — a safe superset of D114.
+- A blob `PUT` answered **401 is retryable** (the grant may have been re-minted); 403 stays final. V0.7 authorization must keep this distinction.
+- An in-flight upload finished under a replaced grant is credited to the successor only if it fits the successor's quota.

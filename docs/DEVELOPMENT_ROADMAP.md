@@ -372,12 +372,12 @@ A version is **complete** only when all apply:
 - [ ] **0.6.6** Peer network probes (scheduled, rate-limited) → network matrix table
 - [ ] **0.6.7** Node loss → attempt LOST → retry per failure-type policy; **fencing tokens** reject stale reports
 - [ ] **0.6.8** Controller crash recovery: rebuild from DB + agent Reconcile; running attempts adopted, not duplicated
-- [~] **0.6.9** Command delivery at-least-once with agent-side dedupe
-- [~] **0.6.10** Failure taxonomy (`user_error`, `oom`, `vram_oom`, `env_error`, `disk_full`, `lost`, `timeout`, `infra_error`) everywhere
+- [x] **0.6.9** Command delivery at-least-once with agent-side dedupe — **[x] 2026-10-05 V0.6 G1** (impl → tester PASS f573a0b → fix 8eb3f71 → reviewer APPROVE; unit agent+controller 2655 ✓, component 1071 ✓, cluster 57 ✓, ruff/mypy/lint-imports clean)
+- [x] **0.6.10** Failure taxonomy (`user_error`, `oom`, `vram_oom`, `env_error`, `disk_full`, `lost`, `timeout`, `infra_error`) everywhere — **[x] 2026-10-05 V0.6 G1** (impl → tester PASS f573a0b → fix 8eb3f71 → reviewer APPROVE; unit agent+controller 2655 ✓, component 1071 ✓, cluster 57 ✓, ruff/mypy/lint-imports clean)
 - [ ] **0.6.11** Local execution path via the submitting laptop's own agent
 - [ ] **0.6.12** Chaos suite in cluster harness (random kills, partitions, controller restarts)
 - [ ] **0.6.13** 🧑 Lab: 100-job mixed run on 4 laptops with scripted disruptions
-- [~] **0.6.14** Refresh upload grants on Reconcile for RUNNING/UPLOADING attempts (mirror V0.5 D95; today a controller restart during an upload ends the attempt `output_error`) — from the V0.5 stabilisation review 2026-10-04
+- [x] **0.6.14** Refresh upload grants on Reconcile for RUNNING/UPLOADING attempts (mirror V0.5 D95; today a controller restart during an upload ends the attempt `output_error`) — from the V0.5 stabilisation review 2026-10-04 — **[x] 2026-10-05 V0.6 G1** (impl → tester PASS f573a0b → fix 8eb3f71 → reviewer APPROVE; unit agent+controller 2655 ✓, component 1071 ✓, cluster 57 ✓, ruff/mypy/lint-imports clean)
 
 **Testing:** unit (policies, feasibility, estimator) · cluster chaos · lab 🧑.
 **Success criteria**

@@ -29,7 +29,7 @@ V1.0    ░░░░░░░░░░░░░░░░░░░░   0%   0/8 
 █ done `[x]` · ▒ in progress or waiting on a 🧑 lab step `[~]` · ░ not started
 
 ## Current Version
-**V0.6 — Scheduling & reliability** · started 2026-10-05 · brief `docs/briefs/V0.6-scheduling-reliability.md` · G1 running
+**V0.6 — Scheduling & reliability** · started 2026-10-05 · brief `docs/briefs/V0.6-scheduling-reliability.md` · **G1 CLOSED** (0.6.9, 0.6.10, 0.6.14 `[x]`) · next G2 planner core
 **V0.4 — Remote execution core** · started 2026-09-28 · **G1–G5 closed** (0.4.1, 0.4.3–0.4.7, 0.4.9, 0.4.10, 0.4.11–0.4.14, 0.4.16 `[x]`; 0.4.2 `[~]` Windows CI digest; 0.4.8 `[~]` real CUDA run; 0.4.17 `[~]`) · closes on 🧑 0.4.15 lab run
 **V0.5 — Data plane & environments** · started 2026-10-01 · brief `docs/briefs/V0.5-data-plane.md` (D79–D94) · **G3 (V0.4 debt D94) CLOSED** · **G1 (0.5.1, 0.5.2) CLOSED** · **G2 (0.5.7) CLOSED** · G4, G5 CLOSED — closes on 🧑 0.5.11 lab
 **V0.3 — Fabric core** · started 2026-09-20 on the team's decision (before the laptop 2–4 inventory); **G1–G7 closed agent-side** (0.3.1, 0.3.3, 0.3.4, 0.3.5, 0.3.6, 0.3.8, 0.3.9, 0.3.10, 0.3.11, 0.3.12, 0.3.14 `[x]`; 0.3.2 `[~]` Windows run; 0.3.7 `[~]` lab evidence; 0.3.13 `[~]` Windows logoff check). Remaining: **only 🧑 0.3.15 lab run** (+ the three 🧑 Windows checks)
@@ -42,6 +42,9 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 > V0.10. 129 tasks vs 140–180 capacity → **~1.5 tasks/session**. Needs the other three team members' approval.
 
 ## Current Task
+**2026-10-05 — V0.6 G1 CLOSED** (implementer → tester PASS → fix D-1/D-2 `8eb3f71` → reviewer APPROVE). **Next: V0.6 G2 (planner core), brief §5b — implementer round.**
+Reviewer non-blocking follow-ups (carry into G2/G3): (1) `mint` should carry `pending` reservations to the successor grant and drop the successor-credit path; (2) don't store "" in `_grant_unacked` for an unsent start (or comment it); (3) uploaded parts not attributed to sender — fix before V0.7 authz; (4) D95 fetch-token lost-on-broken-stream gap — mirror `_grant_unacked`; (5) flaky under load: `test_rest_cli_g5_adversarial::…no_resource_sample_ever`, `test_v05_g5_tester_e2e::…prepare_requests_all_finish`, `lab/test_inventory_acceptance::…orphaned_process_running`; (6) full suite >15 min — consider pytest-xdist.
+
 **2026-10-01 (evening) — back to ONE agent at a time (team, handoff §0e has the queue).** State:
 - **V0.4 G5 follow-up batch:** T2-1 + `_swap_in` fixed (`5f13163`), tester PASS; D-1 fixed `5a1937f`; reviewer APPROVE; its 3 non-blocking items (Ctrl-C between renames kept the parked folder at risk, message style, filename) fixed `ce0c760` (unit 4646 exit 0) → **batch DONE 2026-10-01**.
 - **V0.5 G3** (V0.4 debt: upload deadline, log GC, log gaps) — ✅ **CLOSED 2026-10-01** (see Recently Completed).
