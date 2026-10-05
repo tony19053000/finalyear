@@ -29,6 +29,7 @@ V1.0    ░░░░░░░░░░░░░░░░░░░░   0%   0/8 
 █ done `[x]` · ▒ in progress or waiting on a 🧑 lab step `[~]` · ░ not started
 
 ## Current Version
+**V0.6 — Scheduling & reliability** · started 2026-10-05 · brief `docs/briefs/V0.6-scheduling-reliability.md` · G1 running
 **V0.4 — Remote execution core** · started 2026-09-28 · **G1–G5 closed** (0.4.1, 0.4.3–0.4.7, 0.4.9, 0.4.10, 0.4.11–0.4.14, 0.4.16 `[x]`; 0.4.2 `[~]` Windows CI digest; 0.4.8 `[~]` real CUDA run; 0.4.17 `[~]`) · closes on 🧑 0.4.15 lab run
 **V0.5 — Data plane & environments** · started 2026-10-01 · brief `docs/briefs/V0.5-data-plane.md` (D79–D94) · **G3 (V0.4 debt D94) CLOSED** · **G1 (0.5.1, 0.5.2) CLOSED** · **G2 (0.5.7) CLOSED** · G4, G5 CLOSED — closes on 🧑 0.5.11 lab
 **V0.3 — Fabric core** · started 2026-09-20 on the team's decision (before the laptop 2–4 inventory); **G1–G7 closed agent-side** (0.3.1, 0.3.3, 0.3.4, 0.3.5, 0.3.6, 0.3.8, 0.3.9, 0.3.10, 0.3.11, 0.3.12, 0.3.14 `[x]`; 0.3.2 `[~]` Windows run; 0.3.7 `[~]` lab evidence; 0.3.13 `[~]` Windows logoff check). Remaining: **only 🧑 0.3.15 lab run** (+ the three 🧑 Windows checks)
@@ -129,6 +130,8 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 - Windows: not yet run (first real CI run will cover unit + fresh-clone on windows-latest)
 
 ## Next Recommended Task
+**2026-10-05 (later): V0.6 started.** Brief `docs/briefs/V0.6-scheduling-reliability.md` (D102–D119, ADR-0015 Proposed). **G1 implementer RUNNING** (0.6.9, 0.6.10, 0.6.14 + dispatcher/gc_index splits + D59); progress `docs/briefs/progress/V0.6-G1.md`. Then G1 tester → reviewer → G2. 🧑 0.5.11 lab still closes V0.5; 🧑 team: review ADR-0015 before G3.
+
 **2026-10-05: V0.5 G5 CLOSED.** Agent-side next: write the **V0.6 brief** (first: split `common/gc_index.py`, confirm controller `gc.py:133` `_on_change` write is off the event loop). 🧑 **0.5.11 lab** (lab/checklists/V0.5-data-plane.md, ~10 GB free per agent) closes V0.5; 🧑 0.4.15 still open.
 
 **2026-10-02: one agent at a time — reviewer for the stabilisation lane + D95 (commits 97f347e … 732b77f) → write wave 2 briefs (G4, G5) → G4 implementer. 🧑 0.4.15 lab run.** Everything below is history.

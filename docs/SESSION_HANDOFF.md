@@ -8,9 +8,9 @@
 >
 > ```
 > Read docs/SESSION_HANDOFF.md (§0e first, then §1 and §2), then docs/STATUS.md, then
-> docs/briefs/V0.5-data-plane.md. RULE: run ONE subagent at a time (team, re-imposed 2026-10-01).
-> V0.5 G1–G4 + stabilisation CLOSED. G5 CLOSED 2026-10-05 — see §2 "G5 state".
-> Next: G5 tester round 1 → fix rounds → reviewer → close. Then 🧑 0.5.11 lab.
+> docs/briefs/V0.6-scheduling-reliability.md. RULE: run ONE subagent at a time (team, re-imposed 2026-10-01).
+> V0.5 CLOSED agent-side (🧑 0.5.11 lab open). V0.6 started 2026-10-05 — see §2 "V0.6 state".
+> Next: whichever V0.6 group round is pending (implementer → tester → fix → reviewer → close).
 > Check git log and docs/briefs/progress/ first to see which round last finished.
 > ```
 >
@@ -284,6 +284,11 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
   `torch.cuda.is_available()` needs torch installed (ADR-0011 / 0.2.3).
 
 ## 2. In flight right now
+
+> ### V0.6 state (2026-10-05) — read this first
+> - **Brief written:** `docs/briefs/V0.6-scheduling-reliability.md` (D102–D119), **ADR-0015 Proposed** (team to review before G3). Groups strictly sequential: G1 reliability floor → G2 planner core → G3 retries/recovery/chaos → G4 network matrix + estimator.
+> - **G1 implementer SPAWNED** (brief §5a; only agent). Progress `docs/briefs/progress/V0.6-G1.md`, commits `*(V0.6-G1)`. If this session died: commit its wip, relaunch with §5a + "resume from <last done item>". Then G1 tester → fix rounds → reviewer → close 0.6.9/0.6.10/0.6.14.
+
 
 > ### G5 state (2026-10-05) — read this first
 > - **Scope** (brief §5e + §3 G5 row): 0.5.6 named inputs, 0.5.9 GC, 0.5.10 transfer telemetry, 0.5.8 controller part (`compute node prepare`), controller CAS scrub, 0.5.11 lab checklist, + 6 G4 reviewer carry-overs.

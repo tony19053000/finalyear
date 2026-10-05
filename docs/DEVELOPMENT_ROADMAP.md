@@ -372,12 +372,12 @@ A version is **complete** only when all apply:
 - [ ] **0.6.6** Peer network probes (scheduled, rate-limited) → network matrix table
 - [ ] **0.6.7** Node loss → attempt LOST → retry per failure-type policy; **fencing tokens** reject stale reports
 - [ ] **0.6.8** Controller crash recovery: rebuild from DB + agent Reconcile; running attempts adopted, not duplicated
-- [ ] **0.6.9** Command delivery at-least-once with agent-side dedupe
-- [ ] **0.6.10** Failure taxonomy (`user_error`, `oom`, `vram_oom`, `env_error`, `disk_full`, `lost`, `timeout`, `infra_error`) everywhere
+- [~] **0.6.9** Command delivery at-least-once with agent-side dedupe
+- [~] **0.6.10** Failure taxonomy (`user_error`, `oom`, `vram_oom`, `env_error`, `disk_full`, `lost`, `timeout`, `infra_error`) everywhere
 - [ ] **0.6.11** Local execution path via the submitting laptop's own agent
 - [ ] **0.6.12** Chaos suite in cluster harness (random kills, partitions, controller restarts)
 - [ ] **0.6.13** 🧑 Lab: 100-job mixed run on 4 laptops with scripted disruptions
-- [ ] **0.6.14** Refresh upload grants on Reconcile for RUNNING/UPLOADING attempts (mirror V0.5 D95; today a controller restart during an upload ends the attempt `output_error`) — from the V0.5 stabilisation review 2026-10-04
+- [~] **0.6.14** Refresh upload grants on Reconcile for RUNNING/UPLOADING attempts (mirror V0.5 D95; today a controller restart during an upload ends the attempt `output_error`) — from the V0.5 stabilisation review 2026-10-04
 
 **Testing:** unit (policies, feasibility, estimator) · cluster chaos · lab 🧑.
 **Success criteria**
@@ -830,6 +830,7 @@ A version is **complete** only when all apply:
 
 | Date | Change | Reason |
 |---|---|---|
+| **2026-10-05** | **V0.6 planned** (`docs/briefs/V0.6-scheduling-reliability.md`, D102–D119): 4 sequential groups (G1 reliability floor 0.6.9/0.6.10/0.6.14 + dispatcher/gc_index splits + D59; G2 planner core; G3 retries/recovery/chaos; G4 network matrix + estimator). **`cost_model` policy added to 0.6.3's list and made the default** (needed for criterion 4). **Local seeding (D109):** `compute run` puts the tree into the submitting laptop's agent CAS. **ADR-0015 (Proposed):** at-least-once execution, exactly-once commit; criterion 1 counts duplicate commits and duplicates under kills, partition overlaps reported separately. | Pure planner keeps Mode 3/ML reuse; honest retry semantics. | V0.6 |
 | **2026-09-29** | **V0.4 criterion 1 reworded:** byte-identical on the same hardware class; within `compare.py`'s stated tolerance across different CPU/GPU models (D76). | GPU (and some CPU) kernels are not bit-reproducible across hardware; the old wording would make the 0.4.15 lab result pass or fail depending on which document was read (G5 reviewer pass 2). |
 | **2026-09-28** | **V0.4 planned for pace** (`docs/briefs/V0.4-remote-execution.md`): 17 tasks in **5 groups** (V0.3 used 7 for 15), **G1 ‖ G2 ‖ G3 run in parallel** on disjoint files, all decisions settled up front (D40–D54). **D40 departs from the 0.4.16 row:** the timing rule `HALF_CLOSE_CONFIRM_S` is **deleted, not kept as a fallback** — an old agent's clean stop degrades to SUSPECT → OFFLINE at lease expiry, the safe direction. **ADR-0014 (Proposed):** fabric bearer token on mutating/job REST + agent execution opt-in until V0.7. `split:` in a manifest is rejected until V0.10, never silently ignored. | §0d pace check: ~1.8 tasks/day against ~4.3 needed; larger groups and parallel lanes are levers 1–2. V0.4 is the first version that runs code on other laptops (CLAUDE.md §9). | V0.4, V0.6, V0.7 |
 | **2026-09-24** | **V0.3 G6 (0.3.14): liveness on session end redesigned and a real cluster tier added.** ARCHITECTURE §12.3 amended before code (D19 clean close → OFFLINE, abrupt → SUSPECT + lingering lease; D20 fenced state writes). Tester round 1 FAIL (2 major) → D26 LATE-1 grace 20 s, D27 reconnect cap 15 → 5 s, D28 a pending higher-epoch Hello owns the state, D29 agent `hello_timeout_s` 3 s with `cap + hello ≤ 8 s` → round 2 PASS → reviewer REQUEST_CHANGES (lint only) → fixed. D23 replaces the Toxiproxy binary with an in-process proxy (ADR-0010 Updates). grpcio capped `<1.85` because the clean-close inference is measured on 1.84. **Behaviour change:** an agent `config.toml` with `hello_timeout_s = 5` now refuses to start. | NB-G5-1 made `state` lie; the reviewer's first fix ("every close → OFFLINE") would have turned every Wi-Fi blip into a V0.6 retry and a false soak OFFLINE. Criterion 2 was only met by luck with a 15 s cap. The explicit Goodbye (0.4.16) is the durable replacement for the timing inference. | V0.4 (0.4.16), V0.6 |

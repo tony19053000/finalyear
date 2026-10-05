@@ -18,6 +18,7 @@ Format: Context · Decision · Alternatives · Trade-offs · Consequences. Statu
 | [0012](0012-scope-ship-mode3-complete.md) | Ship Mode 3 (with Mode 1) complete and production-grade; defer Mode 2 and Mode 4 | Proposed |
 | [0013](0013-node-identity-storage.md) | Node identity: ECDSA P-256 keypair + ULID `node_id`, minted once, OS-protected | Proposed |
 | [0014](0014-interim-execution-trust.md) | Interim trust for remote execution until V0.7: fabric bearer token on REST, agent execution opt-in, scoped fetch tokens | Proposed |
+| [0015](0015-retry-and-duplicate-execution.md) | Retries are at-least-once execution, exactly-once commit (V0.6) | Proposed |
 
 ## How to write an ADR
 
