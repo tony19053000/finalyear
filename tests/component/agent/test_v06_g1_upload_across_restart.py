@@ -264,9 +264,12 @@ async def test_no_fresh_grant_within_upload_retry_s_is_output_error(
             _http(fresh) as http2,
         ):
             job = await wait_job(http2, job_id, timeout_s=60)
-        assert job["state"] == "failed", job
-        assert job["failure_type"] == "output_error", job
-        (attempt,) = job["attempts"]
-        assert "upload did not succeed within 2 s" in (attempt["detail"] or ""), attempt
+        # The attempt fails typed; this output_error is retryable (an upload
+        # blip, per-instance flag), so since V0.6 (D110) the retry succeeds.
+        assert job["state"] == "succeeded", job
+        first, second = job["attempts"]
+        assert first["failure_type"] == "output_error", first
+        assert "upload did not succeed within 2 s" in (first["detail"] or ""), first
+        assert second["state"] == "done" and second["fencing_token"] == 2, second
     finally:
         await short.stop()

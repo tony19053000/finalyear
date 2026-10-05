@@ -409,7 +409,14 @@ async def test_a_corrupted_controller_blob_fails_typed_is_scrubbed_and_repairabl
         assert posted.status_code == 201, posted.text
         job = await wait_job(http, str(posted.json()["job_id"]), timeout_s=60)
         assert job["state"] == "failed", job
-        assert job["failure_type"] == "integrity_error", job
+        # The first attempt fails typed. integrity_error is retryable (V0.6
+        # D110); by the retry the scrubber has removed the blob, so the job
+        # ends with its last attempt's not_found (or integrity_error if the
+        # retries outran the scrubber).
+        attempts = job["attempts"]
+        assert attempts[0]["failure_type"] == "integrity_error", attempts
+        assert job["failure_type"] == attempts[-1]["failure_type"], job
+        assert job["failure_type"] in {"integrity_error", "not_found"}, job
         # The controller notices (dispatcher -> scrubber) and removes the blob.
         deadline = time.monotonic() + 20
         while runtime.blobs.cas.has(sha256_bytes(data)):

@@ -192,12 +192,20 @@ async def test_memory_error_and_cuda_oom_end_to_end(
             http,
             _project(tmp_path, "gpu", CUDA_OOM),
             agent.node_id,
-            {"name": "vram", "entrypoint": ["python", "main.py"]},
+            {
+                "name": "vram",
+                "entrypoint": ["python", "main.py"],
+                "retry": {"max_attempts": 2, "backoff_s": 0},
+            },
         )
         job = await wait_job(http, vram_job, timeout_s=60)
         assert job["state"] == "failed" and job["failure_type"] == "vram_oom", job
-        (attempt,) = job["attempts"]
-        assert attempt["failure_type"] == "vram_oom"
+        # vram_oom is retryable (V0.6 D110); a pinned job retries on its own
+        # node only, so both attempts hit the same OOM -> retries_exhausted.
+        attempts = job["attempts"]
+        assert [a["failure_type"] for a in attempts] == ["vram_oom", "vram_oom"]
+        assert {a["node_id"] for a in attempts} == {agent.node_id}
+        assert "retries_exhausted after 2 attempts" in job["failure_detail"], job
     finally:
         await agent.stop()
 

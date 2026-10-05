@@ -300,11 +300,12 @@ async def test_no_fresh_token_within_the_retry_deadline_is_transfer_error(
             _http(fresh) as http2,
         ):
             job = await wait_job(http2, job_id, timeout_s=60)
-        assert job["state"] == "failed", job
-        assert job["failure_type"] == "transfer_error", job
-        (attempt,) = job["attempts"]
-        assert "staging did not succeed within 2 s" in (attempt["detail"] or ""), (
-            attempt
-        )
+        # The attempt fails typed; since V0.6 (D110) transfer_error is
+        # retryable, so the job's next attempt (fresh token) succeeds.
+        assert job["state"] == "succeeded", job
+        first, second = job["attempts"]
+        assert first["failure_type"] == "transfer_error", first
+        assert "staging did not succeed within 2 s" in (first["detail"] or ""), first
+        assert second["state"] == "done" and second["fencing_token"] == 2, second
     finally:
         await short.stop()

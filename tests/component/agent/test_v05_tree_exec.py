@@ -166,8 +166,13 @@ async def test_a_corrupt_blob_at_the_controller_fails_integrity_and_never_runs(
     counter = tmp_path / "out.txt"
     job = await _run(runtime, http, project, agent.node_id, counter)
     assert job["state"] == "failed", job
-    (attempt,) = job["attempts"]
-    assert attempt["failure_type"] == "integrity_error", attempt
+    # integrity_error is retryable (V0.6 D110), so the job may have retried;
+    # once the scrubber has removed the corrupt blob, a retry fails not_found.
+    attempts = job["attempts"]
+    assert attempts[0]["failure_type"] == "integrity_error", attempts
+    for attempt in attempts:
+        assert attempt["failure_type"] in {"integrity_error", "not_found"}, attempt
+    assert job["failure_type"] == attempts[-1]["failure_type"], job
     assert not counter.exists()  # the workload never ran on corrupt input
     assert not agent.executor.cas.store.has(sha256_bytes(b"fresh bytes\n"))
     assert not agent.executor.cas.store.has(sha256_bytes(b"FRESH BYTES\n"))
