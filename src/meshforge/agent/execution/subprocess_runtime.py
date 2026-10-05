@@ -20,7 +20,9 @@ runtime):
   the same requirements installs nothing. Without a builder: the V0.4 per-job
   ``setup_argv`` install into ``<workdir>/.meshforge/deps``;
 * ``cwd`` is the workdir; the child is the root of its own killable tree with
-  parent-death cleanup and lowered priority (:mod:`meshforge.agent.process`);
+  parent-death cleanup and lowered priority (:mod:`meshforge.agent.process`); on
+  Linux the group watchdog also kills the workload's **descendants** when the
+  agent is SIGKILLed (V0.6 D59; a descendant that calls ``setsid`` escapes);
 * the time limit (``deadline_exceeded`` within 2 s), cancellation (SIGTERM, SIGKILL
   after ``grace_s``, back within ``grace_s + 2 s``) and "no process survives" -
   leftover descendants in the group are killed after the workload exits;
@@ -375,6 +377,7 @@ class SubprocessRuntime:
             env=self._env(spec, setup=setup, use=use),
             cwd=spec.workdir,
             lower_priority=self._lower_priority,
+            guard_group=True,  # D59: no grandchild outlives a killed agent
         )
         obs.ident = str(handle.pid)
         if not setup:

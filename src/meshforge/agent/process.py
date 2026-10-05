@@ -25,9 +25,25 @@ crashed:
   same environment. The death signal survives ``execve`` (not for set-uid
   binaries). Two documented limits: it fires when the *thread* that forked exits
   (asyncio forks from the event-loop thread, which lives as long as the agent's
-  loop), and it covers the direct child only - grandchildren that the dead agent
-  can no longer ``killpg`` are orphaned (the Docker runtime has no such gap: its
-  containers are swept at the next start).
+  loop), and it covers the direct child only. **Grandchildren (V0.6 G1, D59):**
+  with ``guard_group`` (the subprocess execution runtime sets it) the shim also
+  forks a tiny **group watchdog** before ``execve``: a double-forked process
+  (so it is never the workload's child - ``wait()`` in the workload cannot see
+  it) that stays in the workload's process group, ignores SIGTERM/SIGINT/SIGHUP,
+  holds a ``pidfd`` of the workload and nothing else (stdio on ``/dev/null``),
+  and when the workload process exits - for any reason, including the
+  parent-death SIGKILL of a killed agent - SIGKILLs the whole group, itself
+  included. That is exactly what a live agent does after every exit
+  (:meth:`ProcessHandle.kill_now`), so behaviour is unchanged while the agent
+  lives; when it dies, nothing in the group survives it. The ``killpg`` is
+  safe: the watchdog is itself a member, so the group id cannot be reused
+  while it runs. Limits: a descendant that leaves the group (``setsid`` /
+  ``setpgid``) escapes - only a cgroup could hold it (not used: an unprivileged
+  agent normally has no delegated cgroup). The watchdog waits on a ``pidfd``
+  (``pidfd_open``, Linux >= 5.3, called through ``syscall`` when the Python
+  build lacks ``os.pidfd_open``) and otherwise polls every 0.25 s - safe
+  because a group member (the watchdog) keeps the leader's pid from reuse. The Docker runtime
+  has no such gap: its containers are swept at the next start.
 * **Windows:** the job object's handle is owned by the agent; when the agent dies
   for any reason the kernel closes it and ``KILL_ON_JOB_CLOSE`` ends every process
   in the job, descendants included. Limit: the child runs for a few microseconds
@@ -82,15 +98,16 @@ _REAP_S: Final = 2.0
 _TASKKILL_TIMEOUT_S: Final = 5.0
 """Bound on the (threaded, off-loop) ``taskkill`` fallback on Windows."""
 
-#: The Linux exec shim. argv: ppid, nice, keep_lc_ctype(0/1), executable, *argv.
-#: Stdlib only, no site (-S) and isolated (-I): the user's PYTHON* variables and
-#: site-packages never reach it. PEP 538 may have added ``LC_CTYPE=C.UTF-8`` to
-#: this interpreter's environment; it is removed again unless the caller set it,
-#: so the workload sees exactly the environment it was given.
+#: The Linux exec shim. argv: ppid, nice, keep_lc_ctype(0/1), guard_group(0/1),
+#: executable, *argv. Stdlib only, no site (-S) and isolated (-I): the user's
+#: PYTHON* variables and site-packages never reach it. PEP 538 may have added
+#: ``LC_CTYPE=C.UTF-8`` to this interpreter's environment; it is removed again
+#: unless the caller set it, so the workload sees exactly the environment it was
+#: given. ``guard_group``: fork the group watchdog first (module docstring, D59).
 _PDEATHSIG_SHIM: Final = r"""
-import ctypes, os, signal, sys
+import ctypes, os, select, signal, sys
 ppid, nice, keep_lc = int(sys.argv[1]), int(sys.argv[2]), sys.argv[3] == "1"
-exe, argv = sys.argv[4], sys.argv[5:]
+guard, exe, argv = sys.argv[4] == "1", sys.argv[5], sys.argv[6:]
 try:
     if ctypes.CDLL(None, use_errno=True).prctl(1, int(signal.SIGKILL), 0, 0, 0) != 0:
         raise OSError(ctypes.get_errno(), "prctl(PR_SET_PDEATHSIG) failed")
@@ -99,6 +116,57 @@ except (OSError, AttributeError) as exc:
     os._exit(125)
 if os.getppid() != ppid:
     os._exit(137)
+def exited(pid):
+    try:
+        os.kill(pid, 0)
+        with open("/proc/%d/stat" % pid, "rb") as fh:
+            return fh.read().rsplit(b")", 1)[1].split()[0] in (b"Z", b"X")
+    except (ProcessLookupError, FileNotFoundError):
+        return True
+    except OSError:
+        return False
+def watchdog(pidfd, leader):
+    for s in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+        signal.signal(s, signal.SIG_IGN)
+    null = os.open(os.devnull, os.O_RDWR)
+    for fd in (0, 1, 2):
+        os.dup2(null, fd)
+    keep = max(pidfd, 2)
+    os.closerange(3, keep if pidfd >= 0 else 1 << 20)
+    if pidfd >= 0:
+        os.closerange(pidfd + 1, 1 << 20)
+    while True:
+        try:
+            if pidfd >= 0:
+                if select.select([pidfd], [], [])[0]:
+                    break
+            elif exited(leader):
+                break
+            else:
+                select.select([], [], [], 0.25)
+        except InterruptedError:
+            continue
+    os.killpg(leader, signal.SIGKILL)
+if guard:
+    me = os.getpid()
+    try:
+        pidfd = os.pidfd_open(me)
+    except (AttributeError, OSError):
+        pidfd = ctypes.CDLL(None, use_errno=True).syscall(434, me, 0)
+    try:
+        first = os.fork()
+    except OSError:
+        first = -1
+    if first == 0:
+        try:
+            if os.fork() == 0:
+                watchdog(pidfd, me)
+        finally:
+            os._exit(0)
+    if first > 0:
+        os.waitpid(first, 0)
+    if pidfd >= 0:
+        os.close(pidfd)
 if nice > 0:
     try:
         os.nice(nice)
@@ -409,6 +477,7 @@ def _platform_argv(
     *,
     lower_priority: bool,
     die_with_parent: bool,
+    guard_group: bool = False,
 ) -> tuple[list[str], dict[str, Any]]:
     exe = resolve_executable(argv[0], env)
     kwargs: dict[str, Any] = {}
@@ -429,6 +498,7 @@ def _platform_argv(
             str(os.getpid()),
             str(NICE if lower_priority else 0),
             "1" if "LC_CTYPE" in env else "0",
+            "1" if guard_group else "0",
             exe,
             *argv,
         ]
@@ -447,6 +517,7 @@ async def spawn(
     limit: int = 1 << 16,
     lower_priority: bool = False,
     die_with_parent: bool = True,
+    guard_group: bool = False,
     on_spawn: Callable[[int], None] | None = None,
 ) -> ProcessHandle:
     """Start ``argv`` as the root of its own killable tree (see the module docstring).
@@ -454,13 +525,20 @@ async def spawn(
     ``env`` is the child's **whole** environment (nothing is inherited) and its
     ``PATH`` is where ``argv[0]`` is looked up. ``lower_priority``: nice 10 on
     Linux (applied by the shim), ``BELOW_NORMAL_PRIORITY_CLASS`` on Windows,
-    nothing elsewhere. Raises :class:`SpawnError`; on cancellation the half-started
-    child is killed and reaped before ``CancelledError`` propagates.
+    nothing elsewhere. ``guard_group`` (Linux, with ``die_with_parent``): the
+    group watchdog that kills the whole process group once the child exits, so
+    no grandchild outlives a SIGKILLed agent (D59). Raises :class:`SpawnError`;
+    on cancellation the half-started child is killed and reaped before
+    ``CancelledError`` propagates.
     """
     if not argv:
         raise SpawnError("empty argv", reason="executable_not_found")
     real_argv, kwargs = _platform_argv(
-        argv, env, lower_priority=lower_priority, die_with_parent=die_with_parent
+        argv,
+        env,
+        lower_priority=lower_priority,
+        die_with_parent=die_with_parent,
+        guard_group=guard_group,
     )
     creating = asyncio.ensure_future(
         asyncio.create_subprocess_exec(
