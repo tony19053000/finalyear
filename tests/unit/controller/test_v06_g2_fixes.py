@@ -8,10 +8,11 @@ import datetime as dt
 from types import SimpleNamespace
 from typing import Any
 
+from meshforge.common.errors import FailureType
 from meshforge.common.ids import new_job_id, new_node_id
 from meshforge.common.manifest import Manifest
 from meshforge.common.states import JobState
-from meshforge.controller.jobs.execution_store import Dispatch, Wait
+from meshforge.controller.jobs.execution_store import Dispatch, DispatchFailure, Wait
 from meshforge.controller.jobs.planning import DispatchPlanner
 from meshforge.controller.jobs.queue_reads import FabricRows, NodeRow
 from meshforge.controller.jobs.spec import choose_gpus
@@ -181,3 +182,30 @@ def test_gpus_held_by_attempts_from_the_database_are_skipped() -> None:
     decision = _planner(node).decide(_job(GPU_JOB), _fabric(node, held={1}))
     assert isinstance(decision, Dispatch)
     assert decision.start_snapshot["gpu_indices"] == [0]
+
+
+def test_a_job_whose_stored_manifest_no_longer_validates_is_failed_alone() -> None:
+    node = str(new_node_id())
+    planner, fabric = _planner(node), _fabric(node)
+    corrupt = planner.decide(_job({"name": 5}), fabric)
+    assert isinstance(corrupt, DispatchFailure)
+    assert corrupt.failure_type is FailureType.INTERNAL_ERROR
+    assert "ValidationError" in corrupt.detail and corrupt.record is None
+    # the planner is still usable for the next job of the batch
+    assert isinstance(planner.decide(_job(GPU_JOB), fabric), Dispatch)
+
+
+def test_any_exception_while_planning_one_job_is_that_job_s_failure() -> None:
+    node = str(new_node_id())
+    planner = _planner(node)
+    fabric = _fabric(node)
+
+    class Boom(FabricRows):
+        def busy_gpus(self, node_id: str) -> frozenset[int]:
+            raise KeyError(node_id)
+
+    boom = Boom(nodes=fabric.nodes)
+    failed = planner.decide(_job(GPU_JOB), boom)
+    assert isinstance(failed, DispatchFailure)
+    assert failed.failure_type is FailureType.INTERNAL_ERROR
+    assert "KeyError" in failed.detail

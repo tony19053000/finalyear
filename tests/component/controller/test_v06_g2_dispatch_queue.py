@@ -366,6 +366,39 @@ async def test_a_decision_that_cannot_be_written_rolls_back_the_attempt(
     assert counts == [(0, 0, 3)]
 
 
+async def test_an_unreadable_queued_row_fails_alone_and_the_batch_goes_on(
+    store: ExecutionStore, pg_settings: DatabaseSettings
+) -> None:
+    """G2 fix D-1 (store side): a queued row that cannot even be read into a
+    JobRecord is FAILED(internal_error) and the job behind it still dispatches."""
+    node = await _node(pg_settings)
+    bad = await _queued(store, priority=5)
+    good = await _queued(store)
+    await _sql(
+        pg_settings,
+        "UPDATE job SET placement = CAST('[1, 2]' AS jsonb) WHERE id = :j",
+        j=bad.id,
+    )
+    recorder = Recorder(
+        lambda _j, _f: Dispatch(
+            attempt_id=str(new_attempt_id()),
+            start_snapshot={},
+            node_id=node,
+            slot="cpu",
+        )
+    )
+    results = await _tick(store, recorder)
+    assert recorder.seen == [good.id]
+    assert [r.job.id for r in results] == [good.id]
+    rows = await _sql(
+        pg_settings,
+        "SELECT id, state, failure_type FROM job ORDER BY id",
+    )
+    states = {str(i): (str(s), f) for i, s, f in rows}
+    assert states[bad.id] == ("failed", "internal_error")
+    assert states[good.id][0] == "preparing"
+
+
 async def test_gpus_held_by_live_attempts_are_read_back_from_the_database(
     store: ExecutionStore, pg_settings: DatabaseSettings
 ) -> None:

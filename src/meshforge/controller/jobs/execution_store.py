@@ -13,7 +13,9 @@ the loser sees the winner's state:
   attempts, D105), a caller decision per job, and for each dispatched job the
   new attempt (next fencing token, its slot), ``QUEUED -> PREPARING``, its
   start snapshot and its ``plan_decision`` row (D112) - all committed
-  **before** the caller sends anything (D65: commit-before-send);
+  **before** the caller sends anything (D65: commit-before-send). A queued row
+  that cannot be read or planned is failed on its own (``internal_error``)
+  and the rest of the batch goes on;
   :meth:`ExecutionStore.dispatch_queued` is the V0.4 one-node-view interface
   over it;
 * :meth:`ExecutionStore.apply_status` - an agent report: fenced on the attempt's
@@ -285,7 +287,11 @@ class ExecutionStore(DecisionReads):
                 db, jobs, history_runs=history_runs, keys_of=_project_keys
             )
             for row in jobs:
-                job = job_record(row)
+                try:
+                    job = job_record(row)
+                except Exception as exc:  # noqa: BLE001 - G2 fix D-1: one bad row only
+                    await _fail_unreadable(db, row, exc)
+                    continue
                 decision = decide(job, fabric)
                 if isinstance(decision, Dispatch):
                     node_id = decision.node_id or str(job.placement.get("node_id", ""))
@@ -609,6 +615,22 @@ async def _fresh(db: AsyncSession, *rows: Any) -> None:
     await db.flush()
     for row in rows:
         await db.refresh(row)
+
+
+async def _fail_unreadable(db: AsyncSession, row: Job, exc: Exception) -> None:
+    """A queued row the store cannot even turn into a :class:`JobRecord`
+    (corrupt stored data) is failed on its own, logged once (G2 fix D-1)."""
+    log.error(
+        "controller.jobs.unreadable_job", job_id=row.id, error_type=type(exc).__name__
+    )
+    await _move_job(
+        db,
+        row,
+        JobEvent.FAIL,
+        failure_type=FailureType.INTERNAL_ERROR,
+        detail=f"the stored job could not be read ({type(exc).__name__})",
+    )
+    await db.flush()
 
 
 def _gpu_indices(snapshot: Mapping[str, Any]) -> tuple[int, ...]:

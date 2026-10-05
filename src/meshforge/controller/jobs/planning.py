@@ -204,6 +204,25 @@ class DispatchPlanner:
         return job.scheduling.policy or self._planner.default_policy
 
     def decide(self, job: JobRecord, fabric: FabricRows) -> DispatchDecision:
+        """The job's decision. A job that cannot be planned at all (its stored
+        manifest no longer validates, or anything else raised while planning
+        it) is failed on its own - one bad row never stops the queue (G2 fix
+        D-1)."""
+        try:
+            return self._decide(job, fabric)
+        except Exception as exc:  # noqa: BLE001 - per-job isolation (docstring)
+            log.error(  # noqa: TRY400 - typed event; stored values stay out of logs
+                "controller.jobs.unplannable_job",
+                job_id=job.id,
+                error_type=type(exc).__name__,
+            )
+            return DispatchFailure(
+                FailureType.INTERNAL_ERROR,
+                f"the stored job could not be planned ({type(exc).__name__}); "
+                "submit it again",
+            )
+
+    def _decide(self, job: JobRecord, fabric: FabricRows) -> DispatchDecision:
         manifest = Manifest.model_validate(dict(job.manifest))
         pinned = str(job.placement.get("node_id") or "") or None
         if pinned is not None:
