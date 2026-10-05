@@ -7,11 +7,13 @@ module, import it below (and write a migration with the next ``NNNN`` revision i
 Tables so far: ``node``, ``node_session`` (V0.3, :mod:`.node`),
 ``resource_snapshot`` (V0.3 0.3.11, :mod:`.resource`), ``job``,
 ``job_transition``, ``attempt``, ``attempt_phase`` (V0.4 D49, :mod:`.job`),
-``cache_location`` (V0.5 D101, :mod:`.cache`).
+``cache_location`` (V0.5 D101, :mod:`.cache`), ``named_input``, ``job_input``,
+``transfer_event`` (V0.5 G5 D92/D93, :mod:`.data`).
 """
 
 from meshforge.controller.store.base import Base
 from meshforge.controller.store.models.cache import CacheLocation
+from meshforge.controller.store.models.data import JobInput, NamedInput, TransferEvent
 from meshforge.controller.store.models.job import (
     Attempt,
     AttemptPhaseRow,
@@ -27,9 +29,12 @@ __all__ = [
     "Base",
     "CacheLocation",
     "Job",
+    "JobInput",
     "JobTransition",
+    "NamedInput",
     "Node",
     "NodeSession",
     "ResourceSnapshot",
     "SessionEndReason",
+    "TransferEvent",
 ]
