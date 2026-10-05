@@ -154,14 +154,7 @@ def prepare(
     settings = cli._settings()
     with cli._client(settings) as client:
         if all_nodes:
-            nodes = cli._fetch(client.nodes)
-            targets = [
-                str(n.get("node_id"))
-                for n in nodes.get("nodes") or []
-                if isinstance(n, dict) and n.get("connected") is True
-            ]
-            if not targets:
-                cli._die("no connected node to prepare", ExitCode.UNAVAILABLE)
+            targets = _connected(client, "prepare")
         else:
             targets = [cli._checked_node_id(node_id) or ""]
         ok = True
@@ -189,17 +182,26 @@ def gc(
     settings = cli._settings()
     with cli._client(settings) as client:
         if all_nodes:
-            nodes = cli._fetch(client.nodes)
-            targets = [
-                str(n.get("node_id"))
-                for n in nodes.get("nodes") or []
-                if isinstance(n, dict) and n.get("connected") is True
-            ]
+            targets = _connected(client, "run GC on")
         else:
             targets = [cli._checked_node_id(node_id) or ""]
         for target in targets:
             cli._fetch(_gc_call(client, target))
             typer.echo(f"{target}: GC pass requested")
+
+
+def _connected(client: Any, what: str) -> list[str]:
+    """``--all``: the connected nodes' ids; none -> a message and exit
+    ``UNAVAILABLE`` (prepare and gc alike)."""
+    nodes = cli._fetch(client.nodes)
+    targets = [
+        str(n.get("node_id"))
+        for n in nodes.get("nodes") or []
+        if isinstance(n, dict) and n.get("connected") is True
+    ]
+    if not targets:
+        cli._die(f"no connected node to {what}", ExitCode.UNAVAILABLE)
+    return targets
 
 
 def _gc_call(client: Any, target: str) -> Any:
