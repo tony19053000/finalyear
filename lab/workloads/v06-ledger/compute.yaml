@@ -1,0 +1,5 @@
+# Default manifest for manual runs; lab/sched_check.py submits its own.
+name: v06-ledger
+entrypoint: python main.py 10 0 0
+outputs: [out/*]
+retry: {max_attempts: 5, backoff_s: 2}

@@ -8,6 +8,8 @@ lab/
   _inventory/       helpers for inventory.py (parsers, probes, privacy filter)
   fabric_check.py   V0.3 fabric checks over REST /v1: inventory, watch, restart-check, soak (0.3.15)
   agent_rss.py      V0.3 soak: the agent process's RSS on each laptop (0.3.15)
+  sched_check.py    V0.6 scheduling lab: submit the mixed job set, wait, check the ledger (0.6.13)
+  _sched/           its verdict (lost / duplicated / partition overlaps), pure
   _fabric/          helpers for both (stdlib REST client, timeline maths, checkpoints, reports)
   checklists/       step-by-step human procedures, e.g. V0.3-fabric.md
   spikes/           feasibility spikes S1–S7              (tasks 0.2.5–0.2.11)
