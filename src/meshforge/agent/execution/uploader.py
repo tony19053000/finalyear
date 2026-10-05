@@ -103,6 +103,9 @@ async def upload_parts(
         raise ValueError(f"part_bytes must be in [{MIN_CHUNK_SIZE}, {MAX_CHUNK_SIZE}]")
     track = progress if progress is not None else UploadProgress()
     size = (await asyncio.to_thread(path.stat)).st_size
+    if size == 0:  # nothing to split: one verified PUT
+        await put(base_url, digest, token, path, transport=transport)
+        return 0
     base = f"{base_url}/v1/blobs/{digest.hex}"
     auth = {"authorization": f"Bearer {token}"}
     sent_before = track.bytes_sent
@@ -154,9 +157,7 @@ async def upload_parts(
         raise UploadError(
             f"the upload failed: {type(exc).__name__}", retryable=True
         ) from None
-    raise UploadError(
-        "the controller kept reporting missing parts", retryable=True
-    )
+    raise UploadError("the controller kept reporting missing parts", retryable=True)
 
 
 async def _send_parts(

@@ -517,7 +517,15 @@ async def test_an_upload_failure_or_no_grant_is_output_error(
 
     uploads = Uploads(UploadError("upload failed: HTTP 500", retryable=True))
     reports = Reports()
-    executor, digest = _executor(tmp_path, WritingRuntime(), reports, upload=uploads)
+    # V0.6 D114: upload_retry_s = 0 reports the first error as is (the retry
+    # path is tests/unit/agent/test_v06_g1_upload_retry.py).
+    executor, digest = _executor(
+        tmp_path,
+        WritingRuntime(),
+        reports,
+        upload=uploads,
+        execution={"upload_retry_s": 0},
+    )
     msg = _start(digest)
     _with_outputs(msg, grant=grant)
     executor.handle(msg)

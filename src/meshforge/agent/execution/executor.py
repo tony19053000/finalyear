@@ -98,7 +98,6 @@ from meshforge.agent.execution.fetch import (
     stage_tree,
     token_ok,
     tree_sources,
-    upload_blob,
 )
 from meshforge.agent.execution.logs import AttemptLogs, Chunk, file_sha256
 from meshforge.agent.execution.offer import ExecutionSetup
@@ -110,6 +109,7 @@ from meshforge.agent.execution.plan import (
     plan_attempt,
 )
 from meshforge.agent.execution.runtime import RunObserver, RunResult, Stream
+from meshforge.agent.execution.uploader import UploadProgress, upload_parts
 from meshforge.agent.gc.leases import AttemptLeases, LeaseError
 from meshforge.agent.settings import AgentSettings
 from meshforge.common.bundle import BundleError, BundleLimits, unpack
@@ -222,6 +222,17 @@ class _Attempt:
     env_hash: str = ""
     """The environment the runtime resolved or tried to build (V0.6 D116);
     sent in the terminal report."""
+    upload_token: str = ""
+    """The current upload grant (StartAttempt's, or a RefreshUploadGrant's,
+    V0.6 D114). A secret: never logged."""
+    upload_url: str | None = None
+    upload_port: int | None = None
+    grant_changed: asyncio.Event = field(default_factory=asyncio.Event)
+    upload_deadline: float | None = None
+    """When the upload retries give up (one budget for logs and outputs)."""
+    upload_retries: int = 0
+    uploads: UploadProgress = field(default_factory=UploadProgress)
+    """What the resumable uploads of this attempt sent (D114)."""
 
     @property
     def ended(self) -> bool:
@@ -256,7 +267,7 @@ class Executor:
         declared_gpus: Collection[int] = (),
         clock: Callable[[], float] = time.monotonic,
         fetch: Callable[..., Awaitable[int]] = fetch_bundle,
-        upload: Callable[..., Awaitable[int]] = upload_blob,
+        upload: Callable[..., Awaitable[int]] | None = None,
         resend: Resender | None = None,
         log_sink: LogSink | None = None,
         cas: AgentCas | None = None,
@@ -272,7 +283,9 @@ class Executor:
         self._declared_gpus = frozenset(declared_gpus)
         self._clock = clock
         self._fetch = fetch
-        self._upload = upload
+        self._upload: Callable[..., Awaitable[int]] = upload or self._upload_parts
+        self._resumable = upload is None
+        """D114: the default uploader resumes parts (tests may inject one)."""
         self._resend = resend
         self._log_sink = log_sink
         self.log_chunks_dropped = 0
@@ -370,6 +383,8 @@ class Executor:
             self._cancel(msg.cancel_attempt)
         elif which == "refresh_fetch_token":
             self._refresh_token(msg.refresh_fetch_token)
+        elif which == "refresh_upload_grant":
+            self._refresh_grant(msg.refresh_upload_grant)
 
     def held(self) -> list[agent_pb2.AttemptStatus]:
         """Every attempt this process holds, for ``Reconcile`` (D66): running ones
@@ -600,6 +615,111 @@ class Executor:
         if msg.inputs:
             attempt.inputs = list(msg.inputs)
         attempt.token_changed.set()
+
+    def _refresh_grant(self, msg: agent_pb2.RefreshUploadGrant) -> None:
+        """D114: a fresh upload grant for a held attempt (after a controller
+        restart). Applied only to that (attempt_id, fencing_token) while it has
+        not ended; an upload waiting for it retries at once."""
+        attempt = self._attempts.get(msg.attempt_id)
+        applied = (
+            attempt is not None
+            and attempt.token == msg.fencing_token
+            and not attempt.ended
+            and token_ok(msg.upload_token)
+            and 0 < msg.blob_port < 65536
+            and blob_url_ok(msg.blob_url)
+        )
+        log.info(
+            "agent.execution.upload_grant_refreshed"
+            if applied
+            else "agent.execution.upload_grant_refresh_ignored",
+            node_id=self._node_id,
+            attempt_id=msg.attempt_id[:40] or None,
+            known=attempt is not None,
+        )
+        if attempt is None or not applied:
+            return
+        attempt.upload_token = msg.upload_token
+        attempt.upload_url = msg.blob_url
+        attempt.upload_port = int(msg.blob_port)
+        attempt.grant_changed.set()
+
+    async def _upload_parts(
+        self, base: str, digest: Digest, token: str, path: Path, *, attempt: _Attempt
+    ) -> int:
+        return await upload_parts(
+            base,
+            digest,
+            token,
+            path,
+            part_bytes=self._cfg.upload_part_bytes,
+            progress=attempt.uploads,
+        )
+
+    async def _upload_retrying(
+        self, attempt: _Attempt, plan: AttemptPlan, digest: Digest, path: Path
+    ) -> None:
+        """One blob up with the attempt's grant (D114): a refused grant waits
+        for ``RefreshUploadGrant``, an unreachable controller is retried with
+        backoff (0.25 s doubling to 5 s) - parts already stored are not sent
+        again - until ``upload_retry_s`` (one budget per attempt), then
+        :class:`UploadError` (retryable -> ``output_error``)."""
+        if not attempt.upload_token:
+            attempt.upload_token = plan.upload_token
+        if attempt.upload_deadline is None:
+            attempt.upload_deadline = self._clock() + self._cfg.upload_retry_s
+        deadline = attempt.upload_deadline
+        delay = _STAGE_RETRY_BASE_S
+        while True:
+            used = attempt.upload_token
+            attempt.grant_changed.clear()
+            refused = False
+            try:
+                base = blob_base_url(
+                    plan.blob_url if attempt.upload_url is None else attempt.upload_url,
+                    self._controller_host(),
+                    plan.blob_port
+                    if attempt.upload_port is None
+                    else attempt.upload_port,
+                )
+                kwargs = {"attempt": attempt} if self._resumable else {}
+                await self._step(
+                    attempt, self._upload(base, digest, used, path, **kwargs)
+                )
+            except FetchError as exc:  # no host to upload to
+                last = UploadError(exc.message, retryable=True)
+            except UploadError as exc:
+                if not exc.retryable or self._cfg.upload_retry_s <= 0:
+                    raise
+                last, refused = exc, bool(exc.details.get("refused"))
+            else:
+                return
+            if self._clock() >= deadline:
+                raise UploadError(
+                    f"the upload did not succeed within "
+                    f"{self._cfg.upload_retry_s:g} s of retries (last: {last.message})",
+                    retryable=True,
+                )
+            if attempt.upload_token == used:
+                remaining = max(0.0, deadline - self._clock())
+                wait = remaining if refused else min(delay, remaining)
+                delay = min(delay * 2, _STAGE_RETRY_CAP_S)
+                await self._step(attempt, self._grant_wait(attempt, wait))
+            attempt.upload_retries += 1
+            log.info(
+                "agent.execution.upload_retry",
+                node_id=self._node_id,
+                job_id=attempt.job_id,
+                attempt_id=attempt.attempt_id,
+                cause=last.message[:120],
+                refreshed=attempt.upload_token != used,
+                retries=attempt.upload_retries,
+            )
+
+    @staticmethod
+    async def _grant_wait(attempt: _Attempt, wait_s: float) -> None:
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(attempt.grant_changed.wait(), wait_s)
 
     def _stop(self, attempt: _Attempt, reason: str) -> None:
         if attempt.stop_reason is None:
@@ -1027,7 +1147,6 @@ class Executor:
     ) -> dict[Stream, agent_pb2.FinalLog]:
         """Upload both local logs with the grant (best effort, D71)."""
         result: dict[Stream, agent_pb2.FinalLog] = {}
-        base: str | None = None
         for stream in Stream:
             final = agent_pb2.FinalLog(
                 bytes=logs.kept[stream], truncated=logs.truncated[stream]
@@ -1040,14 +1159,7 @@ class Executor:
                 digest, size = await asyncio.to_thread(file_sha256, path)
                 if size == 0:
                     continue
-                if base is None:
-                    base = blob_base_url(
-                        plan.blob_url, self._controller_host(), plan.blob_port
-                    )
-                await self._step(
-                    attempt,
-                    self._upload(base, Digest.parse(digest), plan.upload_token, path),
-                )
+                await self._upload_retrying(attempt, plan, Digest.parse(digest), path)
             except (UploadError, FetchError, OSError) as exc:
                 log.warning(
                     "agent.execution.log_upload_failed",
@@ -1170,17 +1282,8 @@ class Executor:
                     "the controller gave this attempt no upload grant",
                     retryable=False,
                 )
-            try:
-                base = blob_base_url(
-                    plan.blob_url, self._controller_host(), plan.blob_port
-                )
-            except FetchError as exc:  # no host to upload to
-                raise OutputError(exc.message, retryable=True) from None
             started = self._clock()
-            await self._step(
-                attempt,
-                self._upload(base, collected.digest, plan.upload_token, dest),
-            )
+            await self._upload_retrying(attempt, plan, collected.digest, dest)
             log.info(
                 "agent.execution.outputs_uploaded",
                 node_id=self._node_id,
