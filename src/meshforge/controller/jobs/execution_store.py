@@ -276,6 +276,7 @@ class ExecutionStore(DecisionReads):
         ``waiting`` decision when the reasons changed). A job that cannot be
         placed never blocks the jobs behind it (no head-of-line blocking)."""
         results: list[DispatchResult] = []
+        recorded: list[tuple[str, str | None, str, DecisionRecord]] = []
         async with self._sessions() as db, db.begin():
             jobs = await queued_jobs(db, limit=limit, now=now, aging_s=aging_s)
             if not jobs:
@@ -304,6 +305,9 @@ class ExecutionStore(DecisionReads):
                             attempt_id=attempt.id,
                         )
                         fabric.last_reason[job.id] = decision.record.reason_key
+                        recorded.append(
+                            (job.id, attempt.id, "dispatched", decision.record)
+                        )
                     await _fresh(db, row)
                     results.append(DispatchResult(job=job_record(row), attempt=attempt))
                 elif isinstance(decision, DispatchFailure):
@@ -322,6 +326,7 @@ class ExecutionStore(DecisionReads):
                             "failed",
                             decision.record,
                         )
+                        recorded.append((job.id, None, "failed", decision.record))
                     await _fresh(db, row)
                     results.append(
                         DispatchResult(
@@ -339,6 +344,18 @@ class ExecutionStore(DecisionReads):
                             decision.record,
                         )
                         fabric.last_reason[job.id] = key
+                        recorded.append((job.id, None, "waiting", decision.record))
+        for job_id, attempt_id, outcome, record in recorded:  # committed now
+            log.info(
+                "controller.jobs.plan_decision",
+                job_id=job_id,
+                attempt_id=attempt_id,
+                node_id=record.chosen_node_id,
+                outcome=outcome,
+                policy=record.policy,
+                candidates=len(record.candidates),
+                reason_key=record.reason_key[:12],
+            )
         for result in results:
             _log_dispatch(result)
         return results
