@@ -9,9 +9,10 @@ runtime a base needs, recent env failures and free disk.
   the job's base, owner slot settings that allow the job's kind at all, not
   revoked. A job that every known node rejects statically can never run: it is
   refused at submit (``409 no_feasible_plan``) or failed in the queue (D104).
-* :func:`live_rejection` - the **moment**: ONLINE with a live session, the
-  environment not known-bad here (D116), a free slot of a kind the job can use,
-  under the node cap, enough free disk for what it would fetch.
+* :func:`live_rejection` - the **moment**: ONLINE with a live session, not
+  excluded for this retry (V0.6 G3, D110), the environment not known-bad here
+  (D116), a free slot of a kind the job can use, under the node cap, enough
+  free disk for what it would fetch.
 * :func:`choose_slot` - which slot a job takes (D105): ``gpu: required`` a GPU
   slot; ``preferred`` a GPU slot when one is free and usable, else a CPU slot;
   ``none`` a CPU slot.
@@ -192,6 +193,13 @@ def live_rejection(
     if not node.connected:
         return Rejection(
             RejectCode.NO_SESSION, "the node has no live session with this controller"
+        )
+    excluded = request.excluded.get(node.node_id)
+    if excluded is not None and request.pinned_node_id is None:
+        return Rejection(
+            RejectCode.RETRY_EXCLUDED,
+            f"an earlier attempt of this job failed here ({excluded}); other "
+            "nodes are tried first",
         )
     if request.env_key in node.known_bad_envs:
         return Rejection(

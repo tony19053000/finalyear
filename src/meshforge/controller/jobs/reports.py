@@ -122,6 +122,7 @@ def parse_status(status: agent_pb2.AttemptStatus) -> StatusReport | str:
         return f"AttemptStatus.state {state.value} is not an agent state"
     failure_type: FailureType | None = None
     detail: str | None = None
+    retryable: bool | None = None
     if status.HasField("failure"):
         if state is not AttemptState.FAILED:
             return "AttemptStatus.failure is set but the state is not FAILED"
@@ -137,6 +138,7 @@ def parse_status(status: agent_pb2.AttemptStatus) -> StatusReport | str:
         if reason is not None:
             return reason
         detail = status.failure.message or None
+        retryable = bool(status.failure.retryable)  # D110: per instance wins
     elif state is AttemptState.FAILED:
         return "AttemptStatus is FAILED without a failure"
     if status.output_digest and not _DIGEST.fullmatch(status.output_digest):
@@ -181,6 +183,7 @@ def parse_status(status: agent_pb2.AttemptStatus) -> StatusReport | str:
         logs=logs,
         transfers=transfers,
         env_hash=status.env_hash or None,
+        retryable=retryable,
     )
 
 

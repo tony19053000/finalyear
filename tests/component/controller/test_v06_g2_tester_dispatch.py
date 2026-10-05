@@ -321,9 +321,13 @@ async def test_revoked_only_capable_node_fails_a_waiting_auto_job_and_waiting_is
         j=waiting,
     )
     assert [o[0] for o in outcomes][-1] == "failed" and outcomes[-1][1] is None
-    # the job that held the slot is a different story: it is not touched by planning
+    # the job that held the slot lost its attempt with the node. Since V0.6 G3
+    # a loss is retried (D110): it is queued behind its backoff, or already
+    # failed no_feasible_plan like the waiting job - never running.
     st = await _sql(fabric.pg, "SELECT state FROM job WHERE id = :j", j=first)
-    assert st[0][0] != "queued"
+    assert st[0][0] in ("queued", "failed")
+    lost = await _sql(fabric.pg, "SELECT state FROM attempt WHERE job_id = :j", j=first)
+    assert [r[0] for r in lost] == ["lost"]
 
 
 # --------------------------------------------------------------- corrupt data

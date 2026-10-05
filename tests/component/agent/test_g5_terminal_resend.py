@@ -133,6 +133,9 @@ async def test_a_report_for_a_lost_attempt_is_acked_and_the_attempt_released(
     tmp_path: Path,
 ) -> None:
     project, manifest, counter = _job(tmp_path, 1.5)
+    # V0.6 G3: a loss is retried by default; this test is about the release
+    # of the lost attempt, so the job opts out (D117 on_lost: false).
+    manifest["retry"] = {"on_lost": False}
     job_id = await submit(http, project, agent.node_id, manifest)
     await wait_job(http, job_id, states=frozenset({"running"}))
     (live,) = await runtime.jobs.live_attempts(agent.node_id)

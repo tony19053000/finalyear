@@ -24,7 +24,9 @@ PostgreSQL into a :class:`FabricRows`:
 * the batch's named-input sizes;
 * the run-time history of the batch's workload fingerprints (D108);
 * the reason key of each job's latest decision (D104: a waiting job's
-  decision is recorded again only when it changes).
+  decision is recorded again only when it changes);
+* the failed / lost attempts of the batch's retried jobs (V0.6 G3, D110:
+  where a retry should not go).
 
 Every read is bounded. :meth:`FabricRows.took` updates the slot counts when the
 tick creates an attempt, so a later job in the same tick sees the slot taken.
@@ -43,6 +45,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from meshforge.common.manifest import MAX_PRIORITY
 from meshforge.common.states import AttemptPhase, AttemptState, JobState
+from meshforge.controller.planner.retry_exclusion import PastFailure
 from meshforge.controller.planner.types import ClusterSnapshot, History
 from meshforge.controller.store.models.cache import CacheLocation
 from meshforge.controller.store.models.data import JobInput, NamedInput
@@ -62,6 +65,8 @@ __all__ = [
 MAX_NODES: Final = 1000
 MAX_HISTORY_FINGERPRINTS: Final = 500
 _MAX_HOLDINGS: Final = 100_000
+_MAX_PAST_PER_JOB: Final = 16
+"""More than the manifest's 10 attempts, so no job's failures are cut."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,6 +96,8 @@ class FabricRows:
     """fingerprint -> past run times."""
     last_reason: dict[str, str] = field(default_factory=dict)
     """job_id -> reason_key of its latest plan_decision."""
+    past_failures: dict[str, tuple[PastFailure, ...]] = field(default_factory=dict)
+    """job_id -> its ended ``failed``/``lost`` attempts (retried jobs only)."""
     snapshot: ClusterSnapshot | None = None
     """The planner snapshot built from these rows (the dispatcher's, cached
     for the tick and patched by :meth:`took`)."""
@@ -308,7 +315,47 @@ async def read_fabric(
         .order_by(PlanDecision.job_id, PlanDecision.id.desc())
     )
     fabric.last_reason = {str(j): str(r) for j, r in last.all()}
+    fabric.past_failures = await _past_failures(
+        db, [j.id for j in jobs if int(j.attempt_epoch) > 0]
+    )
     return fabric
+
+
+async def _past_failures(
+    db: AsyncSession, job_ids: Sequence[str]
+) -> dict[str, tuple[PastFailure, ...]]:
+    """D110: the ended attempts a retry should avoid (bounded: a job has at
+    most ``MAX_ATTEMPTS`` attempts)."""
+    if not job_ids:
+        return {}
+    indices = Attempt.start_snapshot["gpu_indices"]
+    rows = await db.execute(
+        select(
+            Attempt.job_id,
+            Attempt.node_id,
+            Attempt.failure_type,
+            Attempt.ended_at,
+            indices,
+        )
+        .where(
+            Attempt.job_id.in_(job_ids),
+            Attempt.state.in_((AttemptState.FAILED.value, AttemptState.LOST.value)),
+            Attempt.failure_type.is_not(None),
+        )
+        .order_by(Attempt.job_id, Attempt.fencing_token)
+        .limit(len(job_ids) * _MAX_PAST_PER_JOB)
+    )
+    out: dict[str, list[PastFailure]] = {}
+    for job_id, node_id, failure_type, ended_at, gpus in rows.all():
+        held = tuple(
+            i
+            for i in (gpus if isinstance(gpus, list) else ())
+            if isinstance(i, int) and not isinstance(i, bool)
+        )
+        out.setdefault(str(job_id), []).append(
+            PastFailure(str(node_id), str(failure_type), ended_at, held)
+        )
+    return {k: tuple(v) for k, v in out.items()}
 
 
 _LIVE: Final = frozenset(

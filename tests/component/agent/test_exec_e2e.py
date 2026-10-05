@@ -346,8 +346,13 @@ async def test_agent_stop_mid_run_reports_agent_shutdown_then_goodbye(
     tmp_path: Path,
 ) -> None:
     counter = tmp_path / "count.txt"
+    # V0.6 G3: the job opts out of loss retries (on_lost: false), so the
+    # agent's node_lost/agent_shutdown report fails it as in V0.4.
     job_id = await submit(
-        http, _project(tmp_path), agent.node_id, _manifest(counter, sleep_s=60)
+        http,
+        _project(tmp_path),
+        agent.node_id,
+        _manifest(counter, sleep_s=60, retry={"on_lost": False}),
     )
     await wait_job(http, job_id, states=frozenset({"running"}))
     await agent.stop()

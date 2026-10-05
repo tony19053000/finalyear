@@ -27,7 +27,10 @@ live rejection (SUSPECT, DRAINING, busy slots...) -> wait.
 
 **Auto jobs (D104):** a node chosen -> dispatch; every candidate rejected for a
 *static* reason (none could ever run it - e.g. its only capable node was
-revoked) -> ``FAILED(no_feasible_plan)``; otherwise wait.
+revoked) -> ``FAILED(no_feasible_plan)``; otherwise wait. A **retry** of an
+auto job (V0.6 G3, D110) carries the nodes its earlier attempts failed on as
+``PlanRequest.excluded`` (:func:`~meshforge.controller.planner.exclusions`);
+a pinned job retries on its own node only.
 
 The planner itself stays pure; everything impure is read here, once.
 """
@@ -66,6 +69,7 @@ from meshforge.controller.planner import (
     PlannerConfig,
     RejectCode,
     TreeNeed,
+    exclusions,
     plan,
 )
 from meshforge.controller.planner.decision_json import candidates_json
@@ -279,6 +283,18 @@ class DispatchPlanner:
             history=fabric.history.get(job.scheduling.fingerprint or "", History()),
         )
         snapshot = self._for_job(self.snapshot(fabric), key)
+        past = fabric.past_failures.get(job.id, ())
+        if past and pinned is None:
+            # D110: a retry of an auto job avoids where it failed (soft, plan.py)
+            plan_job = dataclasses.replace(
+                plan_job,
+                excluded=exclusions(
+                    past,
+                    snapshot.nodes,
+                    now=self._wall(),
+                    exclude_s=self._planner.retry_exclude_s,
+                ),
+            )
         decision = plan(plan_job, snapshot, self.policy_of(job), self._wall())
         record = decision_record(decision)
         if decision.chosen is not None:

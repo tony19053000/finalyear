@@ -13,6 +13,14 @@ D119).
 * **OFFLINE** caused by the agent -> its live attempts ``LOST``.
 * **Orphan sweep** - after ``reconnect_grace_s`` of controller uptime, live
   attempts of nodes with no live or lingering session are ``LOST``.
+* Every ``LOST`` goes through :meth:`~.execution_store.ExecutionStore.
+  end_attempt`, which retries the job in the same transaction (V0.6 G3,
+  D110) - unless it opted out (``on_lost: false``) or used its attempts.
+* **Overlaps (D117)** - a Reconcile (or a fenced report) naming an attempt the
+  controller ended ``LOST`` while its job already has a newer attempt: the
+  partitioned agent kept running it. Counted (``execution_overlaps``) and
+  logged ``controller.jobs.execution_overlap`` once per attempt; the agent
+  is told ``CancelAttempt{release}`` and nothing it reports is committed.
 * **Backstop (D69)** - RUNNING past the job's limit + ``backstop_grace_s``.
 * **Upload deadline (D94)** - UPLOADING past ``upload_deadline_total_s``.
 * **Log GC (D94)**.
@@ -24,6 +32,7 @@ inside the dispatcher's one task.
 from __future__ import annotations
 
 import datetime as dt
+from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Final
 
@@ -45,6 +54,7 @@ __all__ = ["RecoverySteps"]
 
 log = get_logger(__name__)
 
+_OVERLAPS_TRACKED: Final = 4096
 _MAY_FETCH: Final = frozenset({AttemptState.ASSIGNED, AttemptState.STAGING})
 """Attempt states (as stored) in which the agent may still fetch from the
 controller; the store is never ahead of the agent, so this is a superset (D95)."""
@@ -67,6 +77,8 @@ class _Offline:
 class RecoverySteps(DispatchSteps):
     """See module docstring."""
 
+    _overlaps_seen: OrderedDict[str, None]
+    """D117: attempts already counted as an overlapping execution."""
     _uploading_since: dict[str, dt.datetime]
     """attempt_id -> when it entered UPLOADING (from the job history)."""
 
@@ -117,9 +129,45 @@ class RecoverySteps(DispatchSteps):
             await self._lose(entry, "agent_lost_attempt")
         for attempt_id, token in item.held.items():
             if attempt_id not in known:
+                await self._check_overlap(node_id, attempt_id, token, "reconcile")
                 self._cancel_on(
                     node_id, attempt_id, token, "not_live_on_controller", release=True
                 )
+
+    async def _check_overlap(
+        self, node_id: str, attempt_id: str, token: int, source: str
+    ) -> None:
+        """D117 / ADR-0015: an agent still holds (or reports on) an attempt the
+        controller ended ``LOST`` while the job has a newer attempt - the
+        partitioned laptop kept running it while the retry ran elsewhere.
+        Never committed (fenced) and now released, but the overlap is real:
+        count it and log it, once per attempt."""
+        if attempt_id in self._overlaps_seen:
+            return
+        attempt = await self._store.get_attempt(attempt_id)
+        if (
+            attempt is None
+            or attempt.fencing_token != token
+            or attempt.state is not AttemptState.LOST
+        ):
+            return
+        job = await self._store.get_job(attempt.job_id)
+        if job is None or job.attempt_epoch <= attempt.fencing_token:
+            return
+        self._overlaps_seen[attempt_id] = None
+        while len(self._overlaps_seen) > _OVERLAPS_TRACKED:
+            self._overlaps_seen.popitem(last=False)
+        self.stats.execution_overlaps += 1
+        log.warning(
+            "controller.jobs.execution_overlap",
+            job_id=attempt.job_id,
+            attempt_id=attempt_id,
+            node_id=node_id,
+            fencing_token=token,
+            current_attempt=job.attempt_epoch,
+            job_state=job.state.value,
+            source=source,
+        )
 
     async def _offline(self, item: _Offline) -> None:
         for entry in await self._store.live_attempts(item.node_id):
@@ -153,6 +201,7 @@ class RecoverySteps(DispatchSteps):
             self._grants.close(attempt.id)
         if self._logs is not None and outcome.kind is StatusKind.APPLIED:
             self._logs.finalize(attempt.id, None)
+        self._note_retry(outcome)
         if outcome.kind is StatusKind.APPLIED:
             self.stats.attempts_lost += 1
             log.warning(
@@ -177,6 +226,7 @@ class RecoverySteps(DispatchSteps):
             )
             if outcome.kind is not StatusKind.APPLIED:
                 continue
+            self._note_retry(outcome)
             self.stats.backstops += 1
             log.warning(
                 "controller.jobs.backstop",
@@ -225,6 +275,7 @@ class RecoverySteps(DispatchSteps):
             self._uploading_since.pop(attempt.id, None)
             if outcome.kind is not StatusKind.APPLIED:
                 continue
+            self._note_retry(outcome)
             self.stats.upload_deadlines += 1
             log.warning(
                 "controller.jobs.upload_deadline",

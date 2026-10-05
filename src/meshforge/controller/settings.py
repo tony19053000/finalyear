@@ -469,6 +469,18 @@ class PlannerSettings(SectionModel):
             "median is taken over."
         ),
     )
+    retry_exclude_s: float = Field(
+        default=600.0,
+        ge=0.0,
+        le=86_400.0,
+        description=(
+            "V0.6 D110: after an automatically placed attempt is lost or fails "
+            "transfer_error / integrity_error / timeout, its retry avoids that "
+            "node for this many seconds (unless no other node could ever run "
+            "the job). 0 = no exclusion by time (vram_oom still excludes GPUs "
+            "no larger than the one that ran out)."
+        ),
+    )
 
     @field_validator("resource_weights")
     @classmethod

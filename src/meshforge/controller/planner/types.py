@@ -83,6 +83,11 @@ class RejectCode(StrEnum):
     """This job's environment failed to build on this node recently (D116)."""
     DISK_SHORT = "disk_short"
     """The node's latest sample shows less free disk than the job's inputs."""
+    RETRY_EXCLUDED = "retry_excluded"
+    """V0.6 G3 (D110): an earlier attempt of this job failed here in a way
+    another node may avoid (lost, transfer/integrity error, timeout, or a
+    GPU no larger than the one that ran out of VRAM). Auto jobs only; lifted
+    when no other node could ever run the job."""
 
 
 STATIC_CODES: frozenset[RejectCode] = frozenset(
@@ -169,6 +174,9 @@ class PlanRequest:
     """D109: the submitter's CAS already holds the project tree."""
     fingerprint: str | None = None
     history: History = field(default_factory=History)
+    excluded: Mapping[str, str] = field(default_factory=dict)
+    """V0.6 G3 (D110): node_id -> the failure type that excludes it from this
+    retry (see :mod:`.retry_exclusion`); ignored for a pinned job."""
 
     @property
     def is_gpu_job(self) -> bool:

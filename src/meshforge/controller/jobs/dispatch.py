@@ -28,10 +28,13 @@ from meshforge.common.proto.meshforge.v1 import agent_pb2
 from meshforge.controller.blobs import MAX_FETCH_TOKEN_TTL_S, FetchTokens
 from meshforge.controller.jobs.execution_store import (
     ExecutionStore,
+    StatusKind,
+    StatusOutcome,
 )
 from meshforge.controller.jobs.logs import LogHub
 from meshforge.controller.jobs.peers import PeerSources
 from meshforge.controller.jobs.planning import DispatchPlanner
+from meshforge.controller.jobs.retry import RetryReason
 from meshforge.controller.jobs.spec import execution_spec
 from meshforge.controller.jobs.store import AttemptRecord, JobRecord
 from meshforge.controller.named_inputs import NamedInputStore, ResolvedInput
@@ -65,6 +68,13 @@ class DispatcherStats:
     db_retries: int = 0
     upload_deadlines: int = 0
     log_files_deleted: int = 0
+    retries_scheduled: int = 0
+    """V0.6 G3 (D110): attempts whose end put their job back in the queue."""
+    retries_exhausted: int = 0
+    """Jobs failed because their last allowed attempt failed retryably."""
+    execution_overlaps: int = 0
+    """V0.6 G3 (D117): superseded attempts found still held by their agent
+    after the job was retried - a possible overlapping execution."""
 
 
 def fetch_scope(job: JobRecord, inputs: Sequence[str] = ()) -> list[Digest]:
@@ -353,6 +363,41 @@ class DispatchSteps:
         self._tokens.expire_after(attempt_id, grace)
         if self._grants is not None:
             self._grants.close(attempt_id, grace)
+
+    # ------------------------------------------------------------ retries
+
+    def _note_retry(self, outcome: StatusOutcome) -> None:
+        """D110: count and log (after commit) what an attempt's end did to its
+        job; wake the loop so a retry without backoff is placed at once."""
+        verdict, attempt = outcome.retry, outcome.attempt
+        if verdict is None or attempt is None or outcome.kind is not StatusKind.APPLIED:
+            return
+        if verdict.retry:
+            self.stats.retries_scheduled += 1
+            log.info(
+                "controller.jobs.retry_scheduled",
+                job_id=attempt.job_id,
+                attempt_id=attempt.id,
+                node_id=attempt.node_id,
+                fencing_token=attempt.fencing_token,
+                failure_type=None
+                if attempt.failure_type is None
+                else attempt.failure_type.value,
+                backoff_s=verdict.backoff_s,
+            )
+            self._wake_soon()
+        elif verdict.reason is RetryReason.RETRIES_EXHAUSTED:
+            self.stats.retries_exhausted += 1
+            log.warning(
+                "controller.jobs.retries_exhausted",
+                job_id=attempt.job_id,
+                attempt_id=attempt.id,
+                node_id=attempt.node_id,
+                attempts=attempt.fencing_token,
+            )
+
+    def _wake_soon(self) -> None:
+        """Run a dispatch pass soon (the dispatcher's ``wake``)."""
 
     # ------------------------------------------------------------ cancel
 

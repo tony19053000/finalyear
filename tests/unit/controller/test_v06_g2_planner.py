@@ -181,6 +181,9 @@ def test_every_live_rejection(
 
 def test_every_reject_code_has_a_case() -> None:
     covered = {c for c, _, _ in STATIC_CASES} | {c for c, _, _ in LIVE_CASES}
+    # V0.6 G3: retry_excluded is soft (lifted on a one-node fabric), so its
+    # cases need two nodes - tests/unit/controller/test_v06_g3_retry_planner.py
+    covered |= {RejectCode.RETRY_EXCLUDED}
     assert covered == set(RejectCode)
     assert {c for c, _, _ in STATIC_CASES} == STATIC_CODES
 

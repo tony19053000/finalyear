@@ -25,7 +25,14 @@ the loser sees the winner's state:
   ends - all five phase rows written in the same transaction (D68);
 * :meth:`ExecutionStore.end_attempt` - the controller ends an attempt itself
   (``LOST`` when its node left, ``FAILED`` by the timeout backstop);
+* **retries (V0.6 G3, D110, ADR-0015):** whenever ``apply_status`` or
+  ``end_attempt`` ends a job's *current* attempt with a failure or a loss,
+  :func:`_fail_or_retry` decides in **the same transaction** whether the
+  job fails or goes ``RETRYING -> PLANNING -> QUEUED`` with ``not_before``
+  (:mod:`.retry`); a report from an attempt that is not the job's current
+  one (``fencing_token != job.attempt_epoch``) never moves the job;
 * :meth:`ExecutionStore.request_cancel` - D69;
+* :meth:`ExecutionStore.requeue_stranded` - D115 safety net at start;
 * :meth:`ExecutionStore.mark_start_acked`, :meth:`ExecutionStore.live_attempts`,
   :meth:`ExecutionStore.overdue_running` - bookkeeping and reads.
 
@@ -65,6 +72,12 @@ from meshforge.controller.jobs.queue_reads import (
     FabricRows,
     queued_jobs,
     read_fabric,
+)
+from meshforge.controller.jobs.retry import (
+    RetryReason,
+    RetryVerdict,
+    exhausted_detail,
+    retry_verdict,
 )
 from meshforge.controller.jobs.store import (
     AttemptRecord,
@@ -228,6 +241,9 @@ class StatusReport:
     """V0.5 G5 (D93): transfer telemetry of the terminal report."""
     env_hash: str | None = None
     """V0.6 G1 (D116): the agent's env hash (64 hex), terminal reports only."""
+    retryable: bool | None = None
+    """V0.6 G3 (D110): the failure's own ``retryable`` flag (``Failure.
+    retryable``); None = not sent -> the failure type's default (§13)."""
 
 
 class StatusKind(StrEnum):
@@ -247,6 +263,9 @@ class StatusOutcome:
     job: JobRecord | None = None
     ended: bool = False
     """This call moved the attempt into a terminal state."""
+    retry: RetryVerdict | None = None
+    """V0.6 G3 (D110): set when the attempt's end decided the job's fate -
+    ``retry`` = the job is QUEUED again (same transaction), else why not."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -433,6 +452,36 @@ class ExecutionStore(DecisionReads):
         return attempt_record(attempt)
 
     @typed_store_call
+    async def requeue_stranded(self, *, limit: int = 1000) -> list[str]:
+        """D115: jobs stored ``PLANNING`` or ``RETRYING`` go back to
+        ``QUEUED`` (they are only queue entries). Every writer moves a job
+        through those states inside one transaction, so after a crash none
+        should exist; this runs at dispatcher start as the safety net for
+        rows written by another version or by hand."""
+        async with self._sessions() as db, db.begin():
+            rows = list(
+                await db.scalars(
+                    select(Job)
+                    .where(
+                        Job.state.in_(
+                            (JobState.PLANNING.value, JobState.RETRYING.value)
+                        )
+                    )
+                    .order_by(Job.created_at)
+                    .limit(limit)
+                    .with_for_update(skip_locked=True)
+                )
+            )
+            for row in rows:
+                if row.state == JobState.RETRYING.value:
+                    await _move_job(db, row, JobEvent.PLAN)
+                await _move_job(db, row, JobEvent.PLANNED)
+            ids = [row.id for row in rows]
+        for job_id in ids:
+            log.warning("controller.jobs.requeued_stranded", job_id=job_id)
+        return ids
+
+    @typed_store_call
     async def mark_start_acked(self, attempt_id: str, fencing_token: int) -> bool:
         """Record the agent's Ack of ``StartAttempt`` (first one wins)."""
         async with self._sessions() as db, db.begin():
@@ -466,11 +515,26 @@ class ExecutionStore(DecisionReads):
             if not path:
                 return StatusOutcome(StatusKind.DUPLICATE, attempt=attempt_record(row))
             job = await db.get_one(Job, row.job_id, with_for_update=True)
+            if int(row.fencing_token) != int(job.attempt_epoch):
+                # D110/ADR-0015: only the job's current attempt may move it. A
+                # retry ends the old attempt in the transaction that creates
+                # the job's next epoch, so this is defence in depth.
+                return StatusOutcome(StatusKind.FENCED, attempt=attempt_record(row))
+            verdict: RetryVerdict | None = None
             for event, _ in path:
                 await _move_attempt(db, row, event, report)
                 reached = AttemptState(row.state)
                 job_event = job_event_for(reached, report.failure_type)
-                if job_event is not None:
+                if job_event is JobEvent.FAIL:
+                    verdict = await _fail_or_retry(
+                        db,
+                        job,
+                        failure_type=report.failure_type or FailureType.INTERNAL_ERROR,
+                        detail=report.detail,
+                        retryable=report.retryable,
+                        lost=False,
+                    )
+                elif job_event is not None:
                     await _move_job(
                         db,
                         job,
@@ -489,6 +553,7 @@ class ExecutionStore(DecisionReads):
                 attempt=attempt_record(row),
                 job=job_record(job),
                 ended=ended,
+                retry=verdict,
             )
 
     @typed_store_call
@@ -500,9 +565,13 @@ class ExecutionStore(DecisionReads):
         event: AttemptEvent,
         failure_type: FailureType,
         detail: str,
+        retryable: bool | None = None,
     ) -> StatusOutcome:
         """The controller ends a live attempt itself: ``LOSE`` (node gone) or
-        ``FAIL`` (backstop). A no-op outcome when it already ended."""
+        ``FAIL`` (backstop, upload deadline). A no-op outcome when it already
+        ended. In the same transaction the job is retried or failed (D110:
+        a ``LOSE`` is a loss - retried unless the job set ``on_lost:
+        false``)."""
         if event not in (AttemptEvent.LOSE, AttemptEvent.FAIL):
             raise ValueError("end_attempt takes LOSE or FAIL")
         async with self._sessions() as db, db.begin():
@@ -522,14 +591,16 @@ class ExecutionStore(DecisionReads):
                 detail=detail,
             )
             await _move_attempt(db, row, event, report)
-            await _move_job(
-                db,
-                job,
-                JobEvent.FAIL,
-                failure_type=failure_type,
-                detail=detail,
-                soft=True,
-            )
+            verdict: RetryVerdict | None = None
+            if int(row.fencing_token) == int(job.attempt_epoch):
+                verdict = await _fail_or_retry(
+                    db,
+                    job,
+                    failure_type=failure_type,
+                    detail=detail,
+                    retryable=retryable,
+                    lost=event is AttemptEvent.LOSE,
+                )
             await _write_phases(db, row, None)
             await _fresh(db, row, job)
             return StatusOutcome(
@@ -537,6 +608,7 @@ class ExecutionStore(DecisionReads):
                 attempt=attempt_record(row),
                 job=job_record(job),
                 ended=True,
+                retry=verdict,
             )
 
     @typed_store_call
@@ -728,6 +800,54 @@ async def _move_job(
         to_state=target.value,
     )
     return True
+
+
+async def _fail_or_retry(
+    db: AsyncSession,
+    job: Job,
+    *,
+    failure_type: FailureType,
+    detail: str | None,
+    retryable: bool | None,
+    lost: bool,
+) -> RetryVerdict:
+    """D110/ADR-0015: the job's current attempt just ended with a failure (or
+    was lost) **in this transaction**; decide the job's fate here too.
+
+    Retry = ``RETRYING -> PLANNING -> QUEUED`` with ``not_before`` = now +
+    backoff (the database's clock, the one ``queued_at`` uses), every arrow
+    in the history - so the attempt's end and the job's next queue entry
+    commit together or not at all. ``queued_at`` keeps its first value: a
+    retry does not lose its place to jobs submitted after it. Otherwise the
+    job fails with the attempt's failure type (``retries_exhausted`` in the
+    detail when that was the reason) - or nothing, when the job already moved
+    on (e.g. it was cancelled; the soft arrow logs it).
+    """
+    verdict = retry_verdict(
+        failure_type=failure_type,
+        retryable=retryable,
+        lost=lost,
+        attempts_used=int(job.attempt_epoch),
+        max_attempts=int(job.max_attempts),
+        base_backoff_s=float(job.retry_backoff_s),
+        on_lost_retry=bool(job.on_lost_retry),
+        cancel_requested=job.cancel_requested_at is not None,
+    )
+    if verdict.retry and await _move_job(db, job, JobEvent.RETRY, soft=True):
+        await _move_job(db, job, JobEvent.PLAN)
+        await _move_job(db, job, JobEvent.PLANNED)
+        job.not_before = func.clock_timestamp() + func.make_interval(
+            0, 0, 0, 0, 0, 0, verdict.backoff_s
+        )
+        return verdict
+    if verdict.retry:  # the job had already moved on (soft arrow skipped)
+        return RetryVerdict(RetryReason.NOT_RETRYABLE)
+    if verdict.reason is RetryReason.RETRIES_EXHAUSTED:
+        detail = exhausted_detail(int(job.attempt_epoch), detail)
+    await _move_job(
+        db, job, JobEvent.FAIL, failure_type=failure_type, detail=detail, soft=True
+    )
+    return verdict
 
 
 async def _move_attempt(

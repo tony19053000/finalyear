@@ -16,7 +16,9 @@ report for a terminal attempt that disagrees with it is :class:`StaleReportError
 ``COLLECTING``, ``DONE`` succeeds it; ``FAILED`` fails it - unless the failure
 type is ``cancelled``, which can only come from a ``CancelAttempt`` the
 controller sent (D69), so the job becomes ``CANCELLED``. ``LOST`` fails the job
-``node_lost`` (no retries until V0.6).
+``node_lost``. ``FAIL`` here means "the attempt failed": since V0.6 G3 the
+store turns it into a retry or a job failure in the same transaction
+(:func:`~.execution_store._fail_or_retry`, :mod:`.retry`).
 
 **Phases (D68).** :func:`phase_rows` always yields all five
 :class:`~meshforge.common.states.AttemptPhase` rows. ``queue`` is the

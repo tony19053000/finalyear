@@ -11,7 +11,9 @@ refused on purpose, even where a later version will need one: adding an arrow is
 ARCHITECTURE §12 change first, then one line here and a test. The 2026-09-28
 amendments (V0.4 D55: ``COLLECTING -> FAILED``, ``PLANNING -> CANCELLED``,
 ``RETRYING -> CANCELLED``; G4: ``COLLECTING -> CANCELLED`` for D69 and
-``QUEUED -> FAILED`` for D65) are in both.
+``QUEUED -> FAILED`` for D65) are in both, and so is V0.6 G3's
+``COLLECTING -> RETRYING`` (D110: an attempt lost or failed retryably while
+uploading its outputs is retried like one lost while running).
 """
 
 from __future__ import annotations
@@ -57,7 +59,8 @@ class JobEvent(StrEnum):
     COLLECTED = "collected"
     """COLLECTING -> SUCCEEDED."""
     RETRY = "retry"
-    """PREPARING/RUNNING -> RETRYING (retryable attempt failure)."""
+    """PREPARING/RUNNING/COLLECTING -> RETRYING (retryable attempt failure or
+    loss; V0.6 G3 added COLLECTING - an attempt can be lost while uploading)."""
     FAIL = "fail"
     """QUEUED/PREPARING/RUNNING/COLLECTING -> FAILED (non-retryable, retries
     exhausted, the output upload failed, or - QUEUED - the manually placed node
@@ -96,6 +99,7 @@ JOB_TRANSITIONS: Final[Mapping[tuple[JobState, JobEvent], JobState]] = _freeze(
         (J.COLLECTING, JE.COLLECTED): J.SUCCEEDED,
         (J.PREPARING, JE.RETRY): J.RETRYING,
         (J.RUNNING, JE.RETRY): J.RETRYING,
+        (J.COLLECTING, JE.RETRY): J.RETRYING,  # V0.6 G3: lost/blip while uploading
         (J.PREPARING, JE.FAIL): J.FAILED,
         (J.RUNNING, JE.FAIL): J.FAILED,
         (J.COLLECTING, JE.FAIL): J.FAILED,  # D55

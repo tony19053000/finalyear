@@ -212,8 +212,9 @@ async def test_stale_token_and_contradicting_terminal_reports_are_fenced(
     )
     assert lost.kind is StatusKind.APPLIED
     assert lost.attempt is not None and lost.attempt.state is AttemptState.LOST
-    assert lost.job is not None and lost.job.state is JobState.FAILED
-    assert lost.job.failure_type is FailureType.NODE_LOST
+    # V0.6 G3 (D110): a loss is retried in the same transaction
+    assert lost.job is not None and lost.job.state is JobState.QUEUED
+    assert lost.retry is not None and lost.retry.retry
     phases = {p.phase: p for p in await store.phases(attempt_id)}
     assert set(phases) == {p.value for p in AttemptPhase}
     assert all(phases[p].skipped for p in ("stage", "env", "run", "collect"))

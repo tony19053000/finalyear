@@ -33,7 +33,7 @@ only, so it cannot be replayed forever (D75). **Acked is not applied:** the
 store was never changed, so a poisoned ``DONE`` never makes the job
 ``SUCCEEDED``. The agent frees the attempt once acked, and the attempt ends by
 another path: the next Reconcile finds it acked-but-not-held -> ``LOST``
-(``agent_lost_attempt``, job ``FAILED(node_lost)``); an agent OFFLINE -> ``LOST``;
+(``agent_lost_attempt``, retried, V0.6 G3); an agent OFFLINE -> ``LOST``;
 or, if it is still ``RUNNING`` in the store, the backstop ->
 ``FAILED(deadline_exceeded, controller_backstop)``. The backstop only covers
 ``RUNNING``; an attempt stored as ``UPLOADING`` ends by the upload deadline
@@ -42,9 +42,9 @@ or, if it is still ``RUNNING`` in the store, the backstop ->
 **Reconcile (D66).** For the node's live attempts: held by the agent -> continue
 (re-sending a pending cancel); not held and ``StartAttempt`` never acked ->
 re-send the same attempt (the agent dedupes on ``(attempt_id, fencing_token)``);
-not held but acked -> ``LOST``, job ``FAILED(node_lost, agent_lost_attempt)`` -
-re-running it could duplicate an execution. Attempts the agent holds that the
-controller does not consider live (ended, or unknown) get
+not held but acked -> ``LOST`` (``agent_lost_attempt``), retried like any loss
+(V0.6 G3) - the agent does not hold it, so the retry cannot overlap it.
+Attempts the agent holds that the controller does not consider live (ended, or unknown) get
 ``CancelAttempt{release}`` (D75). A held attempt still ``ASSIGNED``/``STAGING``
 for which this process has no live fetch token (a controller restart forgets
 them all; they are never persisted) gets ``RefreshFetchToken`` with a new
@@ -55,10 +55,13 @@ D114) - so does one whose latest grant-carrying message (a re-sent
 StartAttempt, or a refresh) was never acked: the agent may not have it.
 
 **OFFLINE (D66).** A node the *agent* took OFFLINE (lease expired, Goodbye) loses
-its live attempts (``LOST``, job ``FAILED(node_lost)``; no retry until V0.6) and
-their fetch tokens are revoked. SUSPECT never does. A controller shutdown never
-does. After a controller restart, attempts of nodes that do not reconnect within
-``reconnect_grace_s`` are lost by the orphan sweep.
+its live attempts (``LOST``) and their fetch tokens are revoked; the job is
+retried in the same transaction (V0.6 G3, D110: ``RETRYING -> PLANNING ->
+QUEUED``, the lost node excluded for ``retry_exclude_s``) unless it set
+``retry: {on_lost: false}`` or used ``max_attempts`` - then
+``FAILED(node_lost)``. SUSPECT never does. A controller shutdown never does.
+After a controller restart, attempts of nodes that do not reconnect within
+``reconnect_grace_s`` are lost by the orphan sweep (and retried the same way).
 
 **Backstop (D69).** An attempt still RUNNING ``backstop_grace_s`` past its job's
 time limit is failed ``deadline_exceeded`` (``controller_backstop``) and cancelled.
@@ -216,6 +219,8 @@ class Dispatcher(RecoverySteps):
         self._poison: OrderedDict[tuple[str, str], int] = OrderedDict()
         self._uploading_since: dict[str, dt.datetime] = {}
         """attempt_id -> when it entered UPLOADING (from the job history)."""
+        self._overlaps_seen: OrderedDict[str, None] = OrderedDict()
+        """D117: attempts already counted as an overlapping execution."""
         self._grant_unacked: dict[str, str] = {}
         """D114: attempt_id -> message_id of the last message that carried the
         attempt's upload grant (StartAttempt or RefreshUploadGrant) while the
@@ -248,6 +253,9 @@ class Dispatcher(RecoverySteps):
         """A job was submitted (or cancelled): run a dispatch pass soon."""
         self._wake.set()
 
+    def _wake_soon(self) -> None:
+        self._wake.set()
+
     def request_stop(self) -> None:
         """Finish the current step and return from :meth:`run` (no mid-query
         cancel: a cancelled database call can leave driver tasks behind). Items
@@ -263,6 +271,7 @@ class Dispatcher(RecoverySteps):
         """Until :meth:`request_stop`: work items, then the periodic steps."""
         interval = self._settings.dispatch_interval_s
         next_tick = self._clock()
+        await self._retrying(self._requeue_stranded, None)
         while not self._stopping:
             timeout = max(0.0, next_tick - self._clock())
             if self._queue.empty() and not self._wake.is_set():
@@ -422,6 +431,11 @@ class Dispatcher(RecoverySteps):
         else:
             await self._offline(item)
 
+    async def _requeue_stranded(self, _: object) -> None:
+        """D115: PLANNING/RETRYING rows are queue entries - put them back."""
+        if await self._store.requeue_stranded():
+            self._wake.set()
+
     async def _periodic(self, _: object) -> None:
         await self._dispatch()
         await self._backstop()
@@ -484,6 +498,10 @@ class Dispatcher(RecoverySteps):
                 outcome=outcome.kind.value,
                 stored=None if outcome.attempt is None else outcome.attempt.state.value,
             )
+            if outcome.attempt is not None:
+                await self._check_overlap(
+                    live.node_id, report.attempt_id, report.fencing_token, "report"
+                )
             # D75: the controller is done with this (attempt, token): the agent
             # must stop it if it still runs and free it either way.
             self._cancel_on(
@@ -494,6 +512,7 @@ class Dispatcher(RecoverySteps):
                 release=True,
             )
         self._manager.ack_message(live, item.message_id)
+        self._note_retry(outcome)
         self._after(outcome, report)
         self._remember_bad_env(outcome, report)
         await self._suspect_trees(outcome, report)

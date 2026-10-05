@@ -27,7 +27,11 @@ from dataclasses import asdict, replace
 from typing import Any
 
 from meshforge.controller.planner.estimator import estimate
-from meshforge.controller.planner.feasibility import choose_slot, rejection
+from meshforge.controller.planner.feasibility import (
+    choose_slot,
+    rejection,
+    static_rejection,
+)
 from meshforge.controller.planner.policies import Scored, rank
 from meshforge.controller.planner.types import (
     CandidateEval,
@@ -81,6 +85,25 @@ def _reason_key(evals: list[CandidateEval]) -> str:
     return hashlib.sha256("\n".join(parts).encode("ascii")).hexdigest()
 
 
+def _with_exclusion(request: PlanRequest, snapshot: ClusterSnapshot) -> PlanRequest:
+    """D110 retry exclusion, made *soft* (V0.6 G3): a pinned job never
+    excludes (it retries on its node only), and when no node outside the
+    excluded set could **ever** run the job (all rejected statically) the
+    exclusion is lifted - the job retries where it failed instead of waiting
+    out ``retry_exclude_s`` for a node that does not exist (a one-laptop
+    fabric whose agent restarted). Its attempts stay bounded by
+    ``max_attempts``."""
+    if not request.excluded:
+        return request
+    if request.pinned_node_id is not None:
+        return replace(request, excluded={})
+    elsewhere = any(
+        node.node_id not in request.excluded and static_rejection(request, node) is None
+        for node, _local in candidates(request, snapshot)
+    )
+    return request if elsewhere else replace(request, excluded={})
+
+
 def plan(
     request: PlanRequest,
     snapshot: ClusterSnapshot,
@@ -91,6 +114,7 @@ def plan(
     future staleness rules; v0 needs no time."""
     del now
     config = snapshot.config
+    request = _with_exclusion(request, snapshot)
     evals: list[CandidateEval] = []
     scored: list[Scored] = []
     for node, local in candidates(request, snapshot):

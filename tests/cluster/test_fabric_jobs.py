@@ -9,9 +9,10 @@ numbers: they bound the software on one machine, never a real network.
 * criterion 4 - one Idempotency-Key POSTed 5x (3 of them concurrently) -> one job,
   one execution (counted by a file the workload appends to);
 * criterion 6 - every attempt of the run has all five phase rows;
-* agent SIGKILLed mid-run -> job ``failed/node_lost`` only after the node is
-  OFFLINE, never before; a blackhole shorter than the lease leaves the job
-  running and it succeeds;
+* agent SIGKILLed mid-run -> the attempt is ``lost`` only after the node is
+  OFFLINE, never before; the pinned job is retried on its node only (V0.6 G3)
+  and fails ``node_lost/placed_node_offline`` once the node is gone (D65); a
+  blackhole shorter than the lease leaves the job running and it succeeds;
 * agent stopped gracefully mid-run -> ``node_lost/agent_shutdown`` then OFFLINE.
 """
 
@@ -83,6 +84,7 @@ def _submit(
     timeout: int = 3600,
     key: str | None = None,
     name: str = "proj",
+    retry: dict[str, Any] | None = None,
 ) -> tuple[int, dict[str, Any]]:
     project = tmp_path / name
     if not project.exists():
@@ -102,6 +104,7 @@ def _submit(
                 "name": "cluster",
                 "entrypoint": ["python", "main.py", str(counter), str(sleep_s)],
                 "limits": {"timeout": timeout},
+                **({"retry": retry} if retry else {}),
             },
             "bundle_digest": str(packed.digest),
             "placement": {"node_id": node_id},
@@ -262,9 +265,15 @@ def test_sigkill_mid_run_fails_node_lost_only_after_offline(
             saw_suspect_while_running = True
         time.sleep(0.02)
     job = _job(fabric, body["job_id"])
-    assert job["state"] == "failed" and job["failure_type"] == "node_lost", job
+    # V0.6 G3 (D110): the loss is retried - a pinned job on its own node only,
+    # so it waits in the queue and D65 fails it once the node is gone for good
+    assert job["state"] in ("queued", "failed"), job
     assert job["attempts"][0]["state"] == "lost"
     assert saw_suspect_while_running  # SUSPECT happened and did not kill the job
+    job = _wait(fabric, body["job_id"], TERMINAL, 30)
+    assert job["state"] == "failed" and job["failure_type"] == "node_lost", job
+    assert job["failure_detail"] == "placed_node_offline", job
+    assert [a["state"] for a in job["attempts"]] == ["lost"]
 
 
 def test_blackhole_shorter_than_the_lease_leaves_the_job_running(
@@ -289,7 +298,14 @@ def test_graceful_stop_mid_run_reports_agent_shutdown_then_offline(
 ) -> None:
     fabric = _fabric(make_fabric)
     node = fabric.nodes[0]
-    code, body = _submit(fabric, tmp_path, node.node_id, tmp_path / "s.txt", 120)
+    code, body = _submit(
+        fabric,
+        tmp_path,
+        node.node_id,
+        tmp_path / "s.txt",
+        120,
+        retry={"on_lost": False},  # V0.6 G3: fail on the loss, as in V0.4
+    )
     assert code == 201, body
     _wait(fabric, body["job_id"], {"running"}, 30)
     node.stop_graceful()
