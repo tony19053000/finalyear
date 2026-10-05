@@ -24,6 +24,10 @@ class FakeManager:
         self.sent.append((node_id, name, payload))
         return "cmd"
 
+    def get(self, node_id: str) -> Any:
+        """The node's live session (``s``), as ``SessionManager.get``."""
+        return SimpleNamespace(session_id="s") if node_id in self.live else None
+
 
 def _live(node_id: str) -> Any:
     return SimpleNamespace(node_id=node_id, session_id="s")

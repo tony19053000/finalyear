@@ -26,6 +26,10 @@ class FakeManager:
         self.sent.append((node_id, name, payload))
         return "cmd"
 
+    def get(self, node_id: str) -> Any:
+        """The node's live session (``s1``), as ``SessionManager.get``."""
+        return SimpleNamespace(session_id="s1") if node_id in self.live else None
+
 
 def _live(node_id: str, session_id: str = "s1") -> Any:
     return SimpleNamespace(node_id=node_id, session_id=session_id)
@@ -108,3 +112,19 @@ def test_a_resend_that_cannot_be_queued_ends_node_lost() -> None:
     assert record.done
     assert record.items[-1]["reason"] == "resend_failed"
     assert record.items[-1]["failure_type"] == "node_lost"
+
+
+def test_a_request_is_sent_at_most_once_per_session() -> None:
+    """G5-R2-3: a Reconcile repeated within one session queues no copy."""
+    manager = FakeManager({"node_a"})
+    tracker = PrepareTracker(manager)  # type: ignore[arg-type]
+    record = tracker.start("node_a", images=[], envs=[])
+    assert record is not None
+    for _ in range(5):
+        tracker.on_reconcile(_live("node_a", "s1"))  # the session it went on
+    assert len(manager.sent) == 1
+    for _ in range(5):
+        tracker.on_reconcile(_live("node_a", "s2"))
+    assert len(manager.sent) == 2  # once to the new session
+    tracker.on_reconcile(_live("node_a", "s3"))
+    assert len(manager.sent) == 3
