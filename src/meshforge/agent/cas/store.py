@@ -20,6 +20,7 @@ from typing import Any, Final
 
 from meshforge.common.cas import CasStore
 from meshforge.common.hashing import Digest
+from meshforge.common.local_node import AGENT_CAS_DIR_NAME
 from meshforge.common.logging import get_logger
 from meshforge.common.tree import DEFAULT_MAX_TOTAL_BYTES, Tree
 
@@ -27,7 +28,8 @@ __all__ = ["CAS_DIR_NAME", "DEFAULT_FREE_DISK_FLOOR_BYTES", "AgentCas"]
 
 log = get_logger(__name__)
 
-CAS_DIR_NAME: Final = "cas"
+CAS_DIR_NAME: Final = AGENT_CAS_DIR_NAME
+"""Shared with ``compute run``'s local seeding (common.local_node, V0.6 D109)."""
 DEFAULT_FREE_DISK_FLOOR_BYTES: Final = 1024**3
 
 

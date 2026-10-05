@@ -34,6 +34,7 @@ from pydantic import Field, field_validator, model_validator
 from meshforge import __version__
 from meshforge.common.config import MeshForgeSettings, SectionModel
 from meshforge.common.errors import ConfigError
+from meshforge.common.local_node import AGENT_GC_DIR_NAME
 
 __all__ = [
     "CUDA_PYTORCH_IMAGE",
@@ -1135,7 +1136,7 @@ class AgentSettings(MeshForgeSettings):
     def gc_dir(self) -> Path:
         """GC last-use index, pins and leases (``<data_dir>/gc``, V0.5 G5): next
         to the CAS and the env cache it covers."""
-        return self.data_dir / "gc"
+        return self.data_dir / AGENT_GC_DIR_NAME
 
     @property
     def envs_dir(self) -> Path:

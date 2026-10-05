@@ -16,7 +16,9 @@ Local candidate):
    bundles);
 2. upload only what the controller lacks (:mod:`.transfer`: have/need, large
    files in resumable parts) and print ``uploaded N files / X bytes, skipped M``
-   to stderr - an unchanged project uploads nothing;
+   to stderr - an unchanged project uploads nothing; then (V0.6 D109), when the
+   job may run on this laptop's own agent, copy the project into that agent's
+   cache too (``seeded: true``; skipped with a logged reason when it cannot);
 3. ``POST /v1/jobs`` with the ``tree_id`` and an ``Idempotency-Key``: ``--idempotency-key`` or a
    generated one, **printed to stderr** so re-running the same command after a
    network error can pass it back and get the same job, not a second one;
@@ -211,6 +213,10 @@ def run(
             ),
             err=True,
         )
+        if own_node is not None and (node_id is None or node_id == own_node):
+            # D109: the Local candidate needs no download if its cache holds
+            # the project already.
+            body["seeded"] = _seed(settings, built)
         if idempotency_key is None:
             typer.echo(
                 f"{cli.PROG_NAME}: idempotency key {key} (after a network error, "
@@ -228,6 +234,39 @@ def run(
         if not follow:
             return
         _follow_to_exit(client, job_id, settings.cli.timeout_s)
+
+
+def _seed(settings: Any, built: Any) -> bool:
+    """V0.6 D109: copy the project into this laptop's agent cache (best effort;
+    the reason for a skip is logged, the job is submitted either way)."""
+    from meshforge.cli.transfer import seed_local
+    from meshforge.common.logging import configure_logging
+
+    cfg = settings.cli
+    if not cfg.seed_local:
+        return False
+    # The cache and GC-index modules log through structlog; stdout is the job
+    # id only (scripts read it), so their warnings go to stderr.
+    configure_logging("WARNING", fmt="console", component="cli", stream=sys.stderr)
+    report = seed_local(
+        built,
+        settings.data_dir,
+        max_bytes=cfg.seed_max_bytes,
+        free_disk_floor_bytes=cfg.seed_free_disk_floor_mb * 1024 * 1024,
+    )
+    if report.seeded:
+        typer.echo(
+            f"{cli.PROG_NAME}: local agent cache seeded ({report.blobs_written} "
+            f"new, {report.blobs_present} already there)",
+            err=True,
+        )
+    else:
+        typer.echo(
+            f"{cli.PROG_NAME}: local agent cache not seeded ({report.reason}); "
+            "a job placed here downloads the project",
+            err=True,
+        )
+    return report.seeded
 
 
 def _own_node_id(data_dir: Path, *, required: bool) -> str | None:

@@ -21,6 +21,8 @@ from meshforge.common.errors import FailureType, InvalidIdError, MeshForgeError
 from meshforge.common.ids import NodeId, validate_node_id
 
 __all__ = [
+    "AGENT_CAS_DIR_NAME",
+    "AGENT_GC_DIR_NAME",
     "IDENTITY_DIR_NAME",
     "IDENTITY_FORMAT",
     "MAX_NODE_JSON_BYTES",
@@ -31,6 +33,11 @@ __all__ = [
 ]
 
 IDENTITY_DIR_NAME: Final = "identity"
+AGENT_CAS_DIR_NAME: Final = "cas"
+"""``<data_dir>/cas``: the agent's blob cache (ARCHITECTURE §23); ``compute run``
+seeds it for the Local candidate (V0.6 D109)."""
+AGENT_GC_DIR_NAME: Final = "gc"
+"""``<data_dir>/gc``: the agent's GC last-use index next to its cache."""
 NODE_JSON_NAME: Final = "node.json"
 IDENTITY_FORMAT: Final = 1
 MAX_NODE_JSON_BYTES: Final = 64 * 1024

@@ -128,6 +128,35 @@ class CliSection(SectionModel):
             "Env: MESHFORGE_CLI__TOKEN_FILE; `compute --token-file` overrides both."
         ),
     )
+    seed_local: bool = Field(
+        default=True,
+        description=(
+            "V0.6 D109: when this laptop runs an enrolled agent, `compute run` "
+            "also copies the project's files into that agent's cache, so running "
+            "the job here (Local) needs no download. Skipped (logged) when the "
+            "cache is not writable, the disk is short or the project is larger "
+            "than seed_max_bytes. Env: MESHFORGE_CLI__SEED_LOCAL."
+        ),
+    )
+    seed_max_bytes: int = Field(
+        default=2 * 1024**3,
+        ge=0,
+        le=1024**4,
+        description=(
+            "Largest project (bytes) `compute run` copies into the local agent's "
+            "cache; larger projects are not seeded (the agent downloads them if "
+            "the job runs here). 0 = never seed."
+        ),
+    )
+    seed_free_disk_floor_mb: int = Field(
+        default=1024,
+        ge=0,
+        le=1024**2,
+        description=(
+            "Seeding stops (and is skipped) rather than leave less than this "
+            "much free on the agent's disk - the agent's own floor."
+        ),
+    )
 
     @field_validator("controller_url")
     @classmethod
