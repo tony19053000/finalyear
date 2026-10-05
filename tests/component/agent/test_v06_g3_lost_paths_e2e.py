@@ -10,7 +10,10 @@ real agents (client + executor in this loop), real PostgreSQL.
   else could ever run the job, so the exclusion is lifted and it runs there;
 * **orphan sweep**: an attempt on a node that never connects to this
   controller -> ``LOST(node_not_connected)`` after ``reconnect_grace_s`` ->
-  retried on a real agent, the dead node excluded (``retry_excluded``).
+  retried on a real agent, the dead node excluded (``retry_excluded``);
+* a **log follower** (the WebSocket ``compute run -f`` uses) stays across the
+  retry: attempt 1's output, one ``retry`` notice frame, attempt 2's output
+  from offset 0, then the end frame with the job's final state.
 
 A dying agent here = its session task cancelled (no Goodbye) and its executor
 closed (workloads killed); the first run of each job sleeps long, a retry
@@ -20,8 +23,10 @@ finds the marker file and finishes at once.
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
 import datetime as dt
+import json
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
@@ -56,6 +61,7 @@ import os, sys, time
 marker, counter = sys.argv[1], sys.argv[2]
 with open(counter, "a") as fh:
     fh.write(os.environ["MESHFORGE_ATTEMPT_ID"] + "\\n")
+print("attempt", os.environ["MESHFORGE_ATTEMPT_ID"], flush=True)
 if not os.path.exists(marker):
     open(marker, "w").close()
     time.sleep(60)
@@ -262,3 +268,59 @@ async def test_orphan_sweep_loses_an_unconnected_node_s_attempt_and_retries_else
     # the ghost is ONLINE in the database but has no session; its exclusion
     # or its missing session - either way never chosen, and said why
     assert ghost_row["reject_code"] in ("retry_excluded", "no_session")
+
+
+async def _frames(url: str, token: str) -> list[dict[str, Any]]:
+    from websockets.asyncio.client import connect
+
+    out: list[dict[str, Any]] = []
+    async with connect(
+        url, additional_headers={"Authorization": f"Bearer {token}"}
+    ) as ws:
+        async for raw in ws:
+            frame = json.loads(raw)
+            out.append(frame)
+            if frame.get("end"):
+                return out
+    raise AssertionError(f"closed without an end frame: {out}")
+
+
+async def test_a_log_follower_stays_across_a_retry(
+    http: httpx.AsyncClient,
+    agents: Agents,
+    tmp_path: Path,
+    runtime: ControllerRuntime,
+) -> None:
+    a = await agents.start("a")
+    job_id = await submit(http, _project(tmp_path), None, _manifest(tmp_path))
+    url = f"ws://127.0.0.1:{runtime.http_port}/v1/jobs/{job_id}/logs/ws?stream=stdout"
+    follower = asyncio.create_task(_frames(url, token_of(runtime)))
+    job = await wait_job(http, job_id, states=frozenset({"running"}))
+    first = job["attempts"][0]["attempt_id"]
+    for _ in range(100):  # attempt 1's line has reached the controller
+        logs = await http.get(f"/v1/jobs/{job_id}/logs", params={"stream": "stdout"})
+        if first.encode() in logs.content:
+            break
+        await asyncio.sleep(0.05)
+    await agents.crash(a)
+    await agents.start("a")
+    frames = await asyncio.wait_for(follower, 40)
+    end = frames[-1]
+    assert end["end"] is True and end["state"] == "succeeded", end
+    notices = [f for f in frames if f.get("retry")]
+    assert len(notices) == 1, frames
+    (notice,) = notices
+    assert notice["previous_attempt_id"] == first
+    assert notice["previous_state"] == "lost"
+    assert notice["previous_failure_type"] == "node_lost"
+    assert notice["fencing_token"] == 2
+    split = frames.index(notice)
+    before = b"".join(
+        base64.b64decode(f["data"]) for f in frames[:split] if "data" in f
+    )
+    after = [f for f in frames[split + 1 :] if "data" in f]
+    assert first.encode() in before
+    assert after and after[0]["offset"] == 0  # the new attempt's log from its start
+    assert notice["attempt_id"].encode() in b"".join(
+        base64.b64decode(f["data"]) for f in after
+    )

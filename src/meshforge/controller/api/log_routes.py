@@ -19,7 +19,12 @@ and a normal close. Frames are JSON text:
 * ``{"stream": "stdout", "offset": N, "data": "<base64>"}`` (``offset`` = the
   byte position in the persisted file, so a client can resume with it);
 * ``{"end": true, "state", "attempt_state", "exit_code", "failure_type",
-  "gaps", "final"}``.
+  "gaps", "final"}``;
+* V0.6 G3: ``{"retry": true, "attempt_id", "fencing_token",
+  "previous_attempt_id", "previous_state", "previous_failure_type"}`` when the
+  followed attempt ended and the job was retried - the frames after it are the
+  new attempt's, from offset 0 (``stdout_offset``/``stderr_offset`` apply to
+  the first attempt followed only). The end frame comes when the **job** ends.
 
 A client that reads too slowly is closed ``4008 slow_consumer`` - the log writer
 never waits for it; a job over its follower limit gets ``4029``; an unknown job
@@ -300,24 +305,81 @@ async def follow_logs(
 
 
 async def _follow(f: _Follower, job_id: str) -> Subscription | None:
-    """The follow loop; returns the subscription to close (or None)."""
+    """The follow loop; returns the subscription to close (or None).
+
+    V0.6 G3 (D110): when the followed attempt ends but the job does not (it is
+    being retried), the follower stays: it waits for the next attempt, sends a
+    ``{"retry": true, ...}`` notice frame and follows that attempt from offset
+    0. The end frame comes only when the job is terminal."""
     job = await f.jobs.store.get_job(job_id)
     if job is None:
         await f.ws.close(code=CLOSE_NOT_FOUND, reason="job_not_found")
         return None
-    attempt = await _latest(f.jobs, job_id)
-    while attempt is None:  # queued: wait for the first attempt (or the end)
-        if job.state in JOB_TERMINAL_STATES:
-            await f.end(job, None)
+    attempt = await _next_attempt(f, job_id, after=0)
+    if attempt is None:
+        await f.end(await f.jobs.store.get_job(job_id) or job, None)
+        return None
+    while True:
+        sub = f.hub.subscribe(attempt.id, job_id)
+        if sub is None:
+            await f.ws.close(code=CLOSE_TOO_MANY, reason="too_many_followers")
+            return None
+        f.sub = sub
+        if not await _follow_attempt(f, job_id, attempt, sub):
+            return sub  # closed as a slow consumer
+        job = await f.jobs.store.get_job(job_id) or job
+        record = await f.jobs.store.get_attempt(attempt.id) or attempt
+        retried = (
+            job.state not in JOB_TERMINAL_STATES
+            and record.state in ATTEMPT_TERMINAL_STATES
+        )
+        nxt = (
+            await _next_attempt(f, job_id, after=record.fencing_token)
+            if retried
+            else None
+        )
+        if nxt is None:
+            job = await f.jobs.store.get_job(job_id) or job
+            await f.end(job, record)
+            return sub
+        sub.close()
+        f.sub = None
+        await f.send(
+            {
+                "retry": True,
+                "attempt_id": nxt.id,
+                "fencing_token": nxt.fencing_token,
+                "previous_attempt_id": record.id,
+                "previous_state": record.state.value,
+                "previous_failure_type": None
+                if record.failure_type is None
+                else record.failure_type.value,
+            }
+        )
+        f.pos = dict.fromkeys(STREAMS, 0)
+        attempt = nxt
+
+
+async def _next_attempt(
+    f: _Follower, job_id: str, *, after: int
+) -> AttemptRecord | None:
+    """The job's latest attempt with a fencing token above ``after``; polls
+    while the job waits in the queue. None = the job ended without one."""
+    while True:
+        attempt = await _latest(f.jobs, job_id)
+        if attempt is not None and attempt.fencing_token > after:
+            return attempt
+        job = await f.jobs.store.get_job(job_id)
+        if job is None or job.state in JOB_TERMINAL_STATES:
             return None
         await asyncio.sleep(_POLL_S)
-        job = await f.jobs.store.get_job(job_id) or job
-        attempt = await _latest(f.jobs, job_id)
-    sub = f.hub.subscribe(attempt.id, job_id)
-    if sub is None:
-        await f.ws.close(code=CLOSE_TOO_MANY, reason="too_many_followers")
-        return None
-    f.sub = sub
+
+
+async def _follow_attempt(
+    f: _Follower, job_id: str, attempt: AttemptRecord, sub: Subscription
+) -> bool:
+    """Persisted bytes, then live data, until the attempt ends; False = the
+    follower was closed as a slow consumer."""
     # Subscribed first, then the snapshot: nothing appended in between is lost
     # (the writer appends and fans out without an await in between).
     snapshot = {s: f.hub.file_len(attempt.id, s) for s in STREAMS}
@@ -331,7 +393,7 @@ async def _follow(f: _Follower, job_id: str) -> Subscription | None:
                 "controller.logs.slow_follower", job_id=job_id, attempt_id=attempt.id
             )
             await _close_slow(f.ws)
-            return sub
+            return False
         try:
             event = await asyncio.wait_for(sub.queue.get(), _LIVE_WAIT_S)
         except TimeoutError:
@@ -342,10 +404,7 @@ async def _follow(f: _Follower, job_id: str) -> Subscription | None:
             break
         await f.live(event)
     await f.catch_up(attempt.id, None)  # the final log may be longer than live
-    job = await f.jobs.store.get_job(job_id) or job
-    record = await f.jobs.store.get_attempt(attempt.id) or attempt
-    await f.end(job, record)
-    return sub
+    return True
 
 
 async def _close_slow(ws: WebSocket) -> None:

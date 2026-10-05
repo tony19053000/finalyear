@@ -4,8 +4,9 @@ Synchronous (``websockets.sync``), like the rest of ``compute``. The fabric toke
 goes in the handshake's ``Authorization`` header - never in the URL. Frames are
 written to this process's stdout/stderr as raw bytes (the workload's own bytes,
 not re-encoded); the end frame is returned to the caller, which turns it into an
-exit code. A typed close from the controller (slow consumer, too many followers,
-unknown job) becomes a :class:`~.client.ControllerError`.
+exit code. A retry notice (V0.6 G3) goes to ``on_retry``. A typed close from
+the controller (slow consumer, too many followers, unknown job) becomes a
+:class:`~.client.ControllerError`.
 """
 
 from __future__ import annotations
@@ -13,7 +14,7 @@ from __future__ import annotations
 import base64
 import binascii
 import json
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import IO, Any, Final
 
 from meshforge.cli.client import ControllerError
@@ -46,8 +47,12 @@ def follow_logs(
     auth_header: str | None,
     outputs: Mapping[str, IO[bytes]],
     open_timeout_s: float,
+    on_retry: Callable[[Mapping[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
-    """Print the job's logs until the end frame; return that frame."""
+    """Print the job's logs until the end frame; return that frame.
+    ``on_retry`` gets the controller's retry notice (V0.6 G3: the followed
+    attempt ended, the job was retried, the next frames are the new
+    attempt's)."""
     from websockets.exceptions import (
         ConnectionClosed,
         InvalidStatus,
@@ -67,6 +72,10 @@ def follow_logs(
                 frame = _frame(raw)
                 if frame.get("end") is True:
                     return frame
+                if frame.get("retry") is True:
+                    if on_retry is not None:
+                        on_retry(frame)
+                    continue
                 out = outputs.get(str(frame.get("stream")))
                 if out is None:
                     continue

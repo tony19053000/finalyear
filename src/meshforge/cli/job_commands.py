@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -47,6 +48,10 @@ import typer
 
 from meshforge.cli import app as cli
 from meshforge.common.errors import ExitCode
+
+_WORD = re.compile(r"[a-z_]{1,32}")
+"""A failure type / state name from the controller, printed as is; anything
+else (it comes from the network) is shown as ``?``."""
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -78,6 +83,20 @@ def _checked_job_id(value: str) -> str:
             "JOB_ID is not a canonical job_<ULID>; run `compute jobs` to list them",
             ExitCode.USAGE_ERROR,
         )
+
+
+def _print_retry(frame: Mapping[str, Any]) -> None:
+    """V0.6 G3: the followed attempt ended and the job was retried."""
+    sys.stdout.flush()
+    why = frame.get("previous_failure_type") or frame.get("previous_state")
+    word = why if isinstance(why, str) and _WORD.fullmatch(why) else "?"
+    token = frame.get("fencing_token")
+    number = token if isinstance(token, int) and not isinstance(token, bool) else "?"
+    typer.echo(
+        f"{cli.PROG_NAME}: the attempt ended ({word}); the job was retried - "
+        f"following attempt {number}",
+        err=True,
+    )
 
 
 def _latest_attempt(job: Mapping[str, Any]) -> Mapping[str, Any] | None:
@@ -319,6 +338,7 @@ def _follow_to_exit(client: Any, job_id: str, timeout_s: float) -> None:
             auth_header=client.auth_header,
             outputs={"stdout": sys.stdout.buffer, "stderr": sys.stderr.buffer},
             open_timeout_s=timeout_s,
+            on_retry=_print_retry,
         )
     except KeyboardInterrupt:
         typer.echo(
@@ -428,6 +448,7 @@ def logs(
                     auth_header=client.auth_header,
                     outputs={"stdout": sys.stdout.buffer, "stderr": sys.stderr.buffer},
                     open_timeout_s=settings.cli.timeout_s,
+                    on_retry=_print_retry,
                 )
             except KeyboardInterrupt:
                 raise typer.Exit(ExitCode.INTERRUPTED) from None
