@@ -17,6 +17,15 @@ CAS, shared by every process that uses that data dir. Tables:
   the controller). On the controller: everything a non-terminal job or a pinned
   named input references, re-computed from PostgreSQL before every pass.
   Base images are never items at all.
+* ``blob_lru(key, last_use, held)`` - the eviction order of blobs, kept by
+  triggers on ``item``; ``held`` = 1 while a lease or pin protects the blob
+  (directly or as a member of a leased/pinned tree). Victim selection walks a
+  partial index over ``held = 0`` rows only, so its cost does not grow with the
+  size of pinned or leased trees (a 100 000-file pinned dataset is never
+  re-scanned per batch). ``held`` is set when a protection is added and
+  recomputed for the affected blobs when one is removed; the victim query still
+  re-checks every candidate against ``lease``/``pin``/``tree_member`` in its
+  transaction, so ``held`` only ever makes selection faster, never less safe.
 * ``lease(owner, lease_id, kind, key)`` + ``owner(owner)`` - what running
   attempts use right now (a ``tree`` or an ``env``). Every process registers an
   owner id and holds an exclusive lock on ``gc-owners/<owner>.lock`` for its
@@ -85,20 +94,64 @@ CREATE TABLE IF NOT EXISTS lease(
     owner TEXT NOT NULL, lease_id TEXT NOT NULL, kind TEXT NOT NULL,
     key TEXT NOT NULL, PRIMARY KEY(owner, lease_id, kind, key)) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS lease_key ON lease(kind, key);
+CREATE TABLE IF NOT EXISTS blob_lru(
+    key TEXT PRIMARY KEY, last_use REAL NOT NULL, held INTEGER NOT NULL
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS blob_lru_free ON blob_lru(last_use) WHERE held = 0;
 """
 
-# Blobs protected right now: manifests and members of leased or pinned trees.
+
+# Is the blob ``@KEY`` protected right now? A lease or pin of the blob (or of
+# the tree whose manifest it is), or membership of a leased/pinned tree.
+# ``@KEY`` / ``@HELD`` are placeholders for column names of this module only.
+_HELD_SQL: Final = """(
+  EXISTS(SELECT 1 FROM lease WHERE kind IN ('tree', 'blob') AND key = @KEY)
+  OR EXISTS(SELECT 1 FROM pin WHERE kind IN ('tree', 'blob') AND key = @KEY)
+  OR EXISTS(SELECT 1 FROM tree_member AS m WHERE m.blob = @KEY AND (
+    EXISTS(SELECT 1 FROM lease AS l WHERE l.kind = 'tree' AND l.key = m.tree)
+    OR EXISTS(SELECT 1 FROM pin AS p WHERE p.kind = 'tree' AND p.key = m.tree))))"""
+
+
+def _held(key: str) -> str:
+    """:data:`_HELD_SQL` for the column ``key`` (e.g. ``"NEW.key"``)."""
+    return _HELD_SQL.replace("@KEY", key)
+
+
+# blob_lru mirrors the blob rows of ``item`` (also rows written by hand).
+_TRIGGERS: Final = """
+CREATE TRIGGER IF NOT EXISTS item_blob_ins AFTER INSERT ON item
+WHEN NEW.kind = 'blob' BEGIN
+    INSERT OR REPLACE INTO blob_lru VALUES (NEW.key, NEW.last_use, @HELD);
+END;
+CREATE TRIGGER IF NOT EXISTS item_blob_use AFTER UPDATE OF last_use ON item
+WHEN NEW.kind = 'blob' BEGIN
+    UPDATE blob_lru SET last_use = NEW.last_use WHERE key = NEW.key;
+END;
+CREATE TRIGGER IF NOT EXISTS item_blob_del AFTER DELETE ON item
+WHEN OLD.kind = 'blob' BEGIN
+    DELETE FROM blob_lru WHERE key = OLD.key;
+END;
+""".replace("@HELD", _held("NEW.key"))
+_SCHEMA_VERSION: Final = 1
+_MIRROR: Final = (
+    "INSERT INTO blob_lru SELECT key, last_use, @HELD FROM item WHERE kind = 'blob'"
+).replace("@HELD", _held("item.key"))
+_REHOLD: Final = "UPDATE blob_lru SET held = @HELD WHERE key = ?".replace(
+    "@HELD", _held("blob_lru.key")
+)
+_REHOLD_MEMBERS: Final = (
+    "UPDATE blob_lru SET held = @HELD "
+    "WHERE key IN (SELECT blob FROM tree_member WHERE tree = ?)"
+).replace("@HELD", _held("blob_lru.key"))
+
+# Only blob_lru rows not marked held are walked (partial index); each one is
+# still checked against the authoritative lease/pin/member tables here.
 _BLOB_VICTIMS: Final = """
-SELECT key, size FROM item
-WHERE kind = 'blob' AND last_use <= :cutoff
-  AND key NOT IN (SELECT key FROM lease WHERE kind IN ('tree', 'blob'))
-  AND key NOT IN (SELECT key FROM pin WHERE kind IN ('tree', 'blob'))
-  AND key NOT IN (
-    SELECT blob FROM tree_member WHERE tree IN (
-      SELECT key FROM lease WHERE kind = 'tree'
-      UNION SELECT key FROM pin WHERE kind = 'tree'))
-ORDER BY last_use, key LIMIT :limit
-"""
+SELECT b.key, i.size FROM blob_lru AS b INDEXED BY blob_lru_free
+JOIN item AS i ON i.kind = 'blob' AND i.key = b.key
+WHERE b.held = 0 AND b.last_use <= :cutoff AND NOT @HELD
+ORDER BY b.last_use, b.key LIMIT :limit
+""".replace("@HELD", _held("b.key"))
 _ENV_VICTIMS: Final = """
 SELECT key, size FROM item
 WHERE kind = 'env' AND last_use <= :cutoff
@@ -106,6 +159,14 @@ WHERE kind = 'env' AND last_use <= :cutoff
   AND key NOT IN (SELECT key FROM pin WHERE kind = 'env')
 ORDER BY last_use, key LIMIT :limit
 """
+_OWNER_LEASES: Final = (
+    "SELECT kind, key FROM lease WHERE owner = ?",
+    "DELETE FROM lease WHERE owner = ?",
+)
+_ONE_LEASE: Final = (
+    "SELECT kind, key FROM lease WHERE owner = ? AND lease_id = ?",
+    "DELETE FROM lease WHERE owner = ? AND lease_id = ?",
+)
 _UNKNOWN_LEASED_TREES: Final = (
     "SELECT COUNT(*) FROM lease WHERE kind = 'tree' "
     "AND key NOT IN (SELECT tree FROM tree_known)"
@@ -154,27 +215,54 @@ class GcIndex:
                 fh.close()
                 raise RuntimeError("GC owner lock unexpectedly held")
             self._owner_fh = fh
-            conn = sqlite3.connect(
-                self.path,
-                timeout=self._busy_timeout_s,
-                isolation_level=None,
-                check_same_thread=False,
-            )
+            try:
+                conn = self._connect()
+                self._conn = conn
+                with self.tx() as db:
+                    db.execute(
+                        "INSERT OR REPLACE INTO owner VALUES (?, ?)",
+                        (self.owner, self._wall()),
+                    )
+            except BaseException:
+                if self._conn is not None:
+                    self._conn.close()
+                    self._conn = None
+                self._owner_fh = None
+                unlock(fh)
+                fh.close()
+                with contextlib.suppress(OSError):
+                    (owners / f"{self.owner}.lock").unlink()
+                raise
+
+    def _connect(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(
+            self.path,
+            timeout=self._busy_timeout_s,
+            isolation_level=None,
+            check_same_thread=False,
+        )
+        try:
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("PRAGMA synchronous=NORMAL")
-            conn.executescript(_SCHEMA)
-            self._conn = conn
-            with self.tx() as db:
-                db.execute(
-                    "INSERT OR REPLACE INTO owner VALUES (?, ?)",
-                    (self.owner, self._wall()),
-                )
+            conn.executescript(_SCHEMA + _TRIGGERS)
+            (version,) = conn.execute("PRAGMA user_version").fetchone()
+            if version < _SCHEMA_VERSION:
+                # An index from before blob_lru: mirror the blob rows once.
+                conn.execute("BEGIN IMMEDIATE")
+                conn.execute("DELETE FROM blob_lru")
+                conn.execute(_MIRROR)
+                conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
+                conn.execute("COMMIT")
+        except BaseException:
+            conn.close()
+            raise
+        return conn
 
     def close(self) -> None:
         with self._lock:
             if self._conn is not None:
                 with contextlib.suppress(sqlite3.Error), self.tx() as db:
-                    db.execute("DELETE FROM lease WHERE owner = ?", (self.owner,))
+                    self._drop_leases(db, self.owner)
                     db.execute("DELETE FROM owner WHERE owner = ?", (self.owner,))
                 self._conn.close()
                 self._conn = None
@@ -235,8 +323,7 @@ class GcIndex:
             db.execute("DELETE FROM item WHERE kind = ? AND key = ?", (kind, key))
             if kind == "blob":
                 # An evicted manifest: its member list goes with it.
-                db.execute("DELETE FROM tree_member WHERE tree = ?", (key,))
-                db.execute("DELETE FROM tree_known WHERE tree = ?", (key,))
+                self._forget_tree(db, key)
 
     def touch(self, kind: str, keys: Iterable[str]) -> None:
         now = self._wall()
@@ -283,13 +370,9 @@ class GcIndex:
                     if key in known and known[key] != size
                 ),
             )
-            if kind == "blob" and gone:
-                db.executemany(
-                    "DELETE FROM tree_member WHERE tree = ?", ((k,) for k in gone)
-                )
-                db.executemany(
-                    "DELETE FROM tree_known WHERE tree = ?", ((k,) for k in gone)
-                )
+            if kind == "blob":
+                for key in gone:
+                    self._forget_tree(db, key)
         return len(new), len(gone)
 
     def usage(self, kind: str) -> int:
@@ -320,6 +403,8 @@ class GcIndex:
                 ((tree, blob) for blob in members),
             )
             db.execute("INSERT INTO tree_known VALUES (?)", (tree,))
+            if _tree_protected(db, tree):
+                _protect(db, "tree", tree)
 
     def tree_known(self, tree: str) -> bool:
         with self.tx() as db:
@@ -346,6 +431,10 @@ class GcIndex:
             db.executemany(
                 "INSERT INTO pin VALUES (?, ?)", ((kind, k) for k in wanted - current)
             )
+            for key in wanted - current:
+                _protect(db, kind, key)
+            for key in current - wanted:
+                _unprotect(db, kind, key)
         return len(wanted - current), len(current - wanted)
 
     def pins(self, kind: str) -> set[str]:
@@ -370,13 +459,41 @@ class GcIndex:
                 "UPDATE item SET last_use = ? WHERE kind = ? AND key = ?",
                 ((now, kind, key) for kind, key in listed if kind != "tree"),
             )
+            for kind, key in dict.fromkeys(listed):
+                _protect(db, kind, key)
 
     def release(self, lease_id: str) -> None:
         with self.tx() as db:
-            db.execute(
-                "DELETE FROM lease WHERE owner = ? AND lease_id = ?",
-                (self.owner, lease_id),
-            )
+            self._drop_leases(db, self.owner, lease_id)
+
+    @staticmethod
+    def _drop_leases(
+        db: sqlite3.Connection, owner: str, lease_id: str | None = None
+    ) -> None:
+        """Delete ``owner``'s leases (one ``lease_id`` or all) and recompute
+        what they protected."""
+        if lease_id is None:
+            params: tuple[str, ...] = (owner,)
+            select, delete = _OWNER_LEASES
+        else:
+            params = (owner, lease_id)
+            select, delete = _ONE_LEASE
+        held = set(db.execute(select, params))
+        db.execute(delete, params)
+        for kind, key in held:
+            _unprotect(db, kind, key)
+
+    @staticmethod
+    def _forget_tree(db: sqlite3.Connection, tree: str) -> None:
+        """Drop ``tree``'s member list (its manifest is gone)."""
+        members: list[tuple[str]] = []
+        if _tree_protected(db, tree):
+            members = db.execute(
+                "SELECT blob FROM tree_member WHERE tree = ?", (tree,)
+            ).fetchall()
+        db.execute("DELETE FROM tree_member WHERE tree = ?", (tree,))
+        db.execute("DELETE FROM tree_known WHERE tree = ?", (tree,))
+        db.executemany(_REHOLD, members)
 
     def leased(self, kind: str) -> set[str]:
         with self.tx() as db:
@@ -405,7 +522,7 @@ class GcIndex:
                     continue  # alive
                 try:
                     with self.tx() as db:
-                        db.execute("DELETE FROM lease WHERE owner = ?", (owner,))
+                        self._drop_leases(db, owner)
                         db.execute("DELETE FROM owner WHERE owner = ?", (owner,))
                     reaped += 1
                 finally:
@@ -436,6 +553,40 @@ class GcIndex:
                 raise ValueError(f"unknown GC kind {kind!r}")
             rows = db.execute(sql, {"cutoff": cutoff, "limit": limit}).fetchall()
         return [Victim(kind, str(k), int(s)) for k, s in rows]
+
+
+def _tree_protected(db: sqlite3.Connection, tree: str) -> bool:
+    return (
+        db.execute(
+            "SELECT 1 FROM lease WHERE kind = 'tree' AND key = :t "
+            "UNION ALL SELECT 1 FROM pin WHERE kind = 'tree' AND key = :t LIMIT 1",
+            {"t": tree},
+        ).fetchone()
+        is not None
+    )
+
+
+def _protect(db: sqlite3.Connection, kind: str, key: str) -> None:
+    """A lease or pin on ``(kind, key)`` was added: mark what it protects."""
+    if kind not in ("tree", "blob"):
+        return  # env items are few: their victim query checks directly
+    db.execute("UPDATE blob_lru SET held = 1 WHERE key = ? AND held = 0", (key,))
+    if kind == "tree":
+        db.execute(
+            "UPDATE blob_lru SET held = 1 WHERE held = 0 AND key IN "
+            "(SELECT blob FROM tree_member WHERE tree = ?)",
+            (key,),
+        )
+
+
+def _unprotect(db: sqlite3.Connection, kind: str, key: str) -> None:
+    """A lease or pin on ``(kind, key)`` went: recompute what it protected
+    (another lease, pin or tree may still protect it)."""
+    if kind not in ("tree", "blob"):
+        return
+    db.execute(_REHOLD, (key,))
+    if kind == "tree":
+        db.execute(_REHOLD_MEMBERS, (key,))
 
 
 @dataclass(slots=True)

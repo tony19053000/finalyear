@@ -280,15 +280,6 @@ async def test_a_corrupt_gc_index_file_is_recreated_not_fatal(tmp_path: Path) ->
         index.close()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT G5-T4 (major for dataset-sized inputs): the blob victim query "
-    "materialises every member of every leased/pinned tree (NOT IN subselect) on "
-    "EVERY batch of 256. With one pinned 100 000-file input a batch takes ~0.23 s "
-    "(~1 ms without it), so a pass evicting 100 000 blobs holds the index write "
-    "lock for ~100 s (measured: 200k items, 100k pinned members -> 99 s) and, on "
-    "the controller, holds gc_guard exclusively - stalling job submission.",
-)
 async def test_victim_selection_cost_does_not_scale_with_pinned_tree_size(
     tmp_path: Path,
 ) -> None:
