@@ -6,7 +6,10 @@ plumbing - settings, the client, ``_die``, ``_fetch`` - lives in
 ``app._client``); ``app`` imports these functions at its end and registers them
 on the one Typer application.
 
-``compute run [PATH] (--node ID | --local) [-f]``:
+``compute run [PATH] [--node ID | --local] [--policy P] [--priority N] [-f]``
+(V0.6: without --node/--local the controller's planner places the job; this
+laptop's own enrolled agent, if any, is sent as ``submitter_node_id`` - the
+Local candidate):
 
 1. read the manifest (``compute.yaml``, or inferred - D46) and build the
    project's tree manifest (V0.5 D81: one blob per file, same ignore rules as
@@ -92,11 +95,31 @@ def run(
         typer.Argument(help="The project folder (default: the current folder)."),
     ] = Path(),
     node: Annotated[
-        str | None, typer.Option("--node", help="Run on this node (Mode 1).")
+        str | None,
+        typer.Option("--node", help="Pin the job to this node (Mode 1)."),
     ] = None,
     local: Annotated[
-        bool, typer.Option("--local", help="Run on this laptop's own agent.")
+        bool,
+        typer.Option("--local", help="Pin the job to this laptop's own agent."),
     ] = False,
+    policy: Annotated[
+        str | None,
+        typer.Option(
+            "--policy",
+            help="Placement policy for an automatic job: random, round_robin, "
+            "least_loaded, strongest_suitable, resource_score, cache_affinity, "
+            "cost_model (default: the manifest's, else the controller's).",
+        ),
+    ] = None,
+    priority: Annotated[
+        int | None,
+        typer.Option(
+            "--priority",
+            min=-10,
+            max=10,
+            help="Queue priority -10..10 (overrides the manifest's).",
+        ),
+    ] = None,
     follow: Annotated[
         bool,
         typer.Option(
@@ -114,22 +137,29 @@ def run(
         ),
     ] = None,
 ) -> None:
-    """Submit a project as a job (and optionally follow it)."""
+    """Submit a project as a job (and optionally follow it).
+
+    Without --node/--local the controller's planner chooses the node (V0.6);
+    when this laptop runs an enrolled agent, it is the Local candidate.
+    """
+    from meshforge.cli.client import ControllerError, exit_code_for
     from meshforge.cli.transfer import TransferError, upload_tree
-    from meshforge.common.local_node import LocalNodeError, read_local_node_id
-    from meshforge.common.manifest import ManifestError, load_manifest, sanitize_name
+    from meshforge.common.errors import FailureType
+    from meshforge.common.manifest import (
+        POLICIES,
+        ManifestError,
+        load_manifest,
+        sanitize_name,
+    )
     from meshforge.common.tree import TreeError, build_tree
 
-    if (node is None) == (not local):
-        cli._die("give exactly one of --node NODE_ID or --local", ExitCode.USAGE_ERROR)
+    if node is not None and local:
+        cli._die("give at most one of --node NODE_ID and --local", ExitCode.USAGE_ERROR)
+    if policy is not None and policy not in POLICIES:
+        cli._die("--policy must be one of " + ", ".join(POLICIES), ExitCode.USAGE_ERROR)
     settings = cli._settings()
-    if local:
-        try:
-            node_id = str(read_local_node_id(settings.data_dir))
-        except LocalNodeError as exc:
-            cli._die(exc.message, ExitCode.CONFIG_ERROR)
-    else:
-        node_id = cli._checked_node_id(node) or ""
+    own_node = _own_node_id(settings.data_dir, required=local)
+    node_id = own_node if local else cli._checked_node_id(node)
     key = idempotency_key or _new_key()
     if not _key_ok(key):
         cli._die(
@@ -144,11 +174,25 @@ def run(
     body_manifest = manifest.canonical_dict()
     if name is not None:
         body_manifest["name"] = sanitize_name(name)
+    if priority is not None:
+        body_manifest["priority"] = priority
     try:
         built = build_tree(project)
     except (TreeError, OSError) as exc:
         reason = exc.message if isinstance(exc, TreeError) else type(exc).__name__
         cli._die(f"cannot read {path}: {reason}", ExitCode.FAILURE)
+    placement: dict[str, Any] = {}
+    if node_id is not None:
+        placement = {"node_id": node_id, "local": local}
+    if policy is not None:
+        placement["policy"] = policy
+    body: dict[str, Any] = {
+        "manifest": body_manifest,
+        "tree_id": str(built.tree.tree_id),
+        "placement": placement,
+    }
+    if own_node is not None:
+        body["submitter_node_id"] = own_node
     with cli._client(settings) as client:
         try:
             report = cli._fetch(lambda: upload_tree(client, built))
@@ -173,21 +217,45 @@ def run(
                 f"re-run with --idempotency-key {key} to avoid a second job)",
                 err=True,
             )
-        created = cli._fetch(
-            lambda: client.submit_job(
-                {
-                    "manifest": body_manifest,
-                    "tree_id": str(built.tree.tree_id),
-                    "placement": {"node_id": node_id, "local": local},
-                },
-                idempotency_key=key,
-            )
-        )
+        try:
+            created = client.submit_job(body, idempotency_key=key)
+        except ControllerError as exc:
+            if exc.failure_type is FailureType.NO_FEASIBLE_PLAN:
+                _print_rejections(exc.details.get("rejections"))
+            cli._die(exc.message, exit_code_for(exc))
         job_id = str(created.get("job_id"))
         typer.echo(job_id)
         if not follow:
             return
         _follow_to_exit(client, job_id, settings.cli.timeout_s)
+
+
+def _own_node_id(data_dir: Path, *, required: bool) -> str | None:
+    """This laptop's enrolled node (D103): required for --local; otherwise
+    best effort - no agent here simply means no Local candidate."""
+    from meshforge.common.local_node import LocalNodeError, read_local_node_id
+
+    try:
+        return str(read_local_node_id(data_dir))
+    except LocalNodeError as exc:
+        if required:
+            cli._die(exc.message, ExitCode.CONFIG_ERROR)
+        return None
+
+
+def _print_rejections(rejections: object) -> None:
+    """D104: why no node could ever run the job, one node per line."""
+    if not isinstance(rejections, list):
+        return
+    if not rejections:
+        typer.echo(f"{cli.PROG_NAME}: no node has joined the fabric", err=True)
+    for item in rejections:
+        if isinstance(item, dict):
+            typer.echo(
+                f"{cli.PROG_NAME}:   {item.get('node_id')}: "
+                f"{item.get('reject_code')} - {item.get('reject_text')}",
+                err=True,
+            )
 
 
 def _new_key() -> str:

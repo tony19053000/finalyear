@@ -482,7 +482,10 @@ def jobs_table(payload: Mapping[str, Any]) -> Table:
             _cell(job.get("job_id")),
             _cell(job.get("name")),
             _cell(job.get("state")),
-            _cell(placement.get("node_id")),
+            _cell(
+                placement.get("node_id")
+                or ("auto" if placement.get("mode") == "auto" else None)
+            ),
             _cell(job.get("failure_type")),
             _cell(job.get("created_at")),
         )

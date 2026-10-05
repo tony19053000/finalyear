@@ -49,6 +49,7 @@ from meshforge.common.states import (
     AttemptState,
     JobState,
 )
+from meshforge.controller.jobs.decision_store import DecisionReads
 from meshforge.controller.jobs.progress import (
     AgentPhases,
     StaleReportError,
@@ -64,7 +65,6 @@ from meshforge.controller.jobs.queue_reads import (
 from meshforge.controller.jobs.store import (
     AttemptRecord,
     JobRecord,
-    JobStore,
     TransferRow,
     append_transition,
     attempt_record,
@@ -255,7 +255,7 @@ class CancelOutcome:
 # -------------------------------------------------------------------- store
 
 
-class ExecutionStore(JobStore):
+class ExecutionStore(DecisionReads):
     """:class:`JobStore` plus the dispatch-time writes (see module docstring)."""
 
     @typed_store_call

@@ -228,6 +228,15 @@ class ControllerClient:
     def cancel(self, job_id: str) -> Mapping[str, Any]:
         return self._request("POST", f"/v1/jobs/{job_id}/cancel")
 
+    def decisions(
+        self, job_id: str, *, attempt: int | None = None, limit: int = 50
+    ) -> Mapping[str, Any]:
+        """V0.6 G2: ``GET /v1/jobs/{id}/decisions``."""
+        params = {"limit": str(limit)}
+        if attempt is not None:
+            params["attempt"] = str(attempt)
+        return self._get(f"/v1/jobs/{job_id}/decisions", params=params)
+
     def logs(self, job_id: str, *, stream: str) -> tuple[bytes, Mapping[str, str]]:
         """The persisted log bytes and the response headers."""
         path = f"/v1/jobs/{job_id}/logs"
@@ -357,11 +366,33 @@ class ControllerClient:
                 failure_type=FailureType.NETWORK_ERROR,
                 details={"status": status, "path": path},
             )
+        details: dict[str, Any] = {"status": status, "path": path, "code": code or None}
+        rejections = _rejections(body)
+        if rejections:
+            details["rejections"] = rejections
         return ControllerError(
             f"the controller refused the request ({status}): {detail}",
             failure_type=failure_type,
-            details={"status": status, "path": path, "code": code or None},
+            details=details,
         )
+
+
+_MAX_REJECTIONS: Final = 64
+
+
+def _rejections(body: Any) -> list[dict[str, str]]:
+    """V0.6 D104: ``error.rejections`` of a ``no_feasible_plan`` - every value
+    flattened by :func:`_clean`, at most :data:`_MAX_REJECTIONS` entries."""
+    error = body.get("error") if isinstance(body, dict) else None
+    listed = error.get("rejections") if isinstance(error, dict) else None
+    if not isinstance(listed, list):
+        return []
+    keys = ("node_id", "reject_code", "reject_text")
+    return [
+        {key: _clean(item.get(key)) for key in keys}
+        for item in listed[:_MAX_REJECTIONS]
+        if isinstance(item, dict)
+    ]
 
 
 def _json_or_none(response: httpx.Response) -> Any:

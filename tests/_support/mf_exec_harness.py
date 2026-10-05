@@ -92,7 +92,11 @@ class ExecAgent:
         venv: bool = False,
         setup: ExecutionSetup | None = None,
         agent_overrides: Mapping[str, Any] | None = None,
+        fake_gpus: int = 0,
     ) -> ExecAgent:
+        """``fake_gpus`` (V0.6 G2): declare that many 4 GiB NVIDIA GPUs and let
+        the subprocess runtime "pass" them (it only sets CUDA_VISIBLE_DEVICES),
+        so GPU slots and GPU placement run on a CPU-only machine."""
         exec_cfg = {"enabled": True, "allow_unsandboxed": True, "grace_s": 1.0}
         exec_cfg.update(execution or {})
         settings = make_agent_settings(
@@ -104,7 +108,7 @@ class ExecAgent:
             setup = await build_execution(
                 settings,
                 node_id=str(identity.node_id),
-                host_has_nvidia_gpu=False,
+                host_has_nvidia_gpu=fake_gpus > 0,
                 docker_factory=None if docker else no_docker,
             )
             if not venv:
@@ -116,6 +120,8 @@ class ExecAgent:
         hardware.capabilities[:] = clip_capabilities(
             [*hardware.capabilities, *setup.offer.capabilities]
         )
+        for index in range(fake_gpus):
+            hardware.gpus.add(index=index, model="fake", vram_bytes=4 * 1024**3)
         client = AgentSessionClient(settings, identity, hardware=hardware)
         cas = AgentCas.at(settings.data_dir)
         # V0.5 G4: the peer server starts only when [agent.peer] bind is set
@@ -134,6 +140,7 @@ class ExecAgent:
             log_sink=client.send_log,
             controller_host=lambda: controller_host(client.controller_target),
             gc=gc,
+            declared_gpus=range(fake_gpus),
         )
         wire_executor(client, executor)
         preparer = (
@@ -175,12 +182,16 @@ class ExecAgent:
 async def submit(
     http: httpx.AsyncClient,
     project: Path,
-    node_id: str,
+    node_id: str | None,
     manifest: Mapping[str, Any],
     *,
     idempotency_key: str | None = None,
+    placement: Mapping[str, Any] | None = None,
+    body: Mapping[str, Any] | None = None,
 ) -> str:
-    """Pack, upload, POST; returns the job id (201 or an idempotent 200)."""
+    """Pack, upload, POST; returns the job id (201 or an idempotent 200).
+    ``node_id`` None = automatic placement (V0.6); ``placement`` adds keys
+    (``policy``), ``body`` top-level ones (``submitter_node_id``)."""
     bundle = project.parent / f"{project.name}.bundle"
     packed = await asyncio.to_thread(pack_to_file, project, bundle)
     put = await http.put(f"/v1/blobs/{packed.digest.hex}", content=bundle.read_bytes())
@@ -191,7 +202,11 @@ async def submit(
         json={
             "manifest": dict(manifest),
             "bundle_digest": str(packed.digest),
-            "placement": {"node_id": node_id},
+            "placement": {
+                **({} if node_id is None else {"node_id": node_id}),
+                **(placement or {}),
+            },
+            **(body or {}),
         },
         headers=headers,
     )

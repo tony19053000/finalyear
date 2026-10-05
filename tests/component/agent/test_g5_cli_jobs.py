@@ -198,8 +198,13 @@ async def test_usage_errors(
     project = _project(tmp_path, "print(1)\n")
     both = await _compute(env, "run", str(project), "--local", "--node", agent.node_id)
     assert both.code == ExitCode.USAGE_ERROR
+    # V0.6 D103: neither flag is no longer a usage error - the planner places
+    # the job automatically (this laptop's agent is its Local candidate).
     neither = await _compute(env, "run", str(project))
-    assert neither.code == ExitCode.USAGE_ERROR
+    assert neither.code == ExitCode.OK, neither.stderr
+    assert neither.stdout.strip().startswith("job_")
+    bad_policy = await _compute(env, "run", str(project), "--policy", "fastest")
+    assert bad_policy.code == ExitCode.USAGE_ERROR
     bad_id = await _compute(env, "logs", "../healthz")
     assert bad_id.code == ExitCode.USAGE_ERROR
     no_agent = dict(env, MESHFORGE_DATA_DIR=str(tmp_path / "empty"))
