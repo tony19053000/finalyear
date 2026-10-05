@@ -1,0 +1,270 @@
+"""Recovery: everything that ends or repairs attempts the agent cannot report
+on (V0.4 D66/D69, V0.5 D94/D95; split out of :mod:`.dispatcher` in V0.6 G1,
+D119).
+
+:class:`RecoverySteps` adds to :class:`~.dispatch.DispatchSteps`:
+
+* **Reconcile (D66)** - for the node's live attempts: held -> continue
+  (re-sending a pending cancel, refreshing a fetch token this process lacks,
+  D95); not held and ``StartAttempt`` never acked -> re-send it; not held but
+  acked -> ``LOST``. Attempts the agent holds that the controller does not
+  consider live get ``CancelAttempt{release}`` (D75).
+* **OFFLINE** caused by the agent -> its live attempts ``LOST``.
+* **Orphan sweep** - after ``reconnect_grace_s`` of controller uptime, live
+  attempts of nodes with no live or lingering session are ``LOST``.
+* **Backstop (D69)** - RUNNING past the job's limit + ``backstop_grace_s``.
+* **Upload deadline (D94)** - UPLOADING past ``upload_deadline_total_s``.
+* **Log GC (D94)**.
+
+Like :class:`~.dispatch.DispatchSteps` it has no state of its own and runs only
+inside the dispatcher's one task.
+"""
+
+from __future__ import annotations
+
+import datetime as dt
+from dataclasses import dataclass
+from typing import Final
+
+from meshforge.common.errors import FailureType
+from meshforge.common.logging import get_logger
+from meshforge.common.states import (
+    ATTEMPT_TERMINAL_STATES,
+    JOB_TERMINAL_STATES,
+    AttemptState,
+    JobState,
+)
+from meshforge.controller.jobs.dispatch import DispatchSteps
+from meshforge.controller.jobs.execution_store import LiveAttempt, StatusKind
+from meshforge.controller.jobs.transitions import AttemptEvent
+from meshforge.controller.liveness import LivenessEvent
+from meshforge.controller.session.live import LiveSession
+
+__all__ = ["RecoverySteps"]
+
+log = get_logger(__name__)
+
+_MAY_FETCH: Final = frozenset({AttemptState.ASSIGNED, AttemptState.STAGING})
+"""Attempt states (as stored) in which the agent may still fetch from the
+controller; the store is never ahead of the agent, so this is a superset (D95)."""
+
+
+@dataclass(frozen=True, slots=True)
+class _Reconcile:
+    live: LiveSession
+    held: dict[str, int]
+    """attempt_id -> fencing_token the agent holds."""
+
+
+@dataclass(frozen=True, slots=True)
+class _Offline:
+    node_id: str
+    session_id: str
+    event: LivenessEvent
+
+
+class RecoverySteps(DispatchSteps):
+    """See module docstring."""
+
+    _uploading_since: dict[str, dt.datetime]
+    """attempt_id -> when it entered UPLOADING (from the job history)."""
+
+    # ------------------------------------------------------------ D66
+
+    async def _reconcile(self, item: _Reconcile) -> None:
+        live = item.live
+        if live.ended:
+            return  # a newer session's Reconcile will do it
+        node_id = live.node_id
+        known: set[str] = set()
+        for entry in await self._store.live_attempts(node_id):
+            attempt, job = entry.attempt, entry.job
+            known.add(attempt.id)
+            if item.held.get(attempt.id) == attempt.fencing_token:
+                if self._logs is not None:  # after a controller restart, too
+                    self._logs.open(
+                        attempt.id,
+                        job_id=job.id,
+                        node_id=node_id,
+                        token=attempt.fencing_token,
+                    )
+                if job.cancel_requested_at is not None:
+                    self._send_cancel(attempt, "cancelled by request")
+                elif attempt.state in _MAY_FETCH and not self._tokens.has(attempt.id):
+                    await self._refresh_fetch_token(job, attempt)
+                continue
+            if attempt.start_acked_at is None:
+                log.info(
+                    "controller.jobs.start_resent",
+                    node_id=node_id,
+                    session_id=live.session_id,
+                    job_id=job.id,
+                    attempt_id=attempt.id,
+                )
+                await self._send_start(job, attempt, resend=True)
+                continue
+            await self._lose(entry, "agent_lost_attempt")
+        for attempt_id, token in item.held.items():
+            if attempt_id not in known:
+                self._cancel_on(
+                    node_id, attempt_id, token, "not_live_on_controller", release=True
+                )
+
+    async def _offline(self, item: _Offline) -> None:
+        for entry in await self._store.live_attempts(item.node_id):
+            await self._lose(entry, "node_offline")
+
+    async def _sweep_orphans(self, live: list[LiveAttempt] | None = None) -> None:
+        if self._clock() - self._started_at < self._settings.reconnect_grace_s:
+            return
+        if live is None:
+            live = await self._store.live_attempts()
+        for entry in live:
+            node_id = entry.attempt.node_id
+            if (
+                self._manager.get(node_id) is None
+                and self._manager.get_lingering(node_id) is None
+            ):
+                await self._lose(entry, "node_not_connected")
+
+    async def _lose(self, entry: LiveAttempt, detail: str) -> None:
+        attempt = entry.attempt
+        outcome = await self._store.end_attempt(
+            attempt.id,
+            attempt.fencing_token,
+            event=AttemptEvent.LOSE,
+            failure_type=FailureType.NODE_LOST,
+            detail=detail,
+        )
+        self._tokens.revoke(attempt.id)
+        if self._grants is not None:
+            self._grants.close(attempt.id)
+        if self._logs is not None and outcome.kind is StatusKind.APPLIED:
+            self._logs.finalize(attempt.id, None)
+        if outcome.kind is StatusKind.APPLIED:
+            self.stats.attempts_lost += 1
+            log.warning(
+                "controller.jobs.attempt_lost",
+                job_id=attempt.job_id,
+                attempt_id=attempt.id,
+                node_id=attempt.node_id,
+                detail=detail,
+            )
+
+    # ------------------------------------------------------------ D69
+
+    async def _backstop(self) -> None:
+        for entry in await self._store.overdue_running(self._settings.backstop_grace_s):
+            attempt = entry.attempt
+            outcome = await self._store.end_attempt(
+                attempt.id,
+                attempt.fencing_token,
+                event=AttemptEvent.FAIL,
+                failure_type=FailureType.DEADLINE_EXCEEDED,
+                detail="controller_backstop",
+            )
+            if outcome.kind is not StatusKind.APPLIED:
+                continue
+            self.stats.backstops += 1
+            log.warning(
+                "controller.jobs.backstop",
+                job_id=attempt.job_id,
+                attempt_id=attempt.id,
+                node_id=attempt.node_id,
+            )
+            self._end_tokens(attempt.id)
+            if self._logs is not None:
+                self._logs.finalize(attempt.id, None)
+            self._send_cancel(attempt, "controller_backstop")
+
+    # ------------------------------------------------------------ D94
+
+    async def _upload_deadline(self, live: list[LiveAttempt] | None = None) -> None:
+        """End attempts UPLOADING longer than ``upload_deadline_total_s``
+        (``live`` = the store's live attempts, read once per tick; None = read
+        them here)."""
+        if live is None:
+            live = await self._store.live_attempts()
+        uploading = [
+            entry for entry in live if entry.attempt.state is AttemptState.UPLOADING
+        ]
+        ids = {entry.attempt.id for entry in uploading}
+        for gone in set(self._uploading_since) - ids:
+            del self._uploading_since[gone]
+        if not uploading:
+            return
+        deadline = dt.timedelta(seconds=self._settings.upload_deadline_total_s)
+        now = self._wall()
+        for entry in uploading:
+            attempt = entry.attempt
+            since = self._uploading_since.get(attempt.id)
+            if since is None:
+                since = await self._upload_start(entry)
+                self._uploading_since[attempt.id] = since
+            if now - since < deadline:
+                continue
+            outcome = await self._store.end_attempt(
+                attempt.id,
+                attempt.fencing_token,
+                event=AttemptEvent.FAIL,
+                failure_type=FailureType.OUTPUT_ERROR,
+                detail="upload_deadline_exceeded",
+            )
+            self._uploading_since.pop(attempt.id, None)
+            if outcome.kind is not StatusKind.APPLIED:
+                continue
+            self.stats.upload_deadlines += 1
+            log.warning(
+                "controller.jobs.upload_deadline",
+                job_id=attempt.job_id,
+                attempt_id=attempt.id,
+                node_id=attempt.node_id,
+                uploading_s=round((now - since).total_seconds(), 1),
+            )
+            # Revoked, not closed: nothing this attempt uploads or reports from
+            # now on is accepted (a late PUT is refused, a late DONE is fenced).
+            self._tokens.revoke(attempt.id)
+            if self._grants is not None:
+                self._grants.revoke(attempt.id)
+            if self._logs is not None:
+                self._logs.finalize(attempt.id, None)
+            self._send_cancel(attempt, "upload_deadline_exceeded")
+
+    async def _upload_start(self, entry: LiveAttempt) -> dt.datetime:
+        """When the attempt entered UPLOADING: the job's last ``COLLECTING``
+        transition (written in the same transaction). Without one (the job arrow
+        was skipped) the earliest bound known - the attempt's start - so the
+        deadline can only come sooner, never later."""
+        history = await self._store.history(entry.job.id)
+        for _from, to_state, at in reversed(history):
+            if to_state is JobState.COLLECTING:
+                return at
+        return entry.attempt.started_at or entry.attempt.created_at
+
+    async def _log_gc(self) -> None:
+        """Delete the log files of terminal jobs past ``log_retention_s``."""
+        if self._logs is None:
+            return
+        retention = dt.timedelta(seconds=self._settings.log_retention_s)
+        now = self._wall()
+
+        async def expired(attempt_id: str) -> bool:
+            # The terminal guard: only the database decides a job is over.
+            attempt = await self._store.get_attempt(attempt_id)
+            if attempt is None:
+                return True  # no such attempt (its job was deleted): orphan file
+            if attempt.state not in ATTEMPT_TERMINAL_STATES:
+                return False
+            job = await self._store.get_job(attempt.job_id)
+            if job is None:
+                return True
+            return (
+                job.state in JOB_TERMINAL_STATES and now - job.updated_at >= retention
+            )
+
+        deleted = await self._logs.collect_garbage(
+            expired,
+            older_than=now - retention,
+            limit=self._settings.log_gc_batch,
+        )
+        self.stats.log_files_deleted += deleted
