@@ -58,7 +58,7 @@ from typing import Final
 
 import httpx
 
-from meshforge.agent.cas.manifest import get_manifest
+from meshforge.agent.cas.manifest import get_manifest, load_tree
 from meshforge.agent.cas.scheduler import TransferScheduler
 from meshforge.agent.cas.sources import (
     BlobSource,
@@ -73,7 +73,7 @@ from meshforge.agent.cas.store import AgentCas
 from meshforge.common.cas import CasError
 from meshforge.common.errors import FailureType
 from meshforge.common.hashing import Digest
-from meshforge.common.tree import Tree, TreeEntry, TreeError, TreeLimits, parse_tree
+from meshforge.common.tree import Tree, TreeEntry, TreeError, TreeLimits
 
 __all__ = [
     "BlobFetcher",
@@ -158,7 +158,7 @@ class BlobFetcher:
             if store.has(tree_id):
                 data = await asyncio.to_thread(store.path_for(tree_id).read_bytes)
                 try:
-                    tree = parse_tree(data, expected=tree_id, limits=self._limits)
+                    tree = await load_tree(data, tree_id, self._limits)
                 except TreeError:
                     # A cached manifest that no longer verifies: evict, refetch.
                     await asyncio.to_thread(store.evict, tree_id)
@@ -187,7 +187,7 @@ class BlobFetcher:
                     ):
                         raise  # the controller sent something wrong: not a retry
                     continue  # unauthorized / unreachable: a peer may still help
-                tree = parse_tree(data, expected=tree_id, limits=self._limits)
+                tree = await load_tree(data, tree_id, self._limits)
                 try:
                     await asyncio.to_thread(store.put_bytes, data, tree_id)
                 except CasError as exc:
