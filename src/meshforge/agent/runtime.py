@@ -98,7 +98,7 @@ from meshforge.agent.session.state import AgentState
 from meshforge.agent.settings import AgentSettings, parse_controller_address
 from meshforge.common.capabilities import HARDWARE_SCORES_CAPABILITY
 from meshforge.common.errors import ExitCode, MeshForgeError
-from meshforge.common.gc_index import GcIndex
+from meshforge.common.gc_index import GcIndex, GcIndexBusyError
 from meshforge.common.logging import get_logger
 from meshforge.common.proto.meshforge.v1 import agent_pb2
 
@@ -241,7 +241,9 @@ async def start_gc(
 ) -> GcService | None:
     """The GC service (V0.5 G5, D91) when ``[agent.gc] enabled``: index opened,
     a pass at start, then every ``interval_s``; the CAS observer keeps last-use
-    rows; a pass that removed envs makes the cache reporter re-list them."""
+    rows; a pass that removed envs makes the cache reporter re-list them.
+    None (GC off for this process) also when the index is unusable while
+    another live process has it open (:class:`GcIndexBusyError`)."""
     cfg = settings.agent.gc
     if not cfg.enabled:
         log.info("agent.gc.disabled", node_id=node_id)
@@ -266,7 +268,18 @@ async def start_gc(
         node_id=node_id,
         on_envs_changed=cache.rescan_now if cache is not None else None,
     )
-    await service.start()
+    try:
+        await service.start()
+    except GcIndexBusyError as exc:
+        # Another live process has the (unusable) index open: never evict
+        # under it. GC is off in this process; the next start retries.
+        log.warning(
+            "agent.gc.unavailable",
+            node_id=node_id,
+            reason="index_in_use",
+            error=str(exc),
+        )
+        return None
     cas.add_observer(service.on_cas_change)
     return service
 

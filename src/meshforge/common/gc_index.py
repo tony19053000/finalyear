@@ -44,16 +44,25 @@ some files are gone; :meth:`GcIndex.reconcile` at the next start deletes rows
 whose files are missing (old or new state per item, never a half-written one -
 removal is an ``unlink`` / a directory ``rename``).
 
-**A corrupt index file** (not a SQLite database, or failing ``quick_check``
-at open) is renamed aside (``gc.sqlite.corrupt-<time>-<rand>``, logged
-``gc.index_quarantined``) and a fresh index is created: it is derived data.
+**A corrupt index file** (not a SQLite database, or failing quick_check
+at open) is renamed aside (gc.sqlite.corrupt-<time>-<rand>, logged
+gc.index_quarantined) and a fresh index is created: it is derived data.
 The next pass's disk reconcile re-adds every item (last use = now, so the LRU
-history and ``min_age_s`` restart); tree members are re-recorded when a tree is
+history and min_age_s restart); tree members are re-recorded when a tree is
 staged or pinned again; pins come back from their source (an agent: the
 controller re-sends the pinned trees after every Reconcile; the controller:
-recomputed from PostgreSQL before every pass). Leases of *other live
-processes* on that data dir are lost with the old file. A locked database is
-never treated as corrupt.
+recomputed from PostgreSQL before every pass). A locked database is never
+treated as corrupt.
+
+**Never while another process lives on it.** Its leases are in that file:
+moving it aside would let this process evict blobs a running attempt there
+uses. So when any *other* owner lock in ``gc-owners/`` is held, ``open()``
+raises :class:`GcIndexBusyError` instead (logged ``gc.index_unusable_in_use``)
+and the caller runs **without GC** (no eviction by this process) until its next
+start, which quarantines once the other process is gone. Opens are serialised
+by ``gc.open.lock`` (never deleted) and an owner takes its lock only *after* its
+connection is open, inside that guard - so every process that can hold leases
+in the current file holds an owner lock when the check runs.
 
 Thread-safe: one connection per process behind an ``RLock``; transactions nest
 (an eviction's CAS observer deletes the row inside the same transaction).
@@ -71,7 +80,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import IO, Final
 
-from meshforge.common.filelock import try_lock, unlock
+from meshforge.common.filelock import locked, try_lock, unlock
 from meshforge.common.logging import get_logger
 
 __all__ = [
@@ -79,6 +88,7 @@ __all__ = [
     "KINDS",
     "CollectResult",
     "GcIndex",
+    "GcIndexBusyError",
     "Victim",
     "collect_kind",
 ]
@@ -87,6 +97,7 @@ log = get_logger(__name__)
 
 DB_NAME: Final = "gc.sqlite"
 OWNERS_DIR: Final = "gc-owners"
+OPEN_GUARD: Final = "gc.open.lock"
 KINDS: Final = ("blob", "env")
 
 _SCHEMA: Final = """
@@ -185,6 +196,12 @@ _UNKNOWN_LEASED_TREES: Final = (
 )
 
 
+class GcIndexBusyError(sqlite3.DatabaseError):
+    """The index file is unusable (corrupt) but another live process
+    has it open, so it is not moved aside (that process's leases are in it).
+    GC must stay off in this process (never evict); a later start retries."""
+
+
 @dataclass(frozen=True, slots=True)
 class Victim:
     kind: str
@@ -215,42 +232,86 @@ class GcIndex:
     # ------------------------------------------------------------ lifecycle
 
     def open(self) -> None:
-        """Create/open the database and register this process as an owner."""
+        """Create/open the database and register this process as an owner.
+
+        Raises :class:`GcIndexBusyError` when the file is unusable while
+        another live process has it open (see module docstring)."""
         with self._lock:
             if self._conn is not None:
                 return
             self.root.mkdir(parents=True, exist_ok=True)
             owners = self.root / OWNERS_DIR
             owners.mkdir(exist_ok=True)
-            fh = open(owners / f"{self.owner}.lock", "a+b")  # noqa: SIM115 - held for life
-            if not try_lock(fh):  # pragma: no cover - a fresh random name
-                fh.close()
-                raise RuntimeError("GC owner lock unexpectedly held")
-            self._owner_fh = fh
-            try:
+            with locked(self.root / OPEN_GUARD, timeout_s=self._busy_timeout_s):
+                conn = self._connect_or_rebuild(owners)
+                lock_path = owners / f"{self.owner}.lock"
+                fh: IO[bytes] | None = None
                 try:
-                    conn = self._connect()
-                except sqlite3.DatabaseError as exc:
-                    if not _is_corrupt(exc):
-                        raise  # e.g. locked: never quarantined
-                    self._quarantine(exc)
-                    conn = self._connect()
-                self._conn = conn
-                with self.tx() as db:
-                    db.execute(
-                        "INSERT OR REPLACE INTO owner VALUES (?, ?)",
-                        (self.owner, self._wall()),
-                    )
-            except BaseException:
-                if self._conn is not None:
-                    self._conn.close()
+                    fh = _take_owner_lock(lock_path)
+                    self._owner_fh = fh
+                    self._conn = conn
+                    with self.tx() as db:
+                        db.execute(
+                            "INSERT OR REPLACE INTO owner VALUES (?, ?)",
+                            (self.owner, self._wall()),
+                        )
+                except BaseException:
+                    conn.close()
                     self._conn = None
-                self._owner_fh = None
-                unlock(fh)
+                    self._owner_fh = None
+                    if fh is not None:
+                        unlock(fh)
+                        fh.close()
+                        with contextlib.suppress(OSError):
+                            lock_path.unlink()
+                    raise
+
+    def _connect_or_rebuild(self, owners: Path) -> sqlite3.Connection:
+        """Connect; an unusable file is quarantined and recreated - unless
+        another live owner has it open (:class:`GcIndexBusyError`)."""
+        try:
+            return self._connect()
+        except sqlite3.DatabaseError as exc:
+            if not _is_corrupt(exc):
+                raise  # e.g. locked: never quarantined
+            live = self._live_other_owners(owners)
+            if live:
+                cause = getattr(exc, "sqlite_errorname", None) or type(exc).__name__
+                log.warning(
+                    "gc.index_unusable_in_use",
+                    path=str(self.path),
+                    cause=cause,
+                    live_owners=live,
+                    detail="GC index unusable but another live process has it "
+                    "open: not moved aside; GC is off in this process",
+                )
+                raise GcIndexBusyError(
+                    f"GC index unusable ({cause}) while {live} other live "
+                    "process(es) use it; GC stays off until a restart"
+                ) from exc
+            self._quarantine(exc)
+            return self._connect()
+
+    def _live_other_owners(self, owners: Path) -> int:
+        """How many other owner locks are held right now (a lock file that
+        cannot even be opened counts as live: never guess "dead")."""
+        live = 0
+        for path in sorted(owners.glob("*.lock")):
+            if path.stem == self.owner:
+                continue
+            try:
+                fh = open(path, "a+b")  # noqa: SIM115 - closed below
+            except OSError:
+                live += 1
+                continue
+            try:
+                if try_lock(fh):
+                    unlock(fh)  # dead: its leases are reaped anyway
+                else:
+                    live += 1
+            finally:
                 fh.close()
-                with contextlib.suppress(OSError):
-                    (owners / f"{self.owner}.lock").unlink()
-                raise
+        return live
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(
@@ -590,6 +651,14 @@ class GcIndex:
                 raise ValueError(f"unknown GC kind {kind!r}")
             rows = db.execute(sql, {"cutoff": cutoff, "limit": limit}).fetchall()
         return [Victim(kind, str(k), int(s)) for k, s in rows]
+
+
+def _take_owner_lock(path: Path) -> IO[bytes]:
+    fh = open(path, "a+b")  # noqa: SIM115 - held for the owner's life
+    if not try_lock(fh):  # pragma: no cover - a fresh random name
+        fh.close()
+        raise RuntimeError("GC owner lock unexpectedly held")
+    return fh
 
 
 class _CorruptIndexError(sqlite3.DatabaseError):

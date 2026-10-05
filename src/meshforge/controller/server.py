@@ -44,6 +44,7 @@ import uvicorn
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from meshforge.common.errors import ConfigError, ExitCode, MeshForgeError
+from meshforge.common.gc_index import GcIndexBusyError
 from meshforge.common.logging import get_logger
 from meshforge.common.netaddr import BindAddress, parse_bind
 from meshforge.common.proto.meshforge.v1 import agent_pb2, agent_pb2_grpc
@@ -223,7 +224,7 @@ class ControllerRuntime:
         await asyncio.to_thread(upgrade_to_head, self.settings.database)
 
         if cfg.gc.enabled:
-            self.gc = ControllerGc(
+            gc = ControllerGc(
                 blobs,
                 engine,
                 index_dir=self.settings.gc_dir,
@@ -232,8 +233,17 @@ class ControllerRuntime:
                 interval_s=cfg.gc.interval_s,
                 batch=cfg.gc.batch,
             )
-            await self.gc.start()
-            blobs.used = self.gc.touch
+            try:
+                await gc.start()
+            except GcIndexBusyError as exc:
+                # The index is unusable and another live process has it
+                # open: never evict under it; GC is off until a restart.
+                log.warning(
+                    "controller.gc.unavailable", reason="index_in_use", error=str(exc)
+                )
+            else:
+                self.gc = gc
+                blobs.used = gc.touch
             self.scrubber = BlobScrubber(
                 blobs,
                 bytes_per_s=cfg.gc.scrub_bytes_per_s,

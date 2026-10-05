@@ -500,11 +500,6 @@ def test_a_foreign_sqlite_file_with_a_clashing_schema_does_not_brick_the_node(
     idx.close()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="G5-R2-1: quarantining a corrupt index while another live process "
-    "holds it silently drops that process's leases; GC then evicts its blobs",
-)
 @pytest.mark.asyncio
 async def test_quarantine_does_not_orphan_a_live_owners_leases(tmp_path: Path) -> None:
     root = tmp_path / "gc"
