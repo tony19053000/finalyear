@@ -188,6 +188,9 @@ class ControllerClient:
             "POST", f"/v1/nodes/{node_id}/prepare", json_body=dict(body)
         )
 
+    def node_gc(self, node_id: str) -> Mapping[str, Any]:
+        return self._request("POST", f"/v1/nodes/{node_id}/gc")
+
     def prepare_status(self, node_id: str, request_id: str) -> Mapping[str, Any]:
         return self._get(f"/v1/nodes/{node_id}/prepare/{request_id}")
 

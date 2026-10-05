@@ -172,3 +172,35 @@ def prepare(
             ok = _wait(client, target, request_id, timeout_s) and ok
     if not ok:
         raise typer.Exit(ExitCode.FAILURE)
+
+
+@node_app.command("gc")
+def gc(
+    node_id: Annotated[
+        str | None, typer.Argument(metavar="[NODE_ID]", help="The node.")
+    ] = None,
+    all_nodes: Annotated[
+        bool, typer.Option("--all", help="Every connected node.")
+    ] = False,
+) -> None:
+    """Ask a node's agent to run a cache GC pass now (its log: agent.gc.pass)."""
+    if (node_id is None) == (not all_nodes):
+        cli._die("give exactly one of NODE_ID or --all", ExitCode.USAGE_ERROR)
+    settings = cli._settings()
+    with cli._client(settings) as client:
+        if all_nodes:
+            nodes = cli._fetch(client.nodes)
+            targets = [
+                str(n.get("node_id"))
+                for n in nodes.get("nodes") or []
+                if isinstance(n, dict) and n.get("connected") is True
+            ]
+        else:
+            targets = [cli._checked_node_id(node_id) or ""]
+        for target in targets:
+            cli._fetch(_gc_call(client, target))
+            typer.echo(f"{target}: GC pass requested")
+
+
+def _gc_call(client: Any, target: str) -> Any:
+    return lambda: client.node_gc(target)

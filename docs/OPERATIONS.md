@@ -257,7 +257,7 @@ environment), pinned named inputs (below), base images, and items used within
 - raise the quota or free disk. The GC index is `<data dir>/gc/gc.sqlite`; it is
 safe to delete it while the agent is stopped (it is rebuilt from the disk at
 start; last-use times restart from "now"). Each pass logs `agent.gc.pass` with
-what it evicted.
+what it evicted. `compute node gc <NODE_ID>|--all` runs a pass now.
 
 **The controller's blob store** has the same policy (`[controller.gc] cas_bytes`,
 100 GB by default, `min_age_s` 1 day): it never evicts what an unfinished job or

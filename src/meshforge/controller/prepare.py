@@ -117,6 +117,15 @@ class PrepareTracker:
         )
         return record
 
+    def request_gc(self, node_id: str) -> bool:
+        """``GcRequest{run_now}`` to a live node (V0.5 G5); False = not live."""
+        sent = self._manager.send_command(
+            node_id, "gc", agent_pb2.GcRequest(run_now=True)
+        )
+        if sent is not None:
+            log.info("controller.gc.node_requested", node_id=node_id)
+        return sent is not None
+
     def get(self, node_id: str, request_id: str) -> PrepareRecord | None:
         record = self._records.get(request_id)
         return record if record is not None and record.node_id == node_id else None

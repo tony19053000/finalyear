@@ -4,6 +4,8 @@
   python?, requirements (the file's text), runtime?}]}`` -> ``202 {request_id}``;
   ``409`` when the node is not connected; bounded (8 images, 32 envs, each
   requirements text <= 64 KiB, body <= 2.5 MiB).
+* ``POST /v1/nodes/{node_id}/gc`` -> ``202``: the node runs a GC pass now
+  (``GcRequest{run_now}``, V0.5 G5 D91); ``409`` when it is not connected.
 * ``GET /v1/nodes/{node_id}/prepare/{request_id}`` -> the request's items
   (``pending`` / ``running`` / ``hit`` / ``pulled`` / ``built`` / ``failed``
   with a typed reason) and ``done`` / ``ok``; ``404`` unknown (or forgotten
@@ -148,3 +150,20 @@ async def prepare_status(
     if record is None:
         raise ApiError.not_found("prepare request")
     return record.as_dict()
+
+
+@prepare_router.post(
+    "/{node_id}/gc",
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Ask a node to run a GC pass now",
+)
+async def node_gc(
+    node_id: NodeId, _auth: FabricTokenRequired, jobs: Jobs
+) -> dict[str, Any]:
+    tracker = _tracker(jobs)
+    checked = _node(node_id)
+    if not tracker.request_gc(checked):
+        raise ApiError(
+            FailureType.CONFLICT, "the node is not connected; start its agent first"
+        )
+    return {"node_id": checked, "requested": True}

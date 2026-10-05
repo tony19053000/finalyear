@@ -134,3 +134,20 @@ async def test_typed_refusals(
     ) as plain:
         anonymous = await plain.post(f"/v1/nodes/{agent.node_id}/prepare", json={})
     assert anonymous.status_code == 401
+
+
+async def test_a_gc_request_from_the_controller_runs_a_pass_now(
+    runtime: ControllerRuntime, http: httpx.AsyncClient, agent: ExecAgent
+) -> None:
+    assert agent.gc is not None
+    await agent.gc.wait_idle()
+    before = agent.gc.passes
+    asked = await http.post(f"/v1/nodes/{agent.node_id}/gc")
+    assert asked.status_code == 202, asked.text
+    deadline = time.monotonic() + 10
+    while agent.gc.passes <= before:
+        assert time.monotonic() < deadline, "no GC pass after GcRequest{run_now}"
+        await asyncio.sleep(0.05)
+    assert agent.gc.last is not None and "controller" in agent.gc.last.reason
+    offline = await http.post(f"/v1/nodes/{new_node_id()}/gc")
+    assert offline.status_code == 409
