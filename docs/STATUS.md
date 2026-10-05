@@ -2,21 +2,21 @@
 
 > Concise current state. Long-term plan: [`DEVELOPMENT_ROADMAP.md`](DEVELOPMENT_ROADMAP.md). Update at the end of every work session.
 
-**Last updated:** 2026-10-05 (**V0.6 G1 + G2 CLOSED** — 0.6.9/10/14 + 0.6.1/2/3/5/11 `[x]`; **next: V0.6 G3 implementer** (brief §5c + reviewer N-1); V0.5 closes on 🧑 0.5.11 lab; one agent at a time)
+**Last updated:** 2026-10-06 (**V0.6 G1–G3 CLOSED**; **next: V0.6 G4 implementer** (brief §5d + G3 reviewer N-1/N-2); V0.5 closes on 🧑 0.5.11 lab; one agent at a time)
 
 ## Progress
 
 Generated from the roadmap checkboxes by `uv run python scripts/status_bars.py` — **re-run it and replace this block whenever checkboxes change.** Deferred versions (V0.11, V0.12, V0.13, V0.16) and deferred tasks are not counted. A task is only █ when it is `[x]` (tester + reviewer + evidence); written-but-unreviewed code is ▒.
 
 ```
-TOTAL   ███████▒▒░░░░░░░░░░░  34%  53/155 done, 15 in progress
+TOTAL   ███████▒▒░░░░░░░░░░░  36%  56/155 done, 15 in progress
 
 V0.1    █████████████████▒▒▒  83%  10/12  Foundations & engineering system
 V0.2    ██▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░░   9%   1/11  Lab setup & feasibility validation
 V0.3    ███████████████▒▒▒▒░  73%  11/15  Fabric core: controller ⇄ agent
 V0.4    ███████████████▒▒▒▒░  76%  13/17  Remote execution core (Mode 1 foundation)
 V0.5    ██████████████████░░  90%  10/11  Data plane & environments
-V0.6    ███████████░░░░░░░░░  57%   8/14  Scheduling & reliability — Mode 1 complete
+V0.6    ████████████████░░░░  78%  11/14  Scheduling & reliability — Mode 1 complete
 V0.7    ░░░░░░░░░░░░░░░░░░░░   0%   0/11  Security & pairing
 V0.8    ░░░░░░░░░░░░░░░░░░░░   0%   0/10  Dashboard & CLI v1
 V0.9    ░░░░░░░░░░░░░░░░░░░░   0%   0/10  Benchmark & telemetry system v1
@@ -42,6 +42,9 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 > V0.10. 129 tasks vs 140–180 capacity → **~1.5 tasks/session**. Needs the other three team members' approval.
 
 ## Current Task
+**2026-10-06 — V0.6 G3 CLOSED** (implementer `60020d8..1000d68` → tester PASS `7d8a707` `ae054a4` (D-1..D-3) → fix round D126–D128 `8e6ff54`..`db58508` → reviewer APPROVE, no blocking). 0.6.7 / 0.6.8 / 0.6.12 `[x]`; chaos 6 seeds × 50 jobs exit 0. **Next: V0.6 G4 (network matrix + estimator v0), brief §5d — implementer round**, plus item 0 = reviewer G3 N-1/N-2/N-5: exclusion lift is all-or-nothing and ignores live NOT_ONLINE (plan.py:100–104) → lift per failure type (vram_oom last), never lift onto a node still failing for the same reason; chaos-seed regression; document in §13 + decision log.
+Other G3 follow-ups: S1 spike test `test_s1_server_upload_limit::test_endless_upload_is_cut_off_and_recorded` flaky under full-suite load (poll with deadline); chaos report should record per-job attempts; N-3 extra query per failed retried job (fine for now).
+
 **2026-10-05 — V0.6 G2 CLOSED** (implementer `13fcdce..88d5182` → tester FAIL D-1..D-3 `527d633` → fixes `f4a37ce` `600a70a` `d573197` → reviewer APPROVE, targeted review). Decisions D120–D125 in the brief. **Next: V0.6 G3 (retries, recovery, chaos), brief §5c — implementer round.** 🧑 team: review ADR-0015 before G3 merges.
 G3 must ALSO take (reviewer N-1, item 0): D-1 catch-all in `controller/jobs/planning.py:213` fails jobs on *any* exception — only manifest/ValidationError should fail; other exceptions log `exc_info` and leave the job QUEUED + counter, with a test per branch. Other G2 follow-ups: N-4 explain "seeded (may re-download)"; `slots_full` text when the free GPU is too small; cache_affinity env bytes (G4); node revocation has no production trigger.
 
