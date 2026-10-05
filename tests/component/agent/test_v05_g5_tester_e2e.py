@@ -363,19 +363,7 @@ async def test_a_job_that_tries_to_rm_its_input_cannot_damage_the_cache(
 
 @pytest.mark.parametrize(
     "where",
-    [
-        "project",
-        pytest.param(
-            "input",
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="DEFECT G5-T3 (major): the dispatcher hands only job.tree_id "
-                "to the scrubber on an integrity_error, so a corrupt blob of a "
-                "NAMED INPUT tree is not prioritised (nor found until the slow "
-                "periodic cycle) and every job using that input keeps failing.",
-            ),
-        ),
-    ],
+    ["project", "input"],
 )
 async def test_a_corrupted_controller_blob_fails_typed_is_scrubbed_and_repairable(
     where: str,

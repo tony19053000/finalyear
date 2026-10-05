@@ -508,6 +508,7 @@ class Dispatcher:
             )
         self._manager.ack_message(live, item.message_id)
         self._after(outcome, report)
+        await self._suspect_trees(outcome, report)
 
     def _verified(self, report: StatusReport, live: LiveSession) -> StatusReport:
         """D73/D74: a DONE's ``output_digest`` counts only if this attempt's upload
@@ -572,16 +573,6 @@ class Dispatcher:
             self._end_tokens(attempt.id)
             if self._logs is not None and outcome.kind is StatusKind.APPLIED:
                 self._logs.finalize(attempt.id, None if report is None else report.logs)
-            if (
-                self._on_integrity_failure is not None
-                and outcome.kind is StatusKind.APPLIED
-                and report is not None
-                and report.failure_type is FailureType.INTEGRITY_ERROR
-                and job is not None
-                and job.tree_id
-            ):
-                # The bytes may have come from the controller's own disk.
-                self._on_integrity_failure(job.tree_id)
         elif (
             job is not None
             and job.cancel_requested_at is not None
@@ -589,6 +580,35 @@ class Dispatcher:
             and outcome.kind is StatusKind.APPLIED
         ):
             self._send_cancel(attempt, "cancelled by request")
+
+    async def _suspect_trees(
+        self, outcome: StatusOutcome, report: StatusReport
+    ) -> None:
+        """A tree attempt ended ``integrity_error``: the bytes may have come
+        from the controller's own disk, so the scrubber re-hashes the project
+        tree **and every named-input tree** of the job first (G5-T3)."""
+        job = outcome.job
+        if (
+            self._on_integrity_failure is None
+            or not outcome.ended
+            or outcome.kind is not StatusKind.APPLIED
+            or report.failure_type is not FailureType.INTEGRITY_ERROR
+            or job is None
+            or not job.tree_id
+        ):
+            return
+        trees = [job.tree_id]
+        try:
+            trees += [i.tree_id for i in await self._job_inputs(job)]
+        except Exception as exc:  # noqa: BLE001 - the project tree is still scrubbed
+            log.warning(
+                "controller.jobs.scrub_inputs_unlisted",
+                job_id=job.id,
+                attempt_id=report.attempt_id,
+                cause=type(exc).__name__,
+            )
+        for tree_id in dict.fromkeys(trees):
+            self._on_integrity_failure(tree_id)
 
     def _end_tokens(self, attempt_id: str) -> None:
         """The attempt ended: its fetch token lives ``fetch_token_end_grace_s``
