@@ -458,6 +458,26 @@ holds up to one chunk in memory), `slow_source_factor` (4), `endgame_after_s`
 (0.5), `request_timeout_s` (60). `[controller.jobs] max_peer_sources` (4) caps how
 many peers one attempt is given.
 
+**Network probes (V0.6 G4, D111).** With peer serving on, the controller also
+measures how fast each laptop downloads from each other laptop: now and then it
+asks one laptop to fetch a few MiB of zeros from another's peer port (the same
+TCP 47120, a separate short-lived "probe" token). `compute network` prints the
+result as a matrix (bandwidth, RTT, age; `(stale)` after an hour; `fail:<code>`
+when a pair cannot reach each other - usually the firewall rule above), and the
+planner uses fresh links to predict transfer times (`compute explain` shows
+`transfer ... (measured)` with `bw_from`). Bounded so personal Wi-Fi is not
+flooded - `[controller.network]`: `probe_interval_s` (900: each pair at most every
+15 min), `probe_gap_s` (15, jitter `probe_jitter` 0.5: one probe started at a
+time), `probe_budget_bytes_per_min` (48 MiB across the fabric), `probe_bytes` /
+`probe_max_bytes` / `probe_fast_s` (4 MiB, then 8 MiB if that took < 0.5 s),
+`rtt_samples` (3), `busy_cpu_percent` (80: a laptop busier than this, or running
+a GPU job, is not probed), `probe_timeout_s` (60), `token_ttl_s` (60),
+`ewma_alpha` (0.3), `stale_after_s` (3600), `transfer_min_bytes` /
+`transfer_history` (controller -> laptop speed from past downloads: the median of
+the last 20 of at least 1 MiB). `enabled = false` turns probing off. On an agent:
+`[agent.probe] enabled` (true; false = refuse) and `request_timeout_s` (20);
+`[agent.peer] probe_max_bytes` (8 MiB; 0 = answer no probes).
+
 ## 1. Run it by hand first
 
 Always get the manual run working before turning anything into a service: a
