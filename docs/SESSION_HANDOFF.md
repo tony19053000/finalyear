@@ -31,7 +31,7 @@
 > throughput measurements and the reasoning; if you think the arithmetic or the trade is wrong,
 > **say so to the team before building on it.** Do not silently re-expand the scope either.
 
-**Last updated:** 2026-10-05 (**V0.5 G1–G4 + stabilisation CLOSED** — 0.5.1–0.5.5, 0.5.7 `[x]`; **G5 CLOSED; next 🧑 0.5.11 lab, agent-side V0.6 brief; nothing running** — see §2 "G5 state"; one subagent at a time) · **Updated by:** Lead session
+**Last updated:** 2026-10-05 (**V0.5 CLOSED agent-side** (🧑 0.5.11 lab open) · **V0.6 started**: brief + ADR-0015 written (`94b8b64`), 4 sequential groups G1–G4, **G1 implementer RUNNING** (only agent) — see §2 "V0.6 state") · **Updated by:** Lead session
 
 ---
 
@@ -267,7 +267,8 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 **Overall: 24 % (38/154 tasks `[x]`, 16 `[~]`).** Progress bars: `docs/STATUS.md` (regenerate with `uv run python scripts/status_bars.py` whenever a checkbox changes).
 
-- **Version: V0.5 (data plane & environments), 3/11 done.** Brief `docs/briefs/V0.5-data-plane.md` (D79–D95).
+- **Version: V0.6 (scheduling & reliability) STARTED 2026-10-05** — brief `docs/briefs/V0.6-scheduling-reliability.md`; groups G1 reliability floor (0.6.9, 0.6.10, 0.6.14 + splits + D59, RUNNING) → G2 planner core → G3 retries/recovery/chaos → G4 network matrix + estimator → 🧑 0.6.13 lab.
+- **V0.5 (data plane & environments): closed agent-side** (G1–G5); only 🧑 0.5.11 lab left. Earlier detail: Brief `docs/briefs/V0.5-data-plane.md` (D79–D95).
   - `[x]` **0.5.1** CAS store, **0.5.2** tree manifests + have/need (G1); **0.5.7** cached environments + venv runtime (G2).
   - `[~]` **0.5.8** base images — local part (pinned digests, `meshforge-agent prepare`) done in G2; controller-driven `compute node prepare` is G5.
   - G3 (V0.4 debt: upload deadline, log GC, persisted log gaps) closed — not a roadmap checkbox.
