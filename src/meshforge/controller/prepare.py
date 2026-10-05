@@ -8,6 +8,16 @@ keeps **in memory** (bounded: the newest :data:`MAX_TRACKED` requests) for
 restart forgets the requests (the agent still finishes the work and the next
 request finds it built - ``hit``); the CLI then says the status is unknown.
 
+**A node lost mid-prepare never leaves a request pending forever:** when the
+node goes OFFLINE (lease expired, Goodbye) every unfinished request of it ends
+``done`` with its unfinished items (and a ``request`` item) ``failed`` /
+``node_lost`` / ``node_offline``. When a node opens a *new session* (its
+Reconcile) while a request is unfinished - an agent that restarted within its
+lease has forgotten it - the same ``PrepareEnv`` (same ``request_id``) is sent
+again: a still-running agent only re-reports where it stands, a restarted one
+runs it again (idempotent: what is built is a ``hit``); a re-send that cannot
+be queued ends the request ``node_lost`` / ``resend_failed``.
+
 Reports are hostile input: a status for a request this controller did not send
 to *that* node is dropped; items are bounded and every string is printable and
 length-capped before it is kept.
@@ -20,11 +30,13 @@ from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Final
 
+from meshforge.common.errors import FailureType
 from meshforge.common.ids import new_command_id
 from meshforge.common.logging import get_logger
 from meshforge.common.proto.meshforge.v1 import agent_pb2
 
 if TYPE_CHECKING:
+    from meshforge.controller.liveness import LivenessEvent
     from meshforge.controller.session.live import LiveSession
     from meshforge.controller.session.manager import SessionManager
 
@@ -56,6 +68,8 @@ class PrepareRecord:
     items: list[dict[str, Any]] = field(default_factory=list)
     done: bool = False
     updated_at: dt.datetime | None = None
+    command: agent_pb2.PrepareEnv | None = None
+    """What was sent (re-sent to a new session of the node while unfinished)."""
 
     def as_dict(self) -> dict[str, Any]:
         failed = [i for i in self.items if i.get("state") == "failed"]
@@ -91,11 +105,10 @@ class PrepareTracker:
     ) -> PrepareRecord | None:
         """Send ``PrepareEnv``; the record, or None when the node is not live."""
         request_id = str(new_command_id()).removeprefix("cmd_")
-        sent = self._manager.send_command(
-            node_id,
-            "prepare_env",
-            agent_pb2.PrepareEnv(request_id=request_id, base_images=images, envs=envs),
+        command = agent_pb2.PrepareEnv(
+            request_id=request_id, base_images=images, envs=envs
         )
+        sent = self._manager.send_command(node_id, "prepare_env", command)
         if sent is None:
             return None
         record = PrepareRecord(
@@ -104,6 +117,7 @@ class PrepareTracker:
             created_at=dt.datetime.now(dt.UTC),
             images=list(images),
             envs=len(envs),
+            command=command,
         )
         self._records[request_id] = record
         while len(self._records) > MAX_TRACKED:
@@ -179,6 +193,70 @@ class PrepareTracker:
                 request_id=record.request_id,
                 states=[i["state"] for i in items],
             )
+
+    # ----------------------------------------------------------- node loss
+
+    def _unfinished(self, node_id: str) -> list[PrepareRecord]:
+        return [
+            r for r in self._records.values() if r.node_id == node_id and not r.done
+        ]
+
+    def on_node_offline(self, live: LiveSession, event: LivenessEvent) -> None:
+        """Session hook (synchronous): the node is OFFLINE - its unfinished
+        requests end ``node_lost``."""
+        for record in self._unfinished(live.node_id):
+            self._lose(record, "node_offline", f"the node went offline ({event})")
+
+    def on_reconcile(self, live: LiveSession) -> None:
+        """Session hook (synchronous): a new session of the node - re-send its
+        unfinished requests (same ``request_id``; see module docstring)."""
+        for record in self._unfinished(live.node_id):
+            if record.command is None:
+                continue
+            sent = self._manager.send_command(
+                live.node_id, "prepare_env", record.command
+            )
+            if sent is None:
+                self._lose(record, "resend_failed", "could not re-send to the node")
+            else:
+                log.info(
+                    "controller.prepare.resent",
+                    node_id=live.node_id,
+                    session_id=live.session_id,
+                    request_id=record.request_id,
+                )
+
+    def _lose(self, record: PrepareRecord, reason: str, detail: str) -> None:
+        lost = {
+            "state": "failed",
+            "failure_type": FailureType.NODE_LOST.value,
+            "reason": reason,
+            "detail": detail[:_DETAIL],
+        }
+        items = [
+            {**item, **lost} if item.get("state") in ("pending", "running") else item
+            for item in record.items
+        ]
+        if not any(item.get("kind") == "request" for item in items):
+            items.append(
+                {
+                    "kind": "request",
+                    "name": None,
+                    "key": None,
+                    "size_bytes": 0,
+                    "duration_s": 0.0,
+                    **lost,
+                }
+            )
+        record.items = items
+        record.done = True
+        record.updated_at = dt.datetime.now(dt.UTC)
+        log.warning(
+            "controller.prepare.node_lost",
+            node_id=record.node_id,
+            request_id=record.request_id,
+            reason=reason,
+        )
 
     def _drop(self, live: LiveSession, reason: str) -> None:
         self.dropped += 1

@@ -151,3 +151,44 @@ async def test_a_gc_request_from_the_controller_runs_a_pass_now(
     assert agent.gc.last is not None and "controller" in agent.gc.last.reason
     offline = await http.post(f"/v1/nodes/{new_node_id()}/gc")
     assert offline.status_code == 409
+
+
+async def test_a_node_lost_mid_prepare_ends_the_request_node_lost(
+    runtime: ControllerRuntime,
+    http: httpx.AsyncClient,
+    grpc_target: str,
+    data_dir: Path,
+) -> None:
+    """Fix round 1 (N2): the agent accepts the request, then goes away (a clean
+    stop: Goodbye -> OFFLINE) before finishing - the request ends failed
+    ``node_lost``, never pending forever."""
+    running = await ExecAgent.start(grpc_target, data_dir / "lost")
+    stopped = False
+    try:
+        assert running.preparer is not None
+        received = asyncio.Event()
+        never = asyncio.Event()
+
+        async def stuck(request: Any) -> None:
+            received.set()
+            await never.wait()  # the work never finishes on this agent
+
+        running.preparer._run = stuck  # type: ignore[method-assign]
+        posted = await http.post(
+            f"/v1/nodes/{running.node_id}/prepare", json={"images": ["python-cpu"]}
+        )
+        assert posted.status_code == 202, posted.text
+        await asyncio.wait_for(received.wait(), 10)
+        request_id = posted.json()["request_id"]
+        status = await http.get(f"/v1/nodes/{running.node_id}/prepare/{request_id}")
+        assert status.json()["done"] is False
+        await running.stop()
+        stopped = True
+        done = await _done(http, running.node_id, request_id, timeout_s=30)
+        assert done["ok"] is False, done
+        lost = [i for i in done["items"] if i["failure_type"] == "node_lost"]
+        assert lost and lost[-1]["kind"] == "request", done
+        assert lost[-1]["reason"] == "node_offline"
+    finally:
+        if not stopped:
+            await running.stop()

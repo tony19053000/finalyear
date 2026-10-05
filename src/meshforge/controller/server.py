@@ -63,6 +63,7 @@ from meshforge.controller.jobs.dispatcher import Dispatcher
 from meshforge.controller.jobs.execution_store import ExecutionStore
 from meshforge.controller.jobs.logs import LogHub
 from meshforge.controller.jobs.peers import PeerSources
+from meshforge.controller.liveness import LivenessEvent
 from meshforge.controller.named_inputs import NamedInputStore, PinBroadcaster
 from meshforge.controller.peer_signing import (
     PeerTokenIssuer,
@@ -331,14 +332,25 @@ class ControllerRuntime:
         self.pins = PinBroadcaster(self.inputs, manager)
         await self.pins.refresh(broadcast=False)
         dispatcher_reconcile = manager.hooks.on_reconcile
+        dispatcher_offline = manager.hooks.on_node_offline
         pins = self.pins
+        prepare = self.prepare
 
         def on_reconcile(live: LiveSession, reconcile: agent_pb2.Reconcile) -> None:
             if dispatcher_reconcile is not None:
                 dispatcher_reconcile(live, reconcile)
             pins.on_reconcile(live)
+            if prepare is not None:
+                prepare.on_reconcile(live)
+
+        def on_node_offline(live: LiveSession, event: LivenessEvent) -> None:
+            if dispatcher_offline is not None:
+                dispatcher_offline(live, event)
+            if prepare is not None:
+                prepare.on_node_offline(live, event)
 
         manager.hooks.on_reconcile = on_reconcile
+        manager.hooks.on_node_offline = on_node_offline
         flusher = SnapshotFlusher(resources, registry, cfg.resources, clock=loop.time)
         self.flusher = flusher
         self._flusher_task = self._spawn(flusher.run(), "snapshot-flusher")
