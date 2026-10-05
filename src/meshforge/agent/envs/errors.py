@@ -31,6 +31,8 @@ class EnvError(MeshForgeError):
     ``env_timeout``             timeout         lock wait + build over the budget
     ``env_lock_failed``         internal_error  the lock file cannot be opened
     ``env_io_failed``           internal_error  the envs directory failed (I/O)
+    ``gc_lease_failed``         internal_error  the GC index could not record that
+                                                the attempt uses the env (V0.5 G5)
     ==========================  ==============  ===================================
     """
 

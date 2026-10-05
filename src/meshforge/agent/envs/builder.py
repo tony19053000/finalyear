@@ -71,6 +71,7 @@ from meshforge.agent.envs.fsutil import (
     tree_summary,
 )
 from meshforge.agent.envs.hash import EnvInputs, env_hash, normalize_requirements
+from meshforge.agent.gc.leases import lease_env
 from meshforge.common.atomic import atomic_write_bytes
 from meshforge.common.errors import FailureType
 from meshforge.common.logging import get_logger
@@ -371,6 +372,9 @@ class EnvBuilder:
         missing (module docstring)."""
         fields = {"env_hash": digest, "kind": kind, **(log_fields or {})}
         final = self.env_dir(kind, digest)
+        # V0.5 G5 (D91): held by the current attempt BEFORE the readiness check,
+        # so GC can never remove it between "ready" and the job using it.
+        await lease_env(kind, digest)
         checked = self._clock()
         state = await _to_thread(self.env_state, kind, digest)
         check_s = round(self._clock() - checked, 4)

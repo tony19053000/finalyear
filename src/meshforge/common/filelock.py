@@ -17,7 +17,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import IO
 
-__all__ = ["locked"]
+__all__ = ["locked", "try_lock", "unlock"]
 
 
 @contextlib.contextmanager
@@ -78,3 +78,19 @@ else:
 
     def _release(fh: IO[bytes]) -> None:
         fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+
+
+def try_lock(fh: IO[bytes]) -> bool:
+    """One non-blocking attempt at the exclusive lock on an open file (for
+    holders that keep it for a process's lifetime, e.g. GC owners). False = held
+    elsewhere (another process or another open of the file)."""
+    try:
+        _try_lock(fh)
+    except OSError:
+        return False
+    return True
+
+
+def unlock(fh: IO[bytes]) -> None:
+    """Release a lock taken by :func:`try_lock`."""
+    _release(fh)

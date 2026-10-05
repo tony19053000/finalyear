@@ -51,6 +51,7 @@ __all__ = [
     "ExecutionImages",
     "ExecutionSettings",
     "FetchSettings",
+    "GcSettings",
     "HardwareSettings",
     "KeepaliveSettings",
     "PeerSettings",
@@ -865,6 +866,54 @@ class CacheSettings(SectionModel):
     )
 
 
+class GcSettings(SectionModel):
+    """``[agent.gc]`` - garbage collection of the CAS and environments (V0.5 D91).
+
+    LRU per kind down to its quota; never evicted: anything a running attempt
+    holds (leases), trees pinned by the controller (pinned named inputs), base
+    images, and items used within ``min_age_s``. Index: ``<data dir>/cas/gc.sqlite``.
+    """
+
+    enabled: bool = Field(
+        default=True,
+        description="Run GC passes and keep the last-use index. Off = caches only grow.",
+    )
+    cas_bytes: int = Field(
+        default=20 * 1024**3,
+        ge=0,
+        description=(
+            "Quota of the blob cache (bytes; 0 = none). A pass evicts LRU blobs "
+            "until usage <= quota."
+        ),
+    )
+    envs_bytes: int = Field(
+        default=30 * 1024**3,
+        ge=0,
+        description=(
+            "Quota of built environments: env dirs + env images together "
+            "(bytes; 0 = none)."
+        ),
+    )
+    interval_s: float = Field(
+        default=600.0,
+        ge=1.0,
+        le=86_400.0,
+        description="A pass runs this often (and at start, and on a GcRequest).",
+    )
+    min_age_s: float = Field(
+        default=300.0,
+        ge=0.0,
+        le=30 * 86_400.0,
+        description="Items used within this many seconds are never evicted.",
+    )
+    batch: int = Field(
+        default=256,
+        ge=1,
+        le=10_000,
+        description="Victims removed per index transaction.",
+    )
+
+
 class DiscoverySettings(SectionModel):
     """``[agent.discovery]`` - mDNS lookup of the controller (roadmap 0.3.9).
 
@@ -933,6 +982,7 @@ class AgentSection(SectionModel):
     peer: PeerSettings = Field(default_factory=PeerSettings)
     cache: CacheSettings = Field(default_factory=CacheSettings)
     fetch: FetchSettings = Field(default_factory=FetchSettings)
+    gc: GcSettings = Field(default_factory=GcSettings)
     hello_timeout_s: float = Field(
         default=3.0,
         gt=0,

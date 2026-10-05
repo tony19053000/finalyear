@@ -364,7 +364,7 @@ async def start_cache(
         return None
     await cas.prepare()
     inventory = CacheInventory(cas.store, max_trees=cfg.max_trees)
-    cas.store.on_change = inventory.on_cas_change
+    cas.add_observer(inventory.on_cas_change)
     cas.on_tree_complete = inventory.tree_complete
     reporter = CacheReporter(
         inventory,

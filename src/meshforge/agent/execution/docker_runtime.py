@@ -119,6 +119,7 @@ from meshforge.agent.execution.runtime import (
     Stream,
     classify,
 )
+from meshforge.agent.gc.leases import lease_env
 from meshforge.common.errors import FailureType
 from meshforge.common.logging import get_logger
 
@@ -750,6 +751,8 @@ class DockerRuntime:
             obs.env_hash = digest
             tag = f"{ENV_IMAGE_REPO}:{digest}"
             started = envs.clock()
+            # V0.5 G5 (D91): leased before the readiness check (see builder).
+            await lease_env("image", digest)
             if await self._env_image_ready(client, tag, digest):
                 obs.env_cache = "hit"
             else:
