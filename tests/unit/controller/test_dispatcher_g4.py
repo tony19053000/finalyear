@@ -22,6 +22,7 @@ from meshforge.common.ids import new_attempt_id, new_command_id, new_job_id, new
 from meshforge.common.peer_token import load_public_key, verify_peer_token
 from meshforge.common.states import AttemptState
 from meshforge.controller.blobs import FetchTokens
+from meshforge.controller.cache_index import CacheIndex, NodeCacheState, Phase
 from meshforge.controller.jobs.dispatcher import Dispatcher, _Reconcile, fetch_scope
 from meshforge.controller.jobs.peers import PeerSources
 from meshforge.controller.liveness import NodeState
@@ -87,8 +88,16 @@ def _live(
     state: NodeState = NodeState.ONLINE,
 ) -> Any:
     return SimpleNamespace(
-        node_id=node_id, state=state, ended=False, peer_endpoint=endpoint
+        node_id=node_id,
+        state=state,
+        ended=False,
+        peer_endpoint=endpoint,
+        session_id=f"sess_{node_id}",
     )
+
+
+def _all_live(_node_id: str, _session_id: str) -> bool:
+    return True
 
 
 def _job(*, tree: bool) -> Any:
@@ -187,7 +196,7 @@ async def test_tree_sources_controller_first_then_peers_and_refresh_reminted() -
     )
     issuer, raw = _issuer()
     cache = FakeCache([(holder_a, 10.0), (holder_b, 20.0), (target, 30.0)])
-    peers = PeerSources(manager, cache, issuer, max_sources=4)  # type: ignore[arg-type]
+    peers = PeerSources(manager, cache, issuer, max_sources=4, index_live=_all_live)  # type: ignore[arg-type]
     job = _job(tree=True)
     attempt = _attempt(job, target, AttemptState.ASSIGNED)
     dispatcher, _tokens = _dispatcher(
@@ -215,13 +224,17 @@ async def test_peer_sources_filters_and_bounds() -> None:
     rows = [(n, float(i)) for i, n in enumerate([*online, suspect, no_endpoint])]
     issuer, _raw = _issuer()
     cache = FakeCache(rows)
-    peers = PeerSources(FakeManager(lives), cache, issuer, max_sources=4)  # type: ignore[arg-type]
+    peers = PeerSources(
+        FakeManager(lives), cache, issuer, max_sources=4, index_live=_all_live
+    )  # type: ignore[arg-type]
     job = _job(tree=True)
     listed = await peers.for_attempt(job, _attempt(job, target, AttemptState.ASSIGNED))
     assert [s.node_id for s in listed] == list(reversed(online))[:4]
     assert suspect not in cache.asked[0][2] and no_endpoint not in cache.asked[0][2]
     # A bundle job, max 0, nobody online: no lookup at all.
-    none = PeerSources(FakeManager(lives), cache, issuer, max_sources=0)  # type: ignore[arg-type]
+    none = PeerSources(
+        FakeManager(lives), cache, issuer, max_sources=0, index_live=_all_live
+    )  # type: ignore[arg-type]
     assert (
         await none.for_attempt(job, _attempt(job, target, AttemptState.ASSIGNED)) == []
     )
@@ -238,8 +251,12 @@ async def test_peer_lookup_failure_falls_back_to_the_controller() -> None:
     manager = FakeManager([_live(holder)])
     issuer, _raw = _issuer()
     peers = PeerSources(
-        manager, FakeCache([(holder, 1.0)], fail=True), issuer, max_sources=4
-    )  # type: ignore[arg-type]
+        manager,
+        FakeCache([(holder, 1.0)], fail=True),  # type: ignore[arg-type]
+        issuer,
+        max_sources=4,
+        index_live=_all_live,
+    )
     job = _job(tree=True)
     attempt = _attempt(job, target, AttemptState.ASSIGNED)
     dispatcher, _tokens = _dispatcher([], manager, peers)
@@ -247,3 +264,42 @@ async def test_peer_lookup_failure_falls_back_to_the_controller() -> None:
     spec = manager.commands[-1][2].spec
     assert [s.node_id for s in spec.sources] == [""]
     assert peers.lookup_failures == 1
+
+
+async def test_only_nodes_with_a_live_index_are_listed() -> None:
+    """G4 reviewer carry-over 1: rows of a node whose index is not live for its
+    current session (stale after a gap, or not yet re-snapshotted after a
+    controller restart) never make it a peer source."""
+    target = str(new_node_id())
+    live_node, stale_node, old_session = (str(new_node_id()) for _ in range(3))
+    lives = [_live(live_node), _live(stale_node), _live(old_session)]
+    index = CacheIndex(None)  # type: ignore[arg-type]
+    for live in lives:
+        index._states[live.node_id] = NodeCacheState(live.session_id, Phase.LIVE)
+    index._states[stale_node].phase = Phase.STALE
+    index._states[old_session].session_id = "sess_before_reconnect"
+    cache = FakeCache([(n, 1.0) for n in (live_node, stale_node, old_session)])
+    issuer, _raw = _issuer()
+    peers = PeerSources(
+        FakeManager(lives),
+        cache,  # type: ignore[arg-type]
+        issuer,
+        max_sources=4,
+        index_live=index.is_live,
+    )
+    job = _job(tree=True)
+    listed = await peers.for_attempt(job, _attempt(job, target, AttemptState.ASSIGNED))
+    assert [s.node_id for s in listed] == [live_node]
+    assert cache.asked[0][2] == [live_node]
+    # A controller restart: no state at all -> nobody is listed, no lookup.
+    fresh = PeerSources(
+        FakeManager(lives),
+        cache,  # type: ignore[arg-type]
+        issuer,
+        max_sources=4,
+        index_live=CacheIndex(None).is_live,  # type: ignore[arg-type]
+    )
+    assert (
+        await fresh.for_attempt(job, _attempt(job, target, AttemptState.ASSIGNED)) == []
+    )
+    assert len(cache.asked) == 1

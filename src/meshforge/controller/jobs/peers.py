@@ -7,7 +7,10 @@ For a tree job the dispatcher lists the controller first, then up to
 * advertised a peer endpoint that the controller accepted (D99),
 * are not the attempt's own node, and
 * hold ``tree <tree_id>`` in the cache location index (D100: reported only once
-  the manifest and every member blob are in their CAS),
+  the manifest and every member blob are in their CAS), **and** their index
+  rows are live for the current session (``index_live``: the session's
+  snapshot completed and no gap since - not a stale node, not rows left from
+  before a controller restart; G4 reviewer carry-over 1),
 
 ordered by the most recent ``last_seen`` of that index row. Each peer gets its
 own signed token (D98: this tree, this requester, this holder, this attempt,
@@ -18,6 +21,7 @@ optimisation, never a dependency.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from meshforge.common.hashing import Digest
@@ -47,8 +51,10 @@ class PeerSources:
         issuer: PeerTokenIssuer,
         *,
         max_sources: int,
+        index_live: Callable[[str, str], bool],
     ) -> None:
         self._manager = manager
+        self._index_live = index_live
         self._cache = cache
         self._issuer = issuer
         self._max = max_sources
@@ -68,6 +74,7 @@ class PeerSources:
             and not live.ended
             and live.peer_endpoint
             and live.node_id != attempt.node_id
+            and self._index_live(live.node_id, live.session_id)
         }
         if not candidates:
             return []

@@ -278,6 +278,7 @@ class ControllerRuntime:
                 self.cache_index.store,
                 self.peer_tokens,
                 max_sources=cfg.jobs.max_peer_sources,
+                index_live=self.cache_index.is_live,
             ),
         )
         self._dispatcher_task = self._spawn(self.dispatcher.run(), "dispatcher")

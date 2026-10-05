@@ -370,6 +370,21 @@ class CacheIndex:
     def forget(self, node_id: str) -> None:
         self._states.pop(node_id, None)
 
+    def is_live(self, node_id: str, session_id: str) -> bool:
+        """The node's rows are a complete, current picture: a snapshot of
+        *this* session finished and no gap since (G4 reviewer carry-over 1).
+
+        After a controller restart every node starts unknown here (its rows
+        are from an earlier process) until its post-Hello snapshot completes;
+        a ``stale`` node (gap, invalid report, failed write) is not listed as
+        a peer until it resnapshots."""
+        state = self._states.get(node_id)
+        return (
+            state is not None
+            and state.session_id == session_id
+            and state.phase is Phase.LIVE
+        )
+
     async def on_message(self, live: LiveSession, msg: agent_pb2.AgentMessage) -> None:
         self.on_report(live, msg.cache_report)
 
