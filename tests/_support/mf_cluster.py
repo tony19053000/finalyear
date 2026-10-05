@@ -82,6 +82,7 @@ __all__ = [
     "Node",
     "Timing",
     "Transition",
+    "tmpfs_unsupported_reason",
 ]
 
 _IS_WINDOWS: Final = sys.platform == "win32"
@@ -114,6 +115,46 @@ if str(os.getppid()) != os.environ.get("PARENT_ENV"):
     sys.exit("pdeathsig: parent already gone")
 os.execv(sys.executable, [sys.executable, *sys.argv[1:]])
 """.replace("PARENT_ENV", _PARENT_ENV)
+
+_TMPFS_BOOT: Final = """\
+import ctypes, os, signal, sys
+target, size = sys.argv[1], sys.argv[2]
+uid, gid = os.getuid(), os.getgid()
+os.unshare(os.CLONE_NEWUSER | os.CLONE_NEWNS)
+for name, text in (("setgroups", "deny"), ("uid_map", f"0 {uid} 1"), ("gid_map", f"0 {gid} 1")):
+    with open(f"/proc/self/{name}", "w") as fh:
+        fh.write(text)
+libc = ctypes.CDLL(None, use_errno=True)
+libc.prctl(1, signal.SIGKILL, 0, 0, 0)  # PR_SET_PDEATHSIG again, after unshare
+if libc.mount(b"none", b"/", None, 16384 | (1 << 18), None) != 0:  # MS_REC|MS_PRIVATE
+    sys.exit(f"tmpfs boot: making / private failed ({ctypes.get_errno()})")
+os.makedirs(target, exist_ok=True)
+if libc.mount(b"meshforge-chaos", target.encode(), b"tmpfs", 0, f"size={size}".encode()) != 0:
+    sys.exit(f"tmpfs boot: mount failed ({ctypes.get_errno()})")
+os.execv(sys.executable, [sys.executable, *sys.argv[3:]])
+"""
+"""Linux: run the agent in its own user + mount namespace whose workdir is a
+tiny tmpfs (no root needed) - a real ``ENOSPC`` for the chaos suite's
+disk-full fault (V0.6 G3, D118). The test fills it from outside through
+``/proc/<pid>/root``."""
+
+
+def tmpfs_unsupported_reason() -> str | None:
+    """None if an agent can run on a namespaced tmpfs workdir here."""
+    if not _IS_LINUX or not hasattr(os, "unshare"):
+        return "needs Linux and Python 3.12+ (os.unshare)"
+    probe = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import os; os.unshare(os.CLONE_NEWUSER | os.CLONE_NEWNS)",
+        ],
+        capture_output=True,
+        check=False,
+    )
+    if probe.returncode != 0:
+        return "unprivileged user namespaces are not available here"
+    return None
 
 
 class HarnessError(AssertionError):
@@ -463,6 +504,31 @@ class Node:
     node_id: str = ""
     restarts: int = 0
     fabric: Fabric | None = None
+    tmpfs_workdir: Path | None = None
+    """V0.6 G3: the agent's workdir is a tmpfs in its own mount namespace."""
+
+    def _in_namespace(self, path: Path) -> Path:
+        return Path(f"/proc/{self.pid}/root") / path.relative_to(path.anchor)
+
+    def fill_disk(self) -> int:
+        """Fill the node's tmpfs workdir to the last byte (a real ``ENOSPC``
+        for whatever it writes next); returns the bytes written."""
+        if self.tmpfs_workdir is None:
+            raise RuntimeError(f"{self.name} has no tmpfs workdir")
+        filler = self._in_namespace(self.tmpfs_workdir / "chaos-filler")
+        written = 0
+        chunk = b"\0" * (64 * 1024)
+        with contextlib.suppress(OSError), filler.open("ab") as fh:
+            while True:
+                fh.write(chunk)
+                fh.flush()
+                written += len(chunk)
+        return written
+
+    def free_disk(self) -> None:
+        if self.tmpfs_workdir is not None:
+            with contextlib.suppress(FileNotFoundError):
+                self._in_namespace(self.tmpfs_workdir / "chaos-filler").unlink()
 
     @property
     def name(self) -> str:
@@ -538,6 +604,7 @@ class Fabric:
         agent_execution: Mapping[str, Any] | None = None,
         controller_jobs: Mapping[str, Any] | None = None,
         agent_extra: Mapping[str, Mapping[str, Any]] | None = None,
+        agent_tmpfs_workdir: Mapping[int, int] | None = None,
         log_level: str = "INFO",
     ) -> None:
         self.workdir = workdir
@@ -560,6 +627,8 @@ class Fabric:
         # V0.5 G4: more ``[agent.<section>]`` tables, e.g. ``{"peer": {...},
         # "fetch": {...}, "cache": {...}}`` for the peer-fetch scenarios.
         self._agent_extra = {k: dict(v) for k, v in (agent_extra or {}).items()}
+        # V0.6 G3: agent index -> tmpfs size in bytes (Linux; see _TMPFS_BOOT).
+        self._agent_tmpfs = dict(agent_tmpfs_workdir or {})
         self._db_env = {
             "MESHFORGE_DATABASE__HOST": str(database.host),
             "MESHFORGE_DATABASE__PORT": str(database.port),
@@ -613,6 +682,9 @@ class Fabric:
         path.write_text(_toml({k: v for k, v in tables.items() if v}), "utf-8")
         return path
 
+    def _tmpfs_dir(self, index: int) -> Path:
+        return self.workdir / f"agent{index}-tmpfs-work"
+
     def _agent_config(self, index: int, data_dir: Path) -> Path:
         t = self.timing
         tables: dict[str, dict[str, Any]] = {
@@ -629,7 +701,11 @@ class Fabric:
             # hardware-score run would put all-core benchmark load on the others'
             # liveness. Off by default; a scenario that tests scoring turns it on.
             "agent.scores": self._agent_scores,
-            "agent.execution": self._agent_execution,
+            "agent.execution": (
+                {**self._agent_execution, "workdir_root": str(self._tmpfs_dir(index))}
+                if index in self._agent_tmpfs
+                else self._agent_execution
+            ),
             **{f"agent.{name}": table for name, table in self._agent_extra.items()},
         }
         path = self.workdir / f"agent{index}.toml"
@@ -668,21 +744,24 @@ class Fabric:
             config = self._agent_config(i, data_dir)
             agent_env = self._base_env()
             agent_env.update(self._agent_env)
-            proc = ManagedProcess(
-                f"agent{i}",
-                [
-                    "-m",
-                    "meshforge.agent",
-                    "run",
-                    "--config",
-                    str(config),
-                    "--controller",
-                    link.target,
-                ],
-                agent_env,
-                self.workdir / "logs",
+            argv = [
+                "-m",
+                "meshforge.agent",
+                "run",
+                "--config",
+                str(config),
+                "--controller",
+                link.target,
+            ]
+            tmpfs: Path | None = None
+            if i in self._agent_tmpfs:
+                tmpfs = self._tmpfs_dir(i)
+                tmpfs.mkdir(parents=True, exist_ok=True)
+                argv = ["-c", _TMPFS_BOOT, str(tmpfs), str(self._agent_tmpfs[i]), *argv]
+            proc = ManagedProcess(f"agent{i}", argv, agent_env, self.workdir / "logs")
+            self.nodes.append(
+                Node(i, proc, link, data_dir, fabric=self, tmpfs_workdir=tmpfs)
             )
-            self.nodes.append(Node(i, proc, link, data_dir, fabric=self))
         for node in self.nodes:
             node.process.start()
         for node in self.nodes:

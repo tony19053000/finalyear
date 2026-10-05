@@ -150,8 +150,11 @@ def submit(
     bundle_digest: str,
     manifest: Mapping[str, Any],
     placement: Mapping[str, Any] | None = None,
+    *,
+    idempotency_key: str | None = None,
 ) -> str:
-    """POST an (auto-placed, unless ``placement``) job; its id."""
+    """POST an (auto-placed, unless ``placement``) job; its id. With an
+    ``idempotency_key`` a repeated POST (after a lost answer) is the same job."""
     resp = fabric.call(
         "POST",
         "/v1/jobs",
@@ -160,8 +163,9 @@ def submit(
             "bundle_digest": bundle_digest,
             "placement": dict(placement or {}),
         },
+        headers={"idempotency-key": idempotency_key} if idempotency_key else {},
     )
-    assert resp.status_code == 201, resp.text
+    assert resp.status_code in ((200, 201) if idempotency_key else (201,)), resp.text
     return str(resp.json()["job_id"])
 
 

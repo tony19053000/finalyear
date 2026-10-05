@@ -1,7 +1,9 @@
 """Suite-wide pytest policy (roadmap 0.1.8): test tiers, capability markers, gating.
 
 Tier rule: a test's tier is the first directory under ``tests/`` —
-``tests/unit/**`` is ``unit``, ``tests/component/**`` is ``component``, and so on.
+``tests/unit/**`` is ``unit``, ``tests/component/**`` is ``component``, and so on;
+the one nested exception is ``tests/cluster/chaos/**``, which is ``chaos``
+(:data:`NESTED_TIERS`: it shares the cluster fixtures but is opt-in).
 The marker is applied automatically, so ``pytest -m unit`` works even for a file
 that forgot ``pytestmark``. Collection *fails* (not warns) when:
 
@@ -98,11 +100,19 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         )
 
 
+#: Tier directories nested inside another tier's directory (V0.6 G3, D118): the
+#: chaos suite lives in ``tests/cluster/chaos/`` to share the cluster harness and
+#: fixtures, but is its own opt-in tier.
+NESTED_TIERS: Final = {("cluster", "chaos"): "chaos"}
+
+
 def _tier_of_path(path: Path) -> str | None:
     try:
         parts = path.resolve().relative_to(TESTS_DIR).parts
     except ValueError:
         return None
+    if len(parts) > 2 and (parts[0], parts[1]) in NESTED_TIERS:
+        return NESTED_TIERS[(parts[0], parts[1])]
     return parts[0] if len(parts) > 1 and parts[0] in TIERS else None
 
 

@@ -94,6 +94,30 @@ def test_two_tier_markers_fail_collection(suite: pytest.Pytester) -> None:
     assert "tier markers ['component', 'unit'] do not match" in result.stderr.str()
 
 
+def test_cluster_chaos_directory_is_the_chaos_tier(suite: pytest.Pytester) -> None:
+    """V0.6 G3 (D118): tests/cluster/chaos/ is tier chaos (opt-in), not cluster."""
+    _write(suite, "cluster/chaos/test_a.py", "def test_a():\n    pass\n")
+    _write(suite, "cluster/test_b.py", "def test_b():\n    pass\n")
+    result = suite.runpytest_subprocess("-m", "cluster")
+    result.assert_outcomes(passed=1, deselected=1)
+    result = suite.runpytest_subprocess("-m", "chaos")
+    result.assert_outcomes(skipped=1, deselected=1)
+    result = suite.runpytest_subprocess("-m", "chaos", "--run-chaos")
+    result.assert_outcomes(passed=1, deselected=1)
+
+
+def test_a_cluster_marker_in_the_chaos_directory_fails_collection(
+    suite: pytest.Pytester,
+) -> None:
+    _write(
+        suite,
+        "cluster/chaos/test_a.py",
+        "pytestmark = pytest.mark.cluster\n\ndef test_a():\n    pass\n",
+    )
+    result = suite.runpytest_subprocess()
+    assert result.ret == pytest.ExitCode.USAGE_ERROR
+
+
 def test_test_outside_tier_directory_fails_collection(suite: pytest.Pytester) -> None:
     _write(suite, "test_loose.py", "def test_a():\n    pass\n")
     _write(suite, "misc/test_other.py", "def test_b():\n    pass\n")
