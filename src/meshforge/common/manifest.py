@@ -18,6 +18,9 @@ V0.4 subset::
       ram_gb: 8
       cpus: 4
     outputs: [results/, "*.csv"]         # relative paths/globs
+    inputs:                              # V0.5 named inputs (D92), at most 16
+      - ref: imagenet-mini@3             # name@version or name@sha256:<tree id>
+        mount: data/imagenet             # read-only folder inside the workdir
     limits:
       timeout: 2h                        # 90s, 30m, 2h, 1h30m or an integer of seconds
       network: default                   # default | none
@@ -28,8 +31,14 @@ Rules:
   argv list; the list is executed directly. No shell is ever involved, so ``|``,
   ``;``, ``&&``, ``$VAR`` and globs reach the program as literal arguments.
 * Unknown keys are refused with their YAML path (``resources.gpus: unknown key``).
-  ``split:`` and ``inputs:`` are *recognised and refused* with the version that
-  brings them - a job that asked for splitting must never quietly run whole.
+  ``split:`` is *recognised and refused* with the version that brings it - a job
+  that asked for splitting must never quietly run whole.
+* ``inputs`` (V0.5 G5, D92): each ``ref`` names a registered dataset/model
+  (``compute data push``) by ``name@<version>`` or ``name@sha256:<tree id>``;
+  ``mount`` is a plain relative folder (no ``..``, no glob, not under
+  ``.meshforge``) and no mount may contain another. The controller resolves the
+  refs at submit and refuses a mount that overlaps a project file; the agent
+  copies the input there **read-only**.
 * No manifest, or a manifest without ``entrypoint``: the entrypoint is inferred -
   ``main.py``, else ``__main__.py``, else an ``invalid_input`` naming both.
 * The file is read with ``yaml.safe_load`` semantics (no Python tags), at most
@@ -66,11 +75,14 @@ from meshforge.common.errors import FailureType, MeshForgeError
 __all__ = [
     "DEFAULT_TIMEOUT_S",
     "INFERRED_ENTRYPOINTS",
+    "INPUT_NAME_RE",
     "MANIFEST_FILE_NAME",
     "MAX_ARGV_ITEMS",
     "MAX_ARG_CHARS",
     "MAX_CPUS",
+    "MAX_INPUTS",
     "MAX_MANIFEST_BYTES",
+    "MAX_MOUNT_CHARS",
     "MAX_NAME_CHARS",
     "MAX_OUTPUTS",
     "MAX_OUTPUT_CHARS",
@@ -79,12 +91,14 @@ __all__ = [
     "MAX_VRAM_GB",
     "MIN_TIMEOUT_S",
     "EnvSpec",
+    "InputSpec",
     "LimitsSpec",
     "Manifest",
     "ManifestError",
     "ResourcesSpec",
     "infer_entrypoint",
     "load_manifest",
+    "mounts_overlap",
     "parse_duration",
     "parse_manifest_data",
     "parse_manifest_text",
@@ -99,6 +113,14 @@ MAX_ARGV_ITEMS: Final = 256
 MAX_ARG_CHARS: Final = 4096
 MAX_OUTPUTS: Final = 64
 MAX_OUTPUT_CHARS: Final = 512
+MAX_INPUTS: Final = 16
+MAX_MOUNT_CHARS: Final = 256
+INPUT_NAME_RE: Final = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}")
+"""A named input's name (``compute data push <name>``): lower case, <= 64."""
+_INPUT_REF_RE: Final = re.compile(
+    r"(?P<name>[a-z0-9][a-z0-9._-]{0,63})@"
+    r"(?:(?P<version>[1-9][0-9]{0,8})|(?P<tree>sha256:[0-9a-f]{64}))"
+)
 MAX_PATH_CHARS: Final = 512
 MAX_VRAM_GB: Final = 1024.0
 MAX_RAM_GB: Final = 4096.0
@@ -113,8 +135,6 @@ INFERRED_ENTRYPOINTS: Final = ("main.py", "__main__.py")
 _REJECTED_KEYS: Final[dict[str, str]] = {
     "split": "task splitting (Mode 3) arrives in V0.10; this job would otherwise "
     "run whole on one node",
-    "inputs": "named inputs arrive in V0.5; put the data inside the project folder "
-    "for now",
 }
 _NAME_RE: Final = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 _PYTHON_RE: Final = re.compile(r"3\.\d{1,2}")
@@ -284,6 +304,58 @@ class LimitsSpec(_Spec):
         return parse_duration(value)
 
 
+class InputSpec(_Spec):
+    """One ``inputs:`` entry (V0.5 D92)."""
+
+    ref: str = Field(min_length=3, max_length=140)
+    mount: str = Field(min_length=1, max_length=MAX_MOUNT_CHARS)
+
+    @field_validator("ref")
+    @classmethod
+    def _ref(cls, value: str) -> str:
+        if not _INPUT_REF_RE.fullmatch(value):
+            raise ValueError(
+                "must be name@<version> or name@sha256:<64 hex> (name: lower-case "
+                "letters, digits, '.', '_', '-')"
+            )
+        return value
+
+    @field_validator("mount")
+    @classmethod
+    def _mount(cls, value: str) -> str:
+        _check_relative_path(value, allow_glob=False)
+        parts = PurePosixPath(value).parts
+        if not parts or any(p in (".", "") for p in value.split("/")):
+            raise ValueError("must be a plain folder path (no '.', no empty parts)")
+        if parts[0] == ".meshforge":
+            raise ValueError("must not be under .meshforge (the agent's own folder)")
+        return value
+
+    @property
+    def name(self) -> str:
+        return self.ref.split("@", 1)[0]
+
+    @property
+    def version(self) -> int | None:
+        """The ``@<version>`` part (None for a ``@sha256:`` ref)."""
+        match = _INPUT_REF_RE.fullmatch(self.ref)
+        version = match.group("version") if match is not None else None
+        return int(version) if version else None
+
+    @property
+    def tree_id(self) -> str | None:
+        """The ``@sha256:<hex>`` part (None for a ``@<version>`` ref)."""
+        match = _INPUT_REF_RE.fullmatch(self.ref)
+        return match.group("tree") if match is not None else None
+
+
+def mounts_overlap(a: str, b: str) -> bool:
+    """One folder is the other or contains it (``data`` and ``data/x``)."""
+    pa, pb = PurePosixPath(a).parts, PurePosixPath(b).parts
+    shorter = min(len(pa), len(pb))
+    return pa[:shorter] == pb[:shorter]
+
+
 class Manifest(_Spec):
     """A validated V0.4 manifest (see module docstring)."""
 
@@ -294,6 +366,9 @@ class Manifest(_Spec):
     resources: ResourcesSpec = Field(default_factory=ResourcesSpec)
     outputs: tuple[str, ...] = Field(default=(), max_length=MAX_OUTPUTS)
     limits: LimitsSpec = Field(default_factory=LimitsSpec)
+    inputs: tuple[InputSpec, ...] = Field(default=(), max_length=MAX_INPUTS)
+    """Named inputs (V0.5 D92); omitted from the canonical form when empty, so a
+    job without inputs hashes exactly as it did before V0.5 G5."""
 
     @model_validator(mode="before")
     @classmethod
@@ -353,9 +428,24 @@ class Manifest(_Spec):
             _check_relative_path(item, allow_glob=True)
         return value
 
+    @field_validator("inputs")
+    @classmethod
+    def _input_mounts(cls, value: tuple[InputSpec, ...]) -> tuple[InputSpec, ...]:
+        for i, first in enumerate(value):
+            for second in value[i + 1 :]:
+                if mounts_overlap(first.mount, second.mount):
+                    raise ValueError(
+                        f"mounts {first.mount!r} and {second.mount!r} overlap "
+                        "(one folder would hide the other)"
+                    )
+        return value
+
     def canonical_dict(self) -> dict[str, Any]:
-        """Every field, defaults filled in, JSON types only."""
-        return self.model_dump(mode="json")
+        """Every field, defaults filled in, JSON types only (``inputs`` only
+        when there are some - see the field)."""
+        return self.model_dump(
+            mode="json", exclude={"inputs"} if not self.inputs else None
+        )
 
     def canonical_json(self) -> str:
         """Stable text form: sorted keys, no whitespace (request hashing, D50)."""

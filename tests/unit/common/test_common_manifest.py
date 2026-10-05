@@ -125,7 +125,7 @@ def test_unknown_top_level_key_and_list_index_paths() -> None:
     assert "outputs" in paths
 
 
-@pytest.mark.parametrize(("key", "version"), [("split", "V0.10"), ("inputs", "V0.5")])
+@pytest.mark.parametrize(("key", "version"), [("split", "V0.10")])
 def test_split_and_inputs_are_recognised_and_refused(key: str, version: str) -> None:
     with pytest.raises(ManifestError) as info:
         _parse(**{key: {"over": "data/*"}})
@@ -408,3 +408,94 @@ def test_canonical_json_is_compact_and_sorted() -> None:
     assert " " not in text.replace('"python main.py"', "")
     keys = list(json.loads(text))
     assert keys == sorted(keys)
+
+
+# ------------------------------------------------------------ V0.5 G5 inputs
+
+
+def test_inputs_parse_and_expose_the_ref_parts() -> None:
+    tree = "sha256:" + "a" * 64
+    manifest = _parse(
+        inputs=[
+            {"ref": "imagenet-mini@3", "mount": "data/imagenet"},
+            {"ref": f"weights@{tree}", "mount": "models"},
+        ]
+    )
+    first, second = manifest.inputs
+    assert (first.name, first.version, first.tree_id) == ("imagenet-mini", 3, None)
+    assert (second.name, second.version, second.tree_id) == ("weights", None, tree)
+    assert manifest.canonical_dict()["inputs"][0] == {
+        "ref": "imagenet-mini@3",
+        "mount": "data/imagenet",
+    }
+
+
+def test_no_inputs_keeps_the_canonical_form_unchanged() -> None:
+    assert "inputs" not in _parse().canonical_dict()
+
+
+@pytest.mark.parametrize(
+    "ref",
+    [
+        "noversion",
+        "Upper@1",
+        "x@0",
+        "x@-1",
+        "x@1.0",
+        "x@sha256:" + "a" * 63,
+        "x@sha256:" + "A" * 64,
+        "x@latest",
+        "a" * 65 + "@1",
+        "x@1234567890",
+    ],
+)
+def test_bad_input_refs_are_refused(ref: str) -> None:
+    with pytest.raises(ManifestError):
+        _parse(inputs=[{"ref": ref, "mount": "data"}])
+
+
+@pytest.mark.parametrize(
+    "mount",
+    [
+        "/abs",
+        "../up",
+        "a/../b",
+        "data/*",
+        ".meshforge",
+        ".meshforge/x",
+        "a//b",
+        "./a",
+        "a\\b",
+        "",
+    ],
+)
+def test_bad_mounts_are_refused(mount: str) -> None:
+    with pytest.raises(ManifestError):
+        _parse(inputs=[{"ref": "x@1", "mount": mount}])
+
+
+def test_mount_length_max_and_max_plus_one() -> None:
+    ok = "m" * 256
+    assert _parse(inputs=[{"ref": "x@1", "mount": ok}]).inputs[0].mount == ok
+    with pytest.raises(ManifestError):
+        _parse(inputs=[{"ref": "x@1", "mount": ok + "m"}])
+
+
+def test_overlapping_mounts_are_refused() -> None:
+    with pytest.raises(ManifestError, match="overlap"):
+        _parse(
+            inputs=[{"ref": "a@1", "mount": "data"}, {"ref": "b@1", "mount": "data/x"}]
+        )
+    with pytest.raises(ManifestError, match="overlap"):
+        _parse(inputs=[{"ref": "a@1", "mount": "d"}, {"ref": "b@1", "mount": "d"}])
+    ok = _parse(
+        inputs=[{"ref": "a@1", "mount": "data"}, {"ref": "b@1", "mount": "data2"}]
+    )
+    assert len(ok.inputs) == 2
+
+
+def test_inputs_count_max_and_max_plus_one() -> None:
+    many = [{"ref": f"d{i}@1", "mount": f"m{i}"} for i in range(17)]
+    assert len(_parse(inputs=many[:16]).inputs) == 16
+    with pytest.raises(ManifestError):
+        _parse(inputs=many)
