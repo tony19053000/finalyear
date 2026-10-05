@@ -314,7 +314,7 @@ async def test_a_cancel_request_stops_retries(
     cancel = await store.request_cancel(attempt.job_id)
     assert cancel is not None and cancel.attempt is not None
     out = await store.apply_status(_fail(attempt, FailureType.TIMEOUT))
-    assert out.job is not None and out.job.state is JobState.FAILED
+    assert out.job is not None and out.job.state is JobState.CANCELLED  # D127
     assert out.retry is not None and out.retry.reason is RetryReason.CANCELLED
 
 

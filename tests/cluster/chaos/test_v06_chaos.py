@@ -16,8 +16,8 @@ namespace (the disk-full target). Every job is an automatically placed
 (partition-like: its workloads keep running), the agent's link to the
 controller blackholed for longer than the lease (a Wi-Fi drop), controller
 ``SIGKILL`` + restart (at most twice), the disk-full agent's tmpfs filled for
-3-6 s (once: ``disk_full`` is not retryable, so a full node fails every job it
-is given meanwhile - reported, see the V0.6 G3 handoff). At most two agents
+3-6 s (once; since D126 an auto job that hits it is retried on another node,
+which avoids the full one). At most two agents
 are faulted at once. Then every fault is undone.
 
 **Invariants after quiescence** (every job terminal or the test fails):
@@ -25,7 +25,8 @@ are faulted at once. Then every fault is undone.
 1. every job is ``succeeded`` or ``failed``;
 2. a ``succeeded`` job has exactly one ``done`` attempt - its last one - and
    its side effect names that attempt (**exactly-once commit**);
-3. no job ``failed`` with a retryable type while attempts remained;
+3. no job ``failed`` with a retryable type while attempts remained (every
+   job here is auto-placed, so ``disk_full`` counts as retryable, D126);
 4. no attempt row is left live;
 5. a job meant to succeed never ends ``user_error``;
 6. ledger ``overlap`` lines (two attempts of a job running at once) only for
@@ -166,7 +167,7 @@ class Chaos:
             and not self.counts["disk_full"]
             and not self.busy(self.fabric.nodes[DISK_AGENT])
         ):
-            kinds.append("disk_full")  # once: a full node fails what it gets
+            kinds.append("disk_full")  # once
         if self.controller_kills < 2:
             kinds.append("controller_kill")
         if len(self.fabric.nodes) - len(free) >= 2:  # keep capacity: no new node fault
@@ -366,7 +367,7 @@ def _run(
                 problems.append(f"2: {job_id} failed with a done attempt")
             if (
                 ftype is not None
-                and is_retryable(FailureType(ftype))
+                and (is_retryable(FailureType(ftype)) or ftype == "disk_full")
                 and len(attempts) < MAX_ATTEMPTS
             ):
                 problems.append(
