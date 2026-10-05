@@ -9,8 +9,8 @@
 > ```
 > Read docs/SESSION_HANDOFF.md (§0e first, then §1 and §2), then docs/STATUS.md, then
 > docs/briefs/V0.5-data-plane.md. RULE: run ONE subagent at a time (team, re-imposed 2026-10-01).
-> V0.5 G1–G4 + stabilisation CLOSED. G5 (brief §5e): implementer committed everything, was running
-> its final suites — see §2 "G5 state". Next: G5 tester → reviewer → close. Then 🧑 0.5.11 lab.
+> V0.5 G1–G4 + stabilisation CLOSED. G5 (brief §5e): implementer DONE — see §2 "G5 state".
+> Next: G5 tester round 1 → fix rounds → reviewer → close. Then 🧑 0.5.11 lab.
 > Check git log and docs/briefs/progress/ first to see which round last finished.
 > ```
 >
@@ -31,7 +31,7 @@
 > throughput measurements and the reasoning; if you think the arithmetic or the trade is wrong,
 > **say so to the team before building on it.** Do not silently re-expand the scope either.
 
-**Last updated:** 2026-10-05 (**V0.5 G1–G4 + stabilisation CLOSED** — 0.5.1–0.5.5, 0.5.7 `[x]`; **G5 implementer running, all deliverables committed, final suites in flight** — see §2 "G5 state"; one subagent at a time) · **Updated by:** Lead session
+**Last updated:** 2026-10-05 (**V0.5 G1–G4 + stabilisation CLOSED** — 0.5.1–0.5.5, 0.5.7 `[x]`; **G5 implementer DONE; next G5 tester round 1; nothing running** — see §2 "G5 state"; one subagent at a time) · **Updated by:** Lead session
 
 ---
 
@@ -287,8 +287,8 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 > ### G5 state (2026-10-05) — read this first
 > - **Scope** (brief §5e + §3 G5 row): 0.5.6 named inputs, 0.5.9 GC, 0.5.10 transfer telemetry, 0.5.8 controller part (`compute node prepare`), controller CAS scrub, 0.5.11 lab checklist, + 6 G4 reviewer carry-overs.
-> - **Implementer RUNNING** (only agent). All deliverables committed: `35d46b8` … `d5a8303` — carry-overs (fetcher split `a7ec04e`, live-only peers `bb6cf18`, manifest off-loop + fd test `ac76135`, docs `d6bcd9c`); proto `5946a8b`; agent GC (SQLite index, leases, pins) `55b0f1b` `145cff8`; migration 0012 `e6e1310`; controller GC + scrub `5eb5384`; named inputs `12c418a` `6fea770`; telemetry `9d43b8d`; node prepare `9308512`; lab checklist `feda4c7` (`lab/checklists/V0.5-data-plane.md`); docs `fe740b1`; `compute node gc` `4841ada`; mount-overlap perf fix `d5a8303`. **Last step in flight:** whole `-m component` + `-m cluster`, gates, handoff note.
-> - **If the session died:** commit any uncommitted files as `wip`, then either resume the implementer via SendMessage ("run the whole component + cluster suites and the gates, then hand off") or, if it can't be resumed, go straight to a **G5 tester round 1** (the tester runs the full exit list anyway).
+> - **Implementer DONE 2026-10-05** (`a7ec04e` … `948720e`, all deliverables). Gates exit 0; unit 5522 / whole component 957 / cluster 55, all exit 0. Deviations 1–9 in its handoff (summary: leases + pins in the SQLite GC index at `<data>/gc/`; quotas enforced by GC passes, not write refusal; controller may evict finished jobs' outputs after 1 day; prepare status in memory only; scrub triggered by integrity_error + manifest reads; read-only inputs are a guard, not isolation; new `POST /v1/nodes/{id}/gc` + `compute node gc`). Not run: slow/GPU tiers, Docker env-image prepare, Windows, multi-machine.
+> - **Next: G5 tester round 1** (nothing running). Prompt: brief §5e + those deviations; try to break GC vs a starting attempt (two processes), pins, scrub, named-input mounts/rm-while-used, telemetry rows vs FetchStats, prepare idempotency; full exit list.
 > - **Then:** tester → fix rounds → reviewer → close 0.5.6, 0.5.9, 0.5.10, 0.5.8 `[x]` → 🧑 0.5.11 lab (checklist above) closes V0.5. Then V0.6.
 >
 > ### G4 — CLOSED 2026-10-05 (history)
