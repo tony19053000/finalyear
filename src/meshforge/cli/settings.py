@@ -145,7 +145,7 @@ class CliSection(SectionModel):
         description=(
             "Largest project (bytes) `compute run` copies into the local agent's "
             "cache; larger projects are not seeded (the agent downloads them if "
-            "the job runs here). 0 = never seed."
+            "the job runs here). 0 = never seed. Env: MESHFORGE_CLI__SEED_MAX_BYTES."
         ),
     )
     seed_free_disk_floor_mb: int = Field(
@@ -154,7 +154,8 @@ class CliSection(SectionModel):
         le=1024**2,
         description=(
             "Seeding stops (and is skipped) rather than leave less than this "
-            "much free on the agent's disk - the agent's own floor."
+            "much free on the agent's disk - the agent's own floor. Env: "
+            "MESHFORGE_CLI__SEED_FREE_DISK_FLOOR_MB."
         ),
     )
 
