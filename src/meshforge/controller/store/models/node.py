@@ -41,6 +41,7 @@ from meshforge.controller.store.base import (
 
 __all__ = [
     "END_REASON_CHECK_NAME",
+    "MAX_SLOTS",
     "NODE_STATE_CHECK_NAME",
     "SESSION_EPOCH_CHECK_NAME",
     "Node",
@@ -77,6 +78,8 @@ class SessionEndReason(StrEnum):
     node goes SUSPECT and the lease decides whether it goes OFFLINE."""
 
 
+MAX_SLOTS: Final = 64
+"""Largest per-node CPU/GPU slot count a Hello may advertise (V0.6 D105)."""
 NODE_STATE_CHECK_NAME: Final = "state"
 END_REASON_CHECK_NAME: Final = "end_reason"
 SESSION_EPOCH_CHECK_NAME: Final = "session_epoch"
@@ -96,6 +99,14 @@ class Node(TimestampMixin, Base):
             f"state IN ({sql_in_list(NodeState)})", name=NODE_STATE_CHECK_NAME
         ),
         uint64_check("session_epoch", name=SESSION_EPOCH_CHECK_NAME),
+        CheckConstraint(
+            f"cpu_slots IS NULL OR (cpu_slots >= 0 AND cpu_slots <= {MAX_SLOTS})",
+            name="cpu_slots",
+        ),
+        CheckConstraint(
+            f"gpu_slots IS NULL OR (gpu_slots >= 0 AND gpu_slots <= {MAX_SLOTS})",
+            name="gpu_slots",
+        ),
     )
 
     node_id: Mapped[str] = id_column(primary_key=True)
@@ -126,6 +137,11 @@ class Node(TimestampMixin, Base):
     full ``[0, 2^64-1]`` domain (ADR-0013 §6 lets the agent's file hold any such
     value; refusing the upper half would strand a node until an identity reset).
     """
+    cpu_slots: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    """``Hello.max_cpu_jobs`` of the latest Hello (V0.6 D105, migration 0013);
+    NULL = the agent did not say (an older agent: 1 CPU slot)."""
+    gpu_slots: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    """``Hello.max_gpu_jobs``; NULL = not said (1 GPU slot with ``exec-gpu``)."""
 
 
 class NodeSession(TimestampMixin, Base):

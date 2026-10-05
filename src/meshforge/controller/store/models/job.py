@@ -26,6 +26,7 @@ from sqlalchemy import (
     Index,
     Integer,
     PrimaryKeyConstraint,
+    SmallInteger,
     String,
     UniqueConstraint,
     text,
@@ -34,12 +35,23 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from meshforge.common.errors import FailureType
+from meshforge.common.manifest import (
+    DEFAULT_BACKOFF_S,
+    DEFAULT_MAX_ATTEMPTS,
+    MAX_ATTEMPTS,
+    MAX_BACKOFF_S,
+    MAX_PRIORITY,
+    MIN_PRIORITY,
+    POLICIES,
+)
 from meshforge.common.states import AttemptState, JobState
 from meshforge.controller.store.base import (
     ID_MAX_LENGTH,
     Base,
     TimestampMixin,
+    UInt64,
     id_column,
+    uint64_check,
 )
 from meshforge.controller.store.models.node import sql_in_list
 
@@ -62,6 +74,10 @@ MAX_DETAIL_CHARS: Final = 1024
 MAX_JOB_NAME_CHARS: Final = 64
 RUNTIME_VALUES: Final = ("docker", "subprocess", "venv")
 RUNTIME_VALUES_SQL: Final = ", ".join(f"'{v}'" for v in RUNTIME_VALUES)
+POLICY_VALUES_SQL: Final = ", ".join(f"'{v}'" for v in POLICIES)
+SLOT_VALUES: Final = ("cpu", "gpu")
+SLOT_VALUES_SQL: Final = ", ".join(f"'{v}'" for v in SLOT_VALUES)
+FINGERPRINT_LENGTH: Final = 64
 
 
 def _digest_check(column: str, *, nullable: bool = False) -> str:
@@ -85,9 +101,31 @@ class Job(TimestampMixin, Base):
             "bundle_digest IS NOT NULL OR tree_id IS NOT NULL", name="job_source"
         ),
         CheckConstraint("attempt_epoch >= 0", name="attempt_epoch"),
+        CheckConstraint(
+            f"priority >= {MIN_PRIORITY} AND priority <= {MAX_PRIORITY}",
+            name="priority",
+        ),
+        CheckConstraint(
+            f"policy IS NULL OR policy IN ({POLICY_VALUES_SQL})", name="policy"
+        ),
+        CheckConstraint(
+            f"max_attempts >= 1 AND max_attempts <= {MAX_ATTEMPTS}",
+            name="max_attempts",
+        ),
+        CheckConstraint(
+            f"retry_backoff_s >= 0 AND retry_backoff_s <= {MAX_BACKOFF_S}",
+            name="retry_backoff_s",
+        ),
+        uint64_check("input_bytes", name="input_bytes"),
         UniqueConstraint("idempotency_key"),
         Index("ix_job_created_at", "created_at"),
         Index("ix_job_state", "state"),
+        Index(
+            "ix_job_queued_at",
+            "queued_at",
+            postgresql_where=text("state = 'queued'"),
+        ),
+        Index("ix_job_fingerprint", "fingerprint"),
     )
 
     id: Mapped[str] = id_column(primary_key=True)
@@ -118,6 +156,45 @@ class Job(TimestampMixin, Base):
     )
     cancel_requested_at: Mapped[dt.datetime | None] = mapped_column(nullable=True)
     """``POST /v1/jobs/{id}/cancel`` on a live attempt (D69, migration 0007)."""
+    # --- V0.6 G2 (migration 0013): planner inputs ---------------------------
+    priority: Mapped[int] = mapped_column(
+        SmallInteger, nullable=False, server_default=text("0")
+    )
+    """D106: -10..10, higher first; the dispatcher ages it while the job waits."""
+    policy: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    """D107: the placement policy asked for; NULL = the controller's default."""
+    max_attempts: Mapped[int] = mapped_column(
+        SmallInteger, nullable=False, server_default=text(str(DEFAULT_MAX_ATTEMPTS))
+    )
+    """D110: attempts in total (used by V0.6 G3's retries)."""
+    retry_backoff_s: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text(str(DEFAULT_BACKOFF_S))
+    )
+    on_lost_retry: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true")
+    )
+    """D117: false = a LOST attempt is never re-run."""
+    submitter_node_id: Mapped[str | None] = mapped_column(
+        String(ID_MAX_LENGTH), nullable=True
+    )
+    """D103: the submitting laptop's own node (its candidate is *Local*); not a
+    foreign key - an unknown id only means there is no Local candidate."""
+    submitter_seeded: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+    """D109: the CLI put the project's blobs into the submitter node's CAS."""
+    not_before: Mapped[dt.datetime | None] = mapped_column(nullable=True)
+    """D110: a retry waits until then (dispatch skips it before)."""
+    queued_at: Mapped[dt.datetime | None] = mapped_column(nullable=True)
+    """When the job last entered QUEUED (queue order and priority aging, D106)."""
+    input_bytes: Mapped[int | None] = mapped_column(UInt64, nullable=True)
+    """Bytes a node must hold to run it: the project tree (or bundle) plus every
+    named input - the estimator's transfer volume (D108)."""
+    fingerprint: Mapped[str | None] = mapped_column(
+        String(FINGERPRINT_LENGTH), nullable=True
+    )
+    """D108 workload fingerprint (64 hex): same project, entrypoint and env
+    request -> same fingerprint; history of past runs is grouped by it."""
 
 
 class JobTransition(Base):
@@ -156,6 +233,7 @@ class Attempt(TimestampMixin, Base):
         CheckConstraint(
             f"runtime IS NULL OR runtime IN ({RUNTIME_VALUES_SQL})", name="runtime"
         ),
+        CheckConstraint(f"slot IS NULL OR slot IN ({SLOT_VALUES_SQL})", name="slot"),
         UniqueConstraint("job_id", "fencing_token"),
         Index("ix_attempt_node_id", "node_id"),
     )
@@ -193,6 +271,9 @@ class Attempt(TimestampMixin, Base):
         JSONB(none_as_null=True), nullable=True
     )
     """Final logs per stream: digest, bytes, truncated (D71; migration 0008)."""
+    slot: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    """D105: the node slot the attempt holds while live (``cpu``/``gpu``);
+    NULL for attempts dispatched before V0.6 (counted as a CPU slot)."""
 
 
 class AttemptPhaseRow(Base):

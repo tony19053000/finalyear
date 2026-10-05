@@ -8,7 +8,8 @@ Tables so far: ``node``, ``node_session`` (V0.3, :mod:`.node`),
 ``resource_snapshot`` (V0.3 0.3.11, :mod:`.resource`), ``job``,
 ``job_transition``, ``attempt``, ``attempt_phase`` (V0.4 D49, :mod:`.job`),
 ``cache_location`` (V0.5 D101, :mod:`.cache`), ``named_input``, ``job_input``,
-``transfer_event`` (V0.5 G5 D92/D93, :mod:`.data`).
+``transfer_event`` (V0.5 G5 D92/D93, :mod:`.data`), ``plan_decision`` (V0.6
+G2 D112, :mod:`.plan`).
 """
 
 from meshforge.controller.store.base import Base
@@ -21,6 +22,7 @@ from meshforge.controller.store.models.job import (
     JobTransition,
 )
 from meshforge.controller.store.models.node import Node, NodeSession, SessionEndReason
+from meshforge.controller.store.models.plan import PlanDecision
 from meshforge.controller.store.models.resource import ResourceSnapshot
 
 __all__ = [
@@ -34,6 +36,7 @@ __all__ = [
     "NamedInput",
     "Node",
     "NodeSession",
+    "PlanDecision",
     "ResourceSnapshot",
     "SessionEndReason",
     "TransferEvent",

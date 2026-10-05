@@ -24,6 +24,12 @@ V0.4 subset::
     limits:
       timeout: 2h                        # 90s, 30m, 2h, 1h30m or an integer of seconds
       network: default                   # default | none
+    priority: 0                          # V0.6 D106: -10 (last) .. 10 (first)
+    policy: cost_model                   # V0.6 D107: placement policy (empty = fabric default)
+    retry:                               # V0.6 D110 (retries run from V0.6 G3)
+      max_attempts: 3                    # 1-10 attempts in total
+      backoff_s: 5                       # 0-300 s before the 2nd attempt, doubling
+      on_lost: true                      # false: never re-run after a lost node (D117)
 
 Rules:
 
@@ -39,6 +45,12 @@ Rules:
   ``.meshforge``) and no mount may contain another. The controller resolves the
   refs at submit and refuses a mount that overlaps a project file; the agent
   copies the input there **read-only**.
+* ``priority``, ``policy`` and ``retry`` (V0.6 D106/D107/D110) are scheduling
+  requests, not part of what runs: like ``inputs`` they are left out of the
+  canonical form while they hold their defaults, so a job that does not use them
+  hashes exactly as before V0.6. ``policy`` names one of :data:`POLICIES`; the
+  controller's ``[controller.planner] default_policy`` applies when it is absent
+  and the submit request's ``placement.policy`` overrides it.
 * No manifest, or a manifest without ``entrypoint``: the entrypoint is inferred -
   ``main.py``, else ``__main__.py``, else an ``invalid_input`` naming both.
 * The file is read with ``yaml.safe_load`` semantics (no Python tags), at most
@@ -73,12 +85,16 @@ from pydantic import (
 from meshforge.common.errors import FailureType, MeshForgeError
 
 __all__ = [
+    "DEFAULT_BACKOFF_S",
+    "DEFAULT_MAX_ATTEMPTS",
     "DEFAULT_TIMEOUT_S",
     "INFERRED_ENTRYPOINTS",
     "INPUT_NAME_RE",
     "MANIFEST_FILE_NAME",
     "MAX_ARGV_ITEMS",
     "MAX_ARG_CHARS",
+    "MAX_ATTEMPTS",
+    "MAX_BACKOFF_S",
     "MAX_CPUS",
     "MAX_INPUTS",
     "MAX_MANIFEST_BYTES",
@@ -86,16 +102,21 @@ __all__ = [
     "MAX_NAME_CHARS",
     "MAX_OUTPUTS",
     "MAX_OUTPUT_CHARS",
+    "MAX_PRIORITY",
     "MAX_RAM_GB",
     "MAX_TIMEOUT_S",
     "MAX_VRAM_GB",
+    "MIN_PRIORITY",
     "MIN_TIMEOUT_S",
+    "POLICIES",
     "EnvSpec",
     "InputSpec",
     "LimitsSpec",
     "Manifest",
     "ManifestError",
+    "PolicyName",
     "ResourcesSpec",
+    "RetrySpec",
     "check_mount",
     "infer_entrypoint",
     "load_manifest",
@@ -130,6 +151,33 @@ MIN_TIMEOUT_S: Final = 1
 MAX_TIMEOUT_S: Final = 7 * 24 * 3600
 """One week: a limit, not a promise; the controller backstop is timeout + 30 s."""
 DEFAULT_TIMEOUT_S: Final = 3600
+MIN_PRIORITY: Final = -10
+MAX_PRIORITY: Final = 10
+DEFAULT_MAX_ATTEMPTS: Final = 3
+MAX_ATTEMPTS: Final = 10
+DEFAULT_BACKOFF_S: Final = 5
+MAX_BACKOFF_S: Final = 300
+type PolicyName = Literal[
+    "random",
+    "round_robin",
+    "least_loaded",
+    "strongest_suitable",
+    "resource_score",
+    "cache_affinity",
+    "cost_model",
+]
+POLICIES: Final[tuple[str, ...]] = (
+    "random",
+    "round_robin",
+    "least_loaded",
+    "strongest_suitable",
+    "resource_score",
+    "cache_affinity",
+    "cost_model",
+)
+"""Placement policies (V0.6 D107), the wire spelling everywhere: manifest,
+``POST /v1/jobs`` ``placement.policy``, ``compute run --policy``, the
+controller's ``default_policy`` and ``plan_decision.policy``."""
 INFERRED_ENTRYPOINTS: Final = ("main.py", "__main__.py")
 """Looked for, in this order, when the manifest gives no ``entrypoint``."""
 
@@ -305,6 +353,23 @@ class LimitsSpec(_Spec):
         return parse_duration(value)
 
 
+class RetrySpec(_Spec):
+    """``retry:`` (V0.6 D110/D117) - how often a failed attempt is tried again."""
+
+    max_attempts: int = Field(
+        default=DEFAULT_MAX_ATTEMPTS, ge=1, le=MAX_ATTEMPTS, strict=True
+    )
+    """Attempts in total, the first one included (1 = never retried)."""
+    backoff_s: int = Field(
+        default=DEFAULT_BACKOFF_S, ge=0, le=MAX_BACKOFF_S, strict=True
+    )
+    """Wait before the second attempt; doubled for every later one, capped at
+    :data:`MAX_BACKOFF_S`."""
+    on_lost: bool = Field(default=True, strict=True)
+    """False: an attempt lost with its node is not re-run (a non-idempotent job
+    that must never run twice, D117)."""
+
+
 class InputSpec(_Spec):
     """One ``inputs:`` entry (V0.5 D92)."""
 
@@ -378,6 +443,12 @@ class Manifest(_Spec):
     inputs: tuple[InputSpec, ...] = Field(default=(), max_length=MAX_INPUTS)
     """Named inputs (V0.5 D92); omitted from the canonical form when empty, so a
     job without inputs hashes exactly as it did before V0.5 G5."""
+    priority: int = Field(default=0, ge=MIN_PRIORITY, le=MAX_PRIORITY, strict=True)
+    """Queue priority (V0.6 D106); higher runs first, waiting ages it upwards."""
+    policy: PolicyName | None = None
+    """Placement policy for this job (V0.6 D107); None = the fabric default."""
+    retry: RetrySpec = Field(default_factory=RetrySpec)
+    """V0.6 D110."""
 
     @model_validator(mode="before")
     @classmethod
@@ -450,11 +521,20 @@ class Manifest(_Spec):
         return value
 
     def canonical_dict(self) -> dict[str, Any]:
-        """Every field, defaults filled in, JSON types only (``inputs`` only
-        when there are some - see the field)."""
-        return self.model_dump(
-            mode="json", exclude={"inputs"} if not self.inputs else None
-        )
+        """Every field, defaults filled in, JSON types only - except the
+        V0.5/V0.6 additions (``inputs``, ``priority``, ``policy``, ``retry``),
+        which appear only when they differ from their defaults (see the module
+        docstring: an older manifest keeps its request hash)."""
+        exclude: set[str] = set()
+        if not self.inputs:
+            exclude.add("inputs")
+        if self.priority == 0:
+            exclude.add("priority")
+        if self.policy is None:
+            exclude.add("policy")
+        if self.retry == RetrySpec():
+            exclude.add("retry")
+        return self.model_dump(mode="json", exclude=exclude or None)
 
     def canonical_json(self) -> str:
         """Stable text form: sorted keys, no whitespace (request hashing, D50)."""

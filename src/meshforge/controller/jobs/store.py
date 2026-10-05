@@ -40,7 +40,7 @@ import datetime as dt
 import functools
 import hmac
 from collections.abc import Awaitable, Callable, Coroutine, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Final
 
 from sqlalchemy import func, select, update
@@ -76,6 +76,7 @@ __all__ = [
     "AttemptRecord",
     "IdempotencyConflictError",
     "JobRecord",
+    "JobScheduling",
     "JobStore",
     "JobStoreError",
     "PhaseRecord",
@@ -160,6 +161,26 @@ class JobRecord:
     cancel_requested_at: dt.datetime | None = None
     tree_id: str | None = None
     """V0.5 D83: the project's tree manifest; None = a V0.4 bundle job."""
+    scheduling: JobScheduling = field(default_factory=lambda: JobScheduling())
+    """V0.6 G2 (migration 0013): the planner's per-job inputs."""
+
+
+@dataclass(frozen=True, slots=True)
+class JobScheduling:
+    """The planner's per-job inputs (V0.6 G2, D103-D110; migration 0013)."""
+
+    priority: int = 0
+    policy: str | None = None
+    """None = the controller's ``[controller.planner] default_policy``."""
+    max_attempts: int = 3
+    retry_backoff_s: int = 5
+    on_lost_retry: bool = True
+    submitter_node_id: str | None = None
+    submitter_seeded: bool = False
+    not_before: dt.datetime | None = None
+    queued_at: dt.datetime | None = None
+    input_bytes: int | None = None
+    fingerprint: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -231,6 +252,19 @@ def job_record(row: Job) -> JobRecord:
         updated_at=row.updated_at,
         cancel_requested_at=row.cancel_requested_at,
         tree_id=row.tree_id,
+        scheduling=JobScheduling(
+            priority=int(row.priority),
+            policy=row.policy,
+            max_attempts=int(row.max_attempts),
+            retry_backoff_s=int(row.retry_backoff_s),
+            on_lost_retry=bool(row.on_lost_retry),
+            submitter_node_id=row.submitter_node_id,
+            submitter_seeded=bool(row.submitter_seeded),
+            not_before=row.not_before,
+            queued_at=row.queued_at,
+            input_bytes=None if row.input_bytes is None else int(row.input_bytes),
+            fingerprint=row.fingerprint,
+        ),
     )
 
 
@@ -328,6 +362,7 @@ class JobStore:
         through: Sequence[JobEvent] = (),
         tree_id: str | None = None,
         inputs: Sequence[tuple[str, str, str, int, str]] = (),
+        scheduling: JobScheduling | None = None,
     ) -> tuple[JobRecord, bool]:
         """Insert a job; ``(record, created)``. See module docstring.
 
@@ -346,7 +381,8 @@ class JobStore:
         path: list[tuple[JobState | None, JobState]] = [(None, JobState.SUBMITTED)]
         for event in through:
             path.append((path[-1][1], next_job_state(path[-1][1], event)))
-        values = {
+        plan = scheduling or JobScheduling()
+        values: dict[str, Any] = {
             "id": job_id,
             "name": name,
             "state": path[-1][1].value,
@@ -356,6 +392,15 @@ class JobStore:
             "placement": dict(placement),
             "idempotency_key": idempotency_key,
             "request_hash": request_hash,
+            "priority": plan.priority,
+            "policy": plan.policy,
+            "max_attempts": plan.max_attempts,
+            "retry_backoff_s": plan.retry_backoff_s,
+            "on_lost_retry": plan.on_lost_retry,
+            "submitter_node_id": plan.submitter_node_id,
+            "submitter_seeded": plan.submitter_seeded,
+            "input_bytes": plan.input_bytes,
+            "fingerprint": plan.fingerprint,
         }
         async with self._sessions() as db, db.begin():
             statement = pg_insert(Job).values(**values)
@@ -381,6 +426,15 @@ class JobStore:
                 for from_state, to_state in path:
                     await _append_transition(
                         db, job_id, from_state, to_state, at=func.clock_timestamp()
+                    )
+                if path[-1][1] is JobState.QUEUED:
+                    # D106: the queue position, stamped after the QUEUED arrow
+                    # (``clock_timestamp()``), so never before it.
+                    await db.execute(
+                        update(Job)
+                        .where(Job.id == job_id)
+                        .values(queued_at=func.clock_timestamp())
+                        .execution_options(synchronize_session=False)
                     )
                 row = await db.get_one(Job, job_id)
                 return job_record(row), True
@@ -408,10 +462,13 @@ class JobStore:
         idempotency_key: str | None,
         tree_id: str | None = None,
         inputs: Sequence[tuple[str, str, str, int, str]] = (),
+        scheduling: JobScheduling | None = None,
     ) -> tuple[JobRecord, bool]:
-        """Atomically submit a manually placed job (D50): ``SUBMITTED -> PLANNING
-        -> QUEUED`` in one transaction. ``created`` is False for an idempotent
-        replay / key-race loser (the existing job, already ``QUEUED`` or later).
+        """Atomically submit a job (D50, V0.6 D104): ``SUBMITTED -> PLANNING ->
+        QUEUED`` in one transaction (``PLANNING`` stays a recorded pass-through:
+        the submit-time static feasibility pass already ran, the live planner
+        runs at dispatch). ``created`` is False for an idempotent replay /
+        key-race loser (the existing job, already ``QUEUED`` or later).
         """
         return await self.create_job(
             job_id=job_id,
@@ -424,6 +481,7 @@ class JobStore:
             through=(JobEvent.PLAN, JobEvent.PLANNED),
             tree_id=tree_id,
             inputs=inputs,
+            scheduling=scheduling,
         )
 
     @typed_store_call
