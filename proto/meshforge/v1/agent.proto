@@ -33,7 +33,7 @@
 //
 // Roadmap coverage: 0.1.5 envelopes/oneofs; 0.3.1 session/liveness/resource
 // payloads; 0.3.4 hardware scores; 0.4.6 attempt execution (ExecutionSpec,
-// AttemptStatus results). TODO(V0.4 G5): LogChunk flow. V0.5: CacheReport (D101), peer endpoint/key (D98/D99). TODO(V0.6): network probes for scheduling.
+// AttemptStatus results). TODO(V0.4 G5): LogChunk flow. V0.5: CacheReport (D101), peer endpoint/key (D98/D99), G5: GcRequest, PrepareEnv/PrepareEnvStatus, InputTree, TransferSummary. TODO(V0.6): network probes for scheduling.
 syntax = "proto3";
 
 package meshforge.v1;
@@ -81,6 +81,9 @@ message AgentMessage {
     // Never buffered, replayed or acked. Any stream end without a prior Goodbye
     // is stream_lost (node -> SUSPECT, OFFLINE at the lease edge).
     Goodbye goodbye = 21;
+    // Progress / result of a PrepareEnv command (V0.5 G5, roadmap 0.5.8). A
+    // report: buffered, replayed after a reconnect and acked.
+    PrepareEnvStatus prepare_env_status = 22;
   }
 }
 
@@ -409,6 +412,47 @@ message AttemptStatus {
   // log, upload failed) - the controller keeps its live copy then.
   FinalLog stdout_log = 13;
   FinalLog stderr_log = 14;
+  // Transfer telemetry (V0.5 G5, D93): one entry per staged tree (the project
+  // tree first, then named inputs), sent with the terminal status. At most
+  // 1 + 16 entries; the controller persists them as transfer_event rows.
+  repeated TransferSummary transfers = 15;
+}
+
+// What staging one tree cost (V0.5 G5, D93). Agent-measured, monotonic clock.
+message TransferSummary {
+  // "sha256:<64 hex>" of the staged tree.
+  string tree_id = 1;
+  // Blobs (and their bytes) that were already in the agent's cache: hits.
+  uint32 blobs_hit = 2;
+  uint64 bytes_hit = 3;
+  // Blobs fetched now (misses) and the payload bytes received for them.
+  uint32 blobs_fetched = 4;
+  uint64 bytes_fetched = 5;
+  // Chunks a previous interrupted fetch had already verified (not re-sent).
+  uint32 chunks_resumed = 6;
+  // Whole blobs fetched again after a corrupt copy was found.
+  uint32 corrupt_refetches = 7;
+  // The tree manifest came from the cache.
+  bool manifest_hit = 8;
+  // Fetch + verify + copy into the workdir.
+  double duration_s = 9;
+  // Per source (at most 17: the controller + 16 peers).
+  repeated TransferSource sources = 10;
+}
+
+// One blob source's share of a tree's transfer (V0.5 D89/D93).
+message TransferSource {
+  // The holder's node_id; empty = the controller.
+  string node_id = 1;
+  // Payload bytes received from it (wasted end-game duplicates included).
+  uint64 bytes = 2;
+  // Time spent in requests to it (overlapping requests add up).
+  double duration_s = 3;
+  // Units (chunks or whole blobs) it won.
+  uint32 units = 4;
+  uint32 failures = 5;
+  // Why it was dropped for this transfer (a failure_type value); empty = kept.
+  string dropped = 6;
 }
 
 // One stream's final log (D71).
@@ -511,6 +555,24 @@ message ExecutionSpec {
   // tree, each with its own signed peer token (D98). The agent fetches from all
   // of them in parallel, work-stealing.
   repeated BlobSource sources = 16;
+  // Named inputs (V0.5 G5, D92), at most 16: each tree is fetched like the
+  // project tree and copied READ-ONLY to its mount path inside the workdir.
+  repeated InputTree inputs = 17;
+}
+
+// One named input of an attempt (V0.5 D92).
+message InputTree {
+  // "sha256:<64 hex>" of the input's tree manifest.
+  string tree_id = 1;
+  // Relative POSIX path inside the workdir (validated by both sides: no "..",
+  // not absolute, not overlapping the project or another input).
+  string mount = 2;
+  // What the manifest named ("name@version" or "name@sha256:..."), for logs.
+  string ref = 3;
+  // Where the input's blobs may be fetched: the controller first (the attempt's
+  // fetch token, which also covers every input tree) then peers holding THIS
+  // tree, each with a peer token scoped to it.
+  repeated BlobSource sources = 4;
 }
 
 // One place an agent may download blobs from (V0.5 D83).
@@ -555,6 +617,8 @@ message RefreshFetchToken {
   // token = fetch_token above) then peer holders with fresh peer tokens.
   // Replaces the StartAttempt's ExecutionSpec.sources for this attempt.
   repeated BlobSource sources = 6;
+  // The attempt's named inputs with their sources re-minted (V0.5 G5).
+  repeated InputTree inputs = 7;
 }
 
 message ProbeRequest {
@@ -562,14 +626,67 @@ message ProbeRequest {
   string probe_id = 1;
 }
 
+// Pull base images / build environments ahead of a run (V0.5 G5, roadmap
+// 0.5.8 `compute node prepare`). Idempotent: an image already present or an
+// env already built is reported `hit`; the same request_id twice runs once.
+// The agent answers with PrepareEnvStatus reports.
 message PrepareEnv {
-  // TODO(V0.5): environment spec / env hash to pre-build.
+  // V0.1 placeholder, never sent and ignored (kept: V0.1 numbers are pinned).
   string env_hash = 1;
+  // ULID chosen by the controller; echoed in every PrepareEnvStatus.
+  string request_id = 2;
+  // Base image names ("python-cpu", "cuda-pytorch"), pinned by digest on the
+  // agent ([agent.execution.images]); at most 8.
+  repeated string base_images = 3;
+  // Environments to build, at most 32.
+  repeated EnvSpecRequest envs = 4;
 }
 
+// One environment to build (the manifest `env` block, V0.4 D46 / V0.5 D85).
+message EnvSpecRequest {
+  // "python-cpu" | "cuda-pytorch".
+  string base = 1;
+  // Requested interpreter ("3.12"); empty = the base's / agent's default.
+  string python = 2;
+  // The requirements file's bytes (bounded by the agent's
+  // [agent.envs] max_requirements_bytes; empty = no requirements).
+  bytes requirements = 3;
+  // "docker" | "venv" | "subprocess"; empty = the agent's preferred runtime.
+  string runtime = 4;
+}
+
+message PrepareEnvStatus {
+  string request_id = 1;
+  // True on the last status of the request (every item has a final state).
+  bool done = 2;
+  repeated PrepareItem items = 3;
+}
+
+message PrepareItem {
+  // "image" (a base image name) or "env" (index into PrepareEnv.envs).
+  string kind = 1;
+  string name = 2;
+  // "pending" | "running" | "hit" | "pulled" | "built" | "failed".
+  string state = 3;
+  // Set when failed: a FailureType value and a short reason code.
+  string failure_type = 4;
+  string reason = 5;
+  string detail = 6;
+  // The env hash (envs) / image digest (images) once known.
+  string key = 7;
+  uint64 size_bytes = 8;
+  double duration_s = 9;
+}
+
+// Garbage collection (V0.5 G5, D91).
 message GcRequest {
-  // TODO(V0.5): blob-cache garbage-collection policy (target free bytes, pins).
-  reserved 1 to 9;
+  // Run one pass now (on top of the periodic ones).
+  bool run_now = 1;
+  // When set, `pinned_trees` REPLACES the node's set of pinned trees (pinned
+  // named inputs: never evicted). Sent after every accepted Hello and whenever
+  // a pin changes. At most 4096 entries, "sha256:<64 hex>".
+  bool set_pins = 2;
+  repeated string pinned_trees = 3;
 }
 
 // Reply to Hello (ADR-0002 Updates §1-2). The controller's first message on

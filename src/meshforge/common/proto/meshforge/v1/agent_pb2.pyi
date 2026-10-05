@@ -41,7 +41,7 @@ Session fencing (ADR-0002 Updates 2026-09-20, roadmap 0.3.1):
 
 Roadmap coverage: 0.1.5 envelopes/oneofs; 0.3.1 session/liveness/resource
 payloads; 0.3.4 hardware scores; 0.4.6 attempt execution (ExecutionSpec,
-AttemptStatus results). TODO(V0.4 G5): LogChunk flow. V0.5: CacheReport (D101), peer endpoint/key (D98/D99). TODO(V0.6): network probes for scheduling.
+AttemptStatus results). TODO(V0.4 G5): LogChunk flow. V0.5: CacheReport (D101), peer endpoint/key (D98/D99), G5: GcRequest, PrepareEnv/PrepareEnvStatus, InputTree, TransferSummary. TODO(V0.6): network probes for scheduling.
 """
 
 from collections import abc as _abc
@@ -157,6 +157,7 @@ class AgentMessage(_message.Message):
     PONG_FIELD_NUMBER: _builtins.int
     HARDWARE_SCORES_FIELD_NUMBER: _builtins.int
     GOODBYE_FIELD_NUMBER: _builtins.int
+    PREPARE_ENV_STATUS_FIELD_NUMBER: _builtins.int
     message_id: _builtins.str
     """Unique per message (ULID); echoed back in Ack.acked_message_id."""
     session_id: _builtins.str
@@ -203,6 +204,12 @@ class AgentMessage(_message.Message):
         is stream_lost (node -> SUSPECT, OFFLINE at the lease edge).
         """
 
+    @_builtins.property
+    def prepare_env_status(self) -> Global___PrepareEnvStatus:
+        """Progress / result of a PrepareEnv command (V0.5 G5, roadmap 0.5.8). A
+        report: buffered, replayed after a reconnect and acked.
+        """
+
     def __init__(
         self,
         *,
@@ -221,12 +228,13 @@ class AgentMessage(_message.Message):
         pong: Global___Pong | None = ...,
         hardware_scores: Global___HardwareScores | None = ...,
         goodbye: Global___Goodbye | None = ...,
+        prepare_env_status: Global___PrepareEnvStatus | None = ...,
     ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _typing.Literal["ack", b"ack", "attempt_status", b"attempt_status", "cache_report", b"cache_report", "goodbye", b"goodbye", "hardware_scores", b"hardware_scores", "heartbeat", b"heartbeat", "hello", b"hello", "log_chunk", b"log_chunk", "net_probe_result", b"net_probe_result", "payload", b"payload", "pong", b"pong", "reconcile", b"reconcile", "resource_update", b"resource_update", "sent_at", b"sent_at"]  # noqa: Y015
+    _HasFieldArgType: _TypeAlias = _typing.Literal["ack", b"ack", "attempt_status", b"attempt_status", "cache_report", b"cache_report", "goodbye", b"goodbye", "hardware_scores", b"hardware_scores", "heartbeat", b"heartbeat", "hello", b"hello", "log_chunk", b"log_chunk", "net_probe_result", b"net_probe_result", "payload", b"payload", "pong", b"pong", "prepare_env_status", b"prepare_env_status", "reconcile", b"reconcile", "resource_update", b"resource_update", "sent_at", b"sent_at"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["ack", b"ack", "attempt_status", b"attempt_status", "cache_report", b"cache_report", "goodbye", b"goodbye", "hardware_scores", b"hardware_scores", "heartbeat", b"heartbeat", "hello", b"hello", "log_chunk", b"log_chunk", "message_id", b"message_id", "net_probe_result", b"net_probe_result", "payload", b"payload", "pong", b"pong", "reconcile", b"reconcile", "resource_update", b"resource_update", "sent_at", b"sent_at", "session_id", b"session_id"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["ack", b"ack", "attempt_status", b"attempt_status", "cache_report", b"cache_report", "goodbye", b"goodbye", "hardware_scores", b"hardware_scores", "heartbeat", b"heartbeat", "hello", b"hello", "log_chunk", b"log_chunk", "message_id", b"message_id", "net_probe_result", b"net_probe_result", "payload", b"payload", "pong", b"pong", "prepare_env_status", b"prepare_env_status", "reconcile", b"reconcile", "resource_update", b"resource_update", "sent_at", b"sent_at", "session_id", b"session_id"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
-    _WhichOneofReturnType_payload: _TypeAlias = _typing.Literal["hello", "reconcile", "heartbeat", "resource_update", "cache_report", "net_probe_result", "attempt_status", "log_chunk", "ack", "pong", "hardware_scores", "goodbye"]  # noqa: Y015
+    _WhichOneofReturnType_payload: _TypeAlias = _typing.Literal["hello", "reconcile", "heartbeat", "resource_update", "cache_report", "net_probe_result", "attempt_status", "log_chunk", "ack", "pong", "hardware_scores", "goodbye", "prepare_env_status"]  # noqa: Y015
     _WhichOneofArgType_payload: _TypeAlias = _typing.Literal["payload", b"payload"]  # noqa: Y015
     def WhichOneof(self, oneof_group: _WhichOneofArgType_payload) -> _WhichOneofReturnType_payload | None: ...
 
@@ -1025,6 +1033,7 @@ class AttemptStatus(_message.Message):
     SIGNAL_FIELD_NUMBER: _builtins.int
     STDOUT_LOG_FIELD_NUMBER: _builtins.int
     STDERR_LOG_FIELD_NUMBER: _builtins.int
+    TRANSFERS_FIELD_NUMBER: _builtins.int
     job_id: _builtins.str
     attempt_id: _builtins.str
     fencing_token: _builtins.int
@@ -1067,6 +1076,13 @@ class AttemptStatus(_message.Message):
 
     @_builtins.property
     def stderr_log(self) -> Global___FinalLog: ...
+    @_builtins.property
+    def transfers(self) -> _containers.RepeatedCompositeFieldContainer[Global___TransferSummary]:
+        """Transfer telemetry (V0.5 G5, D93): one entry per staged tree (the project
+        tree first, then named inputs), sent with the terminal status. At most
+        1 + 16 entries; the controller persists them as transfer_event rows.
+        """
+
     def __init__(
         self,
         *,
@@ -1084,10 +1100,11 @@ class AttemptStatus(_message.Message):
         signal: _builtins.int | None = ...,
         stdout_log: Global___FinalLog | None = ...,
         stderr_log: Global___FinalLog | None = ...,
+        transfers: _abc.Iterable[Global___TransferSummary] | None = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _typing.Literal["_exit_code", b"_exit_code", "_signal", b"_signal", "exit_code", b"exit_code", "failure", b"failure", "observed_at", b"observed_at", "phases", b"phases", "signal", b"signal", "stderr_log", b"stderr_log", "stdout_log", b"stdout_log"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["_exit_code", b"_exit_code", "_signal", b"_signal", "attempt_id", b"attempt_id", "exit_code", b"exit_code", "failure", b"failure", "fencing_token", b"fencing_token", "job_id", b"job_id", "missing_outputs", b"missing_outputs", "observed_at", b"observed_at", "output_digest", b"output_digest", "phases", b"phases", "runtime", b"runtime", "signal", b"signal", "state", b"state", "stderr_log", b"stderr_log", "stdout_log", b"stdout_log"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["_exit_code", b"_exit_code", "_signal", b"_signal", "attempt_id", b"attempt_id", "exit_code", b"exit_code", "failure", b"failure", "fencing_token", b"fencing_token", "job_id", b"job_id", "missing_outputs", b"missing_outputs", "observed_at", b"observed_at", "output_digest", b"output_digest", "phases", b"phases", "runtime", b"runtime", "signal", b"signal", "state", b"state", "stderr_log", b"stderr_log", "stdout_log", b"stdout_log", "transfers", b"transfers"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     _WhichOneofReturnType__exit_code: _TypeAlias = _typing.Literal["exit_code"]  # noqa: Y015
     _WhichOneofArgType__exit_code: _TypeAlias = _typing.Literal["_exit_code", b"_exit_code"]  # noqa: Y015
@@ -1099,6 +1116,105 @@ class AttemptStatus(_message.Message):
     def WhichOneof(self, oneof_group: _WhichOneofArgType__signal) -> _WhichOneofReturnType__signal | None: ...
 
 Global___AttemptStatus: _TypeAlias = AttemptStatus  # noqa: Y015
+
+@_typing.final
+class TransferSummary(_message.Message):
+    """What staging one tree cost (V0.5 G5, D93). Agent-measured, monotonic clock."""
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    TREE_ID_FIELD_NUMBER: _builtins.int
+    BLOBS_HIT_FIELD_NUMBER: _builtins.int
+    BYTES_HIT_FIELD_NUMBER: _builtins.int
+    BLOBS_FETCHED_FIELD_NUMBER: _builtins.int
+    BYTES_FETCHED_FIELD_NUMBER: _builtins.int
+    CHUNKS_RESUMED_FIELD_NUMBER: _builtins.int
+    CORRUPT_REFETCHES_FIELD_NUMBER: _builtins.int
+    MANIFEST_HIT_FIELD_NUMBER: _builtins.int
+    DURATION_S_FIELD_NUMBER: _builtins.int
+    SOURCES_FIELD_NUMBER: _builtins.int
+    tree_id: _builtins.str
+    """"sha256:<64 hex>" of the staged tree."""
+    blobs_hit: _builtins.int
+    """Blobs (and their bytes) that were already in the agent's cache: hits."""
+    bytes_hit: _builtins.int
+    blobs_fetched: _builtins.int
+    """Blobs fetched now (misses) and the payload bytes received for them."""
+    bytes_fetched: _builtins.int
+    chunks_resumed: _builtins.int
+    """Chunks a previous interrupted fetch had already verified (not re-sent)."""
+    corrupt_refetches: _builtins.int
+    """Whole blobs fetched again after a corrupt copy was found."""
+    manifest_hit: _builtins.bool
+    """The tree manifest came from the cache."""
+    duration_s: _builtins.float
+    """Fetch + verify + copy into the workdir."""
+    @_builtins.property
+    def sources(self) -> _containers.RepeatedCompositeFieldContainer[Global___TransferSource]:
+        """Per source (at most 17: the controller + 16 peers)."""
+
+    def __init__(
+        self,
+        *,
+        tree_id: _builtins.str = ...,
+        blobs_hit: _builtins.int = ...,
+        bytes_hit: _builtins.int = ...,
+        blobs_fetched: _builtins.int = ...,
+        bytes_fetched: _builtins.int = ...,
+        chunks_resumed: _builtins.int = ...,
+        corrupt_refetches: _builtins.int = ...,
+        manifest_hit: _builtins.bool = ...,
+        duration_s: _builtins.float = ...,
+        sources: _abc.Iterable[Global___TransferSource] | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["blobs_fetched", b"blobs_fetched", "blobs_hit", b"blobs_hit", "bytes_fetched", b"bytes_fetched", "bytes_hit", b"bytes_hit", "chunks_resumed", b"chunks_resumed", "corrupt_refetches", b"corrupt_refetches", "duration_s", b"duration_s", "manifest_hit", b"manifest_hit", "sources", b"sources", "tree_id", b"tree_id"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___TransferSummary: _TypeAlias = TransferSummary  # noqa: Y015
+
+@_typing.final
+class TransferSource(_message.Message):
+    """One blob source's share of a tree's transfer (V0.5 D89/D93)."""
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    NODE_ID_FIELD_NUMBER: _builtins.int
+    BYTES_FIELD_NUMBER: _builtins.int
+    DURATION_S_FIELD_NUMBER: _builtins.int
+    UNITS_FIELD_NUMBER: _builtins.int
+    FAILURES_FIELD_NUMBER: _builtins.int
+    DROPPED_FIELD_NUMBER: _builtins.int
+    node_id: _builtins.str
+    """The holder's node_id; empty = the controller."""
+    bytes: _builtins.int
+    """Payload bytes received from it (wasted end-game duplicates included)."""
+    duration_s: _builtins.float
+    """Time spent in requests to it (overlapping requests add up)."""
+    units: _builtins.int
+    """Units (chunks or whole blobs) it won."""
+    failures: _builtins.int
+    dropped: _builtins.str
+    """Why it was dropped for this transfer (a failure_type value); empty = kept."""
+    def __init__(
+        self,
+        *,
+        node_id: _builtins.str = ...,
+        bytes: _builtins.int = ...,
+        duration_s: _builtins.float = ...,
+        units: _builtins.int = ...,
+        failures: _builtins.int = ...,
+        dropped: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["bytes", b"bytes", "dropped", b"dropped", "duration_s", b"duration_s", "failures", b"failures", "node_id", b"node_id", "units", b"units"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___TransferSource: _TypeAlias = TransferSource  # noqa: Y015
 
 @_typing.final
 class FinalLog(_message.Message):
@@ -1299,6 +1415,7 @@ class ExecutionSpec(_message.Message):
     UPLOAD_MAX_BLOBS_FIELD_NUMBER: _builtins.int
     TREE_ID_FIELD_NUMBER: _builtins.int
     SOURCES_FIELD_NUMBER: _builtins.int
+    INPUTS_FIELD_NUMBER: _builtins.int
     bundle_digest: _builtins.str
     """"sha256:<64 hex>" of the project bundle of a V0.4 bundle job. Empty for a
     tree job (V0.5 G4: a tree job is named only by tree_id).
@@ -1354,6 +1471,12 @@ class ExecutionSpec(_message.Message):
         of them in parallel, work-stealing.
         """
 
+    @_builtins.property
+    def inputs(self) -> _containers.RepeatedCompositeFieldContainer[Global___InputTree]:
+        """Named inputs (V0.5 G5, D92), at most 16: each tree is fetched like the
+        project tree and copied READ-ONLY to its mount path inside the workdir.
+        """
+
     def __init__(
         self,
         *,
@@ -1373,14 +1496,56 @@ class ExecutionSpec(_message.Message):
         upload_max_blobs: _builtins.int = ...,
         tree_id: _builtins.str = ...,
         sources: _abc.Iterable[Global___BlobSource] | None = ...,
+        inputs: _abc.Iterable[Global___InputTree] | None = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["blob_port", b"blob_port", "blob_url", b"blob_url", "bundle_digest", b"bundle_digest", "cpus", b"cpus", "fetch_token", b"fetch_token", "gpu_indices", b"gpu_indices", "manifest_json", b"manifest_json", "memory_bytes", b"memory_bytes", "output_globs", b"output_globs", "runtime", b"runtime", "sources", b"sources", "timeout_s", b"timeout_s", "tree_id", b"tree_id", "upload_max_blobs", b"upload_max_blobs", "upload_max_bytes", b"upload_max_bytes", "upload_token", b"upload_token"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["blob_port", b"blob_port", "blob_url", b"blob_url", "bundle_digest", b"bundle_digest", "cpus", b"cpus", "fetch_token", b"fetch_token", "gpu_indices", b"gpu_indices", "inputs", b"inputs", "manifest_json", b"manifest_json", "memory_bytes", b"memory_bytes", "output_globs", b"output_globs", "runtime", b"runtime", "sources", b"sources", "timeout_s", b"timeout_s", "tree_id", b"tree_id", "upload_max_blobs", b"upload_max_blobs", "upload_max_bytes", b"upload_max_bytes", "upload_token", b"upload_token"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___ExecutionSpec: _TypeAlias = ExecutionSpec  # noqa: Y015
+
+@_typing.final
+class InputTree(_message.Message):
+    """One named input of an attempt (V0.5 D92)."""
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    TREE_ID_FIELD_NUMBER: _builtins.int
+    MOUNT_FIELD_NUMBER: _builtins.int
+    REF_FIELD_NUMBER: _builtins.int
+    SOURCES_FIELD_NUMBER: _builtins.int
+    tree_id: _builtins.str
+    """"sha256:<64 hex>" of the input's tree manifest."""
+    mount: _builtins.str
+    """Relative POSIX path inside the workdir (validated by both sides: no "..",
+    not absolute, not overlapping the project or another input).
+    """
+    ref: _builtins.str
+    """What the manifest named ("name@version" or "name@sha256:..."), for logs."""
+    @_builtins.property
+    def sources(self) -> _containers.RepeatedCompositeFieldContainer[Global___BlobSource]:
+        """Where the input's blobs may be fetched: the controller first (the attempt's
+        fetch token, which also covers every input tree) then peers holding THIS
+        tree, each with a peer token scoped to it.
+        """
+
+    def __init__(
+        self,
+        *,
+        tree_id: _builtins.str = ...,
+        mount: _builtins.str = ...,
+        ref: _builtins.str = ...,
+        sources: _abc.Iterable[Global___BlobSource] | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["mount", b"mount", "ref", b"ref", "sources", b"sources", "tree_id", b"tree_id"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___InputTree: _TypeAlias = InputTree  # noqa: Y015
 
 @_typing.final
 class BlobSource(_message.Message):
@@ -1467,6 +1632,7 @@ class RefreshFetchToken(_message.Message):
     BLOB_URL_FIELD_NUMBER: _builtins.int
     BLOB_PORT_FIELD_NUMBER: _builtins.int
     SOURCES_FIELD_NUMBER: _builtins.int
+    INPUTS_FIELD_NUMBER: _builtins.int
     attempt_id: _builtins.str
     fencing_token: _builtins.int
     fetch_token: _builtins.str
@@ -1484,6 +1650,10 @@ class RefreshFetchToken(_message.Message):
         Replaces the StartAttempt's ExecutionSpec.sources for this attempt.
         """
 
+    @_builtins.property
+    def inputs(self) -> _containers.RepeatedCompositeFieldContainer[Global___InputTree]:
+        """The attempt's named inputs with their sources re-minted (V0.5 G5)."""
+
     def __init__(
         self,
         *,
@@ -1493,10 +1663,11 @@ class RefreshFetchToken(_message.Message):
         blob_url: _builtins.str = ...,
         blob_port: _builtins.int = ...,
         sources: _abc.Iterable[Global___BlobSource] | None = ...,
+        inputs: _abc.Iterable[Global___InputTree] | None = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["attempt_id", b"attempt_id", "blob_port", b"blob_port", "blob_url", b"blob_url", "fencing_token", b"fencing_token", "fetch_token", b"fetch_token", "sources", b"sources"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["attempt_id", b"attempt_id", "blob_port", b"blob_port", "blob_url", b"blob_url", "fencing_token", b"fencing_token", "fetch_token", b"fetch_token", "inputs", b"inputs", "sources", b"sources"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
@@ -1524,34 +1695,186 @@ Global___ProbeRequest: _TypeAlias = ProbeRequest  # noqa: Y015
 
 @_typing.final
 class PrepareEnv(_message.Message):
+    """Pull base images / build environments ahead of a run (V0.5 G5, roadmap
+    0.5.8 `compute node prepare`). Idempotent: an image already present or an
+    env already built is reported `hit`; the same request_id twice runs once.
+    The agent answers with PrepareEnvStatus reports.
+    """
+
     DESCRIPTOR: _descriptor.Descriptor
 
     ENV_HASH_FIELD_NUMBER: _builtins.int
+    REQUEST_ID_FIELD_NUMBER: _builtins.int
+    BASE_IMAGES_FIELD_NUMBER: _builtins.int
+    ENVS_FIELD_NUMBER: _builtins.int
     env_hash: _builtins.str
-    """TODO(V0.5): environment spec / env hash to pre-build."""
+    """V0.1 placeholder, never sent and ignored (kept: V0.1 numbers are pinned)."""
+    request_id: _builtins.str
+    """ULID chosen by the controller; echoed in every PrepareEnvStatus."""
+    @_builtins.property
+    def base_images(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]:
+        """Base image names ("python-cpu", "cuda-pytorch"), pinned by digest on the
+        agent ([agent.execution.images]); at most 8.
+        """
+
+    @_builtins.property
+    def envs(self) -> _containers.RepeatedCompositeFieldContainer[Global___EnvSpecRequest]:
+        """Environments to build, at most 32."""
+
     def __init__(
         self,
         *,
         env_hash: _builtins.str = ...,
+        request_id: _builtins.str = ...,
+        base_images: _abc.Iterable[_builtins.str] | None = ...,
+        envs: _abc.Iterable[Global___EnvSpecRequest] | None = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["env_hash", b"env_hash"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["base_images", b"base_images", "env_hash", b"env_hash", "envs", b"envs", "request_id", b"request_id"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___PrepareEnv: _TypeAlias = PrepareEnv  # noqa: Y015
 
 @_typing.final
-class GcRequest(_message.Message):
+class EnvSpecRequest(_message.Message):
+    """One environment to build (the manifest `env` block, V0.4 D46 / V0.5 D85)."""
+
     DESCRIPTOR: _descriptor.Descriptor
 
+    BASE_FIELD_NUMBER: _builtins.int
+    PYTHON_FIELD_NUMBER: _builtins.int
+    REQUIREMENTS_FIELD_NUMBER: _builtins.int
+    RUNTIME_FIELD_NUMBER: _builtins.int
+    base: _builtins.str
+    """"python-cpu" | "cuda-pytorch"."""
+    python: _builtins.str
+    """Requested interpreter ("3.12"); empty = the base's / agent's default."""
+    requirements: _builtins.bytes
+    """The requirements file's bytes (bounded by the agent's
+    [agent.envs] max_requirements_bytes; empty = no requirements).
+    """
+    runtime: _builtins.str
+    """"docker" | "venv" | "subprocess"; empty = the agent's preferred runtime."""
     def __init__(
         self,
+        *,
+        base: _builtins.str = ...,
+        python: _builtins.str = ...,
+        requirements: _builtins.bytes = ...,
+        runtime: _builtins.str = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["base", b"base", "python", b"python", "requirements", b"requirements", "runtime", b"runtime"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___EnvSpecRequest: _TypeAlias = EnvSpecRequest  # noqa: Y015
+
+@_typing.final
+class PrepareEnvStatus(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    REQUEST_ID_FIELD_NUMBER: _builtins.int
+    DONE_FIELD_NUMBER: _builtins.int
+    ITEMS_FIELD_NUMBER: _builtins.int
+    request_id: _builtins.str
+    done: _builtins.bool
+    """True on the last status of the request (every item has a final state)."""
+    @_builtins.property
+    def items(self) -> _containers.RepeatedCompositeFieldContainer[Global___PrepareItem]: ...
+    def __init__(
+        self,
+        *,
+        request_id: _builtins.str = ...,
+        done: _builtins.bool = ...,
+        items: _abc.Iterable[Global___PrepareItem] | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["done", b"done", "items", b"items", "request_id", b"request_id"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___PrepareEnvStatus: _TypeAlias = PrepareEnvStatus  # noqa: Y015
+
+@_typing.final
+class PrepareItem(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    KIND_FIELD_NUMBER: _builtins.int
+    NAME_FIELD_NUMBER: _builtins.int
+    STATE_FIELD_NUMBER: _builtins.int
+    FAILURE_TYPE_FIELD_NUMBER: _builtins.int
+    REASON_FIELD_NUMBER: _builtins.int
+    DETAIL_FIELD_NUMBER: _builtins.int
+    KEY_FIELD_NUMBER: _builtins.int
+    SIZE_BYTES_FIELD_NUMBER: _builtins.int
+    DURATION_S_FIELD_NUMBER: _builtins.int
+    kind: _builtins.str
+    """"image" (a base image name) or "env" (index into PrepareEnv.envs)."""
+    name: _builtins.str
+    state: _builtins.str
+    """"pending" | "running" | "hit" | "pulled" | "built" | "failed"."""
+    failure_type: _builtins.str
+    """Set when failed: a FailureType value and a short reason code."""
+    reason: _builtins.str
+    detail: _builtins.str
+    key: _builtins.str
+    """The env hash (envs) / image digest (images) once known."""
+    size_bytes: _builtins.int
+    duration_s: _builtins.float
+    def __init__(
+        self,
+        *,
+        kind: _builtins.str = ...,
+        name: _builtins.str = ...,
+        state: _builtins.str = ...,
+        failure_type: _builtins.str = ...,
+        reason: _builtins.str = ...,
+        detail: _builtins.str = ...,
+        key: _builtins.str = ...,
+        size_bytes: _builtins.int = ...,
+        duration_s: _builtins.float = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["detail", b"detail", "duration_s", b"duration_s", "failure_type", b"failure_type", "key", b"key", "kind", b"kind", "name", b"name", "reason", b"reason", "size_bytes", b"size_bytes", "state", b"state"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___PrepareItem: _TypeAlias = PrepareItem  # noqa: Y015
+
+@_typing.final
+class GcRequest(_message.Message):
+    """Garbage collection (V0.5 G5, D91)."""
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    RUN_NOW_FIELD_NUMBER: _builtins.int
+    SET_PINS_FIELD_NUMBER: _builtins.int
+    PINNED_TREES_FIELD_NUMBER: _builtins.int
+    run_now: _builtins.bool
+    """Run one pass now (on top of the periodic ones)."""
+    set_pins: _builtins.bool
+    """When set, `pinned_trees` REPLACES the node's set of pinned trees (pinned
+    named inputs: never evicted). Sent after every accepted Hello and whenever
+    a pin changes. At most 4096 entries, "sha256:<64 hex>".
+    """
+    @_builtins.property
+    def pinned_trees(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]: ...
+    def __init__(
+        self,
+        *,
+        run_now: _builtins.bool = ...,
+        set_pins: _builtins.bool = ...,
+        pinned_trees: _abc.Iterable[_builtins.str] | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["pinned_trees", b"pinned_trees", "run_now", b"run_now", "set_pins", b"set_pins"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 

@@ -163,6 +163,7 @@ def test_envelopes_cover_architecture_payloads() -> None:
         "Pong",
         "HardwareScores",
         "Goodbye",
+        "PrepareEnvStatus",  # V0.5 G5
     }
     assert members(agent_pb2.ControllerMessage.DESCRIPTOR) == {
         "StartAttempt",
@@ -242,10 +243,8 @@ def test_v01_field_numbers_are_unchanged() -> None:
             field = desc.fields_by_name.get(name)
             assert field is not None, f"{message}.{name} was removed"
             assert field.number == number, f"{message}.{name} renumbered"
-    # GcRequest is still a V0.1 placeholder: nothing may squat on its reserved
-    # range. CacheReport was filled in V0.5 (D101, pinned below).
-    desc = agent_pb2.DESCRIPTOR.message_types_by_name["GcRequest"]
-    assert desc.fields == [], "GcRequest must stay empty until its version"
+    # GcRequest (V0.5 G5) and CacheReport (V0.5 D101) were filled in V0.5:
+    # pinned in their own tests below.
 
 
 def test_session_id_is_envelope_field_3_on_both_envelopes() -> None:
@@ -699,3 +698,54 @@ def test_v05_g4_field_numbers_are_pinned() -> None:
     parsed = agent_pb2.AgentMessage.FromString(wire)
     assert parsed.WhichOneof("payload") == "cache_report"
     assert parsed.cache_report.added[0].kind == agent_pb2.CacheItem.KIND_TREE
+
+
+def test_v05_g5_field_numbers_are_pinned() -> None:
+    def numbers(message: type) -> dict[str, int]:
+        return {f.name: f.number for f in message.DESCRIPTOR.fields}  # type: ignore[attr-defined]
+
+    assert numbers(agent_pb2.GcRequest) == {
+        "run_now": 1,
+        "set_pins": 2,
+        "pinned_trees": 3,
+    }
+    assert numbers(agent_pb2.PrepareEnv) == {
+        "env_hash": 1,
+        "request_id": 2,
+        "base_images": 3,
+        "envs": 4,
+    }
+    assert numbers(agent_pb2.EnvSpecRequest) == {
+        "base": 1,
+        "python": 2,
+        "requirements": 3,
+        "runtime": 4,
+    }
+    assert numbers(agent_pb2.PrepareEnvStatus) == {
+        "request_id": 1,
+        "done": 2,
+        "items": 3,
+    }
+    assert numbers(agent_pb2.InputTree) == {
+        "tree_id": 1,
+        "mount": 2,
+        "ref": 3,
+        "sources": 4,
+    }
+    assert numbers(agent_pb2.TransferSource) == {
+        "node_id": 1,
+        "bytes": 2,
+        "duration_s": 3,
+        "units": 4,
+        "failures": 5,
+        "dropped": 6,
+    }
+    assert numbers(agent_pb2.TransferSummary)["sources"] == 10
+    spec = agent_pb2.ExecutionSpec.DESCRIPTOR.fields_by_name["inputs"]
+    assert spec.number == 17 and spec.is_repeated
+    refresh = agent_pb2.RefreshFetchToken.DESCRIPTOR.fields_by_name["inputs"]
+    assert refresh.number == 7 and refresh.is_repeated
+    status = agent_pb2.AttemptStatus.DESCRIPTOR.fields_by_name["transfers"]
+    assert status.number == 15 and status.is_repeated
+    payload = agent_pb2.AgentMessage.DESCRIPTOR.fields_by_name["prepare_env_status"]
+    assert payload.number == 22 and payload.containing_oneof is not None

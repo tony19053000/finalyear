@@ -41,7 +41,7 @@ Session fencing (ADR-0002 Updates 2026-09-20, roadmap 0.3.1):
 
 Roadmap coverage: 0.1.5 envelopes/oneofs; 0.3.1 session/liveness/resource
 payloads; 0.3.4 hardware scores; 0.4.6 attempt execution (ExecutionSpec,
-AttemptStatus results). TODO(V0.4 G5): LogChunk flow. V0.5: CacheReport (D101), peer endpoint/key (D98/D99). TODO(V0.6): network probes for scheduling.
+AttemptStatus results). TODO(V0.4 G5): LogChunk flow. V0.5: CacheReport (D101), peer endpoint/key (D98/D99), G5: GcRequest, PrepareEnv/PrepareEnvStatus, InputTree, TransferSummary. TODO(V0.6): network probes for scheduling.
 """
 
 from collections import abc as _abc
