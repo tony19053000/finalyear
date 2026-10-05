@@ -97,6 +97,10 @@ class NodeRecord:
     session_epoch: int
     hardware_scores: Mapping[str, Any] | None = None
     """The stored score document (``controller/scores.py``); None = not measured."""
+    cpu_slots: int | None = None
+    """``Hello.max_cpu_jobs`` (V0.6 D105); None = the agent did not say."""
+    gpu_slots: int | None = None
+    """``Hello.max_gpu_jobs`` (V0.6 D105); None = the agent did not say."""
 
 
 class ScoresWrite(StrEnum):
@@ -207,6 +211,8 @@ def _node_record(row: Node) -> NodeRecord:
         hardware_scores=(
             dict(row.hardware_scores) if row.hardware_scores is not None else None
         ),
+        cpu_slots=row.cpu_slots,
+        gpu_slots=row.gpu_slots,
     )
 
 
