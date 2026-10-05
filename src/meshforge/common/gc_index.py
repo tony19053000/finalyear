@@ -44,15 +44,16 @@ some files are gone; :meth:`GcIndex.reconcile` at the next start deletes rows
 whose files are missing (old or new state per item, never a half-written one -
 removal is an ``unlink`` / a directory ``rename``).
 
-**A corrupt index file** (not a SQLite database, or failing quick_check
-at open) is renamed aside (gc.sqlite.corrupt-<time>-<rand>, logged
-gc.index_quarantined) and a fresh index is created: it is derived data.
-The next pass's disk reconcile re-adds every item (last use = now, so the LRU
-history and min_age_s restart); tree members are re-recorded when a tree is
-staged or pinned again; pins come back from their source (an agent: the
-controller re-sends the pinned trees after every Reconcile; the controller:
-recomputed from PostgreSQL before every pass). A locked database is never
-treated as corrupt.
+**An unusable index file** - corrupt (not a SQLite database, or failing
+``quick_check`` at open) or foreign (a valid SQLite file whose tables, columns
+or ``user_version`` are not this schema's) - is renamed aside
+(``gc.sqlite.corrupt-<time>-<rand>``, logged ``gc.index_quarantined``) and a
+fresh index is created: it is derived data. The next pass's disk reconcile
+re-adds every item (last use = now, so the LRU history and ``min_age_s``
+restart); tree members are re-recorded when a tree is staged or pinned again;
+pins come back from their source (an agent: the controller re-sends the pinned
+trees after every Reconcile; the controller: recomputed from PostgreSQL before
+every pass). A locked database is never treated as corrupt.
 
 **Never while another process lives on it.** Its leases are in that file:
 moving it aside would let this process evict blobs a running attempt there
@@ -71,6 +72,7 @@ Thread-safe: one connection per process behind an ``RLock``; transactions nest
 from __future__ import annotations
 
 import contextlib
+import functools
 import secrets
 import sqlite3
 import threading
@@ -197,7 +199,7 @@ _UNKNOWN_LEASED_TREES: Final = (
 
 
 class GcIndexBusyError(sqlite3.DatabaseError):
-    """The index file is unusable (corrupt) but another live process
+    """The index file is unusable (corrupt or foreign) but another live process
     has it open, so it is not moved aside (that process's leases are in it).
     GC must stay off in this process (never evict); a later start retries."""
 
@@ -324,6 +326,7 @@ class GcIndex:
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("PRAGMA synchronous=NORMAL")
             _quick_check(conn)
+            _check_schema(conn)
             conn.executescript(_SCHEMA + _TRIGGERS)
             (version,) = conn.execute("PRAGMA user_version").fetchone()
             if version < _SCHEMA_VERSION:
@@ -669,6 +672,67 @@ def _quick_check(conn: sqlite3.Connection) -> None:
     (check,) = conn.execute("PRAGMA quick_check(1)").fetchone()
     if check != "ok":
         raise _CorruptIndexError(f"quick_check: {str(check)[:100]}")
+
+
+class _ForeignIndexError(_CorruptIndexError):
+    """A valid SQLite file that is not (a known version of) this schema."""
+
+
+_Shape = tuple[str, str, tuple[tuple[str, str, int, int], ...]]
+
+
+def _columns(
+    conn: sqlite3.Connection, table: str
+) -> tuple[tuple[str, str, int, int], ...]:
+    # ``table`` is always one of this module's own names (never file input).
+    rows = conn.execute(f'PRAGMA table_info("{table}")').fetchall()
+    return tuple((str(r[1]), str(r[2]).upper(), int(r[3]), int(r[5])) for r in rows)
+
+
+@functools.cache
+def _reference_schema() -> dict[str, _Shape]:
+    """``name -> (type, table, columns)`` of every object this schema creates."""
+    ref = sqlite3.connect(":memory:")
+    try:
+        ref.executescript(_SCHEMA + _TRIGGERS)
+        return {
+            str(name): (
+                str(kind),
+                str(table),
+                _columns(ref, name) if kind == "table" else (),
+            )
+            for kind, name, table in ref.execute(
+                "SELECT type, name, tbl_name FROM sqlite_master "
+                "WHERE name NOT GLOB 'sqlite_*'"
+            )
+        }
+    finally:
+        ref.close()
+
+
+def _check_schema(conn: sqlite3.Connection) -> None:
+    """Raise :class:`_ForeignIndexError` unless the file is empty, an index
+    from before ``blob_lru`` (``user_version`` 0, a subset of the tables) or
+    exactly this schema at :data:`_SCHEMA_VERSION`."""
+    (version,) = conn.execute("PRAGMA user_version").fetchone()
+    if version not in (0, _SCHEMA_VERSION):
+        raise _ForeignIndexError(f"unknown user_version {version}")
+    ref = _reference_schema()
+    tables: set[str] = set()
+    for kind, name, table in conn.execute(
+        "SELECT type, name, tbl_name FROM sqlite_master WHERE name NOT GLOB 'sqlite_*'"
+    ).fetchall():
+        want = ref.get(name)
+        if want is None or want[:2] != (kind, table):
+            raise _ForeignIndexError(f"unexpected {kind} {str(name)[:60]!r}")
+        if kind == "table":
+            if _columns(conn, name) != want[2]:
+                raise _ForeignIndexError(f"table {name!r} has other columns")
+            tables.add(name)
+    if version == _SCHEMA_VERSION:
+        missing = {n for n, w in ref.items() if w[0] == "table"} - tables
+        if missing:
+            raise _ForeignIndexError(f"missing tables {sorted(missing)}")
 
 
 def _is_corrupt(exc: sqlite3.DatabaseError) -> bool:

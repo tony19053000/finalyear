@@ -478,11 +478,6 @@ def test_exclusive_locked_corrupt_file_is_not_mistaken_for_locked(
     first.close()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="G5-R2-2: a valid SQLite gc.sqlite with a clashing 'item' table makes "
-    "open() fail forever (OperationalError is neither corrupt nor retried)",
-)
 def test_a_foreign_sqlite_file_with_a_clashing_schema_does_not_brick_the_node(
     tmp_path: Path,
 ) -> None:

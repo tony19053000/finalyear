@@ -1,5 +1,6 @@
 """V0.5 G5 fix round 2 - the GC index is never quarantined under a live owner
-(G5-R2-1). Real SQLite files, real owner locks, the real ``start_gc``."""
+(G5-R2-1) and a foreign/mis-versioned SQLite file is treated as corrupt
+(G5-R2-2). Real SQLite files, real owner locks, the real ``start_gc``."""
 
 from __future__ import annotations
 
@@ -87,6 +88,68 @@ async def test_start_gc_runs_without_gc_while_the_index_is_busy(tmp_path: Path) 
     service = await start_gc(settings, cas, node_id="node_x")
     assert service is not None
     await service.close()
+
+
+def _foreign(root: Path, sql: str, version: int = 0) -> None:
+    root.mkdir(parents=True, exist_ok=True)
+    db = sqlite3.connect(root / DB_NAME)
+    db.executescript(sql)
+    db.execute(f"PRAGMA user_version = {version}")
+    db.commit()
+    db.close()
+
+
+@pytest.mark.parametrize(
+    ("sql", "version"),
+    [
+        ("CREATE TABLE item(id INTEGER PRIMARY KEY, name TEXT)", 0),
+        ("CREATE TABLE notes(body TEXT)", 0),
+        ("CREATE VIEW pin AS SELECT 1 AS kind, 2 AS key", 0),
+        ("", 99),
+        ("CREATE TABLE owner(owner TEXT PRIMARY KEY, started REAL NOT NULL)", 1),
+    ],
+    ids=[
+        "clashing-table",
+        "unknown-table",
+        "view-named-pin",
+        "newer-version",
+        "v1-partial",
+    ],
+)
+def test_foreign_or_misversioned_files_are_quarantined_and_rebuilt(
+    tmp_path: Path, sql: str, version: int
+) -> None:
+    root = tmp_path / "gc"
+    _foreign(root, sql, version)
+    idx = GcIndex(root)
+    idx.open()
+    assert len(_quarantined(root)) == 1
+    idx.upsert("blob", BLOB, 3)
+    assert idx.usage("blob") == 3
+    idx.close()
+    again = GcIndex(root)
+    again.open()  # the rebuilt file is accepted as is
+    assert again.usage("blob") == 3
+    assert len(_quarantined(root)) == 1
+    again.close()
+
+
+def test_a_foreign_file_under_a_live_owner_is_busy_not_quarantined(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "gc"
+    live = GcIndex(root)
+    live.open()
+    live.close()
+    holder = GcIndex(root)
+    holder.open()  # a live owner
+    assert holder._conn is not None
+    holder._conn.execute("PRAGMA user_version = 77")
+    other = GcIndex(root)
+    with pytest.raises(GcIndexBusyError):
+        other.open()
+    assert _quarantined(root) == []
+    holder.close()
 
 
 def test_an_index_from_before_blob_lru_is_migrated_not_quarantined(
