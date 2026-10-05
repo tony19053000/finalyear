@@ -10,6 +10,10 @@ verified against its id) in a worker thread; the member set is built in that
 thread too and kept in a bounded LRU (by entries), so the event loop never
 builds a big set and a repeated check is a dictionary lookup. No manifest in the
 CAS means ``404``: this node cannot vouch for membership.
+
+:meth:`PeerAuthorizer.authorize_probe` checks a **probe** token (V0.6 G4,
+D111) for the ``/v1/probe`` route instead: same key, same holder rule, a
+different token kind (a blob token is refused there and vice versa).
 """
 
 from __future__ import annotations
@@ -28,8 +32,10 @@ from meshforge.common.hashing import Digest
 from meshforge.common.peer_token import (
     PeerTokenClaims,
     PeerTokenError,
+    ProbeTokenClaims,
     load_public_key,
     verify_peer_token,
+    verify_probe_token,
 )
 from meshforge.common.tree import TreeError, TreeLimits, parse_tree
 
@@ -45,6 +51,8 @@ class AuthResult:
     status: int
     reason: str
     claims: PeerTokenClaims | None = None
+    probe: ProbeTokenClaims | None = None
+    """Set instead of ``claims`` for an allowed probe (D111)."""
 
 
 def _members(data: bytes, tree_id: Digest, limits: TreeLimits) -> frozenset[str]:
@@ -119,6 +127,24 @@ class PeerAuthorizer:
         if digest.hex not in members:
             return AuthResult(403, "not_in_tree")
         return AuthResult(0, "member", claims)
+
+    def authorize_probe(self, authorization: str | None) -> AuthResult:
+        """A ``/v1/probe`` request (D111): a valid probe token for this node."""
+        key = self._key
+        if key is None:
+            return AuthResult(503, "no_key")
+        if not authorization:
+            return AuthResult(401, "missing")
+        scheme, _, token = authorization.partition(" ")
+        if scheme.lower() != "bearer" or not token:
+            return AuthResult(401, "missing")
+        try:
+            claims = verify_probe_token(
+                key, token.strip(), holder=self._node_id, now=self._wall()
+            )
+        except PeerTokenError as exc:
+            return AuthResult(403, exc.reason)
+        return AuthResult(0, "probe", probe=claims)
 
     async def _tree_members(self, tree_id: Digest) -> frozenset[str] | None:
         """Members of ``tree_id`` (None = its manifest is not in this CAS)."""

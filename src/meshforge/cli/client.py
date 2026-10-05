@@ -237,6 +237,10 @@ class ControllerClient:
             params["attempt"] = str(attempt)
         return self._get(f"/v1/jobs/{job_id}/decisions", params=params)
 
+    def network(self) -> Mapping[str, Any]:
+        """V0.6 G4: ``GET /v1/network`` (the measured network matrix)."""
+        return self._get("/v1/network")
+
     def logs(self, job_id: str, *, stream: str) -> tuple[bytes, Mapping[str, str]]:
         """The persisted log bytes and the response headers."""
         path = f"/v1/jobs/{job_id}/logs"

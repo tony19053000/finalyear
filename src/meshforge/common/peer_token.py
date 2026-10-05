@@ -21,6 +21,13 @@ Wire form::
 
 Every refusal is a :class:`PeerTokenError` with a stable ``reason`` code; the
 token text is never put in a message or a log line.
+
+**Probe tokens (V0.6 G4, D111)** are a second kind with their own field set -
+``{"exp","hold","kind":"probe","req","v":1}``, at most :data:`PROBE_MAX_TTL_S`
+(60 s) - signed with the same key. They open only the peer server's
+``/v1/probe`` route; a blob token is refused there and a probe token is refused
+for blobs (different field sets: each verifier rejects the other's payload as
+``malformed``).
 """
 
 from __future__ import annotations
@@ -50,14 +57,19 @@ __all__ = [
     "MAX_PAYLOAD_BYTES",
     "MAX_TOKEN_CHARS",
     "MAX_TTL_S",
+    "PROBE_KIND",
+    "PROBE_MAX_TTL_S",
     "PUBLIC_KEY_BYTES",
     "SKEW_S",
     "TOKEN_VERSION",
     "PeerTokenClaims",
     "PeerTokenError",
+    "ProbeTokenClaims",
     "load_public_key",
     "sign_peer_token",
+    "sign_probe_token",
     "verify_peer_token",
+    "verify_probe_token",
 ]
 
 TOKEN_VERSION: Final = 1
@@ -74,6 +86,10 @@ _B64_ALPHABET: Final = frozenset(
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
 )
 _FIELDS: Final = frozenset({"att", "exp", "hold", "req", "tree", "v"})
+_PROBE_FIELDS: Final = frozenset({"exp", "hold", "kind", "req", "v"})
+PROBE_KIND: Final = "probe"
+PROBE_MAX_TTL_S: Final = 60
+"""A probe token is valid for at most 60 s (D111)."""
 _MAX_EXP: Final = 2**40  # far beyond any real clock; keeps the JSON bounded
 
 
@@ -236,4 +252,116 @@ def verify_peer_token(
         raise PeerTokenError("expired", "the peer token has expired")
     if claims.exp > now + MAX_TTL_S + SKEW_S:
         raise PeerTokenError("too_long", "the peer token lives longer than allowed")
+    return claims
+
+
+# --------------------------------------------------------------------- probes
+
+
+@dataclass(frozen=True, slots=True)
+class ProbeTokenClaims:
+    """What a probe token grants: ``requester`` may call ``holder``'s
+    ``/v1/probe`` until ``exp`` (D111)."""
+
+    requester: NodeId
+    holder: NodeId
+    exp: int
+
+    def canonical_bytes(self) -> bytes:
+        body = {
+            "exp": self.exp,
+            "hold": str(self.holder),
+            "kind": PROBE_KIND,
+            "req": str(self.requester),
+            "v": TOKEN_VERSION,
+        }
+        return json.dumps(
+            body, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+        ).encode("ascii")
+
+
+def sign_probe_token(
+    key: Ed25519PrivateKey,
+    *,
+    requester: NodeId | str,
+    holder: NodeId | str,
+    now: float,
+    ttl_s: int = PROBE_MAX_TTL_S,
+) -> str:
+    """A probe token valid until ``now + ttl_s`` (``ttl_s`` <= 60)."""
+    if not 1 <= ttl_s <= PROBE_MAX_TTL_S:
+        raise ValueError(f"probe token ttl must be 1..{PROBE_MAX_TTL_S} s, got {ttl_s}")
+    claims = ProbeTokenClaims(
+        requester=validate_node_id(requester),
+        holder=validate_node_id(holder),
+        exp=int(now) + ttl_s,
+    )
+    payload = claims.canonical_bytes()
+    return _b64e(payload) + "." + _b64e(key.sign(payload))
+
+
+def _parse_probe_claims(payload: bytes) -> ProbeTokenClaims:
+    try:
+        body = json.loads(payload.decode("ascii"))
+    except (UnicodeDecodeError, ValueError):
+        raise PeerTokenError(
+            "malformed", "the probe token payload is not JSON"
+        ) from None
+    if not isinstance(body, dict) or set(body) != _PROBE_FIELDS:
+        raise PeerTokenError("malformed", "the probe token has the wrong fields")
+    if body["kind"] != PROBE_KIND:
+        raise PeerTokenError("wrong_kind", "the token is not a probe token")
+    if body["v"] != TOKEN_VERSION or isinstance(body["v"], bool):
+        raise PeerTokenError("bad_version", "unsupported probe token version")
+    exp = body["exp"]
+    if isinstance(exp, bool) or not isinstance(exp, int) or not 0 < exp < _MAX_EXP:
+        raise PeerTokenError("malformed", "the probe token expiry is not valid")
+    try:
+        claims = ProbeTokenClaims(
+            requester=validate_node_id(body["req"]),
+            holder=validate_node_id(body["hold"]),
+            exp=exp,
+        )
+    except (ValueError, InvalidIdError):
+        raise PeerTokenError(
+            "malformed", "the probe token names an invalid id"
+        ) from None
+    if claims.canonical_bytes() != payload:
+        raise PeerTokenError("malformed", "the probe token payload is not canonical")
+    return claims
+
+
+def verify_probe_token(
+    public_key: Ed25519PublicKey,
+    token: str,
+    *,
+    holder: str,
+    now: float,
+) -> ProbeTokenClaims:
+    """Size, shape, signature (first), kind, holder and expiry of a probe
+    token; its claims. Refusals as :func:`verify_peer_token`."""
+    if not isinstance(token, str) or len(token) > MAX_TOKEN_CHARS:
+        raise PeerTokenError("oversized", "the probe token is too long")
+    payload_b64, sep, sig_b64 = token.partition(".")
+    if not sep or len(sig_b64) != _SIG_B64_CHARS:
+        raise PeerTokenError("malformed", "the probe token is not <payload>.<sig>")
+    if len(payload_b64) > (MAX_PAYLOAD_BYTES * 4 + 2) // 3:
+        raise PeerTokenError("oversized", "the probe token payload is too long")
+    payload = _b64d(payload_b64, "payload")
+    signature = _b64d(sig_b64, "signature")
+    if len(signature) != _SIGNATURE_BYTES:
+        raise PeerTokenError("malformed", "the probe token signature has a bad size")
+    try:
+        public_key.verify(signature, payload)
+    except InvalidSignature:
+        raise PeerTokenError(
+            "bad_signature", "the probe token signature is not valid"
+        ) from None
+    claims = _parse_probe_claims(payload)
+    if claims.holder != holder:
+        raise PeerTokenError("wrong_holder", "the probe token is for another holder")
+    if now > claims.exp + SKEW_S:
+        raise PeerTokenError("expired", "the probe token has expired")
+    if claims.exp > now + PROBE_MAX_TTL_S + SKEW_S:
+        raise PeerTokenError("too_long", "the probe token lives longer than allowed")
     return claims

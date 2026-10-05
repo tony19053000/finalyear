@@ -36,7 +36,12 @@ from meshforge.common.filelock import locked
 from meshforge.common.hashing import Digest
 from meshforge.common.ids import AttemptId, NodeId
 from meshforge.common.logging import get_logger
-from meshforge.common.peer_token import MAX_TTL_S, sign_peer_token
+from meshforge.common.peer_token import (
+    MAX_TTL_S,
+    PROBE_MAX_TTL_S,
+    sign_peer_token,
+    sign_probe_token,
+)
 from meshforge.common.private_files import (
     PrivateFileError,
     private_problem,
@@ -206,4 +211,17 @@ class PeerTokenIssuer:
             attempt_id=attempt_id,
             now=self._clock(),
             ttl_s=self._ttl_s,
+        )
+
+    def issue_probe(
+        self, *, requester: str, holder: str, ttl_s: int = PROBE_MAX_TTL_S
+    ) -> str:
+        """A probe token (V0.6 G4, D111): ``requester`` may call ``holder``'s
+        ``/v1/probe`` for ``ttl_s`` (<= 60) seconds."""
+        return sign_probe_token(
+            self._key,
+            requester=requester,
+            holder=holder,
+            now=self._clock(),
+            ttl_s=ttl_s,
         )

@@ -683,6 +683,9 @@ class Fabric:
             "controller.discovery": {"advertise": False},
             "controller.resources": self._controller_resources,
             "controller.jobs": self._controller_jobs,
+            # V0.6 G4: probes off unless a scenario passes controller_extra
+            # {"network": {...}} (they would add traffic other scenarios count).
+            "controller.network": {"enabled": False},
             **{f"controller.{k}": v for k, v in self._controller_extra.items()},
         }
         path = self.workdir / "controller.toml"

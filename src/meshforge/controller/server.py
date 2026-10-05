@@ -50,6 +50,7 @@ from meshforge.common.netaddr import BindAddress, parse_bind
 from meshforge.common.proto.meshforge.v1 import agent_pb2, agent_pb2_grpc
 from meshforge.controller.api.auth import ApiAuth
 from meshforge.controller.api.job_routes import JobApi
+from meshforge.controller.api.network_routes import NetworkApi
 from meshforge.controller.blobs import BlobStore, FetchTokens
 from meshforge.controller.cache_index import CacheIndex, CacheLocationStore
 from meshforge.controller.discovery import ServiceAdvertiser
@@ -67,6 +68,7 @@ from meshforge.controller.jobs.logs import LogHub
 from meshforge.controller.jobs.peers import PeerSources
 from meshforge.controller.liveness import LivenessEvent
 from meshforge.controller.named_inputs import NamedInputStore, PinBroadcaster
+from meshforge.controller.network import NetworkProber, NetworkStore
 from meshforge.controller.peer_signing import (
     PeerTokenIssuer,
     load_or_create_signing_key,
@@ -161,6 +163,9 @@ class ControllerRuntime:
         """V0.5 G5 (D92): named, versioned inputs (``/v1/data``)."""
         self.pins: PinBroadcaster | None = None
         self.prepare: PrepareTracker | None = None
+        self.network: NetworkProber | None = None
+        """V0.6 G4 (D111): peer probes -> ``network_link``."""
+        self.network_store: NetworkStore | None = None
         self.gc: ControllerGc | None = None
         """V0.5 G5 (D91): LRU GC of the blob store under [controller.gc]."""
         self.scrubber: BlobScrubber | None = None
@@ -294,6 +299,20 @@ class ControllerRuntime:
         # V0.5 G5 (0.5.8): `compute node prepare` progress reports.
         self.prepare = PrepareTracker(manager)
         manager.dispatch.register("prepare_env_status", self.prepare.on_message)
+        # V0.6 G4 (D111): peer probes -> the network matrix.
+        network_store = NetworkStore(engine)
+        network = NetworkProber(
+            manager,
+            network_store,
+            self.peer_tokens,
+            cfg.network,
+            clock=loop.time,
+            resources=resources,
+        )
+        self.network_store, self.network = network_store, network
+        manager.dispatch.register("net_probe_result", network.on_message)
+        if cfg.network.enabled:
+            self._spawn(network.run(), "network-prober")
         self._lease_timer_task = self._spawn(
             LeaseTimer(manager, clock=loop.time).run(), "lease-timer"
         )
@@ -371,6 +390,7 @@ class ControllerRuntime:
                 dispatcher_offline(live, event)
             if prepare is not None:
                 prepare.on_node_offline(live, event)
+            network.on_node_offline(live, event)
 
         manager.hooks.on_reconcile = on_reconcile
         manager.hooks.on_node_offline = on_node_offline
@@ -425,6 +445,7 @@ class ControllerRuntime:
                     pins=self.pins,
                     prepare=self.prepare,
                 ),
+                network=NetworkApi(store=network_store, prober=network),
             ),
             host=self._http_bind.host,
             port=self.http_port,

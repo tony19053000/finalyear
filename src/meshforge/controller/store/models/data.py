@@ -120,6 +120,7 @@ class TransferEvent(Base):
         CheckConstraint("failures >= 0", name="failures"),
         CheckConstraint("resumed_chunks >= 0", name="resumed_chunks"),
         Index("ix_transfer_event_job_id", "job_id"),
+        Index("ix_transfer_event_source_id", "source", "id"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)

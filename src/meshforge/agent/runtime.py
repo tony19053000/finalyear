@@ -91,6 +91,7 @@ from meshforge.agent.hardware.deadline import (
 )
 from meshforge.agent.identity import NodeIdentity, load_or_create
 from meshforge.agent.peer import PeerAuthorizer, PeerBlobServer
+from meshforge.agent.peer.probe import ProbeService
 from meshforge.agent.resources import ResourceMonitor, ResourceSampler
 from meshforge.agent.session.client import AgentSessionClient
 from meshforge.agent.session.hello import basic_hardware
@@ -208,10 +209,12 @@ def route_commands(
     *,
     gc: GcService | None = None,
     prepare: Callable[[agent_pb2.PrepareEnv], None] | None = None,
+    probe: Callable[[agent_pb2.ProbeRequest], None] | None = None,
 ) -> Callable[[agent_pb2.ControllerMessage], None]:
     """One synchronous command handler: attempts to the executor, ``GcRequest``
-    to GC (V0.5 G5), ``PrepareEnv`` to the prepare service (0.5.8). A command
-    for a part that is off is logged and dropped (it is still acked)."""
+    to GC (V0.5 G5), ``PrepareEnv`` to the prepare service (0.5.8),
+    ``ProbeRequest`` to the network prober (V0.6 G4, D111). A command for a
+    part that is off is logged and dropped (it is still acked)."""
 
     def handle(msg: agent_pb2.ControllerMessage) -> None:
         which = msg.WhichOneof("payload")
@@ -225,6 +228,11 @@ def route_commands(
                 prepare(msg.prepare_env)
             else:
                 log.info("agent.prepare.request_ignored", reason="prepare_unavailable")
+        elif which == "probe_request":
+            if probe is not None:
+                probe(msg.probe_request)
+            else:
+                log.info("agent.probe.request_ignored", reason="probe_unavailable")
         else:
             executor.handle(msg)
 
@@ -366,8 +374,13 @@ async def serve(
         if execution.enabled
         else None
     )
+    # V0.6 G4 (D111): measure links when the controller asks.
+    prober = ProbeService(settings.agent.probe, client.send_report, node_id=node_id)
     client.command_handler = route_commands(
-        executor, gc=gc, prepare=preparer.handle if preparer is not None else None
+        executor,
+        gc=gc,
+        prepare=preparer.handle if preparer is not None else None,
+        probe=prober.handle,
     )
     if execution.enabled:
         await executor.start()
@@ -398,6 +411,7 @@ async def serve(
             await peer.close()
         if preparer is not None:
             await preparer.close()
+        await prober.close()
         if gc is not None:
             await gc.close()
         if cache is not None:

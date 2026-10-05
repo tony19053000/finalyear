@@ -235,6 +235,10 @@ class Attempt(TimestampMixin, Base):
             f"runtime IS NULL OR runtime IN ({RUNTIME_VALUES_SQL})", name="runtime"
         ),
         CheckConstraint(f"slot IS NULL OR slot IN ({SLOT_VALUES_SQL})", name="slot"),
+        CheckConstraint(
+            "env_hash IS NULL OR env_hash ~ '^[0-9a-f]{64}$'", name="env_hash"
+        ),
+        uint64_check("output_bytes", name="output_bytes"),
         UniqueConstraint("job_id", "fencing_token"),
         Index("ix_attempt_node_id", "node_id"),
     )
@@ -275,6 +279,13 @@ class Attempt(TimestampMixin, Base):
     slot: Mapped[str | None] = mapped_column(String(8), nullable=True)
     """D105: the node slot the attempt holds while live (``cpu``/``gpu``);
     NULL for attempts dispatched before V0.6 (counted as a CPU slot)."""
+    env_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    """V0.6 G4 (D108, migration 0014): the agent's env hash from the terminal
+    report - with ``cache_location`` (kind ``env``) it tells the estimator that
+    a node still holds this workload's environment."""
+    output_bytes: Mapped[int | None] = mapped_column(UInt64, nullable=True)
+    """V0.6 G4 (D108, migration 0014): bytes the attempt uploaded under its
+    grant (outputs + final logs), on DONE - the estimator's ``out_bytes``."""
 
 
 class AttemptPhaseRow(Base):

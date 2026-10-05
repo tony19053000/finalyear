@@ -126,6 +126,7 @@ _COMMAND_PAYLOADS: Final = frozenset(
         "refresh_upload_grant",
         "gc",
         "prepare_env",
+        "probe_request",
     }
 )
 GOODBYE_DETAIL: Final = "agent stop requested"

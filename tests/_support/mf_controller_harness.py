@@ -71,6 +71,9 @@ def controller_section(**overrides: Any) -> ControllerSection:
         "shutdown_drain_s": SHUTDOWN_DRAIN_S,
         # No mDNS in the controller tests (G3 tests it on purpose, once).
         "discovery": {"advertise": False},
+        # V0.6 G4: no network probes unless a test turns them on - they add
+        # peer-server requests and session traffic that other tests count.
+        "network": {"enabled": False},
     }
     base.update(overrides)
     return ControllerSection(**base)

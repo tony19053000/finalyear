@@ -529,7 +529,9 @@ class Dispatcher(RecoverySteps):
         if self._grants is not None and self._grants.uploaded(
             report.attempt_id, digest
         ):
-            return report
+            return dataclasses.replace(
+                report, output_bytes=self._grants.uploaded_bytes(report.attempt_id)
+            )
         log.warning(
             "controller.jobs.output_not_uploaded",
             node_id=live.node_id,

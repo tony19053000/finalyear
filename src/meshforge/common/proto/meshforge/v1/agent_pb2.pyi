@@ -1020,19 +1020,49 @@ Global___CacheItem: _TypeAlias = CacheItem  # noqa: Y015
 
 @_typing.final
 class NetProbeResult(_message.Message):
+    """The answer to a ProbeRequest (V0.6 G4, D111): what this node measured
+    downloading from the target's peer server. A report: buffered, replayed after
+    a reconnect and acked. ok = false -> `error` names why (a stable code) and the
+    numbers are 0; `bytes` is still what was transferred (the probe budget).
+    """
+
     DESCRIPTOR: _descriptor.Descriptor
 
     PROBE_ID_FIELD_NUMBER: _builtins.int
+    TARGET_NODE_ID_FIELD_NUMBER: _builtins.int
+    OK_FIELD_NUMBER: _builtins.int
+    RTT_MS_FIELD_NUMBER: _builtins.int
+    BW_BYTES_S_FIELD_NUMBER: _builtins.int
+    BYTES_FIELD_NUMBER: _builtins.int
+    DURATION_S_FIELD_NUMBER: _builtins.int
+    ERROR_FIELD_NUMBER: _builtins.int
     probe_id: _builtins.str
-    """TODO(V0.6): measured RTT/bandwidth to peers."""
+    target_node_id: _builtins.str
+    ok: _builtins.bool
+    rtt_ms: _builtins.float
+    """Median of the 0-byte request round trips (ms)."""
+    bw_bytes_s: _builtins.float
+    """Throughput of the largest timed download (bytes/s)."""
+    bytes: _builtins.int
+    """Every body byte received during the probe."""
+    duration_s: _builtins.float
+    """Wall time of the whole probe (s)."""
+    error: _builtins.str
     def __init__(
         self,
         *,
         probe_id: _builtins.str = ...,
+        target_node_id: _builtins.str = ...,
+        ok: _builtins.bool = ...,
+        rtt_ms: _builtins.float = ...,
+        bw_bytes_s: _builtins.float = ...,
+        bytes: _builtins.int = ...,
+        duration_s: _builtins.float = ...,
+        error: _builtins.str = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["probe_id", b"probe_id"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["bw_bytes_s", b"bw_bytes_s", "bytes", b"bytes", "duration_s", b"duration_s", "error", b"error", "ok", b"ok", "probe_id", b"probe_id", "rtt_ms", b"rtt_ms", "target_node_id", b"target_node_id"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
@@ -1753,19 +1783,49 @@ Global___RefreshUploadGrant: _TypeAlias = RefreshUploadGrant  # noqa: Y015
 
 @_typing.final
 class ProbeRequest(_message.Message):
+    """"ProbeLink" (V0.6 G4, D111): measure the link from `target_node_id`'s peer
+    server to this node. The agent sends `rtt_samples` 0-byte GETs to
+    http://<endpoint>/v1/probe?bytes=0 (median = RTT), then one GET of `bytes`
+    zero bytes, and one of `max_bytes` if that took less than `fast_s`; it answers
+    with NetProbeResult{same probe_id}. `token` is a controller-signed probe
+    token (kind "probe", holder = target, requester = this node, <= 60 s).
+    Idempotent by probe_id: a repeated probe_id is never measured twice.
+    """
+
     DESCRIPTOR: _descriptor.Descriptor
 
     PROBE_ID_FIELD_NUMBER: _builtins.int
+    TARGET_NODE_ID_FIELD_NUMBER: _builtins.int
+    ENDPOINT_FIELD_NUMBER: _builtins.int
+    TOKEN_FIELD_NUMBER: _builtins.int
+    RTT_SAMPLES_FIELD_NUMBER: _builtins.int
+    BYTES_FIELD_NUMBER: _builtins.int
+    MAX_BYTES_FIELD_NUMBER: _builtins.int
+    FAST_S_FIELD_NUMBER: _builtins.int
     probe_id: _builtins.str
-    """TODO(V0.6): targets and probe kind (RTT, bandwidth)."""
+    target_node_id: _builtins.str
+    endpoint: _builtins.str
+    """host:port of the target's peer server (its Hello.peer_endpoint)."""
+    token: _builtins.str
+    rtt_samples: _builtins.int
+    bytes: _builtins.int
+    max_bytes: _builtins.int
+    fast_s: _builtins.float
     def __init__(
         self,
         *,
         probe_id: _builtins.str = ...,
+        target_node_id: _builtins.str = ...,
+        endpoint: _builtins.str = ...,
+        token: _builtins.str = ...,
+        rtt_samples: _builtins.int = ...,
+        bytes: _builtins.int = ...,
+        max_bytes: _builtins.int = ...,
+        fast_s: _builtins.float = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["probe_id", b"probe_id"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["bytes", b"bytes", "endpoint", b"endpoint", "fast_s", b"fast_s", "max_bytes", b"max_bytes", "probe_id", b"probe_id", "rtt_samples", b"rtt_samples", "target_node_id", b"target_node_id", "token", b"token"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 

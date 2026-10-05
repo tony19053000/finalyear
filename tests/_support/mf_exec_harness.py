@@ -38,6 +38,7 @@ from meshforge.agent.gc.service import GcService
 from meshforge.agent.hardware.limits import clip_capabilities
 from meshforge.agent.identity import load_or_create
 from meshforge.agent.peer import PeerBlobServer
+from meshforge.agent.peer.probe import ProbeService
 from meshforge.agent.runtime import (
     controller_host,
     route_commands,
@@ -79,6 +80,7 @@ class ExecAgent:
         self.cache: CacheReporter | None = None
         self.gc: GcService | None = None
         self.preparer: PrepareService | None = None
+        self.prober: ProbeService | None = None
         self.task: asyncio.Task[None] = asyncio.create_task(client.run())
 
     @classmethod
@@ -148,8 +150,15 @@ class ExecAgent:
             if setup.enabled
             else None
         )
+        # V0.6 G4 (D111): network probes, as in serve().
+        prober = ProbeService(
+            settings.agent.probe, client.send_report, node_id=client.node_id
+        )
         client.command_handler = route_commands(
-            executor, gc=gc, prepare=preparer.handle if preparer is not None else None
+            executor,
+            gc=gc,
+            prepare=preparer.handle if preparer is not None else None,
+            probe=prober.handle,
         )
         if setup.enabled:
             await executor.start()
@@ -158,6 +167,7 @@ class ExecAgent:
         agent.cache = cache
         agent.gc = gc
         agent.preparer = preparer
+        agent.prober = prober
         await client.wait_for_state(AgentState.ONLINE, timeout_s=15.0)
         return agent
 
@@ -173,6 +183,8 @@ class ExecAgent:
             await self.peer.close()
         if self.preparer is not None:
             await self.preparer.close()
+        if self.prober is not None:
+            await self.prober.close()
         if self.gc is not None:
             await self.gc.close()
         if self.cache is not None:

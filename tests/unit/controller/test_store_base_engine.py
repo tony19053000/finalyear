@@ -118,6 +118,7 @@ def test_base_metadata_uses_convention_and_registers_every_model() -> None:
         "job_input",
         "transfer_event",
         "plan_decision",  # V0.6 G2 (0013)
+        "network_link",  # V0.6 G4 (0014)
     }
 
 

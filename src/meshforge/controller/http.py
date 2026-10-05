@@ -39,6 +39,11 @@ from meshforge.controller.api.data_routes import data_router
 from meshforge.controller.api.decision_routes import decision_router
 from meshforge.controller.api.job_routes import JOBS_STATE_KEY, JobApi, job_router
 from meshforge.controller.api.log_routes import log_router
+from meshforge.controller.api.network_routes import (
+    NETWORK_STATE_KEY,
+    NetworkApi,
+    network_router,
+)
 from meshforge.controller.api.prepare_routes import prepare_router
 from meshforge.controller.blobs import BlobStore
 from meshforge.controller.cache_index import CacheLocationStore
@@ -61,6 +66,7 @@ def create_http_app(
     blobs: BlobStore | None = None,
     jobs: JobApi | None = None,
     cache: CacheLocationStore | None = None,
+    network: NetworkApi | None = None,
 ) -> FastAPI:
     """Build the controller's HTTP app. ``clock`` must be the loop's monotonic clock.
 
@@ -112,4 +118,7 @@ def create_http_app(
             app.include_router(data_router)  # V0.5 G5 named inputs
         if jobs.prepare is not None:
             app.include_router(prepare_router)  # V0.5 G5 compute node prepare
+    if network is not None:
+        setattr(app.state, NETWORK_STATE_KEY, network)
+        app.include_router(network_router)  # V0.6 G4 network matrix
     return app

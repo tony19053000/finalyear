@@ -386,9 +386,23 @@ message CacheItem {
   uint64 size = 3;
 }
 
+// The answer to a ProbeRequest (V0.6 G4, D111): what this node measured
+// downloading from the target's peer server. A report: buffered, replayed after
+// a reconnect and acked. ok = false -> `error` names why (a stable code) and the
+// numbers are 0; `bytes` is still what was transferred (the probe budget).
 message NetProbeResult {
-  // TODO(V0.6): measured RTT/bandwidth to peers.
   string probe_id = 1;
+  string target_node_id = 2;
+  bool ok = 3;
+  // Median of the 0-byte request round trips (ms).
+  double rtt_ms = 4;
+  // Throughput of the largest timed download (bytes/s).
+  double bw_bytes_s = 5;
+  // Every body byte received during the probe.
+  uint64 bytes = 6;
+  // Wall time of the whole probe (s).
+  double duration_s = 7;
+  string error = 8;
 }
 
 // One attempt state change, reported by the agent through send_report (buffered,
@@ -654,9 +668,23 @@ message RefreshUploadGrant {
   uint32 blob_port = 5;
 }
 
+// "ProbeLink" (V0.6 G4, D111): measure the link from `target_node_id`'s peer
+// server to this node. The agent sends `rtt_samples` 0-byte GETs to
+// http://<endpoint>/v1/probe?bytes=0 (median = RTT), then one GET of `bytes`
+// zero bytes, and one of `max_bytes` if that took less than `fast_s`; it answers
+// with NetProbeResult{same probe_id}. `token` is a controller-signed probe
+// token (kind "probe", holder = target, requester = this node, <= 60 s).
+// Idempotent by probe_id: a repeated probe_id is never measured twice.
 message ProbeRequest {
-  // TODO(V0.6): targets and probe kind (RTT, bandwidth).
   string probe_id = 1;
+  string target_node_id = 2;
+  // host:port of the target's peer server (its Hello.peer_endpoint).
+  string endpoint = 3;
+  string token = 4;
+  uint32 rtt_samples = 5;
+  uint64 bytes = 6;
+  uint64 max_bytes = 7;
+  double fast_s = 8;
 }
 
 // Pull base images / build environments ahead of a run (V0.5 G5, roadmap

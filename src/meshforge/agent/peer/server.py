@@ -13,6 +13,11 @@ agent) that lets other agents download blobs from this node's CAS:
 * Files come **only** from the CAS layout: the path is built from the validated
   hex digest, opened with ``O_NOFOLLOW`` and must be a regular file - nothing
   outside the CAS directory is ever reachable. Read-only: nothing is written.
+* **Network probes (V0.6 G4, D111):** ``GET``/``HEAD /v1/probe?bytes=N`` answers
+  ``N`` zero bytes (``N`` <= ``probe_max_bytes``, 8 MiB; more ``400``) to a
+  request carrying a controller-signed **probe** token for this node (kind
+  ``probe``, <= 60 s; a blob token is ``403``). No file is read; the body is
+  written from one shared zero buffer under the same send deadline as a blob.
 
 Bounds (``[agent.peer]``): request head bytes (``431``), a whole request head
 within ``idle_timeout_s`` (slowloris) and idle keep-alive closed after it,
@@ -37,6 +42,7 @@ import os
 import re
 import socket
 import stat
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import BinaryIO, Final
 
@@ -57,6 +63,8 @@ COALESCE_BYTES: Final = 256 * 1024
 """Bodies up to this are sent in the same write as the response head."""
 _READ: Final = 64 * 1024
 _PATH_RE: Final = re.compile(rb"/v1/blobs/([0-9a-f]{64})")
+_PROBE_RE: Final = re.compile(rb"/v1/probe\?bytes=(\d{1,9})")
+_ZEROS: Final = bytes(_READ)
 _RANGE_RE: Final = re.compile(rb"bytes=(\d{0,19})-(\d{0,19})")
 _NOFOLLOW: Final = getattr(os, "O_NOFOLLOW", 0)
 _BINARY: Final = getattr(os, "O_BINARY", 0)
@@ -116,6 +124,8 @@ class PeerServerStats:
     requests: int = 0
     served: int = 0
     bytes_sent: int = 0
+    probes_served: int = 0
+    probe_bytes_sent: int = 0
     refused: dict[str, int] = field(default_factory=dict)
 
     def refuse(self, reason: str) -> None:
@@ -428,13 +438,20 @@ class PeerBlobServer:
         if method not in (b"GET", b"HEAD"):
             await simple(405, "method", [(b"allow", b"GET, HEAD")])
             return
-        match = _PATH_RE.fullmatch(bytes(request.target))
+        target = bytes(request.target)
+        auth_values = headers.get(b"authorization", [])
+        range_values = headers.get(b"range", [])
+        probe = _PROBE_RE.fullmatch(target)
+        if probe is not None:
+            await self._probe(
+                conn, writer, method, base, auth_values, int(probe.group(1)), simple
+            )
+            return
+        match = _PATH_RE.fullmatch(target)
         if match is None:
             await simple(404, "path")
             return
         digest = Digest(match.group(1).decode("ascii"))
-        auth_values = headers.get(b"authorization", [])
-        range_values = headers.get(b"range", [])
         if len(auth_values) > 1 or len(range_values) > 1:
             await simple(400, "duplicate_header", digest=digest)
             return
@@ -536,6 +553,67 @@ class PeerBlobServer:
         finally:
             if owner.owns:
                 fh.close()
+
+    async def _probe(
+        self,
+        conn: h11.Connection,
+        writer: asyncio.StreamWriter,
+        method: bytes,
+        base: list[tuple[bytes, bytes]],
+        auth_values: list[bytes],
+        size: int,
+        simple: Callable[..., Awaitable[None]],
+    ) -> None:
+        """``/v1/probe?bytes=N`` (module docstring, D111)."""
+        if len(auth_values) > 1:
+            await simple(400, "duplicate_header")
+            return
+        authorization = auth_values[0].decode("latin-1") if auth_values else None
+        result = self._auth.authorize_probe(authorization)
+        if result.status:
+            extra = [(b"www-authenticate", b"Bearer")] if result.status == 401 else []
+            await simple(result.status, f"probe_{result.reason}", extra)
+            return
+        requester = None if result.probe is None else str(result.probe.requester)
+        if size > self._cfg.probe_max_bytes:
+            await simple(400, "probe_too_big", requester=requester)
+            return
+        head = conn.send(
+            h11.Response(
+                status_code=200,
+                headers=[
+                    *base,
+                    (b"content-type", b"application/octet-stream"),
+                    (b"content-length", b"%d" % size),
+                    (b"cache-control", b"no-store"),
+                ],
+                reason=b"OK",
+            )
+        )
+        budget = self._cfg.idle_timeout_s + size / self._cfg.min_send_rate_bytes_s
+        sent = 0
+        async with asyncio.timeout(budget):
+            if method == b"HEAD" or size == 0:
+                writer.write(head + conn.send(h11.EndOfMessage()))
+                await writer.drain()
+            else:
+                writer.write(head)
+                while sent < size:
+                    piece = min(len(_ZEROS), size - sent)
+                    chunk = _ZEROS if piece == len(_ZEROS) else _ZEROS[:piece]
+                    writer.write(conn.send(h11.Data(data=chunk)))
+                    await writer.drain()
+                    sent += piece
+                writer.write(conn.send(h11.EndOfMessage()))
+                await writer.drain()
+        self.stats.probes_served += 1
+        self.stats.probe_bytes_sent += sent
+        log.debug(
+            "agent.peer.probe_served",
+            node_id=self._node_id,
+            requester=requester,
+            bytes=sent,
+        )
 
     def _open(self, digest: Digest) -> BinaryIO:
         """Open the CAS file of ``digest`` read-only; never a link, never a dir."""

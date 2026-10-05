@@ -44,6 +44,7 @@ __all__ = [
     "GcSettings",
     "JobApiSettings",
     "LivenessSettings",
+    "NetworkSettings",
     "PlannerSettings",
     "ResourceHistorySettings",
 ]
@@ -493,6 +494,144 @@ class PlannerSettings(SectionModel):
         return value
 
 
+_MIB = 1024 * 1024
+
+
+class NetworkSettings(SectionModel):
+    """``[controller.network]`` - peer network probes -> the network matrix
+    (V0.6 G4, D111).
+
+    The controller asks one node at a time to download a few MiB of zeros from
+    another node's peer server and stores the measured RTT and throughput per
+    ordered pair as an EWMA (``network_link``). Probes are rare and bounded so
+    they never flood a personal laptop's Wi-Fi: each pair at most once per
+    ``probe_interval_s``, at most one probe per node at a time, at most
+    ``probe_budget_bytes_per_min`` across the fabric, never on a node running
+    a GPU job or above ``busy_cpu_percent``, one probe started per
+    ``probe_gap_s`` (jittered). Controller <-> node links need no probe: they
+    come from transfer history.
+    """
+
+    enabled: bool = Field(
+        default=True, description="Schedule network probes between peers."
+    )
+    probe_interval_s: float = Field(
+        default=900.0,
+        ge=10.0,
+        le=7 * 86_400.0,
+        description="Each ordered node pair is probed at most once per this.",
+    )
+    probe_gap_s: float = Field(
+        default=15.0,
+        ge=0.1,
+        le=3600.0,
+        description=(
+            "At most one probe is started per this many seconds (fabric-wide), "
+            "+/- probe_jitter."
+        ),
+    )
+    probe_jitter: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=0.9,
+        description="Relative jitter of probe_gap_s (0.5 = 0.5x .. 1.5x).",
+    )
+    probe_budget_bytes_per_min: int = Field(
+        default=48 * _MIB,
+        ge=0,
+        le=10 * 1024 * _MIB,
+        description=(
+            "Probe bytes allowed across the fabric in any 60 s (a probe in "
+            "flight reserves its worst case: probe_bytes + probe_max_bytes). "
+            "Must fit one probe."
+        ),
+    )
+    probe_bytes: int = Field(
+        default=4 * _MIB,
+        ge=0,
+        le=8 * _MIB,
+        description="Throughput download size (0 = RTT only).",
+    )
+    probe_max_bytes: int = Field(
+        default=8 * _MIB,
+        ge=0,
+        le=8 * _MIB,
+        description=(
+            "Second, larger download when the first took less than probe_fast_s."
+        ),
+    )
+    probe_fast_s: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=60.0,
+        description="A first download faster than this is repeated at probe_max_bytes.",
+    )
+    rtt_samples: int = Field(
+        default=3, ge=1, le=10, description="0-byte requests; the median is the RTT."
+    )
+    probe_timeout_s: float = Field(
+        default=60.0,
+        ge=1.0,
+        le=600.0,
+        description=(
+            "A probe with no result after this is given up (its nodes are free "
+            "again; counted as failed)."
+        ),
+    )
+    token_ttl_s: int = Field(
+        default=60,
+        ge=1,
+        le=60,
+        description="Lifetime of the probe token the target checks (<= 60 s).",
+    )
+    busy_cpu_percent: float = Field(
+        default=80.0,
+        ge=1.0,
+        le=100.0,
+        description="A node whose latest CPU sample is above this is not probed.",
+    )
+    ewma_alpha: float = Field(
+        default=0.3,
+        gt=0.0,
+        le=1.0,
+        description="Weight of a new measurement in the stored EWMA.",
+    )
+    stale_after_s: float = Field(
+        default=3600.0,
+        ge=60.0,
+        le=30 * 86_400.0,
+        description=(
+            "A link measured longer ago than this is stale: shown, but the "
+            "estimator falls back to transfer history or the default bandwidth."
+        ),
+    )
+    transfer_min_bytes: int = Field(
+        default=1 * _MIB,
+        ge=1,
+        le=1024 * _MIB,
+        description=(
+            "Controller -> node bandwidth is the median of past controller "
+            "transfers of at least this many bytes (smaller ones measure latency)."
+        ),
+    )
+    transfer_history: int = Field(
+        default=20,
+        ge=1,
+        le=1000,
+        description="Most recent such transfers per node the median is taken over.",
+    )
+
+    @model_validator(mode="after")
+    def _budget_fits_a_probe(self) -> NetworkSettings:
+        worst = self.probe_bytes + self.probe_max_bytes
+        if self.enabled and self.probe_budget_bytes_per_min < worst:
+            raise ValueError(
+                "probe_budget_bytes_per_min must be at least probe_bytes + "
+                f"probe_max_bytes ({worst}), or no probe could ever run"
+            )
+        return self
+
+
 class ApiSettings(SectionModel):
     """``[controller.api]`` - how agents reach this controller's REST port."""
 
@@ -793,6 +932,7 @@ class ControllerSection(SectionModel):
     gc: GcSettings = Field(default_factory=GcSettings)
     jobs: JobApiSettings = Field(default_factory=JobApiSettings)
     planner: PlannerSettings = Field(default_factory=PlannerSettings)
+    network: NetworkSettings = Field(default_factory=NetworkSettings)
     api: ApiSettings = Field(default_factory=ApiSettings)
 
     @field_validator("grpc_bind", "http_bind")

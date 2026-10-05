@@ -56,6 +56,7 @@ __all__ = [
     "HardwareSettings",
     "KeepaliveSettings",
     "PeerSettings",
+    "ProbeSettings",
     "ReconnectSettings",
     "ResourceSettings",
     "ScoreSettings",
@@ -820,6 +821,16 @@ class PeerSettings(SectionModel):
             "Tree-manifest entries kept parsed for token membership checks (D98)."
         ),
     )
+    probe_max_bytes: int = Field(
+        default=8 * 1024 * 1024,
+        ge=0,
+        le=8 * 1024 * 1024,
+        description=(
+            "V0.6 D111: largest body GET /v1/probe?bytes=N serves (zero bytes, "
+            "for the controller's network probes; a probe token is required). "
+            "0 = this node answers no probes."
+        ),
+    )
 
     @field_validator("bind", "advertise_host")
     @classmethod
@@ -888,6 +899,27 @@ class FetchSettings(SectionModel):
         ge=1.0,
         le=3600.0,
         description="Connect/read timeout of one blob request.",
+    )
+
+
+class ProbeSettings(SectionModel):
+    """``[agent.probe]`` - answering the controller's network probes (V0.6 D111).
+
+    The controller asks this node to measure its link from another node's peer
+    server (a few 0-byte requests for RTT, then a 4-8 MiB download for
+    throughput). The controller schedules and rate-limits probes; this section
+    only bounds the client side.
+    """
+
+    enabled: bool = Field(
+        default=True,
+        description="Run probes the controller asks for (off = refuse them).",
+    )
+    request_timeout_s: float = Field(
+        default=20.0,
+        ge=0.5,
+        le=120.0,
+        description="Connect/read timeout of one probe request.",
     )
 
 
@@ -1057,6 +1089,7 @@ class AgentSection(SectionModel):
     peer: PeerSettings = Field(default_factory=PeerSettings)
     cache: CacheSettings = Field(default_factory=CacheSettings)
     fetch: FetchSettings = Field(default_factory=FetchSettings)
+    probe: ProbeSettings = Field(default_factory=ProbeSettings)
     gc: GcSettings = Field(default_factory=GcSettings)
     hello_timeout_s: float = Field(
         default=3.0,

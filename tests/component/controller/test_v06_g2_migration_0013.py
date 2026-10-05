@@ -89,6 +89,7 @@ async def test_upgrade_backfills_queued_at_for_queued_jobs_only(
         {"a": queued},
     )
     assert defaults == [(0, None, 3, 5, True, False)]
+    await asyncio.to_thread(command.upgrade, cfg, "head")  # 0014+ (V0.6 G4)
     await asyncio.to_thread(command.check, cfg)
 
 

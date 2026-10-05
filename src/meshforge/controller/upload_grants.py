@@ -335,6 +335,14 @@ class UploadGrants:
         if stored:
             grant.uploaded[ticket.digest] = size
 
+    def uploaded_bytes(self, attempt_id: str) -> int | None:
+        """Bytes stored and verified under this attempt's grant (outputs and
+        final logs; V0.6 G4 telemetry), None when it has no grant here."""
+        key = self._by_attempt.get(attempt_id)
+        if key is None:
+            return None
+        return sum(self._grants[key].uploaded.values())
+
     def uploaded(self, attempt_id: str, digest: Digest | str) -> bool:
         """Did this attempt's grant store and verify ``digest``?"""
         key = self._by_attempt.get(attempt_id)

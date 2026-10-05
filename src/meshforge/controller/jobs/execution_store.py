@@ -242,6 +242,9 @@ class StatusReport:
     """V0.5 G5 (D93): transfer telemetry of the terminal report."""
     env_hash: str | None = None
     """V0.6 G1 (D116): the agent's env hash (64 hex), terminal reports only."""
+    output_bytes: int | None = None
+    """V0.6 G4 (D108): bytes this attempt's grant stored (set by the
+    dispatcher on a verified DONE; the estimator's ``out_bytes``)."""
     retryable: bool | None = None
     """V0.6 G3 (D110): the failure's own ``retryable`` flag (``Failure.
     retryable``); None = not sent -> the failure type's default (§13)."""
@@ -912,9 +915,13 @@ async def _move_attempt(
             row.exit_code = report.exit_code
     if target in ATTEMPT_TERMINAL_STATES and report.logs:
         row.logs = {k: dict(v) for k, v in report.logs.items()}
+    if target in ATTEMPT_TERMINAL_STATES and report.env_hash and row.env_hash is None:
+        row.env_hash = report.env_hash
     if target is AttemptState.DONE:
         row.output_digest = report.output_digest
         row.missing_outputs = list(report.missing_outputs) or None
+        if report.output_bytes is not None:
+            row.output_bytes = report.output_bytes
     if target in (AttemptState.FAILED, AttemptState.LOST):
         row.failure_type = (report.failure_type or FailureType.INTERNAL_ERROR).value
         row.detail = clean_detail(report.detail)

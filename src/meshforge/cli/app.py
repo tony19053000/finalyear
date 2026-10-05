@@ -334,6 +334,11 @@ from meshforge.cli.explain_commands import explain  # noqa: E402
 
 app.command()(explain)
 
+# V0.6 G4: `compute network` (the measured network matrix).
+from meshforge.cli.network_commands import network  # noqa: E402
+
+app.command()(network)
+
 # V0.5 G5: `compute data ...` (named inputs).
 from meshforge.cli.data_commands import data_app  # noqa: E402
 from meshforge.cli.node_commands import node_app  # noqa: E402
