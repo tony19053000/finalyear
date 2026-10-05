@@ -73,4 +73,10 @@ def test_explain_cells_name_the_bandwidth_source() -> None:
     assert _term_cell(env) == "0.00s (measured, cached)"
     plain = {"seconds": 1.0, "source": "assumed", "detail": {"bw_source": "assumed"}}
     assert _term_cell(plain) == "1.00s (assumed)"
+    stale = {
+        "seconds": 8.0,
+        "source": "assumed",
+        "detail": {"bw_source": "assumed", "stale_links_ignored": [A, B]},
+    }
+    assert _term_cell(stale) == "8.00s (assumed, 2 stale probe(s) ignored)"
     assert _term_cell(None) == "-"

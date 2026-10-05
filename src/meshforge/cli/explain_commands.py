@@ -47,7 +47,9 @@ def _seconds(value: Any) -> str:
 def _term_cell(term: Any) -> str:
     """``<seconds> (<source>)``; a transfer also names where its bandwidth came
     from (V0.6 G4: ``from <node...>`` for a probed link, ``from controller``
-    for transfer history) and a cached environment says so."""
+    for transfer history), a cached environment says so, and probed links
+    ignored as stale are counted (checklist 18: a stale probe never counts as
+    a measurement)."""
     if not isinstance(term, Mapping):
         return _DASH
     detail = term.get("detail")
@@ -58,6 +60,9 @@ def _term_cell(term: Any) -> str:
         extra = f", from {source if source == 'controller' else source[-8:]}"
     elif detail.get("env_cached") is True:
         extra = ", cached"
+    stale = detail.get("stale_links_ignored")
+    if isinstance(stale, list) and stale:
+        extra += f", {len(stale)} stale probe(s) ignored"
     return f"{_seconds(term.get('seconds'))} ({term.get('source')}{extra})"
 
 
