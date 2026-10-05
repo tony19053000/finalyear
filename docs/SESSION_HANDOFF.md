@@ -9,8 +9,8 @@
 > ```
 > Read docs/SESSION_HANDOFF.md (§0e first, then §1 and §2), then docs/STATUS.md, then
 > docs/briefs/V0.5-data-plane.md. RULE: run ONE subagent at a time (team, re-imposed 2026-10-01).
-> V0.5 G1, G2, G3 + stabilisation CLOSED. G4 (brief §5d): implementer + fix round 1 done, tester
-> round 2 was running — see §2 "G4 state". Next: G4 tester r2 result → reviewer → close; then G5 (§5e).
+> V0.5 G1–G4 + stabilisation CLOSED. Next: G5 (brief §5e, scope row in §3 incl. G4 carry-overs):
+> implementer → tester → reviewer → close. Then 🧑 0.5.11 lab.
 > Check git log and docs/briefs/progress/ first to see which round last finished.
 > ```
 >
@@ -31,7 +31,7 @@
 > throughput measurements and the reasoning; if you think the arithmetic or the trade is wrong,
 > **say so to the team before building on it.** Do not silently re-expand the scope either.
 
-**Last updated:** 2026-10-04 late (**V0.5 G1 + G2 + G3 + stabilisation CLOSED**; wave 2 briefs written (§5d G4, §5e G5, D96–D101); **G4: implementer + fix round 1 done, tester round 2 RUNNING**; one subagent at a time (§0e)) · **Updated by:** Lead session
+**Last updated:** 2026-10-05 (**V0.5 G1–G4 + stabilisation CLOSED** — 0.5.1–0.5.5, 0.5.7 `[x]`; next: G5 implementer (§5e); one subagent at a time; nothing running) · **Updated by:** Lead session
 
 ---
 
@@ -291,7 +291,7 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 > - **Tester round 1: FAIL** (`69e393a` … `f15c1f9`, ~110 tests): 2 major regressions (cluster resource-replay test; cas.py stat race from `98a2478`), resume-counter drift, FIFO stalls peer server, lost snapshot page → LIVE, deleted-behind-cache blob kept.
 > - **Fix round 1 DONE:** `3cb1e7b` `da1bc88` `71f7e71` `d873279` `4ff6714` `fcd9727` `32c31fb` `c57bb61` (new `[agent.cache] enabled`, off only in the resource-replay cluster test). Unit 5382 / cluster 55 exit 0; whole component 931 passed + **2 load-only failures** (`test_g5_log_write_failure` symlink test: node SUSPECT at submit; `test_controller_process` SIGTERM: gRPC INTERNAL) — pass alone, not G4 code; tester r2 to judge whether G4 load contributes.
 > - **Tester round 2: PASS on the 6 fixes** (`facc8b6`; unit 5397 / whole component 940 / cluster 55, all exit 0) but 4 new strict xfails: **R2-2 MAJOR** (pre-existing G1) `common/cas.py` complete() hashes then installs by path → a racing same-digest discard+open can install a blob whose hash ≠ name; R2-3 counter drift complete-vs-open; R2-1 snapshot tail page as a session's first report → LIVE partial; R2-4 reconcile_disk holds the lock 1.2 s at 50k. Load failures: sigterm = DB load, not G4; planted_symlink = small G4 load contribution (3/70 vs 0/40) → tolerant liveness.
-> - **G4 fix round 2 DONE** (`9d99e88` R2-2+R2-3 per-digest lock + inode check, `f39e47e` R2-1 new `CacheReport.page = 6` (deviation D8), `19ebc2f` R2-4 batched, `12295f0` tolerant liveness + snapshot yields; unit 5402 / cluster 55 exit 0; whole component 939 + 1 lab S3 spike flake). **G4 tester round 3: FAIL** (`17fcf63`; unit 5417 / cluster 55 exit 0; component 939 + lab S3 spike flake): R3-2 MAJOR inode reuse defeats the (st_dev, st_ino) check → Lead ruling: in-memory per-digest generation counter; R3-1 old agent without `page` loses multi-page rows → `optional page`. **G4 fix round 3 DONE** (`59b89ac` generation guard, `9d0379b` optional page; implementer's exit list possibly not run — session ended). **G4 tester round 4: FAIL (minor)** (`3a9c343`): both fixes hold, all 3 guard sites mutation-covered; R4-1 two CasStore instances on one dir share no generation table → **Lead: accepted limitation** (production = one store per dir; strict xfail documents it); 2 load-only test flakes fixed by Lead in `b51af39` (hammer runs until something completes; cache-index tests use tolerant lease). **G4 reviewer RUNNING** (2026-10-05). Then close G4 → G5.
+> - **G4 fix round 2 DONE** (`9d99e88` R2-2+R2-3 per-digest lock + inode check, `f39e47e` R2-1 new `CacheReport.page = 6` (deviation D8), `19ebc2f` R2-4 batched, `12295f0` tolerant liveness + snapshot yields; unit 5402 / cluster 55 exit 0; whole component 939 + 1 lab S3 spike flake). **G4 tester round 3: FAIL** (`17fcf63`; unit 5417 / cluster 55 exit 0; component 939 + lab S3 spike flake): R3-2 MAJOR inode reuse defeats the (st_dev, st_ino) check → Lead ruling: in-memory per-digest generation counter; R3-1 old agent without `page` loses multi-page rows → `optional page`. **G4 fix round 3 DONE** (`59b89ac` generation guard, `9d0379b` optional page; implementer's exit list possibly not run — session ended). **G4 tester round 4: FAIL (minor)** (`3a9c343`): both fixes hold, all 3 guard sites mutation-covered; R4-1 two CasStore instances on one dir share no generation table → **Lead: accepted limitation** (production = one store per dir; strict xfail documents it); 2 load-only test flakes fixed by Lead in `b51af39` (hammer runs until something completes; cache-index tests use tolerant lease). **G4 reviewer: APPROVE, no blocking → G4 CLOSED 2026-10-05** (0.5.3, 0.5.4, 0.5.5 `[x]`). 6 non-blocking items carried into the G5 row of brief §3 (fetcher split first). **Next: G5 implementer from brief §5e.** Nothing running.
 > - **Then:** reviewer → close G4 (0.5.3, 0.5.4, 0.5.5 `[x]` with evidence, bars, STATUS, PROJECT_SUMMARY if needed) → G5 implementer from §5e.
 > - **Follow-ups noted (not blocking):** split `agent/cas/fetcher.py` (~850 lines); peer-token refresh for >10 min transfers; controller cannot request a resnapshot; cache reports share the replay ring with attempt statuses; `tests/component/lab/test_s1_server_upload_limit.py` pre-existing flake (1/12); 🧑 lab: open TCP 47120 on LAN profile + `[agent.peer] bind` (OPERATIONS §0d).
 >
