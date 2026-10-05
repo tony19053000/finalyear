@@ -288,6 +288,7 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 > ### V0.6 state (2026-10-05) — read this first
 >
+> **UPDATE 2026-10-05 (G3 implementer RUNNING):** done + committed item 0 N-1 (`60020d8`), 1 retry engine (`968ee2b`), 2 LOST paths (`ecd501c`). Next: 3 crash recovery (criterion 2 cluster test), 4 partition/overlap, 5 chaos suite. Progress lines: `docs/briefs/progress/V0.6-G3.md`. If this session died: commit any wip, resume the implementer from the first item not marked done there.
 > **UPDATE 2026-10-05: G2 CLOSED** (0.6.1/0.6.2/0.6.3/0.6.5/0.6.11 `[x]`; tester D-1..D-3 fixed; reviewer APPROVE; D120–D125 in the brief). **Next = G3 implementer** with brief §5c **plus item 0 = reviewer N-1** (planning.py:213 catch-all: only manifest errors fail the job; other exceptions log exc_info + leave QUEUED). See STATUS Current Task.
 > **UPDATE 2026-10-05 late: G1 CLOSED** (last commit `8eb3f71` + docs close). Next = **G2 implementer** with brief §5b. Reviewer follow-ups are listed in STATUS "Current Task".
 > - **Brief written:** `docs/briefs/V0.6-scheduling-reliability.md` (D102–D119), **ADR-0015 Proposed** (team to review before G3). Groups strictly sequential: G1 reliability floor → G2 planner core → G3 retries/recovery/chaos → G4 network matrix + estimator.
