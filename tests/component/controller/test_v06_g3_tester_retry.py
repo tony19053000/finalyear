@@ -590,3 +590,41 @@ async def test_a_retried_job_keeps_queued_at_and_all_attempt_rows(
         j=job.id,
     )
     assert [tuple(x) for x in rows] == [("lost", node), ("assigned", other)]
+
+
+async def test_cancel_racing_the_retry_transaction_never_leaves_a_live_retry(
+    store: ExecutionStore, pg_settings: DatabaseSettings
+) -> None:
+    (node, _) = await _nodes(pg_settings)
+    seen: set[str] = set()
+    for _round in range(25):
+        a = await _running(store, node)
+        cancel, out = await asyncio.gather(
+            store.request_cancel(a.job_id),
+            store.apply_status(_fail(a, FailureType.TIMEOUT)),
+        )
+        assert cancel is not None and out.kind is StatusKind.APPLIED
+        job = await store.get_job(a.job_id)
+        assert job is not None
+        seen.add(job.state.value)
+        # either cancel won (job FAILED: no retry after a request) or the
+        # retry committed first and the cancel then ended the queued job.
+        assert job.state in (JobState.CANCELLED, JobState.FAILED), job.state
+        rows = await _sql(
+            pg_settings, "SELECT count(*) FROM attempt WHERE job_id = :j", j=a.job_id
+        )
+        assert rows[0][0] == 1
+        far = dt.datetime.now(dt.UTC) + dt.timedelta(hours=1)
+        assert [
+            r for r in await _tick(store, node, at=far) if r.job.id == a.job_id
+        ] == []
+
+
+async def test_a_cancelled_report_without_a_cancel_request_is_not_retried(
+    store: ExecutionStore, pg_settings: DatabaseSettings
+) -> None:
+    (node, _) = await _nodes(pg_settings)
+    a = await _running(store, node)
+    out = await store.apply_status(_fail(a, FailureType.CANCELLED))
+    assert out.job is not None and out.job.state is JobState.CANCELLED
+    assert out.retry is None or not out.retry.retry
