@@ -20,7 +20,7 @@ default ``text/plain`` ``Internal Server Error``, which has no ``code`` at all.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Final, cast
+from typing import Any, Final, cast
 
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
@@ -82,10 +82,14 @@ class ApiError(Exception):
         *,
         http_status: int | None = None,
         headers: Mapping[str, str] | None = None,
+        extra: Mapping[str, Any] | None = None,
     ) -> None:
         super().__init__(message)
         self.failure_type = failure_type
         self.message = message
+        self.extra = dict(extra or {})
+        """Additional keys of the ``error`` object, written by us (V0.6 G2:
+        ``rejections`` of a ``no_feasible_plan``); never ``code``/``message``."""
         self.http_status = http_status or _STATUS_FOR.get(
             failure_type, status.HTTP_500_INTERNAL_SERVER_ERROR
         )
@@ -101,8 +105,14 @@ class ApiError(Exception):
         return cls(FailureType.INVALID_INPUT, message)
 
 
-def error_body(failure_type: FailureType, message: str) -> dict[str, dict[str, str]]:
-    return {"error": {"code": failure_type.value, "message": message}}
+def error_body(
+    failure_type: FailureType,
+    message: str,
+    extra: Mapping[str, Any] | None = None,
+) -> dict[str, dict[str, Any]]:
+    body: dict[str, Any] = {**(extra or {})}
+    body.update({"code": failure_type.value, "message": message})
+    return {"error": body}
 
 
 def error_response(
@@ -111,10 +121,11 @@ def error_response(
     code: int,
     *,
     headers: Mapping[str, str] | None = None,
+    extra: Mapping[str, Any] | None = None,
 ) -> JSONResponse:
     return JSONResponse(
         status_code=code,
-        content=error_body(failure_type, message),
+        content=error_body(failure_type, message, extra),
         headers=dict(headers) if headers else None,
     )
 
@@ -133,6 +144,7 @@ def install_error_handlers(app: FastAPI) -> None:
             error.message,
             error.http_status,
             headers=error.headers,
+            extra=error.extra,
         )
 
     @app.exception_handler(RequestValidationError)

@@ -284,10 +284,8 @@ class DispatchPlanner:
     def _trees(self, job: JobRecord, fabric: FabricRows) -> tuple[TreeNeed, ...]:
         inputs = fabric.input_trees.get(job.id, ())
         project = job.tree_id or job.bundle_digest or ""
-        total = job.scheduling.input_bytes or 0
-        project_bytes = max(0, total - sum(size for _, size in inputs))
         return (
-            TreeNeed(project, project_bytes),
+            TreeNeed(project, job.scheduling.input_bytes or 0),
             *(TreeNeed(tree, size) for tree, size in inputs),
         )
 

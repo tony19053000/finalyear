@@ -25,6 +25,9 @@ its node in the queue (D65/D105).
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from typing import Final
+
 from meshforge.common.errors import FailureType, MeshForgeError
 from meshforge.common.manifest import Manifest
 from meshforge.controller.jobs.env_health import env_key
@@ -33,7 +36,9 @@ from meshforge.controller.planner.feasibility import static_rejection
 from meshforge.controller.planner.inputs import node_snapshot, plan_request
 from meshforge.controller.registry import NodeRecord
 
-__all__ = ["PlacementError", "check_placement"]
+__all__ = ["MAX_REJECTIONS_SHOWN", "PlacementError", "check_auto", "check_placement"]
+
+MAX_REJECTIONS_SHOWN: Final = 64
 
 
 class PlacementError(MeshForgeError):
@@ -69,3 +74,49 @@ def check_placement(
     refused = static_rejection(request, snapshot)
     if refused is not None:
         raise PlacementError(refused.text, details={"reject_code": refused.code.value})
+
+
+def check_auto(manifest: Manifest, nodes: Sequence[NodeRecord]) -> None:
+    """D104: an auto-placed job must be runnable on at least one enrolled node
+    **some day** - the static rules only (capabilities, hardware, owner slot
+    settings, not revoked; liveness and load are ignored: a busy or offline
+    fabric makes the job wait in the queue, it does not refuse it). Raises
+    :class:`PlacementError` whose ``details["rejections"]`` lists every node's
+    reason (at most :data:`MAX_REJECTIONS_SHOWN`)."""
+    request = plan_request(
+        manifest,
+        job_id="",
+        attempt_no=1,
+        env_key=env_key(manifest.canonical_dict(), tree_id=None, bundle_digest=None),
+    )
+    rejections: list[dict[str, str]] = []
+    for node in sorted(nodes, key=lambda n: n.node_id):
+        snapshot = node_snapshot(
+            node.node_id,
+            state=node.state.value,
+            connected=False,
+            hardware=node.hardware,
+            hardware_scores=node.hardware_scores,
+            advertised_cpu_slots=node.cpu_slots,
+            advertised_gpu_slots=node.gpu_slots,
+        )
+        refused = static_rejection(request, snapshot)
+        if refused is None:
+            return
+        rejections.append(
+            {
+                "node_id": node.node_id,
+                "reject_code": refused.code.value,
+                "reject_text": refused.text,
+            }
+        )
+    if not rejections:
+        message = "no node has joined the fabric yet; start an agent first"
+    else:
+        message = (
+            f"none of the {len(rejections)} node(s) of the fabric can ever run this "
+            "job; see rejections"
+        )
+    raise PlacementError(
+        message, details={"rejections": rejections[:MAX_REJECTIONS_SHOWN]}
+    )

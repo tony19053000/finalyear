@@ -17,12 +17,19 @@ for existing callers:
    digest - upload it with ``PUT /v1/blobs/{sha256}`` first); for a tree, the
    manifest must be stored and valid (``409`` absent, ``400`` not a valid tree)
    and so must every blob it lists (``409`` naming up to 20 missing digests);
-4. placement is checked (``404`` unknown node; ``409 no_feasible_plan`` for a node
-   that is not online, has no live session, does not accept jobs, or cannot give
-   the job the GPU/VRAM/RAM/CPUs it asks for);
+4. placement is checked (V0.6 D103/D104). **Pinned** (``placement.node_id``):
+   ``404`` unknown node; ``409 no_feasible_plan`` for a node that is not online,
+   has no live session, does not accept jobs, or cannot give the job the
+   GPU/VRAM/RAM/CPUs/runtime/slot kind it asks for. **Auto** (no ``node_id``):
+   at least one enrolled node must pass the planner's *static* rules (liveness
+   and load ignored - a busy fabric makes the job wait, it does not refuse it);
+   otherwise ``409 no_feasible_plan`` with ``error.rejections`` = every node's
+   ``{node_id, reject_code, reject_text}``;
 5. only then is the job written: ``SUBMITTED -> PLANNING -> QUEUED``, each arrow
-   recorded with its time (``PLANNING`` is a pass-through while placement is
-   manual) - the row and all three arrows commit in **one** transaction
+   recorded with its time (``PLANNING`` is a pass-through: the live planner runs
+   at dispatch) - the row, its scheduling fields (priority, policy, retry,
+   submitter, project bytes, workload fingerprint) and all three arrows commit
+   in **one** transaction
    (:meth:`JobStore.create_queued_job`), so no job is ever left half-submitted
    and a replay always sees it ``queued`` or later. Answer
    ``201 {job_id, state: "queued", created: true}``.
@@ -30,8 +37,9 @@ for existing callers:
 **A rejected request never creates a row.** Concurrent duplicate POSTs with one
 key produce one row (the unique index), and every loser gets the winner's job.
 
-**Dispatch (V0.4 G4, D65):** an accepted job wakes the dispatcher, which starts
-it on the placed node as soon as that node is ONLINE and free.
+**Dispatch (V0.4 G4, D65; V0.6 G2):** an accepted job wakes the dispatcher,
+whose planner places it (or, pinned, starts it on its node) as soon as a node
+can take it; every decision is recorded (``GET /v1/jobs/{id}/decisions``).
 
 **Cancel** ``POST /v1/jobs/{job_id}/cancel`` (D69, idempotent): a job without a
 live attempt (queued, planning, retrying) is ``cancelled`` at once; a job whose
@@ -49,7 +57,7 @@ import hmac
 import json
 import re
 from collections.abc import Sequence
-from typing import Annotated, Any, Final
+from typing import Annotated, Any, Final, Literal
 
 from fastapi import APIRouter, Depends, Path, Query, Request, Response, status
 from pydantic import ValidationError
@@ -59,6 +67,7 @@ from meshforge.common.hashing import Digest
 from meshforge.common.ids import new_job_id, validate_job_id, validate_node_id
 from meshforge.common.logging import get_logger
 from meshforge.common.manifest import (
+    Manifest,
     ManifestError,
     parse_manifest_data,
 )
@@ -83,12 +92,19 @@ from meshforge.controller.api.job_models import (
 )
 from meshforge.controller.blobs import BlobStore
 from meshforge.controller.jobs.dispatcher import Dispatcher
+from meshforge.controller.jobs.env_health import env_key
 from meshforge.controller.jobs.logs import LogHub
-from meshforge.controller.jobs.placement import PlacementError, check_placement
+from meshforge.controller.jobs.placement import (
+    PlacementError,
+    check_auto,
+    check_placement,
+)
+from meshforge.controller.jobs.queue_reads import MAX_NODES as MAX_PLANNED_NODES
 from meshforge.controller.jobs.store import (
     AttemptRecord,
     IdempotencyConflictError,
     JobRecord,
+    JobScheduling,
     JobStore,
 )
 from meshforge.controller.named_inputs import (
@@ -97,6 +113,7 @@ from meshforge.controller.named_inputs import (
     PinBroadcaster,
     ResolvedInput,
 )
+from meshforge.controller.planner.inputs import workload_fingerprint
 from meshforge.controller.prepare import PrepareTracker
 
 __all__ = [
@@ -170,21 +187,30 @@ def request_hash(
     placement: Placement,
     *,
     tree_id: str | None = None,
+    submitter: tuple[str, bool] | None = None,
 ) -> str:
     """SHA-256 of the canonical request: what "the same request" means for a key.
 
     A bundle request hashes exactly as in V0.4; a tree request names ``tree_id``.
+    V0.6 fields (an auto placement's absent ``node_id``, ``policy``, the
+    submitter) only appear when set, so a V0.5 request keeps its hash.
     """
     source = (
         {"tree_id": tree_id}
         if tree_id is not None
         else {"bundle_digest": bundle_digest}
     )
+    extra = (
+        {}
+        if submitter is None
+        else {"submitter": {"node_id": submitter[0], "seeded": submitter[1]}}
+    )
     canonical = json.dumps(
         {
             "manifest": manifest,
             **source,
-            "placement": placement.model_dump(mode="json"),
+            "placement": placement.model_dump(mode="json", exclude_none=True),
+            **extra,
         },
         sort_keys=True,
         separators=(",", ":"),
@@ -256,6 +282,8 @@ def _summary_fields(job: JobRecord) -> dict[str, Any]:
         "failure_detail": job.failure_detail,
         "created_at": job.created_at,
         "updated_at": job.updated_at,
+        "priority": job.scheduling.priority,
+        "submitter_node_id": job.scheduling.submitter_node_id,
     }
 
 
@@ -405,6 +433,47 @@ async def _check_mounts(project: Tree | None, inputs: Sequence[ResolvedInput]) -
         )
 
 
+def _node_id_or_none(value: str | None, field: str) -> str | None:
+    if value is None:
+        return None
+    try:
+        return str(validate_node_id(value))
+    except InvalidIdError:
+        raise ApiError.invalid(f"{field} is not a canonical node_<ULID>") from None
+
+
+async def _check_where(
+    fabric: FabricView, manifest: Manifest, node_id: str | None
+) -> None:
+    """Pinned: the V0.4 check of that one node. Auto (D104): at least one
+    enrolled node could ever run it; otherwise 409 with every rejection."""
+    try:
+        if node_id is not None:
+            node = await fabric.registry.get_node(node_id)
+            check_placement(
+                manifest, node, connected=fabric.manager.get(node_id) is not None
+            )
+        else:
+            nodes = await fabric.registry.list_nodes(limit=MAX_PLANNED_NODES)
+            check_auto(manifest, nodes)
+    except PlacementError as exc:
+        # No job_id on purpose: a refused request creates no job (D50, D62-5).
+        log.info(
+            "controller.jobs.placement_refused",
+            node_id=node_id,
+            failure_type=exc.failure_type.value,
+            reason=exc.message,
+        )
+        if exc.failure_type is FailureType.NOT_FOUND:
+            raise ApiError.not_found("node") from None
+        rejections = exc.details.get("rejections")
+        raise ApiError(
+            exc.failure_type,
+            exc.message,
+            extra={"rejections": rejections} if rejections is not None else None,
+        ) from None
+
+
 @job_router.post(
     "",
     status_code=status.HTTP_201_CREATED,
@@ -424,14 +493,14 @@ async def submit_job(
         manifest = parse_manifest_data(submission.manifest)
     except ManifestError as exc:
         raise ApiError.invalid(exc.message) from None
-    try:
-        node_id = str(validate_node_id(submission.placement.node_id))
-    except InvalidIdError:
-        raise ApiError.invalid(
-            "placement.node_id is not a canonical node_<ULID>"
-        ) from None
+    node_id = _node_id_or_none(submission.placement.node_id, "placement.node_id")
+    submitter = _node_id_or_none(submission.submitter_node_id, "submitter_node_id")
+    if node_id is None:
+        mode: Literal["local", "offload", "auto"] = "auto"
+    else:
+        mode = "local" if submission.placement.local else "offload"
     placement = Placement(
-        mode="local" if submission.placement.local else "offload", node_id=node_id
+        mode=mode, node_id=node_id, policy=submission.placement.policy
     )
     canonical_manifest = manifest.canonical_dict()
     try:
@@ -445,6 +514,7 @@ async def submit_job(
         submission.bundle_digest,
         placement,
         tree_id=submission.tree_id,
+        submitter=None if submitter is None else (submitter, submission.seeded),
     )
 
     if key is not None:
@@ -479,36 +549,45 @@ async def submit_job(
                     f"bundle {submission.bundle_digest} is not in the blob store; "
                     f"upload it with PUT /v1/blobs/{bundle_hex} first",
                 )
-        node = await fabric.registry.get_node(node_id)
-        try:
-            check_placement(
-                manifest, node, connected=fabric.manager.get(node_id) is not None
-            )
-        except PlacementError as exc:
-            # No job_id on purpose: a refused request creates no job (D50, D62-5).
-            log.info(
-                "controller.jobs.placement_refused",
-                node_id=node_id,
-                failure_type=exc.failure_type.value,
-                reason=exc.message,
-            )
-            if exc.failure_type is FailureType.NOT_FOUND:
-                raise ApiError.not_found("node") from None
-            raise ApiError(exc.failure_type, exc.message) from None
-
+        await _check_where(fabric, manifest, node_id)
+        project_key = submission.tree_id or submission.bundle_digest or ""
+        bundle_hex = (submission.bundle_digest or "").removeprefix("sha256:")
+        request_env = env_key(
+            canonical_manifest,
+            tree_id=submission.tree_id,
+            bundle_digest=submission.bundle_digest,
+        )
+        scheduling = JobScheduling(
+            priority=manifest.priority,
+            policy=submission.placement.policy or manifest.policy,
+            max_attempts=manifest.retry.max_attempts,
+            retry_backoff_s=manifest.retry.backoff_s,
+            on_lost_retry=manifest.retry.on_lost,
+            submitter_node_id=submitter,
+            submitter_seeded=submission.seeded and submitter is not None,
+            input_bytes=(
+                sum(project.blob_sizes().values())
+                if project is not None
+                else jobs.blobs.size(Digest(bundle_hex))
+            ),
+            fingerprint=workload_fingerprint(
+                manifest, project=project_key, env_key=request_env
+            ),
+        )
         try:
             job, created = await jobs.store.create_queued_job(
                 job_id=str(new_job_id()),
                 name=manifest.name,
                 manifest=canonical_manifest,
                 bundle_digest=submission.bundle_digest,
-                placement=placement.model_dump(mode="json"),
+                placement=placement.model_dump(mode="json", exclude_none=True),
                 request_hash=digest,
                 idempotency_key=key,
                 tree_id=submission.tree_id,
                 inputs=[
                     (i.mount, i.ref, i.name, i.version, i.tree_id) for i in resolved
                 ],
+                scheduling=scheduling,
             )
         except IdempotencyConflictError:
             raise ApiError(
@@ -522,6 +601,9 @@ async def submit_job(
         job_id=job.id,
         node_id=node_id,
         mode=placement.mode,
+        priority=manifest.priority,
+        policy=scheduling.policy,
+        submitter_node_id=submitter,
         bundle_digest=submission.bundle_digest,
         tree_id=submission.tree_id,
         idempotency_key_set=key is not None,

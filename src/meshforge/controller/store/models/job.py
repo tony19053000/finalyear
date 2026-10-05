@@ -188,8 +188,9 @@ class Job(TimestampMixin, Base):
     queued_at: Mapped[dt.datetime | None] = mapped_column(nullable=True)
     """When the job last entered QUEUED (queue order and priority aging, D106)."""
     input_bytes: Mapped[int | None] = mapped_column(UInt64, nullable=True)
-    """Bytes a node must hold to run it: the project tree (or bundle) plus every
-    named input - the estimator's transfer volume (D108)."""
+    """Bytes of the project: the tree's unique file blobs, or the bundle - the
+    estimator's transfer volume (D108; named inputs are sized from
+    ``named_input``)."""
     fingerprint: Mapped[str | None] = mapped_column(
         String(FINGERPRINT_LENGTH), nullable=True
     )

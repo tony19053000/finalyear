@@ -13,6 +13,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from meshforge.common.errors import FailureType
+from meshforge.common.manifest import PolicyName
 from meshforge.common.states import AttemptState, JobState
 from meshforge.controller.api.models import ApiModel, Utc
 
@@ -37,38 +38,67 @@ class _Request(BaseModel):
 
 
 class PlacementRequest(_Request):
-    """``{"node_id": "node_..."}``; ``local: true`` records that the submitter
-    placed the job on its own laptop's agent (the CLI resolves ``node_id`` from the
-    local ``node.json``; the controller cannot know which node "local" is)."""
+    """Where the job may run (V0.6 D103).
 
-    node_id: str = Field(min_length=1, max_length=40)
+    * ``node_id`` given = **pinned**: the job runs on that node or nowhere (the
+      V0.4 manual path, unchanged). ``local: true`` records that the submitter
+      pinned it to its own laptop's agent (the CLI resolves ``node_id`` from
+      the local ``node.json``; the controller cannot know which node "local"
+      is).
+    * ``node_id`` omitted = **auto**: the planner chooses among every node
+      (the submitter's own node, when named in ``submitter_node_id``, is the
+      Local candidate).
+    * ``policy`` (D107) overrides the manifest's ``policy`` and the
+      controller's ``[controller.planner] default_policy``.
+    """
+
+    node_id: str | None = Field(default=None, min_length=1, max_length=40)
     local: bool = False
+    policy: PolicyName | None = None
+
+    @model_validator(mode="after")
+    def _local_needs_node(self) -> PlacementRequest:
+        if self.local and self.node_id is None:
+            raise ValueError("local: true needs the local node's node_id")
+        return self
 
 
 class JobSubmission(_Request):
     """Body of ``POST /v1/jobs``: exactly one of ``tree_id`` (V0.5 D83, what
     ``compute run`` sends) and ``bundle_digest`` (the V0.4 bundle path, kept for
-    existing callers)."""
+    existing callers). ``submitter_node_id`` (V0.6 D103) names the submitting
+    laptop's own enrolled node - its Local candidate; ``seeded`` (D109) says the
+    CLI put the project's blobs into that node's cache."""
 
     manifest: dict[str, Any]
     bundle_digest: str | None = Field(
         default=None, pattern=_DIGEST_PATTERN, max_length=71
     )
     tree_id: str | None = Field(default=None, pattern=_DIGEST_PATTERN, max_length=71)
-    placement: PlacementRequest
+    placement: PlacementRequest = Field(default_factory=PlacementRequest)
+    submitter_node_id: str | None = Field(default=None, min_length=1, max_length=40)
+    seeded: bool = False
 
     @model_validator(mode="after")
     def _one_source(self) -> JobSubmission:
         if (self.bundle_digest is None) == (self.tree_id is None):
             raise ValueError("give exactly one of tree_id and bundle_digest")
+        if self.seeded and self.submitter_node_id is None:
+            raise ValueError("seeded: true needs submitter_node_id")
         return self
 
 
 class Placement(ApiModel):
-    mode: Literal["local", "offload"]
-    """``local`` (Local baseline) or ``offload`` (Mode 1): the same path, recorded
-    apart for telemetry."""
-    node_id: str
+    mode: Literal["local", "offload", "auto"]
+    """``local`` (pinned to the submitter's own node), ``offload`` (pinned to
+    another node, Mode 1) or ``auto`` (the planner places it, V0.6). An auto
+    job's actual node and mode are in its attempts and ``/decisions``."""
+    node_id: str | None = None
+    """The pinned node; None for an auto job."""
+    policy: PolicyName | None = Field(default=None, exclude_if=lambda v: v is None)
+    """The policy asked for at submit; left out when none was (the manifest's
+    or the controller's default applies) - a pinned V0.4 job's placement reads
+    exactly as before."""
 
 
 class JobCreated(ApiModel):
@@ -164,6 +194,10 @@ class JobSummary(ApiModel):
     failure_detail: str | None = None
     created_at: Utc
     updated_at: Utc
+    priority: int = 0
+    """D106 (manifest ``priority``)."""
+    submitter_node_id: str | None = None
+    """D103: the submitting laptop's node (its Local candidate), if named."""
 
 
 class JobDetail(JobSummary):
