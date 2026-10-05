@@ -70,6 +70,10 @@ class FakeStore:
     async def live_attempts(self, _node_id: str | None = None) -> list[Any]:
         return []
 
+    async def get_attempt(self, _attempt_id: str) -> Any:
+        """V0.6 G3: the overlap check (D117) looks the attempt up - unknown."""
+        return None
+
 
 def _dispatcher() -> tuple[Dispatcher, FakeManager, FakeStore]:
     manager, store = FakeManager(), FakeStore()
