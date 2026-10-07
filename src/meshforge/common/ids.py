@@ -50,6 +50,7 @@ __all__ = [
     "AttemptId",
     "ChunkId",
     "CommandId",
+    "FabricId",
     "IdKind",
     "JobId",
     "NodeId",
@@ -60,6 +61,7 @@ __all__ = [
     "new_attempt_id",
     "new_chunk_id",
     "new_command_id",
+    "new_fabric_id",
     "new_id",
     "new_job_id",
     "new_node_id",
@@ -69,6 +71,7 @@ __all__ = [
     "validate_attempt_id",
     "validate_chunk_id",
     "validate_command_id",
+    "validate_fabric_id",
     "validate_job_id",
     "validate_node_id",
     "validate_score_run_id",
@@ -87,6 +90,9 @@ class IdKind(StrEnum):
     COMMAND = "cmd"
     SCORE_RUN = "score"
     """One hardware-score run of an agent (roadmap 0.3.4, brief §5g)."""
+    FABRIC = "fab"
+    """One fabric = one CA (V0.7 D134); named in the CA subject and every node
+    certificate's SAN URI."""
 
 
 JobId = NewType("JobId", str)
@@ -96,6 +102,7 @@ SessionId = NewType("SessionId", str)
 ChunkId = NewType("ChunkId", str)
 CommandId = NewType("CommandId", str)
 ScoreRunId = NewType("ScoreRunId", str)
+FabricId = NewType("FabricId", str)
 
 _SEPARATOR = "_"
 _ULID_LEN = 26
@@ -181,6 +188,10 @@ def new_score_run_id() -> ScoreRunId:
     return ScoreRunId(new_id(IdKind.SCORE_RUN))
 
 
+def new_fabric_id() -> FabricId:
+    return FabricId(new_id(IdKind.FABRIC))
+
+
 def parse_id(value: object, kind: IdKind | None = None) -> tuple[IdKind, ULID]:
     """Split and validate an ID. If ``kind`` is given the prefix must match it.
 
@@ -255,3 +266,8 @@ def validate_command_id(value: object) -> CommandId:
 def validate_score_run_id(value: object) -> ScoreRunId:
     parse_id(value, IdKind.SCORE_RUN)
     return ScoreRunId(str(value))
+
+
+def validate_fabric_id(value: object) -> FabricId:
+    parse_id(value, IdKind.FABRIC)
+    return FabricId(str(value))
