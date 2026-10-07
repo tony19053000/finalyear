@@ -1,20 +1,21 @@
-"""V0.6 G4 tester round 1: does part D of ``lab/checklists/V0.6-scheduling.md``
-produce the criterion-4 result it promises?
+"""V0.6 G4 tester round 1 (T-14), converted in fix round 1: does part D of
+``lab/checklists/V0.6-scheduling.md`` produce the criterion-4 result it promises?
 
-D1 tells the human to run the tiny 300 MB project once pinned on L2 **and once
-pinned on the strongest other laptop**, then D2 expects the automatic run to be
-``local`` with the other laptops' transfer "~300 MB / their link". But a pinned
-run stages the project on the strongest laptop: its agent then reports the
-complete tree to the cache index (ARCHITECTURE §14, D100), so the planner sees
-that laptop holding the tree, transfer 0 s, and a faster CPU. Pure planner
-model of exactly that fabric."""
+The original D1 told the human to run the tiny 300 MB project pinned on L2
+**and** on the strongest other laptop, then D2 expected ``local``. A pinned run
+stages the project on that laptop (its agent reports the complete tree to the
+cache index, ARCHITECTURE §14, D100), so the planner sees transfer 0 s there and
+a faster CPU - Local cannot win. D132 rewrote part D: history on L2 only, and a
+warning that a laptop which ran it holds the project and then - correctly - wins.
+Pure planner model of both fabrics: the procedure as written now, and the
+warning's case (which must keep choosing the strong laptop: picking L2 there
+would be a wrong planner, not a passing lab step)."""
 
 from __future__ import annotations
 
 import datetime as dt
+from pathlib import Path
 from typing import Any
-
-import pytest
 
 from meshforge.controller.planner import (
     ClusterSnapshot,
@@ -79,25 +80,31 @@ def test_when_only_l2_ran_it_the_tiny_job_stays_local() -> None:
     assert picked is not None and picked.node_id == "L2" and picked.mode == "local"
 
 
-def test_d1_as_written_pins_a_run_on_the_strong_laptop_so_local_is_not_chosen() -> None:
-    """D1 as written: the strong laptop ran it too, so it holds the tree."""
+def test_a_laptop_that_already_ran_it_holds_the_tree_and_correctly_wins() -> None:
+    """Part D1's warning (the old D1 procedure): the strong laptop ran it too, so
+    it holds the tree - nothing to transfer, a faster CPU. The planner must pick
+    it (remote), which is why the checklist builds history on L2 only."""
     picked = chosen(
         True,
         History(
             by_node_s={"L2": 1.0, "STRONG": 0.4}, samples_by_node={"L2": 1, "STRONG": 1}
         ),
     )
-    assert picked is not None and picked.node_id == "L2", (
-        "the checklist's D2 expectation (Local, the others pay ~300 MB) cannot "
-        f"hold after D1; the planner picked {picked and picked.node_id}"
+    assert picked is not None and picked.node_id == "STRONG", (
+        f"a holder with a faster CPU must win; the planner picked {picked and picked.node_id}"
     )
+    assert picked.mode == "offload"
 
 
-test_d1_as_written_pins_a_run_on_the_strong_laptop_so_local_is_not_chosen = (
-    pytest.mark.xfail(
-        strict=True,
-        reason="T-14: lab checklist D1 warms the strong laptop's cache with the "
-        "300 MB tree, so D2's expected result (Local; others transfer ~300 MB) "
-        "cannot occur",
-    )(test_d1_as_written_pins_a_run_on_the_strong_laptop_so_local_is_not_chosen)
-)
+def test_the_checklist_builds_history_on_l2_only_and_warns_about_other_laptops() -> (
+    None
+):
+    """The lab text matches the procedure modelled above (D132)."""
+    root = Path(__file__).resolve().parents[3]
+    text = (root / "lab" / "checklists" / "V0.6-scheduling.md").read_text(
+        encoding="utf-8"
+    )
+    part_d = text[text.index("## D. Criterion 4") : text.index("## E. ")]
+    assert "History first, on L2 only" in part_d
+    assert "Do not run `c4-tiny` on any other laptop before step 2." in part_d
+    assert "mode `local`" in part_d
