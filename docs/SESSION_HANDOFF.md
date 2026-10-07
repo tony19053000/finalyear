@@ -265,7 +265,7 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
-**2026-10-07 — V0.7 STARTED.** Brief `docs/briefs/V0.7-security-pairing.md` APPROVED; ADR-0016 Accepted. G1 implementer (brief §5a) launched — check `docs/briefs/progress/V0.7-G1.md` + git log for where it got to.
+**2026-10-07 — V0.7 STARTED.** Brief `docs/briefs/V0.7-security-pairing.md` APPROVED; ADR-0016 Accepted. G1 implementer DONE (`1360654`..`2a61910`, exit list green); **G1 tester round 1 next/running**. Lead must decide RE-I2 (open GETs need a token?) before G4; PB-E1 (peer token ≤600 s vs D138's 60 s) for G3. Check `docs/briefs/progress/V0.7-G1.md` + git log for where it got to.
 
 **Overall: 24 % (38/154 tasks `[x]`, 16 `[~]`).** Progress bars: `docs/STATUS.md` (regenerate with `uv run python scripts/status_bars.py` whenever a checkbox changes).
 
