@@ -14,7 +14,12 @@ logs ever sees it.
 controller's server certificate (V0.7 G1, D134); ``fabric show [--json]`` prints
 the fabric id, the CA fingerprint (full and the 128-bit join-code form) and the
 expiry dates. Both run on the controller host only - they need the CA key file.
-Nothing secret is ever printed.
+Nothing secret is ever printed by them.
+
+``fabric invite [--ttl] [--replace NODE_ID] [--address HOST:PORT] [--json]``
+(V0.7 G2, D135) prints one single-use join code - the only secret this tool
+prints, on stdout, once; the facts go to stderr. ``fabric invites [--revoke
+ID]`` lists or revokes invites (never their codes). Both need the database.
 
 Everything that needs the ``controller`` extra is imported inside the commands so
 ``--version`` keeps working on a base install.
@@ -313,6 +318,186 @@ def fabric_show(
         typer.echo(json.dumps(facts, indent=2, sort_keys=True))
     else:
         _print_facts(facts)
+
+
+_INVITE_HINT = (
+    "Give this code to the laptop's owner over a channel you trust; it works once, "
+    "until {expires}. On that laptop: meshforge-agent join <code>"
+)
+
+
+def _ttl_seconds(text: str | None, default: int) -> int:
+    from meshforge.common.join_code import parse_ttl
+
+    if text is None:
+        return default
+    try:
+        return parse_ttl(text)
+    except ValueError as exc:
+        typer.echo(f"{PROG_NAME}: --ttl: {exc}", err=True)
+        raise typer.Exit(ExitCode.USAGE_ERROR) from None
+
+
+async def _create_invite(
+    settings: "ControllerSettings",
+    *,
+    ttl_s: int,
+    replace: str | None,
+    address: str | None,
+) -> dict[str, object]:
+    from meshforge.controller.enrollment.codes import code_address, issue_code
+    from meshforge.controller.enrollment.invites import InviteStore, check_ttl
+    from meshforge.controller.fabric_ca import load_fabric
+    from meshforge.controller.store.engine import create_engine
+
+    check_ttl(ttl_s)
+    # Everything that can refuse without side effects first: no CA (D135: an
+    # invite needs one), no usable address -> nothing is written.
+    fabric = load_fabric(settings.ca_dir)
+    host, port = code_address(settings, override=address)
+    engine = create_engine(settings.database)
+    try:
+        new = await InviteStore(engine).create(
+            ttl_s=ttl_s, actor="controller-cli", replace_node_id=replace
+        )
+    finally:
+        await engine.dispose()
+    return issue_code(new, fabric=fabric, host=host, port=port).as_dict()
+
+
+@fabric_app.command("invite")
+def fabric_invite(
+    config: ConfigOption = None,
+    ttl: Annotated[
+        str | None,
+        typer.Option(
+            "--ttl",
+            help="How long the code works: 90s, 15m, 2h (1 min - 24 h; default "
+            "[controller.enroll] invite_ttl_s = 15 min).",
+        ),
+    ] = None,
+    replace: Annotated[
+        str | None,
+        typer.Option(
+            "--replace",
+            metavar="NODE_ID",
+            help="Let this code re-key an already enrolled node (a reinstalled "
+            "laptop that kept its node_id but has a new key).",
+        ),
+    ] = None,
+    address: Annotated[
+        str | None,
+        typer.Option(
+            "--address",
+            metavar="HOST:PORT",
+            help="Address of the enrolment listener as other laptops reach it "
+            "(default: [controller.enroll] advertise, else its bind address).",
+        ),
+    ] = None,
+    json_out: Annotated[
+        bool, typer.Option("--json", help="Machine-readable output.")
+    ] = False,
+) -> None:
+    """Make a single-use join code for one new laptop (V0.7 D135).
+
+    Runs on the controller host (it reads the CA and the database). The code is
+    printed once and never stored; only its hash is.
+    """
+    import asyncio
+    import json
+
+    from meshforge.common.errors import MeshForgeError
+    from meshforge.common.ids import validate_node_id
+    from meshforge.common.logging import configure_logging
+
+    settings = _load_settings(config)
+    configure_logging("WARNING", fmt=settings.log.format, component="controller")
+    if replace is not None:
+        try:
+            validate_node_id(replace)
+        except MeshForgeError:
+            typer.echo(f"{PROG_NAME}: --replace needs a node id (node_...)", err=True)
+            raise typer.Exit(ExitCode.USAGE_ERROR) from None
+    ttl_s = _ttl_seconds(ttl, settings.controller.enroll.invite_ttl_s)
+    try:
+        issued = asyncio.run(
+            _create_invite(settings, ttl_s=ttl_s, replace=replace, address=address)
+        )
+    except MeshForgeError as exc:
+        typer.echo(f"{PROG_NAME}: {exc}", err=True)
+        raise typer.Exit(exc.exit_code) from None
+    if json_out:
+        typer.echo(json.dumps(issued, indent=2, sort_keys=True))
+        return
+    from meshforge.common.pki import format_fingerprint
+
+    typer.echo(str(issued["code"]))
+    typer.echo(f"invite:       {issued['invite_id']}", err=True)
+    typer.echo(f"controller:   {issued['address']}", err=True)
+    typer.echo(f"CA pin:       {format_fingerprint(str(issued['ca_pin']))}", err=True)
+    if issued["replace_node_id"]:
+        typer.echo(f"replaces:     {issued['replace_node_id']}", err=True)
+    typer.echo(_INVITE_HINT.format(expires=issued["expires_at"]), err=True)
+
+
+async def _invites(
+    settings: "ControllerSettings", revoke: str | None
+) -> list[dict[str, object]]:
+    from meshforge.controller.enrollment.invites import InviteStore
+    from meshforge.controller.store.engine import create_engine
+
+    engine = create_engine(settings.database)
+    try:
+        store = InviteStore(engine)
+        if revoke is not None:
+            return [(await store.revoke(revoke, actor="controller-cli")).as_dict()]
+        return [record.as_dict() for record in await store.list()]
+    finally:
+        await engine.dispose()
+
+
+@fabric_app.command("invites")
+def fabric_invites(
+    config: ConfigOption = None,
+    revoke: Annotated[
+        str | None,
+        typer.Option(
+            "--revoke", metavar="INVITE_ID", help="Revoke this unused invite."
+        ),
+    ] = None,
+    json_out: Annotated[
+        bool, typer.Option("--json", help="Machine-readable output.")
+    ] = False,
+) -> None:
+    """List invites (newest first) or revoke one. Codes are never shown again."""
+    import asyncio
+    import json
+
+    from meshforge.common.errors import MeshForgeError
+    from meshforge.common.logging import configure_logging
+
+    settings = _load_settings(config)
+    configure_logging("WARNING", fmt=settings.log.format, component="controller")
+    try:
+        rows = asyncio.run(_invites(settings, revoke))
+    except MeshForgeError as exc:
+        typer.echo(f"{PROG_NAME}: {exc}", err=True)
+        raise typer.Exit(exc.exit_code) from None
+    if json_out:
+        typer.echo(json.dumps({"invites": rows}, indent=2, sort_keys=True))
+        return
+    if revoke is not None:
+        typer.echo(f"revoked {revoke}")
+        return
+    if not rows:
+        typer.echo("no invites")
+        return
+    for row in rows:
+        used = f" by {row['used_by_node']}" if row["used_by_node"] else ""
+        extra = f" replaces {row['replace_node_id']}" if row["replace_node_id"] else ""
+        typer.echo(
+            f"{row['id']}  {row['state']:<8} expires {row['expires_at']}{used}{extra}"
+        )
 
 
 def _server_lifetime(settings: "ControllerSettings") -> "timedelta":

@@ -341,7 +341,10 @@ app.command()(network)
 
 # V0.5 G5: `compute data ...` (named inputs).
 from meshforge.cli.data_commands import data_app  # noqa: E402
+from meshforge.cli.fabric_commands import fabric_app  # noqa: E402
 from meshforge.cli.node_commands import node_app  # noqa: E402
 
 app.add_typer(data_app)
 app.add_typer(node_app)
+# V0.7 G2: `compute fabric invite|invites|join` (join codes, D135/D151).
+app.add_typer(fabric_app)

@@ -51,11 +51,13 @@ from meshforge.common.logging import get_logger
 from meshforge.common.netaddr import BindAddress, parse_bind
 from meshforge.common.proto.meshforge.v1 import agent_pb2, agent_pb2_grpc
 from meshforge.controller.api.auth import ApiAuth
+from meshforge.controller.api.fabric_routes import InviteApi
 from meshforge.controller.api.job_routes import JobApi
 from meshforge.controller.api.network_routes import NetworkApi
 from meshforge.controller.blobs import BlobStore, FetchTokens
 from meshforge.controller.cache_index import CacheIndex, CacheLocationStore
 from meshforge.controller.discovery import ServiceAdvertiser
+from meshforge.controller.enrollment.invites import InviteStore
 from meshforge.controller.fabric_ca import (
     FabricCa,
     ServerCert,
@@ -138,6 +140,10 @@ class ControllerRuntime:
         )
         self.grpc_port: int = 0
         self.http_port: int = 0
+        self.enroll_port: int = 0
+        """V0.7 G2 (D150): the bound port of the TLS enrolment listener; 0 when
+        it is not running (no fabric CA, or ``[controller.enroll] enabled =
+        false``)."""
         self.manager: SessionManager | None = None
         self.registry: Registry | None = None
         self.resources: ResourceTracker | None = None
@@ -466,6 +472,12 @@ class ControllerRuntime:
                     prepare=self.prepare,
                 ),
                 network=NetworkApi(store=network_store, prober=network),
+                invites=InviteApi(
+                    store=InviteStore(engine),
+                    settings=self.settings,
+                    fabric=lambda: self.fabric,
+                    enroll_port=lambda: self.enroll_port,
+                ),
             ),
             host=self._http_bind.host,
             port=self.http_port,

@@ -9,7 +9,8 @@ layers:
 2. *Value scrubbing* (:func:`scrub_text`) of free text: URL credentials,
    ``Bearer``/``Basic`` tokens, ``key=value`` / ``key: value`` pairs whose key is
    sensitive, and PEM private-key blocks (``-----BEGIN ... PRIVATE KEY-----`` up to
-   the matching ``END`` line, or to the end of the text if unclosed).
+   the matching ``END`` line, or to the end of the text if unclosed), and V0.7
+   join codes (``mf1-`` followed by at least 16 code characters).
 
 ``scrub_text`` runs on every string of every log record, so it must be
 **linear-time** on adversarial input (a super-linear scrubber is a
@@ -142,6 +143,12 @@ _PEM_BEGIN_RE: Final = re.compile(
     r"-----BEGIN (?P<label>[A-Z0-9 ]{0,40}PRIVATE KEY)-----"
 )
 _PEM_END_PREFIX: Final = "-----END "
+# V0.7 join codes (``common/join_code.py``): ``mf1-`` + base32 groups. A code is a
+# single-use credential, so its shape is scrubbed wherever it appears (checklist
+# 20). Lookbehind-anchored start + bounded class: linear.
+_JOIN_CODE_RE: Final = re.compile(
+    r"(?<![A-Za-z0-9_])(?P<pre>[Mm][Ff][0-9]-)[A-Za-z0-9][A-Za-z0-9\-]{15,600}"
+)
 _BRACKET_SCAN_LIMIT: Final = 4096
 _CLOSERS: Final = {"{": "}", "[": "]"}
 
@@ -298,6 +305,7 @@ def scrub_text(text: str) -> str:
     if _AUTH_ONLY_RE.fullmatch(text):
         return REDACTED + suffix
     text = _scrub_pem(text)
+    text = _JOIN_CODE_RE.sub(lambda m: f"{m['pre']}{REDACTED}", text)
     text = _URL_CREDS_RE.sub(lambda m: f"{m['pre']}{REDACTED}@", text)
     text = _AUTH_ANY_RE.sub(lambda m: f"{m['scheme']}{m['sp']}{REDACTED}", text)
     return _scrub_kv(text) + suffix

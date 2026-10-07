@@ -37,6 +37,11 @@ from meshforge.controller.api.auth import AUTH_STATE_KEY, ApiAuth, guard_mutatio
 from meshforge.controller.api.blob_routes import BLOBS_STATE_KEY, blob_router
 from meshforge.controller.api.data_routes import data_router
 from meshforge.controller.api.decision_routes import decision_router
+from meshforge.controller.api.fabric_routes import (
+    FABRIC_STATE_KEY_INVITES,
+    InviteApi,
+    fabric_router,
+)
 from meshforge.controller.api.job_routes import JOBS_STATE_KEY, JobApi, job_router
 from meshforge.controller.api.log_routes import log_router
 from meshforge.controller.api.network_routes import (
@@ -67,6 +72,7 @@ def create_http_app(
     jobs: JobApi | None = None,
     cache: CacheLocationStore | None = None,
     network: NetworkApi | None = None,
+    invites: InviteApi | None = None,
 ) -> FastAPI:
     """Build the controller's HTTP app. ``clock`` must be the loop's monotonic clock.
 
@@ -121,4 +127,7 @@ def create_http_app(
     if network is not None:
         setattr(app.state, NETWORK_STATE_KEY, network)
         app.include_router(network_router)  # V0.6 G4 network matrix
+    if invites is not None:
+        setattr(app.state, FABRIC_STATE_KEY_INVITES, invites)
+        app.include_router(fabric_router)  # V0.7 G2 join codes (D135, D151)
     return app

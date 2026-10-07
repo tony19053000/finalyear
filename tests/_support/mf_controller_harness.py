@@ -74,6 +74,8 @@ def controller_section(**overrides: Any) -> ControllerSection:
         # V0.6 G4: no network probes unless a test turns them on - they add
         # peer-server requests and session traffic that other tests count.
         "network": {"enabled": False},
+        # V0.7 G2: the enrolment listener (only when a CA exists) on a free port.
+        "enroll": {"bind": "127.0.0.1:0"},
     }
     base.update(overrides)
     return ControllerSection(**base)

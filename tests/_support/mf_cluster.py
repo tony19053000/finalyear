@@ -686,6 +686,8 @@ class Fabric:
             # V0.6 G4: probes off unless a scenario passes controller_extra
             # {"network": {...}} (they would add traffic other scenarios count).
             "controller.network": {"enabled": False},
+            # V0.7 G2: the enrolment listener (only when a CA exists), free port.
+            "controller.enroll": {"bind": "127.0.0.1:0"},
             **{f"controller.{k}": v for k, v in self._controller_extra.items()},
         }
         path = self.workdir / "controller.toml"

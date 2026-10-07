@@ -241,6 +241,23 @@ class ControllerClient:
         """V0.6 G4: ``GET /v1/network`` (the measured network matrix)."""
         return self._get("/v1/network")
 
+    # V0.7 G2 join codes (D135, D151: fabric token = interim admin)
+    def create_invite(
+        self, *, ttl_s: int | None, replace_node_id: str | None
+    ) -> Mapping[str, Any]:
+        body: dict[str, Any] = {}
+        if ttl_s is not None:
+            body["ttl_s"] = ttl_s
+        if replace_node_id is not None:
+            body["replace_node_id"] = replace_node_id
+        return self._request("POST", "/v1/fabric/invites", json_body=body)
+
+    def invites(self) -> Mapping[str, Any]:
+        return self._get("/v1/fabric/invites")
+
+    def revoke_invite(self, invite_id: str) -> Mapping[str, Any]:
+        return self._request("POST", f"/v1/fabric/invites/{invite_id}/revoke")
+
     def logs(self, job_id: str, *, stream: str) -> tuple[bytes, Mapping[str, str]]:
         """The persisted log bytes and the response headers."""
         path = f"/v1/jobs/{job_id}/logs"

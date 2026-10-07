@@ -39,6 +39,7 @@ from meshforge.controller.store.settings import DatabaseSettings
 
 __all__ = [
     "BLOBS_DIR_NAME",
+    "DEFAULT_ENROLL_PORT",
     "DEFAULT_GRPC_PORT",
     "DEFAULT_HTTP_PORT",
     "DEFAULT_SERVICE_TYPE",
@@ -47,6 +48,7 @@ __all__ = [
     "ControllerSection",
     "ControllerSettings",
     "DiscoverySettings",
+    "EnrollSettings",
     "GcSettings",
     "JobApiSettings",
     "LivenessSettings",
@@ -57,6 +59,8 @@ __all__ = [
 ]
 
 DEFAULT_GRPC_PORT = 47100
+DEFAULT_ENROLL_PORT = 47101
+"""V0.7 G2 (D150): the interim TLS enrolment listener (gone in G3)."""
 DEFAULT_HTTP_PORT = 47110
 DEFAULT_SERVICE_TYPE = "_meshforge-ctl._tcp.local."
 """DNS-SD service type advertised for agents (must match ``[agent.discovery]``)."""
@@ -749,6 +753,102 @@ class TlsSettings(SectionModel):
         return tuple(host.strip() for host in value)
 
 
+def split_host_port(value: str) -> tuple[str, int]:
+    """``host:port`` / ``[v6]:port`` with a DNS name or IP and port 1-65535."""
+    raw = value.strip()
+    if raw.startswith("["):
+        host, sep, rest = raw[1:].partition("]")
+        port_text = rest[1:] if sep and rest.startswith(":") else ""
+    else:
+        host, _, port_text = raw.rpartition(":")
+        if ":" in host:
+            host = ""
+    if not host or not port_text.isdigit() or not 1 <= int(port_text) <= 65535:
+        raise ValueError(
+            f"{value!r} must be host:port (port 1-65535; bracket IPv6), e.g. "
+            "192.168.1.10:47101"
+        )
+    try:
+        validate_san_host(host)
+    except PkiError as exc:
+        raise ValueError(exc.message) from None
+    return host, int(port_text)
+
+
+class EnrollSettings(SectionModel):
+    """``[controller.enroll]`` - where laptops join (V0.7 G2, D135/D150).
+
+    G2 serves ``Enroll`` on its **own TLS listener** (server cert from the
+    fabric CA, no client certificate asked) while the session port stays
+    plaintext; V0.7 G3 folds it into the session port. The listener starts only
+    when a fabric CA exists (``meshforge-controller fabric create``).
+    """
+
+    enabled: bool = Field(
+        default=True, description="Serve Enroll (when a fabric CA exists)."
+    )
+    bind: str | None = Field(
+        default=None,
+        description=(
+            "ip:port of the enrolment listener. Empty = the grpc_bind host on "
+            f"port {DEFAULT_ENROLL_PORT}. Same LAN/loopback rule as grpc_bind."
+        ),
+    )
+    advertise: str | None = Field(
+        default=None,
+        description=(
+            "host:port written into join codes. Empty = the bind address (a "
+            "wildcard bind then needs this, or `invite --address`)."
+        ),
+    )
+    invite_ttl_s: int = Field(
+        default=900,
+        ge=60,
+        le=86_400,
+        description="Default life of a join code (D135: 15 min; 1 min - 24 h).",
+    )
+    rate_per_minute: float = Field(
+        default=10.0,
+        gt=0,
+        le=600,
+        description=(
+            "Enrol attempts allowed per source IP per minute (token bucket); "
+            "more are refused RESOURCE_EXHAUSTED without touching the database."
+        ),
+    )
+    rate_burst: int = Field(
+        default=5,
+        ge=1,
+        le=100,
+        description="Attempts a source IP may make at once before the rate applies.",
+    )
+    max_tracked_sources: int = Field(
+        default=4096,
+        ge=16,
+        le=1_000_000,
+        description=(
+            "Source IPs the rate limiter remembers (oldest forgotten first; a "
+            "forgotten IP starts with a full bucket)."
+        ),
+    )
+
+    @field_validator("bind")
+    @classmethod
+    def _bind_shape(cls, value: str | None) -> str | None:
+        if value is None or not value.strip():
+            return None
+        parse_bind(value, allow_any=True)
+        return value.strip()
+
+    @field_validator("advertise")
+    @classmethod
+    def _advertise_shape(cls, value: str | None) -> str | None:
+        if value is None or not value.strip():
+            return None
+        split_host_port(value)
+        return value.strip()
+
+
 class DiscoverySettings(SectionModel):
     """``[controller.discovery]`` - mDNS advertisement of the gRPC listener (0.3.9).
 
@@ -1027,6 +1127,7 @@ class ControllerSection(SectionModel):
     network: NetworkSettings = Field(default_factory=NetworkSettings)
     api: ApiSettings = Field(default_factory=ApiSettings)
     tls: TlsSettings = Field(default_factory=TlsSettings)
+    enroll: EnrollSettings = Field(default_factory=EnrollSettings)
 
     @field_validator("grpc_bind", "http_bind")
     @classmethod
@@ -1081,7 +1182,17 @@ class ControllerSection(SectionModel):
     def _binds_allowed(self) -> ControllerSection:
         parse_bind(self.grpc_bind, allow_any=self.allow_any_bind)
         parse_bind(self.http_bind, allow_any=self.allow_any_bind)
+        parse_bind(self.enroll_bind, allow_any=self.allow_any_bind)
         return self
+
+    @property
+    def enroll_bind(self) -> str:
+        """``[controller.enroll] bind`` or ``<grpc_bind host>:47101`` (D150)."""
+        if self.enroll.bind is not None:
+            return self.enroll.bind
+        host = parse_bind(self.grpc_bind, allow_any=True).host
+        host = f"[{host}]" if ":" in host else host
+        return f"{host}:{DEFAULT_ENROLL_PORT}"
 
     def accepts_protocol_version(self, version: int) -> bool:
         lo, hi = self.accepted_protocol_versions
@@ -1121,7 +1232,7 @@ class ControllerSettings(MeshForgeSettings):
         """SAN hosts of the controller's server certificate (``[controller.tls]``)."""
         cfg = self.controller
         return server_cert_hosts(
-            [cfg.grpc_bind, cfg.http_bind],
+            [cfg.grpc_bind, cfg.http_bind, cfg.enroll_bind],
             advertise_url=cfg.api.advertise_url,
             extra=cfg.tls.extra_sans,
         )

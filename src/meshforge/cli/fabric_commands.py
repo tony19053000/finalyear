@@ -1,0 +1,208 @@
+"""``compute fabric invite|invites|join`` (V0.7 G2, D135, D136, D151).
+
+* ``invite [--ttl 15m] [--replace NODE_ID] [--json]`` - ``POST
+  /v1/fabric/invites``: prints the single-use join code on stdout (once; the
+  controller keeps only its hash) and its facts on stderr.
+* ``invites [--revoke INVITE_ID] [--json]`` - list (never codes) or revoke.
+* ``join [CODE] [--force]`` - on a laptop that runs an agent, the same as
+  ``meshforge-agent join``: ``compute`` may not import the agent
+  (lint-imports), so it runs the installed ``meshforge-agent`` and hands it the
+  code on **stdin** (never in its argv, which other local users can read). With
+  no agent installed it says so and exits ``CONFIG_ERROR``.
+
+``invite``/``invites`` need the fabric token (``--token-file``, ``[cli] token``):
+it is the interim admin credential until V0.7 G4 (D151).
+"""
+
+from __future__ import annotations
+
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+from typing import Annotated, Any
+
+import typer
+
+from meshforge.cli import app as cli
+from meshforge.common.errors import ExitCode, MeshForgeError
+
+__all__ = ["agent_command", "fabric_app"]
+
+fabric_app = typer.Typer(
+    name="fabric",
+    help="Invite laptops into the fabric and join one (V0.7).",
+    no_args_is_help=True,
+)
+
+_AGENT = "meshforge-agent"
+
+
+def _ttl(text: str | None) -> int | None:
+    from meshforge.common.join_code import parse_ttl
+
+    if text is None:
+        return None
+    try:
+        return parse_ttl(text)
+    except ValueError as exc:
+        cli._die(f"--ttl: {exc}", ExitCode.USAGE_ERROR)
+
+
+@fabric_app.command("invite")
+def invite(
+    ttl: Annotated[
+        str | None,
+        typer.Option(
+            "--ttl", help="How long the code works: 90s, 15m, 2h (1 min - 24 h)."
+        ),
+    ] = None,
+    replace: Annotated[
+        str | None,
+        typer.Option(
+            "--replace",
+            metavar="NODE_ID",
+            help="Let this code re-key an already enrolled node.",
+        ),
+    ] = None,
+    json_output: cli.JsonOption = False,
+) -> None:
+    """Make a single-use join code for one new laptop."""
+    from meshforge.common.ids import validate_node_id
+
+    if replace is not None:
+        try:
+            validate_node_id(replace)
+        except MeshForgeError:
+            cli._die("--replace needs a node id (node_...)", ExitCode.USAGE_ERROR)
+    ttl_s = _ttl(ttl)
+    settings = cli._settings()
+    with cli._client(settings) as client:
+        issued = cli._fetch(
+            lambda: client.create_invite(ttl_s=ttl_s, replace_node_id=replace)
+        )
+    if json_output:
+        cli._echo_json(issued)
+        return
+    typer.echo(str(issued.get("code", "")))
+    for label, key in (
+        ("invite:    ", "invite_id"),
+        ("controller:", "address"),
+        ("CA pin:    ", "ca_pin"),
+        ("expires:   ", "expires_at"),
+        ("replaces:  ", "replace_node_id"),
+    ):
+        value = issued.get(key)
+        if value:
+            typer.echo(f"{label} {_printable(value)}", err=True)
+    typer.echo(
+        "On the new laptop: meshforge-agent join   (paste the code when asked)",
+        err=True,
+    )
+
+
+def _printable(value: Any) -> str:
+    return "".join(ch if ch.isprintable() else " " for ch in str(value))[:200]
+
+
+@fabric_app.command("invites")
+def invites(
+    revoke: Annotated[
+        str | None,
+        typer.Option("--revoke", metavar="INVITE_ID", help="Revoke this invite."),
+    ] = None,
+    json_output: cli.JsonOption = False,
+) -> None:
+    """List invites (newest first; codes are never shown again) or revoke one."""
+    from meshforge.common.ids import validate_invite_id
+
+    if revoke is not None:
+        try:
+            validate_invite_id(revoke)
+        except MeshForgeError:
+            cli._die("--revoke needs an invite id (inv_...)", ExitCode.USAGE_ERROR)
+    settings = cli._settings()
+    with cli._client(settings) as client:
+        if revoke is not None:
+            row = cli._fetch(lambda: client.revoke_invite(revoke))
+            if json_output:
+                cli._echo_json(row)
+            else:
+                typer.echo(f"revoked {_printable(row.get('id'))}")
+            return
+        payload = cli._fetch(client.invites)
+    if json_output:
+        cli._echo_json(payload)
+        return
+    rows = [r for r in payload.get("invites") or [] if isinstance(r, dict)]
+    if not rows:
+        typer.echo("no invites")
+        return
+    for row in rows:
+        used = f" by {row['used_by_node']}" if row.get("used_by_node") else ""
+        extra = (
+            f" replaces {row['replace_node_id']}" if row.get("replace_node_id") else ""
+        )
+        typer.echo(
+            _printable(
+                f"{row.get('id')}  {row.get('state', '?'):<8} expires "
+                f"{row.get('expires_at')}{used}{extra}"
+            )
+        )
+
+
+def agent_command() -> list[str] | None:
+    """How to run this laptop's ``meshforge-agent``, or ``None`` if none is
+    installed (on ``PATH``, or next to this interpreter in its environment)."""
+    found = shutil.which(_AGENT)
+    if found:
+        return [found]
+    suffix = ".exe" if os.name == "nt" else ""
+    beside = Path(sys.executable).with_name(_AGENT + suffix)
+    if beside.is_file():
+        return [str(beside)]
+    return None
+
+
+@fabric_app.command("join")
+def join(
+    code: Annotated[
+        str | None,
+        typer.Argument(
+            metavar="[CODE]",
+            help="The join code; omit it to be asked (keeps it out of shell "
+            "history and the process list).",
+        ),
+    ] = None,
+    force: Annotated[
+        bool,
+        typer.Option("--force", help="Replace this laptop's existing enrolment."),
+    ] = False,
+    config: Annotated[
+        Path | None,
+        typer.Option(
+            "--config", help="The agent's TOML settings file.", dir_okay=False
+        ),
+    ] = None,
+) -> None:
+    """Join this laptop's agent to a fabric (runs `meshforge-agent join`)."""
+    command = agent_command()
+    if command is None:
+        cli._die(
+            "no MeshForge agent is installed on this laptop, so there is nothing "
+            "to join: install it (see docs/OPERATIONS.md) and run "
+            "`meshforge-agent join` - `compute` itself needs no certificate",
+            ExitCode.CONFIG_ERROR,
+        )
+    if code is None:
+        code = typer.prompt("join code", hide_input=True)
+    argv = [*command, "join", "-"]
+    if force:
+        argv.append("--force")
+    if config is not None:
+        argv += ["--config", str(config)]
+    result = subprocess.run(  # noqa: S603 - our own agent binary, fixed arguments
+        argv, input=code.strip() + "\n", text=True, check=False
+    )
+    raise typer.Exit(result.returncode)
