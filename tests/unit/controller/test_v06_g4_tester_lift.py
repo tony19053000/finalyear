@@ -176,12 +176,6 @@ def _two_reasons_scenario() -> None:
     assert chosen is not None and chosen.node_id == "g-big"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-6: exclusions() keeps the OLDEST failure type per node, so a "
-    "node_lost followed by vram_oom is lifted in the node_lost tier (D129 "
-    "says vram_oom last)",
-)
 def test_mixed_tier_label_is_the_strongest_reason_not_the_oldest() -> None:
     _two_reasons_scenario()
 

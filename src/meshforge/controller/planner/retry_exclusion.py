@@ -31,7 +31,11 @@ lift rule** (V0.6 G4, replacing G3's all-or-nothing lift):
    node that would fail the job again for the same reason.
 
 The result maps ``node_id -> failure type`` so ``compute explain`` can say why
-a node was skipped.
+a node was skipped. A node that failed the job in more than one way carries
+its **strongest** reason - the one lifted last (``disk_full``, then
+``vram_oom``, then transfer/integrity, then lost/timeout) - whatever the order
+of the attempts: a GPU that was lost once and later ran out of VRAM is a
+``vram_oom`` node, lifted in the last tier (tester r1 T-6).
 """
 
 from __future__ import annotations
@@ -66,6 +70,22 @@ LIFT_ORDER: Final[tuple[frozenset[str], ...]] = (
 excluded (module docstring, rule 3)."""
 NEVER_LIFTED: Final = frozenset({"disk_full"})
 """D129: excluded until the window ends, never lifted early (rule 4)."""
+
+
+def _strength(failure_type: str) -> int:
+    """How late ``failure_type`` is lifted: its tier in :data:`LIFT_ORDER`,
+    above them all for :data:`NEVER_LIFTED`."""
+    for tier, types in enumerate(LIFT_ORDER):
+        if failure_type in types:
+            return tier
+    return len(LIFT_ORDER)
+
+
+def _label(out: dict[str, str], node_id: str, failure_type: str) -> None:
+    """Record ``failure_type`` for ``node_id`` unless a stronger one is known."""
+    known = out.get(node_id)
+    if known is None or _strength(failure_type) > _strength(known):
+        out[node_id] = failure_type
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,9 +131,9 @@ def exclusions(
     for failure in past:
         if failure.failure_type in EXCLUDE_NODE_FOR:
             if failure.ended_at is None or failure.ended_at + window > now:
-                out.setdefault(failure.node_id, failure.failure_type)
+                _label(out, failure.node_id, failure.failure_type)
         elif failure.failure_type == _VRAM_OOM:
-            out.setdefault(failure.node_id, _VRAM_OOM)
+            _label(out, failure.node_id, _VRAM_OOM)
             used = _vram_used(failure, by_id.get(failure.node_id))
             if used > 0:
                 vram_floor = max(vram_floor or 0, used)
@@ -121,5 +141,5 @@ def exclusions(
         for node in nodes:
             largest = _largest_vram(node)
             if node.gpu_vram_bytes and 0 < largest <= vram_floor:
-                out.setdefault(node.node_id, _VRAM_OOM)
+                _label(out, node.node_id, _VRAM_OOM)
     return dict(sorted(out.items()))

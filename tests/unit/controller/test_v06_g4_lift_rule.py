@@ -216,3 +216,49 @@ def test_the_lift_is_deterministic(policy: str) -> None:
     first = plan(req, snap, policy)
     assert first.chosen is not None and first.chosen.node_id == "b"
     assert all(plan(req, snap, policy) == first for _ in range(5))
+
+
+# ------------------------------------------- fix round 1: the label (T-6)
+
+
+@pytest.mark.parametrize(
+    ("kinds", "label"),
+    [
+        (("node_lost", "vram_oom"), "vram_oom"),
+        (("vram_oom", "node_lost"), "vram_oom"),
+        (("timeout", "transfer_error"), "transfer_error"),
+        (("integrity_error", "node_lost"), "integrity_error"),
+        (("node_lost", "disk_full"), "disk_full"),
+        (("disk_full", "vram_oom", "timeout"), "disk_full"),
+        (("node_lost", "timeout"), "node_lost"),  # same tier: the first stays
+    ],
+)
+def test_a_node_carries_its_strongest_reason_in_any_attempt_order(
+    kinds: tuple[str, ...], label: str
+) -> None:
+    """Tester T-6: the label decides the D129 tier a node is lifted in, so it
+    is the reason lifted *last*, not the oldest attempt's."""
+    past = [failed("g", kind, 50 - i) for i, kind in enumerate(kinds)]
+    out = exclusions(past, (gpu("g", 8),), now=NOW, exclude_s=WINDOW)
+    assert out == {"g": label}
+
+
+def test_an_expired_window_does_not_hide_a_lasting_vram_oom() -> None:
+    """node_lost 20 min ago (window over) then vram_oom: still ``vram_oom``;
+    and a vram_oom label is not weakened by a newer node_lost."""
+    past = [failed("g", "node_lost", 1200), failed("g", "vram_oom", 900)]
+    assert exclusions(past, (gpu("g", 8),), now=NOW, exclude_s=WINDOW) == {
+        "g": "vram_oom"
+    }
+    past.append(failed("g", "node_lost", 5))
+    assert exclusions(past, (gpu("g", 8),), now=NOW, exclude_s=WINDOW) == {
+        "g": "vram_oom"
+    }
+
+
+def test_a_smaller_gpu_excluded_by_the_vram_floor_keeps_a_stronger_own_reason() -> None:
+    """``s`` (8 GB) had disk_full itself; ``b`` (16 GB) ran out of VRAM, which
+    excludes ``s`` too - its label stays ``disk_full`` (never lifted)."""
+    past = [failed("s", "disk_full", 30), failed("b", "vram_oom", 10)]
+    out = exclusions(past, (gpu("b", 16), gpu("s", 8)), now=NOW, exclude_s=WINDOW)
+    assert out == {"b": "vram_oom", "s": "disk_full"}
