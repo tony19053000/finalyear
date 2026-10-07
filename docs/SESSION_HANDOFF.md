@@ -265,7 +265,7 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
-**2026-10-08 — V0.7 G2 STARTED:** brief §5b + D150/D151 written (`f17f623`); G2 implementer DONE (`75e5d7d`..`ee7ac57`, exit list green; deviations 1-8 in progress file hand-off) → G2 tester r1 RUNNING. If it died: re-spawn tester on brief §5b + that range.
+**2026-10-08 — V0.7 G2 STARTED:** brief §5b + D150/D151 written (`f17f623`); G2 implementer DONE (`75e5d7d`..`ee7ac57`, exit list green; deviations 1-8 in progress file hand-off) → tester r1 FAIL (`bfe7a84`: T-1 major IPv6 rate limit bypass, T-2/T-3 minor; ruling D152) → G2 fix round 1 RUNNING (implementer). Then tester r2 → reviewer.
 
 **2026-10-08 — V0.7 G1 CLOSED** (0.7.1, 0.7.2 `[x]`, reviewer APPROVE). Next: Lead writes brief §5b (G2 pairing, D135/D136 + D149 item 0), then G2 implementer. Rulings D147–D149 in the brief. Nothing in flight.
 
