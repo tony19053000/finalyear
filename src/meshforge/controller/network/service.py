@@ -12,7 +12,11 @@ into ``network_link``.
   outage must not make the prober spin. The chosen source
   gets ``ProbeRequest`` ("ProbeLink") with the target's endpoint and a probe
   token signed for ``(requester = source, holder = target)``, ``token_ttl_s``
-  long. A command that cannot be queued frees the pair at once.
+  long. A command that cannot be queued frees both nodes at once (they may
+  take part in another pair's probe on the next tick) and charges nothing
+  against the budget, but the pair's own interval keeps running: that pair is
+  tried again only after ``probe_interval_s`` (a node whose session cannot
+  take a command is not re-asked every tick).
 * **Result.** ``NetProbeResult`` arrives on the source's session (a report:
   acked by the session layer, replayed after a reconnect). It counts only from
   the session of the node the probe was sent to and for its target; anything

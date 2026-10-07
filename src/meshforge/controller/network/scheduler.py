@@ -237,8 +237,10 @@ class ProbeScheduler:
         return flight
 
     def abort(self, probe_id: str) -> None:
-        """The command could not be sent: nothing moved, the pair may be tried
-        again after its interval."""
+        """The command could not be sent: the two nodes are free at once and
+        nothing is charged against the budget, but the pair's "last probed"
+        stays set by :meth:`pick` - it is tried again only after its
+        interval."""
         flight = self.in_flight.pop(probe_id, None)
         if flight is not None:
             self.started -= 1

@@ -273,6 +273,26 @@ def test_abort_frees_without_charging() -> None:
     assert s.spent(due(s)) == 0 and s.started == 0
 
 
+def test_abort_frees_the_nodes_at_once_but_the_pair_keeps_its_interval() -> None:
+    """The documented abort contract (service docstring, G4 fix round 2): the
+    two nodes may take part in another pair's probe on the next tick, the
+    aborted pair itself waits out ``interval_s``."""
+    s = sched()
+    pool = nodes("a", "b")
+    picked_at = due(s)
+    first = s.pick(pool, picked_at)
+    assert first is not None
+    s.abort(first.probe_id)
+    second = s.pick(pool, due(s))
+    assert second is not None
+    assert (second.src, second.dst) == (first.dst, first.src)
+    s.finish(second.probe_id, 1, due(s))
+    while due(s) < picked_at + CFG.interval_s:
+        assert s.pick(pool, due(s)) is None
+    again = s.pick(pool, due(s))
+    assert again is not None and (again.src, again.dst) == (first.src, first.dst)
+
+
 def test_same_seed_same_choices() -> None:
     def run(seed: int) -> list[tuple[str, str, str]]:
         s = sched(seed=seed)
