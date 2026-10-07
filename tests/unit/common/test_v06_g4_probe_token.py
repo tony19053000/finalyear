@@ -119,3 +119,24 @@ def test_oversized_and_garbage_tokens() -> None:
     for bad in ("", "x" * 600, "abc", "a.b"):
         with pytest.raises(PeerTokenError):
             verify_probe_token(PUB, bad, holder=B, now=NOW)
+
+
+def test_the_holder_refuses_a_correctly_signed_token_that_lives_too_long() -> None:
+    """The 60 s bound is checked by the verifier too (not only where tokens
+    are signed): a key holder that signs a 5 minute probe token gets nowhere."""
+
+    def signed(exp: int) -> str:
+        body = {"exp": exp, "hold": B, "kind": "probe", "req": A, "v": 1}
+        payload = json.dumps(body, sort_keys=True, separators=(",", ":")).encode()
+
+        def b64(raw: bytes) -> str:
+            return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
+
+        return f"{b64(payload)}.{b64(KEY.sign(payload))}"
+
+    limit = int(NOW) + PROBE_MAX_TTL_S + SKEW_S
+    assert verify_probe_token(PUB, signed(limit), holder=B, now=NOW).exp == limit
+    for exp in (limit + 1, int(NOW) + 300):
+        with pytest.raises(PeerTokenError) as exc:
+            verify_probe_token(PUB, signed(exp), holder=B, now=NOW)
+        assert _reason(exc) == "too_long"
