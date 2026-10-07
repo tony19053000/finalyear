@@ -117,10 +117,57 @@ meshforge-controller fabric show          # any time; --json for scripts
   want the new CA. If several `.ca.old-*` folders exist and `ca/` is missing, nothing
   is touched and the command names them: rename the one you want to `ca` by hand
   (the newest is usually right; `fabric show` then confirms its fingerprint).
-- **Not enforced yet (V0.7 G1):** every port is still plaintext and the fabric token
-  above still protects REST; agents cannot join yet (G2), TLS/mTLS and revocation
-  come in G3, per-user logins in G4. `fabric show` says `tls_enforced: false`
-  until then. Before G3 lands, every lab laptop will have to re-join once.
+- **Not enforced yet (V0.7 G1/G2):** every port except the enrolment port is still
+  plaintext and the fabric token above still protects REST; laptops can join (§0a3)
+  but a laptop that has not joined still connects. TLS/mTLS and revocation come in
+  G3, per-user logins in G4. `fabric show` says `tls_enforced: false` until then.
+  Before G3 lands, every lab laptop must have joined once.
+
+### 0a3. Joining a laptop to the fabric (V0.7 G2, D135/D136)
+
+On the **controller laptop** (needs the CA from §0a2 and the database), make one
+code per laptop:
+
+```bash
+meshforge-controller fabric invite            # prints ONE code: mf1-xxxxx-xxxxx-...
+meshforge-controller fabric invite --ttl 2h   # 1 min - 24 h, default 15 min
+compute fabric invite                         # same, over REST, from any laptop with the fabric token
+meshforge-controller fabric invites           # list (never shows codes again); --revoke inv_... to cancel
+```
+
+On the **new laptop**:
+
+```bash
+meshforge-agent join            # paste the code at the hidden prompt (keeps it out of history)
+meshforge-agent identity show   # enrolled: True, fabric_id, cert_not_after
+```
+
+- **What the code is:** the controller's enrolment address, a single-use secret and
+  the first half of the CA fingerprint (the "CA pin" printed with it). The laptop
+  checks the controller's CA against the pin **before** it sends the secret; a
+  fake controller learns nothing. Treat the code like a password until it is used
+  or expires; it works once.
+- **The address in the code** is `[controller.enroll] advertise`, else the
+  enrolment bind address (default: the `grpc_bind` IP, port **47101**; open it in
+  the firewall like 47100). If the controller binds `0.0.0.0`, set
+  `[controller.enroll] advertise = "192.168.1.10:47101"` or pass `--address`.
+- **Reinstalled laptop / new key:** if a laptop kept its `node_id` but has a new
+  key, a normal code is refused `node_key_conflict`; make one with
+  `fabric invite --replace <node_id>`. To re-join with the same key (e.g. after
+  deleting the certificate) use `meshforge-agent join --force` with a new code.
+- **The certificate** (`node.crt`, valid 30 days) and the CA (`ca.crt`) sit beside
+  `node.key` in the agent's identity folder, owner-only. `identity reset` removes
+  them too (the node gets a new `node_id` and must join again).
+
+| Message on the laptop | Meaning | Fix |
+|---|---|---|
+| `this is not a valid code (a character is wrong)` / `wrong length` | typo or truncated copy | copy the whole code again |
+| `does not hold the fabric CA your code names` (`pin_mismatch`) | wrong address, another fabric, or the CA was replaced after the code was made | check the address; ask for a new code |
+| `refused ... (token_used / token_expired / token_revoked)` | the code was already used, ran out, or was cancelled | ask for a new code |
+| `refused ... (node_key_conflict)` | this `node_id` is enrolled with another key | admin: `fabric invite --replace <node_id>` |
+| `refused ... (rate_limited)` | too many attempts from this address | wait a minute |
+| `already enrolled` (exit 5) | this laptop joined before; the code was not used | `meshforge-agent join --force` if you mean to re-join |
+| `cannot reach the controller` (exit 6) | controller down, wrong IP, firewall on 47101 | start it / open the port |
 
 ### 0b. Running other people's jobs on this laptop (V0.4, D45/D51 — [ADR-0014](adr/0014-interim-execution-trust.md))
 
