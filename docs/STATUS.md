@@ -2,7 +2,7 @@
 
 > Concise current state. Long-term plan: [`DEVELOPMENT_ROADMAP.md`](DEVELOPMENT_ROADMAP.md). Update at the end of every work session.
 
-**Last updated:** 2026-10-07 (**V0.6 G1–G3 CLOSED**; **G4 fix round 1 running (exit list) — next: tester r2**; V0.5 closes on 🧑 0.5.11 lab; one agent at a time)
+**Last updated:** 2026-10-07 (**V0.6 G1–G3 CLOSED**; **G4 fix round 1 stopped during its exit list — next: finish the exit list**; V0.5 closes on 🧑 0.5.11 lab; one agent at a time)
 
 ## Progress
 
@@ -42,6 +42,8 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 > V0.10. 129 tasks vs 140–180 capacity → **~1.5 tasks/session**. Needs the other three team members' approval.
 
 ## Current Task
+**2026-10-07 16:52 — V0.6 G4 fix round 1 stopped by the user during its exit list; nothing running, tree clean.** Fixes committed up to `430d2e3`. Still owed: whole component exit 0, cluster, chaos 11/22/33 ×50, hand-off report. Next: fresh implementer for the exit list only → tester r2 → reviewer → close 0.6.4/0.6.6. See handoff §2 top UPDATE.
+
 **2026-10-07 16:50 — V0.6 G4 fix round 1 resumed and running** (`24caac4`..`430d2e3`): all tester defects fixed in code, flaky tests a–d fixed, unit 7524 exit 0; whole component run 1 exit 1 (2 failures, both fixed in tests `a187b77` `f956ffa`), run 2 in progress; cluster + chaos still to run. Next: its hand-off → tester r2 → reviewer → close 0.6.4/0.6.6. See handoff §2 top UPDATE.
 
 **2026-10-07 — V0.6 G4: resume implementer done → tester r1 FAIL (T-1..T-14; D130–D132) → fix round 1 STOPPED by the user mid-run.** Fixes for T-1..T-14 and flaky tests a–c are committed (`5a8e685`..`82b90e6` + wip `596639c`) but unverified: no exit list has run since. Remaining: flaky d, D131 test file, xfail clean-up, mutation checks, full exit list. **Next: resume G4 fix round 1** → tester r2 → reviewer → close 0.6.4/0.6.6. Whole component tier has not exited 0 at any G4 HEAD (3 runs, pre-existing flakes). See handoff §2 top UPDATE.
