@@ -140,6 +140,59 @@ async def test_probes_fill_the_matrix_both_ways(
     assert "probes: on" in out.stdout
 
 
+async def test_a_link_older_than_stale_after_is_shown_stale_with_its_age(
+    runtime: ControllerRuntime,
+    pair: tuple[ExecAgent, ExecAgent],
+    pg_settings: Any,
+    tmp_path: Path,
+) -> None:
+    """``GET /v1/network`` and ``compute network`` age a real probed row: the
+    pair measured two hours ago is ``stale`` (the other one is not)."""
+    a, b = pair
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        if len((await _network(runtime))["links"]) >= 2:
+            break
+        await asyncio.sleep(0.2)
+    engine = create_engine(pg_settings)
+    try:
+        async with engine.begin() as conn:
+            done = await conn.execute(
+                text(
+                    "UPDATE network_link SET measured_at = measured_at - "
+                    "interval '2 hours' WHERE src_node_id = :s AND dst_node_id = :d"
+                ),
+                {"s": a.node_id, "d": b.node_id},
+            )
+        assert done.rowcount == 1
+    finally:
+        await engine.dispose()
+    payload = await _network(runtime)
+    assert payload["stale_after_s"] == 3600.0
+    by_pair = {(x["src_node_id"], x["dst_node_id"]): x for x in payload["links"]}
+    old, fresh = by_pair[(a.node_id, b.node_id)], by_pair[(b.node_id, a.node_id)]
+    assert old["stale"] is True and 7200 <= old["age_s"] < 7200 + 120
+    assert fresh["stale"] is False and fresh["age_s"] < 120
+    out = await asyncio.to_thread(
+        subprocess.run,
+        [sys.executable, "-m", "meshforge.cli", "network"],
+        env={
+            **{k: v for k, v in os.environ.items() if not k.startswith("MESHFORGE_")},
+            "MESHFORGE_CLI__CONTROLLER_URL": f"http://127.0.0.1:{runtime.http_port}",
+            "MESHFORGE_CLI__TOKEN": token_of(runtime),
+            "MESHFORGE_DATA_DIR": str(tmp_path / "no-agent-here"),
+            "XDG_CONFIG_HOME": str(tmp_path / "cli-config"),
+            "COLUMNS": "250",
+        },
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.count("(stale)") == 1 and "2.0h (stale)" in out.stdout
+
+
 async def test_the_probe_route_checks_token_kind_holder_and_size(
     runtime: ControllerRuntime, pair: tuple[ExecAgent, ExecAgent]
 ) -> None:

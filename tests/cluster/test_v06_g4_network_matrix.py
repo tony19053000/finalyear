@@ -81,10 +81,15 @@ def test_probes_fill_the_matrix_and_survive_kills(
     assert set(links) == {(a, b) for a in ids for b in ids if a != b}
     for link in links.values():
         assert link["bw_bytes_s"] > 1e6 and not link["stale"]
+        assert link["source"] == "measured" and link["samples"] >= 1
+        assert 0 <= link["age_s"] < 120  # measured in this run, aged by REST
 
     # SIGKILL one agent: its node goes offline, the others keep probing
     victim = fabric.nodes[0]
     victim.kill()
+    # only once it is OFFLINE are its probes in flight given up (before that a
+    # probe naming it may legitimately still be waiting for its timeout)
+    fabric.wait_state(victim, "offline", within=30.0)
     survivors = [n.node_id for n in fabric.nodes[1:]]
     pair = (survivors[0], survivors[1])
     before = links[pair]["samples"]
@@ -97,6 +102,7 @@ def test_probes_fill_the_matrix_and_survive_kills(
             else {}
         )
         if pair in now and now[pair]["samples"] > before:
+            assert now[pair]["measured_at"] > links[pair]["measured_at"]
             break
         time.sleep(0.3)
     else:
@@ -106,6 +112,10 @@ def test_probes_fill_the_matrix_and_survive_kills(
     assert all(
         victim.node_id not in (f["src_node_id"], f["dst_node_id"])
         for f in payload["prober"]["in_flight"]
+    ), payload["prober"]
+    assert payload["prober"]["enabled"] is True
+    assert (
+        payload["prober"]["budget_used_bytes"] <= NETWORK["probe_budget_bytes_per_min"]
     )
 
     # controller SIGKILL + restart: the matrix is still there and grows

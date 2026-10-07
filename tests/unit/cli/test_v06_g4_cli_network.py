@@ -3,16 +3,24 @@
 * rates in decimal units, ages in s/m/h, ``-`` for anything not a number;
 * the matrix has one row and column per node seen, ``x`` on the diagonal,
   ``(stale)`` and ``fail:<code>`` marked, control characters flattened;
+* the command itself (real client and renderer, faked transport): matrix with
+  ages, stale mark, legend, controller links, status line; nothing measured;
+  ``--json``; a link with non-numeric fields prints dashes, never a traceback;
 * an explain transfer cell names where its bandwidth came from.
 """
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
+import httpx
+import pytest
+from mf_cli_support import TransportFactory
 from rich.console import Console
+from typer.testing import CliRunner
 
-import meshforge.cli.app  # noqa: F401 - the command modules import it back
+from meshforge.cli.app import app
 from meshforge.cli.explain_commands import _term_cell
 from meshforge.cli.network_commands import format_age, format_rate, matrix_table
 
@@ -80,3 +88,120 @@ def test_explain_cells_name_the_bandwidth_source() -> None:
     }
     assert _term_cell(stale) == "8.00s (assumed, 2 stale probe(s) ignored)"
     assert _term_cell(None) == "-"
+
+
+# ------------------------------------------------- the command, end to end
+
+
+def _serve(payload: Any, seen: list[str] | None = None) -> Any:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if seen is not None:
+            seen.append(f"{request.method} {request.url.path}")
+        return httpx.Response(200, json=payload)
+
+    return handler
+
+
+PROBER = {
+    "enabled": True,
+    "started": 4,
+    "measured": 3,
+    "failed": 1,
+    "timed_out": 0,
+    "dropped": 0,
+    "in_flight": [],
+    "budget_bytes_per_min": 48 * 1024 * 1024,
+    "budget_used_bytes": 12 * 1024 * 1024,
+}
+
+
+def test_compute_network_prints_the_matrix_ages_and_status(
+    runner: CliRunner, controller: TransportFactory
+) -> None:
+    seen: list[str] = []
+    payload = {
+        "stale_after_s": 3600,
+        "links": [
+            {
+                "src_node_id": A,
+                "dst_node_id": B,
+                "bw_bytes_s": 40e6,
+                "rtt_ms": 3.2,
+                "age_s": 30,
+                "stale": False,
+            },
+            {
+                "src_node_id": B,
+                "dst_node_id": A,
+                "bw_bytes_s": 9e6,
+                "rtt_ms": 4.0,
+                "age_s": 7300,
+                "stale": True,
+            },
+        ],
+        "controller_links": [
+            {"node_id": A, "bw_bytes_s": 5e6, "samples": 7, "age_s": 12}
+        ],
+        "failures": [],
+        "prober": PROBER,
+    }
+    controller(_serve(payload, seen))
+    result = runner.invoke(app, ["network"])
+    assert result.exit_code == 0, result.output
+    assert seen == ["GET /v1/network"]
+    out = result.output
+    assert "40.0 MB/s 3.2ms 30s" in out and "40.0 MB/s 3.2ms 30s (stale)" not in out
+    assert "9.0 MB/s 4.0ms 2.0h (stale)" in out
+    assert f"0000AAAA = {A}" in out and f"0000BBBB = {B}" in out
+    assert "controller links (from transfer history)" in out and "5.0 MB/s" in out
+    assert "probes: on - started 4, measured 3, failed 1" in out
+    assert "stale after 60m" in out
+
+
+def test_compute_network_with_nothing_measured_says_so(
+    runner: CliRunner, controller: TransportFactory
+) -> None:
+    controller(
+        _serve(
+            {
+                "links": [],
+                "controller_links": [],
+                "failures": [],
+                "prober": {**PROBER, "enabled": False},
+            }
+        )
+    )
+    result = runner.invoke(app, ["network"])
+    assert result.exit_code == 0, result.output
+    assert "no node pair measured yet" in result.output
+    assert "probes: off" in result.output
+
+
+def test_compute_network_json_is_the_api_answer(
+    runner: CliRunner, controller: TransportFactory
+) -> None:
+    payload = {"links": [], "controller_links": [], "failures": [], "prober": PROBER}
+    controller(_serve(payload))
+    result = runner.invoke(app, ["network", "--json"])
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output) == payload
+
+
+@pytest.mark.parametrize("bad", [None, "fast", True, -1, [1], {"x": 1}])
+def test_a_link_with_non_numeric_fields_is_dashes_not_a_traceback(
+    runner: CliRunner, controller: TransportFactory, bad: Any
+) -> None:
+    """The controller's answer is input: a cell never raises on its types."""
+    link = {
+        "src_node_id": A,
+        "dst_node_id": B,
+        "bw_bytes_s": bad,
+        "rtt_ms": bad,
+        "age_s": bad,
+        "stale": bad,
+    }
+    controller(_serve({"links": [link, "junk"], "failures": [None], "prober": "nope"}))
+    result = runner.invoke(app, ["network"])
+    assert result.exit_code == 0, result.output
+    assert "Traceback" not in result.output
+    assert "0000AAAA" in result.output and "- - -" in result.output

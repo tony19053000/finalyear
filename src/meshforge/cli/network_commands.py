@@ -27,7 +27,7 @@ from rich.table import Column, Table
 
 from meshforge.cli import app as cli
 
-__all__ = ["format_age", "format_rate", "matrix_table", "network"]
+__all__ = ["format_age", "format_rate", "format_rtt", "matrix_table", "network"]
 
 _DASH: Final = "-"
 _SHORT: Final = 8
@@ -53,6 +53,12 @@ def format_age(value: Any) -> str:
     return f"{value / 3600:.1f}h"
 
 
+def format_rtt(value: Any) -> str:
+    if isinstance(value, bool) or not isinstance(value, int | float) or value < 0:
+        return _DASH
+    return f"{value:.1f}ms"
+
+
 def _short(node_id: str) -> str:
     return node_id[-_SHORT:]
 
@@ -70,7 +76,7 @@ def matrix_table(payload: Mapping[str, Any]) -> Table:
     for link in links:
         text = (
             f"{format_rate(link.get('bw_bytes_s'))} "
-            f"{link.get('rtt_ms', 0):.1f}ms {format_age(link.get('age_s'))}"
+            f"{format_rtt(link.get('rtt_ms'))} {format_age(link.get('age_s'))}"
         )
         if link.get("stale"):
             text += " (stale)"
