@@ -22,6 +22,7 @@ import sys
 import time
 from collections.abc import AsyncIterator
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import httpx
@@ -42,10 +43,15 @@ from meshforge.common.hashing import Digest
 from meshforge.common.ids import new_attempt_id
 from meshforge.common.peer_token import sign_peer_token, sign_probe_token
 from meshforge.common.proto.meshforge.v1 import agent_pb2
+from meshforge.controller.liveness import NodeState
+from meshforge.controller.network.service import NetworkProber
 from meshforge.controller.network.store import NetworkStore, ProbeSample
-from meshforge.controller.peer_signing import load_or_create_signing_key
+from meshforge.controller.peer_signing import (
+    PeerTokenIssuer,
+    load_or_create_signing_key,
+)
 from meshforge.controller.server import ControllerRuntime
-from meshforge.controller.settings import ControllerSettings
+from meshforge.controller.settings import ControllerSettings, NetworkSettings
 from meshforge.controller.store.engine import create_engine
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.timeout(90)]
@@ -191,6 +197,71 @@ async def test_a_link_older_than_stale_after_is_shown_stale_with_its_age(
     )
     assert out.returncode == 0, out.stderr
     assert out.stdout.count("(stale)") == 1 and "2.0h (stale)" in out.stdout
+
+
+async def test_a_restarted_prober_keeps_the_interval_of_stored_links(
+    runtime: ControllerRuntime, pair: tuple[ExecAgent, ExecAgent], pg_settings: Any
+) -> None:
+    """D111 interval across a restart, with the real table: a second prober
+    (what a restarted controller builds) started on the links the first one
+    measured sends nothing - both pairs are inside their 900 s interval -
+    while one with an empty table probes within a gap."""
+    a, b = pair
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        if len((await _network(runtime))["links"]) >= 2:
+            break
+        await asyncio.sleep(0.2)
+
+    class Sessions:
+        def __init__(self) -> None:
+            self.sent: list[tuple[str, str]] = []
+
+        def snapshot(self) -> list[Any]:
+            return [
+                SimpleNamespace(
+                    node_id=n.node_id,
+                    ended=False,
+                    state=NodeState.ONLINE,
+                    peer_endpoint="127.0.0.1:9",
+                )
+                for n in (a, b)
+            ]
+
+        def send_command(self, node_id: str, name: str, payload: Any) -> str:
+            self.sent.append((node_id, payload.target_node_id))
+            return "cmd"
+
+    async def run_for(seconds: float) -> tuple[Sessions, NetworkProber]:
+        sessions = Sessions()
+        prober = NetworkProber(
+            sessions,  # type: ignore[arg-type]
+            NetworkStore(engine),
+            PeerTokenIssuer(key, clock=time.time),
+            NetworkSettings(probe_gap_s=0.1, probe_jitter=0.0),
+            clock=time.monotonic,
+        )
+        task = asyncio.create_task(prober.run())
+        await asyncio.sleep(seconds)
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        return sessions, prober
+
+    key, _ = load_or_create_signing_key(runtime.settings.peer_key_path)
+    engine = create_engine(pg_settings)
+    try:
+        sessions, prober = await run_for(1.5)
+        assert sessions.sent == []
+        for src, dst in ((a.node_id, b.node_id), (b.node_id, a.node_id)):
+            last = prober.scheduler.last_probed(src, dst)
+            assert last is not None and time.monotonic() - last < 120
+        # control: the same prober on an empty matrix probes at once
+        async with engine.begin() as conn:
+            await conn.execute(text("DELETE FROM network_link"))
+        sessions, _ = await run_for(1.5)
+        assert sessions.sent[:1] == [(a.node_id, b.node_id)]
+    finally:
+        await engine.dispose()
 
 
 async def test_the_probe_route_checks_token_kind_holder_and_size(

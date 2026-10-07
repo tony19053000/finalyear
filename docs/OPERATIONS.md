@@ -467,7 +467,8 @@ when a pair cannot reach each other - usually the firewall rule above), and the
 planner uses fresh links to predict transfer times (`compute explain` shows
 `transfer ... (measured)` with `bw_from`). Bounded so personal Wi-Fi is not
 flooded - `[controller.network]`: `probe_interval_s` (900: each pair at most every
-15 min), `probe_gap_s` (15, jitter `probe_jitter` 0.5: one probe started at a
+15 min - also across a controller restart: the stored measurement times are read
+back when probing starts), `probe_gap_s` (15, jitter `probe_jitter` 0.5: one probe started at a
 time), `probe_budget_bytes_per_min` (48 MiB across the fabric), `probe_bytes` /
 `probe_max_bytes` / `probe_fast_s` (4 MiB, then 8 MiB if that took < 0.5 s),
 `rtt_samples` (3), `busy_cpu_percent` (80: a laptop busier than this, or running

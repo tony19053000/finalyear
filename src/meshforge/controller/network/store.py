@@ -231,6 +231,11 @@ class NetworkStore:
         async with self._sessions() as db:
             return await gpu_busy_nodes(db, live_states)
 
+    async def links(self) -> list[LinkRow]:
+        """Every stored link (the prober's restart seed)."""
+        async with self._sessions() as db:
+            return await read_links(db)
+
     async def matrix(
         self, *, min_bytes: int, per_node: int
     ) -> tuple[list[LinkRow], dict[str, ControllerLink]]:

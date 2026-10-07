@@ -8,7 +8,8 @@ fast (gap 0.2 s, 1-2 MiB probes):
 * a SIGKILLed agent's probes are given up (its node goes offline) and nothing
   hangs: the remaining pair keeps being measured;
 * the matrix survives a controller SIGKILL + restart (it is in PostgreSQL),
-  and the restarted prober folds new samples into it (``samples`` grows).
+  the restarted prober seeds its schedule from it (the per-pair interval holds
+  across the restart) and then folds new samples into it (``samples`` grows).
 """
 
 from __future__ import annotations
@@ -124,6 +125,17 @@ def test_probes_fill_the_matrix_and_survive_kills(
     fabric.restart_controller()
     after_restart = _links(fabric, 6, within=60)
     assert set(after_restart) == set(measured)
+    # the restarted prober took the stored measurement times as its schedule
+    # (D111: the per-pair interval holds across a restart)
+    fabric.wait_until(
+        lambda: any(
+            r.get("event") == "controller.network.schedule_restored"
+            and r.get("pairs") == 6
+            for r in fabric.controller_records()
+        ),
+        within=30.0,
+        what="the restarted prober seeding its schedule from 6 stored links",
+    )
     deadline = time.monotonic() + 60
     while time.monotonic() < deadline:
         payload = _network(fabric)

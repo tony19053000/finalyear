@@ -304,3 +304,47 @@ def test_staleness_boundary_and_clock_step_back() -> None:
     assert not is_stale(now - hour, now, 3600.0)
     assert is_stale(now - hour - dt.timedelta(seconds=1), now, 3600.0)
     assert age_s(now + hour, now) == 0.0
+
+
+# ------------------------------------------------- interval across a restart
+
+
+def test_a_seeded_pair_waits_out_the_rest_of_its_interval() -> None:
+    """A restart: a -> b was measured 300 s before this scheduler started, so
+    it is due 600 s in; b -> a (never measured) goes first."""
+    s = sched(now=1000.0)
+    s.seed("a", "b", 1000.0 - 300.0)
+    pool = nodes("a", "b")
+    first = s.pick(pool, due(s))
+    assert first is not None and (first.src, first.dst) == ("b", "a")
+    s.finish(first.probe_id, 12 * MIB, due(s))
+    t = due(s)
+    while t < 1000.0 + 600.0:
+        assert s.pick(pool, t) is None, t
+        t = due(s)
+    again = s.pick(pool, max(t, 1000.0 + 600.0))
+    assert again is not None and (again.src, again.dst) == ("a", "b")
+
+
+def test_a_pair_seeded_longer_ago_than_the_interval_is_due_oldest_first() -> None:
+    s = sched(replace(CFG, budget_bytes_per_min=10**12), now=0.0)
+    s.seed("a", "b", -5000.0)  # negative: before this process's clock origin
+    s.seed("b", "a", -2000.0)
+    pool = nodes("a", "b")
+    first = s.pick(pool, due(s))
+    assert first is not None and (first.src, first.dst) == ("a", "b")
+    s.finish(first.probe_id, 0, due(s))
+    second = s.pick(pool, due(s))
+    assert second is not None and (second.src, second.dst) == ("b", "a")
+
+
+def test_seed_never_moves_a_pair_backwards() -> None:
+    s = sched()
+    pool = nodes("a", "b")
+    first = s.pick(pool, due(s))
+    assert first is not None
+    started = s.last_probed(first.src, first.dst)
+    s.seed(first.src, first.dst, -1e9)  # a stale row read late
+    assert s.last_probed(first.src, first.dst) == started
+    s.seed(first.src, first.dst, started + 1.0)
+    assert s.last_probed(first.src, first.dst) == started + 1.0

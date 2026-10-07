@@ -20,6 +20,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from meshforge.common.peer_token import verify_probe_token
 from meshforge.common.proto.meshforge.v1 import agent_pb2
 from meshforge.controller.liveness import NodeState
+from meshforge.controller.network.links import LinkRow
 from meshforge.controller.network.service import NetworkProber
 from meshforge.controller.network.store import ProbeSample
 from meshforge.controller.peer_signing import PeerTokenIssuer
@@ -368,3 +369,76 @@ async def test_every_node_busy_means_no_probe_at_all() -> None:
         clock.t = prober.scheduler.next_at
         assert await prober.tick() is None
     assert manager.sent == [] and prober.scheduler.started == 0
+
+
+# ------------------------------------------------------ restart (interval)
+
+
+@dataclass
+class StoredLinks(FakeStore):
+    rows: list[LinkRow] = field(default_factory=list)
+    broken: bool = False
+
+    async def links(self) -> list[LinkRow]:
+        if self.broken:
+            raise RuntimeError("database is down")
+        return list(self.rows)
+
+
+def restarted(store: StoredLinks) -> tuple[NetworkProber, FakeManager, Clock]:
+    clock = Clock()
+    clock.t = 50_000.0
+    manager = FakeManager([FakeLive(A), FakeLive(B)])
+
+    async def busy() -> set[str]:
+        return set()
+
+    prober = NetworkProber(
+        manager,  # type: ignore[arg-type]
+        store,  # type: ignore[arg-type]
+        PeerTokenIssuer(KEY, clock=lambda: WALL),
+        NetworkSettings(probe_gap_s=1.0, probe_jitter=0.0),
+        clock=clock,
+        wall_clock=lambda: dt.datetime.fromtimestamp(WALL, dt.UTC),
+        gpu_busy=busy,
+        rng=random.Random(1),  # noqa: S311
+    )
+    return prober, manager, clock
+
+
+def link(src: str, dst: str, age: float) -> LinkRow:
+    at = dt.datetime.fromtimestamp(WALL - age, dt.UTC)
+    return LinkRow(src, dst, 2.0, 5e7, 3, at)
+
+
+@pytest.mark.asyncio
+async def test_a_restarted_prober_does_not_probe_a_pair_inside_its_interval() -> None:
+    """D111 interval across a controller restart: both pairs were measured
+    (100 s and 400 s ago), so nothing is sent until 900 s after each."""
+    prober, manager, clock = restarted(
+        StoredLinks(rows=[link(A, B, 100.0), link(B, A, 400.0)])
+    )
+    start = clock.t
+    assert await prober.restore() == 2
+    while prober.scheduler.next_at < start + 499.0:
+        clock.t = prober.scheduler.next_at
+        assert await prober.tick() is None
+    assert manager.sent == []
+    clock.t = start + 500.5  # B <- A is 900 s old now; A <- B only 600 s
+    planned = await prober.tick()
+    assert planned is not None and (planned.src, planned.dst) == (B, A)
+    prober.on_result(B, result(manager.sent[-1][2]))
+    while prober.scheduler.next_at < start + 799.0:
+        clock.t = prober.scheduler.next_at
+        assert await prober.tick() is None
+    clock.t = start + 800.5
+    planned = await prober.tick()
+    assert planned is not None and (planned.src, planned.dst) == (A, B)
+
+
+@pytest.mark.asyncio
+async def test_a_failed_restore_starts_with_an_empty_schedule() -> None:
+    prober, manager, clock = restarted(StoredLinks(broken=True))
+    assert await prober.restore() == 0
+    clock.t = prober.scheduler.next_at
+    assert await prober.tick() is not None and len(manager.sent) == 1

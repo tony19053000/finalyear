@@ -7,7 +7,9 @@ injected clock:
 
 * **interval** - an ordered pair ``(src, dst)`` is probed at most once per
   ``probe_interval_s`` (a failed or timed-out probe counts: a broken pair is not
-  retried every gap);
+  retried every gap; a pair measured before a controller restart is
+  :meth:`~ProbeScheduler.seed`-ed with that measurement's time, so the bound
+  holds across restarts);
 * **one per node** - a node that is the source or the target of a probe in
   flight takes part in no other;
 * **budget** - the bytes of probes finished in the last 60 s plus the
@@ -139,6 +141,16 @@ class ProbeScheduler:
 
     def last_probed(self, src: str, dst: str) -> float | None:
         return self._last.get((src, dst))
+
+    def seed(self, src: str, dst: str, last: float) -> None:
+        """A pair measured before this scheduler existed (a controller
+        restart): ``last`` is that measurement on the caller's monotonic clock
+        (``now - age``; it may be negative). The interval then counts from it,
+        so a restart does not probe every pair again. Never moves a pair
+        backwards."""
+        known = self._last.get((src, dst))
+        if known is None or last > known:
+            self._last[(src, dst)] = last
 
     # ---------------------------------------------------------------- steps
 

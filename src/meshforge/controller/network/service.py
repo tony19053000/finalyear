@@ -18,9 +18,13 @@ into ``network_link``.
   non-positive number) is remembered per pair for ``compute network``.
 * **Node loss.** A node that goes OFFLINE frees its probes in flight; their
   late results are then dropped.
-* **Restart.** Nothing is persisted but the links: a restarted controller starts
-  with an empty schedule (first probe after one jittered gap) and fills pairs
-  oldest-first again.
+* **Restart.** Nothing is persisted but the links, and they are the schedule's
+  memory: a starting prober reads ``network_link`` once and seeds each pair's
+  "last probed" from its ``measured_at``, so a restarted (or crash-looping)
+  controller does not probe a pair again before its ``probe_interval_s`` has
+  passed. Pairs never measured (new, or only ever failed) are probed first,
+  after one jittered gap. If that read fails the schedule starts empty (logged)
+  - the gap, the budget and the busy rules still bound the traffic.
 
 Every probe start, result and drop is logged with ``node_id`` / ``probe_id``;
 the token is never logged.
@@ -41,6 +45,7 @@ from meshforge.common.logging import get_logger
 from meshforge.common.proto.meshforge.v1 import agent_pb2
 from meshforge.common.states import ATTEMPT_TERMINAL_STATES, AttemptState
 from meshforge.controller.liveness import NodeState
+from meshforge.controller.network.links import age_s
 from meshforge.controller.network.scheduler import (
     PlannedProbe,
     ProbeConfig,
@@ -137,6 +142,7 @@ class NetworkProber:
 
     async def run(self) -> None:
         """Tick, then wait for a result or the next due time (bounded 1 s)."""
+        await self.restore()
         while True:
             try:
                 await self.tick()
@@ -148,6 +154,22 @@ class NetworkProber:
             except TimeoutError:
                 continue
             await self._write(sample)
+
+    async def restore(self) -> int:
+        """Seed the schedule from the stored links (module docstring,
+        "Restart"); the number of pairs seeded."""
+        try:
+            links = await self._store.links()
+        except Exception:  # probing must still start; the other bounds hold
+            log.exception("controller.network.restore_failed")
+            return 0
+        now, wall = self._clock(), self._wall()
+        for link in links:
+            self.scheduler.seed(
+                link.src_node_id, link.dst_node_id, now - age_s(link.measured_at, wall)
+            )
+        log.info("controller.network.schedule_restored", pairs=len(links))
+        return len(links)
 
     async def drain(self) -> None:
         """Write every queued result now (tests, shutdown)."""
