@@ -490,8 +490,21 @@ async def test_nb_g5_1_regression_a_graceful_stop_is_offline_within_one_lease(
                 f"is {lease_s:.2f}s (NB-G5-1 regression)"
             )
             assert row["connected"] is False
-            sessions = (await rest.json("/v1/sessions", node_id=node_id))["sessions"]
-            (ours,) = [s for s in sessions if s["session_id"] == session_id]
+            # The node row turns OFFLINE first; the session row is closed by a
+            # second write a moment later (seen once in a whole-tier run under
+            # load: ``end_reason`` still null). Wait for the row to be closed,
+            # then judge the reason it was closed with.
+            ours: dict[str, Any] = {}
+
+            async def closed() -> bool:
+                sessions = (await rest.json("/v1/sessions", node_id=node_id))[
+                    "sessions"
+                ]
+                (mine,) = [s for s in sessions if s["session_id"] == session_id]
+                ours.update(mine)
+                return ours["end_reason"] is not None
+
+            await poll_until(closed, timeout_s=5.0, interval_s=0.02)
             assert ours["end_reason"] == "agent_closed"
     finally:
         await agent.close()
