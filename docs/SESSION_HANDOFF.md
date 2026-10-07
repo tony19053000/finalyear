@@ -265,7 +265,7 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
-**2026-10-07 — V0.7 STARTED.** Brief `docs/briefs/V0.7-security-pairing.md` APPROVED; ADR-0016 Accepted. G1 implementer DONE (`1360654`..`2a61910`, exit list green); **G1 tester round 1 next/running**. Lead must decide RE-I2 (open GETs need a token?) before G4; PB-E1 (peer token ≤600 s vs D138's 60 s) for G3. Check `docs/briefs/progress/V0.7-G1.md` + git log for where it got to.
+**2026-10-08 — V0.7 G1 CLOSED** (0.7.1, 0.7.2 `[x]`, reviewer APPROVE). Next: Lead writes brief §5b (G2 pairing, D135/D136 + D149 item 0), then G2 implementer. Rulings D147–D149 in the brief. Nothing in flight.
 
 **Overall: 24 % (38/154 tasks `[x]`, 16 `[~]`).** Progress bars: `docs/STATUS.md` (regenerate with `uv run python scripts/status_bars.py` whenever a checkbox changes).
 

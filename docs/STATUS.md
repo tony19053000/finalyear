@@ -2,14 +2,14 @@
 
 > Concise current state. Long-term plan: [`DEVELOPMENT_ROADMAP.md`](DEVELOPMENT_ROADMAP.md). Update at the end of every work session.
 
-**Last updated:** 2026-10-07 (**V0.7 STARTED — brief APPROVED, ADR-0016 Accepted; G1 implementer next** · **V0.6 G4 CLOSED + reviewer follow-ups done `1f037f2`; next: V0.7 brief; 0.6.13 🧑 lab open** · older: **V0.6 G1–G3 CLOSED**; **G4 fix round 1 stopped during its exit list — next: finish the exit list**; V0.5 closes on 🧑 0.5.11 lab; one agent at a time)
+**Last updated:** 2026-10-07 (**V0.7 G1 CLOSED (0.7.1, 0.7.2 `[x]`) — next: write G2 (pairing) brief** · **V0.6 G4 CLOSED + reviewer follow-ups done `1f037f2`; next: V0.7 brief; 0.6.13 🧑 lab open** · older: **V0.6 G1–G3 CLOSED**; **G4 fix round 1 stopped during its exit list — next: finish the exit list**; V0.5 closes on 🧑 0.5.11 lab; one agent at a time)
 
 ## Progress
 
 Generated from the roadmap checkboxes by `uv run python scripts/status_bars.py` — **re-run it and replace this block whenever checkboxes change.** Deferred versions (V0.11, V0.12, V0.13, V0.16) and deferred tasks are not counted. A task is only █ when it is `[x]` (tester + reviewer + evidence); written-but-unreviewed code is ▒.
 
 ```
-TOTAL   ███████▒▒░░░░░░░░░░░  37%  58/156 done, 15 in progress
+TOTAL   ████████▒▒░░░░░░░░░░  38%  60/156 done, 15 in progress
 
 V0.1    █████████████████▒▒▒  83%  10/12  Foundations & engineering system
 V0.2    ██▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░░   9%   1/11  Lab setup & feasibility validation
@@ -17,7 +17,7 @@ V0.3    ███████████████▒▒▒▒░  73%  11/15
 V0.4    ███████████████▒▒▒▒░  76%  13/17  Remote execution core (Mode 1 foundation)
 V0.5    ██████████████████░░  90%  10/11  Data plane & environments
 V0.6    ███████████████████░  92%  13/14  Scheduling & reliability — Mode 1 complete
-V0.7    ░░░░░░░░░░░░░░░░░░░░   0%   0/12  Security & pairing
+V0.7    ███░░░░░░░░░░░░░░░░░  16%   2/12  Security & pairing
 V0.8    ░░░░░░░░░░░░░░░░░░░░   0%   0/10  Dashboard & CLI v1
 V0.9    ░░░░░░░░░░░░░░░░░░░░   0%   0/10  Benchmark & telemetry system v1
 V0.10   ░░░░░░░░░░░░░░░░░░░░   0%   0/10  Mode 3 Task Splitting
@@ -42,6 +42,8 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 > V0.10. 129 tasks vs 140–180 capacity → **~1.5 tasks/session**. Needs the other three team members' approval.
 
 ## Current Task
+**2026-10-08 — V0.7 G1 CLOSED.** Threat model + fabric CA/server cert: implementer `1360654`..`2a61910` → tester PASS (T-1..T-3 minor) `65d4af5` → fix `2643847` `2e5dbd6` → reviewer APPROVE (5 non-blocking → D149 G2 item 0). Lead rulings D147 (peer token ≤ 60 s, G3), D148 (open GETs need auth, G4). **Next: Lead writes brief §5b G2 (pairing: 0.7.3, 0.7.4 + D149 item 0) → G2 implementer.**
+
 **2026-10-07 — V0.7 approved by the team** (all 5 §7 questions = Lead recommendations). ADR-0016 Accepted (supersedes ADR-0014); 0.7.12 🧑 lab added. **Now: V0.7 G1 (threat model + PKI core) implementer, brief §5a.**
 
 **2026-10-07 — V0.7 brief drafted (Lead):** `docs/briefs/V0.7-security-pairing.md` — decisions D133–D146, groups G1–G7, proposed new task 🧑 0.7.12 lab, 5 team questions (§7). **Next: team approves → Lead writes ADR-0016 → V0.7 G1 implementer (brief §5a).**

@@ -401,8 +401,8 @@ A version is **complete** only when all apply:
 **Prerequisites:** V0.6 (identity keypairs from V0.3 already exist).
 
 **Tasks**
-- [ ] **0.7.1** `docs/THREAT_MODEL.md`
-- [ ] **0.7.2** `compute fabric create` → CA keypair, fabric record
+- [x] **0.7.1** `docs/THREAT_MODEL.md` — G1 2026-10-08: `1360654` + fix `2e5dbd6`; tester PASS `65d4af5`; reviewer APPROVE
+- [x] **0.7.2** `compute fabric create` → CA keypair, fabric record — G1 2026-10-08: `meshforge-controller fabric create|show`, `common/pki.py`, server cert (`a92bb6e` `65627d9`, fix `2643847`); unit 7816 / G1 component 22 / cluster 67 exit 0; reviewer APPROVE
 - [ ] **0.7.3** `compute fabric invite` → short-lived single-use join code (address + token + CA fingerprint); QR in dashboard later
 - [ ] **0.7.4** `compute fabric join <code>` → CSR → signed node cert; secure storage
 - [ ] **0.7.5** mTLS on agent gRPC; TLS + node-cert auth on peer blob servers; scoped short-lived tokens
