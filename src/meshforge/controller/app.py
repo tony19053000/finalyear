@@ -175,8 +175,10 @@ def _fabric_facts(settings: "ControllerSettings") -> dict[str, object]:
         FabricCaError,
         load_fabric,
         load_server_cert,
+        recover_interrupted,
     )
 
+    recover_interrupted(settings.ca_dir)  # D149c: repair a crash mid-replace
     fabric = load_fabric(settings.ca_dir)
     facts: dict[str, object] = {
         "fabric_id": fabric.fabric_id,
@@ -192,13 +194,14 @@ def _fabric_facts(settings: "ControllerSettings") -> dict[str, object]:
         try:
             server = load_server_cert(settings.tls_dir)
             pki.verify_issued_by(server.cert, fabric.cert)
+            sans = pki.cert_sans(server.cert)  # may be malformed (D149b)
         except (FabricCaError, pki.PkiError) as exc:
             facts["server_cert"] = {"problem": exc.message}
         else:
             facts["server_cert"] = {
                 "fingerprint_sha256": pki.cert_fingerprint(server.cert),
                 "not_after": server.cert.not_valid_after_utc.isoformat(),
-                "sans": pki.cert_sans(server.cert),
+                "sans": sans,
                 "renewal_due": pki.renewal_due(server.cert),
             }
     return facts

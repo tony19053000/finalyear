@@ -175,12 +175,15 @@ def test_held_lock_is_a_typed_error(
 
 
 def test_leftovers_are_swept(ca_dir: Path) -> None:
+    # Next to a present ca/ both kinds are debris. (A lone .ca.old-* with NO ca/
+    # is the only copy of the old CA and is restored instead - V0.7 G2 D149c,
+    # tests/unit/controller/test_v07_g2_item0.py.)
     parent = ca_dir.parent
-    parent.mkdir(parents=True)
+    create_fabric(ca_dir, now=NOW)
     for name in (".ca.new-deadbeef", ".ca.old-cafebabe"):
         (parent / name).mkdir()
         (parent / name / "ca.key").write_bytes(b"stale")
-    create_fabric(ca_dir, now=NOW)
+    create_fabric(ca_dir, now=NOW, force=True)
     assert _hidden_leftovers(parent) == []
 
 

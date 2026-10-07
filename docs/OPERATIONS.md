@@ -108,6 +108,15 @@ meshforge-controller fabric show          # any time; --json for scripts
   folder; a missing half, a garbled file or a key that does not match → restore
   from your backup, or `fabric create --force` (everyone re-joins). No CA at all is
   fine in this version.
+- **A crash during `fabric create --force` repairs itself** (D149c). A replace moves
+  the old `ca/` aside as a hidden `.ca.old-<hex>` before the new one is moved in; if
+  the machine dies exactly between the two steps, the next controller start,
+  `fabric show` or `fabric create` **restores** that old CA (log
+  `controller.fabric.interrupted_replace_restored`) — it never deletes the only copy
+  of the key your laptops trust. Run `fabric create --force` again if you still
+  want the new CA. If several `.ca.old-*` folders exist and `ca/` is missing, nothing
+  is touched and the command names them: rename the one you want to `ca` by hand
+  (the newest is usually right; `fabric show` then confirms its fingerprint).
 - **Not enforced yet (V0.7 G1):** every port is still plaintext and the fabric token
   above still protects REST; agents cannot join yet (G2), TLS/mTLS and revocation
   come in G3, per-user logins in G4. `fabric show` says `tls_enforced: false`

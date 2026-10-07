@@ -6,8 +6,9 @@
 * **Create once, atomically**, ``0600`` from creation, under a lock file, in a
   ``0700`` folder (owner-only ACL on Windows) - two processes racing on an empty
   folder end with one key.
-* **Load strictly**: a file other users can read, an oversized file or anything
-  that is not an unencrypted PKCS#8 Ed25519 PEM key is a
+* **Load strictly** (:func:`~meshforge.common.private_files.read_private`, D149a):
+  a symlink, FIFO or device, a file other users can read or another user owns,
+  an oversized file or anything that is not an unencrypted PKCS#8 Ed25519 PEM key is a
   :class:`PeerSigningKeyError` (``config_error``) - the controller refuses to
   start rather than sign with a key it cannot trust.
 * The key persists, so a controller restart does **not** invalidate peer tokens
@@ -44,8 +45,8 @@ from meshforge.common.peer_token import (
 )
 from meshforge.common.private_files import (
     PrivateFileError,
-    private_problem,
     protect_private,
+    read_private,
 )
 
 __all__ = [
@@ -110,23 +111,11 @@ def _ensure_dir(directory: Path) -> None:
 def _read(path: Path) -> Ed25519PrivateKey:
     details = {"path": str(path)}
     try:
-        with path.open("rb") as fh:
-            raw = fh.read(MAX_KEY_FILE_BYTES + 1)
-    except OSError as exc:
-        raise PeerSigningKeyError(
-            f"cannot read the peer signing key {path}: {exc.strerror or exc}",
-            details=details,
-        ) from None
-    if len(raw) > MAX_KEY_FILE_BYTES:
-        raise PeerSigningKeyError(
-            f"the peer signing key {path} is larger than {MAX_KEY_FILE_BYTES} bytes",
-            details=details,
-        )
-    problem = private_problem(path)
-    if problem is not None:
-        raise PeerSigningKeyError(
-            f"the peer signing key {path} is {problem}", details=details
-        )
+        # D149a: regular file only (no symlink/FIFO/device), bounded, and on
+        # POSIX owner-only *and* owned by us - the same reader as the CA key.
+        raw = read_private(path, limit=MAX_KEY_FILE_BYTES, what="peer signing key")
+    except PrivateFileError as exc:
+        raise PeerSigningKeyError(exc.message, details=details) from None
     try:
         key = serialization.load_pem_private_key(raw, password=None)
     except (ValueError, TypeError):

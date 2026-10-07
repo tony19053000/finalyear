@@ -16,7 +16,10 @@ rename is atomic on Linux and Windows). Replacing (``--force``, a renewal) first
 renames the old folder aside, then the new one in, then deletes the old one. A
 crash at any point leaves either the old pair, the new pair, or no folder (only
 during a replace) - never a key next to a certificate it does not match.
-Leftover hidden folders are swept under the lock on the next create/issue.
+Leftover hidden folders are swept under the lock on the next create/issue, the
+next controller start and ``fabric show`` (:func:`recover_interrupted`); a lone
+``.ca.old-*`` with no ``ca/`` (a crash mid-replace) is **restored**, never deleted
+(D149c).
 
 **Loading is strict and fails closed** (:func:`load_fabric`): a missing file, a
 loose key, an oversized/garbled file, a certificate that is not a self-signed CA,
@@ -76,6 +79,7 @@ __all__ = [
     "fabric_present",
     "load_fabric",
     "load_server_cert",
+    "recover_interrupted",
     "server_cert_hosts",
 ]
 
@@ -223,11 +227,61 @@ def _fsync_dir(directory: Path) -> None:
 
 
 def _sweep(target: Path) -> None:
-    """Remove hidden ``.<name>.new-*`` / ``.<name>.old-*`` folders a crash left."""
-    for leftover in target.parent.glob(f".{target.name}.*-*"):
+    """Clean up what a crash during :func:`_install_dir` left (caller holds the lock).
+
+    * ``target`` exists: every hidden ``.<name>.new-*`` / ``.<name>.old-*``
+      folder is debris and is removed.
+    * ``target`` is missing and exactly **one** ``.<name>.old-*`` folder exists:
+      the crash hit a replace between "old aside" and "new in". That folder is
+      the only copy of the previous pair (for ``ca/``: the CA key every node
+      trusts) - it is **renamed back**, never deleted (D149c). The staging folder
+      is then debris.
+    * ``target`` is missing and several ``.old-*`` folders exist: which one is
+      current cannot be known - a typed :class:`FabricCaError` naming them,
+      nothing deleted (the operator decides; OPERATIONS §0a2).
+    """
+    parent = target.parent
+    olds = sorted(
+        p
+        for p in parent.glob(f".{target.name}.old-*")
+        if p.is_dir() and not p.is_symlink()
+    )
+    if not _present(target) and olds:
+        if len(olds) > 1:
+            raise FabricCaError(
+                f"{target} is missing and {len(olds)} earlier copies were left by "
+                f"interrupted replaces ({', '.join(p.name for p in olds)}); rename "
+                f"the right one to {target.name} by hand",
+                details={"path": str(target)},
+            )
+        try:
+            os.rename(olds[0], target)
+        except OSError as exc:
+            raise FabricCaError(
+                f"cannot restore {target} from {olds[0].name} after an interrupted "
+                f"replace: {exc.strerror or exc}",
+                details={"path": str(target)},
+            ) from None
+        _fsync_dir(parent)
+        log.warning(
+            "controller.fabric.interrupted_replace_restored",
+            path=target.name,
+            restored_from=olds[0].name,
+        )
+    for leftover in parent.glob(f".{target.name}.*-*"):
         if leftover.is_dir() and not leftover.is_symlink():
             shutil.rmtree(leftover, ignore_errors=True)
             log.info("controller.fabric.leftover_removed", path=leftover.name)
+
+
+def recover_interrupted(target: Path) -> None:
+    """Take the lock and run the crash clean-up on ``target`` (``ca/`` or
+    ``tls/``): the controller start and ``fabric show`` call it so an interrupted
+    ``fabric create --force`` is repaired before anything reads the folder."""
+    if not target.parent.is_dir():
+        return
+    with _lock(target):
+        _sweep(target)
 
 
 def _install_dir(target: Path, files: Mapping[str, bytes]) -> None:
@@ -296,9 +350,14 @@ def _check_private_dir(directory: Path) -> None:
 # ---------------------------------------------------------------------------- CA
 
 
+def _present(folder: Path) -> bool:
+    """Something (folder, file, even a dangling symlink) is at ``folder``."""
+    return folder.exists() or folder.is_symlink()
+
+
 def fabric_present(ca_dir: Path) -> bool:
     """Whether a CA folder exists (complete or not - :func:`load_fabric` judges)."""
-    return ca_dir.exists() or ca_dir.is_symlink()
+    return _present(ca_dir)
 
 
 def _verify_ca_pair(
@@ -306,7 +365,7 @@ def _verify_ca_pair(
 ) -> FabricId:
     """The CA cert is a valid self-signed CA for ``key``; return its fabric id."""
     fabric_id = pki.parse_fabric_id(cert)
-    bc = cert.extensions.get_extension_for_class(x509.BasicConstraints).value
+    bc = pki.cert_extensions(cert).get_extension_for_class(x509.BasicConstraints).value
     if not bc.ca:
         raise pki.PkiError(pki.PkiReason.NOT_A_CA, "certificate is not a CA")
     pki.verify_issued_by(cert, cert)
@@ -464,7 +523,11 @@ def _problem(
         pki.verify_issued_by(current.cert, fabric.cert)
     except pki.PkiError:
         return ServerCertAction.REISSUED, "other_ca"
-    if pki.cert_sans(current.cert) != wanted:
+    try:
+        sans = pki.cert_sans(current.cert)
+    except pki.PkiError as exc:  # duplicated/unsupported extensions (D149b)
+        return ServerCertAction.REISSUED, exc.reason.value
+    if sans != wanted:
         return ServerCertAction.REISSUED, "sans_changed"
     try:
         pki.check_validity(current.cert, now)
@@ -497,7 +560,7 @@ def ensure_server_cert(
     with _lock(tls_dir):
         _sweep(tls_dir)
         action, reason = ServerCertAction.ISSUED, None
-        if fabric_present(tls_dir):
+        if _present(tls_dir):
             try:
                 current = load_server_cert(tls_dir)
             except FabricCaError as exc:

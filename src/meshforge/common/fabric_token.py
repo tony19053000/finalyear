@@ -86,34 +86,38 @@ def parse_token(text: str) -> SecretStr:
 def read_token_file(path: Path, *, require_private: bool = False) -> SecretStr:
     """Read and validate a token file (bounded size).
 
-    ``require_private`` additionally refuses a POSIX file that other users can read
-    (the controller insists on it for its own file; a CLI reading a copy does not).
+    Always a regular file (no symlink, FIFO or device). ``require_private``
+    additionally refuses a POSIX file that other users can read or that another
+    user owns (the controller insists on it for its own file; a CLI reading a copy
+    does not).
     """
-    from meshforge.common.private_files import private_problem
+    from meshforge.common.private_files import (
+        PrivateFileError,
+        PrivateFileReason,
+        read_bounded,
+        stat_problem,
+    )
 
+    details = {"path": str(path)}
     try:
-        with path.open("rb") as fh:
-            raw = fh.read(MAX_TOKEN_FILE_BYTES + 1)
-    except FileNotFoundError:
-        raise FabricTokenError(
-            f"token file not found: {path}", details={"path": str(path)}
-        ) from None
-    except OSError as exc:
-        raise FabricTokenError(
-            f"cannot read token file {path}: {exc.strerror or exc}",
-            details={"path": str(path)},
-        ) from None
-    if len(raw) > MAX_TOKEN_FILE_BYTES:
-        raise FabricTokenError(
-            f"token file {path} is larger than {MAX_TOKEN_FILE_BYTES} bytes",
-            details={"path": str(path)},
+        # D149a: a regular file only (a FIFO would hang the read, a symlink could
+        # point anywhere), bounded; the controller also wants it owner-only.
+        raw, info = read_bounded(
+            path,
+            limit=MAX_TOKEN_FILE_BYTES,
+            what="token file",
+            follow_symlinks=not require_private,
         )
-    if require_private:
-        problem = private_problem(path)
-        if problem is not None:
+    except PrivateFileError as exc:
+        if exc.reason is PrivateFileReason.MISSING:
             raise FabricTokenError(
-                f"token file {path} is {problem}", details={"path": str(path)}
-            )
+                f"token file not found: {path}", details=details
+            ) from None
+        raise FabricTokenError(exc.message, details=details) from None
+    if require_private:
+        problem = stat_problem(info)
+        if problem is not None:
+            raise FabricTokenError(f"token file {path} is {problem}", details=details)
     try:
         text = raw.decode("ascii")
     except UnicodeDecodeError:

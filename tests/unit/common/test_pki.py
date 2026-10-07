@@ -500,18 +500,20 @@ def test_short_fingerprint_is_128_bits_of_sha256(ca: pki.CertificateAuthority) -
 def test_short_fingerprint_matches_forms(ca: pki.CertificateAuthority) -> None:
     full = pki.cert_fingerprint(ca.cert)
     short = full[:32]
-    assert pki.fingerprint_matches(ca.cert, short)
-    assert pki.fingerprint_matches(ca.cert, full.upper())
-    assert pki.fingerprint_matches(ca.cert, pki.format_fingerprint(short))
+    assert pki.fingerprint_matches(ca.cert, short, require_full=False)
+    assert pki.fingerprint_matches(ca.cert, full.upper(), require_full=False)
     assert pki.fingerprint_matches(
-        ca.cert, ":".join(short[i : i + 2] for i in range(0, 32, 2))
+        ca.cert, pki.format_fingerprint(short), require_full=False
+    )
+    assert pki.fingerprint_matches(
+        ca.cert, ":".join(short[i : i + 2] for i in range(0, 32, 2)), require_full=False
     )
     other = pki.create_ca(ca.fabric_id, now=NOW)
-    assert not pki.fingerprint_matches(other.cert, short)
+    assert not pki.fingerprint_matches(other.cert, short, require_full=False)
     flipped = short[:-1] + ("0" if short[-1] != "0" else "1")
-    assert not pki.fingerprint_matches(ca.cert, flipped)
+    assert not pki.fingerprint_matches(ca.cert, flipped, require_full=False)
     for bad in ("", short[:31], short + "0", "g" * 32, full[:48]):
-        assert not pki.fingerprint_matches(ca.cert, bad), bad
+        assert not pki.fingerprint_matches(ca.cert, bad, require_full=False), bad
 
 
 # ---------------------------------------------------------------------- key/cert IO

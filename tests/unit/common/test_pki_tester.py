@@ -836,18 +836,20 @@ def test_fingerprint_forms_and_rejections(ca: pki.CertificateAuthority) -> None:
     full = pki.cert_fingerprint(ca.cert)
     short = pki.short_fingerprint(ca.cert)
     assert len(full) == 64 and len(short) == 32 and full.startswith(short)
-    assert pki.fingerprint_matches(ca.cert, full)
-    assert pki.fingerprint_matches(ca.cert, short)
-    assert pki.fingerprint_matches(ca.cert, full.upper())
-    assert pki.fingerprint_matches(ca.cert, pki.format_fingerprint(short))
+    assert pki.fingerprint_matches(ca.cert, full, require_full=False)
+    assert pki.fingerprint_matches(ca.cert, short, require_full=False)
+    assert pki.fingerprint_matches(ca.cert, full.upper(), require_full=False)
     assert pki.fingerprint_matches(
-        ca.cert, ":".join(short[i : i + 2] for i in range(0, 32, 2))
+        ca.cert, pki.format_fingerprint(short), require_full=False
     )
-    assert pki.fingerprint_matches(ca.cert, f"  {short}\n")
+    assert pki.fingerprint_matches(
+        ca.cert, ":".join(short[i : i + 2] for i in range(0, 32, 2)), require_full=False
+    )
+    assert pki.fingerprint_matches(ca.cert, f"  {short}\n", require_full=False)
     flipped = ("0" if short[0] != "0" else "1") + short[1:]
     last = short[:-1] + ("0" if short[-1] != "0" else "1")
-    assert not pki.fingerprint_matches(ca.cert, flipped)
-    assert not pki.fingerprint_matches(ca.cert, last)
+    assert not pki.fingerprint_matches(ca.cert, flipped, require_full=False)
+    assert not pki.fingerprint_matches(ca.cert, last, require_full=False)
     bad: list[str] = [
         "",
         " ",
@@ -867,10 +869,12 @@ def test_fingerprint_forms_and_rejections(ca: pki.CertificateAuthority) -> None:
         "-" + short[:31],
     ]
     for value in bad:
-        assert not pki.fingerprint_matches(ca.cert, value), repr(value)
+        assert not pki.fingerprint_matches(ca.cert, value, require_full=False), repr(
+            value
+        )
     other = pki.create_ca(new_fabric_id(), now=NOW)
-    assert not pki.fingerprint_matches(other.cert, short)
-    assert not pki.fingerprint_matches(other.cert, full)
+    assert not pki.fingerprint_matches(other.cert, short, require_full=False)
+    assert not pki.fingerprint_matches(other.cert, full, require_full=False)
 
 
 def test_fingerprint_compare_is_constant_time_by_construction(
@@ -891,7 +895,7 @@ def test_fingerprint_compare_is_constant_time_by_construction(
     first = ("0" if short[0] != "0" else "1") + short[1:]
     last = short[:-1] + ("0" if short[-1] != "0" else "1")
     for candidate in (short, first, last):
-        pki.fingerprint_matches(ca.cert, candidate)
+        pki.fingerprint_matches(ca.cert, candidate, require_full=False)
     assert len(seen) == 3
     assert all(len(a) == len(b) == 32 for a, b in seen)
 

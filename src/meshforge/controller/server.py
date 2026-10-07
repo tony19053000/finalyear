@@ -62,6 +62,7 @@ from meshforge.controller.fabric_ca import (
     ensure_server_cert,
     fabric_present,
     load_fabric,
+    recover_interrupted,
 )
 from meshforge.controller.fabric_token import (
     FabricTokenVerifier,
@@ -649,8 +650,10 @@ def _prepare_fabric(
 ) -> tuple[FabricCa | None, ServerCert | None]:
     """Load the fabric CA and ensure the server cert (V0.7 G1, D134).
 
-    No CA yet -> ``(None, None)``: allowed until G3 makes TLS mandatory.
+    No CA yet -> ``(None, None)``: allowed until G3 makes TLS mandatory. An
+    interrupted ``fabric create --force`` is repaired first (D149c).
     """
+    recover_interrupted(settings.ca_dir)
     if not fabric_present(settings.ca_dir):
         log.info("controller.fabric.absent", hint="meshforge-controller fabric create")
         return None, None

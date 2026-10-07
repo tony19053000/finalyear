@@ -46,9 +46,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import ipaddress
-import os
 import re
-import stat
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -70,7 +68,13 @@ from meshforge.common.errors import (
     MeshForgeError,
 )
 from meshforge.common.ids import FabricId, NodeId, validate_fabric_id, validate_node_id
-from meshforge.common.private_files import PrivateFileError, protect_private
+from meshforge.common.private_files import (
+    PrivateFileError,
+    PrivateFileReason,
+    protect_private,
+    read_bounded,
+    read_private,
+)
 
 __all__ = [
     "CA_LIFETIME",
@@ -90,6 +94,7 @@ __all__ = [
     "PkiReason",
     "VerifiedCsr",
     "build_csr",
+    "cert_extensions",
     "cert_fingerprint",
     "cert_from_pem",
     "cert_sans",
@@ -298,14 +303,20 @@ def format_fingerprint(hex_digest: str) -> str:
     return " ".join(hex_digest[i : i + 4] for i in range(0, len(hex_digest), 4))
 
 
-def fingerprint_matches(cert: x509.Certificate, expected: str) -> bool:
+def fingerprint_matches(
+    cert: x509.Certificate, expected: str, *, require_full: bool
+) -> bool:
     """Constant-time check of ``cert`` against a typed/pasted fingerprint.
 
-    ``expected`` is the 32-hex short or 64-hex full form; spaces, colons and
+    ``expected`` is the 64-hex full form or - only when ``require_full`` is
+    ``False`` - the 32-hex short form a join code carries (D135, D149d: a place
+    that pins the CA for good never accepts the 128-bit form). Spaces, colons and
     case are ignored. Any other length or a non-hex character is ``False``.
+    The keyword is required so every caller decides which form it accepts.
     """
     cleaned = re.sub(r"[\s:]", "", expected).lower()
-    if len(cleaned) not in (32, 64) or not re.fullmatch(r"[0-9a-f]+", cleaned):
+    allowed = (64,) if require_full else (32, 64)
+    if len(cleaned) not in allowed or not re.fullmatch(r"[0-9a-f]+", cleaned):
         return False
     actual = cert_fingerprint(cert)[: len(cleaned)]
     return hmac.compare_digest(actual.encode("ascii"), cleaned.encode("ascii"))
@@ -365,10 +376,29 @@ def validate_san_host(host: str) -> x509.GeneralName:
     return x509.IPAddress(ip)
 
 
-def cert_sans(cert: x509.Certificate) -> list[str]:
-    """The DNS names, IP addresses and URIs in ``cert``'s SAN (empty if none)."""
+def cert_extensions(cert: x509.Certificate) -> x509.Extensions:
+    """``cert.extensions``, or ``PkiError(malformed)`` when they cannot be parsed.
+
+    :mod:`cryptography` parses extensions lazily and raises exceptions that are
+    *not* ``ValueError`` for a duplicated extension (``DuplicateExtension``) or a
+    SAN entry type it does not support (``UnsupportedGeneralNameType``, e.g. an
+    x400Address) - a certificate that verifies can still carry them (D149b).
+    """
     try:
-        ext = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName)
+        return cert.extensions
+    except (ValueError, x509.DuplicateExtension, x509.UnsupportedGeneralNameType):
+        raise PkiError(
+            PkiReason.MALFORMED, "certificate extensions are malformed"
+        ) from None
+
+
+def cert_sans(cert: x509.Certificate) -> list[str]:
+    """The DNS names, IP addresses and URIs in ``cert``'s SAN (empty if none).
+
+    Raises ``PkiError(malformed)`` when the extensions cannot be parsed.
+    """
+    try:
+        ext = cert_extensions(cert).get_extension_for_class(x509.SubjectAlternativeName)
     except x509.ExtensionNotFound:
         return []
     out: list[str] = []
@@ -429,12 +459,7 @@ def parse_node_id(cert: x509.Certificate, *, fabric_id: str | None = None) -> No
 
     With ``fabric_id``, the URI must name that fabric (``fabric_mismatch``).
     """
-    try:
-        san = _san_extension(cert.extensions)
-    except (ValueError, x509.DuplicateExtension, x509.UnsupportedGeneralNameType):
-        raise PkiError(
-            PkiReason.MALFORMED, "certificate extensions are malformed"
-        ) from None
+    san = _san_extension(cert_extensions(cert))
     cert_fabric, node_id = _parse_node_uri(_only_san_uri(san))
     if fabric_id is not None and not hmac.compare_digest(cert_fabric, fabric_id):
         raise PkiError(PkiReason.FABRIC_MISMATCH, "certificate is for another fabric")
@@ -748,73 +773,13 @@ def issue_node_cert(
 # ------------------------------------------------------------------- file helpers
 
 
-def _read_bounded(path: Path, limit: int, what: str) -> tuple[bytes, os.stat_result]:
-    """Read at most ``limit`` bytes of a **regular file** at ``path`` (no symlink).
-
-    ``O_NOFOLLOW`` refuses a symlink, ``O_NONBLOCK`` keeps a FIFO from blocking the
-    open, and ``fstat`` on the opened descriptor refuses anything that is not a
-    regular file (FIFO, device, socket, folder). Returns the bytes and that
-    ``fstat`` so callers check mode/owner of exactly what was read.
-    """
-    flags = (
-        os.O_RDONLY
-        | getattr(os, "O_BINARY", 0)
-        | getattr(os, "O_NOFOLLOW", 0)
-        | getattr(os, "O_NONBLOCK", 0)
+def _file_error(exc: PrivateFileError, path: Path) -> PkiFileError:
+    reason = (
+        PkiReason.OVERSIZED
+        if exc.reason is PrivateFileReason.OVERSIZED
+        else PkiReason.MALFORMED
     )
-    try:
-        fd = os.open(path, flags)
-    except OSError as exc:
-        raise PkiFileError(
-            PkiReason.MALFORMED,
-            f"cannot read the {what} {path}: {exc.strerror or exc}"
-            + (
-                "; it must be a regular file, not a symlink"
-                if path.is_symlink()
-                else ""
-            ),
-            path=path,
-        ) from None
-    try:
-        info = os.fstat(fd)
-        if not stat.S_ISREG(info.st_mode):
-            raise PkiFileError(
-                PkiReason.MALFORMED,
-                f"the {what} {path} is not a regular file",
-                path=path,
-            )
-        with os.fdopen(fd, "rb", closefd=False) as fh:
-            data = fh.read(limit + 1)
-    except OSError as exc:
-        raise PkiFileError(
-            PkiReason.MALFORMED,
-            f"cannot read the {what} {path}: {exc.strerror or exc}",
-            path=path,
-        ) from None
-    finally:
-        os.close(fd)
-    if len(data) > limit:
-        raise PkiFileError(
-            PkiReason.OVERSIZED,
-            f"the {what} {path} is larger than {limit} bytes",
-            path=path,
-        )
-    return data, info
-
-
-def _key_file_problem(info: os.stat_result) -> str | None:
-    """Why an opened key file is not private (POSIX: mode and owner)."""
-    if os.name != "posix":
-        return None  # Windows ACLs are applied at write time (private_files)
-    mode = stat.S_IMODE(info.st_mode)
-    if mode & 0o077:
-        return f"accessible to other users (mode {mode:04o}); chmod 600 it"
-    if hasattr(os, "geteuid") and info.st_uid != os.geteuid():
-        return (
-            f"owned by another user (uid {info.st_uid}); it must belong to the "
-            "user running MeshForge (chown it)"
-        )
-    return None
+    return PkiFileError(reason, exc.message, path=path)
 
 
 def read_private_key(
@@ -822,12 +787,10 @@ def read_private_key(
 ) -> ec.EllipticCurvePrivateKey:
     """Load a P-256 key file: a regular file (no symlink/FIFO/device), owned by
     this user and not readable by others (POSIX)."""
-    data, info = _read_bounded(path, MAX_KEY_BYTES, what)
-    problem = _key_file_problem(info)
-    if problem is not None:
-        raise PkiFileError(
-            PkiReason.MALFORMED, f"the {what} {path} is {problem}", path=path
-        )
+    try:
+        data = read_private(path, limit=MAX_KEY_BYTES, what=what)
+    except PrivateFileError as exc:
+        raise _file_error(exc, path) from None
     try:
         return key_from_pem(data)
     except PkiError as exc:
@@ -836,8 +799,18 @@ def read_private_key(
         ) from None
 
 
-def read_cert(path: Path, *, what: str = "certificate") -> x509.Certificate:
-    data, _ = _read_bounded(path, MAX_CERT_BYTES, what)
+def read_cert(
+    path: Path, *, what: str = "certificate", private: bool = False
+) -> x509.Certificate:
+    """Load one PEM certificate file: a regular file (no symlink/FIFO/device),
+    size-bounded; with ``private`` also owner-only (the agent's ``node.crt``)."""
+    try:
+        if private:
+            data = read_private(path, limit=MAX_CERT_BYTES, what=what)
+        else:
+            data, _ = read_bounded(path, limit=MAX_CERT_BYTES, what=what)
+    except PrivateFileError as exc:
+        raise _file_error(exc, path) from None
     try:
         return cert_from_pem(data)
     except PkiError as exc:
