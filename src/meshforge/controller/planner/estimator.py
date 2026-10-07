@@ -39,8 +39,9 @@ assumed bandwidth is ``assumed``.
 * ``compute`` - median ``run`` time of the same workload fingerprint on this
   node (``history``); else another node's median scaled by the CPU/GPU
   hardware-score ratio (``scaled``) - the node whose median **normalised by
-  its score** is best (D131: 10 s on a score-100 node beats 11 s on a
-  score-10 node, whatever the raw seconds say) - or, when this node or every
+  its score** (seconds x score, the work it did) is smallest (D131: 11 s on
+  a score-10 node beats 10 s on a score-100 node, although its raw seconds
+  are more) - or, when this node or every
   other one has no score, the fastest other node's median as is
   (``history``, ``scaled: false``); else ``default_compute_s`` (``assumed``).
 * ``output`` - the fingerprint's median uploaded bytes (``history``; none
@@ -86,6 +87,11 @@ MAX_TRANSFER_ITEMS: Final = 16
 """Per-tree entries kept in a transfer term's ``detail`` (the rest are
 counted in ``items_omitted``; the seconds always cover every tree)."""
 
+_LEAST_FLOOR: Final = 1.0
+"""The lowest bandwidth floor there is - the lower bound of ``[controller.
+network] min_bw_bytes_s``. A :class:`PlannerConfig` built by hand with a zero,
+negative or NaN floor is read as this, so nothing ever divides by zero."""
+
 _STRENGTH: Final = {
     TermSource.ASSUMED: 0,
     TermSource.SCALED: 1,
@@ -110,6 +116,8 @@ def _bounded(seconds: float) -> float:
 def _floored(bw: float, config: PlannerConfig) -> tuple[float, bool]:
     """``bw`` never below ``min_bw_bytes_s`` (D131); True = it was raised."""
     floor = config.min_bw_bytes_s
+    if not floor >= _LEAST_FLOOR:  # a hand-built config (the settings refuse it)
+        floor = _LEAST_FLOOR
     if bw >= floor:  # False for NaN too
         return bw, False
     return floor, True
