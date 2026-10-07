@@ -314,13 +314,6 @@ async def test_a_dripping_target_cannot_pin_the_probe_slot() -> None:
     assert not got[0].ok
 
 
-test_a_dripping_target_cannot_pin_the_probe_slot = pytest.mark.xfail(
-    strict=True,
-    reason="T-9: request_timeout_s bounds each read, not the probe; a slow "
-    "target holds the agent's single probe slot ('busy') indefinitely",
-)(test_a_dripping_target_cannot_pin_the_probe_slot)
-
-
 async def test_an_endless_body_is_cut_off_at_the_requested_size() -> None:
     async def endless(
         reader: asyncio.StreamReader, writer: asyncio.StreamWriter

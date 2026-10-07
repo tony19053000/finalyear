@@ -21,9 +21,12 @@ pair and count it.
 seen before is never measured again - a finished one re-sends its result, one
 still running is ignored. **One probe at a time** per agent process; a second
 one is answered ``busy`` at once. Every request is bounded by
-``[agent.probe] request_timeout_s``; sizes are capped at 8 MiB here as well
-(the controller and the target's server cap them too). The token is never
-logged.
+``[agent.probe] request_timeout_s`` and the **whole probe** by ``deadline_s``
+(default 2 x that): a target that keeps each read just inside the request
+timeout but drips its body cannot hold the one probe slot - the probe ends as
+a failure, ``error = "deadline"`` (tester r1 T-9). Sizes are capped at 8 MiB
+here as well (the controller and the target's server cap them too). The token
+is never logged.
 """
 
 from __future__ import annotations
@@ -238,13 +241,16 @@ class ProbeService:
         base = f"http://{msg.endpoint}/v1/probe"
         samples = max(1, msg.rtt_samples)
         try:
-            async with httpx.AsyncClient(
-                timeout=httpx.Timeout(timeout),
-                headers=headers,
-                transport=self._transport,
-                trust_env=False,
-                follow_redirects=False,
-            ) as client:
+            async with (
+                asyncio.timeout(self._cfg.effective_deadline_s),
+                httpx.AsyncClient(
+                    timeout=httpx.Timeout(timeout),
+                    headers=headers,
+                    transport=self._transport,
+                    trust_env=False,
+                    follow_redirects=False,
+                ) as client,
+            ):
                 # one extra warm-up request opens the connection (not counted)
                 rtts = [
                     await self._get(client, base, 0, counter)
@@ -261,6 +267,8 @@ class ProbeService:
                 if took < msg.fast_s and big > size:
                     size = big
                     took = await self._get(client, base, size, counter)
+        except TimeoutError:  # the whole-probe deadline (asyncio.timeout)
+            raise _Failed("deadline") from None
         except httpx.TimeoutException:
             raise _Failed("timeout") from None
         except httpx.HTTPError:

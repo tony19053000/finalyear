@@ -902,6 +902,10 @@ class FetchSettings(SectionModel):
     )
 
 
+PROBE_DEADLINE_FACTOR: Final = 2.0
+"""Default whole-probe deadline in ``request_timeout_s`` (``[agent.probe]``)."""
+
+
 class ProbeSettings(SectionModel):
     """``[agent.probe]`` - answering the controller's network probes (V0.6 D111).
 
@@ -921,6 +925,24 @@ class ProbeSettings(SectionModel):
         le=120.0,
         description="Connect/read timeout of one probe request.",
     )
+    deadline_s: float | None = Field(
+        default=None,
+        ge=0.5,
+        le=600.0,
+        description=(
+            "Time limit of a whole probe (every request together). Empty = "
+            "2 x request_timeout_s (40 s by default). Keep it below the "
+            "controller's [controller.network] probe_timeout_s (60 s): a target "
+            "that drips bytes must not hold this agent's one probe slot."
+        ),
+    )
+
+    @property
+    def effective_deadline_s(self) -> float:
+        """The whole-probe limit in force."""
+        if self.deadline_s is not None:
+            return self.deadline_s
+        return PROBE_DEADLINE_FACTOR * self.request_timeout_s
 
 
 class CacheSettings(SectionModel):

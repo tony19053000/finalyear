@@ -188,3 +188,57 @@ async def test_the_agent_serves_at_most_8_mib_per_probe() -> None:
     assert PeerSettings(probe_max_bytes=0).probe_max_bytes == 0
     with pytest.raises(ValueError, match="probe_max_bytes"):
         PeerSettings(probe_max_bytes=8 * 1024 * 1024 + 1)
+
+
+# ----------------------------------------- fix round 1: whole-probe deadline
+
+
+async def test_the_deadline_defaults_to_twice_the_request_timeout() -> None:
+    assert ProbeSettings().effective_deadline_s == 40.0
+    assert ProbeSettings(request_timeout_s=0.5).effective_deadline_s == 1.0
+    assert ProbeSettings(deadline_s=7.0).effective_deadline_s == 7.0
+    with pytest.raises(ValueError, match="deadline_s"):
+        ProbeSettings(deadline_s=0.4)
+
+
+async def test_a_probe_past_its_deadline_fails_and_frees_the_slot() -> None:
+    """Tester T-9: the target never answers the first request. The probe ends
+    ``deadline`` after ``deadline_s`` (0.5 s here, far below the 20 s request
+    timeout), and the next probe is measured - not answered ``busy``."""
+    hold = asyncio.Event()
+    clock = Clock()
+    sent: list[agent_pb2.NetProbeResult] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        await hold.wait()
+        return httpx.Response(200, content=bytes(int(request.url.params["bytes"])))
+
+    async def report(_name: str, msg: Any) -> str:
+        sent.append(msg)
+        return "id"
+
+    service = ProbeService(
+        ProbeSettings(deadline_s=0.5),
+        report,
+        node_id="node_a",
+        clock=clock,
+        transport=httpx.MockTransport(handler),
+    )
+    try:
+        service.handle(request(probe_id="slow"))
+        await asyncio.sleep(0.1)
+        service.handle(request(probe_id="second"))  # the slot is taken: busy
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + 5.0
+        while len(sent) < 2 and loop.time() < deadline:  # noqa: ASYNC110
+            await asyncio.sleep(0.02)
+        by_id = {r.probe_id: r for r in sent}
+        assert (by_id["second"].ok, by_id["second"].error) == (False, "busy")
+        assert (by_id["slow"].ok, by_id["slow"].error) == (False, "deadline")
+        hold.set()  # the target answers now: the slot must be free again
+        service.handle(request(probe_id="third"))
+        while len(sent) < 3 and loop.time() < deadline:  # noqa: ASYNC110
+            await asyncio.sleep(0.02)
+        assert sent[-1].probe_id == "third" and sent[-1].ok
+    finally:
+        await service.close()
