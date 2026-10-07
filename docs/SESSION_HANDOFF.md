@@ -265,6 +265,8 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
+**2026-10-08 — V0.7 G2 STARTED:** brief §5b + D150/D151 written (`f17f623`); G2 implementer RUNNING. If it died: `git log`, `docs/briefs/progress/V0.7-G2.md`, commit leftovers as `wip(V0.7-G2)`, resume from the first undone deliverable.
+
 **2026-10-08 — V0.7 G1 CLOSED** (0.7.1, 0.7.2 `[x]`, reviewer APPROVE). Next: Lead writes brief §5b (G2 pairing, D135/D136 + D149 item 0), then G2 implementer. Rulings D147–D149 in the brief. Nothing in flight.
 
 **Overall: 24 % (38/154 tasks `[x]`, 16 `[~]`).** Progress bars: `docs/STATUS.md` (regenerate with `uv run python scripts/status_bars.py` whenever a checkbox changes).
