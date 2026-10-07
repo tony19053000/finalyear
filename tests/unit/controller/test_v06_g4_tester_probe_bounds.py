@@ -9,6 +9,7 @@ for restart seeding, hostile results and settings that defeat a bound.
 from __future__ import annotations
 
 import datetime as dt
+import itertools
 import math
 import random
 from dataclasses import dataclass, field
@@ -495,3 +496,27 @@ async def test_a_failing_gpu_query_does_not_spin_the_loop() -> None:
     task.cancel()
     await asyncio.gather(task, return_exceptions=True)
     assert store.gpu_calls <= 5, f"{store.gpu_calls} failing DB reads in 1.5 s"
+
+
+def test_stagger_spacing_stays_inside_the_jitter_band_and_the_first_probe_waits() -> (
+    None
+):
+    cfg = ProbeConfig(
+        gap_s=20.0, jitter=0.5, interval_s=10.0, budget_bytes_per_min=10**9
+    )
+    sched = ProbeScheduler(cfg, rng=random.Random(9), now=1000.0)  # noqa: S311
+    nodes = [ProbeNode(n, "h:1") for n in ids(10)]
+    assert sched.pick(nodes, 1000.0) is None, "a restart must not probe at once"
+    assert sched.pick(nodes, 1000.0 + 20.0 * 0.5 - 0.001) is None
+    starts: list[float] = []
+    t = 1000.0
+    while len(starts) < 40:
+        t += 0.25
+        planned = sched.pick(nodes, t)
+        if planned is not None:
+            starts.append(t)
+            sched.finish(planned.probe_id, 1, t)
+    gaps = [b - a for a, b in itertools.pairwise(starts)]
+    assert min(gaps) >= 20.0 * 0.5 - 1e-9
+    assert max(gaps) <= 20.0 * 1.5 + 0.25 + 1e-9
+    assert len({round(g, 2) for g in gaps}) > 5, "the gap is not jittered"
