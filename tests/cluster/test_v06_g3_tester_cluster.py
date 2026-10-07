@@ -75,6 +75,26 @@ def _first_running(fabric: Fabric, job_id: str) -> dict[str, Any]:
     )[0]
 
 
+def _started(fabric: Fabric, ledger: Ledger, starts: int) -> None:
+    """Wait until the workload itself wrote its ``start`` line ``starts`` times.
+
+    An attempt is reported ``running`` when the agent spawned the process; the
+    process writes its ledger line a moment later. A kill issued on ``running``
+    alone can land before that line, and a test that then counts ``start``
+    lines fails although nothing ran twice (G4 flaky d). The line is the
+    observable precondition of the kill, so it is waited for, with a deadline.
+    """
+
+    def seen() -> bool:
+        try:
+            lines = ledger.lines()
+        except FileNotFoundError:
+            return False
+        return sum(1 for ln in lines if ln.kind == "start") >= starts
+
+    _until(fabric, f"{starts} start line(s) in the ledger", seen, 30)
+
+
 def _node(fabric: Fabric, node_id: str) -> Node:
     return next(n for n in fabric.nodes if n.node_id == node_id)
 
@@ -157,6 +177,7 @@ def test_cancel_during_backoff_means_the_workload_never_runs_again(
         ),
     )
     first = _first_running(fabric, job_id)
+    _started(fabric, ledger, 1)  # the kill must not race the start line
     _node(fabric, first["node_id"]).kill()
     _until(
         fabric,
@@ -194,6 +215,7 @@ def test_two_losses_with_max_attempts_two_fail_retries_exhausted_and_stay_failed
     first = _first_running(fabric, job_id)
     x = _node(fabric, first["node_id"])
     (y,) = [n for n in fabric.nodes if n is not x]
+    _started(fabric, ledger, 1)
     x.kill()
     second = _until(
         fabric,
@@ -206,6 +228,7 @@ def test_two_losses_with_max_attempts_two_fail_retries_exhausted_and_stay_failed
         30,
     )[0]
     assert second["node_id"] == y.node_id
+    _started(fabric, ledger, 2)
     y.kill()
     final = _until(
         fabric,
@@ -246,6 +269,7 @@ def test_on_lost_false_fails_the_job_and_never_runs_it_elsewhere(
         ),
     )
     first = _first_running(fabric, job_id)
+    _started(fabric, ledger, 1)
     _node(fabric, first["node_id"]).kill()
     final = _until(
         fabric,
