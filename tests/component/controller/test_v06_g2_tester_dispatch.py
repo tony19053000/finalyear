@@ -34,6 +34,7 @@ from mf_session_client import FakeAgent
 pytest.importorskip("sqlalchemy", reason="needs the controller extra")
 
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 from meshforge.common.hashing import sha256_bytes
 from meshforge.common.proto.meshforge.v1 import agent_pb2
@@ -47,14 +48,27 @@ BUNDLE = os.urandom(4000)
 GIB = 1024**3
 
 
+_POLL_ENGINES: dict[int, AsyncEngine] = {}
+"""``id(pg_settings)`` -> the running test's own engine (the ``fabric``
+fixture owns it). The polls below run every 50 ms; opening a **new
+connection per poll** made each of them race asyncpg's 10 s connect timeout
+whenever PostgreSQL stalled under the load of the whole tier (the flaky
+failure of ``test_pinned_job_whose_node_is_gone...``: a ``TimeoutError`` from
+the test's own connect, not from what it asserts). With one pooled
+connection a stall only delays the poll, and ``_until``'s deadline - the
+real bound of each test - decides."""
+
+
 async def _sql(pg: DatabaseSettings, statement: str, **params: Any) -> list[Any]:
-    engine = create_engine(pg)
+    pooled = _POLL_ENGINES.get(id(pg))
+    engine = pooled if pooled is not None else create_engine(pg)
     try:
         async with engine.begin() as conn:
             result = await conn.execute(text(statement), params)
             return list(result.all()) if result.returns_rows else []
     finally:
-        await engine.dispose()
+        if pooled is None:
+            await engine.dispose()
 
 
 async def _until(check: Callable[[], Any], timeout_s: float = 20.0) -> Any:
@@ -138,9 +152,11 @@ async def fabric(
         put = await http.put(f"/v1/blobs/{digest.hex}", content=BUNDLE)
         assert put.status_code == 201
         made = Fabric(runtime, http, channel, str(digest), pg_settings)
+        _POLL_ENGINES[id(pg_settings)] = create_engine(pg_settings, pool_size=2)
         try:
             yield made
         finally:
+            await _POLL_ENGINES.pop(id(pg_settings)).dispose()
             for agent in made.agents:
                 agent.stop_heartbeats()
                 await agent.close()
