@@ -27,7 +27,6 @@ import contextlib
 import http.client
 import json
 import socket
-import subprocess
 import sys
 import threading
 import time
@@ -429,28 +428,52 @@ def test_loopback_ceiling_bounded_when_child_dies_mid_measurement(
     death hang the run or fabricate a number for a transport whose peer is
     already gone. A short ``--duration``/``--idle`` races against measurement
     speed and is unreliable on a fast machine (the whole ceiling can finish in
-    a few milliseconds on loopback), so this instead wraps
-    ``subprocess.Popen`` to kill the *real* child with a background timer
-    shortly after it starts - independent of how fast the measurement runs.
+    a few milliseconds on loopback), and so does any timer: the old version
+    killed the child 150 ms after ``Popen``, which only gave the asserted
+    outcome when the child had published its ports by then (else: "did not
+    start", ``ok: false``) *and* had not finished one transfer yet (else the
+    dying transport keeps a sample and a mean) - about one run in twelve
+    missed that window on an idle machine, most under load.
+
+    So the kill is tied to the measurement itself: the real child is killed
+    (and reaped) at the moment ``_measure`` moves on to its **second**
+    transport. The first transport was measured against a live server, the
+    other two against a dead one - mid-measurement by construction, however
+    fast or slow the machine is.
     """
-    real_popen = subprocess.Popen
+    real_wait_ready = ceiling.wait_ready
+    child: list[Any] = []
+    killed_at: list[float] = []
 
-    def killing_popen(*args: Any, **kwargs: Any) -> Any:
-        proc = real_popen(*args, **kwargs)
-        timer = threading.Timer(0.15, lambda: proc.kill())
-        timer.daemon = True
-        timer.start()
-        return proc
+    def remember_child(path: Path, proc: Any, *args: Any, **kwargs: Any) -> Any:
+        child.append(proc)
+        return real_wait_ready(path, proc, *args, **kwargs)
 
-    # patched by qualified name so ``ceiling.py``'s own ``subprocess.Popen``
-    # call (same module object) sees the wrapper too
-    monkeypatch.setattr("subprocess.Popen", killing_popen)
+    first_case, (second_id, second_measure), *rest = ceiling.CEILING_CASES
+
+    def kill_then_measure(endpoint: Any, size: int, chunk: int) -> Any:
+        if not killed_at:
+            child[0].kill()
+            child[0].wait(timeout=30)  # dead for certain: its ports are closed
+            killed_at.append(time.monotonic())
+        return second_measure(endpoint, size, chunk)
+
+    monkeypatch.setattr(ceiling, "wait_ready", remember_child)
+    monkeypatch.setattr(
+        ceiling,
+        "CEILING_CASES",
+        (first_case, (second_id, kill_then_measure), *rest),
+    )
     started = time.monotonic()
     result = ceiling.loopback_ceiling(
         SCRIPT, size=256 * MIB, chunk=CHUNK, reps=5, timeout_s=60
     )
-    elapsed = time.monotonic() - started
+    finished = time.monotonic()
+    elapsed = finished - started
     assert elapsed < 60, "a dead ceiling child must not hang the run"
+    # the precondition this test is about: the child died *during* the
+    # measurement (after the first transport, before the run returned)
+    assert killed_at and started < killed_at[0] < finished
     # the top-level call never raises and never claims total failure just
     # because the child died mid-run: it is honest per transport instead.
     assert result["ok"] is True
@@ -463,6 +486,13 @@ def test_loopback_ceiling_bounded_when_child_dies_mid_measurement(
     for item in broken:
         assert item["mean_mbps"] is None
         assert item["n"] == 0
+    # exactly the transports measured after the death are the broken ones;
+    # the one measured before it keeps its real samples and no error
+    assert {k for k, item in per.items() if item["error"] is not None} == {
+        second_id,
+        *(case_id for case_id, _measure in rest),
+    }
+    assert per[first_case[0]]["error"] is None and per[first_case[0]]["n"] == 5
 
 
 def test_ceiling_that_fails_part_way_keeps_its_error_into_the_report(
