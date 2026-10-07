@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import itertools
 import json
 import os
 import subprocess
@@ -53,8 +54,13 @@ def test_the_workload_leaves_start_end_and_its_output(tmp_path: Path) -> None:
     assert (work / "out" / "result.txt").read_text().startswith("job_1 att_1 ")
 
 
+_CLOCK = itertools.count(1)
+
+
 def end(job: str, attempt: str) -> LedgerLine:
-    return LedgerLine(1.0, "end", job, attempt, "h")
+    """A ledger `end` line; each call is a separate event (its own time stamp,
+    as the real workload writes them), so two calls are two executions."""
+    return LedgerLine(next(_CLOCK) / 1000, "end", job, attempt, "h")
 
 
 def view(

@@ -3,10 +3,11 @@
 Verdict ranking: FAIL (3) outranks INCONCLUSIVE (4) outranks PASS (0), and a
 verdict never reads PASS without evidence:
 
-* R2-1 (strict xfail): a run file with no jobs reads PASS (vacuous);
-* R2-2 (strict xfail): the same ledger copied under two file names makes
-  every attempt look executed twice (a FAIL for a duplicate that did not
-  happen - safe direction, but the lab team is sent hunting a ghost).
+* R2-1 (fixed): a run file with no jobs is INCONCLUSIVE (exit 4), never a
+  vacuous PASS;
+* R2-2 (fixed): the same ledger copied under two file names is one ledger
+  (record-identical lines count once); a genuine second execution of one
+  attempt (different time stamps) is still a FAIL.
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ from typing import Any
 import httpx
 import pytest
 
-from _sched.analysis import INCONCLUSIVE, PASS, Planned, analyse
+from _sched.analysis import FAIL, INCONCLUSIVE, PASS, Planned, analyse, parse_ledger
 
 LAB = Path(__file__).resolve().parents[3] / "lab"
 pytestmark = pytest.mark.unit
@@ -157,20 +158,36 @@ def test_an_unreachable_controller_never_reads_as_pass(
     assert sched_check.main(["check", str(run), "--ledger", str(ledger)]) in (3, 6)
 
 
-@pytest.mark.xfail(strict=True, reason="R2-1: an empty run is a vacuous PASS")
-def test_r2_1_a_run_with_no_jobs_is_not_a_pass(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_r2_1_a_run_with_no_jobs_is_inconclusive_exit_4(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    assert analyse([], {}, []).criterion_1_text != PASS
-    code, _report = run_check(
+    assert analyse([], {}, []).criterion_1_text == INCONCLUSIVE
+    assert not analyse([], {}, []).criterion_1
+    code, report = run_check(
         tmp_path, monkeypatch, [], {}, {"l2.txt": "1.0 end j1 a1 l2\n"}
     )
-    assert code != 0
+    assert code == 4
+    assert report["criterion_1"] == INCONCLUSIVE and report["jobs"] == 0
+    assert "lists no jobs" in capsys.readouterr().err
 
 
-@pytest.mark.xfail(
-    strict=True, reason="R2-2: one ledger copied twice reads as a duplicate"
-)
+def test_r2_1_a_non_empty_clean_run_is_still_pass_exit_0(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    jobs, views = two_jobs()
+    ledger = {"l2.txt": "1.0 start j1 a1 l2\n2.0 end j1 a1 l2\n3.0 end j2 b1 l2\n"}
+    code, report = run_check(tmp_path, monkeypatch, jobs, views, ledger)
+    assert code == 0
+    assert report["criterion_1"] == PASS and report["jobs"] == 2
+    assert report["identical_ledger_lines"] == 0
+
+
+def test_r2_1_an_empty_run_with_a_lost_job_elsewhere_is_never_pass() -> None:
+    """FAIL still outranks the empty-run INCONCLUSIVE (jobs counted, one lost)."""
+    verdict = analyse([Planned("j", 0, 5)], {"j": None}, [])
+    assert verdict.criterion_1_text == FAIL
+
+
 def test_r2_2_the_same_ledger_under_two_names_is_not_a_duplicate_execution(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -180,11 +197,45 @@ def test_r2_2_the_same_ledger_under_two_names_is_not_a_duplicate_execution(
         tmp_path, monkeypatch, jobs, views, {"l2.txt": body, "l2-copy.txt": body}
     )
     assert report["duplicate_executions_under_kills"] == []
+    assert report["identical_ledger_lines"] == 3
     assert code == 0
 
 
+def test_r2_2_a_genuine_second_execution_of_one_attempt_still_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Same job, same attempt, two `end` records with different times: one
+    attempt executed twice. Copying the ledger as well must not hide it."""
+    jobs, views = two_jobs()
+    body = (
+        "1.000001 start j1 a1 l2\n2.000001 end j1 a1 l2\n"
+        "2.500000 start j1 a1 l2\n3.000002 end j1 a1 l2\n4.0 end j2 b1 l2\n"
+    )
+    code, report = run_check(
+        tmp_path, monkeypatch, jobs, views, {"l2.txt": body, "l2-copy.txt": body}
+    )
+    assert code == 3
+    assert report["criterion_1"] == FAIL
+    assert report["duplicate_executions_under_kills"] == [
+        "j1/a1 (the same attempt ran 2 times)"
+    ]
+    assert report["identical_ledger_lines"] == 5
+
+
+def test_r2_2_one_record_on_two_hosts_is_two_executions() -> None:
+    """The host is part of record identity: the same time on two laptops is
+    two executions, not one copied line."""
+    ledger = parse_ledger(["2.0 end j1 a1 l2", "2.0 end j1 a1 l3"])
+    verdict = analyse(
+        [Planned("j1", 0, 5)],
+        {"j1": done_view(att("a1", "done"))},
+        ledger,
+    )
+    assert verdict.criterion_1_text == FAIL
+    assert verdict.identical_ledger_lines == 0
+
+
 def test_the_vacuous_verdict_is_not_inconclusive_by_accident() -> None:
-    """Pin: today an empty plan with a ledger of nothing reads PASS; the xfail
-    above is what flips when it is fixed - keep the constant it is compared to."""
+    """Pin the constants the R2-1 tests compare against."""
     assert INCONCLUSIVE != PASS
     assert analyse([Planned("j", 0, 5)], {"j": None}, []).criterion_1_text == "FAIL"

@@ -5,6 +5,7 @@ code."""
 
 from __future__ import annotations
 
+import itertools
 import random
 from typing import Any
 
@@ -29,9 +30,15 @@ def view(state: str, attempts: list[Any], ftype: str | None = None) -> Any:
     return {"state": state, "failure_type": ftype, "attempts": attempts}
 
 
+_CLOCK = itertools.count(1)
+
+
 def line(
-    kind: str, attempt: str, job: str = JOB, at: float = 1.0, host: str = "h"
+    kind: str, attempt: str, job: str = JOB, at: float | None = None, host: str = "h"
 ) -> str:
+    """One ledger event; without ``at`` each call gets its own time stamp (the
+    real workload's microsecond clock), so two calls are two events."""
+    at = next(_CLOCK) / 1000 if at is None else at
     return f"{at:.6f} {kind} {job} {attempt} {host}"
 
 

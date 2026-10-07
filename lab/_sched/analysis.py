@@ -31,8 +31,15 @@ Counted, per D117 (at-least-once execution, exactly-once commit) and D132
   Duplicates on that laptop would be invisible, so criterion 1 is then
   ``INCONCLUSIVE``: never PASS.
 
+Ledger lines that are **record-identical** (same time to the microsecond,
+kind, job, attempt and host) are one event read twice - the same ledger file
+copied under two names - and are counted once (``identical_ledger_lines``).
+Two executions of one attempt always differ in their time stamps, so a real
+duplicate is still seen.
+
 Criterion 1 is ``FAIL`` when anything was lost or duplicated, else
-``INCONCLUSIVE`` when evidence is missing, else ``PASS``
+``INCONCLUSIVE`` when evidence is missing **or the run has no jobs** (nothing
+was checked: never a vacuous PASS), else ``PASS``
 (:attr:`Verdict.criterion_1_text`).
 """
 
@@ -104,6 +111,7 @@ class Verdict:
     retried_after_failure: list[str] = field(default_factory=list)
     committed_without_evidence: list[str] = field(default_factory=list)
     unexpected: list[str] = field(default_factory=list)
+    identical_ledger_lines: int = 0
 
     @property
     def failed(self) -> bool:
@@ -115,11 +123,14 @@ class Verdict:
         """``FAIL`` / ``INCONCLUSIVE`` / ``PASS`` (module docstring, D132)."""
         if self.failed:
             return FAIL
-        return INCONCLUSIVE if self.committed_without_evidence else PASS
+        if self.jobs == 0 or self.committed_without_evidence:
+            return INCONCLUSIVE
+        return PASS
 
     @property
     def criterion_1(self) -> bool:
-        """0 lost, 0 duplicated **and** ledger evidence for every commit."""
+        """At least one job, 0 lost, 0 duplicated **and** ledger evidence for
+        every commit."""
         return self.criterion_1_text == PASS
 
     def as_dict(self) -> dict[str, Any]:
@@ -134,6 +145,7 @@ class Verdict:
             "retried_after_failure": self.retried_after_failure,
             "committed_without_ledger_evidence": self.committed_without_evidence,
             "unexpected": self.unexpected,
+            "identical_ledger_lines": self.identical_ledger_lines,
             "criterion_1": self.criterion_1_text,
         }
 
@@ -164,11 +176,14 @@ def analyse(
     partitioned = set(partitioned_nodes)
     ends: dict[str, list[str]] = defaultdict(list)
     runs: Counter[tuple[str, str]] = Counter()
-    for line in ledger:
+    unique = dict.fromkeys(ledger)  # one event read twice is one event
+    for line in unique:
         if line.kind == "end":
             ends[line.job_id].append(line.attempt_id)
             runs[(line.job_id, line.attempt_id)] += 1
-    verdict = Verdict(jobs=len(planned))
+    verdict = Verdict(
+        jobs=len(planned), identical_ledger_lines=len(ledger) - len(unique)
+    )
     for plan in planned:
         view = views.get(plan.job_id)
         if view is None:

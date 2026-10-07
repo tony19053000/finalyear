@@ -22,7 +22,9 @@ Runs on the **controller laptop** (L1) with the fabric token
 
 Exit codes: 0 done (check: criterion 1 PASS); 2 usage error; 3 check FAIL or
 wait timed out; 4 check INCONCLUSIVE (a committed job has no ledger evidence -
-a laptop's ledger is missing; collect it and check again; never a pass, D132);
+a laptop's ledger is missing; collect it and check again - or the run file
+lists no jobs; never a pass, D132). Identical ledger lines (one file copied
+under two names) count once.
 6 the controller could not be reached.
 """
 
@@ -238,6 +240,13 @@ def cmd_check(args: argparse.Namespace) -> int:
         return 0
     if outcome == FAIL:
         return EXIT_FAIL
+    if verdict.jobs == 0:
+        print(
+            f"INCONCLUSIVE: {args.run} lists no jobs - nothing was checked; "
+            "pass the RUN.json that `submit` wrote",
+            file=sys.stderr,
+        )
+        return EXIT_INCONCLUSIVE
     print(
         f"INCONCLUSIVE: {len(verdict.committed_without_evidence)} committed job(s) "
         f"have no `end` line in {args.ledger} - a laptop's ledger is missing; "
