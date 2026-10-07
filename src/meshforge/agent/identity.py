@@ -63,15 +63,18 @@ from meshforge.common.ids import NodeId, new_node_id, validate_node_id
 from meshforge.common.logging import get_logger
 
 __all__ = [
+    "CA_CERT_FILE_NAME",
     "DEFAULT_LOCK_TIMEOUT_S",
     "IDENTITY_FORMAT",
     "JSON_FILE_NAME",
     "KEY_FILE_NAME",
     "LOCK_FILE_NAME",
     "MAX_SESSION_EPOCH",
+    "NODE_CERT_FILE_NAME",
     "IdentityError",
     "NodeIdentity",
     "load_or_create",
+    "locked_identity",
     "next_epoch",
     "reset",
 ]
@@ -80,6 +83,10 @@ log = get_logger(__name__)
 
 KEY_FILE_NAME: Final = "node.key"
 JSON_FILE_NAME: Final = "node.json"
+NODE_CERT_FILE_NAME: Final = "node.crt"
+"""V0.7 G2: the node certificate from `meshforge-agent join` (agent/enrollment.py)."""
+CA_CERT_FILE_NAME: Final = "ca.crt"
+"""V0.7 G2: the fabric CA certificate pinned at join."""
 LOCK_FILE_NAME: Final = "identity.lock"
 IDENTITY_FORMAT: Final = 1
 DEFAULT_LOCK_TIMEOUT_S: Final = 10.0
@@ -221,7 +228,9 @@ def next_epoch(
 
 
 def reset(directory: Path, *, lock_timeout_s: float = DEFAULT_LOCK_TIMEOUT_S) -> None:
-    """Delete both identity files under the lock. Missing files/directory are fine.
+    """Delete the identity files under the lock - and, since V0.7 G2, the
+    enrolment (``node.crt``, ``ca.crt``): a certificate for the old key is
+    worthless next to a new one. Missing files/directory are fine.
 
     The directory and ``identity.lock`` stay: deleting a lock file another process
     is blocked on would let two processes own the lock (see ``common.filelock``).
@@ -230,7 +239,13 @@ def reset(directory: Path, *, lock_timeout_s: float = DEFAULT_LOCK_TIMEOUT_S) ->
     if not directory.is_dir():
         return  # nothing to delete, and no reason to create a directory
     with _locked(directory, lock_timeout_s):
-        for name in (KEY_FILE_NAME, JSON_FILE_NAME):
+        # Certificate first: a crash part-way never leaves a cert for a new key.
+        for name in (
+            NODE_CERT_FILE_NAME,
+            CA_CERT_FILE_NAME,
+            KEY_FILE_NAME,
+            JSON_FILE_NAME,
+        ):
             path = directory / name
             try:
                 path.unlink()
@@ -246,6 +261,16 @@ def reset(directory: Path, *, lock_timeout_s: float = DEFAULT_LOCK_TIMEOUT_S) ->
 
 
 # ------------------------------------------------------------------------------ lock
+
+
+@contextmanager
+def locked_identity(
+    directory: Path, *, lock_timeout_s: float = DEFAULT_LOCK_TIMEOUT_S
+) -> Iterator[None]:
+    """Hold ``identity.lock`` (V0.7 G2: the enrolment files ``node.crt`` /
+    ``ca.crt`` live in the same folder and are written under the same lock)."""
+    with _locked(Path(directory), lock_timeout_s):
+        yield
 
 
 @contextmanager

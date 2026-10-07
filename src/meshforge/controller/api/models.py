@@ -151,6 +151,15 @@ class NodeScores(ApiModel):
     metrics: tuple[ScoreMetric, ...] = ()
 
 
+class NodeCertificate(ApiModel):
+    """V0.7 G2: the node's current certificate, as recorded at enrolment."""
+
+    serial: str
+    fingerprint_sha256: str
+    not_after: Utc
+    public_key_fingerprint_sha256: str
+
+
 class NodeSummary(ApiModel):
     """One row of ``GET /v1/nodes``. See the module docstring for D16."""
 
@@ -172,6 +181,14 @@ class NodeSummary(ApiModel):
     ram_total_bytes: int | None = None
     gpus: tuple[GpuUsage, ...] = ()
     scores: NodeScores = Field(default_factory=lambda: NodeScores(status="none"))
+    certificate: NodeCertificate | None = Field(
+        default=None,
+        description=(
+            "V0.7 G2: the certificate issued at the node's latest enrolment "
+            "(`meshforge-agent join`); null = never enrolled. Not enforced on "
+            "the session port before V0.7 G3."
+        ),
+    )
 
 
 class CacheCount(ApiModel):

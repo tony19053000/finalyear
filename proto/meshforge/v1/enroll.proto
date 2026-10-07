@@ -1,0 +1,45 @@
+// Pairing a laptop with the fabric (V0.7 G2, D136/D150, ADR-0016).
+//
+// G2 serves this service on an interim TLS listener of its own
+// ([controller.enroll] bind, default port 47101): the controller presents its
+// server certificate (issued by the fabric CA) together with the CA certificate
+// and asks for no client certificate. G3 folds it into the session port, where
+// Enroll stays the only RPC allowed without a client certificate.
+//
+// The agent never sends the join token before it has pinned the CA:
+//   1. it reads the CA certificate from the TLS handshake (verification off),
+//      and compares the first 128 bits of SHA-256(CA DER) with the code's pin;
+//   2. only then it opens a VERIFYING channel (root = that CA, target name
+//      "meshforge-controller") and calls Enroll.
+//
+// A refusal is a gRPC status with trailing metadata `meshforge-reason` (a stable
+// code such as token_used, csr_bad_signature, node_key_conflict); messages
+// never echo the token or the CSR.
+syntax = "proto3";
+
+package meshforge.v1;
+
+service Enrollment {
+  // Redeem a single-use join token for a node certificate. Unauthenticated by
+  // design (the token is the credential); rate-limited per source IP.
+  rpc Enroll(EnrollRequest) returns (EnrollResponse);
+}
+
+message EnrollRequest {
+  // The 16 token bytes of the join code (D135). Never logged.
+  bytes join_token = 1;
+  // PEM CertificateSigningRequest signed by the node's ADR-0013 P-256 key, with
+  // exactly one SAN URI meshforge://fabric/<fabric_id>/node/<node_id>.
+  // At most 4096 bytes.
+  bytes csr_pem = 2;
+}
+
+message EnrollResponse {
+  // The node certificate (30 days, EKU clientAuth + serverAuth), PEM.
+  bytes node_cert_pem = 1;
+  // The fabric CA certificate, PEM (the same one the agent pinned).
+  bytes ca_cert_pem = 2;
+  string fabric_id = 3;
+  // The node_id the certificate names (echo of the CSR's, for the agent's check).
+  string node_id = 4;
+}

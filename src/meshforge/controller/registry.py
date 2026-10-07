@@ -101,6 +101,11 @@ class NodeRecord:
     """``Hello.max_cpu_jobs`` (V0.6 D105); None = the agent did not say."""
     gpu_slots: int | None = None
     """``Hello.max_gpu_jobs`` (V0.6 D105); None = the agent did not say."""
+    cert_serial: str | None = None
+    """V0.7 G2: the node's current certificate (None = never enrolled)."""
+    cert_fingerprint: str | None = None
+    cert_not_after: dt.datetime | None = None
+    public_key_fingerprint: str | None = None
 
 
 class ScoresWrite(StrEnum):
@@ -213,6 +218,10 @@ def _node_record(row: Node) -> NodeRecord:
         ),
         cpu_slots=row.cpu_slots,
         gpu_slots=row.gpu_slots,
+        cert_serial=row.cert_serial,
+        cert_fingerprint=row.cert_fingerprint,
+        cert_not_after=row.cert_not_after,
+        public_key_fingerprint=row.public_key_fingerprint,
     )
 
 

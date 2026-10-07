@@ -5,6 +5,7 @@ Commands::
     meshforge-agent run [--config FILE] [--controller HOST:PORT]
     meshforge-agent identity show [--config FILE] [--json]
     meshforge-agent identity reset --yes [--config FILE]
+    meshforge-agent join [CODE|-] [--force] [--config FILE]   (V0.7 G2)
     meshforge-agent hardware show [--config FILE] [--json]
     meshforge-agent hardware score [--config FILE] [--json] [--force]
     meshforge-agent prepare [--config FILE] [--base NAME]... [--timeout S] [--json]
@@ -145,7 +146,9 @@ def identity_show(
         bool, typer.Option("--json", help="Machine-readable output.")
     ] = False,
 ) -> None:
-    """Print node_id, session_epoch and the key fingerprint (never the key)."""
+    """Print node_id, session_epoch, the key fingerprint and - once joined - the
+    fabric, certificate expiry and fingerprints (never the key)."""
+    from meshforge.agent.enrollment import JoinError, load
     from meshforge.agent.identity import load_or_create
     from meshforge.common.errors import MeshForgeError
 
@@ -156,17 +159,103 @@ def identity_show(
     except MeshForgeError as exc:
         typer.echo(f"{PROG_NAME}: {exc}", err=True)
         raise typer.Exit(exc.exit_code) from None
-    facts = {
+    facts: dict[str, object] = {
         "node_id": str(identity.node_id),
         "session_epoch": identity.session_epoch,
         "key_fingerprint_sha256": identity.fingerprint,
         "path": str(identity.path),
     }
+    problem: JoinError | None = None
+    try:
+        enrollment = load(identity)
+    except JoinError as exc:
+        enrollment, problem = None, exc
+    if enrollment is not None:
+        from datetime import UTC, datetime
+
+        facts.update(
+            enrolled=True,
+            fabric_id=enrollment.fabric_id,
+            cert_not_after=enrollment.not_after.isoformat(),
+            cert_expired=enrollment.not_after <= datetime.now(UTC),
+            cert_fingerprint_sha256=enrollment.cert_fingerprint,
+            ca_fingerprint_sha256=enrollment.ca_fingerprint,
+        )
+    else:
+        facts["enrolled"] = False
+        if problem is not None:
+            facts["enrollment_problem"] = problem.message
     if as_json:
         typer.echo(json.dumps(facts, indent=2, sort_keys=True))
     else:
         for key, value in facts.items():
             typer.echo(f"{key}: {value}")
+        if not facts["enrolled"] and problem is None:
+            typer.echo("not joined to a fabric yet: meshforge-agent join")
+    if problem is not None:
+        raise typer.Exit(ExitCode.CONFIG_ERROR)
+
+
+@app.command()
+def join(
+    code: Annotated[
+        str | None,
+        typer.Argument(
+            metavar="[CODE]",
+            help="The join code from `fabric invite`. Omit it (or pass -) to type "
+            "it at a hidden prompt / read it from stdin - keeps it out of shell "
+            "history and the process list.",
+        ),
+    ] = None,
+    config: ConfigOption = None,
+    force: Annotated[
+        bool,
+        typer.Option(
+            "--force", help="Replace this laptop's existing enrolment (re-join)."
+        ),
+    ] = False,
+    timeout: Annotated[
+        float,
+        typer.Option("--timeout", min=1.0, max=300.0, help="Seconds per step."),
+    ] = 15.0,
+) -> None:
+    """Join this laptop to a fabric with a single-use code (V0.7, D136).
+
+    Checks the controller's CA against the code BEFORE sending the code's
+    secret, then gets a node certificate for this laptop's key. Until V0.7 G3
+    the agent still connects without it.
+    """
+    import sys
+
+    from meshforge.agent.enrollment import JoinError
+    from meshforge.agent.enrollment import join as run_join
+    from meshforge.agent.identity import load_or_create
+    from meshforge.common.errors import MeshForgeError
+
+    settings = _load_settings(config)
+    _quiet_logging(settings)
+    if code is None or code == "-":
+        if sys.stdin.isatty():
+            code = typer.prompt("join code", hide_input=True)
+        else:
+            code = sys.stdin.readline(4096)
+    try:
+        identity = load_or_create(settings.identity_dir)
+        result = run_join(identity, code, force=force, timeout_s=timeout)
+    except JoinError as exc:
+        typer.echo(f"{PROG_NAME}: {exc}", err=True)
+        raise typer.Exit(exc.exit_code_for) from None
+    except MeshForgeError as exc:
+        typer.echo(f"{PROG_NAME}: {exc}", err=True)
+        raise typer.Exit(exc.exit_code) from None
+    enrollment = result.enrollment
+    typer.echo(f"joined fabric {enrollment.fabric_id} via {result.address}")
+    typer.echo(f"node_id: {enrollment.node_id}")
+    typer.echo(f"certificate valid until {enrollment.not_after.isoformat()}")
+    typer.echo(
+        "note: until V0.7 G3 the agent still connects without its certificate; "
+        "keep running `meshforge-agent run` as before"
+    )
 
 
 @identity_app.command("reset")

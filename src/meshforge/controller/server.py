@@ -7,6 +7,7 @@
              -> SessionManager + LeaseTimer task
              -> ResourceTracker + SnapshotFlusher task      (roadmap 0.3.11)
              -> Dispatcher task (queued jobs -> attempts)   (V0.4 G4, D65)
+             -> TLS enrolment listener (V0.7 G2, D150)  on [controller.enroll] bind
              -> grpc.aio server (AgentControl)         on controller.grpc_bind
              -> uvicorn (FastAPI: /healthz + read-only /v1) on controller.http_bind
              -> mDNS advertisement of the gRPC port    if controller.discovery.advertise
@@ -45,6 +46,7 @@ import grpc
 import uvicorn
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from meshforge.common import pki
 from meshforge.common.errors import ConfigError, ExitCode, MeshForgeError
 from meshforge.common.gc_index import GcIndexBusyError
 from meshforge.common.logging import get_logger
@@ -58,6 +60,12 @@ from meshforge.controller.blobs import BlobStore, FetchTokens
 from meshforge.controller.cache_index import CacheIndex, CacheLocationStore
 from meshforge.controller.discovery import ServiceAdvertiser
 from meshforge.controller.enrollment.invites import InviteStore
+from meshforge.controller.enrollment.listener import (
+    EnrollListener,
+    EnrollmentServicer,
+    SourceRateLimiter,
+)
+from meshforge.controller.enrollment.service import Enroller
 from meshforge.controller.fabric_ca import (
     FabricCa,
     ServerCert,
@@ -138,6 +146,10 @@ class ControllerRuntime:
         self._http_bind: BindAddress = parse_bind(
             settings.controller.http_bind, allow_any=settings.controller.allow_any_bind
         )
+        self._enroll_bind: BindAddress = parse_bind(
+            settings.controller.enroll_bind,
+            allow_any=settings.controller.allow_any_bind,
+        )
         self.grpc_port: int = 0
         self.http_port: int = 0
         self.enroll_port: int = 0
@@ -150,6 +162,7 @@ class ControllerRuntime:
         self.flusher: SnapshotFlusher | None = None
         self._engine: AsyncEngine | None = None
         self._grpc_server: grpc.aio.Server | None = None
+        self._enroll_listener: EnrollListener | None = None
         self._http_server: _NoSignalUvicorn | None = None
         self._http_sock: socket.socket | None = None
         self._advertiser: ServiceAdvertiser | None = None
@@ -424,6 +437,8 @@ class ControllerRuntime:
         self.flusher = flusher
         self._flusher_task = self._spawn(flusher.run(), "snapshot-flusher")
 
+        await self._start_enrollment(engine, loop)
+
         grpc_server = grpc.aio.server(options=list(GRPC_SERVER_OPTIONS))
         agent_pb2_grpc.add_AgentControlServicer_to_server(
             AgentControlServicer(manager, hello_timeout_s=cfg.hello_timeout_s),
@@ -492,6 +507,11 @@ class ControllerRuntime:
             "controller.listening",
             grpc=BindAddress((self._grpc_bind.host, self.grpc_port)).grpc_target(),
             http=BindAddress((self._http_bind.host, self.http_port)).grpc_target(),
+            enroll=(
+                BindAddress((self._enroll_bind.host, self.enroll_port)).grpc_target()
+                if self.enroll_port
+                else None
+            ),
         )
 
         if cfg.discovery.advertise:
@@ -510,6 +530,31 @@ class ControllerRuntime:
             heartbeat_interval_s=cfg.liveness.heartbeat_interval_s,
             lease_s=cfg.liveness.to_config().offline_after_s,
         )
+
+    async def _start_enrollment(
+        self, engine: AsyncEngine, loop: asyncio.AbstractEventLoop
+    ) -> None:
+        """V0.7 G2 (D150): the TLS ``Enroll`` listener, when a CA exists."""
+        enroll = self.settings.controller.enroll
+        if not enroll.enabled or self.fabric is None or self.server_cert is None:
+            log.info(
+                "controller.enroll.off",
+                reason="disabled" if not enroll.enabled else "no_fabric",
+            )
+            return
+        limiter = SourceRateLimiter(
+            rate_per_minute=enroll.rate_per_minute,
+            burst=enroll.rate_burst,
+            max_sources=enroll.max_tracked_sources,
+            clock=loop.time,
+        )
+        listener = EnrollListener(
+            EnrollmentServicer(Enroller(engine, self.fabric), limiter)
+        )
+        self.enroll_port = await listener.start(
+            self._enroll_bind, self.server_cert, pki.cert_to_pem(self.fabric.cert)
+        )
+        self._enroll_listener = listener
 
     def _spawn(self, coro: Coroutine[Any, Any, None], name: str) -> asyncio.Task[None]:
         task = asyncio.create_task(coro, name=name)
@@ -612,6 +657,8 @@ class ControllerRuntime:
         if self.flusher is not None:
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(self.flusher.final_flush(), remaining())
+        if self._enroll_listener is not None:
+            await self._enroll_listener.stop(grace=remaining())
         if self._grpc_server is not None:
             await self._grpc_server.stop(grace=remaining())
         if self._http_server is not None:

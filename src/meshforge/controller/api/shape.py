@@ -17,6 +17,7 @@ from meshforge.controller.api.models import (
     CacheCount,
     DiskUsage,
     GpuUsage,
+    NodeCertificate,
     NodeDetail,
     NodeScores,
     NodeSummary,
@@ -123,6 +124,23 @@ class _SummaryFields(TypedDict):
     ram_total_bytes: int | None
     gpus: tuple[GpuUsage, ...]
     scores: NodeScores
+    certificate: NodeCertificate | None
+
+
+def _certificate(node: NodeRecord) -> NodeCertificate | None:
+    if (
+        node.cert_serial is None
+        or node.cert_fingerprint is None
+        or node.cert_not_after is None
+        or node.public_key_fingerprint is None
+    ):
+        return None
+    return NodeCertificate(
+        serial=node.cert_serial,
+        fingerprint_sha256=node.cert_fingerprint,
+        not_after=node.cert_not_after,
+        public_key_fingerprint_sha256=node.public_key_fingerprint,
+    )
 
 
 def _summary_fields(
@@ -150,6 +168,7 @@ def _summary_fields(
         "ram_total_bytes": sample.ram_total_bytes if sample is not None else None,
         "gpus": _gpus(sample),
         "scores": node_scores(node),
+        "certificate": _certificate(node),
     }
 
 
