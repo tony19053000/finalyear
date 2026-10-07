@@ -118,6 +118,7 @@ class DispatchPlanner:
         known_bad_envs: KnownBadEnvs | None = None,
         cache_live: Callable[[str, str], bool] | None = None,
         link_stale_after_s: float = 3600.0,
+        min_bw_bytes_s: float = 1024.0,
     ) -> None:
         self._manager = manager
         self._settings = settings
@@ -141,6 +142,7 @@ class DispatchPlanner:
             max_attempts_per_node=settings.max_attempts_per_node,
             resource_weights=planner.resource_weights,
             link_stale_after_s=link_stale_after_s,
+            min_bw_bytes_s=min_bw_bytes_s,
         )
 
     # ------------------------------------------------------------ snapshot

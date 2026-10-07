@@ -280,6 +280,9 @@ class ControllerLinkStat:
 
     bw_bytes_s: float
     samples: int
+    last_at: dt.datetime | None = None
+    """When the newest of those transfers was recorded (D131: a ``history``
+    transfer term shows its age; there is no staleness rule for it)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -303,6 +306,9 @@ class PlannerConfig:
     """``resource_score``: (free RAM GiB, free slots, normalised score)."""
     link_stale_after_s: float = 3600.0
     """V0.6 G4 (D111): a link measured longer ago than this is not used."""
+    min_bw_bytes_s: float = 1024.0
+    """D131 (``[controller.network] min_bw_bytes_s``): no estimate divides by
+    a bandwidth below this, so every estimate is finite."""
 
 
 @dataclass(frozen=True, slots=True)

@@ -246,6 +246,7 @@ class Dispatcher(RecoverySteps):
             known_bad_envs=known_bad_envs,
             cache_live=cache_live,
             link_stale_after_s=self._network_settings.stale_after_s,
+            min_bw_bytes_s=self._network_settings.min_bw_bytes_s,
         )
         """V0.6 G2 (D102): builds the tick's snapshot and decides per job."""
         manager.dispatch.register("attempt_status", self._on_status_message)

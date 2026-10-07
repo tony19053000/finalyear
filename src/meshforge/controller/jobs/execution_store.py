@@ -12,7 +12,9 @@ the loser sees the winner's state:
   tick's fabric rows (:mod:`.queue_reads`: slot use derived from live
   attempts, D105), a caller decision per job, and for each dispatched job the
   new attempt (next fencing token, its slot), ``QUEUED -> PREPARING``, its
-  start snapshot and its ``plan_decision`` row (D112) - all committed
+  start snapshot and its ``plan_decision`` row (D112; in a savepoint, so a
+  row the database refuses is dropped alone and never undoes the tick, D131)
+  - all committed
   **before** the caller sends anything (D65: commit-before-send). Ticks of
   overlapping dispatchers are serialised by a transaction-scoped advisory
   lock taken first, so slot use read from the database is never stale; a
@@ -51,6 +53,7 @@ from typing import Any, Final
 
 from sqlalchemy import func, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from meshforge.common.errors import FailureType
@@ -344,18 +347,18 @@ class ExecutionStore(DecisionReads):
                         node_id, decision.slot, _gpu_indices(decision.start_snapshot)
                     )
                     if decision.record is not None:
-                        await _record_decision(
+                        fabric.last_reason[job.id] = decision.record.reason_key
+                        if await _record_decision(
                             db,
                             job.id,
                             attempt.fencing_token,
                             "dispatched",
                             decision.record,
                             attempt_id=attempt.id,
-                        )
-                        fabric.last_reason[job.id] = decision.record.reason_key
-                        recorded.append(
-                            (job.id, attempt.id, "dispatched", decision.record)
-                        )
+                        ):
+                            recorded.append(
+                                (job.id, attempt.id, "dispatched", decision.record)
+                            )
                     await _fresh(db, row)
                     results.append(DispatchResult(job=job_record(row), attempt=attempt))
                 elif isinstance(decision, DispatchFailure):
@@ -373,14 +376,13 @@ class ExecutionStore(DecisionReads):
                         failure_type=decision.failure_type,
                         detail=why,
                     )
-                    if decision.record is not None:
-                        await _record_decision(
-                            db,
-                            job.id,
-                            int(row.attempt_epoch) + 1,
-                            "failed",
-                            decision.record,
-                        )
+                    if decision.record is not None and await _record_decision(
+                        db,
+                        job.id,
+                        int(row.attempt_epoch) + 1,
+                        "failed",
+                        decision.record,
+                    ):
                         recorded.append((job.id, None, "failed", decision.record))
                     await _fresh(db, row)
                     results.append(
@@ -391,15 +393,16 @@ class ExecutionStore(DecisionReads):
                 elif isinstance(decision, Wait) and decision.record is not None:
                     key = decision.record.reason_key
                     if fabric.last_reason.get(job.id) != key:
-                        await _record_decision(
+                        # set first: a refused row is not retried every tick
+                        fabric.last_reason[job.id] = key
+                        if await _record_decision(
                             db,
                             job.id,
                             int(row.attempt_epoch) + 1,
                             "waiting",
                             decision.record,
-                        )
-                        fabric.last_reason[job.id] = key
-                        recorded.append((job.id, None, "waiting", decision.record))
+                        ):
+                            recorded.append((job.id, None, "waiting", decision.record))
         for job_id, attempt_id, outcome, record in recorded:  # committed now
             log.info(
                 "controller.jobs.plan_decision",
@@ -758,24 +761,42 @@ async def _record_decision(
     record: DecisionRecord,
     *,
     attempt_id: str | None = None,
-) -> None:
-    """D112: one ``plan_decision`` row in the caller's transaction."""
-    if attempt_id is not None:
-        await db.flush()  # the attempt row first (foreign key)
-    db.add(
-        PlanDecision(
+) -> bool:
+    """D112: one ``plan_decision`` row in the caller's transaction.
+
+    The row is the *explanation* of a placement, never a condition of it
+    (D131, tester T-1): it is written inside a ``SAVEPOINT``, so a row the
+    database refuses (a value ``jsonb`` cannot hold, a constraint) is rolled
+    back alone - logged, the job's dispatch / failure and the rest of the
+    tick still commit. False = not recorded.
+    """
+    try:
+        async with db.begin_nested():  # flushes what is pending first (the attempt)
+            db.add(
+                PlanDecision(
+                    job_id=job_id,
+                    attempt_no=max(1, attempt_no),
+                    attempt_id=attempt_id,
+                    outcome=outcome,
+                    policy=record.policy,
+                    chosen_node_id=record.chosen_node_id,
+                    snapshot_digest=record.snapshot_digest,
+                    reason_key=record.reason_key,
+                    candidates=[dict(c) for c in record.candidates][
+                        :MAX_DECISION_CANDIDATES
+                    ],
+                )
+            )
+    except SQLAlchemyError as exc:
+        log.error(  # noqa: TRY400 - typed event; the row's values stay out of logs
+            "controller.jobs.plan_decision_not_recorded",
             job_id=job_id,
-            attempt_no=max(1, attempt_no),
             attempt_id=attempt_id,
             outcome=outcome,
-            policy=record.policy,
-            chosen_node_id=record.chosen_node_id,
-            snapshot_digest=record.snapshot_digest,
-            reason_key=record.reason_key,
-            candidates=[dict(c) for c in record.candidates][:MAX_DECISION_CANDIDATES],
+            error_type=type(exc).__name__,
         )
-    )
-    await db.flush()
+        return False
+    return True
 
 
 async def _move_job(

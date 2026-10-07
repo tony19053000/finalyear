@@ -25,6 +25,7 @@ number of SQL statements does not grow with the number of jobs or nodes.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import datetime as dt
 import json
 from collections.abc import AsyncIterator
@@ -531,3 +532,80 @@ async def test_controller_links_are_the_median_of_recent_big_transfers(
     assert every[node].bw_bytes_s == pytest.approx(3 * MB)  # median of 1, 2, 4, 8
     assert newest[node].samples == 3
     assert newest[node].bw_bytes_s == pytest.approx(4 * MB)  # median of 2, 4, 8
+
+
+# ------------------------------------------------ fix round 1 (D131, T-1)
+
+
+async def test_a_refused_decision_row_never_undoes_the_tick(
+    pg_settings: DatabaseSettings, store: ExecutionStore
+) -> None:
+    """Two queued jobs in one tick; the decision row of the first carries a
+    value ``jsonb`` refuses (``Infinity``, as the estimator produced before
+    D131). Both jobs are still dispatched and committed; only the refused
+    explanation is missing, and the clean job's row is there."""
+    local, remote = await _fabric(pg_settings, store)
+    jobs = [
+        await _job(
+            store, digest=_digest(n), scheduling=JobScheduling(fingerprint=f"{n}" * 64)
+        )
+        for n in (1, 2)
+    ]
+    planner = _planner(Manager([local, remote]))
+    poisoned = jobs[0].id
+
+    def decide(job: JobRecord, fabric: Any) -> Any:
+        decision = planner.decide(job, fabric)
+        if job.id != poisoned:
+            return decision
+        bad = [{**dict(c), "score": float("inf")} for c in decision.record.candidates]
+        return dataclasses.replace(
+            decision, record=dataclasses.replace(decision.record, candidates=bad)
+        )
+
+    results = await store.dispatch_planned(
+        decide,
+        limit=10,
+        max_per_node=8,
+        now=dt.datetime.now(dt.UTC),
+        aging_s=600.0,
+    )
+    assert {r.job.id for r in results} == {j.id for j in jobs}
+    assert all(r.attempt is not None for r in results)
+    states = dict(
+        await _sql(
+            pg_settings,
+            "SELECT job_id, state FROM attempt WHERE job_id = ANY(:ids)",
+            ids=[j.id for j in jobs],
+        )
+    )
+    assert set(states) == {j.id for j in jobs}, "a dispatched attempt was rolled back"
+    assert await store.decisions(poisoned) == []
+    (clean,) = await store.decisions(jobs[1].id)
+    assert clean.outcome == "dispatched"
+
+
+async def test_a_history_transfer_term_stores_the_age_of_the_controller_link(
+    pg_settings: DatabaseSettings, store: ExecutionStore
+) -> None:
+    """No probed link: R's 4 MB come over the controller link (2 MB in 20 s =
+    0.1 MB/s -> 40 s, ``history``) and the stored decision says how old the
+    newest transfer behind that number is (D131; read in the tick's one
+    controller-link statement)."""
+    local, remote = await _fabric(pg_settings, store)
+    await _sql(pg_settings, "DELETE FROM network_link")
+    await _sql(
+        pg_settings,
+        "UPDATE transfer_event SET recorded_at = now() - interval '2 hours'",
+    )
+    await _job(
+        store,
+        digest=_digest(1),
+        scheduling=JobScheduling(fingerprint="1" * 64, input_bytes=4 * MB),
+    )
+    out = await _dispatch(store, _planner(Manager([local, remote])))
+    transfer = _terms(out["decision"], remote)["transfer"]
+    assert transfer["source"] == "history"
+    assert transfer["seconds"] == pytest.approx(40.0)
+    assert transfer["detail"]["bw_from"] == "controller"
+    assert 7190.0 <= transfer["detail"]["last_transfer_age_s"] <= 7300.0

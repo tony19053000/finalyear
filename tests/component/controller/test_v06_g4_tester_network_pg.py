@@ -174,12 +174,6 @@ async def test_criterion_4_flips_exactly_at_the_crossover(
     assert (total[remote] < total[local]) is goes_remote
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-1: a 1e-300 B/s link is stored and used; a 400 MB tree then "
-    "estimates as Infinity seconds and the plan_decision insert fails "
-    "(asyncpg: Token Infinity is invalid) - the whole dispatch tick raises",
-)
 async def test_a_vanishing_probed_bandwidth_does_not_break_the_dispatch_tick(
     pg_settings: DatabaseSettings, store: ExecutionStore
 ) -> None:

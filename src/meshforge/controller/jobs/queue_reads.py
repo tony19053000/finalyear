@@ -360,7 +360,9 @@ async def _network(db: AsyncSession, reads: NetworkReads, fabric: FabricRows) ->
         for r in await read_links(db)
     }
     fabric.controller_links = {
-        node: ControllerLinkStat(bw_bytes_s=c.bw_bytes_s, samples=c.samples)
+        node: ControllerLinkStat(
+            bw_bytes_s=c.bw_bytes_s, samples=c.samples, last_at=c.last_at
+        )
         for node, c in (
             await controller_links(
                 db,

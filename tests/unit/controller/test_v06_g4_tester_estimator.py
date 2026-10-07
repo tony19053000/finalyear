@@ -209,13 +209,6 @@ def test_the_probe_does_not_cover_trees_the_holder_lacks() -> None:
     assert e.transfer.seconds >= 200.0, e.transfer
 
 
-test_the_probe_does_not_cover_trees_the_holder_lacks = pytest.mark.xfail(
-    strict=True,
-    reason="T-7: transfer time uses the faster of probe/controller for ALL "
-    "missing bytes, even those only the controller can serve",
-)(test_the_probe_does_not_cover_trees_the_holder_lacks)
-
-
 def test_scaled_compute_uses_the_score_ratio_and_flags_it() -> None:
     fast = node("f", cpu_score=400.0)
     slow = node("s", cpu_score=100.0)
@@ -364,11 +357,6 @@ def test_determinism_and_node_order_independence(seed: int) -> None:
             assert a["estimate"]["total_s"] == b["estimate"]["total_s"]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-8: equal-bandwidth holders - bw_from depends on the order of "
-    "snapshot.nodes (no node_id tie-break in _inbound)",
-)
 def test_equal_links_name_the_same_holder_whatever_the_snapshot_order() -> None:
     target = node("t")
     h1, h2 = node("h1", cached=frozenset({BIG})), node("h2", cached=frozenset({BIG}))
