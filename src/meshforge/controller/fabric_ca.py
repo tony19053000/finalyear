@@ -189,14 +189,26 @@ def _ensure_parent(directory: Path) -> None:
 def _lock(target: Path) -> Iterator[None]:
     _ensure_parent(target.parent)
     lock_path = target.with_name(target.name + ".lock")
-    try:
-        with locked(lock_path, timeout_s=_LOCK_TIMEOUT_S, mode=_FILE_MODE):
-            yield
-    except TimeoutError:
-        raise FabricCaError(
-            f"{lock_path} is held by another process; retry",
-            details={"path": str(lock_path)},
-        ) from None
+    with contextlib.ExitStack() as stack:
+        # Only *taking* the lock is translated here; errors raised by the caller's
+        # block pass through unchanged.
+        try:
+            stack.enter_context(
+                locked(lock_path, timeout_s=_LOCK_TIMEOUT_S, mode=_FILE_MODE)
+            )
+        except TimeoutError:
+            raise FabricCaError(
+                f"{lock_path} is held by another process; retry",
+                details={"path": str(lock_path)},
+            ) from None
+        except OSError as exc:  # unwritable folder, read-only fs, disk full
+            raise FabricCaError(
+                f"cannot create the lock file {lock_path}: "
+                f"{exc.strerror or exc}; the folder {lock_path.parent} must be "
+                "writable by the user running the controller",
+                details={"path": str(lock_path.parent)},
+            ) from None
+        yield
 
 
 def _fsync_dir(directory: Path) -> None:
@@ -264,12 +276,21 @@ def _install_dir(target: Path, files: Mapping[str, bytes]) -> None:
 
 
 def _check_private_dir(directory: Path) -> None:
+    """Folder is private (mode) and, on POSIX, owned by the user running us."""
     problem = private_problem(directory)
     if problem is not None:
         raise FabricCaError(
             f"the folder {directory} is {problem.replace('chmod 600', 'chmod 700')}",
             details={"path": str(directory)},
         )
+    if hasattr(os, "geteuid"):
+        owner = directory.stat().st_uid
+        if owner != os.geteuid():
+            raise FabricCaError(
+                f"the folder {directory} is owned by another user (uid {owner}); it "
+                "must belong to the user running the controller (chown it)",
+                details={"path": str(directory)},
+            )
 
 
 # ---------------------------------------------------------------------------- CA

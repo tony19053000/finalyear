@@ -281,12 +281,6 @@ def test_ca_key_that_is_a_fifo_or_device_does_not_hang_and_is_refused(
 
 
 @posix_only
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT T-2 (minor): load_server_cert/read_private_key open a FIFO at "
-    "server.key/server.crt without an is_file() check -> controller start-up blocks "
-    "forever (ca.key is guarded by is_file; the tls files are not)",
-)
 @pytest.mark.parametrize("victim", ["server.key", "server.crt"])
 def test_fifo_in_tls_folder_does_not_hang_the_start(
     ca_dir: Path, tls_dir: Path, victim: str
@@ -536,12 +530,6 @@ def test_san_set_changes_always_reissue_and_then_settle(
         assert b.cert == a.cert
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT T-1 (minor): a scoped IPv6 host ('fe80::1%eth0', accepted by "
-    "[controller.tls] extra_sans) is compared with its scope id but encoded without "
-    "it, so the server cert is 'sans_changed'-reissued (fresh key) at EVERY start",
-)
 def test_scoped_ipv6_host_does_not_reissue_forever(ca_dir: Path, tls_dir: Path) -> None:
     fabric = create_fabric(ca_dir, now=NOW)
     ensure_server_cert(tls_dir, fabric, hosts=["fe80::1%eth0"], now=NOW)

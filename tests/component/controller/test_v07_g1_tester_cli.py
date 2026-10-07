@@ -427,14 +427,6 @@ def test_full_disk_on_force_keeps_the_old_ca(data_dir: Path, config: Path) -> No
 
 
 @posix_only
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT T-3 (minor): fabric_ca._lock only catches TimeoutError; the "
-    "OSError locked() documents (unwritable <data>/controller/, read-only fs, full "
-    "disk creating ca.lock) escapes as a raw traceback, exit 1 - not the typed "
-    "config_error (exit 4) every other failure of this command gives; the same "
-    "path runs at controller start-up",
-)
 @pytest.mark.skipif(
     hasattr(os, "geteuid") and os.geteuid() == 0, reason="root ignores modes"
 )

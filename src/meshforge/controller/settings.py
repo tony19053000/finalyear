@@ -721,7 +721,7 @@ class TlsSettings(SectionModel):
         description=(
             "More host names / IP addresses the controller is reached by (e.g. its "
             "LAN IP when it binds 0.0.0.0 with allow_any_bind, or a DNS name). No "
-            "wildcards."
+            "wildcards, no IPv6 zone ids (fe80::1%eth0)."
         ),
     )
     server_cert_days: int = Field(
@@ -739,6 +739,13 @@ class TlsSettings(SectionModel):
                 validate_san_host(host)
             except PkiError as exc:
                 raise ValueError(exc.message) from None
+            if "%" in host:
+                # A certificate cannot name an interface; refusing beats silently
+                # dropping what the operator typed (bind hosts are stripped instead).
+                raise ValueError(
+                    f"{host.strip()!r} has an IPv6 zone id ('%...'), which a "
+                    "certificate cannot hold; write the address without it"
+                )
         return tuple(host.strip() for host in value)
 
 

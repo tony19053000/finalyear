@@ -46,7 +46,9 @@ from __future__ import annotations
 import hashlib
 import hmac
 import ipaddress
+import os
 import re
+import stat
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -68,11 +70,7 @@ from meshforge.common.errors import (
     MeshForgeError,
 )
 from meshforge.common.ids import FabricId, NodeId, validate_fabric_id, validate_node_id
-from meshforge.common.private_files import (
-    PrivateFileError,
-    private_problem,
-    protect_private,
-)
+from meshforge.common.private_files import PrivateFileError, protect_private
 
 __all__ = [
     "CA_LIFETIME",
@@ -360,6 +358,10 @@ def validate_san_host(host: str) -> x509.GeneralName:
         raise PkiError(
             PkiReason.BAD_HOST, f"{host!r} is a wildcard address, not a host"
         )
+    if isinstance(ip, ipaddress.IPv6Address) and ip.scope_id:
+        # A SAN cannot carry a zone id (``%eth0`` names an interface of *this*
+        # host only); drop it so the issued SAN and the compared one are equal.
+        ip = ipaddress.IPv6Address(int(ip))
     return x509.IPAddress(ip)
 
 
@@ -746,9 +748,42 @@ def issue_node_cert(
 # ------------------------------------------------------------------- file helpers
 
 
-def _read_bounded(path: Path, limit: int, what: str) -> bytes:
+def _read_bounded(path: Path, limit: int, what: str) -> tuple[bytes, os.stat_result]:
+    """Read at most ``limit`` bytes of a **regular file** at ``path`` (no symlink).
+
+    ``O_NOFOLLOW`` refuses a symlink, ``O_NONBLOCK`` keeps a FIFO from blocking the
+    open, and ``fstat`` on the opened descriptor refuses anything that is not a
+    regular file (FIFO, device, socket, folder). Returns the bytes and that
+    ``fstat`` so callers check mode/owner of exactly what was read.
+    """
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_BINARY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_NONBLOCK", 0)
+    )
     try:
-        with path.open("rb") as fh:
+        fd = os.open(path, flags)
+    except OSError as exc:
+        raise PkiFileError(
+            PkiReason.MALFORMED,
+            f"cannot read the {what} {path}: {exc.strerror or exc}"
+            + (
+                "; it must be a regular file, not a symlink"
+                if path.is_symlink()
+                else ""
+            ),
+            path=path,
+        ) from None
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
+            raise PkiFileError(
+                PkiReason.MALFORMED,
+                f"the {what} {path} is not a regular file",
+                path=path,
+            )
+        with os.fdopen(fd, "rb", closefd=False) as fh:
             data = fh.read(limit + 1)
     except OSError as exc:
         raise PkiFileError(
@@ -756,21 +791,39 @@ def _read_bounded(path: Path, limit: int, what: str) -> bytes:
             f"cannot read the {what} {path}: {exc.strerror or exc}",
             path=path,
         ) from None
+    finally:
+        os.close(fd)
     if len(data) > limit:
         raise PkiFileError(
             PkiReason.OVERSIZED,
             f"the {what} {path} is larger than {limit} bytes",
             path=path,
         )
-    return data
+    return data, info
+
+
+def _key_file_problem(info: os.stat_result) -> str | None:
+    """Why an opened key file is not private (POSIX: mode and owner)."""
+    if os.name != "posix":
+        return None  # Windows ACLs are applied at write time (private_files)
+    mode = stat.S_IMODE(info.st_mode)
+    if mode & 0o077:
+        return f"accessible to other users (mode {mode:04o}); chmod 600 it"
+    if hasattr(os, "geteuid") and info.st_uid != os.geteuid():
+        return (
+            f"owned by another user (uid {info.st_uid}); it must belong to the "
+            "user running MeshForge (chown it)"
+        )
+    return None
 
 
 def read_private_key(
     path: Path, *, what: str = "private key"
 ) -> ec.EllipticCurvePrivateKey:
-    """Load a P-256 key file; a file other users can read is refused (POSIX)."""
-    data = _read_bounded(path, MAX_KEY_BYTES, what)
-    problem = private_problem(path)
+    """Load a P-256 key file: a regular file (no symlink/FIFO/device), owned by
+    this user and not readable by others (POSIX)."""
+    data, info = _read_bounded(path, MAX_KEY_BYTES, what)
+    problem = _key_file_problem(info)
     if problem is not None:
         raise PkiFileError(
             PkiReason.MALFORMED, f"the {what} {path} is {problem}", path=path
@@ -784,7 +837,7 @@ def read_private_key(
 
 
 def read_cert(path: Path, *, what: str = "certificate") -> x509.Certificate:
-    data = _read_bounded(path, MAX_CERT_BYTES, what)
+    data, _ = _read_bounded(path, MAX_CERT_BYTES, what)
     try:
         return cert_from_pem(data)
     except PkiError as exc:

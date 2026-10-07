@@ -535,3 +535,108 @@ def test_logs_carry_fingerprints_never_key_material(
         assert body not in text
     assert "PRIVATE" not in text
     assert fabric.short_fingerprint in text
+
+
+# ------------------------------------------------- fix round 1 (T-1, T-2, T-3, O-2)
+
+
+def test_scoped_ipv6_is_refused_in_extra_sans_but_stripped_from_binds(
+    tmp_path: Path, ca_dir: Path, tls_dir: Path
+) -> None:
+    with pytest.raises(ValidationError, match="zone id"):
+        TlsSettings(extra_sans=("fe80::1%eth0",))
+    settings = ControllerSettings(
+        data_dir=tmp_path,
+        controller={
+            "grpc_bind": "[fe80::1%eth0]:47100",
+            "http_bind": "[fe80::1%eth0]:47110",
+        },
+    )
+    fabric = create_fabric(ca_dir, now=NOW)
+    first = ensure_server_cert(
+        tls_dir, fabric, hosts=settings.server_cert_hosts, now=NOW
+    )
+    assert pki.cert_sans(first.cert) == [pki.SERVER_NAME, "fe80::1"]
+    again = ensure_server_cert(
+        tls_dir, fabric, hosts=settings.server_cert_hosts, now=NOW
+    )
+    assert again.action is ServerCertAction.KEPT
+
+
+@posix_only
+@pytest.mark.parametrize("victim", ["server.key", "server.crt"])
+def test_symlinked_tls_file_is_treated_as_unreadable_and_reissued(
+    tmp_path: Path, ca_dir: Path, tls_dir: Path, victim: str
+) -> None:
+    fabric = create_fabric(ca_dir, now=NOW)
+    ensure_server_cert(tls_dir, fabric, hosts=["10.0.0.1"], now=NOW)
+    real = tmp_path / f"real-{victim}"
+    (tls_dir / victim).rename(real)
+    (tls_dir / victim).symlink_to(real)  # same bytes, but through a link
+    got = ensure_server_cert(tls_dir, fabric, hosts=["10.0.0.1"], now=NOW)
+    assert got.action is ServerCertAction.REISSUED and got.reason == "unreadable"
+    assert not (tls_dir / victim).is_symlink()
+
+
+@posix_only
+def test_read_private_key_refuses_a_symlink_and_a_fifo(tmp_path: Path) -> None:
+    key = tmp_path / "k.key"
+    key.write_bytes(pki.key_to_pem(pki.generate_key()))
+    key.chmod(0o600)
+    link = tmp_path / "link.key"
+    link.symlink_to(key)
+    with pytest.raises(pki.PkiFileError, match="symlink"):
+        pki.read_private_key(link)
+    fifo = tmp_path / "fifo.key"
+    os.mkfifo(fifo, 0o600)
+    with pytest.raises(pki.PkiFileError, match="not a regular file"):
+        pki.read_private_key(fifo)
+
+
+@posix_only
+def test_key_owned_by_another_user_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    key = tmp_path / "k.key"
+    key.write_bytes(pki.key_to_pem(pki.generate_key()))
+    key.chmod(0o600)
+    pki.read_private_key(key)
+    me = os.geteuid()
+    monkeypatch.setattr(os, "geteuid", lambda: me + 1)  # "we" are someone else now
+    with pytest.raises(pki.PkiFileError, match="owned by another user"):
+        pki.read_private_key(key)
+
+
+@posix_only
+def test_ca_folder_owned_by_another_user_is_refused(
+    ca_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    create_fabric(ca_dir, now=NOW)
+    me = os.geteuid()
+    monkeypatch.setattr(os, "geteuid", lambda: me + 1)
+    with pytest.raises(FabricCaError, match="owned by another user"):
+        load_fabric(ca_dir)
+
+
+@posix_only
+@pytest.mark.skipif(
+    hasattr(os, "geteuid") and os.geteuid() == 0, reason="root ignores modes"
+)
+def test_unwritable_parent_is_a_typed_error_for_the_server_cert_too(
+    ca_dir: Path, tls_dir: Path
+) -> None:
+    fabric = create_fabric(ca_dir, now=NOW)
+    parent = tls_dir.parent
+    parent.chmod(0o500)
+    try:
+        with pytest.raises(FabricCaError) as exc:
+            ensure_server_cert(tls_dir, fabric, hosts=["10.0.0.1"], now=NOW)
+    finally:
+        parent.chmod(0o700)
+    assert exc.value.exit_code == ExitCode.CONFIG_ERROR
+    assert str(parent) in exc.value.message
+
+
+def test_errors_inside_the_lock_are_not_rewritten(ca_dir: Path) -> None:
+    with pytest.raises(OSError, match="inner"), fabric_ca._lock(ca_dir):
+        raise OSError("inner")
