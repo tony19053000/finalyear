@@ -9,10 +9,11 @@ bw(n -> ctl)``. Every term carries where its number came from
 assumed bandwidth is ``assumed``.
 
 * ``queue`` - 0 s, ``measured``: a feasible candidate has a free slot now.
-* ``transfer`` - **per missing tree** (D131): every tree of the job the node
-  does not hold whole (cache index; the project tree is held on a *seeded*
-  Local candidate, D109) is costed over **its own** best source and the times
-  are summed:
+* ``transfer`` - **per missing tree** (D131): every distinct tree of the job
+  the node does not hold whole (cache index; the project tree is held on a
+  *seeded* Local candidate, D109; a tree named twice is moved and billed once -
+  :func:`~.feasibility.missing_trees`) is costed over **its own** best source
+  and the times are summed:
 
   - a **fresh network-matrix link** (D111) ``n <- h`` from a node ``h`` that
     holds *that* tree whole (``measured``; a link older than
@@ -66,6 +67,7 @@ import math
 from collections.abc import Mapping
 from typing import Any, Final
 
+from meshforge.controller.planner.feasibility import missing_trees
 from meshforge.controller.planner.types import (
     ClusterSnapshot,
     Estimate,
@@ -198,19 +200,6 @@ def _age(at: dt.datetime | None, now: dt.datetime | None) -> float | None:
     return round(max(0.0, (now - at).total_seconds()), 1)
 
 
-def _missing(
-    request: PlanRequest, node: NodeSnapshot, *, local: bool
-) -> list[TreeNeed]:
-    """The job's trees ``node`` does not hold whole, in request order (the
-    project tree counts as held on a seeded Local candidate, D109) - the same
-    rule as :func:`~.feasibility.missing_bytes`."""
-    return [
-        tree
-        for index, tree in enumerate(request.trees)
-        if not (index == 0 and local and request.seeded) and tree.key not in node.cached
-    ]
-
-
 def _controller_source(
     node: NodeSnapshot, snapshot: ClusterSnapshot, now: dt.datetime | None
 ) -> tuple[float, TermSource, dict[str, Any]]:
@@ -288,7 +277,7 @@ def _transfer(
     local: bool,
     now: dt.datetime | None,
 ) -> EstimateTerm:
-    missing = _missing(request, node, local=local)
+    missing = missing_trees(request, node, local=local)
     needed = sum(tree.size for tree in missing)
     if needed == 0:
         return EstimateTerm(0.0, TermSource.MEASURED, {"missing_bytes": 0})

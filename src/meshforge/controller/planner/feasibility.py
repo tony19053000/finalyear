@@ -38,6 +38,7 @@ from meshforge.controller.planner.types import (
     RejectCode,
     Rejection,
     Slot,
+    TreeNeed,
 )
 
 __all__ = [
@@ -45,6 +46,7 @@ __all__ = [
     "choose_slot",
     "live_rejection",
     "missing_bytes",
+    "missing_trees",
     "rejection",
     "static_rejection",
 ]
@@ -167,16 +169,31 @@ def choose_slot(request: PlanRequest, node: NodeSnapshot) -> Slot | None:
     return "cpu" if node.free_cpu_slots > 0 else None
 
 
-def missing_bytes(request: PlanRequest, node: NodeSnapshot, *, local: bool) -> int:
-    """Bytes of the job's trees ``node`` does not hold whole (the project tree
-    counts as held on a seeded Local candidate, D109)."""
-    total = 0
-    for index, tree in enumerate(request.trees):
-        if index == 0 and local and request.seeded:
+def missing_trees(
+    request: PlanRequest, node: NodeSnapshot, *, local: bool
+) -> list[TreeNeed]:
+    """The job's **distinct** trees ``node`` does not hold whole, in request
+    order. A tree named twice (two mounts of one dataset, an input that is the
+    project tree) is moved once, so it is listed once - by tree id, the first
+    naming wins (one id is one content, so one size). The project tree counts as
+    held on a seeded Local candidate (D109), also where an input names it
+    again. D131's per-tree transfer is per distinct tree."""
+    seen: set[str] = set()
+    if local and request.seeded and request.trees:
+        seen.add(request.trees[0].key)
+    out: list[TreeNeed] = []
+    for tree in request.trees:
+        if tree.key in seen:
             continue
+        seen.add(tree.key)
         if tree.key not in node.cached:
-            total += tree.size
-    return total
+            out.append(tree)
+    return out
+
+
+def missing_bytes(request: PlanRequest, node: NodeSnapshot, *, local: bool) -> int:
+    """Bytes of :func:`missing_trees` - each distinct tree once."""
+    return sum(tree.size for tree in missing_trees(request, node, local=local))
 
 
 def live_rejection(

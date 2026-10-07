@@ -79,7 +79,11 @@ def _hardware_score(item: Scored) -> float | None:
 
 def _cached_bytes(request: PlanRequest, item: Scored) -> int:
     held = 0
+    seen: set[str] = set()
     for index, tree in enumerate(request.trees):
+        if tree.key in seen:  # a tree named twice is held once (R2-3)
+            continue
+        seen.add(tree.key)
         if (index == 0 and item.local and request.seeded) or (
             tree.key in item.node.cached
         ):
