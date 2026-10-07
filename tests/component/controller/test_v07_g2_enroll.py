@@ -117,9 +117,7 @@ MakeCode = Callable[..., Any]
 
 
 @pytest.fixture
-def make_code(
-    fabric_runtime: ControllerRuntime, invites: InviteStore
-) -> MakeCode:
+def make_code(fabric_runtime: ControllerRuntime, invites: InviteStore) -> MakeCode:
     async def make(*, ttl_s: int = 900, replace: str | None = None) -> tuple[str, str]:
         new = await invites.create(ttl_s=ttl_s, actor="test", replace_node_id=replace)
         assert fabric_runtime.fabric is not None
@@ -372,8 +370,6 @@ async def test_hostile_csrs_are_refused_and_do_not_burn_the_code(
         _enroll_raw, fabric_runtime, token, _csr_pem(other_fabric)
     )
     assert (status, reason) == (grpc.StatusCode.INVALID_ARGUMENT, "csr_fabric_mismatch")
-    rsa_like = pki.build_csr(attacker_key, fabric_id=fabric_id, node_id="x" * 0 + str(new_node_id()))
-    del rsa_like
     status, reason = await asyncio.to_thread(
         _enroll_raw, fabric_runtime, b"short", _csr_pem(good)
     )
@@ -383,7 +379,9 @@ async def test_hostile_csrs_are_refused_and_do_not_burn_the_code(
         pg_settings, "SELECT used_at FROM join_token WHERE id = :i", {"i": invite_id}
     )
     assert used == [(None,)]
-    status, _ = await asyncio.to_thread(_enroll_raw, fabric_runtime, token, _csr_pem(good))
+    status, _ = await asyncio.to_thread(
+        _enroll_raw, fabric_runtime, token, _csr_pem(good)
+    )
     assert status is None  # finally a valid one: accepted
 
 
@@ -491,7 +489,9 @@ async def test_sixteen_laptops_race_one_code(
     assert set(results) == {"enrolled", "token_used"}, results
     winners = [lap for lap, r in zip(laptops, results, strict=True) if r == "enrolled"]
     used_by = await _sql(
-        pg_settings, "SELECT used_by_node FROM join_token WHERE id = :i", {"i": invite_id}
+        pg_settings,
+        "SELECT used_by_node FROM join_token WHERE id = :i",
+        {"i": invite_id},
     )
     assert used_by == [(winners[0].node_id,)]
     certs = await _sql(
@@ -503,9 +503,7 @@ async def test_sixteen_laptops_race_one_code(
 # ------------------------------------------------------------------ rate limit
 
 
-async def _forward(
-    reader: asyncio.StreamReader, writer: asyncio.StreamWriter
-) -> None:
+async def _forward(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
     try:
         while data := await reader.read(65536):
             writer.write(data)
@@ -547,7 +545,9 @@ async def test_rate_limit_is_per_source_ip(
 
             def call(port: int) -> str | None:
                 assert runtime.fabric is not None
-                creds = grpc.ssl_channel_credentials(pki.cert_to_pem(runtime.fabric.cert))
+                creds = grpc.ssl_channel_credentials(
+                    pki.cert_to_pem(runtime.fabric.cert)
+                )
                 with grpc.secure_channel(
                     f"127.0.0.1:{port}",
                     creds,
@@ -574,3 +574,111 @@ async def test_rate_limit_is_per_source_ip(
             assert any("127.0.0.3" in peer for peer in enroll_calls)
         finally:
             proxy.close()
+
+
+# ------------------------------------------------------------------ REST + CLI
+
+
+async def test_rest_invites_need_the_fabric_token(
+    fabric_runtime: ControllerRuntime, tmp_path: Path
+) -> None:
+    import httpx
+
+    from meshforge.common.fabric_token import read_token_file
+
+    token = read_token_file(fabric_runtime.settings.token_path).get_secret_value()
+    auth = {"authorization": f"Bearer {token}"}
+    base = f"http://127.0.0.1:{fabric_runtime.http_port}"
+    async with httpx.AsyncClient(base_url=base) as http:
+        for method, path in (
+            ("POST", "/v1/fabric/invites"),
+            ("GET", "/v1/fabric/invites"),
+            ("POST", "/v1/fabric/invites/inv_01J0000000000000000000AAAA/revoke"),
+        ):
+            refused = await http.request(method, path, json={})
+            assert refused.status_code == 401, (method, path)
+            wrong = await http.request(
+                method, path, json={}, headers={"authorization": "Bearer " + "x" * 43}
+            )
+            assert wrong.status_code == 401
+        made = await http.post("/v1/fabric/invites", json={"ttl_s": 120}, headers=auth)
+        assert made.status_code == 201, made.text
+        issued = made.json()
+        decoded = join_code.decode(issued["code"])
+        assert decoded.port == fabric_runtime.enroll_port  # the BOUND port
+        bad = await http.post("/v1/fabric/invites", json={"ttl_s": 59}, headers=auth)
+        assert bad.status_code == 400
+        listed = (await http.get("/v1/fabric/invites", headers=auth)).json()
+        assert [i["id"] for i in listed["invites"]] == [issued["invite_id"]]
+        assert issued["code"] not in str(listed)
+    # The REST code really enrols a laptop.
+    result = await _join(_identity(tmp_path, "rest"), issued["code"])
+    assert result.enrollment.node_id
+
+
+async def test_rest_invite_without_a_ca_is_a_conflict(
+    pg_settings: DatabaseSettings,
+) -> None:
+    import httpx
+
+    from meshforge.common.fabric_token import read_token_file
+
+    async with ControllerRuntime.start(_settings(pg_settings)) as runtime:
+        assert runtime.enroll_port == 0  # no CA: no enrolment listener
+        token = read_token_file(runtime.settings.token_path).get_secret_value()
+        async with httpx.AsyncClient(
+            base_url=f"http://127.0.0.1:{runtime.http_port}"
+        ) as http:
+            response = await http.post(
+                "/v1/fabric/invites",
+                json={},
+                headers={"authorization": f"Bearer {token}"},
+            )
+    assert response.status_code == 409
+    assert "fabric create" in response.json()["error"]["message"]
+
+
+async def test_agent_cli_join_and_identity_show(
+    fabric_runtime: ControllerRuntime,
+    make_code: MakeCode,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import json
+
+    from typer.testing import CliRunner
+
+    from meshforge.agent.main import app as agent_app
+
+    config = tmp_path / "agent.toml"
+    config.write_text(
+        f"data_dir = '{(tmp_path / 'agent-data').as_posix()}'\n", encoding="utf-8"
+    )
+    code, _ = await make_code()
+    runner = CliRunner()
+
+    def invoke(*args: str, stdin: str | None = None) -> Any:
+        return runner.invoke(agent_app, list(args), input=stdin)
+
+    shown = await asyncio.to_thread(
+        invoke, "identity", "show", "--json", "--config", str(config)
+    )
+    assert json.loads(shown.stdout)["enrolled"] is False
+    joined = await asyncio.to_thread(
+        invoke, "join", "-", "--config", str(config), stdin=code + "\n"
+    )
+    assert joined.exit_code == 0, joined.output
+    assert "joined fabric" in joined.stdout and code not in joined.output
+    shown = await asyncio.to_thread(
+        invoke, "identity", "show", "--json", "--config", str(config)
+    )
+    facts = json.loads(shown.stdout)
+    assert facts["enrolled"] is True and facts["cert_expired"] is False
+    assert fabric_runtime.fabric is not None
+    assert facts["fabric_id"] == fabric_runtime.fabric.fabric_id
+    again = await asyncio.to_thread(
+        invoke, "join", "-", "--config", str(config), stdin=code + "\n"
+    )
+    assert again.exit_code == 5  # CONFLICT: already enrolled, code untouched
+    bad = await asyncio.to_thread(invoke, "join", "mf1-zzzzz", "--config", str(config))
+    assert bad.exit_code == 2

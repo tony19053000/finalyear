@@ -58,7 +58,7 @@ MAX_REQUEST_BYTES: Final = 16 * 1024
 """A 16-byte token + a <= 4096-byte CSR + framing; anything bigger is refused."""
 MAX_CONCURRENT_RPCS: Final = 16
 _PEER_RE: Final = re.compile(
-    r"ipv4:(?P<v4>[0-9.]+):\d+|ipv6:\[(?P<v6>[0-9a-fA-F:.%]+)\]:\d+"
+    r"ipv4:(?P<v4>[0-9.]+):\d+|ipv6:\[(?P<v6>[0-9a-zA-Z:.%_-]+)\]:\d+"
 )
 
 _STATUS: Final[dict[str, grpc.StatusCode]] = {
