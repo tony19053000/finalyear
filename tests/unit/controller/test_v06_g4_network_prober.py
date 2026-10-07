@@ -30,6 +30,7 @@ B = "node_01J00000000000000000000001"
 C = "node_01J00000000000000000000002"
 KEY = Ed25519PrivateKey.generate()
 WALL = 1_800_000_000.0
+MIB = 1024 * 1024
 
 
 @dataclass
@@ -266,3 +267,104 @@ def test_status_reports_counters_and_budget() -> None:
     assert status["enabled"] is True and status["in_flight"] == []
     assert status["budget_bytes_per_min"] == 48 * 1024 * 1024
     assert isinstance(dt.datetime.now(dt.UTC), dt.datetime)
+
+
+# ---------------------------------------------------- settings (D111 values)
+
+
+def test_the_defaults_are_the_d111_numbers() -> None:
+    cfg = NetworkSettings()
+    assert cfg.enabled is True
+    assert cfg.probe_interval_s == 900.0
+    assert cfg.probe_bytes == 4 * MIB and cfg.probe_max_bytes == 8 * MIB
+    assert cfg.probe_fast_s == 0.5 and cfg.rtt_samples == 3
+    assert cfg.token_ttl_s == 60
+    assert cfg.busy_cpu_percent == 80.0
+    assert cfg.ewma_alpha == 0.3
+    assert cfg.stale_after_s == 3600.0
+    assert cfg.probe_budget_bytes_per_min == 48 * MIB
+    assert 0.0 < cfg.probe_jitter <= 0.9  # staggered by default
+
+
+@pytest.mark.parametrize(
+    ("name", "accepted", "refused"),
+    [
+        ("probe_max_bytes", 8 * MIB, 8 * MIB + 1),
+        ("probe_bytes", 8 * MIB, 8 * MIB + 1),
+        ("token_ttl_s", 60, 61),
+        ("token_ttl_s", 1, 0),
+        ("probe_interval_s", 10.0, 9.99),
+        ("probe_jitter", 0.9, 0.91),
+        ("busy_cpu_percent", 100.0, 100.1),
+        ("ewma_alpha", 1.0, 1.01),
+        ("ewma_alpha", 0.01, 0.0),
+        ("stale_after_s", 60.0, 59.9),
+        ("rtt_samples", 10, 11),
+        ("probe_timeout_s", 600.0, 600.1),
+    ],
+)
+def test_each_setting_bound_max_accepted_and_one_past_refused(
+    name: str, accepted: float, refused: float
+) -> None:
+    assert getattr(NetworkSettings(**{name: accepted}), name) == accepted
+    with pytest.raises(ValueError, match=name):
+        NetworkSettings(**{name: refused})
+
+
+# ------------------------------------------------- busy by CPU, via the tracker
+
+
+@dataclass
+class FakeSample:
+    cpu_percent: float | None
+
+
+@dataclass
+class FakeResources:
+    cpu: dict[str, float | None]
+
+    def latest(self, node_id: str) -> FakeSample | None:
+        return FakeSample(self.cpu[node_id]) if node_id in self.cpu else None
+
+
+def with_cpu(cpu: dict[str, float | None]) -> tuple[NetworkProber, FakeManager, Clock]:
+    clock = Clock()
+    manager = FakeManager([FakeLive(A), FakeLive(B), FakeLive(C)])
+
+    async def busy() -> set[str]:
+        return set()
+
+    prober = NetworkProber(
+        manager,  # type: ignore[arg-type]
+        FakeStore(),  # type: ignore[arg-type]
+        PeerTokenIssuer(KEY, clock=lambda: WALL),
+        NetworkSettings(probe_gap_s=1.0, probe_jitter=0.0),
+        clock=clock,
+        resources=FakeResources(cpu),  # type: ignore[arg-type]
+        gpu_busy=busy,
+        rng=random.Random(1),  # noqa: S311
+    )
+    return prober, manager, clock
+
+
+@pytest.mark.asyncio
+async def test_a_node_above_80_percent_cpu_is_never_source_or_target() -> None:
+    """The latest resource sample decides: A is at 80.1 %, so only B <-> C are
+    probed however long it runs; no sample (C) and exactly 80 % (B) are fine."""
+    prober, manager, clock = with_cpu({A: 80.1, B: 80.0})
+    for _ in range(40):
+        clock.t = prober.scheduler.next_at
+        planned = await prober.tick()
+        if planned is not None:
+            prober.on_result(planned.src, result(manager.sent[-1][2]))
+    pairs = {(node, cmd.target_node_id) for node, _name, cmd in manager.sent}
+    assert pairs == {(B, C), (C, B)}
+
+
+@pytest.mark.asyncio
+async def test_every_node_busy_means_no_probe_at_all() -> None:
+    prober, manager, clock = with_cpu({A: 95.0, B: 81.0, C: 100.0})
+    for _ in range(10):
+        clock.t = prober.scheduler.next_at
+        assert await prober.tick() is None
+    assert manager.sent == [] and prober.scheduler.started == 0

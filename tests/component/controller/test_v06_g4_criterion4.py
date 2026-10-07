@@ -409,3 +409,125 @@ async def test_one_tick_reads_every_term_in_a_fixed_number_of_statements(
     assert (remote, local) in fabric_many.links
     assert fabric_many.controller_links[remote].bw_bytes_s == pytest.approx(100_000)
     assert json.dumps(sorted(fabric.links)) == json.dumps(sorted(fabric_many.links))
+
+
+async def test_a_stale_probed_link_is_not_used_by_a_real_tick(
+    pg_settings: DatabaseSettings, store: ExecutionStore
+) -> None:
+    """D111/D108 through PostgreSQL: the same fabric as criterion 4, but the
+    R <- L probe is two hours old - the remote transfer falls back to the
+    controller's transfer history (0.1 MB/s) and says which probe it ignored."""
+    local, remote = await _fabric(pg_settings, store)
+    await _sql(
+        pg_settings,
+        "UPDATE network_link SET measured_at = now() - interval '2 hours'",
+    )
+    await _past_run(
+        pg_settings,
+        store,
+        node=local,
+        digest=_digest(1),
+        fingerprint="1" * 64,
+        run_ms=2000,
+    )
+    await _job(
+        store,
+        digest=_digest(1),
+        scheduling=JobScheduling(
+            fingerprint="1" * 64,
+            input_bytes=4 * MB,
+            submitter_node_id=local,
+            submitter_seeded=True,
+        ),
+    )
+    out = await _dispatch(store, _planner(Manager([local, remote])))
+    assert out["node"] == local
+    transfer = _terms(out["decision"], remote)["transfer"]
+    assert transfer["source"] == "history"
+    assert transfer["detail"]["bw_from"] == "controller"
+    assert transfer["detail"]["stale_links_ignored"] == [local]
+    assert transfer["seconds"] == pytest.approx(40.0)  # 4 MB / 0.1 MB/s
+
+
+async def test_gpu_busy_nodes_are_the_ones_with_a_live_gpu_attempt(
+    pg_settings: DatabaseSettings, store: ExecutionStore
+) -> None:
+    """D111 "never on a node running a GPU job", the real query: a live
+    attempt holding a GPU slot or GPU indices marks its node; a live CPU
+    attempt or a finished GPU attempt does not."""
+    from meshforge.controller.network.service import LIVE_ATTEMPT_STATES
+    from meshforge.controller.network.store import NetworkStore
+
+    nodes = [await _node(pg_settings, 100.0) for _ in range(5)]
+    gpu_slot, gpu_snapshot, cpu_live, gpu_done, idle = nodes
+    cases = [
+        (gpu_slot, "running", "gpu", None),
+        (gpu_snapshot, "staging", None, '{"gpu_indices": [0]}'),
+        (cpu_live, "running", "cpu", '{"gpu_indices": []}'),
+        (gpu_done, "done", "gpu", '{"gpu_indices": [0]}'),
+    ]
+    for n, (node, state, slot, snapshot) in enumerate(cases):
+        job = await _job(store, digest=_digest(20 + n), scheduling=JobScheduling())
+        await _sql(
+            pg_settings,
+            "INSERT INTO attempt (id, job_id, node_id, fencing_token, state, slot, "
+            "start_snapshot, created_at, updated_at, ended_at) VALUES (:a, :j, :n, "
+            "1, :s, :slot, CAST(:snap AS jsonb), now(), now(), "
+            "CASE WHEN :ended THEN now() END)",
+            ended=state == "done",
+            a=str(new_attempt_id()),
+            j=job.id,
+            n=node,
+            s=state,
+            slot=slot,
+            snap=snapshot,
+        )
+    engine = create_engine(pg_settings)
+    try:
+        busy = await NetworkStore(engine).gpu_busy(LIVE_ATTEMPT_STATES)
+    finally:
+        await engine.dispose()
+    assert busy == {gpu_slot, gpu_snapshot}
+    assert idle not in busy
+
+
+async def test_controller_links_are_the_median_of_recent_big_transfers(
+    pg_settings: DatabaseSettings, store: ExecutionStore
+) -> None:
+    """Controller -> node bandwidth from ``transfer_event`` (no probe): the
+    median rate of the node's newest ``per_node`` controller transfers of at
+    least ``min_bytes``; smaller ones and zero-duration ones are ignored."""
+    from meshforge.controller.network.store import NetworkStore
+
+    node, other = await _node(pg_settings, 100.0), await _node(pg_settings, 100.0)
+    # oldest first: 1, 2, 4, 8 MB/s then a tiny one and a 0 ms one
+    transfers = [
+        (2 * MB, 2000),
+        (2 * MB, 1000),
+        (4 * MB, 1000),
+        (8 * MB, 1000),
+        (1000, 1),
+        (2 * MB, 0),
+    ]
+    for n, pair in enumerate(transfers):
+        await _past_run(
+            pg_settings,
+            store,
+            node=node,
+            digest=_digest(40 + n),
+            fingerprint=f"{n:x}" * 64,
+            run_ms=1,
+            controller_transfer=pair,
+        )
+    engine = create_engine(pg_settings)
+    try:
+        net = NetworkStore(engine)
+        _links, every = await net.matrix(min_bytes=MB, per_node=20)
+        _links, newest = await net.matrix(min_bytes=MB, per_node=3)
+    finally:
+        await engine.dispose()
+    assert other not in every
+    assert every[node].samples == 4
+    assert every[node].bw_bytes_s == pytest.approx(3 * MB)  # median of 1, 2, 4, 8
+    assert newest[node].samples == 3
+    assert newest[node].bw_bytes_s == pytest.approx(4 * MB)  # median of 2, 4, 8

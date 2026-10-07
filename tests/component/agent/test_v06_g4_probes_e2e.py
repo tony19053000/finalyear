@@ -221,6 +221,9 @@ async def test_the_probe_route_checks_token_kind_holder_and_size(
         assert (await get(10, blob)).status_code == 403
         assert (await get(10, other)).status_code == 403
         assert (await get(8 * MIB + 1, good)).status_code == 400
+        largest = await get(8 * MIB, good)  # the cap itself is served
+        assert largest.status_code == 200 and len(largest.content) == 8 * MIB
+        assert not any(largest.content)
         ok = await get(123_457, good)
         assert ok.status_code == 200 and ok.content == bytes(123_457)
         assert ok.headers["content-length"] == "123457"

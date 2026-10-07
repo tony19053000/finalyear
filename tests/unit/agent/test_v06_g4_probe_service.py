@@ -177,3 +177,14 @@ async def test_rtt_only_probe() -> None:
     service.handle(request(bytes=0, max_bytes=0, rtt_samples=1))
     await asyncio.wait_for(reported.wait(), 5)
     assert sizes == [0] and sent[0].ok and sent[0].bw_bytes_s == 0.0
+
+
+async def test_the_agent_serves_at_most_8_mib_per_probe() -> None:
+    """D111 size cap on the serving side: ``[agent.peer] probe_max_bytes``
+    defaults to 8 MiB and cannot be configured higher."""
+    from meshforge.agent.settings import PeerSettings
+
+    assert PeerSettings().probe_max_bytes == 8 * 1024 * 1024
+    assert PeerSettings(probe_max_bytes=0).probe_max_bytes == 0
+    with pytest.raises(ValueError, match="probe_max_bytes"):
+        PeerSettings(probe_max_bytes=8 * 1024 * 1024 + 1)
