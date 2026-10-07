@@ -9,8 +9,8 @@
   a second store on a new engine (a restarted controller) sees the same;
 * decisions: ``dispatched`` written with its attempt; ``waiting`` once per
   distinct reason key; ``failed`` with the job's FAIL arrow;
-* atomicity: a decision row that cannot be written rolls back the attempt and
-  the job's arrow with it (one transaction, D112/D115).
+* a decision row that cannot be written is dropped alone (savepoint): the
+  dispatch and the rest of the tick commit (D131, amending D112's atomicity).
 """
 
 from __future__ import annotations
@@ -40,7 +40,7 @@ from meshforge.controller.jobs.execution_store import (
     Wait,
 )
 from meshforge.controller.jobs.queue_reads import FabricRows
-from meshforge.controller.jobs.store import JobRecord, JobScheduling, JobStoreError
+from meshforge.controller.jobs.store import JobRecord, JobScheduling
 from meshforge.controller.liveness import NodeState
 from meshforge.controller.registry import Registry
 from meshforge.controller.store.engine import create_engine
@@ -336,34 +336,46 @@ async def test_decision_rows_dispatched_waiting_once_and_failed(
     assert rows == [("dispatched", 1, 1, "cost_model")]
 
 
-async def test_a_decision_that_cannot_be_written_rolls_back_the_attempt(
+async def test_a_decision_that_cannot_be_written_is_dropped_alone(
     store: ExecutionStore, pg_settings: DatabaseSettings
 ) -> None:
-    """D112: the decision and the attempt are one transaction - kill the
-    decision write (a CHECK violation) and nothing of the dispatch remains."""
+    """D131 (amends D112, G4 fix round 1): the decision row explains a
+    placement, it is not a condition of it. A row the database refuses (here a
+    CHECK violation) is rolled back to its savepoint and the dispatch commits:
+    the attempt exists, the job is PREPARING, there is no ``plan_decision``
+    row - and the job behind it in the same tick is dispatched with its row.
+    (Before D131 the refused row raised and undid the whole tick.)"""
     node = await _node(pg_settings)
-    job = await _queued(store)
-    bad = Recorder(
-        lambda _j, _f: Dispatch(
+    job = await _queued(store, priority=5)
+    behind = await _queued(store)
+
+    def decide(queued: Any, _fabric: Any) -> Dispatch:
+        policy = "not_a_policy" if queued.id == job.id else "cost_model"
+        return Dispatch(
             attempt_id=str(new_attempt_id()),
             start_snapshot={},
             node_id=node,
-            record=_record(policy="not_a_policy"),
+            record=_record(policy=policy),
         )
-    )
-    with pytest.raises(JobStoreError):
-        await _tick(store, bad)
+
+    await _tick(store, Recorder(decide))
     stored = await store.get_job(job.id)
-    assert stored is not None and stored.state is JobState.QUEUED
-    assert stored.attempt_epoch == 0
+    assert stored is not None and stored.state is JobState.PREPARING
+    assert stored.attempt_epoch == 1
     counts = await _sql(
         pg_settings,
         "SELECT (SELECT count(*) FROM attempt WHERE job_id = :j), "
-        "(SELECT count(*) FROM plan_decision WHERE job_id = :j), "
-        "(SELECT count(*) FROM job_transition WHERE job_id = :j)",
+        "(SELECT count(*) FROM plan_decision WHERE job_id = :j)",
         j=job.id,
     )
-    assert counts == [(0, 0, 3)]
+    assert counts == [(1, 0)]
+    after = await _sql(
+        pg_settings,
+        "SELECT j.state, d.outcome, d.policy FROM job j "
+        "JOIN plan_decision d ON d.job_id = j.id WHERE j.id = :j",
+        j=behind.id,
+    )
+    assert after == [("preparing", "dispatched", "cost_model")]
 
 
 async def test_an_unreadable_queued_row_fails_alone_and_the_batch_goes_on(
