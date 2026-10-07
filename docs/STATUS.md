@@ -2,7 +2,7 @@
 
 > Concise current state. Long-term plan: [`DEVELOPMENT_ROADMAP.md`](DEVELOPMENT_ROADMAP.md). Update at the end of every work session.
 
-**Last updated:** 2026-10-07 (**V0.6 G4 CLOSED + reviewer follow-ups done `1f037f2`; next: V0.7 brief; 0.6.13 🧑 lab open** · older: **V0.6 G1–G3 CLOSED**; **G4 fix round 1 stopped during its exit list — next: finish the exit list**; V0.5 closes on 🧑 0.5.11 lab; one agent at a time)
+**Last updated:** 2026-10-07 (**V0.7 brief DRAFTED `docs/briefs/V0.7-security-pairing.md` — waiting for team approval of §2 D133–D146 + §7 questions; no code** · **V0.6 G4 CLOSED + reviewer follow-ups done `1f037f2`; next: V0.7 brief; 0.6.13 🧑 lab open** · older: **V0.6 G1–G3 CLOSED**; **G4 fix round 1 stopped during its exit list — next: finish the exit list**; V0.5 closes on 🧑 0.5.11 lab; one agent at a time)
 
 ## Progress
 
@@ -42,6 +42,8 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 > V0.10. 129 tasks vs 140–180 capacity → **~1.5 tasks/session**. Needs the other three team members' approval.
 
 ## Current Task
+**2026-10-07 — V0.7 brief drafted (Lead):** `docs/briefs/V0.7-security-pairing.md` — decisions D133–D146, groups G1–G7, proposed new task 🧑 0.7.12 lab, 5 team questions (§7). **Next: team approves → Lead writes ADR-0016 → V0.7 G1 implementer (brief §5a).**
+
 **2026-10-07 — G4 reviewer follow-ups done (`1f037f2`, Lead):** future-dated link rows (>5 s ahead) read stale; a refused `waiting` row is not retried every tick; gc eviction test retries 409; checklist torn-copy note. Exit list all exit 0 (unit 7556, component 1257, cluster 67, chaos 11/22/33 ×50). **Next: write the V0.7 brief (security & pairing) for team approval.**
 
 **2026-10-07 — V0.6 G4 CLOSED.** 0.6.4 / 0.6.6 `[x]`: fix round 2 (R2-1 empty run INCONCLUSIVE, R2-2 identical ledger dedupe, R2-3 repeated-tree dedupe in feasibility/estimator/cache_affinity, probe abort docstring) → reviewer APPROVE, no blocking. Exit list at `7cb2479` all exit 0 (component run 1 had one V0.5 load flake). 0.6.13 stays 🧑 lab. Next: remaining V0.6 work per roadmap / 🧑 0.6.13 lab run.

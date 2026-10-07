@@ -265,6 +265,8 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
+**2026-10-07 — V0.7 brief DRAFTED** (`docs/briefs/V0.7-security-pairing.md`, D133–D146, G1–G7). Waiting for team approval of §2 and §7; then write ADR-0016 and start G1 (brief §5a). Nothing in flight, no code.
+
 **Overall: 24 % (38/154 tasks `[x]`, 16 `[~]`).** Progress bars: `docs/STATUS.md` (regenerate with `uv run python scripts/status_bars.py` whenever a checkbox changes).
 
 - **Version: V0.6 (scheduling & reliability) STARTED 2026-10-05** — brief `docs/briefs/V0.6-scheduling-reliability.md`; groups G1 reliability floor (0.6.9, 0.6.10, 0.6.14 + splits + D59, RUNNING) → G2 planner core → G3 retries/recovery/chaos → G4 network matrix + estimator → 🧑 0.6.13 lab.
