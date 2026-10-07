@@ -144,7 +144,15 @@ async def test_over_long_hello_string_is_invalid_argument_and_nothing_persisted(
 async def test_malformed_message_id_over_the_wire_is_protocol_error_aborted(
     runtime: ControllerRuntime, agents: Any, registry: Registry
 ) -> None:
-    agent: FakeAgent = agents()
+    # No automatic Pong on this stream. The controller pings right after the
+    # HelloAck; a Pong the fake agent is still *writing* when the controller
+    # aborts the call makes grpc.aio's client relabel the call itself
+    # (``aio/_call.py`` ``_write``: a failed send -> ``set_internal_error`` ->
+    # INTERNAL "Internal error from Core"), hiding the ABORTED status the
+    # server did send - about 1 run in 25 (300-iteration loop: the server
+    # logged ``protocol_error`` every time). This test is about the server's
+    # status, so the only client write is the malformed message itself.
+    agent: FakeAgent = agents(auto_pong=False)
     ack = await agent.connect()
     await agent.write(
         agent_pb2.AgentMessage(
