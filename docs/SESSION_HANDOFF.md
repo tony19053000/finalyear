@@ -31,7 +31,7 @@
 > throughput measurements and the reasoning; if you think the arithmetic or the trade is wrong,
 > **say so to the team before building on it.** Do not silently re-expand the scope either.
 
-**Last updated:** 2026-10-07 (**V0.6 G4 CLOSED (0.6.4/0.6.6 [x]); 0.6.13 🧑 lab open** · older: **V0.6 G1–G3 CLOSED; G4 fix round 1 stopped during its exit list — see §2 top UPDATE**; older note: **V0.5 CLOSED agent-side** (🧑 0.5.11 lab open) · **V0.6 started**: brief + ADR-0015 written (`94b8b64`), 4 sequential groups G1–G4, **G1 + G2 CLOSED**; **next: G3 implementer** (brief §5c + N-1) — see §2 "V0.6 state") · **Updated by:** Lead session
+**Last updated:** 2026-10-07 (**V0.6 G4 CLOSED + reviewer follow-ups done `1f037f2`; next: V0.7 brief; 0.6.13 🧑 lab open** · older: **V0.6 G1–G3 CLOSED; G4 fix round 1 stopped during its exit list — see §2 top UPDATE**; older note: **V0.5 CLOSED agent-side** (🧑 0.5.11 lab open) · **V0.6 started**: brief + ADR-0015 written (`94b8b64`), 4 sequential groups G1–G4, **G1 + G2 CLOSED**; **next: G3 implementer** (brief §5c + N-1) — see §2 "V0.6 state") · **Updated by:** Lead session
 
 ---
 

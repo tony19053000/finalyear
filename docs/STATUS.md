@@ -2,7 +2,7 @@
 
 > Concise current state. Long-term plan: [`DEVELOPMENT_ROADMAP.md`](DEVELOPMENT_ROADMAP.md). Update at the end of every work session.
 
-**Last updated:** 2026-10-07 (**V0.6 G4 CLOSED (0.6.4/0.6.6 [x]); 0.6.13 🧑 lab open** · older: **V0.6 G1–G3 CLOSED**; **G4 fix round 1 stopped during its exit list — next: finish the exit list**; V0.5 closes on 🧑 0.5.11 lab; one agent at a time)
+**Last updated:** 2026-10-07 (**V0.6 G4 CLOSED + reviewer follow-ups done `1f037f2`; next: V0.7 brief; 0.6.13 🧑 lab open** · older: **V0.6 G1–G3 CLOSED**; **G4 fix round 1 stopped during its exit list — next: finish the exit list**; V0.5 closes on 🧑 0.5.11 lab; one agent at a time)
 
 ## Progress
 
@@ -42,6 +42,8 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 > V0.10. 129 tasks vs 140–180 capacity → **~1.5 tasks/session**. Needs the other three team members' approval.
 
 ## Current Task
+**2026-10-07 — G4 reviewer follow-ups done (`1f037f2`, Lead):** future-dated link rows (>5 s ahead) read stale; a refused `waiting` row is not retried every tick; gc eviction test retries 409; checklist torn-copy note. Exit list all exit 0 (unit 7556, component 1257, cluster 67, chaos 11/22/33 ×50). **Next: write the V0.7 brief (security & pairing) for team approval.**
+
 **2026-10-07 — V0.6 G4 CLOSED.** 0.6.4 / 0.6.6 `[x]`: fix round 2 (R2-1 empty run INCONCLUSIVE, R2-2 identical ledger dedupe, R2-3 repeated-tree dedupe in feasibility/estimator/cache_affinity, probe abort docstring) → reviewer APPROVE, no blocking. Exit list at `7cb2479` all exit 0 (component run 1 had one V0.5 load flake). 0.6.13 stays 🧑 lab. Next: remaining V0.6 work per roadmap / 🧑 0.6.13 lab run.
 
 **2026-10-07 16:52 — V0.6 G4 fix round 1 stopped by the user during its exit list; nothing running, tree clean.** Fixes committed up to `430d2e3`. Still owed: whole component exit 0, cluster, chaos 11/22/33 ×50, hand-off report. Next: fresh implementer for the exit list only → tester r2 → reviewer → close 0.6.4/0.6.6. See handoff §2 top UPDATE.
@@ -119,7 +121,6 @@ Reviewer non-blocking follow-ups (carry into G2/G3): (1) `mint` should carry `pe
 - Hardware of laptops 2–4 unknown; AI-agent access to Windows laptops undecided; Ethernet switch not purchased
 
 ## Known Bugs
-- Load flake: `tests/component/agent/test_v05_g5_gc.py::test_the_next_job_after_eviction_fetches_again_and_succeeds` (409 node offline under full-tier load; 10/10 alone) — wait for ONLINE before pinned POST.
 - ⚠️ **Load-flaky (2026-10-05):** `test_v05_g5_tester_e2e::test_gc_on_both_sides_never_breaks_ten_concurrent_jobs` (in-process agent lease expires under the GC hammer → LOST; passes alone 3/3; check whether the D123 dispatch lock adds latency). Also `test_session_server.py::test_second_hello_on_open_stream_is_protocol_error`, `test_session_server_tester.py::test_heartbeat_just_under_suspect_threshold_never_flaps`.
 - ✅ **Load-flaky tests fixed 2026-10-01 (stabilisation lane, `97f347e` `35c5274` `861d712`):** slow-follower double count was a real LogHub bug; in-process exec tests now use a tolerant liveness profile only where the lease is not under test; twenty-nodes, faultproxy close race (FIN vs RST) fixed; 5 consecutive passes at load ~35. Unit 5232 / component agent+ctl 483 / cluster 53, exit 0.
 - ✅ **Fixed 2026-10-02 (D95, `c76288e` `732b77f`, NOT yet reviewed):** controller restart during staging no longer loses the fetch token — `RefreshFetchToken` (payload 18) on Reconcile + agent staging retry within `staging_retry_s` (60 s), verified chunks resumed. Upload grants are still not refreshed (upload across a restart → `output_error`). Unit 5245 / component agent+ctl 486 / cluster 53, exit 0; restart test 5/5 under load.
@@ -131,7 +132,6 @@ Reviewer non-blocking follow-ups (carry into G2/G3): (1) `mint` should carry `pe
 - Fixed this session: secret leak + O(n²) in log scrubber; duplicate IDs after fork; plain-`uv sync` test collection crash; CRLF-dependent codegen output.
 
 ## Technical Debt
-- **V0.6 G4 (reviewer follow-ups):** `estimator._fresh` has no lower bound — future-dated `network_link` rows (controller clock step back) stay fresh until re-probed; refused `waiting` decision row retried once per tick (keep last-refused key across ticks); checklist could tell operators to check `ledger_files` for torn copies before trusting a duplicate FAIL.
 - **V0.6 G2:** estimator v0 is a stub until G4 (env/output terms assumed, default bw, env key = request key); `submitter_node_id` spoofable by any token holder (V0.7); CLI-seeded CAS files may have wrong owner under a service-user agent; `disk_short` uses largest free disk (optimistic); agent CAS byte counter unaware of seeded bytes until restart.
 - **V0.5 G2:** the V0.4 per-job `setup_argv` install path is kept only for the runtime-contract tests — remove once every runtime has an env builder; env_hash/env_cache reach the controller in wave 2 G4.
 - **G5 follow-ups:** T2-1 and `_swap_in` FIXED (`5f13163`); D-1 + reviewer items fixed (`5a1937f`, `ce0c760`) — DONE; UPLOADING backstop done in V0.5 G3. Also: 35 Docker sandbox component tests skip unless `python:3.12-slim@sha256:f77ac9…` is pulled locally.
