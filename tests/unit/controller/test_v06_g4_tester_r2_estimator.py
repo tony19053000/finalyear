@@ -42,6 +42,30 @@ def test_a_probed_link_exactly_at_the_stale_limit_is_used_one_microsecond_later_
         )
 
 
+@pytest.mark.parametrize(
+    ("ahead_s", "source"),
+    [
+        (0.0, TermSource.MEASURED),
+        (5.0, TermSource.MEASURED),
+        (5.001, TermSource.ASSUMED),
+        (86400.0, TermSource.ASSUMED),
+    ],
+)
+def test_a_link_dated_in_the_future_beyond_the_skew_is_stale(
+    ahead_s: float, source: TermSource
+) -> None:
+    """G4 follow-up: a row stamped ahead of ``now`` (the controller clock
+    stepped back) is not fresh forever; 5 s of skew is tolerated."""
+    target, holder = node("t"), node("h", cached=frozenset({key(1)}))
+    req = request(trees=(TreeNeed(key(1), MB),))
+    links = {("t", "h"): LinkStat(1e6, 2.0, 1, NOW + dt.timedelta(seconds=ahead_s))}
+    snap = ClusterSnapshot(nodes=(target, holder), links=links)
+    assert (
+        estimate(req, target, "cpu", snap, local=False, now=NOW).transfer.source
+        is source
+    )
+
+
 def test_the_controller_beats_a_slower_probe_per_tree_and_a_probe_beats_the_default() -> (
     None
 ):

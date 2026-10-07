@@ -54,7 +54,7 @@ from typing import Any, Final
 from sqlalchemy import func, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from meshforge.common.errors import FailureType
 from meshforge.common.logging import get_logger
@@ -297,6 +297,13 @@ class CancelOutcome:
 class ExecutionStore(DecisionReads):
     """:class:`JobStore` plus the dispatch-time writes (see module docstring)."""
 
+    def __init__(self, engine: AsyncEngine) -> None:
+        super().__init__(engine)
+        # job id -> reason key of a ``waiting`` row the database refused; kept
+        # across ticks so the same refused row is not retried every tick
+        # (``fabric.last_reason`` is re-read from the table each tick).
+        self._refused_waiting: dict[str, str] = {}
+
     @typed_store_call
     async def dispatch_planned(
         self,
@@ -392,8 +399,10 @@ class ExecutionStore(DecisionReads):
                     )
                 elif isinstance(decision, Wait) and decision.record is not None:
                     key = decision.record.reason_key
-                    if fabric.last_reason.get(job.id) != key:
-                        # set first: a refused row is not retried every tick
+                    if (
+                        fabric.last_reason.get(job.id) != key
+                        and self._refused_waiting.get(job.id) != key
+                    ):
                         fabric.last_reason[job.id] = key
                         if await _record_decision(
                             db,
@@ -402,7 +411,14 @@ class ExecutionStore(DecisionReads):
                             "waiting",
                             decision.record,
                         ):
+                            self._refused_waiting.pop(job.id, None)
                             recorded.append((job.id, None, "waiting", decision.record))
+                        else:  # refused: not again until the reason changes
+                            self._refused_waiting[job.id] = key
+            # bounded: only jobs read in this tick keep a refused key
+            seen = {str(row.id) for row in jobs}
+            for job_id in [j for j in self._refused_waiting if j not in seen]:
+                del self._refused_waiting[job_id]
         for job_id, attempt_id, outcome, record in recorded:  # committed now
             log.info(
                 "controller.jobs.plan_decision",

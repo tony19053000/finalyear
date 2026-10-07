@@ -188,10 +188,16 @@ def _compute(
     )
 
 
+# A link row dated further than this in the future (the controller clock
+# stepped back) is stale, not fresh forever until the next probe.
+_FUTURE_SKEW_S = 5.0
+
+
 def _fresh(measured_at: dt.datetime, now: dt.datetime | None, limit: float) -> bool:
     if now is None:
         return False
-    return (now - measured_at).total_seconds() <= limit
+    age = (now - measured_at).total_seconds()
+    return -_FUTURE_SKEW_S <= age <= limit
 
 
 def _age(at: dt.datetime | None, now: dt.datetime | None) -> float | None:

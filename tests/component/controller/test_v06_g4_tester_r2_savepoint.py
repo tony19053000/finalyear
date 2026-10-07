@@ -199,10 +199,8 @@ async def test_a_refused_waiting_row_never_blocks_the_jobs_behind_it(
 ) -> None:
     """The ``waiting`` row of a stuck job is refused (NUL in its text). The
     job stays QUEUED, the job behind it is dispatched in the same tick, and the
-    next tick serves what is left. Observation (tester r2): the fabric's
-    ``last_reason`` is rebuilt from the database every tick, so a *refused*
-    row is attempted once per tick (one ERROR log each), not once - the
-    "set first" comment in the store only holds within one tick."""
+    next tick serves what is left. The refused row is attempted once, not
+    once per tick (G4 follow-up: the store remembers the refused key)."""
     node = await _node(pg_settings)
     stuck = await _queued(store, priority=9)
     behind = await _queued(store)
@@ -230,7 +228,7 @@ async def test_a_refused_waiting_row_never_blocks_the_jobs_behind_it(
     first = await _tick(store, decide)
     assert [r.job.id for r in first] == [behind.id]
     assert await _tick(store, decide) == []
-    assert len(tries) == 2  # once per tick, never more within a tick
+    assert len(tries) == 1  # once, not again on the next tick
     counts = await _sql(
         pg_settings,
         "SELECT (SELECT count(*) FROM plan_decision WHERE job_id = :s), "
@@ -238,3 +236,32 @@ async def test_a_refused_waiting_row_never_blocks_the_jobs_behind_it(
         s=stuck.id,
     )
     assert counts == [(0, "queued")]
+
+
+async def test_a_refused_waiting_row_is_tried_once_until_its_reason_changes(
+    store: ExecutionStore,
+    pg_settings: DatabaseSettings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """G4 follow-up: ``fabric.last_reason`` is re-read from the table every
+    tick, so a refused ``waiting`` row used to be retried every tick. The
+    store remembers the refused key; a new reason is written again."""
+    job = await _queued(store)
+    calls: list[str] = []
+    real = execution_store._record_decision
+
+    async def counting(db: Any, job_id: str, *a: Any, **k: Any) -> bool:
+        calls.append(job_id)
+        return await real(db, job_id, *a, **k)
+
+    monkeypatch.setattr(execution_store, "_record_decision", counting)
+    poisoned = _record(poisoned=True, tag="w")
+    for _ in range(3):
+        await _tick(store, lambda _j, _f: Wait(poisoned))
+    assert calls == [job.id]
+    clean = _record(poisoned=False, tag="w2")
+    await _tick(store, lambda _j, _f: Wait(clean))
+    await _tick(store, lambda _j, _f: Wait(clean))
+    assert calls == [job.id, job.id]
+    rows = await _sql(pg_settings, "SELECT reason_key FROM plan_decision")
+    assert rows == [(clean.reason_key,)]

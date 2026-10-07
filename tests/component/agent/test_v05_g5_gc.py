@@ -162,19 +162,34 @@ async def test_the_next_job_after_eviction_fetches_again_and_succeeds(
     built = build_tree(project, chunk_size=CS)
     await _upload(runtime, built)
     for _ in range(2):
-        posted = await http.post(
-            "/v1/jobs",
-            json={
-                "manifest": {"name": "gc2", "entrypoint": ["python", "main.py"]},
-                "tree_id": str(built.tree.tree_id),
-                "placement": {"node_id": agent.node_id},
-            },
-        )
+        posted = await _post_pinned(http, built, agent.node_id)
         job = await wait_job(http, str(posted.json()["job_id"]))
         assert job["state"] == "succeeded", job
         stage = agent.executor.last_stage
         assert stage is not None and stage.blobs_fetched == 2 and stage.blobs_hit == 0
         await agent.gc.run_now("test")  # evicts everything (quota 1 byte)
+
+
+async def _post_pinned(
+    http: httpx.AsyncClient, built: BuiltTree, node_id: str
+) -> httpx.Response:
+    """POST a job pinned to ``node_id``. Under full-tier load the agent's
+    session can expire and re-enrol; a pinned job is then refused 409 (node
+    offline) until it is back, so retry 409 for a bounded time."""
+    deadline = time.monotonic() + 30.0
+    while True:
+        posted = await http.post(
+            "/v1/jobs",
+            json={
+                "manifest": {"name": "gc2", "entrypoint": ["python", "main.py"]},
+                "tree_id": str(built.tree.tree_id),
+                "placement": {"node_id": node_id},
+            },
+        )
+        if posted.status_code != 409 or time.monotonic() > deadline:
+            assert posted.status_code in (200, 201), posted.text
+            return posted
+        await asyncio.sleep(0.5)
 
 
 HOLDER = """
