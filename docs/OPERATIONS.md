@@ -472,12 +472,32 @@ back when probing starts), `probe_gap_s` (15, jitter `probe_jitter` 0.5: one pro
 time), `probe_budget_bytes_per_min` (48 MiB across the fabric), `probe_bytes` /
 `probe_max_bytes` / `probe_fast_s` (4 MiB, then 8 MiB if that took < 0.5 s),
 `rtt_samples` (3), `busy_cpu_percent` (80: a laptop busier than this, or running
-a GPU job, is not probed), `probe_timeout_s` (60), `token_ttl_s` (60),
-`ewma_alpha` (0.3), `stale_after_s` (3600), `transfer_min_bytes` /
-`transfer_history` (controller -> laptop speed from past downloads: the median of
-the last 20 of at least 1 MiB). `enabled = false` turns probing off. On an agent:
-`[agent.probe] enabled` (true; false = refuse) and `request_timeout_s` (20);
+a GPU job, is not probed), `cpu_sample_max_age_s` (30: a laptop whose last
+resource report is older than this is not probed either - its load is unknown,
+not low), `probe_timeout_s` (60), `token_ttl_s` (60), `ewma_alpha` (0.3),
+`stale_after_s` (3600; must be at least 1.5 x `probe_interval_s`, or the
+controller refuses to start - otherwise every link would be stale between two
+probes), `min_bw_bytes_s` (1024: a probe that measured less is refused and shown
+as `fail:bw_below_floor`; the planner never predicts with less either, so no
+estimate is ever infinite), `transfer_min_bytes` / `transfer_history`
+(controller -> laptop speed from past downloads: the median of the last 20 of at
+least 1 MiB). `probe_bytes` must be at least 1. `enabled = false` turns probing
+off. On an agent: `[agent.probe] enabled` (true; false = refuse),
+`request_timeout_s` (20, one request) and `deadline_s` (the whole probe; empty =
+2 x `request_timeout_s` = 40 s - keep it below the controller's
+`probe_timeout_s`; a probe past it reports `fail:deadline`);
 `[agent.peer] probe_max_bytes` (8 MiB; 0 = answer no probes).
+
+**Reading a transfer estimate.** `compute explain` costs every missing tree
+(the project, each input) by its own source and adds the times up, so one cell
+can name several: `12.40s (history, from controller (last transfer 2h ago) +
+1a2b3c4d)` = part comes from the controller (speed from past downloads, the
+newest of them 2 hours old - that history never goes stale, so check its age)
+and part from the laptop ending `1a2b3c4d` over a probed link. `from default`
+means no measurement at all for that part (`assumed`). `at the bandwidth floor`
+means a stored link was slower than `min_bw_bytes_s` and was costed at that
+floor. `compute explain JOB --json` lists the trees one by one
+(`detail.items`).
 
 ## 1. Run it by hand first
 
