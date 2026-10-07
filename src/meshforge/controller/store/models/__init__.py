@@ -9,12 +9,18 @@ Tables so far: ``node``, ``node_session`` (V0.3, :mod:`.node`),
 ``job_transition``, ``attempt``, ``attempt_phase`` (V0.4 D49, :mod:`.job`),
 ``cache_location`` (V0.5 D101, :mod:`.cache`), ``named_input``, ``job_input``,
 ``transfer_event`` (V0.5 G5 D92/D93, :mod:`.data`), ``plan_decision`` (V0.6
-G2 D112, :mod:`.plan`), ``network_link`` (V0.6 G4 D111, :mod:`.network`).
+G2 D112, :mod:`.plan`), ``network_link`` (V0.6 G4 D111, :mod:`.network`),
+``join_token``, ``audit_event`` (V0.7 G2 D135/D136, :mod:`.enrollment`).
 """
 
 from meshforge.controller.store.base import Base
 from meshforge.controller.store.models.cache import CacheLocation
 from meshforge.controller.store.models.data import JobInput, NamedInput, TransferEvent
+from meshforge.controller.store.models.enrollment import (
+    AuditAction,
+    AuditEvent,
+    JoinToken,
+)
 from meshforge.controller.store.models.job import (
     Attempt,
     AttemptPhaseRow,
@@ -29,11 +35,14 @@ from meshforge.controller.store.models.resource import ResourceSnapshot
 __all__ = [
     "Attempt",
     "AttemptPhaseRow",
+    "AuditAction",
+    "AuditEvent",
     "Base",
     "CacheLocation",
     "Job",
     "JobInput",
     "JobTransition",
+    "JoinToken",
     "NamedInput",
     "NetworkLink",
     "Node",

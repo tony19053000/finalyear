@@ -1,5 +1,10 @@
 """Node registry tables: ``node`` and ``node_session`` (ARCHITECTURE §19, roadmap 0.3.6).
 
+V0.7 G2 adds the node certificate columns (``cert_*``, ``public_key_fingerprint``;
+migration 0015). An enrolment of a ``node_id`` the controller has never seen
+inserts the row in state ``enrolling`` with empty descriptive fields; its first
+Hello fills them (``ENROLLING -> ONLINE``, ARCHITECTURE §12.3).
+
 ``node`` is one row per ``node_id`` (the agent's persistent identity, ADR-0013) and
 carries the *current* liveness state plus what the last ``Hello`` told us.
 ``node_session`` is one row per accepted stream (ADR-0002 Updates §1-2): it records
@@ -107,6 +112,26 @@ class Node(TimestampMixin, Base):
             f"gpu_slots IS NULL OR (gpu_slots >= 0 AND gpu_slots <= {MAX_SLOTS})",
             name="gpu_slots",
         ),
+        # V0.7 G2 (migration 0015): the four certificate columns are set together.
+        CheckConstraint(
+            "(cert_serial IS NULL) = (cert_fingerprint IS NULL) AND "
+            "(cert_serial IS NULL) = (cert_not_after IS NULL) AND "
+            "(cert_serial IS NULL) = (public_key_fingerprint IS NULL)",
+            name="cert_all_or_none",
+        ),
+        CheckConstraint(
+            "cert_serial IS NULL OR cert_serial ~ '^[0-9a-f]{1,40}$'",
+            name="cert_serial",
+        ),
+        CheckConstraint(
+            "cert_fingerprint IS NULL OR cert_fingerprint ~ '^[0-9a-f]{64}$'",
+            name="cert_fingerprint",
+        ),
+        CheckConstraint(
+            "public_key_fingerprint IS NULL OR "
+            "public_key_fingerprint ~ '^[0-9a-f]{64}$'",
+            name="public_key_fingerprint",
+        ),
     )
 
     node_id: Mapped[str] = id_column(primary_key=True)
@@ -142,6 +167,21 @@ class Node(TimestampMixin, Base):
     NULL = the agent did not say (an older agent: 1 CPU slot)."""
     gpu_slots: Mapped[int | None] = mapped_column(Integer, nullable=True)
     """``Hello.max_gpu_jobs``; NULL = not said (1 GPU slot with ``exec-gpu``)."""
+    cert_serial: Mapped[str | None] = mapped_column(
+        String(40), nullable=True, unique=True
+    )
+    """V0.7 G2 (D136): serial of the node's current certificate, lower-case hex
+    (<= 159 bits). NULL = never enrolled (a node from before V0.7 G2)."""
+    cert_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    """SHA-256 of the current node certificate's DER (hex)."""
+    cert_not_after: Mapped[dt.datetime | None] = mapped_column(nullable=True)
+    public_key_fingerprint: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
+    )
+    """SHA-256 of the certified public key's DER SubjectPublicKeyInfo (hex) -
+    the same value as the agent's ``node.json`` ``key_fingerprint_sha256``. A
+    second enrolment of this ``node_id`` with another key is refused unless the
+    invite names it (``--replace``)."""
 
 
 class NodeSession(TimestampMixin, Base):

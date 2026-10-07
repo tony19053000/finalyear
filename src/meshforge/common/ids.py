@@ -52,6 +52,7 @@ __all__ = [
     "CommandId",
     "FabricId",
     "IdKind",
+    "InviteId",
     "JobId",
     "NodeId",
     "ScoreRunId",
@@ -63,6 +64,7 @@ __all__ = [
     "new_command_id",
     "new_fabric_id",
     "new_id",
+    "new_invite_id",
     "new_job_id",
     "new_node_id",
     "new_score_run_id",
@@ -72,6 +74,7 @@ __all__ = [
     "validate_chunk_id",
     "validate_command_id",
     "validate_fabric_id",
+    "validate_invite_id",
     "validate_job_id",
     "validate_node_id",
     "validate_score_run_id",
@@ -93,6 +96,8 @@ class IdKind(StrEnum):
     FABRIC = "fab"
     """One fabric = one CA (V0.7 D134); named in the CA subject and every node
     certificate's SAN URI."""
+    INVITE = "inv"
+    """One join invite (V0.7 D135): the ``join_token`` row a join code redeems."""
 
 
 JobId = NewType("JobId", str)
@@ -103,6 +108,7 @@ ChunkId = NewType("ChunkId", str)
 CommandId = NewType("CommandId", str)
 ScoreRunId = NewType("ScoreRunId", str)
 FabricId = NewType("FabricId", str)
+InviteId = NewType("InviteId", str)
 
 _SEPARATOR = "_"
 _ULID_LEN = 26
@@ -192,6 +198,10 @@ def new_fabric_id() -> FabricId:
     return FabricId(new_id(IdKind.FABRIC))
 
 
+def new_invite_id() -> InviteId:
+    return InviteId(new_id(IdKind.INVITE))
+
+
 def parse_id(value: object, kind: IdKind | None = None) -> tuple[IdKind, ULID]:
     """Split and validate an ID. If ``kind`` is given the prefix must match it.
 
@@ -271,3 +281,8 @@ def validate_score_run_id(value: object) -> ScoreRunId:
 def validate_fabric_id(value: object) -> FabricId:
     parse_id(value, IdKind.FABRIC)
     return FabricId(str(value))
+
+
+def validate_invite_id(value: object) -> InviteId:
+    parse_id(value, IdKind.INVITE)
+    return InviteId(str(value))
