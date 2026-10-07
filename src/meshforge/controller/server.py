@@ -2,7 +2,8 @@
 
 :class:`ControllerRuntime` wires everything and owns every task it starts::
 
-    settings -> engine -> migrations (thread) -> start-up sweep
+    settings -> fabric CA + server cert (V0.7 G1; only when `fabric create` ran)
+             -> engine -> migrations (thread) -> start-up sweep
              -> SessionManager + LeaseTimer task
              -> ResourceTracker + SnapshotFlusher task      (roadmap 0.3.11)
              -> Dispatcher task (queued jobs -> attempts)   (V0.4 G4, D65)
@@ -36,6 +37,7 @@ import functools
 import signal
 import socket
 from collections.abc import Coroutine, Iterator
+from datetime import timedelta
 from types import TracebackType
 from typing import Any
 
@@ -54,6 +56,13 @@ from meshforge.controller.api.network_routes import NetworkApi
 from meshforge.controller.blobs import BlobStore, FetchTokens
 from meshforge.controller.cache_index import CacheIndex, CacheLocationStore
 from meshforge.controller.discovery import ServiceAdvertiser
+from meshforge.controller.fabric_ca import (
+    FabricCa,
+    ServerCert,
+    ensure_server_cert,
+    fabric_present,
+    load_fabric,
+)
 from meshforge.controller.fabric_token import (
     FabricTokenVerifier,
     fingerprint,
@@ -143,6 +152,10 @@ class ControllerRuntime:
         self._stop_requested = asyncio.Event()
         self._stopped = False
         self.token_verifier: FabricTokenVerifier | None = None
+        self.fabric: FabricCa | None = None
+        """V0.7 D134: the fabric CA, when `fabric create` has run (None otherwise)."""
+        self.server_cert: ServerCert | None = None
+        """V0.7 D134: issued/renewed at start; no listener uses it before G3."""
         self.blobs: BlobStore | None = None
         self.jobs: ExecutionStore | None = None
         """D49: the single writer of the job tables."""
@@ -205,6 +218,11 @@ class ControllerRuntime:
             "controller.peer_key.ready",
             created=key_created,
             fingerprint=public_key_fingerprint(peer_key),
+        )
+        # V0.7 D134: the fabric CA (if created) and the server cert, renewed at
+        # 2/3 life. A CA that exists but cannot be trusted stops the start-up.
+        self.fabric, self.server_cert = await asyncio.to_thread(
+            _prepare_fabric, self.settings
         )
         # D48: the blob store (and a sweep of part files a crash left behind).
         blobs = BlobStore(
@@ -624,6 +642,34 @@ class _RuntimeContext:
         tb: TracebackType | None,
     ) -> None:
         await self._runtime.stop()
+
+
+def _prepare_fabric(
+    settings: ControllerSettings,
+) -> tuple[FabricCa | None, ServerCert | None]:
+    """Load the fabric CA and ensure the server cert (V0.7 G1, D134).
+
+    No CA yet -> ``(None, None)``: allowed until G3 makes TLS mandatory.
+    """
+    if not fabric_present(settings.ca_dir):
+        log.info("controller.fabric.absent", hint="meshforge-controller fabric create")
+        return None, None
+    fabric = load_fabric(settings.ca_dir)
+    server = ensure_server_cert(
+        settings.tls_dir,
+        fabric,
+        hosts=settings.server_cert_hosts,
+        lifetime=timedelta(days=settings.controller.tls.server_cert_days),
+    )
+    log.info(
+        "controller.fabric.ready",
+        fabric_id=fabric.fabric_id,
+        ca_fingerprint=fabric.short_fingerprint,
+        server_cert=server.action.value,
+        server_cert_not_after=server.cert.not_valid_after_utc.isoformat(),
+        tls_enforced=False,
+    )
+    return fabric, server
 
 
 def _bind_socket(bind: BindAddress) -> socket.socket:

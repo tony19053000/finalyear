@@ -26,6 +26,12 @@ from meshforge.common.config import MeshForgeSettings, SectionModel
 from meshforge.common.fabric_token import CONTROLLER_DIR_NAME, default_token_path
 from meshforge.common.manifest import PolicyName
 from meshforge.common.netaddr import parse_bind
+from meshforge.common.pki import PkiError, validate_san_host
+from meshforge.controller.fabric_ca import (
+    CA_DIR_NAME,
+    TLS_DIR_NAME,
+    server_cert_hosts,
+)
 from meshforge.controller.liveness import LivenessConfig
 from meshforge.controller.peer_signing import KEY_FILE_NAME as PEER_KEY_FILE_NAME
 from meshforge.controller.resources import DEFAULT_BUCKET_GRACE_S
@@ -47,6 +53,7 @@ __all__ = [
     "NetworkSettings",
     "PlannerSettings",
     "ResourceHistorySettings",
+    "TlsSettings",
 ]
 
 DEFAULT_GRPC_PORT = 47100
@@ -697,6 +704,44 @@ class ApiSettings(SectionModel):
         return value
 
 
+class TlsSettings(SectionModel):
+    """``[controller.tls]`` - the controller's server certificate (V0.7 G1, D134).
+
+    Issued from the fabric CA (``meshforge-controller fabric create``) at
+    ``fabric create`` and at every controller start when missing or past 2/3 of
+    its life. Its SANs are the fixed name ``meshforge-controller``, the
+    ``grpc_bind`` / ``http_bind`` hosts (wildcards skipped), the
+    ``[controller.api] advertise_url`` host and ``extra_sans``. Not used by any
+    listener until V0.7 G3.
+    """
+
+    extra_sans: tuple[str, ...] = Field(
+        default=(),
+        max_length=32,
+        description=(
+            "More host names / IP addresses the controller is reached by (e.g. its "
+            "LAN IP when it binds 0.0.0.0 with allow_any_bind, or a DNS name). No "
+            "wildcards."
+        ),
+    )
+    server_cert_days: int = Field(
+        default=365,
+        ge=1,
+        le=825,
+        description="Lifetime of the controller's server certificate, in days.",
+    )
+
+    @field_validator("extra_sans")
+    @classmethod
+    def _hosts_valid(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        for host in value:
+            try:
+                validate_san_host(host)
+            except PkiError as exc:
+                raise ValueError(exc.message) from None
+        return tuple(host.strip() for host in value)
+
+
 class DiscoverySettings(SectionModel):
     """``[controller.discovery]`` - mDNS advertisement of the gRPC listener (0.3.9).
 
@@ -974,6 +1019,7 @@ class ControllerSection(SectionModel):
     planner: PlannerSettings = Field(default_factory=PlannerSettings)
     network: NetworkSettings = Field(default_factory=NetworkSettings)
     api: ApiSettings = Field(default_factory=ApiSettings)
+    tls: TlsSettings = Field(default_factory=TlsSettings)
 
     @field_validator("grpc_bind", "http_bind")
     @classmethod
@@ -1051,6 +1097,26 @@ class ControllerSettings(MeshForgeSettings):
         """Peer-token signing key (``[controller] peer_key_file`` or the default)."""
         return self.controller.peer_key_file or (
             self.data_dir / CONTROLLER_DIR_NAME / PEER_KEY_FILE_NAME
+        )
+
+    @property
+    def ca_dir(self) -> Path:
+        """The fabric CA (``<data_dir>/controller/ca``, V0.7 D134)."""
+        return self.data_dir / CONTROLLER_DIR_NAME / CA_DIR_NAME
+
+    @property
+    def tls_dir(self) -> Path:
+        """The controller's server key + cert (``<data_dir>/controller/tls``)."""
+        return self.data_dir / CONTROLLER_DIR_NAME / TLS_DIR_NAME
+
+    @property
+    def server_cert_hosts(self) -> list[str]:
+        """SAN hosts of the controller's server certificate (``[controller.tls]``)."""
+        cfg = self.controller
+        return server_cert_hosts(
+            [cfg.grpc_bind, cfg.http_bind],
+            advertise_url=cfg.api.advertise_url,
+            extra=cfg.tls.extra_sans,
         )
 
     @property
