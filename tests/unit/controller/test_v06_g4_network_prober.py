@@ -299,9 +299,11 @@ def test_the_defaults_are_the_d111_numbers() -> None:
         ("busy_cpu_percent", 100.0, 100.1),
         ("ewma_alpha", 1.0, 1.01),
         ("ewma_alpha", 0.01, 0.0),
-        ("stale_after_s", 60.0, 59.9),
         ("rtt_samples", 10, 11),
         ("probe_timeout_s", 600.0, 600.1),
+        ("probe_bytes", 1, 0),  # tester T-3: a probe must download something
+        ("min_bw_bytes_s", 1.0, 0.99),
+        ("cpu_sample_max_age_s", 1.0, 0.99),
     ],
 )
 def test_each_setting_bound_max_accepted_and_one_past_refused(
@@ -312,23 +314,57 @@ def test_each_setting_bound_max_accepted_and_one_past_refused(
         NetworkSettings(**{name: refused})
 
 
+def test_stale_after_s_lower_bound_needs_a_short_interval() -> None:
+    """The field's own minimum is 60 s - reachable only with an interval the
+    link can outlive (tester T-2)."""
+    cfg = NetworkSettings(stale_after_s=60.0, probe_interval_s=10.0)
+    assert cfg.stale_after_s == 60.0
+    with pytest.raises(ValueError, match="stale_after_s"):
+        NetworkSettings(stale_after_s=59.9, probe_interval_s=10.0)
+
+
+@pytest.mark.parametrize(
+    ("interval", "stale", "ok"),
+    [(900.0, 1350.0, True), (900.0, 1349.9, False), (2400.0, 3600.0, True)],
+)
+def test_a_link_must_outlive_one_and_a_half_probe_intervals(
+    interval: float, stale: float, ok: bool
+) -> None:
+    """Tester T-2: with ``stale_after_s`` under 1.5 intervals every link would
+    be stale between probes (one late round and the matrix is useless)."""
+    if ok:
+        NetworkSettings(probe_interval_s=interval, stale_after_s=stale)
+        return
+    with pytest.raises(ValueError, match="probe_interval_s"):
+        NetworkSettings(probe_interval_s=interval, stale_after_s=stale)
+
+
 # ------------------------------------------------- busy by CPU, via the tracker
 
 
 @dataclass
 class FakeSample:
     cpu_percent: float | None
+    received_at: float = 0.0
 
 
 @dataclass
 class FakeResources:
     cpu: dict[str, float | None]
+    clock: Clock | None = None
+    age: dict[str, float] = field(default_factory=dict)
+    """node_id -> how old its latest sample is (default: just received)."""
 
     def latest(self, node_id: str) -> FakeSample | None:
-        return FakeSample(self.cpu[node_id]) if node_id in self.cpu else None
+        if node_id not in self.cpu:
+            return None
+        now = 0.0 if self.clock is None else self.clock.t
+        return FakeSample(self.cpu[node_id], now - self.age.get(node_id, 0.0))
 
 
-def with_cpu(cpu: dict[str, float | None]) -> tuple[NetworkProber, FakeManager, Clock]:
+def with_cpu(
+    cpu: dict[str, float | None], age: dict[str, float] | None = None
+) -> tuple[NetworkProber, FakeManager, Clock]:
     clock = Clock()
     manager = FakeManager([FakeLive(A), FakeLive(B), FakeLive(C)])
 
@@ -341,7 +377,7 @@ def with_cpu(cpu: dict[str, float | None]) -> tuple[NetworkProber, FakeManager, 
         PeerTokenIssuer(KEY, clock=lambda: WALL),
         NetworkSettings(probe_gap_s=1.0, probe_jitter=0.0),
         clock=clock,
-        resources=FakeResources(cpu),  # type: ignore[arg-type]
+        resources=FakeResources(cpu, clock, age or {}),  # type: ignore[arg-type]
         gpu_busy=busy,
         rng=random.Random(1),  # noqa: S311
     )
@@ -369,6 +405,41 @@ async def test_every_node_busy_means_no_probe_at_all() -> None:
         clock.t = prober.scheduler.next_at
         assert await prober.tick() is None
     assert manager.sent == [] and prober.scheduler.started == 0
+
+
+@pytest.mark.asyncio
+async def test_a_stale_cpu_sample_means_unknown_load_and_no_probe() -> None:
+    """Tester r1 observation: A's latest sample says 5 % but is 30.1 s old
+    (``cpu_sample_max_age_s`` = 30) - its load is unknown, so A is neither
+    source nor target. B's sample is exactly 30 s old (still trusted); C never
+    sent one (its monitor is off) and is not blocked."""
+    prober, manager, clock = with_cpu({A: 5.0, B: 5.0}, {A: 30.1, B: 30.0})
+    for _ in range(40):
+        clock.t = prober.scheduler.next_at
+        planned = await prober.tick()
+        if planned is not None:
+            prober.on_result(planned.src, result(manager.sent[-1][2]))
+    pairs = {(node, cmd.target_node_id) for node, _name, cmd in manager.sent}
+    assert pairs == {(B, C), (C, B)}
+
+
+@pytest.mark.asyncio
+async def test_a_fresh_sample_after_a_stale_one_makes_the_node_probeable() -> None:
+    cpu, age = {A: 5.0, B: 5.0, C: 5.0}, {A: 500.0}
+    prober, manager, clock = with_cpu(cpu, age)
+    for _ in range(6):
+        clock.t = prober.scheduler.next_at
+        planned = await prober.tick()
+        if planned is not None:
+            prober.on_result(planned.src, result(manager.sent[-1][2]))
+    assert all(A not in (n, c.target_node_id) for n, _x, c in manager.sent)
+    age.clear()  # A reports again
+    for _ in range(6):
+        clock.t = prober.scheduler.next_at
+        planned = await prober.tick()
+        if planned is not None:
+            prober.on_result(planned.src, result(manager.sent[-1][2]))
+    assert any(A in (n, c.target_node_id) for n, _x, c in manager.sent)
 
 
 # ------------------------------------------------------ restart (interval)

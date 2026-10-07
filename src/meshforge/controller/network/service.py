@@ -4,8 +4,12 @@ into ``network_link``.
 
 * **Tick.** When the scheduler is due, the candidates are the nodes with a live
   ONLINE session (a target also needs an advertised peer endpoint, D99); a node
-  holding a GPU for a live attempt (one database read per due tick) or whose
-  latest CPU sample is above ``busy_cpu_percent`` is skipped. The chosen source
+  holding a GPU for a live attempt (one database read per due tick), whose
+  latest CPU sample is above ``busy_cpu_percent``, or whose latest sample is
+  older than ``cpu_sample_max_age_s`` (load unknown) is skipped. If the GPU
+  read fails the tick is given up and the next one is a whole gap away
+  (logged without a traceback, counted in ``busy_read_failures``) - a database
+  outage must not make the prober spin. The chosen source
   gets ``ProbeRequest`` ("ProbeLink") with the target's endpoint and a probe
   token signed for ``(requester = source, holder = target)``, ``token_ttl_s``
   long. A command that cannot be queued frees the pair at once.
@@ -15,7 +19,10 @@ into ``network_link``.
   else (unknown, late, duplicate, another node's id) is dropped and counted -
   reports are hostile input. A good result is queued for the database (the
   handler never waits on it); a failure (``ok = false``, a non-finite or
-  non-positive number) is remembered per pair for ``compute network``.
+  non-positive number, or a bandwidth below ``min_bw_bytes_s`` - error
+  ``bw_below_floor``, D131) is remembered per pair for ``compute network``
+  and never stored. An ``ok`` result is charged at least the requested
+  ``probe_bytes`` against the budget whatever ``bytes`` it claims.
 * **Node loss.** A node that goes OFFLINE frees its probes in flight; their
   late results are then dropped.
 * **Restart.** Nothing is persisted but the links, and they are the schedule's
@@ -62,7 +69,7 @@ if TYPE_CHECKING:
     from meshforge.controller.session.manager import SessionManager
     from meshforge.controller.settings import NetworkSettings
 
-__all__ = ["LIVE_ATTEMPT_STATES", "NetworkProber", "PairFailure"]
+__all__ = ["BW_BELOW_FLOOR", "LIVE_ATTEMPT_STATES", "NetworkProber", "PairFailure"]
 
 log = get_logger(__name__)
 
@@ -74,6 +81,9 @@ _FAILURES_KEPT: Final = 1024
 _MAX_RTT_MS: Final = 600_000.0
 _MAX_BW: Final = 1e12
 _ERROR_CHARS: Final = 32
+BW_BELOW_FLOOR: Final = "bw_below_floor"
+"""Failure code of an ``ok`` result whose bandwidth is under
+``[controller.network] min_bw_bytes_s`` (D131)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,6 +147,7 @@ class NetworkProber:
         self.failed = 0
         self.dropped = 0
         self.written = 0
+        self.busy_read_failures = 0
 
     # ------------------------------------------------------------------ loop
 
@@ -146,8 +157,9 @@ class NetworkProber:
         while True:
             try:
                 await self.tick()
-            except Exception:  # one bad tick must not stop probing
+            except Exception:  # one bad tick must not stop probing - nor spin
                 log.exception("controller.network.tick_failed")
+                self.scheduler.defer(self._clock())
             wait = min(1.0, max(0.05, self.scheduler.next_at - self._clock()))
             try:
                 sample = await asyncio.wait_for(self._queue.get(), wait)
@@ -194,6 +206,7 @@ class NetworkProber:
 
     def _candidates(self, gpu_busy: set[str]) -> list[ProbeNode]:
         nodes: list[ProbeNode] = []
+        now, max_age = self._clock(), self.settings.cpu_sample_max_age_s
         for live in self._manager.snapshot():
             if live.ended or live.state is not NodeState.ONLINE:
                 continue
@@ -208,6 +221,8 @@ class NetworkProber:
                     endpoint=live.peer_endpoint,
                     gpu_job=live.node_id in gpu_busy,
                     cpu_percent=None if sample is None else sample.cpu_percent,
+                    # received_at is the controller's monotonic clock, as ours
+                    cpu_stale=sample is not None and now - sample.received_at > max_age,
                 )
             )
         return nodes
@@ -222,7 +237,17 @@ class NetworkProber:
         if len(self._manager.snapshot()) < 2:  # a pair needs two nodes
             self.scheduler.pick((), now)  # keep the stagger moving
             return None
-        busy = await self._gpu_busy()
+        try:
+            busy = await self._gpu_busy()
+        except Exception as exc:  # noqa: BLE001 - no GPU view = no probe now
+            self.busy_read_failures += 1
+            self.scheduler.defer(self._clock())
+            log.warning(
+                "controller.network.busy_read_failed",
+                error_type=type(exc).__name__,
+                failures=self.busy_read_failures,
+            )
+            return None
         planned = self.scheduler.pick(self._candidates(busy), self._clock())
         if planned is None:
             return None
@@ -278,7 +303,10 @@ class NetworkProber:
                 reason="unknown_probe",
             )
             return
-        self.scheduler.finish(result.probe_id, int(result.bytes), self._clock())
+        moved = int(result.bytes)
+        if result.ok:  # it says it downloaded: never cheaper than what we asked
+            moved = max(moved, self.settings.probe_bytes)
+        self.scheduler.finish(result.probe_id, moved, self._clock())
         rtt, bw = float(result.rtt_ms), float(result.bw_bytes_s)
         if not result.ok:
             self._failed(
@@ -292,6 +320,9 @@ class NetworkProber:
             and 0.0 < bw <= _MAX_BW
         ):
             self._failed(flight.src, flight.dst, "bad_numbers", result.probe_id)
+            return
+        if bw < self.settings.min_bw_bytes_s:  # D131: unusable, never stored
+            self._failed(flight.src, flight.dst, BW_BELOW_FLOOR, result.probe_id)
             return
         self.measured += 1
         self.failures.pop((flight.src, flight.dst), None)
@@ -348,6 +379,7 @@ class NetworkProber:
             "failed": self.failed,
             "timed_out": self.scheduler.timed_out,
             "dropped": self.dropped,
+            "busy_read_failures": self.busy_read_failures,
             "in_flight": [
                 {"src_node_id": f.src, "dst_node_id": f.dst}
                 for f in self.scheduler.in_flight.values()

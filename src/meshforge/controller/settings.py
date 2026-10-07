@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 from pydantic import Field, ValidationError, field_validator, model_validator
 
@@ -497,6 +497,11 @@ class PlannerSettings(SectionModel):
 _MIB = 1024 * 1024
 
 
+STALE_INTERVAL_MARGIN: Final = 1.5
+"""``stale_after_s`` must be at least this many probe intervals: a link then
+survives one late or failed probe round without going stale."""
+
+
 class NetworkSettings(SectionModel):
     """``[controller.network]`` - peer network probes -> the network matrix
     (V0.6 G4, D111).
@@ -548,9 +553,12 @@ class NetworkSettings(SectionModel):
     )
     probe_bytes: int = Field(
         default=4 * _MIB,
-        ge=0,
+        ge=1,
         le=8 * _MIB,
-        description="Throughput download size (0 = RTT only).",
+        description=(
+            "Throughput download size. At least 1: a probe that downloads "
+            "nothing measures no bandwidth and could never fill the matrix."
+        ),
     )
     probe_max_bytes: int = Field(
         default=8 * _MIB,
@@ -590,6 +598,26 @@ class NetworkSettings(SectionModel):
         le=100.0,
         description="A node whose latest CPU sample is above this is not probed.",
     )
+    cpu_sample_max_age_s: float = Field(
+        default=30.0,
+        ge=1.0,
+        le=3600.0,
+        description=(
+            "A node whose latest resource sample is older than this is not "
+            "probed: its load is unknown, not low (3x the agents' default "
+            "[agent.resources] max_report_interval_s of 10 s)."
+        ),
+    )
+    min_bw_bytes_s: float = Field(
+        default=1024.0,
+        ge=1.0,
+        le=1e9,
+        description=(
+            "A probe reporting less bandwidth than this is refused (counted "
+            "as failed, shown by compute network), and the planner never "
+            "divides by less: every transfer estimate stays finite (D131)."
+        ),
+    )
     ewma_alpha: float = Field(
         default=0.3,
         gt=0.0,
@@ -628,6 +656,18 @@ class NetworkSettings(SectionModel):
             raise ValueError(
                 "probe_budget_bytes_per_min must be at least probe_bytes + "
                 f"probe_max_bytes ({worst}), or no probe could ever run"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _links_outlive_the_interval(self) -> NetworkSettings:
+        least = self.probe_interval_s * STALE_INTERVAL_MARGIN
+        if self.stale_after_s < least:
+            raise ValueError(
+                f"stale_after_s ({self.stale_after_s:g}) must be at least "
+                f"{STALE_INTERVAL_MARGIN:g} x probe_interval_s ({least:g}): a link "
+                "is measured once per interval, so anything less leaves every "
+                "link stale between probes"
             )
         return self
 

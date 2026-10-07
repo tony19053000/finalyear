@@ -340,7 +340,6 @@ async def test_crash_loop_never_probes_a_fresh_pair() -> None:
     assert sent == 0
 
 
-@pytest.mark.xfail(strict=True, reason="T-2: probe_interval_s may exceed stale_after_s")
 def test_a_link_cannot_be_permanently_stale_by_configuration() -> None:
     """Interval and staleness interact: with the probe interval longer than
     ``stale_after_s`` every link is stale between probes (and, for a pair that
@@ -349,10 +348,6 @@ def test_a_link_cannot_be_permanently_stale_by_configuration() -> None:
         NetworkSettings(probe_interval_s=7200.0, stale_after_s=3600.0)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-3: probe_bytes=0 accepted; every probe then fails bad_numbers",
-)
 def test_a_probe_of_zero_bytes_cannot_be_configured() -> None:
     """``probe_bytes = 0`` makes every agent report ``bw = 0`` - which the
     controller rejects as bad numbers: a matrix that can never fill."""
@@ -412,10 +407,6 @@ async def test_impossible_numbers_are_never_stored(bad: dict[str, float]) -> Non
     assert p.failed == 1
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-1: 0 < bw is the only lower bound; 1e-300 B/s reaches the matrix",
-)
 @pytest.mark.asyncio
 @pytest.mark.parametrize("bw", [1e-300, 5e-324, 1e-9])
 async def test_a_vanishing_positive_bandwidth_is_not_stored(bw: float) -> None:
@@ -464,9 +455,6 @@ async def test_a_failure_with_garbage_error_text_is_sanitised() -> None:
     assert "\x1b" not in failure.error and len(failure.error) <= 32
 
 
-@pytest.mark.xfail(
-    strict=True, reason="T-4: reported bytes=0 refunds the whole reservation"
-)
 @pytest.mark.asyncio
 async def test_an_ok_result_that_claims_no_bytes_still_costs_budget() -> None:
     """A result whose ``bw`` says it downloaded megabytes but whose ``bytes``
@@ -480,7 +468,6 @@ async def test_an_ok_result_that_claims_no_bytes_still_costs_budget() -> None:
     assert p.scheduler.spent(clock.t) > 0
 
 
-@pytest.mark.xfail(strict=True, reason="T-5: a failing due tick is retried every 50 ms")
 @pytest.mark.asyncio
 async def test_a_failing_gpu_query_does_not_spin_the_loop() -> None:
     """With the database down the due tick fails; ``run`` must back off rather

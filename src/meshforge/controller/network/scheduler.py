@@ -17,7 +17,9 @@ injected clock:
   within ``probe_budget_bytes_per_min``; a finished probe's reservation is
   replaced by the bytes it really moved;
 * **busy nodes** - never a node running a GPU job, or whose latest CPU sample is
-  above ``busy_cpu_percent`` (an unknown CPU load does not block it);
+  above ``busy_cpu_percent``, or whose latest sample is too old to say
+  (``cpu_stale``: a load that is no longer known is not a low load). A node
+  that never sent a sample (its resource monitor is off) is not blocked;
 * **stagger** - at most one probe starts per ``probe_gap_s`` scaled by a random
   factor in ``[1 - jitter, 1 + jitter]`` (the first one too, so a controller
   restart does not probe at once);
@@ -74,6 +76,9 @@ class ProbeNode:
     gpu_job: bool = False
     """A live attempt holds one of its GPUs."""
     cpu_percent: float | None = None
+    cpu_stale: bool = False
+    """Its latest resource sample is older than ``cpu_sample_max_age_s``: the
+    load is unknown, so the node is not probed (tester r1 observation)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,14 +135,23 @@ class ProbeScheduler:
         )
 
     def busy(self, node: ProbeNode) -> bool:
-        return node.gpu_job or (
-            node.cpu_percent is not None
-            and node.cpu_percent > self.config.busy_cpu_percent
+        return (
+            node.gpu_job
+            or node.cpu_stale
+            or (
+                node.cpu_percent is not None
+                and node.cpu_percent > self.config.busy_cpu_percent
+            )
         )
 
     @property
     def next_at(self) -> float:
         return self._next_at
+
+    def defer(self, now: float) -> None:
+        """Nothing can be decided at ``now`` (the caller's inputs could not be
+        read): the next attempt is one jittered gap away, like after a pick."""
+        self._next_at = now + self._gap()
 
     def last_probed(self, src: str, dst: str) -> float | None:
         return self._last.get((src, dst))
