@@ -507,6 +507,12 @@ class Node:
     tmpfs_workdir: Path | None = None
     """V0.6 G3: the agent's workdir is a tmpfs in its own mount namespace."""
 
+    @property
+    def config(self) -> Path:
+        """The agent's TOML config (V0.7 G2: `meshforge-agent join --config`)."""
+        assert self.fabric is not None
+        return self.fabric.workdir / f"agent{self.index}.toml"
+
     def _in_namespace(self, path: Path) -> Path:
         return Path(f"/proc/{self.pid}/root") / path.relative_to(path.anchor)
 
@@ -607,8 +613,13 @@ class Fabric:
         agent_tmpfs_workdir: Mapping[int, int] | None = None,
         controller_extra: Mapping[str, Mapping[str, Any]] | None = None,
         log_level: str = "INFO",
+        fabric_ca: bool = False,
     ) -> None:
         self.workdir = workdir
+        # V0.7 G2: run `meshforge-controller fabric create` before the controller
+        # starts (its enrolment listener only runs when a CA exists).
+        self.fabric_ca = fabric_ca
+        self.enroll_target = ""
         self.timing = timing
         self.n_agents = agents
         self.log_level = log_level
@@ -743,9 +754,18 @@ class Fabric:
         self.loop = FaultLoop(f"faultproxy-{self.workdir.name}")
         env = self._base_env()
         env.update(self._db_env)
+        controller_config = self._controller_config()
+        if self.fabric_ca:
+            created = subprocess.run(
+                [sys.executable, "-m", "meshforge.controller", "fabric", "create",
+                 "--config", str(controller_config)],
+                env=env, capture_output=True, text=True, timeout=60, check=False,
+            )  # fmt: skip
+            if created.returncode != 0:
+                self.fail(f"fabric create failed: {created.stderr[-2000:]}")
         self.controller = ManagedProcess(
             "controller",
-            ["-m", "meshforge.controller", "--config", str(self._controller_config())],
+            ["-m", "meshforge.controller", "--config", str(controller_config)],
             env,
             self.workdir / "logs",
         )
@@ -791,6 +811,7 @@ class Fabric:
         )
         self.grpc_target = str(event["grpc"])
         self.http_base = f"http://{event['http']}"
+        self.enroll_target = str(event.get("enroll") or "")
 
     def _wait_node_id(self, node: Node) -> str:
         event = self.wait_log(node.process, "agent.started", within=START_TIMEOUT_S)

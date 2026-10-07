@@ -47,7 +47,14 @@ def test_identity_show_json(data_dir: Path) -> None:
     result = runner.invoke(app, ["identity", "show", "--json"], prog_name=PROG)
     assert result.exit_code == ExitCode.OK, result.output
     facts = json.loads(result.stdout)
-    assert set(facts) == {"node_id", "session_epoch", "key_fingerprint_sha256", "path"}
+    assert set(facts) == {
+        "node_id",
+        "session_epoch",
+        "key_fingerprint_sha256",
+        "path",
+        "enrolled",  # V0.7 G2: false until `meshforge-agent join`
+    }
+    assert facts["enrolled"] is False
     assert facts["node_id"].startswith("node_")
     assert facts["path"] == str(data_dir / "identity")
 

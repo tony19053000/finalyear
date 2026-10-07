@@ -105,6 +105,12 @@ def _load_settings(config: Path | None, **overrides: object) -> AgentSettings:
         raise typer.Exit(exc.exit_code) from None
 
 
+_LOCAL_ONLY: dict[str, object] = {"agent": {"discovery": {"enabled": True}}}
+"""Overrides for commands that never contact the controller (identity, join):
+they need only the data dir, so "no way to find the controller" must not stop
+them on a laptop that has not been told where it is yet."""
+
+
 def _quiet_logging(settings: AgentSettings) -> None:
     """For the ``identity`` commands: stdout is the result, logs go to stderr and
     only warnings and worse (an unconfigured structlog would print to stdout)."""
@@ -152,7 +158,7 @@ def identity_show(
     from meshforge.agent.identity import load_or_create
     from meshforge.common.errors import MeshForgeError
 
-    settings = _load_settings(config)
+    settings = _load_settings(config, **_LOCAL_ONLY)
     _quiet_logging(settings)
     try:
         identity = load_or_create(settings.identity_dir)
@@ -232,7 +238,9 @@ def join(
     from meshforge.agent.identity import load_or_create
     from meshforge.common.errors import MeshForgeError
 
-    settings = _load_settings(config)
+    # Joining needs only the data dir: a laptop that has not been told where the
+    # controller is yet (discovery off, no controller_address) may still join.
+    settings = _load_settings(config, **_LOCAL_ONLY)
     _quiet_logging(settings)
     if code is None or code == "-":
         if sys.stdin.isatty():
@@ -273,7 +281,7 @@ def identity_reset(
     from meshforge.agent.identity import reset
     from meshforge.common.errors import MeshForgeError
 
-    settings = _load_settings(config)
+    settings = _load_settings(config, **_LOCAL_ONLY)
     _quiet_logging(settings)
     if not yes:
         typer.echo(
