@@ -265,7 +265,7 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
-**2026-10-07 — V0.7 brief DRAFTED** (`docs/briefs/V0.7-security-pairing.md`, D133–D146, G1–G7). Waiting for team approval of §2 and §7; then write ADR-0016 and start G1 (brief §5a). Nothing in flight, no code.
+**2026-10-07 — V0.7 STARTED.** Brief `docs/briefs/V0.7-security-pairing.md` APPROVED; ADR-0016 Accepted. G1 implementer (brief §5a) launched — check `docs/briefs/progress/V0.7-G1.md` + git log for where it got to.
 
 **Overall: 24 % (38/154 tasks `[x]`, 16 `[~]`).** Progress bars: `docs/STATUS.md` (regenerate with `uv run python scripts/status_bars.py` whenever a checkbox changes).
 

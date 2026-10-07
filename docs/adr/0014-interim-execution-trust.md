@@ -1,6 +1,6 @@
 # ADR-0014: Interim trust for remote execution (fabric token + agent opt-in) until V0.7
 
-> **Status:** Proposed (2026-09-28) — pending team approval · **Deciders:** team + Lead agent
+> **Status:** Superseded by [ADR-0016](0016-v07-security-design.md) (2026-10-07) · was Proposed (2026-09-28) · **Deciders:** team + Lead agent
 
 ## Context
 V0.4 (roadmap 0.4.3–0.4.6) is the first version where a REST request makes code run on another laptop. CLAUDE.md §9:
