@@ -289,7 +289,13 @@ async def test_stale_session_id_is_dropped_and_counted(
 async def test_second_hello_on_open_stream_is_protocol_error(
     runtime: ControllerRuntime, agents: Any, registry: Registry
 ) -> None:
-    agent: FakeAgent = agents()
+    # No automatic Pong on this stream (tester r2, same cause as the malformed
+    # message id test in test_session_server_round2.py): the controller pings
+    # right after the HelloAck; a Pong the fake agent is still *writing* when
+    # the controller aborts makes grpc.aio's client relabel the call INTERNAL
+    # ("Internal error from Core"), hiding the ABORTED status the server did
+    # send - 6 of 30 runs alone. The only client write here is the second Hello.
+    agent: FakeAgent = agents(auto_pong=False)
     ack = await agent.connect()
     await agent.write(
         agent_pb2.AgentMessage(
