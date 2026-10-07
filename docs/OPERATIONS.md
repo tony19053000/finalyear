@@ -71,6 +71,48 @@ This is one shared secret for the whole fabric — no per-user identity, no audi
 It keeps "anyone on the Wi-Fi" from running code on your laptops; it is not a
 substitute for V0.7's mTLS and user identity.
 
+### 0a2. The fabric CA (V0.7 G1, D134 — [ADR-0016](adr/0016-v07-security-design.md))
+
+V0.7 replaces the shared fabric token with real identities: every laptop will get a
+certificate signed by **your fabric's own certificate authority (CA)**, and every
+connection will be encrypted and checked (that part arrives in later V0.7 groups —
+see "not enforced yet" below). The CA is created once, on the controller laptop:
+
+```bash
+meshforge-controller fabric create        # once; prints the fabric id and fingerprints
+meshforge-controller fabric show          # any time; --json for scripts
+```
+
+- **What it makes:** `<data dir>/controller/ca/ca.key` + `ca.crt` (the CA, valid 10
+  years) and `<data dir>/controller/tls/server.key` + `server.crt` (the controller's
+  own certificate, valid 1 year). Both folders are `0700`, every file `0600`
+  (owner-only ACL on Windows). Nothing secret is printed.
+- **The join fingerprint** (`fabric show`, 32 hex characters) is what join codes will
+  carry so a new laptop can tell the real controller from an impostor. Reading it
+  aloud to compare is a valid check.
+- **Back up `ca.key` offline** (an encrypted USB stick, a password manager). It never
+  needs to leave this laptop otherwise. Anyone holding it can mint laptops into your
+  fabric.
+- **It refuses to overwrite** (exit 5). `fabric create --force` replaces the CA — do
+  this only if `ca.key` leaked or was lost: every laptop must then re-join with a new
+  code, and a running controller must be restarted. (Automatic CA rotation is V0.17.)
+- **The server certificate looks after itself.** Every controller start checks it and
+  issues a new one (with a new key) when it is missing, damaged, from an old CA,
+  two thirds through its life, or when the addresses changed. Its names are
+  `meshforge-controller`, the `grpc_bind` / `http_bind` IPs and the
+  `[controller.api] advertise_url` host. If the controller binds `0.0.0.0`
+  (`allow_any_bind`), list the addresses laptops use in
+  `[controller.tls] extra_sans = ["192.168.1.10", "controller.lan"]`.
+- **A damaged CA stops the controller** (exit 4, `controller.start_failed` names the
+  file and the fix): loose permissions → `chmod 600` the file / `chmod 700` the
+  folder; a missing half, a garbled file or a key that does not match → restore
+  from your backup, or `fabric create --force` (everyone re-joins). No CA at all is
+  fine in this version.
+- **Not enforced yet (V0.7 G1):** every port is still plaintext and the fabric token
+  above still protects REST; agents cannot join yet (G2), TLS/mTLS and revocation
+  come in G3, per-user logins in G4. `fabric show` says `tls_enforced: false`
+  until then. Before G3 lands, every lab laptop will have to re-join once.
+
 ### 0b. Running other people's jobs on this laptop (V0.4, D45/D51 — [ADR-0014](adr/0014-interim-execution-trust.md))
 
 An agent **runs nothing** unless its owner opts in. In that laptop's `config.toml`:
@@ -719,6 +761,7 @@ volume**).
 | A job stays `queued` | no node can take it **now** (V0.6): every capable node is busy (`slots_full`, `node_cap`), offline / suspect, or its environment failed there recently (`env_known_bad`) | `compute explain <JOB_ID>` lists each node's reason; free a slot, start an agent, raise `[agent.execution] max_cpu_jobs` / `max_gpu_jobs`, or cancel it |
 | `compute run` exits with `no_feasible_plan` and a list of nodes | **no** enrolled node could ever run it (V0.6 D104): no `exec`, no GPU / too little VRAM / RAM / CPUs, no runtime for `env.base`, the owner allows no jobs of that kind | each line names the node and the reason; change the manifest's `resources:` or enable execution / a runtime on a node |
 | `compute run` prints `local agent cache not seeded (...)` | the CLI could not copy the project into this laptop's agent cache: `no_cache` (the agent never ran with this data dir), `not_writable`, `over_quota` (project > `[cli] seed_max_bytes`), `disk_full`, `changed` (a file changed while copied) | nothing breaks: a job placed here downloads the project; fix the reason to save that download |
+| Controller exits **4** at startup, log `controller.start_failed` names `controller/ca` or `controller/tls` | the fabric CA or its folder cannot be trusted (V0.7 G1): loose permissions, a missing half, a garbled file, a key that does not match | follow the message: `chmod 600` / `chmod 700`, restore `ca/` from backup, or `meshforge-controller fabric create --force` (every laptop re-joins) — §0a2 |
 | Controller exits **4** at startup | PostgreSQL unreachable or bad `[database]` settings | `docker compose -f deploy/docker-compose.dev.yml up -d --wait`, then check `[database]` |
 | Agent exits **5** immediately | another agent process already owns this identity | stop the other one, or give this one its own `data_dir` |
 | A node shows `STATE suspect` and `CONN no` | the node's connection dropped without a goodbye (Wi-Fi blip, laptop suspended, agent killed) | Normal for a few seconds: the controller keeps the node's lease running and marks it `offline` when the lease runs out (3 × heartbeat, 6 s by default, from the last heartbeat) unless the agent reconnects first — then it goes straight back to `online`. `GET /v1/sessions?node_id=…` shows that session's `end_reason` as `stream_lost`. A cleanly stopped agent (`systemctl --user stop`, Ctrl-C) is `offline` at once with end reason `agent_closed` (ARCHITECTURE §12.3, D19) |
