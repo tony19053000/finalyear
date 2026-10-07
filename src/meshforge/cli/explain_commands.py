@@ -4,7 +4,8 @@ Prints, per planner decision of the job (``GET /v1/jobs/{id}/decisions``):
 the policy and outcome; **every candidate** - rank, node, Local/offload, slot,
 the policy's score and the predicted total, or the rejection code and reason;
 the predicted terms of each ranked candidate **with their source** (and,
-V0.6 G4, the node or ``controller`` a transfer's bandwidth was measured from)
+V0.6 G4, the node(s) or ``controller`` a transfer's bandwidth came from - one
+per missing tree, D131 - with the age of the controller's transfer history)
 (``measured`` / ``history`` / ``scaled`` / ``assumed`` - checklist 18: nothing
 assumed reads as measured); and, once the attempt ran, predicted vs actual
 (``transfer``~``stage``, ``env``~``env``, ``compute``~``run``,
@@ -44,26 +45,89 @@ def _seconds(value: Any) -> str:
     return f"{value:.2f}s"
 
 
+_MAX_ORIGINS: Final = 3
+
+
+def _origin(detail: Mapping[str, Any]) -> str | None:
+    """Where one bandwidth came from: ``controller`` (with the age of its
+    latest transfer when known - D131: that history has no staleness rule),
+    the last 8 characters of a probed holder's node id, or ``default`` for an
+    assumed bandwidth."""
+    from meshforge.cli.render import _num, format_age
+
+    source = detail.get("bw_from")
+    if source == "controller":
+        age = _num(detail.get("last_transfer_age_s"))
+        return "controller" + (
+            f" (last transfer {format_age(age)} ago)" if age is not None else ""
+        )
+    if isinstance(source, str) and source:
+        return source[-8:]
+    return "default" if detail.get("bw_source") == "assumed" else None
+
+
+def _origins(detail: Mapping[str, Any]) -> list[str]:
+    """Every distinct source of a transfer term, in the job's tree order: the
+    term's own when one source carried it all, else one per ``items`` entry
+    (D131: each missing tree is costed by its own source)."""
+    if isinstance(detail.get("bw_from"), str) and detail.get("bw_from"):
+        one = _origin(detail)
+        return [one] if one else []
+    items = detail.get("items")
+    found: list[str] = []
+    for item in items if isinstance(items, list) else []:
+        label = _origin(item) if isinstance(item, Mapping) else None
+        if label and label not in found:
+            found.append(label)
+    return found
+
+
+def _clamped(detail: Mapping[str, Any]) -> bool:
+    items = detail.get("items")
+    return detail.get("bw_clamped") is True or any(
+        isinstance(i, Mapping) and i.get("bw_clamped") is True
+        for i in (items if isinstance(items, list) else [])
+    )
+
+
 def _term_cell(term: Any) -> str:
     """``<seconds> (<source>)``; a transfer also names where its bandwidth came
     from (V0.6 G4: ``from <node...>`` for a probed link, ``from controller``
-    for transfer history), a cached environment says so, and probed links
-    ignored as stale are counted (checklist 18: a stale probe never counts as
-    a measurement)."""
+    with the age of its latest transfer for transfer history; several sources
+    are joined with ``+``, D131), a cached environment says so, a bandwidth
+    raised to the configured floor is flagged, and probed links ignored as
+    stale are counted (checklist 18: a stale probe never counts as a
+    measurement)."""
     if not isinstance(term, Mapping):
         return _DASH
     detail = term.get("detail")
     detail = detail if isinstance(detail, Mapping) else {}
     extra = ""
-    source = detail.get("bw_from")
-    if isinstance(source, str) and source:
-        extra = f", from {source if source == 'controller' else source[-8:]}"
+    origins = _origins(detail)
+    if origins:
+        shown = origins[:_MAX_ORIGINS]
+        more = len(origins) - len(shown)
+        extra = ", from " + " + ".join(shown) + (f" + {more} more" if more else "")
     elif detail.get("env_cached") is True:
         extra = ", cached"
+    if _clamped(detail):
+        extra += ", at the bandwidth floor"
     stale = detail.get("stale_links_ignored")
     if isinstance(stale, list) and stale:
         extra += f", {len(stale)} stale probe(s) ignored"
     return f"{_seconds(term.get('seconds'))} ({term.get('source')}{extra})"
+
+
+def _score_cell(score: Any) -> Any:
+    """The policy's score as a short number; a stored value that is not a
+    number is shown as it is (through :func:`~.render._cell`), never formatted
+    (tester T-10: no traceback from odd REST data)."""
+    from meshforge.cli.render import _cell, _num
+
+    if score is None:
+        return _DASH
+    number = _num(score)
+    return _cell(score) if number is None else _cell(f"{number:g}")
 
 
 def _candidates_table(decision: Mapping[str, Any]) -> Table:
@@ -96,13 +160,12 @@ def _candidates_table(decision: Mapping[str, Any]) -> Table:
             if c.get("rank") == 1
             else "feasible"
         )
-        score = c.get("score")
         table.add_row(
             _cell(c.get("rank")),
             _cell(c.get("node_id")),
             _cell(c.get("mode")),
             _cell(c.get("slot")),
-            _DASH if score is None else _cell(f"{score:g}"),
+            _score_cell(c.get("score")),
             _seconds(total),
             _cell(reason),
         )

@@ -90,6 +90,92 @@ def test_explain_cells_name_the_bandwidth_source() -> None:
     assert _term_cell(None) == "-"
 
 
+def test_explain_names_every_source_of_a_per_tree_transfer() -> None:
+    """D131: a transfer costed over several sources names each one - the
+    holder of the small tree is never credited with the controller's bytes."""
+    mixed = {
+        "seconds": 100.5,
+        "source": "history",
+        "detail": {
+            "bw_source": "mixed",
+            "items": [
+                {
+                    "bw_source": "transfer_history",
+                    "bw_from": "controller",
+                    "last_transfer_age_s": 7200.0,
+                },
+                {"bw_source": "probe", "bw_from": A},
+                {"bw_source": "probe", "bw_from": A},
+            ],
+        },
+    }
+    assert _term_cell(mixed) == (
+        "100.50s (history, from controller (last transfer 2h ago) + 0000AAAA)"
+    )
+    assumed = {
+        "seconds": 4.5,
+        "source": "assumed",
+        "detail": {
+            "bw_source": "mixed",
+            "items": [
+                {"bw_source": "assumed"},
+                {"bw_source": "probe", "bw_from": B},
+            ],
+        },
+    }
+    assert _term_cell(assumed) == "4.50s (assumed, from default + 0000BBBB)"
+    holders = {
+        "seconds": 22.0,
+        "source": "measured",
+        "detail": {
+            "bw_source": "probe",
+            "bw_holders": [A, B],
+            "items": [
+                {"bw_from": A},
+                {"bw_from": B},
+                {"bw_from": "n3"},
+                {"bw_from": "n4"},
+            ],
+        },
+    }
+    assert _term_cell(holders) == (
+        "22.00s (measured, from 0000AAAA + 0000BBBB + n3 + 1 more)"
+    )
+
+
+def test_explain_shows_the_age_of_controller_history_and_a_clamped_link() -> None:
+    old = {
+        "seconds": 10.0,
+        "source": "history",
+        "detail": {"bw_from": "controller", "last_transfer_age_s": 90000.0},
+    }
+    assert (
+        _term_cell(old) == "10.00s (history, from controller (last transfer 25h ago))"
+    )
+    unknown = {
+        "seconds": 10.0,
+        "source": "history",
+        "detail": {"bw_from": "controller", "last_transfer_age_s": None},
+    }
+    assert _term_cell(unknown) == "10.00s (history, from controller)"
+    floor = {
+        "seconds": 1024.0,
+        "source": "measured",
+        "detail": {"bw_from": A, "bw_clamped": True},
+    }
+    assert _term_cell(floor) == (
+        "1024.00s (measured, from 0000AAAA, at the bandwidth floor)"
+    )
+
+
+def test_explain_cells_survive_hostile_item_lists() -> None:
+    for items in ("x", [1, None, "a", {"bw_from": 7}], {"a": 1}, [[]]):
+        term = {"seconds": 1.0, "source": "assumed", "detail": {"items": items}}
+        assert _term_cell(term) == "1.00s (assumed)"
+    seconds_none = {"seconds": None, "source": "measured", "detail": {}}
+    assert _term_cell(seconds_none) == "- (measured)"
+
+
 # ------------------------------------------------- the command, end to end
 
 

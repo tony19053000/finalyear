@@ -151,11 +151,6 @@ def test_an_empty_fabric_says_so(
     assert result.exit_code == 0 and "no node pair measured yet" in result.output
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-10: _candidates_table formats `score` with :g unguarded; a stored "
-    "decision whose score is not a number raises ValueError (G2 code)",
-)
 @pytest.mark.parametrize("score", ["fast", [1], {"a": 1}])
 def test_explain_survives_a_non_numeric_score(score: Any) -> None:
     decision = {
