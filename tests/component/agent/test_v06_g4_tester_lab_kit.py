@@ -116,3 +116,6 @@ async def test_the_kit_submits_waits_and_checks_a_real_run(
     verdict = bad.stdout
     assert "committed_without_ledger_evidence" in verdict
     assert json.loads(verdict)["committed_without_ledger_evidence"], verdict
+    # fix round 1 (D132, T-12): missing evidence is INCONCLUSIVE, never a pass
+    assert json.loads(verdict)["criterion_1"] == "INCONCLUSIVE", verdict
+    assert bad.returncode == 4, bad.stdout + bad.stderr

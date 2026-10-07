@@ -129,13 +129,6 @@ def test_the_same_attempt_executed_twice_is_a_duplicate_execution() -> None:
     assert v.duplicate_executions and not v.criterion_1
 
 
-test_the_same_attempt_executed_twice_is_a_duplicate_execution = pytest.mark.xfail(
-    strict=True,
-    reason="T-11: analyse() only flags `end` lines of attempts other than the "
-    "committed one; a second run of the same attempt id is invisible",
-)(test_the_same_attempt_executed_twice_is_a_duplicate_execution)
-
-
 def test_a_missing_ledger_cannot_make_the_run_pass() -> None:
     """No ledger evidence at all for a succeeded job: duplicates on that laptop
     would be invisible, so the verdict must not say PASS / exit 0."""
@@ -144,26 +137,10 @@ def test_a_missing_ledger_cannot_make_the_run_pass() -> None:
     assert not v.criterion_1
 
 
-test_a_missing_ledger_cannot_make_the_run_pass = pytest.mark.xfail(
-    strict=True,
-    reason="T-12: committed_without_evidence is reported but criterion_1 stays "
-    "PASS and `check` exits 0 with every ledger file missing",
-)(test_a_missing_ledger_cannot_make_the_run_pass)
-
-
 def test_a_job_meant_to_succeed_that_exhausted_its_retries_is_not_a_pass() -> None:
     attempts = [att(f"a{i}", "lost") for i in range(5)]
     v = run({JOB: view("failed", attempts, "node_lost")}, [])
     assert not v.criterion_1
-
-
-test_a_job_meant_to_succeed_that_exhausted_its_retries_is_not_a_pass = (
-    pytest.mark.xfail(
-        strict=True,
-        reason="T-13: a job meant to exit 0 that ends failed:node_lost with 5 of 5 "
-        "attempts is not listed as lost; criterion_1 PASS (only `states` shows it)",
-    )(test_a_job_meant_to_succeed_that_exhausted_its_retries_is_not_a_pass)
-)
 
 
 def test_a_failure_meant_to_fail_is_correct_and_a_failure_meant_to_succeed_is_lost() -> (

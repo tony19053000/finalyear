@@ -5,17 +5,21 @@ controller's view of each job (``GET /v1/jobs/{id}``: state, failure type,
 attempts) and every laptop's ledger (``lab/workloads/v06-ledger``: one
 ``start``/``end`` line per execution).
 
-Counted, per D117 (at-least-once execution, exactly-once commit):
+Counted, per D117 (at-least-once execution, exactly-once commit) and D132
+(the check is strict):
 
-* **lost** - a job that is not terminal, or failed with a retryable failure
-  type while it had attempts left, or failed although it was meant to succeed
-  and nothing about its attempts explains it;
+* **lost** - a job that is not terminal; or failed with a retryable failure
+  type while it had attempts left; or **meant to succeed (exit 0) and not
+  ``succeeded``** - whatever the reason (retries exhausted, cancelled, a
+  failure type): the run did not deliver it;
 * **duplicate commits** - a succeeded job with other than exactly one ``done``
   attempt (must be 0, always);
-* **duplicate executions under kills** - a job with more than one ``end`` line
-  where the extra one belongs to an attempt that was ``lost`` on a node that
-  was **not** partitioned (its run completed, then the agent died before the
-  result reached the controller) or to no known attempt. Must be 0
+* **duplicate executions under kills** - (a) the **same attempt id** with more
+  than one ``end`` line: one attempt executed twice, the very thing command
+  dedupe exists to prevent (never excused, not even by a partition); (b) a job
+  with an extra ``end`` line that belongs to an attempt that was ``lost`` on a
+  node that was **not** partitioned (its run completed, then the agent died
+  before the result reached the controller) or to no known attempt. Must be 0
   (criterion 1); each one is listed so the team can see the race;
 * **overlaps under partition** - extra ``end`` lines of attempts lost on a
   partitioned node: allowed and reported separately (D117);
@@ -24,6 +28,12 @@ Counted, per D117 (at-least-once execution, exactly-once commit):
   duplicate;
 * **committed without evidence** - a succeeded job whose committed attempt has
   no ``end`` in any ledger (a ledger file is missing - collect them all).
+  Duplicates on that laptop would be invisible, so criterion 1 is then
+  ``INCONCLUSIVE``: never PASS.
+
+Criterion 1 is ``FAIL`` when anything was lost or duplicated, else
+``INCONCLUSIVE`` when evidence is missing, else ``PASS``
+(:attr:`Verdict.criterion_1_text`).
 """
 
 from __future__ import annotations
@@ -34,6 +44,9 @@ from dataclasses import dataclass, field
 from typing import Any, Final
 
 __all__ = [
+    "FAIL",
+    "INCONCLUSIVE",
+    "PASS",
     "RETRYABLE",
     "LedgerLine",
     "Planned",
@@ -57,6 +70,9 @@ RETRYABLE: Final = frozenset(
 )
 """ARCHITECTURE §13 defaults for an auto job (disk_full: D126)."""
 TERMINAL: Final = frozenset({"succeeded", "failed", "cancelled"})
+PASS: Final = "PASS"  # noqa: S105 - a verdict word, not a password
+FAIL: Final = "FAIL"
+INCONCLUSIVE: Final = "INCONCLUSIVE"
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,9 +106,21 @@ class Verdict:
     unexpected: list[str] = field(default_factory=list)
 
     @property
+    def failed(self) -> bool:
+        """Something was lost or duplicated (commits, executions under kills)."""
+        return bool(self.lost or self.duplicate_commits or self.duplicate_executions)
+
+    @property
+    def criterion_1_text(self) -> str:
+        """``FAIL`` / ``INCONCLUSIVE`` / ``PASS`` (module docstring, D132)."""
+        if self.failed:
+            return FAIL
+        return INCONCLUSIVE if self.committed_without_evidence else PASS
+
+    @property
     def criterion_1(self) -> bool:
-        """0 lost, 0 duplicated (commits and executions under kills)."""
-        return not (self.lost or self.duplicate_commits or self.duplicate_executions)
+        """0 lost, 0 duplicated **and** ledger evidence for every commit."""
+        return self.criterion_1_text == PASS
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -106,7 +134,7 @@ class Verdict:
             "retried_after_failure": self.retried_after_failure,
             "committed_without_ledger_evidence": self.committed_without_evidence,
             "unexpected": self.unexpected,
-            "criterion_1": "PASS" if self.criterion_1 else "FAIL",
+            "criterion_1": self.criterion_1_text,
         }
 
 
@@ -135,9 +163,11 @@ def analyse(
     """See module docstring."""
     partitioned = set(partitioned_nodes)
     ends: dict[str, list[str]] = defaultdict(list)
+    runs: Counter[tuple[str, str]] = Counter()
     for line in ledger:
         if line.kind == "end":
             ends[line.job_id].append(line.attempt_id)
+            runs[(line.job_id, line.attempt_id)] += 1
     verdict = Verdict(jobs=len(planned))
     for plan in planned:
         view = views.get(plan.job_id)
@@ -173,10 +203,26 @@ def analyse(
                     f"{plan.job_id}: failed {ftype} after {len(attempts)} of "
                     f"{plan.max_attempts} attempts"
                 )
-            elif plan.exit_code == 0 and ftype not in RETRYABLE:
-                verdict.lost.append(f"{plan.job_id}: meant to succeed, failed {ftype}")
+            elif plan.exit_code == 0:
+                verdict.lost.append(
+                    f"{plan.job_id}: meant to succeed, failed {ftype}"
+                    + (
+                        f" after {len(attempts)} of {plan.max_attempts} attempts"
+                        if ftype in RETRYABLE
+                        else ""
+                    )
+                )
+        elif plan.exit_code == 0:  # cancelled: the run did not deliver it
+            verdict.lost.append(f"{plan.job_id}: meant to succeed, {state}")
         committed = {str(a.get("attempt_id")) for a in done}
-        extra = [a for a in ends.get(plan.job_id, []) if a not in committed]
+        ran = sorted(set(ends.get(plan.job_id, [])))
+        for attempt_id in ran:  # D132: one attempt id, more than one execution
+            times = runs[(plan.job_id, attempt_id)]
+            if times > 1:
+                verdict.duplicate_executions.append(
+                    f"{plan.job_id}/{attempt_id} (the same attempt ran {times} times)"
+                )
+        extra = [a for a in ran if a not in committed]
         if state != "succeeded" and plan.exit_code != 0:
             # the runs that exit non-zero on purpose end with an `end` line too
             failed_ids = {

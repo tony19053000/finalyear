@@ -21,7 +21,9 @@ Runs on the **controller laptop** (L1) with the fabric token
         (lab/_sched/analysis.py) and writes it to REPORT.json.
 
 Exit codes: 0 done (check: criterion 1 PASS); 2 usage error; 3 check FAIL or
-wait timed out; 6 the controller could not be reached.
+wait timed out; 4 check INCONCLUSIVE (a committed job has no ledger evidence -
+a laptop's ledger is missing; collect it and check again; never a pass, D132);
+6 the controller could not be reached.
 """
 
 from __future__ import annotations
@@ -41,7 +43,7 @@ import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from _sched.analysis import Planned, analyse, parse_ledger
+from _sched.analysis import FAIL, PASS, Planned, analyse, parse_ledger
 
 WORKLOAD: Final = Path(__file__).resolve().parent / "workloads" / "v06-ledger"
 POLICIES: Final = (
@@ -53,6 +55,8 @@ POLICIES: Final = (
 )
 MAX_ATTEMPTS: Final = 5
 TERMINAL: Final = frozenset({"succeeded", "failed", "cancelled"})
+EXIT_FAIL: Final = 3
+EXIT_INCONCLUSIVE: Final = 4
 
 
 def _token() -> str:
@@ -229,7 +233,18 @@ def cmd_check(args: argparse.Namespace) -> int:
     print(text)
     if args.out:
         Path(args.out).write_text(text)
-    return 0 if verdict.criterion_1 else 3
+    outcome = verdict.criterion_1_text
+    if outcome == PASS:
+        return 0
+    if outcome == FAIL:
+        return EXIT_FAIL
+    print(
+        f"INCONCLUSIVE: {len(verdict.committed_without_evidence)} committed job(s) "
+        f"have no `end` line in {args.ledger} - a laptop's ledger is missing; "
+        "collect every ledger file and run check again",
+        file=sys.stderr,
+    )
+    return EXIT_INCONCLUSIVE
 
 
 def main(argv: list[str] | None = None) -> int:
