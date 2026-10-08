@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 from mf_controller_harness import controller_section
+from mf_fabric import seed_controller_fabric
 
 from meshforge.controller.server import ControllerRuntime
 from meshforge.controller.settings import ControllerSettings, LivenessSettings
@@ -26,9 +27,11 @@ __all__ = ["api_client", "g2_settings", "running_controller", "token_of"]
 
 def g2_settings(database: DatabaseSettings, **overrides: Any) -> ControllerSettings:
     overrides.setdefault("liveness", LivenessSettings())
-    return ControllerSettings(
+    settings = ControllerSettings(
         controller=controller_section(**overrides), database=database
     )
+    seed_controller_fabric(settings)  # V0.7 G3: mtls needs a fabric CA
+    return settings
 
 
 @asynccontextmanager

@@ -46,6 +46,7 @@ import grpc
 import uvicorn
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from meshforge.common.config import INSECURE_DEV_BANNER
 from meshforge.common.errors import ConfigError, ExitCode, MeshForgeError
 from meshforge.common.gc_index import GcIndexBusyError
 from meshforge.common.logging import get_logger
@@ -221,6 +222,13 @@ class ControllerRuntime:
     async def _start(self) -> None:
         cfg = self.settings.controller
         loop = asyncio.get_running_loop()
+        if self.settings.security.insecure:
+            # D139: every start, loud - this mode must never go unnoticed.
+            log.warning(
+                "security.insecure_dev",
+                component="controller",
+                banner=INSECURE_DEV_BANNER,
+            )
 
         # D44: before anything listens - a controller whose token file cannot be
         # trusted refuses to start (config_error) instead of serving unprotected.

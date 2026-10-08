@@ -35,6 +35,7 @@ from meshforge import __version__
 from meshforge.common.config import MeshForgeSettings, SectionModel
 from meshforge.common.errors import ConfigError
 from meshforge.common.local_node import AGENT_GC_DIR_NAME
+from meshforge.common.netaddr import is_loopback_host
 
 __all__ = [
     "CUDA_PYTORCH_IMAGE",
@@ -1181,6 +1182,44 @@ class AgentSettings(MeshForgeSettings):
     """Everything the agent process needs (``[agent]`` + the common keys)."""
 
     agent: AgentSection = Field(default_factory=AgentSection)
+
+    @model_validator(mode="after")
+    def _insecure_dev_is_loopback_only(self) -> AgentSettings:
+        """D139: in ``insecure-dev`` the agent would run jobs from whoever
+        answers in plaintext, so it may only dial a loopback controller (no
+        mDNS) and serve peers on loopback."""
+        if not self.security.insecure:
+            return self
+        cfg = self.agent
+        address = cfg.controller_address
+        if not address:
+            raise ValueError(
+                "[security] mode = 'insecure-dev' needs [agent] controller_address "
+                "= '127.0.0.1:47100' (discovery is off in insecure-dev: anyone on "
+                "the LAN could answer it)"
+            )
+        host, _ = parse_controller_address(address)
+        if not is_loopback_host(host):
+            raise ValueError(
+                "[security] mode = 'insecure-dev' needs a loopback controller_address, "
+                f"got {address} - or use mode = 'mtls'"
+            )
+        peer = cfg.peer
+        if peer.allow_any_bind:
+            raise ValueError(
+                "[security] mode = 'insecure-dev' cannot be combined with "
+                "[agent.peer] allow_any_bind"
+            )
+        for name, value in (
+            ("bind", peer.bind),
+            ("advertise_host", peer.advertise_host),
+        ):
+            if value is not None and not is_loopback_host(value):
+                raise ValueError(
+                    f"[security] mode = 'insecure-dev' needs a loopback [agent.peer] "
+                    f"{name}, got {value}"
+                )
+        return self
 
     @property
     def identity_dir(self) -> Path:

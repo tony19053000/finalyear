@@ -98,6 +98,7 @@ from meshforge.agent.session.hello import basic_hardware
 from meshforge.agent.session.state import AgentState
 from meshforge.agent.settings import AgentSettings, parse_controller_address
 from meshforge.common.capabilities import HARDWARE_SCORES_CAPABILITY
+from meshforge.common.config import INSECURE_DEV_BANNER
 from meshforge.common.errors import ExitCode, MeshForgeError
 from meshforge.common.gc_index import GcIndex, GcIndexBusyError
 from meshforge.common.logging import get_logger
@@ -314,6 +315,11 @@ async def serve(
 
     Raises the typed error that stopped it, if any (see :func:`run_agent`).
     """
+    if settings.security.insecure:
+        # D139: every start, loud - this mode must never go unnoticed.
+        log.warning(
+            "security.insecure_dev", component="agent", banner=INSECURE_DEV_BANNER
+        )
     if identity is None:
         identity = await asyncio.to_thread(
             load_or_create,

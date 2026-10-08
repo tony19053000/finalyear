@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from mf_fabric import seed_controller_fabric
+
 from meshforge.controller.settings import (
     ControllerSection,
     ControllerSettings,
@@ -82,9 +84,15 @@ def controller_section(**overrides: Any) -> ControllerSection:
 
 
 def make_settings(
-    database: DatabaseSettings, **controller_overrides: Any
+    database: DatabaseSettings, *, fabric: bool = True, **controller_overrides: Any
 ) -> ControllerSettings:
+    """Controller test settings. ``fabric`` (default): the test fabric CA
+    (``mf_fabric``) is installed in its data dir, as ``fabric create`` would -
+    a V0.7 G3 controller in ``mtls`` mode does not start without one."""
     # Keyword arguments beat env/TOML, so a developer's config.toml cannot leak in.
-    return ControllerSettings(
+    settings = ControllerSettings(
         controller=controller_section(**controller_overrides), database=database
     )
+    if fabric:
+        seed_controller_fabric(settings)
+    return settings

@@ -62,8 +62,9 @@ import sys
 import tomllib
 from collections.abc import Mapping
 from contextvars import ContextVar
+from enum import StrEnum
 from pathlib import Path, PurePath, PurePosixPath, PureWindowsPath
-from typing import Any, ClassVar, Literal, NamedTuple, Self
+from typing import Any, ClassVar, Final, Literal, NamedTuple, Self
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from pydantic.fields import FieldInfo
@@ -79,10 +80,13 @@ __all__ = [
     "APP_NAME",
     "CONFIG_ENV_VAR",
     "ENV_PREFIX",
+    "INSECURE_DEV_BANNER",
     "LoggingSettings",
     "MeshForgeSettings",
     "PlatformDirs",
     "SectionModel",
+    "SecurityMode",
+    "SecuritySettings",
     "default_config_dir",
     "default_config_file",
     "default_data_dir",
@@ -280,6 +284,42 @@ class LoggingSettings(SectionModel):
         return value.upper() if isinstance(value, str) else value
 
 
+class SecurityMode(StrEnum):
+    """``[security] mode`` (V0.7 G3, D139)."""
+
+    MTLS = "mtls"
+    """Every plane is TLS: mutual TLS on the agent session and the peer blob
+    servers, HTTPS on the controller REST/blob port. The default."""
+    INSECURE_DEV = "insecure-dev"
+    """Plaintext everywhere, the agent's claimed ``node_id`` is trusted - for a
+    developer's single machine only: every bind, the agent's controller address
+    and the CLI's controller URL must be loopback, and a banner is logged at
+    every start."""
+
+
+INSECURE_DEV_BANNER: Final = (
+    "SECURITY IS OFF: [security] mode = 'insecure-dev' - plaintext on every plane, "
+    "node identity not verified, loopback only. Never use it on a network."
+)
+
+
+class SecuritySettings(SectionModel):
+    """``[security]`` - shared by the controller, the agent and the CLI."""
+
+    mode: SecurityMode = Field(
+        default=SecurityMode.MTLS,
+        description=(
+            "'mtls' (default): TLS with fabric certificates on every plane. "
+            "'insecure-dev': plaintext, loopback-only, for development on one "
+            "machine (refused with any non-loopback address)."
+        ),
+    )
+
+    @property
+    def insecure(self) -> bool:
+        return self.mode is SecurityMode.INSECURE_DEV
+
+
 class MeshForgeSettings(BaseSettings):
     """Base settings shared by every MeshForge process. Subclass per component."""
 
@@ -298,6 +338,7 @@ class MeshForgeSettings(BaseSettings):
     )
 
     log: LoggingSettings = Field(default_factory=LoggingSettings)
+    security: SecuritySettings = Field(default_factory=SecuritySettings)
     data_dir: Path = Field(
         default_factory=default_data_dir,
         description="Root for local state: blob cache, environments, identity, logs.",

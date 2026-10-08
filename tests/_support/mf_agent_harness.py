@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from mf_controller_harness import FAST_LIVENESS, make_settings
+from mf_fabric import enroll_agent
 
 from meshforge.agent.session.client import AgentSessionClient
 from meshforge.agent.settings import AgentSection, AgentSettings
@@ -51,8 +52,15 @@ def make_controller_settings(
 
 
 def make_agent_settings(
-    data_dir: Path, controller_address: str, **agent_overrides: Any
+    data_dir: Path,
+    controller_address: str,
+    *,
+    enroll: bool = True,
+    **agent_overrides: Any,
 ) -> AgentSettings:
+    """Agent test settings. ``enroll`` (default): the agent's identity is
+    created and enrolled in the test fabric (``mf_fabric``) without the join
+    dance - a V0.7 G3 agent in ``mtls`` mode refuses to start otherwise."""
     agent: dict[str, Any] = {
         "controller_address": controller_address,
         "reconnect": dict(AGENT_RECONNECT),
@@ -61,7 +69,10 @@ def make_agent_settings(
     }
     agent.update(agent_overrides)
     # Keyword arguments beat env/TOML, so a developer's config.toml cannot leak in.
-    return AgentSettings(data_dir=data_dir, agent=AgentSection(**agent))
+    settings = AgentSettings(data_dir=data_dir, agent=AgentSection(**agent))
+    if enroll:
+        enroll_agent(settings)
+    return settings
 
 
 class RunningAgent:

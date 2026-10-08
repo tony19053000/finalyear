@@ -215,6 +215,19 @@ def docker_available(pytestconfig: pytest.Config) -> None:
         pytest.skip(reason)
 
 
+@pytest.fixture(scope="session")
+def fabric_ca() -> object:
+    """The test process's fabric CA (V0.7 G3, D139; ``tests/_support/mf_fabric.py``).
+
+    Component and cluster controllers get it installed by the settings helpers
+    and agents get certificates from it without the join dance; a test about
+    joining uses the real invite/join flow instead.
+    """
+    import mf_fabric
+
+    return mf_fabric.fabric_ca()
+
+
 @pytest.fixture(autouse=True)
 def _configured_logging() -> None:
     """Give the whole suite the logging configuration the real processes use.

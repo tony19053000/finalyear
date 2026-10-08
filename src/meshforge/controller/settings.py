@@ -25,7 +25,7 @@ from pydantic import Field, ValidationError, field_validator, model_validator
 from meshforge.common.config import MeshForgeSettings, SectionModel
 from meshforge.common.fabric_token import CONTROLLER_DIR_NAME, default_token_path
 from meshforge.common.manifest import PolicyName
-from meshforge.common.netaddr import parse_bind
+from meshforge.common.netaddr import is_loopback_host, parse_bind
 from meshforge.common.pki import PkiError, validate_san_host
 from meshforge.controller.fabric_ca import (
     CA_DIR_NAME,
@@ -1215,6 +1215,39 @@ class ControllerSettings(MeshForgeSettings):
 
     controller: ControllerSection = Field(default_factory=ControllerSection)
     database: DatabaseSettings = Field(default_factory=DatabaseSettings)
+
+    @model_validator(mode="after")
+    def _insecure_dev_is_loopback_only(self) -> ControllerSettings:
+        """D139: ``[security] mode = "insecure-dev"`` serves plaintext, so it is
+        refused unless every listener (and the advertised URL) is loopback."""
+        if not self.security.insecure:
+            return self
+        cfg = self.controller
+        if cfg.allow_any_bind:
+            raise ValueError(
+                "[security] mode = 'insecure-dev' cannot be combined with "
+                "allow_any_bind (plaintext must stay on this machine)"
+            )
+        for name, bind in (
+            ("grpc_bind", cfg.grpc_bind),
+            ("http_bind", cfg.http_bind),
+            ("enroll.bind", cfg.enroll_bind),
+        ):
+            host = parse_bind(bind, allow_any=True).host
+            if not is_loopback_host(host):
+                raise ValueError(
+                    f"[security] mode = 'insecure-dev' needs loopback-only listeners; "
+                    f"[controller] {name} is {bind} - use 127.0.0.1, or mode = 'mtls'"
+                )
+        url = cfg.api.advertise_url
+        if url is not None:
+            host = url.split("://", 1)[-1].rsplit(":", 1)[0]
+            if not is_loopback_host(host):
+                raise ValueError(
+                    "[security] mode = 'insecure-dev' needs a loopback "
+                    f"[controller.api] advertise_url, got {url}"
+                )
+        return self
 
     @property
     def token_path(self) -> Path:

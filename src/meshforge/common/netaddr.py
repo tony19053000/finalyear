@@ -24,6 +24,7 @@ __all__ = [
     "BindAddress",
     "check_bind_address",
     "is_lan_address",
+    "is_loopback_host",
     "parse_bind",
 ]
 
@@ -46,6 +47,18 @@ def is_lan_address(text: str) -> bool:
     if addr.is_multicast or addr.is_unspecified:
         return False
     return addr.is_private or addr.is_loopback or addr.is_link_local
+
+
+def is_loopback_host(text: str) -> bool:
+    """A loopback IP literal (``127.0.0.0/8``, ``::1``, IPv4-mapped) or the name
+    ``localhost`` - the only hosts ``[security] mode = "insecure-dev"`` accepts."""
+    host = text.strip().removeprefix("[").removesuffix("]").split("%", 1)[0]
+    if host.lower() == "localhost":
+        return True
+    try:
+        return _ip(host).is_loopback
+    except ValueError:
+        return False
 
 
 def check_bind_address(text: str, *, allow_any: bool) -> str:
