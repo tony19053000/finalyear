@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Progress Report</title>
+<style>
+  @page { size: A4; margin: 12mm 12mm 11mm 12mm; }
+  * { box-sizing: border-box; }
+  body { font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif; font-size: 8.9pt;
+         line-height: 1.38; color: #1c2430; margin: 0; }
+  h1 { font-size: 18pt; margin: 0 0 1.5mm; color: #0f2c4d; letter-spacing: -.3pt; }
+  .sub { font-size: 10.5pt; color: #34496b; font-weight: 600; margin-bottom: 2mm; }
+  .meta { font-size: 8.3pt; color: #5d6b7e; line-height: 1.6; }
+  .rule { height: 2.6pt; background: #0f2c4d; margin: 4mm 0 8mm; }
+  h2 { font-size: 10.4pt; color: #0f2c4d; margin: 8mm 0 2.4mm; padding-bottom: 1.2mm;
+       border-bottom: .8pt solid #c6d2e0; text-transform: uppercase; letter-spacing: .6pt;
+       break-after: avoid; page-break-after: avoid; }
+  h2 .num { color: #8ca3bd; margin-right: 1.5mm; }
+  h2:first-of-type { margin-top: 0; }
+  p { margin: 0 0 2.2mm; }
+  ul { margin: 0 0 2.2mm; padding-left: 4.5mm; }
+  li { margin-bottom: 1.1mm; }
+  ol { margin: 0 0 2.2mm; padding-left: 5mm; }
+  table { width: 100%; border-collapse: collapse; margin: 0 0 1.8mm; font-size: 8.6pt; }
+  thead { display: table-header-group; }
+  th { background: #0f2c4d; color: #fff; text-align: left; padding: 1.5mm 2.2mm;
+       font-size: 8.2pt; text-transform: uppercase; letter-spacing: .45pt; font-weight: 600; }
+  td { padding: 1.25mm 2.1mm; border-bottom: .5pt solid #dbe3ec; vertical-align: top; }
+  tr { page-break-inside: avoid; }
+  tr:nth-child(even) td { background: #f4f7fa; }
+  td ul { margin: 0; padding-left: 3.4mm; }
+  td li { margin-bottom: .65mm; }
+  td li::marker { color: #8ca3bd; }
+  .tiles { display: flex; gap: 2.5mm; margin-bottom: 2.5mm; }
+  .tile { flex: 1; border: .7pt solid #c6d2e0; border-top: 2.4pt solid #0f2c4d;
+          padding: 2mm 2.5mm; background: #fbfcfd; }
+  .tile .n { font-size: 15pt; font-weight: 700; color: #0f2c4d; line-height: 1.15; }
+  .tile .l { font-size: 7.5pt; color: #5d6b7e; text-transform: uppercase; letter-spacing: .3pt; }
+  .pill { display: inline-block; padding: .5mm 1.7mm; border-radius: 2mm; font-size: 7.5pt;
+          font-weight: 700; letter-spacing: .3pt; white-space: nowrap; }
+  .done { background: #d9ede0; color: #14532d; }
+  .prog { background: #fdeccd; color: #7a4a05; }
+  .todo { background: #e4e8ee; color: #3d4a5c; }
+  .k { font-weight: 600; color: #0f2c4d; }
+  .t { font-weight: 700; color: #0f2c4d; }
+  code { font-family: Consolas, "DejaVu Sans Mono", monospace; font-size: 8.3pt;
+         background: #eef2f7; padding: .2mm .8mm; border-radius: 1mm; color: #0f2c4d; }
+  .note { font-size: 8.6pt; color: #3d4a5c; background: #f4f7fa; border-left: 2.4pt solid #0f2c4d;
+          padding: 2mm 2.8mm; margin: 0 0 2.2mm; }
+  .sect { page-break-inside: avoid; }
+  .cols { display: flex; gap: 7mm; }
+  .col { flex: 1; }
+  .col h2 { margin-top: 3mm; }
+  svg { display: block; margin: 1.5mm auto 2.5mm; }
+</style></head><body>
+
+<h1>Progress Report</h1>
+<div class="sub">Intelligent Distributed Compute Fabric for Heterogeneous Personal Devices</div>
+<div class="meta">15&ndash;24 September 2026<br>
+Rishu Raj (23UCS085) &nbsp;&middot;&nbsp; Abhay Singh (23UCS097) &nbsp;&middot;&nbsp; Aayush Kumar (23UCS095) &nbsp;&middot;&nbsp; Aditya Kumar Tiwari (23UCS099)</div>
+<div class="rule"></div>
+
+<h2><span class="num">1</span>Where We Are Now</h2>
+<div class="tiles">
+  <div class="tile"><div class="n">3</div><div class="l">Versions built</div></div>
+  <div class="tile"><div class="n">2,600</div><div class="l">Automatic tests on the main system</div></div>
+  <div class="tile"><div class="n">13</div><div class="l">Design decisions recorded</div></div>
+  <div class="tile"><div class="n">149</div><div class="l">Code commits</div></div>
+</div>
+<ul>
+  <li>The full plan is written version by version, and the design is fixed and agreed.</li>
+  <li>Our laptops now find each other over the network and stay connected.</li>
+  <li>A laptop joins, reports its hardware, keeps reporting how busy it is, and reconnects by itself if the network drops.</li>
+  <li>Everything else in the project is built on top of this.</li>
+</ul>
+
+<h2><span class="num">2</span>Progress Since the First Report</h2>
+<table>
+<thead><tr><th style="width:24%">Stage</th><th style="width:58%">What it covers</th><th style="width:18%">Status</th></tr></thead>
+<tr><td class="k">Base setup</td><td>Code structure, database, logging, test setup, and an automatic check that runs every test on Windows and Linux after each change.</td><td><span class="pill done">Done</span></td></tr>
+<tr><td class="k">Testing the risky ideas</td><td>Seven small experiments: finding laptops on the network, Windows&ndash;Linux communication, data transfer speed, keeping programs isolated, and using the graphics card (GPU) inside a container.</td><td><span class="pill done">Done</span></td></tr>
+<tr><td class="k">Core system</td><td>The main laptop and the background programs on the others &mdash; joining, identity, staying alive, hardware detection, load reporting.</td><td><span class="pill prog">Mostly done</span></td></tr>
+<tr><td class="k">Sending a task away</td><td>Send a complete task to another laptop, run it there, bring the result back.</td><td><span class="pill todo">Next</span></td></tr>
+</table>
+
+<p class="k" style="margin-top:3mm">What works today:</p>
+<ul>
+  <li>Every laptop creates its own identity on first start, so the main laptop knows which machine is which.</li>
+  <li>A laptop can join, and it is handled correctly even if the same laptop connects twice.</li>
+  <li>The main laptop knows within a few seconds if a machine is switched off or disconnected.</li>
+  <li>Each laptop detects its CPU, memory, graphics card and disk and keeps reporting its load. This is saved, because our scheduling program will learn from it later.</li>
+  <li>If the main laptop restarts, the others come back online in one to two seconds by themselves.</li>
+  <li>Being finished now: a command that lists all connected machines, and starting the background program automatically when a laptop is switched on.</li>
+</ul>
+
+<div class="sect">
+<h2><span class="num">3</span>One Change in Our Plan</h2>
+<p>The first report listed four ways of running work. After estimating the real work involved, we decided to complete two of them properly instead of leaving all four half finished.</p>
+<table>
+<thead><tr><th style="width:24%">Way of running work</th><th style="width:50%">What it does</th><th style="width:26%">In this project</th></tr></thead>
+<tr><td class="k">Send the whole task</td><td>The complete task goes to one stronger laptop; only the result comes back.</td><td><span class="pill done">Will be completed</span></td></tr>
+<tr><td class="k">Split the task</td><td>The task is cut into parts, every laptop runs a part, the results are joined.</td><td><span class="pill done">Will be completed</span></td></tr>
+<tr><td class="k">Use another laptop's graphics card</td><td>The program stays here; its graphics calculations run on another machine's card.</td><td><span class="pill todo">Designed, added later</span></td></tr>
+<tr><td class="k">Join several graphics cards</td><td>Several graphics cards work together as one for a single large AI task.</td><td><span class="pill todo">Designed, added later</span></td></tr>
+</table>
+<ul>
+  <li>Both of the later two are fully designed and written down.</li>
+  <li>The system is built so they can be added without changing the design.</li>
+  <li>Choosing where to run the work, measuring everything, and the machine learning that predicts how long a task will take all remain in the plan as before.</li>
+</ul>
+</div>
+
+<h2><span class="num">4</span>Our Approach to Each Hard Part</h2>
+<table>
+<thead><tr><th style="width:22%">The problem</th><th style="width:40%">What we do</th><th style="width:38%">Why this works</th></tr></thead>
+<tr><td class="k">Connecting the machines</td><td><ul><li>Each laptop runs a small background program.</li><li>It calls the main laptop itself and keeps one line open.</li><li>It sends an &ldquo;I am alive&rdquo; message every 2 seconds.</li></ul></td><td><ul><li>On normal Wi-Fi a laptop cannot receive a call from outside, so it has to call out.</li><li>If the line drops it reconnects on its own and says what it is still running.</li></ul></td></tr>
+<tr><td class="k">Sending the code and data</td><td><ul><li>Every file gets a short fingerprint made from its own contents.</li><li>We ask the other laptop which fingerprints it already has.</li><li>Only the missing ones are sent.</li></ul></td><td><ul><li>The same fingerprint means the same file, so a dataset is downloaded only once.</li><li>Files go laptop to laptop, so the main laptop is never the bottleneck.</li></ul></td></tr>
+<tr><td class="k">Running it safely there</td><td><ul><li>The task runs inside a sealed box on that laptop.</li><li>The box gets its own limited memory and processor share.</li><li>It cannot touch the rest of that machine.</li></ul></td><td><ul><li>We are running somebody else's code, so it has to be boxed in.</li><li>The box is reused, so it is prepared only once per machine.</li></ul></td></tr>
+<tr><td class="k">Dividing work between unequal laptops</td><td><ul><li>The work is cut into many small pieces in one shared list.</li><li>Each laptop takes a piece when it is free, finishes it, takes the next.</li></ul></td><td><ul><li>Nobody has to calculate shares &mdash; a fast laptop simply takes more pieces.</li><li>The laptop with no graphics card still helps, with a smaller share.</li></ul></td></tr>
+<tr><td class="k">A laptop is closed mid-job</td><td><ul><li>Every piece is taken with a time limit.</li><li>If that laptop stops answering, the limit runs out.</li><li>The piece returns to the list for someone else.</li></ul></td><td><ul><li>The job carries on without being restarted.</li><li>A slow last piece is also given to a free machine, and the first result wins.</li></ul></td></tr>
+<tr><td class="k">Deciding where to run</td><td><ul><li>List the possible ways to run it.</li><li>Remove the ones that cannot work.</li><li>Estimate the time of each and pick the best.</li></ul></td><td><ul><li>Transfer time can be calculated: data size &divide; measured network speed.</li><li>Computing time cannot, so it is learned from earlier runs on that machine.</li></ul></td></tr>
+<tr><td class="k">Using another laptop's graphics card</td><td><ul><li>The numbers are sent over the network.</li><li>The calculation happens on the machine that has the card.</li><li>Only the result comes back.</li></ul></td><td><ul><li>Making a card look as if it were plugged into another laptop is not possible over Wi-Fi.</li><li>Working one level higher, inside the AI library, is.</li></ul></td></tr>
+</table>
+
+<h2><span class="num">5</span>What We Have Already Built &mdash; and With What</h2>
+<table>
+<thead><tr><th style="width:22%">Part</th><th style="width:78%">How it is actually done</th></tr></thead>
+<tr><td class="k">Connecting the machines</td><td><ul><li><span class='t'>gRPC</span> &mdash; a ready-made way for a program on one computer to call a program on another over the network, so we did not have to invent our own.</li><li><span class='t'>Protocol Buffers</span> &mdash; every message they may send is written down in advance, fixing its exact shape so the two sides can never misunderstand each other.</li><li>The line stays open in both directions: a laptop sends a &ldquo;hello&rdquo; with its ID and hardware, the main laptop answers.</li><li>After that, a short &ldquo;I am alive&rdquo; every <span class='k'>2 seconds</span>. Nothing for <span class='k'>6 seconds</span> &rarr; that laptop is marked offline.</li></ul></td></tr>
+<tr><td class="k">Finding the main laptop</td><td><ul><li><span class='t'>mDNS</span> &mdash; the same thing that makes a printer or a speaker appear on your Wi-Fi by itself.</li><li>The main laptop announces itself on the network; the others hear it and connect.</li><li>Nobody has to type an IP address.</li></ul></td></tr>
+<tr><td class="k">Machine identity</td><td><ul><li>Each laptop makes two matching keys: a private one it never shows anyone, and a public one it gives out.</li><li>Anything checked with the public key proves it came from the machine holding the private one.</li><li><span class='t'>ECDSA P-256</span> &mdash; the same method websites use for the padlock in your browser.</li><li>The private key sits in a file the operating system allows only that one user to open.</li><li><span class='t'>ULID</span> &mdash; an ID generated so that two machines can never end up with the same one.</li></ul></td></tr>
+<tr><td class="k">Detecting the hardware</td><td><ul><li><span class='t'>psutil</span> &mdash; reads the CPU, memory and disks from the operating system.</li><li><span class='t'>NVML</span> &mdash; NVIDIA's own tool; gives the graphics card's model, its memory and how busy it is.</li><li>If NVML is not installed, we run the <code>nvidia-smi</code> command instead.</li><li>The whole check has a time limit, so a stuck graphics driver cannot stop the laptop from joining.</li></ul></td></tr>
+<tr><td class="k">Reporting the load</td><td><ul><li>A laptop sends a reading only when something actually changes, instead of sending constantly and filling the network.</li><li>The main laptop keeps the latest picture in memory.</li><li>Every minute's average and highest value is saved into <span class='t'>PostgreSQL</span>, the database where all our records are kept.</li></ul></td></tr>
+<tr><td class="k">The main laptop's program</td><td><ul><li>One Python program runs two servers side by side.</li><li><span class='t'>FastAPI</span> &mdash; answers the ordinary web requests made by the dashboard and the command line.</li><li>The gRPC server &mdash; handles the always-open connections coming from the other laptops.</li></ul></td></tr>
+<tr><td class="k">Command-line tool</td><td><ul><li><span class='t'>Typer</span> &mdash; a library for making command-line tools.</li><li>It turns our code into commands a person can type, such as <code>compute nodes</code> and <code>compute status</code>.</li></ul></td></tr>
+</table>
+
+<h2><span class="num">6</span>Decided and Designed, Not Yet Written</h2>
+<table>
+<thead><tr><th style="width:22%">Part</th><th style="width:78%">The method we will use</th></tr></thead>
+<tr><td class="k">Sending code and data</td><td><ul><li><span class='t'>SHA-256 hash</span> &mdash; a short fingerprint worked out from what is inside the file.</li><li>The same fingerprint means the same file; change one letter and the fingerprint changes.</li><li>We ask the other laptop which fingerprints it has and send only what is missing.</li><li>Files travel straight from one laptop to another over ordinary <span class='t'>HTTP</span>.</li><li>The fingerprint part is already written.</li></ul></td></tr>
+<tr><td class="k">Running the task there</td><td><ul><li><span class='t'>Docker</span> &mdash; runs a program inside a sealed box with its own share of memory and processor, and no way to touch the rest of the machine.</li><li>The graphics card is passed into that box using NVIDIA's container toolkit.</li><li>On a laptop without Docker we use <span class='t'>uv</span> to build a separate Python setup instead.</li></ul></td></tr>
+<tr><td class="k">Splitting the work</td><td><ul><li>All the pieces sit in one shared list.</li><li>A laptop takes a piece with a <span class='t'>lease</span> &mdash; simply a time limit on it.</li><li>If that laptop stops answering, the time runs out and the piece goes back into the list for someone else.</li><li>Nobody has to notice the failure and restart anything.</li></ul></td></tr>
+<tr><td class="k">Deciding where to run</td><td><ul><li>List every possible way to run the task, throw out the ones that cannot work, estimate how long each would take, pick the best.</li><li>Plain rules to begin with, such as choosing the strongest free machine.</li><li>Later a model built with <span class='t'>LightGBM / scikit-learn</span> &mdash; standard machine-learning libraries &mdash; trained on how long our own earlier runs actually took.</li></ul></td></tr>
+<tr><td class="k">Using another laptop's graphics card</td><td><ul><li>Done inside <span class='t'>PyTorch</span>, the AI library the program is already using, instead of trying to fake a graphics card at the driver level.</li><li>The model is packed up with PyTorch's own <code>torch.export</code>, so we send the model and not the program's code.</li><li>The numbers travel over the network, and the model stays sitting in the other laptop's graphics memory so it is not sent again and again.</li></ul></td></tr>
+<tr><td class="k">Security</td><td><ul><li>Creating the fabric sets up a <span class='t'>certificate authority</span> &mdash; the office that issues and signs ID cards for machines.</li><li>A new laptop joins using a one-time code and receives its own certificate.</li><li>After that every connection uses <span class='t'>mTLS</span>: the same thing as HTTPS, except both sides show their ID, not only the server.</li></ul></td></tr>
+</table>
+
+<div class="sect">
+<h2><span class="num">7</span>How We Check That It Works</h2>
+<ul>
+  <li>Every part goes through three separate steps &mdash; one writes the code, a second writes tests from the requirements and tries to break it, a third reviews the design and correctness and must approve it.</li>
+  <li>A task is marked complete only after that, and only if the success conditions written in advance are met.</li>
+  <li>Example: in the load-reporting part, the testing step found three serious bugs in the first version &mdash; including one where repeated messages after a network drop corrupted the saved readings. All were fixed before it was accepted.</li>
+</ul>
+<div class="note"><span class="k">Tested so far on one machine and through automatic tests only.</span> The two-laptop and four-laptop tests on real hardware are the immediate next step, and the real numbers must come from there.</div>
+</div>
+
+<div class="sect">
+<div class="cols">
+  <div class="col">
+    <h2><span class="num">8</span>What We Do Next</h2>
+    <ol>
+      <li>Run our hardware script on the other three laptops.</li>
+      <li>Run the two-laptop network tests for real &mdash; Wi-Fi and cable, Windows to Linux.</li>
+      <li>Finish the current version: the command that lists machines, and automatic start-up.</li>
+      <li>Send a complete task to another laptop and bring the result back.</li>
+    </ol>
+  </div>
+  <div class="col">
+    <h2><span class="num">9</span>What We Need</h2>
+    <ul>
+      <li><span class="k">A network switch and cables</span> &mdash; so we can also measure on a wired connection. Wi-Fi speed changes too much for reliable measurements.</li>
+      <li><span class="k">Time with all four laptops together</span> &mdash; these tests cannot be done by one person.</li>
+    </ul>
+  </div>
+</div>
+</div>
+
+</body></html>

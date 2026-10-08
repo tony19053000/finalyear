@@ -193,7 +193,7 @@ def _fabric_facts(settings: "ControllerSettings") -> dict[str, object]:
         "ca_not_after": fabric.cert.not_valid_after_utc.isoformat(),
         "ca_dir": str(settings.ca_dir),
         "server_cert": None,
-        "tls_enforced": False,
+        "tls_enforced": not settings.security.insecure,
     }
     if settings.tls_dir.exists():
         try:

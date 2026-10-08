@@ -117,11 +117,43 @@ meshforge-controller fabric show          # any time; --json for scripts
   want the new CA. If several `.ca.old-*` folders exist and `ca/` is missing, nothing
   is touched and the command names them: rename the one you want to `ca` by hand
   (the newest is usually right; `fabric show` then confirms its fingerprint).
-- **Not enforced yet (V0.7 G1/G2):** every port except the enrolment port is still
-  plaintext and the fabric token above still protects REST; laptops can join (§0a3)
-  but a laptop that has not joined still connects. TLS/mTLS and revocation come in
-  G3, per-user logins in G4. `fabric show` says `tls_enforced: false` until then.
-  Before G3 lands, every lab laptop must have joined once.
+- **Since V0.7 G3 every plane is TLS** (`[security] mode = "mtls"`, the default):
+  the session port 47100 needs a node certificate, the REST/blob port 47110 is
+  HTTPS (TLS 1.3), peer servers 47120 are TLS with a required client certificate.
+  **After upgrading, every lab laptop must re-join once** (§0a3) - an agent without
+  a certificate stops with `this laptop is not enrolled ... run meshforge-agent
+  join`. The controller refuses to start without a CA (run `fabric create`).
+  Still to come: revocation (`node revoke`), per-user logins (G4).
+
+### 0a2b. TLS operations (V0.7 G3)
+
+- **`compute` and the CA.** `compute` talks `https://` only. It trusts the fabric
+  CA from, in order: `--ca PATH`, `[cli] ca_file`, this laptop's agent enrolment
+  (`<data dir>/identity/ca.crt`), the controller's own (`<data dir>/controller/ca/ca.crt`).
+  On a laptop with neither, copy `ca.crt` from the controller and check its
+  fingerprint against `meshforge-controller fabric show`. Old configs with
+  `http://...:47110` are refused with the fix (`https://...`).
+- **Server certificate renewal** happens while the controller runs (every
+  `[controller.tls] check_interval_s`, default 1 h; renewal at 2/3 of its 1-year
+  life). Log `controller.tls.server_cert_reloaded`; nothing restarts, open sessions
+  continue. A failed check logs `controller.tls.renew_failed` and keeps serving the
+  current certificate - fix the cause (disk, permissions) before it expires.
+- **`insecure-dev`** (`[security] mode = "insecure-dev"`) is for one development
+  machine only: plaintext, the agent's claimed identity trusted, every address must
+  be loopback (anything else is refused at start) and every start logs
+  `security.insecure_dev`. Never use it on a network.
+- **Enrolment port.** Join codes keep pointing at the enrolment listener (47101):
+  open it on the LAN firewall profile next to 47100/47110/47120.
+
+| Symptom | Cause | Remedy |
+|---|---|---|
+| agent exits 4: `not enrolled in a fabric` | no `node.crt` (fresh laptop, or upgraded from before G3) | `meshforge-agent join` with a new code |
+| agent exits 4: `node certificate is valid ... not now` | certificate expired (laptop off > 30 days) or the clock is wrong | fix the clock; else `meshforge-agent join --force` with a new code |
+| agent keeps retrying, controller log `session.cert_refused` / agent `UNAVAILABLE ... handshake` | the CA was replaced (`fabric create --force`), or this is another fabric's controller | re-join with a code from this controller |
+| controller log `session.cert_superseded` | the node was re-keyed (`invite --replace`) and the old laptop/cert still connects | re-join that laptop (or stop the old one) |
+| controller exits 4: `no fabric CA` | mtls mode on a controller without a CA | `meshforge-controller fabric create` |
+| `compute`: `no fabric CA certificate to verify the controller` | the CLI found no `ca.crt` | `--ca PATH` or `[cli] ca_file` |
+| `compute`: `cli.controller_url must be https://` | an old `http://` config | write `https://host:47110` |
 
 ### 0a3. Joining a laptop to the fabric (V0.7 G2, D135/D136)
 

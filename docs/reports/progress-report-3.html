@@ -1,0 +1,115 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Progress Report 3</title>
+<style>
+@page { size: A4; margin: 18mm 20mm; }
+body { font-family: Arial, Helvetica, sans-serif; color:#1b2a3a; font-size:11pt; line-height:1.5; }
+h1 { color:#12294a; font-size:24pt; margin:0; }
+.sub { color:#2f4a6e; font-weight:bold; font-size:12pt; margin:4px 0 6px; }
+.meta { color:#667; font-size:9pt; border-bottom:3px solid #12294a; padding-bottom:12px; margin-bottom:6px; }
+h2 { color:#12294a; font-size:12.5pt; text-transform:uppercase; letter-spacing:.5px; border-bottom:1px solid #ccd; padding-bottom:3px; margin-top:20px; }
+h2 span { color:#8a9bb5; }
+ul, ol { margin:6px 0; padding-left:20px; } li { margin:3px 0; }
+b { color:#12294a; }
+.note { color:#445; font-style:italic; }
+</style></head><body>
+
+<h1>Progress Report 3</h1>
+<div class="sub">Intelligent Distributed Compute Fabric for Heterogeneous Personal Devices</div>
+<div class="meta">25 September – 7 October 2026<br>
+Rishu Raj (23UCS085) · Abhay Singh (23UCS097) · Aayush Kumar (23UCS095) · Aditya Kumar Tiwari (23UCS099)</div>
+
+<h2><span>1</span> Summary</h2>
+<p>In these two weeks the system went from "laptops can connect" to <b>"a task can be sent to another laptop, run safely, and survive failures"</b>. The first way of running work — sending a complete task to another laptop — is now built end to end on the software side.</p>
+<ul>
+  <li>About <b>7,200 automatic tests</b> now run on the system (up from 2,600).</li>
+  <li><b>370+ code commits</b> in this period (616 in total).</li>
+  <li>Every important design choice is still written down so it can be explained later.</li>
+</ul>
+
+<h2><span>2</span> How the system works</h2>
+<p>There are three parts:</p>
+<ul>
+  <li><b>Main laptop (controller)</b> — the "manager". It knows every laptop, keeps all records in a database, and decides where each task runs.</li>
+  <li><b>Background program (agent)</b> on every other laptop — the "worker". It reports its hardware and how busy it is, runs tasks, and sends results back.</li>
+  <li><b>Command line</b> (<code>compute run</code>, <code>compute logs</code>, <code>compute get</code>) — what the user types. A web dashboard comes later.</li>
+</ul>
+<p><b>Flow:</b> user submits a task → the manager picks the best laptop → that laptop gets the files → runs the task in a sealed box → sends the result back.</p>
+
+<h2><span>3</span> What we used</h2>
+<ul>
+  <li><b>Python</b> — main language; AI workloads are already in Python.</li>
+  <li><b>gRPC + Protocol Buffers</b> — fast, ready-made way for laptops to talk, with a fixed message format.</li>
+  <li><b>FastAPI</b> — web interface used by the command line (and later the dashboard).</li>
+  <li><b>PostgreSQL</b> — database for all records, so nothing is lost if the main laptop crashes.</li>
+  <li><b>mDNS</b> — laptops find the main laptop automatically, like a Wi-Fi printer.</li>
+  <li><b>psutil, NVML</b> — read CPU, memory, disk and NVIDIA graphics card details.</li>
+  <li><b>Docker</b> (or <b>uv</b> Python setups) — run the task in a sealed box so it cannot harm the laptop.</li>
+  <li><b>SHA-256 fingerprints + HTTP</b> — send only missing files and detect damaged ones.</li>
+  <li><b>Public/private keys (ECDSA, Ed25519)</b> — each laptop proves who it is.</li>
+  <li><b>Typer</b> — the <code>compute</code> commands; <b>pytest</b> — automatic tests.</li>
+</ul>
+<h2><span>4</span> What we built in this period</h2>
+
+<p><b>Sending a task to another laptop</b></p>
+<ul>
+  <li>A user runs <code>compute run</code>; the task is sent to another laptop, runs there, and the result comes back with <code>compute get</code>.</li>
+  <li>The output (logs) can be watched live while the task runs.</li>
+  <li>The task runs inside a sealed Docker box with limited memory and no network. Where Docker is not available, a separate Python setup is used.</li>
+  <li>A task can be cancelled at any time, and every failure is reported with a clear reason (out of memory, disk full, time limit, etc.).</li>
+</ul>
+
+<p><b>Moving code and data efficiently</b></p>
+<ul>
+  <li>Every file is identified by a fingerprint of its contents, so a file is never sent twice.</li>
+  <li>Laptops fetch files directly from each other, not only from the main laptop. If one source is slow or wrong, another is used.</li>
+  <li>Large files resume from where they stopped if the network drops. Every piece is checked, so a damaged file is never used.</li>
+  <li>Python setups are built once per machine and then reused.</li>
+</ul>
+
+<p><b>Choosing the machine</b></p>
+<ul>
+  <li>The planner lists the laptops that can run the task, removes those that cannot, and picks the best one.</li>
+  <li><code>compute explain</code> shows why a machine was chosen or rejected.</li>
+  <li>Laptops now measure the network speed between each other. The planner uses this to estimate how long a task would take on each machine, including the time to send its data. For example, a small task with a lot of data stays on the user's own laptop if the network is slow.</li>
+</ul>
+
+<p><b>Surviving failures</b></p>
+<ul>
+  <li>If a laptop is switched off or loses Wi-Fi, its task is automatically restarted on another laptop.</li>
+  <li>If the main laptop crashes, it recovers on restart and no task is run twice. Tested by force-killing it with 20 tasks running.</li>
+  <li>If a disconnected laptop comes back, its old results are safely ignored.</li>
+  <li>A <b>"chaos test"</b> randomly kills laptops, cuts the network and fills disks while 50 tasks run, and checks that nothing is lost or duplicated. It passes.</li>
+</ul>
+
+<h2><span>5</span> How we check it works</h2>
+<p>Each part still goes through three steps: one writes the code, a second tries to break it with its own tests, and a third reviews and must approve. In this period the testing step found real bugs — for example, a laptop with a full disk could make many tasks fail; now the task simply moves to another laptop.</p>
+<p class="note">All of this is tested on one machine with several simulated laptops. Real tests on our four laptops are the next step.</p>
+
+<h2><span>6</span> Where we are in the plan</h2>
+<ul>
+  <li><b>Done:</b> base setup, core connection between laptops, sending a task away, moving code and data.</li>
+  <li><b>Almost done:</b> choosing machines and handling failures — the last part (network measurement and time estimates) is being finished and tested now.</li>
+  <li><b>Next:</b> security (only approved laptops can join, encrypted connections), then the dashboard, then splitting a task across many laptops.</li>
+</ul>
+
+<h2><span>7</span> What we do next, and how</h2>
+<ol>
+  <li><b>Real test on 4 laptops</b> — run 100 tasks while switching off laptops, turning off Wi-Fi and crashing the main laptop; check nothing is lost or repeated.</li>
+  <li><b>Security</b> — only approved laptops can join (one-time join code); all connections encrypted with <b>mTLS</b> (like HTTPS, but both sides show an ID card).</li>
+  <li><b>Dashboard</b> — a <b>React</b> web page showing laptops, tasks and logs.</li>
+  <li><b>Measurements</b> — record how long every task took on every laptop; this becomes the data for the machine learning.</li>
+  <li><b>Splitting one big task</b> — cut the work into small pieces in one shared list; each free laptop takes a piece, a faster laptop simply takes more. If a laptop disappears, its piece goes back to the list.</li>
+  <li><b>Smart planner</b> — a model (<b>LightGBM / scikit-learn</b>) trained on our own past runs predicts task time, and the planner picks the fastest option.</li>
+  <li><b>Using other laptops' graphics cards</b> — already designed, added later. Done inside <b>PyTorch</b>: the numbers go to the other laptop's GPU and only the answer comes back.</li>
+</ol>
+
+<h2><span>8</span> Why this is more than SSH or Docker</h2>
+<p>SSH only runs a command on another computer. Our system <b>chooses the laptop itself</b>, <b>moves files smartly</b>, <b>recovers when a laptop dies</b>, and will <b>learn which laptop is fastest</b> for each kind of task.</p>
+
+<h2><span>9</span> What we need</h2>
+<ul>
+  <li><b>Time with all four laptops together</b> for the real-machine tests.</li>
+  <li><b>A network switch and cables</b> for reliable speed measurements.</li>
+</ul>
+
+</body></html>

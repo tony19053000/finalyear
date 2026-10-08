@@ -71,7 +71,7 @@ def test_create_prints_facts_and_no_secrets(tmp_path: Path, config: Path) -> Non
     assert isinstance(server, dict)
     assert server["sans"] == [pki.SERVER_NAME, "192.168.1.10", "controller.lan"]
     assert server["renewal_due"] is False
-    assert facts["tls_enforced"] is False
+    assert facts["tls_enforced"] is True  # V0.7 G3: mtls by default
 
 
 def test_create_refuses_overwrite_without_force(tmp_path: Path, config: Path) -> None:
