@@ -36,7 +36,7 @@ pytest.importorskip("sqlalchemy", reason="needs the controller extra")
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from mf_controller_harness import make_settings
-from mf_fabric import identity_channel
+from mf_fabric import identity_channel, runtime_verify
 from mf_session_client import FakeAgent
 from sqlalchemy import text
 
@@ -210,7 +210,8 @@ async def test_happy_path_and_first_hello(
         agent = FakeAgent(ch, node_id=identity.node_id, epoch=1)
         await agent.connect()
         async with httpx.AsyncClient(
-            base_url=f"https://127.0.0.1:{fabric_runtime.http_port}"
+            base_url=f"https://127.0.0.1:{fabric_runtime.http_port}",
+            verify=runtime_verify(fabric_runtime),
         ) as http:
             node = (await http.get(f"/v1/nodes/{identity.node_id}")).json()
         await agent.close()
@@ -592,7 +593,9 @@ async def test_rest_invites_need_the_fabric_token(
     token = read_token_file(fabric_runtime.settings.token_path).get_secret_value()
     auth = {"authorization": f"Bearer {token}"}
     base = f"https://127.0.0.1:{fabric_runtime.http_port}"
-    async with httpx.AsyncClient(base_url=base) as http:
+    async with httpx.AsyncClient(
+        base_url=base, verify=runtime_verify(fabric_runtime)
+    ) as http:
         for method, path in (
             ("POST", "/v1/fabric/invites"),
             ("GET", "/v1/fabric/invites"),
@@ -638,7 +641,7 @@ async def test_rest_invite_without_a_ca_is_a_conflict(
         assert runtime.enroll_port == 0  # no CA: no enrolment listener
         token = read_token_file(runtime.settings.token_path).get_secret_value()
         async with httpx.AsyncClient(
-            base_url=f"https://127.0.0.1:{runtime.http_port}"
+            base_url=f"http://127.0.0.1:{runtime.http_port}"  # insecure-dev
         ) as http:
             response = await http.post(
                 "/v1/fabric/invites",

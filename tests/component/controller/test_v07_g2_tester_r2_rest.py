@@ -12,6 +12,7 @@ import pytest_asyncio
 pytest.importorskip("sqlalchemy", reason="needs the controller extra")
 
 from mf_controller_harness import make_settings
+from mf_fabric import runtime_verify
 from sqlalchemy import text
 
 from meshforge.common.fabric_token import read_token_file
@@ -61,7 +62,9 @@ async def test_401_comes_first_for_every_body_and_path_shape(
         b"x" * 2_000_000,
         b"{" * 100_000,
     ]
-    async with httpx.AsyncClient(base_url=f"https://127.0.0.1:{rt.http_port}") as http:
+    async with httpx.AsyncClient(
+        base_url=f"https://127.0.0.1:{rt.http_port}", verify=runtime_verify(rt)
+    ) as http:
         for body in bodies:
             for headers in (
                 JSON,
@@ -90,7 +93,9 @@ async def test_authenticated_body_rules_after_the_change(
 ) -> None:
     token = read_token_file(rt.settings.token_path).get_secret_value()
     auth = {"authorization": f"Bearer {token}"}
-    async with httpx.AsyncClient(base_url=f"https://127.0.0.1:{rt.http_port}") as http:
+    async with httpx.AsyncClient(
+        base_url=f"https://127.0.0.1:{rt.http_port}", verify=runtime_verify(rt)
+    ) as http:
         # no body, no content type -> defaults (compat with plain curl -X POST)
         assert (await http.post("/v1/fabric/invites", headers=auth)).status_code == 201
         # {} -> defaults (what `compute fabric invite` sends)

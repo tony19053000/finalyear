@@ -25,6 +25,7 @@ pytest.importorskip("alembic", reason="needs the controller extra")
 import httpx
 from alembic import command
 from mf_controller_harness import make_settings
+from mf_fabric import runtime_verify
 from sqlalchemy import text
 from typer.testing import CliRunner
 
@@ -104,7 +105,9 @@ async def test_every_invite_endpoint_refuses_missing_and_malformed_credentials(
         ("GET", "/v1/fabric/invites"),
         ("POST", f"/v1/fabric/invites/{new_invite_id()}/revoke"),
     ]
-    async with httpx.AsyncClient(base_url=f"https://127.0.0.1:{rt.http_port}") as http:
+    async with httpx.AsyncClient(
+        base_url=f"https://127.0.0.1:{rt.http_port}", verify=runtime_verify(rt)
+    ) as http:
         for method, path in paths:
             for headers in bad_headers:
                 response = await http.request(method, path, json={}, headers=headers)
@@ -131,7 +134,9 @@ async def test_unauthenticated_requests_are_refused_before_body_validation(
     rt: ControllerRuntime, pg_settings: DatabaseSettings
 ) -> None:
     """A 422 for a bad body must not be a pre-auth oracle about the API."""
-    async with httpx.AsyncClient(base_url=f"https://127.0.0.1:{rt.http_port}") as http:
+    async with httpx.AsyncClient(
+        base_url=f"https://127.0.0.1:{rt.http_port}", verify=runtime_verify(rt)
+    ) as http:
         for content in (b"{not json", b'{"ttl_s": 59}', b'{"replace_node_id": 5}'):
             response = await http.post(
                 "/v1/fabric/invites",
@@ -158,7 +163,9 @@ async def test_hostile_invite_bodies_create_nothing_and_never_500(
         {"replace_node_id": ""}, {"replace_node_id": 5}, {"replace_node_id": [node]},
         [], "x", 5, None,
     ]  # fmt: skip
-    async with httpx.AsyncClient(base_url=f"https://127.0.0.1:{rt.http_port}") as http:
+    async with httpx.AsyncClient(
+        base_url=f"https://127.0.0.1:{rt.http_port}", verify=runtime_verify(rt)
+    ) as http:
         for body in bodies:
             response = await http.post(
                 "/v1/fabric/invites", json=body, headers=_auth(rt)
@@ -193,7 +200,9 @@ async def test_hostile_invite_bodies_create_nothing_and_never_500(
 async def test_exact_ttl_bounds_over_rest_and_unknown_fields(
     rt: ControllerRuntime, pg_settings: DatabaseSettings
 ) -> None:
-    async with httpx.AsyncClient(base_url=f"https://127.0.0.1:{rt.http_port}") as http:
+    async with httpx.AsyncClient(
+        base_url=f"https://127.0.0.1:{rt.http_port}", verify=runtime_verify(rt)
+    ) as http:
         for ttl in (60, 86400):
             made = await http.post(
                 "/v1/fabric/invites", json={"ttl_s": ttl}, headers=_auth(rt)
@@ -227,7 +236,9 @@ async def test_exact_ttl_bounds_over_rest_and_unknown_fields(
 async def test_revoke_endpoint_hostile_ids_and_states(
     rt: ControllerRuntime, pg_settings: DatabaseSettings
 ) -> None:
-    async with httpx.AsyncClient(base_url=f"https://127.0.0.1:{rt.http_port}") as http:
+    async with httpx.AsyncClient(
+        base_url=f"https://127.0.0.1:{rt.http_port}", verify=runtime_verify(rt)
+    ) as http:
         made = (
             await http.post("/v1/fabric/invites", json={}, headers=_auth(rt))
         ).json()
@@ -285,7 +296,9 @@ async def test_codes_made_over_rest_name_the_bound_port_and_this_fabrics_pin(
 ) -> None:
     from meshforge.common import pki
 
-    async with httpx.AsyncClient(base_url=f"https://127.0.0.1:{rt.http_port}") as http:
+    async with httpx.AsyncClient(
+        base_url=f"https://127.0.0.1:{rt.http_port}", verify=runtime_verify(rt)
+    ) as http:
         made = (
             await http.post("/v1/fabric/invites", json={}, headers=_auth(rt))
         ).json()

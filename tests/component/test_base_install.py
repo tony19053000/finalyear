@@ -132,7 +132,7 @@ def test_base_install_compute_talks_rest_with_no_extra(
     env = {k: v for k, v in os.environ.items() if not k.startswith("MESHFORGE_")}
     env["XDG_CONFIG_HOME"] = str(tmp_path)
     env["APPDATA"] = str(tmp_path)
-    env["MESHFORGE_CLI__CONTROLLER_URL"] = "http://127.0.0.1:1"
+    env["MESHFORGE_CLI__CONTROLLER_URL"] = "https://127.0.0.1:1"
     env["MESHFORGE_CLI__CA_FILE"] = str(ca_file())
     result = subprocess.run(
         [str(exe), "nodes"],

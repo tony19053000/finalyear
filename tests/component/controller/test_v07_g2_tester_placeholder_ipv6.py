@@ -19,6 +19,7 @@ pytest.importorskip("sqlalchemy", reason="needs the controller extra")
 
 from cryptography.hazmat.primitives import serialization
 from mf_controller_harness import make_settings
+from mf_fabric import runtime_verify
 
 from meshforge.common import join_code, pki
 from meshforge.common.ids import new_node_id
@@ -83,7 +84,7 @@ async def test_every_read_endpoint_copes_with_an_enrolling_placeholder(
         is None
     )
     base = f"https://127.0.0.1:{rt.http_port}"
-    async with httpx.AsyncClient(base_url=base) as http:
+    async with httpx.AsyncClient(base_url=base, verify=runtime_verify(rt)) as http:
         for url in (
             "/v1/nodes",
             f"/v1/nodes/{node}",

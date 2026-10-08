@@ -59,6 +59,7 @@ __all__ = [
     "grpc_channel",
     "identity_channel",
     "node_material",
+    "runtime_verify",
     "seed_ca_dir",
     "seed_controller_fabric",
     "server_credentials",
@@ -89,6 +90,15 @@ def ca_file() -> Path:
     path = folder / "ca.crt"
     path.write_bytes(ca_pem())
     return path
+
+
+def runtime_verify(runtime: ControllerRuntime) -> ssl.SSLContext:
+    """A client context trusting ``runtime``'s own fabric CA (tests whose
+    controller made its CA with the real ``fabric create``)."""
+    assert runtime.fabric is not None, "the controller has no fabric CA"
+    return ssl.create_default_context(
+        cadata=pki.cert_to_pem(runtime.fabric.cert).decode("ascii")
+    )
 
 
 def seed_controller_fabric(settings: ControllerSettings) -> None:
