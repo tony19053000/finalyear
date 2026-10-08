@@ -174,7 +174,7 @@ async def test_peer_check_and_client_certificate(
     ca: pki.CertificateAuthority, tmp_path: Path, servers: list[_Server]
 ) -> None:
     named, named_cert = _node(ca)
-    other, other_cert = _node(ca)
+    _other, other_cert = _node(ca)
     me, my_cert = _node(ca)
     cert_file, key_file = _files(tmp_path, "me", my_cert)
     good = await _serve(servers, _server_ctx(tmp_path, named_cert, ca, require=True))

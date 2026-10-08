@@ -29,6 +29,7 @@ from mf_agent_harness import (
     make_agent_settings,
     make_controller_settings,
 )
+from mf_fabric import enroll_data_dir, seed_ca_dir
 from mf_session_client import free_port_pair, poll_until
 
 pytest.importorskip("sqlalchemy", reason="needs the controller extra")
@@ -57,6 +58,7 @@ class AgentProcess:
 
     def __init__(self, data_dir: Path, controller_address: str, tmp_path: Path) -> None:
         self.data_dir = data_dir
+        enroll_data_dir(data_dir)  # V0.7 G3: mtls needs a node certificate
         cfg = tmp_path / f"agent-{data_dir.name}.toml"
         cfg.write_text(
             f"data_dir = '{data_dir}'\n"  # top-level key: before any [table]
@@ -285,7 +287,7 @@ def test_locked_identity_dir_exits_config_error(data_dir: Path) -> None:
     proc.start()
     try:
         assert held.wait(timeout=30), "child never acquired the lock"
-        settings = make_agent_settings(data_dir, "127.0.0.1:1")  # never dialled
+        settings = make_agent_settings(data_dir, "127.0.0.1:1", enroll=False)
         code = run_agent(settings)
         assert code == ExitCode.CONFIG_ERROR
     finally:
@@ -303,7 +305,10 @@ class ControllerProcess:
     def __init__(self, database: DatabaseSettings, tmp_path: Path) -> None:
         self.grpc_port, self.http_port = free_port_pair()
         cfg = tmp_path / "controller.toml"
+        data_dir = tmp_path / "controller-data"
+        seed_ca_dir(data_dir / "controller" / "ca")  # V0.7 G3: mtls needs a CA
         cfg.write_text(
+            f"data_dir = {str(data_dir)!r}\n"
             "[log]\n"
             'format = "json"\n'
             'level = "INFO"\n'

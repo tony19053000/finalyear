@@ -56,7 +56,7 @@ def test_env_and_unknown_modes(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MESHFORGE_SECURITY__MODE", "insecure-dev")
     assert ControllerSettings().security.insecure is True
     monkeypatch.setenv("MESHFORGE_SECURITY__MODE", "off")
-    with pytest.raises(ConfigError, match="security.mode"):
+    with pytest.raises(ConfigError, match=r"security\.mode"):
         ControllerSettings()
 
 
@@ -113,7 +113,7 @@ def test_agent_insecure_dev_needs_a_loopback_controller_and_no_discovery() -> No
     [
         ({"bind": "192.168.1.5"}, "bind"),
         ({"bind": "127.0.0.1", "advertise_host": "192.168.1.5"}, "advertise_host"),
-        ({"bind": "0.0.0.0", "allow_any_bind": True}, "allow_any_bind"),
+        ({"bind": "0.0.0.0", "allow_any_bind": True}, "allow_any_bind"),  # noqa: S104
     ],
 )
 def test_agent_insecure_dev_peer_server_stays_on_loopback(
@@ -135,7 +135,7 @@ def test_agent_insecure_dev_peer_server_stays_on_loopback(
         ("localhost", True),
         ("LOCALHOST", True),
         ("192.168.1.5", False),
-        ("0.0.0.0", False),
+        ("0.0.0.0", False),  # noqa: S104
         ("::", False),
         ("localhost.evil.example", False),
         ("", False),

@@ -133,7 +133,7 @@ def test_revoked_serial(ca: pki.CertificateAuthority) -> None:
 # ------------------------------------------------------------- interceptor
 
 
-class _Aborted(Exception):
+class _AbortedError(Exception):
     pass
 
 
@@ -154,7 +154,7 @@ class _Context:
 
     async def abort(self, code: grpc.StatusCode, details: str) -> None:
         self.aborted = (code, details)
-        raise _Aborted
+        raise _AbortedError
 
 
 class _Details:
@@ -184,7 +184,7 @@ async def _run(
     guarded = await interceptor.intercept_service(continuation, _Details(method))
     try:
         result = await guarded.unary_unary(None, ctx)
-    except _Aborted:
+    except _AbortedError:
         result = None
     return result, calls
 

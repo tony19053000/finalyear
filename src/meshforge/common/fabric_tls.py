@@ -76,18 +76,22 @@ def _check(der: bytes | None, server_hostname: str | bytes | None, fabric: str) 
     cert = x509.load_der_x509_certificate(der)
     node = expected_identity(server_hostname)
     try:
-        usages = pki.cert_extensions(cert).get_extension_for_class(
-            x509.ExtendedKeyUsage
-        ).value
+        usages = (
+            pki.cert_extensions(cert)
+            .get_extension_for_class(x509.ExtendedKeyUsage)
+            .value
+        )
     except (pki.PkiError, x509.ExtensionNotFound):
         usages = None
     if usages is None or ExtendedKeyUsageOID.SERVER_AUTH not in usages:
         raise ssl.SSLCertVerificationError("the server certificate is not for servers")
     if node is None:
         try:
-            names = pki.cert_extensions(cert).get_extension_for_class(
-                x509.SubjectAlternativeName
-            ).value.get_values_for_type(x509.DNSName)
+            names = (
+                pki.cert_extensions(cert)
+                .get_extension_for_class(x509.SubjectAlternativeName)
+                .value.get_values_for_type(x509.DNSName)
+            )
         except (pki.PkiError, x509.ExtensionNotFound):
             names = []
         if pki.SERVER_NAME not in names:

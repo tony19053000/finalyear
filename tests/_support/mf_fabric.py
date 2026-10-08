@@ -52,6 +52,7 @@ __all__ = [
     "ca_pem",
     "client_ssl_context",
     "enroll_agent",
+    "enroll_data_dir",
     "enroll_identity",
     "fabric_ca",
     "grpc_channel",
@@ -129,6 +130,26 @@ def enroll_agent(settings: AgentSettings) -> NodeIdentity:
     ):
         enroll_identity(identity)
     return identity
+
+
+def enroll_data_dir(data_dir: Path) -> str:
+    """Enrol the agent identity in ``data_dir/identity`` (created if needed)
+    with the fixture CA - for agents run as child processes; returns node_id."""
+    from meshforge.agent import enrollment
+    from meshforge.agent.identity import load_or_create
+
+    identity = load_or_create(data_dir / "identity")
+    try:
+        current = enrollment.load(identity)
+    except enrollment.JoinError:
+        current = None
+    # Keep an existing enrolment from this CA: a new certificate for the same
+    # node would be refused as superseded once the controller recorded one.
+    if current is None or current.ca_fingerprint != pki.cert_fingerprint(
+        fabric_ca().cert
+    ):
+        enroll_identity(identity)
+    return str(identity.node_id)
 
 
 @functools.cache

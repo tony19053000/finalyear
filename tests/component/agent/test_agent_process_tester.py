@@ -28,6 +28,7 @@ from mf_agent_harness import (
     AgentFactory,
     make_controller_settings,
 )
+from mf_fabric import enroll_data_dir
 from mf_session_client import poll_until
 
 pytest.importorskip("sqlalchemy", reason="needs the controller extra")
@@ -51,6 +52,7 @@ class AgentProcess:
 
     def __init__(self, data_dir: Path, controller_address: str, tmp_path: Path) -> None:
         self.data_dir = data_dir
+        enroll_data_dir(data_dir)  # V0.7 G3: mtls needs a node certificate
         cfg = tmp_path / f"agent-{data_dir.name}-{random.randrange(1_000_000)}.toml"  # noqa: S311
         cfg.write_text(
             f"data_dir = '{data_dir}'\n"
@@ -372,7 +374,7 @@ def test_read_only_data_dir_exits_config_error_with_path(tmp_path: Path) -> None
     parent.chmod(stat.S_IREAD | stat.S_IEXEC)  # r-x, no write
     data_dir = parent / "data"  # does not exist; identity dir creation must fail
     try:
-        settings = make_agent_settings(data_dir, "127.0.0.1:1")  # never dialled
+        settings = make_agent_settings(data_dir, "127.0.0.1:1", enroll=False)
         code = run_agent(settings)
         assert code == ExitCode.CONFIG_ERROR
     finally:
