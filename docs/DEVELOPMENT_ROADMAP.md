@@ -403,8 +403,8 @@ A version is **complete** only when all apply:
 **Tasks**
 - [x] **0.7.1** `docs/THREAT_MODEL.md` — G1 2026-10-08: `1360654` + fix `2e5dbd6`; tester PASS `65d4af5`; reviewer APPROVE
 - [x] **0.7.2** `compute fabric create` → CA keypair, fabric record — G1 2026-10-08: `meshforge-controller fabric create|show`, `common/pki.py`, server cert (`a92bb6e` `65627d9`, fix `2643847`); unit 7816 / G1 component 22 / cluster 67 exit 0; reviewer APPROVE
-- [ ] **0.7.3** `compute fabric invite` → short-lived single-use join code (address + token + CA fingerprint); QR in dashboard later
-- [ ] **0.7.4** `compute fabric join <code>` → CSR → signed node cert; secure storage
+- [x] **0.7.3** `compute fabric invite` → short-lived single-use join code (address + token + CA fingerprint); QR in dashboard later — V0.7 G2 `d79287c` `80bcbd3`; tester r1 FAIL→fix→r2 PASS, reviewer APPROVE 2026-10-08
+- [x] **0.7.4** `compute fabric join <code>` → CSR → signed node cert; secure storage — V0.7 G2 `3321171` `5a8282c`; MITM/pin, race, rollback, crash tests; reviewer APPROVE 2026-10-08
 - [ ] **0.7.5** mTLS on agent gRPC; TLS + node-cert auth on peer blob servers; scoped short-lived tokens
 - [ ] **0.7.6** REST user authentication + CLI credential storage
 - [ ] **0.7.7** Revocation + certificate rotation
