@@ -265,7 +265,7 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
-**2026-10-08 — V0.7 G2 CLOSED** (0.7.3, 0.7.4 `[x]`, reviewer APPROVE; non-blocking → D153 = G3 item 0). Next: Lead writes brief §5c (G3: 0.7.5 mTLS everywhere, 0.7.7a revocation, D147 peer token ≤60 s, D149 carry-over server-cert hot reload, D153 item 0), then G3 implementer. Nothing in flight.
+**2026-10-08 — V0.7 G3 STARTED:** brief §5c written; G3 implementer running. (Prior:) **2026-10-08 — V0.7 G2 CLOSED** (0.7.3, 0.7.4 `[x]`, reviewer APPROVE; non-blocking → D153 = G3 item 0). Next: Lead writes brief §5c (G3: 0.7.5 mTLS everywhere, 0.7.7a revocation, D147 peer token ≤60 s, D149 carry-over server-cert hot reload, D153 item 0), then G3 implementer. Nothing in flight.
 
 Older: **2026-10-08 — V0.7 G2 STARTED:** brief §5b + D150/D151 written (`f17f623`); G2 implementer DONE (`75e5d7d`..`ee7ac57`, exit list green; deviations 1-8 in progress file hand-off) → tester r1 FAIL (`bfe7a84`: T-1 major IPv6 rate limit bypass, T-2/T-3 minor; ruling D152) → fix round 1 DONE (`80bcbd3`, `beb9e4d`, exit list green) → tester r2 PASS (no new defects) → reviewer APPROVE → CLOSED.
 
