@@ -36,6 +36,7 @@ from meshforge.agent.execution.offer import ExecutionSetup, build_execution
 from meshforge.agent.execution.runtime import RuntimeAvailability
 from meshforge.agent.gc.service import GcService
 from meshforge.agent.hardware.limits import clip_capabilities
+from meshforge.agent.http_tls import load_http_tls
 from meshforge.agent.identity import load_or_create
 from meshforge.agent.peer import PeerBlobServer
 from meshforge.agent.peer.probe import ProbeService
@@ -125,6 +126,8 @@ class ExecAgent:
         for index in range(fake_gpus):
             hardware.gpus.add(index=index, model="fake", vram_bytes=4 * 1024**3)
         client = AgentSessionClient(settings, identity, hardware=hardware)
+        # V0.7 G3: HTTPS with the node certificate, as in serve().
+        http_tls = None if settings.security.insecure else load_http_tls(identity)
         cas = AgentCas.at(settings.data_dir)
         # V0.5 G4: the peer server starts only when [agent.peer] bind is set
         # (agent_overrides={"peer": {"bind": "127.0.0.1", "port": 0}}).
@@ -143,6 +146,7 @@ class ExecAgent:
             controller_host=lambda: controller_host(client.controller_target),
             gc=gc,
             declared_gpus=range(fake_gpus),
+            http_tls=http_tls,
         )
         wire_executor(client, executor)
         preparer = (
@@ -152,7 +156,10 @@ class ExecAgent:
         )
         # V0.6 G4 (D111): network probes, as in serve().
         prober = ProbeService(
-            settings.agent.probe, client.send_report, node_id=client.node_id
+            settings.agent.probe,
+            client.send_report,
+            node_id=client.node_id,
+            http_tls=http_tls,
         )
         client.command_handler = route_commands(
             executor,

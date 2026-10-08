@@ -1,5 +1,6 @@
 """V0.7 G3 deliverable 1 (D149 carry-over): renew the server certificate under a
-**live** controller - new handshakes see the new serial on every TLS listener,
+**live** controller - new handshakes see the new serial on every TLS listener (enrolment, session,
+REST/blobs),
 connections opened before the renewal keep working, nothing restarts.
 
 Real PostgreSQL + the real ``ControllerRuntime``. The certificate is made
@@ -69,7 +70,8 @@ async def test_renewal_under_a_live_controller(rt: ControllerRuntime) -> None:
     assert rt.server_tls is not None and rt.fabric is not None
     first = rt.server_tls.current.cert.serial_number
     assert rt.server_cert is not None and rt.server_cert.action.value == "kept"
-    assert await asyncio.to_thread(_serial, rt.enroll_port) == first
+    for port in (rt.enroll_port, rt.grpc_port, rt.http_port):
+        assert await asyncio.to_thread(_serial, port) == first, port
 
     creds = grpc.ssl_channel_credentials(pki.cert_to_pem(rt.fabric.cert))
     options = [("grpc.ssl_target_name_override", pki.SERVER_NAME)]
@@ -86,7 +88,8 @@ async def test_renewal_under_a_live_controller(rt: ControllerRuntime) -> None:
         assert await rt.server_tls.check() is True
         renewed = rt.server_tls.current.cert.serial_number
         assert renewed != first
-        assert await asyncio.to_thread(_serial, rt.enroll_port) == renewed
+        for port in (rt.enroll_port, rt.grpc_port, rt.http_port):
+            assert await asyncio.to_thread(_serial, port) == renewed, port
 
         # the channel opened before the renewal still talks on its connection
         with pytest.raises(grpc.aio.AioRpcError) as info:
