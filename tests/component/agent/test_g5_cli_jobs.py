@@ -139,7 +139,7 @@ async def test_run_follow_of_a_cancelled_job_exits_job_cancelled(
     )
     task = asyncio.create_task(_compute(env, "run", str(project), "--local", "-f"))
     job_id = ""
-    for _ in range(200):
+    for _ in range(600):  # up to 30 s under a loaded whole-tier run
         listed = (await http.get("/v1/jobs")).json()["jobs"]
         running = [j for j in listed if j["state"] == "running"]
         if running:

@@ -212,7 +212,7 @@ class Account:
 
 
 def test_f_replayed_reports_are_never_counted_twice(make_fabric: MakeFabric) -> None:
-    bucket_s = 5.0
+    bucket_s = 8.0  # V0.7 G3: each reconnect now also does a TLS handshake
     fabric = _dense_fabric(make_fabric, bucket_s, cache_reports=False)
     node = fabric.nodes[0]
     fabric.wait_until(
