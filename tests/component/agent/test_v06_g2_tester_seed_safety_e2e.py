@@ -25,6 +25,7 @@ pytest.importorskip("sqlalchemy", reason="needs the controller extra")
 from mf_agent_harness import make_controller_settings
 from mf_controller_harness import tolerant_liveness
 from mf_exec_harness import ExecAgent, wait_job
+from mf_fabric import ca_file
 from mf_jobs_harness import token_of
 
 from meshforge.common.cas import CasStore
@@ -91,7 +92,8 @@ async def test_a_corrupt_blob_already_in_the_local_cache_never_reaches_the_job(
     }
     env.update(
         {
-            "MESHFORGE_CLI__CONTROLLER_URL": f"http://127.0.0.1:{runtime.http_port}",
+            "MESHFORGE_CLI__CONTROLLER_URL": f"https://127.0.0.1:{runtime.http_port}",
+            "MESHFORGE_CLI__CA_FILE": str(ca_file()),
             "MESHFORGE_CLI__TOKEN": token_of(runtime),
             "MESHFORGE_DATA_DIR": str(data_dir),
             "XDG_CONFIG_HOME": str(tmp_path / "cli-config"),
@@ -101,7 +103,7 @@ async def test_a_corrupt_blob_already_in_the_local_cache_never_reaches_the_job(
     assert code == 0, err
     job_id = out.strip()
     async with httpx.AsyncClient(
-        base_url=f"http://127.0.0.1:{runtime.http_port}",
+        base_url=f"https://127.0.0.1:{runtime.http_port}",
         headers={"authorization": f"Bearer {token_of(runtime)}"},
         timeout=30,
     ) as http:

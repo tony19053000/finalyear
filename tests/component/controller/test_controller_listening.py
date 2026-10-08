@@ -46,7 +46,7 @@ async def test_listening_event_names_the_resolved_ports_and_both_accept(
             writer.close()
             await writer.wait_closed()
             async with httpx.AsyncClient(timeout=5.0) as client:
-                response = await client.get(f"http://{event['http']}/healthz")
+                response = await client.get(f"https://{event['http']}/healthz")
             assert response.status_code == 200
     started = [e["event"] for e in logs].index("controller.started")
     listening = [e["event"] for e in logs].index("controller.listening")

@@ -82,7 +82,7 @@ async def test_every_read_endpoint_copes_with_an_enrolling_placeholder(
         )
         is None
     )
-    base = f"http://127.0.0.1:{rt.http_port}"
+    base = f"https://127.0.0.1:{rt.http_port}"
     async with httpx.AsyncClient(base_url=base) as http:
         for url in (
             "/v1/nodes",

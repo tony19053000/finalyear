@@ -112,3 +112,14 @@ def make_fabric(
                 errors.append(exc)
     if errors:
         raise errors[0]
+
+
+@pytest.fixture(autouse=True)
+def _trust_the_test_fabric(monkeypatch: pytest.MonkeyPatch) -> None:
+    """V0.7 G3: every controller here serves HTTPS with a certificate from the
+    test process's fabric CA (``mf_fabric``); plain ``httpx``/``urllib``
+    clients trust it through ``SSL_CERT_FILE`` (standard host-name check -
+    the server certificates name 127.0.0.1). Nothing is mocked."""
+    import mf_fabric
+
+    monkeypatch.setenv("SSL_CERT_FILE", str(mf_fabric.ca_file()))

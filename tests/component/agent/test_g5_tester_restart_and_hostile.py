@@ -89,7 +89,7 @@ async def test_controller_restart_while_a_job_is_running_never_strands_it(
             "outputs": ["result.txt"],
         }
         async with httpx.AsyncClient(
-            base_url=f"http://127.0.0.1:{http_port}",
+            base_url=f"https://127.0.0.1:{http_port}",
             headers={"authorization": f"Bearer {token_of(runtime)}"},
             timeout=30,
         ) as http:
@@ -112,7 +112,7 @@ async def test_controller_restart_while_a_job_is_running_never_strands_it(
         async with (
             ControllerRuntime.start(restarted) as fresh,
             httpx.AsyncClient(
-                base_url=f"http://127.0.0.1:{fresh.http_port}",
+                base_url=f"https://127.0.0.1:{fresh.http_port}",
                 headers={"authorization": f"Bearer {token_of(fresh)}"},
                 timeout=30,
             ) as http2,
@@ -177,7 +177,7 @@ async def agent(grpc_target: str, data_dir: Path) -> AsyncIterator[ExecAgent]:
 @pytest_asyncio.fixture
 async def http(runtime: ControllerRuntime) -> AsyncIterator[httpx.AsyncClient]:
     async with httpx.AsyncClient(
-        base_url=f"http://127.0.0.1:{runtime.http_port}",
+        base_url=f"https://127.0.0.1:{runtime.http_port}",
         headers={"authorization": f"Bearer {token_of(runtime)}"},
         timeout=30,
     ) as client:

@@ -52,7 +52,7 @@ async def test_controller_small_requests_do_not_wait_for_delayed_ack(
     data = b"small blob for latency\n"
     digest = sha256_bytes(data)
     assert runtime.fetch_tokens is not None
-    base = f"http://127.0.0.1:{runtime.http_port}"
+    base = f"https://127.0.0.1:{runtime.http_port}"
     async with httpx.AsyncClient(trust_env=False, timeout=10) as client:
         put = await client.put(
             f"{base}/v1/blobs/{digest.hex}",

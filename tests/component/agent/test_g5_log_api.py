@@ -67,7 +67,7 @@ def settings(pg_settings: Any) -> ControllerSettings:
 @pytest_asyncio.fixture
 async def http(runtime: ControllerRuntime) -> AsyncIterator[httpx.AsyncClient]:
     async with httpx.AsyncClient(
-        base_url=f"http://127.0.0.1:{runtime.http_port}",
+        base_url=f"https://127.0.0.1:{runtime.http_port}",
         headers={"authorization": f"Bearer {token_of(runtime)}"},
         timeout=30,
     ) as client:
@@ -191,7 +191,7 @@ async def test_the_websocket_needs_the_token_in_the_header(
             pass
     async with httpx.AsyncClient() as anonymous:
         plain = await anonymous.get(
-            f"http://127.0.0.1:{runtime.http_port}/v1/jobs/{job_id}/logs"
+            f"https://127.0.0.1:{runtime.http_port}/v1/jobs/{job_id}/logs"
         )
     assert plain.status_code == 401
 

@@ -25,6 +25,7 @@ pytest.importorskip("sqlalchemy", reason="needs the controller extra")
 
 from mf_agent_harness import make_controller_settings
 from mf_exec_harness import ExecAgent, wait_job
+from mf_fabric import ca_file
 from mf_jobs_harness import token_of
 
 from meshforge.common.exit_codes import ExitCode
@@ -56,7 +57,7 @@ async def agent(grpc_target: str, data_dir: Path) -> AsyncIterator[ExecAgent]:
 @pytest_asyncio.fixture
 async def http(runtime: ControllerRuntime) -> AsyncIterator[httpx.AsyncClient]:
     async with httpx.AsyncClient(
-        base_url=f"http://127.0.0.1:{runtime.http_port}",
+        base_url=f"https://127.0.0.1:{runtime.http_port}",
         headers={"authorization": f"Bearer {token_of(runtime)}"},
         timeout=30,
     ) as client:
@@ -69,7 +70,8 @@ def _env(runtime: ControllerRuntime, data_dir: Path, tmp_path: Path) -> dict[str
     }
     env.update(
         {
-            "MESHFORGE_CLI__CONTROLLER_URL": f"http://127.0.0.1:{runtime.http_port}",
+            "MESHFORGE_CLI__CONTROLLER_URL": f"https://127.0.0.1:{runtime.http_port}",
+            "MESHFORGE_CLI__CA_FILE": str(ca_file()),
             "MESHFORGE_CLI__TOKEN": token_of(runtime),
             "MESHFORGE_DATA_DIR": str(data_dir),  # the agent's: `--local` reads it
             "XDG_CONFIG_HOME": str(tmp_path / "cli-config"),

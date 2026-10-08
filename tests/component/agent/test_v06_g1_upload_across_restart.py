@@ -74,7 +74,7 @@ def settings(pg_settings: DatabaseSettings) -> ControllerSettings:
 
 def _http(runtime: ControllerRuntime) -> httpx.AsyncClient:
     return httpx.AsyncClient(
-        base_url=f"http://127.0.0.1:{runtime.http_port}",
+        base_url=f"https://127.0.0.1:{runtime.http_port}",
         headers={"authorization": f"Bearer {token_of(runtime)}"},
         timeout=30,
     )
@@ -202,7 +202,7 @@ async def test_output_upload_survives_a_controller_restart_and_resumes(
         old = gate.tokens[0]
         async with httpx.AsyncClient(timeout=10) as raw:
             refused = await raw.get(
-                f"http://127.0.0.1:{fresh.http_port}/v1/blobs/{digest}/parts",
+                f"https://127.0.0.1:{fresh.http_port}/v1/blobs/{digest}/parts",
                 headers={"authorization": f"Bearer {old}"},
             )
         assert refused.status_code == 401, refused.status_code

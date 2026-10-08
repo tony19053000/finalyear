@@ -25,6 +25,7 @@ import pytest_asyncio
 pytest.importorskip("sqlalchemy", reason="needs the controller extra")
 
 from mf_exec_harness import ExecAgent
+from mf_fabric import ca_file
 from mf_jobs_harness import token_of
 
 from meshforge.controller.server import ControllerRuntime
@@ -66,7 +67,8 @@ def _truncate_ledgers() -> None:
 def tool(runtime: ControllerRuntime, tmp_path: Path, *args: str) -> Any:
     env = {
         **{k: v for k, v in os.environ.items() if not k.startswith("MESHFORGE_")},
-        "MESHFORGE_CLI__CONTROLLER_URL": f"http://127.0.0.1:{runtime.http_port}",
+        "MESHFORGE_CLI__CONTROLLER_URL": f"https://127.0.0.1:{runtime.http_port}",
+        "MESHFORGE_CLI__CA_FILE": str(ca_file()),
         "MESHFORGE_CLI__TOKEN": token_of(runtime),
         "XDG_CONFIG_HOME": str(tmp_path / "cfg"),
     }

@@ -76,7 +76,7 @@ async def test_endpoint_advertised_key_installed_and_tokens_checked(
     assert agent.peer is not None
     endpoint = f"127.0.0.1:{agent.peer.port}"
     async with httpx.AsyncClient(
-        base_url=f"http://127.0.0.1:{runtime.http_port}",
+        base_url=f"https://127.0.0.1:{runtime.http_port}",
         headers={"authorization": f"Bearer {token_of(runtime)}"},
         trust_env=False,
     ) as http:

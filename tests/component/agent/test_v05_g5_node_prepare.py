@@ -38,7 +38,7 @@ def settings(pg_settings: Any) -> ControllerSettings:
 @pytest_asyncio.fixture
 async def http(runtime: ControllerRuntime) -> AsyncIterator[httpx.AsyncClient]:
     async with httpx.AsyncClient(
-        base_url=f"http://127.0.0.1:{runtime.http_port}",
+        base_url=f"https://127.0.0.1:{runtime.http_port}",
         headers={"authorization": f"Bearer {token_of(runtime)}"},
         timeout=10,
     ) as client:
@@ -130,7 +130,7 @@ async def test_typed_refusals(
     unknown = await http.get(f"/v1/nodes/{agent.node_id}/prepare/nope")
     assert unknown.status_code == 404
     async with httpx.AsyncClient(
-        base_url=f"http://127.0.0.1:{runtime.http_port}"
+        base_url=f"https://127.0.0.1:{runtime.http_port}"
     ) as plain:
         anonymous = await plain.post(f"/v1/nodes/{agent.node_id}/prepare", json={})
     assert anonymous.status_code == 401

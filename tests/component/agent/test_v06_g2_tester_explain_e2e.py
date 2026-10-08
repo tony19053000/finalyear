@@ -68,7 +68,7 @@ async def test_history_drives_cost_model_and_every_term_is_honest(
     (project / "main.py").write_text(SLEEPER)
     manifest: dict[str, Any] = {"name": "hist", "entrypoint": ["python", "main.py"]}
     async with httpx.AsyncClient(
-        base_url=f"http://127.0.0.1:{runtime.http_port}",
+        base_url=f"https://127.0.0.1:{runtime.http_port}",
         headers={"authorization": f"Bearer {token_of(runtime)}"},
         timeout=30,
     ) as http:

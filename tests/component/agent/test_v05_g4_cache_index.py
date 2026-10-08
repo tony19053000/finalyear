@@ -103,7 +103,7 @@ async def test_snapshot_deltas_and_withdrawal(
     rows = await _rows(runtime, node)
     assert rows["blob"][0] == 3 and rows["tree"][0] == 1
     async with httpx.AsyncClient(
-        base_url=f"http://127.0.0.1:{runtime.http_port}",
+        base_url=f"https://127.0.0.1:{runtime.http_port}",
         headers={"authorization": f"Bearer {token_of(runtime)}"},
         trust_env=False,
     ) as http:

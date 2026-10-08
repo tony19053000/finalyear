@@ -18,6 +18,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from mf_fabric import ca_file
 
 pytestmark = pytest.mark.component
 
@@ -132,6 +133,7 @@ def test_base_install_compute_talks_rest_with_no_extra(
     env["XDG_CONFIG_HOME"] = str(tmp_path)
     env["APPDATA"] = str(tmp_path)
     env["MESHFORGE_CLI__CONTROLLER_URL"] = "http://127.0.0.1:1"
+    env["MESHFORGE_CLI__CA_FILE"] = str(ca_file())
     result = subprocess.run(
         [str(exe), "nodes"],
         capture_output=True,

@@ -44,7 +44,7 @@ async def agent(grpc_target: str, data_dir: Path) -> AsyncIterator[ExecAgent]:
 @pytest_asyncio.fixture
 async def http(runtime: ControllerRuntime) -> AsyncIterator[httpx.AsyncClient]:
     async with httpx.AsyncClient(
-        base_url=f"http://127.0.0.1:{runtime.http_port}",
+        base_url=f"https://127.0.0.1:{runtime.http_port}",
         headers={"authorization": f"Bearer {token_of(runtime)}"},
         timeout=30,
     ) as client:
@@ -59,7 +59,7 @@ async def _tool(runtime: ControllerRuntime, cwd: Path, *args: str) -> tuple[int,
         sys.executable,
         str(REPO / "lab" / "exec_check.py"),
         "--controller",
-        f"http://127.0.0.1:{runtime.http_port}",
+        f"https://127.0.0.1:{runtime.http_port}",
         "--reports",
         str(cwd / "reports"),
         *args,

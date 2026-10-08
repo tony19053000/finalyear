@@ -21,13 +21,15 @@ __all__ = ["follow_lines"]
 def follow_lines(
     fabric: Any, job_id: str, *, timeout_s: float = 120.0
 ) -> Iterator[tuple[str, float]]:
-    url = fabric.http_base.replace("http://", "ws://") + (
+    url = fabric.http_base.replace("https://", "wss://") + (
         f"/v1/jobs/{job_id}/logs/ws?stream=stdout"
     )
     headers = {"Authorization": f"Bearer {fabric.fabric_token()}"}
     pending = b""
     deadline = time.monotonic() + timeout_s
-    with connect(url, additional_headers=headers, open_timeout=10) as ws:
+    with connect(
+        url, additional_headers=headers, open_timeout=10, ssl=fabric.ssl_context
+    ) as ws:
         while time.monotonic() < deadline:
             raw = ws.recv(timeout=max(0.1, deadline - time.monotonic()))
             received = time.time()

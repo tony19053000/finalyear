@@ -34,6 +34,7 @@ pytest.importorskip("sqlalchemy", reason="needs the controller extra")
 from mf_agent_harness import make_controller_settings
 from mf_controller_harness import tolerant_liveness
 from mf_exec_harness import ExecAgent
+from mf_fabric import ca_file
 from mf_jobs_harness import token_of
 from sqlalchemy import text
 
@@ -90,7 +91,7 @@ async def pair(
 
 async def _network(runtime: ControllerRuntime) -> dict[str, Any]:
     async with httpx.AsyncClient(
-        base_url=f"http://127.0.0.1:{runtime.http_port}", trust_env=False
+        base_url=f"https://127.0.0.1:{runtime.http_port}", trust_env=False
     ) as http:
         resp = await http.get("/v1/network")
     assert resp.status_code == 200, resp.text
@@ -125,7 +126,8 @@ async def test_probes_fill_the_matrix_both_ways(
     # `compute network` (a real CLI process) prints the matrix
     env = {
         **{k: v for k, v in os.environ.items() if not k.startswith("MESHFORGE_")},
-        "MESHFORGE_CLI__CONTROLLER_URL": f"http://127.0.0.1:{runtime.http_port}",
+        "MESHFORGE_CLI__CONTROLLER_URL": f"https://127.0.0.1:{runtime.http_port}",
+        "MESHFORGE_CLI__CA_FILE": str(ca_file()),
         "MESHFORGE_CLI__TOKEN": token_of(runtime),
         "MESHFORGE_DATA_DIR": str(tmp_path / "no-agent-here"),
         "XDG_CONFIG_HOME": str(tmp_path / "cli-config"),
@@ -184,7 +186,8 @@ async def test_a_link_older_than_stale_after_is_shown_stale_with_its_age(
         [sys.executable, "-m", "meshforge.cli", "network"],
         env={
             **{k: v for k, v in os.environ.items() if not k.startswith("MESHFORGE_")},
-            "MESHFORGE_CLI__CONTROLLER_URL": f"http://127.0.0.1:{runtime.http_port}",
+            "MESHFORGE_CLI__CONTROLLER_URL": f"https://127.0.0.1:{runtime.http_port}",
+            "MESHFORGE_CLI__CA_FILE": str(ca_file()),
             "MESHFORGE_CLI__TOKEN": token_of(runtime),
             "MESHFORGE_DATA_DIR": str(tmp_path / "no-agent-here"),
             "XDG_CONFIG_HOME": str(tmp_path / "cli-config"),

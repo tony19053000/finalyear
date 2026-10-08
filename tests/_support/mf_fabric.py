@@ -49,6 +49,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "NodeChannels",
+    "ca_file",
     "ca_pem",
     "client_ssl_context",
     "enroll_agent",
@@ -77,6 +78,17 @@ def fabric_ca() -> pki.CertificateAuthority:
 
 def ca_pem() -> bytes:
     return pki.cert_to_pem(fabric_ca().cert)
+
+
+@functools.cache
+def ca_file() -> Path:
+    """The fixture CA certificate as a PEM file (for ``SSL_CERT_FILE`` and
+    ``MESHFORGE_CLI__CA_FILE``: clients that trust the test fabric's
+    controllers by the standard host-name check)."""
+    folder = Path(tempfile.mkdtemp(prefix="mf-ca-"))
+    path = folder / "ca.crt"
+    path.write_bytes(ca_pem())
+    return path
 
 
 def seed_controller_fabric(settings: ControllerSettings) -> None:

@@ -64,7 +64,7 @@ def settings(pg_settings: Any) -> ControllerSettings:
 @pytest_asyncio.fixture
 async def http(runtime: ControllerRuntime) -> AsyncIterator[httpx.AsyncClient]:
     async with httpx.AsyncClient(
-        base_url=f"http://127.0.0.1:{runtime.http_port}",
+        base_url=f"https://127.0.0.1:{runtime.http_port}",
         headers={"authorization": f"Bearer {token_of(runtime)}"},
         timeout=10,
     ) as client:
@@ -165,7 +165,7 @@ async def test_fetch_refuses_a_wrong_token_and_a_wrong_digest(
 
     digest = Digest(hashlib.sha256(blob).hexdigest())
     assert (await http.put(f"/v1/blobs/{digest.hex}", content=blob)).status_code == 201
-    base = f"http://127.0.0.1:{runtime.http_port}"
+    base = f"https://127.0.0.1:{runtime.http_port}"
     with pytest.raises(FetchError) as wrong_token:
         await fetch_bundle(base, digest, "not-a-token", tmp_path / "a.bundle")
     assert wrong_token.value.failure_type is FailureType.UNAUTHORIZED

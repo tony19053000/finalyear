@@ -84,7 +84,7 @@ class Rest:
 @contextlib.asynccontextmanager
 async def rest_for(runtime: ControllerRuntime) -> Any:
     async with httpx.AsyncClient(
-        base_url=f"http://127.0.0.1:{runtime.http_port}", timeout=10.0
+        base_url=f"https://127.0.0.1:{runtime.http_port}", timeout=10.0
     ) as client:
         yield Rest(client)
 

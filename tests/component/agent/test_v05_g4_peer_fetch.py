@@ -89,7 +89,7 @@ def _settings(
         pg,
         jobs={"dispatch_interval_s": 0.1},
         blobs={"max_blob_bytes": 64 * 1024 * 1024},
-        api={"advertise_url": f"http://{host}:{port}"},
+        api={"advertise_url": f"https://{host}:{port}"},
         **tolerant_liveness(),
         **binds,
     )
@@ -136,7 +136,7 @@ async def agents(
 
 def _http(runtime: ControllerRuntime) -> httpx.AsyncClient:
     return httpx.AsyncClient(
-        base_url=f"http://127.0.0.1:{runtime.http_port}",
+        base_url=f"https://127.0.0.1:{runtime.http_port}",
         headers={"authorization": f"Bearer {token_of(runtime)}"},
         timeout=30,
         trust_env=False,
@@ -153,7 +153,7 @@ def _project(root: Path) -> tuple[BuiltTree, bytes]:
 
 async def _upload(runtime: ControllerRuntime, built: BuiltTree) -> None:
     client = ControllerClient(
-        f"http://127.0.0.1:{runtime.http_port}",
+        f"https://127.0.0.1:{runtime.http_port}",
         timeout_s=30,
         token=SecretStr(token_of(runtime)),
     )

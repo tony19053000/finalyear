@@ -68,7 +68,7 @@ def settings(pg_settings: DatabaseSettings) -> ControllerSettings:
 
 def _http(runtime: ControllerRuntime) -> httpx.AsyncClient:
     return httpx.AsyncClient(
-        base_url=f"http://127.0.0.1:{runtime.http_port}",
+        base_url=f"https://127.0.0.1:{runtime.http_port}",
         headers={"authorization": f"Bearer {token_of(runtime)}"},
         timeout=30,
     )

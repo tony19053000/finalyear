@@ -122,7 +122,7 @@ async def proxy(runtime: ControllerRuntime) -> AsyncIterator[CorruptingProxy]:
 
 async def _upload(runtime: ControllerRuntime, built: BuiltTree) -> None:
     client = ControllerClient(
-        f"http://127.0.0.1:{runtime.http_port}",
+        f"https://127.0.0.1:{runtime.http_port}",
         timeout_s=30,
         token=SecretStr(token_of(runtime)),
     )
@@ -306,7 +306,7 @@ async def test_corrupted_resume_part_file_is_caught_by_the_whole_verify(
     raw = bytearray(part_path.read_bytes())
     raw[10] ^= 0xFF  # damage a chunk the bitmap says is verified
     part_path.write_bytes(bytes(raw))
-    src = BlobSource(f"http://127.0.0.1:{runtime.http_port}", token_of(runtime))
+    src = BlobSource(f"https://127.0.0.1:{runtime.http_port}", token_of(runtime))
     # Fabric token works for reads as well.
     try:
         await stage_tree(

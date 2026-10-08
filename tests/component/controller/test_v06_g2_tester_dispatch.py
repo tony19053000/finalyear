@@ -143,7 +143,7 @@ async def fabric(
         running_controller(settings) as runtime,
         NodeChannels(f"127.0.0.1:{runtime.grpc_port}") as channel,
         httpx.AsyncClient(
-            base_url=f"http://127.0.0.1:{runtime.http_port}",
+            base_url=f"https://127.0.0.1:{runtime.http_port}",
             headers={"authorization": f"Bearer {token_of(runtime)}"},
             timeout=20,
         ) as http,

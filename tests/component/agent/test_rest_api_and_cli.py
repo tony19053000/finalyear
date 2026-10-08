@@ -120,7 +120,7 @@ class Rest:
 @contextlib.asynccontextmanager
 async def rest_for(runtime: ControllerRuntime) -> Any:
     async with httpx.AsyncClient(
-        base_url=f"http://127.0.0.1:{runtime.http_port}", timeout=10.0
+        base_url=f"https://127.0.0.1:{runtime.http_port}", timeout=10.0
     ) as client:
         yield Rest(client)
 
@@ -517,7 +517,7 @@ async def test_compute_nodes_json_against_the_real_controller(
 ) -> None:
     """``compute`` over a real socket, in-process, with its real httpx client."""
     monkeypatch.setenv(
-        "MESHFORGE_CLI__CONTROLLER_URL", f"http://127.0.0.1:{runtime.http_port}"
+        "MESHFORGE_CLI__CONTROLLER_URL", f"https://127.0.0.1:{runtime.http_port}"
     )
     # Rich folds a 31-character node_id across lines at the default 80 columns.
     monkeypatch.setenv("COLUMNS", "220")
@@ -551,7 +551,7 @@ async def test_compute_exits_unavailable_against_a_really_closed_port(
 ) -> None:
     """A genuinely refused TCP connection, not a mocked transport: the controller
     is stopped first, so its port is actually gone."""
-    url = f"http://127.0.0.1:{runtime.http_port}"
+    url = f"https://127.0.0.1:{runtime.http_port}"
     monkeypatch.setenv("MESHFORGE_CLI__CONTROLLER_URL", url)
     await runtime.stop()
     runner = CliRunner()

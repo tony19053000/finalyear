@@ -92,4 +92,16 @@ from __future__ import annotations
 
 # The fixtures live in tests/_support so the cluster tier shares them (G6-B);
 # importing them here is what registers them for tests/component.
+import pytest
 from mf_postgres import pg_settings, postgres_server  # noqa: F401
+
+
+@pytest.fixture(autouse=True)
+def _trust_the_test_fabric(monkeypatch: pytest.MonkeyPatch) -> None:
+    """V0.7 G3: every controller here serves HTTPS with a certificate from the
+    test process's fabric CA (``mf_fabric``); plain ``httpx``/``urllib``
+    clients trust it through ``SSL_CERT_FILE`` (standard host-name check -
+    the server certificates name 127.0.0.1). Nothing is mocked."""
+    import mf_fabric
+
+    monkeypatch.setenv("SSL_CERT_FILE", str(mf_fabric.ca_file()))

@@ -51,6 +51,7 @@ HOST_METRICS = {
 def _compute(fabric: Fabric, *args: str) -> subprocess.CompletedProcess[str]:
     env = {k: v for k, v in os.environ.items() if not k.startswith("MESHFORGE_")}
     env["MESHFORGE_CLI__CONTROLLER_URL"] = fabric.http_base
+    env["MESHFORGE_CLI__CA_FILE"] = str(fabric.ca_dir / "ca.crt")
     env["PYTHONUTF8"] = "1"
     env["COLUMNS"] = "240"  # a pipe is 80 wide: folded cells would split words
     return subprocess.run(

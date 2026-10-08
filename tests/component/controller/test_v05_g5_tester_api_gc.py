@@ -94,7 +94,7 @@ async def test_every_data_and_node_verb_needs_the_fabric_token(
         {"authorization": "Basic x"},
     ):
         async with httpx.AsyncClient(
-            base_url=f"http://127.0.0.1:{runtime.http_port}", headers=headers
+            base_url=f"https://127.0.0.1:{runtime.http_port}", headers=headers
         ) as client:
             for method, url, kw in calls:
                 got = await client.request(method, url, **kw)

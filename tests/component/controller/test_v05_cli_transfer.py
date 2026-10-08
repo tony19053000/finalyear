@@ -42,7 +42,7 @@ async def runtime(pg_settings: object) -> AsyncIterator[ControllerRuntime]:
 
 def _client(runtime: ControllerRuntime) -> ControllerClient:
     return ControllerClient(
-        f"http://127.0.0.1:{runtime.http_port}",
+        f"https://127.0.0.1:{runtime.http_port}",
         timeout_s=30,
         token=SecretStr(token_of(runtime)),
     )
@@ -117,7 +117,7 @@ async def test_killed_upload_resumes_without_resending_completed_parts(
     data = os.urandom(12 * CS)
     (project / "big.bin").write_bytes(data)
     digest = sha256_bytes(data)
-    url = f"http://127.0.0.1:{runtime.http_port}"
+    url = f"https://127.0.0.1:{runtime.http_port}"
     child = await asyncio.create_subprocess_exec(
         sys.executable,
         "-c",

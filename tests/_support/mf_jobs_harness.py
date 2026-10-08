@@ -52,7 +52,7 @@ async def api_client(
 ) -> AsyncIterator[httpx.AsyncClient]:
     headers = {"authorization": f"Bearer {token}"} if token else {}
     async with httpx.AsyncClient(
-        base_url=f"http://127.0.0.1:{runtime.http_port}",
+        base_url=f"https://127.0.0.1:{runtime.http_port}",
         headers=headers,
         timeout=10,
     ) as client:

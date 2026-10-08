@@ -54,6 +54,7 @@ import json
 import logging
 import os
 import signal
+import ssl
 import subprocess
 import sys
 import time
@@ -668,7 +669,8 @@ class Fabric:
         self.nodes: list[Node] = []
         self.grpc_target = ""
         self.http_base = ""
-        self._http = httpx.Client(timeout=2.0)
+        self._http = httpx.Client(timeout=2.0)  # replaced once the CA exists
+        self.ssl_context: ssl.SSLContext | None = None
         # One INFO line per poll would drown the captured output of a failure.
         logging.getLogger("httpx").setLevel(logging.WARNING)
 
@@ -775,6 +777,13 @@ class Fabric:
                 self.fail(f"fabric create failed: {created.stderr[-2000:]}")
         else:
             seed_ca_dir(self.ca_dir)
+        # V0.7 G3: the REST port is HTTPS; trust exactly this controller's CA
+        # (standard host-name check: its certificate names 127.0.0.1).
+        self.ssl_context = ssl.create_default_context(
+            cafile=str(self.ca_dir / "ca.crt")
+        )
+        self._http.close()
+        self._http = httpx.Client(timeout=2.0, verify=self.ssl_context)
         self.controller = ManagedProcess(
             "controller",
             ["-m", "meshforge.controller", "--config", str(controller_config)],
@@ -833,7 +842,7 @@ class Fabric:
             self.controller, "controller.listening", within=START_TIMEOUT_S
         )
         self.grpc_target = str(event["grpc"])
-        self.http_base = f"http://{event['http']}"
+        self.http_base = f"https://{event['http']}"
         self.enroll_target = str(event.get("enroll") or "")
 
     def _wait_node_id(self, node: Node) -> str:

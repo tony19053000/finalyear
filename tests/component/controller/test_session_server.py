@@ -380,7 +380,7 @@ async def test_unanswered_pings_do_not_kill_a_heartbeating_session(
 async def test_healthz_over_real_uvicorn(
     runtime: ControllerRuntime, agents: Any
 ) -> None:
-    url = f"http://127.0.0.1:{runtime.http_port}/healthz"
+    url = f"https://127.0.0.1:{runtime.http_port}/healthz"
 
     def get() -> dict[str, Any]:
         with urllib.request.urlopen(url, timeout=5) as resp:

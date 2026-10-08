@@ -41,7 +41,7 @@ from typing import Any
 import httpx
 import pytest
 import pytest_asyncio
-from mf_fabric import NodeChannels
+from mf_fabric import NodeChannels, ca_file
 from mf_jobs_harness import g2_settings, running_controller, token_of
 from mf_session_client import FakeAgent
 
@@ -163,7 +163,7 @@ async def make_cluster(
         channel = NodeChannels(f"127.0.0.1:{runtime.grpc_port}")
         stack.append(("channel", channel))
         http = httpx.AsyncClient(
-            base_url=f"http://127.0.0.1:{runtime.http_port}",
+            base_url=f"https://127.0.0.1:{runtime.http_port}",
             headers={"authorization": f"Bearer {token_of(runtime)}"},
             timeout=10,
         )
@@ -341,6 +341,7 @@ async def test_decisions_show_every_candidate_and_explain_prints_them(
     env.update(
         {
             "MESHFORGE_CLI__CONTROLLER_URL": str(cluster.http.base_url).rstrip("/"),
+            "MESHFORGE_CLI__CA_FILE": str(ca_file()),
             "MESHFORGE_CLI__TOKEN": token_of(cluster.runtime),
             "MESHFORGE_DATA_DIR": str(tmp_path / "no-agent-here"),
             "XDG_CONFIG_HOME": str(tmp_path / "cli-config"),

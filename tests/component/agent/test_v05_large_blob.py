@@ -67,7 +67,7 @@ async def test_a_file_over_5_gb_round_trips_with_default_limits(
     (entry,) = built.tree.files()
     assert entry.size == SIZE and len(entry.chunks) == -(-SIZE // DEFAULT_CHUNK_SIZE)
     client = ControllerClient(
-        f"http://127.0.0.1:{runtime.http_port}",
+        f"https://127.0.0.1:{runtime.http_port}",
         timeout_s=60,
         token=SecretStr(token_of(runtime)),
     )
@@ -86,7 +86,7 @@ async def test_a_file_over_5_gb_round_trips_with_default_limits(
         tree_id=str(built.tree.tree_id),
         sources=[
             BlobSource(
-                f"http://127.0.0.1:{runtime.http_port}", token.get_secret_value()
+                f"https://127.0.0.1:{runtime.http_port}", token.get_secret_value()
             )
         ],
         dest=tmp_path / "work",

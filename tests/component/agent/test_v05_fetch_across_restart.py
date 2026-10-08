@@ -93,7 +93,7 @@ async def agent(grpc_target: str, data_dir: Path) -> AsyncIterator[ExecAgent]:
 
 def _http(runtime: ControllerRuntime) -> httpx.AsyncClient:
     return httpx.AsyncClient(
-        base_url=f"http://127.0.0.1:{runtime.http_port}",
+        base_url=f"https://127.0.0.1:{runtime.http_port}",
         headers={"authorization": f"Bearer {token_of(runtime)}"},
         timeout=30,
     )
@@ -143,7 +143,7 @@ async def _stale_token_refused(
 ) -> None:
     async with httpx.AsyncClient(timeout=10) as raw:
         got = await raw.get(
-            f"http://127.0.0.1:{fresh.http_port}/v1/blobs/{digest_hex}",
+            f"https://127.0.0.1:{fresh.http_port}/v1/blobs/{digest_hex}",
             headers={"authorization": f"Bearer {token}"},
         )
     assert got.status_code == 401, got.status_code
@@ -163,7 +163,7 @@ async def test_tree_job_survives_a_controller_restart_mid_fetch_and_resumes(
     (project / "data.bin").write_bytes(data)
     built = build_tree(project, chunk_size=CS)
     client = ControllerClient(
-        f"http://127.0.0.1:{runtime.http_port}",
+        f"https://127.0.0.1:{runtime.http_port}",
         timeout_s=30,
         token=SecretStr(token_of(runtime)),
     )

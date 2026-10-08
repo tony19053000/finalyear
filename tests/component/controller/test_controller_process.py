@@ -97,7 +97,7 @@ class ControllerProcess:
     def healthz(self) -> dict[str, Any] | None:
         try:
             with urllib.request.urlopen(
-                f"http://127.0.0.1:{self.http_port}/healthz", timeout=1
+                f"https://127.0.0.1:{self.http_port}/healthz", timeout=1
             ) as resp:
                 return dict(json.loads(resp.read()))
         except (urllib.error.URLError, ConnectionError, TimeoutError):

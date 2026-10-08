@@ -62,7 +62,7 @@ def settings(pg_settings: Any) -> ControllerSettings:
 @pytest_asyncio.fixture
 async def http(runtime: ControllerRuntime) -> AsyncIterator[httpx.AsyncClient]:
     async with httpx.AsyncClient(
-        base_url=f"http://127.0.0.1:{runtime.http_port}",
+        base_url=f"https://127.0.0.1:{runtime.http_port}",
         headers={"authorization": f"Bearer {token_of(runtime)}"},
         timeout=10,
     ) as client:
@@ -78,7 +78,7 @@ async def agent(grpc_target: str, data_dir: Path) -> AsyncIterator[ExecAgent]:
 
 async def _upload(runtime: ControllerRuntime, built: BuiltTree) -> None:
     client = ControllerClient(
-        f"http://127.0.0.1:{runtime.http_port}",
+        f"https://127.0.0.1:{runtime.http_port}",
         timeout_s=30,
         token=SecretStr(token_of(runtime)),
     )
@@ -212,7 +212,7 @@ async def test_killed_agent_fetch_resumes_without_refetching_chunks(
     await _upload(runtime, built)
     assert runtime.fetch_tokens is not None
     token = runtime.fetch_tokens.mint("attempt_k", [built.tree.tree_id], ttl_s=120)
-    url = f"http://127.0.0.1:{runtime.http_port}"
+    url = f"https://127.0.0.1:{runtime.http_port}"
     cas_dir = tmp_path / "agent-cas"
     child = await asyncio.create_subprocess_exec(
         sys.executable,
