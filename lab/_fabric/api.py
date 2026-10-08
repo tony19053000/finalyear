@@ -16,12 +16,13 @@ from __future__ import annotations
 import json
 import os
 import socket
+import ssl
 import urllib.error
 import urllib.parse
 import urllib.request
 from typing import Any, Final
 
-DEFAULT_URL: Final = "http://127.0.0.1:47110"
+DEFAULT_URL: Final = "https://127.0.0.1:47110"
 URL_ENV: Final = "MESHFORGE_CLI__CONTROLLER_URL"
 """The same variable ``compute`` reads (docs/OPERATIONS.md §1)."""
 DEFAULT_TIMEOUT_S: Final = 2.0
@@ -56,6 +57,16 @@ class ApiError(FabricApiError):
         self.status = status
 
 
+def fabric_ssl_context() -> ssl.SSLContext:
+    """V0.7 G3: the controller is HTTPS; trust the fabric CA exactly as
+    ``compute`` does (``MESHFORGE_CLI__CA_FILE`` / ``[cli] ca_file`` / the local
+    enrolment / the local controller) and check its ``meshforge-controller`` name."""
+    from meshforge.cli.settings import CliSettings, resolve_ca
+    from meshforge.common.fabric_tls import client_context
+
+    return client_context(resolve_ca(CliSettings.load()))
+
+
 def default_url() -> str:
     return os.environ.get(URL_ENV) or DEFAULT_URL
 
@@ -82,6 +93,9 @@ class FabricApi:
     def __init__(self, base_url: str, *, timeout_s: float = DEFAULT_TIMEOUT_S) -> None:
         self.base_url = normalise_url(base_url)
         self.timeout_s = timeout_s
+        self._context = (
+            fabric_ssl_context() if self.base_url.startswith("https") else None
+        )
 
     def get(self, path: str, **query: str | int) -> JsonObject:
         url = self.base_url + path
@@ -89,7 +103,9 @@ class FabricApi:
             url += "?" + urllib.parse.urlencode(query)
         request = urllib.request.Request(url, headers={"Accept": "application/json"})  # noqa: S310 (scheme checked)
         try:
-            with urllib.request.urlopen(request, timeout=self.timeout_s) as response:  # noqa: S310
+            with urllib.request.urlopen(  # noqa: S310
+                request, timeout=self.timeout_s, context=self._context
+            ) as response:
                 body = response.read()
         except urllib.error.HTTPError as exc:
             raise _http_error(exc) from None

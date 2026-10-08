@@ -61,6 +61,16 @@ EXIT_FAIL: Final = 3
 EXIT_INCONCLUSIVE: Final = 4
 
 
+def fabric_ssl_context() -> Any:
+    """V0.7 G3: trust the fabric CA as ``compute`` does (see _fabric/api.py)."""
+    lab_dir = str(Path(__file__).resolve().parent)
+    if lab_dir not in sys.path:
+        sys.path.insert(0, lab_dir)
+    from _fabric.api import fabric_ssl_context as make
+
+    return make()
+
+
 def _token() -> str:
     from meshforge.cli.settings import CliSettings, resolve_token
 
@@ -71,12 +81,13 @@ def _token() -> str:
 
 
 def _client() -> httpx.Client:
-    url = os.environ.get("MESHFORGE_CLI__CONTROLLER_URL", "http://127.0.0.1:47110")
+    url = os.environ.get("MESHFORGE_CLI__CONTROLLER_URL", "https://127.0.0.1:47110")
     return httpx.Client(
         base_url=url.rstrip("/"),
         headers={"authorization": f"Bearer {_token()}"},
         timeout=30.0,
         trust_env=False,
+        verify=fabric_ssl_context(),
     )
 
 

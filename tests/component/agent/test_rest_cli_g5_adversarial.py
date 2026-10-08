@@ -187,6 +187,8 @@ async def test_compute_times_out_against_a_socket_that_accepts_and_never_answers
 ) -> None:
     with _accept_and_hang() as url:
         monkeypatch.setenv("MESHFORGE_CLI__CONTROLLER_URL", url)
+        # hostile stand-ins speak plain HTTP on loopback (V0.7 G3)
+        monkeypatch.setenv("MESHFORGE_SECURITY__MODE", "insecure-dev")
         monkeypatch.setenv("MESHFORGE_CLI__TIMEOUT_S", "1")
         runner = CliRunner()
         started = time.monotonic()
@@ -253,6 +255,8 @@ def _canned_server(
 
 async def _run_nodes(monkeypatch: pytest.MonkeyPatch, url: str) -> Any:
     monkeypatch.setenv("MESHFORGE_CLI__CONTROLLER_URL", url)
+    # hostile stand-ins speak plain HTTP on loopback (V0.7 G3)
+    monkeypatch.setenv("MESHFORGE_SECURITY__MODE", "insecure-dev")
     monkeypatch.setenv("MESHFORGE_CLI__TIMEOUT_S", "5")
     runner = CliRunner()
     return await asyncio.to_thread(runner.invoke, cli_app, ["nodes"])
@@ -282,6 +286,8 @@ async def test_compute_handles_a_truncated_body(
         status=200, body=b'{"nodes": [truncated here', truncate_by=5_000
     ) as url:
         monkeypatch.setenv("MESHFORGE_CLI__CONTROLLER_URL", url)
+        # hostile stand-ins speak plain HTTP on loopback (V0.7 G3)
+        monkeypatch.setenv("MESHFORGE_SECURITY__MODE", "insecure-dev")
         monkeypatch.setenv("MESHFORGE_CLI__TIMEOUT_S", "2")
         runner = CliRunner()
         result = await asyncio.to_thread(runner.invoke, cli_app, ["nodes"])
@@ -322,6 +328,8 @@ async def test_compute_handles_a_huge_body_without_hanging_or_crashing(
     huge = b"[" + b"1," * 2_000_000 + b"1]"  # ~8 MB, not a JSON object
     with _canned_server(status=200, body=huge) as url:
         monkeypatch.setenv("MESHFORGE_CLI__CONTROLLER_URL", url)
+        # hostile stand-ins speak plain HTTP on loopback (V0.7 G3)
+        monkeypatch.setenv("MESHFORGE_SECURITY__MODE", "insecure-dev")
         monkeypatch.setenv("MESHFORGE_CLI__TIMEOUT_S", "10")
         runner = CliRunner()
         started = time.monotonic()
@@ -372,6 +380,8 @@ async def test_compute_json_on_failure_is_still_one_parseable_line_or_absent(
     stderr as prose, stdout stays either empty or one clean JSON line."""
     with _canned_server(status=500, body=b"") as url:
         monkeypatch.setenv("MESHFORGE_CLI__CONTROLLER_URL", url)
+        # hostile stand-ins speak plain HTTP on loopback (V0.7 G3)
+        monkeypatch.setenv("MESHFORGE_SECURITY__MODE", "insecure-dev")
         monkeypatch.setenv("MESHFORGE_CLI__TIMEOUT_S", "5")
         runner = CliRunner()
         result = await asyncio.to_thread(runner.invoke, cli_app, ["nodes", "--json"])

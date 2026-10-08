@@ -42,6 +42,16 @@ LATENCY_BOUND_S: Final = 1.0
 CANCEL_BOUND_S: Final = 5.0
 
 
+def fabric_ssl_context() -> Any:
+    """V0.7 G3: trust the fabric CA as ``compute`` does (see _fabric/api.py)."""
+    lab_dir = str(Path(__file__).resolve().parent)
+    if lab_dir not in sys.path:
+        sys.path.insert(0, lab_dir)
+    from _fabric.api import fabric_ssl_context as make
+
+    return make()
+
+
 def _token() -> str:
     from meshforge.cli.settings import CliSettings, resolve_token
 
@@ -57,7 +67,7 @@ def _url(args: argparse.Namespace) -> str:
     return (
         args.controller
         or os.environ.get("MESHFORGE_CLI__CONTROLLER_URL")
-        or "http://127.0.0.1:47110"
+        or "https://127.0.0.1:47110"
     ).rstrip("/")
 
 
@@ -123,7 +133,9 @@ def cancel(args: argparse.Namespace) -> int:
     base = _url(args)
     headers = {"authorization": f"Bearer {_token()}"}
     try:
-        with httpx.Client(base_url=base, headers=headers, timeout=10) as client:
+        with httpx.Client(
+            base_url=base, headers=headers, timeout=10, verify=fabric_ssl_context()
+        ) as client:
             started = time.monotonic()
             resp = client.post(f"/v1/jobs/{args.job}/cancel")
             if resp.status_code >= 400:
