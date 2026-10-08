@@ -24,6 +24,7 @@ pytest.importorskip("sqlalchemy", reason="needs the controller extra")
 from mf_agent_harness import make_controller_settings
 from mf_controller_harness import tolerant_liveness
 from mf_exec_harness import ExecAgent, submit, wait_job
+from mf_fabric import client_ssl_context
 from mf_jobs_harness import token_of
 
 from meshforge.agent.execution.fetch import FetchError, fetch_bundle
@@ -157,6 +158,13 @@ async def test_a_non_zero_exit_is_user_error(
     assert job["attempts"][0]["exit_code"] == 3
 
 
+def _agent_transport() -> httpx.AsyncHTTPTransport:
+    """V0.7 G3: an agent presents its node certificate on /v1/blobs."""
+    return httpx.AsyncHTTPTransport(
+        verify=client_ssl_context(node_id="node_01J0HARNESS000000000000000")
+    )
+
+
 async def test_fetch_refuses_a_wrong_token_and_a_wrong_digest(
     runtime: ControllerRuntime, http: httpx.AsyncClient, tmp_path: Path
 ) -> None:
@@ -167,22 +175,34 @@ async def test_fetch_refuses_a_wrong_token_and_a_wrong_digest(
     assert (await http.put(f"/v1/blobs/{digest.hex}", content=blob)).status_code == 201
     base = f"https://127.0.0.1:{runtime.http_port}"
     with pytest.raises(FetchError) as wrong_token:
-        await fetch_bundle(base, digest, "not-a-token", tmp_path / "a.bundle")
+        await fetch_bundle(
+            base,
+            digest,
+            "not-a-token",
+            tmp_path / "a.bundle",
+            transport=_agent_transport(),
+        )
     assert wrong_token.value.failure_type is FailureType.UNAUTHORIZED
     assert runtime.fetch_tokens is not None
     token = runtime.fetch_tokens.mint("att_x", [digest], ttl_s=60).get_secret_value()
-    size = await fetch_bundle(base, digest, token, tmp_path / "b.bundle")
+    size = await fetch_bundle(
+        base, digest, token, tmp_path / "b.bundle", transport=_agent_transport()
+    )
     assert size == len(blob) and (tmp_path / "b.bundle").read_bytes() == blob
     runtime.fetch_tokens.revoke("att_x")
     with pytest.raises(FetchError) as expired:
-        await fetch_bundle(base, digest, token, tmp_path / "c.bundle")
+        await fetch_bundle(
+            base, digest, token, tmp_path / "c.bundle", transport=_agent_transport()
+        )
     assert expired.value.failure_type is FailureType.UNAUTHORIZED
     # a token for another digest cannot read this one
     other = runtime.fetch_tokens.mint(
         "att_y", [Digest("0" * 64)], ttl_s=60
     ).get_secret_value()
     with pytest.raises(FetchError):
-        await fetch_bundle(base, digest, other, tmp_path / "d.bundle")
+        await fetch_bundle(
+            base, digest, other, tmp_path / "d.bundle", transport=_agent_transport()
+        )
     assert not await asyncio.to_thread(lambda: list(tmp_path.glob("*.part")))
 
 
