@@ -210,6 +210,7 @@ class DispatchSteps:
                 ttl_s=ttl,
                 max_blobs=self._settings.max_output_blobs,
                 max_bytes=self._settings.max_output_bytes,
+                node_id=attempt.node_id,
             )
             spec.upload_token = grant.get_secret_value()
             spec.upload_max_bytes = self._settings.max_output_bytes
@@ -267,7 +268,10 @@ class DispatchSteps:
         self._tokens.revoke(attempt.id)
         ttl = self._token_ttl(job)
         token = self._tokens.mint(
-            attempt.id, fetch_scope(job, [i.tree_id for i in inputs]), ttl_s=ttl
+            attempt.id,
+            fetch_scope(job, [i.tree_id for i in inputs]),
+            ttl_s=ttl,
+            node_id=attempt.node_id,
         )
         return token, ttl
 
@@ -328,6 +332,7 @@ class DispatchSteps:
             ttl_s=self._token_ttl(job),
             max_blobs=self._settings.max_output_blobs,
             max_bytes=self._settings.max_output_bytes,
+            node_id=attempt.node_id,
         )
         sent = self._manager.send_command(
             attempt.node_id,

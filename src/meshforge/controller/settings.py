@@ -1220,9 +1220,15 @@ class ControllerSettings(MeshForgeSettings):
     def _insecure_dev_is_loopback_only(self) -> ControllerSettings:
         """D139: ``[security] mode = "insecure-dev"`` serves plaintext, so it is
         refused unless every listener (and the advertised URL) is loopback."""
-        if not self.security.insecure:
-            return self
         cfg = self.controller
+        if not self.security.insecure:
+            url = cfg.api.advertise_url
+            if url is not None and not url.startswith("https://"):
+                raise ValueError(
+                    "[controller.api] advertise_url must be https:// in [security] "
+                    f"mode = 'mtls' (the blob API is HTTPS), got {url}"
+                )
+            return self
         if cfg.allow_any_bind:
             raise ValueError(
                 "[security] mode = 'insecure-dev' cannot be combined with "

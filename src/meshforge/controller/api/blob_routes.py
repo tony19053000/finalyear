@@ -61,6 +61,7 @@ from meshforge.common.logging import get_logger
 from meshforge.controller.api.auth import (
     ApiAuth,
     FabricTokenRequired,
+    agent_credential_ok,
     bearer_token,
     get_auth,
     unauthorized,
@@ -138,7 +139,7 @@ async def _authorize(
     if auth.verifier is not None and auth.verifier.verify(token):
         return "fabric"
     grant = None if auth.fetch_tokens is None else auth.fetch_tokens.grant(token)
-    if grant is None:
+    if grant is None or not agent_credential_ok(request, auth, grant.node_id):
         raise unauthorized()
     if digest.hex in grant.digests:
         return "fetch"
@@ -157,6 +158,8 @@ def _authorize_upload(
         return None
     grants = auth.upload_grants
     if token is None or grants is None:
+        raise unauthorized()
+    if not agent_credential_ok(request, auth, grants.node_of(token)):
         raise unauthorized()
     try:
         return grants.begin(token, digest, declared)
@@ -195,6 +198,8 @@ def _authorize_parts(
         return None
     grants = auth.upload_grants
     if token is None or grants is None:
+        raise unauthorized()
+    if not agent_credential_ok(request, auth, grants.node_of(token)):
         raise unauthorized()
     try:
         if size is None:

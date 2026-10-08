@@ -635,6 +635,9 @@ class FetchGrant:
     """Digest hex strings this token may read."""
     expires_at: float
     """Controller monotonic time."""
+    node_id: str | None = None
+    """V0.7 G3 (D139): the node the token was sent to; in mtls mode only that
+    node's TLS client certificate may use it."""
 
 
 class FetchTokens:
@@ -666,6 +669,7 @@ class FetchTokens:
         digests: Iterable[Digest],
         *,
         ttl_s: float,
+        node_id: str | None = None,
     ) -> SecretStr:
         """A new token for ``attempt_id`` that may GET/HEAD exactly ``digests``."""
         if not 0 < ttl_s <= MAX_FETCH_TOKEN_TTL_S:
@@ -680,6 +684,7 @@ class FetchTokens:
             attempt_id=attempt_id,
             digests=allowed,
             expires_at=now + ttl_s,
+            node_id=node_id,
         )
         while len(self._grants) > self._capacity:
             self._grants.popitem(last=False)
@@ -729,6 +734,7 @@ class FetchTokens:
                     attempt_id=grant.attempt_id,
                     digests=grant.digests,
                     expires_at=deadline,
+                    node_id=grant.node_id,
                 )
                 changed += 1
         return changed

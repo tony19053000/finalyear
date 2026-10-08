@@ -88,6 +88,9 @@ class UploadGrant:
     pending: dict[str, int] = field(default_factory=dict)
     """Digest hex -> bytes reserved by an upload in flight."""
     closed: bool = False
+    node_id: str | None = None
+    """V0.7 G3 (D139): the node the grant was sent to; in mtls mode only that
+    node's TLS client certificate may use it."""
 
     @property
     def used_bytes(self) -> int:
@@ -141,7 +144,13 @@ class UploadGrants:
     # ------------------------------------------------------------- lifecycle
 
     def mint(
-        self, attempt_id: str, *, ttl_s: float, max_blobs: int, max_bytes: int
+        self,
+        attempt_id: str,
+        *,
+        ttl_s: float,
+        max_blobs: int,
+        max_bytes: int,
+        node_id: str | None = None,
     ) -> SecretStr:
         """A new grant for ``attempt_id`` (replacing any earlier one of it)."""
         if not 0 < ttl_s <= _MAX_TTL_S:
@@ -166,6 +175,7 @@ class UploadGrants:
             max_bytes=max_bytes,
             expires_at=now + ttl_s,
             uploaded=carried,
+            node_id=node_id,
         )
         self._by_attempt[attempt_id] = key
         while len(self._grants) > self._capacity:
@@ -212,6 +222,13 @@ class UploadGrants:
         if grant.closed:
             raise GrantRefusal("closed", "the attempt already ended")
         return key, grant
+
+    def node_of(self, token: str | None) -> str | None:
+        """The node a known grant was minted for (None: unknown / not bound)."""
+        if not token:
+            return None
+        grant = self._grants.get(self._key(token))
+        return None if grant is None else grant.node_id
 
     def check(self, token: str) -> str:
         """The attempt of a usable grant (raises :class:`GrantRefusal`)."""

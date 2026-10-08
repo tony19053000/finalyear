@@ -77,7 +77,7 @@ def test_controller_insecure_dev_on_loopback_is_accepted() -> None:
             {"grpc_bind": "0.0.0.0:47100", "allow_any_bind": True},
             "allow_any_bind",
         ),
-        ({"api": {"advertise_url": "http://192.168.1.5:47110"}}, "advertise_url"),
+        ({"api": {"advertise_url": "https://192.168.1.5:47110"}}, "advertise_url"),
     ],
 )
 def test_controller_insecure_dev_refuses_anything_reachable(

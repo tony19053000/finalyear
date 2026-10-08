@@ -52,8 +52,12 @@ class PeerSources:
         *,
         max_sources: int,
         index_live: Callable[[str, str], bool],
+        scheme: str = "https",
     ) -> None:
+        """``scheme``: ``https`` (V0.7 G3: peers serve TLS with their node
+        certificate) or ``http`` in ``insecure-dev``."""
         self._manager = manager
+        self._scheme = scheme
         self._index_live = index_live
         self._cache = cache
         self._issuer = issuer
@@ -113,7 +117,9 @@ class PeerSources:
             )
             sources.append(
                 agent_pb2.BlobSource(
-                    url=f"http://{live.peer_endpoint}", token=token, node_id=node_id
+                    url=f"{self._scheme}://{live.peer_endpoint}",
+                    token=token,
+                    node_id=node_id,
                 )
             )
         self.listed += len(sources)

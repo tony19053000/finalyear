@@ -81,6 +81,7 @@ from meshforge.controller.fabric_token import (
 )
 from meshforge.controller.gc import BlobScrubber, ControllerGc
 from meshforge.controller.http import create_http_app
+from meshforge.controller.http_tls import NodeCertPolicy, peer_cert_protocol
 from meshforge.controller.jobs.dispatcher import Dispatcher
 from meshforge.controller.jobs.env_health import KnownBadEnvs
 from meshforge.controller.jobs.execution_store import ExecutionStore
@@ -416,6 +417,7 @@ class ControllerRuntime:
                 self.peer_tokens,
                 max_sources=cfg.jobs.max_peer_sources,
                 index_live=self.cache_index.is_live,
+                scheme="http" if self.settings.security.insecure else "https",
             ),
             inputs=self.inputs,
             known_bad_envs=self.known_bad_envs,
@@ -491,6 +493,11 @@ class ControllerRuntime:
                     verifier=self.token_verifier,
                     fetch_tokens=self.fetch_tokens,
                     upload_grants=self.upload_grants,
+                    node_certs=(
+                        NodeCertPolicy(fabric_id=self.fabric.fabric_id)
+                        if self.fabric is not None and self.server_tls is not None
+                        else None
+                    ),
                 ),
                 blobs=blobs,
                 cache=self.cache_index.store,
@@ -518,6 +525,7 @@ class ControllerRuntime:
             access_log=False,
             lifespan="off",
             timeout_graceful_shutdown=int(cfg.shutdown_drain_s) or 1,
+            **self._https_options(),
         )
         self._http_server = _NoSignalUvicorn(http_config)
         self._spawn(self._http_server.serve(sockets=[self._http_sock]), "http-server")
@@ -548,6 +556,21 @@ class ControllerRuntime:
             heartbeat_interval_s=cfg.liveness.heartbeat_interval_s,
             lease_s=cfg.liveness.to_config().offline_after_s,
         )
+
+    def _https_options(self) -> dict[str, Any]:
+        """V0.7 G3 (D139): HTTPS on the REST + blob port - TLS 1.3 only, the
+        renewable server certificate, client certificates optional (agents
+        present their node certificate, the CLI none); the protocol class
+        hands a presented certificate to the API. Plain HTTP only in
+        ``insecure-dev`` (loopback)."""
+        tls = self.server_tls
+        if self.settings.security.insecure or tls is None:
+            return {}
+        context = tls.ssl_context(client_certs="optional")
+        return {
+            "ssl_context_factory": lambda _config, _default: context,
+            "http": peer_cert_protocol(),
+        }
 
     def _session_server(self, manager: SessionManager) -> tuple[int, grpc.aio.Server]:
         """The ``AgentControl`` server: mutual TLS (V0.7 G3, D137) - the client

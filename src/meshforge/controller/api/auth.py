@@ -26,12 +26,16 @@ from fastapi import Depends, Request
 from starlette.requests import HTTPConnection
 
 from meshforge.common.errors import FailureType
+from meshforge.common.logging import get_logger
 from meshforge.controller.api.errors import ApiError
 
 if TYPE_CHECKING:
     from meshforge.controller.blobs import FetchTokens
     from meshforge.controller.fabric_token import FabricTokenVerifier
+    from meshforge.controller.http_tls import NodeCertPolicy
     from meshforge.controller.upload_grants import UploadGrants
+
+log = get_logger(__name__)
 
 __all__ = [
     "AUTH_STATE_KEY",
@@ -40,6 +44,7 @@ __all__ = [
     "SAFE_METHODS",
     "ApiAuth",
     "FabricTokenRequired",
+    "agent_credential_ok",
     "bearer_token",
     "fabric_token_ok",
     "get_auth",
@@ -69,6 +74,36 @@ class ApiAuth:
     """Per-attempt blob tokens (D48, download-only); accepted on ``/v1/blobs``."""
     upload_grants: UploadGrants | None = None
     """Per-attempt upload grants (D73); accepted on ``PUT /v1/blobs`` only."""
+    node_certs: NodeCertPolicy | None = None
+    """V0.7 G3 (D139, mtls mode): a fetch token or upload grant is accepted
+    only with the TLS client certificate of the node it was minted for (two
+    locks); ``None`` (insecure-dev) = the token alone."""
+
+
+def agent_credential_ok(
+    conn: HTTPConnection, auth: ApiAuth, node_id: str | None
+) -> bool:
+    """D139: in mtls mode the request carries a valid node certificate, and
+    it is the certificate of ``node_id`` (the attempt's node) when known."""
+    if auth.node_certs is None:
+        return True
+    from meshforge.controller.http_tls import request_node_cert
+    from meshforge.controller.session.peer_cert import PeerCertError
+
+    try:
+        cert = request_node_cert(conn, auth.node_certs)
+    except PeerCertError as error:
+        log.warning("controller.api.node_cert_refused", reason=error.reason.value)
+        return False
+    if node_id is not None and cert.node_id != node_id:
+        log.warning(
+            "controller.api.node_cert_refused",
+            reason="other_node",
+            node_id=cert.node_id,
+            token_node_id=node_id,
+        )
+        return False
+    return True
 
 
 def get_auth(request: HTTPConnection) -> ApiAuth:
