@@ -30,7 +30,6 @@ from meshforge.controller.enrollment.listener import (
     SourceRateLimiter,
 )
 from meshforge.controller.enrollment.service import _TOKEN_MESSAGES
-from meshforge.controller.fabric_ca import ServerCert, ServerCertAction
 
 pytestmark = pytest.mark.unit
 
@@ -67,9 +66,16 @@ async def _start(
         monkeypatch.setattr(listener_mod.grpc.aio, "server", spy)
     ca = pki.create_ca(new_fabric_id())
     issued = pki.issue_server_cert(ca, hosts=["127.0.0.1"])
-    cert = ServerCert(issued=issued, path=None, action=ServerCertAction.ISSUED)  # type: ignore[arg-type]
+    credentials = grpc.ssl_server_credentials(
+        [
+            (
+                pki.key_to_pem(issued.key),
+                pki.cert_to_pem(issued.cert) + pki.cert_to_pem(ca.cert),
+            )
+        ]
+    )
     lis = EnrollListener(servicer)
-    await lis.start(parse_bind("127.0.0.1:0"), cert, pki.cert_to_pem(ca.cert))
+    await lis.start(parse_bind("127.0.0.1:0"), credentials)
     return lis, ca, seen
 
 
