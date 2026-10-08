@@ -22,6 +22,7 @@ listener.
 
 from __future__ import annotations
 
+import asyncio
 import collections
 import ipaddress
 import re
@@ -44,6 +45,8 @@ from meshforge.controller.enrollment.service import (
 from meshforge.controller.fabric_ca import ServerCert
 
 __all__ = [
+    "CONNECTION_OPTIONS",
+    "ENROLL_DEADLINE_S",
     "MAX_CONCURRENT_RPCS",
     "MAX_REQUEST_BYTES",
     "REASON_METADATA_KEY",
@@ -62,6 +65,18 @@ REASON_METADATA_KEY: Final = "meshforge-reason"
 MAX_REQUEST_BYTES: Final = 16 * 1024
 """A 16-byte token + a <= 4096-byte CSR + framing; anything bigger is refused."""
 MAX_CONCURRENT_RPCS: Final = 16
+ENROLL_DEADLINE_S: Final = 10.0
+"""Server-side bound on one ``Enroll`` (D153 item 8): past it the call is
+refused ``UNAVAILABLE`` / ``unavailable`` and its transaction rolled back, so
+the code is not spent (whatever deadline the client set, or none)."""
+CONNECTION_OPTIONS: Final[tuple[tuple[str, int], ...]] = (
+    ("grpc.max_connection_idle_ms", 30_000),
+    ("grpc.max_connection_age_ms", 120_000),
+    ("grpc.max_connection_age_grace_ms", 15_000),
+)
+"""D153 item 8: an idle connection is closed after 30 s and any connection
+after 2 min (+15 s grace for a call in flight), so unauthenticated clients
+cannot hold the listener's sockets open."""
 _PEER_RE: Final = re.compile(
     r"ipv4:(?P<v4>[0-9.]+):\d+|ipv6:\[(?P<v6>[0-9a-zA-Z:.%_-]+)\]:\d+"
 )
@@ -179,9 +194,16 @@ class SourceRateLimiter:
 class EnrollmentServicer(enroll_pb2_grpc.EnrollmentServicer):
     """``Enroll``: rate limit -> :meth:`Enroller.enroll` -> typed status."""
 
-    def __init__(self, enroller: Enroller, limiter: SourceRateLimiter) -> None:
+    def __init__(
+        self,
+        enroller: Enroller,
+        limiter: SourceRateLimiter,
+        *,
+        deadline_s: float = ENROLL_DEADLINE_S,
+    ) -> None:
         self._enroller = enroller
         self._limiter = limiter
+        self._deadline_s = deadline_s
 
     async def Enroll(  # noqa: N802 - gRPC method name
         self,
@@ -200,9 +222,23 @@ class EnrollmentServicer(enroll_pb2_grpc.EnrollmentServicer):
                 "too many enrolment attempts from this address; wait a minute",
             )
         try:
-            result = await self._enroller.enroll(
-                bytes(request.join_token), bytes(request.csr_pem), source=peer
+            result = await asyncio.wait_for(
+                self._enroller.enroll(
+                    bytes(request.join_token), bytes(request.csr_pem), source=peer
+                ),
+                self._deadline_s,
             )
+        except TimeoutError:
+            log.warning(
+                "controller.enroll.deadline", source=ip, deadline_s=self._deadline_s
+            )
+            await _refuse(
+                context,
+                EnrollReason.UNAVAILABLE,
+                "the enrolment took too long and was abandoned (the code was not "
+                "used); retry",
+            )
+            raise AssertionError("unreachable: abort raises") from None
         except EnrollRefused as refused:
             log.warning(
                 "controller.enroll.refused",
@@ -247,6 +283,7 @@ class EnrollListener:
             options=[
                 ("grpc.max_receive_message_length", MAX_REQUEST_BYTES),
                 ("grpc.max_send_message_length", 64 * 1024),
+                *CONNECTION_OPTIONS,
             ],
             maximum_concurrent_rpcs=MAX_CONCURRENT_RPCS,
         )

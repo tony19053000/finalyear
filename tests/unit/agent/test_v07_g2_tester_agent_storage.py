@@ -307,41 +307,59 @@ _CRASH = textwrap.dedent(
     from meshforge.common import pki
     from meshforge.common.ids import new_fabric_id
 
-    idir, mode, at = Path(sys.argv[1]), sys.argv[2], int(sys.argv[3])
+    idir, mode, step = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
     identity = load_or_create(idir)
     ca = pki.create_ca(new_fabric_id())
     csr = pki.build_csr(identity.private_key, fabric_id=ca.fabric_id, node_id=identity.node_id)
     cert = pki.issue_node_cert(ca, csr, node_id=identity.node_id, fabric_id=ca.fabric_id)
-    real = pki.write_cert
-    calls = []
-    def dying(path, c, **kw):
-        calls.append(path.name)
-        if len(calls) == at:
-            os._exit(9)          # power cut right before this file is written
-        real(path, c, **kw)
-        if len(calls) == at - 1 and mode == "after":
-            pass
-    pki.write_cert = dying
+    seen = []
+
+    def point(name):
+        seen.append(name)
+        if name == step:
+            os._exit(9)          # power cut right before this step
+
+    real_stage, real_replace, real_unlink = enrollment._stage, os.replace, Path.unlink
+
+    def stage(target, data, staged):
+        point(f"stage{sum(n.startswith('stage') for n in seen) + 1}")
+        return real_stage(target, data, staged)
+
+    def replace(src, dst):
+        if Path(dst).parent == idir:
+            point(f"replace{sum(n.startswith('replace') for n in seen) + 1}")
+        return real_replace(src, dst)
+
+    def unlink(self, missing_ok=False):
+        if self == idir / "node.crt":
+            point("unlink")
+        return real_unlink(self, missing_ok=missing_ok)
+
+    enrollment._stage = stage
+    os.replace = replace
+    Path.unlink = unlink
     enrollment.store(identity, cert, ca.cert, force=(mode == "force"))
     """
 )
+_FRESH_STEPS = ["stage1", "stage2", "replace1", "replace2"]
+_FORCE_STEPS = ["stage1", "stage2", "unlink", "replace1", "replace2"]
 
 
-def _run_crash(idir: Path, mode: str, at: int) -> subprocess.CompletedProcess[bytes]:
+def _run_crash(idir: Path, mode: str, step: str) -> subprocess.CompletedProcess[bytes]:
     return subprocess.run(
-        [sys.executable, "-c", _CRASH, str(idir), mode, str(at)],
+        [sys.executable, "-c", _CRASH, str(idir), mode, step],
         capture_output=True,
         timeout=60,
         check=False,
     )
 
 
-@pytest.mark.parametrize("at", [1, 2])
+@pytest.mark.parametrize("step", _FRESH_STEPS)
 def test_process_death_during_a_fresh_join_never_looks_enrolled(
-    tmp_path: Path, at: int
+    tmp_path: Path, step: str
 ) -> None:
     idir = tmp_path / "identity"
-    done = _run_crash(idir, "fresh", at)
+    done = _run_crash(idir, "fresh", step)
     assert done.returncode == 9, done.stderr
     identity = load_or_create(idir)
     assert enrollment.load(identity) is None  # not enrolled, not "invalid"
@@ -352,16 +370,25 @@ def test_process_death_during_a_fresh_join_never_looks_enrolled(
     assert enrollment.load(identity) is not None
 
 
-@pytest.mark.parametrize("at", [1, 2])
+@pytest.mark.parametrize("step", _FORCE_STEPS)
 def test_process_death_during_force_rejoin_never_pairs_old_cert_with_new_ca(
-    tmp_path: Path, at: int
+    tmp_path: Path, step: str
 ) -> None:
+    """D153 item 2: dying while the new pair is being *written* keeps the old
+    enrolment (it still loads, unchanged); dying while it is being *swapped in*
+    leaves "not enrolled". Never an old node.crt next to the new CA."""
     idir = tmp_path / "identity"
     identity = load_or_create(idir)
     _enrol(identity)
-    done = _run_crash(idir, "force", at)
+    old = enrollment.load(identity)
+    assert old is not None
+    done = _run_crash(idir, "force", step)
     assert done.returncode == 9, done.stderr
-    # Either not enrolled at all, or (never) a node.crt that fails to load.
-    state = enrollment.load(identity)
-    assert state is None, "a half-finished --force must leave 'not enrolled'"
-    assert enrollment.is_enrolled(idir) is False
+    state = enrollment.load(identity)  # never raises invalid_enrollment
+    if step.startswith("stage") or step == "unlink":  # crash *before* the step
+        assert state is not None
+        assert state.cert_fingerprint == old.cert_fingerprint
+        assert state.ca_fingerprint == old.ca_fingerprint
+    else:
+        assert state is None, "a half-swapped --force must leave 'not enrolled'"
+        assert enrollment.is_enrolled(idir) is False

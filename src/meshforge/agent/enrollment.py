@@ -22,9 +22,9 @@ CA is pinned**:
    CA, carry **our** public key, name **our** ``node_id`` in **our** fabric, and
    be valid now; the returned CA must be the pinned one;
 7. :func:`store` - ``ca.crt`` then ``node.crt`` beside ``node.key``, under the
-   identity lock, atomic, owner-only (``pki.write_cert``: ``0600`` / Windows ACL).
-   With ``--force`` the old ``node.crt`` is deleted first, so a crash part-way
-   leaves "not enrolled", never a certificate next to the wrong CA.
+   identity lock, owner-only (``0600`` / Windows ACL): both are staged in full
+   first, then swapped in with ``os.replace``, so a failed (``--force``) re-join
+   keeps the old enrolment (D153 item 2).
 
 :func:`load` reads an enrolment back strictly (``identity show``; G3 uses it for
 mTLS): regular owner-only files (``private_files.read_private``), the pair must
@@ -36,7 +36,10 @@ ever logs or prints the code or the token.
 
 from __future__ import annotations
 
+import _ssl  # 3.12: get_unverified_chain() yields _ssl.Certificate (D153 item 5)
 import contextlib
+import os
+import secrets
 import socket
 import ssl
 from dataclasses import dataclass, field
@@ -60,6 +63,7 @@ from meshforge.common import join_code, pki
 from meshforge.common.errors import ExitCode, FailureType, MeshForgeError
 from meshforge.common.ids import FabricId
 from meshforge.common.logging import get_logger
+from meshforge.common.private_files import PrivateFileError, protect_private
 from meshforge.common.proto.meshforge.v1 import enroll_pb2, enroll_pb2_grpc
 
 __all__ = [
@@ -179,8 +183,6 @@ def _chain_der(sock: ssl.SSLSocket) -> list[bytes]:
         if isinstance(item, bytes):
             out.append(item)
         else:  # 3.12: _ssl.Certificate
-            import _ssl
-
             out.append(item.public_bytes(_ssl.ENCODING_DER))
     return out
 
@@ -250,6 +252,12 @@ def pin_ca(presented: list[x509.Certificate], pin: str) -> x509.Certificate:
                 pki.verify_issued_by(presented[0], cert)
                 pki.check_validity(cert)
             except pki.PkiError:
+                # The pinned CA is present but did not issue the server's own
+                # certificate (or has expired): a controller replaying the real
+                # CA certificate beside an attacker's server cert. Stop - a
+                # second certificate with the same 128-bit pin cannot exist
+                # short of a SHA-256 second preimage, so there is nothing more
+                # to look for (D153 item 4).
                 break
             return cert
     raise JoinError(
@@ -402,33 +410,76 @@ def store(
     force: bool,
     lock_timeout_s: float = DEFAULT_LOCK_TIMEOUT_S,
 ) -> Path:
-    """Write ``ca.crt`` then ``node.crt`` beside ``node.key`` (see module doc)."""
+    """Write ``ca.crt`` then ``node.crt`` beside ``node.key`` (see module doc).
+
+    Both new files are first written **in full** to private temporary files
+    beside the targets (``0600`` / owner-only ACL, fsynced); a failure there
+    removes them and leaves the old enrolment exactly as it was (D153 item 2).
+    Only then is the old ``node.crt`` removed and the new pair swapped in with
+    ``os.replace`` (``ca.crt`` first) and the folder entry fsynced. An
+    interruption inside that last step leaves "not enrolled" (``join`` again),
+    never an old certificate next to a new CA.
+    """
     node_crt, ca_crt = _paths(identity.path)
     with locked_identity(identity.path, lock_timeout_s=lock_timeout_s):
-        if is_enrolled(identity.path):
-            if not force:
-                raise JoinError(
-                    JoinReason.ALREADY_ENROLLED,
-                    "this laptop is already enrolled (meshforge-agent identity "
-                    "show); use --force to replace the enrolment",
-                    failure_type=FailureType.CONFLICT,
-                )
-            try:
-                node_crt.unlink()
-            except OSError as exc:
-                raise JoinError(
-                    JoinReason.STORAGE,
-                    f"cannot remove the old {node_crt}: {exc.strerror or exc}",
-                    failure_type=FailureType.CONFIG_ERROR,
-                ) from None
-        try:
-            pki.write_cert(ca_crt, ca_cert)
-            pki.write_cert(node_crt, node_cert)
-        except pki.PkiFileError as exc:
+        if is_enrolled(identity.path) and not force:
             raise JoinError(
-                JoinReason.STORAGE, exc.message, failure_type=FailureType.CONFIG_ERROR
+                JoinReason.ALREADY_ENROLLED,
+                "this laptop is already enrolled (meshforge-agent identity "
+                "show); use --force to replace the enrolment",
+                failure_type=FailureType.CONFLICT,
+            )
+        staged: list[Path] = []
+        try:
+            ca_tmp = _stage(ca_crt, pki.cert_to_pem(ca_cert), staged)
+            node_tmp = _stage(node_crt, pki.cert_to_pem(node_cert), staged)
+            # Everything that can realistically fail has happened; from here on
+            # an interruption leaves "not enrolled", never old+new mixed.
+            if is_enrolled(identity.path):
+                node_crt.unlink()
+            os.replace(ca_tmp, ca_crt)
+            os.replace(node_tmp, node_crt)
+            staged.clear()
+            _fsync_dir(identity.path)
+        except (OSError, PrivateFileError) as exc:
+            message = (
+                exc.message
+                if isinstance(exc, PrivateFileError)
+                else f"cannot write the enrolment in {identity.path}: "
+                f"{exc.strerror or exc}"
+            )
+            raise JoinError(
+                JoinReason.STORAGE, message, failure_type=FailureType.CONFIG_ERROR
             ) from None
+        finally:
+            for leftover in staged:
+                with contextlib.suppress(OSError):
+                    leftover.unlink()
     return node_crt
+
+
+def _stage(target: Path, data: bytes, staged: list[Path]) -> Path:
+    """``data`` in a new private temporary file beside ``target`` (fsynced)."""
+    tmp = target.with_name(f".{target.name}.{secrets.token_hex(4)}.tmp")
+    fd = os.open(tmp, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    staged.append(tmp)
+    with os.fdopen(fd, "wb") as fh:
+        fh.write(data)
+        fh.flush()
+        os.fsync(fh.fileno())
+    protect_private(tmp)
+    return tmp
+
+
+def _fsync_dir(directory: Path) -> None:
+    """Persist the renames (POSIX; Windows cannot open a folder for fsync)."""
+    if os.name != "posix":
+        return
+    fd = os.open(directory, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
 
 
 def _read_pair(

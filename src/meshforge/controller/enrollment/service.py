@@ -334,7 +334,8 @@ class Enroller:
 _TOKEN_MESSAGES: Final = {
     "token_unknown": "this join code is not known to the controller (a code from "
     "another fabric, or mistyped in a way the checksum missed)",
-    "token_used": "this join code was already used; ask for a new one",
+    "token_used": "this join code was already used; if your last join timed out "
+    "or was interrupted, the code may have been spent on it - ask for a new code",
     "token_revoked": "this join code was revoked; ask for a new one",
     "token_expired": "this join code has expired; ask for a new one",
 }

@@ -61,6 +61,7 @@ from meshforge.common.errors import IdentityError, InvalidIdError
 from meshforge.common.filelock import locked
 from meshforge.common.ids import NodeId, new_node_id, validate_node_id
 from meshforge.common.logging import get_logger
+from meshforge.common.private_files import WINDOWS_TOOL_TIMEOUT_S
 
 __all__ = [
     "CA_CERT_FILE_NAME",
@@ -527,8 +528,18 @@ def _protect_windows(path: Path) -> None:
     ]
     try:
         result = subprocess.run(  # noqa: S603 - fixed argv, values are a path and a SID
-            argv, capture_output=True, text=True, check=False
+            argv,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=WINDOWS_TOOL_TIMEOUT_S,
         )
+    except subprocess.TimeoutExpired:
+        raise IdentityError(
+            f"icacls did not finish within {WINDOWS_TOOL_TIMEOUT_S:.0f} s",
+            path,
+            "retry; if it keeps hanging, check the machine's domain connectivity",
+        ) from None
     except OSError as exc:
         raise IdentityError(
             f"icacls could not be run: {exc}", path, "icacls.exe is part of Windows"
@@ -549,7 +560,14 @@ def _current_user_sid() -> str:
             capture_output=True,
             text=True,
             check=False,
+            timeout=WINDOWS_TOOL_TIMEOUT_S,
         )
+    except subprocess.TimeoutExpired:
+        raise IdentityError(
+            f"whoami did not finish within {WINDOWS_TOOL_TIMEOUT_S:.0f} s",
+            Path("whoami"),
+            "retry; if it keeps hanging, check the machine's domain connectivity",
+        ) from None
     except OSError as exc:
         raise IdentityError(
             f"whoami could not be run: {exc}",

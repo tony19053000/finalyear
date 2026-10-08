@@ -33,10 +33,12 @@ import subprocess
 import sys
 from enum import StrEnum
 from pathlib import Path
+from typing import Final
 
 from meshforge.common.errors import ExitCode, FailureType, MeshForgeError
 
 __all__ = [
+    "WINDOWS_TOOL_TIMEOUT_S",
     "PrivateFileError",
     "PrivateFileReason",
     "private_problem",
@@ -45,6 +47,10 @@ __all__ = [
     "read_private",
     "stat_problem",
 ]
+
+WINDOWS_TOOL_TIMEOUT_S: Final = 30.0
+"""``icacls`` / ``whoami`` that hang (a stuck domain lookup) fail typed after
+this, instead of hanging the agent or controller start (D153 item 3)."""
 
 
 class PrivateFileReason(StrEnum):
@@ -199,8 +205,17 @@ def _protect_windows(path: Path) -> None:  # pragma: no cover - Windows only
     argv = ["icacls", str(path), "/inheritance:r", "/grant:r", f"*{sid}:(F)"]
     try:
         result = subprocess.run(  # noqa: S603 - fixed argv: a path and a SID
-            argv, capture_output=True, text=True, check=False
+            argv,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=WINDOWS_TOOL_TIMEOUT_S,
         )
+    except subprocess.TimeoutExpired:
+        raise PrivateFileError(
+            f"icacls did not finish within {WINDOWS_TOOL_TIMEOUT_S:.0f} s for {path}",
+            details={"path": str(path)},
+        ) from None
     except OSError as exc:
         raise PrivateFileError(
             f"icacls could not be run for {path}: {exc}",
@@ -221,7 +236,12 @@ def _current_user_sid() -> str:  # pragma: no cover - Windows only
             capture_output=True,
             text=True,
             check=False,
+            timeout=WINDOWS_TOOL_TIMEOUT_S,
         )
+    except subprocess.TimeoutExpired:
+        raise PrivateFileError(
+            f"whoami did not finish within {WINDOWS_TOOL_TIMEOUT_S:.0f} s"
+        ) from None
     except OSError as exc:
         raise PrivateFileError(f"whoami could not be run: {exc}") from exc
     rows = list(csv.reader(result.stdout.splitlines()))
