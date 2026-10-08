@@ -60,6 +60,7 @@ __all__ = [
     "node_material",
     "seed_ca_dir",
     "seed_controller_fabric",
+    "server_credentials",
     "session_channel",
 ]
 
@@ -220,6 +221,24 @@ def identity_channel(target: str, identity: NodeIdentity) -> grpc.aio.Channel:
 
     tls = load_session_tls(identity)
     return grpc.aio.secure_channel(target, tls.credentials, options=channel_options())
+
+
+@functools.cache
+def _server_material() -> tuple[bytes, bytes]:
+    ca = fabric_ca()
+    issued = pki.issue_server_cert(ca, hosts=["127.0.0.1"])
+    return pki.key_to_pem(issued.key), pki.cert_to_pem(issued.cert) + ca_pem()
+
+
+def server_credentials(*, require_client_auth: bool = True) -> grpc.ServerCredentials:
+    """gRPC server credentials of a controller of the test fabric (for scripted
+    stand-in controllers in agent tests)."""
+    key_pem, chain = _server_material()
+    return grpc.ssl_server_credentials(
+        [(key_pem, chain)],
+        root_certificates=ca_pem(),
+        require_client_auth=require_client_auth,
+    )
 
 
 class NodeChannels:

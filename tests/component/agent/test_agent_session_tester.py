@@ -22,7 +22,8 @@ from mf_session_client import poll_until
 
 pytest.importorskip("sqlalchemy", reason="needs the controller extra")
 
-from meshforge.agent.identity import load_or_create
+from mf_fabric import enroll_agent, server_credentials
+
 from meshforge.agent.session.client import AgentSessionClient
 from meshforge.agent.session.state import AgentState
 from meshforge.agent.settings import AgentSettings
@@ -56,7 +57,8 @@ class HostileServer:
         agent_pb2_grpc.add_AgentControlServicer_to_server(
             _ScriptedServicer(handler), self._server
         )
-        self.port = self._server.add_insecure_port("127.0.0.1:0")
+        # V0.7 G3: a stand-in controller of the test fabric (mutual TLS).
+        self.port = self._server.add_secure_port("127.0.0.1:0", server_credentials())
 
     @property
     def target(self) -> str:
@@ -90,7 +92,7 @@ def make_client(
     }
     agent.update(agent_overrides)
     settings = AgentSettings.load(data_dir=tmp_path / "data", agent=agent)
-    identity = load_or_create(settings.identity_dir)
+    identity = enroll_agent(settings)
     return AgentSessionClient(settings, identity)
 
 
