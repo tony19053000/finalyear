@@ -238,6 +238,8 @@ class Rejected:
     reject_code: agent_pb2.HelloAck.RejectCode.ValueType
     reason: str
     abort_status: grpc.StatusCode | None = None
+    reason_code: str | None = None
+    """V0.7 G3: sent as trailing metadata ``meshforge-reason`` with an abort."""
 
 
 type AdmitResult = Accepted | Rejected

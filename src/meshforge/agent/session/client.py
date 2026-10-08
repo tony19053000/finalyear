@@ -104,6 +104,7 @@ from meshforge.agent.session.policy import (
 )
 from meshforge.agent.session.replay import REPORT_PAYLOADS, RecentIds, ReplayRing
 from meshforge.agent.session.state import AgentEvent, AgentState, next_state
+from meshforge.agent.session.tls import channel_options, load_session_tls
 from meshforge.agent.settings import AgentSettings
 from meshforge.common.ids import new_command_id
 from meshforge.common.logging import get_logger
@@ -381,6 +382,17 @@ class AgentSessionClient:
             discovery=self.settings.agent.uses_discovery,
         )
         try:
+            if not self.settings.security.insecure:
+                # Fail fast (before any discovery) with the exact remedy when this
+                # laptop is not enrolled or its certificate is not valid now.
+                tls = await asyncio.to_thread(load_session_tls, self.identity)
+                log.info(
+                    "agent.session.tls",
+                    node_id=self.node_id,
+                    fabric_id=tls.fabric_id,
+                    cert_serial=tls.serial,
+                    cert_not_after=tls.not_after.isoformat(),
+                )
             while not self._stop.is_set():
                 self.stats.cycles += 1
                 await self._cycle()
@@ -457,7 +469,7 @@ class AgentSessionClient:
             keepalive_time_ms=cfg.keepalive.time_ms,
             keepalive_timeout_ms=cfg.keepalive.timeout_ms,
         )
-        channel = grpc.aio.insecure_channel(target, options=options)
+        channel = await self._channel(target, options)
         try:
             call = agent_pb2_grpc.AgentControlStub(channel).Session()
             self._call = call
@@ -524,6 +536,19 @@ class AgentSessionClient:
         finally:
             self._call = None
             await channel.close()
+
+    async def _channel(
+        self, target: str, options: list[tuple[str, int]]
+    ) -> grpc.aio.Channel:
+        """Mutual TLS with this laptop's enrolment (V0.7 G3, D137), re-read at
+        every attempt so a re-join is picked up by the next connection;
+        plaintext only in ``insecure-dev`` (loopback only, D139)."""
+        if self.settings.security.insecure:
+            return grpc.aio.insecure_channel(target, options=options)
+        tls = await asyncio.to_thread(load_session_tls, self.identity)
+        return grpc.aio.secure_channel(
+            target, tls.credentials, options=[*options, *channel_options()]
+        )
 
     async def _read_first(
         self, call: Any

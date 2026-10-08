@@ -55,7 +55,9 @@ __all__ = [
     "enroll_identity",
     "fabric_ca",
     "grpc_channel",
+    "identity_channel",
     "node_material",
+    "seed_ca_dir",
     "seed_controller_fabric",
     "session_channel",
 ]
@@ -77,7 +79,12 @@ def ca_pem() -> bytes:
 
 def seed_controller_fabric(settings: ControllerSettings) -> None:
     """Install :func:`fabric_ca` as ``settings``' fabric CA (idempotent)."""
-    ca_dir = settings.ca_dir
+    seed_ca_dir(settings.ca_dir)
+
+
+def seed_ca_dir(ca_dir: Path) -> None:
+    """Install :func:`fabric_ca` at ``ca_dir`` (``<data>/controller/ca``),
+    unless a CA is already there."""
     if fabric_ca_mod.fabric_present(ca_dir):
         return
     ca = fabric_ca()
@@ -126,7 +133,19 @@ def enroll_agent(settings: AgentSettings) -> NodeIdentity:
 
 @functools.cache
 def node_material(node_id: str) -> tuple[bytes, bytes]:
-    """``(key_pem, cert_pem)`` of a fresh node key certified for ``node_id``."""
+    """``(key_pem, cert_pem)`` of a fresh node key certified for ``node_id``.
+
+    A malformed ``node_id`` (a test of the controller's Hello validation)
+    gets the certificate of a fresh, valid node instead: the CA cannot certify
+    garbage, and the controller must refuse the Hello's claim either way.
+    """
+    from meshforge.common.errors import InvalidIdError
+    from meshforge.common.ids import new_node_id, validate_node_id
+
+    try:
+        validate_node_id(node_id)
+    except InvalidIdError:
+        node_id = str(new_node_id())
     ca = fabric_ca()
     key = pki.generate_key()
     cert = pki.issue_node_cert(
@@ -171,6 +190,15 @@ def grpc_channel(target: str, node_id: str) -> grpc.aio.Channel:
         credentials,
         options=[("grpc.ssl_target_name_override", GRPC_TARGET_NAME)],
     )
+
+
+def identity_channel(target: str, identity: NodeIdentity) -> grpc.aio.Channel:
+    """A mutual-TLS channel with ``identity``'s stored enrolment, exactly as the
+    real agent builds it (whatever CA enrolled it - e.g. a real ``join``)."""
+    from meshforge.agent.session.tls import channel_options, load_session_tls
+
+    tls = load_session_tls(identity)
+    return grpc.aio.secure_channel(target, tls.credentials, options=channel_options())
 
 
 class NodeChannels:

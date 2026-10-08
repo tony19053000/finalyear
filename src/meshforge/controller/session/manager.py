@@ -150,6 +150,7 @@ from meshforge.controller.session.live import (
     end_event,
     update_ewma,
 )
+from meshforge.controller.session.peer_cert import PeerCert, PeerCertReason
 from meshforge.controller.session.reports import ReportHandlers, declared_gpus
 from meshforge.controller.session.writer import DEFAULT_WRITE_CAPACITY, WriteChain
 
@@ -299,7 +300,13 @@ class SessionManager:
 
     # -------------------------------------------------------------- admission
 
-    async def admit(self, hello: agent_pb2.Hello, peer_address: str) -> AdmitResult:
+    async def admit(
+        self,
+        hello: agent_pb2.Hello,
+        peer_address: str,
+        *,
+        cert: PeerCert | None = None,
+    ) -> AdmitResult:
         """Apply the Hello rules (ADR-0002 Updates §1) and register the session.
 
         Holds the table lock for the whole admission (including the registry
@@ -336,7 +343,7 @@ class SessionManager:
         # and the task is cancelled but not awaited: a hung database must not
         # hold this handler, or the claim, past the deadline.
         node_id = hello.node_id
-        attempt = AdmissionAttempt(hello, peer_address)
+        attempt = AdmissionAttempt(hello, peer_address, cert=cert)
         self._claims.claim(node_id, hello.session_epoch)
         body = asyncio.create_task(
             self._admit_body(attempt), name=f"session-admit:{node_id}"
@@ -450,6 +457,29 @@ class SessionManager:
                 "node is revoked",
                 grpc.StatusCode.PERMISSION_DENIED,
             )
+        cert = attempt.cert
+        if (
+            cert is not None
+            and record is not None
+            and record.cert_serial is not None
+            and record.cert_serial != cert.serial
+        ):
+            # The node was re-keyed / re-enrolled since this certificate was
+            # issued: only the newest certificate of a node is its identity.
+            log.warning(
+                "session.cert_superseded",
+                node_id=node_id,
+                presented_serial=cert.serial,
+                current_serial=record.cert_serial,
+                peer=peer_address,
+            )
+            return Rejected(
+                RejectCode.REJECT_CODE_INTERNAL,
+                "this node certificate was superseded by a newer enrolment; "
+                "re-join (meshforge-agent join --force <code>)",
+                grpc.StatusCode.UNAUTHENTICATED,
+                reason_code=PeerCertReason.CERT_SUPERSEDED.value,
+            )
         event = hello_event(prior)
         state = prior if event is None else next_state(prior, event)
 
@@ -480,6 +510,7 @@ class SessionManager:
                 hardware_scores=scores,
                 cpu_slots=cpu_slots,
                 gpu_slots=gpu_slots,
+                cert=cert,
             )
         except Exception:
             attempt.row_written = False  # ...unless the store refused it (rolled back)

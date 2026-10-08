@@ -17,6 +17,7 @@ from typing import Any
 import grpc
 import pytest
 from mf_controller_harness import FAST_LIVENESS, HELLO_TIMEOUT_S
+from mf_fabric import NodeChannels
 from mf_session_client import FakeAgent, make_hello, poll_until
 
 from meshforge.common.ids import new_command_id
@@ -397,7 +398,7 @@ async def test_graceful_stop_closes_sessions_with_controller_shutdown(
 ) -> None:
     async with ControllerRuntime.start(settings) as rt:
         target = f"127.0.0.1:{rt.grpc_port}"
-        async with grpc.aio.insecure_channel(target) as ch:
+        async with NodeChannels(target) as ch:
             a: FakeAgent = agents_factory(ch)
             b: FakeAgent = agents_factory(ch)
             acks = [await a.connect(), await b.connect()]
@@ -421,7 +422,7 @@ async def test_stop_refuses_new_hellos(settings: Any, registry: Registry) -> Non
         target = f"127.0.0.1:{rt.grpc_port}"
         assert rt.manager is not None
         rt.manager.closing = True  # what stop() does first
-        async with grpc.aio.insecure_channel(target) as ch:
+        async with NodeChannels(target) as ch:
             agent = FakeAgent(ch)
             assert await agent.hello() is None
             assert agent.end_code is grpc.StatusCode.UNAVAILABLE

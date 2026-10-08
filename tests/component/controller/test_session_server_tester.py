@@ -21,6 +21,7 @@ pytest.importorskip("sqlalchemy", reason="needs the controller extra")
 pytest.importorskip("fastapi", reason="needs the controller extra")
 pytest.importorskip("testcontainers", reason="needs the dev dependency group")
 
+from mf_fabric import NodeChannels
 from mf_session_client import FakeAgent, make_hello, poll_until
 from sqlalchemy import text
 
@@ -75,9 +76,9 @@ async def test_hello_with_max_uint64_epoch_is_handled_not_a_server_crash(
     epoch's worth of protection is lost silently instead of a clean
     STALE_EPOCH/PROTOCOL_VERSION-style rejection.
     """
-    stub = agent_pb2_grpc.AgentControlStub(channel)
-    call = stub.Session()
     node_id = new_node_id()
+    stub = agent_pb2_grpc.AgentControlStub(channel.for_node(node_id))
+    call = stub.Session()
     await call.write(
         agent_pb2.AgentMessage(
             message_id=new_command_id(), hello=make_hello(node_id, UINT64_MAX)
@@ -92,9 +93,9 @@ async def test_hello_with_max_uint64_epoch_is_handled_not_a_server_crash(
     assert rec is not None and rec.session_epoch == UINT64_MAX
 
     # Whatever happened above, the server must still serve other nodes.
-    stub2 = agent_pb2_grpc.AgentControlStub(channel)
-    call2 = stub2.Session()
     other = new_node_id()
+    stub2 = agent_pb2_grpc.AgentControlStub(channel.for_node(other))
+    call2 = stub2.Session()
     await call2.write(
         agent_pb2.AgentMessage(message_id=new_command_id(), hello=make_hello(other, 1))
     )
@@ -107,9 +108,9 @@ async def test_hello_with_max_uint64_epoch_is_handled_not_a_server_crash(
 async def test_second_hello_on_open_stream_with_extreme_epoch_is_protocol_error(
     channel: grpc.aio.Channel, registry: Registry
 ) -> None:
-    stub = agent_pb2_grpc.AgentControlStub(channel)
-    call = stub.Session()
     node_id = new_node_id()
+    stub = agent_pb2_grpc.AgentControlStub(channel.for_node(node_id))
+    call = stub.Session()
     await call.write(
         agent_pb2.AgentMessage(
             message_id=new_command_id(), hello=make_hello(node_id, 1)
@@ -258,9 +259,9 @@ async def test_burst_of_2000_heartbeats_never_hangs_the_server(
     V0.3 G3/§7 - flagged for the team, not blocking G2. The hard requirement
     this test does check: whatever happens, the server must not hang and the
     session must end with a *typed* reason, never silently."""
-    stub = agent_pb2_grpc.AgentControlStub(channel)
-    call = stub.Session()
     node_id = new_node_id()
+    stub = agent_pb2_grpc.AgentControlStub(channel.for_node(node_id))
+    call = stub.Session()
     await call.write(
         agent_pb2.AgentMessage(
             message_id=new_command_id(), hello=make_hello(node_id, 1)
@@ -305,9 +306,9 @@ async def test_message_larger_than_default_grpc_max_ends_cleanly(
     """A payload over gRPC's default 4 MiB max receive size must end the stream
     with a clean status, not crash the controller or wedge the connection for
     the next agent."""
-    stub = agent_pb2_grpc.AgentControlStub(channel)
-    call = stub.Session()
     node_id = new_node_id()
+    stub = agent_pb2_grpc.AgentControlStub(channel.for_node(node_id))
+    call = stub.Session()
     await call.write(
         agent_pb2.AgentMessage(
             message_id=new_command_id(), hello=make_hello(node_id, 1)
@@ -337,9 +338,9 @@ async def test_message_larger_than_default_grpc_max_ends_cleanly(
     assert code == grpc.StatusCode.RESOURCE_EXHAUSTED, code
 
     # The controller must still be answering new sessions afterwards.
-    stub2 = agent_pb2_grpc.AgentControlStub(channel)
-    call2 = stub2.Session()
     other = new_node_id()
+    stub2 = agent_pb2_grpc.AgentControlStub(channel.for_node(other))
+    call2 = stub2.Session()
     await call2.write(
         agent_pb2.AgentMessage(message_id=new_command_id(), hello=make_hello(other, 1))
     )
@@ -373,7 +374,7 @@ async def test_twenty_nodes_each_with_three_racing_epochs(
     settings = make_settings(pg_settings, hello_timeout_s=5.0, **tolerant_liveness())
     async with (
         ControllerRuntime.start(settings) as runtime,
-        grpc.aio.insecure_channel(f"127.0.0.1:{runtime.grpc_port}") as channel,
+        NodeChannels(f"127.0.0.1:{runtime.grpc_port}") as channel,
     ):
         await _twenty_nodes_race(channel, registry)
 
@@ -605,7 +606,7 @@ async def test_two_controllers_on_the_same_db_second_startup_sweep_closes_first(
     async with ControllerRuntime.start(settings1) as rt1:
         registry1 = rt1.registry
         assert registry1 is not None
-        channel1 = grpc.aio.insecure_channel(f"127.0.0.1:{rt1.grpc_port}")
+        channel1 = NodeChannels(f"127.0.0.1:{rt1.grpc_port}")
         agent = FakeAgent(channel1)
         await agent.connect()
         session_id = agent.session_id

@@ -23,6 +23,7 @@ pytest.importorskip("fastapi", reason="needs the controller extra")
 pytest.importorskip("testcontainers", reason="needs the dev dependency group")
 
 import grpc
+from mf_fabric import NodeChannels
 from mf_session_client import FakeAgent
 
 from meshforge.controller.registry import Registry
@@ -89,7 +90,7 @@ def grpc_target(runtime: ControllerRuntime) -> str:
 
 @pytest_asyncio.fixture
 async def channel(grpc_target: str) -> AsyncIterator[grpc.aio.Channel]:
-    async with grpc.aio.insecure_channel(grpc_target) as ch:
+    async with NodeChannels(grpc_target) as ch:
         yield ch
 
 

@@ -58,6 +58,7 @@ async def _sql(
 async def rt(pg_settings: DatabaseSettings) -> AsyncIterator[ControllerRuntime]:
     settings = make_settings(
         pg_settings,
+        fabric=False,
         enroll={"bind": "127.0.0.1:0", "rate_burst": 100, "rate_per_minute": 600.0},
     )
     create_fabric(settings.ca_dir)

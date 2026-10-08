@@ -44,18 +44,32 @@ async def test_start_issues_then_keeps_the_server_cert(
         first = runtime.server_cert.cert
         pki.verify_issued_by(first, fabric.cert)
         assert pki.cert_sans(first) == [pki.SERVER_NAME, "127.0.0.1"]
-        assert runtime.grpc_port > 0  # listeners still plaintext in G1
+        assert runtime.grpc_port > 0
     async with ControllerRuntime.start(settings) as runtime:
         assert runtime.server_cert is not None
         assert runtime.server_cert.action is ServerCertAction.KEPT
         assert runtime.server_cert.cert == first
 
 
-@pytest.mark.asyncio
-async def test_start_without_a_fabric_is_allowed_in_g1(
+def test_start_without_a_fabric_is_refused_in_mtls_mode(
     pg_settings: DatabaseSettings, tmp_path: Path
 ) -> None:
+    """G1 allowed it; since V0.7 G3 an mtls controller needs its CA."""
     settings = _settings(pg_settings, tmp_path)
+    assert run_controller(settings) == ExitCode.CONFIG_ERROR
+    assert not settings.tls_dir.exists()
+
+
+@pytest.mark.asyncio
+async def test_start_without_a_fabric_is_allowed_in_insecure_dev(
+    pg_settings: DatabaseSettings, tmp_path: Path
+) -> None:
+    settings = ControllerSettings(
+        data_dir=tmp_path,
+        security={"mode": "insecure-dev"},
+        controller=controller_section(),
+        database=pg_settings,
+    )
     async with ControllerRuntime.start(settings) as runtime:
         assert runtime.fabric is None and runtime.server_cert is None
     assert not settings.tls_dir.exists()

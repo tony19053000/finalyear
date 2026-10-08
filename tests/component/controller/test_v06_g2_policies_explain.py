@@ -38,10 +38,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import grpc
 import httpx
 import pytest
 import pytest_asyncio
+from mf_fabric import NodeChannels
 from mf_jobs_harness import g2_settings, running_controller, token_of
 from mf_session_client import FakeAgent
 
@@ -160,7 +160,7 @@ async def make_cluster(
         cm = running_controller(settings)
         runtime = await cm.__aenter__()
         stack.append(("controller", cm))
-        channel = grpc.aio.insecure_channel(f"127.0.0.1:{runtime.grpc_port}")
+        channel = NodeChannels(f"127.0.0.1:{runtime.grpc_port}")
         stack.append(("channel", channel))
         http = httpx.AsyncClient(
             base_url=f"http://127.0.0.1:{runtime.http_port}",

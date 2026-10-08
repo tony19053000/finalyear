@@ -18,6 +18,7 @@ from typing import Any
 import grpc
 import pytest
 from mf_controller_harness import SHUTDOWN_DRAIN_S, make_settings
+from mf_fabric import NodeChannels
 from mf_session_client import FakeAgent, poll_until
 
 pytest.importorskip("sqlalchemy", reason="needs the controller extra")
@@ -100,7 +101,7 @@ async def test_reports_land_in_the_live_ring_in_order_and_a_replay_is_not_counte
 ) -> None:
     async with ControllerRuntime.start(history_settings) as runtime:
         assert runtime.resources is not None
-        async with grpc.aio.insecure_channel(f"127.0.0.1:{runtime.grpc_port}") as ch:
+        async with NodeChannels(f"127.0.0.1:{runtime.grpc_port}") as ch:
             agent = FakeAgent(ch, node_id=new_node_id())
             await agent.connect()
             tracker = runtime.resources
@@ -119,7 +120,7 @@ async def test_reports_land_in_the_live_ring_in_order_and_a_replay_is_not_counte
         # keeps counting) but `identity.next_epoch` bumps per connection attempt,
         # so the replay arrives under a higher epoch with the same sequences and
         # brand new message_ids - nothing but the tracker's cursor can catch it.
-        async with grpc.aio.insecure_channel(f"127.0.0.1:{runtime.grpc_port}") as ch:
+        async with NodeChannels(f"127.0.0.1:{runtime.grpc_port}") as ch:
             again = FakeAgent(ch, node_id=agent.node_id, epoch=agent.epoch + 1)
             await again.connect()
             try:
@@ -167,7 +168,7 @@ async def test_a_wild_report_is_clamped_counted_once_and_the_session_survives(
 ) -> None:
     async with ControllerRuntime.start(history_settings) as runtime:
         assert runtime.resources is not None and runtime.manager is not None
-        async with grpc.aio.insecure_channel(f"127.0.0.1:{runtime.grpc_port}") as ch:
+        async with NodeChannels(f"127.0.0.1:{runtime.grpc_port}") as ch:
             agent = FakeAgent(ch, node_id=new_node_id())
             await agent.connect()
             try:
@@ -202,7 +203,7 @@ async def test_closed_buckets_become_rows_whose_sample_count_matches(
 ) -> None:
     async with (
         ControllerRuntime.start(history_settings) as runtime,
-        grpc.aio.insecure_channel(f"127.0.0.1:{runtime.grpc_port}") as ch,
+        NodeChannels(f"127.0.0.1:{runtime.grpc_port}") as ch,
     ):
         agent = FakeAgent(ch, node_id=new_node_id())
         await agent.connect()
@@ -239,7 +240,7 @@ async def test_writing_the_same_bucket_twice_updates_the_row(
     """The primary key is the bucket, so a re-flush upserts (roadmap 0.3.11)."""
     async with (
         ControllerRuntime.start(history_settings) as runtime,
-        grpc.aio.insecure_channel(f"127.0.0.1:{runtime.grpc_port}") as ch,
+        NodeChannels(f"127.0.0.1:{runtime.grpc_port}") as ch,
     ):
         agent = FakeAgent(ch, node_id=new_node_id())
         await agent.connect()
@@ -267,7 +268,7 @@ async def test_a_poorer_re_flush_of_a_bucket_never_replaces_a_richer_row(
     one already written (``samples`` 30 -> 2); an equal or better one must."""
     async with (
         ControllerRuntime.start(history_settings) as runtime,
-        grpc.aio.insecure_channel(f"127.0.0.1:{runtime.grpc_port}") as ch,
+        NodeChannels(f"127.0.0.1:{runtime.grpc_port}") as ch,
     ):
         agent = FakeAgent(ch, node_id=new_node_id())
         await agent.connect()
@@ -313,7 +314,7 @@ async def test_retention_deletes_the_old_rows_and_keeps_the_new_ones(
     node_id = new_node_id()
     async with (
         ControllerRuntime.start(history_settings) as runtime,
-        grpc.aio.insecure_channel(f"127.0.0.1:{runtime.grpc_port}") as ch,
+        NodeChannels(f"127.0.0.1:{runtime.grpc_port}") as ch,
     ):
         assert runtime.flusher is not None
         agent = FakeAgent(ch, node_id=node_id)
@@ -343,7 +344,7 @@ async def test_list_snapshots_filters_by_window(
     node_id = new_node_id()
     async with (
         ControllerRuntime.start(history_settings) as runtime,
-        grpc.aio.insecure_channel(f"127.0.0.1:{runtime.grpc_port}") as ch,
+        NodeChannels(f"127.0.0.1:{runtime.grpc_port}") as ch,
     ):
         agent = FakeAgent(ch, node_id=node_id)
         await agent.connect()
@@ -374,7 +375,7 @@ async def test_a_stop_mid_stream_flushes_the_closed_buckets_inside_the_deadline(
     node_id = new_node_id()
     async with (
         ControllerRuntime.start(history_settings) as runtime,
-        grpc.aio.insecure_channel(f"127.0.0.1:{runtime.grpc_port}") as ch,
+        NodeChannels(f"127.0.0.1:{runtime.grpc_port}") as ch,
     ):
         agent = FakeAgent(ch, node_id=node_id)
         await agent.connect()
@@ -403,7 +404,7 @@ async def test_an_oversize_hello_hardware_is_refused_and_nothing_is_persisted(
 ) -> None:
     async with (
         ControllerRuntime.start(history_settings) as runtime,
-        grpc.aio.insecure_channel(f"127.0.0.1:{runtime.grpc_port}") as ch,
+        NodeChannels(f"127.0.0.1:{runtime.grpc_port}") as ch,
     ):
         hostile = agent_pb2.HardwareSummary(cpu_model="c" * 5_000, cpu_cores=4)
         agent = FakeAgent(ch, node_id=new_node_id())
@@ -422,7 +423,7 @@ async def test_a_hello_with_sixteen_gpus_is_accepted_and_stored(
 ) -> None:
     async with (
         ControllerRuntime.start(history_settings) as runtime,
-        grpc.aio.insecure_channel(f"127.0.0.1:{runtime.grpc_port}") as ch,
+        NodeChannels(f"127.0.0.1:{runtime.grpc_port}") as ch,
     ):
         summary = agent_pb2.HardwareSummary(
             cpu_model="a-test-cpu",

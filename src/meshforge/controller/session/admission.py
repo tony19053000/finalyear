@@ -24,6 +24,7 @@ from meshforge.common.proto.meshforge.v1 import agent_pb2
 from meshforge.controller.liveness import LivenessConfig, LivenessEvent, NodeState
 from meshforge.controller.session.limits import check_hardware, check_hello_strings
 from meshforge.controller.session.live import LiveSession, Rejected
+from meshforge.controller.session.peer_cert import PeerCert
 from meshforge.controller.store.models.node import MAX_SLOTS
 
 __all__ = [
@@ -59,6 +60,8 @@ class AdmissionAttempt:
 
     hello: agent_pb2.Hello
     peer_address: str
+    cert: PeerCert | None = None
+    """V0.7 G3: the caller's verified client certificate (None in insecure-dev)."""
     session_id: str = ""
     state: NodeState | None = None
     """The state the admission wrote (or was writing) to the row."""
@@ -88,9 +91,10 @@ def shutting_down() -> Rejected:
 
 def check_hello(hello: agent_pb2.Hello) -> Rejected | None:
     """Refuse a Hello whose ``node_id``, strings or hardware break a bound."""
-    # TRUST POINT (until V0.7 mTLS, ADR-0008): ``Hello.node_id`` is a claim
-    # accepted on the trusted LAN (ADR-0013 §2). Pairing binds node_id -> key
-    # -> certificate; then the transport, not this field, proves identity.
+    # V0.7 G3 (D137): in mtls mode the servicer has already checked that
+    # ``Hello.node_id`` equals the client certificate's node (the transport is
+    # the identity). Only ``[security] mode = "insecure-dev"`` (loopback only)
+    # still takes the field as a claim.
     try:
         validate_node_id(hello.node_id)
     except InvalidIdError as exc:

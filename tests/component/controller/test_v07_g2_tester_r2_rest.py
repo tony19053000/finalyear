@@ -28,7 +28,7 @@ JSON = {"content-type": "application/json"}
 
 @pytest_asyncio.fixture
 async def rt(pg_settings: DatabaseSettings) -> AsyncIterator[ControllerRuntime]:
-    settings = make_settings(pg_settings, enroll={"bind": "127.0.0.1:0"})
+    settings = make_settings(pg_settings, fabric=False, enroll={"bind": "127.0.0.1:0"})
     create_fabric(settings.ca_dir)
     async with ControllerRuntime.start(settings) as runtime:
         yield runtime

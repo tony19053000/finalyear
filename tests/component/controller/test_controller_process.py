@@ -23,6 +23,7 @@ from typing import Any
 
 import grpc
 import pytest
+from mf_fabric import NodeChannels, seed_ca_dir
 from mf_session_client import FakeAgent, free_port_pair, poll_until
 from pydantic import SecretStr
 
@@ -47,7 +48,10 @@ class ControllerProcess:
     def __init__(self, database: DatabaseSettings, tmp_path: Path) -> None:
         self.grpc_port, self.http_port = free_port_pair()
         cfg = tmp_path / "controller.toml"
+        data_dir = tmp_path / "controller-data"
+        seed_ca_dir(data_dir / "controller" / "ca")  # V0.7 G3: mtls needs a CA
         cfg.write_text(
+            f"data_dir = {str(data_dir)!r}\n"
             "[log]\n"
             'format = "json"\n'
             'level = "INFO"\n'
@@ -140,7 +144,7 @@ def controller_process(
 
 
 async def _connect_agent(target: str) -> tuple[grpc.aio.Channel, FakeAgent, str]:
-    channel = grpc.aio.insecure_channel(target)
+    channel = NodeChannels(target)
     agent = FakeAgent(channel)
     ack = await agent.connect()
     agent.start_heartbeats(FAST_LIVENESS.heartbeat_interval_s)

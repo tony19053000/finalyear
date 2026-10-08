@@ -1,11 +1,12 @@
 """V0.7 G2 cluster (0.7.3/0.7.4): two real agent processes join with two codes.
 
 A real controller process (CA made by `meshforge-controller fabric create`), two
-real agents running as before (G2 does not yet require the certificate), two
-invites over REST, then `meshforge-agent join -` as real subprocesses with the
-code on stdin. The controller then lists both nodes with their own certificate,
-each bound to that agent's key; the agents stay connected throughout; the code
-appears in no log of any process.
+agents that are **not** enrolled and not started (V0.7 G3: an agent needs its
+certificate to connect at all), two invites over REST, then `meshforge-agent
+join -` as real subprocesses with the code on stdin; then the agents start and
+connect over mutual TLS. The controller lists both nodes with their own
+certificate, each bound to that agent's key; the code appears in no log of any
+process.
 """
 
 from __future__ import annotations
@@ -25,7 +26,9 @@ pytestmark = [pytest.mark.docker]
 
 
 def test_two_agents_join_with_two_codes(make_fabric: MakeFabric) -> None:
-    fabric = make_fabric(agents=2, fabric_ca=True)
+    fabric = make_fabric(
+        agents=2, fabric_ca=True, enroll_agents=False, start_agents=False
+    )
     assert fabric.enroll_target, "no enrolment listener"
     codes: list[str] = []
     for _ in fabric.nodes:
@@ -49,14 +52,18 @@ def test_two_agents_join_with_two_codes(make_fabric: MakeFabric) -> None:
             env=env, capture_output=True, text=True, timeout=60, check=False,
         )  # fmt: skip
         facts = json.loads(shown.stdout)
-        assert facts["enrolled"] is True and facts["node_id"] == node.node_id
+        assert facts["enrolled"] is True
+        node.node_id = facts["node_id"]
         node.key_fingerprint = facts["key_fingerprint_sha256"]  # type: ignore[attr-defined]
+    joined = {node.node_id for node in fabric.nodes}
+    fabric.start_agents()  # mutual TLS with the certificates just issued
+    assert {node.node_id for node in fabric.nodes} == joined
     nodes = fabric.nodes_by_id()
     assert nodes is not None
     certs = []
     for node in fabric.nodes:
         view = nodes[node.node_id]
-        assert view["connected"] is True  # G2: the session is unaffected
+        assert view["connected"] is True
         cert = view["certificate"]
         assert cert is not None, view
         assert cert["public_key_fingerprint_sha256"] == node.key_fingerprint  # type: ignore[attr-defined]

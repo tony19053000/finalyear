@@ -75,6 +75,8 @@ def test_join_through_a_frozen_then_killed_controller(make_fabric: MakeFabric) -
         agents=2,
         fabric_ca=True,
         controller_extra={"enroll": {"bind": f"127.0.0.1:{port}"}},
+        enroll_agents=False,  # V0.7 G3: they join below, then start
+        start_agents=False,
     )
     assert fabric.enroll_target.endswith(f":{port}"), fabric.enroll_target
     controller = fabric.controller
@@ -151,6 +153,7 @@ def test_join_through_a_frozen_then_killed_controller(make_fabric: MakeFabric) -
         capture_output=True, text=True, timeout=90, check=False,
     )  # fmt: skip
     assert done.returncode == 0, done.stderr
+    fabric.start_agents()  # both joined: they connect over mutual TLS
     nodes = fabric.nodes_by_id()
     assert nodes is not None
     for node in fabric.nodes:

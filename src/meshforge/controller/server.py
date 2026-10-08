@@ -101,6 +101,7 @@ from meshforge.controller.server_tls import ServerTls
 from meshforge.controller.session.leases import LeaseTimer
 from meshforge.controller.session.live import LiveSession
 from meshforge.controller.session.manager import SessionManager
+from meshforge.controller.session.peer_cert import NodeCertInterceptor, peer_cert
 from meshforge.controller.session.servicer import AgentControlServicer
 from meshforge.controller.settings import ControllerSettings
 from meshforge.controller.snapshots import SnapshotFlusher
@@ -461,12 +462,7 @@ class ControllerRuntime:
 
         await self._start_enrollment(engine, loop)
 
-        grpc_server = grpc.aio.server(options=list(GRPC_SERVER_OPTIONS))
-        agent_pb2_grpc.add_AgentControlServicer_to_server(
-            AgentControlServicer(manager, hello_timeout_s=cfg.hello_timeout_s),
-            grpc_server,
-        )
-        port = grpc_server.add_insecure_port(self._grpc_bind.grpc_target())
+        port, grpc_server = self._session_server(manager)
         if port == 0:
             raise ConfigError(
                 f"cannot bind gRPC listener on {self._grpc_bind.grpc_target()}",
@@ -536,7 +532,7 @@ class ControllerRuntime:
             ),
         )
 
-        if cfg.discovery.advertise:
+        if cfg.discovery.advertise and not self.settings.security.insecure:
             # Roadmap 0.3.9: agents with an empty controller_address browse for this.
             self._advertiser = ServiceAdvertiser(
                 service_type=cfg.discovery.service_type,
@@ -552,6 +548,37 @@ class ControllerRuntime:
             heartbeat_interval_s=cfg.liveness.heartbeat_interval_s,
             lease_s=cfg.liveness.to_config().offline_after_s,
         )
+
+    def _session_server(self, manager: SessionManager) -> tuple[int, grpc.aio.Server]:
+        """The ``AgentControl`` server: mutual TLS (V0.7 G3, D137) - the client
+        must present a fabric node certificate, every call is checked by
+        :class:`NodeCertInterceptor` and the Hello's node must be the
+        certificate's. Plaintext only in ``insecure-dev`` (loopback-only)."""
+        cfg = self.settings.controller
+        target = self._grpc_bind.grpc_target()
+        tls, fabric = self.server_tls, self.fabric
+        if self.settings.security.insecure or tls is None or fabric is None:
+            server = grpc.aio.server(options=list(GRPC_SERVER_OPTIONS))
+            agent_pb2_grpc.add_AgentControlServicer_to_server(
+                AgentControlServicer(manager, hello_timeout_s=cfg.hello_timeout_s),
+                server,
+            )
+            return server.add_insecure_port(target), server
+        fabric_id = fabric.fabric_id
+        server = grpc.aio.server(
+            options=list(GRPC_SERVER_OPTIONS),
+            interceptors=[NodeCertInterceptor(fabric_id=fabric_id)],
+        )
+        agent_pb2_grpc.add_AgentControlServicer_to_server(
+            AgentControlServicer(
+                manager,
+                hello_timeout_s=cfg.hello_timeout_s,
+                identify=functools.partial(peer_cert, fabric_id=fabric_id),
+            ),
+            server,
+        )
+        credentials = tls.grpc_credentials(require_client_auth=True)
+        return server.add_secure_port(target, credentials), server
 
     async def _start_enrollment(
         self, engine: AsyncEngine, loop: asyncio.AbstractEventLoop
@@ -732,11 +759,20 @@ def _prepare_fabric(
 ) -> tuple[FabricCa | None, ServerCert | None]:
     """Load the fabric CA and ensure the server cert (V0.7 G1, D134).
 
-    No CA yet -> ``(None, None)``: allowed until G3 makes TLS mandatory. An
-    interrupted ``fabric create --force`` is repaired first (D149c).
+    No CA yet: a typed ``config_error`` in ``mtls`` mode (V0.7 G3), ``(None,
+    None)`` in ``insecure-dev``. An interrupted ``fabric create --force`` is
+    repaired first (D149c).
     """
     recover_interrupted(settings.ca_dir)
     if not fabric_present(settings.ca_dir):
+        if not settings.security.insecure:
+            raise ConfigError(
+                "this controller has no fabric CA, and [security] mode = 'mtls' "
+                "needs one: run `meshforge-controller fabric create` once on this "
+                "machine (or, for development on one machine only, set "
+                "[security] mode = 'insecure-dev')",
+                details={"path": str(settings.ca_dir)},
+            )
         log.info("controller.fabric.absent", hint="meshforge-controller fabric create")
         return None, None
     fabric = load_fabric(settings.ca_dir)
@@ -752,7 +788,7 @@ def _prepare_fabric(
         ca_fingerprint=fabric.short_fingerprint,
         server_cert=server.action.value,
         server_cert_not_after=server.cert.not_valid_after_utc.isoformat(),
-        tls_enforced=False,
+        security_mode=settings.security.mode.value,
     )
     return fabric, server
 

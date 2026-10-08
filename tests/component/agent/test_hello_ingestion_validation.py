@@ -14,6 +14,7 @@ from pathlib import Path
 import grpc
 import pytest
 from mf_agent_harness import make_agent_settings
+from mf_fabric import NodeChannels
 from mf_session_client import FakeAgent
 
 pytest.importorskip("sqlalchemy", reason="needs the controller extra")
@@ -36,7 +37,7 @@ ESCAPE_TITLE = "lap\x1b]0;pwned\x07top"  # an OSC "set window title" sequence
 async def test_controller_refuses_a_non_printable_hello_and_persists_nothing(
     runtime: ControllerRuntime, grpc_target: str, registry: Registry
 ) -> None:
-    async with grpc.aio.insecure_channel(grpc_target) as ch:
+    async with NodeChannels(grpc_target) as ch:
         agent = FakeAgent(ch)
         reply = await agent.hello(
             hardware=agent_pb2.HardwareSummary(

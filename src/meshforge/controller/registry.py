@@ -16,11 +16,12 @@ import functools
 from collections.abc import Awaitable, Callable, Coroutine, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any
+from typing import Any, Protocol
 
 from sqlalchemy import (
     CursorResult,
     Result,
+    case,
     cast,
     delete,
     func,
@@ -106,6 +107,42 @@ class NodeRecord:
     cert_fingerprint: str | None = None
     cert_not_after: dt.datetime | None = None
     public_key_fingerprint: str | None = None
+
+
+class PeerCertFacts(Protocol):
+    """What admission knows about a session's verified client certificate
+    (:class:`~meshforge.controller.session.peer_cert.PeerCert`)."""
+
+    @property
+    def serial(self) -> str: ...
+    @property
+    def fingerprint(self) -> str: ...
+    @property
+    def not_after(self) -> dt.datetime: ...
+    @property
+    def public_key_fingerprint(self) -> str: ...
+
+
+def _cert_columns(cert: PeerCertFacts | None, *, coalesce: bool) -> dict[str, Any]:
+    """The four certificate columns (all set or none, migration 0015)."""
+    if cert is None:
+        return {}
+    values: dict[str, Any] = {
+        "cert_serial": cert.serial,
+        "cert_fingerprint": cert.fingerprint,
+        "cert_not_after": cert.not_after,
+        "public_key_fingerprint": cert.public_key_fingerprint,
+    }
+    if not coalesce:
+        return values
+    # All four move together: keep the stored ones when a serial is recorded.
+    keep = Node.cert_serial.is_not(None)
+    return {
+        name: case(
+            (keep, getattr(Node, name)), else_=literal(value, getattr(Node, name).type)
+        )
+        for name, value in values.items()
+    }
 
 
 class ScoresWrite(StrEnum):
@@ -282,8 +319,15 @@ class Registry:
         hardware_scores: Mapping[str, Any] | None = None,
         cpu_slots: int | None = None,
         gpu_slots: int | None = None,
+        cert: PeerCertFacts | None = None,
     ) -> NodeRecord:
         """Insert the node on its first Hello, else refresh it; sets ``state``.
+
+        ``cert`` (V0.7 G3): the session's verified client certificate. It is
+        recorded only on a node with **no** certificate on record (enrolled
+        before migration 0015 recorded certificates, or by a fixture without
+        the join flow): ``COALESCE`` keeps an existing record, which admission
+        has already checked equals the presented serial.
 
         ``cpu_slots`` / ``gpu_slots`` (V0.6 D105) are the Hello's validated
         ``max_cpu_jobs`` / ``max_gpu_jobs``, always written like the scores:
@@ -326,6 +370,7 @@ class Registry:
                     state=state.value,
                     last_seen_at=now,
                     last_session_id=session_id,
+                    **_cert_columns(cert, coalesce=True),
                     # The literal must carry the column's type: an untyped Python
                     # int binds as BIGINT and asyncpg refuses epochs >= 2^63.
                     session_epoch=func.greatest(
@@ -351,6 +396,7 @@ class Registry:
                     last_seen_at=now,
                     last_session_id=session_id,
                     session_epoch=session_epoch,
+                    **_cert_columns(cert, coalesce=False),
                 )
                 db.add(row)
                 await db.flush()

@@ -59,6 +59,7 @@ def _call(rt: ControllerRuntime, target: str, token: bytes, csr: bytes) -> str |
 async def rt(pg_settings: DatabaseSettings) -> AsyncIterator[ControllerRuntime]:
     settings = make_settings(
         pg_settings,
+        fabric=False,
         enroll={"bind": "127.0.0.1:0", "rate_per_minute": 600.0, "rate_burst": 100},
     )
     create_fabric(settings.ca_dir)
@@ -123,6 +124,7 @@ async def test_ipv6_clients_are_rate_limited_per_ip(
 ) -> None:
     settings = make_settings(
         pg_settings,
+        fabric=False,
         enroll={"bind": "[::1]:0", "rate_per_minute": 0.01, "rate_burst": 2},
     )
     create_fabric(settings.ca_dir)

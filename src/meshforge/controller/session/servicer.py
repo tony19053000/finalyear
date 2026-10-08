@@ -29,6 +29,14 @@ that was already closed for a real reason (a Goodbye followed by a cancel stays
 case the handler was cancelled while suspended at a ``yield`` and its ``finally``
 runs late (the lease timer is the last backstop).
 
+**Identity (V0.7 G3, D137).** In ``mtls`` mode every call on the port already
+carries a verified fabric node certificate (TLS + :class:`~.peer_cert.NodeCertInterceptor`);
+the Hello's ``node_id`` must be the certificate's, else the stream ends
+``UNAUTHENTICATED`` with ``meshforge-reason: node_id_mismatch`` and nothing is
+persisted. Admission refuses an older certificate of a re-keyed node
+(``cert_superseded``) and records the certificate of a node that has none on
+record.
+
 Hello outcomes that are not a ``HelloAck``: a malformed ``node_id`` or a
 ``session_epoch`` outside ``[0, MAX_SESSION_EPOCH]`` (see
 :mod:`meshforge.controller.session.epoch`) end the stream ``INVALID_ARGUMENT`` with
@@ -45,17 +53,24 @@ The handler owns no session state; everything lives in
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from typing import Any, cast
 
 import grpc
 
-from meshforge.common.errors import MeshForgeError
-from meshforge.common.ids import new_command_id
+from meshforge.common.errors import InvalidIdError, MeshForgeError
+from meshforge.common.ids import new_command_id, validate_node_id
 from meshforge.common.logging import get_logger
 from meshforge.common.proto.meshforge.v1 import agent_pb2, agent_pb2_grpc
 from meshforge.controller.registry import SessionEndReason
 from meshforge.controller.session.manager import Rejected, SessionManager
+from meshforge.controller.session.peer_cert import (
+    REASON_METADATA_KEY,
+    PeerCert,
+    PeerCertError,
+    PeerCertReason,
+    abort_with_reason,
+)
 
 __all__ = ["AgentControlServicer"]
 
@@ -71,14 +86,32 @@ _CLEAN_END_REASONS: frozenset[SessionEndReason] = frozenset(
 """End reasons that finish the stream ``OK``; every other one is ``ABORTED``."""
 
 
+def _well_formed(node_id: str) -> bool:
+    try:
+        validate_node_id(node_id)
+    except InvalidIdError:
+        return False
+    return True
+
+
 class AgentControlServicer(agent_pb2_grpc.AgentControlServicer):
     """See module docstring."""
 
-    def __init__(self, manager: SessionManager, *, hello_timeout_s: float) -> None:
+    def __init__(
+        self,
+        manager: SessionManager,
+        *,
+        hello_timeout_s: float,
+        identify: Callable[[Any], PeerCert] | None = None,
+    ) -> None:
+        """``identify`` (mtls mode, V0.7 G3): the caller's verified client
+        certificate (:func:`~.peer_cert.peer_cert`); ``None`` only in
+        ``insecure-dev``, where ``Hello.node_id`` is taken as claimed."""
         if not hello_timeout_s > 0:
             raise ValueError("hello_timeout_s must be > 0")
         self._manager = manager
         self._hello_timeout_s = hello_timeout_s
+        self._identify = identify
 
     async def Session(  # noqa: N802 - name fixed by the gRPC service definition
         self,
@@ -87,8 +120,9 @@ class AgentControlServicer(agent_pb2_grpc.AgentControlServicer):
     ) -> AsyncIterator[agent_pb2.ControllerMessage]:
         peer = context.peer()
         first = await self._first_message(request_iterator, context, peer)
+        cert = await self._certified(first.hello, context, peer)
         try:
-            result = await self._manager.admit(first.hello, peer)
+            result = await self._manager.admit(first.hello, peer, cert=cert)
         except MeshForgeError as exc:
             # RegistryError / StoreError / any typed failure of our own layers.
             # The fields name only the operation and the error class; the
@@ -116,6 +150,10 @@ class AgentControlServicer(agent_pb2_grpc.AgentControlServicer):
                 peer=peer,
             )
             if result.abort_status is not None:
+                if result.reason_code is not None:
+                    context.set_trailing_metadata(
+                        ((REASON_METADATA_KEY, result.reason_code),)
+                    )
                 await context.abort(result.abort_status, result.reason)
             yield agent_pb2.ControllerMessage(
                 message_id=new_command_id(),
@@ -153,6 +191,37 @@ class AgentControlServicer(agent_pb2_grpc.AgentControlServicer):
         if live.end_reason not in _CLEAN_END_REASONS:
             reason = live.end_reason.value if live.end_reason else "unknown"
             await context.abort(grpc.StatusCode.ABORTED, reason)
+
+    async def _certified(
+        self, hello: agent_pb2.Hello, context: _Context, peer: str
+    ) -> PeerCert | None:
+        """D137: the certificate's node must be the node the Hello names."""
+        if self._identify is None:
+            return None
+        try:
+            cert = self._identify(context)
+        except PeerCertError as error:  # the interceptor normally refused it already
+            await abort_with_reason(context, error)
+            raise AssertionError("unreachable: abort raises") from None
+        if hello.node_id != cert.node_id and _well_formed(hello.node_id):
+            # (A malformed node_id is refused INVALID_ARGUMENT by admission,
+            # before anything is persisted, as for every peer.)
+            log.warning(
+                "session.node_id_mismatch",
+                claimed_node_id=hello.node_id[:64],
+                node_id=cert.node_id,
+                cert_serial=cert.serial,
+                peer=peer,
+            )
+            await abort_with_reason(
+                context,
+                PeerCertError(
+                    PeerCertReason.NODE_ID_MISMATCH,
+                    "Hello.node_id is not the node named by this connection's "
+                    "certificate",
+                ),
+            )
+        return cert
 
     async def _first_message(
         self,

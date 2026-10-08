@@ -17,6 +17,7 @@ import grpc
 import pytest
 import pytest_asyncio
 import structlog.testing
+from mf_fabric import NodeChannels
 from mf_jobs_harness import api_client, g2_settings, running_controller, token_of
 from mf_session_client import FakeAgent
 
@@ -39,7 +40,7 @@ async def runtime(pg_settings: DatabaseSettings) -> AsyncIterator[ControllerRunt
 
 @pytest_asyncio.fixture
 async def channel(runtime: ControllerRuntime) -> AsyncIterator[grpc.aio.Channel]:
-    async with grpc.aio.insecure_channel(f"127.0.0.1:{runtime.grpc_port}") as ch:
+    async with NodeChannels(f"127.0.0.1:{runtime.grpc_port}") as ch:
         yield ch
 
 

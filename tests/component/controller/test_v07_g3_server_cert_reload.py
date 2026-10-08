@@ -51,7 +51,7 @@ def _serial(port: int) -> int:
 
 @pytest_asyncio.fixture
 async def rt(pg_settings: DatabaseSettings) -> AsyncIterator[ControllerRuntime]:
-    settings = make_settings(pg_settings, tls={"server_cert_days": 1})
+    settings = make_settings(pg_settings, fabric=False, tls={"server_cert_days": 1})
     issued_at = datetime.now(UTC) - (DAY * 2 / 3 - timedelta(minutes=3))
     fabric = create_fabric(settings.ca_dir, now=issued_at - timedelta(hours=1))
     ensure_server_cert(

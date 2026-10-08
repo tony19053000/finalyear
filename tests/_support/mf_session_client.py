@@ -47,7 +47,8 @@ class FakeAgent:
     the stream finishes (EOF or error; ``end_code`` says how).
     """
 
-    channel: grpc.aio.Channel
+    channel: Any
+    """A ``grpc.aio.Channel``, or a ``mf_fabric.NodeChannels`` pool."""
     node_id: str = field(default_factory=new_node_id)
     epoch: int = 1
     auto_pong: bool = True
@@ -66,7 +67,13 @@ class FakeAgent:
     _hb: asyncio.Task[None] | None = None
 
     def open(self) -> None:
-        stub = agent_pb2_grpc.AgentControlStub(self.channel)
+        channel = self.channel
+        # V0.7 G3: a ``mf_fabric.NodeChannels`` pool hands out one mutual-TLS
+        # channel per node_id (a channel carries one client certificate).
+        for_node = getattr(channel, "for_node", None)
+        if callable(for_node):
+            channel = for_node(self.node_id)
+        stub = agent_pb2_grpc.AgentControlStub(channel)
         self._call = stub.Session()
 
     async def write(self, msg: agent_pb2.AgentMessage) -> None:

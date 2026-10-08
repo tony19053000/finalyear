@@ -16,10 +16,10 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
-import grpc
 import httpx
 import pytest
 import pytest_asyncio
+from mf_fabric import NodeChannels
 from mf_jobs_harness import api_client, g2_settings, running_controller, token_of
 from mf_session_client import FakeAgent
 
@@ -116,7 +116,7 @@ async def _get(http: httpx.AsyncClient, node_id: str, rid: str) -> dict[str, Any
 async def test_restart_within_the_lease_resends_the_same_request_once_per_session(
     runtime: ControllerRuntime, http: httpx.AsyncClient
 ) -> None:
-    async with grpc.aio.insecure_channel(f"127.0.0.1:{runtime.grpc_port}") as ch:
+    async with NodeChannels(f"127.0.0.1:{runtime.grpc_port}") as ch:
         a = FakeAgent(ch, node_id=new_node_id())
         await a.connect()
         a.start_heartbeats(0.1)
@@ -154,7 +154,7 @@ async def test_restart_within_the_lease_resends_the_same_request_once_per_sessio
 async def test_node_lost_by_goodbye_then_late_real_done_wins_stale_progress_does_not(
     runtime: ControllerRuntime, http: httpx.AsyncClient
 ) -> None:
-    async with grpc.aio.insecure_channel(f"127.0.0.1:{runtime.grpc_port}") as ch:
+    async with NodeChannels(f"127.0.0.1:{runtime.grpc_port}") as ch:
         a = FakeAgent(ch, node_id=new_node_id())
         await a.connect()
         a.start_heartbeats(0.1)
@@ -206,7 +206,7 @@ async def test_node_lost_by_goodbye_then_late_real_done_wins_stale_progress_does
 async def test_node_lost_by_silence_ends_the_request(
     runtime: ControllerRuntime, http: httpx.AsyncClient
 ) -> None:
-    async with grpc.aio.insecure_channel(f"127.0.0.1:{runtime.grpc_port}") as ch:
+    async with NodeChannels(f"127.0.0.1:{runtime.grpc_port}") as ch:
         a = FakeAgent(ch, node_id=new_node_id())
         await a.connect()  # no heartbeats: the lease (0.6 s) expires
         await _reconcile(a)
@@ -226,7 +226,7 @@ async def test_repeated_reconciles_in_one_session_do_not_pile_up_resends_unbound
 ) -> None:
     """A Reconcile is sent once per session by the real agent; a misbehaving one
     spamming it must not make the controller queue unbounded duplicates."""
-    async with grpc.aio.insecure_channel(f"127.0.0.1:{runtime.grpc_port}") as ch:
+    async with NodeChannels(f"127.0.0.1:{runtime.grpc_port}") as ch:
         a = FakeAgent(ch, node_id=new_node_id())
         await a.connect()
         a.start_heartbeats(0.1)

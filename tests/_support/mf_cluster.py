@@ -614,11 +614,21 @@ class Fabric:
         controller_extra: Mapping[str, Mapping[str, Any]] | None = None,
         log_level: str = "INFO",
         fabric_ca: bool = False,
+        enroll_agents: bool = True,
+        start_agents: bool = True,
     ) -> None:
         self.workdir = workdir
-        # V0.7 G2: run `meshforge-controller fabric create` before the controller
-        # starts (its enrolment listener only runs when a CA exists).
+        # V0.7 G3: a controller in mtls mode needs a fabric CA. ``fabric_ca``:
+        # make it with the real `meshforge-controller fabric create` (its own
+        # CA); otherwise the test process's fixture CA (``mf_fabric``) is
+        # installed, as `fabric create` would.
         self.fabric_ca = fabric_ca
+        # ``enroll_agents``: give every agent a node certificate from the
+        # controller's CA before it starts (no join dance); a join scenario
+        # turns it off and runs `meshforge-agent join` itself, then calls
+        # :meth:`start_agents` (``start_agents=False``).
+        self.enroll_agents = enroll_agents
+        self._start_agents = start_agents
         self.enroll_target = ""
         self.timing = timing
         self.n_agents = agents
@@ -763,6 +773,8 @@ class Fabric:
             )  # fmt: skip
             if created.returncode != 0:
                 self.fail(f"fabric create failed: {created.stderr[-2000:]}")
+        else:
+            seed_ca_dir(self.ca_dir)
         self.controller = ManagedProcess(
             "controller",
             ["-m", "meshforge.controller", "--config", str(controller_config)],
@@ -791,9 +803,15 @@ class Fabric:
                 tmpfs.mkdir(parents=True, exist_ok=True)
                 argv = ["-c", _TMPFS_BOOT, str(tmpfs), str(self._agent_tmpfs[i]), *argv]
             proc = ManagedProcess(f"agent{i}", argv, agent_env, self.workdir / "logs")
-            self.nodes.append(
-                Node(i, proc, link, data_dir, fabric=self, tmpfs_workdir=tmpfs)
-            )
+            node = Node(i, proc, link, data_dir, fabric=self, tmpfs_workdir=tmpfs)
+            if self.enroll_agents:
+                enroll_data_dir(data_dir, self.ca_dir)
+            self.nodes.append(node)
+        if self._start_agents:
+            self.start_agents()
+
+    def start_agents(self) -> None:
+        """Start every agent process and wait until all are connected."""
         for node in self.nodes:
             node.process.start()
         for node in self.nodes:
@@ -802,6 +820,11 @@ class Fabric:
         if len(set(ids)) != len(ids):
             self.fail(f"agents share a node_id: {ids}")
         self.wait_all_connected(within=START_TIMEOUT_S)
+
+    @property
+    def ca_dir(self) -> Path:
+        """The controller's fabric CA folder."""
+        return self.workdir / "controller-data" / "controller" / "ca"
 
     def _start_controller(self) -> None:
         assert self.controller is not None
@@ -1157,6 +1180,37 @@ class Fabric:
 
     def fail(self, message: str) -> NoReturn:
         raise HarnessError(f"{message}\n{self.describe()}")
+
+
+def seed_ca_dir(ca_dir: Path) -> None:
+    """Install the test process's fixture CA (``mf_fabric``) at ``ca_dir``."""
+    import mf_fabric
+
+    mf_fabric.seed_ca_dir(ca_dir)
+
+
+def enroll_data_dir(data_dir: Path, ca_dir: Path) -> str:
+    """Create the agent identity in ``data_dir`` (if needed) and give it a node
+    certificate from the CA at ``ca_dir``; returns its ``node_id``."""
+    from meshforge.agent import enrollment
+    from meshforge.agent.identity import load_or_create
+    from meshforge.common import pki
+    from meshforge.controller.fabric_ca import load_fabric
+
+    authority = load_fabric(ca_dir).authority
+    identity = load_or_create(data_dir / "identity")
+    cert = pki.issue_node_cert(
+        authority,
+        pki.build_csr(
+            identity.private_key,
+            fabric_id=authority.fabric_id,
+            node_id=identity.node_id,
+        ),
+        node_id=identity.node_id,
+        fabric_id=authority.fabric_id,
+    )
+    enrollment.store(identity, cert, authority.cert, force=True)
+    return str(identity.node_id)
 
 
 MakeFabric = Callable[..., Fabric]

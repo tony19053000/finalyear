@@ -36,6 +36,7 @@ pytest.importorskip("sqlalchemy", reason="needs the controller extra")
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from mf_controller_harness import make_settings
+from mf_fabric import identity_channel
 from mf_session_client import FakeAgent
 from sqlalchemy import text
 
@@ -64,7 +65,7 @@ FAST_ENROLL = {
 
 
 def _settings(pg: DatabaseSettings, **enroll: Any) -> ControllerSettings:
-    return make_settings(pg, enroll={**FAST_ENROLL, **enroll})
+    return make_settings(pg, fabric=False, enroll={**FAST_ENROLL, **enroll})
 
 
 @pytest_asyncio.fixture
@@ -203,7 +204,9 @@ async def test_happy_path_and_first_hello(
     )
     assert ("enrolled", identity.node_id, invite_id) in audit
     # The first Hello turns the placeholder row into a live node (§12.3).
-    async with grpc.aio.insecure_channel(f"127.0.0.1:{fabric_runtime.grpc_port}") as ch:
+    async with identity_channel(
+        f"127.0.0.1:{fabric_runtime.grpc_port}", identity
+    ) as ch:
         agent = FakeAgent(ch, node_id=identity.node_id, epoch=1)
         await agent.connect()
         async with httpx.AsyncClient(
@@ -622,8 +625,16 @@ async def test_rest_invite_without_a_ca_is_a_conflict(
     import httpx
 
     from meshforge.common.fabric_token import read_token_file
+    from meshforge.controller.settings import ControllerSettings
 
-    async with ControllerRuntime.start(_settings(pg_settings)) as runtime:
+    base = _settings(pg_settings)
+    # V0.7 G3: only insecure-dev (loopback) runs without a CA at all.
+    settings = ControllerSettings(
+        security={"mode": "insecure-dev"},
+        controller=base.controller,
+        database=base.database,
+    )
+    async with ControllerRuntime.start(settings) as runtime:
         assert runtime.enroll_port == 0  # no CA: no enrolment listener
         token = read_token_file(runtime.settings.token_path).get_secret_value()
         async with httpx.AsyncClient(

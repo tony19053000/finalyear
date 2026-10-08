@@ -41,6 +41,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec, ed25519, rsa
 from cryptography.x509.oid import NameOID
 from mf_controller_harness import make_settings
+from mf_fabric import identity_channel
 from mf_session_client import FakeAgent
 from sqlalchemy import text
 
@@ -79,7 +80,7 @@ async def _sql(
 
 @pytest_asyncio.fixture
 async def rt(pg_settings: DatabaseSettings) -> AsyncIterator[ControllerRuntime]:
-    settings = make_settings(pg_settings, enroll=FAST)
+    settings = make_settings(pg_settings, fabric=False, enroll=FAST)
     create_fabric(settings.ca_dir)
     async with ControllerRuntime.start(settings) as runtime:
         yield runtime
@@ -698,6 +699,7 @@ async def test_refused_attempts_still_count_against_the_rate_limit_and_burn_noth
 ) -> None:
     settings = make_settings(
         pg_settings,
+        fabric=False,
         enroll={"bind": "127.0.0.1:0", "rate_per_minute": 0.01, "rate_burst": 3},
     )
     create_fabric(settings.ca_dir)
@@ -725,7 +727,9 @@ async def test_refused_attempts_still_count_against_the_rate_limit_and_burn_noth
 async def test_outstanding_invite_survives_a_controller_restart(
     pg_settings: DatabaseSettings, tmp_path: Path
 ) -> None:
-    settings = make_settings(pg_settings, enroll={**FAST, "bind": "127.0.0.1:0"})
+    settings = make_settings(
+        pg_settings, fabric=False, enroll={**FAST, "bind": "127.0.0.1:0"}
+    )
     create_fabric(settings.ca_dir)
     async with ControllerRuntime.start(settings) as first:
         engine = create_engine(pg_settings)
@@ -759,7 +763,7 @@ async def test_outstanding_invite_survives_a_controller_restart(
         assert result.enrollment.node_id == ident.node_id
     # restart again: the placeholder 'enrolling' row must admit the first Hello
     async with ControllerRuntime.start(settings) as third:
-        async with grpc.aio.insecure_channel(f"127.0.0.1:{third.grpc_port}") as ch:
+        async with identity_channel(f"127.0.0.1:{third.grpc_port}", ident) as ch:
             agent = FakeAgent(ch, node_id=ident.node_id, epoch=1)
             await agent.connect()
             await agent.close()

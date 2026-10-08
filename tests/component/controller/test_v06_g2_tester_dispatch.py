@@ -24,10 +24,10 @@ import time
 from collections.abc import AsyncIterator, Callable
 from typing import Any
 
-import grpc
 import httpx
 import pytest
 import pytest_asyncio
+from mf_fabric import NodeChannels
 from mf_jobs_harness import g2_settings, running_controller, token_of
 from mf_session_client import FakeAgent
 
@@ -141,7 +141,7 @@ async def fabric(
     settings = g2_settings(pg_settings, jobs=jobs)
     async with (
         running_controller(settings) as runtime,
-        grpc.aio.insecure_channel(f"127.0.0.1:{runtime.grpc_port}") as channel,
+        NodeChannels(f"127.0.0.1:{runtime.grpc_port}") as channel,
         httpx.AsyncClient(
             base_url=f"http://127.0.0.1:{runtime.http_port}",
             headers={"authorization": f"Bearer {token_of(runtime)}"},

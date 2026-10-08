@@ -21,6 +21,7 @@ from typing import Any
 import grpc
 import pytest
 import structlog
+from mf_fabric import NodeChannels
 from mf_session_client import FakeAgent, poll_until
 
 pytest.importorskip("sqlalchemy", reason="needs the controller extra")
@@ -61,7 +62,7 @@ class HungGetNode:
 
 @contextlib.asynccontextmanager
 async def own_channel(target: str) -> AsyncIterator[grpc.aio.Channel]:
-    async with grpc.aio.insecure_channel(target) as ch:
+    async with NodeChannels(target) as ch:
         yield ch
 
 
