@@ -68,7 +68,10 @@ async def get_manifest(
     started = clock()
     try:
         async with client.stream(
-            "GET", source.url(tree_id), headers=source.headers()
+            "GET",
+            source.url(tree_id),
+            headers=source.headers(),
+            extensions=source.extensions(),
         ) as response:
             if response.status_code != 200:
                 raise status_error(

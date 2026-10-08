@@ -119,6 +119,7 @@ from meshforge.agent.execution.plan import (
 from meshforge.agent.execution.runtime import RunObserver, RunResult, Stream
 from meshforge.agent.execution.uploader import UploadProgress, upload_parts
 from meshforge.agent.gc.leases import AttemptLeases, LeaseError
+from meshforge.agent.http_tls import AgentHttpTls
 from meshforge.agent.settings import AgentSettings
 from meshforge.common.bundle import BundleError, BundleLimits, unpack
 from meshforge.common.errors import FailureType, InvalidIdError
@@ -285,7 +286,13 @@ class Executor:
         log_sink: LogSink | None = None,
         cas: AgentCas | None = None,
         gc: GcService | None = None,
+        http_tls: AgentHttpTls | None = None,
     ) -> None:
+        """``http_tls`` (mtls mode, V0.7 G3): every blob fetch and upload is
+        HTTPS with this laptop's node certificate; ``None`` = plain HTTP
+        (``insecure-dev``, and unit tests that inject ``fetch``/``upload``)."""
+        self._http_tls = http_tls
+        self._scheme = "https" if http_tls is not None else "http"
         self._settings = settings
         self._cfg = settings.agent.execution
         self._fetch_cfg = settings.agent.fetch
@@ -681,6 +688,13 @@ class Executor:
         attempt.upload_port = int(msg.blob_port)
         attempt.grant_changed.set()
 
+    def _transport(self) -> dict[str, Any]:
+        """``transport=`` for one HTTP client (a fresh one each: a client
+        closes its transport), or nothing (plain HTTP / injected fakes)."""
+        if self._http_tls is None:
+            return {}
+        return {"transport": self._http_tls.transport()}
+
     async def _upload_parts(
         self, base: str, digest: Digest, token: str, path: Path, *, attempt: _Attempt
     ) -> int:
@@ -691,6 +705,7 @@ class Executor:
             path,
             part_bytes=self._cfg.upload_part_bytes,
             progress=attempt.uploads,
+            **self._transport(),
         )
 
     async def _upload_retrying(
@@ -728,6 +743,7 @@ class Executor:
                     plan.blob_port
                     if attempt.upload_port is None
                     else attempt.upload_port,
+                    scheme=self._scheme,
                 )
                 kwargs = {"attempt": attempt} if self._resumable else {}
                 await self._step(
@@ -997,11 +1013,12 @@ class Executor:
             plan.blob_url if attempt.blob_url is None else attempt.blob_url,
             self._controller_host(),
             plan.blob_port if attempt.blob_port is None else attempt.blob_port,
+            scheme=self._scheme,
         )
         try:
             await self._step(
                 attempt,
-                self._fetch(base, plan.digest, token, bundle),
+                self._fetch(base, plan.digest, token, bundle, **self._transport()),
             )
             # Unpacking is not interruptible: it runs to completion in its thread
             # (its caps bound how long) and a stop asked meanwhile is honoured
@@ -1028,7 +1045,7 @@ class Executor:
         if attempt.stages:
             await self._stage_inputs(attempt, workdir, spec)
             return
-        sources = tree_sources(spec, self._controller_host())
+        sources = tree_sources(spec, self._controller_host(), scheme=self._scheme)
         leases = attempt.leases
         tree_hex = spec.tree_id.removeprefix("sha256:")
         if leases is not None:
@@ -1049,6 +1066,7 @@ class Executor:
                     endgame_after_s=self._fetch_cfg.endgame_after_s,
                 ),
                 on_tree=leases.tree if leases is not None else None,
+                **self._transport(),
             ),
         )
         self.last_stage = report
@@ -1108,12 +1126,16 @@ class Executor:
                     self.cas,
                     tree_id=item.tree_id,
                     sources=tree_sources(
-                        spec, self._controller_host(), sources=item.sources
+                        spec,
+                        self._controller_host(),
+                        sources=item.sources,
+                        scheme=self._scheme,
                     ),
                     dest=dest,
                     timeout_s=self._fetch_cfg.request_timeout_s,
                     tuning=self._tuning(),
                     on_tree=leases.tree if leases is not None else None,
+                    **self._transport(),
                 ),
             )
             if leases is not None:

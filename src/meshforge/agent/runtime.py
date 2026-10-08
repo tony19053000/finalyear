@@ -60,6 +60,7 @@ import signal
 from collections.abc import Callable
 from typing import Final
 
+from meshforge.agent import enrollment
 from meshforge.agent.benchmarks.service import (
     ScoreService,
     session_reporter,
@@ -89,13 +90,21 @@ from meshforge.agent.hardware.deadline import (
     BlockingCallTimeoutError,
     DeadlineThread,
 )
-from meshforge.agent.identity import NodeIdentity, load_or_create
+from meshforge.agent.http_tls import load_http_tls
+from meshforge.agent.identity import (
+    KEY_FILE_NAME,
+    NODE_CERT_FILE_NAME,
+    NodeIdentity,
+    load_or_create,
+)
 from meshforge.agent.peer import PeerAuthorizer, PeerBlobServer
 from meshforge.agent.peer.probe import ProbeService
+from meshforge.agent.peer.server import PeerServerTls, peer_server_tls
 from meshforge.agent.resources import ResourceMonitor, ResourceSampler
 from meshforge.agent.session.client import AgentSessionClient
 from meshforge.agent.session.hello import basic_hardware
 from meshforge.agent.session.state import AgentState
+from meshforge.agent.session.tls import JOIN_HINT, SessionTlsError
 from meshforge.agent.settings import AgentSettings, parse_controller_address
 from meshforge.common.capabilities import HARDWARE_SCORES_CAPABILITY
 from meshforge.common.config import INSECURE_DEV_BANNER
@@ -327,6 +336,13 @@ async def serve(
             lock_timeout_s=settings.agent.identity_lock_timeout_s,
         )
     node_id = str(identity.node_id)
+    # V0.7 G3 (D139): HTTPS with the node certificate for blobs and probes, TLS
+    # on the peer server; refuses to start unenrolled (the exact remedy).
+    http_tls = (
+        None
+        if settings.security.insecure
+        else await asyncio.to_thread(load_http_tls, identity)
+    )
     nvml = NvmlSession()
     guard = DeadlineThread("hardware")
     hardware, facts = await discover_hardware(settings, node_id, nvml, guard)
@@ -350,7 +366,7 @@ async def serve(
         hardware_scores=await hello_scores(settings, node_id, facts),
     )
     cas = AgentCas.at(settings.data_dir)
-    peer = await start_peer(settings, cas, client)
+    peer = await start_peer(settings, cas, client, identity=identity)
     cache = await start_cache(
         settings, cas, client, docker=execution.docker is not None
     )
@@ -372,6 +388,7 @@ async def serve(
         controller_host=lambda: controller_host(client.controller_target),
         declared_gpus=[gpu.index for gpu in hardware.gpus],
         gc=gc,
+        http_tls=http_tls,
     )
     wire_executor(client, executor)
     # 0.5.8 controller part: `compute node prepare` (only where jobs may run).
@@ -381,7 +398,9 @@ async def serve(
         else None
     )
     # V0.6 G4 (D111): measure links when the controller asks.
-    prober = ProbeService(settings.agent.probe, client.send_report, node_id=node_id)
+    prober = ProbeService(
+        settings.agent.probe, client.send_report, node_id=node_id, http_tls=http_tls
+    )
     client.command_handler = route_commands(
         executor,
         gc=gc,
@@ -433,7 +452,11 @@ async def serve(
 
 
 async def start_peer(
-    settings: AgentSettings, cas: AgentCas, client: AgentSessionClient
+    settings: AgentSettings,
+    cas: AgentCas,
+    client: AgentSessionClient,
+    *,
+    identity: NodeIdentity | None = None,
 ) -> PeerBlobServer | None:
     """Start the peer blob server (V0.5 D97) when ``[agent.peer] bind`` is set.
 
@@ -450,7 +473,11 @@ async def start_peer(
     authorizer = PeerAuthorizer(
         cas, node_id=client.node_id, cache_entries=cfg.tree_cache_entries
     )
-    server = PeerBlobServer(cas, authorizer, cfg, node_id=client.node_id)
+    tls = None
+    if not settings.security.insecure:
+        # V0.7 G3 (D139): TLS with this node's certificate, client cert required.
+        tls = await asyncio.to_thread(_peer_tls, identity or client.identity)
+    server = PeerBlobServer(cas, authorizer, cfg, node_id=client.node_id, tls=tls)
     try:
         await cas.prepare()
         await server.start()
@@ -478,6 +505,20 @@ async def start_peer(
         controller_host(client.controller_target)
     )
     return server
+
+
+def _peer_tls(identity: NodeIdentity) -> PeerServerTls:
+    stored = enrollment.load(identity)
+    if stored is None:
+        raise SessionTlsError(
+            f"this laptop is not enrolled in a fabric: {JOIN_HINT}",
+            details={"reason": "not_enrolled"},
+        )
+    return peer_server_tls(
+        stored.ca_cert,
+        cert_file=identity.path / NODE_CERT_FILE_NAME,
+        key_file=identity.path / KEY_FILE_NAME,
+    )
 
 
 async def start_cache(

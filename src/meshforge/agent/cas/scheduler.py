@@ -496,7 +496,10 @@ class TransferScheduler:
         try:
             with store.writer(digest, blob.entry.size) as writer:
                 async with self._client.stream(
-                    "GET", source.url(digest), headers=source.headers()
+                    "GET",
+                    source.url(digest),
+                    headers=source.headers(),
+                    extensions=source.extensions(),
                 ) as response:
                     if response.status_code != 200:
                         raise status_error(

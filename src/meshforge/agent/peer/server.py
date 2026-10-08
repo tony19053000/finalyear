@@ -41,21 +41,32 @@ import ipaddress
 import os
 import re
 import socket
+import ssl
 import stat
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Collection
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import BinaryIO, Final
 
 import h11
+from cryptography import x509
 
 from meshforge.agent.cas.store import AgentCas
 from meshforge.agent.peer.auth import PeerAuthorizer
 from meshforge.agent.settings import PeerSettings
+from meshforge.common import pki
 from meshforge.common.hashing import Digest
 from meshforge.common.logging import get_logger
 from meshforge.common.netaddr import check_bind_address
 
-__all__ = ["COALESCE_BYTES", "PeerBlobServer", "PeerServerStats", "parse_range"]
+__all__ = [
+    "COALESCE_BYTES",
+    "PeerBlobServer",
+    "PeerServerStats",
+    "PeerServerTls",
+    "parse_range",
+    "peer_server_tls",
+]
 
 log = get_logger(__name__)
 
@@ -175,6 +186,52 @@ def _local_ip_towards(host: str) -> str | None:
         return None
 
 
+@dataclass(slots=True)
+class PeerServerTls:
+    """The peer server's TLS (V0.7 G3, D139): a TLS 1.3 server context with
+    this node's certificate that requires a client certificate from the fabric
+    CA, plus the checks OpenSSL cannot make - the client names a node of
+    **this** fabric, and its serial is not revoked (``revoked`` is read at
+    every connection)."""
+
+    context: ssl.SSLContext = field(repr=False)
+    fabric_id: str
+    revoked: Callable[[], Collection[str]] = frozenset
+
+    def refusal(self, ssl_object: object) -> str | None:
+        """``None`` when the connection's client may be served, else a reason."""
+        getter = getattr(ssl_object, "getpeercert", None)
+        der = getter(binary_form=True) if callable(getter) else None
+        if not der:
+            return "peer_cert_missing"
+        try:
+            cert = x509.load_der_x509_certificate(der)
+            pki.parse_node_id(cert, fabric_id=self.fabric_id)
+        except (ValueError, pki.PkiError):
+            return "peer_cert_not_a_node"
+        if format(cert.serial_number, "x") in self.revoked():
+            return "peer_cert_revoked"
+        return None
+
+
+def peer_server_tls(
+    ca_cert: x509.Certificate,
+    *,
+    cert_file: Path,
+    key_file: Path,
+    revoked: Callable[[], Collection[str]] = frozenset,
+) -> PeerServerTls:
+    """The server side of :class:`PeerServerTls` from an enrolment's files."""
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.minimum_version = ssl.TLSVersion.TLSv1_3
+    context.load_cert_chain(cert_file, key_file)
+    context.load_verify_locations(cadata=pki.cert_to_pem(ca_cert).decode("ascii"))
+    context.verify_mode = ssl.CERT_REQUIRED
+    return PeerServerTls(
+        context=context, fabric_id=pki.parse_fabric_id(ca_cert), revoked=revoked
+    )
+
+
 class PeerBlobServer:
     """See module docstring. ``start()`` then ``close()``; event-loop owned."""
 
@@ -185,9 +242,15 @@ class PeerBlobServer:
         settings: PeerSettings,
         *,
         node_id: str,
+        tls: PeerServerTls | None = None,
     ) -> None:
+        """``tls`` (mtls, V0.7 G3, D139): serve TLS 1.3 with this node's
+        certificate and require a fabric node certificate from every client
+        (its serial checked against the revocation set); ``None`` = plain
+        HTTP (``insecure-dev``)."""
         if settings.bind is None:
             raise ValueError("the peer server needs [agent.peer] bind")
+        self._tls = tls
         self._cas = cas
         self._auth = authorizer
         self._cfg = settings
@@ -210,6 +273,10 @@ class PeerBlobServer:
             port=self._cfg.port,
             reuse_address=True,
             limit=self._cfg.header_bytes + _READ,
+            ssl=self._tls.context if self._tls is not None else None,
+            ssl_handshake_timeout=(
+                self._cfg.idle_timeout_s if self._tls is not None else None
+            ),
         )
         self.port = int(self._server.sockets[0].getsockname()[1])
         log.info(
@@ -217,6 +284,7 @@ class PeerBlobServer:
             node_id=self._node_id,
             bind=self._host,
             port=self.port,
+            tls=self._tls is not None,
         )
 
     async def close(self) -> None:
@@ -280,6 +348,14 @@ class PeerBlobServer:
     ) -> None:
         _set_nodelay(writer)
         self.stats.connections += 1
+        if self._tls is not None:
+            refusal = self._tls.refusal(writer.get_extra_info("ssl_object"))
+            if refusal is not None:
+                self.stats.refuse(refusal)
+                log.warning(
+                    "agent.peer.client_refused", node_id=self._node_id, reason=refusal
+                )
+                return
         if self._active >= self._cfg.max_connections:
             self.stats.connections_rejected += 1
             self.stats.refuse("too_many_connections")

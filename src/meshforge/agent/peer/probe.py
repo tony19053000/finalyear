@@ -42,6 +42,7 @@ from typing import Any, Final
 
 import httpx
 
+from meshforge.agent.http_tls import AgentHttpTls, peer_extensions
 from meshforge.agent.settings import ProbeSettings
 from meshforge.common.logging import get_logger
 from meshforge.common.proto.meshforge.v1 import agent_pb2
@@ -84,7 +85,11 @@ class ProbeService:
         node_id: str,
         clock: Callable[[], float] = time.monotonic,
         transport: httpx.AsyncBaseTransport | None = None,
+        http_tls: AgentHttpTls | None = None,
     ) -> None:
+        """``http_tls`` (mtls, V0.7 G3): probes are HTTPS with this node's
+        certificate and the peer must be ``target_node_id`` (D139)."""
+        self._http_tls = http_tls
         self._cfg = settings
         self._send = send_report
         self._node_id = node_id
@@ -238,7 +243,13 @@ class ProbeService:
     ) -> tuple[float, float]:
         timeout = self._cfg.request_timeout_s
         headers = {"authorization": f"Bearer {msg.token}"}
-        base = f"http://{msg.endpoint}/v1/probe"
+        scheme = "https" if self._http_tls is not None else "http"
+        base = f"{scheme}://{msg.endpoint}/v1/probe"
+        transport = self._transport
+        extensions: dict[str, Any] = {}
+        if self._http_tls is not None:
+            transport = transport or self._http_tls.transport()
+            extensions = peer_extensions(msg.target_node_id)
         samples = max(1, msg.rtt_samples)
         try:
             async with (
@@ -246,14 +257,14 @@ class ProbeService:
                 httpx.AsyncClient(
                     timeout=httpx.Timeout(timeout),
                     headers=headers,
-                    transport=self._transport,
+                    transport=transport,
                     trust_env=False,
                     follow_redirects=False,
                 ) as client,
             ):
                 # one extra warm-up request opens the connection (not counted)
                 rtts = [
-                    await self._get(client, base, 0, counter)
+                    await self._get(client, base, 0, counter, extensions)
                     for _ in range(samples + (1 if samples > 1 else 0))
                 ]
                 if samples > 1:
@@ -262,11 +273,11 @@ class ProbeService:
                 size = min(msg.bytes, MAX_PROBE_BYTES)
                 if size == 0:
                     return rtt_ms, 0.0
-                took = await self._get(client, base, size, counter)
+                took = await self._get(client, base, size, counter, extensions)
                 big = min(msg.max_bytes, MAX_PROBE_BYTES)
                 if took < msg.fast_s and big > size:
                     size = big
-                    took = await self._get(client, base, size, counter)
+                    took = await self._get(client, base, size, counter, extensions)
         except TimeoutError:  # the whole-probe deadline (asyncio.timeout)
             raise _Failed("deadline") from None
         except httpx.TimeoutException:
@@ -276,11 +287,18 @@ class ProbeService:
         return rtt_ms, size / max(took, 1e-6)
 
     async def _get(
-        self, client: httpx.AsyncClient, base: str, size: int, counter: _Counter
+        self,
+        client: httpx.AsyncClient,
+        base: str,
+        size: int,
+        counter: _Counter,
+        extensions: dict[str, Any] | None = None,
     ) -> float:
         """Time one ``GET ?bytes=size`` to its last body byte."""
         started = self._clock()
-        async with client.stream("GET", base, params={"bytes": str(size)}) as resp:
+        async with client.stream(
+            "GET", base, params={"bytes": str(size)}, extensions=extensions or {}
+        ) as resp:
             if resp.status_code != 200:
                 raise _Failed(f"http_{resp.status_code}")
             got = 0

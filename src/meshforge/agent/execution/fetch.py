@@ -111,9 +111,15 @@ _UPLOAD_TRIES: Final = 4
 _UPLOAD_BACKOFF_S: Final = 0.5
 
 
-def blob_base_url(blob_url: str, controller_host: str | None, blob_port: int) -> str:
-    """``ExecutionSpec.blob_url`` if set, else ``http://<dialled host>:<blob_port>``."""
+def blob_base_url(
+    blob_url: str, controller_host: str | None, blob_port: int, *, scheme: str = "http"
+) -> str:
+    """``ExecutionSpec.blob_url`` if set, else ``<scheme>://<dialled host>:<blob_port>``.
+
+    ``scheme`` ``https`` (mtls mode, V0.7 G3): a plaintext ``blob_url`` is
+    refused (``config_error``) - there is no fallback to HTTP."""
     if blob_url:
+        _require_scheme(blob_url, scheme)
         return blob_url.rstrip("/")
     if not controller_host or not 0 < blob_port < 65536:
         raise FetchError(
@@ -121,7 +127,17 @@ def blob_base_url(blob_url: str, controller_host: str | None, blob_port: int) ->
             failure_type=FailureType.CONFIG_ERROR,
         )
     host = f"[{controller_host}]" if ":" in controller_host else controller_host
-    return f"http://{host}:{blob_port}"
+    return f"{scheme}://{host}:{blob_port}"
+
+
+def _require_scheme(url: str, scheme: str) -> None:
+    if scheme == "https" and not url.lower().startswith("https://"):
+        raise FetchError(
+            "the controller named a plaintext blob URL, and this agent only "
+            "speaks HTTPS ([security] mode = 'mtls'); fix [controller.api] "
+            "advertise_url",
+            failure_type=FailureType.CONFIG_ERROR,
+        )
 
 
 async def fetch_bundle(
@@ -310,6 +326,7 @@ def tree_sources(
     controller_host: str | None,
     *,
     sources: Sequence[agent_pb2.BlobSource] | None = None,
+    scheme: str = "http",
 ) -> list[BlobSource]:
     """The validated blob sources of ``spec`` (see module docstring), or of
     ``sources`` (a named input's list, V0.5 G5) with the spec's blob location."""
@@ -340,10 +357,12 @@ def tree_sources(
                 "a blob source node_id is malformed",
                 failure_type=FailureType.INVALID_INPUT,
             )
+        if url:
+            _require_scheme(url, scheme)
         base = (
             url.rstrip("/")
             if url
-            else blob_base_url("", controller_host, int(spec.blob_port))
+            else blob_base_url("", controller_host, int(spec.blob_port), scheme=scheme)
         )
         out.append(BlobSource(base_url=base, token=source.token, node_id=node_id))
     return out

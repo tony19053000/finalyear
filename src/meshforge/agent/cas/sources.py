@@ -16,11 +16,12 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Final
+from typing import Any, Final
 
 import httpx
 
 from meshforge.common.errors import FailureType, MeshForgeError
+from meshforge.common.fabric_tls import peer_server_name
 from meshforge.common.hashing import Digest
 
 __all__ = [
@@ -154,6 +155,13 @@ class Source:
     def url(self, digest: Digest) -> str:
         return f"{self.src.base_url}/v1/blobs/{digest.hex}"
 
+    def extensions(self) -> dict[str, Any]:
+        """V0.7 G3 (D139): over HTTPS a peer must be the node the controller
+        named (its TLS server name); the controller is checked by its name."""
+        if self.controller or not self.src.base_url.startswith("https://"):
+            return {}
+        return {"sni_hostname": peer_server_name(self.src.node_id)}
+
 
 async def get_range(
     client: httpx.AsyncClient,
@@ -168,7 +176,7 @@ async def get_range(
     headers = source.headers({"range": f"bytes={start}-{start + length - 1}"})
     try:
         async with client.stream(
-            "GET", source.url(digest), headers=headers
+            "GET", source.url(digest), headers=headers, extensions=source.extensions()
         ) as response:
             if response.status_code != 206:
                 raise status_error(response.status_code, f"blob {digest}", source.name)
