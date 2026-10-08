@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 import pytest_asyncio
+from mf_fabric import client_ssl_context
 from mf_jobs_harness import api_client, g2_settings, running_controller, token_of
 
 from meshforge.common.hashing import sha256_bytes
@@ -105,7 +106,12 @@ async def test_interrupted_upload_leaves_no_partial_blob(
 ) -> None:
     data = os.urandom(900_000)
     digest = hashlib.sha256(data).hexdigest()
-    reader, writer = await asyncio.open_connection("127.0.0.1", runtime.http_port)
+    reader, writer = await asyncio.open_connection(
+        "127.0.0.1",
+        runtime.http_port,
+        ssl=client_ssl_context(),
+        server_hostname="127.0.0.1",
+    )
     head = (
         f"PUT /v1/blobs/{digest} HTTP/1.1\r\nHost: t\r\n"
         f"Authorization: Bearer {token_of(runtime)}\r\n"

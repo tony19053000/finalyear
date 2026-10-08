@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 from mf_controller_harness import controller_section
-from mf_fabric import seed_controller_fabric
+from mf_fabric import client_ssl_context, seed_controller_fabric
 
 from meshforge.controller.server import ControllerRuntime
 from meshforge.controller.settings import ControllerSettings, LivenessSettings
@@ -46,14 +46,24 @@ def token_of(runtime: ControllerRuntime) -> str:
     return runtime.settings.token_path.read_text().strip()
 
 
+HARNESS_NODE_ID = "node_01J0HARNESS000000000000000"
+"""The node certificate ``api_client`` presents (V0.7 G3): fetch tokens and
+upload grants minted without a node are accepted from any fabric node's
+certificate, never without one (``test_v07_g3_https`` pins the rules)."""
+
+
 @asynccontextmanager
 async def api_client(
-    runtime: ControllerRuntime, *, token: str | None = None
+    runtime: ControllerRuntime,
+    *,
+    token: str | None = None,
+    node_id: str | None = HARNESS_NODE_ID,
 ) -> AsyncIterator[httpx.AsyncClient]:
     headers = {"authorization": f"Bearer {token}"} if token else {}
     async with httpx.AsyncClient(
         base_url=f"https://127.0.0.1:{runtime.http_port}",
         headers=headers,
         timeout=10,
+        verify=client_ssl_context(node_id=node_id),
     ) as client:
         yield client
