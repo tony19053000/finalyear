@@ -293,7 +293,7 @@ async def test_a_log_follower_stays_across_a_retry(
 ) -> None:
     a = await agents.start("a")
     job_id = await submit(http, _project(tmp_path), None, _manifest(tmp_path))
-    url = f"ws://127.0.0.1:{runtime.http_port}/v1/jobs/{job_id}/logs/ws?stream=stdout"
+    url = f"wss://127.0.0.1:{runtime.http_port}/v1/jobs/{job_id}/logs/ws?stream=stdout"
     follower = asyncio.create_task(_frames(url, token_of(runtime)))
     job = await wait_job(http, job_id, states=frozenset({"running"}))
     first = job["attempts"][0]["attempt_id"]

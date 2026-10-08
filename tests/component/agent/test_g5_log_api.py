@@ -25,6 +25,7 @@ pytest.importorskip("sqlalchemy", reason="needs the controller extra")
 from mf_agent_harness import make_controller_settings
 from mf_controller_harness import tolerant_liveness
 from mf_exec_harness import ExecAgent, submit, wait_job
+from mf_fabric import client_ssl_context
 from mf_jobs_harness import token_of
 from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed, InvalidStatus
@@ -89,7 +90,7 @@ def _project(tmp_path: Path, code: str) -> Path:
 
 
 def _ws_url(runtime: ControllerRuntime, job_id: str, query: str = "") -> str:
-    return f"ws://127.0.0.1:{runtime.http_port}/v1/jobs/{job_id}/logs/ws{query}"
+    return f"wss://127.0.0.1:{runtime.http_port}/v1/jobs/{job_id}/logs/ws{query}"
 
 
 def _auth(runtime: ControllerRuntime) -> dict[str, str]:
@@ -233,6 +234,8 @@ def _raw_ws(port: int, path: str, token: str) -> socket.socket:
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4096)
     sock.connect(("127.0.0.1", port))
+    # V0.7 G3: the REST port is TLS; the small kernel buffer still applies.
+    sock = client_ssl_context().wrap_socket(sock, server_hostname="127.0.0.1")
     key = base64.b64encode(os.urandom(16)).decode()
     sock.sendall(
         (
@@ -244,7 +247,10 @@ def _raw_ws(port: int, path: str, token: str) -> socket.socket:
     )
     head = b""
     while b"\r\n\r\n" not in head:
-        head += sock.recv(1)
+        more = sock.recv(1)
+        if not more:
+            raise EOFError(f"connection closed during the handshake: {head!r}")
+        head += more
     assert head.startswith(b"HTTP/1.1 101"), head
     return sock
 

@@ -209,7 +209,7 @@ async def test_reconnecting_mid_follow_with_offset_never_dupes_or_drops(
     manifest = {"name": "ticker", "entrypoint": ["python", "main.py"]}
     job_id = await submit(http, project, agent.node_id, manifest)
 
-    url = f"ws://127.0.0.1:{runtime.http_port}/v1/jobs/{job_id}/logs/ws"
+    url = f"wss://127.0.0.1:{runtime.http_port}/v1/jobs/{job_id}/logs/ws"
     headers = {"Authorization": f"Bearer {token_of(runtime)}"}
     got = b""
     async with connect(url, additional_headers=headers) as ws:
