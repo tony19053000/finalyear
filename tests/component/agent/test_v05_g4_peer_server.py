@@ -27,7 +27,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from mf_agent_harness import make_controller_settings
 from mf_controller_harness import tolerant_liveness
 from mf_exec_harness import ExecAgent
-from mf_fabric import peer_client_context
+from mf_fabric import client_ssl_context, peer_client_context
 from mf_jobs_harness import token_of
 
 from meshforge.common.cas import MIN_CHUNK_SIZE
@@ -82,6 +82,7 @@ async def test_endpoint_advertised_key_installed_and_tokens_checked(
         base_url=f"https://127.0.0.1:{runtime.http_port}",
         headers={"authorization": f"Bearer {token_of(runtime)}"},
         trust_env=False,
+        verify=client_ssl_context(),
     ) as http:
         detail = (await http.get(f"/v1/nodes/{agent.node_id}")).json()
     assert detail["peer_endpoint"] == endpoint
