@@ -36,7 +36,8 @@ pytest.importorskip("sqlalchemy", reason="needs the controller extra")
 from mf_agent_harness import make_controller_settings
 from mf_controller_harness import tolerant_liveness
 from mf_exec_harness import ExecAgent, submit, wait_job
-from mf_jobs_harness import token_of
+from mf_fabric import client_ssl_context
+from mf_jobs_harness import HARNESS_NODE_ID, token_of
 from pydantic import SecretStr
 
 from meshforge.agent.cas.fetcher import BlobFetcher
@@ -141,7 +142,10 @@ async def _restart_mid_fetch(
 async def _stale_token_refused(
     fresh: ControllerRuntime, digest_hex: str, token: str
 ) -> None:
-    async with httpx.AsyncClient(timeout=10) as raw:
+    # with a valid node certificate: the token itself must be what is refused
+    async with httpx.AsyncClient(
+        timeout=10, verify=client_ssl_context(node_id=HARNESS_NODE_ID)
+    ) as raw:
         got = await raw.get(
             f"https://127.0.0.1:{fresh.http_port}/v1/blobs/{digest_hex}",
             headers={"authorization": f"Bearer {token}"},
@@ -232,10 +236,12 @@ async def test_bundle_job_survives_a_controller_restart_mid_fetch(
     gate = Gate(1)
     real_fetch = agent.executor._fetch
 
-    async def gated_fetch(base: str, digest: Any, token: str, dest: Path) -> int:
+    async def gated_fetch(
+        base: str, digest: Any, token: str, dest: Path, **kw: Any
+    ) -> int:
         gate.tokens.append(token)
         await gate.hold()
-        return await real_fetch(base, digest, token, dest)
+        return await real_fetch(base, digest, token, dest, **kw)
 
     agent.executor._fetch = gated_fetch
     async with _http(runtime) as http:
@@ -275,9 +281,11 @@ async def test_no_fresh_token_within_the_retry_deadline_is_transfer_error(
         gate = Gate(1)
         real_fetch = short.executor._fetch
 
-        async def gated_fetch(base: str, digest: Any, token: str, dest: Path) -> int:
+        async def gated_fetch(
+            base: str, digest: Any, token: str, dest: Path, **kw: Any
+        ) -> int:
             await gate.hold()
-            return await real_fetch(base, digest, token, dest)
+            return await real_fetch(base, digest, token, dest, **kw)
 
         short.executor._fetch = gated_fetch
 

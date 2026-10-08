@@ -58,6 +58,7 @@ __all__ = [
     "fabric_ca",
     "grpc_channel",
     "identity_channel",
+    "node_cert_files",
     "node_material",
     "peer_client_context",
     "runtime_verify",
@@ -211,6 +212,11 @@ def _material_files(node_id: str) -> tuple[Path, Path]:
     key.chmod(0o600)
     cert.write_bytes(cert_pem)
     return key, cert
+
+
+def node_cert_files(node_id: str) -> tuple[Path, Path]:
+    """``(key_file, cert_file)`` of :func:`node_material` (for child processes)."""
+    return _material_files(node_id)
 
 
 def client_ssl_context(*, node_id: str | None = None) -> ssl.SSLContext:

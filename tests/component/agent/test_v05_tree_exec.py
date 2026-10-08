@@ -25,7 +25,8 @@ pytest.importorskip("sqlalchemy", reason="needs the controller extra")
 
 from mf_agent_harness import make_controller_settings
 from mf_exec_harness import ExecAgent, wait_job
-from mf_jobs_harness import token_of
+from mf_fabric import ca_file, client_ssl_context, node_cert_files
+from mf_jobs_harness import HARNESS_NODE_ID, token_of
 from pydantic import SecretStr
 
 from meshforge.agent.cas import AgentCas
@@ -193,10 +194,14 @@ class Slow(httpx.AsyncHTTPTransport):
             await asyncio.sleep(0.25)
         return await super().handle_async_request(request)
 
-url, token, tree_id, cas_dir, dest = sys.argv[1:6]
+url, token, tree_id, cas_dir, dest, ca, cert, key = sys.argv[1:9]
+import ssl
+ctx = ssl.create_default_context(cafile=ca)  # V0.7 G3: HTTPS + node cert
+ctx.load_cert_chain(cert, key)
 cas = AgentCas(CasStore(Path(cas_dir), max_blob_bytes=1 << 30))
 asyncio.run(stage_tree(cas, tree_id=tree_id, sources=[BlobSource(url, token)],
-                       dest=Path(dest), transport=Slow(), free_disk_floor_bytes=0))
+                       dest=Path(dest), transport=Slow(verify=ctx),
+                       free_disk_floor_bytes=0))
 print("finished")
 """
 
@@ -223,6 +228,8 @@ async def test_killed_agent_fetch_resumes_without_refetching_chunks(
         str(built.tree.tree_id),
         str(cas_dir),
         str(tmp_path / "w1"),
+        str(ca_file()),
+        *(str(p) for p in reversed(node_cert_files(HARNESS_NODE_ID))),
         stdout=asyncio.subprocess.DEVNULL,
     )
     digest = sha256_bytes(data)
@@ -250,6 +257,9 @@ async def test_killed_agent_fetch_resumes_without_refetching_chunks(
         sources=[BlobSource(url, token.get_secret_value())],
         dest=tmp_path / "w2",
         free_disk_floor_bytes=0,
+        transport=httpx.AsyncHTTPTransport(
+            verify=client_ssl_context(node_id=HARNESS_NODE_ID)
+        ),
     )
     assert report.chunks_resumed >= 3
     # Completed chunks never travel again; the manifest was cached too.
