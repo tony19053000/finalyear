@@ -1,7 +1,7 @@
 """V0.7 G2 tester round 2: D152 rate-limit keys (IPv6 per /64, IPv4 per address,
 IPv4-mapped = IPv4, zone dropped, unparseable = one shared 'unknown' bucket)."""
 
-# ruff: noqa: S311, E501
+# ruff: noqa: S311, E501, RUF001
 
 from __future__ import annotations
 
