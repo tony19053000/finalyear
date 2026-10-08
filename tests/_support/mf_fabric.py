@@ -59,6 +59,7 @@ __all__ = [
     "grpc_channel",
     "identity_channel",
     "node_material",
+    "peer_client_context",
     "runtime_verify",
     "seed_ca_dir",
     "seed_controller_fabric",
@@ -221,6 +222,17 @@ def client_ssl_context(*, node_id: str | None = None) -> ssl.SSLContext:
         key, cert = _material_files(node_id)
         context.load_cert_chain(cert, key)
     return context
+
+
+def peer_client_context(
+    node_id: str = "node_01J0HARNESS000000000000000",
+) -> ssl.SSLContext:
+    """The agent's own client context for peer servers (fabric CA, node
+    certificate of ``node_id``, peer identity checked by TLS server name)."""
+    from meshforge.common.fabric_tls import client_context
+
+    key, cert = _material_files(node_id)
+    return client_context(fabric_ca().cert, cert_file=cert, key_file=key)
 
 
 def grpc_channel(target: str, node_id: str) -> grpc.aio.Channel:

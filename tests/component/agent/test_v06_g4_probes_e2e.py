@@ -29,13 +29,15 @@ import httpx
 import pytest
 import pytest_asyncio
 
+from meshforge.common.fabric_tls import peer_server_name
+
 pytest.importorskip("sqlalchemy", reason="needs the controller extra")
 
 from mf_agent_harness import make_controller_settings
 from mf_controller_harness import tolerant_liveness
 from mf_exec_harness import ExecAgent
-from mf_fabric import ca_file
-from mf_jobs_harness import token_of
+from mf_fabric import ca_file, client_ssl_context, peer_client_context
+from mf_jobs_harness import HARNESS_NODE_ID, token_of
 from sqlalchemy import text
 
 from meshforge.agent.peer.probe import ProbeService
@@ -91,7 +93,9 @@ async def pair(
 
 async def _network(runtime: ControllerRuntime) -> dict[str, Any]:
     async with httpx.AsyncClient(
-        base_url=f"https://127.0.0.1:{runtime.http_port}", trust_env=False
+        base_url=f"https://127.0.0.1:{runtime.http_port}",
+        trust_env=False,
+        verify=client_ssl_context(node_id=HARNESS_NODE_ID),
     ) as http:
         resp = await http.get("/v1/network")
     assert resp.status_code == 200, resp.text
@@ -284,12 +288,19 @@ async def test_the_probe_route_checks_token_kind_holder_and_size(
         attempt_id=new_attempt_id(),
         now=now,
     )
-    base = f"http://127.0.0.1:{b.peer.port}/v1/probe"
-    async with httpx.AsyncClient(trust_env=False, timeout=10) as http:
+    base = f"https://127.0.0.1:{b.peer.port}/v1/probe"
+    async with httpx.AsyncClient(
+        trust_env=False, verify=peer_client_context(), timeout=10
+    ) as http:
 
         async def get(n: int, token: str | None) -> httpx.Response:
             headers = {} if token is None else {"authorization": f"Bearer {token}"}
-            return await http.get(base, params={"bytes": str(n)}, headers=headers)
+            return await http.get(
+                base,
+                params={"bytes": str(n)},
+                headers=headers,
+                extensions={"sni_hostname": peer_server_name(b.node_id)},
+            )
 
         assert (await get(10, None)).status_code == 401
         assert (await get(10, blob)).status_code == 403

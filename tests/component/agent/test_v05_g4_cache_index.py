@@ -25,7 +25,8 @@ pytest.importorskip("sqlalchemy", reason="needs the controller extra")
 from mf_agent_harness import make_controller_settings
 from mf_controller_harness import tolerant_liveness
 from mf_exec_harness import ExecAgent
-from mf_jobs_harness import token_of
+from mf_fabric import client_ssl_context
+from mf_jobs_harness import HARNESS_NODE_ID, token_of
 
 from meshforge.agent.session.state import AgentState
 from meshforge.common.cas import MIN_CHUNK_SIZE
@@ -106,6 +107,7 @@ async def test_snapshot_deltas_and_withdrawal(
         base_url=f"https://127.0.0.1:{runtime.http_port}",
         headers={"authorization": f"Bearer {token_of(runtime)}"},
         trust_env=False,
+        verify=client_ssl_context(node_id=HARNESS_NODE_ID),
     ) as http:
         detail = (await http.get(f"/v1/nodes/{node}")).json()
     assert detail["cache"]["blob"]["count"] == 3

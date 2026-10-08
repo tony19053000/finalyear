@@ -19,12 +19,15 @@ import httpx
 import pytest
 import pytest_asyncio
 
+from meshforge.common.fabric_tls import peer_server_name
+
 pytest.importorskip("sqlalchemy", reason="needs the controller extra")
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from mf_agent_harness import make_controller_settings
 from mf_controller_harness import tolerant_liveness
 from mf_exec_harness import ExecAgent
+from mf_fabric import peer_client_context
 from mf_jobs_harness import token_of
 
 from meshforge.common.cas import MIN_CHUNK_SIZE
@@ -122,12 +125,16 @@ async def test_endpoint_advertised_key_installed_and_tokens_checked(
         attempt_id=new_attempt_id(),
         now=time.time(),
     )
-    base = f"http://{endpoint}/v1/blobs"
-    async with httpx.AsyncClient(trust_env=False, timeout=10) as peer:
+    base = f"https://{endpoint}/v1/blobs"
+    async with httpx.AsyncClient(
+        trust_env=False, verify=peer_client_context(), timeout=10
+    ) as peer:
 
         async def get(digest: Digest, tok: str) -> int:
             r = await peer.get(
-                f"{base}/{digest.hex}", headers={"authorization": f"Bearer {tok}"}
+                f"{base}/{digest.hex}",
+                headers={"authorization": f"Bearer {tok}"},
+                extensions={"sni_hostname": peer_server_name(agent.node_id)},
             )
             if r.status_code == 200:
                 assert sha256_bytes(r.content) == digest

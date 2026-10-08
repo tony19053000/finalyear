@@ -24,6 +24,8 @@ import pytest
 pytest.importorskip("sqlalchemy", reason="needs the controller extra")
 
 from mf_exec_harness import submit, wait_job
+from mf_fabric import client_ssl_context
+from mf_jobs_harness import HARNESS_NODE_ID
 from test_v05_g4_peer_fetch import (  # noqa: F401  (fixtures + helpers)
     _a_holds,
     _http,
@@ -104,7 +106,11 @@ async def test_old_key_token_refused_after_controller_key_change(
     old = issue(wired)
 
     async def status(tok: str) -> int:
-        async with httpx.AsyncClient(trust_env=False, timeout=10) as c:
+        async with httpx.AsyncClient(
+            trust_env=False,
+            verify=client_ssl_context(node_id=HARNESS_NODE_ID),
+            timeout=10,
+        ) as c:
             r = await c.get(base, headers={"authorization": f"Bearer {tok}"})
             return r.status_code
 

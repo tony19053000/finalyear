@@ -19,7 +19,8 @@ import pytest
 
 pytest.importorskip("sqlalchemy", reason="needs the controller extra")
 
-from mf_jobs_harness import token_of
+from mf_fabric import client_ssl_context
+from mf_jobs_harness import HARNESS_NODE_ID, token_of
 
 from meshforge.common.hashing import sha256_bytes
 from meshforge.common.ids import new_attempt_id
@@ -53,7 +54,9 @@ async def test_controller_small_requests_do_not_wait_for_delayed_ack(
     digest = sha256_bytes(data)
     assert runtime.fetch_tokens is not None
     base = f"https://127.0.0.1:{runtime.http_port}"
-    async with httpx.AsyncClient(trust_env=False, timeout=10) as client:
+    async with httpx.AsyncClient(
+        trust_env=False, verify=client_ssl_context(node_id=HARNESS_NODE_ID), timeout=10
+    ) as client:
         put = await client.put(
             f"{base}/v1/blobs/{digest.hex}",
             content=data,

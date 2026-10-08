@@ -26,7 +26,8 @@ pytest.importorskip("sqlalchemy", reason="needs the controller extra")
 from mf_agent_harness import make_controller_settings
 from mf_controller_harness import tolerant_liveness
 from mf_exec_harness import ExecAgent, wait_job
-from mf_jobs_harness import token_of
+from mf_fabric import client_ssl_context
+from mf_jobs_harness import HARNESS_NODE_ID, token_of
 from pydantic import SecretStr
 from sqlalchemy import func, select
 
@@ -87,6 +88,7 @@ def _http(runtime: ControllerRuntime) -> httpx.AsyncClient:
         headers={"authorization": f"Bearer {token_of(runtime)}"},
         timeout=30,
         trust_env=False,
+        verify=client_ssl_context(node_id=HARNESS_NODE_ID),
     )
 
 

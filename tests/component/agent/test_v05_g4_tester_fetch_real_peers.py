@@ -28,6 +28,8 @@ import pytest
 import pytest_asyncio
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from mf_fabric import client_ssl_context
+from mf_jobs_harness import HARNESS_NODE_ID
 
 from meshforge.agent.cas import AgentCas
 from meshforge.agent.cas.fetcher import BlobFetcher, BlobSource, FetchError, FetchTuning
@@ -141,7 +143,11 @@ async def _run(
     tuning: FetchTuning = NO_ENDGAME,
     timeout_s: float = 8.0,
 ) -> BlobFetcher:
-    async with httpx.AsyncClient(timeout=timeout_s, trust_env=False) as client:
+    async with httpx.AsyncClient(
+        timeout=timeout_s,
+        trust_env=False,
+        verify=client_ssl_context(node_id=HARNESS_NODE_ID),
+    ) as client:
         fetcher = BlobFetcher(cas, sources, client, tuning=tuning)
         tree = await fetcher.tree(built.tree.tree_id)
         await fetcher.ensure_all(tree)
@@ -463,7 +469,11 @@ async def test_resume_never_refetches_a_verified_chunk_counted_at_the_servers(
     try:
         # The manifest comes from the controller in both runs; then the peer-only
         # transfer fails after `good` verified chunks.
-        async with httpx.AsyncClient(timeout=5.0, trust_env=False) as client:
+        async with httpx.AsyncClient(
+            timeout=5.0,
+            trust_env=False,
+            verify=client_ssl_context(node_id=HARNESS_NODE_ID),
+        ) as client:
             first = BlobFetcher(
                 cas,
                 [peer.source("node_dies"), ctl.source(peer=False)],
@@ -472,7 +482,11 @@ async def test_resume_never_refetches_a_verified_chunk_counted_at_the_servers(
             )
             tree = await first.tree(built.tree.tree_id)
         # Run only against the dying peer: drop the controller by not listing it.
-        async with httpx.AsyncClient(timeout=5.0, trust_env=False) as client:
+        async with httpx.AsyncClient(
+            timeout=5.0,
+            trust_env=False,
+            verify=client_ssl_context(node_id=HARNESS_NODE_ID),
+        ) as client:
             peer_only = BlobFetcher(
                 cas, [peer.source("node_dies")], client, tuning=NO_ENDGAME
             )
@@ -480,7 +494,11 @@ async def test_resume_never_refetches_a_verified_chunk_counted_at_the_servers(
                 await peer_only.ensure_all(tree)
         assert cas.store.size(_big_digest(built)) is None
         before = ctl.server.stats.bytes_sent
-        async with httpx.AsyncClient(timeout=5.0, trust_env=False) as client:
+        async with httpx.AsyncClient(
+            timeout=5.0,
+            trust_env=False,
+            verify=client_ssl_context(node_id=HARNESS_NODE_ID),
+        ) as client:
             second = BlobFetcher(
                 cas, [ctl.source(peer=False)], client, tuning=NO_ENDGAME
             )
@@ -503,7 +521,11 @@ async def test_rot_in_a_resumed_part_file_is_never_materialised_and_a_retry_succ
     peer = await _hostile(built, big, "mid_chunk_reset", good_chunks=CHUNKS - 2)
     cas = _fresh_cas(tmp_path)
     try:
-        async with httpx.AsyncClient(timeout=5.0, trust_env=False) as client:
+        async with httpx.AsyncClient(
+            timeout=5.0,
+            trust_env=False,
+            verify=client_ssl_context(node_id=HARNESS_NODE_ID),
+        ) as client:
             tree = await BlobFetcher(
                 cas, [ctl.source(peer=False)], client, tuning=NO_ENDGAME
             ).tree(built.tree.tree_id)
@@ -528,7 +550,11 @@ async def test_rot_in_a_resumed_part_file_is_never_materialised_and_a_retry_succ
         # assembly must catch it, discard the part, and a retry must succeed.
         outcomes: list[str] = []
         for _attempt in range(3):
-            async with httpx.AsyncClient(timeout=5.0, trust_env=False) as client:
+            async with httpx.AsyncClient(
+                timeout=5.0,
+                trust_env=False,
+                verify=client_ssl_context(node_id=HARNESS_NODE_ID),
+            ) as client:
                 try:
                     await BlobFetcher(
                         cas, [ctl.source(peer=False)], client, tuning=NO_ENDGAME
@@ -679,7 +705,11 @@ async def test_peer_server_stopped_mid_transfer_controller_finishes_counted(
         await a.server.close()
 
     try:
-        async with httpx.AsyncClient(timeout=5.0, trust_env=False) as client:
+        async with httpx.AsyncClient(
+            timeout=5.0,
+            trust_env=False,
+            verify=client_ssl_context(node_id=HARNESS_NODE_ID),
+        ) as client:
             fetcher = BlobFetcher(
                 cas,
                 [a.source(), ctl.source(peer=False)],

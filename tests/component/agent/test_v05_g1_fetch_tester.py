@@ -24,7 +24,8 @@ import pytest_asyncio
 
 pytest.importorskip("sqlalchemy", reason="needs the controller extra")
 
-from mf_jobs_harness import token_of
+from mf_fabric import client_ssl_context
+from mf_jobs_harness import HARNESS_NODE_ID, token_of
 from pydantic import SecretStr
 
 from meshforge.agent.cas import AgentCas
@@ -79,7 +80,14 @@ class CorruptingProxy:
     async def _handle(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
     ) -> None:
-        up_r, up_w = await asyncio.open_connection("127.0.0.1", self.upstream_port)
+        # V0.7 G3: the controller speaks TLS; the proxy terminates it (with a
+        # node certificate) so it can damage the plaintext response bytes.
+        up_r, up_w = await asyncio.open_connection(
+            "127.0.0.1",
+            self.upstream_port,
+            ssl=client_ssl_context(node_id=HARNESS_NODE_ID),
+            server_hostname="127.0.0.1",
+        )
         t1 = asyncio.create_task(self._pipe(reader, up_w, False))
         t2 = asyncio.create_task(self._pipe(up_r, writer, True))
         self._tasks |= {t1, t2}
@@ -315,6 +323,9 @@ async def test_corrupted_resume_part_file_is_caught_by_the_whole_verify(
             sources=[src],
             dest=tmp_path / "w",
             free_disk_floor_bytes=0,
+            transport=httpx.AsyncHTTPTransport(
+                verify=client_ssl_context(node_id=HARNESS_NODE_ID)
+            ),
         )
         outcome = "ok"
     except FetchError as exc:
@@ -331,6 +342,9 @@ async def test_corrupted_resume_part_file_is_caught_by_the_whole_verify(
             sources=[src],
             dest=tmp_path / "w2",
             free_disk_floor_bytes=0,
+            transport=httpx.AsyncHTTPTransport(
+                verify=client_ssl_context(node_id=HARNESS_NODE_ID)
+            ),
         )
         assert (tmp_path / "w2" / "big.bin").read_bytes() == big
 
