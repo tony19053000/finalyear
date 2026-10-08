@@ -278,7 +278,7 @@ def test_status_reports_the_url_counts_by_state_and_live_sessions(
     result = runner.invoke(app, ["status"])
     assert result.exit_code == ExitCode.OK, result.output
     out = result.stdout
-    assert "http://127.0.0.1:47110" in out
+    assert "https://127.0.0.1:47110" in out
     assert "yes" in out
     assert "online" in out and "offline" in out
     assert "live sessions" in out

@@ -19,6 +19,7 @@ import zipfile
 from pathlib import Path
 
 import pytest
+from mf_fabric import ca_file
 from typer.testing import CliRunner
 
 import meshforge
@@ -44,7 +45,8 @@ def _run_ascii_env(*args: str) -> subprocess.CompletedProcess[str]:
     # machine. Without this the subprocess inherits the developer's
     # MESHFORGE_* environment and the exit code depends on whether a controller
     # happens to be running - the sibling tests in test_skeleton.py pin it too.
-    env["MESHFORGE_CLI__CONTROLLER_URL"] = "http://127.0.0.1:1"
+    env["MESHFORGE_CLI__CONTROLLER_URL"] = "https://127.0.0.1:1"
+    env["MESHFORGE_CLI__CA_FILE"] = str(ca_file())  # V0.7 G3: trust to reach it
     return subprocess.run(
         args, capture_output=True, text=True, timeout=30, check=False, env=env
     )

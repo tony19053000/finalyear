@@ -248,7 +248,7 @@ def test_a_hostile_state_value_cannot_forge_a_state_count_row() -> None:
     """``state_counts`` feeds ``status_table`` row labels, so it is a sink too."""
     rendered = _render(
         status_table(
-            controller_url="http://127.0.0.1:47110",
+            controller_url="https://127.0.0.1:47110",
             reachable=True,
             nodes={"nodes": [{"state": "onl\x1b[31mine"}], "count": 1},
         )

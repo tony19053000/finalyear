@@ -510,7 +510,9 @@ class SessionManager:
                 hardware_scores=scores,
                 cpu_slots=cpu_slots,
                 gpu_slots=gpu_slots,
-                cert=cert,
+                # Only with a certificate (mtls): registries without the
+                # parameter (insecure-dev test doubles) keep working.
+                **({"cert": cert} if cert is not None else {}),
             )
         except Exception:
             attempt.row_written = False  # ...unless the store refused it (rolled back)

@@ -519,6 +519,8 @@ async def test_start_peer_wires_hooks_and_survives_a_taken_port(tmp_path: Path) 
     def settings(port: int) -> AgentSettings:
         return AgentSettings(
             data_dir=tmp_path,
+            # plain HTTP wiring test (TLS wiring: component test_v07_g3_peer_tls)
+            security={"mode": "insecure-dev"},
             agent={
                 "controller_address": "127.0.0.1:47100",
                 "peer": {"bind": "127.0.0.1", "port": port},

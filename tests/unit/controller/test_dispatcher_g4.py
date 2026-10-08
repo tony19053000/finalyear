@@ -206,7 +206,7 @@ async def test_tree_sources_controller_first_then_peers_and_refresh_reminted() -
     spec = manager.commands[-1][2].spec
     assert [s.node_id for s in spec.sources] == ["", holder_b, holder_a]  # newest first
     assert spec.sources[0].token == spec.fetch_token
-    assert spec.sources[1].url == "http://10.0.0.3:47120"
+    assert spec.sources[1].url == "https://10.0.0.3:47120"  # V0.7 G3: TLS peers
     key = load_public_key(raw)
     claims = verify_peer_token(key, spec.sources[1].token, holder=holder_b, now=NOW)
     assert str(claims.tree) == TREE and claims.requester == target

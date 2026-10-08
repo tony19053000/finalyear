@@ -504,10 +504,14 @@ def test_settings_paths_and_hosts(tmp_path: Path) -> None:
 
 def test_prepare_fabric_at_start(tmp_path: Path) -> None:
     pytest.importorskip("sqlalchemy", reason="needs the controller extra")
+    from meshforge.common.errors import ConfigError
     from meshforge.controller.server import _prepare_fabric
 
     settings = ControllerSettings(data_dir=tmp_path)
-    assert _prepare_fabric(settings) == (None, None)  # no CA yet: allowed in G1
+    with pytest.raises(ConfigError, match="fabric create"):
+        _prepare_fabric(settings)  # V0.7 G3: mtls needs a CA
+    dev = ControllerSettings(data_dir=tmp_path, security={"mode": "insecure-dev"})
+    assert _prepare_fabric(dev) == (None, None)  # insecure-dev runs without one
     assert not settings.tls_dir.exists()
     created = create_fabric(settings.ca_dir)
     fabric, server = _prepare_fabric(settings)

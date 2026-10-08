@@ -7,6 +7,7 @@ from typing import Any
 
 import httpx
 import pytest
+from mf_fabric import ca_file
 from typer.testing import CliRunner
 
 from meshforge.cli import app as cli_app
@@ -143,7 +144,8 @@ def test_token_file_flag_reaches_the_request(
     token_file = tmp_path / "t"
     token_file.write_text(TOKEN + "\n")
     result = CliRunner().invoke(
-        cli_app.app, ["--token-file", str(token_file), "nodes", "--json"]
+        cli_app.app,
+        ["--ca", str(ca_file()), "--token-file", str(token_file), "nodes", "--json"],
     )
     assert result.exit_code == ExitCode.OK, result.output
     assert seen[0].headers["authorization"] == f"Bearer {TOKEN}"

@@ -74,7 +74,7 @@ def test_a_refused_connection_exits_unavailable_with_one_line(
     assert result.exit_code == ExitCode.UNAVAILABLE
     assert result.stdout == ""
     assert result.stderr.count("\n") == 1
-    assert "cannot reach the controller at http://127.0.0.1:47110" in result.stderr
+    assert "cannot reach the controller at https://127.0.0.1:47110" in result.stderr
     assert_no_traceback(result.output)
 
 

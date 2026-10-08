@@ -33,11 +33,11 @@ def test_the_defaults_are_the_documented_loopback_rest_port() -> None:
 
 
 def test_the_environment_overrides_every_field(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("MESHFORGE_CLI__CONTROLLER_URL", "http://192.168.1.20:47110")
+    monkeypatch.setenv("MESHFORGE_CLI__CONTROLLER_URL", "https://192.168.1.20:47110")
     monkeypatch.setenv("MESHFORGE_CLI__TIMEOUT_S", "1.5")
     monkeypatch.setenv("MESHFORGE_CLI__WATCH_INTERVAL_S", "10")
     settings = CliSettings.load()
-    assert settings.cli.controller_url == "http://192.168.1.20:47110"
+    assert settings.cli.controller_url == "https://192.168.1.20:47110"
     assert settings.cli.timeout_s == 1.5
     assert settings.cli.watch_interval_s == 10.0
 
@@ -47,18 +47,18 @@ def test_a_toml_file_is_read_and_the_environment_still_wins(
 ) -> None:
     config = tmp_path / "config.toml"
     config.write_text(
-        '[cli]\ncontroller_url = "http://from-file:47110"\ntimeout_s = 9.0\n',
+        '[cli]\ncontroller_url = "https://from-file:47110"\ntimeout_s = 9.0\n',
         encoding="utf-8",
     )
-    assert CliSettings.load(config).cli.controller_url == "http://from-file:47110"
+    assert CliSettings.load(config).cli.controller_url == "https://from-file:47110"
     assert CliSettings.load(config).cli.timeout_s == 9.0
-    monkeypatch.setenv("MESHFORGE_CLI__CONTROLLER_URL", "http://from-env:47110")
-    assert CliSettings.load(config).cli.controller_url == "http://from-env:47110"
+    monkeypatch.setenv("MESHFORGE_CLI__CONTROLLER_URL", "https://from-env:47110")
+    assert CliSettings.load(config).cli.controller_url == "https://from-env:47110"
 
 
 def test_an_unknown_key_inside_the_section_is_a_config_error() -> None:
     with pytest.raises(ConfigError, match=r"contorller_url|extra"):
-        CliSettings(cli={"contorller_url": "http://127.0.0.1:47110"})  # type: ignore[arg-type]
+        CliSettings(cli={"contorller_url": "https://127.0.0.1:47110"})  # type: ignore[arg-type]
 
 
 # -------------------------------------------------------------- the URL rules
@@ -67,8 +67,8 @@ def test_an_unknown_key_inside_the_section_is_a_config_error() -> None:
 @pytest.mark.parametrize(
     ("raw", "expected"),
     [
-        ("http://127.0.0.1:47110", "http://127.0.0.1:47110"),
-        ("http://127.0.0.1:47110/", "http://127.0.0.1:47110"),
+        ("https://127.0.0.1:47110", "https://127.0.0.1:47110"),
+        ("https://127.0.0.1:47110/", "https://127.0.0.1:47110"),
         ("HTTP://Host:47110", "http://Host:47110"),
         ("https://ctl.lan", "https://ctl.lan"),
         ("  http://ctl.lan:47110  ", "http://ctl.lan:47110"),

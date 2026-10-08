@@ -89,7 +89,7 @@ def test_a_valid_node_id_is_still_requested_verbatim(
     controller(_recording_handler(seen))
     result = runner.invoke(app, ["nodes", VALID_NODE_ID, "--json"])
     assert result.exit_code == ExitCode.OK, result.output
-    assert seen == [f"http://127.0.0.1:47110/v1/nodes/{VALID_NODE_ID}"]
+    assert seen == [f"https://127.0.0.1:47110/v1/nodes/{VALID_NODE_ID}"]
 
 
 def test_the_bare_list_command_is_unaffected_by_the_validation(
@@ -99,7 +99,7 @@ def test_the_bare_list_command_is_unaffected_by_the_validation(
     controller(_recording_handler(seen))
     result = runner.invoke(app, ["nodes", "--json"])
     assert result.exit_code == ExitCode.OK, result.output
-    assert seen == ["http://127.0.0.1:47110/v1/nodes"]
+    assert seen == ["https://127.0.0.1:47110/v1/nodes"]
 
 
 # ------------------------------------------------------------------ N7

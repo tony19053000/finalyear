@@ -7,6 +7,7 @@ import subprocess
 import sys
 
 import pytest
+from mf_fabric import ca_file
 from typer.testing import CliRunner
 
 import meshforge
@@ -71,7 +72,8 @@ def test_compute_status_reports_an_unreachable_controller(
     and the assertion cannot depend on whether a controller happens to be running
     on this machine.
     """
-    monkeypatch.setenv("MESHFORGE_CLI__CONTROLLER_URL", "http://127.0.0.1:1")
+    monkeypatch.setenv("MESHFORGE_CLI__CONTROLLER_URL", "https://127.0.0.1:1")
+    monkeypatch.setenv("MESHFORGE_CLI__CA_FILE", str(ca_file()))
     result = runner.invoke(cli_app, ["status"], prog_name="compute")
     assert result.exit_code == ExitCode.UNAVAILABLE
     assert "reachable" in result.stdout
@@ -123,7 +125,11 @@ def test_installed_compute_exits_unavailable_without_a_controller() -> None:
     exit 6, no traceback (roadmap 0.3.12, decision D18)."""
     path = shutil.which("compute")
     assert path is not None
-    env = dict(os.environ, MESHFORGE_CLI__CONTROLLER_URL="http://127.0.0.1:1")
+    env = dict(
+        os.environ,
+        MESHFORGE_CLI__CONTROLLER_URL="https://127.0.0.1:1",
+        MESHFORGE_CLI__CA_FILE=str(ca_file()),
+    )
     result = subprocess.run(
         [path, "nodes"],
         capture_output=True,
