@@ -99,26 +99,23 @@ def _reason(text: str) -> JoinCodeReason:
 
 
 def test_typo_is_bad_checksum_not_wrong_token() -> None:
+    """Every single-character substitution, at every position (incl. the last
+    character, whose spare bits must be zero - D152 T-3), is refused as a bad
+    code; none decodes. Deterministic: no random positions."""
     text = encode(_code())
-    for at in (5, 20, len(text) - 3):
-        ch = text[at]
-        if ch == "-":
+    alphabet = "abcdefghijklmnopqrstuvwxyz234567"
+    tried = 0
+    for at, ch in enumerate(text):
+        if at < 4 or ch == "-":
             continue
-        typo = text[:at] + ("a" if ch != "a" else "b") + text[at + 1 :]
-        assert _reason(typo) in (
-            JoinCodeReason.BAD_CHECKSUM,
-            JoinCodeReason.TRUNCATED,
-        )
-    # A substitution that keeps the length is always the checksum.
-    assert _reason(text[:-1] + ("q" if text[-1] != "q" else "r")) in (
-        JoinCodeReason.BAD_CHECKSUM,
-        JoinCodeReason.TRUNCATED,
-    )
-    middle = text[10]
-    assert (
-        _reason(text[:10] + ("z" if middle != "z" else "y") + text[11:])
-        is JoinCodeReason.BAD_CHECKSUM
-    )
+        for other in alphabet:
+            if other == ch:
+                continue
+            with pytest.raises(JoinCodeError) as info:
+                decode(text[:at] + other + text[at + 1 :])
+            assert info.value.reason is JoinCodeReason.BAD_CHECKSUM, (at, other)
+            tried += 1
+    assert tried == 71 * 31
 
 
 def test_truncation() -> None:

@@ -69,3 +69,39 @@ def test_status_for() -> None:
     assert status_for("node_revoked") is grpc.StatusCode.PERMISSION_DENIED
     assert status_for("rate_limited") is grpc.StatusCode.RESOURCE_EXHAUSTED
     assert status_for("unheard_of") is grpc.StatusCode.INTERNAL
+
+
+# ------------------------------------------------------------- D152 (T-1)
+
+
+def test_rate_key_decodes_grpc_peers_and_buckets_ipv6_per_64() -> None:
+    from meshforge.controller.enrollment.listener import UNKNOWN_SOURCE, rate_key
+
+    assert rate_key("ipv4:10.0.0.7:5555") == "10.0.0.7"
+    assert rate_key("ipv4:10.0.0.7:1") == rate_key("ipv4:10.0.0.7:2")
+    assert rate_key("ipv4:10.0.0.8:1") != rate_key("ipv4:10.0.0.7:1")
+    # gRPC's real form is percent-encoded.
+    assert rate_key("ipv6:%5B::1%5D:40000") == "::/64"
+    assert source_ip("ipv6:%5B::1%5D:40000") == "::1"
+    # Privacy addresses inside one /64 share a bucket; another /64 does not.
+    a = rate_key("ipv6:%5B2001:db8:1:2::aaaa%5D:1")
+    b = rate_key("ipv6:%5B2001:db8:1:2:ffff:ffff:ffff:ffff%5D:9")
+    c = rate_key("ipv6:%5B2001:db8:1:3::1%5D:1")
+    assert a == b == "2001:db8:1:2::/64" and c != a
+    assert rate_key("ipv6:%5Bfe80::1%25eth0%5D:1") == "fe80::/64"
+    assert rate_key("ipv6:%5B::ffff:10.0.0.7%5D:1") == "10.0.0.7"
+    # Unparseable peers share ONE bucket (never a fresh one each).
+    for peer in ("", "unix:/tmp/x", "ipv4:999.1.1.1:1", "garbage" * 50):
+        assert rate_key(peer) == UNKNOWN_SOURCE, peer
+
+
+def test_unknown_peers_exhaust_one_shared_bucket() -> None:
+    from meshforge.controller.enrollment.listener import rate_key
+
+    limiter = SourceRateLimiter(
+        rate_per_minute=0.01, burst=2, max_sources=16, clock=Clock()
+    )
+    results = [limiter.allow(rate_key(f"unix:/tmp/s{i}")) for i in range(4)]
+    assert results == [True, True, False, False]
+    v6 = [limiter.allow(rate_key(f"ipv6:%5B2001:db8::{i:x}%5D:1")) for i in range(4)]
+    assert v6 == [True, True, False, False]

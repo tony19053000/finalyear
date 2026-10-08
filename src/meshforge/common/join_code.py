@@ -244,6 +244,14 @@ def decode(text: str) -> JoinCode:
         raise JoinCodeError(
             JoinCodeReason.TRUNCATED, "the code is too short: copy all of it"
         )
+    if base64.b32encode(payload).decode("ascii").rstrip("=") != letters:
+        # Canonical form only (D152, T-3): the last character carries spare bits
+        # that b32decode ignores; a changed one must not decode to the same code.
+        raise JoinCodeError(
+            JoinCodeReason.BAD_CHECKSUM,
+            "this is not a valid code (a character is wrong); check it or ask for "
+            "a new one",
+        )
     body, checksum = payload[:-CHECKSUM_BYTES], payload[-CHECKSUM_BYTES:]
     expected = hashlib.sha256(body).digest()[:CHECKSUM_BYTES]
     if not hmac.compare_digest(checksum, expected):

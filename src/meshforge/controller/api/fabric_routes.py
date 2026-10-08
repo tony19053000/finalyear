@@ -21,8 +21,7 @@ from collections.abc import Callable
 from typing import Annotated, Any, Final
 
 from fastapi import APIRouter, Depends, Request, status
-from fastapi import Path as PathParam
-from pydantic import Field
+from pydantic import Field, ValidationError
 
 from meshforge.common.errors import FailureType, MeshForgeError
 from meshforge.common.ids import validate_node_id
@@ -93,6 +92,31 @@ class InviteIn(ApiModel):
     replace_node_id: str | None = Field(default=None, max_length=40)
 
 
+_MAX_BODY_BYTES: Final = 4096
+_MAX_ID_CHARS: Final = 64
+
+
+async def _invite_body(request: Request) -> InviteIn:
+    raw = await request.body()
+    if len(raw) > _MAX_BODY_BYTES:
+        raise ApiError.invalid("the request body is too large")
+    if not raw.strip():
+        # No body at all = all defaults; a body *declared* JSON must be JSON.
+        if "json" in request.headers.get("content-type", "").lower():
+            raise ApiError.invalid("the request body is empty; send {} for defaults")
+        return InviteIn()
+    try:
+        return InviteIn.model_validate_json(raw)
+    except ValidationError as exc:
+        fields = sorted(
+            {".".join(str(p) for p in e["loc"]) or "body" for e in exc.errors()}
+        )
+        raise ApiError.invalid(
+            f"invalid invite request ({', '.join(fields[:5])}): ttl_s must be "
+            f"{MIN_TTL_S}-{MAX_TTL_S}, replace_node_id a node id"
+        ) from None
+
+
 def _source(request: Request) -> str | None:
     client = request.client
     return f"{client.host}:{client.port}" if client else None
@@ -114,11 +138,14 @@ def _api_error(exc: MeshForgeError) -> ApiError:
 
 @fabric_router.post("/invites", status_code=status.HTTP_201_CREATED)
 async def create_invite(
-    body: InviteIn,
     request: Request,
     _admin: InviteAdmin,
     api: Annotated[InviteApi, Depends(get_invite_api)],
 ) -> dict[str, Any]:
+    # D152 (T-2): the body is read and validated only AFTER the fabric token was
+    # checked (a declared body parameter would be validated first, letting an
+    # unauthenticated caller probe the API's rules with 400s).
+    body = await _invite_body(request)
     if body.replace_node_id is not None:
         try:
             validate_node_id(body.replace_node_id)
@@ -157,11 +184,13 @@ async def list_invites(
 
 @fabric_router.post("/invites/{invite_id}/revoke")
 async def revoke_invite(
-    invite_id: Annotated[str, PathParam(max_length=64)],
+    invite_id: str,
     request: Request,
     _admin: InviteAdmin,
     api: Annotated[InviteApi, Depends(get_invite_api)],
 ) -> dict[str, Any]:
+    if len(invite_id) > _MAX_ID_CHARS:  # checked after auth (D152)
+        raise ApiError.invalid("invite_id is not an invite id")
     try:
         record = await api.store.revoke(
             invite_id, actor=_ACTOR, source=_source(request)

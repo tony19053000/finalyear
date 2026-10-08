@@ -2,7 +2,7 @@
 
 Derived from brief 5b / D135 (a typo is "bad code", never a wrong-token round trip;
 TTL 1 min - 24 h; codes never in logs) and checklist 19-22, not from the code.
-Defect T-1 (strict xfail): the rate limiter keys IPv6 clients by the *port-bearing*
+Defect T-1 (fixed in fix round 1, D152): the rate limiter keys IPv6 clients by the *port-bearing*
 gRPC peer string, so it never limits them.
 """
 
@@ -317,13 +317,6 @@ def test_new_tokens_are_distinct_and_16_bytes() -> None:
     assert join_code.token_hash(TOKEN) == hashlib.sha256(TOKEN).hexdigest()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-3: decode ignores the 3 spare bits of the last base32 character, so "
-    "a changed final character can decode to the same code (a non-canonical form "
-    "is accepted); tests/unit/common/test_join_code.py::"
-    "test_typo_is_bad_checksum_not_wrong_token assumes otherwise and fails ~24% of runs",
-)
 def test_a_changed_final_character_is_never_accepted() -> None:
     code = _good()
     alphabet = "abcdefghijklmnopqrstuvwxyz234567"

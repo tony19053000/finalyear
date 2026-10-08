@@ -126,11 +126,6 @@ async def test_every_invite_endpoint_refuses_missing_and_malformed_credentials(
     assert await _rows(pg_settings, "audit_event") == 0
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-2 (minor): body validation runs before the fabric-token check, so an "
-    "unauthenticated caller gets 400/422 (and the TTL bounds) instead of 401",
-)
 async def test_unauthenticated_requests_are_refused_before_body_validation(
     rt: ControllerRuntime, pg_settings: DatabaseSettings
 ) -> None:

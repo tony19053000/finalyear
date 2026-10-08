@@ -118,11 +118,6 @@ def _has_ipv6() -> bool:
 
 
 @pytest.mark.skipif(not _has_ipv6(), reason="no IPv6 loopback")
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-1: the per-IP rate limit is bypassed by every IPv6 client (peer string "
-    "'ipv6:%5B::1%5D:<port>' is not parsed, the port ends up in the key)",
-)
 async def test_ipv6_clients_are_rate_limited_per_ip(
     pg_settings: DatabaseSettings,
 ) -> None:

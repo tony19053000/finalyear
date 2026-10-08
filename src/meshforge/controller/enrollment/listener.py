@@ -8,7 +8,8 @@ G2 keeps the session port plaintext, so ``Enroll`` gets a listener of its own:
   it sends anything secret (D136). No client certificate is requested.
 * serves exactly one service (``meshforge.v1.Enrollment``); requests are capped at
   :data:`MAX_REQUEST_BYTES` and :data:`MAX_CONCURRENT_RPCS` run at a time;
-* every call is first charged to its **source IP** (:class:`SourceRateLimiter`,
+* every call is first charged to its **source** (:func:`rate_key`: the IPv4
+  address, the IPv6 /64, or one shared ``unknown`` bucket; :class:`SourceRateLimiter`,
   a token bucket, ``[controller.enroll] rate_per_minute`` / ``rate_burst``); an
   empty bucket is ``RESOURCE_EXHAUSTED`` before the database is touched, and it
   never affects another IP.
@@ -22,7 +23,9 @@ listener.
 from __future__ import annotations
 
 import collections
+import ipaddress
 import re
+import urllib.parse
 from collections.abc import Callable
 from typing import Final
 
@@ -44,9 +47,11 @@ __all__ = [
     "MAX_CONCURRENT_RPCS",
     "MAX_REQUEST_BYTES",
     "REASON_METADATA_KEY",
+    "UNKNOWN_SOURCE",
     "EnrollListener",
     "EnrollmentServicer",
     "SourceRateLimiter",
+    "rate_key",
     "source_ip",
     "status_for",
 ]
@@ -85,12 +90,46 @@ def status_for(reason: str) -> grpc.StatusCode:
 
 
 def source_ip(peer: str) -> str:
-    """The IP of a gRPC peer string (``ipv4:1.2.3.4:5`` / ``ipv6:[::1]:5``); the
-    whole string for anything else (a unix socket), so it is still a key."""
-    match = _PEER_RE.fullmatch(peer)
+    """The IP of a gRPC peer string, for logs and audit.
+
+    gRPC percent-encodes the brackets of an IPv6 peer (``ipv6:%5B::1%5D:5123``),
+    so the string is URL-decoded first (D152). Anything unparseable (a unix
+    socket) is returned as is, bounded to 128 characters.
+    """
+    decoded = urllib.parse.unquote(peer)
+    match = _PEER_RE.fullmatch(decoded)
     if match is None:
-        return peer[:128]
+        return decoded[:128]
     return match["v4"] or match["v6"]
+
+
+UNKNOWN_SOURCE: Final = "unknown"
+"""The one bucket every unparseable peer shares (D152: fail closed - a peer the
+limiter cannot place never gets a fresh bucket of its own)."""
+IPV6_PREFIX: Final = 64
+
+
+def rate_key(peer: str) -> str:
+    """The rate-limit bucket of a gRPC peer (D152).
+
+    IPv4: the address. IPv6: its **/64** - one laptop can rotate through a whole
+    /64 of privacy addresses, so per-address buckets would not limit it. An
+    IPv4-mapped IPv6 address counts as the IPv4 address; a zone id is dropped.
+    Anything that does not parse as either: :data:`UNKNOWN_SOURCE`.
+    """
+    match = _PEER_RE.fullmatch(urllib.parse.unquote(peer))
+    if match is None:
+        return UNKNOWN_SOURCE
+    text = (match["v4"] or match["v6"]).split("%", 1)[0]
+    try:
+        ip = ipaddress.ip_address(text)
+    except ValueError:
+        return UNKNOWN_SOURCE
+    if isinstance(ip, ipaddress.IPv6Address):
+        if ip.ipv4_mapped is not None:
+            return str(ip.ipv4_mapped)
+        return str(ipaddress.IPv6Network((ip, IPV6_PREFIX), strict=False))
+    return str(ip)
 
 
 class SourceRateLimiter:
@@ -151,9 +190,9 @@ class EnrollmentServicer(enroll_pb2_grpc.EnrollmentServicer):
             enroll_pb2.EnrollRequest, enroll_pb2.EnrollResponse
         ],
     ) -> enroll_pb2.EnrollResponse:
-        peer = context.peer() or "unknown"
+        peer = context.peer() or ""
         ip = source_ip(peer)
-        if not self._limiter.allow(ip):
+        if not self._limiter.allow(rate_key(peer)):
             log.warning("controller.enroll.rate_limited", source=ip)
             await _refuse(
                 context,

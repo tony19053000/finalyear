@@ -1,7 +1,7 @@
 """V0.7 G2 tester: the enrolment rate limiter (brief 5b item 3, checklist 19).
 
 Per-IP isolation, refill arithmetic, bounded memory under many sources, and how
-the *real* gRPC peer string turns into a key. T-1 (strict xfail): IPv6 peers
+the *real* gRPC peer string turns into a key. T-1 (fixed in fix round 1, D152): IPv6 peers
 arrive as ``ipv6:%5B::1%5D:<port>`` (percent-encoded brackets), the parser does
 not match, and the whole string - port included - becomes the bucket key, so
 every IPv6 connection gets a fresh full bucket and the table fills with junk.
@@ -158,12 +158,6 @@ def test_real_ipv4_peers_collapse_to_one_key() -> None:
 
 
 @pytest.mark.skipif(not _has_ipv6(), reason="no IPv6 loopback")
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-1: IPv6 peers are percent-encoded by gRPC ('ipv6:%5B::1%5D:port'); "
-    "source_ip() does not match them, so the key includes the port and the per-IP "
-    "rate limit never applies to IPv6 clients",
-)
 def test_real_ipv6_peers_collapse_to_one_key() -> None:
     peers = asyncio.run(_real_peers("[::1]:0", "[::1]"))
     assert {source_ip(p) for p in peers} == {"::1"}, peers
