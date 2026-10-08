@@ -715,8 +715,8 @@ class TlsSettings(SectionModel):
     ``fabric create`` and at every controller start when missing or past 2/3 of
     its life. Its SANs are the fixed name ``meshforge-controller``, the
     ``grpc_bind`` / ``http_bind`` hosts (wildcards skipped), the
-    ``[controller.api] advertise_url`` host and ``extra_sans``. Not used by any
-    listener until V0.7 G3.
+    ``[controller.api] advertise_url`` host and ``extra_sans``. Renewed while
+    the controller runs, too (``check_interval_s``).
     """
 
     extra_sans: tuple[str, ...] = Field(
@@ -733,6 +733,17 @@ class TlsSettings(SectionModel):
         ge=1,
         le=825,
         description="Lifetime of the controller's server certificate, in days.",
+    )
+    check_interval_s: float = Field(
+        default=3600.0,
+        ge=1.0,
+        le=86_400.0,
+        description=(
+            "How often the running controller re-checks its server certificate "
+            "and renews it (at 2/3 of its life) or re-issues it (files damaged, "
+            "SANs changed). New TLS handshakes use the new certificate at once; "
+            "open connections keep theirs (V0.7 G3)."
+        ),
     )
 
     @field_validator("extra_sans")

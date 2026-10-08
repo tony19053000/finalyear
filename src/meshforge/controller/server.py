@@ -46,7 +46,6 @@ import grpc
 import uvicorn
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from meshforge.common import pki
 from meshforge.common.errors import ConfigError, ExitCode, MeshForgeError
 from meshforge.common.gc_index import GcIndexBusyError
 from meshforge.common.logging import get_logger
@@ -97,6 +96,7 @@ from meshforge.controller.peer_signing import (
 from meshforge.controller.prepare import PrepareTracker
 from meshforge.controller.registry import Registry, SessionEndReason
 from meshforge.controller.resources import ResourceTracker
+from meshforge.controller.server_tls import ServerTls
 from meshforge.controller.session.leases import LeaseTimer
 from meshforge.controller.session.live import LiveSession
 from meshforge.controller.session.manager import SessionManager
@@ -175,7 +175,10 @@ class ControllerRuntime:
         self.fabric: FabricCa | None = None
         """V0.7 D134: the fabric CA, when `fabric create` has run (None otherwise)."""
         self.server_cert: ServerCert | None = None
-        """V0.7 D134: issued/renewed at start; no listener uses it before G3."""
+        """V0.7 D134: the server cert as issued/renewed at start."""
+        self.server_tls: ServerTls | None = None
+        """V0.7 G3: the server cert *in use*, renewed while running; every TLS
+        listener takes its credentials from here."""
         self.blobs: BlobStore | None = None
         self.jobs: ExecutionStore | None = None
         """D49: the single writer of the job tables."""
@@ -244,6 +247,17 @@ class ControllerRuntime:
         self.fabric, self.server_cert = await asyncio.to_thread(
             _prepare_fabric, self.settings
         )
+        if self.fabric is not None and self.server_cert is not None:
+            # D149 carry-over: renewed while running; listeners follow it.
+            self.server_tls = ServerTls(
+                self.fabric,
+                self.server_cert,
+                hosts=self.settings.server_cert_hosts,
+                lifetime=timedelta(days=cfg.tls.server_cert_days),
+            )
+            self._spawn(
+                self.server_tls.run(cfg.tls.check_interval_s), "server-cert-renewer"
+            )
         # D48: the blob store (and a sweep of part files a crash left behind).
         blobs = BlobStore(
             self.settings.blobs_dir,
@@ -536,7 +550,7 @@ class ControllerRuntime:
     ) -> None:
         """V0.7 G2 (D150): the TLS ``Enroll`` listener, when a CA exists."""
         enroll = self.settings.controller.enroll
-        if not enroll.enabled or self.fabric is None or self.server_cert is None:
+        if not enroll.enabled or self.fabric is None or self.server_tls is None:
             log.info(
                 "controller.enroll.off",
                 reason="disabled" if not enroll.enabled else "no_fabric",
@@ -552,7 +566,8 @@ class ControllerRuntime:
             EnrollmentServicer(Enroller(engine, self.fabric), limiter)
         )
         self.enroll_port = await listener.start(
-            self._enroll_bind, self.server_cert, pki.cert_to_pem(self.fabric.cert)
+            self._enroll_bind,
+            self.server_tls.grpc_credentials(require_client_auth=False),
         )
         self._enroll_listener = listener
 

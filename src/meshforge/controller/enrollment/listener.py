@@ -32,7 +32,6 @@ from typing import Final
 
 import grpc
 
-from meshforge.common import pki
 from meshforge.common.errors import ConfigError
 from meshforge.common.logging import get_logger
 from meshforge.common.netaddr import BindAddress
@@ -42,7 +41,6 @@ from meshforge.controller.enrollment.service import (
     EnrollReason,
     EnrollRefused,
 )
-from meshforge.controller.fabric_ca import ServerCert
 
 __all__ = [
     "CONNECTION_OPTIONS",
@@ -276,9 +274,11 @@ class EnrollListener:
         self.port = 0
 
     async def start(
-        self, bind: BindAddress, server_cert: ServerCert, ca_cert_pem: bytes
+        self, bind: BindAddress, credentials: grpc.ServerCredentials
     ) -> int:
-        """Listen on ``bind`` (port 0 = any); returns the bound port."""
+        """Listen on ``bind`` (port 0 = any) with ``credentials`` (the
+        controller's :meth:`~meshforge.controller.server_tls.ServerTls.grpc_credentials`,
+        no client certificate); returns the bound port."""
         server = grpc.aio.server(
             options=[
                 ("grpc.max_receive_message_length", MAX_REQUEST_BYTES),
@@ -288,15 +288,6 @@ class EnrollListener:
             maximum_concurrent_rpcs=MAX_CONCURRENT_RPCS,
         )
         enroll_pb2_grpc.add_EnrollmentServicer_to_server(self._servicer, server)
-        credentials = grpc.ssl_server_credentials(
-            [
-                (
-                    pki.key_to_pem(server_cert.key),
-                    pki.cert_to_pem(server_cert.cert) + ca_cert_pem,
-                )
-            ],
-            require_client_auth=False,
-        )
         port = server.add_secure_port(bind.grpc_target(), credentials)
         if port == 0:
             raise ConfigError(
