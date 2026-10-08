@@ -65,9 +65,10 @@ pytestmark = [pytest.mark.docker]
 
 SAMPLE_S = 0.1
 FLUSH_S = 0.2
-GRACE_S = 3.0
+GRACE_S = 6.0
 """``controller.resources.bucket_grace_s`` here (D26): covers test_f2's replay
-(latency 300 ms + Hello round trip, ~1 s late) with margin; the shipped 20 s would
+(latency 300 ms + since V0.7 G3 the TCP + TLS 1.3 handshakes + HTTP/2 setup +
+Hello round trips through that latency, ~2-3 s late) with margin; the shipped 20 s would
 only make the run slower."""
 RESETS = 4
 RESET_SPACING_S = 0.4
