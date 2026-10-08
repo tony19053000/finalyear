@@ -14,6 +14,7 @@ from __future__ import annotations
 import base64
 import binascii
 import json
+import ssl
 from collections.abc import Callable, Mapping
 from typing import IO, Any, Final
 
@@ -48,6 +49,7 @@ def follow_logs(
     outputs: Mapping[str, IO[bytes]],
     open_timeout_s: float,
     on_retry: Callable[[Mapping[str, Any]], None] | None = None,
+    ssl_context: ssl.SSLContext | None = None,
 ) -> dict[str, Any]:
     """Print the job's logs until the end frame; return that frame.
     ``on_retry`` gets the controller's retry notice (V0.6 G3: the followed
@@ -67,6 +69,7 @@ def follow_logs(
             additional_headers=headers,
             open_timeout=open_timeout_s,
             max_size=_MAX_FRAME,
+            ssl=ssl_context,
         ) as ws:
             for raw in ws:
                 frame = _frame(raw)

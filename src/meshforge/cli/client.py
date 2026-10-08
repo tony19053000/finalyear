@@ -20,6 +20,7 @@ process exit code (``UNAVAILABLE`` for unreachable/timed out, D18).
 from __future__ import annotations
 
 import json
+import ssl
 from collections.abc import Iterator, Mapping
 from pathlib import Path
 from types import TracebackType
@@ -81,8 +82,13 @@ class ControllerClient:
         timeout_s: float,
         transport: httpx.BaseTransport | None = None,
         token: SecretStr | None = None,
+        ssl_context: ssl.SSLContext | None = None,
     ) -> None:
+        """``ssl_context`` (V0.7 G3): the fabric client context
+        (:func:`~meshforge.common.fabric_tls.client_context`) an ``https``
+        controller is verified with; ``None`` = plain HTTP (insecure-dev)."""
         self.controller_url = controller_url.rstrip("/")
+        self.ssl_context = ssl_context
         self.timeout_s = timeout_s
         headers = {"accept": "application/json"}
         if token is not None:
@@ -96,6 +102,7 @@ class ControllerClient:
             transport=transport,
             follow_redirects=False,
             headers=headers,
+            verify=ssl_context if ssl_context is not None else True,
         )
 
     def __enter__(self) -> Self:

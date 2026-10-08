@@ -21,16 +21,21 @@ from pathlib import Path
 from typing import Final
 from urllib.parse import urlsplit, urlunsplit
 
-from pydantic import Field, SecretStr, field_validator
+from cryptography import x509
+from pydantic import Field, SecretStr, field_validator, model_validator
 
+from meshforge.common import pki
 from meshforge.common.config import MeshForgeSettings, SectionModel
 from meshforge.common.errors import ConfigError
 from meshforge.common.fabric_token import (
+    CONTROLLER_DIR_NAME,
     FabricTokenError,
     default_token_path,
     parse_token,
     read_token_file,
 )
+from meshforge.common.local_node import IDENTITY_DIR_NAME
+from meshforge.common.netaddr import is_loopback_host
 
 __all__ = [
     "DEFAULT_CONTROLLER_URL",
@@ -38,10 +43,11 @@ __all__ = [
     "CliSection",
     "CliSettings",
     "normalise_controller_url",
+    "resolve_ca",
     "resolve_token",
 ]
 
-DEFAULT_CONTROLLER_URL: Final = "http://127.0.0.1:47110"
+DEFAULT_CONTROLLER_URL: Final = "https://127.0.0.1:47110"
 """The controller's default REST bind (ARCHITECTURE §23: 47100 gRPC, 47110 REST).
 
 Loopback, because V0.3's REST surface is unauthenticated (D14): pointing the CLI at
@@ -159,10 +165,28 @@ class CliSection(SectionModel):
         ),
     )
 
+    ca_file: Path | None = Field(
+        default=None,
+        description=(
+            "V0.7 G3: the fabric CA certificate (ca.crt) the controller's HTTPS "
+            "certificate must chain to. Empty = this laptop's agent enrolment "
+            "(<data_dir>/identity/ca.crt), else the local controller's "
+            "(<data_dir>/controller/ca/ca.crt). `compute --ca PATH` overrides. "
+            "Env: MESHFORGE_CLI__CA_FILE."
+        ),
+    )
+
     @field_validator("controller_url")
     @classmethod
     def _url(cls, value: str) -> str:
         return normalise_controller_url(value)
+
+    @field_validator("ca_file", mode="before")
+    @classmethod
+    def _ca_file(cls, value: object) -> object:
+        if isinstance(value, str) and not value.strip():
+            raise ValueError("must not be empty (it would mean the current directory)")
+        return value
 
     @field_validator("token")
     @classmethod
@@ -186,6 +210,56 @@ class CliSettings(MeshForgeSettings):
     """Settings behind the ``compute`` console script."""
 
     cli: CliSection = Field(default_factory=CliSection)
+
+    @model_validator(mode="after")
+    def _scheme_matches_security(self) -> CliSettings:
+        """D139: mtls speaks only HTTPS; insecure-dev only to loopback."""
+        parts = urlsplit(self.cli.controller_url)
+        if not self.security.insecure:
+            if parts.scheme != "https":
+                raise ValueError(
+                    "cli.controller_url must be https:// - the controller's REST "
+                    "port is HTTPS since V0.7 ([security] mode = 'mtls'); write "
+                    f"https://{parts.netloc}"
+                )
+            return self
+        if not is_loopback_host(parts.hostname or ""):
+            raise ValueError(
+                "[security] mode = 'insecure-dev' needs a loopback "
+                f"cli.controller_url, got {self.cli.controller_url}"
+            )
+        return self
+
+
+def resolve_ca(settings: CliSettings, ca_file: Path | None = None) -> x509.Certificate:
+    """The fabric CA ``compute`` trusts (V0.7 G3, D139), highest precedence first:
+    ``--ca``, ``[cli] ca_file``, this laptop's agent enrolment, the local
+    controller's CA. Nothing found or unreadable -> :class:`ConfigError`."""
+    named = ca_file or settings.cli.ca_file
+    candidates = (
+        [named]
+        if named is not None
+        else [
+            settings.data_dir / IDENTITY_DIR_NAME / "ca.crt",
+            settings.data_dir / CONTROLLER_DIR_NAME / "ca" / "ca.crt",
+        ]
+    )
+    for path in candidates:
+        if named is None and not path.exists():
+            continue
+        try:
+            return pki.read_cert(path, what="fabric CA certificate")
+        except pki.PkiError as exc:
+            raise ConfigError(
+                f"cannot use {path} as the fabric CA certificate: {exc.message}",
+                details={"path": str(path)},
+            ) from None
+    raise ConfigError(
+        "no fabric CA certificate to verify the controller with: on a laptop "
+        "that runs an enrolled agent it is found automatically; elsewhere copy "
+        "ca.crt from the controller (`meshforge-controller fabric show` prints its "
+        "fingerprint) and pass --ca PATH or set [cli] ca_file"
+    )
 
 
 def resolve_token(

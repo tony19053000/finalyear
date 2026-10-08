@@ -35,6 +35,7 @@ command ever shows a traceback.
 from __future__ import annotations
 
 import json
+import ssl
 import time
 from collections.abc import Callable, Mapping
 from contextvars import ContextVar
@@ -109,6 +110,10 @@ before any subcommand runs (a ContextVar rather than Typer's ``ctx.obj`` so that
 ``_client(settings)`` keeps the one-argument signature the tests patch)."""
 
 
+_CA_FILE: ContextVar[Path | None] = ContextVar("compute_ca_file", default=None)
+"""``compute --ca PATH`` (V0.7 G3): the fabric CA certificate to trust."""
+
+
 def _token_file_option() -> Path | None:
     return _TOKEN_FILE.get()
 
@@ -122,8 +127,26 @@ def _client(settings: CliSettings) -> ControllerClient:
     except ConfigError as exc:
         _die(exc.message, ExitCode.CONFIG_ERROR)
     return ControllerClient(
-        settings.cli.controller_url, timeout_s=settings.cli.timeout_s, token=token
+        settings.cli.controller_url,
+        timeout_s=settings.cli.timeout_s,
+        token=token,
+        ssl_context=_ssl_context(settings),
     )
+
+
+def _ssl_context(settings: CliSettings) -> ssl.SSLContext | None:
+    """V0.7 G3 (D139): an ``https`` controller is verified against the fabric
+    CA (``--ca`` / ``[cli] ca_file`` / found locally) and must be the
+    controller (``meshforge-controller`` name), whatever address was typed."""
+    from meshforge.cli.settings import resolve_ca
+    from meshforge.common.fabric_tls import client_context
+
+    if not settings.cli.controller_url.startswith("https://"):
+        return None
+    try:
+        return client_context(resolve_ca(settings, _CA_FILE.get()))
+    except ConfigError as exc:
+        _die(exc.message, ExitCode.CONFIG_ERROR)
 
 
 def _fetch[T](call: Callable[[], T]) -> T:
@@ -188,9 +211,22 @@ def _root(
             dir_okay=False,
         ),
     ] = None,
+    ca: Annotated[
+        Path | None,
+        typer.Option(
+            "--ca",
+            help=(
+                "The fabric CA certificate (ca.crt) to verify the controller with "
+                "(overrides [cli] ca_file; found automatically on a laptop with "
+                "an enrolled agent or the controller)."
+            ),
+            dir_okay=False,
+        ),
+    ] = None,
 ) -> None:
     """MeshForge compute fabric command-line tool."""
     _TOKEN_FILE.set(token_file)
+    _CA_FILE.set(ca)
 
 
 @app.command()

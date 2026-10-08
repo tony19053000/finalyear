@@ -339,6 +339,7 @@ def _follow_to_exit(client: Any, job_id: str, timeout_s: float) -> None:
             outputs={"stdout": sys.stdout.buffer, "stderr": sys.stderr.buffer},
             open_timeout_s=timeout_s,
             on_retry=_print_retry,
+            ssl_context=client.ssl_context,
         )
     except KeyboardInterrupt:
         typer.echo(
@@ -449,6 +450,7 @@ def logs(
                     outputs={"stdout": sys.stdout.buffer, "stderr": sys.stderr.buffer},
                     open_timeout_s=settings.cli.timeout_s,
                     on_retry=_print_retry,
+                    ssl_context=client.ssl_context,
                 )
             except KeyboardInterrupt:
                 raise typer.Exit(ExitCode.INTERRUPTED) from None
