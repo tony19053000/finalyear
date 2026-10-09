@@ -51,6 +51,17 @@ Fault semantics (each has its own raw-socket test)
 ``retarget(host, port)``
     New connections go to the new upstream; open ones keep theirs.
 
+Byte recorder (V0.7 G3, D146)
+-----------------------------
+``record()`` starts keeping every byte the link reads, per connection and per
+direction, in arrival order (before any toxic - what was on the wire, not what
+was delivered), up to ``max_bytes`` in total (more sets ``truncated``).
+``recording()`` returns them; :meth:`Recording.find` says which connection and
+direction carried a byte string - a marker split across two reads is still
+found, because each direction of a connection is one contiguous buffer. Used
+to prove that no plaintext crosses any link of a full job run (criterion 3)
+without root or a packet capture.
+
 Upstream connect failure (refused, timeout) resets the downstream connection, so
 a client of a link whose upstream is gone sees a failure promptly, like dialling
 a closed port.
@@ -78,9 +89,11 @@ from typing import Any, Final, TypeVar
 __all__ = [
     "CHUNK_BYTES",
     "MAX_QUEUED_CHUNKS",
+    "RECORD_MAX_BYTES",
     "FaultLink",
     "FaultLoop",
     "LinkCounters",
+    "Recording",
 ]
 
 T = TypeVar("T")
@@ -99,6 +112,28 @@ CALL_TIMEOUT_S: Final = 10.0
 """Bound on every synchronous call into the proxy loop."""
 
 _LINGER_RST: Final = struct.pack("ii", 1, 0)
+
+RECORD_MAX_BYTES: Final = 256 * 1024 * 1024
+"""Default bound on what one link's recorder keeps (all connections)."""
+
+
+@dataclasses.dataclass(frozen=True)
+class Recording:
+    """What a recording link saw: ``streams[(connection id, "up"|"down")]``."""
+
+    link: str
+    streams: dict[tuple[int, str], bytes]
+    truncated: bool
+
+    @property
+    def total_bytes(self) -> int:
+        return sum(len(data) for data in self.streams.values())
+
+    def find(self, marker: bytes) -> list[tuple[int, str]]:
+        """Every (connection, direction) whose bytes contain ``marker``."""
+        if not marker:
+            raise ValueError("an empty marker matches everything")
+        return [key for key, data in self.streams.items() if marker in data]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -259,6 +294,10 @@ class FaultLink:
         self._bytes = {"up": 0, "down": 0}
         self._dropped = 0
         self._upstream_failures = 0
+        self._recording: dict[tuple[int, str], bytearray] | None = None
+        self._record_max = 0
+        self._recorded = 0
+        self._record_truncated = False
 
     # ------------------------------------------------------------ public API
 
@@ -308,6 +347,16 @@ class FaultLink:
     def counters(self) -> LinkCounters:
         return self._fl.call(self._counters())
 
+    def record(self, max_bytes: int = RECORD_MAX_BYTES) -> None:
+        """Start (or restart, empty) the byte recorder (module doc)."""
+        if max_bytes < 1:
+            raise ValueError("max_bytes must be >= 1")
+        self._fl.call(self._start_recording(max_bytes))
+
+    def recording(self) -> Recording:
+        """A copy of everything recorded so far (raises if never started)."""
+        return self._fl.call(self._snapshot_recording())
+
     # ---------------------------------------------------------- loop side
 
     async def _start(self, host: str, port: int) -> None:
@@ -325,6 +374,34 @@ class FaultLink:
             upstream_failures=self._upstream_failures,
             faults=dict(self._faults),
         )
+
+    async def _start_recording(self, max_bytes: int) -> None:
+        self._recording = {}
+        self._record_max = max_bytes
+        self._recorded = 0
+        self._record_truncated = False
+
+    async def _snapshot_recording(self) -> Recording:
+        if self._recording is None:
+            raise RuntimeError(f"link {self.name} is not recording")
+        return Recording(
+            link=self.name,
+            streams={key: bytes(buf) for key, buf in self._recording.items()},
+            truncated=self._record_truncated,
+        )
+
+    def _record(self, conn: _Conn, direction: str, data: bytes) -> None:
+        if self._recording is None or not data:
+            return
+        room = self._record_max - self._recorded
+        if room <= 0:
+            self._record_truncated = True
+            return
+        piece = data[:room]
+        if len(piece) < len(data):
+            self._record_truncated = True
+        self._recording.setdefault((conn.cid, direction), bytearray()).extend(piece)
+        self._recorded += len(piece)
 
     async def _down(self) -> None:
         self._faults["down"] += 1
@@ -487,6 +564,7 @@ class FaultLink:
                     if not conn.poisoned:
                         self._reset_conn(conn)
                     return
+                self._record(conn, direction, data)
                 if conn.poisoned:
                     self._dropped += len(data)
                     if not data:

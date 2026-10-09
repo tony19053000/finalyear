@@ -464,3 +464,53 @@ def test_close_releases_every_socket_and_the_thread(upstream: Upstream) -> None:
     with pytest.raises(RuntimeError):
         link.reset_peer()
     client.close()
+
+
+# ------------------------------------------------------- recorder (V0.7 G3, D146)
+
+
+def test_recorder_keeps_each_direction_of_each_connection_and_finds_split_markers(
+    fault_loop: FaultLoop, upstream: Upstream
+) -> None:
+    link = fault_loop.link(upstream.address, name="rec")
+    with pytest.raises(RuntimeError, match="not recording"):
+        link.recording()
+    link.record()
+    with _connect(link) as first:
+        server = upstream.wait_accepted(1)
+        first.sendall(b"hello SECRET-")
+        time.sleep(0.05)  # two separate reads on the proxy
+        first.sendall(b"MARKER tail")
+        assert _recv_exact(server, 24) == b"hello SECRET-MARKER tail"
+        server.sendall(b"reply-plain")
+        assert _recv_exact(first, 11) == b"reply-plain"
+    with _connect(link) as second:
+        other = upstream.wait_accepted(2)
+        second.sendall(b"nothing here")
+        assert _recv_exact(other, 12) == b"nothing here"
+    _wait_for(lambda: link.recording().total_bytes == 24 + 11 + 12)
+    rec = link.recording()
+    assert not rec.truncated
+    (where,) = rec.find(b"SECRET-MARKER")
+    assert where[1] == "up"
+    assert rec.find(b"reply-plain") == [(where[0], "down")]
+    assert rec.find(b"absent") == []
+    assert len(rec.find(b"nothing here")) == 1
+    with pytest.raises(ValueError, match="empty"):
+        rec.find(b"")
+
+
+def test_recorder_is_bounded_and_says_so(
+    fault_loop: FaultLoop, upstream: Upstream
+) -> None:
+    link = fault_loop.link(upstream.address, name="rec-bound")
+    link.record(max_bytes=10)
+    with _connect(link) as client:
+        server = upstream.wait_accepted(1)
+        client.sendall(b"0123456789abcdef")
+        assert _recv_exact(server, 16) == b"0123456789abcdef"  # still delivered
+    _wait_for(lambda: link.recording().truncated)
+    rec = link.recording()
+    assert rec.total_bytes == 10
+    link.record()  # a restart begins empty
+    assert link.recording().total_bytes == 0

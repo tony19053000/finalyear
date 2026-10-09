@@ -330,7 +330,7 @@ class PeerBlobServer:
         if not host:
             return ""
         shown = f"[{host}]" if ":" in host else host
-        return f"{shown}:{self.port}"
+        return f"{shown}:{self._cfg.advertise_port or self.port}"
 
     # ----------------------------------------------------------- connection
 

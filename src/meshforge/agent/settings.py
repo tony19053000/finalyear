@@ -778,6 +778,17 @@ class PeerSettings(SectionModel):
             "IP, or (wildcard bind) the local address facing the controller."
         ),
     )
+    advertise_port: int | None = Field(
+        default=None,
+        ge=1,
+        le=65535,
+        description=(
+            "Port sent in Hello.peer_endpoint when peers reach this server through "
+            "a port forward or a proxy (V0.7 G3; the test harness records every "
+            "link this way). Empty = the bound port. Peers check the server's "
+            "certificate, not its address."
+        ),
+    )
     max_connections: int = Field(
         default=32,
         ge=1,

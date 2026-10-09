@@ -507,6 +507,8 @@ class Node:
     fabric: Fabric | None = None
     tmpfs_workdir: Path | None = None
     """V0.6 G3: the agent's workdir is a tmpfs in its own mount namespace."""
+    peer_link: FaultLink | None = None
+    """V0.7 G3 (D146, ``record_links``): the link in front of its peer server."""
 
     @property
     def config(self) -> Path:
@@ -617,6 +619,7 @@ class Fabric:
         fabric_ca: bool = False,
         enroll_agents: bool = True,
         start_agents: bool = True,
+        record_links: bool = False,
     ) -> None:
         self.workdir = workdir
         # V0.7 G3: a controller in mtls mode needs a fabric CA. ``fabric_ca``:
@@ -629,6 +632,13 @@ class Fabric:
         # turns it off and runs `meshforge-agent join` itself, then calls
         # :meth:`start_agents` (``start_agents=False``).
         self.enroll_agents = enroll_agents
+        # V0.7 G3 (D146): every network path through a recording FaultLink -
+        # agent->controller gRPC (always proxied), REST/blobs (the controller
+        # advertises a "rest" link; the harness's own REST calls use it too)
+        # and each agent's peer server (advertise_port = its "peer" link).
+        self.record_links = record_links
+        self.rest_link: FaultLink | None = None
+        self._peer_links: dict[int, FaultLink] = {}
         self._start_agents = start_agents
         self.enroll_target = ""
         self.timing = timing
@@ -743,6 +753,12 @@ class Fabric:
             ),
             **{f"agent.{name}": table for name, table in self._agent_extra.items()},
         }
+        peer_link = self._peer_links.get(index)
+        if peer_link is not None:
+            tables["agent.peer"] = {
+                **tables.get("agent.peer", {}),
+                "advertise_port": peer_link.address[1],
+            }
         path = self.workdir / f"agent{index}.toml"
         path.write_text(_toml({k: v for k, v in tables.items() if v}), "utf-8")
         return path
@@ -764,6 +780,13 @@ class Fabric:
         self.workdir.mkdir(parents=True, exist_ok=True)
         (self.workdir / "logs").mkdir(exist_ok=True)
         self.loop = FaultLoop(f"faultproxy-{self.workdir.name}")
+        if self.record_links:
+            # Upstream fixed once the controller has bound its REST port.
+            self.rest_link = self.loop.link(("127.0.0.1", 9), name="rest")
+            self.rest_link.record()
+            self._controller_extra.setdefault("api", {})["advertise_url"] = (
+                f"https://{self.rest_link.target}"
+            )
         env = self._base_env()
         env.update(self._db_env)
         controller_config = self._controller_config()
@@ -794,6 +817,13 @@ class Fabric:
         for i in range(self.n_agents):
             data_dir = self.workdir / f"agent{i}-data"
             link = self.loop.link(_host_port(self.grpc_target), name=f"agent{i}")
+            peer_link: FaultLink | None = None
+            if self.record_links:
+                link.record()
+                if self._agent_extra.get("peer", {}).get("bind"):
+                    peer_link = self.loop.link(("127.0.0.1", 9), name=f"agent{i}-peer")
+                    peer_link.record()
+                    self._peer_links[i] = peer_link
             config = self._agent_config(i, data_dir)
             agent_env = self._base_env()
             agent_env.update(self._agent_env)
@@ -812,7 +842,15 @@ class Fabric:
                 tmpfs.mkdir(parents=True, exist_ok=True)
                 argv = ["-c", _TMPFS_BOOT, str(tmpfs), str(self._agent_tmpfs[i]), *argv]
             proc = ManagedProcess(f"agent{i}", argv, agent_env, self.workdir / "logs")
-            node = Node(i, proc, link, data_dir, fabric=self, tmpfs_workdir=tmpfs)
+            node = Node(
+                i,
+                proc,
+                link,
+                data_dir,
+                fabric=self,
+                tmpfs_workdir=tmpfs,
+                peer_link=peer_link,
+            )
             if self.enroll_agents:
                 enroll_data_dir(data_dir, self.ca_dir)
             self.nodes.append(node)
@@ -825,10 +863,20 @@ class Fabric:
             node.process.start()
         for node in self.nodes:
             node.node_id = self._wait_node_id(node)
+            if node.peer_link is not None:
+                event = self.wait_log(
+                    node.process, "agent.peer.listening", within=START_TIMEOUT_S
+                )
+                node.peer_link.retarget("127.0.0.1", int(event["port"]))
         ids = [n.node_id for n in self.nodes]
         if len(set(ids)) != len(ids):
             self.fail(f"agents share a node_id: {ids}")
         self.wait_all_connected(within=START_TIMEOUT_S)
+
+    def links(self) -> list[FaultLink]:
+        """Every link of this fabric (gRPC per agent, and with ``record_links``
+        the REST link and each agent's peer link)."""
+        return [] if self.loop is None else list(self.loop.links)
 
     @property
     def ca_dir(self) -> Path:
@@ -844,6 +892,9 @@ class Fabric:
         self.grpc_target = str(event["grpc"])
         self.http_base = f"https://{event['http']}"
         self.enroll_target = str(event.get("enroll") or "")
+        if self.rest_link is not None:
+            self.rest_link.retarget(*_host_port(str(event["http"])))
+            self.http_base = f"https://{self.rest_link.target}"
 
     def _wait_node_id(self, node: Node) -> str:
         event = self.wait_log(node.process, "agent.started", within=START_TIMEOUT_S)
