@@ -153,16 +153,16 @@ async def test_a_hello_is_refused_when_the_database_says_revoked() -> None:
     node = str(new_node_id())
     first = await _admit(manager, node)
     assert isinstance(first, Accepted)
-    await manager.end_session(first.live, SessionEndReason.AGENT_CLOSED)
-    for _ in range(20):
-        await asyncio.sleep(0)
-    # The controller CLI wrote "revoked" straight into the database.
+    # The controller CLI wrote "revoked" straight into the database; the
+    # periodic sync has not cut the live session yet (in memory: ONLINE).
     reg.nodes[node] = dataclasses.replace(reg.nodes[node], state=NodeState.REVOKED)
+    assert first.live.state is NodeState.ONLINE
     refused = await _admit(manager, node, epoch=2)
     assert isinstance(refused, Rejected)
     assert refused.abort_status is grpc.StatusCode.PERMISSION_DENIED
     assert refused.reason_code == "node_revoked"
     assert "invite --replace" in refused.reason
+    assert manager.get(node) is None  # no new session was registered
 
 
 async def test_every_hello_ack_carries_the_revocation_set() -> None:
