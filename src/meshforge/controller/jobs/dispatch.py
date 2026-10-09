@@ -8,7 +8,9 @@ that places a job and talks to the agent about one attempt: the dispatch pass
 planner's decision row committed **before** ``StartAttempt`` is sent; the
 placement itself is :class:`~.planning.DispatchPlanner`, V0.6 G2),
 ``StartAttempt`` with a fresh download-only fetch token and an upload grant,
-``RefreshFetchToken`` after a controller restart (D95), and ``CancelAttempt``.
+``RefreshFetchToken`` after a controller restart (D95), ``RefreshPeerTokens``
+while an attempt stages (V0.7 G3, D147: peer tokens live <= 60 s) and
+``CancelAttempt``.
 It holds no state of its own: every attribute is the dispatcher's (set in
 :meth:`~.dispatcher.Dispatcher.__init__`), and it runs only inside the
 dispatcher's one task (checklist item 5).
@@ -25,9 +27,11 @@ from pydantic import SecretStr
 from meshforge.common.hashing import Digest
 from meshforge.common.logging import get_logger
 from meshforge.common.proto.meshforge.v1 import agent_pb2
+from meshforge.common.states import AttemptState
 from meshforge.controller.blobs import MAX_FETCH_TOKEN_TTL_S, FetchTokens
 from meshforge.controller.jobs.execution_store import (
     ExecutionStore,
+    LiveAttempt,
     StatusKind,
     StatusOutcome,
 )
@@ -52,6 +56,9 @@ __all__ = ["DispatchSteps", "DispatcherStats", "fetch_scope"]
 
 log = get_logger(__name__)
 
+_FETCHING = frozenset({AttemptState.ASSIGNED, AttemptState.STAGING})
+"""Attempt states in which the agent may still download blobs (D147)."""
+
 
 @dataclass(slots=True)
 class DispatcherStats:
@@ -59,6 +66,8 @@ class DispatcherStats:
     start_sent: int = 0
     start_resent: int = 0
     fetch_tokens_refreshed: int = 0
+    peer_tokens_reminted: int = 0
+    """V0.7 G3 (D147): RefreshPeerTokens sent to staging attempts."""
     upload_grants_refreshed: int = 0
     statuses_applied: int = 0
     statuses_duplicate: int = 0
@@ -118,6 +127,7 @@ class DispatchSteps:
     _planner: DispatchPlanner
     _planner_settings: PlannerSettings
     _network_settings: NetworkSettings
+    _peer_minted: dict[str, float]
     stats: DispatcherStats
 
     # ------------------------------------------------------------ dispatch
@@ -148,6 +158,8 @@ class DispatchSteps:
         if self._peers is None:
             return []
         if tree_id is None:
+            # D147: the attempt's peer tokens are fresh from now on.
+            self._peer_minted[attempt.id] = self._clock()
             return await self._peers.for_attempt(job, attempt)
         return await self._peers.for_tree(tree_id, job, attempt)
 
@@ -318,6 +330,58 @@ class DispatchSteps:
             attempt_id=attempt.id,
             node_id=attempt.node_id,
         )
+
+    async def _remint_peer_tokens(self, live: Sequence[LiveAttempt]) -> None:
+        """D147: peer tokens live <= 60 s, so every attempt that may still be
+        fetching (ASSIGNED/STAGING, a tree job) gets fresh ones every third of
+        the token life - one ``RefreshPeerTokens`` with a token per (tree,
+        current holder). The agent swaps them into the running transfer, so
+        every range it asks carries a token younger than the token life."""
+        if self._peers is None:
+            return
+        now = self._clock()
+        interval = self._peers.remint_interval_s
+        staging = {
+            entry.attempt.id: entry
+            for entry in live
+            if entry.attempt.state in _FETCHING and entry.job.tree_id
+        }
+        for attempt_id in [a for a in self._peer_minted if a not in staging]:
+            del self._peer_minted[attempt_id]
+        for entry in staging.values():
+            job, attempt = entry.job, entry.attempt
+            project = job.tree_id or ""
+            if now - self._peer_minted.get(attempt.id, -interval) < interval:
+                continue
+            if self._manager.get(attempt.node_id) is None:
+                continue  # no session: the next StartAttempt/refresh mints anew
+            self._peer_minted[attempt.id] = now
+            trees = [project] + [t.tree_id for t in await self._job_inputs(job)]
+            grants: list[agent_pb2.PeerTokenGrant] = []
+            for tree_id in dict.fromkeys(trees):
+                grants.extend(await self._peers.remint(tree_id, job, attempt))
+            if not grants:
+                continue
+            sent = self._manager.send_command(
+                attempt.node_id,
+                "refresh_peer_tokens",
+                agent_pb2.RefreshPeerTokens(
+                    attempt_id=attempt.id,
+                    fencing_token=attempt.fencing_token,
+                    tokens=grants,
+                ),
+                attempt_id=attempt.id,
+                fencing_token=attempt.fencing_token,
+            )
+            if sent is not None:
+                self.stats.peer_tokens_reminted += 1
+                log.debug(
+                    "controller.jobs.peer_tokens_reminted",
+                    job_id=job.id,
+                    attempt_id=attempt.id,
+                    node_id=attempt.node_id,
+                    tokens=len(grants),
+                )
 
     async def _refresh_upload_grant(
         self, job: JobRecord, attempt: AttemptRecord

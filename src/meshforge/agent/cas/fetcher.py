@@ -67,6 +67,7 @@ from meshforge.agent.cas.sources import (
     FetchTuning,
     Source,
     SourceStats,
+    TokenLookup,
     get_range,
 )
 from meshforge.agent.cas.store import AgentCas
@@ -105,7 +106,11 @@ class BlobFetcher:
         max_refetches: int = DEFAULT_MAX_REFETCHES,
         tuning: FetchTuning | None = None,
         clock: Callable[[], float] = time.monotonic,
+        token_for: TokenLookup | None = None,
     ) -> None:
+        """``token_for`` (V0.7 G3, D147): asked before every request to a peer
+        for the newest token the attempt holds for it (peer tokens live
+        <= 60 s and are re-minted while the attempt stages)."""
         listed = list(sources)
         if not listed:
             raise ValueError("at least one blob source is needed")
@@ -126,7 +131,7 @@ class BlobFetcher:
                 continue  # one entry per source (a duplicate listing adds nothing)
             seen.add(src.name)
             stats = self.stats.sources.setdefault(src.name, SourceStats())
-            known.append(Source(src, stats))
+            known.append(Source(src, stats, token_for=token_for))
         self._sched = TransferScheduler(
             cas,
             client,

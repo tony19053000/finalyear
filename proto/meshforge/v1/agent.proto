@@ -116,6 +116,11 @@ message ControllerMessage {
     // D114): sent after Reconcile when this controller process has no grant
     // for it (a restart forgets every grant - they are never persisted).
     RefreshUploadGrant refresh_upload_grant = 19;
+    // Fresh peer tokens for an attempt that is still staging (V0.7 G3, D147):
+    // peer tokens live at most 60 s, so the controller re-mints them while
+    // the attempt stages; a long transfer uses the newest token for every
+    // range it asks, never a longer-lived token.
+    RefreshPeerTokens refresh_peer_tokens = 20;
   }
 }
 
@@ -650,6 +655,27 @@ message RefreshFetchToken {
   repeated BlobSource sources = 6;
   // The attempt's named inputs with their sources re-minted (V0.5 G5).
   repeated InputTree inputs = 7;
+}
+
+// Peer tokens re-minted for a staging attempt (V0.7 G3, D147). Each token
+// replaces the one the attempt holds for the same (tree_id, node_id) - the
+// StartAttempt's or an earlier refresh's; a pair the attempt was never given
+// is ignored (the list of peers is the StartAttempt's / RefreshFetchToken's).
+// Applied only to the attempt with this (attempt_id, fencing_token) while it
+// has not ended. Not re-sent on a missing Ack: the next re-mint supersedes it.
+message RefreshPeerTokens {
+  string attempt_id = 1;
+  uint64 fencing_token = 2;
+  repeated PeerTokenGrant tokens = 3;
+}
+
+// One re-minted peer token: `node_id` may be asked for the blobs of `tree_id`
+// with `token` (D98 scope: this tree, this requester, this holder, this
+// attempt; <= 60 s). A secret: never logged, never persisted.
+message PeerTokenGrant {
+  string tree_id = 1;
+  string node_id = 2;
+  string token = 3;
 }
 
 // Replaces the upload grant of a held attempt (V0.6 G1, D114). Same quota as

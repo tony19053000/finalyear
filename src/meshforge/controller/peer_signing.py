@@ -184,6 +184,11 @@ class PeerTokenIssuer:
         self._clock = clock
         self.public_key = public_key_bytes(key)
 
+    @property
+    def ttl_s(self) -> int:
+        """Lifetime of the peer tokens this issuer signs (<= 60 s, D147)."""
+        return self._ttl_s
+
     def issue(
         self,
         *,

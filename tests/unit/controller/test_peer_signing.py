@@ -109,7 +109,7 @@ def test_concurrent_creation_yields_one_key(tmp_path: Path) -> None:
 def test_issuer_uses_injected_clock_and_ttl(tmp_path: Path) -> None:
     key, _ = load_or_create_signing_key(tmp_path / "k")
     now = [1_800_000_000.0]
-    issuer = PeerTokenIssuer(key, ttl_s=120, clock=lambda: now[0])
+    issuer = PeerTokenIssuer(key, ttl_s=45, clock=lambda: now[0])
     holder = new_node_id()
     token = issuer.issue(
         tree=sha256_bytes(b"t"),
@@ -120,9 +120,9 @@ def test_issuer_uses_injected_clock_and_ttl(tmp_path: Path) -> None:
     claims = verify_peer_token(
         load_public_key(issuer.public_key), token, holder=holder, now=now[0]
     )
-    assert claims.exp == int(now[0]) + 120
+    assert claims.exp == int(now[0]) + 45
     with pytest.raises(ValueError, match="ttl"):
-        PeerTokenIssuer(key, ttl_s=601)
+        PeerTokenIssuer(key, ttl_s=61)  # V0.7 G3 (D147): <= 60 s
 
 
 def test_settings_default_path_and_override(tmp_path: Path) -> None:
@@ -134,5 +134,5 @@ def test_settings_default_path_and_override(tmp_path: Path) -> None:
     )
     assert settings.peer_key_path == other
     assert settings.controller.jobs.max_peer_sources == 4
-    assert settings.controller.jobs.peer_token_ttl_s == 600
+    assert settings.controller.jobs.peer_token_ttl_s == 60  # D147
     assert settings.controller.trust_peer_endpoints is False

@@ -369,12 +369,14 @@ class JobApiSettings(SectionModel):
         ),
     )
     peer_token_ttl_s: int = Field(
-        default=600,
-        ge=60,
-        le=600,
+        default=60,
+        ge=5,
+        le=60,
         description=(
-            "D98: lifetime of a signed peer blob token (at most 10 minutes); "
-            "renewed with every StartAttempt and RefreshFetchToken."
+            "D98/D147: lifetime of a signed peer blob token (at most 60 s). "
+            "Minted with every StartAttempt and RefreshFetchToken, and re-minted "
+            "every third of this lifetime while the attempt stages "
+            "(RefreshPeerTokens), so a long transfer never needs a longer token."
         ),
     )
     log_gc_batch: int = Field(

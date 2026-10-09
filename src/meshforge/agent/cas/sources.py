@@ -34,6 +34,7 @@ __all__ = [
     "FetchTuning",
     "Source",
     "SourceStats",
+    "TokenLookup",
     "get_range",
     "status_error",
 ]
@@ -41,6 +42,11 @@ __all__ = [
 STREAM: Final = 1024 * 1024
 """Read size of a streamed response body."""
 CONTROLLER: Final = "controller"
+
+type TokenLookup = Callable[[BlobSource], str | None]
+"""V0.7 G3 (D147): the newest token the attempt holds for a peer source (a
+``RefreshPeerTokens`` replaced it) or None = the listed one. Asked at every
+request, so a transfer longer than one token life keeps a fresh token."""
 
 
 class FetchError(MeshForgeError):
@@ -140,6 +146,7 @@ class Source:
     src: BlobSource
     stats: SourceStats
     dropped: FetchError | None = None
+    token_for: TokenLookup | None = None
 
     @property
     def name(self) -> str:
@@ -150,7 +157,17 @@ class Source:
         return not self.src.node_id
 
     def headers(self, extra: dict[str, str] | None = None) -> dict[str, str]:
-        return {"authorization": f"Bearer {self.src.token}", **(extra or {})}
+        return {"authorization": f"Bearer {self.token}", **(extra or {})}
+
+    @property
+    def token(self) -> str:
+        """The token for the next request: a peer's re-minted one if the
+        attempt holds a newer token for it (D147), else the listed token."""
+        if self.token_for is not None and not self.controller:
+            fresh = self.token_for(self.src)
+            if fresh:
+                return fresh
+        return self.src.token
 
     def url(self, digest: Digest) -> str:
         return f"{self.src.base_url}/v1/blobs/{digest.hex}"

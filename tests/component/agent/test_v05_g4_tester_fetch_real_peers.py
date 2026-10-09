@@ -80,7 +80,7 @@ class Holder:
     def url(self) -> str:
         return f"http://127.0.0.1:{self.server.port}"
 
-    def source(self, *, peer: bool = True, ttl_s: int = 600) -> BlobSource:
+    def source(self, *, peer: bool = True, ttl_s: int = 60) -> BlobSource:
         token = sign_peer_token(
             self.key,
             tree=self.tree,

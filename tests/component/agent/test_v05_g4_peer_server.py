@@ -110,7 +110,7 @@ async def test_endpoint_advertised_key_installed_and_tokens_checked(
     expired = PeerTokenIssuer(
         # The controller's own key (its file), but issued 20 minutes ago.
         load_or_create_signing_key(runtime.settings.peer_key_path)[0],
-        ttl_s=600,
+        ttl_s=60,
         clock=lambda: time.time() - 1200,
     ).issue(
         tree=x.tree.tree_id,

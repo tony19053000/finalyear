@@ -125,6 +125,7 @@ _COMMAND_PAYLOADS: Final = frozenset(
         "cancel_attempt",
         "refresh_fetch_token",
         "refresh_upload_grant",
+        "refresh_peer_tokens",
         "gc",
         "prepare_env",
         "probe_request",

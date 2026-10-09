@@ -259,6 +259,7 @@ class ControllerMessage(_message.Message):
     PING_FIELD_NUMBER: _builtins.int
     REFRESH_FETCH_TOKEN_FIELD_NUMBER: _builtins.int
     REFRESH_UPLOAD_GRANT_FIELD_NUMBER: _builtins.int
+    REFRESH_PEER_TOKENS_FIELD_NUMBER: _builtins.int
     message_id: _builtins.str
     """Unique per message (ULID); the command ID the agent deduplicates on."""
     session_id: _builtins.str
@@ -302,6 +303,14 @@ class ControllerMessage(_message.Message):
         for it (a restart forgets every grant - they are never persisted).
         """
 
+    @_builtins.property
+    def refresh_peer_tokens(self) -> Global___RefreshPeerTokens:
+        """Fresh peer tokens for an attempt that is still staging (V0.7 G3, D147):
+        peer tokens live at most 60 s, so the controller re-mints them while
+        the attempt stages; a long transfer uses the newest token for every
+        range it asks, never a longer-lived token.
+        """
+
     def __init__(
         self,
         *,
@@ -318,12 +327,13 @@ class ControllerMessage(_message.Message):
         ping: Global___Ping | None = ...,
         refresh_fetch_token: Global___RefreshFetchToken | None = ...,
         refresh_upload_grant: Global___RefreshUploadGrant | None = ...,
+        refresh_peer_tokens: Global___RefreshPeerTokens | None = ...,
     ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _typing.Literal["ack", b"ack", "cancel_attempt", b"cancel_attempt", "gc", b"gc", "hello_ack", b"hello_ack", "payload", b"payload", "ping", b"ping", "prepare_env", b"prepare_env", "probe_request", b"probe_request", "refresh_fetch_token", b"refresh_fetch_token", "refresh_upload_grant", b"refresh_upload_grant", "sent_at", b"sent_at", "start_attempt", b"start_attempt"]  # noqa: Y015
+    _HasFieldArgType: _TypeAlias = _typing.Literal["ack", b"ack", "cancel_attempt", b"cancel_attempt", "gc", b"gc", "hello_ack", b"hello_ack", "payload", b"payload", "ping", b"ping", "prepare_env", b"prepare_env", "probe_request", b"probe_request", "refresh_fetch_token", b"refresh_fetch_token", "refresh_peer_tokens", b"refresh_peer_tokens", "refresh_upload_grant", b"refresh_upload_grant", "sent_at", b"sent_at", "start_attempt", b"start_attempt"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["ack", b"ack", "cancel_attempt", b"cancel_attempt", "gc", b"gc", "hello_ack", b"hello_ack", "message_id", b"message_id", "payload", b"payload", "ping", b"ping", "prepare_env", b"prepare_env", "probe_request", b"probe_request", "refresh_fetch_token", b"refresh_fetch_token", "refresh_upload_grant", b"refresh_upload_grant", "sent_at", b"sent_at", "session_id", b"session_id", "start_attempt", b"start_attempt"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["ack", b"ack", "cancel_attempt", b"cancel_attempt", "gc", b"gc", "hello_ack", b"hello_ack", "message_id", b"message_id", "payload", b"payload", "ping", b"ping", "prepare_env", b"prepare_env", "probe_request", b"probe_request", "refresh_fetch_token", b"refresh_fetch_token", "refresh_peer_tokens", b"refresh_peer_tokens", "refresh_upload_grant", b"refresh_upload_grant", "sent_at", b"sent_at", "session_id", b"session_id", "start_attempt", b"start_attempt"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
-    _WhichOneofReturnType_payload: _TypeAlias = _typing.Literal["start_attempt", "cancel_attempt", "probe_request", "prepare_env", "gc", "ack", "hello_ack", "ping", "refresh_fetch_token", "refresh_upload_grant"]  # noqa: Y015
+    _WhichOneofReturnType_payload: _TypeAlias = _typing.Literal["start_attempt", "cancel_attempt", "probe_request", "prepare_env", "gc", "ack", "hello_ack", "ping", "refresh_fetch_token", "refresh_upload_grant", "refresh_peer_tokens"]  # noqa: Y015
     _WhichOneofArgType_payload: _TypeAlias = _typing.Literal["payload", b"payload"]  # noqa: Y015
     def WhichOneof(self, oneof_group: _WhichOneofArgType_payload) -> _WhichOneofReturnType_payload | None: ...
 
@@ -1739,6 +1749,70 @@ class RefreshFetchToken(_message.Message):
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___RefreshFetchToken: _TypeAlias = RefreshFetchToken  # noqa: Y015
+
+@_typing.final
+class RefreshPeerTokens(_message.Message):
+    """Peer tokens re-minted for a staging attempt (V0.7 G3, D147). Each token
+    replaces the one the attempt holds for the same (tree_id, node_id) - the
+    StartAttempt's or an earlier refresh's; a pair the attempt was never given
+    is ignored (the list of peers is the StartAttempt's / RefreshFetchToken's).
+    Applied only to the attempt with this (attempt_id, fencing_token) while it
+    has not ended. Not re-sent on a missing Ack: the next re-mint supersedes it.
+    """
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    ATTEMPT_ID_FIELD_NUMBER: _builtins.int
+    FENCING_TOKEN_FIELD_NUMBER: _builtins.int
+    TOKENS_FIELD_NUMBER: _builtins.int
+    attempt_id: _builtins.str
+    fencing_token: _builtins.int
+    @_builtins.property
+    def tokens(self) -> _containers.RepeatedCompositeFieldContainer[Global___PeerTokenGrant]: ...
+    def __init__(
+        self,
+        *,
+        attempt_id: _builtins.str = ...,
+        fencing_token: _builtins.int = ...,
+        tokens: _abc.Iterable[Global___PeerTokenGrant] | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["attempt_id", b"attempt_id", "fencing_token", b"fencing_token", "tokens", b"tokens"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___RefreshPeerTokens: _TypeAlias = RefreshPeerTokens  # noqa: Y015
+
+@_typing.final
+class PeerTokenGrant(_message.Message):
+    """One re-minted peer token: `node_id` may be asked for the blobs of `tree_id`
+    with `token` (D98 scope: this tree, this requester, this holder, this
+    attempt; <= 60 s). A secret: never logged, never persisted.
+    """
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    TREE_ID_FIELD_NUMBER: _builtins.int
+    NODE_ID_FIELD_NUMBER: _builtins.int
+    TOKEN_FIELD_NUMBER: _builtins.int
+    tree_id: _builtins.str
+    node_id: _builtins.str
+    token: _builtins.str
+    def __init__(
+        self,
+        *,
+        tree_id: _builtins.str = ...,
+        node_id: _builtins.str = ...,
+        token: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["node_id", b"node_id", "token", b"token", "tree_id", b"tree_id"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___PeerTokenGrant: _TypeAlias = PeerTokenGrant  # noqa: Y015
 
 @_typing.final
 class RefreshUploadGrant(_message.Message):

@@ -15,7 +15,7 @@ Wire form::
   is not byte-identical (no duplicate keys, no whitespace, no extra fields).
 * ``exp`` is wall-clock UNIX seconds. A token is refused once ``now > exp +
   skew`` and also when ``exp`` lies more than :data:`MAX_TTL_S` + skew in the
-  future (a token cannot outlive the 10-minute rule even if the signer erred).
+  future (a token cannot outlive the 60-second rule even if the signer erred).
 * Bounded: the whole token is at most :data:`MAX_TOKEN_CHARS` characters and the
   payload at most :data:`MAX_PAYLOAD_BYTES` bytes, checked before decoding.
 
@@ -73,8 +73,10 @@ __all__ = [
 ]
 
 TOKEN_VERSION: Final = 1
-MAX_TTL_S: Final = 600
-"""A peer token is valid for at most 10 minutes after it is issued (D88/D98)."""
+MAX_TTL_S: Final = 60
+"""A peer token is valid for at most 60 s after it is issued (V0.7 G3, D147;
+was 10 minutes, D88/D98). A transfer that lasts longer uses re-minted tokens
+(``RefreshPeerTokens``), never a longer-lived one."""
 SKEW_S: Final = 30
 """Wall-clock disagreement tolerated between the controller and the holder."""
 MAX_TOKEN_CHARS: Final = 512
@@ -170,7 +172,7 @@ def sign_peer_token(
     now: float,
     ttl_s: int = MAX_TTL_S,
 ) -> str:
-    """Issue a token valid until ``now + ttl_s`` (wall clock, ``ttl_s`` <= 600)."""
+    """Issue a token valid until ``now + ttl_s`` (wall clock, ``ttl_s`` <= 60)."""
     if not 1 <= ttl_s <= MAX_TTL_S:
         raise ValueError(f"peer token ttl must be 1..{MAX_TTL_S} s, got {ttl_s}")
     claims = PeerTokenClaims(

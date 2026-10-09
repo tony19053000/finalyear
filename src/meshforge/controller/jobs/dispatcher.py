@@ -226,6 +226,9 @@ class Dispatcher(RecoverySteps):
         """attempt_id -> when it entered UPLOADING (from the job history)."""
         self._overlaps_seen: OrderedDict[str, None] = OrderedDict()
         """D117: attempts already counted as an overlapping execution."""
+        self._peer_minted: dict[str, float] = {}
+        """D147: attempt_id -> when its peer tokens were last minted (staging
+        attempts only; :meth:`_remint_peer_tokens`)."""
         self._grant_unacked: dict[str, str] = {}
         """D114: attempt_id -> message_id of the last message that carried the
         attempt's upload grant (StartAttempt or RefreshUploadGrant) while the
@@ -454,6 +457,7 @@ class Dispatcher(RecoverySteps):
         live = await self._store.live_attempts()
         await self._upload_deadline(live)
         await self._sweep_orphans(live)
+        await self._remint_peer_tokens(live)
         if self._logs is not None and self._clock() >= self._next_log_gc:
             self._next_log_gc = self._clock() + self._settings.log_gc_interval_s
             await self._log_gc()

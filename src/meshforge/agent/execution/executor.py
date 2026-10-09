@@ -78,6 +78,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import os
+import re
 import stat
 import time
 from collections import OrderedDict
@@ -88,7 +89,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final, Protocol
 
 from meshforge.agent.cas import AgentCas
-from meshforge.agent.cas.fetcher import FetchTuning
+from meshforge.agent.cas.fetcher import BlobSource, FetchTuning
+from meshforge.agent.cas.sources import TokenLookup
 from meshforge.agent.envs.fsutil import make_read_only, remove_tree
 from meshforge.agent.execution.failure_evidence import (
     STDERR_TAIL_BYTES,
@@ -124,7 +126,11 @@ from meshforge.agent.settings import AgentSettings
 from meshforge.common.bundle import BundleError, BundleLimits, unpack
 from meshforge.common.errors import FailureType, InvalidIdError
 from meshforge.common.hashing import Digest
-from meshforge.common.ids import validate_attempt_id, validate_job_id
+from meshforge.common.ids import (
+    validate_attempt_id,
+    validate_job_id,
+    validate_node_id,
+)
 from meshforge.common.logging import get_logger
 from meshforge.common.manifest import check_mount
 from meshforge.common.proto.meshforge.v1 import agent_pb2, common_pb2
@@ -150,6 +156,10 @@ _STAGE_RETRYABLE: Final = frozenset(
 """Staging failures that a controller restart causes (connection refused/reset,
 a timeout, the old fetch token refused): retried until ``staging_retry_s`` (D95)."""
 _STAGE_RETRY_BASE_S: Final = 0.25
+MAX_PEER_TOKENS: Final = 256
+"""Most (tree, holder) peer tokens one attempt keeps (D147; a tree lists at most
+``MAX_SOURCES`` peers, an attempt a bounded number of input trees)."""
+_TREE_HEX: Final = re.compile(r"[0-9a-f]{64}")
 _STAGE_RETRY_CAP_S: Final = 5.0
 _RETRYABLE: Final = frozenset(
     {
@@ -225,6 +235,10 @@ class _Attempt:
     inputs: list[agent_pb2.InputTree] | None = None
     """Set by a RefreshFetchToken that carries inputs (V0.5 G5): their source
     lists re-minted. Secrets inside."""
+    peer_tokens: dict[tuple[str, str], str] = field(default_factory=dict)
+    """V0.7 G3 (D147): (tree hex, holder node_id) -> the newest peer token a
+    RefreshPeerTokens brought; asked at every request of a running transfer.
+    Secrets: never logged."""
     stages: list[StageReport] = field(default_factory=list)
     """Every tree staged for this attempt (project first, then inputs): the
     transfer telemetry of its terminal report (V0.5 G5, D93)."""
@@ -405,6 +419,8 @@ class Executor:
             self._refresh_token(msg.refresh_fetch_token)
         elif which == "refresh_upload_grant":
             self._refresh_grant(msg.refresh_upload_grant)
+        elif which == "refresh_peer_tokens":
+            self._refresh_peer_tokens(msg.refresh_peer_tokens)
 
     def held(self) -> list[agent_pb2.AttemptStatus]:
         """Every attempt this process holds, for ``Reconcile`` (D66): running ones
@@ -604,6 +620,51 @@ class Executor:
                 self._release(attempt, cause="released")
                 return
         self._stop(attempt, "cancelled")
+
+    def _refresh_peer_tokens(self, msg: agent_pb2.RefreshPeerTokens) -> None:
+        """D147: peer tokens live <= 60 s; the controller re-mints them while
+        the attempt stages. Each well-formed grant replaces the token for its
+        (tree, holder) - the running transfer asks for it at its next request
+        to that holder. Only for that (attempt_id, fencing_token), not ended;
+        bounded (:data:`MAX_PEER_TOKENS` pairs per attempt, the oldest kept)."""
+        attempt = self._attempts.get(msg.attempt_id)
+        if attempt is None or attempt.token != msg.fencing_token or attempt.ended:
+            log.info(
+                "agent.execution.peer_tokens_ignored",
+                node_id=self._node_id,
+                attempt_id=msg.attempt_id[:40] or None,
+                known=attempt is not None,
+            )
+            return
+        applied = rejected = 0
+        for grant in msg.tokens[:MAX_PEER_TOKENS]:
+            key = _peer_token_key(grant.tree_id, grant.node_id)
+            if key is None or not token_ok(grant.token):
+                rejected += 1
+                continue
+            if key not in attempt.peer_tokens and (
+                len(attempt.peer_tokens) >= MAX_PEER_TOKENS
+            ):
+                rejected += 1
+                continue
+            attempt.peer_tokens[key] = grant.token
+            applied += 1
+        log.debug(
+            "agent.execution.peer_tokens_refreshed",
+            node_id=self._node_id,
+            attempt_id=attempt.attempt_id,
+            applied=applied,
+            rejected=rejected,
+        )
+
+    def _token_lookup(self, attempt: _Attempt, tree_id: str) -> TokenLookup:
+        """D147: the newest token ``attempt`` holds for a peer of ``tree_id``."""
+        tree_hex = tree_id.removeprefix("sha256:")
+
+        def lookup(source: BlobSource) -> str | None:
+            return attempt.peer_tokens.get((tree_hex, source.node_id))
+
+        return lookup
 
     def _refresh_token(self, msg: agent_pb2.RefreshFetchToken) -> None:
         """D95: a fresh fetch token for a held attempt (after a controller
@@ -1066,6 +1127,7 @@ class Executor:
                     endgame_after_s=self._fetch_cfg.endgame_after_s,
                 ),
                 on_tree=leases.tree if leases is not None else None,
+                token_for=self._token_lookup(attempt, spec.tree_id),
                 **self._transport(),
             ),
         )
@@ -1135,6 +1197,7 @@ class Executor:
                     timeout_s=self._fetch_cfg.request_timeout_s,
                     tuning=self._tuning(),
                     on_tree=leases.tree if leases is not None else None,
+                    token_for=self._token_lookup(attempt, item.tree_id),
                     **self._transport(),
                 ),
             )
@@ -1488,6 +1551,18 @@ def _failure_text(result: RunResult) -> str:
 def _bounded(text: str) -> str:
     cleaned = "".join(ch if ch.isprintable() else "?" for ch in text)
     return cleaned[:1024]
+
+
+def _peer_token_key(tree_id: str, node_id: str) -> tuple[str, str] | None:
+    """``(tree hex, node_id)`` of a RefreshPeerTokens grant, None if malformed."""
+    tree_hex = tree_id.removeprefix("sha256:")
+    if not _TREE_HEX.fullmatch(tree_hex):
+        return None
+    try:
+        validate_node_id(node_id)
+    except InvalidIdError:
+        return None
+    return tree_hex, node_id
 
 
 def _controller_refused(error: FetchError) -> bool:

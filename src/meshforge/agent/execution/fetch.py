@@ -64,6 +64,7 @@ from meshforge.agent.cas import (
     materialise,
 )
 from meshforge.agent.cas.fetcher import FetchError, FetchTuning, SourceStats
+from meshforge.agent.cas.sources import TokenLookup
 from meshforge.agent.cas.store import DEFAULT_FREE_DISK_FLOOR_BYTES
 from meshforge.agent.execution.failure_evidence import DISK_FULL_ERRNOS
 from meshforge.common.errors import FailureType, MeshForgeError
@@ -422,11 +423,14 @@ async def stage_tree(
     clock: Callable[[], float] = time.monotonic,
     tuning: FetchTuning | None = None,
     on_tree: Callable[[Tree], Awaitable[None]] | None = None,
+    token_for: TokenLookup | None = None,
 ) -> StageReport:
     """Fetch ``tree_id`` into the cache and copy it into ``dest``.
 
     ``on_tree`` runs once the manifest is verified and before any blob is
-    looked at (V0.5 G5: the GC lease records the tree's members there)."""
+    looked at (V0.5 G5: the GC lease records the tree's members there).
+    ``token_for`` (V0.7 G3, D147): the newest peer token per source, asked at
+    every request (:class:`~meshforge.agent.cas.sources.TokenLookup`)."""
     try:
         digest = Digest.parse(tree_id)
     except ValueError:
@@ -440,7 +444,9 @@ async def stage_tree(
     async with httpx.AsyncClient(
         timeout=httpx.Timeout(timeout_s), transport=transport, trust_env=False
     ) as client:
-        fetcher = BlobFetcher(cas, sources, client, tuning=tuning, clock=clock)
+        fetcher = BlobFetcher(
+            cas, sources, client, tuning=tuning, clock=clock, token_for=token_for
+        )
         tree = await fetcher.tree(digest)
         if on_tree is not None:
             await on_tree(tree)
