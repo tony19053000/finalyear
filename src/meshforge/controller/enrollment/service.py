@@ -53,6 +53,7 @@ from meshforge.common.logging import get_logger
 from meshforge.controller.enrollment.invites import audit, redeem, why_unusable
 from meshforge.controller.fabric_ca import FabricCa
 from meshforge.controller.liveness import NodeState
+from meshforge.controller.revocation import supersede
 from meshforge.controller.store.engine import create_session_factory
 from meshforge.controller.store.models.enrollment import AuditAction
 from meshforge.controller.store.models.node import Node
@@ -224,11 +225,17 @@ class Enroller:
                     )
                 )
             node = await _lock_node(db, node_id)
-            if node.state == NodeState.REVOKED.value:
+            revived = node.state == NodeState.REVOKED.value and replace == node_id
+            if node.state == NodeState.REVOKED.value and not revived:
+                # V0.7 G3 (D138): no un-revoke; only a code the admin made for
+                # this node (`invite --replace`) brings it back, with a new
+                # certificate (the revoked serial stays refused).
                 raise _Refusal(
                     EnrollRefused(
                         EnrollReason.NODE_REVOKED,
-                        "this node was revoked from the fabric",
+                        "this node was revoked from the fabric; the fabric admin "
+                        "must make a code with `fabric invite --replace "
+                        f"{node_id}` to bring it back",
                         invite_id=invite_id,
                         node_id=node_id,
                     )
@@ -267,6 +274,20 @@ class Enroller:
                     )
                 ) from None
             serial = format(cert.serial_number, "x")
+            previous = node.cert_serial
+            if (
+                previous is not None
+                and previous != serial
+                and node.cert_not_after is not None
+            ):
+                # V0.7 G3 (D138): the old certificate stays CA-valid until it
+                # expires; listing it makes every plane refuse it from now on.
+                await supersede(
+                    db,
+                    node_id=node_id,
+                    serial=previous,
+                    not_after=node.cert_not_after,
+                )
             await db.execute(
                 update(Node)
                 .where(Node.node_id == node_id)
@@ -275,6 +296,7 @@ class Enroller:
                     cert_fingerprint=pki.cert_fingerprint(cert),
                     cert_not_after=cert.not_valid_after_utc,
                     public_key_fingerprint=key_fp,
+                    **({"state": NodeState.ENROLLING.value} if revived else {}),
                 )
                 .execution_options(synchronize_session=False)
             )
@@ -289,6 +311,8 @@ class Enroller:
                     "serial": serial,
                     "key_replaced": key_replaced,
                     "first_enrolment": known is None,
+                    "superseded_serial": previous,
+                    "revived": revived,
                 },
             )
         log.info(

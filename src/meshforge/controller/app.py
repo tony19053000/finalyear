@@ -59,6 +59,13 @@ fabric_app = typer.Typer(
     no_args_is_help=True,
 )
 app.add_typer(fabric_app)
+node_app = typer.Typer(
+    name="node",
+    help="Administer fabric nodes (V0.7): revoke a node.",
+    add_completion=False,
+    no_args_is_help=True,
+)
+app.add_typer(node_app)
 
 ConfigOption = Annotated[
     Path | None,
@@ -498,6 +505,61 @@ def fabric_invites(
         typer.echo(
             f"{row['id']}  {row['state']:<8} expires {row['expires_at']}{used}{extra}"
         )
+
+
+async def _revoke(settings: "ControllerSettings", node_id: str) -> dict[str, object]:
+    from meshforge.controller.revocation import RevocationStore
+    from meshforge.controller.store.engine import create_engine
+
+    engine = create_engine(settings.database)
+    try:
+        store = RevocationStore(engine)
+        return (await store.revoke_node(node_id, actor="controller-cli")).as_dict()
+    finally:
+        await engine.dispose()
+
+
+_REVOKE_HINT = (
+    "The running controller cuts its session within "
+    "[controller.revocation] poll_interval_s and tells every agent; its jobs are "
+    "retried elsewhere. There is no un-revoke: to bring the laptop back, make a "
+    "code with `meshforge-controller fabric invite --replace {node_id}` and run "
+    "`meshforge-agent join --force <code>` on it."
+)
+
+
+@node_app.command("revoke")
+def node_revoke(
+    node_id: Annotated[str, typer.Argument(help="The node to revoke (node_...).")],
+    config: ConfigOption = None,
+    json_out: Annotated[
+        bool, typer.Option("--json", help="Machine-readable output.")
+    ] = False,
+) -> None:
+    """Revoke a node (V0.7 D138): its certificate is refused on every plane,
+    its live session is cut and its jobs are retried elsewhere."""
+    import asyncio
+    import json
+
+    from meshforge.common.errors import MeshForgeError
+    from meshforge.common.logging import configure_logging
+
+    settings = _load_settings(config)
+    configure_logging("WARNING", fmt=settings.log.format, component="controller")
+    try:
+        outcome = asyncio.run(_revoke(settings, node_id))
+    except MeshForgeError as exc:
+        typer.echo(f"{PROG_NAME}: {exc}", err=True)
+        raise typer.Exit(exc.exit_code) from None
+    if json_out:
+        typer.echo(json.dumps(outcome, indent=2, sort_keys=True))
+        return
+    if outcome["already_revoked"]:
+        typer.echo(f"{node_id} was already revoked")
+        return
+    serial = outcome["serial"] or "none (never enrolled)"
+    typer.echo(f"revoked {node_id} (certificate serial {serial})")
+    typer.echo(_REVOKE_HINT.format(node_id=node_id), err=True)
 
 
 def _server_lifetime(settings: "ControllerSettings") -> "timedelta":

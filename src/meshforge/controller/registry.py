@@ -367,7 +367,12 @@ class Registry:
                     hardware_scores=scores,
                     cpu_slots=cpu_slots,
                     gpu_slots=gpu_slots,
-                    state=state.value,
+                    # V0.7 G3 (D138): a revocation committed while this Hello
+                    # was admitted stays; the revocation sync cuts the session.
+                    state=case(
+                        (Node.state == NodeState.REVOKED.value, Node.state),
+                        else_=literal(state.value),
+                    ),
                     last_seen_at=now,
                     last_session_id=session_id,
                     **_cert_columns(cert, coalesce=True),
@@ -424,17 +429,21 @@ class Registry:
         fence a backlogged OFFLINE could overwrite a reconnect's ONLINE and a
         connected node would read OFFLINE indefinitely (heartbeats are
         self-loops; nothing rewrites it). A fenced write is logged
-        ``registry.state_write_fenced`` at info level and is never an error.
+        ``registry.state_write_fenced`` at info level and is never an error. A
+        ``revoked`` row is never overwritten (V0.7 G3, D138).
 
         Every session-originated state write goes through here; the only other
         state writers are admission (``upsert_node_on_hello``, which *moves*
         ``last_session_id``) and the start-up sweep (no session is live then).
         """
+        fence = [Node.node_id == node_id, Node.last_session_id == session_id]
+        if state is not NodeState.REVOKED:
+            # V0.7 G3 (D138): revoked is sticky - only a re-enrolment (``invite
+            # --replace``) brings a revoked node back, never a session write.
+            fence.append(Node.state != NodeState.REVOKED.value)
         async with self._sessions() as db, db.begin():
             result = await db.execute(
-                update(Node)
-                .where(Node.node_id == node_id, Node.last_session_id == session_id)
-                .values(state=state.value)
+                update(Node).where(*fence).values(state=state.value)
             )
             written = _rowcount(result) == 1
         if not written:

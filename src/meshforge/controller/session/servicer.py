@@ -63,6 +63,7 @@ from meshforge.common.ids import new_command_id, validate_node_id
 from meshforge.common.logging import get_logger
 from meshforge.common.proto.meshforge.v1 import agent_pb2, agent_pb2_grpc
 from meshforge.controller.registry import SessionEndReason
+from meshforge.controller.session.admission import NODE_REVOKED, REVOKED_DETAIL
 from meshforge.controller.session.manager import Rejected, SessionManager
 from meshforge.controller.session.peer_cert import (
     REASON_METADATA_KEY,
@@ -188,6 +189,11 @@ class AgentControlServicer(agent_pb2_grpc.AgentControlServicer):
             # cancelled because the call was, an error writing to the transport -
             # is an abrupt end: never ``agent_closed`` (D19).
             await manager.end_session(live, SessionEndReason.STREAM_LOST)
+        if live.end_reason is SessionEndReason.REVOKED:
+            # V0.7 G3 (D138): the agent stops for good (FATAL_CONFIG) and says
+            # how to come back; nothing it sends is applied any more.
+            context.set_trailing_metadata(((REASON_METADATA_KEY, NODE_REVOKED),))
+            await context.abort(grpc.StatusCode.PERMISSION_DENIED, REVOKED_DETAIL)
         if live.end_reason not in _CLEAN_END_REASONS:
             reason = live.end_reason.value if live.end_reason else "unknown"
             await context.abort(grpc.StatusCode.ABORTED, reason)

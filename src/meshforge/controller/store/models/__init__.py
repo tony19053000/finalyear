@@ -10,7 +10,8 @@ Tables so far: ``node``, ``node_session`` (V0.3, :mod:`.node`),
 ``cache_location`` (V0.5 D101, :mod:`.cache`), ``named_input``, ``job_input``,
 ``transfer_event`` (V0.5 G5 D92/D93, :mod:`.data`), ``plan_decision`` (V0.6
 G2 D112, :mod:`.plan`), ``network_link`` (V0.6 G4 D111, :mod:`.network`),
-``join_token``, ``audit_event`` (V0.7 G2 D135/D136, :mod:`.enrollment`).
+``join_token``, ``audit_event`` (V0.7 G2 D135/D136, :mod:`.enrollment`),
+``revoked_cert`` (V0.7 G3 D138, :mod:`.revocation`).
 """
 
 from meshforge.controller.store.base import Base
@@ -31,6 +32,7 @@ from meshforge.controller.store.models.network import NetworkLink
 from meshforge.controller.store.models.node import Node, NodeSession, SessionEndReason
 from meshforge.controller.store.models.plan import PlanDecision
 from meshforge.controller.store.models.resource import ResourceSnapshot
+from meshforge.controller.store.models.revocation import RevokedCert
 
 __all__ = [
     "Attempt",
@@ -49,6 +51,7 @@ __all__ = [
     "NodeSession",
     "PlanDecision",
     "ResourceSnapshot",
+    "RevokedCert",
     "SessionEndReason",
     "TransferEvent",
 ]

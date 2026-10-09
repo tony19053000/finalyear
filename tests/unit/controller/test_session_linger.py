@@ -199,6 +199,7 @@ def test_the_mapping_covers_every_end_reason() -> None:
         SessionEndReason.SUPERSEDED,
         SessionEndReason.LEASE_EXPIRED,
         SessionEndReason.CONTROLLER_RESTART,
+        SessionEndReason.REVOKED,  # V0.7 G3: REVOKE applied before the cut
     }
     assert classified == set(SessionEndReason)
 

@@ -192,26 +192,36 @@ class PeerServerTls:
     this node's certificate that requires a client certificate from the fabric
     CA, plus the checks OpenSSL cannot make - the client names a node of
     **this** fabric, and its serial is not revoked (``revoked`` is read at
-    every connection)."""
+    every connection and again before every request, V0.7 G3 D138)."""
 
     context: ssl.SSLContext = field(repr=False)
     fabric_id: str
     revoked: Callable[[], Collection[str]] = frozenset
 
-    def refusal(self, ssl_object: object) -> str | None:
-        """``None`` when the connection's client may be served, else a reason."""
+    def client_serial(self, ssl_object: object) -> tuple[str | None, str | None]:
+        """``(serial, None)`` when the connection's client may be served, else
+        ``(None, reason)``. The serial is checked again before every request
+        (:meth:`revoked_now`): a revocation cuts a keep-alive connection too."""
         getter = getattr(ssl_object, "getpeercert", None)
         der = getter(binary_form=True) if callable(getter) else None
         if not der:
-            return "peer_cert_missing"
+            return None, "peer_cert_missing"
         try:
             cert = x509.load_der_x509_certificate(der)
             pki.parse_node_id(cert, fabric_id=self.fabric_id)
         except (ValueError, pki.PkiError):
-            return "peer_cert_not_a_node"
-        if format(cert.serial_number, "x") in self.revoked():
-            return "peer_cert_revoked"
-        return None
+            return None, "peer_cert_not_a_node"
+        serial = format(cert.serial_number, "x")
+        if self.revoked_now(serial):
+            return None, "peer_cert_revoked"
+        return serial, None
+
+    def refusal(self, ssl_object: object) -> str | None:
+        """``None`` when the connection's client may be served, else a reason."""
+        return self.client_serial(ssl_object)[1]
+
+    def revoked_now(self, serial: str) -> bool:
+        return serial in self.revoked()
 
 
 def peer_server_tls(
@@ -348,8 +358,11 @@ class PeerBlobServer:
     ) -> None:
         _set_nodelay(writer)
         self.stats.connections += 1
+        serial: str | None = None
         if self._tls is not None:
-            refusal = self._tls.refusal(writer.get_extra_info("ssl_object"))
+            serial, refusal = self._tls.client_serial(
+                writer.get_extra_info("ssl_object")
+            )
             if refusal is not None:
                 self.stats.refuse(refusal)
                 log.warning(
@@ -364,12 +377,15 @@ class PeerBlobServer:
             return
         self._active += 1
         try:
-            await self._serve(reader, writer)
+            await self._serve(reader, writer, serial)
         finally:
             self._active -= 1
 
     async def _serve(
-        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+        self,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+        serial: str | None = None,
     ) -> None:
         loop = asyncio.get_running_loop()
         conn = h11.Connection(
@@ -406,6 +422,23 @@ class PeerBlobServer:
             except TimeoutError:
                 if conn.their_state is not h11.IDLE or conn.trailing_data[0]:
                     self._refuse_log("idle_timeout", None, None)
+                return
+            if (
+                serial is not None
+                and self._tls is not None
+                and self._tls.revoked_now(serial)
+            ):
+                # V0.7 G3 (D138): revoked while this connection was open -
+                # nothing more is served on it.
+                self.stats.refuse("peer_cert_revoked")
+                log.warning(
+                    "agent.peer.client_refused",
+                    node_id=self._node_id,
+                    reason="peer_cert_revoked",
+                )
+                writer.write(_raw_error(403))
+                with contextlib.suppress(TimeoutError, ConnectionError):
+                    await asyncio.wait_for(writer.drain(), self._cfg.idle_timeout_s)
                 return
             keep = served < self._cfg.max_requests_per_conn
             await self._respond(conn, writer, event, keep_alive=keep)

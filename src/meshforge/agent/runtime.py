@@ -57,7 +57,7 @@ from __future__ import annotations
 import asyncio
 import functools
 import signal
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from typing import Final
 
 from meshforge.agent import enrollment
@@ -476,7 +476,9 @@ async def start_peer(
     tls = None
     if not settings.security.insecure:
         # V0.7 G3 (D139): TLS with this node's certificate, client cert required.
-        tls = await asyncio.to_thread(_peer_tls, identity or client.identity)
+        tls = await asyncio.to_thread(
+            _peer_tls, identity or client.identity, client.revoked
+        )
     server = PeerBlobServer(cas, authorizer, cfg, node_id=client.node_id, tls=tls)
     try:
         await cas.prepare()
@@ -507,7 +509,9 @@ async def start_peer(
     return server
 
 
-def _peer_tls(identity: NodeIdentity) -> PeerServerTls:
+def _peer_tls(
+    identity: NodeIdentity, revoked: Callable[[], Collection[str]]
+) -> PeerServerTls:
     stored = enrollment.load(identity)
     if stored is None:
         raise SessionTlsError(
@@ -518,6 +522,7 @@ def _peer_tls(identity: NodeIdentity) -> PeerServerTls:
         stored.ca_cert,
         cert_file=identity.path / NODE_CERT_FILE_NAME,
         key_file=identity.path / KEY_FILE_NAME,
+        revoked=revoked,  # V0.7 G3 (D138): the session's revocation set
     )
 
 

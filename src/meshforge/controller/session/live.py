@@ -76,8 +76,10 @@ def end_event(reason: SessionEndReason) -> LivenessEvent | None:
     """The §12.3 event a session end fires (D19); None = no state write.
 
     ``superseded`` fires nothing (the new session's Hello owns the state),
-    ``lease_expired`` nothing extra (the timer already applied the expiry) and
-    ``controller_restart`` is only ever written by the start-up sweep.
+    ``lease_expired`` nothing extra (the timer already applied the expiry),
+    ``revoked`` nothing extra (the revocation applied ``REVOKE`` before it cut
+    the stream, V0.7 G3) and ``controller_restart`` is only ever written by
+    the start-up sweep.
     """
     if reason in _CLEAN_END:
         return LivenessEvent.STREAM_CLOSED

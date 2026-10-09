@@ -788,6 +788,27 @@ def split_host_port(value: str) -> tuple[str, int]:
     return host, int(port_text)
 
 
+class RevocationSettings(SectionModel):
+    """``[controller.revocation]`` - node revocation (V0.7 G3, D138).
+
+    ``node revoke`` over REST cuts the node's session at once; a revocation
+    written by ``meshforge-controller node revoke`` (another process, straight
+    into the database) and a re-enrolment's superseded certificate are picked
+    up by a periodic sync of the revocation set.
+    """
+
+    poll_interval_s: float = Field(
+        default=1.0,
+        ge=0.1,
+        le=60.0,
+        description=(
+            "How often the running controller re-reads the revocation set: the "
+            "longest a CLI revocation waits before the node's session is cut "
+            "and the agents are told (the REST path is immediate)."
+        ),
+    )
+
+
 class EnrollSettings(SectionModel):
     """``[controller.enroll]`` - where laptops join (V0.7 G2, D135/D150).
 
@@ -1141,6 +1162,7 @@ class ControllerSection(SectionModel):
     api: ApiSettings = Field(default_factory=ApiSettings)
     tls: TlsSettings = Field(default_factory=TlsSettings)
     enroll: EnrollSettings = Field(default_factory=EnrollSettings)
+    revocation: RevocationSettings = Field(default_factory=RevocationSettings)
 
     @field_validator("grpc_bind", "http_bind")
     @classmethod

@@ -94,7 +94,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Sequence
 from typing import Any
 
 import grpc
@@ -114,6 +114,8 @@ from meshforge.controller.registry import Registry, SessionEndReason
 from meshforge.controller.resources import ResourceSink
 from meshforge.controller.session.admission import (
     DEFAULT_ADMISSION_TIMEOUT_S,
+    NODE_REVOKED,
+    REVOKED_DETAIL,
     AdmissionAttempt,
     RejectCode,
     check_hello,
@@ -195,6 +197,9 @@ class SessionManager:
         self._admission_timeout_s = admission_timeout_s
         self._peer_token_key = peer_token_key
         """D98: the controller's Ed25519 public key, sent in every HelloAck."""
+        self.revoked_serials: Callable[[], Sequence[str]] = tuple
+        """V0.7 G3 (D138): the revocation set every HelloAck carries (the
+        runtime points it at :meth:`~..revocation.Revocations.sent_serials`)."""
         self._trust_peer_endpoints = trust_peer_endpoints
         self._registry = registry
         self._liveness = liveness
@@ -451,11 +456,16 @@ class SessionManager:
         else:
             prior = NodeState.ENROLLING if record is None else record.state
 
-        if prior is NodeState.REVOKED:
+        if prior is NodeState.REVOKED or (
+            record is not None and record.state is NodeState.REVOKED
+        ):
+            # In memory, or in the database (V0.7 G3, D138: a revocation the
+            # controller CLI wrote, or one committed while this Hello waited).
             return Rejected(
                 RejectCode.REJECT_CODE_INTERNAL,
-                "node is revoked",
+                REVOKED_DETAIL,
                 grpc.StatusCode.PERMISSION_DENIED,
+                reason_code=NODE_REVOKED,
             )
         cert = attempt.cert
         if (
@@ -567,6 +577,7 @@ class SessionManager:
                 self._liveness,
                 self._wall_clock(),
                 peer_token_key=self._peer_token_key,
+                revoked_serials=self.revoked_serials(),
             ),
         )
 
@@ -799,6 +810,51 @@ class SessionManager:
         Never awaits the registry (see :meth:`.ends.SessionEnds.apply_event`).
         """
         return self._ends.apply_event(live, event, silence_s=silence_s)
+
+    # ------------------------------------------------------------ revocation
+
+    def has_session(self, node_id: str) -> bool:
+        """A live or lingering session of ``node_id`` exists (V0.7 G3)."""
+        return node_id in self._live or node_id in self._lingering
+
+    async def revoke_node(self, node_id: str) -> bool:
+        """V0.7 G3 (D138): cut ``node_id``'s live session now and end its
+        linger. ``REVOKE`` is applied first (the node-loss hook fires: its
+        attempts are lost), then the stream ends ``revoked`` - the handler
+        aborts it ``PERMISSION_DENIED``. Takes the admission lock, so no Hello
+        of the node is admitted half-way through; one admitted after it reads
+        the revoked row and is refused. True when something was cut."""
+        async with self._lock:
+            cut = False
+            live = self._live.get(node_id)
+            if live is not None and not live.ended:
+                self._ends.apply_event(
+                    live,
+                    LivenessEvent.REVOKE,
+                    silence_s=live.tracker.silence(self._clock()),
+                )
+                self._ends.close(live, SessionEndReason.REVOKED)
+                cut = True
+            lingering = self._lingering.get(node_id)
+            if lingering is not None:
+                self._ends.apply_event(
+                    lingering,
+                    LivenessEvent.REVOKE,
+                    silence_s=lingering.tracker.silence(self._clock()),
+                )
+                self._ends.end_linger(lingering, cause="revoked")
+                cut = True
+        if cut:
+            log.warning("session.revoked", node_id=node_id)
+        return cut
+
+    def broadcast(self, payload_name: str, payload: Any) -> int:
+        """Send one command to every live session; how many it was queued for."""
+        sent = 0
+        for live in self.snapshot():
+            if self.send_command(live.node_id, payload_name, payload) is not None:
+                sent += 1
+        return sent
 
     # --------------------------------------------------------------- closing
 

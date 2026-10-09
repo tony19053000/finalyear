@@ -260,6 +260,7 @@ class ControllerMessage(_message.Message):
     REFRESH_FETCH_TOKEN_FIELD_NUMBER: _builtins.int
     REFRESH_UPLOAD_GRANT_FIELD_NUMBER: _builtins.int
     REFRESH_PEER_TOKENS_FIELD_NUMBER: _builtins.int
+    REVOCATION_UPDATE_FIELD_NUMBER: _builtins.int
     message_id: _builtins.str
     """Unique per message (ULID); the command ID the agent deduplicates on."""
     session_id: _builtins.str
@@ -311,6 +312,13 @@ class ControllerMessage(_message.Message):
         range it asks, never a longer-lived token.
         """
 
+    @_builtins.property
+    def revocation_update(self) -> Global___RevocationUpdate:
+        """The fabric's revocation set changed (V0.7 G3, D138): the agent's peer
+        server refuses these client certificate serials from now on. Re-sent
+        on a missing Ack (D113); every HelloAck carries the full set too.
+        """
+
     def __init__(
         self,
         *,
@@ -328,12 +336,13 @@ class ControllerMessage(_message.Message):
         refresh_fetch_token: Global___RefreshFetchToken | None = ...,
         refresh_upload_grant: Global___RefreshUploadGrant | None = ...,
         refresh_peer_tokens: Global___RefreshPeerTokens | None = ...,
+        revocation_update: Global___RevocationUpdate | None = ...,
     ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _typing.Literal["ack", b"ack", "cancel_attempt", b"cancel_attempt", "gc", b"gc", "hello_ack", b"hello_ack", "payload", b"payload", "ping", b"ping", "prepare_env", b"prepare_env", "probe_request", b"probe_request", "refresh_fetch_token", b"refresh_fetch_token", "refresh_peer_tokens", b"refresh_peer_tokens", "refresh_upload_grant", b"refresh_upload_grant", "sent_at", b"sent_at", "start_attempt", b"start_attempt"]  # noqa: Y015
+    _HasFieldArgType: _TypeAlias = _typing.Literal["ack", b"ack", "cancel_attempt", b"cancel_attempt", "gc", b"gc", "hello_ack", b"hello_ack", "payload", b"payload", "ping", b"ping", "prepare_env", b"prepare_env", "probe_request", b"probe_request", "refresh_fetch_token", b"refresh_fetch_token", "refresh_peer_tokens", b"refresh_peer_tokens", "refresh_upload_grant", b"refresh_upload_grant", "revocation_update", b"revocation_update", "sent_at", b"sent_at", "start_attempt", b"start_attempt"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["ack", b"ack", "cancel_attempt", b"cancel_attempt", "gc", b"gc", "hello_ack", b"hello_ack", "message_id", b"message_id", "payload", b"payload", "ping", b"ping", "prepare_env", b"prepare_env", "probe_request", b"probe_request", "refresh_fetch_token", b"refresh_fetch_token", "refresh_peer_tokens", b"refresh_peer_tokens", "refresh_upload_grant", b"refresh_upload_grant", "sent_at", b"sent_at", "session_id", b"session_id", "start_attempt", b"start_attempt"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["ack", b"ack", "cancel_attempt", b"cancel_attempt", "gc", b"gc", "hello_ack", b"hello_ack", "message_id", b"message_id", "payload", b"payload", "ping", b"ping", "prepare_env", b"prepare_env", "probe_request", b"probe_request", "refresh_fetch_token", b"refresh_fetch_token", "refresh_peer_tokens", b"refresh_peer_tokens", "refresh_upload_grant", b"refresh_upload_grant", "revocation_update", b"revocation_update", "sent_at", b"sent_at", "session_id", b"session_id", "start_attempt", b"start_attempt"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
-    _WhichOneofReturnType_payload: _TypeAlias = _typing.Literal["start_attempt", "cancel_attempt", "probe_request", "prepare_env", "gc", "ack", "hello_ack", "ping", "refresh_fetch_token", "refresh_upload_grant", "refresh_peer_tokens"]  # noqa: Y015
+    _WhichOneofReturnType_payload: _TypeAlias = _typing.Literal["start_attempt", "cancel_attempt", "probe_request", "prepare_env", "gc", "ack", "hello_ack", "ping", "refresh_fetch_token", "refresh_upload_grant", "refresh_peer_tokens", "revocation_update"]  # noqa: Y015
     _WhichOneofArgType_payload: _TypeAlias = _typing.Literal["payload", b"payload"]  # noqa: Y015
     def WhichOneof(self, oneof_group: _WhichOneofArgType_payload) -> _WhichOneofReturnType_payload | None: ...
 
@@ -1785,6 +1794,33 @@ class RefreshPeerTokens(_message.Message):
 Global___RefreshPeerTokens: _TypeAlias = RefreshPeerTokens  # noqa: Y015
 
 @_typing.final
+class RevocationUpdate(_message.Message):
+    """Node certificate serials no plane of the fabric accepts any more (V0.7 G3,
+    D138): revoked nodes and certificates superseded by a re-enrolment, whose
+    certificates have not expired yet. Lower-case hex, no "0x", at most 40
+    chars each; the newest first, at most 10000. Serials are only ever added
+    (there is no un-revoke): the agent keeps the union of every set it got.
+    """
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    SERIALS_FIELD_NUMBER: _builtins.int
+    @_builtins.property
+    def serials(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]: ...
+    def __init__(
+        self,
+        *,
+        serials: _abc.Iterable[_builtins.str] | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["serials", b"serials"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___RevocationUpdate: _TypeAlias = RevocationUpdate  # noqa: Y015
+
+@_typing.final
 class PeerTokenGrant(_message.Message):
     """One re-minted peer token: `node_id` may be asked for the blobs of `tree_id`
     with `token` (D98 scope: this tree, this requester, this holder, this
@@ -2144,6 +2180,7 @@ class HelloAck(_message.Message):
     REJECT_CODE_FIELD_NUMBER: _builtins.int
     REJECT_REASON_FIELD_NUMBER: _builtins.int
     PEER_TOKEN_KEY_FIELD_NUMBER: _builtins.int
+    REVOKED_SERIALS_FIELD_NUMBER: _builtins.int
     accepted: _builtins.bool
     session_id: _builtins.str
     """Set when accepted; both sides put it in envelope field 3 from now on."""
@@ -2163,6 +2200,13 @@ class HelloAck(_message.Message):
     def controller_time(self) -> _timestamp_pb2.Timestamp:
         """Controller wall clock when the ack was sent (clock-skew estimate only)."""
 
+    @_builtins.property
+    def revoked_serials(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]:
+        """The fabric's revocation set when the session was accepted (V0.7 G3,
+        D138; same rules as RevocationUpdate.serials): a reconnecting agent
+        catches up before its peer server serves anyone.
+        """
+
     def __init__(
         self,
         *,
@@ -2174,10 +2218,11 @@ class HelloAck(_message.Message):
         reject_code: Global___HelloAck.RejectCode.ValueType = ...,
         reject_reason: _builtins.str = ...,
         peer_token_key: _builtins.bytes = ...,
+        revoked_serials: _abc.Iterable[_builtins.str] | None = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _typing.Literal["controller_time", b"controller_time"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["accepted", b"accepted", "controller_time", b"controller_time", "heartbeat_interval_ms", b"heartbeat_interval_ms", "lease_ms", b"lease_ms", "peer_token_key", b"peer_token_key", "reject_code", b"reject_code", "reject_reason", b"reject_reason", "session_id", b"session_id"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["accepted", b"accepted", "controller_time", b"controller_time", "heartbeat_interval_ms", b"heartbeat_interval_ms", "lease_ms", b"lease_ms", "peer_token_key", b"peer_token_key", "reject_code", b"reject_code", "reject_reason", b"reject_reason", "revoked_serials", b"revoked_serials", "session_id", b"session_id"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 

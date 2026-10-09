@@ -121,6 +121,10 @@ message ControllerMessage {
     // the attempt stages; a long transfer uses the newest token for every
     // range it asks, never a longer-lived token.
     RefreshPeerTokens refresh_peer_tokens = 20;
+    // The fabric's revocation set changed (V0.7 G3, D138): the agent's peer
+    // server refuses these client certificate serials from now on. Re-sent
+    // on a missing Ack (D113); every HelloAck carries the full set too.
+    RevocationUpdate revocation_update = 21;
   }
 }
 
@@ -669,6 +673,15 @@ message RefreshPeerTokens {
   repeated PeerTokenGrant tokens = 3;
 }
 
+// Node certificate serials no plane of the fabric accepts any more (V0.7 G3,
+// D138): revoked nodes and certificates superseded by a re-enrolment, whose
+// certificates have not expired yet. Lower-case hex, no "0x", at most 40
+// chars each; the newest first, at most 10000. Serials are only ever added
+// (there is no un-revoke): the agent keeps the union of every set it got.
+message RevocationUpdate {
+  repeated string serials = 1;
+}
+
 // One re-minted peer token: `node_id` may be asked for the blobs of `tree_id`
 // with `token` (D98 scope: this tree, this requester, this holder, this
 // attempt; <= 60 s). A secret: never logged, never persisted.
@@ -811,6 +824,10 @@ message HelloAck {
   // tokens (V0.5 D98). Set when accepted; the agent's peer server verifies
   // tokens with the key of its CURRENT session only.
   bytes peer_token_key = 8;
+  // The fabric's revocation set when the session was accepted (V0.7 G3,
+  // D138; same rules as RevocationUpdate.serials): a reconnecting agent
+  // catches up before its peer server serves anyone.
+  repeated string revoked_serials = 9;
 }
 
 // Receipt used in both directions (ADR-0002): in ControllerMessage it acks an

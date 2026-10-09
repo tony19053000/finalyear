@@ -50,10 +50,15 @@ from meshforge.controller.api.network_routes import (
     network_router,
 )
 from meshforge.controller.api.prepare_routes import prepare_router
+from meshforge.controller.api.revocation_routes import (
+    REVOCATION_STATE_KEY,
+    revocation_router,
+)
 from meshforge.controller.blobs import BlobStore
 from meshforge.controller.cache_index import CacheLocationStore
 from meshforge.controller.registry import Registry
 from meshforge.controller.resources import ResourceTracker
+from meshforge.controller.revocation import Revocations
 from meshforge.controller.session.manager import SessionManager
 
 __all__ = ["create_http_app"]
@@ -73,6 +78,7 @@ def create_http_app(
     cache: CacheLocationStore | None = None,
     network: NetworkApi | None = None,
     invites: InviteApi | None = None,
+    revocations: Revocations | None = None,
 ) -> FastAPI:
     """Build the controller's HTTP app. ``clock`` must be the loop's monotonic clock.
 
@@ -130,4 +136,7 @@ def create_http_app(
     if invites is not None:
         setattr(app.state, FABRIC_STATE_KEY_INVITES, invites)
         app.include_router(fabric_router)  # V0.7 G2 join codes (D135, D151)
+    if revocations is not None:
+        setattr(app.state, REVOCATION_STATE_KEY, revocations)
+        app.include_router(revocation_router)  # V0.7 G3 node revoke (D138)
     return app

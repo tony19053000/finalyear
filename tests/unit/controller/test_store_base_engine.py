@@ -121,6 +121,7 @@ def test_base_metadata_uses_convention_and_registers_every_model() -> None:
         "network_link",  # V0.6 G4 (0014)
         "join_token",  # V0.7 G2 (0015)
         "audit_event",  # V0.7 G2 (0015)
+        "revoked_cert",  # V0.7 G3 (0016)
     }
 
 

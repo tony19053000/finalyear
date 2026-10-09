@@ -103,6 +103,7 @@ from meshforge.agent.session.policy import (
     stream_end_action,
 )
 from meshforge.agent.session.replay import REPORT_PAYLOADS, RecentIds, ReplayRing
+from meshforge.agent.session.revocations import RevokedSerials
 from meshforge.agent.session.state import AgentEvent, AgentState, next_state
 from meshforge.agent.session.tls import channel_options, load_session_tls
 from meshforge.agent.settings import AgentSettings
@@ -318,6 +319,9 @@ class AgentSessionClient:
         self.peer_endpoint: Callable[[], str] | None = None
         """``host:port`` for ``Hello.peer_endpoint`` (asked for every Hello)."""
         self.on_hello_ack: Callable[[agent_pb2.HelloAck], None] | None = None
+        self.revoked = RevokedSerials(node_id=self.node_id)
+        """V0.7 G3 (D138): the fabric's revoked certificate serials (every
+        HelloAck + RevocationUpdate); the peer server refuses them."""
         """Called with every ACCEPTED HelloAck before anything else of the
         session runs (the peer server installs ``peer_token_key`` from it)."""
         self.after_reconcile_hooks: list[Callable[[], None]] = []
@@ -619,6 +623,9 @@ class AgentSessionClient:
 
     async def _online(self, call: Any, ack: agent_pb2.HelloAck) -> _Outcome:
         self.session_id = ack.session_id
+        # Before the hook: the peer server's token key and the revocation set
+        # of this session arrive together (D138).
+        self.revoked.add(ack.revoked_serials, source="hello_ack")
         if self.on_hello_ack is not None:
             self.on_hello_ack(ack)
         requested_s = ack.heartbeat_interval_ms / 1000.0
@@ -932,7 +939,11 @@ class AgentSessionClient:
                 payload=which,
                 message_id=msg.message_id,
             )
-            if which in _COMMAND_PAYLOADS and self.command_handler is not None:
+            if which == "revocation_update":
+                # V0.7 G3 (D138): applied here, not by a command handler - the
+                # set exists whether or not this node runs a peer server.
+                self.revoked.add(msg.revocation_update.serials, source="update")
+            elif which in _COMMAND_PAYLOADS and self.command_handler is not None:
                 # Synchronous and before the Ack (D66: Acked = held).
                 self.command_handler(msg)
         if which not in _UNACKED_CONTROLLER_PAYLOADS and msg.message_id:

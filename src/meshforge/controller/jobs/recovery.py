@@ -170,8 +170,13 @@ class RecoverySteps(DispatchSteps):
         )
 
     async def _offline(self, item: _Offline) -> None:
+        # V0.7 G3 (D138): a revoked node loses its attempts like a node that
+        # went OFFLINE (LOST, retried elsewhere); the detail says why.
+        detail = (
+            "node_revoked" if item.event is LivenessEvent.REVOKE else "node_offline"
+        )
         for entry in await self._store.live_attempts(item.node_id):
-            await self._lose(entry, "node_offline")
+            await self._lose(entry, detail)
 
     async def _sweep_orphans(self, live: list[LiveAttempt] | None = None) -> None:
         if self._clock() - self._started_at < self._settings.reconnect_grace_s:

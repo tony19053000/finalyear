@@ -198,6 +198,10 @@ class ControllerClient:
     def node_gc(self, node_id: str) -> Mapping[str, Any]:
         return self._request("POST", f"/v1/nodes/{node_id}/gc")
 
+    # V0.7 G3 node revocation (D138; fabric token = interim admin, D151)
+    def revoke_node(self, node_id: str) -> Mapping[str, Any]:
+        return self._request("POST", f"/v1/nodes/{node_id}/revoke")
+
     def prepare_status(self, node_id: str, request_id: str) -> Mapping[str, Any]:
         return self._get(f"/v1/nodes/{node_id}/prepare/{request_id}")
 

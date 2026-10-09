@@ -13,7 +13,7 @@ rows name the node (``used_by_node``, no foreign key: the audit outlives a
 deleted node).
 
 ``audit_event`` - an append-only trail of security-relevant actions (invite
-created / revoked, enrolment accepted / refused). ``details`` is a small JSON
+created / revoked, enrolment accepted / refused, node revoked - 0016). ``details`` is a small JSON
 object and **never** holds a token, a code or key material (checklist 20);
 ``actor`` says who acted (``controller-cli``, ``rest:fabric-token``, later a
 user id - G4).
@@ -53,6 +53,9 @@ class AuditAction(StrEnum):
     ENROLL_REFUSED = "enroll_refused"
     """An enrolment that reached the controller's checks was refused (reason in
     ``details``); requests refused by the rate limit are only logged."""
+    NODE_REVOKED = "node_revoked"
+    """A node was revoked (V0.7 G3, D138; added in 0016): its certificate
+    serial in ``details``; ``actor`` = who revoked it."""
 
 
 def _in_list(values: type[StrEnum]) -> str:

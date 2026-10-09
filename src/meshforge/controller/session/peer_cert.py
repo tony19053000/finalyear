@@ -153,7 +153,12 @@ def parse_peer(
         ) from None
     serial = format(cert.serial_number, "x")
     if serial in revoked:
-        raise PeerCertError(PeerCertReason.REVOKED, "this node certificate was revoked")
+        raise PeerCertError(
+            PeerCertReason.REVOKED,
+            "this node certificate was revoked (the node was revoked, or a newer "
+            "enrolment replaced it); re-join with a new code: "
+            "meshforge-agent join --force <code>",
+        )
     public = cert.public_key()
     if not isinstance(public, ec.EllipticCurvePublicKey):  # pragma: no cover
         raise PeerCertError(PeerCertReason.MALFORMED, "not an EC key")

@@ -10,7 +10,8 @@ stays the only writer of the stream:
   awaiting its Ack (bounded by :data:`~.live.MAX_AWAITING_ACK`); the agent's
   ``Ack`` resolves it and fires ``SessionHooks.on_command_acked``. **Re-send
   on a missing Ack (V0.6 G1, D113):** a command in :data:`RESEND_ON_TIMEOUT`
-  (``gc``, ``prepare_env``, ``probe_request``) not acked ``command_resend_s``
+  (``gc``, ``prepare_env``, ``probe_request``, ``revocation_update`` - V0.7
+  G3, D138) not acked ``command_resend_s``
   after it was sent is queued again - the **same envelope, same
   ``message_id``**, so an agent that applied it but whose Ack was lost drops
   the copy and acks again - at most ``command_resend_tries`` times, then logged
@@ -59,7 +60,9 @@ log = get_logger(__name__)
 
 UNACKED: Final = frozenset({"ack", "pong", "goodbye", "log_chunk"})
 """Agent payloads that get no Ack back (ADR-0002 Updates §4: never buffered)."""
-RESEND_ON_TIMEOUT: Final = frozenset({"gc", "prepare_env", "probe_request"})
+RESEND_ON_TIMEOUT: Final = frozenset(
+    {"gc", "prepare_env", "probe_request", "revocation_update"}
+)
 """Commands the controller re-sends itself on a missing Ack (D113); attempt
 commands are re-sent by Reconcile instead (D66)."""
 STREAMED: Final = frozenset({"log_chunk"})

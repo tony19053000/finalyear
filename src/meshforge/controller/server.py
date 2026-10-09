@@ -98,6 +98,7 @@ from meshforge.controller.peer_signing import (
 from meshforge.controller.prepare import PrepareTracker
 from meshforge.controller.registry import Registry, SessionEndReason
 from meshforge.controller.resources import ResourceTracker
+from meshforge.controller.revocation import Revocations, RevocationStore
 from meshforge.controller.server_tls import ServerTls
 from meshforge.controller.session.leases import LeaseTimer
 from meshforge.controller.session.live import LiveSession
@@ -186,6 +187,8 @@ class ControllerRuntime:
         self.jobs: ExecutionStore | None = None
         """D49: the single writer of the job tables."""
         self.dispatcher: Dispatcher | None = None
+        self.revocations: Revocations | None = None
+        """V0.7 G3 (D138): the revocation set and its enforcement."""
         self.known_bad_envs: KnownBadEnvs | None = None
         """D65: queued jobs -> attempts; the one task that writes attempts."""
         self._dispatcher_task: asyncio.Task[None] | None = None
@@ -458,6 +461,14 @@ class ControllerRuntime:
 
         manager.hooks.on_reconcile = on_reconcile
         manager.hooks.on_node_offline = on_node_offline
+        # V0.7 G3 (D138): the revocation set, loaded before any stream is
+        # accepted; every HelloAck carries it, the interceptor and the HTTPS
+        # policy check against it, a periodic sync picks up CLI revocations.
+        revocations = Revocations(RevocationStore(engine), manager)
+        await revocations.sync()
+        self.revocations = revocations
+        manager.revoked_serials = revocations.sent_serials
+        self._spawn(revocations.run(cfg.revocation.poll_interval_s), "revocation-sync")
         flusher = SnapshotFlusher(resources, registry, cfg.resources, clock=loop.time)
         self.flusher = flusher
         self._flusher_task = self._spawn(flusher.run(), "snapshot-flusher")
@@ -494,7 +505,10 @@ class ControllerRuntime:
                     fetch_tokens=self.fetch_tokens,
                     upload_grants=self.upload_grants,
                     node_certs=(
-                        NodeCertPolicy(fabric_id=self.fabric.fabric_id)
+                        NodeCertPolicy(
+                            fabric_id=self.fabric.fabric_id,
+                            revoked=revocations.revoked_serials,
+                        )
                         if self.fabric is not None and self.server_tls is not None
                         else None
                     ),
@@ -518,6 +532,7 @@ class ControllerRuntime:
                     fabric=lambda: self.fabric,
                     enroll_port=lambda: self.enroll_port,
                 ),
+                revocations=revocations,
             ),
             host=self._http_bind.host,
             port=self.http_port,
@@ -590,7 +605,16 @@ class ControllerRuntime:
         fabric_id = fabric.fabric_id
         server = grpc.aio.server(
             options=list(GRPC_SERVER_OPTIONS),
-            interceptors=[NodeCertInterceptor(fabric_id=fabric_id)],
+            interceptors=[
+                NodeCertInterceptor(
+                    fabric_id=fabric_id,
+                    revoked=(
+                        self.revocations.revoked_serials
+                        if self.revocations is not None
+                        else frozenset
+                    ),
+                )
+            ],
         )
         agent_pb2_grpc.add_AgentControlServicer_to_server(
             AgentControlServicer(

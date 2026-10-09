@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import datetime as dt
 import ipaddress
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Final
 
@@ -31,6 +32,8 @@ __all__ = [
     "DEFAULT_ADMISSION_TIMEOUT_S",
     "MAX_HELLO_SLOTS",
     "MAX_PEER_ENDPOINT_CHARS",
+    "NODE_REVOKED",
+    "REVOKED_DETAIL",
     "AdmissionAttempt",
     "RejectCode",
     "check_hello",
@@ -139,18 +142,30 @@ def hello_ack(
     liveness: LivenessConfig,
     now: dt.datetime,
     peer_token_key: bytes = b"",
+    revoked_serials: Sequence[str] = (),
 ) -> agent_pb2.ControllerMessage:
-    """The accepting ``HelloAck``: the session id, the controller-owned timing
-    and the public key that signs peer blob tokens (V0.5 D98)."""
+    """The accepting ``HelloAck``: the session id, the controller-owned timing,
+    the public key that signs peer blob tokens (V0.5 D98) and the fabric's
+    revocation set (V0.7 G3, D138)."""
     ack = agent_pb2.HelloAck(
         accepted=True,
         session_id=session_id,
         heartbeat_interval_ms=round(liveness.heartbeat_interval_s * 1000),
         lease_ms=round(liveness.offline_after_s * 1000),
         peer_token_key=peer_token_key,
+        revoked_serials=list(revoked_serials),
     )
     ack.controller_time.FromDatetime(now)
     return agent_pb2.ControllerMessage(message_id=new_command_id(), hello_ack=ack)
+
+
+NODE_REVOKED = "node_revoked"
+"""``meshforge-reason`` of a stream cut by ``node revoke`` (V0.7 G3, D138)."""
+REVOKED_DETAIL = (
+    "node_revoked: this node was revoked from the fabric; to bring it back the "
+    "fabric admin makes a code with `meshforge-controller fabric invite "
+    "--replace <node_id>` and this laptop runs `meshforge-agent join --force <code>`"
+)
 
 
 MAX_PEER_ENDPOINT_CHARS: Final = 64

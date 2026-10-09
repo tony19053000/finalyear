@@ -47,6 +47,7 @@ def test_stream_lost_value_is_permanent() -> None:
         "protocol_error",
         "internal_error",
         "stream_lost",
+        "revoked",  # V0.7 G3 (0016)
     ]
 
 
@@ -54,10 +55,22 @@ def test_migration_0004_upgrade_list_is_the_model_enum() -> None:
     mig = _load("0004_stream_lost.py")
     assert mig.revision == "0004"
     assert mig.down_revision == "0003"
-    assert set(mig.END_REASONS_0004) == {r.value for r in SessionEndReason}
-    assert set(mig.END_REASONS_0003) == {r.value for r in SessionEndReason} - {
-        "stream_lost"
-    }
+    today = {r.value for r in SessionEndReason}
+    assert set(mig.END_REASONS_0004) == today - {"revoked"}
+    assert set(mig.END_REASONS_0003) == today - {"stream_lost", "revoked"}
+
+
+def test_migration_0016_lists_are_the_model_enums() -> None:
+    """The newest revision's literal lists equal the enums today (V0.7 G3)."""
+    from meshforge.controller.store.models.enrollment import AuditAction
+    from meshforge.controller.store.models.revocation import RevocationReason
+
+    mig = _load("0016_revocation.py")
+    assert (mig.revision, mig.down_revision) == ("0016", "0015")
+    assert set(mig.END_REASONS_0016) == {r.value for r in SessionEndReason}
+    assert set(mig.END_REASONS_0015) == set(mig.END_REASONS_0016) - {"revoked"}
+    assert set(mig.ACTIONS_0016) == {a.value for a in AuditAction}
+    assert set(mig.REASONS_0016) == {r.value for r in RevocationReason}
 
 
 def test_migration_0004_check_text_quotes_every_value() -> None:
@@ -65,4 +78,7 @@ def test_migration_0004_check_text_quotes_every_value() -> None:
     text = mig._check(mig.END_REASONS_0004)
     assert text.startswith("end_reason IS NULL OR end_reason IN (")
     for reason in SessionEndReason:
+        if reason is SessionEndReason.REVOKED:  # added in 0016
+            assert f"'{reason.value}'" not in text
+            continue
         assert f"'{reason.value}'" in text

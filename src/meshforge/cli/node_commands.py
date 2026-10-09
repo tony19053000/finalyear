@@ -190,6 +190,33 @@ def gc(
             typer.echo(f"{target}: GC pass requested")
 
 
+@node_app.command("revoke")
+def revoke(
+    node_id: Annotated[str, typer.Argument(help="The node to revoke (node_...).")],
+    json_output: cli.JsonOption = False,
+) -> None:
+    """Revoke a node (V0.7 D138): its certificate is refused on every plane,
+    its live session is cut now and its jobs are retried elsewhere. There is
+    no un-revoke: `fabric invite --replace NODE_ID` + `join --force` on it."""
+    target = cli._checked_node_id(node_id) or ""
+    settings = cli._settings()
+    with cli._client(settings) as client:
+        outcome = cli._fetch(lambda: client.revoke_node(target))
+    if json_output:
+        cli._echo_json(outcome)
+        return
+    if outcome.get("already_revoked"):
+        typer.echo(f"{target} was already revoked")
+        return
+    cut = "session cut" if outcome.get("session_killed") else "not connected"
+    typer.echo(f"revoked {target} ({cut})")
+    typer.echo(
+        "to bring it back: compute fabric invite --replace "
+        f"{target}, then `meshforge-agent join --force <code>` on that laptop",
+        err=True,
+    )
+
+
 def _connected(client: Any, what: str) -> list[str]:
     """``--all``: the connected nodes' ids; none -> a message and exit
     ``UNAVAILABLE`` (prepare and gc alike)."""

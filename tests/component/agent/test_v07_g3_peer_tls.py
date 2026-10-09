@@ -154,3 +154,34 @@ async def test_peer_server_tls_rules(tmp_path: Path) -> None:
         assert server.stats.refused.get("peer_cert_revoked", 0) >= 1
     finally:
         await server.close()
+
+
+async def test_a_serial_revoked_mid_connection_is_refused_at_its_next_request(
+    tmp_path: Path,
+) -> None:
+    """V0.7 G3 deliverable 6 (D138): the revocation set is read again before
+    every request, so a keep-alive connection opened before the revocation
+    gets nothing more."""
+    holder, fetcher = str(new_node_id()), str(new_node_id())
+    revoked: set[str] = set()
+    server, blob, token = await _server(tmp_path, holder, revoked)
+    url = f"https://127.0.0.1:{server.port}/v1/blobs/{blob.hex}"
+    headers = {"authorization": f"Bearer {token}"}
+    expect = {"sni_hostname": peer_server_name(holder)}
+    cert, key = _files(tmp_path, fetcher)
+    agent_ctx = client_context(fabric_ca().cert, cert_file=cert, key_file=key)
+    try:
+        async with httpx.AsyncClient(verify=agent_ctx, timeout=5) as http:
+            assert (
+                await http.get(url, headers=headers, extensions=expect)
+            ).status_code == 200
+            connections = server.stats.connections
+            revoked.add(
+                format(pki.cert_from_pem(node_material(fetcher)[1]).serial_number, "x")
+            )
+            refused = await http.get(url, headers=headers, extensions=expect)
+            assert refused.status_code == 403
+        assert server.stats.connections == connections  # the same connection
+        assert server.stats.refused.get("peer_cert_revoked", 0) == 1
+    finally:
+        await server.close()

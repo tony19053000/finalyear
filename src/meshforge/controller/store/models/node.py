@@ -81,6 +81,9 @@ class SessionEndReason(StrEnum):
     """The stream ended abruptly - transport drop, call cancelled by the peer or
     its channel closed without a half-close (V0.3 G6, D19, added in 0004). The
     node goes SUSPECT and the lease decides whether it goes OFFLINE."""
+    REVOKED = "revoked"
+    """The node was revoked (``node revoke``) and its live stream cut at once
+    with ``PERMISSION_DENIED`` (V0.7 G3, D138, added in 0016)."""
 
 
 MAX_SLOTS: Final = 64
