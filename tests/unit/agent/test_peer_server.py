@@ -500,6 +500,13 @@ async def test_endpoint_advertised(env: Env) -> None:
     assert env.server.endpoint("127.0.0.1") == ""
 
 
+async def test_endpoint_advertises_a_forwarded_port(env: Env) -> None:
+    """V0.7 G3: ``[agent.peer] advertise_port`` (a port forward / the test
+    harness's recording proxy) replaces the bound port, not the host."""
+    env.server._cfg = env.server._cfg.model_copy(update={"advertise_port": 40999})
+    assert env.server.endpoint("127.0.0.1") == "127.0.0.1:40999"
+
+
 async def test_start_peer_wires_hooks_and_survives_a_taken_port(tmp_path: Path) -> None:
     import socket
     from types import SimpleNamespace
