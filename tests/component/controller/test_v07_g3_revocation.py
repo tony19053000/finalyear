@@ -14,9 +14,9 @@ clients.
 * a revocation written by the controller CLI (another process: straight into
   the database) is enforced by the periodic sync within its interval;
 * who may revoke: the fabric token (401 without), 404 unknown, 400 not an id;
-* no un-revoke: a plain invite cannot re-enrol a revoked node, an ``invite
-  --replace`` code can (new serial; the old one stays refused); a re-keyed
-  node's previous certificate joins the set as ``superseded``.
+* no un-revoke: neither a plain nor an ``invite --replace`` code re-enrols a
+  revoked node_id (a new identity joins normally); a re-keyed node's previous
+  certificate joins the set as ``superseded``.
 """
 
 from __future__ import annotations
@@ -151,7 +151,7 @@ async def test_revoke_cuts_the_live_session_within_one_heartbeat(
         }
         assert victim.end_code is grpc.StatusCode.PERMISSION_DENIED
         assert victim.end_details.startswith("node_revoked")
-        assert "fabric invite --replace" in victim.end_details
+        assert "identity reset" in victim.end_details
         # Criterion 1: "within one heartbeat" - by construction, measured here.
         assert elapsed < PRODUCTION_HEARTBEAT_S, elapsed
 
@@ -292,12 +292,16 @@ async def test_who_may_revoke(runtime: ControllerRuntime) -> None:
 # ------------------------------------------------------------- no un-revoke
 
 
-async def test_only_a_replace_code_brings_a_revoked_node_back(
+async def test_a_revoked_node_never_comes_back_and_rekeys_supersede(
     runtime: ControllerRuntime,
     registry: Registry,
     pg_settings: DatabaseSettings,
     tmp_path: Path,
 ) -> None:
+    """No un-revoke (the G2 rule, kept): neither a plain nor an ``invite
+    --replace`` code re-enrols a revoked node_id; the laptop comes back under
+    a new identity. A re-keyed (not revoked) node's replaced certificate is
+    listed ``superseded`` and reaches the controller's set."""
     assert runtime.fabric is not None and runtime.enroll_port > 0
     engine = create_engine(pg_settings)
     invites = InviteStore(engine)
@@ -311,51 +315,40 @@ async def test_only_a_replace_code_brings_a_revoked_node_back(
 
     try:
         identity = load_or_create(tmp_path / "laptop" / "identity")
-        first = await asyncio.to_thread(agent_enrollment.join, identity, await code())
-        old_serial = format(first.enrollment.node_cert.serial_number, "x")
+        await asyncio.to_thread(agent_enrollment.join, identity, await code())
         assert (await _revoke_rest(runtime, identity.node_id)).status_code == 200
-        with pytest.raises(JoinError) as refused:
-            await asyncio.to_thread(
-                agent_enrollment.join, identity, await code(), force=True
-            )
-        assert refused.value.controller_reason == "node_revoked"
-        back = await asyncio.to_thread(
-            agent_enrollment.join,
-            identity,
-            await code(replace=identity.node_id),
-            force=True,
-        )
-        new_serial = format(back.enrollment.node_cert.serial_number, "x")
-        assert new_serial != old_serial
+        for replace in (None, identity.node_id):
+            with pytest.raises(JoinError) as refused:
+                await asyncio.to_thread(
+                    agent_enrollment.join, identity, await code(replace), force=True
+                )
+            assert refused.value.controller_reason == "node_revoked"
+            assert "identity reset" in refused.value.message
         record = await registry.get_node(identity.node_id)
-        assert record is not None and record.state is NodeState.ENROLLING
-        assert record.cert_serial == new_serial
+        assert record is not None and record.state is NodeState.REVOKED
+
+        # A new identity on the same laptop joins normally.
+        fresh = load_or_create(tmp_path / "laptop-again" / "identity")
+        assert fresh.node_id != identity.node_id
+        first = await asyncio.to_thread(agent_enrollment.join, fresh, await code())
+        old_serial = format(first.enrollment.node_cert.serial_number, "x")
+        # Re-keying it (join --force, same key, a plain code) supersedes the
+        # previous certificate on every plane.
+        second = await asyncio.to_thread(
+            agent_enrollment.join, fresh, await code(), force=True
+        )
+        new_serial = format(second.enrollment.node_cert.serial_number, "x")
+        assert new_serial != old_serial
         assert (
             await _sql(
                 pg_settings,
-                "SELECT reason FROM revoked_cert WHERE serial = :s",
+                "SELECT reason, node_id FROM revoked_cert WHERE serial = :s",
                 {"s": old_serial},
             )
-        ) == [("revoked",)]
-        # A plain re-key of the (now enrolled again) node: the replaced
-        # certificate is listed as superseded and the sync picks it up.
-        third = await asyncio.to_thread(
-            agent_enrollment.join,
-            identity,
-            await code(),
-            force=True,
-        )
-        assert (
-            await _sql(
-                pg_settings,
-                "SELECT reason FROM revoked_cert WHERE serial = :s",
-                {"s": new_serial},
-            )
-        ) == [("superseded",)]
-        assert runtime.revocations is not None
-        await _until(lambda: new_serial in runtime.revocations.serials, 5.0)  # type: ignore[union-attr]
-        assert format(third.enrollment.node_cert.serial_number, "x") not in (
-            runtime.revocations.serials
-        )
+        ) == [("superseded", fresh.node_id)]
+        revocations = runtime.revocations
+        assert revocations is not None
+        await _until(lambda: old_serial in revocations.serials, 5.0)
+        assert new_serial not in revocations.serials
     finally:
         await engine.dispose()

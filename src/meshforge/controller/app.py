@@ -522,9 +522,9 @@ async def _revoke(settings: "ControllerSettings", node_id: str) -> dict[str, obj
 _REVOKE_HINT = (
     "The running controller cuts its session within "
     "[controller.revocation] poll_interval_s and tells every agent; its jobs are "
-    "retried elsewhere. There is no un-revoke: to bring the laptop back, make a "
-    "code with `meshforge-controller fabric invite --replace {node_id}` and run "
-    "`meshforge-agent join --force <code>` on it."
+    "retried elsewhere. There is no un-revoke: {node_id} stays revoked; the "
+    "laptop can come back only under a new identity (`meshforge-agent identity "
+    "reset --yes`, then `meshforge-agent join` with a new code)."
 )
 
 

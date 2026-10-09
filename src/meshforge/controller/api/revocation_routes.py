@@ -12,7 +12,7 @@ database down -> 503 ``network_error``.
 The node's live session is cut before the response is sent (PERMISSION_DENIED,
 ``node_revoked``), its attempts take the node-loss path, and every agent is
 told the new revocation set (:mod:`meshforge.controller.revocation`). There is
-no un-revoke: ``fabric invite --replace <node_id>`` + ``join --force``.
+no un-revoke: the laptop comes back only under a new identity.
 """
 
 from __future__ import annotations

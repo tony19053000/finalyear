@@ -225,17 +225,16 @@ class Enroller:
                     )
                 )
             node = await _lock_node(db, node_id)
-            revived = node.state == NodeState.REVOKED.value and replace == node_id
-            if node.state == NodeState.REVOKED.value and not revived:
-                # V0.7 G3 (D138): no un-revoke; only a code the admin made for
-                # this node (`invite --replace`) brings it back, with a new
-                # certificate (the revoked serial stays refused).
+            if node.state == NodeState.REVOKED.value:
+                # D138: a revoked node_id never comes back, not even with an
+                # `invite --replace` code (G2 rule, kept in G3); the laptop
+                # re-joins under a new identity (`identity reset`).
                 raise _Refusal(
                     EnrollRefused(
                         EnrollReason.NODE_REVOKED,
-                        "this node was revoked from the fabric; the fabric admin "
-                        "must make a code with `fabric invite --replace "
-                        f"{node_id}` to bring it back",
+                        "this node was revoked from the fabric; it can come back "
+                        "only under a new identity: `meshforge-agent identity reset "
+                        "--yes`, then `meshforge-agent join` with a new code",
                         invite_id=invite_id,
                         node_id=node_id,
                     )
@@ -296,7 +295,6 @@ class Enroller:
                     cert_fingerprint=pki.cert_fingerprint(cert),
                     cert_not_after=cert.not_valid_after_utc,
                     public_key_fingerprint=key_fp,
-                    **({"state": NodeState.ENROLLING.value} if revived else {}),
                 )
                 .execution_options(synchronize_session=False)
             )
@@ -312,7 +310,6 @@ class Enroller:
                     "key_replaced": key_replaced,
                     "first_enrolment": known is None,
                     "superseded_serial": previous,
-                    "revived": revived,
                 },
             )
         log.info(

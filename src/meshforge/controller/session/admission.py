@@ -162,9 +162,9 @@ def hello_ack(
 NODE_REVOKED = "node_revoked"
 """``meshforge-reason`` of a stream cut by ``node revoke`` (V0.7 G3, D138)."""
 REVOKED_DETAIL = (
-    "node_revoked: this node was revoked from the fabric; to bring it back the "
-    "fabric admin makes a code with `meshforge-controller fabric invite "
-    "--replace <node_id>` and this laptop runs `meshforge-agent join --force <code>`"
+    "node_revoked: this node was revoked from the fabric; this laptop can come "
+    "back only under a new identity: `meshforge-agent identity reset --yes`, then "
+    "`meshforge-agent join <code>` with a new code from the fabric admin"
 )
 
 

@@ -161,7 +161,7 @@ async def test_a_hello_is_refused_when_the_database_says_revoked() -> None:
     assert isinstance(refused, Rejected)
     assert refused.abort_status is grpc.StatusCode.PERMISSION_DENIED
     assert refused.reason_code == "node_revoked"
-    assert "invite --replace" in refused.reason
+    assert "identity reset" in refused.reason
     assert manager.get(node) is None  # no new session was registered
 
 

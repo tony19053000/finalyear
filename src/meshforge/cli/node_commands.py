@@ -197,7 +197,7 @@ def revoke(
 ) -> None:
     """Revoke a node (V0.7 D138): its certificate is refused on every plane,
     its live session is cut now and its jobs are retried elsewhere. There is
-    no un-revoke: `fabric invite --replace NODE_ID` + `join --force` on it."""
+    no un-revoke: the laptop can come back only under a new identity."""
     target = cli._checked_node_id(node_id) or ""
     settings = cli._settings()
     with cli._client(settings) as client:
@@ -211,8 +211,9 @@ def revoke(
     cut = "session cut" if outcome.get("session_killed") else "not connected"
     typer.echo(f"revoked {target} ({cut})")
     typer.echo(
-        "to bring it back: compute fabric invite --replace "
-        f"{target}, then `meshforge-agent join --force <code>` on that laptop",
+        "there is no un-revoke: that laptop can come back only under a new "
+        "identity (`meshforge-agent identity reset --yes`, then `meshforge-agent "
+        "join` with a new code)",
         err=True,
     )
 

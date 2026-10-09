@@ -5,7 +5,7 @@ servers.
 A job runs on A; ``POST /v1/nodes/{A}/revoke``:
 
 * A's session is cut ``PERMISSION_DENIED`` - the agent stops for good and
-  says how to come back (``fabric invite --replace`` + ``join --force``);
+  says how to come back (a new identity: ``identity reset`` + ``join``);
 * the attempt on A is ``LOST`` with detail ``node_revoked`` and the job is
   retried on B by the V0.6 node-loss path, where it succeeds;
 * B learns A's serial (``RevocationUpdate``) and its peer server refuses A's
@@ -150,7 +150,7 @@ async def test_revoking_a_busy_node_moves_its_job_and_closes_the_peer_plane(
             assert a.client.state is AgentState.STOPPED
             error = a.task.exception()
             assert error is not None and "node_revoked" in str(error)
-            assert "join --force" in str(error)
+            assert "identity reset" in str(error)
 
             # The node-loss path: LOST on A, retried and done on B.
             job = await wait_job(http, job_id, timeout_s=60)

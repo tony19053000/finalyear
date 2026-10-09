@@ -25,8 +25,10 @@
 
 ``superseded`` serials (a node re-enrolled and got a new certificate, the old
 one still CA-valid) are in the same set (:func:`supersede`, written by the
-enrolment transaction). There is no un-revoke: the admin makes a code with
-``fabric invite --replace <node_id>`` and the laptop re-joins (new serial).
+enrolment transaction). There is no un-revoke: a revoked ``node_id`` is refused
+by every enrolment, ``invite --replace`` included (the G2 rule); the laptop
+comes back only under a new identity (``meshforge-agent identity reset``, then
+``join`` with a new code).
 """
 
 from __future__ import annotations

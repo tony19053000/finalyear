@@ -154,8 +154,9 @@ meshforge-controller fabric show          # any time; --json for scripts
 | controller exits 4: `no fabric CA` | mtls mode on a controller without a CA | `meshforge-controller fabric create` |
 | `compute`: `no fabric CA certificate to verify the controller` | the CLI found no `ca.crt` | `--ca PATH` or `[cli] ca_file` |
 | `compute`: `cli.controller_url must be https://` | an old `http://` config | write `https://host:47110` |
-| agent exits with `PERMISSION_DENIED ... node_revoked` (or `cert_revoked`) | this node was revoked, or its certificate was replaced by a newer enrolment | if that was a mistake: the admin runs `fabric invite --replace <node_id>`, then `meshforge-agent join --force <code>` on the laptop |
-| `join` refused `node_revoked` | a plain code cannot bring a revoked node back | ask for a code made with `--replace <node_id>` |
+| agent exits with `PERMISSION_DENIED ... node_revoked` | this node was revoked | the node id is gone for good; to bring the laptop back: `meshforge-agent identity reset --yes`, then `meshforge-agent join` with a new code (a new node) |
+| agent exits with `PERMISSION_DENIED ... cert_revoked` | its certificate was replaced by a newer enrolment of the same node (or the node was revoked) | re-join that laptop with `meshforge-agent join --force <code>`; if the node was revoked, as above |
+| `join` refused `node_revoked` | no code, not even `--replace`, brings a revoked node id back | `meshforge-agent identity reset --yes`, then join with a new code |
 | peers log `agent.peer.client_refused reason=peer_cert_revoked` | a revoked (or re-keyed) laptop still tries to fetch | expected; stop or re-join that laptop |
 
 ### 0a2c. Revoking a laptop (V0.7 G3, D138)
@@ -175,11 +176,13 @@ and every job running on it is retried on another node (attempt `lost`, detail
 `node_revoked`). Every agent is told the serial and its peer server refuses that
 certificate from then on; the HTTPS port refuses it too. Revoking twice is harmless.
 
-**There is no un-revoke.** To bring the same laptop back: `meshforge-controller
-fabric invite --replace node_...` (or `compute fabric invite --replace node_...`),
-then `meshforge-agent join --force <code>` on it - it gets a new certificate; the
-old one stays refused. Re-joining any laptop (`join --force`) also retires its
-previous certificate the same way (`superseded`).
+**There is no un-revoke.** A revoked node id is refused by every enrolment,
+`invite --replace` codes included. To bring the same laptop back it takes a new
+identity: `meshforge-agent identity reset --yes` on it, then `meshforge-agent join`
+with a new code - it becomes a new node (the revoked one stays in the history).
+Re-joining a laptop that was *not* revoked (`join --force`) retires its previous
+certificate the same way (`superseded`): only the newest certificate of a node
+works on any plane.
 
 ### 0a3. Joining a laptop to the fabric (V0.7 G2, D135/D136)
 

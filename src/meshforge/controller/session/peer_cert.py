@@ -156,8 +156,9 @@ def parse_peer(
         raise PeerCertError(
             PeerCertReason.REVOKED,
             "this node certificate was revoked (the node was revoked, or a newer "
-            "enrolment replaced it); re-join with a new code: "
-            "meshforge-agent join --force <code>",
+            "enrolment replaced it); a replaced laptop re-joins with "
+            "`meshforge-agent join --force <code>`, a revoked one needs "
+            "`meshforge-agent identity reset --yes` first",
         )
     public = cert.public_key()
     if not isinstance(public, ec.EllipticCurvePublicKey):  # pragma: no cover
