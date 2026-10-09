@@ -123,7 +123,7 @@ meshforge-controller fabric show          # any time; --json for scripts
   **After upgrading, every lab laptop must re-join once** (§0a3) - an agent without
   a certificate stops with `this laptop is not enrolled ... run meshforge-agent
   join`. The controller refuses to start without a CA (run `fabric create`).
-  Still to come: revocation (`node revoke`), per-user logins (G4).
+  Revoking a laptop: §0a2c. Still to come: per-user logins (G4).
 
 ### 0a2b. TLS operations (V0.7 G3)
 
@@ -154,6 +154,32 @@ meshforge-controller fabric show          # any time; --json for scripts
 | controller exits 4: `no fabric CA` | mtls mode on a controller without a CA | `meshforge-controller fabric create` |
 | `compute`: `no fabric CA certificate to verify the controller` | the CLI found no `ca.crt` | `--ca PATH` or `[cli] ca_file` |
 | `compute`: `cli.controller_url must be https://` | an old `http://` config | write `https://host:47110` |
+| agent exits with `PERMISSION_DENIED ... node_revoked` (or `cert_revoked`) | this node was revoked, or its certificate was replaced by a newer enrolment | if that was a mistake: the admin runs `fabric invite --replace <node_id>`, then `meshforge-agent join --force <code>` on the laptop |
+| `join` refused `node_revoked` | a plain code cannot bring a revoked node back | ask for a code made with `--replace <node_id>` |
+| peers log `agent.peer.client_refused reason=peer_cert_revoked` | a revoked (or re-keyed) laptop still tries to fetch | expected; stop or re-join that laptop |
+
+### 0a2c. Revoking a laptop (V0.7 G3, D138)
+
+A stolen, lost or retired laptop is taken out of the fabric with **one** of:
+
+```bash
+compute node revoke node_...                       # over HTTPS (fabric token), immediate
+meshforge-controller node revoke node_...          # on the controller host, straight into the database
+```
+
+What happens: the node is marked `revoked` (an audit row names who did it), its
+certificate serial joins the fabric's revocation set, its live session is cut at
+once (`PERMISSION_DENIED`, the agent stops and prints how to come back) - within
+`[controller.revocation] poll_interval_s` (1 s) for the controller-host command -
+and every job running on it is retried on another node (attempt `lost`, detail
+`node_revoked`). Every agent is told the serial and its peer server refuses that
+certificate from then on; the HTTPS port refuses it too. Revoking twice is harmless.
+
+**There is no un-revoke.** To bring the same laptop back: `meshforge-controller
+fabric invite --replace node_...` (or `compute fabric invite --replace node_...`),
+then `meshforge-agent join --force <code>` on it - it gets a new certificate; the
+old one stays refused. Re-joining any laptop (`join --force`) also retires its
+previous certificate the same way (`superseded`).
 
 ### 0a3. Joining a laptop to the fabric (V0.7 G2, D135/D136)
 
@@ -570,11 +596,15 @@ New-NetFirewallRule -DisplayName "MeshForge peer blobs" -Direction Inbound `
 
 What a peer serves: read-only `GET`/`HEAD` of blobs in its own cache, only to a
 request that carries a token the controller signed for that exact project (tree),
-that holder, that attempt, for at most 10 minutes. The controller keeps the
+that holder, that attempt, for at most 60 s (since V0.7 G3; a longer transfer
+gets fresh tokens every 20 s while it runs), from a client presenting a node
+certificate of this fabric that is not revoked. The controller keeps the
 signing key in `<data dir>/controller/peer_signing.key` (keep it private, like
 `fabric.token`). The controller lists a peer only when the address it advertises
 is the address its connection comes from; for a NAT'd lab setup set
-`[controller] trust_peer_endpoints = true` on the controller.
+`[controller] trust_peer_endpoints = true` on the controller. Behind a port
+forward, `[agent.peer] advertise_port` sends the forwarded port instead of the
+bound one (peers check the certificate, not the address).
 
 Check it: `compute nodes <node_id> --json` (or `GET /v1/nodes/<id>`) shows
 `peer_endpoint` and the `cache` counts per kind; the agent log line
