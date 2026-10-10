@@ -158,6 +158,10 @@ meshforge-controller fabric show          # any time; --json for scripts
 | agent exits with `PERMISSION_DENIED ... cert_revoked` | its certificate was replaced by a newer enrolment of the same node (or the node was revoked) | re-join that laptop with `meshforge-agent join --force <code>`; if the node was revoked, as above |
 | `join` refused `node_revoked` | no code, not even `--replace`, brings a revoked node id back | `meshforge-agent identity reset --yes`, then join with a new code |
 | peers log `agent.peer.client_refused reason=peer_cert_revoked` | a revoked (or re-keyed) laptop still tries to fetch | expected; stop or re-join that laptop |
+| agent exits with `PERMISSION_DENIED ... cert_superseded` (controller log `session.cert_superseded_cut`) | this laptop's certificate was replaced by a newer enrolment of the same node (`invite --replace` + join on another machine); its open session is cut within `[controller.revocation] poll_interval_s` (1 s) and its jobs are retried elsewhere | expected on the replaced (lost/stolen) machine; if this laptop should stay, `meshforge-agent identity reset --yes` and join with a new code (a new node) |
+| agent log `UNAUTHENTICATED ... cert_expired` (controller log `session.cert_expired`), then the agent stops with `node certificate is valid ... not now` | the node certificate reached its expiry while the session was open: the controller closes a session at its certificate's `not_after` | fix the clock if it is wrong; else `meshforge-agent join --force` with a new code (G4 renews certificates before that) |
+| peers log `agent.peer.refused reason=wrong_requester` (or `probe_wrong_requester`) | a peer token was presented by a node other than the one it was minted for (a captured/forwarded token, or a broken client) | expected for a stolen token - nothing is served; if it repeats for a real fetch, report it (the fetching agent must present its own node certificate) |
+| peers log `agent.peer.refused reason=expired` or `reason=too_long` (probes: `probe_expired` / `probe_too_long`) for every fetch from one laptop, transfers fall back to the controller | that peer's clock is off: peer tokens live 60 s and the holder allows 30 s of skew | sync the laptop clocks (NTP / Windows time service on); see "Clock skew" below |
 
 ### 0a2c. Revoking a laptop (V0.7 G3, D138)
 
@@ -601,7 +605,21 @@ What a peer serves: read-only `GET`/`HEAD` of blobs in its own cache, only to a
 request that carries a token the controller signed for that exact project (tree),
 that holder, that attempt, for at most 60 s (since V0.7 G3; a longer transfer
 gets fresh tokens every 20 s while it runs), from a client presenting a node
-certificate of this fabric that is not revoked. The controller keeps the
+certificate of this fabric that is not revoked **and is the node the token was
+minted for** (a token captured by another laptop is refused `wrong_requester`).
+
+**Clock skew (peer and probe tokens).** The controller stamps each token's
+expiry with **its** clock; the peer that serves the blob checks it with **its
+own** clock and allows 30 s of skew. So every laptop that serves blobs must keep
+its clock within **30 s** of the controller's: a peer whose clock lags by more
+than 30 s refuses fresh tokens (`too_long`), one that runs ahead by more than
+about 70 s (90 s less the up-to-20 s age of the token in use) refuses them as
+`expired`. Symptom: that peer's log shows `agent.peer.refused reason=expired`
+or `too_long` for every fetch and transfers fall back to the controller (slower,
+but jobs still succeed). Remedy: turn on time sync everywhere (Linux
+`timedatectl set-ntp true`; Windows Settings > Time > "Set time automatically" /
+`w32tm /resync`) and compare `date -u` on the laptops. The requesting laptop's
+clock does not matter. The controller keeps the
 signing key in `<data dir>/controller/peer_signing.key` (keep it private, like
 `fabric.token`). The controller lists a peer only when the address it advertises
 is the address its connection comes from; for a NAT'd lab setup set
