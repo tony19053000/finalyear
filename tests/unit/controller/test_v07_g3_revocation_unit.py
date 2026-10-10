@@ -188,9 +188,12 @@ class Store:
 
 
 class Sessions:
-    def __init__(self, live: set[str]) -> None:
+    def __init__(self, live: set[str], certs: dict[str, str] | None = None) -> None:
         self.live = live
+        self.certs = certs or {}
+        """Serial -> node of each live stream (D155 T-1)."""
         self.cut: list[str] = []
+        self.cert_cut: list[str] = []
         self.sent: list[tuple[str, Any]] = []
 
     def has_session(self, node_id: str) -> bool:
@@ -201,9 +204,32 @@ class Sessions:
         self.live.discard(node_id)
         return True
 
+    async def cut_revoked_certs(self, serials: Any) -> frozenset[str]:
+        hit = {
+            node
+            for serial, node in self.certs.items()
+            if serial in serials and node in self.live
+        }
+        self.cert_cut.extend(sorted(hit))
+        self.live -= hit
+        return frozenset(hit)
+
     def broadcast(self, payload_name: str, payload: Any) -> int:
         self.sent.append((payload_name, payload))
         return 1
+
+
+async def test_sync_cuts_a_live_stream_whose_serial_was_superseded() -> None:
+    """D155 T-1: the node is not revoked, its old certificate is - the stream
+    still using that serial is cut in the same sync, the others are not."""
+    store = Store()
+    sessions = Sessions({"n1", "n2"}, certs={"aa": "n1", "cc": "n2"})
+    revocations = Revocations(store, sessions)  # type: ignore[arg-type]
+    store.snap = RevocationSnapshot(frozenset(), frozenset({"aa"}), ("aa",))
+    assert await revocations.sync() == frozenset({"n1"})
+    assert sessions.cert_cut == ["n1"] and sessions.cut == []
+    assert sessions.live == {"n2"}
+    assert revocations.cert_cuts == 1
 
 
 async def test_sync_kills_connected_revoked_nodes_and_broadcasts_changes() -> None:

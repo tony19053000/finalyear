@@ -180,6 +180,10 @@ async def settle() -> None:
         (SessionEndReason.SUPERSEDED, None),
         (SessionEndReason.LEASE_EXPIRED, None),
         (SessionEndReason.CONTROLLER_RESTART, None),
+        # V0.7 G3 fix r1 (D155): the certificate can never be used again -
+        # OFFLINE now (node-loss path at once), no linger.
+        (SessionEndReason.CERT_SUPERSEDED, LivenessEvent.STREAM_CLOSED),
+        (SessionEndReason.CERT_EXPIRED, LivenessEvent.STREAM_CLOSED),
     ],
 )
 def test_every_end_reason_maps_to_exactly_one_arrow_or_none(
@@ -200,6 +204,8 @@ def test_the_mapping_covers_every_end_reason() -> None:
         SessionEndReason.LEASE_EXPIRED,
         SessionEndReason.CONTROLLER_RESTART,
         SessionEndReason.REVOKED,  # V0.7 G3: REVOKE applied before the cut
+        SessionEndReason.CERT_SUPERSEDED,  # V0.7 G3 fix r1: OFFLINE now
+        SessionEndReason.CERT_EXPIRED,  # V0.7 G3 fix r1: OFFLINE now
     }
     assert classified == set(SessionEndReason)
 

@@ -254,15 +254,6 @@ async def test_superseded_serial_is_refused_on_session_and_blob_planes(
     assert response.status_code == 401
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "T-1: a re-enrolment supersedes the old certificate's serial but the old "
-        "laptop's LIVE session (cert A) is not cut: Revocations.sync only cuts nodes "
-        "in state 'revoked', so a replaced (lost/stolen) laptop keeps its control "
-        "stream, heartbeats and StartAttempts until it reconnects."
-    ),
-)
 async def test_superseding_a_cert_cuts_the_live_session_that_uses_it(
     runtime: ControllerRuntime, pg_settings: DatabaseSettings
 ) -> None:
@@ -482,15 +473,6 @@ async def test_session_port_does_not_accept_tls12_clients(
     assert outcome in {"TLSv1.2"} or outcome.startswith("refused:"), outcome
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "T-3: certificate expiry is checked when a stream (or HTTPS request) starts, "
-        "never again: a session whose node certificate expires while the stream is "
-        "open keeps heartbeating and receiving work indefinitely (CG-E3 says "
-        "'expiry checked at handshake'; G4 renewal may be the intended answer)."
-    ),
-)
 async def test_a_session_does_not_outlive_its_certificate(
     runtime: ControllerRuntime,
 ) -> None:

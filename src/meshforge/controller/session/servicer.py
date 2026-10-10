@@ -87,6 +87,25 @@ _CLEAN_END_REASONS: frozenset[SessionEndReason] = frozenset(
 """End reasons that finish the stream ``OK``; every other one is ``ABORTED``."""
 
 
+_CERT_ENDS: dict[SessionEndReason | None, tuple[grpc.StatusCode, str, str]] = {
+    SessionEndReason.CERT_SUPERSEDED: (
+        grpc.StatusCode.PERMISSION_DENIED,
+        PeerCertReason.CERT_SUPERSEDED.value,
+        "cert_superseded: this node certificate was superseded by a newer "
+        "enrolment of the node; this laptop no longer belongs to the fabric "
+        "under it - re-join (meshforge-agent join --force <code>)",
+    ),
+    SessionEndReason.CERT_EXPIRED: (
+        grpc.StatusCode.UNAUTHENTICATED,
+        PeerCertReason.EXPIRED.value,
+        "cert_expired: this node certificate expired while the session was "
+        "open; check the clock, else re-join (meshforge-agent join --force <code>)",
+    ),
+}
+"""Session ends over the stream's certificate: status, ``meshforge-reason``,
+detail (the agent prints the detail; PERMISSION_DENIED stops it for good)."""
+
+
 def _well_formed(node_id: str) -> bool:
     try:
         validate_node_id(node_id)
@@ -194,6 +213,13 @@ class AgentControlServicer(agent_pb2_grpc.AgentControlServicer):
             # how to come back; nothing it sends is applied any more.
             context.set_trailing_metadata(((REASON_METADATA_KEY, NODE_REVOKED),))
             await context.abort(grpc.StatusCode.PERMISSION_DENIED, REVOKED_DETAIL)
+        cert_end = _CERT_ENDS.get(live.end_reason)
+        if cert_end is not None:
+            # V0.7 G3 fix r1 (D155): the stream's certificate was superseded by
+            # a newer enrolment (T-1) or reached its not_after (T-3).
+            status, reason_code, detail = cert_end
+            context.set_trailing_metadata(((REASON_METADATA_KEY, reason_code),))
+            await context.abort(status, detail)
         if live.end_reason not in _CLEAN_END_REASONS:
             reason = live.end_reason.value if live.end_reason else "unknown"
             await context.abort(grpc.StatusCode.ABORTED, reason)

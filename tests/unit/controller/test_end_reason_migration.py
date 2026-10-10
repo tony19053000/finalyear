@@ -48,6 +48,8 @@ def test_stream_lost_value_is_permanent() -> None:
         "internal_error",
         "stream_lost",
         "revoked",  # V0.7 G3 (0016)
+        "cert_superseded",  # V0.7 G3 fix r1 (0017)
+        "cert_expired",  # V0.7 G3 fix r1 (0017)
     ]
 
 
@@ -56,21 +58,37 @@ def test_migration_0004_upgrade_list_is_the_model_enum() -> None:
     assert mig.revision == "0004"
     assert mig.down_revision == "0003"
     today = {r.value for r in SessionEndReason}
-    assert set(mig.END_REASONS_0004) == today - {"revoked"}
-    assert set(mig.END_REASONS_0003) == today - {"stream_lost", "revoked"}
+    later = {"revoked", "cert_superseded", "cert_expired"}  # 0016, 0017
+    assert set(mig.END_REASONS_0004) == today - later
+    assert set(mig.END_REASONS_0003) == today - {"stream_lost", *later}
 
 
 def test_migration_0016_lists_are_the_model_enums() -> None:
-    """The newest revision's literal lists equal the enums today (V0.7 G3)."""
+    """0016's literal lists equal the enums today, but for 0017's additions
+    (V0.7 G3)."""
     from meshforge.controller.store.models.enrollment import AuditAction
     from meshforge.controller.store.models.revocation import RevocationReason
 
     mig = _load("0016_revocation.py")
     assert (mig.revision, mig.down_revision) == ("0016", "0015")
-    assert set(mig.END_REASONS_0016) == {r.value for r in SessionEndReason}
+    assert set(mig.END_REASONS_0016) == {r.value for r in SessionEndReason} - {
+        "cert_superseded",
+        "cert_expired",
+    }
     assert set(mig.END_REASONS_0015) == set(mig.END_REASONS_0016) - {"revoked"}
     assert set(mig.ACTIONS_0016) == {a.value for a in AuditAction}
     assert set(mig.REASONS_0016) == {r.value for r in RevocationReason}
+
+
+def test_migration_0017_lists_are_the_model_enum() -> None:
+    """The newest revision's literal list equals the enum today (D155)."""
+    mig = _load("0017_cert_session_ends.py")
+    assert (mig.revision, mig.down_revision) == ("0017", "0016")
+    assert set(mig.END_REASONS_0017) == {r.value for r in SessionEndReason}
+    assert set(mig.END_REASONS_0016) == set(mig.END_REASONS_0017) - {
+        "cert_superseded",
+        "cert_expired",
+    }
 
 
 def test_migration_0004_check_text_quotes_every_value() -> None:
@@ -78,7 +96,11 @@ def test_migration_0004_check_text_quotes_every_value() -> None:
     text = mig._check(mig.END_REASONS_0004)
     assert text.startswith("end_reason IS NULL OR end_reason IN (")
     for reason in SessionEndReason:
-        if reason is SessionEndReason.REVOKED:  # added in 0016
+        if reason in (  # added in 0016 / 0017
+            SessionEndReason.REVOKED,
+            SessionEndReason.CERT_SUPERSEDED,
+            SessionEndReason.CERT_EXPIRED,
+        ):
             assert f"'{reason.value}'" not in text
             continue
         assert f"'{reason.value}'" in text

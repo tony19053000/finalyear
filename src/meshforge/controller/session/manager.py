@@ -94,7 +94,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
-from collections.abc import AsyncIterator, Callable, Sequence
+from collections.abc import AsyncIterator, Callable, Collection, Sequence
 from typing import Any
 
 import grpc
@@ -389,10 +389,21 @@ class SessionManager:
         self._ends.abandon_admission(
             attempt,
             body,
-            lambda a: self._new_session(
-                a.hello, a.peer_address, a.session_id, a.state or NodeState.SUSPECT
+            lambda a: self._with_cert(
+                self._new_session(
+                    a.hello, a.peer_address, a.session_id, a.state or NodeState.SUSPECT
+                ),
+                a,
             ),
         )
+
+    @staticmethod
+    def _with_cert(live: LiveSession, attempt: AdmissionAttempt) -> LiveSession:
+        """An abandoned admission's lingering entry keeps its certificate serial
+        (a superseded serial ends that linger too, D155 T-1)."""
+        if attempt.cert is not None:
+            live.cert_serial = attempt.cert.serial
+        return live
 
     def _release_claim(self, node_id: str, epoch: int) -> None:
         """End one pending Hello's claim; settle a deferred end nobody owns now.
@@ -550,6 +561,8 @@ class SessionManager:
         live.hardware_scores_rejected = int(scores_rejected)
         attempt.admitted = True
         self._live[node_id] = live
+        if cert is not None:
+            self._bind_cert(live, cert.serial, cert.not_after)
         self.reports.begin_session(node_id, hello.session_epoch)
         self.wake.set()
         if prior is not state:
@@ -615,6 +628,32 @@ class SessionManager:
         self._chains.add(writer)
         writer.start().add_done_callback(lambda _t: self._chains.discard(writer))
         return live
+
+    def _bind_cert(
+        self, live: LiveSession, serial: str, not_after: dt.datetime
+    ) -> None:
+        """V0.7 G3 fix r1 (D155): remember the stream's certificate serial (the
+        revocation sync cuts it when the serial is superseded) and close the
+        stream ``cert_expired`` at the certificate's ``not_after`` - a session
+        never outlives the certificate it was admitted with."""
+        live.cert_serial = serial
+        remaining = (not_after - self._wall_clock()).total_seconds()
+        loop = asyncio.get_running_loop()
+        live.cert_expiry = loop.call_later(
+            max(0.0, remaining), self._cert_expired, live
+        )
+
+    def _cert_expired(self, live: LiveSession) -> None:
+        live.cert_expiry = None
+        if live.ended:
+            return
+        log.warning(
+            "session.cert_expired",
+            node_id=live.node_id,
+            session_id=live.session_id,
+            cert_serial=live.cert_serial,
+        )
+        self._ends.close(live, SessionEndReason.CERT_EXPIRED)
 
     # ---------------------------------------------------------------- reader
 
@@ -847,6 +886,36 @@ class SessionManager:
         if cut:
             log.warning("session.revoked", node_id=node_id)
         return cut
+
+    async def cut_revoked_certs(self, serials: Collection[str]) -> frozenset[str]:
+        """V0.7 G3 fix r1 (D155 T-1): every live session whose certificate
+        serial is in ``serials`` (in practice: superseded by a re-enrolment -
+        a revoked node's session is cut by :meth:`revoke_node` first) is closed
+        ``cert_superseded`` (``PERMISSION_DENIED``; OFFLINE now, the node-loss
+        path runs), and a lingering entry of such a serial goes OFFLINE now
+        instead of at its lease edge. Under the admission lock, like a revoke.
+        Returns the nodes whose session or linger was cut."""
+        if not serials:
+            return frozenset()
+        cut: set[str] = set()
+        async with self._lock:
+            for live in list(self._live.values()):
+                if live.cert_serial in serials and not live.ended:
+                    self._ends.close(live, SessionEndReason.CERT_SUPERSEDED)
+                    cut.add(live.node_id)
+            for entry in list(self._lingering.values()):
+                if entry.cert_serial in serials:
+                    if entry.state is not NodeState.OFFLINE:
+                        self._ends.apply_event(
+                            entry,
+                            LivenessEvent.STREAM_CLOSED,
+                            silence_s=entry.tracker.silence(self._clock()),
+                        )
+                    self._ends.end_linger(entry, cause="cert_superseded")
+                    cut.add(entry.node_id)
+        for node_id in sorted(cut):
+            log.warning("session.cert_superseded_cut", node_id=node_id)
+        return frozenset(cut)
 
     def broadcast(self, payload_name: str, payload: Any) -> int:
         """Send one command to every live session; how many it was queued for."""

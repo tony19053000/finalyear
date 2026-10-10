@@ -61,7 +61,15 @@ class PendingCommand:
 
 
 _CLEAN_END: Final[frozenset[SessionEndReason]] = frozenset(
-    {SessionEndReason.AGENT_CLOSED, SessionEndReason.CONTROLLER_SHUTDOWN}
+    {
+        SessionEndReason.AGENT_CLOSED,
+        SessionEndReason.CONTROLLER_SHUTDOWN,
+        # V0.7 G3 fix r1 (D155): the stream's certificate can never be used
+        # again, so nothing is gained by lingering - OFFLINE now, and the
+        # node's attempts take the node-loss path at once.
+        SessionEndReason.CERT_SUPERSEDED,
+        SessionEndReason.CERT_EXPIRED,
+    }
 )
 _ABRUPT_END: Final[frozenset[SessionEndReason]] = frozenset(
     {
@@ -78,8 +86,9 @@ def end_event(reason: SessionEndReason) -> LivenessEvent | None:
     ``superseded`` fires nothing (the new session's Hello owns the state),
     ``lease_expired`` nothing extra (the timer already applied the expiry),
     ``revoked`` nothing extra (the revocation applied ``REVOKE`` before it cut
-    the stream, V0.7 G3) and ``controller_restart`` is only ever written by
-    the start-up sweep.
+    the stream, V0.7 G3), ``cert_superseded`` / ``cert_expired`` the clean
+    arrow (OFFLINE now: that certificate never comes back, D155) and
+    ``controller_restart`` is only ever written by the start-up sweep.
     """
     if reason in _CLEAN_END:
         return LivenessEvent.STREAM_CLOSED
@@ -158,6 +167,13 @@ class LiveSession:
     peer_endpoint: str = ""
     """V0.5 D99: validated ``host:port`` of the node's peer blob server ("" =
     none or refused). Only live (ONLINE) sessions are listed as blob sources."""
+    cert_serial: str | None = None
+    """V0.7 G3 fix r1 (D155 T-1): serial of the client certificate this stream
+    was admitted with (None: ``insecure-dev``); the revocation sync cuts the
+    stream when the serial joins the revocation set."""
+    cert_expiry: asyncio.TimerHandle | None = None
+    """V0.7 G3 fix r1 (D155 T-3): fires at the certificate's ``not_after`` and
+    cuts the stream ``cert_expired``; cancelled when the session closes."""
     declared_gpus: frozenset[int] = frozenset()
     """``Hello.hardware.gpus[].index`` of this session: the only GPU indices its
     score reports may name (D39)."""

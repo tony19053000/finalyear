@@ -84,6 +84,14 @@ class SessionEndReason(StrEnum):
     REVOKED = "revoked"
     """The node was revoked (``node revoke``) and its live stream cut at once
     with ``PERMISSION_DENIED`` (V0.7 G3, D138, added in 0016)."""
+    CERT_SUPERSEDED = "cert_superseded"
+    """The stream's certificate was superseded by a newer enrolment of the node
+    (its serial joined the revocation set) and the stream was cut with
+    ``PERMISSION_DENIED`` (V0.7 G3 fix r1, D155 T-1, added in 0017)."""
+    CERT_EXPIRED = "cert_expired"
+    """The stream's certificate reached its ``not_after`` while the stream was
+    open; cut with ``UNAUTHENTICATED`` (V0.7 G3 fix r1, D155 T-3, added in
+    0017)."""
 
 
 MAX_SLOTS: Final = 64

@@ -134,6 +134,9 @@ class SessionEnds:
             return  # first reason wins
         live.ended = True
         live.end_reason = reason
+        if live.cert_expiry is not None:
+            live.cert_expiry.cancel()
+            live.cert_expiry = None
         if self._live.get(live.node_id) is live:
             del self._live[live.node_id]
         # Unblock the gRPC handler: whatever is still queued is moot now.

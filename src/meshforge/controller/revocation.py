@@ -9,7 +9,9 @@
   joins ``revoked_cert`` and an ``audit_event`` row ``node_revoked`` names who
   did it. Idempotent: revoking a revoked node changes nothing.
 * **The live kill** (:meth:`Revocations.sync`): every revoked node that still
-  has a live or lingering session is cut at once - the stream ends
+  has a live or lingering session is cut at once (and every live stream whose
+  certificate serial is superseded: ``PERMISSION_DENIED`` ``cert_superseded``,
+  OFFLINE now - D155 T-1) - the stream ends
   ``PERMISSION_DENIED`` (``node_revoked``), the node goes ``REVOKED`` and its
   attempts take the V0.6 node-loss path (``LOST``, retried elsewhere). The
   REST path runs it right after the commit (measured well under one
@@ -35,6 +37,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
+from collections.abc import Collection
 from dataclasses import dataclass
 from typing import Any, Final, Protocol
 
@@ -248,6 +251,8 @@ class _Sessions(Protocol):
 
     async def revoke_node(self, node_id: str) -> bool: ...
 
+    async def cut_revoked_certs(self, serials: Collection[str]) -> frozenset[str]: ...
+
     def broadcast(self, payload_name: str, payload: Any) -> int: ...
 
 
@@ -263,6 +268,7 @@ class Revocations:
         self._nodes: frozenset[str] = frozenset()
         self._lock = asyncio.Lock()
         self.kills = 0
+        self.cert_cuts = 0
         self.broadcasts = 0
         self.sync_failures = 0
 
@@ -322,6 +328,12 @@ class Revocations:
                 ):
                     killed.add(node_id)
                     self.kills += 1
+            # D155 T-1: a live stream still using a superseded (or otherwise
+            # revoked) serial of a node that is NOT revoked - the old laptop of
+            # a re-enrolled node - is cut too, the same path and bound.
+            superseded = await self._sessions.cut_revoked_certs(snap.serials)
+            self.cert_cuts += len(superseded)
+            killed |= superseded
             if changed:
                 sent = self._sessions.broadcast(
                     "revocation_update", self.update_message()
