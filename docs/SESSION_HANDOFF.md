@@ -265,6 +265,8 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
+**2026-10-11 (end) — V0.7 G3 CLOSED.** Fix r1 `e094f10`..`b9ea681` → tester r2 PASS `42679c7` → reviewer APPROVE. 0.7.5 `[x]`, 0.7.7 `[~]`. D156: G4 takes migration **0018**, G6 **0019**; G4 item 0 = reviewer non-blocking list in D156; wss-follow flake tracked. Nothing in flight. Next: Lead writes brief §5d (G4 rotation) then G4 implementer.
+
 **2026-10-11 — V0.7 G3 IN FIX ROUND 1** (brief §5c `e197750`; rulings D154, D155).
 - Implementer done, deliverables 0-8 (`64c2f1e`..`5e68599`): mTLS session port, HTTPS REST/blobs, peer TLS with required client cert, server-cert hot reload, `[security] mode`, 60 s peer tokens (D147), revocation + migration **0016** (G4 takes 0017), D146 plaintext recorder. Exit list: all green except whole component 1 flaky failure (probes_e2e race, pre-G3).
 - D154: enroll stays on its own TLS port 47101 (grpcio cannot do optional client cert on one port); no un-revoke (re-join as new node); re-join supersedes old serial.

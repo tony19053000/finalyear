@@ -42,6 +42,8 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 > V0.10. 129 tasks vs 140–180 capacity → **~1.5 tasks/session**. Needs the other three team members' approval.
 
 ## Current Task
+**2026-10-11 — V0.7 G3 CLOSED** (0.7.5 `[x]`, 0.7.7 `[~]` revocation done/rotation G4). mTLS everywhere, HTTPS planes, peer TLS + token requester binding, 60 s peer tokens, server-cert hot reload, revocation + supersede + expiry cuts. Tester r2 PASS, reviewer APPROVE (D156). **Next: Lead writes brief §5d G4 (rotation, migration 0018, D156 item 0) → G4 implementer.** 🧑 every lab laptop must re-join; run lab/checklists/V0.7-G3-mtls-revocation.md (step 0 clocks).
+
 **2026-10-08 — V0.7 G2 CLOSED.** Pairing: join codes + Enroll + `meshforge-agent join` — implementer `75e5d7d`..`ee7ac57` → tester r1 FAIL (T-1 IPv6 rate-limit bypass, T-2, T-3; D152) → fix `80bcbd3` → tester r2 PASS → reviewer APPROVE (8 non-blocking → D153 = G3 item 0). Exit lists green (unit 8064, component 1358, cluster 69). **Next: Lead writes brief §5c G3 (0.7.5, 0.7.7a + D147 + D153 item 0) → G3 implementer.** Lab laptops must re-join before G3 merges.
 
 **2026-10-08 — V0.7 G1 CLOSED.** Threat model + fabric CA/server cert: implementer `1360654`..`2a61910` → tester PASS (T-1..T-3 minor) `65d4af5` → fix `2643847` `2e5dbd6` → reviewer APPROVE (5 non-blocking → D149 G2 item 0). Lead rulings D147 (peer token ≤ 60 s, G3), D148 (open GETs need auth, G4). **Next: Lead writes brief §5b G2 (pairing: 0.7.3, 0.7.4 + D149 item 0) → G2 implementer.**
@@ -129,6 +131,7 @@ Reviewer non-blocking follow-ups (carry into G2/G3): (1) `mint` should carry `pe
 - Hardware of laptops 2–4 unknown; AI-agent access to Windows laptops undecided; Ethernet switch not purchased
 
 ## Known Bugs
+- ⚠️ **Cluster flake (V0.7 G3, 3 full-run hits):** `test_fabric_outputs_logs::test_criterion_1` — `compute run -f` exit 6 TimeoutError on wss follow open (`cli/follow.py` open_timeout); passes in isolation. Must fix before V0.7 closes (D156).
 - ⚠️ **Load-flaky (2026-10-05):** `test_v05_g5_tester_e2e::test_gc_on_both_sides_never_breaks_ten_concurrent_jobs` (in-process agent lease expires under the GC hammer → LOST; passes alone 3/3; check whether the D123 dispatch lock adds latency). Also `test_session_server.py::test_second_hello_on_open_stream_is_protocol_error`, `test_session_server_tester.py::test_heartbeat_just_under_suspect_threshold_never_flaps`.
 - ✅ **Load-flaky tests fixed 2026-10-01 (stabilisation lane, `97f347e` `35c5274` `861d712`):** slow-follower double count was a real LogHub bug; in-process exec tests now use a tolerant liveness profile only where the lease is not under test; twenty-nodes, faultproxy close race (FIN vs RST) fixed; 5 consecutive passes at load ~35. Unit 5232 / component agent+ctl 483 / cluster 53, exit 0.
 - ✅ **Fixed 2026-10-02 (D95, `c76288e` `732b77f`, NOT yet reviewed):** controller restart during staging no longer loses the fetch token — `RefreshFetchToken` (payload 18) on Reconcile + agent staging retry within `staging_retry_s` (60 s), verified chunks resumed. Upload grants are still not refreshed (upload across a restart → `output_error`). Unit 5245 / component agent+ctl 486 / cluster 53, exit 0; restart test 5/5 under load.
