@@ -27,7 +27,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from mf_agent_harness import make_controller_settings
 from mf_controller_harness import tolerant_liveness
 from mf_exec_harness import ExecAgent
-from mf_fabric import client_ssl_context, peer_client_context
+from mf_fabric import HARNESS_PEER_NODE, client_ssl_context, peer_client_context
 from mf_jobs_harness import token_of
 
 from meshforge.common.cas import MIN_CHUNK_SIZE
@@ -100,7 +100,7 @@ async def test_endpoint_advertised_key_installed_and_tokens_checked(
     def token(tree: Digest = x.tree.tree_id, holder: str = agent.node_id) -> str:
         return issuer.issue(
             tree=tree,
-            requester=new_node_id(),
+            requester=HARNESS_PEER_NODE,  # type: ignore[arg-type]
             holder=holder,  # type: ignore[arg-type]
             attempt_id=new_attempt_id(),
         )
@@ -114,14 +114,14 @@ async def test_endpoint_advertised_key_installed_and_tokens_checked(
         clock=lambda: time.time() - 1200,
     ).issue(
         tree=x.tree.tree_id,
-        requester=new_node_id(),
+        requester=HARNESS_PEER_NODE,  # type: ignore[arg-type]
         holder=agent.node_id,  # type: ignore[arg-type]
         attempt_id=new_attempt_id(),
     )
     forged = sign_peer_token(
         Ed25519PrivateKey.generate(),
         tree=x.tree.tree_id,
-        requester=new_node_id(),
+        requester=HARNESS_PEER_NODE,  # type: ignore[arg-type]
         holder=agent.node_id,  # type: ignore[arg-type]
         attempt_id=new_attempt_id(),
         now=time.time(),

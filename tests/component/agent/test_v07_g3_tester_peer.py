@@ -264,16 +264,6 @@ async def test_controller_name_is_never_satisfied_by_a_peer_node_cert(
 # ------------------------------------------------------------ token binding
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "T-2: the peer server never compares the token's requester (req) with the "
-        "node id of the client certificate (agent/peer/server.py only logs it): a peer "
-        "token minted for node B works for ANY enrolled node C that captured it "
-        "(THREAT_MODEL PB-S1 'partly mitigated, G3 follow-up'; brief D139/§5c: "
-        "'tokens scoped to the requester')."
-    ),
-)
 async def test_peer_token_minted_for_b_is_refused_to_node_c(tmp_path: Path) -> None:
     rig = await _rig(tmp_path)
     b, c = str(new_node_id()), str(new_node_id())

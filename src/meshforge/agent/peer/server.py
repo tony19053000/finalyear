@@ -30,6 +30,11 @@ body follows its head through ``loop.sendfile`` (zero copy where the OS has it).
 With Nagle off the head never waits for the peer's delayed ACK of a previous
 segment (the ~40 ms stall seen with split small writes).
 
+**Token bound to the caller (V0.7 G3, D155 T-2):** with TLS, a blob or probe
+token is served only when its ``req`` is the node id of the connection's client
+certificate (else ``403 requester_mismatch`` / ``probe_requester_mismatch``):
+a token captured by another enrolled node is useless to it.
+
 The server never logs a token; refusals are logged with their reason code.
 """
 
@@ -37,6 +42,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hmac
 import ipaddress
 import os
 import re
@@ -62,6 +68,7 @@ from meshforge.common.netaddr import check_bind_address
 __all__ = [
     "COALESCE_BYTES",
     "PeerBlobServer",
+    "PeerClient",
     "PeerServerStats",
     "PeerServerTls",
     "parse_range",
@@ -186,6 +193,14 @@ def _local_ip_towards(host: str) -> str | None:
         return None
 
 
+@dataclass(frozen=True, slots=True)
+class PeerClient:
+    """Who is on the other end of one TLS connection (its client certificate)."""
+
+    serial: str
+    node_id: str
+
+
 @dataclass(slots=True)
 class PeerServerTls:
     """The peer server's TLS (V0.7 G3, D139): a TLS 1.3 server context with
@@ -198,27 +213,33 @@ class PeerServerTls:
     fabric_id: str
     revoked: Callable[[], Collection[str]] = frozenset
 
-    def client_serial(self, ssl_object: object) -> tuple[str | None, str | None]:
-        """``(serial, None)`` when the connection's client may be served, else
+    def client(self, ssl_object: object) -> tuple[PeerClient | None, str | None]:
+        """``(client, None)`` when the connection's client may be served, else
         ``(None, reason)``. The serial is checked again before every request
-        (:meth:`revoked_now`): a revocation cuts a keep-alive connection too."""
+        (:meth:`revoked_now`): a revocation cuts a keep-alive connection too;
+        the node id binds every token on the connection (D155 T-2)."""
         getter = getattr(ssl_object, "getpeercert", None)
         der = getter(binary_form=True) if callable(getter) else None
         if not der:
             return None, "peer_cert_missing"
         try:
             cert = x509.load_der_x509_certificate(der)
-            pki.parse_node_id(cert, fabric_id=self.fabric_id)
+            node_id = str(pki.parse_node_id(cert, fabric_id=self.fabric_id))
         except (ValueError, pki.PkiError):
             return None, "peer_cert_not_a_node"
         serial = format(cert.serial_number, "x")
         if self.revoked_now(serial):
             return None, "peer_cert_revoked"
-        return serial, None
+        return PeerClient(serial=serial, node_id=node_id), None
+
+    def client_serial(self, ssl_object: object) -> tuple[str | None, str | None]:
+        """:meth:`client`'s serial only: ``(serial, None)`` or ``(None, reason)``."""
+        client, reason = self.client(ssl_object)
+        return (None if client is None else client.serial), reason
 
     def refusal(self, ssl_object: object) -> str | None:
         """``None`` when the connection's client may be served, else a reason."""
-        return self.client_serial(ssl_object)[1]
+        return self.client(ssl_object)[1]
 
     def revoked_now(self, serial: str) -> bool:
         return serial in self.revoked()
@@ -358,11 +379,9 @@ class PeerBlobServer:
     ) -> None:
         _set_nodelay(writer)
         self.stats.connections += 1
-        serial: str | None = None
+        client: PeerClient | None = None
         if self._tls is not None:
-            serial, refusal = self._tls.client_serial(
-                writer.get_extra_info("ssl_object")
-            )
+            client, refusal = self._tls.client(writer.get_extra_info("ssl_object"))
             if refusal is not None:
                 self.stats.refuse(refusal)
                 log.warning(
@@ -377,7 +396,7 @@ class PeerBlobServer:
             return
         self._active += 1
         try:
-            await self._serve(reader, writer, serial)
+            await self._serve(reader, writer, client)
         finally:
             self._active -= 1
 
@@ -385,7 +404,7 @@ class PeerBlobServer:
         self,
         reader: asyncio.StreamReader,
         writer: asyncio.StreamWriter,
-        serial: str | None = None,
+        client: PeerClient | None = None,
     ) -> None:
         loop = asyncio.get_running_loop()
         conn = h11.Connection(
@@ -424,9 +443,9 @@ class PeerBlobServer:
                     self._refuse_log("idle_timeout", None, None)
                 return
             if (
-                serial is not None
+                client is not None
                 and self._tls is not None
-                and self._tls.revoked_now(serial)
+                and self._tls.revoked_now(client.serial)
             ):
                 # V0.7 G3 (D138): revoked while this connection was open -
                 # nothing more is served on it.
@@ -441,7 +460,7 @@ class PeerBlobServer:
                     await asyncio.wait_for(writer.drain(), self._cfg.idle_timeout_s)
                 return
             keep = served < self._cfg.max_requests_per_conn
-            await self._respond(conn, writer, event, keep_alive=keep)
+            await self._respond(conn, writer, event, keep_alive=keep, client=client)
             if conn.our_state is h11.MUST_CLOSE or not keep:
                 return
             try:
@@ -516,6 +535,7 @@ class PeerBlobServer:
         request: h11.Request,
         *,
         keep_alive: bool,
+        client: PeerClient | None = None,
     ) -> None:
         headers: dict[bytes, list[bytes]] = {}
         for name, value in request.headers:
@@ -553,7 +573,14 @@ class PeerBlobServer:
         probe = _PROBE_RE.fullmatch(target)
         if probe is not None:
             await self._probe(
-                conn, writer, method, base, auth_values, int(probe.group(1)), simple
+                conn,
+                writer,
+                method,
+                base,
+                auth_values,
+                int(probe.group(1)),
+                simple,
+                client,
             )
             return
         match = _PATH_RE.fullmatch(target)
@@ -570,6 +597,9 @@ class PeerBlobServer:
         if result.status:
             extra = [(b"www-authenticate", b"Bearer")] if result.status == 401 else []
             await simple(result.status, result.reason, extra, digest=digest)
+            return
+        if self._requester_refused(client, requester):
+            await simple(403, "requester_mismatch", digest=digest, requester=requester)
             return
         try:
             # Opened on the loop, not in a thread: an open() + fstat() of a local
@@ -663,6 +693,20 @@ class PeerBlobServer:
             if owner.owns:
                 fh.close()
 
+    def _requester_refused(
+        self, client: PeerClient | None, requester: str | None
+    ) -> bool:
+        """V0.7 G3 (D155 T-2): with TLS a token serves only the node it was
+        minted for - its ``req`` must be the client certificate's node id.
+        Fails closed: no client identity or no requester on a TLS server is a
+        refusal. Plain HTTP (``insecure-dev``, loopback only) has no identity
+        to bind to."""
+        if self._tls is None:
+            return False
+        if client is None or requester is None:
+            return True
+        return not hmac.compare_digest(client.node_id, requester)
+
     async def _probe(
         self,
         conn: h11.Connection,
@@ -672,6 +716,7 @@ class PeerBlobServer:
         auth_values: list[bytes],
         size: int,
         simple: Callable[..., Awaitable[None]],
+        client: PeerClient | None = None,
     ) -> None:
         """``/v1/probe?bytes=N`` (module docstring, D111)."""
         if len(auth_values) > 1:
@@ -684,6 +729,9 @@ class PeerBlobServer:
             await simple(result.status, f"probe_{result.reason}", extra)
             return
         requester = None if result.probe is None else str(result.probe.requester)
+        if self._requester_refused(client, requester):
+            await simple(403, "probe_requester_mismatch", requester=requester)
+            return
         if size > self._cfg.probe_max_bytes:
             await simple(400, "probe_too_big", requester=requester)
             return

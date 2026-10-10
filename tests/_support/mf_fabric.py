@@ -48,6 +48,7 @@ if TYPE_CHECKING:
     from meshforge.controller.settings import ControllerSettings
 
 __all__ = [
+    "HARNESS_PEER_NODE",
     "NodeChannels",
     "ca_file",
     "ca_pem",
@@ -230,8 +231,13 @@ def client_ssl_context(*, node_id: str | None = None) -> ssl.SSLContext:
     return context
 
 
+HARNESS_PEER_NODE = "node_01J0HARNESS000000000000000"
+"""The node id :func:`peer_client_context` presents by default: a peer token
+the harness uses with it must name it as requester (D155 T-2)."""
+
+
 def peer_client_context(
-    node_id: str = "node_01J0HARNESS000000000000000",
+    node_id: str = HARNESS_PEER_NODE,
 ) -> ssl.SSLContext:
     """The agent's own client context for peer servers (fabric CA, node
     certificate of ``node_id``, peer identity checked by TLS server name)."""
