@@ -51,8 +51,10 @@ def _files(tmp: Path, node: str) -> tuple[Path, Path]:
 
 
 async def _server(
-    tmp: Path, holder: str, revoked: set[str]
+    tmp: Path, holder: str, revoked: set[str], requester: str
 ) -> tuple[PeerBlobServer, Digest, str]:
+    """A TLS peer server of ``holder`` and a token minted for ``requester``
+    (the fetcher whose certificate presents it, D155 T-2)."""
     cas = AgentCas.at(tmp / "cas-data")
     await cas.prepare()
     root = tmp / "tree"
@@ -81,7 +83,7 @@ async def _server(
     token = sign_peer_token(
         key,
         tree=built.tree.tree_id,
-        requester=new_node_id(),
+        requester=requester,  # type: ignore[arg-type]
         holder=holder,  # type: ignore[arg-type]
         attempt_id=new_attempt_id(),
         now=time.time(),
@@ -92,7 +94,7 @@ async def _server(
 async def test_peer_server_tls_rules(tmp_path: Path) -> None:
     holder, fetcher = str(new_node_id()), str(new_node_id())
     revoked: set[str] = set()
-    server, blob, token = await _server(tmp_path, holder, revoked)
+    server, blob, token = await _server(tmp_path, holder, revoked, fetcher)
     url = f"https://127.0.0.1:{server.port}/v1/blobs/{blob.hex}"
     headers = {"authorization": f"Bearer {token}"}
     expect = {"sni_hostname": peer_server_name(holder)}
@@ -164,7 +166,7 @@ async def test_a_serial_revoked_mid_connection_is_refused_at_its_next_request(
     gets nothing more."""
     holder, fetcher = str(new_node_id()), str(new_node_id())
     revoked: set[str] = set()
-    server, blob, token = await _server(tmp_path, holder, revoked)
+    server, blob, token = await _server(tmp_path, holder, revoked, fetcher)
     url = f"https://127.0.0.1:{server.port}/v1/blobs/{blob.hex}"
     headers = {"authorization": f"Bearer {token}"}
     expect = {"sni_hostname": peer_server_name(holder)}

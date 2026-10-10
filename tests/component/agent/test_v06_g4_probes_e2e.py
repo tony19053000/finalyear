@@ -289,8 +289,9 @@ async def test_the_probe_route_checks_token_kind_holder_and_size(
         now=now,
     )
     base = f"https://127.0.0.1:{b.peer.port}/v1/probe"
+    # A's own certificate: the probe token names A as requester (D155 T-2)
     async with httpx.AsyncClient(
-        trust_env=False, verify=peer_client_context(), timeout=10
+        trust_env=False, verify=peer_client_context(a.node_id), timeout=10
     ) as http:
 
         async def get(n: int, token: str | None) -> httpx.Response:

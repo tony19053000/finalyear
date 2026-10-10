@@ -14,11 +14,19 @@ CAS means ``404``: this node cannot vouch for membership.
 :meth:`PeerAuthorizer.authorize_probe` checks a **probe** token (V0.6 G4,
 D111) for the ``/v1/probe`` route instead: same key, same holder rule, a
 different token kind (a blob token is refused there and vice versa).
+
+**Bound to the caller (V0.7 G3, D155 T-2):** with TLS the server passes the
+client certificate's node id as ``expected_requester`` and a token whose
+``req`` is any other node is refused ``403 wrong_requester`` - before the tree
+lookup, so a captured token tells its thief nothing about this node's CAS.
+``expected_requester=""`` (TLS without a client identity) never matches: it
+fails closed. ``None`` = unbound (plain HTTP, ``insecure-dev`` only).
 """
 
 from __future__ import annotations
 
 import asyncio
+import hmac
 import time
 from collections import OrderedDict
 from collections.abc import Callable
@@ -39,9 +47,22 @@ from meshforge.common.peer_token import (
 )
 from meshforge.common.tree import TreeError, TreeLimits, parse_tree
 
-__all__ = ["AuthResult", "PeerAuthorizer"]
+__all__ = ["WRONG_REQUESTER", "AuthResult", "PeerAuthorizer"]
 
 _NOT_A_TREE: Final = frozenset[str]()
+
+WRONG_REQUESTER: Final = "wrong_requester"
+"""Refusal reason: the token was minted for another node (D155 T-2)."""
+
+
+def _requester_ok(expected: str | None, requester: str) -> bool:
+    """``expected`` None = unbound; otherwise a constant-time equality that an
+    empty ``expected`` (no client identity) never satisfies."""
+    if expected is None:
+        return True
+    if not expected:
+        return False
+    return hmac.compare_digest(expected.encode(), requester.encode())
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,7 +125,13 @@ class PeerAuthorizer:
 
     # ---------------------------------------------------------------- check
 
-    async def authorize(self, authorization: str | None, digest: Digest) -> AuthResult:
+    async def authorize(
+        self,
+        authorization: str | None,
+        digest: Digest,
+        *,
+        expected_requester: str | None = None,
+    ) -> AuthResult:
         key = self._key
         if key is None:
             return AuthResult(503, "no_key")
@@ -119,6 +146,8 @@ class PeerAuthorizer:
             )
         except PeerTokenError as exc:
             return AuthResult(403, exc.reason)
+        if not _requester_ok(expected_requester, str(claims.requester)):
+            return AuthResult(403, WRONG_REQUESTER)
         if digest == claims.tree:
             return AuthResult(0, "tree", claims)
         members = await self._tree_members(claims.tree)
@@ -128,8 +157,11 @@ class PeerAuthorizer:
             return AuthResult(403, "not_in_tree")
         return AuthResult(0, "member", claims)
 
-    def authorize_probe(self, authorization: str | None) -> AuthResult:
-        """A ``/v1/probe`` request (D111): a valid probe token for this node."""
+    def authorize_probe(
+        self, authorization: str | None, *, expected_requester: str | None = None
+    ) -> AuthResult:
+        """A ``/v1/probe`` request (D111): a valid probe token for this node
+        (bound to ``expected_requester`` as :meth:`authorize` is)."""
         key = self._key
         if key is None:
             return AuthResult(503, "no_key")
@@ -144,6 +176,8 @@ class PeerAuthorizer:
             )
         except PeerTokenError as exc:
             return AuthResult(403, exc.reason)
+        if not _requester_ok(expected_requester, str(claims.requester)):
+            return AuthResult(403, WRONG_REQUESTER)
         return AuthResult(0, "probe", probe=claims)
 
     async def _tree_members(self, tree_id: Digest) -> frozenset[str] | None:

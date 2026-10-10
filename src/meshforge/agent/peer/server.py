@@ -32,8 +32,9 @@ segment (the ~40 ms stall seen with split small writes).
 
 **Token bound to the caller (V0.7 G3, D155 T-2):** with TLS, a blob or probe
 token is served only when its ``req`` is the node id of the connection's client
-certificate (else ``403 requester_mismatch`` / ``probe_requester_mismatch``):
-a token captured by another enrolled node is useless to it.
+certificate (else ``403 wrong_requester`` / ``probe_wrong_requester``, checked
+by :class:`PeerAuthorizer` before any CAS lookup): a token captured by another
+enrolled node is useless to it.
 
 The server never logs a token; refusals are logged with their reason code.
 """
@@ -42,7 +43,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import hmac
 import ipaddress
 import os
 import re
@@ -592,14 +592,13 @@ class PeerBlobServer:
             await simple(400, "duplicate_header", digest=digest)
             return
         authorization = auth_values[0].decode("latin-1") if auth_values else None
-        result = await self._auth.authorize(authorization, digest)
+        result = await self._auth.authorize(
+            authorization, digest, expected_requester=self._expected_requester(client)
+        )
         requester = None if result.claims is None else str(result.claims.requester)
         if result.status:
             extra = [(b"www-authenticate", b"Bearer")] if result.status == 401 else []
             await simple(result.status, result.reason, extra, digest=digest)
-            return
-        if self._requester_refused(client, requester):
-            await simple(403, "requester_mismatch", digest=digest, requester=requester)
             return
         try:
             # Opened on the loop, not in a thread: an open() + fstat() of a local
@@ -693,19 +692,15 @@ class PeerBlobServer:
             if owner.owns:
                 fh.close()
 
-    def _requester_refused(
-        self, client: PeerClient | None, requester: str | None
-    ) -> bool:
+    def _expected_requester(self, client: PeerClient | None) -> str | None:
         """V0.7 G3 (D155 T-2): with TLS a token serves only the node it was
-        minted for - its ``req`` must be the client certificate's node id.
-        Fails closed: no client identity or no requester on a TLS server is a
-        refusal. Plain HTTP (``insecure-dev``, loopback only) has no identity
-        to bind to."""
+        minted for - the client certificate's node id. Fails closed: a TLS
+        server without a client identity expects ``""``, which no token
+        matches. Plain HTTP (``insecure-dev``, loopback only) has no identity
+        to bind to (``None`` = unbound)."""
         if self._tls is None:
-            return False
-        if client is None or requester is None:
-            return True
-        return not hmac.compare_digest(client.node_id, requester)
+            return None
+        return "" if client is None else client.node_id
 
     async def _probe(
         self,
@@ -723,15 +718,14 @@ class PeerBlobServer:
             await simple(400, "duplicate_header")
             return
         authorization = auth_values[0].decode("latin-1") if auth_values else None
-        result = self._auth.authorize_probe(authorization)
+        result = self._auth.authorize_probe(
+            authorization, expected_requester=self._expected_requester(client)
+        )
         if result.status:
             extra = [(b"www-authenticate", b"Bearer")] if result.status == 401 else []
             await simple(result.status, f"probe_{result.reason}", extra)
             return
         requester = None if result.probe is None else str(result.probe.requester)
-        if self._requester_refused(client, requester):
-            await simple(403, "probe_requester_mismatch", requester=requester)
-            return
         if size > self._cfg.probe_max_bytes:
             await simple(400, "probe_too_big", requester=requester)
             return

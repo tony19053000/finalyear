@@ -26,7 +26,7 @@ from meshforge.common.fabric_tls import peer_server_name
 pytest.importorskip("sqlalchemy", reason="needs the controller extra")
 
 from mf_exec_harness import submit, wait_job
-from mf_fabric import peer_client_context
+from mf_fabric import HARNESS_PEER_NODE, peer_client_context
 from test_v05_g4_peer_fetch import (  # noqa: F401  (fixtures + helpers)
     _a_holds,
     _http,
@@ -42,7 +42,7 @@ from test_v05_g4_peer_fetch import (  # noqa: F401  (fixtures + helpers)
 )
 
 from meshforge.agent.session.state import AgentState
-from meshforge.common.ids import new_attempt_id, new_node_id
+from meshforge.common.ids import new_attempt_id
 from meshforge.controller.server import ControllerRuntime
 from meshforge.controller.store.settings import DatabaseSettings
 
@@ -99,7 +99,7 @@ async def test_old_key_token_refused_after_controller_key_change(
         assert rt.peer_tokens is not None
         return rt.peer_tokens.issue(
             tree=built.tree.tree_id,
-            requester=new_node_id(),  # type: ignore[arg-type]
+            requester=HARNESS_PEER_NODE,  # type: ignore[arg-type]
             holder=a.node_id,
             attempt_id=new_attempt_id(),
         )
