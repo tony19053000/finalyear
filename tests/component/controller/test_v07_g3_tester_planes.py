@@ -24,7 +24,7 @@ import httpx
 import pytest
 import pytest_asyncio
 from cryptography import x509
-from mf_fabric import NodeChannels, client_ssl_context
+from mf_fabric import NodeChannels, ca_pem, client_ssl_context
 from mf_forged_certs import (
     CLIENT,
     SERVER,
@@ -564,3 +564,42 @@ async def test_a_node_revoked_between_enrolment_and_its_first_hello_never_gets_i
     assert info.value.code() is grpc.StatusCode.PERMISSION_DENIED
     record = await registry.get_node(identity.node_id)
     assert record is not None and record.state.value == "revoked"
+
+
+@pytest.mark.parametrize(
+    "method",
+    [
+        "/meshforge.v1.Enrollment/Enroll",
+        "/meshforge.v1.GpuService/OpenSession",
+        "/meshforge.v1.AgentControl/Nonexistent",
+        "/grpc.reflection.v1alpha.ServerReflection/ServerReflectionInfo",
+        "/grpc.health.v1.Health/Check",
+    ],
+)
+async def test_session_port_serves_nothing_but_the_session_rpc(
+    runtime: ControllerRuntime, method: str
+) -> None:
+    """Every other RPC path - with a perfectly valid node certificate - is
+    unimplemented; without any certificate the handshake itself fails."""
+    ok = forge()
+    async with grpc.aio.secure_channel(
+        _target(runtime),
+        grpc_credentials(ok),
+        options=[("grpc.ssl_target_name_override", pki.SERVER_NAME)],
+    ) as channel:
+        call = channel.unary_unary(method)
+        with pytest.raises(grpc.aio.AioRpcError) as info:
+            await call(b"", timeout=5)
+    assert info.value.code() in {
+        grpc.StatusCode.UNIMPLEMENTED,
+        grpc.StatusCode.UNAUTHENTICATED,
+    }
+    anonymous = grpc.ssl_channel_credentials(root_certificates=ca_pem())
+    async with grpc.aio.secure_channel(
+        _target(runtime),
+        anonymous,
+        options=[("grpc.ssl_target_name_override", pki.SERVER_NAME)],
+    ) as channel:
+        with pytest.raises(grpc.aio.AioRpcError) as info:
+            await channel.unary_unary(method)(b"", timeout=5)
+    assert info.value.code() is grpc.StatusCode.UNAVAILABLE
