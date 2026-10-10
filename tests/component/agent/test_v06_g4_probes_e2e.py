@@ -43,7 +43,7 @@ from sqlalchemy import text
 from meshforge.agent.peer.probe import ProbeService
 from meshforge.agent.settings import ProbeSettings
 from meshforge.common.hashing import Digest
-from meshforge.common.ids import new_attempt_id
+from meshforge.common.ids import new_attempt_id, new_node_id
 from meshforge.common.peer_token import sign_peer_token, sign_probe_token
 from meshforge.common.proto.meshforge.v1 import agent_pb2
 from meshforge.controller.liveness import NodeState
@@ -324,11 +324,25 @@ async def test_the_probe_route_checks_token_kind_holder_and_size(
 async def test_store_folds_samples_as_ewma_and_restarts_a_stale_link(
     runtime: ControllerRuntime, pair: tuple[ExecAgent, ExecAgent], pg_settings: Any
 ) -> None:
-    a, b = pair
+    # The live prober (probe_gap_s 0.2) keeps measuring the real pair and would
+    # fold its own samples into a pair this test records by hand (a race seen
+    # as a 35.99 ms EWMA instead of 50.0). So the samples go to two OFFLINE
+    # node rows it never probes: no session, no ProbeRequest (D155).
+    assert len(pair) == 2  # the prober is running meanwhile
     engine = create_engine(pg_settings)
     try:
+        a, b = (SimpleNamespace(node_id=str(new_node_id())) for _ in range(2))
         async with engine.begin() as conn:
-            await conn.execute(text("DELETE FROM network_link"))
+            for node in (a, b):
+                await conn.execute(
+                    text(
+                        "INSERT INTO node (node_id, hostname, os, platform, "
+                        "hardware, state, first_seen_at, last_seen_at, "
+                        "session_epoch) VALUES (:n, 'h', 'l', 'p', '{}', "
+                        "'offline', now(), now(), 1)"
+                    ),
+                    {"n": node.node_id},
+                )
         store = NetworkStore(engine)
         now = dt.datetime.now(dt.UTC)
         kw: dict[str, Any] = {"alpha": 0.3, "stale_after_s": 3600.0}
