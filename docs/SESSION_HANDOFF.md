@@ -8,9 +8,9 @@
 >
 > ```
 > Read docs/SESSION_HANDOFF.md (§0e first, then §1 and §2), then docs/STATUS.md, then
-> docs/briefs/V0.6-scheduling-reliability.md. RULE: run ONE subagent at a time (team, re-imposed 2026-10-01).
-> V0.5 CLOSED agent-side (🧑 0.5.11 lab open). V0.6 started 2026-10-05 — see §2 "V0.6 state".
-> Next: whichever V0.6 group round is pending (implementer → tester → fix → reviewer → close).
+> docs/briefs/V0.7-security-pairing.md. RULE: run ONE subagent at a time (team, re-imposed 2026-10-01).
+> V0.7 G1+G2 CLOSED; G3 (mTLS + revocation) in fix round 1 — see §1 "2026-10-11" entry.
+> Next: whichever G3 round is pending (fix → tester r2 → reviewer → close).
 > Check git log and docs/briefs/progress/ first to see which round last finished.
 > ```
 >
@@ -31,7 +31,7 @@
 > throughput measurements and the reasoning; if you think the arithmetic or the trade is wrong,
 > **say so to the team before building on it.** Do not silently re-expand the scope either.
 
-**Last updated:** 2026-10-07 (**V0.6 G4 CLOSED + reviewer follow-ups done `1f037f2`; next: V0.7 brief; 0.6.13 🧑 lab open** · older: **V0.6 G1–G3 CLOSED; G4 fix round 1 stopped during its exit list — see §2 top UPDATE**; older note: **V0.5 CLOSED agent-side** (🧑 0.5.11 lab open) · **V0.6 started**: brief + ADR-0015 written (`94b8b64`), 4 sequential groups G1–G4, **G1 + G2 CLOSED**; **next: G3 implementer** (brief §5c + N-1) — see §2 "V0.6 state") · **Updated by:** Lead session
+**Last updated:** 2026-10-11 (**V0.7 G3 fix round 1 in flight** — see §1) · older: 2026-10-07 (**V0.6 G4 CLOSED + reviewer follow-ups done `1f037f2`; next: V0.7 brief; 0.6.13 🧑 lab open** · older: **V0.6 G1–G3 CLOSED; G4 fix round 1 stopped during its exit list — see §2 top UPDATE**; older note: **V0.5 CLOSED agent-side** (🧑 0.5.11 lab open) · **V0.6 started**: brief + ADR-0015 written (`94b8b64`), 4 sequential groups G1–G4, **G1 + G2 CLOSED**; **next: G3 implementer** (brief §5c + N-1) — see §2 "V0.6 state") · **Updated by:** Lead session
 
 ---
 
@@ -265,7 +265,13 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
-**2026-10-08 — V0.7 G3 STARTED:** brief §5c written (`e197750`); G3 implementer: deliverables 0-2 committed (`64c2f1e`..`e0529d6`), 3 committed `8ba7152`; 4 committed `d779037`; part-1 exit list GREEN at `5b4ba3d` (unit 8128, component 1382, cluster 69, chaos 3; see progress file); part-2 implementer DONE (HEAD `5e68599`; component had 1 flaky failure in probes_e2e, likely pre-G3 race); rulings D154; G3 tester r1 FAIL (T-1 superseded live session, T-2 major peer token req unbound, T-3 session outlives cert; D155) → fix round 1 running; 5-8 = second implementer run. (Prior:) **2026-10-08 — V0.7 G2 CLOSED** (0.7.3, 0.7.4 `[x]`, reviewer APPROVE; non-blocking → D153 = G3 item 0). Next: Lead writes brief §5c (G3: 0.7.5 mTLS everywhere, 0.7.7a revocation, D147 peer token ≤60 s, D149 carry-over server-cert hot reload, D153 item 0), then G3 implementer. Nothing in flight.
+**2026-10-11 — V0.7 G3 IN FIX ROUND 1** (brief §5c `e197750`; rulings D154, D155).
+- Implementer done, deliverables 0-8 (`64c2f1e`..`5e68599`): mTLS session port, HTTPS REST/blobs, peer TLS with required client cert, server-cert hot reload, `[security] mode`, 60 s peer tokens (D147), revocation + migration **0016** (G4 takes 0017), D146 plaintext recorder. Exit list: all green except whole component 1 flaky failure (probes_e2e race, pre-G3).
+- D154: enroll stays on its own TLS port 47101 (grpcio cannot do optional client cert on one port); no un-revoke (re-join as new node); re-join supersedes old serial.
+- Tester r1 FAIL (HEAD `e0f9fda` + tester commits): T-1 superseded cert's live session not cut; **T-2 major** peer server ignores token `req` vs client cert node_id; T-3 session outlives cert expiry. Strict xfails in tests/component/controller/test_v07_g3_tester_planes.py and tests/component/agent/test_v07_g3_tester_peer.py. Ruling D155 (also: fix probes_e2e race in the test; document 60 s token vs 30 s clock skew).
+- **In flight:** fix-round-1 implementer (started 2026-10-10). Uncommitted edits seen 2026-10-11 in agent/peer/server.py, tests/_support/mf_fabric.py, two peer tests = T-2 fix in progress. If the session ended: commit them as `wip`, check docs/briefs/progress/V0.7-G3.md, resume a fix implementer with D155.
+- **Next:** fix round 1 exit list green → tester r2 → reviewer (also reads invites.py / migration 0015 / fabric_routes in full, per D153) → close 0.7.5 `[x]`, 0.7.7 stays `[~]` (rotation = G4).
+- 🧑 Every lab laptop must re-join after G3. Tester wrote lab/checklists/V0.7-G3-mtls-revocation.md — fold into 0.7.12. Watch: cluster wss-follow flake (test_fabric_outputs_logs, once).
 
 Older: **2026-10-08 — V0.7 G2 STARTED:** brief §5b + D150/D151 written (`f17f623`); G2 implementer DONE (`75e5d7d`..`ee7ac57`, exit list green; deviations 1-8 in progress file hand-off) → tester r1 FAIL (`bfe7a84`: T-1 major IPv6 rate limit bypass, T-2/T-3 minor; ruling D152) → fix round 1 DONE (`80bcbd3`, `beb9e4d`, exit list green) → tester r2 PASS (no new defects) → reviewer APPROVE → CLOSED.
 
