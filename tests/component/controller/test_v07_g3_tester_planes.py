@@ -512,3 +512,55 @@ async def test_a_session_does_not_outlive_its_certificate(
             assert agent.ended.is_set(), "still connected with an expired certificate"
         finally:
             await agent.close()
+
+
+async def test_a_node_revoked_between_enrolment_and_its_first_hello_never_gets_in(
+    runtime: ControllerRuntime,
+    registry: Registry,
+    pg_settings: DatabaseSettings,
+    tmp_path: Any,
+) -> None:
+    """Real join, then revoke while the row is still ``enrolling`` (no Hello
+    ever seen): its certificate must be refused on the session and HTTPS planes
+    and its serial must reach the revocation set (peers would otherwise accept
+    the cert)."""
+    from mf_fabric import identity_channel
+
+    from meshforge.agent import enrollment as agent_enrollment
+    from meshforge.agent.identity import load_or_create
+    from meshforge.controller.enrollment.codes import issue_code
+    from meshforge.controller.enrollment.invites import InviteStore
+
+    assert runtime.fabric is not None
+    engine = create_engine(pg_settings)
+    try:
+        new = await InviteStore(engine).create(ttl_s=900, actor="test")
+        code = issue_code(
+            new, fabric=runtime.fabric, host="127.0.0.1", port=runtime.enroll_port
+        ).code
+    finally:
+        await engine.dispose()
+    identity = load_or_create(tmp_path / "laptop" / "identity")
+    joined = await asyncio.to_thread(agent_enrollment.join, identity, code)
+    serial = format(joined.enrollment.node_cert.serial_number, "x")
+    async with api_client(runtime, token=token_of(runtime)) as http:
+        assert (
+            await http.post(f"/v1/nodes/{identity.node_id}/revoke")
+        ).status_code == 200
+    assert runtime.revocations is not None
+    assert serial in runtime.revocations.serials, (
+        "serial of an enrolling node not revoked"
+    )
+    channel = identity_channel(_target(runtime), identity)
+    async with channel:
+        call = agent_pb2_grpc.AgentControlStub(channel).Session(timeout=10)
+        await call.write(
+            agent_pb2.AgentMessage(
+                message_id=new_command_id(), hello=make_hello(identity.node_id, 1)
+            )
+        )
+        with pytest.raises(grpc.aio.AioRpcError) as info:
+            await call.read()
+    assert info.value.code() is grpc.StatusCode.PERMISSION_DENIED
+    record = await registry.get_node(identity.node_id)
+    assert record is not None and record.state.value == "revoked"
