@@ -317,7 +317,9 @@ async def test_signer_refuses_a_token_longer_than_sixty_seconds() -> None:
         )
 
 
-async def test_verifier_refuses_a_properly_signed_token_that_outlives_sixty_seconds() -> None:
+async def test_verifier_refuses_a_properly_signed_token_that_outlives_sixty_seconds() -> (
+    None
+):
     """A signer that erred (or a stolen signing key used badly) cannot produce a
     long-lived token: the verifier enforces the cap itself."""
     import base64
