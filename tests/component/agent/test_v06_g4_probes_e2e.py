@@ -239,6 +239,9 @@ async def test_a_restarted_prober_keeps_the_interval_of_stored_links(
             self.sent.append((node_id, payload.target_node_id))
             return "cmd"
 
+    async def no_gpu_busy() -> set[str]:
+        return set()
+
     async def run_for(seconds: float) -> tuple[Sessions, NetworkProber]:
         sessions = Sessions()
         prober = NetworkProber(
@@ -247,8 +250,25 @@ async def test_a_restarted_prober_keeps_the_interval_of_stored_links(
             PeerTokenIssuer(key, clock=time.time),
             NetworkSettings(probe_gap_s=0.1, probe_jitter=0.0),
             clock=time.monotonic,
+            # Not the database: every tick would read the GPU-busy view, and
+            # the cancel below could land mid-query, leaking an asyncpg socket
+            # (an unraisable ResourceWarning that fails a LATER test's setup).
+            # Only restore() touches the table here, before the window starts.
+            gpu_busy=no_gpu_busy,
         )
+        # The window starts once restore() has read the table: a cancel that
+        # landed in its connect (slow under load) leaked the asyncpg socket.
+        restored = asyncio.Event()
+        restore = prober.restore
+
+        async def restore_then_signal() -> int:
+            pairs = await restore()
+            restored.set()
+            return pairs
+
+        prober.restore = restore_then_signal  # type: ignore[method-assign]
         task = asyncio.create_task(prober.run())
+        await asyncio.wait_for(restored.wait(), timeout=30)
         await asyncio.sleep(seconds)
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
