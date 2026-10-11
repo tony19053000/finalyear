@@ -82,6 +82,12 @@ RESET_SPACING_S = 0.4
 ACK_DELAY_MS = 300.0
 """Controller -> agent latency in test_f: longer than one report period
 (~230 ms), shorter than the ONLINE window between resets (D157)."""
+FRESH_S = 0.1
+"""test_f resets only when the controller's newest sample arrived less than this
+ago (V0.7 G5, D158 F6): its Ack is then still in the proxy's delay queue."""
+UNACKED_BUDGET_S = ACK_DELAY_MS / 1000.0 - 0.1
+"""The sample's age at the reset must stay below this (100 ms margin under the
+Ack delay), else the attempt is not used and the test waits for the next one."""
 EPOCH = dt.datetime(1970, 1, 1, tzinfo=dt.UTC)
 
 
@@ -123,6 +129,31 @@ def _reset_and_wait(fabric: Fabric, node: Node) -> None:
     node.link.reset_peer()
     fabric.wait_log(node.process, "agent.session.reconciled", within=10.0, after=before)
     fabric.wait_state(node, "online", connected=True, within=10.0)
+
+
+def _reset_with_a_counted_unacked_report(fabric: Fabric, node: Node) -> int:
+    """Reset only once a report is counted but provably unacked (D158 F6).
+
+    Poll the controller's newest live sample; when it arrived less than
+    ``FRESH_S`` ago, reset at once - the controller counted it, and its Ack (sent
+    after the count) is still ``ACK_DELAY_MS`` away in the proxy's delay queue,
+    which the reset discards. The time from the fetch to the reset is measured;
+    if the sample would have been older than ``UNACKED_BUDGET_S`` by then (a slow
+    REST call) the reset is not done and the next report is used. Returns the
+    sequence that must be replayed as a duplicate."""
+    deadline = time.monotonic() + 15.0
+    while time.monotonic() < deadline:
+        fetched = time.monotonic()
+        body = fabric.resources(node, live_limit=1, limit=1)
+        live = [] if body is None else body["live"]
+        if live and float(live[-1]["age_s"]) < FRESH_S:
+            age_at_reset = float(live[-1]["age_s"]) + (time.monotonic() - fetched)
+            if age_at_reset < UNACKED_BUDGET_S:
+                sequence = int(live[-1]["sequence"])
+                _reset_and_wait(fabric, node)
+                return sequence
+        time.sleep(0.01)
+    fabric.fail(f"{node.name}: no fresh counted report to reset on within 15 s")
 
 
 class Account:
@@ -252,10 +283,12 @@ def test_f_replayed_reports_are_never_counted_twice(make_fabric: MakeFabric) -> 
     time.sleep(0.5)
 
     # RESETS resets spanning < bucket_s touch at most two buckets, so by
-    # pigeonhole one bucket sees at least two resets.
+    # pigeonhole one bucket sees at least two resets. D158 F6: each reset waits
+    # for a counted-but-unacked report, so every reconnect must replay one.
+    forced: list[int] = []
     first_reset = time.monotonic()
     for i in range(RESETS):
-        _reset_and_wait(fabric, node)
+        forced.append(_reset_with_a_counted_unacked_report(fabric, node))
         if i < RESETS - 1:
             time.sleep(RESET_SPACING_S)
     assert time.monotonic() - first_reset < bucket_s
@@ -269,9 +302,13 @@ def test_f_replayed_reports_are_never_counted_twice(make_fabric: MakeFabric) -> 
     assert len(acc.replays) == RESETS
     assert acc.replayed, "no report was ever replayed: the scenario is vacuous"
     assert acc.duplicates, "no replayed report reached the controller twice"
-    # D157: the construction is deterministic, not lucky - (nearly) every
-    # reconnect replayed an already counted report (40/40 in 10 runs).
-    assert acc.replays_with_duplicates() >= RESETS - 1, acc.describe()
+    # D158 F6: deterministic by construction - every reset happened while a
+    # counted report was unacked, so every reconnect replayed it and the
+    # controller rejected it as a duplicate.
+    dup_sequences = {int(d["sequence"]) for d in acc.duplicates}
+    assert set(forced) <= acc.replayed, (forced, acc.describe())
+    assert set(forced) <= dup_sequences, (forced, sorted(dup_sequences))
+    assert acc.replays_with_duplicates() == RESETS, acc.describe()
 
     # The live ring: every delivered sequence exactly once, none missing.
     assert len(acc.sequences) == len(set(acc.sequences)), acc.describe()
