@@ -265,7 +265,7 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
-**2026-10-11 (later) — V0.7 G4 STARTED.** Brief §5d written (`c15a57d`): item 0 (D156 + wss flake), 1 node cert rotation, 2 migration 0018, 3-4 users/API tokens/compute login, 5 D145(d), 6 tests, 7 docs. **G4 implementer RUNNING** (only agent). If this session died: check git log `V0.7-G4` + docs/briefs/progress/V0.7-G4.md, relaunch an implementer with §5d + "resume from <last done item>". Then tester → reviewer.
+**2026-10-11 (later) — V0.7 G4 STARTED.** Brief §5d written (`c15a57d`): item 0 (D156 + wss flake), 1 node cert rotation, 2 migration 0018, 3-4 users/API tokens/compute login, 5 D145(d), 6 tests, 7 docs. **G4 implementer run 1 cut by usage limit** after item 0 `011e920`, migration 0018 `9cd50c5`, rotation `7c3e14a` (exit list not run). **Run 2 RUNNING**: gates, then deliverables 3-7. If this session died: check git log `V0.7-G4` + docs/briefs/progress/V0.7-G4.md, relaunch an implementer with §5d + "resume from <last done item>". Then tester → reviewer.
 
 **2026-10-11 (end) — V0.7 G3 CLOSED.** Fix r1 `e094f10`..`b9ea681` → tester r2 PASS `42679c7` → reviewer APPROVE. 0.7.5 `[x]`, 0.7.7 `[~]`. D156: G4 takes migration **0018**, G6 **0019**; G4 item 0 = reviewer non-blocking list in D156; wss-follow flake tracked. Nothing in flight. Next: Lead writes brief §5d (G4 rotation) then G4 implementer.
 
