@@ -207,3 +207,29 @@ async def test_a_follow_that_ends_normally_leaves_no_registration(
     while len(streams) and time.monotonic() < deadline:  # noqa: ASYNC110
         await asyncio.sleep(0.05)
     assert len(streams) == 0  # the client went away: unregistered
+
+
+async def test_a_disabled_user_with_an_unrevoked_token_is_closed_too(
+    runtime: ControllerRuntime, engine: AsyncEngine, agent: ExecAgent, tmp_path: Path
+) -> None:
+    """``user disable`` revokes the tokens in the same transaction; the
+    re-check also refuses a disabled user on its own (like ``authenticate``),
+    so a row flipped by hand cannot keep a stream alive."""
+    await create_user(engine, "alice", ALICE_PW)
+    await create_user(engine, "admin", ADMIN_PW, admin=True)
+    async with httpx.AsyncClient(base_url=_base(runtime), timeout=30) as anon:
+        token = await login(anon, "alice", ALICE_PW)
+        admin = await login(anon, "admin", ADMIN_PW)
+    job_id = await _running_job(runtime, token, agent, tmp_path)
+    async with (
+        _follow(runtime, job_id, token) as ws,
+        _follow(runtime, job_id, admin) as kept,
+    ):
+        async with engine.begin() as db:
+            await db.execute(
+                text("UPDATE app_user SET disabled = true WHERE name = 'alice'")
+            )
+        code, elapsed = await _closed_within(ws, 5.0)
+        assert code == 4401
+        assert elapsed < RECHECK_S * 2 + 1.0, elapsed
+        await _still_streaming(kept)
