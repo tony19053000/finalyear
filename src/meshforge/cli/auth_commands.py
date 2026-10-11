@@ -204,6 +204,9 @@ def login(
     from meshforge.cli.client import ControllerError, exit_code_for
     from meshforge.cli.credentials import credentials_dir, save_login
 
+    if password_stdin and user is None:
+        # stdin carries the password; the name cannot be prompted for too.
+        cli._die("--password-stdin needs --user NAME", ExitCode.USAGE_ERROR)
     settings = cli._settings()
     url = _url(settings, controller)
     trusted = _trusted_ca(settings, url, ca or cli._CA_FILE.get(), fingerprint)

@@ -411,3 +411,13 @@ def test_pinned_ca_keeps_only_the_fingerprinted_issuer() -> None:
     assert pinned_ca([attacker, ca.cert], full, require_full=True) is None
     assert pinned_ca([], full, require_full=True) is None
     assert pinned_ca([server], full, require_full=True) is None
+
+
+def test_password_stdin_needs_a_user_name(runner: CliRunner, creds: Path) -> None:
+    result = runner.invoke(
+        cli_app.app,
+        ["login", "--ca", str(ca_file()), "--password-stdin"],
+        input=PASSWORD + "\n",
+    )
+    assert result.exit_code == ExitCode.USAGE_ERROR
+    assert PASSWORD not in result.output
