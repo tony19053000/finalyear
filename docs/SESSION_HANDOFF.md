@@ -265,7 +265,7 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
-**2026-10-11 (resume) — G4 exit-list implementer DONE (`0b4966c`..`e61e23c`, hand-off in progress/V0.7-G4.md; all gates exit 0 except whole component 1 env-only GPU probe failure, pre-G4). G4 tester r1 FAIL (`6c25ba3`; T-1..T-3 minor + 2 flakes) → ruling D157 → fix round 1 implementer SPAWNED.** If this session died: check git log for `V0.7-G4` commits after `b1e66c8` and docs/briefs/progress/V0.7-G4.md; relaunch with the same scope.
+**2026-10-11 (resume) — G4 exit-list implementer DONE (`0b4966c`..`e61e23c`, hand-off in progress/V0.7-G4.md; all gates exit 0 except whole component 1 env-only GPU probe failure, pre-G4). G4 tester r1 FAIL (`6c25ba3`; T-1..T-3 minor + 2 flakes) → ruling D157 → fix round 1 DONE (`9cbc258`..`8ecea92`; unit/cluster exit 0, component 3 fails: GPU env + 2 load flakes passing 3/3 on rerun) → tester r2 SPAWNED.** If this session died: check git log for `V0.7-G4` commits after `b1e66c8` and docs/briefs/progress/V0.7-G4.md; relaunch with the same scope.
 
 **2026-10-11 (stop) — V0.7 G4 implementer STOPPED by the user during its final exit list. Nothing running, tree clean at `3434cd7`.**
 - Brief §5d `c15a57d`. All deliverables 0-7 committed: item 0 `011e920`, migration 0018 `9cd50c5` (done before rotation - deviation, rotation needs pending-cert columns), rotation `7c3e14a`, users/tokens/D148 `fa695a0`, CLI login `d3c7a79`, D145(d) `c867ed6`, tests `cac4684`, docs `0bf2209`, then exit-list fixes `5efd0dc` (pre-G4 component tests authenticate), `1dcea8e` (25 mutants all caught, 2 new tests), `3434cd7` (cluster hardware-scores CLI authenticates).
