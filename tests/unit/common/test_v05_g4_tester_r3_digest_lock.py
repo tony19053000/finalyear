@@ -69,30 +69,42 @@ def test_upload_and_fetch_of_the_same_digest_in_parallel(tmp_path: Path) -> None
         except BaseException as exc:  # noqa: BLE001
             errors.append(exc)
 
+    deadline = time.monotonic() + 60.0
+
     def reader() -> None:
-        while not done.is_set():
+        # Bounded (D157): whatever happens to the uploaders or the asserts
+        # below, this loop ends by itself - a failure never hangs pytest.
+        while not done.is_set() and time.monotonic() < deadline:
             try:
                 if store.has(digest):
                     with store.open_read(digest) as fh:
                         assert sha256_bytes(fh.read()) == digest
             except BaseException as exc:  # noqa: BLE001
                 errors.append(exc)
+                return  # one failure is enough; do not spin on it
 
-    r = threading.Thread(target=reader)
+    # Daemon threads: a thread wedged in a deadlock cannot keep the
+    # interpreter alive after the test failed.
+    r = threading.Thread(target=reader, daemon=True)
     r.start()
     fwd = list(range(len(parts)))
     ts = [
-        threading.Thread(target=uploader, args=(fwd[::-1] if k % 2 else fwd,))
+        threading.Thread(
+            target=uploader, args=(fwd[::-1] if k % 2 else fwd,), daemon=True
+        )
         for k in range(6)
     ]
-    for t in ts:
-        t.start()
-    for t in ts:
-        t.join(30)
-        assert not t.is_alive(), "deadlock between uploaders"
-    done.set()
-    r.join(10)
-    assert not errors, errors
+    try:
+        for t in ts:
+            t.start()
+        for t in ts:
+            t.join(30)
+            assert not t.is_alive(), "deadlock between uploaders"
+    finally:
+        done.set()
+        r.join(10)
+    assert not r.is_alive(), "the reader did not stop"
+    assert not errors, errors[:3]
     assert store.has(digest)
     assert store.resumes_in_progress() == 0
 
@@ -131,7 +143,7 @@ def test_process_killed_holding_the_digest_lock_does_not_wedge_next_start(
             p.write_chunk(i, c, sha256_bytes(c).hex)
         result.append(p.complete())
 
-    t = threading.Thread(target=go)
+    t = threading.Thread(target=go, daemon=True)  # a wedge must not hang pytest
     t.start()
     t.join(30)
     assert result, "next start wedged"
