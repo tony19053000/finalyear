@@ -42,6 +42,9 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 > V0.10. 129 tasks vs 140–180 capacity → **~1.5 tasks/session**. Needs the other three team members' approval.
 
 ## Current Task
+
+- 2026-10-12: V0.7 G4 fix round 1 done (`9cbc258`..`8ecea92`, D157). Next: G4 tester r2 → reviewer → close 0.7.6/0.7.7. See SESSION_HANDOFF §1.
+
 **2026-10-11 — V0.7 G4 code committed (`011e920`..`3434cd7`), exit list unfinished (implementer stopped by the user).** Rotation, migration 0018, users + API tokens + `compute login`, D148, D145(d), docs. **Next: implementer finishes exit list + missing tests + hand-off → tester → reviewer.** See handoff §1.
 
 **2026-10-11 — V0.7 G3 CLOSED** (0.7.5 `[x]`, 0.7.7 `[~]` revocation done/rotation G4). mTLS everywhere, HTTPS planes, peer TLS + token requester binding, 60 s peer tokens, server-cert hot reload, revocation + supersede + expiry cuts. Tester r2 PASS, reviewer APPROVE (D156). **Next: Lead writes brief §5d G4 (rotation, migration 0018, D156 item 0) → G4 implementer.** 🧑 every lab laptop must re-join; run lab/checklists/V0.7-G3-mtls-revocation.md (step 0 clocks).
