@@ -56,6 +56,24 @@ class AuditAction(StrEnum):
     NODE_REVOKED = "node_revoked"
     """A node was revoked (V0.7 G3, D138; added in 0016): its certificate
     serial in ``details``; ``actor`` = who revoked it."""
+    # --- V0.7 G4 (migration 0018) ------------------------------------------
+    CERT_RENEWED = "cert_renewed"
+    """``RenewCertificate`` issued a node certificate (pending until used)."""
+    CERT_RENEW_REFUSED = "cert_renew_refused"
+    CERT_ACTIVATED = "cert_activated"
+    """The node's first Hello with its renewed certificate: it is current now
+    and the previous serial is ``superseded``."""
+    USER_CREATED = "user_created"
+    USER_DISABLED = "user_disabled"
+    USER_ENABLED = "user_enabled"
+    PASSWORD_RESET = "password_reset"  # noqa: S105 - an action name
+    LOGIN = "login"
+    """A login issued an API token (its id in ``details``, never the token)."""
+    LOGIN_FAILED = "login_failed"
+    TOKEN_REVOKED = "token_revoked"  # noqa: S105 - an action name
+    LEGACY_TOKEN_USED = "legacy_token_used"  # noqa: S105 - an action name
+    """The legacy fabric token was accepted (``[controller.auth]
+    legacy_fabric_token = true``) - recorded once per controller run."""
 
 
 def _in_list(values: type[StrEnum]) -> str:

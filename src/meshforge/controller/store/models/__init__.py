@@ -11,10 +11,12 @@ Tables so far: ``node``, ``node_session`` (V0.3, :mod:`.node`),
 ``transfer_event`` (V0.5 G5 D92/D93, :mod:`.data`), ``plan_decision`` (V0.6
 G2 D112, :mod:`.plan`), ``network_link`` (V0.6 G4 D111, :mod:`.network`),
 ``join_token``, ``audit_event`` (V0.7 G2 D135/D136, :mod:`.enrollment`),
-``revoked_cert`` (V0.7 G3 D138, :mod:`.revocation`).
+``revoked_cert`` (V0.7 G3 D138, :mod:`.revocation`), ``app_user``,
+``api_token`` (V0.7 G4 D141, :mod:`.auth`).
 """
 
 from meshforge.controller.store.base import Base
+from meshforge.controller.store.models.auth import ApiToken, AppUser, UserRole
 from meshforge.controller.store.models.cache import CacheLocation
 from meshforge.controller.store.models.data import JobInput, NamedInput, TransferEvent
 from meshforge.controller.store.models.enrollment import (
@@ -35,6 +37,8 @@ from meshforge.controller.store.models.resource import ResourceSnapshot
 from meshforge.controller.store.models.revocation import RevokedCert
 
 __all__ = [
+    "ApiToken",
+    "AppUser",
     "Attempt",
     "AttemptPhaseRow",
     "AuditAction",
@@ -54,4 +58,5 @@ __all__ = [
     "RevokedCert",
     "SessionEndReason",
     "TransferEvent",
+    "UserRole",
 ]

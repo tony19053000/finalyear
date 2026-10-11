@@ -143,6 +143,31 @@ class Node(TimestampMixin, Base):
             "public_key_fingerprint ~ '^[0-9a-f]{64}$'",
             name="public_key_fingerprint",
         ),
+        # V0.7 G4 (migration 0018): a renewed certificate not yet in use.
+        CheckConstraint(
+            "(pending_cert_serial IS NULL) = (pending_cert_fingerprint IS NULL) AND "
+            "(pending_cert_serial IS NULL) = (pending_cert_not_after IS NULL) AND "
+            "(pending_cert_serial IS NULL) = (pending_public_key_fingerprint IS NULL)",
+            name="pending_cert_all_or_none",
+        ),
+        CheckConstraint(
+            "pending_cert_serial IS NULL OR pending_cert_serial ~ '^[0-9a-f]{1,40}$'",
+            name="pending_cert_serial",
+        ),
+        CheckConstraint(
+            "pending_cert_fingerprint IS NULL OR "
+            "pending_cert_fingerprint ~ '^[0-9a-f]{64}$'",
+            name="pending_cert_fingerprint",
+        ),
+        CheckConstraint(
+            "pending_public_key_fingerprint IS NULL OR "
+            "pending_public_key_fingerprint ~ '^[0-9a-f]{64}$'",
+            name="pending_public_key_fingerprint",
+        ),
+        CheckConstraint(
+            "pending_cert_serial IS NULL OR cert_serial IS NOT NULL",
+            name="pending_needs_current",
+        ),
     )
 
     node_id: Mapped[str] = id_column(primary_key=True)
@@ -193,6 +218,27 @@ class Node(TimestampMixin, Base):
     the same value as the agent's ``node.json`` ``key_fingerprint_sha256``. A
     second enrolment of this ``node_id`` with another key is refused unless the
     invite names it (``--replace``)."""
+    pending_cert_serial: Mapped[str | None] = mapped_column(
+        String(40), nullable=True, unique=True
+    )
+    """V0.7 G4 (D140): a certificate ``RenewCertificate`` issued that the agent
+    has not taken into use yet. Its first Hello with it makes it current (the
+    four ``cert_*`` columns take these values, the old serial is recorded
+    ``superseded``); until then the current certificate keeps working, so a
+    renewal never cuts a live session. A newer renewal or a re-enrolment
+    supersedes an unused pending certificate; a revocation revokes it too."""
+    pending_cert_fingerprint: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
+    )
+    pending_cert_not_after: Mapped[dt.datetime | None] = mapped_column(nullable=True)
+    pending_public_key_fingerprint: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
+    )
+    """Differs from ``public_key_fingerprint`` after ``meshforge-agent
+    rotate-key`` (the renewal certified a new key)."""
+    cert_renewed_at: Mapped[dt.datetime | None] = mapped_column(nullable=True)
+    """When ``RenewCertificate`` last issued a certificate to this node (the
+    per-node renewal rate limit, ``[controller.renewal] min_interval_s``)."""
 
 
 class NodeSession(TimestampMixin, Base):

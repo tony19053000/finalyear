@@ -137,6 +137,7 @@ def test_0017_admits_the_new_end_reasons_and_the_downgrade_rewrites_them(
     }, "downgrade lost or kept a 0017-only reason"
     command.upgrade(cfg, "0017")  # and back up again, data intact
     assert len(_run(_scalar(pg_settings, "SELECT 1 FROM node_session"))) == 4
+    command.upgrade(cfg, "head")  # V0.7 G4: the models are at 0018 now
     command.check(cfg)
     command.downgrade(cfg, "base")
 

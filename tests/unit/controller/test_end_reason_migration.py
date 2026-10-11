@@ -76,8 +76,21 @@ def test_migration_0016_lists_are_the_model_enums() -> None:
         "cert_expired",
     }
     assert set(mig.END_REASONS_0015) == set(mig.END_REASONS_0016) - {"revoked"}
-    assert set(mig.ACTIONS_0016) == {a.value for a in AuditAction}
+    # V0.7 G4: 0018 adds actions; 0016's list is frozen and equals 0018's own copy.
+    mig18 = _load("0018_rotation_users.py")
+    assert set(mig.ACTIONS_0016) == set(mig18.ACTIONS_0016)
+    assert set(mig18.ACTIONS_0018) == {a.value for a in AuditAction}
     assert set(mig.REASONS_0016) == {r.value for r in RevocationReason}
+
+
+def test_migration_0018_lists_are_the_model_enums() -> None:
+    """The newest revision's literal lists equal the enums today (V0.7 G4)."""
+    from meshforge.controller.store.models.auth import USER_NAME_PATTERN, UserRole
+
+    mig = _load("0018_rotation_users.py")
+    assert (mig.revision, mig.down_revision) == ("0018", "0017")
+    assert set(mig.ROLES_0018) == {r.value for r in UserRole}
+    assert mig.USER_NAME_PATTERN == USER_NAME_PATTERN
 
 
 def test_migration_0017_lists_are_the_model_enum() -> None:

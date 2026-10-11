@@ -126,6 +126,7 @@ class Job(TimestampMixin, Base):
             postgresql_where=text("state = 'queued'"),
         ),
         Index("ix_job_fingerprint", "fingerprint"),
+        Index("ix_job_owner_user_id", "owner_user_id"),
     )
 
     id: Mapped[str] = id_column(primary_key=True)
@@ -196,6 +197,15 @@ class Job(TimestampMixin, Base):
     )
     """D108 workload fingerprint (64 hex): same project, entrypoint and env
     request -> same fingerprint; history of past runs is grouped by it."""
+    owner_user_id: Mapped[str | None] = mapped_column(
+        String(ID_MAX_LENGTH),
+        ForeignKey("app_user.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    """V0.7 G4 (D141, migration 0018): the user who submitted the job. A user
+    sees, cancels and downloads only their own jobs, an admin every job. NULL =
+    a job from before 0018, or one submitted with the legacy fabric token
+    (admin-only, like every NULL-owner job)."""
 
 
 class JobTransition(Base):

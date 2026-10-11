@@ -47,6 +47,7 @@ from ulid import ULID
 from meshforge.common.errors import InvalidIdError
 
 __all__ = [
+    "ApiTokenId",
     "AttemptId",
     "ChunkId",
     "CommandId",
@@ -57,8 +58,10 @@ __all__ = [
     "NodeId",
     "ScoreRunId",
     "SessionId",
+    "UserId",
     "id_kind",
     "id_timestamp",
+    "new_api_token_id",
     "new_attempt_id",
     "new_chunk_id",
     "new_command_id",
@@ -69,7 +72,9 @@ __all__ = [
     "new_node_id",
     "new_score_run_id",
     "new_session_id",
+    "new_user_id",
     "parse_id",
+    "validate_api_token_id",
     "validate_attempt_id",
     "validate_chunk_id",
     "validate_command_id",
@@ -79,6 +84,7 @@ __all__ = [
     "validate_node_id",
     "validate_score_run_id",
     "validate_session_id",
+    "validate_user_id",
 ]
 
 
@@ -98,6 +104,11 @@ class IdKind(StrEnum):
     certificate's SAN URI."""
     INVITE = "inv"
     """One join invite (V0.7 D135): the ``join_token`` row a join code redeems."""
+    USER = "usr"
+    """One person who uses the fabric's REST API (V0.7 D141, ``app_user``)."""
+    API_TOKEN = "tok"  # noqa: S105 - an id prefix, not a secret
+    """One API token row (V0.7 D141, ``api_token``). The id names the row and is
+    not secret; the token itself is 256 random bits stored only as a hash."""
 
 
 JobId = NewType("JobId", str)
@@ -109,6 +120,8 @@ CommandId = NewType("CommandId", str)
 ScoreRunId = NewType("ScoreRunId", str)
 FabricId = NewType("FabricId", str)
 InviteId = NewType("InviteId", str)
+UserId = NewType("UserId", str)
+ApiTokenId = NewType("ApiTokenId", str)
 
 _SEPARATOR = "_"
 _ULID_LEN = 26
@@ -202,6 +215,14 @@ def new_invite_id() -> InviteId:
     return InviteId(new_id(IdKind.INVITE))
 
 
+def new_user_id() -> UserId:
+    return UserId(new_id(IdKind.USER))
+
+
+def new_api_token_id() -> ApiTokenId:
+    return ApiTokenId(new_id(IdKind.API_TOKEN))
+
+
 def parse_id(value: object, kind: IdKind | None = None) -> tuple[IdKind, ULID]:
     """Split and validate an ID. If ``kind`` is given the prefix must match it.
 
@@ -286,3 +307,13 @@ def validate_fabric_id(value: object) -> FabricId:
 def validate_invite_id(value: object) -> InviteId:
     parse_id(value, IdKind.INVITE)
     return InviteId(str(value))
+
+
+def validate_user_id(value: object) -> UserId:
+    parse_id(value, IdKind.USER)
+    return UserId(str(value))
+
+
+def validate_api_token_id(value: object) -> ApiTokenId:
+    parse_id(value, IdKind.API_TOKEN)
+    return ApiTokenId(str(value))
