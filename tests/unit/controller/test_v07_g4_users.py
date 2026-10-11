@@ -447,3 +447,18 @@ async def test_an_exhausted_source_is_refused_before_any_lookup(stored: str) -> 
         await _login(service, "alice", PASSWORD)
     assert caught.value.reason == "rate_limited_source"
     assert store.lookups == 1
+
+
+@pytest.mark.parametrize(
+    ("index", "value"),
+    [(1, str(2**21)), (1, "32769"), (2, "17"), (3, "5")],
+)
+def test_out_of_range_parameters_are_refused_before_any_scrypt_work(
+    stored: str, index: int, value: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A tampered row must not make one check cost gigabytes: the bounds are
+    checked before scrypt runs at all."""
+    calls: list[int] = []
+    monkeypatch.setattr(passwords, "_derive", lambda *a: calls.append(1) or b"")
+    assert not verify_password(PASSWORD, _swap(stored, index, value))
+    assert calls == []

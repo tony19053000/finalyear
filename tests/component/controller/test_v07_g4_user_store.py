@@ -195,3 +195,15 @@ async def test_legacy_use_is_audited_once_per_run(
             )
         ).all()
     assert [tuple(r) for r in rows] == [("rest:fabric-token", "10.0.0.9:1234")]
+
+
+async def test_a_disabled_users_unrevoked_token_is_refused(
+    store: UserStore, engine: AsyncEngine
+) -> None:
+    """The ``disabled`` check stands on its own (a disable written by hand, or a
+    future path that does not revoke, still locks the user out)."""
+    alice = await _user(store, "alice")
+    token, _ = await store.issue_token(alice, ttl_s=3600)
+    async with engine.begin() as db:
+        await db.execute(text("UPDATE app_user SET disabled = true"))
+    assert await store.authenticate(token.get_secret_value()) is None
