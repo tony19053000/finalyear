@@ -9,7 +9,7 @@
 Generated from the roadmap checkboxes by `uv run python scripts/status_bars.py` — **re-run it and replace this block whenever checkboxes change.** Deferred versions (V0.11, V0.12, V0.13, V0.16) and deferred tasks are not counted. A task is only █ when it is `[x]` (tester + reviewer + evidence); written-but-unreviewed code is ▒.
 
 ```
-TOTAL   ████████▒▒░░░░░░░░░░  40%  63/156 done, 16 in progress
+TOTAL   ████████▒▒░░░░░░░░░░  41%  65/156 done, 15 in progress
 
 V0.1    █████████████████▒▒▒  83%  10/12  Foundations & engineering system
 V0.2    ██▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░░   9%   1/11  Lab setup & feasibility validation
@@ -17,7 +17,7 @@ V0.3    ███████████████▒▒▒▒░  73%  11/15
 V0.4    ███████████████▒▒▒▒░  76%  13/17  Remote execution core (Mode 1 foundation)
 V0.5    ██████████████████░░  90%  10/11  Data plane & environments
 V0.6    ███████████████████░  92%  13/14  Scheduling & reliability — Mode 1 complete
-V0.7    ████████▒▒░░░░░░░░░░  41%   5/12  Security & pairing
+V0.7    ████████████░░░░░░░░  58%   7/12  Security & pairing
 V0.8    ░░░░░░░░░░░░░░░░░░░░   0%   0/10  Dashboard & CLI v1
 V0.9    ░░░░░░░░░░░░░░░░░░░░   0%   0/10  Benchmark & telemetry system v1
 V0.10   ░░░░░░░░░░░░░░░░░░░░   0%   0/10  Mode 3 Task Splitting
@@ -42,6 +42,8 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 > V0.10. 129 tasks vs 140–180 capacity → **~1.5 tasks/session**. Needs the other three team members' approval.
 
 ## Current Task
+
+- **2026-10-12: V0.7 G4 CLOSED** (0.7.6, 0.7.7 `[x]`). Tester r2 PASS `1d45758` (new minor T-4 global upload cap, T-5 Kelvin-sign name alias, F6 replay flake still 3/11 → D158), reviewer APPROVE (5 non-blocking → D159). **Next: Lead writes brief for the next V0.7 group; its item 0 = D158 + D159.**
 
 - 2026-10-12: V0.7 G4 fix round 1 done (`9cbc258`..`8ecea92`, D157). Next: G4 tester r2 → reviewer → close 0.7.6/0.7.7. See SESSION_HANDOFF §1.
 

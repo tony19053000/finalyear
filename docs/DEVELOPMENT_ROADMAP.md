@@ -406,8 +406,8 @@ A version is **complete** only when all apply:
 - [x] **0.7.3** `compute fabric invite` → short-lived single-use join code (address + token + CA fingerprint); QR in dashboard later — V0.7 G2 `d79287c` `80bcbd3`; tester r1 FAIL→fix→r2 PASS, reviewer APPROVE 2026-10-08
 - [x] **0.7.4** `compute fabric join <code>` → CSR → signed node cert; secure storage — V0.7 G2 `3321171` `5a8282c`; MITM/pin, race, rollback, crash tests; reviewer APPROVE 2026-10-08
 - [x] **0.7.5** mTLS on agent gRPC; TLS + node-cert auth on peer blob servers; scoped short-lived tokens — V0.7 G3 2026-10-11 (`64c2f1e`..`5e68599`, fix r1 `e094f10`..`b9ea681`): tester r1 FAIL (T-1..T-3, D155) → fix → tester r2 PASS (`42679c7`; unit 8303, component 1463 exit 0, cluster 72+known wss flake rerun 4/4, chaos 3) → reviewer APPROVE; 🧑 lab re-join + checklist V0.7-G3 in 0.7.12
-- [ ] **0.7.6** REST user authentication + CLI credential storage
-- [~] **0.7.7** Revocation + certificate rotation — revocation (0.7.7a) done in G3 2026-10-11 (live cut, superseded serials, expiry cut, migrations 0016/0017); rotation = G4
+- [x] **0.7.6** REST user authentication + CLI credential storage — G4 closed 2026-10-12: users, scrypt passwords, hashed API tokens, `compute login`, D148 auth on GETs, cross-user 404, live-stream re-auth; tester r2 PASS `1d45758`, reviewer APPROVE; follow-ups D158/D159
+- [x] **0.7.7** Revocation + certificate rotation — revocation (0.7.7a) done in G3 2026-10-11 (live cut, superseded serials, expiry cut, migrations 0016/0017); rotation done in G4 2026-10-12 (pending cert + activate, migration 0018); tester r2 PASS, reviewer APPROVE
 - [ ] **0.7.8** Owner policy per node: accept jobs / accept GPU sessions / CPU-RAM-GPU caps
 - [ ] **0.7.9** Sandbox hardening: no privileged containers, dropped capabilities, read-only base, optional no-network jobs
 - [ ] **0.7.10** Job secrets (injected as files/env; redacted in logs)
