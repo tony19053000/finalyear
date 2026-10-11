@@ -44,6 +44,11 @@ class AgentControlStub:
                 request_serializer=meshforge_dot_v1_dot_agent__pb2.AgentMessage.SerializeToString,
                 response_deserializer=meshforge_dot_v1_dot_agent__pb2.ControllerMessage.FromString,
                 _registered_method=True)
+        self.RenewCertificate = channel.unary_unary(
+                '/meshforge.v1.AgentControl/RenewCertificate',
+                request_serializer=meshforge_dot_v1_dot_agent__pb2.RenewCertificateRequest.SerializeToString,
+                response_deserializer=meshforge_dot_v1_dot_agent__pb2.RenewCertificateResponse.FromString,
+                _registered_method=True)
 
 
 class AgentControlServicer:
@@ -56,6 +61,20 @@ class AgentControlServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def RenewCertificate(self, request, context):
+        """V0.7 G4 (roadmap 0.7.7b, D140): a new node certificate for the caller,
+        identified ONLY by the mutual-TLS client certificate of this call. The
+        CSR must name that node in this fabric and be signed by its key (a new key
+        = `meshforge-agent rotate-key`). The new certificate is "pending" until
+        the node's first Hello with it; only then is the old serial superseded,
+        so a renewal never cuts the live session. Refusals: gRPC status +
+        trailing `meshforge-reason` (csr_<pki reason>, renew_node_mismatch,
+        node_revoked, cert_superseded, rate_limited, unavailable, internal).
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_AgentControlServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -63,6 +82,11 @@ def add_AgentControlServicer_to_server(servicer, server):
                     servicer.Session,
                     request_deserializer=meshforge_dot_v1_dot_agent__pb2.AgentMessage.FromString,
                     response_serializer=meshforge_dot_v1_dot_agent__pb2.ControllerMessage.SerializeToString,
+            ),
+            'RenewCertificate': grpc.unary_unary_rpc_method_handler(
+                    servicer.RenewCertificate,
+                    request_deserializer=meshforge_dot_v1_dot_agent__pb2.RenewCertificateRequest.FromString,
+                    response_serializer=meshforge_dot_v1_dot_agent__pb2.RenewCertificateResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -92,6 +116,33 @@ class AgentControl:
             '/meshforge.v1.AgentControl/Session',
             meshforge_dot_v1_dot_agent__pb2.AgentMessage.SerializeToString,
             meshforge_dot_v1_dot_agent__pb2.ControllerMessage.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def RenewCertificate(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/meshforge.v1.AgentControl/RenewCertificate',
+            meshforge_dot_v1_dot_agent__pb2.RenewCertificateRequest.SerializeToString,
+            meshforge_dot_v1_dot_agent__pb2.RenewCertificateResponse.FromString,
             options,
             channel_credentials,
             insecure,

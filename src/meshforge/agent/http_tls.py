@@ -38,6 +38,13 @@ class AgentHttpTls:
     def transport(self) -> httpx.AsyncHTTPTransport:
         return httpx.AsyncHTTPTransport(verify=self.context)
 
+    def reload(self, identity: NodeIdentity) -> None:
+        """V0.7 G4 (D140): present the renewed certificate (or rotated key)
+        on every new connection; clients made before keep theirs."""
+        self.context.load_cert_chain(
+            identity.path / NODE_CERT_FILE_NAME, identity.path / KEY_FILE_NAME
+        )
+
     @property
     def scheme(self) -> str:
         return "https"

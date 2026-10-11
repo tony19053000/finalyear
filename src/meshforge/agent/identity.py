@@ -35,6 +35,19 @@ Rules (ADR-0013 §6):
   process is waiting on would let two processes own it. A lock still held after
   the bounded wait is an :class:`IdentityError`.
 * Key material is never logged, never in ``repr`` and never in an exception.
+
+**Key rotation (V0.7 G4, D140).** ``meshforge-agent rotate-key`` only *stages*
+a new key (``node.key.next``, private, under the lock); the running agent (or
+the next start) renews its certificate with it, then :func:`commit_rotation`
+swaps ``node.key`` + ``node.json`` (new fingerprint, same ``node_id`` and
+epoch) + ``node.crt`` together through a journal: all three are written in
+full into ``.rotation/``, a ``COMMIT`` marker is written, then each is moved
+into place. Every lock holder first finishes a committed journal (roll
+forward) or deletes an uncommitted one (roll back), so a crash at any point
+leaves the old trio or the new trio - never a key next to another key's
+certificate. A process that still holds the old key in memory (the same
+agent, mid-reconnect) picks the rotated identity up in :func:`next_epoch`:
+same ``node_id``, new key - reloaded, not refused.
 """
 
 from __future__ import annotations
@@ -72,12 +85,18 @@ __all__ = [
     "LOCK_FILE_NAME",
     "MAX_SESSION_EPOCH",
     "NODE_CERT_FILE_NAME",
+    "ROTATION_DIR_NAME",
+    "ROTATION_KEY_FILE_NAME",
     "IdentityError",
     "NodeIdentity",
+    "commit_rotation",
+    "discard_rotation_key",
     "load_or_create",
     "locked_identity",
     "next_epoch",
     "reset",
+    "stage_rotation_key",
+    "staged_rotation_key",
 ]
 
 log = get_logger(__name__)
@@ -88,6 +107,11 @@ NODE_CERT_FILE_NAME: Final = "node.crt"
 """V0.7 G2: the node certificate from `meshforge-agent join` (agent/enrollment.py)."""
 CA_CERT_FILE_NAME: Final = "ca.crt"
 """V0.7 G2: the fabric CA certificate pinned at join."""
+ROTATION_KEY_FILE_NAME: Final = "node.key.next"
+"""V0.7 G4: a new key staged by ``meshforge-agent rotate-key`` (module doc)."""
+ROTATION_DIR_NAME: Final = ".rotation"
+"""V0.7 G4: the rotation journal (module docstring)."""
+_COMMIT_MARKER: Final = "COMMIT"
 LOCK_FILE_NAME: Final = "identity.lock"
 IDENTITY_FORMAT: Final = 1
 DEFAULT_LOCK_TIMEOUT_S: Final = 10.0
@@ -188,15 +212,23 @@ def next_epoch(
         # The file may no longer be *this* identity: an `identity reset` (or a
         # hand edit) while the agent runs replaces key and json. Writing our
         # node_id next to someone else's key would wedge the node (ADR-0013 §6).
-        if (
-            current.get("node_id") != str(identity.node_id)
-            or current.get("key_fingerprint_sha256") != identity.fingerprint
-        ):
+        if current.get("node_id") != str(identity.node_id):
             raise IdentityError(
                 "identity on disk changed underneath this process",
                 json_path,
                 "restart the agent so it loads the current identity",
             )
+        if current.get("key_fingerprint_sha256") != identity.fingerprint:
+            # V0.7 G4: the same node, a new key - a key rotation committed while
+            # this process held the old one. Continue with the identity on disk
+            # (its key and json are checked against each other by _load).
+            rotated = _load(identity.path, identity.path / KEY_FILE_NAME, json_path)
+            log.info(
+                "identity.key_rotated_on_disk",
+                node_id=rotated.node_id,
+                key_fingerprint=rotated.fingerprint,
+            )
+            identity = rotated
         created_at = current.get("created_at")
         if not isinstance(created_at, str):
             raise IdentityError(
@@ -244,6 +276,7 @@ def reset(directory: Path, *, lock_timeout_s: float = DEFAULT_LOCK_TIMEOUT_S) ->
         for name in (
             NODE_CERT_FILE_NAME,
             CA_CERT_FILE_NAME,
+            ROTATION_KEY_FILE_NAME,
             KEY_FILE_NAME,
             JSON_FILE_NAME,
         ):
@@ -300,6 +333,7 @@ def _locked(directory: Path, timeout_s: float) -> Iterator[None]:
         if created:
             _protect(lock_path)
         _sweep_temp_files(directory)
+        _recover_rotation(directory)
         yield
 
 
@@ -311,6 +345,216 @@ def _sweep_temp_files(directory: Path) -> None:
     for tmp in directory.glob(".*.tmp"):
         with suppress(OSError):
             tmp.unlink()
+
+
+# -------------------------------------------------------------------------- rotation
+
+
+def stage_rotation_key(
+    directory: Path, *, lock_timeout_s: float = DEFAULT_LOCK_TIMEOUT_S
+) -> tuple[bool, str]:
+    """Stage a new P-256 key for ``meshforge-agent rotate-key`` (module doc).
+
+    Idempotent: a key already staged is kept. Returns ``(created,
+    fingerprint)`` of the staged key. The identity itself is untouched until
+    the renewal with this key succeeds (:func:`commit_rotation`)."""
+    directory = Path(directory)
+    with _locked(directory, lock_timeout_s):
+        staged = _read_staged(directory)
+        if staged is not None:
+            return False, _fingerprint(staged)
+        key = ec.generate_private_key(ec.SECP256R1())
+        pem = key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        )
+        _write_protected(directory / ROTATION_KEY_FILE_NAME, pem, exclusive=True)
+    fingerprint = _fingerprint(key)
+    log.info("identity.rotation_staged", key_fingerprint=fingerprint)
+    return True, fingerprint
+
+
+def staged_rotation_key(directory: Path) -> ec.EllipticCurvePrivateKey | None:
+    """The key ``rotate-key`` staged, or ``None`` (read without the lock: the
+    file is written atomically and only ever replaced under it)."""
+    return _read_staged(Path(directory))
+
+
+def discard_rotation_key(
+    directory: Path, *, lock_timeout_s: float = DEFAULT_LOCK_TIMEOUT_S
+) -> bool:
+    """Drop a staged key (``rotate-key --cancel``); True if one was staged."""
+    directory = Path(directory)
+    with _locked(directory, lock_timeout_s):
+        path = directory / ROTATION_KEY_FILE_NAME
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            return False
+        except OSError as exc:
+            raise IdentityError(
+                f"could not delete the staged key: {exc.strerror}",
+                path,
+                "check permissions",
+            ) from exc
+    log.info("identity.rotation_discarded")
+    return True
+
+
+def _read_staged(directory: Path) -> ec.EllipticCurvePrivateKey | None:
+    path = directory / ROTATION_KEY_FILE_NAME
+    if not (path.exists() or path.is_symlink()):
+        return None
+    if path.is_symlink() or not path.is_file():
+        raise IdentityError(
+            "the staged rotation key is not a regular file",
+            path,
+            "delete it and run `meshforge-agent rotate-key` again",
+        )
+    if os.name == "posix" and stat.S_IMODE(path.stat().st_mode) & 0o077:
+        raise IdentityError(
+            "the staged rotation key is accessible to other users",
+            path,
+            "delete it and run `meshforge-agent rotate-key` again",
+        )
+    return _read_key(path)
+
+
+def commit_rotation(
+    identity: NodeIdentity,
+    new_key: ec.EllipticCurvePrivateKey,
+    node_cert_pem: bytes,
+    *,
+    lock_timeout_s: float = DEFAULT_LOCK_TIMEOUT_S,
+) -> NodeIdentity:
+    """Swap key + json + certificate together (module docstring, journal).
+
+    ``new_key`` must be the staged key and the caller must already have
+    checked that ``node_cert_pem`` certifies it. Returns the new identity (same
+    ``node_id``, the epoch on disk)."""
+    directory = identity.path
+    key_path, json_path = directory / KEY_FILE_NAME, directory / JSON_FILE_NAME
+    with _locked(directory, lock_timeout_s):
+        current = _read_json(json_path)
+        if current.get("node_id") != str(identity.node_id):
+            raise IdentityError(
+                "identity on disk changed underneath this process",
+                json_path,
+                "restart the agent so it loads the current identity",
+            )
+        staged = _read_staged(directory)
+        new_fp = _fingerprint(new_key)
+        if staged is None or _fingerprint(staged) != new_fp:
+            raise IdentityError(
+                "the key being committed is not the staged rotation key",
+                directory / ROTATION_KEY_FILE_NAME,
+                "run `meshforge-agent rotate-key` again",
+            )
+        created_at = current.get("created_at")
+        epoch = current.get("session_epoch")
+        if not isinstance(created_at, str) or not isinstance(epoch, int):
+            raise IdentityError("corrupt identity metadata", json_path, _REMEDY)
+        journal = directory / ROTATION_DIR_NAME
+        _clear_journal(journal)
+        try:
+            journal.mkdir(mode=_DIR_MODE)
+            _protect(journal)
+            pem = new_key.private_bytes(
+                serialization.Encoding.PEM,
+                serialization.PrivateFormat.PKCS8,
+                serialization.NoEncryption(),
+            )
+            _write_protected(journal / KEY_FILE_NAME, pem, exclusive=True)
+            _write_json(
+                journal / JSON_FILE_NAME,
+                NodeIdentity(
+                    node_id=identity.node_id,
+                    private_key=new_key,
+                    session_epoch=epoch,
+                    fingerprint=new_fp,
+                    path=directory,
+                ),
+                created_at,
+                exclusive=True,
+            )
+            _write_protected(
+                journal / NODE_CERT_FILE_NAME, node_cert_pem, exclusive=True
+            )
+            _fsync_dir(journal)
+            _write_protected(journal / _COMMIT_MARKER, b"1\n", exclusive=True)
+            _fsync_dir(journal)
+        except (OSError, IdentityError):
+            _clear_journal(journal)  # nothing was swapped: the old trio stays
+            raise
+        # Committed: from here a crash is finished by the next lock holder.
+        _roll_forward(directory)
+        rotated = _load(directory, key_path, json_path)
+    log.info(
+        "identity.key_rotated",
+        node_id=rotated.node_id,
+        key_fingerprint=rotated.fingerprint,
+    )
+    return rotated
+
+
+def _recover_rotation(directory: Path) -> None:
+    """Under the lock: finish a committed rotation, drop an uncommitted one."""
+    journal = directory / ROTATION_DIR_NAME
+    if not journal.is_dir():
+        return
+    if (journal / _COMMIT_MARKER).is_file():
+        log.warning("identity.rotation_recovered", action="roll_forward")
+        _roll_forward(directory)
+    else:
+        log.warning("identity.rotation_recovered", action="roll_back")
+        _clear_journal(journal)
+
+
+def _roll_forward(directory: Path) -> None:
+    journal = directory / ROTATION_DIR_NAME
+    try:
+        for name in (KEY_FILE_NAME, JSON_FILE_NAME, NODE_CERT_FILE_NAME):
+            staged = journal / name
+            if staged.exists():
+                os.replace(staged, directory / name)
+        _fsync_dir(directory)
+        with suppress(FileNotFoundError):
+            (directory / ROTATION_KEY_FILE_NAME).unlink()
+        _clear_journal(journal)
+        _fsync_dir(directory)
+    except OSError as exc:
+        raise IdentityError(
+            f"could not finish the key rotation: {exc.strerror or exc}",
+            journal,
+            "check permissions; the next agent start retries it",
+        ) from exc
+
+
+def _clear_journal(journal: Path) -> None:
+    if not journal.exists():
+        return
+    try:
+        for child in journal.iterdir():
+            child.unlink()
+        journal.rmdir()
+    except OSError as exc:
+        raise IdentityError(
+            f"could not clear the rotation journal: {exc.strerror or exc}",
+            journal,
+            "check permissions",
+        ) from exc
+
+
+def _fsync_dir(directory: Path) -> None:
+    """Persist renames in ``directory`` (POSIX; Windows cannot fsync a folder)."""
+    if os.name != "posix":
+        return
+    fd = os.open(directory, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
 
 
 # ---------------------------------------------------------------------------- create

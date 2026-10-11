@@ -94,7 +94,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
-from collections.abc import AsyncIterator, Callable, Collection, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Collection, Sequence
 from typing import Any
 
 import grpc
@@ -110,7 +110,7 @@ from meshforge.controller.liveness import (
     NodeState,
     next_state,
 )
-from meshforge.controller.registry import Registry, SessionEndReason
+from meshforge.controller.registry import NodeRecord, Registry, SessionEndReason
 from meshforge.controller.resources import ResourceSink
 from meshforge.controller.session.admission import (
     DEFAULT_ADMISSION_TIMEOUT_S,
@@ -205,6 +205,13 @@ class SessionManager:
         self.revoked_serials: Callable[[], Sequence[str]] = tuple
         """V0.7 G3 (D138): the revocation set every HelloAck carries (the
         runtime points it at :meth:`~..revocation.Revocations.sent_serials`)."""
+        self.activate_cert: Callable[[str, str], Awaitable[str | None]] | None = None
+        """V0.7 G4 (D140): make a node's pending (renewed) certificate current
+        on its first Hello with it (runtime: :meth:`~..enrollment.renewal.
+        CertRenewals.activate`); ``None`` = no renewal (insecure-dev, tests)."""
+        self.on_cert_activated: Callable[[str], None] | None = None
+        """Called with the node id after an activation (the runtime re-syncs
+        the revocation set at once, so the old serial is refused everywhere)."""
         self.refused_serials: Callable[[], Collection[str]] = frozenset
         """D156 (c): the full in-memory refused set (serial -> reason; the
         runtime points it at :meth:`~..revocation.Revocations.revoked_serials`).
@@ -513,6 +520,7 @@ class SessionManager:
             and record is not None
             and record.cert_serial is not None
             and record.cert_serial != cert.serial
+            and not await self._activated(record, cert, peer_address)
         ):
             # The node was re-keyed / re-enrolled since this certificate was
             # issued: only the newest certificate of a node is its identity.
@@ -622,6 +630,29 @@ class SessionManager:
                 revoked_serials=self.revoked_serials(),
             ),
         )
+
+    async def _activated(
+        self, record: NodeRecord, cert: PeerCert, peer_address: str
+    ) -> bool:
+        """V0.7 G4 (D140): the Hello presents the node's pending (renewed)
+        certificate - the agent's confirmation that it switched. Make it
+        current (the old serial is superseded); False = it is not the pending
+        one (or was replaced meanwhile): refused as superseded."""
+        if self.activate_cert is None or record.pending_cert_serial != cert.serial:
+            return False
+        previous = await self.activate_cert(record.node_id, cert.serial)
+        if previous is None:
+            return False
+        log.info(
+            "session.cert_activated",
+            node_id=record.node_id,
+            cert_serial=cert.serial,
+            superseded_serial=previous or None,
+            peer=peer_address,
+        )
+        if self.on_cert_activated is not None:
+            self.on_cert_activated(record.node_id)
+        return True
 
     def _new_session(
         self, hello: agent_pb2.Hello, peer: str, session_id: str, state: NodeState

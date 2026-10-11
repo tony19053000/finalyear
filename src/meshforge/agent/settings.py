@@ -48,6 +48,7 @@ __all__ = [
     "AgentSection",
     "AgentSettings",
     "CacheSettings",
+    "CertSettings",
     "DiscoverySettings",
     "EnvsSettings",
     "ExecutionImages",
@@ -1055,6 +1056,35 @@ class GcSettings(SectionModel):
     )
 
 
+class CertSettings(SectionModel):
+    """``[agent.cert]`` - node certificate renewal (V0.7 G4, D140).
+
+    The agent renews its node certificate over the mutual-TLS session port
+    once two thirds of its life have passed (and at once after
+    ``meshforge-agent rotate-key``), swaps the file atomically and hands its
+    session over to the new certificate - long before ``not_after``.
+    """
+
+    renew_check_interval_s: float = Field(
+        default=600.0,
+        ge=0.2,
+        le=86_400.0,
+        description=(
+            "How often the agent checks whether its certificate is due (and "
+            "whether `meshforge-agent rotate-key` staged a new key)."
+        ),
+    )
+    renew_retry_base_s: float = Field(
+        default=30.0,
+        ge=0.1,
+        le=3_600.0,
+        description=(
+            "First wait after a failed renewal; doubles per failure up to "
+            "renew_check_interval_s (the controller's rate limit is honoured)."
+        ),
+    )
+
+
 class DiscoverySettings(SectionModel):
     """``[agent.discovery]`` - mDNS lookup of the controller (roadmap 0.3.9).
 
@@ -1125,6 +1155,7 @@ class AgentSection(SectionModel):
     fetch: FetchSettings = Field(default_factory=FetchSettings)
     probe: ProbeSettings = Field(default_factory=ProbeSettings)
     gc: GcSettings = Field(default_factory=GcSettings)
+    cert: CertSettings = Field(default_factory=CertSettings)
     hello_timeout_s: float = Field(
         default=3.0,
         gt=0,

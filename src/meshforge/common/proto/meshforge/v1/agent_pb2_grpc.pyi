@@ -74,12 +74,32 @@ class AgentControlStub:
     def __new__(cls, channel: _aio.Channel) -> AgentControlAsyncStub: ...
     Session: _grpc.StreamStreamMultiCallable[_agent_pb2.AgentMessage, _agent_pb2.ControllerMessage]
     """One stream per connected agent. Opened by the agent."""
+    RenewCertificate: _grpc.UnaryUnaryMultiCallable[_agent_pb2.RenewCertificateRequest, _agent_pb2.RenewCertificateResponse]
+    """V0.7 G4 (roadmap 0.7.7b, D140): a new node certificate for the caller,
+    identified ONLY by the mutual-TLS client certificate of this call. The
+    CSR must name that node in this fabric and be signed by its key (a new key
+    = `meshforge-agent rotate-key`). The new certificate is "pending" until
+    the node's first Hello with it; only then is the old serial superseded,
+    so a renewal never cuts the live session. Refusals: gRPC status +
+    trailing `meshforge-reason` (csr_<pki reason>, renew_node_mismatch,
+    node_revoked, cert_superseded, rate_limited, unavailable, internal).
+    """
 
 @_typing.type_check_only
 class AgentControlAsyncStub(AgentControlStub):
     def __init__(self, channel: _aio.Channel) -> None: ...
     Session: _aio.StreamStreamMultiCallable[_agent_pb2.AgentMessage, _agent_pb2.ControllerMessage]  # type: ignore[assignment]
     """One stream per connected agent. Opened by the agent."""
+    RenewCertificate: _aio.UnaryUnaryMultiCallable[_agent_pb2.RenewCertificateRequest, _agent_pb2.RenewCertificateResponse]  # type: ignore[assignment]
+    """V0.7 G4 (roadmap 0.7.7b, D140): a new node certificate for the caller,
+    identified ONLY by the mutual-TLS client certificate of this call. The
+    CSR must name that node in this fabric and be signed by its key (a new key
+    = `meshforge-agent rotate-key`). The new certificate is "pending" until
+    the node's first Hello with it; only then is the old serial superseded,
+    so a renewal never cuts the live session. Refusals: gRPC status +
+    trailing `meshforge-reason` (csr_<pki reason>, renew_node_mismatch,
+    node_revoked, cert_superseded, rate_limited, unavailable, internal).
+    """
 
 class AgentControlServicer(metaclass=_abc_1.ABCMeta):
     @_abc_1.abstractmethod
@@ -89,5 +109,21 @@ class AgentControlServicer(metaclass=_abc_1.ABCMeta):
         context: _ServicerContext,
     ) -> _typing.Union[_abc.Iterator[_agent_pb2.ControllerMessage], _abc.AsyncIterator[_agent_pb2.ControllerMessage]]:
         """One stream per connected agent. Opened by the agent."""
+
+    @_abc_1.abstractmethod
+    def RenewCertificate(
+        self,
+        request: _agent_pb2.RenewCertificateRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_agent_pb2.RenewCertificateResponse, _abc.Awaitable[_agent_pb2.RenewCertificateResponse]]:
+        """V0.7 G4 (roadmap 0.7.7b, D140): a new node certificate for the caller,
+        identified ONLY by the mutual-TLS client certificate of this call. The
+        CSR must name that node in this fabric and be signed by its key (a new key
+        = `meshforge-agent rotate-key`). The new certificate is "pending" until
+        the node's first Hello with it; only then is the old serial superseded,
+        so a renewal never cuts the live session. Refusals: gRPC status +
+        trailing `meshforge-reason` (csr_<pki reason>, renew_node_mismatch,
+        node_revoked, cert_superseded, rate_limited, unavailable, internal).
+        """
 
 def add_AgentControlServicer_to_server(servicer: AgentControlServicer, server: _typing.Union[_grpc.Server, _aio.Server]) -> None: ...

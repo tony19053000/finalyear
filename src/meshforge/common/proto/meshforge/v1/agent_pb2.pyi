@@ -132,6 +132,49 @@ SCORE_STATUS_FAILED: ScoreStatus.ValueType  # 3
 Global___ScoreStatus: _TypeAlias = ScoreStatus  # noqa: Y015
 
 @_typing.final
+class RenewCertificateRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    CSR_PEM_FIELD_NUMBER: _builtins.int
+    csr_pem: _builtins.bytes
+    """PEM CSR (<= 4096 bytes), SAN URI meshforge://fabric/<fabric_id>/node/<node_id>."""
+    def __init__(
+        self,
+        *,
+        csr_pem: _builtins.bytes = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["csr_pem", b"csr_pem"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___RenewCertificateRequest: _TypeAlias = RenewCertificateRequest  # noqa: Y015
+
+@_typing.final
+class RenewCertificateResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    NODE_CERT_PEM_FIELD_NUMBER: _builtins.int
+    CA_CERT_PEM_FIELD_NUMBER: _builtins.int
+    node_cert_pem: _builtins.bytes
+    ca_cert_pem: _builtins.bytes
+    """The fabric CA (unchanged; the agent checks it equals its pinned ca.crt)."""
+    def __init__(
+        self,
+        *,
+        node_cert_pem: _builtins.bytes = ...,
+        ca_cert_pem: _builtins.bytes = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["ca_cert_pem", b"ca_cert_pem", "node_cert_pem", b"node_cert_pem"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___RenewCertificateResponse: _TypeAlias = RenewCertificateResponse  # noqa: Y015
+
+@_typing.final
 class AgentMessage(_message.Message):
     """---------------------------------------------------------------------------
     Envelopes

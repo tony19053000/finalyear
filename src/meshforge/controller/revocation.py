@@ -190,14 +190,22 @@ class RevocationStore:
                 if previous == NodeState.REVOKED.value:
                     return RevokeOutcome(node_id, serial, True, previous)
                 row.state = NodeState.REVOKED.value
-                if serial is not None and row.cert_not_after is not None:
+                pending = row.pending_cert_serial
+                # V0.7 G4: a renewed certificate not yet in use is revoked too
+                # (it is CA-valid until it expires).
+                for listed, not_after in (
+                    (serial, row.cert_not_after),
+                    (pending, row.pending_cert_not_after),
+                ):
+                    if listed is None or not_after is None:
+                        continue
                     await db.execute(
                         pg_insert(RevokedCert)
                         .values(
-                            serial=serial,
+                            serial=listed,
                             node_id=node_id,
                             reason=RevocationReason.REVOKED.value,
-                            not_after=row.cert_not_after,
+                            not_after=not_after,
                         )
                         .on_conflict_do_update(
                             index_elements=[RevokedCert.serial],
@@ -210,7 +218,11 @@ class RevocationStore:
                     actor=actor,
                     node_id=node_id,
                     source=source,
-                    details={"serial": serial, "previous_state": previous},
+                    details={
+                        "serial": serial,
+                        "pending_serial": pending,
+                        "previous_state": previous,
+                    },
                 )
         except SQLAlchemyError as exc:
             raise RevocationError(
@@ -224,7 +236,7 @@ class RevocationStore:
             serial=serial,
             previous_state=previous,
         )
-        return RevokeOutcome(node_id, serial, False, previous)
+        return RevokeOutcome(node_id, serial, False, previous, pending_serial=pending)
 
     async def snapshot(self) -> RevocationSnapshot:
         """Revoked nodes and every unexpired revoked/superseded serial."""

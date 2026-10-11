@@ -213,6 +213,11 @@ class PeerServerTls:
     fabric_id: str
     revoked: Callable[[], Collection[str]] = frozenset
 
+    def reload(self, *, cert_file: Path, key_file: Path) -> None:
+        """V0.7 G4 (D140): serve a renewed certificate (or a rotated key) on
+        every new connection; open connections keep theirs."""
+        self.context.load_cert_chain(cert_file, key_file)
+
     def client(self, ssl_object: object) -> tuple[PeerClient | None, str | None]:
         """``(client, None)`` when the connection's client may be served, else
         ``(None, reason)``. The serial is checked again before every request
@@ -338,6 +343,11 @@ class PeerBlobServer:
             "served": self.stats.served,
             "bytes_sent": self.stats.bytes_sent,
         }
+
+    @property
+    def tls(self) -> PeerServerTls | None:
+        """The server's TLS (None = insecure-dev); the renewer reloads it."""
+        return self._tls
 
     def endpoint(self, controller_host: str | None) -> str:
         """``host:port`` for ``Hello.peer_endpoint`` ("" = not advertisable)."""

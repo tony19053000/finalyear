@@ -107,6 +107,10 @@ class NodeRecord:
     cert_fingerprint: str | None = None
     cert_not_after: dt.datetime | None = None
     public_key_fingerprint: str | None = None
+    pending_cert_serial: str | None = None
+    """V0.7 G4 (D140): a renewed certificate not yet in use; the node's first
+    Hello with it makes it current (:mod:`~.enrollment.renewal`)."""
+    pending_cert_not_after: dt.datetime | None = None
 
 
 class PeerCertFacts(Protocol):
@@ -259,6 +263,8 @@ def _node_record(row: Node) -> NodeRecord:
         cert_fingerprint=row.cert_fingerprint,
         cert_not_after=row.cert_not_after,
         public_key_fingerprint=row.public_key_fingerprint,
+        pending_cert_serial=row.pending_cert_serial,
+        pending_cert_not_after=row.pending_cert_not_after,
     )
 
 

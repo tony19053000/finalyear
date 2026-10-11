@@ -163,6 +163,35 @@ meshforge-controller fabric show          # any time; --json for scripts
 | peers log `agent.peer.refused reason=wrong_requester` (or `probe_wrong_requester`) | a peer token was presented by a node other than the one it was minted for (a captured/forwarded token, or a broken client) | expected for a stolen token - nothing is served; if it repeats for a real fetch, report it (the fetching agent must present its own node certificate) |
 | peers log `agent.peer.refused reason=expired` or `reason=too_long` (probes: `probe_expired` / `probe_too_long`) for every fetch from one laptop, transfers fall back to the controller | that peer's clock is off: peer tokens live 60 s and the holder allows 30 s of skew | sync the laptop clocks (NTP / Windows time service on); see "Clock skew" below |
 
+### 0a2d. Certificate renewal and new keys (V0.7 G4, D140)
+
+- **Automatic.** A node certificate lives 30 days (`[controller.renewal]
+  node_cert_lifetime_s`). The running agent renews it at two thirds of that (day
+  20) over its mutual-TLS session, swaps `node.crt` atomically and reconnects at
+  once on the new certificate - jobs keep running (the controller sees a short
+  reconnect, never a lost node). Logs: agent `agent.cert.renewed` then
+  `agent.session.handover`; controller `controller.cert.renewed`, then
+  `session.cert_activated` (the old certificate is retired from then on).
+  `meshforge-agent identity show` prints `cert_renewal_due`.
+- **A new key** (`meshforge-agent rotate-key`, node_id unchanged): stages a key;
+  the running agent (or the next start) renews with it within
+  `[agent.cert] renew_check_interval_s` (10 min) and switches key, `node.json` and
+  certificate together. `rotate-key --cancel` drops a staged key not yet used.
+  Two certificates for one node are at most one per
+  `[controller.renewal] min_interval_s` (10 min): a rotation right after a
+  renewal waits that long (the agent retries on its own).
+- **A laptop that was off for more than 30 days** cannot renew (its certificate
+  expired): the agent stops with `node certificate is valid ... not now` -
+  `meshforge-agent join --force` with a new code. Turn laptops on at least every
+  ~20 days to avoid that.
+
+| Symptom | Cause | Remedy |
+|---|---|---|
+| agent log `agent.cert.renew_failed reason=rate_limited` | a renewal sooner than `min_interval_s` after the last one (e.g. `rotate-key` right after a renewal) | nothing - the agent retries after the time the controller names |
+| agent log `agent.cert.renew_failed reason=unavailable` | the controller's database was unreachable | fix the database; the agent retries (doubling up to the check interval) |
+| agent log `agent.cert.renew_failed reason=bad_response_or_storage` | the answer did not match this laptop (another CA, key or node) or the identity folder is not writable | check disk/permissions of the identity folder; a wrong answer means the wrong controller - report it |
+| agent stops `PERMISSION_DENIED ... cert_superseded` after a renewal | another machine holds this node's newest certificate (`invite --replace`) | as in the table above: re-join this laptop or retire it |
+
 ### 0a2c. Revoking a laptop (V0.7 G3, D138)
 
 A stolen, lost or retired laptop is taken out of the fabric with **one** of:

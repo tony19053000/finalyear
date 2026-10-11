@@ -69,6 +69,14 @@ when a stream ends), so a log flood can neither evict reports from the replay
 ring nor delay the replay. The chunk's byte offset lets the controller see the
 gap; the final log upload fills it.
 
+**Certificate hand-over (V0.7 G4, D140).** After the renewer swapped in a new
+node certificate, :meth:`AgentSessionClient.request_handover` ends the current
+stream and reconnects at once - no backoff - so the next Hello carries the new
+certificate (the controller makes it current and supersedes the old serial).
+It is a plain reconnect, never a ``Goodbye``: the controller keeps the node's
+attempts through the gap (SUSPECT -> RECONNECTED -> ONLINE, D19), and the
+Reconcile replays what was buffered.
+
 Idempotency: a controller command with a foreign ``session_id`` is dropped and
 counted (``agent.session.stale_message``); a repeated ``message_id`` is acked again
 but has no second effect; a duplicate ``Ack`` for a report already removed from the
@@ -328,6 +336,17 @@ class AgentSessionClient:
         """Called after ``after_reconcile`` on every stream (cache snapshot)."""
         self.controller_target: str = ""
         """The ``host:port`` this agent dialled for its current/last stream."""
+        self._handover = asyncio.Event()
+        self._skip_backoff = False
+        self.handovers = 0
+        self.renewer: Any = None
+        """V0.7 G4: the :class:`~.renewal.CertRenewer` beside this client, if
+        any (tests and the status surface read its counters)."""
+        self._dialled_serial: str | None = None
+        self.stream_cert_serial: str | None = None
+        """Serial of the node certificate the current stream was opened with
+        (None: no stream, or insecure-dev); the renewer hands over when the
+        file on disk holds another one."""
 
     # ------------------------------------------------------------ lifecycle
 
@@ -344,6 +363,28 @@ class AgentSessionClient:
     @property
     def stop_requested(self) -> bool:
         return self._stop.is_set()
+
+    def request_handover(self, reason: str) -> bool:
+        """End the current stream and reconnect at once (module docstring,
+        "Certificate hand-over"). False when no stream is open (the next
+        connection uses the new certificate anyway)."""
+        if self.state is not AgentState.ONLINE or self._call is None:
+            return False
+        log.info(
+            "agent.session.handover_requested",
+            node_id=self.node_id,
+            session_id=self.session_id or None,
+            reason=reason,
+        )
+        self._handover.set()
+        return True
+
+    def replace_identity(self, identity: NodeIdentity) -> None:
+        """V0.7 G4: a key rotation committed a new identity (same node_id);
+        every later connection uses it."""
+        if str(identity.node_id) != self.node_id:
+            raise ValueError("a rotated identity must keep the node_id")
+        self.identity = identity
 
     async def wait_for_state(self, *states: AgentState, timeout_s: float) -> AgentState:
         """Test/operator helper: block until ``state`` is one of ``states``."""
@@ -448,6 +489,10 @@ class AgentSessionClient:
                 continue
             break
         if outcome is _Outcome.BACKOFF and not self._stop.is_set():
+            if self._skip_backoff:
+                # A certificate hand-over: reconnect now (module docstring).
+                self._skip_backoff = False
+                return
             await self._sleep_backoff()
 
     async def _sleep_backoff(self) -> None:
@@ -540,6 +585,7 @@ class AgentSessionClient:
             return await self._online(call, ack)
         finally:
             self._call = None
+            self.stream_cert_serial = None
             await channel.close()
 
     async def _channel(
@@ -551,6 +597,7 @@ class AgentSessionClient:
         if self.settings.security.insecure:
             return grpc.aio.insecure_channel(target, options=options)
         tls = await asyncio.to_thread(load_session_tls, self.identity)
+        self._dialled_serial = tls.serial
         return grpc.aio.secure_channel(
             target, tls.credentials, options=[*options, *channel_options()]
         )
@@ -623,6 +670,10 @@ class AgentSessionClient:
 
     async def _online(self, call: Any, ack: agent_pb2.HelloAck) -> _Outcome:
         self.session_id = ack.session_id
+        # A hand-over asked for before this stream existed is moot: the
+        # renewer compares stream_cert_serial with the file and asks again.
+        self._handover.clear()
+        self.stream_cert_serial = self._dialled_serial
         # Before the hook: the peer server's token key and the revocation set
         # of this session arrive together (D138).
         self.revoked.add(ack.revoked_serials, source="hello_ack")
@@ -840,6 +891,39 @@ class AgentSessionClient:
         """
         if self._stop_waiter is None:
             raise RuntimeError("AgentSessionClient is not running")
+        handover = asyncio.ensure_future(self._handover.wait())
+        try:
+            return await self._read_until_end(call, handover)
+        finally:
+            handover.cancel()
+            await asyncio.gather(handover, return_exceptions=True)
+
+    async def _handover_end(self, call: Any, read_task: asyncio.Task[Any]) -> StreamEnd:
+        """V0.7 G4: end this stream for a certificate hand-over (no Goodbye:
+        the controller keeps the attempts through the reconnect)."""
+        self._handover.clear()
+        self._skip_backoff = True
+        self.handovers += 1
+        call.cancel()
+        read_task.cancel()
+        await asyncio.gather(read_task, return_exceptions=True)
+        log.info(
+            "agent.session.handover",
+            node_id=self.node_id,
+            session_id=self.session_id or None,
+        )
+        return StreamEnd(
+            grpc.StatusCode.CANCELLED,
+            "certificate hand-over",
+            StreamEndAction.RECONNECT,
+        )
+
+    async def _read_until_end(
+        self, call: Any, handover: asyncio.Future[Any]
+    ) -> StreamEnd:
+        stop_waiter = self._stop_waiter
+        if stop_waiter is None:
+            raise RuntimeError("AgentSessionClient is not running")
         closing = False
         while True:
             try:
@@ -848,11 +932,13 @@ class AgentSessionClient:
                 else:
                     read_task: asyncio.Task[Any] = asyncio.ensure_future(call.read())
                     done, _pending = await asyncio.wait(
-                        {read_task, self._stop_waiter},
+                        {read_task, stop_waiter, handover},
                         return_when=asyncio.FIRST_COMPLETED,
                     )
                     if read_task in done:
                         msg = read_task.result()
+                    elif handover in done and not stop_waiter.done():
+                        return await self._handover_end(call, read_task)
                     else:
                         closing = True
                         log.info(

@@ -36,7 +36,7 @@ from meshforge.agent.execution.offer import ExecutionSetup, build_execution
 from meshforge.agent.execution.runtime import RuntimeAvailability
 from meshforge.agent.gc.service import GcService
 from meshforge.agent.hardware.limits import clip_capabilities
-from meshforge.agent.http_tls import load_http_tls
+from meshforge.agent.http_tls import AgentHttpTls, load_http_tls
 from meshforge.agent.identity import load_or_create
 from meshforge.agent.peer import PeerBlobServer
 from meshforge.agent.peer.probe import ProbeService
@@ -46,6 +46,8 @@ from meshforge.agent.runtime import (
     start_cache,
     start_gc,
     start_peer,
+    start_renewer,
+    stop_task,
     wire_executor,
 )
 from meshforge.agent.session.client import AgentSessionClient
@@ -82,6 +84,8 @@ class ExecAgent:
         self.gc: GcService | None = None
         self.preparer: PrepareService | None = None
         self.prober: ProbeService | None = None
+        self.http_tls: AgentHttpTls | None = None
+        self.renew_task: asyncio.Task[None] | None = None
         self.task: asyncio.Task[None] = asyncio.create_task(client.run())
 
     @classmethod
@@ -96,10 +100,13 @@ class ExecAgent:
         setup: ExecutionSetup | None = None,
         agent_overrides: Mapping[str, Any] | None = None,
         fake_gpus: int = 0,
+        renew: bool = False,
     ) -> ExecAgent:
         """``fake_gpus`` (V0.6 G2): declare that many 4 GiB NVIDIA GPUs and let
         the subprocess runtime "pass" them (it only sets CUDA_VISIBLE_DEVICES),
-        so GPU slots and GPU placement run on a CPU-only machine."""
+        so GPU slots and GPU placement run on a CPU-only machine.
+        ``renew`` (V0.7 G4): run the certificate renewer as serve() does (off by
+        default: G3's expiry-cut tests need an agent that does NOT renew)."""
         exec_cfg = {"enabled": True, "allow_unsandboxed": True, "grace_s": 1.0}
         exec_cfg.update(execution or {})
         settings = make_agent_settings(
@@ -170,6 +177,11 @@ class ExecAgent:
         if setup.enabled:
             await executor.start()
         agent = cls(client, executor, setup)
+        agent.http_tls = http_tls
+        if renew:
+            agent.renew_task = start_renewer(
+                settings, client, http_tls=http_tls, peer=peer
+            )
         agent.peer = peer
         agent.cache = cache
         agent.gc = gc
@@ -185,6 +197,7 @@ class ExecAgent:
         if not self.task.done():
             self.task.cancel()
             await asyncio.gather(self.task, return_exceptions=True)
+        await stop_task(self.renew_task)
         await self.executor.close()
         if self.peer is not None:
             await self.peer.close()

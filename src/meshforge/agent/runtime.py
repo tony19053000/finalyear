@@ -90,7 +90,7 @@ from meshforge.agent.hardware.deadline import (
     BlockingCallTimeoutError,
     DeadlineThread,
 )
-from meshforge.agent.http_tls import load_http_tls
+from meshforge.agent.http_tls import AgentHttpTls, load_http_tls
 from meshforge.agent.identity import (
     KEY_FILE_NAME,
     NODE_CERT_FILE_NAME,
@@ -103,6 +103,7 @@ from meshforge.agent.peer.server import PeerServerTls, peer_server_tls
 from meshforge.agent.resources import ResourceMonitor, ResourceSampler
 from meshforge.agent.session.client import AgentSessionClient
 from meshforge.agent.session.hello import basic_hardware
+from meshforge.agent.session.renewal import CertRenewer
 from meshforge.agent.session.state import AgentState
 from meshforge.agent.session.tls import JOIN_HINT, SessionTlsError
 from meshforge.agent.settings import AgentSettings, parse_controller_address
@@ -124,6 +125,7 @@ __all__ = [
     "start_cache",
     "start_gc",
     "start_peer",
+    "start_renewer",
     "start_scores",
     "stop_signals",
     "stop_task",
@@ -409,6 +411,7 @@ async def serve(
     )
     if execution.enabled:
         await executor.start()
+    renew_task = start_renewer(settings, client, http_tls=http_tls, peer=peer)
     install_signal_handlers(client.request_stop)
     log.info(
         "agent.started",
@@ -441,6 +444,7 @@ async def serve(
             await gc.close()
         if cache is not None:
             await cache.close()
+        await stop_task(renew_task)
         # Cancelling the scoring task kills its benchmark child tree (runner).
         await stop_task(scores_task)
         if monitor is not None and monitor_task is not None:
@@ -449,6 +453,36 @@ async def serve(
             # its finally block; gather so a crash in it is reported, never swallowed.
             await asyncio.gather(monitor_task, return_exceptions=True)
     return client
+
+
+def start_renewer(
+    settings: AgentSettings,
+    client: AgentSessionClient,
+    *,
+    http_tls: AgentHttpTls | None,
+    peer: PeerBlobServer | None,
+) -> asyncio.Task[None] | None:
+    """V0.7 G4 (D140): the certificate renewer (mtls only). Every renewal
+    reloads the TLS contexts that present the node certificate - the HTTPS
+    client (blobs, probes, peers) and the peer server - before the session
+    hands over to it."""
+    if settings.security.insecure:
+        return None
+    renewer = CertRenewer(settings, client)
+    if http_tls is not None:
+        renewer.on_renewed.append(http_tls.reload)
+    peer_tls = peer.tls if peer is not None else None
+    if peer_tls is not None:
+        renewer.on_renewed.append(
+            lambda identity: peer_tls.reload(
+                cert_file=identity.path / NODE_CERT_FILE_NAME,
+                key_file=identity.path / KEY_FILE_NAME,
+            )
+        )
+    client.renewer = renewer
+    return asyncio.create_task(
+        renewer.run(), name=f"agent-cert-renewer:{client.node_id}"
+    )
 
 
 async def start_peer(

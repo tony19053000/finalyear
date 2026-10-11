@@ -179,11 +179,25 @@ def identity_show(
     if enrollment is not None:
         from datetime import UTC, datetime
 
+        from meshforge.agent.identity import staged_rotation_key
+        from meshforge.agent.session.renewal import renewal_due_at
+
+        try:
+            rotation_staged = staged_rotation_key(identity.path) is not None
+        except MeshForgeError as exc:
+            rotation_staged = False
+            facts["rotation_problem"] = exc.message
         facts.update(
             enrolled=True,
             fabric_id=enrollment.fabric_id,
+            cert_serial=format(enrollment.node_cert.serial_number, "x"),
             cert_not_after=enrollment.not_after.isoformat(),
             cert_expired=enrollment.not_after <= datetime.now(UTC),
+            # V0.7 G4 (D140): when the running agent renews it.
+            cert_renewal_due=renewal_due_at(
+                enrollment.node_cert.not_valid_before_utc, enrollment.not_after
+            ).isoformat(),
+            key_rotation_staged=rotation_staged,
             cert_fingerprint_sha256=enrollment.cert_fingerprint,
             ca_fingerprint_sha256=enrollment.ca_fingerprint,
         )
@@ -261,8 +275,67 @@ def join(
     typer.echo(f"node_id: {enrollment.node_id}")
     typer.echo(f"certificate valid until {enrollment.not_after.isoformat()}")
     typer.echo(
-        "note: until V0.7 G3 the agent still connects without its certificate; "
-        "keep running `meshforge-agent run` as before"
+        "the running agent renews it on its own at 2/3 of its life; start (or "
+        "restart) `meshforge-agent run` to connect with it"
+    )
+
+
+@app.command("rotate-key")
+def rotate_key(
+    config: ConfigOption = None,
+    cancel: Annotated[
+        bool, typer.Option("--cancel", help="Drop a staged key that is not in use yet.")
+    ] = False,
+) -> None:
+    """Give this laptop a new key, keeping its node_id (V0.7 G4, D140).
+
+    Stages a new P-256 key; the running agent renews its certificate with it
+    at its next check (`[agent.cert] renew_check_interval_s`), or right after
+    the next start, then switches key, certificate and session together. The
+    old key keeps working until then.
+    """
+    from meshforge.agent.enrollment import JoinError, is_enrolled, load
+    from meshforge.agent.identity import (
+        discard_rotation_key,
+        load_or_create,
+        stage_rotation_key,
+    )
+    from meshforge.common.errors import MeshForgeError
+
+    settings = _load_settings(config, **_LOCAL_ONLY)
+    _quiet_logging(settings)
+    try:
+        identity = load_or_create(settings.identity_dir)
+        if cancel:
+            dropped = discard_rotation_key(identity.path)
+            typer.echo(
+                "staged key dropped; the current key stays"
+                if dropped
+                else "no key was staged"
+            )
+            return
+        if not is_enrolled(identity.path) or load(identity) is None:
+            typer.echo(
+                f"{PROG_NAME}: this laptop is not enrolled; a new key only "
+                "matters with a certificate (meshforge-agent join)",
+                err=True,
+            )
+            raise typer.Exit(ExitCode.CONFIG_ERROR)
+        created, fingerprint = stage_rotation_key(identity.path)
+    except JoinError as exc:
+        typer.echo(f"{PROG_NAME}: {exc}", err=True)
+        raise typer.Exit(exc.exit_code_for) from None
+    except MeshForgeError as exc:
+        typer.echo(f"{PROG_NAME}: {exc}", err=True)
+        raise typer.Exit(exc.exit_code) from None
+    typer.echo(
+        ("new key staged" if created else "a new key was already staged")
+        + f" (fingerprint {fingerprint[:16]}...) for {identity.node_id}"
+    )
+    typer.echo(
+        "the running agent renews its certificate with it within "
+        f"{settings.agent.cert.renew_check_interval_s:.0f} s (or right after its "
+        "next start); `meshforge-agent identity show` says when it is done"
     )
 
 

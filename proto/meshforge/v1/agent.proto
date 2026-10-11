@@ -44,6 +44,26 @@ import "meshforge/v1/common.proto";
 service AgentControl {
   // One stream per connected agent. Opened by the agent.
   rpc Session(stream AgentMessage) returns (stream ControllerMessage);
+  // V0.7 G4 (roadmap 0.7.7b, D140): a new node certificate for the caller,
+  // identified ONLY by the mutual-TLS client certificate of this call. The
+  // CSR must name that node in this fabric and be signed by its key (a new key
+  // = `meshforge-agent rotate-key`). The new certificate is "pending" until
+  // the node's first Hello with it; only then is the old serial superseded,
+  // so a renewal never cuts the live session. Refusals: gRPC status +
+  // trailing `meshforge-reason` (csr_<pki reason>, renew_node_mismatch,
+  // node_revoked, cert_superseded, rate_limited, unavailable, internal).
+  rpc RenewCertificate(RenewCertificateRequest) returns (RenewCertificateResponse);
+}
+
+message RenewCertificateRequest {
+  // PEM CSR (<= 4096 bytes), SAN URI meshforge://fabric/<fabric_id>/node/<node_id>.
+  bytes csr_pem = 1;
+}
+
+message RenewCertificateResponse {
+  bytes node_cert_pem = 1;
+  // The fabric CA (unchanged; the agent checks it equals its pinned ca.crt).
+  bytes ca_cert_pem = 2;
 }
 
 // ---------------------------------------------------------------------------

@@ -65,6 +65,7 @@ from meshforge.controller.enrollment.listener import (
     EnrollmentServicer,
     SourceRateLimiter,
 )
+from meshforge.controller.enrollment.renewal import CertRenewals
 from meshforge.controller.enrollment.service import Enroller
 from meshforge.controller.fabric_ca import (
     FabricCa,
@@ -189,6 +190,9 @@ class ControllerRuntime:
         self.dispatcher: Dispatcher | None = None
         self.revocations: Revocations | None = None
         """V0.7 G3 (D138): the revocation set and its enforcement."""
+        self.renewals: CertRenewals | None = None
+        """V0.7 G4 (D140): node certificate renewal (mtls with a CA only)."""
+        self._resyncs: set[asyncio.Task[None]] = set()
         self.known_bad_envs: KnownBadEnvs | None = None
         """D65: queued jobs -> attempts; the one task that writes attempts."""
         self._dispatcher_task: asyncio.Task[None] | None = None
@@ -470,6 +474,17 @@ class ControllerRuntime:
         manager.revoked_serials = revocations.sent_serials
         manager.refused_serials = revocations.revoked_serials
         self._spawn(revocations.run(cfg.revocation.poll_interval_s), "revocation-sync")
+        # V0.7 G4 (D140): node certificate renewal; the first Hello on a renewed
+        # certificate makes it current, and the old serial is pushed out at once.
+        if self.fabric is not None and not self.settings.security.insecure:
+            self.renewals = CertRenewals(
+                engine,
+                self.fabric,
+                min_interval_s=cfg.renewal.min_interval_s,
+                lifetime=timedelta(seconds=cfg.renewal.node_cert_lifetime_s),
+            )
+            manager.activate_cert = self.renewals.activate
+            manager.on_cert_activated = self._resync_revocations
         flusher = SnapshotFlusher(resources, registry, cfg.resources, clock=loop.time)
         self.flusher = flusher
         self._flusher_task = self._spawn(flusher.run(), "snapshot-flusher")
@@ -622,6 +637,7 @@ class ControllerRuntime:
                 manager,
                 hello_timeout_s=cfg.hello_timeout_s,
                 identify=functools.partial(peer_cert, fabric_id=fabric_id),
+                renewals=self.renewals,
             ),
             server,
         )
@@ -653,6 +669,28 @@ class ControllerRuntime:
             self.server_tls.grpc_credentials(require_client_auth=False),
         )
         self._enroll_listener = listener
+
+    def _resync_revocations(self, node_id: str) -> None:
+        """A renewed certificate went into use: re-read the revocation set now
+        (its predecessor is superseded) instead of at the next poll. Best
+        effort - the periodic sync is the backstop; a failure is logged."""
+        revocations = self.revocations
+        if revocations is None:
+            return
+
+        async def resync() -> None:
+            try:
+                await revocations.sync()
+            except Exception as exc:  # noqa: BLE001 - the periodic sync retries
+                log.warning(
+                    "controller.revocation.resync_failed",
+                    node_id=node_id,
+                    cause=type(exc).__name__,
+                )
+
+        task = asyncio.create_task(resync(), name=f"revocation-resync:{node_id}")
+        self._resyncs.add(task)
+        task.add_done_callback(self._resyncs.discard)
 
     def _spawn(self, coro: Coroutine[Any, Any, None], name: str) -> asyncio.Task[None]:
         task = asyncio.create_task(coro, name=name)

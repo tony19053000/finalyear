@@ -287,6 +287,15 @@ class Enroller:
                     serial=previous,
                     not_after=node.cert_not_after,
                 )
+            pending = node.pending_cert_serial
+            if pending is not None and node.pending_cert_not_after is not None:
+                # V0.7 G4: a renewed certificate never taken into use.
+                await supersede(
+                    db,
+                    node_id=node_id,
+                    serial=pending,
+                    not_after=node.pending_cert_not_after,
+                )
             await db.execute(
                 update(Node)
                 .where(Node.node_id == node_id)
@@ -295,6 +304,10 @@ class Enroller:
                     cert_fingerprint=pki.cert_fingerprint(cert),
                     cert_not_after=cert.not_valid_after_utc,
                     public_key_fingerprint=key_fp,
+                    pending_cert_serial=None,
+                    pending_cert_fingerprint=None,
+                    pending_cert_not_after=None,
+                    pending_public_key_fingerprint=None,
                 )
                 .execution_options(synchronize_session=False)
             )

@@ -37,6 +37,11 @@ persisted. Admission refuses an older certificate of a re-keyed node
 (``cert_superseded``) and records the certificate of a node that has none on
 record.
 
+**Renewal (V0.7 G4, D140).** ``RenewCertificate`` is a unary call on the same
+port: the caller is the node named by the call's client certificate (the
+interceptor already checked it); :class:`~..enrollment.renewal.CertRenewals`
+issues a pending certificate or refuses with a status + ``meshforge-reason``.
+
 Hello outcomes that are not a ``HelloAck``: a malformed ``node_id`` or a
 ``session_epoch`` outside ``[0, MAX_SESSION_EPOCH]`` (see
 :mod:`meshforge.controller.session.epoch`) end the stream ``INVALID_ARGUMENT`` with
@@ -62,6 +67,12 @@ from meshforge.common.errors import InvalidIdError, MeshForgeError
 from meshforge.common.ids import new_command_id, validate_node_id
 from meshforge.common.logging import get_logger
 from meshforge.common.proto.meshforge.v1 import agent_pb2, agent_pb2_grpc
+from meshforge.controller.enrollment.renewal import (
+    CertRenewals,
+    PresentedCert,
+    RenewReason,
+    RenewRefused,
+)
 from meshforge.controller.registry import SessionEndReason
 from meshforge.controller.session.admission import NODE_REVOKED, REVOKED_DETAIL
 from meshforge.controller.session.manager import Rejected, SessionManager
@@ -106,6 +117,25 @@ _CERT_ENDS: dict[SessionEndReason | None, tuple[grpc.StatusCode, str, str]] = {
 detail (the agent prints the detail; PERMISSION_DENIED stops it for good)."""
 
 
+_RENEW_STATUS: dict[str, grpc.StatusCode] = {
+    RenewReason.NODE_MISMATCH: grpc.StatusCode.PERMISSION_DENIED,
+    RenewReason.NODE_REVOKED: grpc.StatusCode.PERMISSION_DENIED,
+    RenewReason.UNKNOWN_NODE: grpc.StatusCode.PERMISSION_DENIED,
+    RenewReason.CERT_SUPERSEDED: grpc.StatusCode.PERMISSION_DENIED,
+    RenewReason.RATE_LIMITED: grpc.StatusCode.RESOURCE_EXHAUSTED,
+    RenewReason.UNAVAILABLE: grpc.StatusCode.UNAVAILABLE,
+    RenewReason.INTERNAL: grpc.StatusCode.INTERNAL,
+    RenewReason.NOT_AVAILABLE: grpc.StatusCode.FAILED_PRECONDITION,
+}
+"""Renewal refusal -> status (``csr_*`` refusals are ``INVALID_ARGUMENT``)."""
+
+
+def _renew_status(reason: str) -> grpc.StatusCode:
+    if reason.startswith("csr_"):
+        return grpc.StatusCode.INVALID_ARGUMENT
+    return _RENEW_STATUS.get(reason, grpc.StatusCode.INTERNAL)
+
+
 def _well_formed(node_id: str) -> bool:
     try:
         validate_node_id(node_id)
@@ -123,15 +153,65 @@ class AgentControlServicer(agent_pb2_grpc.AgentControlServicer):
         *,
         hello_timeout_s: float,
         identify: Callable[[Any], PeerCert] | None = None,
+        renewals: CertRenewals | None = None,
     ) -> None:
         """``identify`` (mtls mode, V0.7 G3): the caller's verified client
         certificate (:func:`~.peer_cert.peer_cert`); ``None`` only in
-        ``insecure-dev``, where ``Hello.node_id`` is taken as claimed."""
+        ``insecure-dev``, where ``Hello.node_id`` is taken as claimed.
+        ``renewals`` (mtls mode, V0.7 G4): issues renewed node certificates."""
         if not hello_timeout_s > 0:
             raise ValueError("hello_timeout_s must be > 0")
         self._manager = manager
         self._hello_timeout_s = hello_timeout_s
         self._identify = identify
+        self._renewals = renewals
+
+    async def RenewCertificate(  # noqa: N802 - name fixed by the gRPC service definition
+        self,
+        request: agent_pb2.RenewCertificateRequest,
+        context: grpc.aio.ServicerContext[
+            agent_pb2.RenewCertificateRequest, agent_pb2.RenewCertificateResponse
+        ],
+    ) -> agent_pb2.RenewCertificateResponse:
+        """V0.7 G4 (D140): see module docstring ("Renewal")."""
+        peer = context.peer()
+        if self._identify is None or self._renewals is None:
+            context.set_trailing_metadata(
+                ((REASON_METADATA_KEY, RenewReason.NOT_AVAILABLE.value),)
+            )
+            await context.abort(
+                grpc.StatusCode.FAILED_PRECONDITION,
+                "certificate renewal needs [security] mode = 'mtls' and a fabric CA",
+            )
+        try:
+            cert = self._identify(context)
+        except PeerCertError as error:  # the interceptor normally refused it already
+            await abort_with_reason(context, error)
+            raise AssertionError("unreachable: abort raises") from None
+        try:
+            result = await self._renewals.renew(
+                PresentedCert(
+                    node_id=cert.node_id,
+                    serial=cert.serial,
+                    public_key_fingerprint=cert.public_key_fingerprint,
+                ),
+                bytes(request.csr_pem),
+                source=peer,
+            )
+        except RenewRefused as refused:
+            metadata: list[tuple[str, str]] = [
+                (REASON_METADATA_KEY, str(refused.reason))
+            ]
+            if refused.retry_after_s is not None:
+                metadata.append(
+                    ("meshforge-retry-after-s", str(int(refused.retry_after_s) + 1))
+                )
+            context.set_trailing_metadata(tuple(metadata))
+            await context.abort(_renew_status(str(refused.reason)), refused.message)
+            raise AssertionError("unreachable: abort raises") from None
+        return agent_pb2.RenewCertificateResponse(
+            node_cert_pem=result.node_cert_pem, ca_cert_pem=result.ca_cert_pem
+        )
 
     async def Session(  # noqa: N802 - name fixed by the gRPC service definition
         self,

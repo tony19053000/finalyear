@@ -51,6 +51,7 @@ from typing import Any, Final
 import grpc
 from cryptography import x509
 from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ec
 
 from meshforge.agent.identity import (
     CA_CERT_FILE_NAME,
@@ -73,12 +74,14 @@ __all__ = [
     "JoinReason",
     "JoinResult",
     "check_issued",
+    "check_renewed",
     "enroll",
     "fetch_presented_ca",
     "is_enrolled",
     "join",
     "load",
     "pin_ca",
+    "replace_node_cert",
     "store",
 ]
 
@@ -456,6 +459,99 @@ def store(
                 with contextlib.suppress(OSError):
                     leftover.unlink()
     return node_crt
+
+
+def replace_node_cert(
+    identity: NodeIdentity,
+    node_cert: x509.Certificate,
+    *,
+    lock_timeout_s: float = DEFAULT_LOCK_TIMEOUT_S,
+) -> Path:
+    """V0.7 G4 (D140): swap in a renewed ``node.crt`` (same key, same CA).
+
+    Under the identity lock, the new certificate is written in full to a
+    private temporary file beside ``node.crt`` (the :func:`store` staging),
+    then moved over it with one ``os.replace`` and the folder entry fsynced:
+    a crash leaves the old certificate or the new one, both valid for the key.
+    Refuses (``not_enrolled``) when there is no enrolment to renew."""
+    node_crt, _ca_crt = _paths(identity.path)
+    with locked_identity(identity.path, lock_timeout_s=lock_timeout_s):
+        if not is_enrolled(identity.path):
+            raise JoinError(
+                JoinReason.NOT_ENROLLED,
+                "this laptop is not enrolled; nothing to renew",
+                failure_type=FailureType.CONFIG_ERROR,
+            )
+        staged: list[Path] = []
+        try:
+            tmp = _stage(node_crt, pki.cert_to_pem(node_cert), staged)
+            os.replace(tmp, node_crt)
+            staged.clear()
+            _fsync_dir(identity.path)
+        except (OSError, PrivateFileError) as exc:
+            message = (
+                exc.message
+                if isinstance(exc, PrivateFileError)
+                else f"cannot write the renewed certificate in {identity.path}: "
+                f"{exc.strerror or exc}"
+            )
+            raise JoinError(
+                JoinReason.STORAGE, message, failure_type=FailureType.CONFIG_ERROR
+            ) from None
+        finally:
+            for leftover in staged:
+                with contextlib.suppress(OSError):
+                    leftover.unlink()
+    return node_crt
+
+
+def _check_renewed(
+    node_cert_pem: bytes,
+    ca_cert_pem: bytes,
+    current: Enrollment,
+    key: ec.EllipticCurvePrivateKey,
+    now: datetime | None,
+) -> x509.Certificate:
+    """Raises :class:`pki.PkiError` on the first mismatch."""
+    ca = pki.cert_from_pem(ca_cert_pem)
+    cert = pki.cert_from_pem(node_cert_pem)
+    if pki.cert_fingerprint(ca) != current.ca_fingerprint:
+        raise pki.PkiError(pki.PkiReason.NOT_ISSUED_BY_CA, "another CA came back")
+    pki.verify_issued_by(cert, current.ca_cert)
+    if not pki.public_keys_equal(key.public_key(), cert.public_key()):
+        raise pki.PkiError(
+            pki.PkiReason.KEY_MISMATCH, "the certificate is for another key"
+        )
+    if pki.parse_node_id(cert, fabric_id=current.fabric_id) != current.node_id:
+        raise pki.PkiError(
+            pki.PkiReason.NODE_MISMATCH, "the certificate names another node"
+        )
+    pki.check_validity(cert, now or datetime.now(UTC))
+    return cert
+
+
+def check_renewed(
+    node_cert_pem: bytes,
+    ca_cert_pem: bytes,
+    *,
+    current: Enrollment,
+    key: ec.EllipticCurvePrivateKey,
+    now: datetime | None = None,
+) -> x509.Certificate:
+    """V0.7 G4: what ``RenewCertificate`` returned, checked like a join's
+    answer: the CA is the pinned one (byte-for-byte fingerprint), the
+    certificate is issued by it, certifies ``key`` (the key the CSR was
+    signed with), names this node in this fabric and is valid now. Raises
+    ``bad_response`` (nothing is stored)."""
+    try:
+        cert = _check_renewed(node_cert_pem, ca_cert_pem, current, key, now)
+    except pki.PkiError as exc:
+        raise JoinError(
+            JoinReason.BAD_RESPONSE,
+            f"the controller returned a renewed certificate this laptop cannot "
+            f"accept ({exc.reason.value}: {exc.message}); nothing was stored",
+        ) from None
+    return cert
 
 
 def _stage(target: Path, data: bytes, staged: list[Path]) -> Path:

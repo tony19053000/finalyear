@@ -54,6 +54,7 @@ __all__ = [
     "LivenessSettings",
     "NetworkSettings",
     "PlannerSettings",
+    "RenewalSettings",
     "ResourceHistorySettings",
     "TlsSettings",
 ]
@@ -809,6 +810,35 @@ class RevocationSettings(SectionModel):
     )
 
 
+class RenewalSettings(SectionModel):
+    """``[controller.renewal]`` - node certificate renewal (V0.7 G4, D140).
+
+    Agents renew their node certificate over the mutual-TLS session port
+    (``RenewCertificate``) at two thirds of its life; ``meshforge-agent
+    rotate-key`` renews with a new key.
+    """
+
+    min_interval_s: float = Field(
+        default=600.0,
+        ge=1.0,
+        le=86_400.0,
+        description=(
+            "Fewest seconds between two certificates issued to one node "
+            "(a misbehaving or stolen-key agent cannot mint certificates in a "
+            "loop); a renewal sooner is refused rate_limited and retried."
+        ),
+    )
+    node_cert_lifetime_s: float = Field(
+        default=30 * 86_400.0,
+        ge=60.0,
+        le=365 * 86_400.0,
+        description=(
+            "Life of a renewed node certificate (default 30 days, D136). Short "
+            "certificates make revocation cheap; agents renew at 2/3 of it."
+        ),
+    )
+
+
 class EnrollSettings(SectionModel):
     """``[controller.enroll]`` - where laptops join (V0.7 G2, D135/D150).
 
@@ -1163,6 +1193,7 @@ class ControllerSection(SectionModel):
     tls: TlsSettings = Field(default_factory=TlsSettings)
     enroll: EnrollSettings = Field(default_factory=EnrollSettings)
     revocation: RevocationSettings = Field(default_factory=RevocationSettings)
+    renewal: RenewalSettings = Field(default_factory=RenewalSettings)
 
     @field_validator("grpc_bind", "http_bind")
     @classmethod
