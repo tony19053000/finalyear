@@ -30,6 +30,7 @@ from typing import Any
 
 import pytest
 from mf_agent_harness import make_agent_settings
+from mf_jobs_harness import token_of
 from mf_session_client import poll_until
 
 pytest.importorskip("sqlalchemy", reason="needs the controller extra")
@@ -120,7 +121,11 @@ class Rest:
 @contextlib.asynccontextmanager
 async def rest_for(runtime: ControllerRuntime) -> Any:
     async with httpx.AsyncClient(
-        base_url=f"https://127.0.0.1:{runtime.http_port}", timeout=10.0
+        base_url=f"https://127.0.0.1:{runtime.http_port}",
+        timeout=10.0,
+        # V0.7 G4 (D148): node reads need a user; the harness accepts the
+        # legacy fabric token for pre-G4 tests.
+        headers={"authorization": f"Bearer {token_of(runtime)}"},
     ) as client:
         yield Rest(client)
 
@@ -519,6 +524,7 @@ async def test_compute_nodes_json_against_the_real_controller(
     monkeypatch.setenv(
         "MESHFORGE_CLI__CONTROLLER_URL", f"https://127.0.0.1:{runtime.http_port}"
     )
+    monkeypatch.setenv("MESHFORGE_CLI__TOKEN", token_of(runtime))  # D148
     # Rich folds a 31-character node_id across lines at the default 80 columns.
     monkeypatch.setenv("COLUMNS", "220")
     agent = make_agent(data_dir, grpc_target, identity)
@@ -553,6 +559,7 @@ async def test_compute_exits_unavailable_against_a_really_closed_port(
     is stopped first, so its port is actually gone."""
     url = f"https://127.0.0.1:{runtime.http_port}"
     monkeypatch.setenv("MESHFORGE_CLI__CONTROLLER_URL", url)
+    monkeypatch.setenv("MESHFORGE_CLI__TOKEN", token_of(runtime))  # D148
     await runtime.stop()
     runner = CliRunner()
     result = await asyncio.to_thread(runner.invoke, cli_app, ["nodes"])

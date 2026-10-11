@@ -14,6 +14,7 @@ import grpc
 import httpx
 import pytest
 import pytest_asyncio
+from mf_jobs_harness import token_of
 
 pytest.importorskip("sqlalchemy", reason="needs the controller extra")
 
@@ -84,7 +85,11 @@ async def test_every_read_endpoint_copes_with_an_enrolling_placeholder(
         is None
     )
     base = f"https://127.0.0.1:{rt.http_port}"
-    async with httpx.AsyncClient(base_url=base, verify=runtime_verify(rt)) as http:
+    async with httpx.AsyncClient(
+        base_url=base,
+        verify=runtime_verify(rt),
+        headers={"authorization": f"Bearer {token_of(rt)}"},  # D148
+    ) as http:
         for url in (
             "/v1/nodes",
             f"/v1/nodes/{node}",

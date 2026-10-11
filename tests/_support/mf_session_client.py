@@ -195,6 +195,12 @@ class FakeAgent:
                     await self.heartbeat()
                 except (asyncio.InvalidStateError, grpc.aio.UsageError):
                     return  # the call ended under us (aborted / half-closed)
+                except grpc.aio.AioRpcError:
+                    # The controller ended the call (e.g. ``superseded``) while a
+                    # write was in flight: grpc core then reports the failed send
+                    # as INTERNAL "execute_batch" instead of a usage error. The
+                    # stream is over either way; the test reads its real end.
+                    return
                 await asyncio.sleep(interval_s)
 
         self._hb = asyncio.create_task(loop(), name=f"fake-agent-hb:{self.node_id}")

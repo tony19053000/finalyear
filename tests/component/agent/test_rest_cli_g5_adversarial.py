@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from mf_jobs_harness import token_of
 
 pytest.importorskip("sqlalchemy", reason="needs the controller extra")
 
@@ -84,7 +85,11 @@ class Rest:
 @contextlib.asynccontextmanager
 async def rest_for(runtime: ControllerRuntime) -> Any:
     async with httpx.AsyncClient(
-        base_url=f"https://127.0.0.1:{runtime.http_port}", timeout=10.0
+        base_url=f"https://127.0.0.1:{runtime.http_port}",
+        timeout=10.0,
+        # V0.7 G4 (D148): node reads need a user; the harness accepts the
+        # legacy fabric token for pre-G4 tests.
+        headers={"authorization": f"Bearer {token_of(runtime)}"},
     ) as client:
         yield Rest(client)
 

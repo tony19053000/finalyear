@@ -30,6 +30,7 @@ from typing import Any
 import grpc
 import pytest
 import pytest_asyncio
+from mf_jobs_harness import token_of
 
 pytest.importorskip("sqlalchemy", reason="needs the controller extra")
 
@@ -212,6 +213,7 @@ async def test_happy_path_and_first_hello(
         async with httpx.AsyncClient(
             base_url=f"https://127.0.0.1:{fabric_runtime.http_port}",
             verify=runtime_verify(fabric_runtime),
+            headers={"authorization": f"Bearer {token_of(fabric_runtime)}"},  # D148
         ) as http:
             node = (await http.get(f"/v1/nodes/{identity.node_id}")).json()
         await agent.close()

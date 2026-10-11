@@ -96,6 +96,7 @@ async def _network(runtime: ControllerRuntime) -> dict[str, Any]:
         base_url=f"https://127.0.0.1:{runtime.http_port}",
         trust_env=False,
         verify=client_ssl_context(node_id=HARNESS_NODE_ID),
+        headers={"authorization": f"Bearer {token_of(runtime)}"},  # D148
     ) as http:
         resp = await http.get("/v1/network")
     assert resp.status_code == 200, resp.text

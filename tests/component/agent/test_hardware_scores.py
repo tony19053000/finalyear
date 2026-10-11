@@ -22,6 +22,7 @@ from typing import Any
 import pytest
 from mf_agent_harness import RunningAgent, make_agent_settings, make_controller_settings
 from mf_bench_fakes import make_scoreset
+from mf_jobs_harness import token_of
 from mf_session_client import make_hello, poll_until
 
 pytest.importorskip("sqlalchemy", reason="needs the controller extra")
@@ -85,7 +86,11 @@ def _agent(
 @contextlib.asynccontextmanager
 async def _rest(runtime: ControllerRuntime) -> AsyncIterator[httpx.AsyncClient]:
     async with httpx.AsyncClient(
-        base_url=f"https://127.0.0.1:{runtime.http_port}", timeout=10.0
+        base_url=f"https://127.0.0.1:{runtime.http_port}",
+        timeout=10.0,
+        # V0.7 G4 (D148): node reads need a user; the harness accepts the
+        # legacy fabric token for pre-G4 tests.
+        headers={"authorization": f"Bearer {token_of(runtime)}"},
     ) as client:
         yield client
 

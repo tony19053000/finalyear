@@ -369,7 +369,7 @@ async def test_list_and_get_bounds(runtime: ControllerRuntime) -> None:
         assert missing.status_code == 404
 
 
-async def test_every_protected_route_needs_the_token_and_d14_reads_stay_open(
+async def test_every_protected_route_needs_the_token_and_only_healthz_is_open(
     runtime: ControllerRuntime, agents: Any, bundle: str
 ) -> None:
     agent = await agents("exec")
@@ -390,14 +390,12 @@ async def test_every_protected_route_needs_the_token_and_d14_reads_stay_open(
                 if method != "HEAD":
                     assert response.json()["error"]["code"] == "unauthorized"
     async with api_client(runtime) as anonymous:
-        for url in (
-            "/healthz",
-            "/v1/nodes",
-            f"/v1/nodes/{agent.node_id}",
-            "/v1/sessions",
-            "/v1/openapi.json",
-        ):
+        # V0.7 G4 (D148): the D14 node/session reads need a user too; only the
+        # health probe and the (data-free) OpenAPI schema stay open.
+        for url in ("/healthz", "/v1/openapi.json"):
             assert (await anonymous.get(url)).status_code == 200, url
+        for url in ("/v1/nodes", f"/v1/nodes/{agent.node_id}", "/v1/sessions"):
+            assert (await anonymous.get(url)).status_code == 401, url
     assert await _job_count(runtime) == 0
 
 
