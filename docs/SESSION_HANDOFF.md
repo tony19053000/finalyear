@@ -282,7 +282,7 @@ Older: **2026-10-08 — V0.7 G2 STARTED:** brief §5b + D150/D151 written (`f17f
 
 **2026-10-08 — V0.7 G1 CLOSED** (0.7.1, 0.7.2 `[x]`, reviewer APPROVE). Next: Lead writes brief §5b (G2 pairing, D135/D136 + D149 item 0), then G2 implementer. Rulings D147–D149 in the brief. Nothing in flight.
 
-**Overall: 24 % (38/154 tasks `[x]`, 16 `[~]`).** Progress bars: `docs/STATUS.md` (regenerate with `uv run python scripts/status_bars.py` whenever a checkbox changes).
+**Overall: 40 % (63/156 tasks `[x]`, 16 `[~]`).** Progress bars: `docs/STATUS.md` (regenerate with `uv run python scripts/status_bars.py` whenever a checkbox changes).
 
 - **Version: V0.6 (scheduling & reliability) STARTED 2026-10-05** — brief `docs/briefs/V0.6-scheduling-reliability.md`; groups G1 reliability floor (0.6.9, 0.6.10, 0.6.14 + splits + D59, RUNNING) → G2 planner core → G3 retries/recovery/chaos → G4 network matrix + estimator → 🧑 0.6.13 lab.
 - **V0.5 (data plane & environments): closed agent-side** (G1–G5); only 🧑 0.5.11 lab left. Earlier detail: Brief `docs/briefs/V0.5-data-plane.md` (D79–D95).
