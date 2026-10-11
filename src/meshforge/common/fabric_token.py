@@ -29,6 +29,7 @@ from typing import Final
 
 from pydantic import SecretStr
 
+from meshforge.common.api_token import API_TOKEN_PREFIX
 from meshforge.common.errors import ExitCode, FailureType, MeshForgeError
 
 __all__ = [
@@ -75,6 +76,15 @@ def parse_token(text: str) -> SecretStr:
     if not MIN_TOKEN_CHARS <= len(value) <= MAX_TOKEN_CHARS or not _TOKEN_RE.fullmatch(
         value
     ):
+        if value.startswith(API_TOKEN_PREFIX):
+            # V0.7 G4 (D157): a damaged API token (`compute --token-file`) gets
+            # the API token's wording, not the fabric token's.
+            raise FabricTokenError(
+                f"this looks like a damaged API token: an API token is "
+                f"'{API_TOKEN_PREFIX}' followed by 43 URL-safe characters "
+                "(A-Z a-z 0-9 _ -); copy it again, or run `compute login` for a "
+                "new one"
+            )
         raise FabricTokenError(
             f"a fabric token is {MIN_TOKEN_CHARS}-{MAX_TOKEN_CHARS} URL-safe "
             "characters (A-Z a-z 0-9 _ -); run `meshforge-controller token show` "
