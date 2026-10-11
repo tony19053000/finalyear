@@ -24,6 +24,7 @@ from urllib.parse import urlsplit, urlunsplit
 from cryptography import x509
 from pydantic import Field, SecretStr, field_validator, model_validator
 
+from meshforge.cli.credentials import StoredLogin
 from meshforge.common import pki
 from meshforge.common.config import MeshForgeSettings, SectionModel
 from meshforge.common.errors import ConfigError
@@ -122,15 +123,16 @@ class CliSection(SectionModel):
     token: SecretStr | None = Field(
         default=None,
         description=(
-            "The fabric token (D44) sent as 'Authorization: Bearer' on job and blob "
-            "calls; `meshforge-controller token show` prints it. Env: "
-            "MESHFORGE_CLI__TOKEN. Never logged, never put in a URL."
+            "A bearer token sent as 'Authorization: Bearer' instead of the one "
+            "`compute login` stored: an API token, or the legacy fabric token "
+            "(D44; accepted only while [controller.auth] legacy_fabric_token is "
+            "on). Env: MESHFORGE_CLI__TOKEN. Never logged, never put in a URL."
         ),
     )
     token_file: Path | None = Field(
         default=None,
         description=(
-            "A file holding the fabric token (used when `token` is unset). "
+            "A file holding a bearer token (used when `token` is unset). "
             "Env: MESHFORGE_CLI__TOKEN_FILE; `compute --token-file` overrides both."
         ),
     )
@@ -176,12 +178,21 @@ class CliSection(SectionModel):
         ),
     )
 
+    credentials_dir: Path | None = Field(
+        default=None,
+        description=(
+            "V0.7 G4: where `compute login` keeps the API token and the "
+            "controller's ca.crt (private files). Empty = <config dir>/compute. "
+            "Env: MESHFORGE_CLI__CREDENTIALS_DIR."
+        ),
+    )
+
     @field_validator("controller_url")
     @classmethod
     def _url(cls, value: str) -> str:
         return normalise_controller_url(value)
 
-    @field_validator("ca_file", mode="before")
+    @field_validator("ca_file", "credentials_dir", mode="before")
     @classmethod
     def _ca_file(cls, value: object) -> object:
         if isinstance(value, str) and not value.strip():
@@ -231,11 +242,19 @@ class CliSettings(MeshForgeSettings):
         return self
 
 
-def resolve_ca(settings: CliSettings, ca_file: Path | None = None) -> x509.Certificate:
+def resolve_ca(
+    settings: CliSettings,
+    ca_file: Path | None = None,
+    *,
+    stored: StoredLogin | None = None,
+) -> x509.Certificate:
     """The fabric CA ``compute`` trusts (V0.7 G3, D139), highest precedence first:
-    ``--ca``, ``[cli] ca_file``, this laptop's agent enrolment, the local
-    controller's CA. Nothing found or unreadable -> :class:`ConfigError`."""
+    ``--ca``, ``[cli] ca_file``, the CA ``compute login`` stored (V0.7 G4,
+    ``stored``), this laptop's agent enrolment, the local controller's CA.
+    Nothing found or unreadable -> :class:`ConfigError`."""
     named = ca_file or settings.cli.ca_file
+    if named is None and stored is not None and stored.ca_file is not None:
+        named = stored.ca_file
     candidates = (
         [named]
         if named is not None
@@ -255,28 +274,34 @@ def resolve_ca(settings: CliSettings, ca_file: Path | None = None) -> x509.Certi
                 details={"path": str(path)},
             ) from None
     raise ConfigError(
-        "no fabric CA certificate to verify the controller with: on a laptop "
-        "that runs an enrolled agent it is found automatically; elsewhere copy "
-        "ca.crt from the controller (`meshforge-controller fabric show` prints its "
-        "fingerprint) and pass --ca PATH or set [cli] ca_file"
+        "no fabric CA certificate to verify the controller with: run `compute "
+        "login --fingerprint FP` (the admin reads FP from `meshforge-controller "
+        "fabric show`), or pass --ca PATH / set [cli] ca_file; on a laptop with "
+        "an enrolled agent it is found automatically"
     )
 
 
 def resolve_token(
-    settings: CliSettings, token_file: Path | None = None
+    settings: CliSettings,
+    token_file: Path | None = None,
+    *,
+    stored: StoredLogin | None = None,
 ) -> SecretStr | None:
-    """Which fabric token ``compute`` sends, highest precedence first.
+    """Which bearer token ``compute`` sends, highest precedence first.
 
     1. ``--token-file`` (``token_file`` here);
     2. ``[cli] token`` / ``MESHFORGE_CLI__TOKEN``;
     3. ``[cli] token_file`` / ``MESHFORGE_CLI__TOKEN_FILE``;
-    4. the local controller's own ``<data_dir>/controller/fabric.token`` if this
-       laptop runs the controller (read-only; silently skipped when absent).
+    4. the API token ``compute login`` stored (V0.7 G4, ``stored``: only when
+       it was issued by the controller being called);
+    5. the local controller's own ``<data_dir>/controller/fabric.token`` if this
+       laptop runs the controller (read-only; silently skipped when absent) -
+       accepted only while the controller's legacy switch is on (D141).
 
-    ``None`` means "send no token": the open node/session reads still work and a
-    protected call gets the controller's ``unauthorized`` answer. An explicitly
-    named file that is missing or malformed is a :class:`ConfigError` - a typo in
-    a path must not quietly fall through to "no token".
+    ``None`` means "send no token": the call gets the controller's
+    ``unauthorized`` answer ("run compute login"). An explicitly named file
+    that is missing or malformed is a :class:`ConfigError` - a typo in a path
+    must not quietly fall through to "no token".
     """
     if token_file is not None:
         return _read_named(token_file)
@@ -284,6 +309,8 @@ def resolve_token(
         return settings.cli.token
     if settings.cli.token_file is not None:
         return _read_named(settings.cli.token_file)
+    if stored is not None:
+        return stored.token
     local = default_token_path(settings.data_dir)
     try:
         return read_token_file(local)

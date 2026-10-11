@@ -10,8 +10,8 @@
   code on **stdin** (never in its argv, which other local users can read). With
   no agent installed it says so and exits ``CONFIG_ERROR``.
 
-``invite``/``invites`` need the fabric token (``--token-file``, ``[cli] token``):
-it is the interim admin credential until V0.7 G4 (D151).
+``invite``/``invites`` need an admin login (``compute login``; the V0.7 G4
+re-gate of D151 - the legacy fabric token only while the controller accepts it).
 """
 
 from __future__ import annotations

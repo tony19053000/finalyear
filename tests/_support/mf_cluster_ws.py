@@ -24,7 +24,7 @@ def follow_lines(
     url = fabric.http_base.replace("https://", "wss://") + (
         f"/v1/jobs/{job_id}/logs/ws?stream=stdout"
     )
-    headers = {"Authorization": f"Bearer {fabric.fabric_token()}"}
+    headers = {"Authorization": f"Bearer {fabric.api_token()}"}
     pending = b""
     deadline = time.monotonic() + timeout_s
     with connect(

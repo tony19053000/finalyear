@@ -63,7 +63,7 @@ def test_log_stream_opens_never_hang_over_tls(
     url = fabric.http_base.replace("https://", "wss://") + (
         f"/v1/jobs/{job_id}/logs/ws?stream=both"
     )
-    headers = {"Authorization": f"Bearer {fabric.fabric_token()}"}
+    headers = {"Authorization": f"Bearer {fabric.api_token()}"}
     slowest = 0.0
     for i in range(SYNC_OPENS):
         started = time.monotonic()

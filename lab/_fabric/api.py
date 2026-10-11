@@ -57,14 +57,41 @@ class ApiError(FabricApiError):
         self.status = status
 
 
+def find_token() -> str | None:
+    """V0.7 G4 (D141/D148): the bearer token the lab tools send - exactly the one
+    ``compute`` would (``compute login`` on this laptop, or
+    ``MESHFORGE_CLI__TOKEN`` / ``[cli] token_file``); ``None`` when there is
+    none (every REST read then answers 401 "run compute login")."""
+    from meshforge.cli import app as cli
+    from meshforge.cli.settings import resolve_token
+
+    settings = cli._settings()
+    token = resolve_token(settings, stored=cli._stored_login(settings))
+    return None if token is None else token.get_secret_value()
+
+
+def lab_token() -> str:
+    """:func:`find_token`, or exit with the fix (tools that must write)."""
+    token = find_token()
+    if token is None:
+        raise SystemExit(
+            "not logged in: run `compute login --controller https://HOST:47110 "
+            "--fingerprint FP` on this laptop first (see the V0.7 G4 checklist)"
+        )
+    return token
+
+
 def fabric_ssl_context() -> ssl.SSLContext:
     """V0.7 G3: the controller is HTTPS; trust the fabric CA exactly as
-    ``compute`` does (``MESHFORGE_CLI__CA_FILE`` / ``[cli] ca_file`` / the local
-    enrolment / the local controller) and check its ``meshforge-controller`` name."""
-    from meshforge.cli.settings import CliSettings, resolve_ca
+    ``compute`` does (``--ca`` / ``[cli] ca_file`` / the CA ``compute login``
+    stored / the local enrolment / the local controller) and check its
+    ``meshforge-controller`` name."""
+    from meshforge.cli import app as cli
+    from meshforge.cli.settings import resolve_ca
     from meshforge.common.fabric_tls import client_context
 
-    return client_context(resolve_ca(CliSettings.load()))
+    settings = cli._settings()
+    return client_context(resolve_ca(settings, stored=cli._stored_login(settings)))
 
 
 def default_url() -> str:
@@ -96,12 +123,16 @@ class FabricApi:
         self._context = (
             fabric_ssl_context() if self.base_url.startswith("https") else None
         )
+        self._token = find_token()
 
     def get(self, path: str, **query: str | int) -> JsonObject:
         url = self.base_url + path
         if query:
             url += "?" + urllib.parse.urlencode(query)
-        request = urllib.request.Request(url, headers={"Accept": "application/json"})  # noqa: S310 (scheme checked)
+        headers = {"Accept": "application/json"}
+        if self._token is not None:  # D148: every read needs a user
+            headers["Authorization"] = f"Bearer {self._token}"
+        request = urllib.request.Request(url, headers=headers)  # noqa: S310 (scheme checked)
         try:
             with urllib.request.urlopen(  # noqa: S310
                 request, timeout=self.timeout_s, context=self._context

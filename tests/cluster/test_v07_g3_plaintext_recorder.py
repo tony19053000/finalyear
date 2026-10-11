@@ -8,16 +8,18 @@ each agent's gRPC session, the REST + blob port (the controller advertises the
 server (``[agent.peer] advertise_port`` = its link).
 
 The run: the test uploads a project whose ``secret.txt`` holds FILE_MARKER,
-submits a job whose argv holds ARGV_MARKER (the fabric token in every REST
-header), the job prints both (so its log chunks carry them over gRPC and its
-stdout comes back over REST), runs on A, then on B with the controller link
-throttled so B fetches the tree mostly **from A's peer server**. Afterwards:
+submits a job whose argv holds ARGV_MARKER (V0.7 G4: as the harness's normal
+user - their API token in every REST header, their password in the harness
+login that went over the same recorded link), the job prints both (so its log
+chunks carry them over gRPC and its stdout comes back over REST), runs on A,
+then on B with the controller link throttled so B fetches the tree mostly
+**from A's peer server**. Afterwards:
 
 * the markers really travelled: B's stdout (read back over the rest link)
   contains both, A's peer link carried most of the tree;
 * not one recorded byte stream - any link, any connection, either direction -
-  contains ARGV_MARKER, FILE_MARKER or the fabric token; nothing was dropped
-  from the recording (not truncated).
+  contains ARGV_MARKER, FILE_MARKER, either user's password or API token, or
+  the fabric token; nothing was dropped from the recording (not truncated).
 
 Job secrets (D144) do not exist before G6; their value joins the markers then.
 The 🧑 lab checklist adds a real tcpdump/Wireshark capture on the LAN.
@@ -37,7 +39,7 @@ import pytest
 pytest.importorskip("psutil", reason="the cluster harness needs the agent extra")
 pytest.importorskip("sqlalchemy", reason="needs the controller extra")
 
-from mf_cluster import Fabric, Node, Timing
+from mf_cluster import ADMIN_USER, NORMAL_USER, Fabric, Node, Timing
 from pydantic import SecretStr
 
 from meshforge.cli.client import ControllerClient
@@ -92,6 +94,7 @@ def _run(fabric: Fabric, built: BuiltTree, node: Node, out: Path) -> dict[str, A
     resp = fabric.call(
         "POST",
         "/v1/jobs",
+        as_user=NORMAL_USER,
         json={
             "manifest": {
                 "name": "recorder",
@@ -105,7 +108,7 @@ def _run(fabric: Fabric, built: BuiltTree, node: Node, out: Path) -> dict[str, A
     job_id = str(resp.json()["job_id"])
     deadline = time.monotonic() + 120
     while time.monotonic() < deadline:
-        job = dict(fabric.call("GET", f"/v1/jobs/{job_id}").json())
+        job = dict(fabric.call("GET", f"/v1/jobs/{job_id}", as_user=NORMAL_USER).json())
         if job["state"] in TERMINAL:
             return job
         time.sleep(0.05)
@@ -138,7 +141,7 @@ def test_no_plaintext_marker_crosses_any_link_of_a_full_job_run(
     a, b = fabric.nodes
     assert fabric.rest_link is not None
     assert a.peer_link is not None and b.peer_link is not None
-    token = fabric.fabric_token()
+    token = fabric.api_token(NORMAL_USER)
 
     built = _tree(tmp_path)
     client = ControllerClient(fabric.http_base, timeout_s=30, token=SecretStr(token))
@@ -160,7 +163,10 @@ def test_no_plaintext_marker_crosses_any_link_of_a_full_job_run(
     # The markers really travelled (encrypted): B's stdout, read back over
     # the rest link, holds both; A's peer link carried most of the tree.
     logs = fabric.call(
-        "GET", f"/v1/jobs/{second['job_id']}/logs", params={"stream": "stdout"}
+        "GET",
+        f"/v1/jobs/{second['job_id']}/logs",
+        params={"stream": "stdout"},
+        as_user=NORMAL_USER,
     )
     assert logs.status_code == 200, logs.text
     assert ARGV_MARKER.encode() in logs.content and FILE_MARKER in logs.content
@@ -169,7 +175,13 @@ def test_no_plaintext_marker_crosses_any_link_of_a_full_job_run(
     markers = {
         "argv": ARGV_MARKER.encode(),
         "file": FILE_MARKER,
-        "fabric_token": token.encode(),
+        "fabric_token": fabric.fabric_token().encode(),
+        # V0.7 G4: both users' passwords (sent by the harness login over the
+        # recorded rest link) and API tokens (every REST header).
+        "user_password": fabric.password(NORMAL_USER).encode(),
+        "user_api_token": token.encode(),
+        "admin_password": fabric.password(ADMIN_USER).encode(),
+        "admin_api_token": fabric.api_token(ADMIN_USER).encode(),
     }
     seen: dict[str, int] = {}
     leaks: list[str] = []

@@ -77,7 +77,7 @@ def _compute(
         {
             "MESHFORGE_CLI__CONTROLLER_URL": fabric.http_base,
             "MESHFORGE_CLI__CA_FILE": str(fabric.ca_dir / "ca.crt"),
-            "MESHFORGE_CLI__TOKEN": fabric.fabric_token(),
+            "MESHFORGE_CLI__TOKEN": fabric.api_token(),
             "MESHFORGE_DATA_DIR": str(local_data),
             "XDG_CONFIG_HOME": str(cwd / "cli-config"),
         }

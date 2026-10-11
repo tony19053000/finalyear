@@ -93,7 +93,7 @@ def test_more_markers_never_cross_a_link_in_clear(
         record_links=True,
     )
     a, b = fabric.nodes
-    token = fabric.fabric_token()
+    token = fabric.api_token()
     root = tmp_path / "project"
     root.mkdir()
     (root / "main.py").write_text(MAIN)
@@ -151,8 +151,8 @@ def test_more_markers_never_cross_a_link_in_clear(
         "stderr": STDERR_MARKER.encode(),
         "output_file": OUTPUT_MARKER.encode(),
         "job_name": NAME_MARKER.encode(),
-        "fabric_token": token.encode(),
-        "fabric_token_b64": base64.b64encode(token.encode()),
+        "api_token": token.encode(),
+        "api_token_b64": base64.b64encode(token.encode()),
         "stdout_b64": base64.b64encode(STDOUT_MARKER.encode())[:-4],
         "output_b64": base64.b64encode(OUTPUT_MARKER.encode())[:-4],
     }

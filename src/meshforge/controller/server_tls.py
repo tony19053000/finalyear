@@ -29,9 +29,11 @@ from __future__ import annotations
 
 import asyncio
 import ssl
+import tempfile
 import threading
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Final, Literal
 
 import grpc
@@ -168,11 +170,17 @@ class ServerTls:
         self._contexts.append(context)
         return context
 
-    @staticmethod
-    def _load(context: ssl.SSLContext, cert: ServerCert) -> None:
-        context.load_cert_chain(
-            cert.path / SERVER_CERT_NAME, cert.path / SERVER_KEY_NAME
-        )
+    def _load(self, context: ssl.SSLContext, cert: ServerCert) -> None:
+        """``server.crt`` + ``ca.crt`` as the presented chain (V0.7 G4): like
+        the gRPC listeners, so ``compute login --fingerprint`` can read the CA
+        from the handshake and pin it (D141). ``ssl`` loads a chain only from
+        a file, so the public chain goes through a short-lived temporary file
+        (no secret in it; the key is read from ``server.key`` as before)."""
+        chain = pki.cert_to_pem(cert.cert) + self.ca_pem
+        with tempfile.TemporaryDirectory(prefix="meshforge-chain-") as tmp:
+            chain_file = Path(tmp) / SERVER_CERT_NAME
+            chain_file.write_bytes(chain)
+            context.load_cert_chain(chain_file, cert.path / SERVER_KEY_NAME)
 
     # ---------------------------------------------------------------- renew
 

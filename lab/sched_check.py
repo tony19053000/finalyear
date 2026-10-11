@@ -2,9 +2,8 @@
 """V0.6 lab kit (roadmap 0.6.13): submit the mixed job set, wait for it, and
 check the ledger. The procedure is ``lab/checklists/V0.6-scheduling.md``.
 
-Runs on the **controller laptop** (L1) with the fabric token
-(``$MESHFORGE_CLI__TOKEN``, else it reads it the way ``compute`` does) and
-``$MESHFORGE_CLI__CONTROLLER_URL``.
+Runs on the **controller laptop** (L1) after ``compute login`` (V0.7 G4: the
+token is the one ``compute`` uses) and with ``$MESHFORGE_CLI__CONTROLLER_URL``.
 
     uv run python lab/sched_check.py submit --n 100 --seed 6 --out RUN.json
         Upload lab/workloads/v06-ledger and submit N mixed jobs (sleep 5-60 s,
@@ -72,12 +71,13 @@ def fabric_ssl_context() -> Any:
 
 
 def _token() -> str:
-    from meshforge.cli.settings import CliSettings, resolve_token
+    """V0.7 G4: the token ``compute login`` stored (or ``MESHFORGE_CLI__TOKEN``)."""
+    lab_dir = str(Path(__file__).resolve().parent)
+    if lab_dir not in sys.path:
+        sys.path.insert(0, lab_dir)
+    from _fabric.api import lab_token
 
-    token = resolve_token(CliSettings.load())
-    if token is None:
-        sys.exit("no fabric token: set MESHFORGE_CLI__TOKEN (see the checklist, B3)")
-    return token.get_secret_value()
+    return lab_token()
 
 
 def _client() -> httpx.Client:

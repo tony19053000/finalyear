@@ -90,7 +90,7 @@ def _tree(tmp_path: Path, name: str) -> tuple[BuiltTree, bytes]:
 
 def _upload(fabric: Fabric, built: BuiltTree) -> None:
     client = ControllerClient(
-        fabric.http_base, timeout_s=30, token=SecretStr(fabric.fabric_token())
+        fabric.http_base, timeout_s=30, token=SecretStr(fabric.api_token())
     )
     try:
         upload_tree(client, built)

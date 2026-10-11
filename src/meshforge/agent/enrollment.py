@@ -36,11 +36,9 @@ ever logs or prints the code or the token.
 
 from __future__ import annotations
 
-import _ssl  # 3.12: get_unverified_chain() yields _ssl.Certificate (D153 item 5)
 import contextlib
 import os
 import secrets
-import socket
 import ssl
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -66,6 +64,12 @@ from meshforge.common.ids import FabricId
 from meshforge.common.logging import get_logger
 from meshforge.common.private_files import PrivateFileError, protect_private
 from meshforge.common.proto.meshforge.v1 import enroll_pb2, enroll_pb2_grpc
+from meshforge.common.tls_pin import (
+    chain_der,
+    is_self_signed_ca,
+    pinned_ca,
+    presented_chain,
+)
 
 __all__ = [
     "REASON_METADATA_KEY",
@@ -89,7 +93,6 @@ log = get_logger(__name__)
 
 REASON_METADATA_KEY: Final = "meshforge-reason"
 DEFAULT_TIMEOUT_S: Final = 15.0
-_MAX_CHAIN: Final = 8
 
 
 class JoinReason(StrEnum):
@@ -167,27 +170,15 @@ class Enrollment:
 
 
 def _chain_der(sock: ssl.SSLSocket) -> list[bytes]:
-    """The certificate chain the peer sent, unverified, as DER.
-
-    Python 3.13+ has ``SSLSocket.get_unverified_chain()``; 3.10-3.12 expose the
-    same call on the private ``_sslobj`` (3.12 is what we pin). The bytes are
-    only ever compared with the code's pin, never trusted as they are.
-    """
-    getter = getattr(sock, "get_unverified_chain", None)
-    if getter is None:
-        getter = getattr(getattr(sock, "_sslobj", None), "get_unverified_chain", None)
-    if getter is None:  # pragma: no cover - every supported Python has one
+    """The certificate chain the peer sent, unverified, as DER
+    (:func:`meshforge.common.tls_pin.chain_der`, shared with ``compute login``)."""
+    der = chain_der(sock)
+    if der is None:
         raise JoinError(
             JoinReason.TLS_ERROR,
             "this Python cannot read the controller's certificate chain",
         )
-    out: list[bytes] = []
-    for item in (getter() or [])[:_MAX_CHAIN]:
-        if isinstance(item, bytes):
-            out.append(item)
-        else:  # 3.12: _ssl.Certificate
-            out.append(item.public_bytes(_ssl.ENCODING_DER))
-    return out
+    return der
 
 
 def fetch_presented_ca(
@@ -199,17 +190,8 @@ def fetch_presented_ca(
     then the socket is closed: nothing is sent after the handshake, so a fake
     controller learns nothing but that someone connected.
     """
-    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-    context.check_hostname = False
-    context.verify_mode = ssl.CERT_NONE  # untrusted read: checked against the pin
-    context.minimum_version = ssl.TLSVersion.TLSv1_2
-    context.set_alpn_protocols(["h2"])
     try:
-        with (
-            socket.create_connection((host, port), timeout=timeout_s) as raw,
-            context.wrap_socket(raw, server_hostname=pki.SERVER_NAME) as tls,
-        ):
-            chain = _chain_der(tls)
+        return presented_chain(host, port, timeout_s=timeout_s, alpn=("h2",))
     except ssl.SSLError as exc:
         raise JoinError(
             JoinReason.TLS_ERROR,
@@ -224,20 +206,9 @@ def fetch_presented_ca(
             f"({exc.strerror or type(exc).__name__})",
             failure_type=FailureType.NETWORK_ERROR,
         ) from None
-    certs: list[x509.Certificate] = []
-    for der in chain:
-        with contextlib.suppress(ValueError):
-            certs.append(x509.load_der_x509_certificate(der))
-    return certs
 
 
-def _is_self_signed_ca(cert: x509.Certificate) -> bool:
-    try:
-        bc = pki.cert_extensions(cert).get_extension_for_class(x509.BasicConstraints)
-        pki.verify_issued_by(cert, cert)
-    except (pki.PkiError, x509.ExtensionNotFound):
-        return False
-    return bool(bc.value.ca)
+_is_self_signed_ca = is_self_signed_ca
 
 
 def pin_ca(presented: list[x509.Certificate], pin: str) -> x509.Certificate:
@@ -247,22 +218,9 @@ def pin_ca(presented: list[x509.Certificate], pin: str) -> x509.Certificate:
         raise JoinError(
             JoinReason.PIN_MISMATCH, "the controller presented no certificate"
         )
-    for cert in presented:
-        if pki.fingerprint_matches(
-            cert, pin, require_full=False
-        ) and _is_self_signed_ca(cert):
-            try:
-                pki.verify_issued_by(presented[0], cert)
-                pki.check_validity(cert)
-            except pki.PkiError:
-                # The pinned CA is present but did not issue the server's own
-                # certificate (or has expired): a controller replaying the real
-                # CA certificate beside an attacker's server cert. Stop - a
-                # second certificate with the same 128-bit pin cannot exist
-                # short of a SHA-256 second preimage, so there is nothing more
-                # to look for (D153 item 4).
-                break
-            return cert
+    found = pinned_ca(presented, pin, require_full=False)
+    if found is not None:
+        return found
     raise JoinError(
         JoinReason.PIN_MISMATCH,
         "the controller at this address does not hold the fabric CA your code "

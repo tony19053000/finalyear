@@ -51,6 +51,7 @@ from meshforge.common.errors import ConfigError, ExitCode
 
 if TYPE_CHECKING:  # `meshforge.cli.client` pulls in httpx - see `_client` below.
     from meshforge.cli.client import ControllerClient
+    from meshforge.cli.credentials import StoredLogin
 
 PROG_NAME = "compute"
 
@@ -98,10 +99,36 @@ def _die(message: str, code: ExitCode) -> NoReturn:
 
 
 def _settings() -> CliSettings:
+    """The CLI settings; with no ``controller_url`` configured, the controller
+    ``compute login`` last logged in to (V0.7 G4)."""
     try:
-        return CliSettings.load()
+        settings = CliSettings.load()
     except ConfigError as exc:
         _die(exc.message, ExitCode.CONFIG_ERROR)
+    if "controller_url" in settings.cli.model_fields_set:
+        return settings
+    stored = _load_stored(settings)
+    if stored is None or stored.controller_url == settings.cli.controller_url:
+        return settings
+    cli = settings.cli.model_copy(update={"controller_url": stored.controller_url})
+    return settings.model_copy(update={"cli": cli})
+
+
+def _load_stored(settings: CliSettings) -> StoredLogin | None:
+    from meshforge.cli.credentials import credentials_dir, load_login
+
+    try:
+        return load_login(credentials_dir(settings.cli.credentials_dir))
+    except ConfigError as exc:
+        _die(exc.message, ExitCode.CONFIG_ERROR)
+
+
+def _stored_login(settings: CliSettings) -> StoredLogin | None:
+    """The stored login, only if it belongs to the controller being called."""
+    stored = _load_stored(settings)
+    if stored is None or stored.controller_url != settings.cli.controller_url:
+        return None
+    return stored
 
 
 _TOKEN_FILE: ContextVar[Path | None] = ContextVar("compute_token_file", default=None)
@@ -122,8 +149,9 @@ def _client(settings: CliSettings) -> ControllerClient:
     from meshforge.cli.client import ControllerClient
     from meshforge.cli.settings import resolve_token
 
+    stored = _stored_login(settings)
     try:
-        token = resolve_token(settings, _token_file_option())
+        token = resolve_token(settings, _token_file_option(), stored=stored)
     except ConfigError as exc:
         _die(exc.message, ExitCode.CONFIG_ERROR)
     return ControllerClient(
@@ -144,7 +172,9 @@ def _ssl_context(settings: CliSettings) -> ssl.SSLContext | None:
     if not settings.cli.controller_url.startswith("https://"):
         return None
     try:
-        return client_context(resolve_ca(settings, _CA_FILE.get()))
+        return client_context(
+            resolve_ca(settings, _CA_FILE.get(), stored=_stored_login(settings))
+        )
     except ConfigError as exc:
         _die(exc.message, ExitCode.CONFIG_ERROR)
 
@@ -204,9 +234,9 @@ def _root(
         typer.Option(
             "--token-file",
             help=(
-                "File holding the fabric token for job/blob calls (overrides "
-                "[cli] token and MESHFORGE_CLI__TOKEN). Never pass the token itself "
-                "on the command line."
+                "File holding a bearer token to send instead of the `compute "
+                "login` one (overrides [cli] token and MESHFORGE_CLI__TOKEN). "
+                "Never pass a token itself on the command line."
             ),
             dir_okay=False,
         ),
@@ -374,6 +404,14 @@ app.command()(explain)
 from meshforge.cli.network_commands import network  # noqa: E402
 
 app.command()(network)
+
+# V0.7 G4: `compute login|logout|whoami|tokens` (REST users, D141).
+from meshforge.cli.auth_commands import login, logout, tokens_app, whoami  # noqa: E402
+
+app.command()(login)
+app.command()(logout)
+app.command()(whoami)
+app.add_typer(tokens_app)
 
 # V0.5 G5: `compute data ...` (named inputs).
 from meshforge.cli.data_commands import data_app  # noqa: E402

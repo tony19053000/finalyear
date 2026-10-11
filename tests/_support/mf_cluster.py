@@ -53,6 +53,7 @@ import datetime as dt
 import json
 import logging
 import os
+import secrets
 import signal
 import ssl
 import subprocess
@@ -72,8 +73,10 @@ import psutil  # type: ignore[import-untyped]  # no stubs; agent extra
 from mf_faultproxy import FaultLink, FaultLoop
 
 __all__ = [
+    "ADMIN_USER",
     "FAST",
     "FORBIDDEN_EVENTS",
+    "NORMAL_USER",
     "SHIPPED",
     "Fabric",
     "HarnessError",
@@ -88,6 +91,10 @@ __all__ = [
 
 _IS_WINDOWS: Final = sys.platform == "win32"
 _IS_LINUX: Final = sys.platform.startswith("linux")
+
+ADMIN_USER: Final = "admin"
+NORMAL_USER: Final = "alice"
+"""V0.7 G4: every fabric has these two REST users (see ``Fabric._create_users``)."""
 
 START_TIMEOUT_S: Final = 60.0
 """Controller start (migrations on a fresh DB) / agent start (hardware discovery)."""
@@ -674,6 +681,8 @@ class Fabric:
             "MESHFORGE_DATABASE__USER": str(database.user),
             "MESHFORGE_DATABASE__PASSWORD": database.password.get_secret_value(),
         }
+        self._users: dict[str, tuple[str, str]] = {}
+        """V0.7 G4: user name -> (password, API token)."""
         self.loop: FaultLoop | None = None
         self.controller: ManagedProcess | None = None
         self.nodes: list[Node] = []
@@ -814,6 +823,7 @@ class Fabric:
             self.workdir / "logs",
         )
         self._start_controller()
+        self._create_users(controller_config, env)
         for i in range(self.n_agents):
             data_dir = self.workdir / f"agent{i}-data"
             link = self.loop.link(_host_port(self.grpc_target), name=f"agent{i}")
@@ -896,6 +906,39 @@ class Fabric:
             self.rest_link.retarget(*_host_port(str(event["http"])))
             self.http_base = f"https://{self.rest_link.target}"
 
+    def _create_users(self, config: Path, env: Mapping[str, str]) -> None:
+        """V0.7 G4 (D141): an admin and a normal user, created with the real
+        ``meshforge-controller user create`` and logged in over the real
+        ``POST /v1/auth/login`` (through the recorded REST link when
+        ``record_links``). Their passwords and tokens are test secrets: the
+        D146 recorder checks that none of them crosses a link in plaintext."""
+        for name, admin in ((ADMIN_USER, True), (NORMAL_USER, False)):
+            password = f"pw-{name}-{secrets.token_hex(12)}"
+            created = subprocess.run(
+                [sys.executable, "-m", "meshforge.controller", "user", "create",
+                 name, "--password-stdin", "--config", str(config),
+                 *(["--admin"] if admin else [])],
+                env=dict(env), input=password + "\n", capture_output=True,
+                text=True, timeout=60, check=False,
+            )  # fmt: skip
+            if created.returncode != 0:
+                self.fail(f"user create {name} failed: {created.stderr[-2000:]}")
+            response = self._http.post(
+                self.http_base + "/v1/auth/login",
+                json={"name": name, "password": password},
+                timeout=30.0,
+            )
+            if response.status_code != 200:
+                self.fail(f"login {name} failed: {response.status_code}")
+            self._users[name] = (password, str(response.json()["token"]))
+
+    def api_token(self, user: str = ADMIN_USER) -> str:
+        """``user``'s API token from the harness login (default: the admin)."""
+        return self._users[user][1]
+
+    def password(self, user: str = ADMIN_USER) -> str:
+        return self._users[user][0]
+
     def _wait_node_id(self, node: Node) -> str:
         event = self.wait_log(node.process, "agent.started", within=START_TIMEOUT_S)
         return str(event["node_id"])
@@ -960,9 +1003,14 @@ class Fabric:
     # ------------------------------------------------------------- REST
 
     def get(self, path: str, **params: Any) -> Any | None:
-        """GET ``/v1...`` as JSON; ``None`` if the controller is unreachable."""
+        """GET ``/v1...`` as JSON (as the admin: D148, every read needs a user);
+        ``None`` if the controller is unreachable."""
         try:
-            resp = self._http.get(self.http_base + path, params=params or None)
+            resp = self._http.get(
+                self.http_base + path,
+                params=params or None,
+                headers={"authorization": f"Bearer {self.api_token()}"},
+            )
         except httpx.HTTPError:
             return None
         if resp.status_code != 200:
@@ -974,10 +1022,13 @@ class Fabric:
         path = self.workdir / "controller-data" / "controller" / "fabric.token"
         return path.read_text("utf-8").strip()
 
-    def call(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
-        """An authenticated REST call (jobs, blobs); raises on transport errors."""
+    def call(
+        self, method: str, path: str, *, as_user: str = ADMIN_USER, **kwargs: Any
+    ) -> httpx.Response:
+        """An authenticated REST call (jobs, blobs) as ``as_user`` (default the
+        admin, who sees every job); raises on transport errors."""
         headers = dict(kwargs.pop("headers", {}) or {})
-        headers["authorization"] = f"Bearer {self.fabric_token()}"
+        headers["authorization"] = f"Bearer {self.api_token(as_user)}"
         return self._http.request(
             method, self.http_base + path, headers=headers, timeout=10.0, **kwargs
         )

@@ -1,9 +1,8 @@
 # ruff: noqa: T201 - a lab tool: its output is the point
 """V0.4 lab kit (roadmap 0.4.15): measure what the checklist needs to measure.
 
-Runs on the **controller laptop** (L1) with the controller's fabric token
-(``$MESHFORGE_CLI__TOKEN``, or it reads ``<data dir>/controller/fabric.token``
-the way ``compute`` does). The procedure is ``lab/checklists/V0.4-remote-exec.md``.
+Runs on the **controller laptop** (L1) after ``compute login`` (V0.7 G4: the
+token is the one ``compute`` uses). The procedure is ``lab/checklists/V0.4-remote-exec.md``.
 
     uv run python lab/exec_check.py latency JOB_ID --name L2
         Follow the job's live log over the WebSocket; for every ``tick <i> <t>``
@@ -53,14 +52,13 @@ def fabric_ssl_context() -> Any:
 
 
 def _token() -> str:
-    from meshforge.cli.settings import CliSettings, resolve_token
+    """V0.7 G4: the token ``compute login`` stored (or ``MESHFORGE_CLI__TOKEN``)."""
+    lab_dir = str(Path(__file__).resolve().parent)
+    if lab_dir not in sys.path:
+        sys.path.insert(0, lab_dir)
+    from _fabric.api import lab_token
 
-    token = resolve_token(CliSettings.load())
-    if token is None:
-        sys.exit(
-            "no fabric token: set MESHFORGE_CLI__TOKEN (meshforge-controller token show)"
-        )
-    return token.get_secret_value()
+    return lab_token()
 
 
 def _url(args: argparse.Namespace) -> str:

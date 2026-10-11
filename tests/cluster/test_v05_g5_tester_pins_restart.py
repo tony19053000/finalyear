@@ -53,7 +53,7 @@ TERMINAL = {"succeeded", "failed", "cancelled"}
 
 def _client(fabric: Fabric) -> ControllerClient:
     return ControllerClient(
-        fabric.http_base, timeout_s=30, token=SecretStr(fabric.fabric_token())
+        fabric.http_base, timeout_s=30, token=SecretStr(fabric.api_token())
     )
 
 
