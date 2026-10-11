@@ -40,11 +40,12 @@ Fault semantics (each has its own raw-socket test)
     lost bytes, so their byte streams cannot be resumed; they are **reset** (RST
     both sides), which is what a real host does to a connection it no longer
     knows once the cable is back.
-``latency(ms, jitter_ms)``
+``latency(ms, jitter_ms, direction="both")``
     Every chunk is delivered ``ms`` (+ uniform ``0..jitter_ms``) after it was
-    read, in each direction, never reordered (a chunk is never delivered before
-    the one read before it). ``latency(0)`` clears it. Applies to chunks read
-    after the call.
+    read, in each direction (or only ``"up"`` = client -> upstream, or only
+    ``"down"`` = upstream -> client), never reordered (a chunk is never
+    delivered before the one read before it). ``latency(0)`` clears it (for the
+    directions named). Applies to chunks read after the call.
 ``bandwidth(bytes_per_s)``
     Each direction of each connection is paced to at most ``bytes_per_s``;
     ``None`` clears it.
@@ -84,7 +85,7 @@ import socket
 import struct
 import threading
 from collections.abc import Coroutine
-from typing import Any, Final, TypeVar
+from typing import Any, Final, Literal, TypeVar
 
 __all__ = [
     "CHUNK_BYTES",
@@ -285,8 +286,8 @@ class FaultLink:
         self._conns: dict[int, _Conn] = {}
         self._ids = itertools.count(1)
         self._blackholed = False
-        self._latency_s = 0.0
-        self._jitter_s = 0.0
+        self._latency_s = {"up": 0.0, "down": 0.0}
+        self._jitter_s = {"up": 0.0, "down": 0.0}
         self._bytes_per_s: float | None = None
         self._rng = random.Random()  # noqa: S311 - jitter, not crypto
         self._faults: collections.Counter[str] = collections.Counter()
@@ -327,10 +328,19 @@ class FaultLink:
     def blackhole(self, enabled: bool = True) -> None:
         self._fl.call(self._set_blackhole(enabled))
 
-    def latency(self, ms: float, jitter_ms: float = 0.0) -> None:
+    def latency(
+        self,
+        ms: float,
+        jitter_ms: float = 0.0,
+        *,
+        direction: Literal["both", "up", "down"] = "both",
+    ) -> None:
         if ms < 0 or jitter_ms < 0:
             raise ValueError("latency and jitter must be >= 0")
-        self._fl.call(self._set_latency(ms / 1000.0, jitter_ms / 1000.0))
+        if direction not in ("both", "up", "down"):
+            raise ValueError("direction is 'both', 'up' or 'down'")
+        directions = ("up", "down") if direction == "both" else (direction,)
+        self._fl.call(self._set_latency(ms / 1000.0, jitter_ms / 1000.0, directions))
 
     def bandwidth(self, bytes_per_s: float | None) -> None:
         if bytes_per_s is not None and bytes_per_s <= 0:
@@ -439,9 +449,13 @@ class FaultLink:
             elif conn.poisoned:
                 self._reset_conn(conn)
 
-    async def _set_latency(self, latency_s: float, jitter_s: float) -> None:
+    async def _set_latency(
+        self, latency_s: float, jitter_s: float, directions: tuple[str, ...]
+    ) -> None:
         self._faults["latency"] += 1
-        self._latency_s, self._jitter_s = latency_s, jitter_s
+        for direction in directions:
+            self._latency_s[direction] = latency_s
+            self._jitter_s[direction] = jitter_s
 
     async def _set_bandwidth(self, bytes_per_s: float | None) -> None:
         self._faults["bandwidth"] += 1
@@ -453,7 +467,8 @@ class FaultLink:
 
     async def _clear(self) -> None:
         await self._set_blackhole(False)
-        self._latency_s = self._jitter_s = 0.0
+        self._latency_s = {"up": 0.0, "down": 0.0}
+        self._jitter_s = {"up": 0.0, "down": 0.0}
         self._bytes_per_s = None
         await self._up()
 
@@ -572,9 +587,9 @@ class FaultLink:
                         # side open until a restore resets it.
                         await asyncio.Event().wait()
                     continue
-                due = loop.time() + self._latency_s
-                if self._jitter_s:
-                    due += self._rng.uniform(0.0, self._jitter_s)
+                due = loop.time() + self._latency_s[direction]
+                if self._jitter_s[direction]:
+                    due += self._rng.uniform(0.0, self._jitter_s[direction])
                 last_due = max(last_due, due)  # never reorder
                 await queue.put((last_due, data or None))
                 if not data:

@@ -7,10 +7,17 @@ up, the agent's TCP drops, the agent reconnects and replays" - which is why R1
 survived a round. Here the controller and the agent are real processes and the
 drop is a real RST from the fault proxy.
 
-How a replay of an *already counted* sample is forced: the link gets latency, so
-every report's Ack comes back well after the report was counted. With one report
-every 100 ms there are always counted-but-unacked reports; a ``reset_peer``
-leaves them in the agent's replay ring and the next stream replays them. The test
+How a replay of an *already counted* sample is forced: the link delays only the
+controller -> agent direction (V0.7 G4 fix round 1, D157), so a report reaches
+the controller at once and is counted, while its Ack comes back ``ACK_DELAY_MS``
+later. Every report sent in the last ``ACK_DELAY_MS`` before a ``reset_peer`` is
+therefore counted but unacked; the reset leaves it in the agent's replay ring
+and the next stream replays it. (Until D157 the latency was 100 ms in *both*
+directions: then only reports sent in a 100 ms window - (T-200 ms, T-100 ms] -
+were counted-but-unacked, while the agent really reports every ~230 ms (the
+100 ms interval plus the sample itself) and is ONLINE only ~0.4 s between
+resets, so ~1 run in 4-8 had no such report at any of the four resets and the
+non-vacuity check failed - on the pre-G4 baseline ``c15a57d`` too, 2/8.) The test
 proves this happened (non-vacuous) from both logs: the agent's
 ``agent.session.reconciled`` shows ``replayed > 0`` and the controller (at DEBUG)
 logs ``controller.resources.duplicate_update`` for the replays it rejected.
@@ -72,6 +79,9 @@ Hello round trips through that latency, ~2-3 s late) with margin; the shipped 20
 only make the run slower."""
 RESETS = 4
 RESET_SPACING_S = 0.4
+ACK_DELAY_MS = 300.0
+"""Controller -> agent latency in test_f: longer than one report period
+(~230 ms), shorter than the ONLINE window between resets (D157)."""
 EPOCH = dt.datetime(1970, 1, 1, tzinfo=dt.UTC)
 
 
@@ -172,6 +182,20 @@ class Account:
             _utc(b["bucket_start"]): int(b["samples"]) for b in history["history"]
         }
 
+    def replays_with_duplicates(self) -> int:
+        """Reconnects that replayed at least one already counted report."""
+        dups = {int(d["sequence"]) for d in self.duplicates}
+        return sum(
+            1
+            for r in self.replays
+            if any(
+                int(r["replay_from_sequence"])
+                <= seq
+                < int(r["replay_from_sequence"]) + int(r["replayed"])
+                for seq in dups
+            )
+        )
+
     def expected(self) -> dict[dt.datetime, int]:
         out: dict[dt.datetime, int] = {}
         for s in self.live:
@@ -212,7 +236,9 @@ class Account:
 
 
 def test_f_replayed_reports_are_never_counted_twice(make_fabric: MakeFabric) -> None:
-    bucket_s = 8.0  # V0.7 G3: each reconnect now also does a TLS handshake
+    # V0.7 G3: each reconnect also does a TLS handshake; D157: every server ->
+    # client flight of it is ACK_DELAY_MS late, ~1 s per reconnect.
+    bucket_s = 12.0
     fabric = _dense_fabric(make_fabric, bucket_s, cache_reports=False)
     node = fabric.nodes[0]
     fabric.wait_until(
@@ -220,7 +246,9 @@ def test_f_replayed_reports_are_never_counted_twice(make_fabric: MakeFabric) -> 
         within=10.0,
         what="first resource sample",
     )
-    node.link.latency(100)  # acks ~200 ms behind: counted-but-unacked reports
+    # Reports are counted at once, their Acks arrive ACK_DELAY_MS later: the
+    # reports of the last ACK_DELAY_MS before each reset are counted-but-unacked.
+    node.link.latency(ACK_DELAY_MS, direction="down")
     time.sleep(0.5)
 
     # RESETS resets spanning < bucket_s touch at most two buckets, so by
@@ -241,6 +269,9 @@ def test_f_replayed_reports_are_never_counted_twice(make_fabric: MakeFabric) -> 
     assert len(acc.replays) == RESETS
     assert acc.replayed, "no report was ever replayed: the scenario is vacuous"
     assert acc.duplicates, "no replayed report reached the controller twice"
+    # D157: the construction is deterministic, not lucky - (nearly) every
+    # reconnect replayed an already counted report (40/40 in 10 runs).
+    assert acc.replays_with_duplicates() >= RESETS - 1, acc.describe()
 
     # The live ring: every delivered sequence exactly once, none missing.
     assert len(acc.sequences) == len(set(acc.sequences)), acc.describe()

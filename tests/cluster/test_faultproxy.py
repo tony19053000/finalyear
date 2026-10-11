@@ -323,6 +323,43 @@ def test_latency_within_tolerance_and_order_preserved_under_jitter(
         echo.close()
 
 
+def test_latency_can_delay_one_direction_only(
+    fault_loop: FaultLoop, upstream: Upstream
+) -> None:
+    """D157: ``direction="down"`` delays upstream -> client only (the replay
+    scenario: reports counted at once, their Acks late), ``"up"`` the reverse."""
+    link = fault_loop.link(upstream.address)
+    with _connect(link) as client:
+        server = upstream.wait_accepted(1)
+        server.settimeout(IO_TIMEOUT_S)
+        link.latency(200, direction="down")
+        start = time.monotonic()
+        client.sendall(b"u")
+        assert server.recv(1) == b"u"
+        assert time.monotonic() - start < 0.1  # up: not delayed
+        start = time.monotonic()
+        server.sendall(b"d")
+        _recv_exact(client, 1)
+        assert 0.2 <= time.monotonic() - start <= 0.35  # down: delayed
+        link.latency(0, direction="down")
+        link.latency(200, direction="up")
+        start = time.monotonic()
+        server.sendall(b"d")
+        _recv_exact(client, 1)
+        assert time.monotonic() - start < 0.1
+        start = time.monotonic()
+        client.sendall(b"u")
+        assert server.recv(1) == b"u"
+        assert 0.2 <= time.monotonic() - start <= 0.35
+        link.clear()
+        start = time.monotonic()
+        client.sendall(b"u")
+        assert server.recv(1) == b"u"
+        assert time.monotonic() - start < 0.1
+    with pytest.raises(ValueError, match="direction"):
+        link.latency(10, direction="sideways")  # type: ignore[arg-type]
+
+
 def test_bandwidth_paces_each_direction(
     fault_loop: FaultLoop, upstream: Upstream
 ) -> None:
