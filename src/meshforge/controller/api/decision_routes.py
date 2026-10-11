@@ -20,7 +20,7 @@ from pydantic import ConfigDict, Field
 
 from meshforge.common.errors import FailureType, InvalidIdError
 from meshforge.common.ids import validate_job_id
-from meshforge.controller.api.auth import FabricTokenRequired
+from meshforge.controller.api.auth import CurrentUser
 from meshforge.controller.api.errors import ApiError
 from meshforge.controller.api.job_routes import Jobs
 from meshforge.controller.api.models import ApiModel, Utc
@@ -125,7 +125,7 @@ def _out(record: DecisionRecordOut) -> DecisionOut:
     summary="A job's placement decisions: every candidate, reasons, estimates",
 )
 async def job_decisions(
-    _auth: FabricTokenRequired,
+    user: CurrentUser,
     jobs: Jobs,
     job_id: Annotated[str, Path(max_length=_JOB_ID_MAX)],
     attempt: Annotated[
@@ -143,7 +143,8 @@ async def job_decisions(
     store = jobs.store
     if not isinstance(store, DecisionReads):
         raise ApiError(FailureType.CONFIG_ERROR, "decisions are not configured")
-    if await store.get_job(checked) is None:
+    job = await store.get_job(checked)
+    if job is None or not user.may_see_job(job.owner_user_id):
         raise ApiError.not_found("job")
     records = await store.decisions(checked, attempt_no=attempt, limit=limit)
     decisions = tuple(_out(r) for r in records)

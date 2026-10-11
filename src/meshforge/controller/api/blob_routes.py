@@ -1,9 +1,12 @@
 """``/v1/blobs/{sha256}`` - upload, check and download blobs (brief D48).
 
 ``{sha256}`` is the 64-character lower-case hex digest (the ``sha256:`` prefix is
-implied). Every call needs a credential (D44/D48/D73): the fabric token; a
-per-attempt fetch token that names this digest (``GET``/``HEAD`` only - fetch
-tokens never upload); or, for ``PUT`` only, an attempt's upload grant, within
+implied). Every call needs a credential (D48/D73, V0.7 G4 D141): a **user's API
+token** (any user may upload, check and ask have/need; ``GET`` of the content
+only for an admin or for the output archive of a job the user owns - any other
+blob is 404 to them); a per-attempt fetch token that names this digest
+(``GET``/``HEAD`` only - fetch tokens never upload); or, for ``PUT`` only, an
+attempt's upload grant, within
 its quota (:mod:`meshforge.controller.upload_grants`: ``401`` unknown/expired,
 ``403`` the attempt ended, ``411`` no ``Content-Length``, ``413`` over the
 blob or byte quota). See :mod:`meshforge.controller.blobs` for the storage rules.
@@ -20,7 +23,7 @@ blob or byte quota). See :mod:`meshforge.controller.blobs` for the storage rules
 * ``GET`` streams the file; a ``Range: bytes=a-b`` request is answered ``206``
   with that slice (resumable, chunked fetches - V0.5 D80).
 
-**V0.5 data plane (D82), fabric token only** - except the three part routes,
+**V0.5 data plane (D82), users only** - except the three part routes,
 which also take an attempt's upload grant since V0.6 G1 (D114, see
 :mod:`meshforge.controller.upload_grants`; ``complete`` answers ``credited``):
 
@@ -55,13 +58,14 @@ from fastapi.responses import FileResponse
 from starlette.requests import ClientDisconnect
 
 from meshforge.common.cas import MAX_CHUNK_SIZE, MIN_CHUNK_SIZE, chunk_span
-from meshforge.common.errors import FailureType
+from meshforge.common.errors import FailureType, MeshForgeError
 from meshforge.common.hashing import Digest
 from meshforge.common.logging import get_logger
 from meshforge.controller.api.auth import (
     ApiAuth,
-    FabricTokenRequired,
+    CurrentUser,
     agent_credential_ok,
+    authenticate,
     bearer_token,
     get_auth,
     unauthorized,
@@ -132,12 +136,30 @@ _GRANT_STATUS: Final = {
 
 
 async def _authorize(
-    request: Request, auth: ApiAuth, store: BlobStore, digest: Digest
+    request: Request,
+    auth: ApiAuth,
+    store: BlobStore,
+    digest: Digest,
+    *,
+    content: bool = True,
 ) -> str:
-    """Reads: ``fabric`` or ``fetch`` (its digests, or a tree's members), else 401."""
+    """Reads: a ``user`` (``content``: an admin, or the output of their own job
+    - else 404), or ``fetch`` (its digests, or a tree's members), else 401."""
+    user = await authenticate(request)
+    if user is not None:
+        if not content or user.is_admin:
+            return "user"
+        if auth.users is not None and user.user_id is not None:
+            try:
+                owned = await auth.users.owns_output(user.user_id, digest.hex)
+            except MeshForgeError:  # the user database is down: fail closed
+                raise ApiError(
+                    FailureType.NETWORK_ERROR, "the user database is unavailable"
+                ) from None
+            if owned:
+                return "user"
+        raise ApiError.not_found("blob")
     token = bearer_token(request)
-    if auth.verifier is not None and auth.verifier.verify(token):
-        return "fabric"
     grant = None if auth.fetch_tokens is None else auth.fetch_tokens.grant(token)
     if grant is None or not agent_credential_ok(request, auth, grant.node_id):
         raise unauthorized()
@@ -149,13 +171,13 @@ async def _authorize(
     raise unauthorized()
 
 
-def _authorize_upload(
+async def _authorize_upload(
     request: Request, auth: ApiAuth, digest: Digest, declared: int | None
 ) -> UploadTicket | None:
-    """Uploads: ``None`` for the fabric token, else a reserved grant ticket."""
-    token = bearer_token(request)
-    if auth.verifier is not None and auth.verifier.verify(token):
+    """Uploads: ``None`` for a user, else a reserved grant ticket."""
+    if await authenticate(request) is not None:
         return None
+    token = bearer_token(request)
     grants = auth.upload_grants
     if token is None or grants is None:
         raise unauthorized()
@@ -186,16 +208,16 @@ def _refused(refusal: GrantRefusal, digest: Digest) -> ApiError:
     )
 
 
-def _authorize_parts(
+async def _authorize_parts(
     request: Request, auth: ApiAuth, digest: Digest, size: int | None
 ) -> UploadTicket | None:
-    """Part routes (V0.6 G1, D114): ``None`` for the fabric token; else an
-    attempt's upload grant - ``size`` given: the whole blob is reserved once per
-    digest (:meth:`~meshforge.controller.upload_grants.UploadGrants.begin_parts`);
+    """Part routes (V0.6 G1, D114): ``None`` for a user; else an attempt's
+    upload grant - ``size`` given: the whole blob is reserved once per digest
+    (:meth:`~meshforge.controller.upload_grants.UploadGrants.begin_parts`);
     ``size`` None (reading the part status): the grant must only be usable."""
-    token = bearer_token(request)
-    if auth.verifier is not None and auth.verifier.verify(token):
+    if await authenticate(request) is not None:
         return None
+    token = bearer_token(request)
     grants = auth.upload_grants
     if token is None or grants is None:
         raise unauthorized()
@@ -229,7 +251,7 @@ async def put_blob(
 ) -> dict[str, object]:
     digest = Digest(sha256)
     declared = _declared_size(request)
-    ticket = _authorize_upload(request, auth, digest, declared)
+    ticket = await _authorize_upload(request, auth, digest, declared)
     credential = "fabric" if ticket is None else "grant"
 
     async def body() -> AsyncIterator[bytes]:
@@ -292,7 +314,7 @@ async def head_blob(
     request: Request, sha256: Sha256, store: Store, auth: Auth
 ) -> Response:
     digest = Digest(sha256)
-    await _authorize(request, auth, store, digest)
+    await _authorize(request, auth, store, digest, content=False)
     size = store.size(digest)
     if size is None:
         return Response(status_code=status.HTTP_404_NOT_FOUND)
@@ -361,7 +383,7 @@ async def _bounded_body(request: Request, limit: int) -> bytes:
 
 @blob_router.post("/have", summary="Which of these blobs are missing? (have/need)")
 async def have_blobs(
-    request: Request, _auth: FabricTokenRequired, store: Store
+    request: Request, _user: CurrentUser, store: Store
 ) -> dict[str, list[str]]:
     raw = await _bounded_body(request, MAX_HAVE_BODY_BYTES)
     try:
@@ -443,7 +465,7 @@ async def put_part(
         )
     if declared != length:
         raise ApiError.invalid(f"part {index} must be exactly {length} bytes")
-    _authorize_parts(request, auth, digest, size)  # D114: or the upload grant
+    await _authorize_parts(request, auth, digest, size)  # D114: or the upload grant
 
     async def body() -> AsyncIterator[bytes]:
         async for chunk in request.stream():
@@ -483,7 +505,7 @@ async def part_status(
     request: Request, sha256: Sha256, auth: Auth, store: Store
 ) -> dict[str, object]:
     digest = Digest(sha256)
-    _authorize_parts(request, auth, digest, None)
+    await _authorize_parts(request, auth, digest, None)
     found = await store.part_status(digest)
     if found is None:
         raise ApiError.not_found("part upload")
@@ -505,18 +527,17 @@ async def complete_parts(
     request: Request, response: Response, sha256: Sha256, auth: Auth, store: Store
 ) -> dict[str, object]:
     digest = Digest(sha256)
-    token = bearer_token(request)
-    fabric = auth.verifier is not None and auth.verifier.verify(token)
+    fabric = await authenticate(request) is not None  # a user, not an agent
     ticket: UploadTicket | None = None
     if not fabric:
         found = await store.part_status(digest)
         if found is None:
-            _authorize_parts(request, auth, digest, None)
+            await _authorize_parts(request, auth, digest, None)
             raise ApiError.not_found("part upload")
         # D114: under an upload grant the whole blob is reserved (once per
         # digest) before anything is assembled - also when it is already
         # stored, so the reservation of parts sent earlier is settled below.
-        ticket = _authorize_parts(request, auth, digest, found.size)
+        ticket = await _authorize_parts(request, auth, digest, found.size)
     try:
         result = await store.complete_parts(digest)
     except BlobIntegrityError as exc:

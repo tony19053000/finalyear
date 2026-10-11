@@ -120,7 +120,8 @@ def test_401_becomes_a_typed_error_with_a_hint() -> None:
     ):
         c.nodes()
     assert info.value.failure_type is FailureType.UNAUTHORIZED
-    assert "token show" in info.value.message
+    # V0.7 G4 (D141): the hint is now the user login (was `token show`).
+    assert "compute login" in info.value.message
 
 
 def _install_transport(

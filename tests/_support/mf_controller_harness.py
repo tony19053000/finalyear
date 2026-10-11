@@ -30,6 +30,7 @@ __all__ = [
     "SHUTDOWN_DRAIN_S",
     "TOLERANT_ADMISSION_TIMEOUT_S",
     "TOLERANT_LIVENESS",
+    "USERS_ONLY",
     "controller_section",
     "make_settings",
     "tolerant_liveness",
@@ -64,6 +65,10 @@ def tolerant_liveness() -> dict[str, Any]:
     }
 
 
+USERS_ONLY: dict[str, Any] = {"legacy_fabric_token": False}
+"""``auth=USERS_ONLY``: the product default - only users' API tokens (D141)."""
+
+
 def controller_section(**overrides: Any) -> ControllerSection:
     base: dict[str, Any] = {
         "grpc_bind": "127.0.0.1:0",
@@ -78,6 +83,12 @@ def controller_section(**overrides: Any) -> ControllerSection:
         "network": {"enabled": False},
         # V0.7 G2: the enrolment listener (only when a CA exists) on a free port.
         "enroll": {"bind": "127.0.0.1:0"},
+        # V0.7 G4 (D141): the pre-G4 component tests speak to the REST API with
+        # the fabric token (``token_of``), which since G4 is accepted only with
+        # the legacy switch on - so the harness turns it on. The product default
+        # is OFF (pinned by tests/unit/controller/test_v07_g4_users.py); every
+        # G4 test passes ``auth=USERS_ONLY`` and logs in as a real user.
+        "auth": {"legacy_fabric_token": True},
     }
     base.update(overrides)
     return ControllerSection(**base)

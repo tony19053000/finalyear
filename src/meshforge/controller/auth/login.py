@@ -1,0 +1,236 @@
+"""``POST /v1/auth/login``: name + password -> API token, with brute-force limits
+(V0.7 G4, D141).
+
+Two independent limits, both checked **before** any password work:
+
+* **per source** - a token bucket per client IP, bucketed like enrolment (D152:
+  the IPv4 address, the IPv6 /64, one shared ``unknown`` bucket;
+  :func:`~meshforge.controller.enrollment.listener.ip_rate_key`), charged on
+  every attempt;
+* **per user name** - after ``free_failures`` consecutive failures the name is
+  blocked for ``backoff_base_s * 2**k`` seconds (``k`` = failures beyond the free
+  ones, capped at ``backoff_max_s``); a success clears it. Applied to every
+  name, existing or not, so the limit says nothing about which names exist.
+
+Either limit answers 429 with ``Retry-After`` and does not look at the password
+(so a correct password during a block is refused too - the price of a backoff
+that a guesser cannot probe through). A wrong name, a wrong password and a
+disabled user are one answer (401, one message) after the same scrypt work.
+Tokens already issued keep working during a block, so a guesser can delay a
+user's *next* login, never cut their running session.
+"""
+
+from __future__ import annotations
+
+import collections
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Final
+
+from pydantic import SecretStr
+
+from meshforge.common.errors import ExitCode, FailureType, MeshForgeError
+from meshforge.common.logging import get_logger
+from meshforge.controller.auth.passwords import MAX_PASSWORD_CHARS, PasswordHasher
+from meshforge.controller.auth.principal import Principal
+from meshforge.controller.auth.users import TokenRecord, UserStore
+from meshforge.controller.enrollment.listener import SourceRateLimiter, ip_rate_key
+from meshforge.controller.settings import AuthSettings
+from meshforge.controller.store.models.auth import MAX_USER_NAME_CHARS
+
+__all__ = [
+    "LoginPolicy",
+    "LoginRefusedError",
+    "LoginResult",
+    "LoginService",
+    "LoginThrottle",
+    "login_policy",
+]
+
+log = get_logger(__name__)
+
+_BAD_CREDENTIALS: Final = "wrong user name or password"
+
+
+@dataclass(frozen=True, slots=True)
+class LoginPolicy:
+    """``[controller.auth]`` login knobs (see the settings for meanings)."""
+
+    token_ttl_s: int = 90 * 86_400
+    rate_per_minute: float = 10.0
+    rate_burst: int = 10
+    free_failures: int = 5
+    backoff_base_s: float = 1.0
+    backoff_max_s: float = 300.0
+    max_tracked: int = 4096
+
+
+def login_policy(settings: AuthSettings) -> LoginPolicy:
+    """The :class:`LoginPolicy` of ``[controller.auth]``."""
+    return LoginPolicy(
+        token_ttl_s=settings.token_ttl_days * 86_400,
+        rate_per_minute=settings.login_rate_per_minute,
+        rate_burst=settings.login_rate_burst,
+        free_failures=settings.login_free_failures,
+        backoff_base_s=settings.login_backoff_base_s,
+        backoff_max_s=settings.login_backoff_max_s,
+    )
+
+
+class LoginRefusedError(MeshForgeError):
+    """A refused login: ``reason`` is ``bad_credentials``, ``rate_limited_source``
+    or ``rate_limited_user``; ``retry_after_s`` is set for the last two."""
+
+    default_failure_type = FailureType.UNAUTHORIZED
+    exit_code = ExitCode.FAILURE
+
+    def __init__(
+        self, message: str, *, reason: str, retry_after_s: float | None = None
+    ) -> None:
+        super().__init__(message, details={"reason": reason})
+        self.reason = reason
+        self.retry_after_s = retry_after_s
+
+
+@dataclass(frozen=True, slots=True)
+class LoginResult:
+    token: SecretStr
+    record: TokenRecord
+    principal: Principal
+
+
+class LoginThrottle:
+    """Per-source token bucket + per-name exponential backoff. ``clock`` is
+    monotonic; both tables are bounded (oldest forgotten first)."""
+
+    def __init__(self, policy: LoginPolicy, *, clock: Callable[[], float]) -> None:
+        self._policy = policy
+        self._clock = clock
+        self._sources = SourceRateLimiter(
+            rate_per_minute=policy.rate_per_minute,
+            burst=policy.rate_burst,
+            max_sources=policy.max_tracked,
+            clock=clock,
+        )
+        self._names: collections.OrderedDict[str, tuple[int, float]] = (
+            collections.OrderedDict()
+        )
+
+    def allow_source(self, host: str | None) -> bool:
+        """Charge one attempt to the client's bucket; False when it is empty."""
+        return self._sources.allow(ip_rate_key(host))
+
+    def source_retry_after_s(self) -> float:
+        return 60.0 / self._policy.rate_per_minute
+
+    def blocked_for(self, name: str) -> float:
+        """Seconds until ``name`` may try again (0 = now)."""
+        entry = self._names.get(name)
+        if entry is None:
+            return 0.0
+        return max(0.0, entry[1] - self._clock())
+
+    def failed(self, name: str) -> int:
+        """Count a failure for ``name``; returns its consecutive failures."""
+        failures = self._names.pop(name, (0, 0.0))[0] + 1
+        blocked_until = 0.0
+        extra = failures - self._policy.free_failures
+        if extra > 0:
+            delay = min(
+                self._policy.backoff_max_s,
+                self._policy.backoff_base_s * 2 ** min(extra - 1, 30),
+            )
+            blocked_until = self._clock() + delay
+        self._names[name] = (failures, blocked_until)
+        while len(self._names) > self._policy.max_tracked:
+            self._names.popitem(last=False)
+        return failures
+
+    def succeeded(self, name: str) -> None:
+        self._names.pop(name, None)
+
+
+class LoginService:
+    """Throttle -> user lookup -> scrypt verify -> token (+ audit)."""
+
+    def __init__(
+        self,
+        store: UserStore,
+        *,
+        policy: LoginPolicy,
+        hasher: PasswordHasher,
+        clock: Callable[[], float],
+    ) -> None:
+        self.store = store
+        self.policy = policy
+        self._hasher = hasher
+        self.throttle = LoginThrottle(policy, clock=clock)
+
+    async def login(
+        self,
+        name: str,
+        password: SecretStr,
+        *,
+        host: str | None,
+        source: str | None,
+        token_name: str,
+    ) -> LoginResult:
+        if not self.throttle.allow_source(host):
+            log.warning("controller.auth.login_rate_limited", scope="source")
+            raise LoginRefusedError(
+                "too many login attempts from this address; wait a minute",
+                reason="rate_limited_source",
+                retry_after_s=self.throttle.source_retry_after_s(),
+            )
+        key = name.strip().lower()[:MAX_USER_NAME_CHARS]
+        wait = self.throttle.blocked_for(key)
+        if wait > 0:
+            log.warning("controller.auth.login_rate_limited", scope="user")
+            raise LoginRefusedError(
+                "too many failed logins for this user; wait and try again",
+                reason="rate_limited_user",
+                retry_after_s=wait,
+            )
+        user = await self.store.login_record(key)
+        too_long = len(password.get_secret_value()) > MAX_PASSWORD_CHARS
+        ok = await self._hasher.verify_or_dummy(
+            password if not too_long else SecretStr(""),
+            None if user is None else user.pw_hash,
+        )
+        reason = (
+            "unknown_user"
+            if user is None
+            else "disabled"
+            if user.disabled
+            else "bad_password"
+            if not ok or too_long
+            else None
+        )
+        if reason is not None or user is None:
+            failures = self.throttle.failed(key)
+            await self.store.record_login_failure(
+                user_id=None if user is None else user.user_id,
+                reason=reason or "unknown_user",
+                source=source,
+            )
+            log.warning(
+                "controller.auth.login_failed",
+                reason=reason,
+                user_id=None if user is None else user.user_id,
+                consecutive_failures=failures,
+            )
+            raise LoginRefusedError(_BAD_CREDENTIALS, reason="bad_credentials")
+        self.throttle.succeeded(key)
+        token, record = await self.store.issue_token(
+            user, ttl_s=self.policy.token_ttl_s, token_name=token_name, source=source
+        )
+        return LoginResult(
+            token=token,
+            record=record,
+            principal=Principal(
+                user_id=user.user_id,
+                name=user.name,
+                role=user.role,
+                token_id=record.id,
+            ),
+        )

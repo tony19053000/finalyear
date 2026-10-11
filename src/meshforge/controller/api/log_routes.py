@@ -1,8 +1,10 @@
 """``/v1/jobs/{id}/logs`` and ``/v1/jobs/{id}/logs/ws`` (V0.4 G5, D72).
 
-Both need the fabric token (logs contain user output, D44) - the WebSocket in
-the handshake's ``Authorization`` header, **never** a query parameter (a URL
-ends up in logs and shell history).
+Both need a user's API token (V0.7 G4, D141; logs contain user output) - the
+WebSocket in the handshake's ``Authorization`` header, **never** a query
+parameter (a URL ends up in logs and shell history). A user follows only their
+own jobs: another user's job is 404 / closed ``job_not_found``, exactly like a
+job that does not exist; an admin follows every job.
 
 **Plain** ``GET``: the persisted bytes of the job's latest attempt (or
 ``?attempt=``), ``?stream=stdout|stderr|both``. ``both`` is stdout followed by
@@ -50,9 +52,10 @@ from meshforge.common.errors import FailureType, InvalidIdError
 from meshforge.common.ids import validate_attempt_id, validate_job_id
 from meshforge.common.logging import get_logger
 from meshforge.common.states import ATTEMPT_TERMINAL_STATES, JOB_TERMINAL_STATES
-from meshforge.controller.api.auth import FabricTokenRequired, fabric_token_ok
+from meshforge.controller.api.auth import CurrentUser, authenticate
 from meshforge.controller.api.errors import ApiError
 from meshforge.controller.api.job_routes import JOBS_STATE_KEY, JobApi, get_job_api
+from meshforge.controller.auth.principal import Principal
 from meshforge.controller.jobs.logs import STREAMS, LogEvent, LogHub, Subscription
 from meshforge.controller.jobs.store import AttemptRecord, JobRecord
 
@@ -102,7 +105,7 @@ def _hub(jobs: JobApi) -> LogHub:
 
 @log_router.get("/{job_id}/logs", summary="The job's persisted logs (plain bytes)")
 async def get_logs(
-    _auth: FabricTokenRequired,
+    user: CurrentUser,
     jobs: Jobs,
     job_id: Annotated[str, Path(max_length=_JOB_ID_MAX)],
     stream: Annotated[StreamChoice, Query()] = "both",
@@ -115,7 +118,7 @@ async def get_logs(
     except InvalidIdError:
         raise ApiError.invalid("job_id / attempt is not a canonical id") from None
     job = await jobs.store.get_job(checked)
-    if job is None:
+    if job is None or not user.may_see_job(job.owner_user_id):
         raise ApiError.not_found("job")
     attempts = await jobs.store.list_attempts(checked)
     chosen: AttemptRecord | None
@@ -186,9 +189,15 @@ class _Follower:
     """One WebSocket follower (see module docstring)."""
 
     def __init__(
-        self, ws: WebSocket, jobs: JobApi, hub: LogHub, streams: tuple[str, ...]
+        self,
+        ws: WebSocket,
+        jobs: JobApi,
+        hub: LogHub,
+        streams: tuple[str, ...],
+        user: Principal,
     ) -> None:
         self.ws = ws
+        self.user = user
         self.jobs = jobs
         self.hub = hub
         self.streams = streams
@@ -266,7 +275,11 @@ async def follow_logs(
     stderr_offset: Annotated[int, Query(ge=0, le=1 << 40)] = 0,
 ) -> None:
     jobs = getattr(websocket.app.state, JOBS_STATE_KEY, None)
-    if not fabric_token_ok(websocket) or not isinstance(jobs, JobApi):
+    try:
+        user = await authenticate(websocket)
+    except ApiError:  # the user database is down: fail closed
+        user = None
+    if user is None or not isinstance(jobs, JobApi):
         await websocket.close(code=1008)  # before accept: the client sees 403
         return
     await websocket.accept()
@@ -280,7 +293,7 @@ async def follow_logs(
         except InvalidIdError:
             await websocket.close(code=CLOSE_INVALID, reason="invalid_job_id")
             return
-        follower = _Follower(websocket, jobs, jobs.logs, _streams(stream))
+        follower = _Follower(websocket, jobs, jobs.logs, _streams(stream), user)
         follower.pos = {"stdout": stdout_offset, "stderr": stderr_offset}
         await _follow(follower, checked)
     except WebSocketDisconnect:
@@ -312,7 +325,7 @@ async def _follow(f: _Follower, job_id: str) -> Subscription | None:
     ``{"retry": true, ...}`` notice frame and follows that attempt from offset
     0. The end frame comes only when the job is terminal."""
     job = await f.jobs.store.get_job(job_id)
-    if job is None:
+    if job is None or not f.user.may_see_job(job.owner_user_id):
         await f.ws.close(code=CLOSE_NOT_FOUND, reason="job_not_found")
         return None
     attempt = await _next_attempt(f, job_id, after=0)

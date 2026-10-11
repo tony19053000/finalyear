@@ -163,6 +163,8 @@ class JobRecord:
     """V0.5 D83: the project's tree manifest; None = a V0.4 bundle job."""
     scheduling: JobScheduling = field(default_factory=lambda: JobScheduling())
     """V0.6 G2 (migration 0013): the planner's per-job inputs."""
+    owner_user_id: str | None = None
+    """V0.7 G4 (D141, migration 0018): who submitted it; None = admin-only."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -265,6 +267,7 @@ def job_record(row: Job) -> JobRecord:
             input_bytes=None if row.input_bytes is None else int(row.input_bytes),
             fingerprint=row.fingerprint,
         ),
+        owner_user_id=row.owner_user_id,
     )
 
 
@@ -363,6 +366,7 @@ class JobStore:
         tree_id: str | None = None,
         inputs: Sequence[tuple[str, str, str, int, str]] = (),
         scheduling: JobScheduling | None = None,
+        owner_user_id: str | None = None,
     ) -> tuple[JobRecord, bool]:
         """Insert a job; ``(record, created)``. See module docstring.
 
@@ -401,6 +405,7 @@ class JobStore:
             "submitter_seeded": plan.submitter_seeded,
             "input_bytes": plan.input_bytes,
             "fingerprint": plan.fingerprint,
+            "owner_user_id": owner_user_id,
         }
         async with self._sessions() as db, db.begin():
             statement = pg_insert(Job).values(**values)
@@ -463,6 +468,7 @@ class JobStore:
         tree_id: str | None = None,
         inputs: Sequence[tuple[str, str, str, int, str]] = (),
         scheduling: JobScheduling | None = None,
+        owner_user_id: str | None = None,
     ) -> tuple[JobRecord, bool]:
         """Atomically submit a job (D50, V0.6 D104): ``SUBMITTED -> PLANNING ->
         QUEUED`` in one transaction (``PLANNING`` stays a recorded pass-through:
@@ -482,6 +488,7 @@ class JobStore:
             tree_id=tree_id,
             inputs=inputs,
             scheduling=scheduling,
+            owner_user_id=owner_user_id,
         )
 
     @typed_store_call
@@ -528,13 +535,20 @@ class JobStore:
 
     @typed_store_call
     async def list_jobs(
-        self, *, limit: int, state: JobState | None = None
+        self,
+        *,
+        limit: int,
+        state: JobState | None = None,
+        owner_user_id: str | None = None,
     ) -> list[JobRecord]:
-        """Newest first (by ``created_at``, then id), at most ``limit``."""
+        """Newest first (by ``created_at``, then id), at most ``limit``;
+        ``owner_user_id`` set = only that user's jobs (D141)."""
         limit = max(1, min(limit, _MAX_LIST))
         query = select(Job).order_by(Job.created_at.desc(), Job.id.desc()).limit(limit)
         if state is not None:
             query = query.where(Job.state == state.value)
+        if owner_user_id is not None:
+            query = query.where(Job.owner_user_id == owner_user_id)
         async with self._sessions() as db:
             return [job_record(row) for row in await db.scalars(query)]
 

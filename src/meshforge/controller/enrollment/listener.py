@@ -52,6 +52,7 @@ __all__ = [
     "EnrollListener",
     "EnrollmentServicer",
     "SourceRateLimiter",
+    "ip_rate_key",
     "rate_key",
     "source_ip",
     "status_for",
@@ -133,7 +134,15 @@ def rate_key(peer: str) -> str:
     match = _PEER_RE.fullmatch(urllib.parse.unquote(peer))
     if match is None:
         return UNKNOWN_SOURCE
-    text = (match["v4"] or match["v6"]).split("%", 1)[0]
+    return ip_rate_key(match["v4"] or match["v6"])
+
+
+def ip_rate_key(host: str | None) -> str:
+    """:func:`rate_key` for a bare IP address (an HTTP client's host, V0.7 G4
+    login backoff): the IPv4 address, the IPv6 /64, else :data:`UNKNOWN_SOURCE`."""
+    if not host:
+        return UNKNOWN_SOURCE
+    text = host.strip("[]").split("%", 1)[0]
     try:
         ip = ipaddress.ip_address(text)
     except ValueError:

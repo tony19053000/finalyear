@@ -7,9 +7,9 @@
 * ``POST /v1/fabric/invites/{invite_id}/revoke`` -> the revoked invite (409
   when used or already revoked, 404 when unknown).
 
-All three need the **fabric token** (D151: the interim admin credential until
-V0.7 G4 re-gates them to ``role=admin`` - :func:`require_invite_admin` is that one
-place). No fabric CA -> 409 ``conflict`` ("run fabric create"); an address the
+All three need an **admin** (V0.7 G4 re-gate of D151: ``role=admin``, 403 for a
+user; the legacy fabric token counts as an admin only while it is switched on).
+No fabric CA -> 409 ``conflict`` ("run fabric create"); an address the
 controller cannot name -> 500 ``config_error`` with the setting to fix. The code
 appears only in the 201 body; it is never logged (the scrubber also masks the
 ``mf1-`` shape).
@@ -25,9 +25,10 @@ from pydantic import Field, ValidationError
 
 from meshforge.common.errors import FailureType, MeshForgeError
 from meshforge.common.ids import validate_node_id
-from meshforge.controller.api.auth import require_fabric_token
+from meshforge.controller.api.auth import AdminUser
 from meshforge.controller.api.errors import ApiError
 from meshforge.controller.api.models import ApiModel
+from meshforge.controller.auth.principal import Principal
 from meshforge.controller.enrollment.codes import (
     CodeAddressError,
     code_address,
@@ -48,7 +49,6 @@ from meshforge.controller.settings import ControllerSettings
 __all__ = ["FABRIC_STATE_KEY_INVITES", "InviteApi", "fabric_router"]
 
 FABRIC_STATE_KEY_INVITES: Final = "meshforge_invites"
-_ACTOR: Final = "rest:fabric-token"
 
 fabric_router = APIRouter(prefix="/v1/fabric", tags=["fabric"])
 
@@ -79,12 +79,8 @@ def get_invite_api(request: Request) -> InviteApi:
     return api
 
 
-async def require_invite_admin(request: Request) -> None:
-    """D151: who may invite. G2: the fabric token; G4 swaps in ``role=admin``."""
-    await require_fabric_token(request)
-
-
-InviteAdmin = Annotated[None, Depends(require_invite_admin)]
+InviteAdmin = AdminUser
+"""D151 re-gated (G4): who may invite - an admin."""
 
 
 class InviteIn(ApiModel):
@@ -117,6 +113,10 @@ async def _invite_body(request: Request) -> InviteIn:
         ) from None
 
 
+def _actor(admin: Principal) -> str:
+    return admin.actor
+
+
 def _source(request: Request) -> str | None:
     client = request.client
     return f"{client.host}:{client.port}" if client else None
@@ -139,7 +139,7 @@ def _api_error(exc: MeshForgeError) -> ApiError:
 @fabric_router.post("/invites", status_code=status.HTTP_201_CREATED)
 async def create_invite(
     request: Request,
-    _admin: InviteAdmin,
+    admin: InviteAdmin,
     api: Annotated[InviteApi, Depends(get_invite_api)],
 ) -> dict[str, Any]:
     # D152 (T-2): the body is read and validated only AFTER the fabric token was
@@ -162,7 +162,7 @@ async def create_invite(
         host, port = code_address(api.settings, bound_port=api.enroll_port())
         new = await api.store.create(
             ttl_s=body.ttl_s or api.settings.controller.enroll.invite_ttl_s,
-            actor=_ACTOR,
+            actor=_actor(admin),
             replace_node_id=body.replace_node_id,
             source=_source(request),
         )
@@ -186,14 +186,14 @@ async def list_invites(
 async def revoke_invite(
     invite_id: str,
     request: Request,
-    _admin: InviteAdmin,
+    admin: InviteAdmin,
     api: Annotated[InviteApi, Depends(get_invite_api)],
 ) -> dict[str, Any]:
     if len(invite_id) > _MAX_ID_CHARS:  # checked after auth (D152)
         raise ApiError.invalid("invite_id is not an invite id")
     try:
         record = await api.store.revoke(
-            invite_id, actor=_ACTOR, source=_source(request)
+            invite_id, actor=_actor(admin), source=_source(request)
         )
     except MeshForgeError as exc:
         raise _api_error(exc) from None

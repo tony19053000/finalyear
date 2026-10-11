@@ -10,7 +10,8 @@ layers:
    ``Bearer``/``Basic`` tokens, ``key=value`` / ``key: value`` pairs whose key is
    sensitive, and PEM private-key blocks (``-----BEGIN ... PRIVATE KEY-----`` up to
    the matching ``END`` line, or to the end of the text if unclosed), and V0.7
-   join codes (``mf1-`` followed by at least 16 code characters).
+   join codes (``mf1-`` followed by at least 16 code characters), and V0.7 G4
+   API tokens (``mfat_`` followed by at least 16 URL-safe characters).
 
 ``scrub_text`` runs on every string of every log record, so it must be
 **linear-time** on adversarial input (a super-linear scrubber is a
@@ -148,6 +149,12 @@ _PEM_END_PREFIX: Final = "-----END "
 # 20). Lookbehind-anchored start + bounded class: linear.
 _JOIN_CODE_RE: Final = re.compile(
     r"(?<![A-Za-z0-9_])(?P<pre>[Mm][Ff][0-9]-)[A-Za-z0-9][A-Za-z0-9\-]{15,600}"
+)
+# V0.7 G4 API tokens (``common/api_token.py``): ``mfat_`` + 43 URL-safe
+# characters. Scrubbed by shape wherever they appear (checklist 20); a shorter
+# tail (16+) still counts so a truncated paste is masked too. Linear.
+_API_TOKEN_RE: Final = re.compile(
+    r"(?<![A-Za-z0-9_])(?P<pre>mfat_)[A-Za-z0-9_\-]{16,600}"
 )
 _BRACKET_SCAN_LIMIT: Final = 4096
 _CLOSERS: Final = {"{": "}", "[": "]"}
@@ -306,6 +313,7 @@ def scrub_text(text: str) -> str:
         return REDACTED + suffix
     text = _scrub_pem(text)
     text = _JOIN_CODE_RE.sub(lambda m: f"{m['pre']}{REDACTED}", text)
+    text = _API_TOKEN_RE.sub(lambda m: f"{m['pre']}{REDACTED}", text)
     text = _URL_CREDS_RE.sub(lambda m: f"{m['pre']}{REDACTED}@", text)
     text = _AUTH_ANY_RE.sub(lambda m: f"{m['scheme']}{m['sp']}{REDACTED}", text)
     return _scrub_kv(text) + suffix

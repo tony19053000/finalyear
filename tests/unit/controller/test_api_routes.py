@@ -37,6 +37,7 @@ from mf_api_records import (
     session_record,
     snapshot_record,
 )
+from mf_users import ADMIN_TOKEN, bearer, static_auth
 
 from meshforge.common.errors import FailureType
 from meshforge.common.ids import new_node_id
@@ -159,6 +160,7 @@ def build_app(
     """The real app with fake collaborators and a frozen monotonic clock."""
     return create_http_app(
         cast("SessionManager", manager or FakeManager()),
+        auth=static_auth(),
         registry=cast("Registry", registry),
         resources=cast("ResourceTracker", tracker or FakeTracker()),
         clock=lambda: now,
@@ -167,7 +169,9 @@ def build_app(
 
 def client_for(app: Any) -> httpx.AsyncClient:
     return httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://api.test"
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://api.test",
+        headers=bearer(ADMIN_TOKEN),
     )
 
 

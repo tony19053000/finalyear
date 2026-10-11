@@ -77,7 +77,7 @@ def test_invite_refuses_bad_options_before_any_request(
     assert result.exit_code == ExitCode.USAGE_ERROR
 
 
-def test_invite_without_the_fabric_token_says_which_token(
+def test_invite_without_a_login_says_how_to_log_in(
     runner: CliRunner, controller: TransportFactory
 ) -> None:
     controller(
@@ -87,7 +87,8 @@ def test_invite_without_the_fabric_token_says_which_token(
     )
     result = runner.invoke(app, ["fabric", "invite"])
     assert result.exit_code != 0
-    assert "fabric token" in result.stderr
+    # V0.7 G4 (D151 re-gate): an admin user's login, no longer the fabric token.
+    assert "compute login" in result.stderr
 
 
 def test_invites_list_and_revoke(

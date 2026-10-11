@@ -16,6 +16,12 @@ the fabric id, the CA fingerprint (full and the 128-bit join-code form) and the
 expiry dates. Both run on the controller host only - they need the CA key file.
 Nothing secret is ever printed by them.
 
+``user create NAME [--admin] [--password-stdin] | list | disable NAME | enable
+NAME | reset-password NAME`` (V0.7 G4, D141) manage the users ``compute login``
+signs in as. They write the database directly (controller host only); a
+disabled user or a new password revokes every API token of that user at once.
+Passwords are read without echo (or one line from stdin) and never printed.
+
 ``fabric invite [--ttl] [--replace NODE_ID] [--address HOST:PORT] [--json]``
 (V0.7 G2, D135) prints one single-use join code - the only secret this tool
 prints, on stdout, once; the facts go to stderr. ``fabric invites [--revoke
@@ -34,8 +40,12 @@ from meshforge import __version__
 from meshforge.common.exit_codes import ExitCode
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
     from datetime import timedelta
 
+    from pydantic import SecretStr
+
+    from meshforge.controller.auth.users import UserStore
     from meshforge.controller.settings import ControllerSettings
 
 PROG_NAME = "meshforge-controller"
@@ -66,6 +76,13 @@ node_app = typer.Typer(
     no_args_is_help=True,
 )
 app.add_typer(node_app)
+user_app = typer.Typer(
+    name="user",
+    help="Manage REST users (V0.7): create, list, disable, enable, reset-password.",
+    add_completion=False,
+    no_args_is_help=True,
+)
+app.add_typer(user_app)
 
 ConfigOption = Annotated[
     Path | None,
@@ -560,6 +577,180 @@ def node_revoke(
     serial = outcome["serial"] or "none (never enrolled)"
     typer.echo(f"revoked {node_id} (certificate serial {serial})")
     typer.echo(_REVOKE_HINT.format(node_id=node_id), err=True)
+
+
+# ------------------------------------------------------------------ users
+
+
+_STDIN_HELP = (
+    "Read the password from the first line of stdin instead of prompting "
+    "(for scripts; never pass a password as an argument)."
+)
+
+
+def _read_password(password_stdin: bool) -> "SecretStr":
+    import sys
+
+    from pydantic import SecretStr
+
+    if password_stdin:
+        line = sys.stdin.readline()
+        return SecretStr(line.rstrip("\r\n"))
+    value: str = typer.prompt(
+        "Password", hide_input=True, confirmation_prompt="Repeat password"
+    )
+    return SecretStr(value)
+
+
+def _user_command(
+    config: Path | None, action: "Callable[[UserStore], Awaitable[object]]"
+) -> object:
+    import asyncio
+
+    from meshforge.common.errors import MeshForgeError
+    from meshforge.common.logging import configure_logging
+
+    settings = _load_settings(config)
+    configure_logging("WARNING", fmt=settings.log.format, component="controller")
+
+    async def _run() -> object:
+        from meshforge.controller.auth.users import UserStore
+        from meshforge.controller.store.engine import create_engine
+
+        engine = create_engine(settings.database)
+        try:
+            return await action(UserStore(engine))
+        finally:
+            await engine.dispose()
+
+    try:
+        return asyncio.run(_run())
+    except MeshForgeError as exc:
+        typer.echo(f"{PROG_NAME}: {exc}", err=True)
+        raise typer.Exit(exc.exit_code) from None
+
+
+async def _hashed(password: "SecretStr") -> str:
+    from meshforge.controller.auth.passwords import PasswordHasher
+
+    return await PasswordHasher(max_concurrent=1).hash(password)
+
+
+@user_app.command("create")
+def user_create(
+    name: Annotated[str, typer.Argument(help="Login name (lower-case a-z 0-9 . _ -).")],
+    admin: Annotated[
+        bool,
+        typer.Option(
+            "--admin", help="An admin: invites, node revoke, every user's jobs."
+        ),
+    ] = False,
+    password_stdin: Annotated[
+        bool, typer.Option("--password-stdin", help=_STDIN_HELP)
+    ] = False,
+    config: ConfigOption = None,
+) -> None:
+    """Create a REST user (`compute login` signs in as it)."""
+    from meshforge.controller.auth.users import UserError, check_user_name
+    from meshforge.controller.store.models.auth import UserRole
+
+    try:
+        checked = check_user_name(name)
+    except UserError as exc:
+        typer.echo(f"{PROG_NAME}: {exc}", err=True)
+        raise typer.Exit(exc.exit_code) from None
+    password = _read_password(password_stdin)
+    role = UserRole.ADMIN if admin else UserRole.USER
+
+    async def action(store: "UserStore") -> object:
+        return await store.create_user(
+            checked, pw_hash=await _hashed(password), role=role, actor="controller-cli"
+        )
+
+    record = _user_command(config, action)
+    typer.echo(f"created {role.value} {checked} ({getattr(record, 'id', '?')})")
+    typer.echo(
+        "Log in from any laptop with `compute login --controller https://HOST:47110` "
+        "(it needs the fabric's ca.crt, or the CA fingerprint from `fabric show`).",
+        err=True,
+    )
+
+
+@user_app.command("list")
+def user_list(
+    config: ConfigOption = None,
+    json_out: Annotated[
+        bool, typer.Option("--json", help="Machine-readable output.")
+    ] = False,
+) -> None:
+    """Every user (never a password or a token)."""
+    import json
+
+    async def action(store: "UserStore") -> object:
+        return [record.as_dict() for record in await store.list_users()]
+
+    rows = _user_command(config, action)
+    assert isinstance(rows, list)  # noqa: S101 - narrowing for mypy
+    if json_out:
+        typer.echo(json.dumps({"users": rows}, indent=2, sort_keys=True))
+        return
+    if not rows:
+        typer.echo("no users (create the first admin: `user create NAME --admin`)")
+        return
+    for row in rows:
+        state = "disabled" if row["disabled"] else "active"
+        typer.echo(f"{row['name']:<24} {row['role']:<6} {state:<9} {row['id']}")
+
+
+def _set_disabled(name: str, config: Path | None, *, disabled: bool) -> None:
+    async def action(store: "UserStore") -> object:
+        return await store.set_disabled(name, disabled=disabled, actor="controller-cli")
+
+    result = _user_command(config, action)
+    revoked = result[1] if isinstance(result, tuple) else 0
+    if disabled:
+        typer.echo(f"disabled {name} ({revoked} API token(s) revoked)")
+    else:
+        typer.echo(f"enabled {name} (they log in again with `compute login`)")
+
+
+@user_app.command("disable")
+def user_disable(
+    name: Annotated[str, typer.Argument(help="The user to disable.")],
+    config: ConfigOption = None,
+) -> None:
+    """Disable a user: their API tokens stop working on the next request."""
+    _set_disabled(name, config, disabled=True)
+
+
+@user_app.command("enable")
+def user_enable(
+    name: Annotated[str, typer.Argument(help="The user to enable.")],
+    config: ConfigOption = None,
+) -> None:
+    """Enable a disabled user (old tokens stay revoked; they log in again)."""
+    _set_disabled(name, config, disabled=False)
+
+
+@user_app.command("reset-password")
+def user_reset_password(
+    name: Annotated[str, typer.Argument(help="The user whose password to set.")],
+    password_stdin: Annotated[
+        bool, typer.Option("--password-stdin", help=_STDIN_HELP)
+    ] = False,
+    config: ConfigOption = None,
+) -> None:
+    """Set a new password; every API token of the user is revoked with it."""
+    password = _read_password(password_stdin)
+
+    async def action(store: "UserStore") -> object:
+        return await store.reset_password(
+            name, pw_hash=await _hashed(password), actor="controller-cli"
+        )
+
+    result = _user_command(config, action)
+    revoked = result[1] if isinstance(result, tuple) else 0
+    typer.echo(f"password of {name} reset ({revoked} API token(s) revoked)")
 
 
 def _server_lifetime(settings: "ControllerSettings") -> "timedelta":

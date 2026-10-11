@@ -1,4 +1,4 @@
-"""REST for ``compute node prepare`` (V0.5 G5, roadmap 0.5.8). Fabric token.
+"""REST for ``compute node prepare`` (V0.5 G5, roadmap 0.5.8). Any user (V0.7 G4).
 
 * ``POST /v1/nodes/{node_id}/prepare`` ``{images: [base...], envs: [{base,
   python?, requirements (the file's text), runtime?}]}`` -> ``202 {request_id}``;
@@ -23,7 +23,7 @@ from fastapi import APIRouter, Depends, Path, Request, status
 from meshforge.common.errors import FailureType, InvalidIdError
 from meshforge.common.ids import validate_node_id
 from meshforge.common.proto.meshforge.v1 import agent_pb2
-from meshforge.controller.api.auth import FabricTokenRequired
+from meshforge.controller.api.auth import CurrentUser
 from meshforge.controller.api.errors import ApiError
 from meshforge.controller.api.job_routes import JobApi, get_job_api
 from meshforge.controller.prepare import PrepareTracker
@@ -119,7 +119,7 @@ def _envs(raw: object) -> list[agent_pb2.EnvSpecRequest]:
     summary="Pull base images / build environments on a node",
 )
 async def start_prepare(
-    request: Request, node_id: NodeId, _auth: FabricTokenRequired, jobs: Jobs
+    request: Request, node_id: NodeId, _user: CurrentUser, jobs: Jobs
 ) -> dict[str, Any]:
     tracker = _tracker(jobs)
     checked = _node(node_id)
@@ -144,7 +144,7 @@ async def start_prepare(
     "/{node_id}/prepare/{request_id}", summary="Progress of a prepare request"
 )
 async def prepare_status(
-    node_id: NodeId, request_id: RequestId, _auth: FabricTokenRequired, jobs: Jobs
+    node_id: NodeId, request_id: RequestId, _user: CurrentUser, jobs: Jobs
 ) -> dict[str, Any]:
     record = _tracker(jobs).get(_node(node_id), request_id)
     if record is None:
@@ -157,9 +157,7 @@ async def prepare_status(
     status_code=status.HTTP_202_ACCEPTED,
     summary="Ask a node to run a GC pass now",
 )
-async def node_gc(
-    node_id: NodeId, _auth: FabricTokenRequired, jobs: Jobs
-) -> dict[str, Any]:
+async def node_gc(node_id: NodeId, _user: CurrentUser, jobs: Jobs) -> dict[str, Any]:
     tracker = _tracker(jobs)
     checked = _node(node_id)
     if not tracker.request_gc(checked):

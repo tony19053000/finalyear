@@ -1,6 +1,11 @@
 """``POST /v1/jobs``, ``GET /v1/jobs``, ``GET /v1/jobs/{job_id}`` (brief D50).
 
-Every route needs the fabric token (D44: job reads expose user output).
+Every route needs a user (V0.7 G4, D141; was the fabric token, D44). A job
+belongs to the user who submitted it (``owner_user_id``): a user lists, reads
+and cancels only their own jobs - another user's job is 404, exactly like one
+that does not exist - and an admin every job. An ``Idempotency-Key`` is matched
+only against the caller's own jobs (another user's key is a ``409 conflict``
+that names nothing).
 
 **Submit** ``{manifest, tree_id | bundle_digest, placement: {node_id, local?}}``
 with an optional ``Idempotency-Key`` header (1-128 printable ASCII characters).
@@ -73,7 +78,7 @@ from meshforge.common.manifest import (
 )
 from meshforge.common.states import JOB_TERMINAL_STATES, JobState
 from meshforge.common.tree import Tree, TreeError
-from meshforge.controller.api.auth import FabricTokenRequired
+from meshforge.controller.api.auth import CurrentUser
 from meshforge.controller.api.context import FabricView, get_fabric
 from meshforge.controller.api.errors import ApiError
 from meshforge.controller.api.job_models import (
@@ -354,8 +359,14 @@ async def _detail(
     )
 
 
-def _replay(existing: JobRecord, digest: str, response: Response) -> JobCreated:
-    if not hmac.compare_digest(existing.request_hash, digest):
+def _replay(
+    existing: JobRecord, digest: str, response: Response, owner: str | None
+) -> JobCreated:
+    # Another user's key is "used for a different request": the answer names
+    # neither the job nor its owner.
+    if existing.owner_user_id != owner or not hmac.compare_digest(
+        existing.request_hash, digest
+    ):
         raise ApiError(
             FailureType.CONFLICT,
             "this Idempotency-Key was already used for a different request",
@@ -483,7 +494,7 @@ async def _check_where(
 async def submit_job(
     request: Request,
     response: Response,
-    _auth: FabricTokenRequired,
+    user: CurrentUser,
     jobs: Jobs,
     fabric: Fabric,
 ) -> JobCreated:
@@ -520,7 +531,7 @@ async def submit_job(
     if key is not None:
         existing = await jobs.store.get_job_by_key(key)
         if existing is not None:
-            return _replay(existing, digest, response)
+            return _replay(existing, digest, response, user.user_id)
 
     # V0.5 G5: from the blob check to the job row, no GC pass may remove a blob
     # this job references (the pass holds the same guard).
@@ -588,6 +599,7 @@ async def submit_job(
                     (i.mount, i.ref, i.name, i.version, i.tree_id) for i in resolved
                 ],
                 scheduling=scheduling,
+                owner_user_id=user.user_id,
             )
         except IdempotencyConflictError:
             raise ApiError(
@@ -595,7 +607,7 @@ async def submit_job(
                 "this Idempotency-Key was already used for a different request",
             ) from None
     if not created:  # lost a concurrent race for the same key, same request
-        return _replay(job, digest, response)
+        return _replay(job, digest, response, user.user_id)
     log.info(
         "controller.jobs.submitted",
         job_id=job.id,
@@ -607,6 +619,7 @@ async def submit_job(
         bundle_digest=submission.bundle_digest,
         tree_id=submission.tree_id,
         idempotency_key_set=key is not None,
+        user_id=user.user_id,
     )
     if jobs.dispatcher is not None:
         jobs.dispatcher.wake()
@@ -615,7 +628,7 @@ async def submit_job(
 
 @job_router.get("", response_model=JobList, summary="Recent jobs, newest first")
 async def list_jobs(
-    _auth: FabricTokenRequired,
+    user: CurrentUser,
     jobs: Jobs,
     limit: Annotated[
         int, Query(ge=1, le=MAX_JOB_LIMIT, description="Jobs returned, newest first.")
@@ -624,14 +637,20 @@ async def list_jobs(
         JobState | None, Query(description="Only jobs in this state.")
     ] = None,
 ) -> JobList:
-    records = await jobs.store.list_jobs(limit=limit, state=state)
+    records = await jobs.store.list_jobs(
+        limit=limit,
+        state=state,
+        # D141: a user lists only their jobs; an admin (and the legacy fabric
+        # token) every job.
+        owner_user_id=None if user.is_admin else user.user_id,
+    )
     summaries = tuple(JobSummary(**_summary_fields(j)) for j in records)
     return JobList(jobs=summaries, count=len(summaries))
 
 
 @job_router.get("/{job_id}", response_model=JobDetail, summary="One job")
 async def get_job(
-    _auth: FabricTokenRequired,
+    user: CurrentUser,
     jobs: Jobs,
     job_id: Annotated[str, Path(max_length=_JOB_ID_MAX)],
 ) -> JobDetail:
@@ -640,7 +659,7 @@ async def get_job(
     except InvalidIdError:
         raise ApiError.invalid("job_id is not a canonical job_<ULID>") from None
     job = await jobs.store.get_job(checked)
-    if job is None:
+    if job is None or not user.may_see_job(job.owner_user_id):
         raise ApiError.not_found("job")
     return await _detail(jobs.store, job, jobs.inputs)
 
@@ -653,7 +672,7 @@ async def get_job(
 )
 async def cancel_job(
     response: Response,
-    _auth: FabricTokenRequired,
+    user: CurrentUser,
     jobs: Jobs,
     job_id: Annotated[str, Path(max_length=_JOB_ID_MAX)],
 ) -> JobCancelled:
@@ -664,7 +683,7 @@ async def cancel_job(
     if jobs.dispatcher is None:
         raise ApiError(FailureType.CONFIG_ERROR, "this controller does not dispatch")
     before = await jobs.store.get_job(checked)
-    if before is None:
+    if before is None or not user.may_see_job(before.owner_user_id):
         raise ApiError.not_found("job")
     if before.state in JOB_TERMINAL_STATES:
         response.status_code = status.HTTP_200_OK
@@ -677,6 +696,7 @@ async def cancel_job(
         job_id=checked,
         from_state=before.state.value,
         state=job.state.value,
+        user_id=user.user_id,
     )
     return JobCancelled(
         job_id=checked,

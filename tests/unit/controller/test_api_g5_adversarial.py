@@ -21,6 +21,7 @@ pytest.importorskip("fastapi", reason="needs the controller extra")
 
 import httpx
 from mf_api_records import node_record
+from mf_users import ADMIN_TOKEN, bearer, static_auth
 
 from meshforge.common.errors import FailureType
 from meshforge.common.ids import new_node_id
@@ -85,12 +86,15 @@ class _Registry:
 def build(registry: _Registry | None = None) -> httpx.AsyncClient:
     app = create_http_app(
         cast("SessionManager", _EmptyManager()),
+        auth=static_auth(),
         registry=cast("object", registry or _Registry()),  # type: ignore[arg-type]
         resources=cast("ResourceTracker", _EmptyTracker()),
         clock=lambda: 1_000.0,
     )
     return httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://api.test"
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://api.test",
+        headers=bearer(ADMIN_TOKEN),
     )
 
 
@@ -110,6 +114,7 @@ async def app_routes() -> list[str]:
     """Every concrete ``/v1`` path this app actually serves (not templated twice)."""
     app = create_http_app(
         cast("SessionManager", _EmptyManager()),
+        auth=static_auth(),
         registry=cast("object", _Registry()),  # type: ignore[arg-type]
         resources=cast("ResourceTracker", _EmptyTracker()),
         clock=lambda: 1_000.0,
@@ -393,12 +398,15 @@ async def test_sample_age_is_unaffected_by_a_far_off_agent_wall_clock() -> None:
 
     app = create_http_app(
         cast("SessionManager", _EmptyManager()),
+        auth=static_auth(),
         registry=cast("object", registry),  # type: ignore[arg-type]
         resources=cast("ResourceTracker", _Tracker()),
         clock=lambda: 1_000.0,  # 1 s after received_at on the monotonic clock
     )
     async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://api.test"
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://api.test",
+        headers=bearer(ADMIN_TOKEN),
     ) as client:
         response = await client.get("/v1/nodes")
     row = response.json()["nodes"][0]

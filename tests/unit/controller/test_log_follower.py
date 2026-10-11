@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from mf_users import ADMIN
 
 from meshforge.common.errors import FailureType
 from meshforge.common.states import AttemptState, JobState
@@ -32,7 +33,7 @@ def _follower(
 ) -> tuple[_Follower, FakeWs]:
     ws = FakeWs()
     hub = LogHub(tmp_path, blobs=None, max_bytes=10**6)
-    f = _Follower(ws, None, hub, streams)  # type: ignore[arg-type]
+    f = _Follower(ws, None, hub, streams, ADMIN)  # type: ignore[arg-type]
     f.pos = {"stdout": 0, "stderr": 0}
     return f, ws
 

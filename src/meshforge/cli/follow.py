@@ -9,7 +9,7 @@ post-handshake session tickets are processed by the reader thread exactly while
 the handshake request is being written, and about one open in a few lost the
 request or the response (``TimeoutError`` waiting for the handshake response,
 the V0.7 G3 cluster flake). The asyncio client drives the TLS object from one
-thread only. The fabric token goes in the handshake's ``Authorization`` header -
+thread only. The API token goes in the handshake's ``Authorization`` header -
 never in the URL. Frames are
 written to this process's stdout/stderr as raw bytes (the workload's own bytes,
 not re-encoded); the end frame is returned to the caller, which turns it into an
@@ -39,7 +39,8 @@ _CLOSE_REASONS: Final = {
     4029: "too many followers on this job; try again later",
     4404: "no such job",
     4400: "not a valid job id",
-    1008: "the controller refused the log stream (the fabric token is missing or wrong)",
+    1008: "the controller refused the log stream (not logged in, or the login "
+    "expired or was revoked: run `compute login`)",
 }
 
 

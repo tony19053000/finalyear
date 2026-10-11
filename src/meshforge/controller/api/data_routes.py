@@ -1,4 +1,5 @@
-"""REST for named inputs (V0.5 G5, D92): ``/v1/data``. Fabric token on every call.
+"""REST for named inputs (V0.5 G5, D92): ``/v1/data``. Any user (V0.7 G4,
+D141): named inputs are shared by the whole fabric.
 
 * ``POST /v1/data`` ``{name, tree_id, pinned?}`` - register an uploaded tree
   (its manifest and every blob must be stored, exactly like a job submission):
@@ -23,7 +24,7 @@ from fastapi import APIRouter, Depends, Path, Request, Response, status
 from meshforge.common.errors import FailureType
 from meshforge.common.hashing import Digest
 from meshforge.common.manifest import INPUT_NAME_RE
-from meshforge.controller.api.auth import FabricTokenRequired
+from meshforge.controller.api.auth import CurrentUser
 from meshforge.controller.api.errors import ApiError
 from meshforge.controller.api.job_routes import JobApi, check_tree, get_job_api
 from meshforge.controller.named_inputs import (
@@ -91,7 +92,7 @@ async def _pins_changed(jobs: JobApi) -> None:
 
 @data_router.post("", summary="Register an uploaded tree as a named input")
 async def push_input(
-    request: Request, response: Response, _auth: FabricTokenRequired, jobs: Jobs
+    request: Request, response: Response, _user: CurrentUser, jobs: Jobs
 ) -> dict[str, Any]:
     store = _store(jobs)
     body = await _json_body(request)
@@ -130,15 +131,13 @@ async def push_input(
 
 
 @data_router.get("", summary="Every named input version")
-async def list_inputs(_auth: FabricTokenRequired, jobs: Jobs) -> dict[str, Any]:
+async def list_inputs(_user: CurrentUser, jobs: Jobs) -> dict[str, Any]:
     records = await _store(jobs).list_all()
     return {"inputs": [r.as_dict() for r in records], "count": len(records)}
 
 
 @data_router.get("/{name}", summary="One named input's versions")
-async def show_input(
-    name: Name, _auth: FabricTokenRequired, jobs: Jobs
-) -> dict[str, Any]:
+async def show_input(name: Name, _user: CurrentUser, jobs: Jobs) -> dict[str, Any]:
     records = await _store(jobs).versions(_name(name))
     if not records:
         raise ApiError.not_found("input")
@@ -150,7 +149,7 @@ async def pin_input(
     request: Request,
     name: Name,
     version: Version,
-    _auth: FabricTokenRequired,
+    _user: CurrentUser,
     jobs: Jobs,
 ) -> dict[str, Any]:
     body = await _json_body(request)
@@ -166,7 +165,7 @@ async def pin_input(
 
 @data_router.delete("/{name}/{version}", summary="Remove one version")
 async def remove_input(
-    name: Name, version: Version, _auth: FabricTokenRequired, jobs: Jobs
+    name: Name, version: Version, _user: CurrentUser, jobs: Jobs
 ) -> dict[str, Any]:
     try:
         record: NamedInputRecord = await _store(jobs).remove(_name(name), version)

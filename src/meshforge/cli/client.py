@@ -269,6 +269,32 @@ class ControllerClient:
     def revoke_invite(self, invite_id: str) -> Mapping[str, Any]:
         return self._request("POST", f"/v1/fabric/invites/{invite_id}/revoke")
 
+    # ------------------------------------------------- users (V0.7 G4, D141)
+
+    def login(
+        self, name: str, password: SecretStr, *, token_name: str
+    ) -> Mapping[str, Any]:
+        """``POST /v1/auth/login``; the password goes in the body only."""
+        return self._request(
+            "POST",
+            "/v1/auth/login",
+            json_body={
+                "name": name,
+                "password": password.get_secret_value(),
+                "token_name": token_name,
+            },
+        )
+
+    def whoami(self) -> Mapping[str, Any]:
+        return self._get("/v1/auth/whoami")
+
+    def tokens(self, *, all_users: bool = False) -> Mapping[str, Any]:
+        params = {"all": "true"} if all_users else None
+        return self._get("/v1/auth/tokens", params=params)
+
+    def revoke_token(self, token_id: str) -> Mapping[str, Any]:
+        return self._request("DELETE", f"/v1/auth/tokens/{token_id}")
+
     def logs(self, job_id: str, *, stream: str) -> tuple[bytes, Mapping[str, str]]:
         """The persisted log bytes and the response headers."""
         path = f"/v1/jobs/{job_id}/logs"
@@ -382,11 +408,16 @@ class ControllerClient:
         failure_type = _failure_type(code)
         status = response.status_code
         detail = message or f"HTTP {status}"
+        if failure_type is FailureType.UNAUTHORIZED and status == 403:
+            return ControllerError(
+                f"the controller refused the request (403): {detail}",
+                failure_type=FailureType.UNAUTHORIZED,
+                details={"status": status, "path": path, "code": code},
+            )
         if failure_type is FailureType.UNAUTHORIZED:
             return ControllerError(
-                "the controller refused the request (401): it needs the fabric "
-                "token - set [cli] token, MESHFORGE_CLI__TOKEN or --token-file "
-                "(`meshforge-controller token show` prints it)",
+                "the controller refused the request (401): you are not logged in, "
+                "or your login expired or was revoked - run `compute login`",
                 failure_type=FailureType.UNAUTHORIZED,
                 details={"status": status, "path": path, "code": code},
             )

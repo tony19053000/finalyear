@@ -61,6 +61,7 @@ pytest.importorskip("fastapi", reason="needs the controller extra")
 import httpx
 import structlog
 from fastapi import FastAPI
+from mf_users import ADMIN_TOKEN, bearer, static_auth
 from pydantic import BaseModel
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -111,7 +112,9 @@ async def boom() -> AsyncIterator[httpx.AsyncClient]:
     exception propagate, the ASGI transport would raise it here, and the test
     would then assert on the *response*, proving the swallow happened."""
     transport = httpx.ASGITransport(app=_boom_app())
-    async with httpx.AsyncClient(transport=transport, base_url="http://api.test") as c:
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://api.test", headers=bearer(ADMIN_TOKEN)
+    ) as c:
         yield c
 
 
@@ -155,12 +158,15 @@ async def test_healthz_is_unaffected_by_the_catch_all_being_installed() -> None:
 
     app = create_http_app(
         cast("SessionManager", _NoManager()),
+        auth=static_auth(),
         registry=cast("Registry", _NoRegistry()),
         resources=cast("ResourceTracker", _NoTracker()),
         clock=lambda: 0.0,
     )
     transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://api.test") as c:
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://api.test", headers=bearer(ADMIN_TOKEN)
+    ) as c:
         response = await c.get("/healthz")
     assert response.status_code == 200
     assert response.json() == {"status": "ok", "sessions": 0}
@@ -206,6 +212,7 @@ def _nodes_app(registry: _OrderedRegistry) -> FastAPI:
 
     return create_http_app(
         cast("SessionManager", _NoManager()),
+        auth=static_auth(),
         registry=cast("Registry", registry),
         resources=cast("ResourceTracker", _NoTracker()),
         clock=lambda: 1_000.0,
@@ -216,7 +223,9 @@ def _nodes_app(registry: _OrderedRegistry) -> FastAPI:
 async def many_nodes() -> AsyncIterator[tuple[httpx.AsyncClient, _OrderedRegistry]]:
     registry = _OrderedRegistry([_fake_node(i) for i in range(12)])
     transport = httpx.ASGITransport(app=_nodes_app(registry))
-    async with httpx.AsyncClient(transport=transport, base_url="http://api.test") as c:
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://api.test", headers=bearer(ADMIN_TOKEN)
+    ) as c:
         yield c, registry
 
 
@@ -311,7 +320,9 @@ async def boom_observable() -> AsyncIterator[httpx.AsyncClient]:
     transport = httpx.ASGITransport(
         app=_boom_app_no_reraise_needed(), raise_app_exceptions=False
     )
-    async with httpx.AsyncClient(transport=transport, base_url="http://api.test") as c:
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://api.test", headers=bearer(ADMIN_TOKEN)
+    ) as c:
         yield c
 
 
@@ -443,7 +454,9 @@ def _shaping_app() -> FastAPI:
 @pytest.mark.asyncio
 async def test_a_response_model_mismatch_is_the_envelope_not_a_bare_500() -> None:
     transport = httpx.ASGITransport(app=_shaping_app(), raise_app_exceptions=False)
-    async with httpx.AsyncClient(transport=transport, base_url="http://api.test") as c:
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://api.test", headers=bearer(ADMIN_TOKEN)
+    ) as c:
         with structlog.testing.capture_logs():
             response = await c.get("/response-model-mismatch")
     assert response.status_code == 500
@@ -502,7 +515,9 @@ async def test_an_unmapped_4xx_status_is_invalid_input_not_internal_error() -> N
         raise StarletteHTTPException(status_code=502, detail="")
 
     transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
-    async with httpx.AsyncClient(transport=transport, base_url="http://api.test") as c:
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://api.test", headers=bearer(ADMIN_TOKEN)
+    ) as c:
         client_side = await c.get("/teapot")
         server_side = await c.get("/gateway")
 

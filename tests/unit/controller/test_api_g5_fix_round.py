@@ -31,6 +31,7 @@ import httpx
 import structlog
 from fastapi import FastAPI, HTTPException, Query
 from mf_api_records import node_record
+from mf_users import ADMIN_TOKEN, bearer, static_auth
 
 from meshforge.common.errors import FailureType, MeshForgeError
 from meshforge.common.ids import new_node_id
@@ -120,7 +121,9 @@ async def raising() -> AsyncIterator[httpx.AsyncClient]:
     log it), which the ASGI transport would otherwise surface as the exception
     instead of the HTTP answer a socket client sees."""
     transport = httpx.ASGITransport(app=_raising_app(), raise_app_exceptions=False)
-    async with httpx.AsyncClient(transport=transport, base_url="http://api.test") as c:
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://api.test", headers=bearer(ADMIN_TOKEN)
+    ) as c:
         yield c
 
 
@@ -298,6 +301,7 @@ class _NoTracker:
 def _nodes_app(registry: _LimitRegistry) -> FastAPI:
     return create_http_app(
         cast("SessionManager", _NoManager()),
+        auth=static_auth(),
         registry=cast("Registry", registry),
         resources=cast("ResourceTracker", _NoTracker()),
         clock=lambda: 1_000.0,
@@ -310,7 +314,9 @@ async def nodes() -> AsyncIterator[tuple[httpx.AsyncClient, _LimitRegistry]]:
         [node_record(node_id=str(new_node_id())) for _ in range(7)]
     )
     transport = httpx.ASGITransport(app=_nodes_app(registry))
-    async with httpx.AsyncClient(transport=transport, base_url="http://api.test") as c:
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://api.test", headers=bearer(ADMIN_TOKEN)
+    ) as c:
         yield c, registry
 
 

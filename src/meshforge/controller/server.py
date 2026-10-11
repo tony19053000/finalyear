@@ -53,9 +53,13 @@ from meshforge.common.logging import get_logger
 from meshforge.common.netaddr import BindAddress, parse_bind
 from meshforge.common.proto.meshforge.v1 import agent_pb2, agent_pb2_grpc
 from meshforge.controller.api.auth import ApiAuth
+from meshforge.controller.api.auth_routes import AuthApi
 from meshforge.controller.api.fabric_routes import InviteApi
 from meshforge.controller.api.job_routes import JobApi
 from meshforge.controller.api.network_routes import NetworkApi
+from meshforge.controller.auth.login import LoginService, login_policy
+from meshforge.controller.auth.passwords import PasswordHasher
+from meshforge.controller.auth.users import UserStore
 from meshforge.controller.blobs import BlobStore, FetchTokens
 from meshforge.controller.cache_index import CacheIndex, CacheLocationStore
 from meshforge.controller.discovery import ServiceAdvertiser
@@ -191,6 +195,8 @@ class ControllerRuntime:
         self.revocations: Revocations | None = None
         """V0.7 G3 (D138): the revocation set and its enforcement."""
         self.renewals: CertRenewals | None = None
+        self.users: UserStore | None = None
+        self.login: LoginService | None = None
         """V0.7 G4 (D140): node certificate renewal (mtls with a CA only)."""
         self._resyncs: set[asyncio.Task[None]] = set()
         self.known_bad_envs: KnownBadEnvs | None = None
@@ -485,6 +491,20 @@ class ControllerRuntime:
             )
             manager.activate_cert = self.renewals.activate
             manager.on_cert_activated = self._resync_revocations
+        # V0.7 G4 (D141): REST users and API tokens.
+        self.users = UserStore(engine)
+        self.login = LoginService(
+            self.users,
+            policy=login_policy(cfg.auth),
+            hasher=PasswordHasher(max_concurrent=cfg.auth.max_concurrent_hashes),
+            clock=loop.time,
+        )
+        if cfg.auth.legacy_fabric_token:
+            log.warning(
+                "controller.auth.legacy_token_enabled",
+                hint="[controller.auth] legacy_fabric_token = true: the fabric "
+                "token is accepted as an admin (removed in V0.8)",
+            )
         flusher = SnapshotFlusher(resources, registry, cfg.resources, clock=loop.time)
         self.flusher = flusher
         self._flusher_task = self._spawn(flusher.run(), "snapshot-flusher")
@@ -517,6 +537,8 @@ class ControllerRuntime:
                 # session manager and the leases use (D16).
                 clock=loop.time,
                 auth=ApiAuth(
+                    users=self.users,
+                    legacy_fabric_token=cfg.auth.legacy_fabric_token,
                     verifier=self.token_verifier,
                     fetch_tokens=self.fetch_tokens,
                     upload_grants=self.upload_grants,
@@ -549,6 +571,7 @@ class ControllerRuntime:
                     enroll_port=lambda: self.enroll_port,
                 ),
                 revocations=revocations,
+                users=AuthApi(users=self.users, login=self.login),
             ),
             host=self._http_bind.host,
             port=self.http_port,

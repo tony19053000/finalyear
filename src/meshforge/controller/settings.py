@@ -44,6 +44,7 @@ __all__ = [
     "DEFAULT_HTTP_PORT",
     "DEFAULT_SERVICE_TYPE",
     "ApiSettings",
+    "AuthSettings",
     "BlobStoreSettings",
     "ControllerSection",
     "ControllerSettings",
@@ -839,6 +840,74 @@ class RenewalSettings(SectionModel):
     )
 
 
+class AuthSettings(SectionModel):
+    """``[controller.auth]`` - REST users and API tokens (V0.7 G4, D141).
+
+    Users are created on the controller host (``meshforge-controller user
+    create``); ``compute login`` exchanges a name and password for an API token.
+    """
+
+    legacy_fabric_token: bool = Field(
+        default=False,
+        description=(
+            "Also accept the old fabric token (D44) on the REST API, as an admin "
+            "with no user: one release of overlap for scripts not yet moved to "
+            "`compute login`. Each run audits its first use and logs a warning "
+            "at most once a minute. Removed in V0.8."
+        ),
+    )
+    token_ttl_days: int = Field(
+        default=90,
+        ge=1,
+        le=365,
+        description="Life of an API token issued by a login (D141: 90 days).",
+    )
+    login_rate_per_minute: float = Field(
+        default=10.0,
+        gt=0,
+        le=600,
+        description=(
+            "Login attempts allowed per source IP (IPv6: per /64) per minute; "
+            "more are answered 429 before any password is checked."
+        ),
+    )
+    login_rate_burst: int = Field(
+        default=10,
+        ge=1,
+        le=100,
+        description="Login attempts a source may make at once before the rate applies.",
+    )
+    login_free_failures: int = Field(
+        default=5,
+        ge=1,
+        le=100,
+        description=(
+            "Consecutive failed logins for one user name before backoff starts."
+        ),
+    )
+    login_backoff_base_s: float = Field(
+        default=1.0,
+        gt=0,
+        le=60.0,
+        description=(
+            "First backoff after the free failures; doubles with each further "
+            "failure up to login_backoff_max_s. A success clears it."
+        ),
+    )
+    login_backoff_max_s: float = Field(
+        default=300.0,
+        gt=0,
+        le=3600.0,
+        description="Longest a user name is blocked after repeated failures.",
+    )
+    max_concurrent_hashes: int = Field(
+        default=4,
+        ge=1,
+        le=64,
+        description=("Password checks (scrypt, ~32 MiB each) run at once; more wait."),
+    )
+
+
 class EnrollSettings(SectionModel):
     """``[controller.enroll]`` - where laptops join (V0.7 G2, D135/D150).
 
@@ -1194,6 +1263,7 @@ class ControllerSection(SectionModel):
     enroll: EnrollSettings = Field(default_factory=EnrollSettings)
     revocation: RevocationSettings = Field(default_factory=RevocationSettings)
     renewal: RenewalSettings = Field(default_factory=RenewalSettings)
+    auth: AuthSettings = Field(default_factory=AuthSettings)
 
     @field_validator("grpc_bind", "http_bind")
     @classmethod

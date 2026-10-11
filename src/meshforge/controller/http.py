@@ -3,13 +3,11 @@
 The app is built by a factory so tests can mount it on an ephemeral port with their
 own :class:`~meshforge.controller.api.context.FabricView`.
 
-**Read-only and unauthenticated in V0.3 (brief §5e D14).** No endpoint mutates
-anything - no node delete, no drain, no command - and there is no authentication
-yet, so the listener must stay LAN-bound: ``[controller] http_bind`` defaults to
-``127.0.0.1:47110`` and a wildcard bind is refused without ``allow_any_bind``.
-Anyone who can reach the port can read the fabric inventory (hostnames, hardware,
-addresses, utilisation). V0.7 adds identity, mTLS and authorization (ADR-0008);
-``docs/OPERATIONS.md`` states the same boundary for operators.
+**Authenticated (V0.7 G4, D141/D148).** Every route but ``/healthz`` and
+``POST /v1/auth/login`` needs a user's API token (``compute login``); blob
+routes also take an agent's per-attempt credentials. The listener is HTTPS in
+``mtls`` mode (D139) and stays LAN-bound by default (``[controller] http_bind``
+``127.0.0.1:47110``; a wildcard bind needs ``allow_any_bind``).
 
 ``openapi_url`` is served at ``/v1/openapi.json`` (it was ``None`` while ``/healthz``
 was the only endpoint): the schema is the contract the V0.8 dashboard and the SDK
@@ -33,7 +31,12 @@ from meshforge.controller.api import (
     install_error_handlers,
     router,
 )
-from meshforge.controller.api.auth import AUTH_STATE_KEY, ApiAuth, guard_mutations
+from meshforge.controller.api.auth import AUTH_STATE_KEY, ApiAuth, guard_requests
+from meshforge.controller.api.auth_routes import (
+    AUTH_API_STATE_KEY,
+    AuthApi,
+    auth_router,
+)
 from meshforge.controller.api.blob_routes import BLOBS_STATE_KEY, blob_router
 from meshforge.controller.api.data_routes import data_router
 from meshforge.controller.api.decision_routes import decision_router
@@ -79,24 +82,26 @@ def create_http_app(
     network: NetworkApi | None = None,
     invites: InviteApi | None = None,
     revocations: Revocations | None = None,
+    users: AuthApi | None = None,
 ) -> FastAPI:
     """Build the controller's HTTP app. ``clock`` must be the loop's monotonic clock.
 
-    ``auth`` holds the fabric-token verifier (D44). Without it every call that
-    needs the token is refused (fail closed); the open GETs of D14 still work.
+    ``auth`` holds what credentials are checked against (V0.7 G4: the user
+    directory, the legacy switch, agents' blob credentials). Without it every
+    call but ``/healthz`` is refused (fail closed). ``users`` mounts
+    ``/v1/auth`` (login, tokens, whoami).
     """
     app = FastAPI(
         title="MeshForge controller",
         version=__version__,
         summary=(
-            "The compute fabric's REST surface. Node/session reads are open (LAN "
-            "only); every mutation, every /v1/jobs read and every /v1/blobs call "
-            "needs the fabric token (D44)."
+            "The compute fabric's REST surface. Every call but /healthz and "
+            "POST /v1/auth/login needs a user's API token (`compute login`)."
         ),
         docs_url=None,
         redoc_url=None,
         openapi_url=OPENAPI_URL,
-        dependencies=[Depends(guard_mutations)],
+        dependencies=[Depends(guard_requests)],
     )
     setattr(app.state, AUTH_STATE_KEY, auth or ApiAuth(verifier=None))
     setattr(
@@ -139,4 +144,7 @@ def create_http_app(
     if revocations is not None:
         setattr(app.state, REVOCATION_STATE_KEY, revocations)
         app.include_router(revocation_router)  # V0.7 G3 node revoke (D138)
+    if users is not None:
+        setattr(app.state, AUTH_API_STATE_KEY, users)
+        app.include_router(auth_router)  # V0.7 G4 login + tokens (D141)
     return app
