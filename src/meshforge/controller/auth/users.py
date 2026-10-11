@@ -358,7 +358,14 @@ class UserStore:
         return record, revoked
 
     async def login_record(self, name: str) -> LoginRecord | None:
-        """The user ``name`` with its password hash, or ``None`` (no such user)."""
+        """The user ``name`` with its password hash, or ``None`` (no such user).
+
+        A name that cannot be a user name (:data:`USER_NAME_PATTERN` - e.g. a NUL
+        or another control character, which PostgreSQL refuses in text) is
+        ``None`` without a query: the same answer as an unknown user, never a
+        database error (G4 tester r1 T-3)."""
+        if _NAME_RE.fullmatch(name) is None:
+            return None
         try:
             async with self._sessions() as db:
                 row = await db.scalar(select(AppUser).where(AppUser.name == name))

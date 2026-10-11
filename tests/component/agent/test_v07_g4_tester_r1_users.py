@@ -126,22 +126,12 @@ def _project(tmp_path: Path, program: str) -> tuple[Path, dict[str, Any]]:
 # --------------------------------------------------------------- login input
 
 
-_NUL_XFAIL = pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "DEFECT T-3 (minor): a NUL character in the login name reaches PostgreSQL "
-        "and surfaces as 503 'the user database is unavailable' to an "
-        "unauthenticated caller (client input must be a 4xx / the same 401)"
-    ),
-)
-
-
 @pytest.mark.parametrize(
     "body",
     [
-        pytest.param({"name": "alice\x00", "password": ALICE_PW}, marks=_NUL_XFAIL),
+        {"name": "alice\x00", "password": ALICE_PW},  # T-3 fixed (D157)
         {"name": "alice", "password": "pw\x00pw-pw-pw"},
-        pytest.param({"name": "\x00", "password": "x"}, marks=_NUL_XFAIL),
+        {"name": "\x00", "password": "x"},  # T-3 fixed (D157)
         {"name": "alice", "password": "pw-\ud800-lone-surrogate"},
         {"name": "al\ud800ice", "password": "whatever-123"},
         {"name": "alice", "password": "é" * 5000},
@@ -187,6 +177,29 @@ async def test_hostile_login_bodies_get_a_clean_4xx_and_never_a_token(
     # The controller is still healthy and the real user can still log in.
     assert (await anon.get("/healthz")).status_code == 200
     assert await login(anon, "alice", ALICE_PW)
+
+
+@pytest.mark.parametrize(
+    "name", ["alice\x00", "\x00", "al\x01ice", "alice\x1b[0m", "bob\x7f"]
+)
+async def test_control_characters_in_the_name_get_the_unknown_user_401(
+    runtime: ControllerRuntime,
+    anon: httpx.AsyncClient,
+    users: dict[str, str],
+    name: str,
+) -> None:
+    """D157 T-3: exactly the answer an unknown user gets - never a 503."""
+    unknown = await anon.post(
+        "/v1/auth/login", json={"name": "nobody-here", "password": "whatever-123"}
+    )
+    got = await anon.post(
+        "/v1/auth/login", json={"name": name, "password": "whatever-123"}
+    )
+    assert unknown.status_code == 401
+    assert (got.status_code, got.json()) == (unknown.status_code, unknown.json())
+    assert got.headers.get("www-authenticate") == unknown.headers.get(
+        "www-authenticate"
+    )
 
 
 async def test_malformed_and_non_json_login_bodies_are_clean_4xx(

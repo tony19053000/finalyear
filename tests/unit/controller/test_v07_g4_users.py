@@ -42,6 +42,7 @@ from meshforge.controller.auth.users import (
     LoginRecord,
     TokenRecord,
     UserError,
+    UserStore,
     check_user_name,
 )
 from meshforge.controller.settings import AuthSettings
@@ -462,3 +463,32 @@ def test_out_of_range_parameters_are_refused_before_any_scrypt_work(
     monkeypatch.setattr(passwords, "_derive", lambda *a: calls.append(1) or b"")
     assert not verify_password(PASSWORD, _swap(stored, index, value))
     assert calls == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "name", ["alice\x00", "\x00", "al\x01ice", "alice\n", "\x7f", "", "Alice", "a" * 65]
+)
+async def test_login_record_answers_none_for_impossible_names_without_a_query(
+    name: str,
+) -> None:
+    """G4 tester r1 T-3: a NUL (or any character a user name cannot hold) never
+    reaches PostgreSQL - it is an unknown user, not a database error."""
+
+    def no_db() -> object:
+        raise AssertionError("the database was queried")
+
+    store = UserStore.__new__(UserStore)
+    store._sessions = no_db  # type: ignore[assignment]
+    assert await store.login_record(name) is None
+
+
+@pytest.mark.asyncio
+async def test_login_record_still_queries_for_a_possible_name() -> None:
+    def no_db() -> object:
+        raise AssertionError("the database was queried")
+
+    store = UserStore.__new__(UserStore)
+    store._sessions = no_db  # type: ignore[assignment]
+    with pytest.raises(AssertionError, match="queried"):
+        await store.login_record("alice")
