@@ -20,7 +20,7 @@ importable and testable on a base install.
 from __future__ import annotations
 
 from typing import Final
-from urllib.parse import quote, urlsplit, urlunsplit
+from urllib.parse import quote, unquote, urlsplit, urlunsplit
 
 from pydantic import Field, SecretStr, field_validator
 
@@ -28,6 +28,7 @@ from meshforge.common.config import MeshForgeSettings, SectionModel
 
 __all__ = [
     "ASYNC_DRIVER_SCHEME",
+    "DEV_DB_PASSWORD",
     "DatabaseSettings",
     "StoreSettings",
 ]
@@ -35,6 +36,10 @@ __all__ = [
 ASYNC_DRIVER_SCHEME: Final = "postgresql+asyncpg"
 _ACCEPTED_SCHEMES: Final = frozenset({"postgresql", "postgres", ASYNC_DRIVER_SCHEME})
 _MASK: Final = "***"
+DEV_DB_PASSWORD: Final = "meshforge-dev"  # noqa: S105 - the published dev default
+"""The development database password (``deploy/docker-compose.dev.yml``). A
+controller outside ``[security] mode = "insecure-dev"`` refuses to start with it
+(D145 d, :meth:`DatabaseSettings.uses_dev_password`)."""
 
 
 class DatabaseSettings(SectionModel):
@@ -48,7 +53,7 @@ class DatabaseSettings(SectionModel):
     port: int = Field(default=5432, ge=1, le=65535)
     name: str = Field(default="meshforge", min_length=1)
     user: str = Field(default="meshforge", min_length=1)
-    password: SecretStr = SecretStr("meshforge-dev")
+    password: SecretStr = SecretStr(DEV_DB_PASSWORD)
 
     connect_timeout_s: float = Field(default=10.0, gt=0)
     command_timeout_s: float = Field(
@@ -97,6 +102,12 @@ class DatabaseSettings(SectionModel):
             f"{ASYNC_DRIVER_SCHEME}://{user}:{password}@"
             f"{_host_for_url(self.host)}:{self.port}/{quote(self.name, safe='')}"
         )
+
+    def uses_dev_password(self) -> bool:
+        """True when the effective connection (``url`` or the fields) uses the
+        published development password :data:`DEV_DB_PASSWORD`."""
+        password = urlsplit(self.url_secret().get_secret_value()).password
+        return password is not None and unquote(password) == DEV_DB_PASSWORD
 
     def display_url(self) -> str:
         """The effective URL with the password masked - safe for logs and errors."""

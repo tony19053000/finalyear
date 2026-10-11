@@ -23,6 +23,7 @@ from typing import Any, Final
 from pydantic import Field, ValidationError, field_validator, model_validator
 
 from meshforge.common.config import MeshForgeSettings, SectionModel
+from meshforge.common.errors import ConfigError
 from meshforge.common.fabric_token import CONTROLLER_DIR_NAME, default_token_path
 from meshforge.common.manifest import PolicyName
 from meshforge.common.netaddr import is_loopback_host, parse_bind
@@ -1379,6 +1380,24 @@ class ControllerSettings(MeshForgeSettings):
                     f"[controller.api] advertise_url, got {url}"
                 )
         return self
+
+    def check_database_password(self) -> None:
+        """D145 (d): a controller outside ``insecure-dev`` refuses to start with
+        the published development database password (anyone who has read the
+        repository knows it). Called at start-up, not as a validator, so tools
+        and tests that only *read* settings are unaffected."""
+        if self.security.insecure or not self.database.uses_dev_password():
+            return
+        raise ConfigError(
+            "the database password is the published development default "
+            "'meshforge-dev'; a controller in [security] mode = 'mtls' refuses to "
+            "start with it. Give the database a strong password (deploy/.env "
+            "MESHFORGE_DEV_DB_PASSWORD before its first start, or ALTER ROLE "
+            "meshforge PASSWORD '...') and the controller the same one "
+            "(MESHFORGE_DATABASE__PASSWORD or [database] password; "
+            "docs/OPERATIONS.md 0a)",
+            details={"reason": "dev_db_password"},
+        )
 
     @property
     def token_path(self) -> Path:

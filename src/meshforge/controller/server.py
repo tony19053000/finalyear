@@ -237,6 +237,8 @@ class ControllerRuntime:
     async def _start(self) -> None:
         cfg = self.settings.controller
         loop = asyncio.get_running_loop()
+        # D145 (d): never serve a fabric on the published dev database password.
+        self.settings.check_database_password()
         if self.settings.security.insecure:
             # D139: every start, loud - this mode must never go unnoticed.
             log.warning(
