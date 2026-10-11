@@ -41,7 +41,81 @@ blob server (TCP 47120, V0.5, §0d) listens. Only the controller laptop needs
 a firewall rule (inbound TCP 47100, and 47110 if other laptops should run
 `compute`).
 
-### 0a. The fabric token (V0.4, D44 — [ADR-0014](adr/0014-interim-execution-trust.md))
+> **Since V0.7 G4** both ports are TLS (G3) and every REST call but `/healthz`
+> and the login needs a **user's API token** (§0a1). The two paragraphs above
+> describe V0.3; §0a (the shared fabric token) is now a legacy switch, off by
+> default.
+
+### 0a1. Users, logins and API tokens (V0.7 G4, D141/D148)
+
+Every person who uses `compute` has their **own account** on the controller.
+An admin can invite laptops, revoke nodes and see every job; a normal user sees,
+cancels, follows and downloads **only their own jobs** (someone else's job looks
+exactly like one that does not exist: "no such job").
+
+**First admin** (on the controller laptop - it writes the database directly, so
+the controller does not even have to run):
+
+```bash
+meshforge-controller user create alice --admin      # asks for the password twice
+meshforge-controller user create bob                # a normal user
+meshforge-controller user list
+```
+
+Passwords are 8-1024 characters and are stored only as an scrypt hash. Scripts
+can pass one on stdin (`--password-stdin`, first line) - never as an argument.
+
+**Log in from any laptop** (the admin reads the CA fingerprint once with
+`meshforge-controller fabric show` and tells the user, e.g. by reading it out):
+
+```bash
+compute login --controller https://192.168.1.20:47110 --fingerprint "ab12 cd34 …"
+#   User: bob   Password: ********
+compute whoami
+compute run ./my-project -f
+```
+
+`compute login` checks the controller **before** it sends your password: with
+`--fingerprint` it reads the fabric CA from the TLS handshake and keeps it only
+if its full SHA-256 fingerprint matches (and it signed the controller's
+certificate) - otherwise it stops ("does not hold the fabric CA with that
+fingerprint … nothing was sent"). On a laptop that already has the CA (an
+enrolled agent, or `--ca ca.crt`) no fingerprint is needed. The login stores the
+API token and `ca.crt` in `~/.config/meshforge/compute/` (Windows
+`%APPDATA%\MeshForge\compute\`), readable by you only; every later `compute`
+command uses them and the controller URL you logged in to. Override the folder
+with `[cli] credentials_dir`.
+
+**Tokens** last 90 days (`[controller.auth] token_ttl_days`). `compute tokens
+list` shows yours (`--all`: everyone's, admins only), `compute tokens revoke
+TOKEN_ID` ends one, `compute logout` revokes the current one and forgets it. A
+token that expired or was revoked, or a disabled user, gets `401 … run compute
+login` on the very next call.
+
+**Remedies:**
+
+| Situation | Do this |
+|---|---|
+| Forgotten password | admin: `meshforge-controller user reset-password NAME` (also ends every token of that user) |
+| A laptop with a login was lost | `compute tokens revoke TOKEN_ID` from another laptop (or the admin with `--all`), or disable the user |
+| Someone leaves | `meshforge-controller user disable NAME` (their tokens stop at once; `enable` lets them log in again) |
+| `429 too many failed logins` | wait the `Retry-After` seconds: after 5 wrong passwords a name is blocked 1 s, doubling to 5 min; one address is limited to 10 tries a minute (`[controller.auth] login_*`). Tokens already issued keep working |
+| Old scripts still send the fabric token | turn on `[controller.auth] legacy_fabric_token = true` **temporarily**: the fabric token then acts as an admin, with a warning in the log and an audit row; move the scripts to `compute login` and turn it off again (it is removed in V0.8) |
+| `meshforge-controller` exits: "the database password is the published development default" | see "Database password" below |
+
+**Database password (D145 d).** A controller in `[security] mode = "mtls"`
+refuses to start while its database password is the published dev default
+`meshforge-dev`. Before the dev database's first start put a strong one in
+`deploy/.env` (`MESHFORGE_DEV_DB_PASSWORD=…`) - or change it later with
+`ALTER ROLE meshforge PASSWORD '…'` in `psql` - and give the controller the same
+value (`MESHFORGE_DATABASE__PASSWORD=…` or `[database] password` in its
+`config.toml`, which must then be private to you).
+
+### 0a. The fabric token (V0.4, D44 — [ADR-0014](adr/0014-interim-execution-trust.md)) - legacy since V0.7 G4
+
+> Since V0.7 G4 the controller **ignores** the fabric token unless
+> `[controller.auth] legacy_fabric_token = true` (default false); use
+> `compute login` (§0a1). The rest of this section describes V0.4-V0.7 G3.
 
 From V0.4 the REST surface can make code run on another laptop, so it is **no
 longer all open**. Every `POST`/`PUT`/`DELETE`, every `/v1/jobs*` read (job logs

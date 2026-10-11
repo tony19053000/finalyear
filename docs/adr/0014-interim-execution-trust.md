@@ -1,6 +1,12 @@
 # ADR-0014: Interim trust for remote execution (fabric token + agent opt-in) until V0.7
 
 > **Status:** Superseded by [ADR-0016](0016-v07-security-design.md) (2026-10-07) · was Proposed (2026-09-28) · **Deciders:** team + Lead agent
+>
+> **V0.7 G4 note (2026-10-11):** decision 1 is replaced by per-user API tokens (D141, `compute login`;
+> ARCHITECTURE §16 G4). The fabric token is still created and rotatable, but the REST API accepts it
+> only behind `[controller.auth] legacy_fabric_token = true` - **off by default** - and then as an admin
+> with a warning log and a `legacy_token_used` audit row. Its code is deleted in V0.8 (Q4). Decisions 2
+> and 3 (agent opt-in, scoped fetch tokens) stand.
 
 ## Context
 V0.4 (roadmap 0.4.3–0.4.6) is the first version where a REST request makes code run on another laptop. CLAUDE.md §9:

@@ -55,7 +55,12 @@ docker compose -f deploy/docker-compose.dev.yml down -v     # stop and DELETE th
 overrides all the individual fields at once.
 
 The defaults are **development-only** values for a database that listens on
-`127.0.0.1` only, so it is never reachable from the LAN. Do not reuse them for any
+`127.0.0.1` only, so it is never reachable from the LAN. Since V0.7 G4 (D145 d) a
+controller in `[security] mode = "mtls"` - the default, i.e. any real fabric -
+**refuses to start** with the password `meshforge-dev`: set a strong
+`MESHFORGE_DEV_DB_PASSWORD` in `deploy/.env` before the database's first start
+(or `ALTER ROLE meshforge PASSWORD '...'` later) and the same value in
+`MESHFORGE_DATABASE__PASSWORD`. Only `insecure-dev` keeps the dev default. Do not reuse them for any
 database reachable from other machines. To change them, copy `.env.example` to
 `deploy/.env` (git-ignored) **and** export the matching `MESHFORGE_DATABASE__*`
 variables, because MeshForge settings do not read `.env` files.
