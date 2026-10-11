@@ -42,6 +42,8 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 > V0.10. 129 tasks vs 140–180 capacity → **~1.5 tasks/session**. Needs the other three team members' approval.
 
 ## Current Task
+**2026-10-11 — V0.7 G4 code committed (`011e920`..`3434cd7`), exit list unfinished (implementer stopped by the user).** Rotation, migration 0018, users + API tokens + `compute login`, D148, D145(d), docs. **Next: implementer finishes exit list + missing tests + hand-off → tester → reviewer.** See handoff §1.
+
 **2026-10-11 — V0.7 G3 CLOSED** (0.7.5 `[x]`, 0.7.7 `[~]` revocation done/rotation G4). mTLS everywhere, HTTPS planes, peer TLS + token requester binding, 60 s peer tokens, server-cert hot reload, revocation + supersede + expiry cuts. Tester r2 PASS, reviewer APPROVE (D156). **Next: Lead writes brief §5d G4 (rotation, migration 0018, D156 item 0) → G4 implementer.** 🧑 every lab laptop must re-join; run lab/checklists/V0.7-G3-mtls-revocation.md (step 0 clocks).
 
 **2026-10-08 — V0.7 G2 CLOSED.** Pairing: join codes + Enroll + `meshforge-agent join` — implementer `75e5d7d`..`ee7ac57` → tester r1 FAIL (T-1 IPv6 rate-limit bypass, T-2, T-3; D152) → fix `80bcbd3` → tester r2 PASS → reviewer APPROVE (8 non-blocking → D153 = G3 item 0). Exit lists green (unit 8064, component 1358, cluster 69). **Next: Lead writes brief §5c G3 (0.7.5, 0.7.7a + D147 + D153 item 0) → G3 implementer.** Lab laptops must re-join before G3 merges.

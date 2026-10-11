@@ -9,8 +9,8 @@
 > ```
 > Read docs/SESSION_HANDOFF.md (§0e first, then §1 and §2), then docs/STATUS.md, then
 > docs/briefs/V0.7-security-pairing.md. RULE: run ONE subagent at a time (team, re-imposed 2026-10-01).
-> V0.7 G1+G2 CLOSED; G3 (mTLS + revocation) in fix round 1 — see §1 "2026-10-11" entry.
-> Next: whichever G3 round is pending (fix → tester r2 → reviewer → close).
+> V0.7 G1-G3 CLOSED; G4 code committed, exit list unfinished — see §1 "2026-10-11 (stop)".
+> Next: G4 implementer finishes the exit list + hand-off → tester → reviewer → close.
 > Check git log and docs/briefs/progress/ first to see which round last finished.
 > ```
 >
@@ -265,7 +265,10 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
-**2026-10-11 (later) — V0.7 G4 STARTED.** Brief §5d written (`c15a57d`): item 0 (D156 + wss flake), 1 node cert rotation, 2 migration 0018, 3-4 users/API tokens/compute login, 5 D145(d), 6 tests, 7 docs. **G4 implementer run 1 cut by usage limit** after item 0 `011e920`, migration 0018 `9cd50c5`, rotation `7c3e14a` (exit list not run). **Run 2 RUNNING**: gates, then deliverables 3-7. If this session died: check git log `V0.7-G4` + docs/briefs/progress/V0.7-G4.md, relaunch an implementer with §5d + "resume from <last done item>". Then tester → reviewer.
+**2026-10-11 (stop) — V0.7 G4 implementer STOPPED by the user during its final exit list. Nothing running, tree clean at `3434cd7`.**
+- Brief §5d `c15a57d`. All deliverables 0-7 committed: item 0 `011e920`, migration 0018 `9cd50c5` (done before rotation - deviation, rotation needs pending-cert columns), rotation `7c3e14a`, users/tokens/D148 `fa695a0`, CLI login `d3c7a79`, D145(d) `c867ed6`, tests `cac4684`, docs `0bf2209`, then exit-list fixes `5efd0dc` (pre-G4 component tests authenticate), `1dcea8e` (25 mutants all caught, 2 new tests), `3434cd7` (cluster hardware-scores CLI authenticates).
+- **NOT yet proven:** whole -m component, -m cluster, chaos exit 0 at HEAD; wss-follow flake fix needs 10 consecutive file runs + 1 full cluster run; deliverable 6 is "part 1" - check for cross-user 404 on EVERY job route incl. wss/outputs, and the cluster run as a normal user with password + API token as D146 recorder markers. No hand-off report was written.
+- **Next:** fresh implementer = "finish G4 exit list": gates, -m unit, whole -m component, -m cluster, chaos 11/22/33 x5, the missing deliverable-6 tests, write the <=800-word hand-off into docs/briefs/progress/V0.7-G4.md. Then tester r1 -> reviewer -> close 0.7.6 [x], 0.7.7 [x].
 
 **2026-10-11 (end) — V0.7 G3 CLOSED.** Fix r1 `e094f10`..`b9ea681` → tester r2 PASS `42679c7` → reviewer APPROVE. 0.7.5 `[x]`, 0.7.7 `[~]`. D156: G4 takes migration **0018**, G6 **0019**; G4 item 0 = reviewer non-blocking list in D156; wss-follow flake tracked. Nothing in flight. Next: Lead writes brief §5d (G4 rotation) then G4 implementer.
 
