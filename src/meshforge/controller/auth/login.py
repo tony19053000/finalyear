@@ -7,10 +7,16 @@ Two independent limits, both checked **before** any password work:
   the IPv4 address, the IPv6 /64, one shared ``unknown`` bucket;
   :func:`~meshforge.controller.enrollment.listener.ip_rate_key`), charged on
   every attempt;
-* **per user name** - after ``free_failures`` consecutive failures the name is
+* **per user name and source** - after ``free_failures`` consecutive failures
+  the pair (name, source bucket - the IPv4 address or the IPv6 /64, as above) is
   blocked for ``backoff_base_s * 2**k`` seconds (``k`` = failures beyond the free
   ones, capped at ``backoff_max_s``); a success clears it. Applied to every
   name, existing or not, so the limit says nothing about which names exist.
+  Keyed by the pair, not the name alone (G4 reviewer N1, D159): a stranger who
+  knows a user's name can only lock that name out **from the stranger's own
+  address**; the user logging in from their own laptop is never blocked by it.
+  The price: a guesser with many source buckets gets ``free_failures`` per
+  bucket (each bucket is also rate limited) - accepted in THREAT_MODEL RE-S2.
 
 Either limit answers 429 with ``Retry-After`` and does not look at the password
 (so a correct password during a block is refused too - the price of a backoff
@@ -18,11 +24,18 @@ that a guesser cannot probe through). A wrong name, a wrong password and a
 disabled user are one answer (401, one message) after the same scrypt work.
 Tokens already issued keep working during a block, so a guesser can delay a
 user's *next* login, never cut their running session.
+
+**Names are ASCII** (G4 tester r2 T-5, D158): the name as sent (stripped) must be
+ASCII before it is lower-cased; anything else is an unknown user (same 401, no
+query). Case-folding a non-ASCII spelling could alias a real user - KELVIN SIGN
+U+212A lower-cases to ``k`` - and so would NFKC normalisation (it maps U+212A to
+``K``), so the ASCII check is made on the raw text, before any folding.
 """
 
 from __future__ import annotations
 
 import collections
+import unicodedata
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Final
@@ -44,12 +57,30 @@ __all__ = [
     "LoginResult",
     "LoginService",
     "LoginThrottle",
+    "login_key",
     "login_policy",
 ]
 
 log = get_logger(__name__)
 
 _BAD_CREDENTIALS: Final = "wrong user name or password"
+_NOT_A_NAME: Final = "\x00"
+"""Prefix of a throttle key for a name that is not ASCII: no valid name starts
+with NUL, so such a spelling never shares (or dodges) a real name's counter."""
+
+
+def login_key(name: str) -> tuple[str, str | None]:
+    """``(throttle_name, user_name)`` of a login name as sent (D158 T-5).
+
+    ``user_name`` is the stripped, lower-cased name when the stripped text is
+    ASCII (and NFKC-stable, which ASCII always is), else ``None`` - an unknown
+    user, never an alias of an ASCII name. ``throttle_name`` is the same text
+    for an ASCII name and a NUL-prefixed key of its own otherwise."""
+    raw = name.strip()
+    if raw.isascii() and unicodedata.normalize("NFKC", raw) == raw:
+        key = raw.lower()[:MAX_USER_NAME_CHARS]
+        return key, key
+    return _NOT_A_NAME + raw[:MAX_USER_NAME_CHARS], None
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,7 +213,8 @@ class LoginService:
                 reason="rate_limited_source",
                 retry_after_s=self.throttle.source_retry_after_s(),
             )
-        key = name.strip().lower()[:MAX_USER_NAME_CHARS]
+        name_key, user_name = login_key(name)
+        key = f"{name_key}|{ip_rate_key(host)}"  # N1: per (name, source bucket)
         wait = self.throttle.blocked_for(key)
         if wait > 0:
             log.warning("controller.auth.login_rate_limited", scope="user")
@@ -191,7 +223,7 @@ class LoginService:
                 reason="rate_limited_user",
                 retry_after_s=wait,
             )
-        user = await self.store.login_record(key)
+        user = None if user_name is None else await self.store.login_record(user_name)
         too_long = len(password.get_secret_value()) > MAX_PASSWORD_CHARS
         ok = await self._hasher.verify_or_dummy(
             password if not too_long else SecretStr(""),

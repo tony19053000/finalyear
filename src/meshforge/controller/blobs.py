@@ -66,6 +66,7 @@ from typing import Any, Final
 from pydantic import SecretStr
 
 from meshforge.common.cas import (
+    DEFAULT_MAX_RESUMABLE_PER_OWNER,
     CasError,
     CasFullError,
     CasIntegrityError,
@@ -224,6 +225,7 @@ class BlobStore:
         tree_cache_entries: int = DEFAULT_TREE_CACHE_ENTRIES,
         clock: Callable[[], float] = time.monotonic,
         resume_sweep_s: float = 3600.0,
+        max_resumable_per_owner: int = DEFAULT_MAX_RESUMABLE_PER_OWNER,
     ) -> None:
         if max_concurrent_uploads < 1:
             raise ValueError("max_concurrent_uploads must be positive")
@@ -232,6 +234,7 @@ class BlobStore:
             max_blob_bytes=max_blob_bytes,
             free_disk_floor_bytes=free_disk_floor_bytes,
             disk_free=disk_free,
+            max_resumable_per_owner=max_resumable_per_owner,
         )
         self.root = root
         self.max_blob_bytes = max_blob_bytes

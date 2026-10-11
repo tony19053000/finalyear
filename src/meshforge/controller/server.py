@@ -293,6 +293,7 @@ class ControllerRuntime:
             max_concurrent_uploads=cfg.blobs.max_concurrent_uploads,
             upload_wait_s=cfg.blobs.upload_wait_s,
             free_disk_floor_bytes=cfg.blobs.free_disk_floor_mb * 1024 * 1024,
+            max_resumable_per_owner=cfg.blobs.max_resumable_per_owner,
         )
         swept_parts = await asyncio.to_thread(blobs.prepare)
         self.blobs = blobs

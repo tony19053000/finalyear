@@ -26,7 +26,12 @@ from mf_users import bearer, create_user, login
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from meshforge.common.cas import DEFAULT_MAX_RESUMABLE, MIN_CHUNK_SIZE, chunk_span
+from meshforge.common.cas import (
+    DEFAULT_MAX_RESUMABLE,
+    DEFAULT_MAX_RESUMABLE_PER_OWNER,
+    MIN_CHUNK_SIZE,
+    chunk_span,
+)
 from meshforge.common.hashing import Digest
 from meshforge.common.ids import new_node_id
 from meshforge.controller.server import ControllerRuntime
@@ -366,26 +371,27 @@ async def test_owner_keys_do_not_collide_across_many_owners_and_digests(
             assert got == [[0], [1], [0]]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "FINDING (D157 follow-up, pre-existing, now shared by every uploader): the "
-        f"{DEFAULT_MAX_RESUMABLE}-transfer resumable cap is global, so one user "
-        "who opens that many part uploads makes every other user's first part "
-        "fail with resource_busy for the day until the sweep."
-    ),
-)
 async def test_one_user_cannot_starve_the_resumable_cap_for_everyone_else(
     runtime: ControllerRuntime, tokens: dict[str, str]
 ) -> None:
+    """D158 T-4 (was a strict xfail): one uploader stops at its per-owner
+    sub-cap (``resource_busy``, 503) and another user still starts."""
+    sub_cap = DEFAULT_MAX_RESUMABLE_PER_OWNER
     async with (
         _http(runtime, tokens["bob"]) as bob,
         _http(runtime, tokens["alice"]) as alice,
     ):
-        for _ in range(DEFAULT_MAX_RESUMABLE):
+        refused = 0
+        for i in range(DEFAULT_MAX_RESUMABLE):
             body = os.urandom(CS)
             r = await _put(bob, os.urandom(32).hex(), 0, body, size=2 * CS)
-            assert r.status_code in (200, 201), r.text
+            if i < sub_cap:
+                assert r.status_code in (200, 201), r.text
+            else:
+                assert r.status_code == 503, (r.status_code, r.text)
+                assert "resource_busy" in r.text
+                refused += 1
+        assert refused == DEFAULT_MAX_RESUMABLE - sub_cap
         data, digest = _blob(2)
         r = await _put(alice, digest, 0, _span(data, 0), size=len(data))
         assert r.status_code in (200, 201), (r.status_code, r.text)

@@ -123,6 +123,11 @@ _READ_ONLY: Final = stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH
 _RESUME_TTL_S: Final = 24 * 3600.0
 DEFAULT_MAX_RESUMABLE: Final = 64
 """Resumable transfers in progress at once (each reserves its full size on disk)."""
+DEFAULT_MAX_RESUMABLE_PER_OWNER: Final = 16
+"""Resumable transfers one named owner may hold at once, under the global cap
+(D158 T-4): one uploader at its sub-cap is refused ``resource_busy`` while other
+owners still start. The shared transfer (owner ``None``, the agent's own store)
+has no sub-cap - only the global one."""
 
 
 class CasError(MeshForgeError):
@@ -264,11 +269,14 @@ class CasStore:
         resume_ttl_s: float = _RESUME_TTL_S,
         wall_clock: Callable[[], float] = time.time,
         max_resumable: int = DEFAULT_MAX_RESUMABLE,
+        max_resumable_per_owner: int | None = None,
     ) -> None:
         if max_blob_bytes < 0:
             raise ValueError("max_blob_bytes must be >= 0")
         if quota_bytes is not None and quota_bytes < 0:
             raise ValueError("quota_bytes must be >= 0")
+        if max_resumable_per_owner is not None and max_resumable_per_owner < 1:
+            raise ValueError("max_resumable_per_owner must be >= 1")
         self.root = Path(root)
         self.max_blob_bytes = max_blob_bytes
         self.quota_bytes = quota_bytes
@@ -278,6 +286,13 @@ class CasStore:
         self._wall = wall_clock
         self.tmp = self.root / _TMP_DIR
         self.max_resumable = max_resumable
+        self.max_resumable_per_owner = (
+            max_resumable
+            if max_resumable_per_owner is None
+            else max_resumable_per_owner
+        )
+        """Sub-cap per named owner (D158 T-4); ``None`` at construction = the
+        global cap (no sub-cap)."""
         self.resume_lock = threading.Lock()
         """Serialises opening resumable transfers (the cap is exact)."""
         self._digest_locks: dict[str, list[Any]] = {}
@@ -391,6 +406,12 @@ class CasStore:
     def resumes_in_progress(self) -> int:
         """Resumable transfers on disk (an in-memory count, see ``_resumes``)."""
         return len(self._resumes)
+
+    def resumes_of(self, owner: str) -> int:
+        """Resumable transfers on disk staged by ``owner`` (D158 T-4). Linear in
+        the in-progress set, which the global cap keeps small."""
+        suffix = "-" + owner_tag(owner)
+        return sum(1 for key in self._resumes if key.endswith(suffix))
 
     @contextlib.contextmanager
     def digest_lock(self, hex_: str) -> Iterator[None]:
@@ -861,6 +882,17 @@ class ResumablePart:
                     failure_type=FailureType.RESOURCE_BUSY,
                     details={"digest": str(digest)},
                 )
+            if (
+                owner is not None
+                and not sidecar.exists()
+                and store.resumes_of(owner) >= store.max_resumable_per_owner
+            ):
+                raise CasError(
+                    f"this uploader already has {store.max_resumable_per_owner} "
+                    "resumable transfers in progress; finish one or retry later",
+                    failure_type=FailureType.RESOURCE_BUSY,
+                    details={"digest": str(digest)},
+                )
             store._admit(digest, size)
             try:
                 store._release(size)
@@ -1095,8 +1127,12 @@ def resume_key(digest: Digest, owner: str | None = None) -> str:
     transfer) or ``<hex>-<16 hex of SHA-256(owner)>`` (D157)."""
     if owner is None:
         return digest.hex
-    tag = hashlib.sha256(owner.encode("utf-8")).hexdigest()[:_OWNER_TAG_CHARS]
-    return f"{digest.hex}-{tag}"
+    return f"{digest.hex}-{owner_tag(owner)}"
+
+
+def owner_tag(owner: str) -> str:
+    """The 16-hex suffix that names ``owner``'s stagings (see :func:`resume_key`)."""
+    return hashlib.sha256(owner.encode("utf-8")).hexdigest()[:_OWNER_TAG_CHARS]
 
 
 def _resume_hex(name: str) -> str:

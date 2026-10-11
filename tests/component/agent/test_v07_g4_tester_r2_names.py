@@ -26,7 +26,7 @@ from meshforge.controller.settings import ControllerSettings
 from meshforge.controller.store.engine import create_engine
 from meshforge.controller.store.settings import DatabaseSettings
 
-KELVIN = chr(0x212A)  # lower() -> "k"
+KELVIN = chr(0x212A)  # lower() -> "k"; refused as non-ASCII since D158 T-5
 pytestmark = [pytest.mark.asyncio, pytest.mark.timeout(120)]
 PW = "kevin-password-1"
 
@@ -95,15 +95,15 @@ async def test_odd_spellings_never_5xx_and_never_log_in_a_different_user(
         assert name.strip().lower() == "kevin", f"{name!r} logged in as kevin"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="MINOR FINDING: a KELVIN SIGN spelling normalises to 'kevin' and "
-    "authenticates; harmless without the password, but an unexpected alias.",
-)
 async def test_a_non_ascii_look_alike_is_not_an_alias_of_the_ascii_name(
     anon: httpx.AsyncClient,
 ) -> None:
-    assert (await _login(anon, KELVIN + "evin", PW)).status_code != 200
+    """D158 T-5 (was a strict xfail): a non-ASCII spelling is the unknown-user
+    401, with the right password too."""
+    r = await _login(anon, KELVIN + "evin", PW)
+    assert r.status_code == 401, (r.status_code, r.text)
+    unknown = await _login(anon, "nobody-at-all", PW)
+    assert r.json() == unknown.json()
 
 
 async def test_spellings_share_one_failure_counter_so_none_dodges_backoff(
@@ -115,6 +115,10 @@ async def test_spellings_share_one_failure_counter_so_none_dodges_backoff(
     assert (await _login(anon, "Kevin", "wrong-wrong-1")).status_code in (401, 429)
     # 3 free failures are spent: the correct password is now delayed/refused for
     # EVERY spelling (429 with Retry-After), not accepted through a fresh one.
-    for spelling in ("kevin", "KEVIN", KELVIN + "evin"):
+    for spelling in ("kevin", "KEVIN"):
         r = await _login(anon, spelling, PW)
         assert r.status_code == 429, (spelling, r.status_code, r.text)
+    # D158 T-5: the KELVIN SIGN spelling is not kevin at all - an unknown user
+    # (401) with its own counter, so it can neither log in nor dodge the block.
+    r = await _login(anon, KELVIN + "evin", PW)
+    assert r.status_code == 401, (r.status_code, r.text)

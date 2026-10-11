@@ -22,6 +22,7 @@ from typing import Any, Final
 
 from pydantic import Field, ValidationError, field_validator, model_validator
 
+from meshforge.common.cas import DEFAULT_MAX_RESUMABLE, DEFAULT_MAX_RESUMABLE_PER_OWNER
 from meshforge.common.config import MeshForgeSettings, SectionModel
 from meshforge.common.errors import ConfigError
 from meshforge.common.fabric_token import CONTROLLER_DIR_NAME, default_token_path
@@ -120,6 +121,17 @@ class BlobStoreSettings(SectionModel):
         ge=0.1,
         le=600.0,
         description="How long an upload waits for a free upload slot.",
+    )
+    max_resumable_per_owner: int = Field(
+        default=DEFAULT_MAX_RESUMABLE_PER_OWNER,
+        ge=1,
+        le=DEFAULT_MAX_RESUMABLE,
+        description=(
+            "Part uploads (resumable transfers) one user or node may have in "
+            f"progress at once, under the store-wide {DEFAULT_MAX_RESUMABLE} "
+            "(D158): a further new one is refused resource_busy (503) while other "
+            "uploaders still start."
+        ),
     )
     free_disk_floor_mb: int = Field(
         default=1024,
