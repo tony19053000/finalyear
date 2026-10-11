@@ -26,7 +26,7 @@ import datetime as dt
 import hmac
 import re
 import time
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from typing import Any, Final
 
@@ -75,6 +75,7 @@ MAX_LISTED_USERS: Final = 1000
 DEFAULT_TOKEN_NAME: Final = "compute"  # noqa: S105 - a label, not a secret
 _NAME_RE: Final = re.compile(USER_NAME_PATTERN)
 _LEGACY_LOG_INTERVAL_S: Final = 60.0
+_LIVE_CHECK_BATCH: Final = 1000
 
 
 class UserStoreError(MeshForgeError):
@@ -501,6 +502,32 @@ class UserStore:
         return Principal(
             user_id=str(user_id), name=str(name), role=UserRole(role), token_id=token_id
         )
+
+    async def live_token_ids(self, token_ids: Collection[str]) -> set[str]:
+        """The ids among ``token_ids`` that :meth:`authenticate` would still
+        accept (not revoked, not expired, user enabled) - one query per
+        :data:`_LIVE_CHECK_BATCH` ids. Open log streams are re-checked with it
+        (:mod:`meshforge.controller.auth.live_streams`, D157 T-1)."""
+        wanted = sorted(set(token_ids))
+        live: set[str] = set()
+        try:
+            async with self._sessions() as db:
+                for start in range(0, len(wanted), _LIVE_CHECK_BATCH):
+                    batch = wanted[start : start + _LIVE_CHECK_BATCH]
+                    rows = await db.scalars(
+                        select(ApiToken.id)
+                        .join(AppUser, AppUser.id == ApiToken.user_id)
+                        .where(
+                            ApiToken.id.in_(batch),
+                            ApiToken.revoked_at.is_(None),
+                            ApiToken.expires_at > func.now(),
+                            AppUser.disabled.is_(False),
+                        )
+                    )
+                    live.update(str(token_id) for token_id in rows)
+        except SQLAlchemyError as exc:
+            raise _store_error("live_token_ids", exc) from exc
+        return live
 
     async def get_token(self, token_id: str) -> TokenRecord | None:
         try:

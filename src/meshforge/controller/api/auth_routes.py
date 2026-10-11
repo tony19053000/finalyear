@@ -11,7 +11,8 @@
   admin only). Never a token or its hash.
 * ``DELETE /v1/auth/tokens/{token_id}`` - revoke one (``compute logout`` /
   ``compute tokens revoke``); another user's token is 404 like an unknown id;
-  an admin may revoke any. Idempotent (``already_revoked``).
+  an admin may revoke any. Idempotent (``already_revoked``). Log streams
+  opened with it are closed at once (D157).
 
 The legacy fabric token has no user and therefore no tokens: these routes
 answer it 400 ``legacy_token``.
@@ -29,6 +30,7 @@ from meshforge.common.ids import validate_api_token_id
 from meshforge.controller.api.auth import (
     CurrentUser,
     forbidden,
+    get_auth,
     request_source,
 )
 from meshforge.controller.api.errors import ApiError
@@ -220,6 +222,9 @@ async def revoke_token(
         raise ApiError.not_found("token") from None
     except UserStoreError:
         raise _unavailable() from None
+    streams = get_auth(request).live_streams
+    if streams is not None:
+        streams.recheck_now()  # D157: its open log streams close at once
     return {
         **record.as_dict(current_token_id=user.token_id),
         "already_revoked": already,

@@ -8,7 +8,9 @@ One authentication path, enforced here and nowhere else:
    ``POST /v1/auth/login`` (it *is* the way in), and the blob routes, which check
    their own credentials (a user token *or* an agent's per-attempt fetch token /
    upload grant + node certificate, :mod:`.blob_routes`). WebSocket routes
-   authenticate their own handshake (:func:`authenticate`).
+   authenticate their own handshake (:func:`authenticate`) and then register
+   with :attr:`ApiAuth.live_streams`, which closes them when the token stops
+   being live (D157).
 2. A **user** is an ``Authorization: Bearer <API token>`` whose ``api_token`` row
    is live and whose user is enabled (:meth:`UserDirectory.authenticate`, one
    database read per request - a revoke, expiry or disable takes effect on the
@@ -42,6 +44,7 @@ from meshforge.controller.api.errors import ApiError
 from meshforge.controller.auth.principal import LEGACY_PRINCIPAL, Principal
 
 if TYPE_CHECKING:
+    from meshforge.controller.auth.live_streams import LiveStreams
     from meshforge.controller.blobs import FetchTokens
     from meshforge.controller.fabric_token import FabricTokenVerifier
     from meshforge.controller.http_tls import NodeCertPolicy
@@ -116,6 +119,9 @@ class ApiAuth:
     legacy_fabric_token: bool = False
     """``[controller.auth] legacy_fabric_token``: accept the fabric token as an
     admin (one release of overlap; default off)."""
+    live_streams: LiveStreams | None = None
+    """D157 T-1: open log WebSockets register here and are closed when their
+    token stops being live (``None`` = authenticated at the handshake only)."""
 
 
 def agent_credential_ok(

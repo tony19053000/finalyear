@@ -907,6 +907,17 @@ class AuthSettings(SectionModel):
         le=64,
         description=("Password checks (scrypt, ~32 MiB each) run at once; more wait."),
     )
+    stream_recheck_interval_s: float = Field(
+        default=1.0,
+        ge=0.1,
+        le=60.0,
+        description=(
+            "How often open log streams (WebSocket follows) re-check their API "
+            "token - one query for all of them: a revoked or expired token or a "
+            "disabled user closes the stream within this time (D157). A revoke "
+            "through this controller's REST API closes it at once."
+        ),
+    )
 
 
 class EnrollSettings(SectionModel):

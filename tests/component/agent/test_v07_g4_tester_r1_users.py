@@ -625,15 +625,6 @@ async def test_bob_learns_nothing_of_alices_running_job_from_the_other_reads(
         await alice.post(f"/v1/jobs/{job_id}/cancel")
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "DEFECT T-1 (minor): an already-open log WebSocket is authenticated at "
-        "the handshake only; disabling the user or revoking the token does not "
-        "close it, so RE-S1 'a revoke/expiry/disable acts on the next request' "
-        "does not hold for a long-running follow"
-    ),
-)
 async def test_disabling_a_user_closes_their_open_log_follow(
     runtime: ControllerRuntime,
     anon: httpx.AsyncClient,
@@ -654,14 +645,20 @@ async def test_disabling_a_user_closes_their_open_log_follow(
             await UserStore(engine).set_disabled("alice", disabled=True, actor="t")
             t0 = time.monotonic()
             closed = False
+            code: int | None = None
             with contextlib.suppress(asyncio.TimeoutError):
                 while time.monotonic() - t0 < 8:
                     try:
                         await asyncio.wait_for(ws.recv(), 3)
-                    except ConnectionClosed:
+                    except ConnectionClosed as exc:
                         closed = True
+                        code = exc.rcvd.code if exc.rcvd is not None else None
                         break
+            elapsed = time.monotonic() - t0
             assert closed, "a disabled user is still receiving logs after 8 s"
+            # D157 (T-1 fixed): the periodic re-check (1 s) closes it, typed.
+            assert code == 4401, code
+            assert elapsed < 3.0, elapsed
 
 
 # ------------------------------------------------------------------- blobs

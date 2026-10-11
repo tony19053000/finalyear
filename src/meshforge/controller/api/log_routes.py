@@ -30,8 +30,13 @@ and a normal close. Frames are JSON text:
 
 A client that reads too slowly is closed ``4008 slow_consumer`` - the log writer
 never waits for it; a job over its follower limit gets ``4029``; an unknown job
-``4404``; a bad id ``4400``. Waiting for the job's first attempt (while it is
-queued) polls the store every ``_POLL_S``.
+``4404``; a bad id ``4400``. The handshake's API token is re-checked while the
+stream is open (D157, :mod:`meshforge.controller.auth.live_streams`): a revoked
+or expired token or a disabled user is closed ``4401 unauthorized`` within
+``[controller.auth] stream_recheck_interval_s`` (at once for a revoke through
+this controller's REST API); a user database that cannot confirm the token for
+several re-checks closes it ``4503 auth_unavailable``. Waiting for the job's
+first attempt (while it is queued) polls the store every ``_POLL_S``.
 """
 
 from __future__ import annotations
@@ -40,7 +45,7 @@ import asyncio
 import base64
 import contextlib
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Coroutine
 from pathlib import Path as FsPath
 from typing import Annotated, Any, Final, Literal
 
@@ -52,14 +57,20 @@ from meshforge.common.errors import FailureType, InvalidIdError
 from meshforge.common.ids import validate_attempt_id, validate_job_id
 from meshforge.common.logging import get_logger
 from meshforge.common.states import ATTEMPT_TERMINAL_STATES, JOB_TERMINAL_STATES
-from meshforge.controller.api.auth import CurrentUser, authenticate
+from meshforge.controller.api.auth import CurrentUser, authenticate, get_auth
 from meshforge.controller.api.errors import ApiError
 from meshforge.controller.api.job_routes import JOBS_STATE_KEY, JobApi, get_job_api
+from meshforge.controller.auth.live_streams import StreamAuth, StreamEndReason
 from meshforge.controller.auth.principal import Principal
 from meshforge.controller.jobs.logs import STREAMS, LogEvent, LogHub, Subscription
 from meshforge.controller.jobs.store import AttemptRecord, JobRecord
 
-__all__ = ["CLOSE_SLOW_CONSUMER", "log_router"]
+__all__ = [
+    "CLOSE_AUTH_UNAVAILABLE",
+    "CLOSE_SLOW_CONSUMER",
+    "CLOSE_UNAUTHORIZED",
+    "log_router",
+]
 
 log = get_logger(__name__)
 
@@ -80,6 +91,8 @@ CLOSE_SLOW_CONSUMER: Final = 4008
 CLOSE_TOO_MANY: Final = 4029
 CLOSE_NOT_FOUND: Final = 4404
 CLOSE_INVALID: Final = 4400
+CLOSE_UNAUTHORIZED: Final = 4401
+CLOSE_AUTH_UNAVAILABLE: Final = 4503
 
 StreamChoice = Literal["stdout", "stderr", "both"]
 Jobs = Annotated[JobApi, Depends(get_job_api)]
@@ -284,6 +297,8 @@ async def follow_logs(
         return
     await websocket.accept()
     follower: _Follower | None = None
+    streams = get_auth(websocket).live_streams
+    handle = None if streams is None else streams.open(user)
     try:
         if jobs.logs is None:
             await websocket.close(code=CLOSE_NOT_FOUND, reason="logs_not_kept")
@@ -295,8 +310,17 @@ async def follow_logs(
             return
         follower = _Follower(websocket, jobs, jobs.logs, _streams(stream), user)
         follower.pos = {"stdout": stdout_offset, "stderr": stderr_offset}
-        await _follow(follower, checked)
+        await _until_revoked(handle, _follow(follower, checked))
     except WebSocketDisconnect:
+        return
+    except _StreamRevokedError as revoked:
+        log.info(
+            "controller.logs.follower_unauthorized",
+            job_id=job_id,
+            user_id=user.user_id,
+            reason=revoked.reason,
+        )
+        await _close_revoked(websocket, revoked.reason)
         return
     except TimeoutError:
         # A send blocked for _SEND_TIMEOUT_S: the client is not reading.
@@ -312,6 +336,8 @@ async def follow_logs(
     finally:
         if follower is not None and follower.sub is not None:
             follower.sub.close()
+        if streams is not None and handle is not None:
+            streams.close(handle)
     if websocket.application_state is WebSocketState.CONNECTED:
         with contextlib.suppress(RuntimeError):
             await websocket.close(code=1000)
@@ -418,6 +444,45 @@ async def _follow_attempt(
         await f.live(event)
     await f.catch_up(attempt.id, None)  # the final log may be longer than live
     return True
+
+
+class _StreamRevokedError(Exception):
+    """The follower's token stopped being live (D157)."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
+async def _until_revoked[T](
+    handle: StreamAuth | None, work: Coroutine[Any, Any, T]
+) -> T:
+    """Run ``work`` until it ends or ``handle`` is revoked (then cancel it and
+    raise :class:`_StreamRevokedError`). ``handle`` None = just ``work``."""
+    if handle is None:
+        return await work
+    task = asyncio.ensure_future(work)
+    waiter = asyncio.ensure_future(handle.revoked.wait())
+    try:
+        await asyncio.wait({task, waiter}, return_when=asyncio.FIRST_COMPLETED)
+    finally:
+        waiter.cancel()
+        if not task.done():
+            task.cancel()
+        await asyncio.gather(task, waiter, return_exceptions=True)
+    if task.cancelled() and handle.revoked.is_set():
+        raise _StreamRevokedError(handle.reason or StreamEndReason.UNAUTHORIZED)
+    return task.result()
+
+
+async def _close_revoked(ws: WebSocket, reason: str) -> None:
+    code = (
+        CLOSE_AUTH_UNAVAILABLE
+        if reason == StreamEndReason.AUTH_UNAVAILABLE
+        else CLOSE_UNAUTHORIZED
+    )
+    with contextlib.suppress(Exception):
+        await asyncio.wait_for(ws.close(code=code, reason=reason), _CLOSE_WAIT_S)
 
 
 async def _close_slow(ws: WebSocket) -> None:

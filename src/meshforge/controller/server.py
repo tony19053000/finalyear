@@ -57,6 +57,7 @@ from meshforge.controller.api.auth_routes import AuthApi
 from meshforge.controller.api.fabric_routes import InviteApi
 from meshforge.controller.api.job_routes import JobApi
 from meshforge.controller.api.network_routes import NetworkApi
+from meshforge.controller.auth.live_streams import LiveStreams
 from meshforge.controller.auth.login import LoginService, login_policy
 from meshforge.controller.auth.passwords import PasswordHasher
 from meshforge.controller.auth.users import UserStore
@@ -198,6 +199,8 @@ class ControllerRuntime:
         self.users: UserStore | None = None
         self.login: LoginService | None = None
         """V0.7 G4 (D140): node certificate renewal (mtls with a CA only)."""
+        self.live_streams: LiveStreams | None = None
+        """D157 T-1: the token re-check of open log streams."""
         self._resyncs: set[asyncio.Task[None]] = set()
         self.known_bad_envs: KnownBadEnvs | None = None
         """D65: queued jobs -> attempts; the one task that writes attempts."""
@@ -501,6 +504,11 @@ class ControllerRuntime:
             hasher=PasswordHasher(max_concurrent=cfg.auth.max_concurrent_hashes),
             clock=loop.time,
         )
+        # D157 T-1: open log streams re-check their token (one query a tick).
+        self.live_streams = LiveStreams(
+            self.users, interval_s=cfg.auth.stream_recheck_interval_s
+        )
+        self._spawn(self.live_streams.run(), "stream-auth-recheck")
         if cfg.auth.legacy_fabric_token:
             log.warning(
                 "controller.auth.legacy_token_enabled",
@@ -541,6 +549,7 @@ class ControllerRuntime:
                 auth=ApiAuth(
                     users=self.users,
                     legacy_fabric_token=cfg.auth.legacy_fabric_token,
+                    live_streams=self.live_streams,
                     verifier=self.token_verifier,
                     fetch_tokens=self.fetch_tokens,
                     upload_grants=self.upload_grants,

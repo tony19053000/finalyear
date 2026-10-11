@@ -41,6 +41,10 @@ _CLOSE_REASONS: Final = {
     4400: "not a valid job id",
     1008: "the controller refused the log stream (not logged in, or the login "
     "expired or was revoked: run `compute login`)",
+    4401: "the controller closed the log stream: this login was revoked or "
+    "expired, or the user was disabled (run `compute login`)",
+    4503: "the controller closed the log stream: it could not check the login "
+    "(user database unavailable); try again",
 }
 
 
@@ -99,6 +103,8 @@ def follow_logs(
             _CLOSE_REASONS.get(code or 0, "the log stream closed before the job ended"),
             failure_type=FailureType.NOT_FOUND
             if code == 4404
+            else FailureType.UNAUTHORIZED
+            if code == 4401
             else FailureType.NETWORK_ERROR,
         ) from None
     except (OSError, TimeoutError, WebSocketException) as exc:
