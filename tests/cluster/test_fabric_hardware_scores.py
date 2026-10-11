@@ -52,6 +52,7 @@ def _compute(fabric: Fabric, *args: str) -> subprocess.CompletedProcess[str]:
     env = {k: v for k, v in os.environ.items() if not k.startswith("MESHFORGE_")}
     env["MESHFORGE_CLI__CONTROLLER_URL"] = fabric.http_base
     env["MESHFORGE_CLI__CA_FILE"] = str(fabric.ca_dir / "ca.crt")
+    env["MESHFORGE_CLI__TOKEN"] = fabric.api_token()  # V0.7 G4 (D148)
     env["PYTHONUTF8"] = "1"
     env["COLUMNS"] = "240"  # a pipe is 80 wide: folded cells would split words
     return subprocess.run(
