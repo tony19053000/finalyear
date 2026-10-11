@@ -119,7 +119,16 @@ def create_http_app(
 
     @app.get("/healthz", tags=["health"])
     async def healthz() -> dict[str, Any]:
-        """Liveness probe: the process is up; ``sessions`` = live agent streams."""
+        """Liveness probe: the process is up; ``sessions`` = live agent streams.
+        ``"degraded"`` (still 200) names a supervised background loop that keeps
+        failing (V0.7 G5, D159 N4: the stream auth re-check)."""
+        live_streams = getattr(app.state, AUTH_STATE_KEY).live_streams
+        if live_streams is not None and live_streams.degraded:
+            return {
+                "status": "degraded",
+                "sessions": len(manager),
+                "degraded": ["stream-auth-recheck"],
+            }
         return {"status": "ok", "sessions": len(manager)}
 
     app.include_router(router)

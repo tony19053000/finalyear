@@ -27,9 +27,22 @@ most :data:`MAX_UNVERIFIED_CHECKS` failed re-checks in a row (a few seconds of
 a PostgreSQL restart), then every registered stream is closed
 (``auth_unavailable``) - an outage never turns into "authenticated forever".
 
+**Legacy fabric-token streams are never re-checked** (G4 reviewer N3, D159).
 The legacy fabric token (``[controller.auth] legacy_fabric_token``) has no
-token row: its streams are not re-checked (the switch is static configuration;
-turning it off needs a controller restart, which closes every stream).
+token row, so :meth:`LiveStreams.open` registers its streams with
+``token_id=None`` and :meth:`LiveStreams.check_once` skips them: neither a
+revoke, a user disable nor an outage closes them. The switch is static
+configuration; turning it off needs a controller restart, which closes every
+stream. Rotating the fabric token file alone does **not** close open streams.
+
+**Supervised loop** (G4 reviewer N4, D159). :meth:`LiveStreams.run` never dies
+of a bug in one pass: an exception escaping :meth:`check_once` is logged
+(``controller.auth.stream_recheck_crashed``) and the loop goes on after a
+backoff (``interval_s`` doubling, capped at :data:`MAX_CRASH_BACKOFF_S`). After
+:data:`MAX_UNVERIFIED_CHECKS` crashes in a row the registered streams are
+closed ``auth_unavailable`` (fail closed, like an outage) and
+:attr:`LiveStreams.degraded` is true until a pass succeeds - ``/healthz``
+reports ``"status": "degraded"`` meanwhile.
 """
 
 from __future__ import annotations
@@ -56,6 +69,8 @@ log = get_logger(__name__)
 
 MAX_UNVERIFIED_CHECKS: Final = 5
 """Consecutive re-checks the database may fail before every stream is closed."""
+MAX_CRASH_BACKOFF_S: Final = 30.0
+"""Longest pause after a crashed re-check pass (N4)."""
 
 
 class StreamEndReason:
@@ -93,6 +108,7 @@ class LiveStreamStats:
     checks: int = 0
     check_failures: int = 0
     streams_cut: int = 0
+    loop_crashes: int = 0
 
 
 class LiveStreams:
@@ -106,6 +122,7 @@ class LiveStreams:
         self._streams: set[StreamAuth] = set()
         self._wake = asyncio.Event()
         self._failures = 0
+        self._crashes = 0
         self.stats = LiveStreamStats()
 
     def __len__(self) -> int:
@@ -170,10 +187,42 @@ class LiveStreams:
         self.stats.streams_cut += ended
         return ended
 
+    @property
+    def degraded(self) -> bool:
+        """The re-check loop crashed :data:`MAX_UNVERIFIED_CHECKS` times in a row
+        (streams are then closed, fail closed) and no pass has succeeded since."""
+        return self._crashes >= MAX_UNVERIFIED_CHECKS
+
     async def run(self) -> None:
-        """Re-check every ``interval_s`` (or at once after :meth:`recheck_now`)."""
+        """Re-check every ``interval_s`` (or at once after :meth:`recheck_now`);
+        supervised - see "Supervised loop" in the module docstring."""
         while True:
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(self._wake.wait(), self.interval_s)
             self._wake.clear()
-            await self.check_once()
+            try:
+                await self.check_once()
+            except Exception as exc:  # noqa: BLE001 - supervised: log, back off, go on
+                await self._crashed(exc)
+            else:
+                if self._crashes:
+                    log.info("controller.auth.stream_recheck_recovered")
+                self._crashes = 0
+
+    async def _crashed(self, exc: Exception) -> None:
+        self._crashes += 1
+        self.stats.loop_crashes += 1
+        log.error(
+            "controller.auth.stream_recheck_crashed",
+            cause=type(exc).__name__,
+            consecutive_crashes=self._crashes,
+            streams=len(self._streams),
+        )
+        if self._crashes >= MAX_UNVERIFIED_CHECKS:
+            checked = [h for h in self._streams if h.token_id is not None]
+            with contextlib.suppress(Exception):
+                self._end(checked, StreamEndReason.AUTH_UNAVAILABLE)
+        backoff = min(
+            MAX_CRASH_BACKOFF_S, self.interval_s * 2 ** min(self._crashes, 16)
+        )
+        await asyncio.sleep(backoff)

@@ -19,9 +19,13 @@ this order, each refusal a typed :class:`RenewRefused` with a stable reason:
    client+server) and recorded as **pending** (``pending_cert_*``,
    ``cert_renewed_at``); an older, never-used pending certificate is listed
    ``superseded`` (it is CA-valid until it expires); a ``cert_renewed`` audit
-   row. A CSR with another public key than the presented certificate's is a
-   key rotation (``meshforge-agent rotate-key``): allowed - the caller proved
-   the old key in the TLS handshake and the new one by signing the CSR.
+   row. If the caller presents the **pending** certificate itself (it already
+   connected with it, its Hello has not activated it yet), that one is
+   activated first in the same transaction (G4 reviewer N2, D159): the live
+   certificate is never superseded behind a newer pending one. A CSR with
+   another public key than the presented certificate's is a key rotation
+   (``meshforge-agent rotate-key``): allowed - the caller proved the old key
+   in the TLS handshake and the new one by signing the CSR.
 
 **Activate** (:meth:`CertRenewals.activate`, called by session admission). The
 node's first Hello on the pending certificate makes it current: the four
@@ -296,6 +300,17 @@ class CertRenewals:
             ) from None
         serial = format(cert.serial_number, "x")
         replaced = node.pending_cert_serial
+        activated_first = False
+        if replaced is not None and presented.serial == replaced:
+            # G4 reviewer N2 (D159): the caller already runs on its pending
+            # certificate (its Hello has not activated it yet). That pending
+            # one is the live identity: activate it first (the old current one
+            # is superseded, as a Hello would do), never supersede it behind
+            # the new pending one.
+            await self._activate_locked(db, node, replaced)
+            self.activated += 1
+            activated_first = True
+            replaced = None
         if replaced is not None and node.pending_cert_not_after is not None:
             # Issued earlier, never used: it would stay CA-valid until it expires.
             await supersede(
@@ -327,6 +342,7 @@ class CertRenewals:
                 "serial": serial,
                 "presented_serial": presented.serial,
                 "replaced_pending": replaced,
+                "activated_presented": activated_first,
                 "key_rotated": key_rotated,
                 "not_after": cert.not_valid_after_utc.isoformat(),
             },
@@ -340,6 +356,47 @@ class CertRenewals:
             key_rotated=key_rotated,
             replaced_pending=replaced,
         )
+
+    async def _activate_locked(
+        self, db: AsyncSession, node: Node, serial: str
+    ) -> tuple[str | None, bool]:
+        """Pending ``serial`` -> current on the locked ``node`` row, previous
+        serial superseded, ``cert_activated`` audit row (same transaction).
+        Returns ``(previous serial, key rotated)``."""
+        node_id = node.node_id
+        previous = node.cert_serial
+        if previous is not None and node.cert_not_after is not None:
+            await supersede(
+                db, node_id=node_id, serial=previous, not_after=node.cert_not_after
+            )
+        key_rotated = node.pending_public_key_fingerprint != node.public_key_fingerprint
+        await db.execute(
+            update(Node)
+            .where(Node.node_id == node_id)
+            .values(
+                cert_serial=node.pending_cert_serial,
+                cert_fingerprint=node.pending_cert_fingerprint,
+                cert_not_after=node.pending_cert_not_after,
+                public_key_fingerprint=node.pending_public_key_fingerprint,
+                pending_cert_serial=None,
+                pending_cert_fingerprint=None,
+                pending_cert_not_after=None,
+                pending_public_key_fingerprint=None,
+            )
+            .execution_options(synchronize_session=False)
+        )
+        await audit(
+            db,
+            AuditAction.CERT_ACTIVATED,
+            actor=ACTOR,
+            node_id=node_id,
+            details={
+                "serial": serial,
+                "superseded_serial": previous,
+                "key_rotated": key_rotated,
+            },
+        )
+        return previous, key_rotated
 
     async def _audit_refusal(
         self, presented: PresentedCert, refused: RenewRefused, source: str | None
@@ -385,40 +442,7 @@ class CertRenewals:
                 or node.state == NodeState.REVOKED.value
             ):
                 return None
-            previous = node.cert_serial
-            if previous is not None and node.cert_not_after is not None:
-                await supersede(
-                    db, node_id=node_id, serial=previous, not_after=node.cert_not_after
-                )
-            key_rotated = (
-                node.pending_public_key_fingerprint != node.public_key_fingerprint
-            )
-            await db.execute(
-                update(Node)
-                .where(Node.node_id == node_id)
-                .values(
-                    cert_serial=node.pending_cert_serial,
-                    cert_fingerprint=node.pending_cert_fingerprint,
-                    cert_not_after=node.pending_cert_not_after,
-                    public_key_fingerprint=node.pending_public_key_fingerprint,
-                    pending_cert_serial=None,
-                    pending_cert_fingerprint=None,
-                    pending_cert_not_after=None,
-                    pending_public_key_fingerprint=None,
-                )
-                .execution_options(synchronize_session=False)
-            )
-            await audit(
-                db,
-                AuditAction.CERT_ACTIVATED,
-                actor=ACTOR,
-                node_id=node_id,
-                details={
-                    "serial": serial,
-                    "superseded_serial": previous,
-                    "key_rotated": key_rotated,
-                },
-            )
+            previous, key_rotated = await self._activate_locked(db, node, serial)
         self.activated += 1
         log.info(
             "controller.cert.activated",
