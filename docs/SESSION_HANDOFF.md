@@ -265,6 +265,8 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
+**2026-10-12 (later) — G5 brief written (§5e of the V0.7 brief); G5 implementer RUNNING. If this session died: check git log for `V0.7-G5` commits and docs/briefs/progress/V0.7-G5.md, relaunch with the same brief.**
+
 **2026-10-12 — V0.7 G4 CLOSED.** Tester r2 PASS (`e5cc50e` partial + `1d45758`; strict xfails T-4/T-5 stay) → ruling D158 → reviewer APPROVE → D159. 0.7.6 `[x]`, 0.7.7 `[x]`. Nothing running, tree clean. **Next: Lead writes the next V0.7 group brief (see brief §3), item 0 = D158 + D159**, then implementer.
 
 **2026-10-11 (resume) — G4 exit-list implementer DONE (`0b4966c`..`e61e23c`, hand-off in progress/V0.7-G4.md; all gates exit 0 except whole component 1 env-only GPU probe failure, pre-G4). G4 tester r1 FAIL (`6c25ba3`; T-1..T-3 minor + 2 flakes) → ruling D157 → fix round 1 DONE (`9cbc258`..`8ecea92`; unit/cluster exit 0, component 3 fails: GPU env + 2 load flakes passing 3/3 on rerun) → tester r2 was about to start but the USER STOPPED it before it ran (2026-10-12). Nothing running. **Next: G4 tester r2** (scope D157; prompt pattern = break T-1 live-stream re-auth, T-2 per-uploader staging incl. shared 64-upload cap, T-3 names; replay file x5, digest-lock x10; mutation 1 guard each T-1/T-2; full exit list + chaos 11/22/33 x5) → reviewer → close 0.7.6 `[x]`, 0.7.7 `[x]`.** If this session died: check git log for `V0.7-G4` commits after `b1e66c8` and docs/briefs/progress/V0.7-G4.md; relaunch with the same scope.
