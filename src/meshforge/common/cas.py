@@ -6,6 +6,8 @@
     <root>/tmp/<random>.part             a write in progress (one-shot)
     <root>/tmp/resume-<hex>.part         a resumable transfer of <hex> ...
     <root>/tmp/resume-<hex>.part.chunks  ... and its chunk bitmap (D80)
+    <root>/tmp/resume-<hex>-<tag>.part   ... one uploader's own transfer of <hex>
+                                         (``owner``; V0.7 G4 fix round 1, D157)
 
 Two hex levels keep any one folder small at millions of blobs. The V0.4 layout
 ``sha256/<aa>/<hex>`` is moved into this one by :meth:`CasStore.prepare` (a file
@@ -41,6 +43,14 @@ This module is synchronous and blocking (callers on an event loop use
 ``asyncio.to_thread``). Counters are thread-safe; two *resumable* writers for one
 digest at once are the caller's to prevent (the controller and the agent each
 serialise per digest).
+
+**Staging per uploader (D157).** :meth:`CasStore.resumable` takes an optional
+``owner`` (the controller passes ``user:<id>`` / ``node:<id>``): each owner
+assembles ``<hex>`` in its own part file (``<tag>`` = 16 hex of the owner's
+SHA-256), so one uploader can neither plant a part in another's transfer nor
+see or discard it. ``owner=None`` (the agent's own fetches) is the single
+shared transfer it always was. Every owner's finished part installs the same
+blob (same name, same bytes); the per-digest lock still serialises them.
 """
 
 from __future__ import annotations
@@ -85,6 +95,7 @@ __all__ = [
     "chunk_digests",
     "chunk_span",
     "iter_file",
+    "resume_key",
 ]
 
 log = get_logger(__name__)
@@ -105,6 +116,8 @@ _SIDECAR_SUFFIX: Final = ".chunks"
 _DISK_CHECK_EVERY: Final = 64 * 1024 * 1024
 _READ: Final = 1024 * 1024
 _HEX_RE: Final = re.compile(r"[0-9a-f]{64}")
+_RESUME_KEY_RE: Final = re.compile(r"[0-9a-f]{64}(?:-[0-9a-f]{16})?")
+_OWNER_TAG_CHARS: Final = 16
 _HEX2_RE: Final = re.compile(r"[0-9a-f]{2}")
 _READ_ONLY: Final = stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH
 _RESUME_TTL_S: Final = 24 * 3600.0
@@ -276,7 +289,7 @@ class CasStore:
         transfer is (re)created; the entry is dropped when it is completed,
         discarded or swept. Guarded by ``resume_lock``. A ResumablePart whose
         generation is not the current one may neither write nor install."""
-        """Digests (hex) with a resumable transfer on disk: counted in memory
+        """Resume keys (:func:`resume_key`) with a resumable transfer on disk: counted in memory
         (V0.5 G4) - listed once at :meth:`prepare`, then kept by open / complete
         / discard / sweep, so the cap check never lists ``tmp/``."""
         self._lock = threading.Lock()
@@ -371,9 +384,9 @@ class CasStore:
         for entry in entries:
             name = entry.name
             if name.startswith(_RESUME_PREFIX) and name.endswith(_SIDECAR_SUFFIX):
-                hex_ = _resume_hex(name)
-                if _HEX_RE.fullmatch(hex_):
-                    yield hex_
+                key = _resume_hex(name)
+                if _RESUME_KEY_RE.fullmatch(key):
+                    yield key
 
     def resumes_in_progress(self) -> int:
         """Resumable transfers on disk (an in-memory count, see ``_resumes``)."""
@@ -616,12 +629,17 @@ class CasStore:
 
     # ------------------------------------------------------------- resumable
 
-    def resumable(self, digest: Digest, size: int, chunk_size: int) -> ResumablePart:
-        """Open (or continue) the resumable transfer of ``digest``; see the class."""
-        return ResumablePart.open(self, digest, size, chunk_size)
+    def resumable(
+        self, digest: Digest, size: int, chunk_size: int, *, owner: str | None = None
+    ) -> ResumablePart:
+        """Open (or continue) ``owner``'s resumable transfer of ``digest``; see
+        the class and "Staging per uploader" in the module docstring."""
+        return ResumablePart.open(self, digest, size, chunk_size, owner=owner)
 
-    def resume_paths(self, digest: Digest) -> tuple[Path, Path]:
-        part = self.tmp / f"{_RESUME_PREFIX}{digest.hex}.part"
+    def resume_paths(
+        self, digest: Digest, owner: str | None = None
+    ) -> tuple[Path, Path]:
+        part = self.tmp / f"{_RESUME_PREFIX}{resume_key(digest, owner)}.part"
         return part, part.with_name(part.name + _SIDECAR_SUFFIX)
 
 
@@ -767,16 +785,21 @@ class ResumablePart:
         done: bytearray,
         *,
         generation: int = 0,
+        owner: str | None = None,
     ) -> None:
         self.store = store
         self.generation = generation
+        self.owner = owner
+        self.key = resume_key(digest, owner)
+        """This transfer's name in the store's books (the digest hex, plus the
+        owner's tag for a per-uploader transfer)."""
         """The transfer generation this object owns (see CasStore._generation)."""
         self.digest = digest
         self.size = size
         self.chunk_size = chunk_size
         self.count = chunk_count(size, chunk_size)
         self._done = done
-        self.part, self.sidecar = store.resume_paths(digest)
+        self.part, self.sidecar = store.resume_paths(digest, owner)
         self.resumed_chunks = sum(1 for i in range(self.count) if self.is_done(i))
         self._since_check = 0
         try:
@@ -789,7 +812,13 @@ class ResumablePart:
 
     @classmethod
     def open(
-        cls, store: CasStore, digest: Digest, size: int, chunk_size: int
+        cls,
+        store: CasStore,
+        digest: Digest,
+        size: int,
+        chunk_size: int,
+        *,
+        owner: str | None = None,
     ) -> ResumablePart:
         count = chunk_count(size, chunk_size)
         if count > MAX_CHUNKS:
@@ -798,13 +827,20 @@ class ResumablePart:
         # then count + create under resume_lock: concurrent new transfers
         # cannot all see "below the cap" and all start (exact cap).
         with store.digest_lock(digest.hex), store.resume_lock:
-            return cls._open_locked(store, digest, size, chunk_size, count)
+            return cls._open_locked(store, digest, size, chunk_size, count, owner)
 
     @classmethod
     def _open_locked(
-        cls, store: CasStore, digest: Digest, size: int, chunk_size: int, count: int
+        cls,
+        store: CasStore,
+        digest: Digest,
+        size: int,
+        chunk_size: int,
+        count: int,
+        owner: str | None,
     ) -> ResumablePart:
-        part, sidecar = store.resume_paths(digest)
+        key = resume_key(digest, owner)
+        part, sidecar = store.resume_paths(digest, owner)
         done = cls._load(sidecar, size, chunk_size, count)
         try:
             # One stat, not is_file() + stat(): a part removed in between (a
@@ -842,11 +878,13 @@ class ResumablePart:
                 raise _os_error(exc, digest) from None
         if done is None:  # pragma: no cover - set by the restart branch above
             raise CasError("resumable transfer state missing")
-        store.resume_started(digest.hex)
-        generation = store._generation.get(digest.hex)
+        store.resume_started(key)
+        generation = store._generation.get(key)
         if restarted or generation is None:
-            generation = store._new_generation(digest.hex)
-        return cls(store, digest, size, chunk_size, done, generation=generation)
+            generation = store._new_generation(key)
+        return cls(
+            store, digest, size, chunk_size, done, generation=generation, owner=owner
+        )
 
     @staticmethod
     def _load(
@@ -948,7 +986,7 @@ class ResumablePart:
                 os.close(fd)
             self._done[index // 8] |= 1 << (index % 8)
             with self.store.resume_lock:
-                if not self.store.is_current(self.digest.hex, self.generation):
+                if not self.store.is_current(self.key, self.generation):
                     # Completed / discarded / swept meanwhile: never re-create
                     # a sidecar the counter does not count.
                     raise self._gone()
@@ -960,7 +998,7 @@ class ResumablePart:
 
     def _check_current(self) -> None:
         with self.store.resume_lock:
-            if not self.store.is_current(self.digest.hex, self.generation):
+            if not self.store.is_current(self.key, self.generation):
                 raise self._gone()
 
     def _gone(self) -> CasError:
@@ -1017,7 +1055,7 @@ class ResumablePart:
                 # (2) at the rename, in the same lock hold: the generation is
                 # the primary guard (inode numbers are reused after an unlink);
                 # the inode comparison is only extra defence.
-                if not self.store.is_current(self.digest.hex, self.generation):
+                if not self.store.is_current(self.key, self.generation):
                     raise self._gone()
                 try:
                     now = self.part.stat()
@@ -1031,7 +1069,7 @@ class ResumablePart:
                     raise _os_error(exc, self.digest) from None
                 with contextlib.suppress(OSError):
                     self.sidecar.unlink()
-                self.store.resume_forgotten(self.digest.hex)
+                self.store.resume_forgotten(self.key)
         return PutResult(digest=self.digest, size=self.size, created=created)
 
     def discard(self) -> None:
@@ -1044,16 +1082,25 @@ class ResumablePart:
         # Unlink and forget under one lock (see sweep_resumes): a concurrent
         # open of the same digest cannot slip in between and be forgotten.
         with self.store.resume_lock:
-            if not self.store.is_current(self.digest.hex, self.generation):
+            if not self.store.is_current(self.key, self.generation):
                 return  # restarted / completed / swept by someone else: not ours
             for path in (self.sidecar, self.part):
                 with contextlib.suppress(OSError):
                     path.unlink()
-            self.store.resume_forgotten(self.digest.hex)
+            self.store.resume_forgotten(self.key)
+
+
+def resume_key(digest: Digest, owner: str | None = None) -> str:
+    """The name of ``owner``'s transfer of ``digest``: the hex alone (shared
+    transfer) or ``<hex>-<16 hex of SHA-256(owner)>`` (D157)."""
+    if owner is None:
+        return digest.hex
+    tag = hashlib.sha256(owner.encode("utf-8")).hexdigest()[:_OWNER_TAG_CHARS]
+    return f"{digest.hex}-{tag}"
 
 
 def _resume_hex(name: str) -> str:
-    """``resume-<hex>.part.chunks`` -> ``<hex>``."""
+    """``resume-<key>.part.chunks`` -> ``<key>`` (see :func:`resume_key`)."""
     return name.removeprefix(_RESUME_PREFIX).split(".", 1)[0]
 
 

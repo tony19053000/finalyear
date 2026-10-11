@@ -738,15 +738,6 @@ async def _alice_uploads(alice: httpx.AsyncClient) -> httpx.Response:
     return await alice.post(f"/v1/blobs/{digest}/complete")
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "DEFECT T-2 (minor): any user may PUT a part for any digest; a part "
-        "planted before the owner's upload is kept, so the owner's complete "
-        "fails integrity (CB-E3 lists only existence as accepted). Needs the "
-        "digest of the victim's blob (public data) and a race."
-    ),
-)
 async def test_bob_cannot_poison_alices_resumable_upload(
     runtime: ControllerRuntime, anon: httpx.AsyncClient, users: dict[str, str]
 ) -> None:

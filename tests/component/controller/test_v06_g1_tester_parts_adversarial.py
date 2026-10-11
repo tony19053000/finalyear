@@ -60,7 +60,11 @@ async def test_two_attempts_racing_to_complete_one_blob_credit_exactly_one(
     runtime: ControllerRuntime,
 ) -> None:
     """Same digest, two attempts: only the call that assembled the blob is
-    credited; the other must prove itself with a PUT (credited false)."""
+    credited; the other must prove itself with a PUT (credited false).
+
+    V0.7 G4 fix round 1 (D157, legit edit): each uploader has its own staging,
+    so both attempts send their parts (before, b completed a's parts); the
+    loser's own staging is dropped once the blob is stored."""
     data = os.urandom(2 * CS + 3)
     digest = sha256_bytes(data)
     first = _grant(runtime, "att_r1")
@@ -70,6 +74,7 @@ async def test_two_attempts_racing_to_complete_one_blob_credit_exactly_one(
         api_client(runtime, token=second) as b,
     ):
         await _parts(a, data, range(chunk_count(len(data), CS)))
+        await _parts(b, data, range(chunk_count(len(data), CS)))
         got = await asyncio.gather(_complete(a, data), _complete(b, data))
         credited = [r.json()["credited"] for r in got]
         assert sorted(credited) == [False, True], [r.text for r in got]
@@ -79,6 +84,8 @@ async def test_two_attempts_racing_to_complete_one_blob_credit_exactly_one(
     grants = runtime.upload_grants
     assert grants is not None
     assert grants.uploaded("att_r1", digest) and grants.uploaded("att_r2", digest)
+    assert runtime.blobs is not None
+    assert runtime.blobs.cas.resumes_in_progress() == 0  # no staging left behind
 
 
 async def test_credit_requires_the_bytes_not_just_the_name(
@@ -173,6 +180,11 @@ async def test_fabric_token_complete_does_not_touch_grant_accounting(
     async with api_client(runtime, token=token) as agent:
         await _parts(agent, data, range(2))
     async with api_client(runtime, token=token_of(runtime)) as admin:
+        # V0.7 G4 fix round 1 (D157, legit edit): the agent's parts are its own
+        # staging - the admin's complete does not see them (404) ...
+        assert (await _complete(admin, data)).status_code == 404
+        # ... the admin uploads and completes its own.
+        await _parts(admin, data, range(2))
         assert (await _complete(admin, data)).status_code == 201
     grants = runtime.upload_grants
     assert grants is not None

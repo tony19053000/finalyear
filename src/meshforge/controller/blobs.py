@@ -22,7 +22,9 @@ remembers what arrived, so an interrupted upload resumes with the missing parts
 only (:meth:`BlobStore.part_status`). :meth:`BlobStore.complete_parts` hashes the
 whole file and installs it only if it matches its name. Parts of one digest are
 serialised by a per-digest lock; resumable transfers older than a day are swept
-at start.
+at start. Every uploader (``owner``: a user or a node) has its **own staging**
+of a digest (V0.7 G4 fix round 1, D157): a part another user sent is never in
+your upload, and another user's ``complete`` or part status never sees yours.
 
 **Trees (D81).** :meth:`BlobStore.tree` loads and validates a stored tree manifest
 (cached, bounded); :meth:`BlobStore.tree_members` is what a tree-scoped fetch
@@ -382,25 +384,28 @@ class BlobStore:
         except ValueError as exc:
             raise BlobError(str(exc), failure_type=FailureType.INVALID_INPUT) from None
 
-    async def part_status(self, digest: Digest) -> PartStatus | None:
-        """What a resumable upload of ``digest`` already holds (None = nothing)."""
+    async def part_status(
+        self, digest: Digest, *, owner: str | None = None
+    ) -> PartStatus | None:
+        """What ``owner``'s resumable upload of ``digest`` already holds (None =
+        nothing; a stored blob is ``complete`` for everyone)."""
         size = self.size(digest)
         if size is not None:
             return PartStatus(size=size, chunk_size=0, received=(), complete=True)
-        _part, sidecar = self.cas.resume_paths(digest)
+        _part, sidecar = self.cas.resume_paths(digest, owner)
         if not sidecar.is_file():
             return None
         async with self._holding(digest):
             if (size := self.size(digest)) is not None:
                 return PartStatus(size=size, chunk_size=0, received=(), complete=True)
-            return await asyncio.to_thread(self._read_status, digest)
+            return await asyncio.to_thread(self._read_status, digest, owner)
 
-    def _read_status(self, digest: Digest) -> PartStatus | None:
-        _part, sidecar = self.cas.resume_paths(digest)
+    def _read_status(self, digest: Digest, owner: str | None) -> PartStatus | None:
+        _part, sidecar = self.cas.resume_paths(digest, owner)
         try:
             data = json.loads(sidecar.read_bytes()[: 1 << 20])
             size, chunk_size = int(data["size"]), int(data["chunk_size"])
-            part = self.cas.resumable(digest, size, chunk_size)
+            part = self.cas.resumable(digest, size, chunk_size, owner=owner)
         except (OSError, ValueError, KeyError, TypeError, CasError):
             return None
         done = tuple(i for i in range(part.count) if part.is_done(i))
@@ -417,8 +422,10 @@ class BlobStore:
         chunk_size: int,
         chunk_hex: str,
         body: AsyncIterator[bytes],
+        owner: str | None = None,
     ) -> bool:
-        """Store part ``index`` of ``digest`` (verified against ``chunk_hex``).
+        """Store part ``index`` of ``owner``'s upload of ``digest`` (verified
+        against ``chunk_hex``; each uploader has its own staging, D157).
 
         Returns False when the part (or the whole blob) was already here. Raises
         :class:`BlobError` subclasses like :meth:`put`.
@@ -441,7 +448,9 @@ class BlobStore:
                 if self.size(digest) is not None:
                     return False
                 part = await asyncio.to_thread(
-                    self.cas.resumable, digest, size, chunk_size
+                    functools.partial(
+                        self.cas.resumable, digest, size, chunk_size, owner=owner
+                    )
                 )
                 # One request = one part, so the floor is checked on every part
                 # (a statvfs) against the bytes still to come (review E1).
@@ -473,24 +482,44 @@ class BlobStore:
             self.resumes_swept += swept
             log.info("controller.blobs.resumes_swept", count=swept)
 
-    async def complete_parts(self, digest: Digest) -> PutResult:
-        """Hash the assembled parts and install the blob (see module docstring)."""
-        if (existing := self.size(digest)) is not None:
-            return PutResult(digest=digest, size=existing, created=False)
+    def _drop_staging(self, digest: Digest, owner: str | None) -> None:
+        """Discard ``owner``'s staging of a stored ``digest`` (if any)."""
+        status = self._read_status(digest, owner)
+        if status is None:
+            return
+        with contextlib.suppress(CasError, ValueError):
+            self.cas.resumable(
+                digest, status.size, status.chunk_size, owner=owner
+            ).discard()
+
+    async def complete_parts(
+        self, digest: Digest, *, owner: str | None = None
+    ) -> PutResult:
+        """Hash ``owner``'s assembled parts and install the blob (see module
+        docstring); another uploader's staging is never touched (D157). When
+        the blob is already stored (another uploader finished first), the
+        caller's own staging of it is dropped - it can never be needed again."""
         try:
             async with self._holding(digest):
-                # Re-checked under the lock: a concurrent complete may have
-                # stored it meanwhile - then this one succeeds too (idempotent).
+                # Under the lock: a concurrent complete may have stored it
+                # meanwhile - then this one succeeds too (idempotent).
                 if (existing := self.size(digest)) is not None:
+                    await asyncio.to_thread(self._drop_staging, digest, owner)
                     return PutResult(digest=digest, size=existing, created=False)
-                status = await asyncio.to_thread(self._read_status, digest)
+                status = await asyncio.to_thread(self._read_status, digest, owner)
                 if status is None:
                     raise BlobNotFoundError(
                         "no part upload of this blob is in progress",
                         details={"digest": str(digest)},
                     )
                 part = await asyncio.to_thread(
-                    self.cas.resumable, digest, status.size, status.chunk_size
+                    functools.partial(
+                        self.cas.resumable,
+                        digest,
+                        status.size,
+                        status.chunk_size,
+                        owner=owner,
+                    )
                 )
                 missing = part.missing()
                 if missing:

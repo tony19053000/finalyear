@@ -38,6 +38,10 @@ which also take an attempt's upload grant since V0.6 G1 (D114, see
   kept).
 * ``GET /v1/blobs/{sha256}/parts`` -> ``{size, chunk_size, received, complete}``
   (``404`` when no part upload is in progress): what a resumed upload can skip.
+  **Per uploader (D157):** parts, their status and ``complete`` are the
+  caller's own staging of the digest (a user's, or a node's under its upload
+  grant): another user's planted part is not in your upload, and another
+  user's ``complete`` / status of your staging is ``404``.
 * ``POST /v1/blobs/{sha256}/complete`` hashes the assembled parts and stores the
   blob (``201``/``200``; ``409`` parts missing; ``400 integrity_error`` - the
   upload starts over).
@@ -71,6 +75,7 @@ from meshforge.controller.api.auth import (
     unauthorized,
 )
 from meshforge.controller.api.errors import ApiError
+from meshforge.controller.auth.principal import Principal
 from meshforge.controller.blobs import (
     MAX_HAVE_DIGESTS,
     BlobError,
@@ -208,26 +213,38 @@ def _refused(refusal: GrantRefusal, digest: Digest) -> ApiError:
     )
 
 
+def _user_owner(user: Principal) -> str:
+    """The staging owner of a user's part upload (D157)."""
+    return "legacy" if user.user_id is None else f"user:{user.user_id}"
+
+
 async def _authorize_parts(
     request: Request, auth: ApiAuth, digest: Digest, size: int | None
-) -> UploadTicket | None:
-    """Part routes (V0.6 G1, D114): ``None`` for a user; else an attempt's
-    upload grant - ``size`` given: the whole blob is reserved once per digest
-    (:meth:`~meshforge.controller.upload_grants.UploadGrants.begin_parts`);
-    ``size`` None (reading the part status): the grant must only be usable."""
-    if await authenticate(request) is not None:
-        return None
+) -> tuple[UploadTicket | None, str]:
+    """Part routes (V0.6 G1, D114): ``(None, owner)`` for a user; else an
+    attempt's upload grant - ``size`` given: the whole blob is reserved once per
+    digest (:meth:`~meshforge.controller.upload_grants.UploadGrants.begin_parts`);
+    ``size`` None (reading the part status): the grant must only be usable.
+
+    ``owner`` names the uploader's own staging of the digest (D157): ``user:<id>``
+    or ``node:<id>`` (an attempt's grant without a node: ``attempt:<id>``) - so
+    one uploader's parts never mix with another's."""
+    user = await authenticate(request)
+    if user is not None:
+        return None, _user_owner(user)
     token = bearer_token(request)
     grants = auth.upload_grants
     if token is None or grants is None:
         raise unauthorized()
-    if not agent_credential_ok(request, auth, grants.node_of(token)):
+    node_id = grants.node_of(token)
+    if not agent_credential_ok(request, auth, node_id):
         raise unauthorized()
     try:
+        attempt_id = grants.check(token)
+        owner = f"node:{node_id}" if node_id else f"attempt:{attempt_id}"
         if size is None:
-            grants.check(token)
-            return None
-        return grants.begin_parts(token, digest, size)
+            return None, owner
+        return grants.begin_parts(token, digest, size), owner
     except GrantRefusal as refusal:
         raise _refused(refusal, digest) from None
 
@@ -465,7 +482,8 @@ async def put_part(
         )
     if declared != length:
         raise ApiError.invalid(f"part {index} must be exactly {length} bytes")
-    await _authorize_parts(request, auth, digest, size)  # D114: or the upload grant
+    # D114: a user or the upload grant; D157: into that uploader's own staging.
+    _ticket, owner = await _authorize_parts(request, auth, digest, size)
 
     async def body() -> AsyncIterator[bytes]:
         async for chunk in request.stream():
@@ -479,6 +497,7 @@ async def put_part(
             chunk_size=chunk_size,
             chunk_hex=chunk_hex,
             body=body(),
+            owner=owner,
         )
     except BlobIntegrityError:
         log.warning(
@@ -505,9 +524,9 @@ async def part_status(
     request: Request, sha256: Sha256, auth: Auth, store: Store
 ) -> dict[str, object]:
     digest = Digest(sha256)
-    await _authorize_parts(request, auth, digest, None)
-    found = await store.part_status(digest)
-    if found is None:
+    _ticket, owner = await _authorize_parts(request, auth, digest, None)
+    found = await store.part_status(digest, owner=owner)
+    if found is None:  # also: only another uploader has parts of it (D157)
         raise ApiError.not_found("part upload")
     return {
         "digest": str(digest),
@@ -527,19 +546,21 @@ async def complete_parts(
     request: Request, response: Response, sha256: Sha256, auth: Auth, store: Store
 ) -> dict[str, object]:
     digest = Digest(sha256)
-    fabric = await authenticate(request) is not None  # a user, not an agent
+    user = await authenticate(request)
+    fabric = user is not None  # a user, not an agent
     ticket: UploadTicket | None = None
+    # Credentials first (401 before any 404), and they name the staging (D157).
+    _none, owner = await _authorize_parts(request, auth, digest, None)
     if not fabric:
-        found = await store.part_status(digest)
+        found = await store.part_status(digest, owner=owner)
         if found is None:
-            await _authorize_parts(request, auth, digest, None)
             raise ApiError.not_found("part upload")
         # D114: under an upload grant the whole blob is reserved (once per
         # digest) before anything is assembled - also when it is already
         # stored, so the reservation of parts sent earlier is settled below.
-        ticket = await _authorize_parts(request, auth, digest, found.size)
+        ticket, _owner = await _authorize_parts(request, auth, digest, found.size)
     try:
-        result = await store.complete_parts(digest)
+        result = await store.complete_parts(digest, owner=owner)
     except BlobIntegrityError as exc:
         raise ApiError(FailureType.INTEGRITY_ERROR, exc.message) from None
     except BlobNotFoundError:
