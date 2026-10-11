@@ -175,9 +175,9 @@ async def test_the_cut_old_laptop_is_refused_again_at_every_hello(
     for _ in range(3):
         code, reason = await _hello_once(runtime, node)
         # Either plane's wording is fine (the interceptor sees the serial in the
-        # revoked set first: PERMISSION_DENIED cert_revoked); never admitted.
+        # set first - V0.7 G4 item 0, D156 b: as superseded); never admitted.
         assert (code, reason) in {
-            (grpc.StatusCode.PERMISSION_DENIED, "cert_revoked"),
+            (grpc.StatusCode.PERMISSION_DENIED, "cert_superseded"),
             (grpc.StatusCode.UNAUTHENTICATED, "cert_superseded"),
         }, (code, reason)
     assert runtime.manager is not None and not runtime.manager.has_session(node.node_id)

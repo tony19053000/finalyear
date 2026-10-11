@@ -152,7 +152,12 @@ from meshforge.controller.session.live import (
     end_event,
     update_ewma,
 )
-from meshforge.controller.session.peer_cert import PeerCert, PeerCertReason
+from meshforge.controller.session.peer_cert import (
+    PeerCert,
+    PeerCertReason,
+    refusal_for,
+    status_for,
+)
 from meshforge.controller.session.reports import ReportHandlers, declared_gpus
 from meshforge.controller.session.writer import DEFAULT_WRITE_CAPACITY, WriteChain
 
@@ -200,6 +205,12 @@ class SessionManager:
         self.revoked_serials: Callable[[], Sequence[str]] = tuple
         """V0.7 G3 (D138): the revocation set every HelloAck carries (the
         runtime points it at :meth:`~..revocation.Revocations.sent_serials`)."""
+        self.refused_serials: Callable[[], Collection[str]] = frozenset
+        """D156 (c): the full in-memory refused set (serial -> reason; the
+        runtime points it at :meth:`~..revocation.Revocations.revoked_serials`).
+        Admission re-checks the presented serial against it under the lock the
+        revocation cut scan takes, so a stream admitted while the set changed
+        is refused here or cut by that scan - never missed by both."""
         self._trust_peer_endpoints = trust_peer_endpoints
         self._registry = registry
         self._liveness = liveness
@@ -479,6 +490,24 @@ class SessionManager:
                 reason_code=NODE_REVOKED,
             )
         cert = attempt.cert
+        refused = (
+            None if cert is None else refusal_for(cert.serial, self.refused_serials())
+        )
+        if refused is not None and cert is not None:
+            # D156 (c): listed after the interceptor's check, before this lock.
+            log.warning(
+                "session.cert_refused_at_admission",
+                node_id=node_id,
+                cert_serial=cert.serial,
+                reason=refused.reason.value,
+                peer=peer_address,
+            )
+            return Rejected(
+                RejectCode.REJECT_CODE_INTERNAL,
+                refused.message,
+                status_for(refused.reason),
+                reason_code=refused.reason.value,
+            )
         if (
             cert is not None
             and record is not None
@@ -637,6 +666,10 @@ class SessionManager:
         stream ``cert_expired`` at the certificate's ``not_after`` - a session
         never outlives the certificate it was admitted with."""
         live.cert_serial = serial
+        live.cert_not_after = not_after
+        self._arm_cert_expiry(live, not_after)
+
+    def _arm_cert_expiry(self, live: LiveSession, not_after: dt.datetime) -> None:
         remaining = (not_after - self._wall_clock()).total_seconds()
         loop = asyncio.get_running_loop()
         live.cert_expiry = loop.call_later(
@@ -644,8 +677,27 @@ class SessionManager:
         )
 
     def _cert_expired(self, live: LiveSession) -> None:
+        """The expiry timer fired. It runs on the loop's monotonic clock, the
+        certificate's ``not_after`` is wall-clock time: if the wall clock was
+        set back (NTP step, suspend/resume, a hand-set clock) the timer fires
+        while the certificate is still valid - D156 (d): re-check and re-arm,
+        never cut a session whose certificate is valid at fire time. A clock
+        set *forward* makes the timer late by the jump; new calls are refused
+        at once by the TLS check and the interceptor, only this already-open
+        stream lives on until the timer fires (ARCHITECTURE §16)."""
         live.cert_expiry = None
         if live.ended:
+            return
+        not_after = live.cert_not_after
+        if not_after is not None and self._wall_clock() < not_after:
+            log.info(
+                "session.cert_expiry_rearmed",
+                node_id=live.node_id,
+                session_id=live.session_id,
+                cert_serial=live.cert_serial,
+                remaining_s=round((not_after - self._wall_clock()).total_seconds(), 3),
+            )
+            self._arm_cert_expiry(live, not_after)
             return
         log.warning(
             "session.cert_expired",

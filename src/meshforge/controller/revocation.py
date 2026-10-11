@@ -37,8 +37,9 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
-from collections.abc import Collection
-from dataclasses import dataclass
+from collections.abc import Collection, Mapping
+from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import Any, Final, Protocol
 
 from sqlalchemy import func, select
@@ -102,6 +103,13 @@ class RevokeOutcome:
     """The node was already revoked: nothing changed (no new audit row)."""
     previous_state: str
     session_killed: bool = False
+    enforced: bool = True
+    """False when the revocation is committed but enforcing it right away (the
+    in-memory set, the live cut, the broadcast) failed (D156 a): the periodic
+    sync retries within ``[controller.revocation] poll_interval_s``, and
+    admission reads the database's ``revoked`` state meanwhile."""
+    pending_serial: str | None = None
+    """A renewed certificate not yet taken into use (V0.7 G4), revoked too."""
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -111,6 +119,7 @@ class RevokeOutcome:
             "already_revoked": self.already,
             "previous_state": self.previous_state,
             "session_killed": self.session_killed,
+            "enforcement": "immediate" if self.enforced else "deferred",
         }
 
 
@@ -122,6 +131,9 @@ class RevocationSnapshot:
     """Every revoked or superseded serial whose certificate has not expired."""
     newest: tuple[str, ...]
     """The same serials, newest first, at most :data:`MAX_SENT_SERIALS`."""
+    reasons: Mapping[str, str] = field(default_factory=dict)
+    """D156 (b): serial -> ``revoked`` | ``superseded`` (a serial missing here
+    but present in :attr:`serials` reads as ``revoked``)."""
 
 
 async def supersede(
@@ -225,9 +237,9 @@ class RevocationStore:
                         )
                     )
                 ).all()
-                serials = (
-                    await db.scalars(
-                        select(RevokedCert.serial)
+                rows = (
+                    await db.execute(
+                        select(RevokedCert.serial, RevokedCert.reason)
                         .where(RevokedCert.not_after > func.now())
                         .order_by(RevokedCert.revoked_at.desc(), RevokedCert.serial)
                     )
@@ -237,10 +249,12 @@ class RevocationStore:
                 f"cannot read the revocation set{_hint(exc)}",
                 details={"cause": type(exc).__name__},
             ) from exc
+        serials = [serial for serial, _reason in rows]
         return RevocationSnapshot(
             nodes=frozenset(nodes),
             serials=frozenset(serials),
             newest=tuple(serials[:MAX_SENT_SERIALS]),
+            reasons={str(serial): str(reason) for serial, reason in rows},
         )
 
 
@@ -264,13 +278,18 @@ class Revocations:
         self._store = store
         self._sessions = sessions
         self._serials: frozenset[str] = frozenset()
+        self._reasons: Mapping[str, str] = MappingProxyType({})
         self._newest: tuple[str, ...] = ()
         self._nodes: frozenset[str] = frozenset()
         self._lock = asyncio.Lock()
+        self._scanned = False
         self.kills = 0
         self.cert_cuts = 0
+        self.cut_scans = 0
         self.broadcasts = 0
         self.sync_failures = 0
+        self.deferred_enforcements = 0
+        """Committed revocations whose immediate sync failed (D156 a)."""
 
     # ------------------------------------------------------------ read side
 
@@ -279,8 +298,11 @@ class Revocations:
         """Every refused serial (the interceptor's / HTTPS policy's callable)."""
         return self._serials
 
-    def revoked_serials(self) -> frozenset[str]:
-        return self._serials
+    def revoked_serials(self) -> Mapping[str, str]:
+        """Every refused serial with its reason (``revoked`` | ``superseded``,
+        D156 b) - a read-only mapping, so ``serial in ...`` works as on a set.
+        The interceptor, the HTTPS policy and admission call this."""
+        return self._reasons
 
     def sent_serials(self) -> tuple[str, ...]:
         """What a ``HelloAck`` / ``RevocationUpdate`` carries (newest first)."""
@@ -297,15 +319,43 @@ class Revocations:
     async def revoke(
         self, node_id: str, *, actor: str, source: str | None = None
     ) -> RevokeOutcome:
-        """Revoke ``node_id`` and enforce it now (the REST path)."""
+        """Revoke ``node_id`` and enforce it now (the REST path).
+
+        D156 (a): once the database committed the revocation this never
+        raises - a failure of the immediate sync is logged, counted and
+        reported as ``enforced=False``; the periodic :meth:`run` retries it
+        (and admission refuses the node from the database row meanwhile)."""
         outcome = await self._store.revoke_node(node_id, actor=actor, source=source)
-        killed = await self.sync()
+        try:
+            killed = await self.sync()
+        except Exception as exc:  # noqa: BLE001 - the revocation is committed
+            self.sync_failures += 1
+            self.deferred_enforcements += 1
+            log.error(  # noqa: TRY400 - typed fields, no traceback needed
+                "controller.revocation.enforcement_deferred",
+                node_id=node_id,
+                cause=type(exc).__name__,
+                failure_type=(
+                    exc.failure_type.value
+                    if isinstance(exc, MeshForgeError)
+                    else "internal_error"
+                ),
+            )
+            return RevokeOutcome(
+                outcome.node_id,
+                outcome.serial,
+                outcome.already,
+                outcome.previous_state,
+                enforced=False,
+                pending_serial=outcome.pending_serial,
+            )
         return RevokeOutcome(
             outcome.node_id,
             outcome.serial,
             outcome.already,
             outcome.previous_state,
             session_killed=node_id in killed,
+            pending_serial=outcome.pending_serial,
         )
 
     async def sync(self) -> frozenset[str]:
@@ -313,6 +363,7 @@ class Revocations:
         the serials changed. Returns the nodes whose session was cut."""
         async with self._lock:
             snap = await self._store.snapshot()
+            serials_changed = snap.serials != self._serials or not self._scanned
             changed = snap.serials != self._serials or snap.newest != self._newest
             # The serials first: a reconnect is refused at its handshake call
             # before the old stream is even cut.
@@ -320,6 +371,12 @@ class Revocations:
                 snap.serials,
                 snap.newest,
                 snap.nodes,
+            )
+            self._reasons = MappingProxyType(
+                {
+                    serial: snap.reasons.get(serial, RevocationReason.REVOKED.value)
+                    for serial in snap.serials
+                }
             )
             killed: set[str] = set()
             for node_id in sorted(snap.nodes):
@@ -331,9 +388,16 @@ class Revocations:
             # D155 T-1: a live stream still using a superseded (or otherwise
             # revoked) serial of a node that is NOT revoked - the old laptop of
             # a re-enrolled node - is cut too, the same path and bound.
-            superseded = await self._sessions.cut_revoked_certs(snap.serials)
-            self.cert_cuts += len(superseded)
-            killed |= superseded
+            # D156 (c): only when the set changed. A stream admitted after the
+            # last scan cannot hold a listed serial: the interceptor refuses it
+            # and admission re-checks the in-memory set under the same lock
+            # the scan takes (SessionManager.refused_serials).
+            if serials_changed:
+                superseded = await self._sessions.cut_revoked_certs(snap.serials)
+                self._scanned = True
+                self.cut_scans += 1
+                self.cert_cuts += len(superseded)
+                killed |= superseded
             if changed:
                 sent = self._sessions.broadcast(
                     "revocation_update", self.update_message()

@@ -11,6 +11,7 @@ other. ``manager`` re-exports every public name for its existing importers.
 from __future__ import annotations
 
 import asyncio
+import datetime as dt
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Final
@@ -174,6 +175,9 @@ class LiveSession:
     cert_expiry: asyncio.TimerHandle | None = None
     """V0.7 G3 fix r1 (D155 T-3): fires at the certificate's ``not_after`` and
     cuts the stream ``cert_expired``; cancelled when the session closes."""
+    cert_not_after: dt.datetime | None = None
+    """The admitted certificate's ``not_after`` (wall clock): the expiry timer
+    re-checks it when it fires (D156 d)."""
     declared_gpus: frozenset[int] = frozenset()
     """``Hello.hardware.gpus[].index`` of this session: the only GPU indices its
     score reports may name (D39)."""

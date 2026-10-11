@@ -468,6 +468,7 @@ class ControllerRuntime:
         await revocations.sync()
         self.revocations = revocations
         manager.revoked_serials = revocations.sent_serials
+        manager.refused_serials = revocations.revoked_serials
         self._spawn(revocations.run(cfg.revocation.poll_interval_s), "revocation-sync")
         flusher = SnapshotFlusher(resources, registry, cfg.resources, clock=loop.time)
         self.flusher = flusher

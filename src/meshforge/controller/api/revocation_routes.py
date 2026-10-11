@@ -4,10 +4,14 @@ G3, roadmap 0.7.7a, D138).
 Needs the **fabric token** (D151: the interim admin credential; V0.7 G4
 re-gates it to ``role=admin`` in :func:`require_node_admin`, the one place).
 Answers 200 with ``{node_id, state: "revoked", serial, already_revoked,
-previous_state, session_killed}`` - idempotent: revoking a revoked node is
+previous_state, session_killed, enforcement}`` - idempotent: revoking a revoked node is
 200 with ``already_revoked: true`` and changes nothing. Unknown node -> 404;
 a string that is not a node id -> 400 (checked after the token, D152 T-2);
-database down -> 503 ``network_error``.
+database down -> 503 ``network_error`` (nothing was committed). Once the
+revocation is committed the answer is 200 even if enforcing it right away
+failed (D156 a): ``enforcement: "deferred"`` - the periodic sync retries it
+within ``[controller.revocation] poll_interval_s`` and admission already
+refuses the node from its database row.
 
 The node's live session is cut before the response is sent (PERMISSION_DENIED,
 ``node_revoked``), its attempts take the node-loss path, and every agent is

@@ -7,7 +7,7 @@ from __future__ import annotations
 import base64
 import io
 import json
-from collections.abc import Iterator
+from collections.abc import AsyncIterator
 from typing import Any
 
 import pytest
@@ -17,17 +17,21 @@ from meshforge.cli import job_commands
 
 
 class FakeWs:
+    """The asyncio client's connection (V0.7 G4 item 0: the CLI no longer
+    uses ``websockets.sync`` over TLS, D156 e)."""
+
     def __init__(self, frames: list[dict[str, Any]]) -> None:
         self.frames = frames
 
-    def __enter__(self) -> FakeWs:
+    async def __aenter__(self) -> FakeWs:
         return self
 
-    def __exit__(self, *exc: object) -> None:
+    async def __aexit__(self, *exc: object) -> None:
         return None
 
-    def __iter__(self) -> Iterator[str]:
-        return iter(json.dumps(f) for f in self.frames)
+    async def __aiter__(self) -> AsyncIterator[str]:
+        for frame in self.frames:
+            yield json.dumps(frame)
 
 
 def _data(stream: str, offset: int, text: bytes) -> dict[str, Any]:
@@ -54,7 +58,7 @@ def test_the_follow_continues_past_a_retry_notice(
         {"end": True, "state": "succeeded", "exit_code": 0},
     ]
     monkeypatch.setattr(
-        "websockets.sync.client.connect", lambda *a, **k: FakeWs(frames)
+        "websockets.asyncio.client.connect", lambda *a, **k: FakeWs(frames)
     )
     out = io.BytesIO()
     seen: list[Any] = []

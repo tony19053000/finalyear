@@ -1,7 +1,16 @@
 """Follow a job's logs over the controller's WebSocket (V0.4 G5, D72/D76).
 
-Synchronous (``websockets.sync``), like the rest of ``compute``. The fabric token
-goes in the handshake's ``Authorization`` header - never in the URL. Frames are
+A blocking call, like the rest of ``compute``, that runs the **asyncio**
+WebSocket client on a private event loop (V0.7 G4 item 0, D156 e). Not
+``websockets.sync``: that client reads the socket in a background thread while
+the caller's thread writes it, and over TLS that means two threads inside one
+OpenSSL connection at once - unsupported by OpenSSL. With TLS 1.3 the server's
+post-handshake session tickets are processed by the reader thread exactly while
+the handshake request is being written, and about one open in a few lost the
+request or the response (``TimeoutError`` waiting for the handshake response,
+the V0.7 G3 cluster flake). The asyncio client drives the TLS object from one
+thread only. The fabric token goes in the handshake's ``Authorization`` header -
+never in the URL. Frames are
 written to this process's stdout/stderr as raw bytes (the workload's own bytes,
 not re-encoded); the end frame is returned to the caller, which turns it into an
 exit code. A retry notice (V0.6 G3) goes to ``on_retry``. A typed close from
@@ -11,6 +20,7 @@ the controller (slow consumer, too many followers, unknown job) becomes a
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 import json
@@ -60,34 +70,18 @@ def follow_logs(
         InvalidStatus,
         WebSocketException,
     )
-    from websockets.sync.client import connect
 
-    headers = {"Authorization": auth_header} if auth_header else {}
     try:
-        with connect(
-            url,
-            additional_headers=headers,
-            open_timeout=open_timeout_s,
-            max_size=_MAX_FRAME,
-            ssl=ssl_context,
-        ) as ws:
-            for raw in ws:
-                frame = _frame(raw)
-                if frame.get("end") is True:
-                    return frame
-                if frame.get("retry") is True:
-                    if on_retry is not None:
-                        on_retry(frame)
-                    continue
-                out = outputs.get(str(frame.get("stream")))
-                if out is None:
-                    continue
-                try:
-                    data = base64.b64decode(str(frame.get("data", "")), validate=True)
-                except (binascii.Error, ValueError):
-                    raise _bad_frame() from None
-                out.write(data)
-                out.flush()
+        end = asyncio.run(
+            _follow(
+                url,
+                auth_header=auth_header,
+                outputs=outputs,
+                open_timeout_s=open_timeout_s,
+                on_retry=on_retry,
+                ssl_context=ssl_context,
+            )
+        )
     except InvalidStatus as exc:
         status = exc.response.status_code
         raise ControllerError(
@@ -111,6 +105,8 @@ def follow_logs(
             f"cannot follow the job's logs ({type(exc).__name__})",
             failure_type=FailureType.NETWORK_ERROR,
         ) from None
+    if end is not None:
+        return end
     raise ControllerError(
         "the log stream closed before the job ended",
         failure_type=FailureType.NETWORK_ERROR,
@@ -132,3 +128,43 @@ def _bad_frame() -> ControllerError:
         "the controller sent a log frame this compute cannot read",
         failure_type=FailureType.INTERNAL_ERROR,
     )
+
+
+async def _follow(
+    url: str,
+    *,
+    auth_header: str | None,
+    outputs: Mapping[str, IO[bytes]],
+    open_timeout_s: float,
+    on_retry: Callable[[Mapping[str, Any]], None] | None,
+    ssl_context: ssl.SSLContext | None,
+) -> dict[str, Any] | None:
+    """The stream itself; the end frame, or ``None`` if it closed without one."""
+    from websockets.asyncio.client import connect
+
+    headers = {"Authorization": auth_header} if auth_header else {}
+    async with connect(
+        url,
+        additional_headers=headers,
+        open_timeout=open_timeout_s,
+        max_size=_MAX_FRAME,
+        ssl=ssl_context,
+    ) as ws:
+        async for raw in ws:
+            frame = _frame(raw)
+            if frame.get("end") is True:
+                return frame
+            if frame.get("retry") is True:
+                if on_retry is not None:
+                    on_retry(frame)
+                continue
+            out = outputs.get(str(frame.get("stream")))
+            if out is None:
+                continue
+            try:
+                data = base64.b64decode(str(frame.get("data", "")), validate=True)
+            except (binascii.Error, ValueError):
+                raise _bad_frame() from None
+            out.write(data)
+            out.flush()
+    return None

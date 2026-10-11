@@ -18,16 +18,19 @@ unparseable or unexpected is a refusal):
 * EKU ``clientAuth`` (``not_client``) - the controller's own server
   certificate is never a client identity;
 * valid now (``expired``), with the controller's clock;
-* its serial is not revoked (``revoked``; the set is the revocation store's).
+* its serial is not revoked (``revoked``; the set is the revocation store's)
+  nor superseded by a newer certificate of the node (``cert_superseded`` -
+  the set carries each serial's reason, D156 b).
 
 Refusals end the call ``UNAUTHENTICATED`` (``PERMISSION_DENIED`` for
-``revoked``) with trailing metadata ``meshforge-reason``.
+``revoked`` and ``cert_superseded``: the agent stops, re-joining is the only
+way back) with trailing metadata ``meshforge-reason``.
 """
 
 from __future__ import annotations
 
 import datetime as dt
-from collections.abc import Callable, Collection
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Final
@@ -49,6 +52,7 @@ __all__ = [
     "PeerCertReason",
     "abort_with_reason",
     "peer_cert",
+    "refusal_for",
     "status_for",
 ]
 
@@ -82,9 +86,34 @@ class PeerCertError(Exception):
 
 
 def status_for(reason: PeerCertReason) -> grpc.StatusCode:
-    if reason is PeerCertReason.REVOKED:
+    if reason in (PeerCertReason.REVOKED, PeerCertReason.CERT_SUPERSEDED):
         return grpc.StatusCode.PERMISSION_DENIED
     return grpc.StatusCode.UNAUTHENTICATED
+
+
+SUPERSEDED_MESSAGE: Final = (
+    "this node certificate was superseded by a newer certificate of the node "
+    "(a renewal or re-enrolment); this laptop no longer holds the node's "
+    "current certificate - re-join (meshforge-agent join --force <code>)"
+)
+REVOKED_MESSAGE: Final = (
+    "this node certificate was revoked (the node was revoked, or a newer "
+    "enrolment replaced it); a replaced laptop re-joins with "
+    "`meshforge-agent join --force <code>`, a revoked one needs "
+    "`meshforge-agent identity reset --yes` first"
+)
+
+
+def refusal_for(serial: str, revoked: Collection[str]) -> PeerCertError | None:
+    """The refusal for ``serial`` if the set lists it, else ``None``. A set
+    that carries reasons (a mapping serial -> ``revoked``/``superseded``,
+    D156 b) tells a superseded certificate from a revoked one."""
+    if serial not in revoked:
+        return None
+    reason = revoked.get(serial) if isinstance(revoked, Mapping) else None
+    if reason == "superseded":
+        return PeerCertError(PeerCertReason.CERT_SUPERSEDED, SUPERSEDED_MESSAGE)
+    return PeerCertError(PeerCertReason.REVOKED, REVOKED_MESSAGE)
 
 
 @dataclass(frozen=True, slots=True)
@@ -152,14 +181,9 @@ def parse_peer(
             "(meshforge-agent join --force <code>)",
         ) from None
     serial = format(cert.serial_number, "x")
-    if serial in revoked:
-        raise PeerCertError(
-            PeerCertReason.REVOKED,
-            "this node certificate was revoked (the node was revoked, or a newer "
-            "enrolment replaced it); a replaced laptop re-joins with "
-            "`meshforge-agent join --force <code>`, a revoked one needs "
-            "`meshforge-agent identity reset --yes` first",
-        )
+    refused = refusal_for(serial, revoked)
+    if refused is not None:
+        raise refused
     public = cert.public_key()
     if not isinstance(public, ec.EllipticCurvePublicKey):  # pragma: no cover
         raise PeerCertError(PeerCertReason.MALFORMED, "not an EC key")

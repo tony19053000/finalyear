@@ -235,7 +235,8 @@ async def test_superseded_serial_is_refused_on_session_and_blob_planes(
     await runtime.revocations.sync()
     code, trailing = await _hello(old, runtime, epoch=2)
     assert code is grpc.StatusCode.PERMISSION_DENIED, (code, trailing)
-    assert trailing.get("meshforge-reason") == "cert_revoked"
+    # V0.7 G4 item 0 (D156 b): the set carries the reason.
+    assert trailing.get("meshforge-reason") == "cert_superseded"
 
     digest = sha256_bytes(b"s" * 100)
     async with api_client(runtime, token=token_of(runtime)) as cli:

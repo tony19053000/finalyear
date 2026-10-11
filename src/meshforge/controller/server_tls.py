@@ -157,6 +157,10 @@ class ServerTls:
         """
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         context.minimum_version = ssl.TLSVersion.TLSv1_3
+        # No TLS 1.3 session tickets (D156 e): nothing here resumes sessions,
+        # and a post-handshake ticket is what a client that reads and writes
+        # one TLS connection from two threads (websockets.sync) trips over.
+        context.num_tickets = 0
         if client_certs != "none":
             context.load_verify_locations(cadata=self.ca_pem.decode("ascii"))
         context.verify_mode = _VERIFY[client_certs]

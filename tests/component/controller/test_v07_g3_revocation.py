@@ -148,6 +148,7 @@ async def test_revoke_cuts_the_live_session_within_one_heartbeat(
             "already_revoked": False,
             "previous_state": "online",
             "session_killed": True,
+            "enforcement": "immediate",  # V0.7 G4 item 0 (D156 a)
         }
         assert victim.end_code is grpc.StatusCode.PERMISSION_DENIED
         assert victim.end_details.startswith("node_revoked")

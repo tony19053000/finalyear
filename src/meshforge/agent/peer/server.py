@@ -255,6 +255,7 @@ def peer_server_tls(
     """The server side of :class:`PeerServerTls` from an enrolment's files."""
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.minimum_version = ssl.TLSVersion.TLSv1_3
+    context.num_tickets = 0  # no resumption; see controller/server_tls.py (D156 e)
     context.load_cert_chain(cert_file, key_file)
     context.load_verify_locations(cadata=pki.cert_to_pem(ca_cert).decode("ascii"))
     context.verify_mode = ssl.CERT_REQUIRED
