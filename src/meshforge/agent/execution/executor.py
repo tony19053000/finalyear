@@ -50,7 +50,10 @@ Rules:
   (:mod:`.workdir_cap`); past ``[agent.execution] max_written_bytes`` (or a
   folder that cannot be measured) the run is stopped like a cancel and the
   attempt ends ``FAILED(output_error)``, detail ``output_limit: ...``, not
-  retried.
+  retried. The same poll reads the free space of the workdir's disk; below the
+  staging floor (the agent CAS's ``free_disk_floor_bytes``) the run is stopped
+  and the attempt ends ``FAILED(disk_full)`` (fix r2; the controller's D126
+  rule decides a retry elsewhere).
 * **Agent stop (D52).** :meth:`Executor.shutdown` cancels every running attempt;
   each reports ``FAILED(node_lost, detail=agent_shutdown)`` - retryable in V0.6 -
   and the session sends its Goodbye only afterwards.
@@ -164,6 +167,8 @@ _SHUTDOWN_SLACK_S: Final = 3.0
 _WORK_DIR_NAME: Final = "work"
 OUTPUT_LIMIT: Final = "output_limit"
 """Stop reason and failure reason of a job past ``max_written_bytes`` (D143)."""
+DISK_FLOOR: Final = "disk_floor"
+"""Stop reason of a job whose workdir disk fell below the free floor (fix r2)."""
 _NOFOLLOW: Final = getattr(os, "O_NOFOLLOW", 0)
 _STAGE_RETRYABLE: Final = frozenset(
     {FailureType.TRANSFER_ERROR, FailureType.TIMEOUT, FailureType.UNAUTHORIZED}
@@ -279,6 +284,8 @@ class _Attempt:
     written: int | None = None
     """V0.7 G5 (D143): bytes the job had added to its workdir when the output
     cap stopped it (``UNMEASURABLE`` = a folder could not be measured)."""
+    disk_free: int | None = None
+    """Free bytes on the workdir's disk when the free-disk floor stopped it."""
 
     @property
     def ended(self) -> bool:
@@ -1451,6 +1458,7 @@ class Executor:
             self._cfg.max_written_bytes,
             self._cfg.output_check_interval_s,
             clock=self._clock,
+            free_floor_bytes=self.cas.store.free_disk_floor_bytes,
         )
         cap.baseline = max(0, await self._step(attempt, cap.measure_once()))
         return cap
@@ -1475,8 +1483,22 @@ class Executor:
             )
             self._stop(attempt, OUTPUT_LIMIT)
 
+        floor = cap.free_floor_bytes
+
+        def disk_low(free: int) -> None:
+            attempt.disk_free = free
+            log.warning(
+                "agent.execution.disk_floor",
+                node_id=self._node_id,
+                job_id=attempt.job_id,
+                attempt_id=attempt.attempt_id,
+                free_bytes=free,
+                floor_bytes=floor,
+            )
+            self._stop(attempt, DISK_FLOOR)
+
         task = asyncio.create_task(
-            cap.run(exceeded), name=f"attempt-output-cap:{attempt.attempt_id}"
+            cap.run(exceeded, disk_low), name=f"attempt-output-cap:{attempt.attempt_id}"
         )
         task.add_done_callback(self._task_done)
         return task
@@ -1539,6 +1561,15 @@ class Executor:
             failure = (
                 FailureType.OUTPUT_ERROR,
                 self._output_limit_text(attempt),
+                False,
+            )
+        elif attempt.stop_reason == DISK_FLOOR:
+            failure = (
+                FailureType.DISK_FULL,
+                f"{DISK_FLOOR}: only {attempt.disk_free} bytes left free on the "
+                "disk of this node's workdirs (below the "
+                f"{self.cas.store.free_disk_floor_bytes}-byte free-disk floor); "
+                "stopped",
                 False,
             )
         else:

@@ -1156,7 +1156,7 @@ class DockerRuntime:
             "tty": False,
         }
         if limits.cpus is not None:
-            kwargs["nano_cpus"] = int(limits.cpus * 1e9)
+            kwargs["nano_cpus"] = nano_cpus_for(limits.cpus)
         if device_requests:
             kwargs["device_requests"] = device_requests
         return kwargs
@@ -1539,6 +1539,12 @@ def workdir_for(root: Path, attempt_id: str) -> Path:
     return root / attempt_id
 
 
+def nano_cpus_for(cpus: float) -> int:
+    """Docker's ``NanoCpus`` for a CPU cap - one rounding for both the create
+    options and the create-time check (T-10), so they can never disagree."""
+    return int(cpus * 1e9)
+
+
 def _planned_limits(spec: RunSpec, role: str, tmp_options: str) -> ExpectedLimits:
     """T-10: the bar for the create-time check, from the plan only."""
     limits = spec.limits
@@ -1548,6 +1554,6 @@ def _planned_limits(spec: RunSpec, role: str, tmp_options: str) -> ExpectedLimit
         limits.memory_bytes,
         tmp_options,
         pids=limits.pids,
-        nano_cpus=(int(cpus * 1e9) if cpus is not None else 0) if job else None,
+        nano_cpus=(nano_cpus_for(cpus) if cpus is not None else 0) if job else None,
         gpu_ids=tuple(str(i) for i in spec.gpu_indices) if role == "run" else (),
     )

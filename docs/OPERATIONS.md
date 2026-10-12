@@ -524,8 +524,12 @@ kill work. Jobs are not retried until V0.6 (G3).
   log `agent.execution.output_limit`). A very fast writer can overshoot by what
   it writes in one interval. **Known limit (accepted, THREAT_MODEL WS-E8):** a
   file the job deletes while keeping it open is not counted (the space is
-  freed when the job ends; the job's timeout and the agent's free-disk guard,
-  `disk_full`, remain the backstop). `/tmp` inside the container is a separate tmpfs of
+  freed when the job ends; the job's timeout bounds it). **Free-disk guard while
+  running (G5 fix r2):** the same poll reads the free space of the workdir's
+  disk; below the agent's staging floor (1 GiB) the job is stopped and fails
+  `disk_full` with `disk_floor: ...` (agent log `agent.execution.disk_floor`).
+  It is also a poll, so a fast writer can pass the floor by one interval's
+  writes; a write that then hits "no space left" fails `disk_full` too. `/tmp` inside the container is a separate tmpfs of
   `tmp_size_mb` (512 MiB) that fills up with "no space left" inside the job.
 - **Containers are labelled** `meshforge.agent=<node id>`. If the agent is killed, its
   containers are removed the next time it starts; you can also list them with
@@ -574,7 +578,8 @@ kill work. Jobs are not retried until V0.6 (G3).
 - **Why did it fail? (V0.6 G1).** `oom` = out of RAM (the kernel or Docker killed
   it, or Python raised `MemoryError`); `vram_oom` = a CUDA out-of-memory error in
   the job's output; `disk_full` = no space on this laptop while fetching, building
-  the environment or packing outputs (an auto job is retried on another laptop,
+  the environment or packing outputs, or free disk fell below the 1 GiB floor
+  while the job ran (`disk_floor: ...`) (an auto job is retried on another laptop,
   a pinned one is not - V0.6 D126); `env_error` = the environment could not be
   built - the controller then avoids that environment on this laptop for
   `[controller.jobs] env_bad_ttl_s` (1 h).
