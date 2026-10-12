@@ -1,3 +1,5 @@
+# ruff: noqa: RUF001, S311, S112, PT017
+# (adversarial literals / world-writable modes / seeded fuzz are the point of these tests)
 """V0.7 G5 tester round 1 (unit): attacks on item 0 and the owner-policy intake.
 
 Derived from brief section 5e and rulings D142, D143, D158, D159, not from the
@@ -356,7 +358,9 @@ def test_a_padded_policy_message_is_refused_or_ignored_never_widened() -> None:
     """Unknown fields appended to the message must not change what is accepted."""
     msg = _valid()
     padded = agent_pb2.OwnerPolicy()
-    padded.ParseFromString(msg.SerializeToString() + b"\x9a\x06" + b"\xa0\x9c\x01" + b"A" * 20_000)
+    padded.ParseFromString(
+        msg.SerializeToString() + b"\x9a\x06" + b"\xa0\x9c\x01" + b"A" * 20_000
+    )
     live = _live()
     PolicyIntake().on_update(live, agent_pb2.PolicyUpdate(policy=padded))
     assert live.policy in (op.DENY_ALL, op.from_proto(msg))
@@ -475,3 +479,107 @@ def test_joining_another_containers_namespace_is_refused(key: str) -> None:
     host = copy.deepcopy(GOOD)
     host[key] = "container:deadbeef"
     _must_refuse(host, network=False)
+
+
+# Fields the container is created with (docker_runtime._create_kwargs) or that
+# widen the box, which the create-time assertion does not read at all.
+_UNCHECKED = [
+    pytest.param({"MemorySwap": -1}, id="memory_swap_unlimited"),
+    pytest.param({"Memory": 1 << 50}, id="memory_limit_absurd"),
+    pytest.param({"CgroupnsMode": "host"}, id="cgroupns_host"),
+    pytest.param({"Sysctls": {"net.ipv4.ip_forward": "1"}}, id="sysctls"),
+    pytest.param({"Tmpfs": {"/tmp": "rw,exec,size=900g"}}, id="tmpfs_absurd_size"),
+    pytest.param(
+        {"Tmpfs": {"/tmp": "rw,size=16m", "/mnt/x": "rw,exec"}}, id="extra_tmpfs"
+    ),
+    pytest.param({"OomKillDisable": True}, id="oom_kill_disabled"),
+    pytest.param({"PortBindings": {"80/tcp": [{"HostPort": "8080"}]}}, id="ports"),
+    pytest.param({"GroupAdd": ["0"]}, id="group_add_root"),
+]
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="T-3 minor: the create-time assertion reads a fixed list of HostConfig "
+    "fields; MemorySwap, absurd Memory/tmpfs sizes, CgroupnsMode, Sysctls, extra "
+    "Tmpfs entries, OomKillDisable, PortBindings and GroupAdd are never inspected",
+)
+@pytest.mark.parametrize("change", _UNCHECKED)
+def test_a_tampered_field_the_assertion_does_not_read_is_refused(
+    change: dict[str, Any],
+) -> None:
+    host = copy.deepcopy(GOOD)
+    host.update(change)
+    _must_refuse(host, network=False)
+
+
+# ------------------------------------------------------------------ T-4 boundaries
+
+
+def test_sub_cap_boundary_n_reopen_n_plus_1_and_release(tmp_path: Path) -> None:
+    store = CasStore(
+        tmp_path / "cas",
+        max_blob_bytes=1 << 30,
+        max_resumable=64,
+        max_resumable_per_owner=3,
+    )
+    store.prepare()
+    blobs = [_blob(i) for i in range(6)]
+    parts = [store.resumable(d, len(b), CS, owner="user:bob") for d, b in blobs[:3]]
+    # N: re-opening one the owner already has is a continue, not a new slot
+    again = store.resumable(blobs[0][0], len(blobs[0][1]), CS, owner="user:bob")
+    assert again.digest == blobs[0][0]
+    assert store.resumes_of("user:bob") == 3
+    # N+1 distinct: busy, and nothing was created for it
+    with pytest.raises(CasError) as info:
+        store.resumable(blobs[3][0], len(blobs[3][1]), CS, owner="user:bob")
+    assert info.value.failure_type is FailureType.RESOURCE_BUSY
+    assert store.resumes_of("user:bob") == 3
+    # another owner is unaffected
+    store.resumable(blobs[3][0], len(blobs[3][1]), CS, owner="user:amy")
+    # a different owner string with the same digest never shares bob's count
+    assert store.resumes_of("user:amy") == 1
+    # releasing one frees exactly one slot
+    parts[0].discard()
+    store.resumable(blobs[4][0], len(blobs[4][1]), CS, owner="user:bob")
+    assert store.resumes_of("user:bob") == 3
+
+
+def test_owner_none_only_meets_the_global_cap(tmp_path: Path) -> None:
+    store = CasStore(
+        tmp_path / "cas",
+        max_blob_bytes=1 << 30,
+        max_resumable=6,
+        max_resumable_per_owner=2,
+    )
+    store.prepare()
+    blobs = [_blob(i) for i in range(8)]
+    for d, b in blobs[:6]:
+        store.resumable(d, len(b), CS, owner=None)  # 6 > per-owner 2: fine
+    with pytest.raises(CasError) as info:
+        store.resumable(blobs[6][0], len(blobs[6][1]), CS, owner=None)
+    assert info.value.failure_type is FailureType.RESOURCE_BUSY
+    with pytest.raises(CasError):  # the global cap still binds named owners
+        store.resumable(blobs[7][0], len(blobs[7][1]), CS, owner="user:amy")
+
+
+# ------------------------------------------------------------------ D145b window
+
+
+@pytest.mark.parametrize(
+    "owner", ["", "node_other", 5, ["node_x"], {"id": "node_x"}, False, 0]
+)
+def test_a_score_document_bound_to_anything_but_this_node_is_refused(
+    owner: Any,
+) -> None:
+    from meshforge.controller.planner.inputs import bound_to
+
+    assert bound_to({"node_id": owner}, "node_x") is False
+
+
+def test_only_an_absent_or_null_binding_is_the_pre_g5_window() -> None:
+    from meshforge.controller.planner.inputs import bound_to
+
+    assert bound_to({}, "node_x") is True
+    assert bound_to({"node_id": None}, "node_x") is True
+    assert bound_to({"node_id": "node_x"}, "node_x") is True
