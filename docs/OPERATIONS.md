@@ -626,6 +626,17 @@ environment (subprocess runtime; install torch there with `uv sync --extra gpu`)
   `no_index = true` installs only from a local wheelhouse (the Docker build then
   has no network at all); `index_url = "https://mirror/simple"` uses a mirror
   (no credentials in the URL).
+- **Wheels only by default (V0.7 G6, WS-I4).** Every environment build installs
+  with `--only-binary :all:` (`[agent.envs] only_binary = true`), so no
+  package's own build code (an sdist's `setup.py` / build backend) runs while
+  building - also in the Docker build container, which keeps the package-index
+  network even when this laptop allows jobs none. A requirement that has no
+  wheel for this platform (an sdist-only package, a `git+`/URL source
+  reference) then fails `env_error` / `setup_failed` with "installs are
+  wheels-only ... needs only_binary = false". **Escape hatch:** set
+  `[agent.envs] only_binary = false` on a laptop where you accept that build
+  code runs (in the Docker build container, or as you for the venv/subprocess
+  runtimes), or put a pre-built wheel into a `find_links` wheelhouse.
 - **What is refused** (`env_error / requirements_rejected`): `-r`/`-c`/`-e` lines,
   local paths, `file:` URLs and `name @ <anything but an http(s) URL or a git+/hg+/svn+/bzr+
   URL over http(s)/ssh/git>` (so `git+file://` is refused too), and `--index-url`/`--extra-index-url`/`--find-links`

@@ -121,6 +121,20 @@ def default_uv_argv() -> tuple[str, ...]:
         return ()
 
 
+ONLY_BINARY_OPTIONS: Final = ("--only-binary", ":all:")
+"""Installer options for a wheels-only build (pip and uv spell it the same)."""
+
+
+def only_binary_hint(only_binary: bool) -> str:
+    """The escape hatch, appended to an install failure in binary-only mode."""
+    if not only_binary:
+        return ""
+    return (
+        "; installs are wheels-only ([agent.envs] only_binary = true): a package "
+        "with no wheel for this platform needs only_binary = false on this node"
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class EnvsConfig:
     """What the builder needs (from ``[agent.envs]`` + ``data_dir``)."""
@@ -135,6 +149,10 @@ class EnvsConfig:
     index_url: str | None = None
     allow_python_downloads: bool = False
     evicted_keep_s: float = 86_400.0
+    only_binary: bool = True
+    """V0.7 G6 (D161, WS-I4): install wheels only (``--only-binary :all:``),
+    so no package's own build code (an sdist's ``setup.py``) runs during a
+    build. ``[agent.envs] only_binary = false`` is the owner's escape hatch."""
 
     @classmethod
     def from_settings(cls, settings: AgentSettings) -> EnvsConfig:
@@ -150,6 +168,7 @@ class EnvsConfig:
             index_url=cfg.index_url,
             allow_python_downloads=cfg.allow_python_downloads,
             evicted_keep_s=cfg.evicted_keep_s,
+            only_binary=cfg.only_binary,
         )
 
     def source_digest(self) -> str:
@@ -189,6 +208,10 @@ class EnvsConfig:
         if self.no_index:
             options.append("--no-index")
         return options
+
+    def binary_options(self) -> list[str]:
+        """``--only-binary :all:`` unless the owner allowed source builds."""
+        return list(ONLY_BINARY_OPTIONS) if self.only_binary else []
 
 
 @dataclass(frozen=True, slots=True)
@@ -630,7 +653,9 @@ class EnvBuilder:
             )
         if code != 0:
             raise EnvError(
-                f"requirements install failed (exit {code})", reason="setup_failed"
+                f"requirements install failed (exit {code})"
+                + only_binary_hint(self.config.only_binary),
+                reason="setup_failed",
             )
 
     # ---------------------------------------------------------------- kinds
@@ -685,6 +710,7 @@ class EnvBuilder:
                             "--link-mode",
                             "copy",
                             *self.config.index_options(),
+                            *self.config.binary_options(),
                             "-r",
                             str(req),
                         ],
@@ -740,6 +766,7 @@ class EnvBuilder:
                         "--link-mode",
                         "copy",
                         *self.config.index_options(),
+                        *self.config.binary_options(),
                         "-r",
                         str(req),
                     ],

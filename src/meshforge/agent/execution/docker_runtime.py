@@ -92,6 +92,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final
 
+from meshforge.agent.envs.builder import only_binary_hint
 from meshforge.agent.envs.errors import EnvError
 from meshforge.agent.envs.fsutil import remove_tree
 from meshforge.agent.envs.hash import EnvInputs, env_hash
@@ -920,6 +921,7 @@ class DockerRuntime:
             )
         if cfg.no_index:
             command.append("--no-index")
+        command += cfg.binary_options()  # V0.7 G6 (WS-I4): no build code runs
         command += ["-r", f"{_CONTAINER_REQ}/requirements.txt"]
         limits = spec.limits
         return {
@@ -1028,7 +1030,8 @@ class DockerRuntime:
                 FailureType.ENV_ERROR,
                 "setup_failed",
                 f"requirements install failed (exit {outcome.exit_code}"
-                f"{', out of memory' if outcome.oom_killed else ''})",
+                f"{', out of memory' if outcome.oom_killed else ''})"
+                + only_binary_hint(envs.config.only_binary),
             )
 
     async def _commit_env(

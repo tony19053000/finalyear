@@ -880,6 +880,17 @@ class EnvsSettings(SectionModel):
             "still use it) and deleted by a later build once older than this."
         ),
     )
+    only_binary: bool = Field(
+        default=True,
+        description=(
+            "V0.7 G6 (WS-I4): environment builds install wheels only "
+            "(--only-binary :all:), so no package's own build code runs - also "
+            "in Docker build containers, which keep the package index network. "
+            "A requirement with no wheel for this platform (an sdist-only "
+            "package, a git+/URL source reference) then fails env_error "
+            "setup_failed; set false to allow source builds on this laptop."
+        ),
+    )
     allow_python_downloads: bool = Field(
         default=False,
         description=(
