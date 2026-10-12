@@ -15,6 +15,18 @@ into ``AttemptStatus FAILED`` - never an exception that escapes, never a run.
   else :func:`~.selection.choose_runtime` (docker > venv > subprocess; the venv
   runtime only for the ``python-cpu`` base); none fitting is ``no_feasible_plan``.
 
+**Owner policy (V0.7 G5, D142) - defence in depth.** With ``policy`` given (the
+agent's *current* :class:`~meshforge.common.owner_policy.OwnerPolicy`), the job
+is re-checked with the same rule the planner used
+(:func:`~meshforge.common.owner_policy.refusal`): not accepting, owner not in
+``allowed_users``, only an unsandboxed runtime fits but those are not allowed,
+network asked but not allowed, VRAM / RAM / CPUs over the owner's per-job limit.
+A refusal is ``PlanError(unauthorized)`` with the message
+``policy_denied:<code>: <why>`` - the controller does not retry it. Then the
+owner's limits cap the run: memory ``min(asked or default, max_ram_bytes)``, CPUs
+``min(asked or default, max_cpu_percent of the threads)``, and a network only for
+``limits.network: on`` with ``allow_network`` (D143: none by default).
+
 **Environment (D51).** The workload gets an explicit allowlist, never the agent's
 environment: ``PATH`` (the image's for Docker, the agent's for the subprocess
 runtime), ``HOME`` (Docker: ``/tmp``; subprocess: the workdir), ``LANG=C.UTF-8``,
@@ -39,7 +51,9 @@ a builder.
 
 from __future__ import annotations
 
+import dataclasses
 import json
+import math
 import os
 import re
 import sys
@@ -63,6 +77,7 @@ from meshforge.agent.execution.selection import (
     runtime_fits_base,
 )
 from meshforge.agent.settings import ExecutionSettings
+from meshforge.common import owner_policy
 from meshforge.common.errors import FailureType, InvalidIdError, MeshForgeError
 from meshforge.common.hashing import Digest
 from meshforge.common.ids import validate_attempt_id, validate_job_id
@@ -92,6 +107,7 @@ _BLOB_URL: Final = re.compile(
 _DOCKER_PATH: Final = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 _PYTHONS: Final = frozenset({"python", "python3"})
 _MIB: Final = 1024 * 1024
+_GIB: Final = 1024**3
 
 
 class PlanError(MeshForgeError):
@@ -249,8 +265,11 @@ def plan_attempt(
     declared_gpus: Collection[int],
     workdir: Path,
     images: Mapping[str, str] | None = None,
+    policy: owner_policy.OwnerPolicy | None = None,
+    cpu_threads: int | None = None,
 ) -> AttemptPlan:
-    """Validate ``msg`` and build its plan (see module docstring)."""
+    """Validate ``msg`` and build its plan (see module docstring). ``policy``
+    None = no owner policy wired (tests of other rules)."""
     job_id, attempt_id, token = _validated_ids(msg)
     spec = msg.spec
     digest, tree_id = _what_to_fetch(spec)
@@ -278,9 +297,13 @@ def plan_attempt(
             "ExecutionSpec.gpu_indices names a GPU this node did not declare",
             failure_type=FailureType.CONFIG_ERROR,
         )
-    runtime = _runtime(
-        spec.runtime, offer, GpuNeed(manifest.resources.gpu), manifest.env.base
-    )
+    gpu_need = GpuNeed(manifest.resources.gpu)
+    if policy is not None and not policy.allow_unsandboxed:
+        runtime = _sandboxed_runtime(spec.runtime, offer, gpu_need, manifest.env.base)
+    else:
+        runtime = _runtime(spec.runtime, offer, gpu_need, manifest.env.base)
+    if policy is not None:
+        _check_policy(policy, manifest, spec, runtime, cpu_threads)
     if not runtime.gpu_capable:
         gpus = ()  # "preferred" on a runtime without GPU pass-through: run on CPU
     image_by_base = (
@@ -292,6 +315,15 @@ def plan_attempt(
         }
     )
     memory = spec.memory_bytes or settings.default_memory_mb * _MIB
+    cpus = spec.cpus or settings.default_cpus
+    network = manifest.limits.wants_network
+    if policy is not None:
+        if policy.max_ram_bytes is not None:
+            memory = min(memory, policy.max_ram_bytes)
+        cap = owner_policy.allowed_cpus(policy, cpu_threads)
+        if cap is not None:
+            cpus = cap if cpus is None else min(cpus, cap)
+        network = network and policy.allow_network
     run_spec = RunSpec(
         attempt_id=attempt_id,
         argv=_argv(manifest, runtime.name),
@@ -303,12 +335,12 @@ def plan_attempt(
             memory_bytes=max(memory, 6 * _MIB),
             pids=settings.default_pids,
             timeout_s=float(timeout_s),
-            cpus=spec.cpus or settings.default_cpus,
+            cpus=cpus,
         ),
         image=image_by_base[manifest.env.base] if runtime.name == "docker" else None,
         setup_argv=_setup_argv(manifest, runtime.name, workdir),
         gpu_indices=gpus,
-        network=manifest.limits.network != "none",
+        network=network,
         grace_s=settings.grace_s,
         env_request=_env_request(manifest),
     )
@@ -360,6 +392,69 @@ def _token_shape(text: str) -> bool:
         and text.isprintable()
         and not any(ch.isspace() for ch in text)
     )
+
+
+def _policy_denied(refusal: owner_policy.PolicyRefusal) -> PlanError:
+    return PlanError(
+        f"policy_denied:{refusal.code.value}: {refusal.text}",
+        failure_type=FailureType.UNAUTHORIZED,
+        details={"reason": f"policy_denied:{refusal.code.value}"},
+    )
+
+
+def _sandboxed_runtime(
+    requested: str, offer: ExecutionOffer, gpu: GpuNeed, base: str
+) -> RuntimeAvailability:
+    """:func:`_runtime` among the sandboxed runtimes only (the owner allows no
+    unsandboxed one now): a job only an unsandboxed runtime could run is
+    ``policy_unsandboxed``."""
+    sandboxed = dataclasses.replace(offer, subprocess=None, venv=None)
+    try:
+        return _runtime(requested, sandboxed, gpu, base)
+    except PlanError as no_sandboxed:
+        try:
+            _runtime(requested, offer, gpu, base)
+        except PlanError:
+            raise no_sandboxed from None  # nothing fits at all: no_feasible_plan
+        raise _policy_denied(
+            owner_policy.PolicyRefusal(
+                owner_policy.PolicyCode.UNSANDBOXED,
+                "only an unsandboxed runtime fits this job and the node's owner "
+                "does not allow those ([agent.policy] allow_unsandboxed)",
+            )
+        ) from None
+
+
+def _check_policy(
+    policy: owner_policy.OwnerPolicy,
+    manifest: Manifest,
+    spec: agent_pb2.ExecutionSpec,
+    runtime: RuntimeAvailability,
+    cpu_threads: int | None,
+) -> None:
+    owner = spec.owner_name or None
+    if owner is not None and owner_policy.USER_NAME_RE.fullmatch(owner) is None:
+        owner = None  # not a user name: an unknown owner (never a match)
+    resources = manifest.resources
+    refused = owner_policy.refusal(
+        policy,
+        owner_policy.JobAsk(
+            owner_name=owner,
+            gpu_required=resources.gpu == "required",
+            vram_bytes=None
+            if resources.vram_gb is None
+            else math.ceil(resources.vram_gb * _GIB),
+            ram_bytes=None
+            if resources.ram_gb is None
+            else math.ceil(resources.ram_gb * _GIB),
+            cpus=resources.cpus,
+            network=manifest.limits.wants_network,
+            sandboxed_runtime=runtime.sandboxed,
+            node_cpu_threads=cpu_threads,
+        ),
+    )
+    if refused is not None:
+        raise _policy_denied(refused)
 
 
 def _runtime(

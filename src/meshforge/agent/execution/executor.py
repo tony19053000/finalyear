@@ -32,8 +32,14 @@ clock; a phase that never ran is absent, never 0 - D68).
 
 Rules:
 
-* **Opt-in (D45).** With ``[agent.execution] enabled = false`` a ``StartAttempt``
-  is answered ``FAILED(unauthorized)`` and nothing runs.
+* **Opt-in (D45).** An agent started with ``[agent.policy] accept_jobs = false``
+  (was ``[agent.execution] enabled``) answers every ``StartAttempt``
+  ``FAILED(unauthorized)`` and nothing runs.
+* **Owner policy (V0.7 G5, D142).** Every attempt is re-checked against the
+  owner's *current* policy before anything is fetched (:func:`.plan.plan_attempt`):
+  a refusal is ``FAILED(unauthorized)``, detail ``policy_denied:<code>: ...``,
+  not retried. A policy tightened while an attempt runs does not stop it (the
+  owner can cancel it); it blocks the next start.
 * **Dedupe on (attempt_id, fencing_token)** (D66): the controller re-sends the same
   attempt with a new ``message_id``; a copy of one this process holds or has
   finished recently is ignored.
@@ -122,6 +128,7 @@ from meshforge.agent.execution.runtime import RunObserver, RunResult, Stream
 from meshforge.agent.execution.uploader import UploadProgress, upload_parts
 from meshforge.agent.gc.leases import AttemptLeases, LeaseError
 from meshforge.agent.http_tls import AgentHttpTls
+from meshforge.agent.policy import LivePolicy
 from meshforge.agent.settings import AgentSettings
 from meshforge.common.bundle import BundleError, BundleLimits, unpack
 from meshforge.common.errors import FailureType, InvalidIdError
@@ -301,10 +308,18 @@ class Executor:
         cas: AgentCas | None = None,
         gc: GcService | None = None,
         http_tls: AgentHttpTls | None = None,
+        policy: LivePolicy | None = None,
+        cpu_threads: int | None = None,
     ) -> None:
         """``http_tls`` (mtls mode, V0.7 G3): every blob fetch and upload is
         HTTPS with this laptop's node certificate; ``None`` = plain HTTP
-        (``insecure-dev``, and unit tests that inject ``fetch``/``upload``)."""
+        (``insecure-dev``, and unit tests that inject ``fetch``/``upload``).
+        ``policy`` (V0.7 G5, D142): the owner's live policy; every attempt is
+        re-checked against its value at the attempt's start (``None`` = not
+        wired, unit tests of other rules). ``cpu_threads`` = this node's, for
+        ``max_cpu_percent``."""
+        self._policy = policy
+        self._cpu_threads = cpu_threads or None
         self._http_tls = http_tls
         self._scheme = "https" if http_tls is not None else "http"
         self._settings = settings
@@ -975,6 +990,8 @@ class Executor:
             offer=self._setup.offer,
             declared_gpus=self._declared_gpus,
             workdir=workdir,
+            policy=None if self._policy is None else self._policy.policy,
+            cpu_threads=self._cpu_threads,
         )
         attempt.runtime = plan.runtime
         await self._send(attempt, AttemptState.STAGING)
