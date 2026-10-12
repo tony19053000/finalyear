@@ -72,12 +72,6 @@ def _no_oom_kill(kwargs: dict[str, Any]) -> None:
     kwargs["oom_kill_disable"] = True
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-3 minor: the create-time assertion never reads MemorySwap, "
-    "CgroupnsMode, Sysctls, extra Tmpfs entries or OomKillDisable - a container "
-    "built with them (a swap-unlimited box, the host cgroup namespace...) starts",
-)
 @pytest.mark.parametrize(
     "tamper", [_swap, _cgroupns, _sysctl, _extra_tmpfs, _no_oom_kill]
 )

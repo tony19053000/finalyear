@@ -12,6 +12,7 @@ Every workload container is created with (and each is covered by a sandbox test)
 ``mem_limit``             + ``memswap_limit`` equal to it (no swap): OOM -> ``oom``
 ``nano_cpus``             when the job has a CPU limit
 ``network_mode=none``     when ``RunSpec.network`` is false
+``cgroupns=private``      its own cgroup namespace (also on a cgroup v1 daemon)
 ``init``                  ``docker-init`` is PID 1: forwards SIGTERM, reaps zombies
 ``device_requests``       exactly the requested NVML indices; with no GPU asked
                           for, ``NVIDIA_VISIBLE_DEVICES=void`` too (an image that
@@ -120,8 +121,10 @@ from meshforge.agent.execution.runtime import (
     classify,
 )
 from meshforge.agent.execution.sandbox_check import (
+    ExpectedLimits,
     ExpectedMount,
     SandboxViolationError,
+    check_create_options,
     check_host_config,
 )
 from meshforge.agent.gc.leases import lease_env
@@ -939,13 +942,12 @@ class DockerRuntime:
             "cap_drop": ["ALL"],
             "security_opt": ["no-new-privileges:true"],
             "read_only": False,  # the packages land in the container layer
-            "tmpfs": {
-                _CONTAINER_TMP: f"rw,nosuid,nodev,size={self.config.tmp_size_mb}m"
-            },
+            "tmpfs": {_CONTAINER_TMP: self._tmp_options()},
             "pids_limit": limits.pids,
             "mem_limit": limits.memory_bytes,
             "memswap_limit": limits.memory_bytes,
             "network_mode": "none" if cfg.no_index else "bridge",
+            "cgroupns": "private",
             "init": True,
             "log_config": docker.types.LogConfig(type="none"),
             "stdin_open": False,
@@ -1080,6 +1082,10 @@ class DockerRuntime:
         size = sizes[0] if sizes else 0
         log.info("agent.execution.env_image_committed", env_hash=name, size_bytes=size)
 
+    def _tmp_options(self) -> str:
+        """The ``/tmp`` tmpfs options of every container (asserted exactly)."""
+        return f"rw,nosuid,nodev,size={self.config.tmp_size_mb}m"
+
     def _create_kwargs(
         self, docker: Any, spec: RunSpec, role: str, *, env_image: bool = False
     ) -> dict[str, Any]:
@@ -1137,14 +1143,13 @@ class DockerRuntime:
             "cap_drop": ["ALL"],
             "security_opt": ["no-new-privileges:true"],
             "read_only": True,
-            "tmpfs": {
-                _CONTAINER_TMP: f"rw,nosuid,nodev,size={self.config.tmp_size_mb}m"
-            },
+            "tmpfs": {_CONTAINER_TMP: self._tmp_options()},
             "shm_size": f"{self.config.shm_size_mb}m",
             "pids_limit": limits.pids,
             "mem_limit": limits.memory_bytes,
             "memswap_limit": limits.memory_bytes,
             "network_mode": "bridge" if (setup or spec.network) else "none",
+            "cgroupns": "private",
             "init": True,
             "log_config": docker.types.LogConfig(type="none"),
             "stdin_open": False,
@@ -1257,7 +1262,12 @@ class DockerRuntime:
                 role=role,
                 mounts=_expected_mounts(spec, role, kwargs),
                 network_allowed=spec.network,
+                # the plan, never the kwargs: a changed kwarg must not move the bar
+                limits=ExpectedLimits(spec.limits.memory_bytes, self._tmp_options()),
             )
+            # after the HostConfig: what the daemon accepted but does not report
+            # (cgroup v2 drops oom_kill_disable) is only visible in the request
+            check_create_options(kwargs)
         except SandboxViolationError as exc:
             log.error(  # noqa: TRY400 - a typed finding, no traceback
                 "agent.execution.sandbox_violation",

@@ -38,6 +38,12 @@ GOOD: dict[str, Any] = {
     "UTSMode": "",
     "UsernsMode": "",
     "Memory": 67108864,
+    "MemorySwap": 67108864,  # fix r1 (D160): asserted equal to Memory
+    "CgroupnsMode": "private",
+    "Sysctls": None,
+    "PortBindings": {},
+    "GroupAdd": None,
+    "OomKillDisable": False,
     "PidsLimit": 64,
     "Devices": [],
     "Mounts": [{"Type": "bind", "Source": WORK, "Target": "/work"}],

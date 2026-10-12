@@ -9,22 +9,35 @@ add something), so **every container is inspected after ``create`` and before
 container unstarted and the attempt fails ``config_error`` with reason
 ``sandbox_violation`` - it never runs "almost sandboxed".
 
-Asserted for every role (``run``, ``setup``, ``envbuild``):
+The check is an **allow-list** (fix round 1, D160): a field that widens the
+box must hold one of the values the runtime itself sets, not merely "not the
+known bad one". Asserted for every role (``run``, ``setup``, ``envbuild``):
 
 * not privileged; no added capabilities and ``CapDrop`` holds ``ALL``;
-* ``no-new-privileges`` set; no security option that turns a confinement off
-  (``seccomp=unconfined``, ``apparmor=unconfined``, ``label=disable``,
-  ``systempaths=unconfined``) - the default seccomp profile stays on (the
-  daemon's own profile is checked by the probe: :func:`daemon_seccomp_problem`);
+* ``SecurityOpt`` holds ``no-new-privileges`` and **nothing else**: no
+  ``seccomp=`` at all (neither ``unconfined`` nor a custom allow-all profile -
+  only the daemon's default profile, which the probe checks:
+  :func:`daemon_seccomp_problem`), no ``apparmor=``/``label=``/
+  ``systempaths=`` option;
 * ``/proc`` stays masked: ``MaskedPaths`` non-empty and ``/proc/sysrq-trigger``
   read-only;
-* host namespaces never shared (PID, IPC, UTS, user namespace);
-* ``PidsLimit`` > 0 and a memory limit set;
-* ``/tmp`` is a tmpfs with a ``size=`` cap;
+* namespaces private: ``PidMode``/``UTSMode``/``UsernsMode`` empty (the
+  container's own), ``IpcMode`` ``private``/``shareable``/``none``/empty,
+  ``CgroupnsMode`` ``private`` (or empty on a daemon that does not report it) -
+  never ``host`` nor ``container:<id>``;
+* ``NetworkMode`` only ``none`` or the default bridge - never ``host`` or
+  ``container:<id>``;
+* ``PidsLimit`` > 0; ``Memory`` **and** ``MemorySwap`` equal to the planned cap
+  (no swap, no larger box); ``OomKillDisable`` not set;
+* ``Tmpfs`` holds only ``/tmp``, with exactly the planned options (size
+  included);
+* no ``Sysctls``, no ``PortBindings``, no ``GroupAdd``;
 * **mounts**: exactly the expected binds (``run``/``setup``: the attempt
   workdir at ``/work``; ``envbuild``: the requirements staging and the
   wheelhouse, read-only) - no Docker socket, no other host path, no volumes,
   no legacy ``Binds``, no devices;
+* the create request itself holds only the options the runtime uses
+  (:func:`check_create_options`; checked last);
 * the root filesystem read-only (all roles except ``envbuild``, whose layer
   receives the packages by design);
 * ``run``: the network is ``none`` unless the plan allowed one (manifest
@@ -38,26 +51,57 @@ from dataclasses import dataclass
 from typing import Any, Final
 
 __all__ = [
+    "ExpectedLimits",
     "ExpectedMount",
     "SandboxViolationError",
+    "check_create_options",
     "check_host_config",
     "daemon_seccomp_problem",
 ]
 
-_UNCONFINED: Final = (
-    "seccomp=unconfined",
-    "seccomp:unconfined",
-    "apparmor=unconfined",
-    "apparmor:unconfined",
-    "label=disable",
-    "label:disable",
-    "systempaths=unconfined",
-    "systempaths:unconfined",
-)
 _NO_NEW_PRIVILEGES: Final = frozenset(
     {"no-new-privileges", "no-new-privileges:true", "no-new-privileges=true"}
 )
-_SHARED_HOST: Final = ("PidMode", "IpcMode", "UTSMode", "UsernsMode")
+_NAMESPACES: Final[Mapping[str, frozenset[str]]] = {
+    "PidMode": frozenset({""}),
+    "IpcMode": frozenset({"", "private", "shareable", "none"}),
+    "UTSMode": frozenset({""}),
+    "UsernsMode": frozenset({""}),
+    "CgroupnsMode": frozenset({"", "private"}),
+}
+"""The only namespace modes a container may have (each key absent = ``""``)."""
+_NETWORKS: Final = frozenset({"none", "bridge", "default"})
+"""``default`` is how some daemons (Docker Desktop) name the default bridge."""
+_MUST_BE_EMPTY: Final = ("Sysctls", "PortBindings", "GroupAdd")
+CREATE_OPTIONS: Final = frozenset(
+    {
+        "command",
+        "name",
+        "hostname",
+        "user",
+        "working_dir",
+        "environment",
+        "labels",
+        "mounts",
+        "cap_drop",
+        "security_opt",
+        "read_only",
+        "tmpfs",
+        "shm_size",
+        "pids_limit",
+        "mem_limit",
+        "memswap_limit",
+        "network_mode",
+        "cgroupns",
+        "init",
+        "log_config",
+        "stdin_open",
+        "tty",
+        "nano_cpus",
+        "device_requests",
+    }
+)
+"""The only ``containers.create`` options the runtime uses (:func:`check_create_options`)."""
 _TMP: Final = "/tmp"  # noqa: S108 - the container's own tmpfs, not a host path
 
 
@@ -78,6 +122,15 @@ class ExpectedMount:
     read_only: bool
 
 
+@dataclass(frozen=True, slots=True)
+class ExpectedLimits:
+    """What the plan asked for: ``Memory`` and ``MemorySwap`` must both be
+    ``memory_bytes``; ``/tmp`` must be a tmpfs with exactly ``tmp_options``."""
+
+    memory_bytes: int
+    tmp_options: str
+
+
 def _list(value: Any) -> list[Any]:
     return list(value) if isinstance(value, list | tuple) else []
 
@@ -93,34 +146,67 @@ def _check_security(host: Mapping[str, Any]) -> None:
     if not _NO_NEW_PRIVILEGES.intersection(options):
         raise SandboxViolationError("no_new_privileges", "no-new-privileges is not set")
     for option in options:
-        if option.replace(" ", "") in _UNCONFINED or option.startswith(
-            ("seccomp=unconfined", "seccomp:unconfined")
-        ):
+        if option not in _NO_NEW_PRIVILEGES:
+            # seccomp=unconfined, a custom seccomp profile, apparmor=..., label=...,
+            # systempaths=...: only the daemon's defaults are trusted.
             raise SandboxViolationError(
-                "seccomp", f"a confinement is turned off ({option})"
+                "seccomp",
+                f"a security option replaces a default confinement "
+                f"({option.partition('=')[0].partition(':')[0]})",
             )
     if not _list(host.get("MaskedPaths")):
         raise SandboxViolationError("proc", "/proc is not masked (systempaths)")
     if "/proc/sysrq-trigger" not in _list(host.get("ReadonlyPaths")):
         raise SandboxViolationError("proc", "/proc/sysrq-trigger is not read-only")
-    for key in _SHARED_HOST:
-        if str(host.get(key) or "").lower() == "host":
-            raise SandboxViolationError("namespaces", f"{key} shares the host's")
+    for key, allowed in _NAMESPACES.items():
+        value = host.get(key)
+        if value is None:
+            value = ""
+        if not isinstance(value, str) or value.lower() not in allowed:
+            raise SandboxViolationError(
+                "namespaces", f"{key} is {str(value)[:40]!r}, not a private namespace"
+            )
     if _list(host.get("Devices")):
         raise SandboxViolationError("devices", "host devices are mapped in")
+    for key in _MUST_BE_EMPTY:
+        if host.get(key):
+            raise SandboxViolationError("host_config", f"{key} is set")
+    if host.get("OomKillDisable") not in (None, False):
+        raise SandboxViolationError("memory_limit", "the OOM killer is disabled")
 
 
-def _check_limits(host: Mapping[str, Any]) -> None:
+def _options(text: str) -> frozenset[str]:
+    return frozenset(o.strip() for o in text.split(",") if o.strip())
+
+
+def _check_limits(host: Mapping[str, Any], limits: ExpectedLimits | None) -> None:
     pids = host.get("PidsLimit")
-    if not isinstance(pids, int) or pids <= 0:
+    if not isinstance(pids, int) or isinstance(pids, bool) or pids <= 0:
         raise SandboxViolationError("pids_limit", "no process limit")
     memory = host.get("Memory")
-    if not isinstance(memory, int) or memory <= 0:
+    if not isinstance(memory, int) or isinstance(memory, bool) or memory <= 0:
         raise SandboxViolationError("memory_limit", "no memory limit")
+    if limits is not None and memory != limits.memory_bytes:
+        raise SandboxViolationError(
+            "memory_limit", f"Memory is {memory}, the plan says {limits.memory_bytes}"
+        )
+    if host.get("MemorySwap") != memory:
+        raise SandboxViolationError(
+            "memory_limit", "MemorySwap differs from Memory (swap or a larger box)"
+        )
     tmpfs = host.get("Tmpfs")
-    tmp = tmpfs.get(_TMP) if isinstance(tmpfs, Mapping) else None
-    if not isinstance(tmp, str) or "size=" not in tmp:
+    if not isinstance(tmpfs, Mapping) or set(tmpfs) != {_TMP}:
+        raise SandboxViolationError("tmpfs", "Tmpfs must hold /tmp and nothing else")
+    tmp = tmpfs.get(_TMP)
+    if not isinstance(tmp, str) or not any(
+        o.startswith("size=") for o in _options(tmp)
+    ):
         raise SandboxViolationError("tmpfs", "/tmp is not a size-capped tmpfs")  # noqa: S108
+    if limits is not None and _options(tmp) != _options(limits.tmp_options):
+        raise SandboxViolationError(
+            "tmpfs",
+            f"the /tmp options are {tmp[:80]!r}, the plan says {limits.tmp_options!r}",
+        )
 
 
 def _check_mounts(host: Mapping[str, Any], expected: Iterable[ExpectedMount]) -> None:
@@ -151,20 +237,44 @@ def check_host_config(
     role: str,
     mounts: Iterable[ExpectedMount],
     network_allowed: bool,
+    limits: ExpectedLimits | None = None,
 ) -> None:
     """Raise :class:`SandboxViolationError` unless ``host`` (``HostConfig`` of an
     inspected, not yet started container) is our sandbox (module docstring).
-    ``network_allowed``: the ``run`` container may have a network."""
+    ``network_allowed``: the ``run`` container may have a network.
+    ``limits``: the planned memory cap and ``/tmp`` options - the runtime always
+    passes them; without them only the shape is checked (``MemorySwap`` equal to
+    ``Memory``, ``/tmp`` the only tmpfs and sized)."""
     if not isinstance(host, Mapping):
         raise SandboxViolationError("inspect", "no HostConfig to check")
     _check_security(host)
-    _check_limits(host)
+    _check_limits(host, limits)
     _check_mounts(host, mounts)
     if role != "envbuild" and host.get("ReadonlyRootfs") is not True:
         raise SandboxViolationError("read_only", "the root filesystem is writable")
-    if role == "run" and not network_allowed and host.get("NetworkMode") != "none":
+    network = host.get("NetworkMode")
+    if not isinstance(network, str) or network not in _NETWORKS:
+        raise SandboxViolationError(
+            "network", f"NetworkMode {str(network)[:40]!r} is not none or the bridge"
+        )
+    if role == "run" and not network_allowed and network != "none":
         raise SandboxViolationError(
             "network", "the job has a network it was not allowed"
+        )
+
+
+def check_create_options(options: Mapping[str, Any]) -> None:
+    """Raise :class:`SandboxViolationError` (``create_options``) when the create
+    request holds an option outside :data:`CREATE_OPTIONS`.
+
+    Checked after the ``HostConfig`` check, before ``start``: some
+    options are accepted by the API but not reported back (a cgroup v2 daemon
+    ignores ``oom_kill_disable`` and inspects ``OomKillDisable: false``), so
+    only the request shows that the runtime asked for more than its own set."""
+    extra = sorted(set(options) - CREATE_OPTIONS)
+    if extra:
+        raise SandboxViolationError(
+            "create_options", f"unexpected container options: {', '.join(extra)}"
         )
 
 

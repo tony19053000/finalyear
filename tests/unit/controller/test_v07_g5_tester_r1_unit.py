@@ -444,11 +444,6 @@ def _must_refuse(host: dict[str, Any], *, network: bool) -> None:
         )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-3 minor: only seccomp=unconfined is refused; a custom allow-all "
-    "seccomp profile (seccomp=<json>) is accepted though only the daemon default is meant",
-)
 def test_a_custom_allow_all_seccomp_profile_is_refused() -> None:
     host = copy.deepcopy(GOOD)
     host["SecurityOpt"] = [
@@ -458,22 +453,12 @@ def test_a_custom_allow_all_seccomp_profile_is_refused() -> None:
     _must_refuse(host, network=False)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-3 minor: with a network allowed, NetworkMode=host (the host's own "
-    "loopback incl. the controller ports) passes the network assertion",
-)
 def test_host_network_mode_is_refused_even_when_a_network_is_allowed() -> None:
     host = copy.deepcopy(GOOD)
     host["NetworkMode"] = "host"
     _must_refuse(host, network=True)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-3 minor: only PidMode/IpcMode == 'host' is refused; joining another "
-    "container's namespace ('container:<id>') passes",
-)
 @pytest.mark.parametrize("key", ["PidMode", "IpcMode"])
 def test_joining_another_containers_namespace_is_refused(key: str) -> None:
     host = copy.deepcopy(GOOD)
@@ -498,12 +483,6 @@ _UNCHECKED = [
 ]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-3 minor: the create-time assertion reads a fixed list of HostConfig "
-    "fields; MemorySwap, absurd Memory/tmpfs sizes, CgroupnsMode, Sysctls, extra "
-    "Tmpfs entries, OomKillDisable, PortBindings and GroupAdd are never inspected",
-)
 @pytest.mark.parametrize("change", _UNCHECKED)
 def test_a_tampered_field_the_assertion_does_not_read_is_refused(
     change: dict[str, Any],
