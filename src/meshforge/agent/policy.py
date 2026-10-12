@@ -123,7 +123,11 @@ _SIZE_UNITS: Final = {
 
 
 def not_enforced_caps(
-    policy: PolicySettings, *, gpu_count: int = 0, platform: str = sys.platform
+    policy: PolicySettings,
+    *,
+    gpu_count: int = 0,
+    platform: str = sys.platform,
+    cpu_cgroup: bool = False,
 ) -> tuple[str, ...]:
     """Owner caps no runtime limit enforces on this node, as
     ``<field>:<why>`` (D142 item 5: say it, never claim it). Computed from the
@@ -132,8 +136,9 @@ def not_enforced_caps(
     * ``max_vram_bytes:no_runtime_limit`` - always: no runtime caps VRAM
       (placement + admission only).
     * With the unsandboxed runtimes allowed (Docker enforces RAM and CPUs):
-      Linux - ``max_cpu_percent:unsandboxed_linux`` (no cgroup: a lowered
-      priority, not a share); Linux and Windows on a GPU node -
+      Linux - ``max_cpu_percent:unsandboxed_linux`` unless ``cpu_cgroup``
+      (V0.7 G6: the agent runs delegated and each job gets a ``cpu.max``;
+      without it only a lowered priority, not a share); Linux and Windows on a GPU node -
       ``max_ram_bytes:unsandboxed_gpu_jobs`` (``RLIMIT_AS`` / a job memory
       limit would break CUDA, so GPU runs do not get one); any other OS -
       ``max_ram_bytes:unsandboxed_runtime`` and
@@ -149,7 +154,7 @@ def not_enforced_caps(
             "max_cpu_percent:unsandboxed_runtime",
         ]
         return tuple(caps)
-    if linux:
+    if linux and not cpu_cgroup:
         caps.append("max_cpu_percent:unsandboxed_linux")
     if gpu_count > 0:
         caps.append("max_ram_bytes:unsandboxed_gpu_jobs")

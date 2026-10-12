@@ -37,9 +37,13 @@ object carries them (active processes, job memory, a hard CPU-rate cap for
 ``limits.cpus``). A required cap the job object cannot take refuses the run
 (``config_error``, ``limits_not_applied``) rather than run unbounded.
 
-What it does **not** enforce: ``limits.cpus`` on Linux (no cgroup here; the
-priority is lowered), the default memory limit (no owner cap), network off,
-filesystem isolation. ``oom`` is
+On Linux ``limits.cpus`` is a real CPU share only when the agent runs in a
+delegated cgroup v2 (:mod:`.cpu_cgroup`, V0.7 G6): each job then gets its own
+cgroup whose ``cpu.max`` is its planned CPUs.
+
+What it does **not** enforce: ``limits.cpus`` on Linux without such a cgroup
+(the priority is lowered; advertised ``not_enforced``), the default memory
+limit (no owner cap), network off, filesystem isolation. ``oom`` is
 still **detected** (V0.6 D116, :mod:`.failure_evidence`): a workload that died of a
 SIGKILL the agent did not send while the kernel's ``oom_kill`` counter moved, or
 that exited with a Windows out-of-memory status, ends ``oom`` (``signal = 9`` is
@@ -56,10 +60,12 @@ import sys
 import time
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar, Final
 
 from meshforge.agent.envs.errors import EnvError
 from meshforge.agent.execution._pump import OutputPump
+from meshforge.agent.execution.cpu_cgroup import CpuCgroups
 from meshforge.agent.execution.failure_evidence import OomEvidence, windows_oom_exit
 from meshforge.agent.execution.runtime import (
     OutputCallback,
@@ -136,12 +142,14 @@ class SubprocessRuntime:
         lower_priority: bool = True,
         clock: Callable[[], float] = time.monotonic,
         envs: EnvBuilder | None = None,
+        cpu_cgroups: CpuCgroups | None = None,
     ) -> None:
         self._gpu = host_has_nvidia_gpu
         self._env_timeout_s = env_timeout_s
         self._lower_priority = lower_priority
         self._clock = clock
         self._envs = envs
+        self._cgroups = cpu_cgroups
 
     # ------------------------------------------------------- cached envs
     def _uses_env_cache(self, spec: RunSpec) -> bool:
@@ -404,14 +412,54 @@ class SubprocessRuntime:
         setup: bool,
         use: EnvUse | None = None,
     ) -> _Exit:
-        handle = await spawn(
-            argv,
-            env=self._env(spec, setup=setup, use=use),
-            cwd=spec.workdir,
-            lower_priority=self._lower_priority,
-            guard_group=True,  # D59: no grandchild outlives a killed agent
-            limits=None if setup else run_limits(spec),
-        )
+        cgroup = None if setup else await self._job_cgroup(spec)
+        try:
+            handle = await spawn(
+                argv,
+                env=self._env(spec, setup=setup, use=use),
+                cwd=spec.workdir,
+                lower_priority=self._lower_priority,
+                guard_group=True,  # D59: no grandchild outlives a killed agent
+                limits=None if setup else run_limits(spec, cgroup=cgroup),
+            )
+        except BaseException:
+            await self._drop_cgroup(cgroup)
+            raise
+        try:
+            return await self._supervise(handle, spec, pump, obs, setup=setup)
+        finally:
+            await self._drop_cgroup(cgroup)
+
+    async def _job_cgroup(self, spec: RunSpec) -> Path | None:
+        """V0.7 G6: the job's CPU-share cgroup (Linux, delegated agent, a CPU
+        cap planned). A cgroup the agent promised but cannot create refuses
+        the run (``limits_not_applied``), never runs it uncapped."""
+        if self._cgroups is None or spec.limits.cpus is None:
+            return None
+        try:
+            return await asyncio.to_thread(
+                self._cgroups.create, spec.attempt_id, spec.limits.cpus
+            )
+        except (OSError, ValueError) as exc:
+            raise SpawnError(
+                f"cannot create the job's CPU cgroup: {type(exc).__name__}",
+                reason="limits_not_applied",
+            ) from exc
+
+    async def _drop_cgroup(self, cgroup: Path | None) -> None:
+        if cgroup is None or self._cgroups is None:
+            return
+        await asyncio.shield(asyncio.to_thread(self._cgroups.remove, cgroup))
+
+    async def _supervise(
+        self,
+        handle: ProcessHandle,
+        spec: RunSpec,
+        pump: OutputPump,
+        obs: RunObserver,
+        *,
+        setup: bool,
+    ) -> _Exit:
         obs.ident = str(handle.pid)
         if not setup:
             obs.run_started = self._clock()
@@ -481,14 +529,16 @@ class SubprocessRuntime:
         await handle.wait(_STOP_SLACK_S)
 
 
-def run_limits(spec: RunSpec) -> ProcessLimits:
-    """The workload's process limits (the setup step gets none: it is ours)."""
+def run_limits(spec: RunSpec, *, cgroup: Path | None = None) -> ProcessLimits:
+    """The workload's process limits (the setup step gets none: it is ours).
+    ``cgroup``: the job's CPU-share cgroup (V0.7 G6, Linux) the shim joins."""
     limits = spec.limits
     return ProcessLimits(
         memory_bytes=limits.memory_bytes if limits.enforce_memory else None,
         tasks=limits.pids,
         cpus=limits.cpus,
-        required=limits.enforce_memory,
+        required=limits.enforce_memory or cgroup is not None,
+        cgroup=None if cgroup is None else str(cgroup),
     )
 
 

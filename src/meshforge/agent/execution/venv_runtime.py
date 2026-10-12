@@ -33,6 +33,7 @@ from meshforge.agent.envs._tool import capture_tool, tool_env, venv_bin
 from meshforge.agent.envs.builder import EnvBuilder
 from meshforge.agent.envs.errors import EnvError
 from meshforge.agent.execution._pump import OutputPump
+from meshforge.agent.execution.cpu_cgroup import CpuCgroups
 from meshforge.agent.execution.runtime import RunSpec, RuntimeAvailability
 from meshforge.agent.execution.subprocess_runtime import (
     EnvUse,
@@ -59,6 +60,7 @@ class VenvRuntime(SubprocessRuntime):
         env_timeout_s: float = 1800.0,
         lower_priority: bool = True,
         clock: Callable[[], float] = time.monotonic,
+        cpu_cgroups: CpuCgroups | None = None,
     ) -> None:
         super().__init__(
             host_has_nvidia_gpu=host_has_nvidia_gpu,
@@ -66,6 +68,7 @@ class VenvRuntime(SubprocessRuntime):
             lower_priority=lower_priority,
             clock=clock,
             envs=envs,
+            cpu_cgroups=cpu_cgroups,
         )
         self._builder = envs
 

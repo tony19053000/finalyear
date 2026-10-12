@@ -376,7 +376,11 @@ async def serve(
     )
     # V0.7 G5 (D142): the owner's live policy - in every Hello, re-checked at
     # every StartAttempt, changes pushed as PolicyUpdate reports.
-    live_policy = build_live_policy(settings, gpu_count=len(hardware.gpus))
+    live_policy = build_live_policy(
+        settings,
+        gpu_count=len(hardware.gpus),
+        cpu_cgroup=execution.cpu_cgroups is not None,
+    )
     client.live_policy = live_policy
     cas = AgentCas.at(settings.data_dir)
     peer = await start_peer(settings, cas, client, identity=identity)
@@ -473,9 +477,13 @@ async def serve(
 _POLICY_KEY_OF: Final = {"execution.enabled": "accept_jobs"}
 
 
-def build_live_policy(settings: AgentSettings, *, gpu_count: int) -> LivePolicy:
+def build_live_policy(
+    settings: AgentSettings, *, gpu_count: int, cpu_cgroup: bool = False
+) -> LivePolicy:
     """The agent's :class:`LivePolicy` (V0.7 G5, D142); warns once per
-    deprecated ``[agent.execution]`` key the configuration still uses."""
+    deprecated ``[agent.execution]`` key the configuration still uses.
+    ``cpu_cgroup`` (V0.7 G6): the unsandboxed Linux runtimes enforce CPU
+    shares through per-job cgroups."""
     for key in settings.agent.deprecated_keys:
         log.warning(
             "agent.config.deprecated_key",
@@ -487,7 +495,9 @@ def build_live_policy(settings: AgentSettings, *, gpu_count: int) -> LivePolicy:
         policy_path(settings),
         gpu_count=gpu_count,
         max_concurrent_attempts=settings.agent.execution.max_concurrent_attempts,
-        not_enforced=functools.partial(not_enforced_caps, gpu_count=gpu_count),
+        not_enforced=functools.partial(
+            not_enforced_caps, gpu_count=gpu_count, cpu_cgroup=cpu_cgroup
+        ),
     )
 
 

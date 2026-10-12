@@ -113,6 +113,8 @@ _TASKKILL_TIMEOUT_S: Final = 5.0
 #: before ``execve``: ``RLIMIT_AS`` to ``as``, ``RLIMIT_NPROC`` to the tasks the
 #: real uid has now plus ``nproc`` (both never above the inherited hard limit);
 #: one that cannot be set ends the shim with 125 and a ``meshforge:`` line.
+#: ``cg=<cgroup dir>`` (V0.7 G6): the shim first joins that cgroup v2 (writes
+#: ``0`` to its ``cgroup.procs``) - the job's CPU share; failing to is a 125.
 _PDEATHSIG_SHIM: Final = r"""
 import ctypes, os, select, signal, sys
 ppid, nice, keep_lc = int(sys.argv[1]), int(sys.argv[2]), sys.argv[3] == "1"
@@ -195,6 +197,9 @@ if limits != "-":
     import resource
     try:
         want = dict(item.split("=", 1) for item in limits.split(";"))
+        if "cg" in want:
+            with open(want["cg"] + "/cgroup.procs", "w") as fh:
+                fh.write("0\n")
         for key, which, extra in (
             ("as", resource.RLIMIT_AS, False),
             ("nproc", resource.RLIMIT_NPROC, True),
@@ -231,7 +236,8 @@ class ProcessLimits:
 
     Linux (the exec shim): ``memory_bytes`` -> ``RLIMIT_AS``; ``tasks`` ->
     ``RLIMIT_NPROC`` = the tasks the user has at exec + ``tasks``; ``cpus`` is
-    not enforceable without a cgroup and is ignored (advertised as not enforced).
+    enforced only through ``cgroup`` (a job cgroup whose ``cpu.max`` the caller
+    set, V0.7 G6); without one it is ignored (advertised as not enforced).
     Windows (the job object): ``memory_bytes`` -> job memory limit; ``tasks`` ->
     active-process limit; ``cpus`` -> hard CPU-rate cap. Elsewhere: nothing.
 
@@ -245,6 +251,9 @@ class ProcessLimits:
     tasks: int | None = None
     cpus: float | None = None
     required: bool = False
+    cgroup: str | None = None
+    """V0.7 G6 (Linux): a cgroup v2 directory the shim joins before ``execve``
+    (its ``cpu.max`` is the job's CPU share, :mod:`.execution.cpu_cgroup`)."""
 
 
 def shim_limits(limits: ProcessLimits | None) -> str:
@@ -256,6 +265,10 @@ def shim_limits(limits: ProcessLimits | None) -> str:
         parts.append(f"as={int(limits.memory_bytes)}")
     if limits.tasks is not None:
         parts.append(f"nproc={int(limits.tasks)}")
+    if limits.cgroup is not None:
+        if any(c in limits.cgroup for c in ";=\0\n"):
+            raise ValueError("unusable cgroup path")
+        parts.append(f"cg={limits.cgroup}")
     return ";".join(parts) or "-"
 
 

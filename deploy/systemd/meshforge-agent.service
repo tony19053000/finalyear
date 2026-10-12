@@ -45,6 +45,12 @@ StandardError=journal
 # real sandboxing lives with the executor (V0.5), not here.
 NoNewPrivileges=true
 PrivateTmp=true
+# V0.7 G6: give the agent its own cgroup subtree, with the agent itself in the
+# leaf "agent", so jobs of the unsandboxed runtimes get a real CPU share
+# ([agent.policy] max_cpu_percent -> cpu.max per job). Needs systemd >= 254;
+# older systemd ignores DelegateSubgroup and the cap stays "not_enforced".
+Delegate=yes
+DelegateSubgroup=agent
 
 [Install]
 WantedBy=default.target

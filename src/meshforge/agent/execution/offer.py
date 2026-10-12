@@ -17,6 +17,9 @@ instances the executor may use. Rules (ADR-0014):
 * the subprocess and venv runtimes exist only with ``[agent.policy]
   allow_unsandboxed = true`` at start (turning it on live needs a restart;
   turning it off live is honoured per attempt by the policy check);
+* with the unsandboxed runtimes, the CPU-share cgroup is probed
+  (:mod:`.cpu_cgroup`, V0.7 G6): when the agent runs delegated, every job of
+  theirs gets a real ``cpu.max``; else the cap is advertised not enforced;
 * one :class:`~meshforge.agent.envs.builder.EnvBuilder` (``[agent.envs]``) is shared
   by every runtime: requirements are installed once per env hash (V0.5 D86);
 * enabled + the controller found by **mDNS** -> ``agent.execution.unpinned_controller``
@@ -34,6 +37,11 @@ from dataclasses import dataclass, field
 from typing import Final
 
 from meshforge.agent.envs.builder import EnvBuilder, EnvsConfig
+from meshforge.agent.execution.cpu_cgroup import (
+    CpuCgroupProbe,
+    CpuCgroups,
+    probe_cpu_cgroups,
+)
 from meshforge.agent.execution.docker_runtime import DockerConfig, DockerRuntime
 from meshforge.agent.execution.runtime import Runtime, RuntimeAvailability
 from meshforge.agent.execution.selection import ExecutionOffer, execution_offer
@@ -61,6 +69,9 @@ class ExecutionSetup:
     """Offered **and available** runtimes by name (``docker``, ``venv``, ``subprocess``)."""
     docker: DockerRuntime | None = None
     """The Docker runtime when available (for the start-up orphan sweep)."""
+    cpu_cgroups: CpuCgroups | None = None
+    """V0.7 G6: per-job CPU-share cgroups for the unsandboxed Linux runtimes
+    (None = not available here; ``max_cpu_percent`` stays not enforced)."""
 
     @property
     def enabled(self) -> bool:
@@ -81,6 +92,7 @@ async def build_execution(
     node_id: str,
     host_has_nvidia_gpu: bool,
     docker_factory: Callable[[DockerConfig], DockerRuntime] | None = None,
+    cgroup_probe: Callable[[], CpuCgroupProbe] = probe_cpu_cgroups,
 ) -> ExecutionSetup:
     """Probe and build the execution setup (see module docstring). Never raises."""
     cfg = settings.agent.execution
@@ -112,17 +124,21 @@ async def build_execution(
     subprocess_found: RuntimeAvailability | None = None
     venv_rt: VenvRuntime | None = None
     venv_found: RuntimeAvailability | None = None
+    cgroups: CpuCgroups | None = None
     if policy.allow_unsandboxed:
+        cgroups = await asyncio.to_thread(_cpu_cgroups, node_id, cgroup_probe)
         subprocess_rt = SubprocessRuntime(
             host_has_nvidia_gpu=host_has_nvidia_gpu,
             env_timeout_s=cfg.env_timeout_s,
             envs=envs,
+            cpu_cgroups=cgroups,
         )
         subprocess_found = await subprocess_rt.probe()
         venv_rt = VenvRuntime(
             envs=envs,
             host_has_nvidia_gpu=host_has_nvidia_gpu,
             env_timeout_s=cfg.env_timeout_s,
+            cpu_cgroups=cgroups,
         )
         venv_found = await venv_rt.probe()
     offer = execution_offer(
@@ -156,7 +172,27 @@ async def build_execution(
         offer=offer,
         runtimes=runtimes,
         docker=docker if docker_found.available else None,
+        cpu_cgroups=cgroups,
     )
+
+
+def _cpu_cgroups(
+    node_id: str, probe: Callable[[], CpuCgroupProbe]
+) -> CpuCgroups | None:
+    """V0.7 G6: the delegated cgroup for job CPU shares, or None (logged with
+    the typed reason; the cap is then advertised ``not_enforced``)."""
+    found = probe()
+    if found.parent is None:
+        log.info(
+            "agent.execution.cpu_cgroup_unavailable",
+            node_id=node_id,
+            reason=found.reason,
+        )
+        return None
+    cgroups = CpuCgroups(found.parent)
+    cgroups.sweep()  # job cgroups a crashed agent left behind
+    log.info("agent.execution.cpu_cgroup_ready", node_id=node_id)
+    return cgroups
 
 
 async def _probe(runtime: DockerRuntime, bound_s: float) -> RuntimeAvailability:
