@@ -126,6 +126,7 @@ class _SummaryFields(TypedDict):
     gpus: tuple[GpuUsage, ...]
     scores: NodeScores
     certificate: NodeCertificate | None
+    not_enforced: tuple[str, ...] | None
 
 
 def _certificate(node: NodeRecord) -> NodeCertificate | None:
@@ -170,6 +171,11 @@ def _summary_fields(
         "gpus": _gpus(sample),
         "scores": node_scores(node),
         "certificate": _certificate(node),
+        "not_enforced": (
+            tuple(live.policy.not_enforced)
+            if live is not None and live.policy is not None
+            else None
+        ),
     }
 
 

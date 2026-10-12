@@ -52,6 +52,7 @@ __all__ = [
     "format_bytes",
     "node_detail_table",
     "nodes_table",
+    "not_enforced_cell",
     "scores_cell",
     "scores_table",
     "state_counts",
@@ -68,6 +69,7 @@ NODE_COLUMNS = (
     "RAM",
     "GPU",
     "AGE",
+    "NOT ENFORCED",
     "SCORES",
 )
 
@@ -359,9 +361,34 @@ def nodes_table(payload: Mapping[str, Any]) -> Table:
             _ram(node),
             _gpus(node),
             format_age(node.get("sample_age_s")),
+            not_enforced_cell(node.get("not_enforced")),
             scores_cell(node),
         )
     return table
+
+
+_CAP_SHORT: dict[str, str] = {
+    "max_ram_bytes": "ram",
+    "max_cpu_percent": "cpu",
+    "max_vram_bytes": "vram",
+}
+
+
+def not_enforced_cell(value: object) -> Text:
+    """V0.7 G6: the owner caps the node says it cannot enforce, as short field
+    names (``vram, cpu``); ``none`` = all enforced; ``-`` = unknown (offline).
+    The full ``<field>:<why>`` list is in ``compute nodes NODE_ID``."""
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+        return Text(DASH)
+    fields: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            continue
+        field = item.split(":", 1)[0]
+        short = _CAP_SHORT.get(field, field)
+        if short not in fields:
+            fields.append(short)
+    return _cell(", ".join(fields) if fields else "none")
 
 
 _DETAIL_FIELDS: tuple[tuple[str, str], ...] = (
@@ -406,6 +433,18 @@ def node_detail_table(payload: Mapping[str, Any]) -> Table:
             # stores `Hello.hardware` as given), so both go through `_cell`.
             table.add_row(_cell(f"hardware.{key}"), _cell(hardware[key]))
     table.add_row("scores", scores_cell(payload))
+    policy = payload.get("owner_policy")
+    if isinstance(policy, Mapping):
+        for key in sorted(policy):
+            value = policy[key]
+            if key == "not_enforced":
+                listed = (
+                    [str(v) for v in value]
+                    if isinstance(value, Sequence) and not isinstance(value, str)
+                    else []
+                )
+                value = ", ".join(listed) if listed else "none"
+            table.add_row(_cell(f"policy.{key}"), _cell(value))
     live = payload.get("cpu_percent"), payload.get("ram_used_bytes")
     if _num(live[0]) is not None or _num(live[1]) is not None:
         table.add_row("cpu%", _percent(payload.get("cpu_percent")))

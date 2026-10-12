@@ -142,6 +142,7 @@ def test_summary_json_field_order_is_the_declaration_order() -> None:
         "gpus",
         "scores",  # G7-B (0.3.4): appended, never reordered
         "certificate",  # V0.7 G2: appended
+        "not_enforced",  # V0.7 G6: appended
     ]
 
 

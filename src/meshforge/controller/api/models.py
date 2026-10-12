@@ -189,6 +189,14 @@ class NodeSummary(ApiModel):
             "the session port before V0.7 G3."
         ),
     )
+    not_enforced: tuple[str, ...] | None = Field(
+        default=None,
+        description=(
+            "V0.7 G6: the owner caps no runtime limit enforces on this node "
+            "(``<field>:<why>``, from its live session's owner policy); null = "
+            "offline or an agent from before V0.7 G5."
+        ),
+    )
 
 
 class CacheCount(ApiModel):

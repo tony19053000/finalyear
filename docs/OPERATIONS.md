@@ -426,13 +426,25 @@ INVALID) - it never falls back to something looser.
   | Cap | Docker (all OSes) | subprocess/venv on Linux | subprocess/venv on Windows | other OS |
   |---|---|---|---|---|
   | `max_ram_bytes` | `--memory` (no swap) | `RLIMIT_AS` = the cap (address space, stricter than RAM); **not** for GPU jobs | job-object memory limit; **not** for GPU jobs | not enforced |
-  | `max_cpu_percent` | `--cpus` | **not enforced** (lowered priority only) | job-object hard CPU-rate cap | not enforced |
+  | `max_cpu_percent` | `--cpus` | a per-job cgroup `cpu.max` when the agent runs **delegated** (the systemd user unit with `Delegate=yes` + `DelegateSubgroup=agent`, systemd >= 254; V0.7 G6); otherwise **not enforced** (lowered priority only) | job-object hard CPU-rate cap | not enforced |
   | processes (`default_pids`) | `--pids-limit` | `RLIMIT_NPROC`: at most `default_pids` more processes/threads than your user had when the job started (shared with your other programs; root is exempt) | job-object active-process limit | not enforced |
   | `max_vram_bytes` | placement only | placement only | placement only | placement only |
 
   Whatever is not enforced on this laptop is **said**, never claimed: the agent
   advertises it as `not_enforced` (e.g. `max_vram_bytes:no_runtime_limit`,
   `max_cpu_percent:unsandboxed_linux`, `max_ram_bytes:unsandboxed_gpu_jobs`),
+  and `compute nodes` lists it in its `not enforced` column (V0.7 G6). **Linux
+  CPU share (V0.7 G6):** at start the agent logs
+  `agent.execution.cpu_cgroup_ready` or `agent.execution.cpu_cgroup_unavailable`
+  with a reason (`not_delegated` = started from a terminal or an older unit;
+  `no_cpu_controller`, `not_writable`, `cannot_enable_cpu`, `no_cgroup_v2`).
+  Delegated, each job runs in `<agent's service cgroup>/mf-<attempt id>`
+  (removed after the run; `cgroup.kill` also ends a child that escaped with
+  `setsid`; leftovers of a crashed agent are removed at the next start). A job
+  cgroup that cannot be created refuses the job `config_error` /
+  `limits_not_applied`. Re-copy `deploy/systemd/meshforge-agent.service`
+  (it gained `Delegate=yes` + `DelegateSubgroup=agent`) and
+  `systemctl --user daemon-reload && systemctl --user restart meshforge-agent`.
   and `compute nodes <node id>` / `GET /v1/nodes/<node id>` shows it under
   `owner_policy`. On Windows, if the job object cannot take a required RAM cap
   the job is refused (`config_error`, `limits_not_applied`) rather than run
