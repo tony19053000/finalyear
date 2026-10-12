@@ -26,6 +26,7 @@ from __future__ import annotations
 
 from typing import Final
 
+from meshforge.common import owner_policy
 from meshforge.common.capabilities import (
     EXEC_CAPABILITY,
     EXEC_DOCKER_CAPABILITY,
@@ -47,6 +48,7 @@ __all__ = [
     "live_rejection",
     "missing_bytes",
     "missing_trees",
+    "policy_rejection",
     "rejection",
     "static_rejection",
 ]
@@ -78,8 +80,11 @@ def static_rejection(request: PlanRequest, node: NodeSnapshot) -> Rejection | No
         return Rejection(
             RejectCode.NOT_EXEC,
             "the node does not accept jobs (its owner has not enabled "
-            "[agent.execution])",
+            "[agent.policy] accept_jobs)",
         )
+    refused = policy_rejection(request, node)
+    if refused is not None:
+        return refused
     if request.gpu == "required":
         if not node.gpu_vram_bytes:
             return Rejection(
@@ -147,6 +152,31 @@ def static_rejection(request: PlanRequest, node: NodeSnapshot) -> Rejection | No
             "node only offers the venv runtime",
         )
     return None
+
+
+def policy_rejection(request: PlanRequest, node: NodeSnapshot) -> Rejection | None:
+    """V0.7 G5 (D142): the node owner's policy, by the rule the agent re-checks
+    with (:func:`meshforge.common.owner_policy.refusal`). A node offering
+    Docker can run the job sandboxed; without it only the unsandboxed runtimes
+    remain (``policy_unsandboxed`` when the owner disallows those now)."""
+    if node.policy is None:
+        return None
+    refused = owner_policy.refusal(
+        node.policy,
+        owner_policy.JobAsk(
+            owner_name=request.owner_name,
+            gpu_required=request.gpu == "required",
+            vram_bytes=request.vram_bytes,
+            ram_bytes=request.ram_bytes,
+            cpus=request.cpus,
+            network=request.network,
+            sandboxed_runtime=EXEC_DOCKER_CAPABILITY in node.capabilities,
+            node_cpu_threads=node.cpu_threads,
+        ),
+    )
+    if refused is None:
+        return None
+    return Rejection(RejectCode(refused.code.value), refused.text)
 
 
 def _gpu_free(request: PlanRequest, node: NodeSnapshot) -> bool:

@@ -14,7 +14,9 @@
   A tree job (V0.5 D83) carries ``tree_id`` (and an empty ``bundle_digest``)
   and its blob ``sources``: the controller first, with the attempt's fetch token
   (scoped to the tree); the dispatcher appends the peers holding the tree with
-  their own signed tokens (V0.5 G4, D89/D98/D100).
+  their own signed tokens (V0.5 G4, D89/D98/D100). V0.7 G5 (D142): it names
+  the job owner (``owner_name``, recorded in the start snapshot) so the agent
+  can apply its owner's ``allowed_users``.
 """
 
 from __future__ import annotations
@@ -25,6 +27,7 @@ from collections.abc import Collection, Mapping
 from typing import Any, Final
 
 from meshforge.common.manifest import Manifest
+from meshforge.common.owner_policy import OwnerPolicy
 from meshforge.common.proto.meshforge.v1 import agent_pb2
 from meshforge.controller.jobs.store import AttemptRecord, JobRecord
 from meshforge.controller.planner.inputs import gpu_indices_of, gpu_vram_of
@@ -77,9 +80,16 @@ def start_snapshot(
     monotonic_now: float,
     wall_now: dt.datetime,
     gpu_indices: tuple[int, ...],
+    owner_name: str | None = None,
+    policy: OwnerPolicy | None = None,
 ) -> dict[str, Any]:
-    """The JSON start snapshot (see module docstring)."""
+    """The JSON start snapshot (see module docstring). V0.7 G5 (D142):
+    ``owner_name`` is the job owner's user name the ``StartAttempt`` carries
+    (the agent checks ``allowed_users``), ``owner_policy`` the node's
+    advertised policy at dispatch (conditions, like the sample)."""
     return {
+        "owner_name": owner_name,
+        "owner_policy": None if policy is None else policy.as_dict(),
         "version": SNAPSHOT_VERSION,
         "taken_at": wall_now.isoformat(),
         "node": {
@@ -119,6 +129,7 @@ def execution_spec(
         timeout_s=int(manifest.limits.timeout),
         output_globs=list(manifest.outputs),
         tree_id=job.tree_id or "",
+        owner_name=str(snapshot.get("owner_name") or ""),
         sources=[agent_pb2.BlobSource(url=blob_url, token=fetch_token, node_id="")]
         if job.tree_id
         else [],

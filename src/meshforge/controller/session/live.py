@@ -18,6 +18,7 @@ from typing import Final
 
 import grpc
 
+from meshforge.common.owner_policy import OwnerPolicy
 from meshforge.common.proto.meshforge.v1 import agent_pb2
 from meshforge.controller.liveness import LeaseTracker, LivenessEvent, NodeState
 from meshforge.controller.registry import SessionEndReason
@@ -178,6 +179,15 @@ class LiveSession:
     cert_not_after: dt.datetime | None = None
     """The admitted certificate's ``not_after`` (wall clock): the expiry timer
     re-checks it when it fires (D156 d)."""
+    policy: OwnerPolicy | None = None
+    """V0.7 G5 (D142): the owner policy the node advertised (Hello, then each
+    PolicyUpdate); None = an agent from before G5 (:mod:`.policies`)."""
+    policy_refused: str | None = None
+    """Why the last advertised policy was refused (the session then holds
+    ``DENY_ALL``, fail closed); None = valid or absent."""
+    policy_slots: tuple[int | None, int | None] | None = None
+    """Slots from the newest PolicyUpdate (override the Hello's); None = none
+    received in this session."""
     declared_gpus: frozenset[int] = frozenset()
     """``Hello.hardware.gpus[].index`` of this session: the only GPU indices its
     score reports may name (D39)."""

@@ -158,6 +158,7 @@ from meshforge.controller.session.peer_cert import (
     refusal_for,
     status_for,
 )
+from meshforge.controller.session.policies import PolicyIntake
 from meshforge.controller.session.reports import ReportHandlers, declared_gpus
 from meshforge.controller.session.writer import DEFAULT_WRITE_CAPACITY, WriteChain
 
@@ -235,12 +236,15 @@ class SessionManager:
         """Pending Hellos and the session ends they defer (D28, :mod:`.claims`)."""
         self.reports = ReportHandlers(registry, clock=clock, resources=resources)
         """Report handlers and their counters (:mod:`.reports`)."""
+        self.policies = PolicyIntake()
+        """V0.7 G5 (D142): advertised owner policies (:mod:`.policies`)."""
         self.heartbeats = HeartbeatRecorder(registry, liveness, clock=clock)
         """Coalesced ``last_seen_at`` writes and RTT samples (:mod:`.heartbeats`)."""
         self.dispatch = DispatchTable(log_unhandled)
         """payload name -> handler (D42); later versions register theirs here."""
         self.dispatch.register("heartbeat", self._on_heartbeat)
         self.dispatch.register("pong", self.heartbeats.on_pong_message)
+        self.dispatch.register("policy_update", self._on_policy_update)
         self.commands = CommandChannel(
             live=self._live,
             close=lambda live, reason: self._ends.close(live, reason),
@@ -594,6 +598,7 @@ class SessionManager:
             # written for it - its fenced writes still queued are stale by now.
             self._ends.end_linger(lingering, cause="reconnected")
         live = self._new_session(hello, peer_address, session_id, state)
+        self.policies.on_hello(live, hello)
         live.hardware_scores_received = int(scores is not None)
         live.hardware_scores_rejected = int(scores_rejected)
         attempt.admitted = True
@@ -876,6 +881,14 @@ class SessionManager:
         if live.state is NodeState.SUSPECT:
             await self.apply_event(live, LivenessEvent.HEARTBEAT, silence_s=0.0)
         self.heartbeats.touch(live, now, force=False)
+
+    async def _on_policy_update(
+        self, live: LiveSession, msg: agent_pb2.AgentMessage
+    ) -> None:
+        """V0.7 G5 (D142): the owner changed the node's policy live; the
+        dispatcher re-plans at once (a job no node allows any more fails)."""
+        self.policies.on_update(live, msg.policy_update)
+        self.wake.set()
 
     async def _on_goodbye(self, live: LiveSession, msg: agent_pb2.AgentMessage) -> None:
         """The agent's announced end (D40): ``agent_closed`` now, never acked."""

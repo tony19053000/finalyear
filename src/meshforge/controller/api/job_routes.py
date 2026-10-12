@@ -454,19 +454,30 @@ def _node_id_or_none(value: str | None, field: str) -> str | None:
 
 
 async def _check_where(
-    fabric: FabricView, manifest: Manifest, node_id: str | None
+    fabric: FabricView, manifest: Manifest, node_id: str | None, owner_name: str | None
 ) -> None:
     """Pinned: the V0.4 check of that one node. Auto (D104): at least one
-    enrolled node could ever run it; otherwise 409 with every rejection."""
+    enrolled node could ever run it; otherwise 409 with every rejection.
+    V0.7 G5 (D142): connected nodes' owner policies count (``owner_name`` =
+    the submitter, for ``allowed_users``)."""
     try:
         if node_id is not None:
             node = await fabric.registry.get_node(node_id)
+            live = fabric.manager.get(node_id)
             check_placement(
-                manifest, node, connected=fabric.manager.get(node_id) is not None
+                manifest,
+                node,
+                connected=live is not None,
+                policy=None if live is None else live.policy,
+                owner_name=owner_name,
             )
         else:
             nodes = await fabric.registry.list_nodes(limit=MAX_PLANNED_NODES)
-            check_auto(manifest, nodes)
+            policies = {}
+            for record in nodes:
+                live = fabric.manager.get(record.node_id)
+                policies[record.node_id] = None if live is None else live.policy
+            check_auto(manifest, nodes, policies=policies, owner_name=owner_name)
     except PlacementError as exc:
         # No job_id on purpose: a refused request creates no job (D50, D62-5).
         log.info(
@@ -560,7 +571,12 @@ async def submit_job(
                     f"bundle {submission.bundle_digest} is not in the blob store; "
                     f"upload it with PUT /v1/blobs/{bundle_hex} first",
                 )
-        await _check_where(fabric, manifest, node_id)
+        await _check_where(
+            fabric,
+            manifest,
+            node_id,
+            None if user.user_id is None else user.name,
+        )
         project_key = submission.tree_id or submission.bundle_digest or ""
         bundle_hex = (submission.bundle_digest or "").removeprefix("sha256:")
         request_env = env_key(

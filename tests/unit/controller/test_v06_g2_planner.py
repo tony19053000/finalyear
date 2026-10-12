@@ -18,6 +18,7 @@ from typing import Any
 import pytest
 
 from meshforge.common.manifest import POLICIES
+from meshforge.common.owner_policy import OPEN_POLICY, OwnerPolicy
 from meshforge.controller.planner import (
     ClusterSnapshot,
     History,
@@ -97,6 +98,18 @@ def chosen(decision: Any) -> str | None:
 # ------------------------------------------------------------------ feasibility
 
 
+def _OPEN_SUB(**kw: Any) -> OwnerPolicy:  # noqa: N802 - reads like a constant
+    """An open owner policy with ``kw`` changed (V0.7 G5)."""
+    return dataclasses.replace(OPEN_POLICY, **kw)
+
+
+_GPU_KW: dict[str, Any] = {
+    "capabilities": EXEC_GPU,
+    "gpu_vram_bytes": (4 * GIB,),
+    "gpu_slots": 1,
+}
+
+
 STATIC_CASES: list[tuple[RejectCode, dict[str, Any], dict[str, Any]]] = [
     (RejectCode.REVOKED, {"state": "revoked"}, {}),
     (RejectCode.NOT_EXEC, {"capabilities": frozenset({"docker"})}, {}),
@@ -125,6 +138,30 @@ STATIC_CASES: list[tuple[RejectCode, dict[str, Any], dict[str, Any]]] = [
         {"capabilities": frozenset({"exec", "exec-venv"})},
         {"base": "cuda-pytorch"},
     ),
+    # V0.7 G5 (D142): the owner's policy (each code also in test_v07_g5_*)
+    (RejectCode.POLICY_NOT_ACCEPTING, {"policy": OwnerPolicy()}, {}),
+    (
+        RejectCode.POLICY_USER_NOT_ALLOWED,
+        {"policy": _OPEN_SUB(allowed_users=("alice",))},
+        {"owner_name": "bob"},
+    ),
+    (RejectCode.POLICY_UNSANDBOXED, {"policy": _OPEN_SUB(allow_unsandboxed=False)}, {}),
+    (
+        RejectCode.POLICY_NETWORK,
+        {"policy": _OPEN_SUB(allow_network=False)},
+        {"network": True},
+    ),
+    (
+        RejectCode.POLICY_VRAM,
+        {"policy": _OPEN_SUB(max_vram_bytes=GIB), **_GPU_KW},
+        {"gpu": "required", "vram_bytes": GIB + 1},
+    ),
+    (
+        RejectCode.POLICY_RAM,
+        {"policy": _OPEN_SUB(max_ram_bytes=GIB)},
+        {"ram_bytes": GIB + 1},
+    ),
+    (RejectCode.POLICY_CPU, {"policy": _OPEN_SUB(max_cpu_percent=50)}, {"cpus": 4.5}),
 ]
 
 

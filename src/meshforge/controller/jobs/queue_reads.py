@@ -32,7 +32,9 @@ PostgreSQL into a :class:`FabricRows`:
 * the reason key of each job's latest decision (D104: a waiting job's
   decision is recorded again only when it changes);
 * the failed / lost attempts of the batch's retried jobs (V0.6 G3, D110:
-  where a retry should not go).
+  where a retry should not go);
+* the user names of the batch's job owners (V0.7 G5, D142: owner policies'
+  ``allowed_users``).
 
 Every read is bounded. :meth:`FabricRows.took` updates the slot counts when the
 tick creates an attempt, so a later job in the same tick sees the slot taken.
@@ -60,6 +62,7 @@ from meshforge.controller.planner.types import (
     History,
     LinkStat,
 )
+from meshforge.controller.store.models.auth import AppUser
 from meshforge.controller.store.models.cache import CacheLocation
 from meshforge.controller.store.models.data import JobInput, NamedInput
 from meshforge.controller.store.models.job import Attempt, AttemptPhaseRow, Job
@@ -134,6 +137,9 @@ class FabricRows:
     """(src, dst) -> the network matrix row (V0.6 G4, D111)."""
     controller_links: dict[str, ControllerLinkStat] = field(default_factory=dict)
     """node_id -> controller -> node bandwidth from transfer history."""
+    owner_names: dict[str, str] = field(default_factory=dict)
+    """V0.7 G5 (D142): user id -> user name of the batch's job owners (owner
+    policies' ``allowed_users``)."""
     snapshot: ClusterSnapshot | None = None
     """The planner snapshot built from these rows (the dispatcher's, cached
     for the tick and patched by :meth:`took`)."""
@@ -490,6 +496,12 @@ async def read_fabric(
     fabric.past_failures = await _past_failures(
         db, [j.id for j in jobs if int(j.attempt_epoch) > 0]
     )
+    owners = sorted({j.owner_user_id for j in jobs if j.owner_user_id is not None})
+    if owners:
+        names = await db.execute(
+            select(AppUser.id, AppUser.name).where(AppUser.id.in_(owners))
+        )
+        fabric.owner_names = {str(i): str(n) for i, n in names.all()}
     return fabric
 
 

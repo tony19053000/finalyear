@@ -65,6 +65,8 @@ class Live:
     session_id: str
     state: NodeState = NodeState.ONLINE
     rtt_ewma_ms: float | None = 1.0
+    policy: Any = None  # V0.7 G5: no advertised owner policy
+    policy_slots: Any = None
 
 
 class Manager:

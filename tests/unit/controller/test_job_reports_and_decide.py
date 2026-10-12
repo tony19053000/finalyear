@@ -203,7 +203,9 @@ def _planner(manager: FakeManager, clock: Clock) -> DispatchPlanner:
 
 
 def _live(state: NodeState) -> SimpleNamespace:
-    return SimpleNamespace(state=state, rtt_ewma_ms=None, session_id="s")
+    return SimpleNamespace(
+        state=state, rtt_ewma_ms=None, session_id="s", policy=None, policy_slots=None
+    )
 
 
 def test_pinned_decide_rules_keep_v04_behaviour() -> None:

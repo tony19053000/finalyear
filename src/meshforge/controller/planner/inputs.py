@@ -26,6 +26,7 @@ from typing import Any, Final
 
 from meshforge.common.capabilities import EXEC_GPU_CAPABILITY
 from meshforge.common.manifest import Manifest
+from meshforge.common.owner_policy import OwnerPolicy
 from meshforge.controller.planner.types import (
     History,
     NodeSnapshot,
@@ -148,6 +149,7 @@ def node_snapshot(
     known_bad_envs: Iterable[str] = (),
     busy_gpus: Iterable[int] = (),
     cached_envs: Mapping[str, int] | None = None,
+    policy: OwnerPolicy | None = None,
 ) -> NodeSnapshot:
     caps = capabilities_of(hardware)
     vram = gpu_vram_of(hardware)
@@ -182,6 +184,7 @@ def node_snapshot(
         cached=frozenset(cached),
         known_bad_envs=frozenset(known_bad_envs),
         cached_envs=dict(sorted((cached_envs or {}).items())),
+        policy=policy,
     )
 
 
@@ -214,6 +217,7 @@ def plan_request(
     seeded: bool = False,
     fingerprint: str | None = None,
     history: History | None = None,
+    owner_name: str | None = None,
 ) -> PlanRequest:
     resources = manifest.resources
     return PlanRequest(
@@ -236,4 +240,6 @@ def plan_request(
         seeded=seeded,
         fingerprint=fingerprint,
         history=history or History(),
+        owner_name=owner_name,
+        network=manifest.limits.wants_network,
     )

@@ -125,4 +125,5 @@ def test_the_manager_registers_its_builtin_payloads() -> None:
         "resource_update",
         "reconcile",
         "hardware_scores",
+        "policy_update",  # V0.7 G5 (D142)
     }

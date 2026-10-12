@@ -166,14 +166,17 @@ class DispatchPlanner:
         ):
             cached = frozenset()  # a stale or unknown index is not a measurement
             envs = {}
+        cpu_slots, gpu_slots = row.cpu_slots, row.gpu_slots
+        if live is not None and live.policy_slots is not None:
+            cpu_slots, gpu_slots = live.policy_slots  # V0.7 G5: a live change
         return node_snapshot(
             row.node_id,
             state=state,
             connected=live is not None,
             hardware=row.hardware,
             hardware_scores=row.hardware_scores,
-            advertised_cpu_slots=row.cpu_slots,
-            advertised_gpu_slots=row.gpu_slots,
+            advertised_cpu_slots=cpu_slots,
+            advertised_gpu_slots=gpu_slots,
             used_cpu_slots=used_cpu,
             used_gpu_slots=used_gpu,
             live_attempts=used_cpu + used_gpu,
@@ -187,6 +190,7 @@ class DispatchPlanner:
             cached=cached,
             busy_gpus=fabric.busy_gpus(row.node_id),
             cached_envs=envs,
+            policy=None if live is None else live.policy,
         )
 
     def snapshot(self, fabric: FabricRows) -> ClusterSnapshot:
@@ -291,6 +295,9 @@ class DispatchPlanner:
             seeded=job.scheduling.submitter_seeded,
             fingerprint=job.scheduling.fingerprint,
             history=fabric.history.get(job.scheduling.fingerprint or "", History()),
+            owner_name=None
+            if job.owner_user_id is None
+            else fabric.owner_names.get(job.owner_user_id),
         )
         snapshot = self._for_job(self.snapshot(fabric), key)
         past = fabric.past_failures.get(job.id, ())
@@ -399,6 +406,10 @@ class DispatchPlanner:
             monotonic_now=self._clock(),
             wall_now=self._wall(),
             gpu_indices=gpus,
+            owner_name=None
+            if job.owner_user_id is None
+            else fabric.owner_names.get(job.owner_user_id),
+            policy=None if live is None or live.policy is None else live.policy,
         )
         if decision.policy == "round_robin":
             self.round_robin_after = chosen.node_id

@@ -17,6 +17,8 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any, Literal
 
+from meshforge.common.owner_policy import OwnerPolicy
+
 __all__ = [
     "STATIC_CODES",
     "CandidateEval",
@@ -74,6 +76,17 @@ class RejectCode(StrEnum):
     offers the venv runtime (which provides ``python-cpu`` only)."""
     REVOKED = "revoked"
     """The node was revoked from the fabric."""
+    # V0.7 G5 (D142): the node owner's policy refuses the job. Static: they
+    # depend on what the owner allows, not on the moment - a job every node's
+    # policy refuses fails (no_feasible_plan) instead of waiting. The values
+    # are :class:`~meshforge.common.owner_policy.PolicyCode`'s.
+    POLICY_NOT_ACCEPTING = "policy_not_accepting"
+    POLICY_USER_NOT_ALLOWED = "policy_user_not_allowed"
+    POLICY_RAM = "policy_ram"
+    POLICY_CPU = "policy_cpu"
+    POLICY_VRAM = "policy_vram"
+    POLICY_UNSANDBOXED = "policy_unsandboxed"
+    POLICY_NETWORK = "policy_network"
     # --- live: not now -----------------------------------------------------------
     NOT_ONLINE = "not_online"
     """The node is SUSPECT / OFFLINE / DRAINING / ENROLLING."""
@@ -107,6 +120,13 @@ STATIC_CODES: frozenset[RejectCode] = frozenset(
         RejectCode.CPUS_SHORT,
         RejectCode.NO_RUNTIME_FOR_BASE,
         RejectCode.REVOKED,
+        RejectCode.POLICY_NOT_ACCEPTING,
+        RejectCode.POLICY_USER_NOT_ALLOWED,
+        RejectCode.POLICY_RAM,
+        RejectCode.POLICY_CPU,
+        RejectCode.POLICY_VRAM,
+        RejectCode.POLICY_UNSANDBOXED,
+        RejectCode.POLICY_NETWORK,
     }
 )
 
@@ -189,6 +209,11 @@ class PlanRequest:
     excluded: Mapping[str, str] = field(default_factory=dict)
     """V0.6 G3 (D110): node_id -> the failure type that excludes it from this
     retry (see :mod:`.retry_exclusion`); ignored for a pinned job."""
+    owner_name: str | None = None
+    """V0.7 G5 (D142): the job owner's user name (owner policies'
+    ``allowed_users``); None = unknown (legacy fabric-token job)."""
+    network: bool = False
+    """V0.7 G5 (D143): the manifest asks ``limits.network: on``."""
 
     @property
     def is_gpu_job(self) -> bool:
@@ -235,6 +260,10 @@ class NodeSnapshot:
     cached_envs: Mapping[str, int] = field(default_factory=dict)
     """V0.6 G4: env hash -> bytes of the built environments this node holds
     (cache index, only the hashes the tick's jobs care about)."""
+    policy: OwnerPolicy | None = None
+    """V0.7 G5 (D142): the owner policy the node advertises on its live session;
+    None = not connected or an agent from before G5 (no owner restriction is
+    assumed here - that agent still enforces its own opt-ins)."""
 
     @property
     def free_cpu_slots(self) -> int:

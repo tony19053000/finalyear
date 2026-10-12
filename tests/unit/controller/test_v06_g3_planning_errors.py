@@ -31,7 +31,11 @@ class _Manager:
     def __init__(self, node_id: str) -> None:
         self.live = {
             node_id: SimpleNamespace(
-                state=NodeState.ONLINE, rtt_ewma_ms=None, session_id="s"
+                state=NodeState.ONLINE,
+                rtt_ewma_ms=None,
+                session_id="s",
+                policy=None,  # V0.7 G5: no advertised owner policy
+                policy_slots=None,
             )
         }
 

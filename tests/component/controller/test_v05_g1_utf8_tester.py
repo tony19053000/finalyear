@@ -24,7 +24,8 @@ H = "a" * 64
 
 @pytest_asyncio.fixture
 async def runtime(pg_settings: object) -> AsyncIterator[ControllerRuntime]:
-    settings = g2_settings(pg_settings, blobs={"max_blob_bytes": 4 * 1024 * 1024})  # type: ignore[arg-type]
+    blobs = {"max_blob_bytes": 4 * 1024 * 1024, "max_resumable_per_owner": 64}
+    settings = g2_settings(pg_settings, blobs=blobs)  # type: ignore[arg-type]
     async with running_controller(settings) as rt:
         yield rt
 
@@ -216,6 +217,8 @@ async def test_the_65th_resumable_transfer_is_503_over_http_and_recovers(
             f"/v1/blobs/{d.hex}/parts/0", content=b[:CS], headers=hdr(len(b), b[:CS])
         )
 
+    # V0.7 G5 (D158 T-4): one owner here; its sub-cap is set to the global 64
+    # (fixture) so this test still exercises the store-wide cap.
     async with api_client(runtime, token=token_of(runtime)) as c:
         for b in blobs[:64]:
             assert (await first(c, b)).status_code == 201

@@ -14,7 +14,10 @@ stream to it, either return nothing (the job may go there) or raise
   enabled execution, D45), cannot give a GPU to a job that requires one (no
   GPU, no ``exec-gpu``, or the owner allows no GPU jobs), reports less VRAM /
   RAM / CPU threads than the manifest asks for, has no runtime for the job's
-  base, or allows no jobs of its kind (D105 slots).
+  base, or allows no jobs of its kind (D105 slots), or (V0.7 G5, D142) its
+  owner's live policy refuses the job (``policy_*`` codes: not accepting, the
+  submitter not in ``allowed_users``, RAM/CPU/VRAM over the per-job limit, a
+  network or an unsandboxed runtime the owner does not allow).
 
 Hardware numbers come from the node's last ``Hello.hardware`` (proto field names,
 64-bit values as JSON strings); a value the node did not report is not held
@@ -25,11 +28,12 @@ its node in the queue (D65/D105).
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Final
 
 from meshforge.common.errors import FailureType, MeshForgeError
 from meshforge.common.manifest import Manifest
+from meshforge.common.owner_policy import OwnerPolicy
 from meshforge.controller.jobs.env_health import env_key
 from meshforge.controller.liveness import NodeState
 from meshforge.controller.planner.feasibility import static_rejection
@@ -46,7 +50,12 @@ class PlacementError(MeshForgeError):
 
 
 def check_placement(
-    manifest: Manifest, node: NodeRecord | None, *, connected: bool
+    manifest: Manifest,
+    node: NodeRecord | None,
+    *,
+    connected: bool,
+    policy: OwnerPolicy | None = None,
+    owner_name: str | None = None,
 ) -> None:
     """Raise :class:`PlacementError` unless ``node`` can take this job now."""
     if node is None:
@@ -63,6 +72,7 @@ def check_placement(
         hardware_scores=node.hardware_scores,
         advertised_cpu_slots=node.cpu_slots,
         advertised_gpu_slots=node.gpu_slots,
+        policy=policy,
     )
     request = plan_request(
         manifest,
@@ -70,13 +80,20 @@ def check_placement(
         attempt_no=1,
         env_key=env_key(manifest.canonical_dict(), tree_id=None, bundle_digest=None),
         pinned_node_id=node.node_id,
+        owner_name=owner_name,
     )
     refused = static_rejection(request, snapshot)
     if refused is not None:
         raise PlacementError(refused.text, details={"reject_code": refused.code.value})
 
 
-def check_auto(manifest: Manifest, nodes: Sequence[NodeRecord]) -> None:
+def check_auto(
+    manifest: Manifest,
+    nodes: Sequence[NodeRecord],
+    *,
+    policies: Mapping[str, OwnerPolicy | None] | None = None,
+    owner_name: str | None = None,
+) -> None:
     """D104: an auto-placed job must be runnable on at least one enrolled node
     **some day** - the static rules only (capabilities, hardware, owner slot
     settings, not revoked; liveness and load are ignored: a busy or offline
@@ -88,7 +105,9 @@ def check_auto(manifest: Manifest, nodes: Sequence[NodeRecord]) -> None:
         job_id="",
         attempt_no=1,
         env_key=env_key(manifest.canonical_dict(), tree_id=None, bundle_digest=None),
+        owner_name=owner_name,
     )
+    policies = policies or {}
     rejections: list[dict[str, str]] = []
     for node in sorted(nodes, key=lambda n: n.node_id):
         snapshot = node_snapshot(
@@ -99,6 +118,7 @@ def check_auto(manifest: Manifest, nodes: Sequence[NodeRecord]) -> None:
             hardware_scores=node.hardware_scores,
             advertised_cpu_slots=node.cpu_slots,
             advertised_gpu_slots=node.gpu_slots,
+            policy=policies.get(node.node_id),
         )
         refused = static_rejection(request, snapshot)
         if refused is None:
