@@ -86,6 +86,20 @@ API token and `ca.crt` in `~/.config/meshforge/compute/` (Windows
 command uses them and the controller URL you logged in to. Override the folder
 with `[cli] credentials_dir`.
 
+**Open log follows** (`compute logs -f`, the dashboard later) re-check their
+token every `[controller.auth] stream_recheck_interval_s` (default 1 s, one
+database query for all open streams): a revoked or expired token or a disabled
+user closes the stream within about a second (`4401`); if the database cannot
+answer 5 checks in a row every stream is closed `4503` (log in / retry later).
+If the re-check loop itself keeps failing, `GET /healthz` answers `"status":
+"degraded"` (V0.7 G5, D159 N4) - look for `controller.auth.stream_recheck_crashed`
+in the log. Streams opened with the legacy fabric token are **never** re-checked.
+
+**Part uploads** (big outputs, `compute data push`): one user or laptop may have
+at most `[controller.blobs] max_resumable_per_owner` (16) unfinished part
+uploads at once, under the store-wide 64; past it new ones get `503
+resource_busy` while everyone else can still upload (V0.7 G5, D158 T-4).
+
 **Tokens** last 90 days (`[controller.auth] token_ttl_days`). `compute tokens
 list` shows yours (`--all`: everyone's, admins only), `compute tokens revoke
 TOKEN_ID` ends one, `compute logout` revokes the current one and forgets it. A
@@ -99,7 +113,8 @@ login` on the very next call.
 | Forgotten password | admin: `meshforge-controller user reset-password NAME` (also ends every token of that user) |
 | A laptop with a login was lost | `compute tokens revoke TOKEN_ID` from another laptop (or the admin with `--all`), or disable the user |
 | Someone leaves | `meshforge-controller user disable NAME` (their tokens stop at once; `enable` lets them log in again) |
-| `429 too many failed logins` | wait the `Retry-After` seconds: after 5 wrong passwords a name is blocked 1 s, doubling to 5 min; one address is limited to 10 tries a minute (`[controller.auth] login_*`). Tokens already issued keep working |
+| `429 too many failed logins` | wait the `Retry-After` seconds: after 5 wrong passwords a name is blocked **from that address** (IPv4 address, or IPv6 /64) for 1 s, doubling to 5 min - the same user logging in from their own laptop is not blocked (V0.7 G5, D159 N1); one address is limited to 10 tries a minute (`[controller.auth] login_*`). Tokens already issued keep working |
+| A user name with an accent or other non-ASCII letter | user names are ASCII only (`a-z 0-9 . _ -`); a look-alike spelling (e.g. the Kelvin sign for `K`) is just an unknown user (V0.7 G5, D158 T-5) |
 | Old scripts still send the fabric token | turn on `[controller.auth] legacy_fabric_token = true` **temporarily**: the fabric token then acts as an admin, with a warning in the log and an audit row; move the scripts to `compute login` and turn it off again (it is removed in V0.8) |
 | `meshforge-controller` exits: "the database password is the published development default" | see "Database password" below |
 
@@ -337,26 +352,86 @@ meshforge-agent identity show   # enrolled: True, fabric_id, cert_not_after
 | `already enrolled` (exit 5) | this laptop joined before; the code was not used | `meshforge-agent join --force` if you mean to re-join |
 | `cannot reach the controller` (exit 6) | controller down, wrong IP, firewall on 47101 | start it / open the port |
 
+### 0b0. What this laptop allows - the owner policy (V0.7 G5, D142)
+
+The **laptop's owner decides** what runs on it - not the controller. The agent
+tells the controller its policy, the planner avoids laptops whose policy refuses
+a job, and the agent **checks every job again** before it starts it (so even a
+wrong or compromised controller cannot make it run something the owner did not
+allow). In `config.toml`:
+
+```toml
+[agent.policy]
+accept_jobs = true          # run jobs at all (default false; was [agent.execution] enabled)
+allow_unsandboxed = false   # also the subprocess/venv runtimes - NO sandbox (see below)
+allow_network = false       # a job asking `limits.network: on` may get a network
+allowed_users = []          # user names allowed to run here; empty = everyone
+# max_ram_bytes = 8589934592   # most RAM one job may use (refused above; also its memory limit)
+# max_cpu_percent = 50         # share of this laptop's CPU threads one job may use
+# max_vram_bytes = 4294967296  # most VRAM a GPU job may ask for (placement only: no runtime caps VRAM)
+# max_cpu_jobs = 1, max_gpu_jobs = (empty: one per GPU)
+# accept_gpu_sessions = false  # Remote-GPU sessions (used from V0.11)
+# reload_interval_s = 1.0
+```
+
+**Change it live, no restart:**
+
+```bash
+meshforge-agent policy show                         # what is in force, and where each value comes from
+meshforge-agent policy set max_ram_bytes=8GiB max_cpu_percent=50 allowed_users=alice,bob
+meshforge-agent policy set allow_network=true
+meshforge-agent policy set max_ram_bytes=none       # remove a limit
+meshforge-agent policy reset                        # back to config.toml
+```
+
+`policy set` checks the whole new policy first (a bad value changes nothing),
+then writes `<data dir>/policy.toml` (owner-only). The running agent applies it
+within `reload_interval_s` and tells the controller (`agent.policy.changed` in
+the agent log, `session.policy_updated` in the controller's). If that file is
+broken, unreadable or readable/writable by other users, the agent **accepts
+nothing** until it is fixed (`agent.policy.invalid`, and `policy show` says
+INVALID) - it never falls back to something looser.
+
+- A tighter policy **does not stop jobs already running** on this laptop
+  (cancel them with `compute cancel` if needed); it blocks the next start.
+- Two changes need **one agent restart**: turning `accept_jobs` on when the
+  agent was started with it off, and turning `allow_unsandboxed` on when it was
+  started off - the runtimes are found at start (`policy set` says so).
+  Turning either **off** is live.
+- **Why was my job refused?** `compute explain JOB` (or the 409 at submit)
+  names the code per laptop: `policy_not_accepting`, `policy_user_not_allowed`,
+  `policy_ram`, `policy_cpu`, `policy_vram`, `policy_unsandboxed`,
+  `policy_network`. A job no laptop allows is refused at submit, or fails
+  `no_feasible_plan` if every laptop's policy changed while it waited - it
+  never hangs. If a laptop's agent refuses a job the controller sent anyway,
+  the job fails `unauthorized` with `policy_denied:<code>` and is **not**
+  retried.
+- **Network (D143):** from V0.7 a job gets **no network** unless its manifest
+  asks `limits.network: on` **and** the laptop's owner set `allow_network =
+  true`. `limits.network: default` now means none. (Installing a job's
+  requirements still uses the network when the environment is built.)
+- The old `[agent.execution] enabled / allow_unsandboxed / max_cpu_jobs /
+  max_gpu_jobs` keys still work for one release (`agent.config.deprecated_key`
+  warning at start); a `[agent.policy]` key wins over its old spelling.
+
 ### 0b. Running other people's jobs on this laptop (V0.4, D45/D51 — [ADR-0014](adr/0014-interim-execution-trust.md))
 
-An agent **runs nothing** unless its owner opts in. In that laptop's `config.toml`:
+An agent **runs nothing** unless its owner opts in (`[agent.policy] accept_jobs
+= true`, section 0b0). The other execution settings, in that laptop's
+`config.toml`:
 
 ```toml
 [agent.execution]
-enabled = true              # run jobs the controller sends (default false)
-allow_unsandboxed = false   # see "subprocess runtime" below before changing this
 grace_s = 3.0               # cancel/timeout: SIGTERM, then SIGKILL after this (<= 3 s)
 # workdir_root = ""         # empty = <data dir>/work
 # default_memory_mb = 4096, default_pids = 1024, default_cpus = (no limit),
 # default_timeout_s = 3600, max_timeout_s = 86400, run_as = "auto"
 # keep_workdirs = false     # true = keep each finished job's folder + its logs
 # max_concurrent_attempts = 4
-# max_cpu_jobs = 1          # V0.6: jobs without a GPU run at once (0 = none)
-# max_gpu_jobs = (empty)    # V0.6: GPU jobs at once; empty = one per GPU, 0 = none
 ```
 
 **How many jobs at once (V0.6, D105).** The controller schedules by the slots
-this laptop advertises in every Hello: `max_cpu_jobs` CPU slots and
+this laptop advertises in every Hello (`[agent.policy]`, live with `policy set`): `max_cpu_jobs` CPU slots and
 `max_gpu_jobs` GPU slots (a `gpu: required` job takes a GPU slot; `preferred` a
 GPU slot when one is free, else a CPU slot; others a CPU slot). Their sum must
 not exceed `max_concurrent_attempts` (the agent refuses to start otherwise).
@@ -388,7 +463,8 @@ kill work. Jobs are not retried until V0.6 (G3).
   Desktop with the WSL2 backend (Windows), and for GPU jobs the NVIDIA Container
   Toolkit (Linux) / Docker Desktop's GPU support. The job sees only its own folder
   (at `/work`), runs as a non-root user with no capabilities and a read-only system,
-  cannot see your processes, has no network unless its manifest asks, and is capped
+  cannot see your processes, has no network unless its manifest asks
+  `limits.network: on` and you allow it (`[agent.policy] allow_network`), and is capped
   in memory, processes and (optionally) CPU. It gets exactly the GPUs it was
   assigned, none otherwise. The images are pinned by digest in
   `[agent.execution.images]` (`python_cpu`, `cuda_pytorch`); a value without
@@ -397,7 +473,7 @@ kill work. Jobs are not retried until V0.6 (G3).
 - **Containers are labelled** `meshforge.agent=<node id>`. If the agent is killed, its
   containers are removed the next time it starts; you can also list them with
   `docker ps -a --filter label=meshforge.managed=1`.
-- **Subprocess runtime — NOT a sandbox.** With `allow_unsandboxed = true` a laptop
+- **Subprocess runtime — NOT a sandbox.** With `[agent.policy] allow_unsandboxed = true` a laptop
   without Docker can still run jobs, but the job runs **as you**: it can read and
   change your files, see your processes and use the network. Memory, process and CPU
   caps are *not* enforced; time limits and cancel are. Turn it on only on a machine you use
