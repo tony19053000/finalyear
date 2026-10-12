@@ -23,7 +23,7 @@ V0.4 subset::
         mount: data/imagenet             # read-only folder inside the workdir
     limits:
       timeout: 2h                        # 90s, 30m, 2h, 1h30m or an integer of seconds
-      network: default                   # default | none
+      network: none                      # none (= default) | on (needs the owner's allow_network)
     priority: 0                          # V0.6 D106: -10 (last) .. 10 (first)
     policy: cost_model                   # V0.6 D107: placement policy (empty = fabric default)
     retry:                               # V0.6 D110 (retries run from V0.6 G3)
@@ -345,7 +345,14 @@ class LimitsSpec(_Spec):
         DEFAULT_TIMEOUT_S
     )
     """Seconds (the YAML may say ``2h``)."""
-    network: Literal["default", "none"] = "default"
+    network: Literal["default", "none", "on"] = "default"
+    """V0.7 G5 (D143): ``default`` = ``none`` - a job gets no network unless it
+    asks ``on`` **and** the node's owner allows it (``[agent.policy]
+    allow_network``; else the planner/agent refuse ``policy_network``)."""
+
+    @property
+    def wants_network(self) -> bool:
+        return self.network == "on"
 
     @field_validator("timeout", mode="before")
     @classmethod

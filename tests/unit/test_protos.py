@@ -164,6 +164,7 @@ def test_envelopes_cover_architecture_payloads() -> None:
         "HardwareScores",
         "Goodbye",
         "PrepareEnvStatus",  # V0.5 G5
+        "PolicyUpdate",  # V0.7 G5 (D142)
     }
     assert members(agent_pb2.ControllerMessage.DESCRIPTOR) == {
         "StartAttempt",

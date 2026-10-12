@@ -201,6 +201,7 @@ class AgentMessage(_message.Message):
     HARDWARE_SCORES_FIELD_NUMBER: _builtins.int
     GOODBYE_FIELD_NUMBER: _builtins.int
     PREPARE_ENV_STATUS_FIELD_NUMBER: _builtins.int
+    POLICY_UPDATE_FIELD_NUMBER: _builtins.int
     message_id: _builtins.str
     """Unique per message (ULID); echoed back in Ack.acked_message_id."""
     session_id: _builtins.str
@@ -253,6 +254,13 @@ class AgentMessage(_message.Message):
         report: buffered, replayed after a reconnect and acked.
         """
 
+    @_builtins.property
+    def policy_update(self) -> Global___PolicyUpdate:
+        """The owner changed this node's policy live (V0.7 G5, D142: `meshforge-agent
+        policy set`). A report: buffered, replayed after a reconnect and acked.
+        The newest one wins; the next Hello carries the policy again.
+        """
+
     def __init__(
         self,
         *,
@@ -272,12 +280,13 @@ class AgentMessage(_message.Message):
         hardware_scores: Global___HardwareScores | None = ...,
         goodbye: Global___Goodbye | None = ...,
         prepare_env_status: Global___PrepareEnvStatus | None = ...,
+        policy_update: Global___PolicyUpdate | None = ...,
     ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _typing.Literal["ack", b"ack", "attempt_status", b"attempt_status", "cache_report", b"cache_report", "goodbye", b"goodbye", "hardware_scores", b"hardware_scores", "heartbeat", b"heartbeat", "hello", b"hello", "log_chunk", b"log_chunk", "net_probe_result", b"net_probe_result", "payload", b"payload", "pong", b"pong", "prepare_env_status", b"prepare_env_status", "reconcile", b"reconcile", "resource_update", b"resource_update", "sent_at", b"sent_at"]  # noqa: Y015
+    _HasFieldArgType: _TypeAlias = _typing.Literal["ack", b"ack", "attempt_status", b"attempt_status", "cache_report", b"cache_report", "goodbye", b"goodbye", "hardware_scores", b"hardware_scores", "heartbeat", b"heartbeat", "hello", b"hello", "log_chunk", b"log_chunk", "net_probe_result", b"net_probe_result", "payload", b"payload", "policy_update", b"policy_update", "pong", b"pong", "prepare_env_status", b"prepare_env_status", "reconcile", b"reconcile", "resource_update", b"resource_update", "sent_at", b"sent_at"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["ack", b"ack", "attempt_status", b"attempt_status", "cache_report", b"cache_report", "goodbye", b"goodbye", "hardware_scores", b"hardware_scores", "heartbeat", b"heartbeat", "hello", b"hello", "log_chunk", b"log_chunk", "message_id", b"message_id", "net_probe_result", b"net_probe_result", "payload", b"payload", "pong", b"pong", "prepare_env_status", b"prepare_env_status", "reconcile", b"reconcile", "resource_update", b"resource_update", "sent_at", b"sent_at", "session_id", b"session_id"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["ack", b"ack", "attempt_status", b"attempt_status", "cache_report", b"cache_report", "goodbye", b"goodbye", "hardware_scores", b"hardware_scores", "heartbeat", b"heartbeat", "hello", b"hello", "log_chunk", b"log_chunk", "message_id", b"message_id", "net_probe_result", b"net_probe_result", "payload", b"payload", "policy_update", b"policy_update", "pong", b"pong", "prepare_env_status", b"prepare_env_status", "reconcile", b"reconcile", "resource_update", b"resource_update", "sent_at", b"sent_at", "session_id", b"session_id"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
-    _WhichOneofReturnType_payload: _TypeAlias = _typing.Literal["hello", "reconcile", "heartbeat", "resource_update", "cache_report", "net_probe_result", "attempt_status", "log_chunk", "ack", "pong", "hardware_scores", "goodbye", "prepare_env_status"]  # noqa: Y015
+    _WhichOneofReturnType_payload: _TypeAlias = _typing.Literal["hello", "reconcile", "heartbeat", "resource_update", "cache_report", "net_probe_result", "attempt_status", "log_chunk", "ack", "pong", "hardware_scores", "goodbye", "prepare_env_status", "policy_update"]  # noqa: Y015
     _WhichOneofArgType_payload: _TypeAlias = _typing.Literal["payload", b"payload"]  # noqa: Y015
     def WhichOneof(self, oneof_group: _WhichOneofArgType_payload) -> _WhichOneofReturnType_payload | None: ...
 
@@ -414,6 +423,7 @@ class Hello(_message.Message):
     PEER_ENDPOINT_FIELD_NUMBER: _builtins.int
     MAX_CPU_JOBS_FIELD_NUMBER: _builtins.int
     MAX_GPU_JOBS_FIELD_NUMBER: _builtins.int
+    POLICY_FIELD_NUMBER: _builtins.int
     node_id: _builtins.str
     protocol_version: _common_pb2.ProtocolVersion.ValueType
     """Must be set; the controller accepts a configured range of versions and
@@ -445,7 +455,6 @@ class Hello(_message.Message):
     [controller.jobs] max_attempts_per_node.
     """
     max_gpu_jobs: _builtins.int
-    """TODO(V0.7): node identity is proven by mTLS, not by node_id."""
     @_builtins.property
     def hardware(self) -> Global___HardwareSummary:
         """Static hardware inventory (roadmap 0.3.3); dynamic usage is ResourceUpdate."""
@@ -456,6 +465,16 @@ class Hello(_message.Message):
         current fingerprint (roadmap 0.3.4, D37), so a controller restart never loses
         them. Absent = "not measured for this hardware": the controller clears what
         it stored and shows the scores as pending.
+        """
+
+    @_builtins.property
+    def policy(self) -> Global___OwnerPolicy:
+        """The owner's policy (V0.7 G5, D142). Absent = an agent from before G5: the
+        controller assumes an open policy (its agent enforces what it enforces). A
+        present but malformed or oversized policy is refused as a whole: the node
+        is treated as accepting nothing (fail closed), never trusted partially.
+        V0.7 G3: node identity is proven by the client certificate (mTLS); node_id
+        must equal the certificate's.
         """
 
     def __init__(
@@ -473,10 +492,11 @@ class Hello(_message.Message):
         peer_endpoint: _builtins.str = ...,
         max_cpu_jobs: _builtins.int | None = ...,
         max_gpu_jobs: _builtins.int | None = ...,
+        policy: Global___OwnerPolicy | None = ...,
     ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _typing.Literal["_max_cpu_jobs", b"_max_cpu_jobs", "_max_gpu_jobs", b"_max_gpu_jobs", "hardware", b"hardware", "hardware_scores", b"hardware_scores", "max_cpu_jobs", b"max_cpu_jobs", "max_gpu_jobs", b"max_gpu_jobs"]  # noqa: Y015
+    _HasFieldArgType: _TypeAlias = _typing.Literal["_max_cpu_jobs", b"_max_cpu_jobs", "_max_gpu_jobs", b"_max_gpu_jobs", "hardware", b"hardware", "hardware_scores", b"hardware_scores", "max_cpu_jobs", b"max_cpu_jobs", "max_gpu_jobs", b"max_gpu_jobs", "policy", b"policy"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["_max_cpu_jobs", b"_max_cpu_jobs", "_max_gpu_jobs", b"_max_gpu_jobs", "agent_version", b"agent_version", "hardware", b"hardware", "hardware_scores", b"hardware_scores", "hostname", b"hostname", "max_cpu_jobs", b"max_cpu_jobs", "max_gpu_jobs", b"max_gpu_jobs", "node_id", b"node_id", "os", b"os", "peer_endpoint", b"peer_endpoint", "platform", b"platform", "protocol_version", b"protocol_version", "session_epoch", b"session_epoch"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["_max_cpu_jobs", b"_max_cpu_jobs", "_max_gpu_jobs", b"_max_gpu_jobs", "agent_version", b"agent_version", "hardware", b"hardware", "hardware_scores", b"hardware_scores", "hostname", b"hostname", "max_cpu_jobs", b"max_cpu_jobs", "max_gpu_jobs", b"max_gpu_jobs", "node_id", b"node_id", "os", b"os", "peer_endpoint", b"peer_endpoint", "platform", b"platform", "policy", b"policy", "protocol_version", b"protocol_version", "session_epoch", b"session_epoch"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     _WhichOneofReturnType__max_cpu_jobs: _TypeAlias = _typing.Literal["max_cpu_jobs"]  # noqa: Y015
     _WhichOneofArgType__max_cpu_jobs: _TypeAlias = _typing.Literal["_max_cpu_jobs", b"_max_cpu_jobs"]  # noqa: Y015
@@ -488,6 +508,119 @@ class Hello(_message.Message):
     def WhichOneof(self, oneof_group: _WhichOneofArgType__max_gpu_jobs) -> _WhichOneofReturnType__max_gpu_jobs | None: ...
 
 Global___Hello: _TypeAlias = Hello  # noqa: Y015
+
+@_typing.final
+class OwnerPolicy(_message.Message):
+    """The node owner's policy (V0.7 G5, roadmap 0.7.8, D142). The agent is
+    authoritative: it re-checks every StartAttempt against its current policy;
+    the controller's planner uses this copy to avoid sending what would be
+    refused. See common/owner_policy.py for the rule both sides apply.
+    """
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    ACCEPT_JOBS_FIELD_NUMBER: _builtins.int
+    ACCEPT_GPU_SESSIONS_FIELD_NUMBER: _builtins.int
+    MAX_RAM_BYTES_FIELD_NUMBER: _builtins.int
+    MAX_CPU_PERCENT_FIELD_NUMBER: _builtins.int
+    MAX_VRAM_BYTES_FIELD_NUMBER: _builtins.int
+    ALLOW_UNSANDBOXED_FIELD_NUMBER: _builtins.int
+    ALLOW_NETWORK_FIELD_NUMBER: _builtins.int
+    ALLOWED_USERS_FIELD_NUMBER: _builtins.int
+    NOT_ENFORCED_FIELD_NUMBER: _builtins.int
+    REVISION_FIELD_NUMBER: _builtins.int
+    accept_jobs: _builtins.bool
+    accept_gpu_sessions: _builtins.bool
+    """Stored and advertised now; Remote-GPU sessions use it from V0.11."""
+    max_ram_bytes: _builtins.int
+    """Per-job limits; absent = no owner limit."""
+    max_cpu_percent: _builtins.int
+    """1..100: share of the node's CPU threads one job may use."""
+    max_vram_bytes: _builtins.int
+    allow_unsandboxed: _builtins.bool
+    allow_network: _builtins.bool
+    """A job asking `limits.network: on` may get a network (D143)."""
+    revision: _builtins.int
+    """Agent-local counter, +1 per live change (logs only)."""
+    @_builtins.property
+    def allowed_users(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]:
+        """User names whose jobs the node runs; empty = everyone (<= 64 names)."""
+
+    @_builtins.property
+    def not_enforced(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]:
+        """"<field>:<why>" caps this OS/runtime cannot enforce with a runtime limit
+        (e.g. "max_vram_bytes:no_runtime_limit"); <= 16 entries.
+        """
+
+    def __init__(
+        self,
+        *,
+        accept_jobs: _builtins.bool = ...,
+        accept_gpu_sessions: _builtins.bool = ...,
+        max_ram_bytes: _builtins.int | None = ...,
+        max_cpu_percent: _builtins.int | None = ...,
+        max_vram_bytes: _builtins.int | None = ...,
+        allow_unsandboxed: _builtins.bool = ...,
+        allow_network: _builtins.bool = ...,
+        allowed_users: _abc.Iterable[_builtins.str] | None = ...,
+        not_enforced: _abc.Iterable[_builtins.str] | None = ...,
+        revision: _builtins.int = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["_max_cpu_percent", b"_max_cpu_percent", "_max_ram_bytes", b"_max_ram_bytes", "_max_vram_bytes", b"_max_vram_bytes", "max_cpu_percent", b"max_cpu_percent", "max_ram_bytes", b"max_ram_bytes", "max_vram_bytes", b"max_vram_bytes"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["_max_cpu_percent", b"_max_cpu_percent", "_max_ram_bytes", b"_max_ram_bytes", "_max_vram_bytes", b"_max_vram_bytes", "accept_gpu_sessions", b"accept_gpu_sessions", "accept_jobs", b"accept_jobs", "allow_network", b"allow_network", "allow_unsandboxed", b"allow_unsandboxed", "allowed_users", b"allowed_users", "max_cpu_percent", b"max_cpu_percent", "max_ram_bytes", b"max_ram_bytes", "max_vram_bytes", b"max_vram_bytes", "not_enforced", b"not_enforced", "revision", b"revision"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    _WhichOneofReturnType__max_cpu_percent: _TypeAlias = _typing.Literal["max_cpu_percent"]  # noqa: Y015
+    _WhichOneofArgType__max_cpu_percent: _TypeAlias = _typing.Literal["_max_cpu_percent", b"_max_cpu_percent"]  # noqa: Y015
+    _WhichOneofReturnType__max_ram_bytes: _TypeAlias = _typing.Literal["max_ram_bytes"]  # noqa: Y015
+    _WhichOneofArgType__max_ram_bytes: _TypeAlias = _typing.Literal["_max_ram_bytes", b"_max_ram_bytes"]  # noqa: Y015
+    _WhichOneofReturnType__max_vram_bytes: _TypeAlias = _typing.Literal["max_vram_bytes"]  # noqa: Y015
+    _WhichOneofArgType__max_vram_bytes: _TypeAlias = _typing.Literal["_max_vram_bytes", b"_max_vram_bytes"]  # noqa: Y015
+    @_typing.overload
+    def WhichOneof(self, oneof_group: _WhichOneofArgType__max_cpu_percent) -> _WhichOneofReturnType__max_cpu_percent | None: ...
+    @_typing.overload
+    def WhichOneof(self, oneof_group: _WhichOneofArgType__max_ram_bytes) -> _WhichOneofReturnType__max_ram_bytes | None: ...
+    @_typing.overload
+    def WhichOneof(self, oneof_group: _WhichOneofArgType__max_vram_bytes) -> _WhichOneofReturnType__max_vram_bytes | None: ...
+
+Global___OwnerPolicy: _TypeAlias = OwnerPolicy  # noqa: Y015
+
+@_typing.final
+class PolicyUpdate(_message.Message):
+    """A live policy change (V0.7 G5). Slots travel with it: they are owner
+    policy too (max_cpu_jobs / max_gpu_jobs, same meaning as in Hello).
+    """
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    POLICY_FIELD_NUMBER: _builtins.int
+    MAX_CPU_JOBS_FIELD_NUMBER: _builtins.int
+    MAX_GPU_JOBS_FIELD_NUMBER: _builtins.int
+    max_cpu_jobs: _builtins.int
+    max_gpu_jobs: _builtins.int
+    @_builtins.property
+    def policy(self) -> Global___OwnerPolicy: ...
+    def __init__(
+        self,
+        *,
+        policy: Global___OwnerPolicy | None = ...,
+        max_cpu_jobs: _builtins.int | None = ...,
+        max_gpu_jobs: _builtins.int | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["_max_cpu_jobs", b"_max_cpu_jobs", "_max_gpu_jobs", b"_max_gpu_jobs", "max_cpu_jobs", b"max_cpu_jobs", "max_gpu_jobs", b"max_gpu_jobs", "policy", b"policy"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["_max_cpu_jobs", b"_max_cpu_jobs", "_max_gpu_jobs", b"_max_gpu_jobs", "max_cpu_jobs", b"max_cpu_jobs", "max_gpu_jobs", b"max_gpu_jobs", "policy", b"policy"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    _WhichOneofReturnType__max_cpu_jobs: _TypeAlias = _typing.Literal["max_cpu_jobs"]  # noqa: Y015
+    _WhichOneofArgType__max_cpu_jobs: _TypeAlias = _typing.Literal["_max_cpu_jobs", b"_max_cpu_jobs"]  # noqa: Y015
+    _WhichOneofReturnType__max_gpu_jobs: _TypeAlias = _typing.Literal["max_gpu_jobs"]  # noqa: Y015
+    _WhichOneofArgType__max_gpu_jobs: _TypeAlias = _typing.Literal["_max_gpu_jobs", b"_max_gpu_jobs"]  # noqa: Y015
+    @_typing.overload
+    def WhichOneof(self, oneof_group: _WhichOneofArgType__max_cpu_jobs) -> _WhichOneofReturnType__max_cpu_jobs | None: ...
+    @_typing.overload
+    def WhichOneof(self, oneof_group: _WhichOneofArgType__max_gpu_jobs) -> _WhichOneofReturnType__max_gpu_jobs | None: ...
+
+Global___PolicyUpdate: _TypeAlias = PolicyUpdate  # noqa: Y015
 
 @_typing.final
 class HardwareSummary(_message.Message):
@@ -1545,6 +1678,7 @@ class ExecutionSpec(_message.Message):
     TREE_ID_FIELD_NUMBER: _builtins.int
     SOURCES_FIELD_NUMBER: _builtins.int
     INPUTS_FIELD_NUMBER: _builtins.int
+    OWNER_NAME_FIELD_NUMBER: _builtins.int
     bundle_digest: _builtins.str
     """"sha256:<64 hex>" of the project bundle of a V0.4 bundle job. Empty for a
     tree job (V0.5 G4: a tree job is named only by tree_id).
@@ -1581,6 +1715,11 @@ class ExecutionSpec(_message.Message):
     """V0.5 D83: "sha256:<64 hex>" of the project's tree manifest (D81); empty = a
     V0.4 bundle job. The agent fetches the manifest and the blobs it names into
     its CAS, verifying every chunk and blob, then copies them into the workdir.
+    """
+    owner_name: _builtins.str
+    """V0.7 G5 (D142): the job owner's user name as the controller knows it
+    (empty = unknown, e.g. a legacy fabric-token job). The agent checks it
+    against [agent.policy] allowed_users; an empty name never matches a list.
     """
     @_builtins.property
     def gpu_indices(self) -> _containers.RepeatedScalarFieldContainer[_builtins.int]:
@@ -1626,10 +1765,11 @@ class ExecutionSpec(_message.Message):
         tree_id: _builtins.str = ...,
         sources: _abc.Iterable[Global___BlobSource] | None = ...,
         inputs: _abc.Iterable[Global___InputTree] | None = ...,
+        owner_name: _builtins.str = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["blob_port", b"blob_port", "blob_url", b"blob_url", "bundle_digest", b"bundle_digest", "cpus", b"cpus", "fetch_token", b"fetch_token", "gpu_indices", b"gpu_indices", "inputs", b"inputs", "manifest_json", b"manifest_json", "memory_bytes", b"memory_bytes", "output_globs", b"output_globs", "runtime", b"runtime", "sources", b"sources", "timeout_s", b"timeout_s", "tree_id", b"tree_id", "upload_max_blobs", b"upload_max_blobs", "upload_max_bytes", b"upload_max_bytes", "upload_token", b"upload_token"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["blob_port", b"blob_port", "blob_url", b"blob_url", "bundle_digest", b"bundle_digest", "cpus", b"cpus", "fetch_token", b"fetch_token", "gpu_indices", b"gpu_indices", "inputs", b"inputs", "manifest_json", b"manifest_json", "memory_bytes", b"memory_bytes", "output_globs", b"output_globs", "owner_name", b"owner_name", "runtime", b"runtime", "sources", b"sources", "timeout_s", b"timeout_s", "tree_id", b"tree_id", "upload_max_blobs", b"upload_max_blobs", "upload_max_bytes", b"upload_max_bytes", "upload_token", b"upload_token"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
