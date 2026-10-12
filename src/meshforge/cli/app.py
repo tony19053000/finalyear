@@ -413,6 +413,11 @@ app.command()(logout)
 app.command()(whoami)
 app.add_typer(tokens_app)
 
+# V0.7 G6: `compute secret set|list|delete` (job secrets, D144).
+from meshforge.cli.secret_commands import secret_app  # noqa: E402
+
+app.add_typer(secret_app)
+
 # V0.5 G5: `compute data ...` (named inputs).
 from meshforge.cli.data_commands import data_app  # noqa: E402
 from meshforge.cli.fabric_commands import fabric_app  # noqa: E402

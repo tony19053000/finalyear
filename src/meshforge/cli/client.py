@@ -295,6 +295,21 @@ class ControllerClient:
     def revoke_token(self, token_id: str) -> Mapping[str, Any]:
         return self._request("DELETE", f"/v1/auth/tokens/{token_id}")
 
+    def put_secret(self, name: str, value: bytes) -> Mapping[str, Any]:
+        """V0.7 G6: the value is the request body (never a URL or a header)."""
+        return self._request(
+            "PUT",
+            f"/v1/secrets/{name}",
+            content=value,
+            headers={"content-type": "application/octet-stream"},
+        )
+
+    def secrets(self) -> Mapping[str, Any]:
+        return self._get("/v1/secrets")
+
+    def delete_secret(self, name: str) -> Mapping[str, Any]:
+        return self._request("DELETE", f"/v1/secrets/{name}")
+
     def logs(self, job_id: str, *, stream: str) -> tuple[bytes, Mapping[str, str]]:
         """The persisted log bytes and the response headers."""
         path = f"/v1/jobs/{job_id}/logs"

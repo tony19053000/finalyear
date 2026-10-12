@@ -57,11 +57,13 @@ from meshforge.controller.api.revocation_routes import (
     REVOCATION_STATE_KEY,
     revocation_router,
 )
+from meshforge.controller.api.secret_routes import SECRETS_STATE_KEY, secret_router
 from meshforge.controller.blobs import BlobStore
 from meshforge.controller.cache_index import CacheLocationStore
 from meshforge.controller.registry import Registry
 from meshforge.controller.resources import ResourceTracker
 from meshforge.controller.revocation import Revocations
+from meshforge.controller.secret_store import SecretStore
 from meshforge.controller.session.manager import SessionManager
 
 __all__ = ["create_http_app"]
@@ -83,6 +85,7 @@ def create_http_app(
     invites: InviteApi | None = None,
     revocations: Revocations | None = None,
     users: AuthApi | None = None,
+    secrets: SecretStore | None = None,
 ) -> FastAPI:
     """Build the controller's HTTP app. ``clock`` must be the loop's monotonic clock.
 
@@ -156,4 +159,7 @@ def create_http_app(
     if users is not None:
         setattr(app.state, AUTH_API_STATE_KEY, users)
         app.include_router(auth_router)  # V0.7 G4 login + tokens (D141)
+    if secrets is not None:
+        setattr(app.state, SECRETS_STATE_KEY, secrets)
+        app.include_router(secret_router)  # V0.7 G6 job secrets (D144)
     return app

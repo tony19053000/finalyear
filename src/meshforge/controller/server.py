@@ -109,6 +109,7 @@ from meshforge.controller.scores import (
     expire_unbound_scores_forever,
     expire_unbound_scores_once,
 )
+from meshforge.controller.secret_store import SecretStore
 from meshforge.controller.server_tls import ServerTls
 from meshforge.controller.session.leases import LeaseTimer
 from meshforge.controller.session.live import LiveSession
@@ -201,6 +202,7 @@ class ControllerRuntime:
         """V0.7 G3 (D138): the revocation set and its enforcement."""
         self.renewals: CertRenewals | None = None
         self.users: UserStore | None = None
+        self.secrets: SecretStore | None = None
         self.login: LoginService | None = None
         """V0.7 G4 (D140): node certificate renewal (mtls with a CA only)."""
         self.live_streams: LiveStreams | None = None
@@ -514,6 +516,8 @@ class ControllerRuntime:
             manager.on_cert_activated = self._resync_revocations
         # V0.7 G4 (D141): REST users and API tokens.
         self.users = UserStore(engine)
+        # V0.7 G6 (D144): job secrets; the master key is loaded on first use.
+        self.secrets = SecretStore(engine, self.settings.secrets_key_path)
         self.login = LoginService(
             self.users,
             policy=login_policy(cfg.auth),
@@ -599,6 +603,7 @@ class ControllerRuntime:
                 ),
                 revocations=revocations,
                 users=AuthApi(users=self.users, login=self.login),
+                secrets=self.secrets,
             ),
             host=self._http_bind.host,
             port=self.http_port,
