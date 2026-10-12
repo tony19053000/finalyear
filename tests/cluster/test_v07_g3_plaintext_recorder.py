@@ -21,12 +21,18 @@ then on B with the controller link throttled so B fetches the tree mostly
   contains ARGV_MARKER, FILE_MARKER, either user's password or API token, or
   the fabric token; nothing was dropped from the recording (not truncated).
 
-Job secrets (D144) do not exist before G6; their value joins the markers then.
+V0.7 G6 (D146 + D144): the user also stores a **job secret** (SECRET_MARKER,
+``PUT /v1/secrets`` over the recorded rest link) and both jobs name it; the
+job proves it read it by writing the value's SHA-256 next to the test (never
+the value) - and neither the value nor its base64/hex is on any link (it
+travelled inside ``StartAttempt`` over mTLS).
 The 🧑 lab checklist adds a real tcpdump/Wireshark capture on the LAN.
 """
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import os
 import secrets
 import time
@@ -71,13 +77,17 @@ TERMINAL = {"succeeded", "failed", "cancelled"}
 
 ARGV_MARKER = "MF-ARGV-" + secrets.token_hex(12)
 FILE_MARKER = b"MF-FILE-" + secrets.token_hex(12).encode()
+SECRET_MARKER = b"MF-SECRET-" + secrets.token_hex(12).encode()
+SECRET_NAME = "RECORDER_KEY"
 
 MAIN = """\
-import sys
+import hashlib, os, sys
 data = open("data.bin", "rb").read()
 secret = open("secret.txt").read()
 print(sys.argv[1], secret, len(data), flush=True)
 open(sys.argv[2], "w").write(secret)
+job_secret = open(os.path.join(os.environ["MESHFORGE_SECRETS_DIR"], "RECORDER_KEY"), "rb").read()
+open(sys.argv[2] + ".sha", "w").write(hashlib.sha256(job_secret).hexdigest())
 """
 
 
@@ -99,6 +109,7 @@ def _run(fabric: Fabric, built: BuiltTree, node: Node, out: Path) -> dict[str, A
             "manifest": {
                 "name": "recorder",
                 "entrypoint": ["python", "main.py", ARGV_MARKER, str(out)],
+                "secrets": [SECRET_NAME],
             },
             "tree_id": str(built.tree.tree_id),
             "placement": {"node_id": node.node_id},
@@ -143,6 +154,14 @@ def test_no_plaintext_marker_crosses_any_link_of_a_full_job_run(
     assert a.peer_link is not None and b.peer_link is not None
     token = fabric.api_token(NORMAL_USER)
 
+    stored = fabric.call(
+        "PUT",
+        f"/v1/secrets/{SECRET_NAME}",
+        as_user=NORMAL_USER,
+        content=SECRET_MARKER,
+    )
+    assert stored.status_code == 200, stored.text
+
     built = _tree(tmp_path)
     client = ControllerClient(fabric.http_base, timeout_s=30, token=SecretStr(token))
     try:
@@ -159,6 +178,9 @@ def test_no_plaintext_marker_crosses_any_link_of_a_full_job_run(
         fabric.rest_link.bandwidth(None)
     assert second["state"] == "succeeded", second
     assert (tmp_path / "b.out").read_bytes() == FILE_MARKER
+    # The job really read the secret (both runs), proved without the value.
+    for out in ("a.out.sha", "b.out.sha"):
+        assert (tmp_path / out).read_text() == hashlib.sha256(SECRET_MARKER).hexdigest()
 
     # The markers really travelled (encrypted): B's stdout, read back over
     # the rest link, holds both; A's peer link carried most of the tree.
@@ -182,6 +204,10 @@ def test_no_plaintext_marker_crosses_any_link_of_a_full_job_run(
         "user_api_token": token.encode(),
         "admin_password": fabric.password(ADMIN_USER).encode(),
         "admin_api_token": fabric.api_token(ADMIN_USER).encode(),
+        # V0.7 G6: the job secret's value and its common encodings.
+        "secret_value": SECRET_MARKER,
+        "secret_b64": base64.b64encode(SECRET_MARKER).rstrip(b"="),
+        "secret_hex": SECRET_MARKER.hex().encode(),
     }
     seen: dict[str, int] = {}
     leaks: list[str] = []
