@@ -124,6 +124,7 @@ def test_base_metadata_uses_convention_and_registers_every_model() -> None:
         "revoked_cert",  # V0.7 G3 (0016)
         "app_user",  # V0.7 G4 (0018)
         "api_token",  # V0.7 G4 (0018)
+        "secret",  # V0.7 G6 (0019)
     }
 
 

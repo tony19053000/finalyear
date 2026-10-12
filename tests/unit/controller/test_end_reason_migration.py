@@ -79,7 +79,9 @@ def test_migration_0016_lists_are_the_model_enums() -> None:
     # V0.7 G4: 0018 adds actions; 0016's list is frozen and equals 0018's own copy.
     mig18 = _load("0018_rotation_users.py")
     assert set(mig.ACTIONS_0016) == set(mig18.ACTIONS_0016)
-    assert set(mig18.ACTIONS_0018) == {a.value for a in AuditAction}
+    mig19 = _load("0019_secret.py")
+    assert set(mig19.ACTIONS_0018) == set(mig18.ACTIONS_0018)  # frozen copy
+    assert set(mig19.ACTIONS_0019) == {a.value for a in AuditAction}  # V0.7 G6
     assert set(mig.REASONS_0016) == {r.value for r in RevocationReason}
 
 
@@ -91,6 +93,17 @@ def test_migration_0018_lists_are_the_model_enums() -> None:
     assert (mig.revision, mig.down_revision) == ("0018", "0017")
     assert set(mig.ROLES_0018) == {r.value for r in UserRole}
     assert mig.USER_NAME_PATTERN == USER_NAME_PATTERN
+
+
+def test_migration_0019_lists_are_the_model_rules() -> None:
+    """V0.7 G6: the newest revision's literals equal the model rules today."""
+    from meshforge.common.secret_names import SECRET_NAME_PATTERN
+    from meshforge.controller.store.models.secret import MAX_CIPHERTEXT_BYTES
+
+    mig = _load("0019_secret.py")
+    assert (mig.revision, mig.down_revision) == ("0019", "0018")
+    assert mig.NAME_PATTERN_0019 == SECRET_NAME_PATTERN
+    assert mig.MAX_CIPHERTEXT_0019 == MAX_CIPHERTEXT_BYTES
 
 
 def test_migration_0017_lists_are_the_model_enum() -> None:

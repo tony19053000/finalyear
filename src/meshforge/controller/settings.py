@@ -37,6 +37,7 @@ from meshforge.controller.fabric_ca import (
 from meshforge.controller.liveness import LivenessConfig
 from meshforge.controller.peer_signing import KEY_FILE_NAME as PEER_KEY_FILE_NAME
 from meshforge.controller.resources import DEFAULT_BUCKET_GRACE_S
+from meshforge.controller.secret_box import KEY_FILE_NAME as SECRETS_KEY_FILE_NAME
 from meshforge.controller.store.settings import DatabaseSettings
 
 __all__ = [
@@ -1453,6 +1454,13 @@ class ControllerSettings(MeshForgeSettings):
         return self.controller.peer_key_file or (
             self.data_dir / CONTROLLER_DIR_NAME / PEER_KEY_FILE_NAME
         )
+
+    @property
+    def secrets_key_path(self) -> Path:
+        """The job-secrets master key (``<data_dir>/controller/secrets.key``,
+        V0.7 G6 D144): 32 random bytes, created on first use; losing it loses
+        every stored secret (back it up with ``ca/``)."""
+        return self.data_dir / CONTROLLER_DIR_NAME / SECRETS_KEY_FILE_NAME
 
     @property
     def ca_dir(self) -> Path:

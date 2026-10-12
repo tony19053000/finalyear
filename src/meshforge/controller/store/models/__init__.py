@@ -12,7 +12,8 @@ Tables so far: ``node``, ``node_session`` (V0.3, :mod:`.node`),
 G2 D112, :mod:`.plan`), ``network_link`` (V0.6 G4 D111, :mod:`.network`),
 ``join_token``, ``audit_event`` (V0.7 G2 D135/D136, :mod:`.enrollment`),
 ``revoked_cert`` (V0.7 G3 D138, :mod:`.revocation`), ``app_user``,
-``api_token`` (V0.7 G4 D141, :mod:`.auth`).
+``api_token`` (V0.7 G4 D141, :mod:`.auth`), ``secret`` (V0.7 G6 D144,
+:mod:`.secret`).
 """
 
 from meshforge.controller.store.base import Base
@@ -35,6 +36,7 @@ from meshforge.controller.store.models.node import Node, NodeSession, SessionEnd
 from meshforge.controller.store.models.plan import PlanDecision
 from meshforge.controller.store.models.resource import ResourceSnapshot
 from meshforge.controller.store.models.revocation import RevokedCert
+from meshforge.controller.store.models.secret import Secret
 
 __all__ = [
     "ApiToken",
@@ -56,6 +58,7 @@ __all__ = [
     "PlanDecision",
     "ResourceSnapshot",
     "RevokedCert",
+    "Secret",
     "SessionEndReason",
     "TransferEvent",
     "UserRole",

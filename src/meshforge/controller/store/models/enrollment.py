@@ -74,6 +74,10 @@ class AuditAction(StrEnum):
     LEGACY_TOKEN_USED = "legacy_token_used"  # noqa: S105 - an action name
     """The legacy fabric token was accepted (``[controller.auth]
     legacy_fabric_token = true``) - recorded once per controller run."""
+    # --- V0.7 G6 (migration 0019) ------------------------------------------
+    SECRET_SET = "secret_set"  # noqa: S105 - an action name
+    """A user stored or replaced a secret (its name, never the value)."""
+    SECRET_DELETED = "secret_deleted"  # noqa: S105 - an action name
 
 
 def _in_list(values: type[StrEnum]) -> str:
