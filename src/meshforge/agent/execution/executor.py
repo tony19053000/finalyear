@@ -46,6 +46,11 @@ Rules:
 * **Cancel** (``CancelAttempt`` with the attempt's token) stops the current step:
   the runtime's graceful-then-forced stop, or the fetch. The attempt ends
   ``FAILED(cancelled)``.
+* **Output cap (V0.7 G5, D143).** While the job runs its workdir is measured
+  (:mod:`.workdir_cap`); past ``[agent.execution] max_written_bytes`` (or a
+  folder that cannot be measured) the run is stopped like a cancel and the
+  attempt ends ``FAILED(output_error)``, detail ``output_limit: ...``, not
+  retried.
 * **Agent stop (D52).** :meth:`Executor.shutdown` cancels every running attempt;
   each reports ``FAILED(node_lost, detail=agent_shutdown)`` - retryable in V0.6 -
   and the session sends its Goodbye only afterwards.
@@ -126,6 +131,7 @@ from meshforge.agent.execution.plan import (
 )
 from meshforge.agent.execution.runtime import RunObserver, RunResult, Stream
 from meshforge.agent.execution.uploader import UploadProgress, upload_parts
+from meshforge.agent.execution.workdir_cap import UNMEASURABLE, WorkdirCap, stop_watch
 from meshforge.agent.gc.leases import AttemptLeases, LeaseError
 from meshforge.agent.http_tls import AgentHttpTls
 from meshforge.agent.policy import LivePolicy
@@ -156,6 +162,8 @@ _MISSING_MAX: Final = 64
 _MISSING_MAX_CHARS: Final = 512
 _SHUTDOWN_SLACK_S: Final = 3.0
 _WORK_DIR_NAME: Final = "work"
+OUTPUT_LIMIT: Final = "output_limit"
+"""Stop reason and failure reason of a job past ``max_written_bytes`` (D143)."""
 _NOFOLLOW: Final = getattr(os, "O_NOFOLLOW", 0)
 _STAGE_RETRYABLE: Final = frozenset(
     {FailureType.TRANSFER_ERROR, FailureType.TIMEOUT, FailureType.UNAUTHORIZED}
@@ -268,6 +276,9 @@ class _Attempt:
     upload_retries: int = 0
     uploads: UploadProgress = field(default_factory=UploadProgress)
     """What the resumable uploads of this attempt sent (D114)."""
+    written: int | None = None
+    """V0.7 G5 (D143): bytes the job had added to its workdir when the output
+    cap stopped it (``UNMEASURABLE`` = a folder could not be measured)."""
 
     @property
     def ended(self) -> bool:
@@ -1351,25 +1362,30 @@ class Executor:
         on_output: Callable[[Stream, bytes], Awaitable[None]],
         stderr_tail: OutputTail | None = None,
     ) -> None:
+        cap_watch = await self._output_cap(attempt)
         run: asyncio.Task[RunResult] = asyncio.ensure_future(
             runtime.run(plan.spec, on_output, observer=observer)
         )
         attempt.step = run
-        started = asyncio.ensure_future(observer.started.wait())
+        cap = self._start_output_cap(attempt, cap_watch)
         try:
-            await asyncio.wait({run, started}, return_when=asyncio.FIRST_COMPLETED)
+            started = asyncio.ensure_future(observer.started.wait())
+            try:
+                await asyncio.wait({run, started}, return_when=asyncio.FIRST_COMPLETED)
+            finally:
+                started.cancel()
+            if observer.started.is_set():
+                await self._announce_run(attempt)
+            try:
+                result = await run
+            except asyncio.CancelledError:
+                if not (run.cancelled() and attempt.stop_reason is not None):
+                    raise
+                result = observer.cancelled_result()
+            finally:
+                attempt.step = None
         finally:
-            started.cancel()
-        if observer.started.is_set():
-            await self._announce_run(attempt)
-        try:
-            result = await run
-        except asyncio.CancelledError:
-            if not (run.cancelled() and attempt.stop_reason is not None):
-                raise
-            result = observer.cancelled_result()
-        finally:
-            attempt.step = None
+            await stop_watch(cap)
         if stderr_tail is not None:
             result = refine_result(result, stderr_tail.data)  # D116
         attempt.env_hash = result.env_hash or attempt.env_hash
@@ -1425,6 +1441,46 @@ class Executor:
             logs=final_logs,
         )
 
+    async def _output_cap(self, attempt: _Attempt) -> WorkdirCap | None:
+        """D143: the workdir's watch, its baseline measured **before** the
+        job starts (what staging put there is not the job's)."""
+        if attempt.workdir is None:
+            return None
+        cap = WorkdirCap(
+            attempt.workdir,
+            self._cfg.max_written_bytes,
+            self._cfg.output_check_interval_s,
+            clock=self._clock,
+        )
+        cap.baseline = max(0, await self._step(attempt, cap.measure_once()))
+        return cap
+
+    def _start_output_cap(
+        self, attempt: _Attempt, cap: WorkdirCap | None
+    ) -> asyncio.Task[None] | None:
+        """Measure the workdir while the job runs; past ``max_written_bytes``
+        the run is stopped (``output_limit``)."""
+        if cap is None:
+            return None
+
+        def exceeded(written: int) -> None:
+            attempt.written = written
+            log.warning(
+                "agent.execution.output_limit",
+                node_id=self._node_id,
+                job_id=attempt.job_id,
+                attempt_id=attempt.attempt_id,
+                written_bytes=written,
+                max_bytes=self._cfg.max_written_bytes,
+            )
+            self._stop(attempt, OUTPUT_LIMIT)
+
+        task = asyncio.create_task(
+            cap.run(exceeded), name=f"attempt-output-cap:{attempt.attempt_id}"
+        )
+        task.add_done_callback(self._task_done)
+        return task
+
     async def _collect(self, attempt: _Attempt, plan: AttemptPlan) -> Collected:
         """D74: expand, pack and upload the declared outputs (cancellable)."""
         patterns = tuple(plan.manifest.outputs)
@@ -1479,6 +1535,12 @@ class Executor:
     ) -> None:
         if attempt.stop_reason == "agent_shutdown":
             failure = (FailureType.NODE_LOST, "agent_shutdown", True)
+        elif attempt.stop_reason == OUTPUT_LIMIT:
+            failure = (
+                FailureType.OUTPUT_ERROR,
+                self._output_limit_text(attempt),
+                False,
+            )
         else:
             failure = (FailureType.CANCELLED, "cancelled", False)
         await self._send(
@@ -1487,6 +1549,18 @@ class Executor:
             failure=failure,
             exit_code=exit_code,
             signal=signal,
+        )
+
+    def _output_limit_text(self, attempt: _Attempt) -> str:
+        limit = self._cfg.max_written_bytes
+        if attempt.written == UNMEASURABLE:
+            return (
+                f"{OUTPUT_LIMIT}: a folder the job made in its workdir cannot be "
+                "measured; stopped (the output cap fails closed)"
+            )
+        return (
+            f"{OUTPUT_LIMIT}: the job wrote more than {limit} bytes to its workdir "
+            f"([agent.execution] max_written_bytes); stopped"
         )
 
     # ------------------------------------------------------------ reporting

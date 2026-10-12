@@ -119,6 +119,11 @@ from meshforge.agent.execution.runtime import (
     Stream,
     classify,
 )
+from meshforge.agent.execution.sandbox_check import (
+    ExpectedMount,
+    SandboxViolationError,
+    check_host_config,
+)
 from meshforge.agent.gc.leases import lease_env
 from meshforge.common.errors import FailureType
 from meshforge.common.logging import get_logger
@@ -1185,6 +1190,7 @@ class DockerRuntime:
                 raise _create_fault(exc, docker, role) from exc
             container_id = str(container.id)
             obs.ident = container_id[:12]
+            self._assert_sandbox(container, spec, role, kwargs)
             if before_start is not None:
                 try:
                     await asyncio.to_thread(before_start, container)
@@ -1232,6 +1238,40 @@ class DockerRuntime:
         obs.exit_code = outcome.exit_code
         obs.signal = _signal_of(outcome.exit_code)
         return outcome
+
+    def _assert_sandbox(
+        self,
+        container: Container,
+        spec: RunSpec,
+        role: str,
+        kwargs: Mapping[str, Any],
+    ) -> None:
+        """D143: what Docker created is the sandbox, before it starts
+        (:mod:`.sandbox_check`); else :class:`_FaultError` ``config_error`` /
+        ``sandbox_violation`` - the caller removes the unstarted container."""
+        attrs = container.attrs if isinstance(container.attrs, Mapping) else {}
+        host = attrs.get("HostConfig")
+        try:
+            check_host_config(
+                host if isinstance(host, Mapping) else {},
+                role=role,
+                mounts=_expected_mounts(spec, role, kwargs),
+                network_allowed=spec.network,
+            )
+        except SandboxViolationError as exc:
+            log.error(  # noqa: TRY400 - a typed finding, no traceback
+                "agent.execution.sandbox_violation",
+                attempt_id=spec.attempt_id,
+                role=role,
+                what=exc.what,
+                detail=exc.detail,
+            )
+            raise _FaultError(
+                FailureType.CONFIG_ERROR,
+                "sandbox_violation",
+                f"the {role} container is not sandboxed as required ({exc.what}: "
+                f"{exc.detail}); it was removed without starting",
+            ) from None
 
     async def _await_exit(
         self,
@@ -1334,6 +1374,40 @@ class DockerRuntime:
                 "agent.execution.cleanup_failed",
                 cause=type(task.exception()).__name__,
             )
+
+
+def _host_path(path: str) -> str:
+    """A host path as Docker reports it back (Windows: case and separators)."""
+    if sys.platform == "win32":  # pragma: no cover - Windows only
+        return os.path.normcase(os.path.normpath(path))
+    return path
+
+
+def _expected_mounts(
+    spec: RunSpec, role: str, kwargs: Mapping[str, Any]
+) -> list[ExpectedMount]:
+    """The only binds a container of ``role`` may have: the attempt workdir at
+    ``/work`` (``run``/``setup``); the requirements staging and the wheelhouse,
+    read-only, for ``envbuild`` (the agent's own folders, never the job's)."""
+    if role != "envbuild":
+        return [ExpectedMount(_host_path(str(spec.workdir)), CONTAINER_WORKDIR, False)]
+    out = []
+    for mount in kwargs.get("mounts") or ():
+        target = str(mount.get("Target", ""))
+        if target not in (_CONTAINER_REQ, _CONTAINER_WHEELS):
+            raise _FaultError(
+                FailureType.INTERNAL_ERROR,
+                "sandbox_violation",
+                f"the envbuild container asks for an unexpected mount at {target}",
+            )
+        out.append(
+            ExpectedMount(
+                _host_path(str(mount.get("Source", ""))),
+                target,
+                bool(mount.get("ReadOnly", False)),
+            )
+        )
+    return out
 
 
 _BUILD_ONLY_LABELS: Final = (LABEL_MANAGED, LABEL_AGENT, LABEL_ATTEMPT, LABEL_ROLE)

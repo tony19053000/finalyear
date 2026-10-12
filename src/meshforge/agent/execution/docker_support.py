@@ -23,6 +23,7 @@ import sys
 from typing import TYPE_CHECKING, Any, Final
 
 from meshforge.agent.execution.runtime import RuntimeAvailability
+from meshforge.agent.execution.sandbox_check import daemon_seccomp_problem
 from meshforge.common.logging import get_logger
 
 if TYPE_CHECKING:
@@ -145,7 +146,9 @@ def probe_docker(
 ) -> RuntimeAvailability:
     """Is a Docker daemon usable here, and can its containers get an NVIDIA GPU?
 
-    Blocking (call it from a thread). Never raises. The GPU answer is **measured**
+    Blocking (call it from a thread). Never raises. A daemon that does not
+    confine containers with a seccomp profile by default is **unavailable**
+    (``docker_seccomp_off`` / ``docker_seccomp_unconfined``, D143). The GPU answer is **measured**
     when possible: a throw-away container asks for every GPU through
     ``device_requests`` with the (already local) ``gpu_probe_image`` - that is the
     exact mechanism :class:`DockerRuntime` uses, so "yes" means it works. Without a
@@ -173,6 +176,14 @@ def probe_docker(
                 False,
                 reason=_unreachable_reason(exc),
                 sandboxed=True,
+            )
+        seccomp = daemon_seccomp_problem(info if isinstance(info, dict) else {})
+        if seccomp is not None:
+            # D143: containers without the default seccomp profile are not
+            # the sandbox; this laptop then offers no Docker runtime.
+            log.warning("agent.execution.docker_seccomp_off", reason=seccomp)
+            return RuntimeAvailability(
+                DOCKER_RUNTIME_NAME, False, reason=seccomp, sandboxed=True
             )
         gpu, gpu_reason = _probe_gpu(
             client, info, host_has_nvidia_gpu, gpu_probe_image, agent_label

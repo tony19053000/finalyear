@@ -546,6 +546,28 @@ class ExecutionSettings(SectionModel):
             "truncated and ends with a marker line (V0.4 D71)."
         ),
     )
+    max_written_bytes: int = Field(
+        default=8 * 1024**3,
+        ge=1024 * 1024,
+        le=4 * 1024**4,
+        description=(
+            "V0.7 G5 (D143): most disk a running job may add to its attempt "
+            "folder (outputs, scratch files and its logs; measured as allocated "
+            "blocks). Past it the job is stopped and fails output_error "
+            "(output_limit). Checked every output_check_interval_s, so a fast "
+            "writer can overshoot by what it writes in one interval."
+        ),
+    )
+    output_check_interval_s: float = Field(
+        default=1.0,
+        ge=0.05,
+        le=60.0,
+        description=(
+            "How often the agent measures a running job's attempt folder for "
+            "max_written_bytes (stretched to 5x the last measurement's duration "
+            "for very large folders)."
+        ),
+    )
     terminal_resend_s: float = Field(
         default=5.0,
         ge=0.2,
