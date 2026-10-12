@@ -238,3 +238,54 @@ async def test_two_hostile_containers_find_only_their_own_secret_file(
         assert list(base.iterdir()) == []
     finally:
         await agent.stop()
+
+
+def _entries(base: Path) -> list[str]:
+    return sorted(p.name for p in base.iterdir()) if base.exists() else []
+
+
+async def test_docker_cancel_and_timeout_wipe_the_host_folder(
+    alice: httpx.AsyncClient, grpc_target: str, tmp_path: Path
+) -> None:
+    if not await asyncio.to_thread(_docker_ready):
+        pytest.skip("Docker or the pinned python-cpu image is not available here")
+    agent = await ExecAgent.start(
+        grpc_target,
+        tmp_path / "agent",
+        agent_overrides={"policy": {"accept_jobs": True, "allow_unsandboxed": False}},
+        docker=True,
+    )
+    try:
+        base = agent.executor.vault.base
+        project = tmp_path / "proj"
+        project.mkdir()
+        (project / "main.py").write_text(HOSTILE)
+        for how in ("cancel", "timeout"):
+            manifest = {
+                "name": f"r1-{how}",
+                "entrypoint": ["python", "main.py", "ONE", "/tmp/up", "120"],
+                "secrets": ["ONE"],
+                "retry": {"max_attempts": 1},
+            }
+            if how == "timeout":
+                manifest["limits"] = {"timeout": 8}
+            job_id = await submit(alice, project, agent.node_id, manifest)
+            for _ in range(600):
+                if await asyncio.to_thread(lambda: len(_entries(base)) == 1):
+                    break
+                await asyncio.sleep(0.1)
+            assert len(_entries(base)) == 1
+            if how == "cancel":
+                await alice.post(f"/v1/jobs/{job_id}/cancel")
+            job = await wait_job(alice, job_id, timeout_s=90)
+            assert job["state"] == ("cancelled" if how == "cancel" else "failed"), job
+            for _ in range(100):
+                if not await asyncio.to_thread(lambda: _entries(base)):
+                    break
+                await asyncio.sleep(0.1)
+            assert _entries(base) == [], how
+            # the container is gone too
+            left = await asyncio.to_thread(_inspect_all)
+            assert V1.decode() not in left
+    finally:
+        await agent.stop()

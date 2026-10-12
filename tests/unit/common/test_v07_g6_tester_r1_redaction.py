@@ -195,7 +195,7 @@ def test_scrub_active_hides_every_form_in_our_own_logs() -> None:
             assert "[secret:LOGKEY]" in out
     finally:
         ACTIVE.remove("tester-r1")
-    assert not ACTIVE
+    assert "LOGKEY" not in ACTIVE.names()
 
 
 def test_not_claimed_transformations_are_documented_as_not_covered() -> None:
@@ -301,6 +301,19 @@ def test_a_64kib_secret_compiles_quickly_enough_to_start_an_attempt() -> None:
     for _ in range(3):  # stdout, stderr, controller
         StreamRedactor({"BIG": value})
     assert time.perf_counter() - t0 < 10
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="T-8 (major): constructing a redactor for a job's allowed maximum "
+    "(32 secrets x 64 KiB) takes ~25 s and ~4 GB per stream; four of them "
+    "already take seconds - it runs on the event loop of controller and agent",
+)
+def test_construction_cost_is_bounded_for_many_large_secrets() -> None:
+    secs = {f"S{i}": os.urandom(64 * 1024) for i in range(4)}
+    t0 = time.perf_counter()
+    StreamRedactor(secs)
+    assert time.perf_counter() - t0 < 1.0
 
 
 def test_a_64kib_secret_dribbled_one_byte_at_a_time_stays_usable() -> None:

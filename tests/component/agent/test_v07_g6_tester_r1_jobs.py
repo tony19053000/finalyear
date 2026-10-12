@@ -590,3 +590,48 @@ async def test_a_short_status_line_is_visible_live_while_the_job_runs(
         await alice.post(f"/v1/jobs/{job_id}/cancel")
     finally:
         await agent.stop()
+
+
+async def test_naming_someone_elses_secret_is_indistinguishable_from_a_missing_one(
+    alice: httpx.AsyncClient,
+    alice_token: str,
+    runtime: ControllerRuntime,
+    grpc_target: str,
+    tmp_path: Path,
+) -> None:
+    """No existence oracle: bob learns nothing about alice's secret names."""
+    assert (
+        await alice.put("/v1/secrets/ONLY_ALICE", content=b"alice-value-1")
+    ).is_success
+    async with httpx.AsyncClient(
+        base_url=f"https://127.0.0.1:{runtime.http_port}", timeout=30
+    ) as anon:
+        bob_token = await login(anon, "bob", "bob-password-1")
+    agent = await _agent(grpc_target, tmp_path / "agent")
+    try:
+        async with httpx.AsyncClient(
+            base_url=f"https://127.0.0.1:{runtime.http_port}",
+            headers=bearer(bob_token),
+            timeout=30,
+        ) as bob:
+            project = tmp_path / "p"
+            project.mkdir()
+            (project / "main.py").write_text("print(1)\n")
+            texts = []
+            for name in ("ONLY_ALICE", "NOBODY_HAS_THIS"):
+                with pytest.raises(AssertionError) as exc:
+                    await submit(
+                        bob,
+                        project,
+                        None,
+                        {
+                            "name": "probe",
+                            "entrypoint": ["python", "main.py"],
+                            "secrets": [name],
+                        },
+                    )
+                texts.append(str(exc.value).replace(name, "<N>"))
+            assert texts[0] == texts[1], texts
+            assert "alice" not in texts[0].lower()
+    finally:
+        await agent.stop()
