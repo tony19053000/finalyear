@@ -126,6 +126,59 @@ refuses to start while its database password is the published dev default
 value (`MESHFORGE_DATABASE__PASSWORD=…` or `[database] password` in its
 `config.toml`, which must then be private to you).
 
+### 0a1b. Job secrets (V0.7 G6, D144)
+
+A job that needs a password or an API key reads it from a **secret** you stored
+on the controller - never from the project, the manifest or the command line.
+
+```bash
+compute secret set HF_TOKEN              # type it (not echoed), or pipe it:
+printf '%s' "$HF_TOKEN" | compute secret set HF_TOKEN   # one trailing newline is dropped
+compute secret set CERT --from-file ./client.pem       # exact bytes of a file
+compute secret list                      # names and when they were set - never values
+compute secret delete HF_TOKEN
+```
+
+```yaml
+# compute.yaml
+secrets:
+  - HF_TOKEN                     # file: /run/secrets/HF_TOKEN (Docker) or $MESHFORGE_SECRETS_DIR/HF_TOKEN
+  - {name: DB_PASS, as_env: true}  # also the environment variable DB_PASS
+```
+
+- **Rules.** Names: letters, digits and `_`, not starting with a digit
+  (`hf_token` is stored as `HF_TOKEN`); values 4 bytes .. 64 KiB. Shorter values
+  are refused because every log is scrubbed of each value (a 2-byte value
+  would blank half of every log). `as_env` needs text (UTF-8, no NUL) and may
+  not be `PATH`, `HOME`, `PYTHONPATH`, `LD_*` or `MESHFORGE_*`.
+- **Only your own.** A job can name only the secrets of the user who submits
+  it. A missing one is refused at submit (`invalid_input`
+  `secret_missing:NAME`); one deleted while the job waits fails it when it is
+  about to start (same message, nothing reaches the laptop, not retried).
+- **On the laptop** the values exist only while the attempt runs: files in a
+  private folder in RAM (`/dev/shm` on Linux; `<data dir>/secrets` on other
+  systems), read-only for Docker jobs, wiped (overwritten, deleted) when the
+  attempt ends - also on failure, cancel and agent stop; a crashed agent's
+  leftovers are wiped at its next start. They travel only inside the mTLS
+  session (`secrets_need_mtls` in `insecure-dev` unless `[security]
+  allow_insecure_secrets = true`, for one-machine tests only).
+- **Logs** show `[secret:NAME]` where a value (or its base64 / hex /
+  URL-encoded form) was printed - on the laptop, in `compute logs`, in the live
+  follow and in our own log files. **This stops accidents, not a job that leaks
+  its secret on purpose** (reversed, split into pieces, written to an output).
+- **Changing a value:** `compute secret set NAME` again. Running attempts keep
+  the value they started with; the next attempt (a new job or a retry) gets the
+  new one.
+- **The master key** `<data dir>/controller/secrets.key` (32 bytes, created on
+  first use, `chmod 600`, the controller refuses a key others can read) encrypts
+  every value in the database (AES-256-GCM; the table holds ciphertext only).
+  **Back it up together with `controller/ca/`**, and keep the backup as private
+  as the CA key: losing it loses every stored secret (users must `secret set`
+  again); a key from another installation is refused (`secret_key_mismatch`).
+  Rotating the master key is **not** available before V0.17 (it comes with CA
+  rotation). A controller (or its administrator) can read every secret - it
+  must, to deliver them.
+
 ### 0a. The fabric token (V0.4, D44 — [ADR-0014](adr/0014-interim-execution-trust.md)) - legacy since V0.7 G4
 
 > Since V0.7 G4 the controller **ignores** the fabric token unless
@@ -1175,6 +1228,10 @@ volume**).
 | Jobs fail `disk_full` | auto jobs are retried on another laptop and the full one is avoided for `retry_exclude_s` (V0.6 D126), so this means the job was **pinned** to the full laptop, or no other laptop could run it and the laptop was still full after `retry_exclude_s` (retries exhausted; D129 waits the window out instead of retrying at once) | free disk on that laptop and resubmit |
 | A job fails at once with `disk_full` / `disk_floor: ...` (or right at start) | the laptop's workdir disk already had less free than the 1 GiB staging floor when the job started (V0.7 G5/G6): staging checks the floor before fetching, the running-job poll checks it again every `output_check_interval_s` | free disk on that laptop (`df -h <data dir>/work`), or move `[agent.execution] workdir_root` to a bigger local disk; an auto job is retried elsewhere meanwhile (D126) |
 | A job fails `disk_full` / `disk_unknown: ...` | the agent could not read the free space of the workdir's disk `free_disk_read_failure_limit` times in a row (a vanished mount, an unreachable network share, an I/O error) | check the agent log `agent.execution.free_disk_read_failed` for the OS error; keep `workdir_root` on a local disk |
+| `compute run` refused `invalid_input` `secret_missing:NAME`, or a job fails with it | the submitting user has no secret `NAME` (or it was deleted before the job started) - secrets are per user | `compute secret list`; `compute secret set NAME` as the user who submits |
+| A job fails `config_error` `secrets_need_mtls` | controller or agent runs `[security] mode = "insecure-dev"` | use mTLS (the default); for one-machine tests only: `[security] allow_insecure_secrets = true` on both |
+| A job fails `integrity_error` `secret_unreadable` / `config_error` `secret_key_mismatch` / `secret_key_unusable` | the stored ciphertext does not match its owner/name (database edited or restored from elsewhere), the database belongs to another `secrets.key`, or the key file is loose/missing-and-unwritable | restore the matching `secrets.key` from backup, or `compute secret set NAME` again; check the controller log `controller.jobs.secrets_refused` |
+| A job fails `invalid_input` `secret_not_text:NAME` | an `as_env` secret is not UTF-8 text | read it from its file instead (drop `as_env`) |
 | A job stays `queued` | no node can take it **now** (V0.6): every capable node is busy (`slots_full`, `node_cap`), offline / suspect, or its environment failed there recently (`env_known_bad`) | `compute explain <JOB_ID>` lists each node's reason; free a slot, start an agent, raise `[agent.execution] max_cpu_jobs` / `max_gpu_jobs`, or cancel it |
 | `compute run` exits with `no_feasible_plan` and a list of nodes | **no** enrolled node could ever run it (V0.6 D104): no `exec`, no GPU / too little VRAM / RAM / CPUs, no runtime for `env.base`, the owner allows no jobs of that kind | each line names the node and the reason; change the manifest's `resources:` or enable execution / a runtime on a node |
 | `compute run` prints `local agent cache not seeded (...)` | the CLI could not copy the project into this laptop's agent cache: `no_cache` (the agent never ran with this data dir), `other_user` (the agent's cache belongs to another OS user - e.g. the agent runs as a service account or you ran `compute run` as root; V0.7 G5 never writes into it), `not_writable`, `over_quota` (project > `[cli] seed_max_bytes`), `disk_full`, `changed` (a file changed while copied) | nothing breaks: a job placed here downloads the project; fix the reason to save that download |
