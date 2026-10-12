@@ -336,11 +336,6 @@ def test_a_file_first_seen_non_private_at_startup_denies_from_the_start(
     assert live.state.invalid_reason
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-6 minor: LivePolicy._file_stamp is (mtime, size, inode); a chmod "
-    "(ctime only) to world-writable is not noticed until the content changes",
-)
 @pytest.mark.skipif(os.name != "posix", reason="POSIX permission bits")
 def test_a_chmod_after_load_is_noticed_on_the_next_reload(tmp_path: Path) -> None:
     """A file loosened to world-writable (content untouched) must stop being
@@ -451,13 +446,6 @@ def test_the_network_matrix_for_old_and_new_manifests(
 # ------------------------------------------------------------------ restart remedy
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-8 major: build_execution probes runtimes from settings.agent.policy "
-    "(the base config) and ignores the live policy.toml, so the documented remedy "
-    "'policy set accept_jobs=true, then restart once' still starts with NO runtime "
-    "when the configuration says accept_jobs=false",
-)
 @pytest.mark.asyncio
 async def test_a_restart_after_policy_set_probes_the_runtimes_the_overlay_enables(
     tmp_path: Path,

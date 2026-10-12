@@ -19,14 +19,14 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any, Final
 
 import typer
 
 from meshforge.common.exit_codes import ExitCode
 
 if TYPE_CHECKING:
-    from meshforge.agent.settings import AgentSettings
+    from meshforge.agent.settings import AgentSettings, PolicySettings
 
 __all__ = ["policy_app"]
 
@@ -47,6 +47,11 @@ _ConfigOption = Annotated[
     ),
 ]
 _PROG = "meshforge-agent"
+_RESTART_KEYS: Final = {
+    "accept_jobs": "runtime",
+    "allow_unsandboxed": "subprocess/venv runtime",
+}
+"""Keys whose turning on needs a restart of an agent started with them off."""
 
 
 def _settings(config: Path | None) -> AgentSettings:
@@ -143,6 +148,12 @@ def set_(
     try:
         changes = parse_assignments(assignments)
         current = read_overlay(path) or {}
+        try:
+            before: PolicySettings | None = effective_settings(
+                settings.agent.policy, current
+            )
+        except MeshForgeError:  # the old file was invalid: say it, to be safe
+            before = None
         merged = {**current, **changes}
         effective = effective_settings(settings.agent.policy, merged)
         slots = effective.max_cpu_jobs + (effective.max_gpu_jobs or 0)
@@ -163,11 +174,14 @@ def set_(
         f"policy saved to {path}; a running agent applies it within "
         f"{settings.agent.policy.reload_interval_s:g} s"
     )
-    if changes.get("accept_jobs") is True and not settings.agent.policy.accept_jobs:
-        typer.echo(
-            "note: if the agent was started with accept_jobs = false it has no "
-            "runtime yet - restart it once to start running jobs"
-        )
+    for key, what in _RESTART_KEYS.items():
+        # turned on now while it was off: a running agent may have started with
+        # it off and then never probed these runtimes (fix r1, T-9)
+        if changes.get(key) is True and (before is None or not getattr(before, key)):
+            typer.echo(
+                f"note: if the agent was started with {key} = false it has no "
+                f"{what} yet - restart it once (the restart reads this policy)"
+            )
     raise typer.Exit(ExitCode.OK)
 
 

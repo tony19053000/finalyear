@@ -5,9 +5,13 @@
 ``capabilities`` go into ``Hello.hardware.capabilities``) and the runtime
 instances the executor may use. Rules (ADR-0014):
 
-* ``[agent.policy] accept_jobs = false`` (was ``[agent.execution] enabled``,
-  V0.7 G5) at start -> nothing is probed, nothing is advertised, every
-  ``StartAttempt`` is refused ``unauthorized``;
+* the policy read at start is the **effective** one: ``[agent.policy]`` plus
+  the owner's live ``<data_dir>/policy.toml`` (``policy.startup_policy``; V0.7
+  G5 fix r1, T-8), so ``policy set ...`` then a restart really probes what the
+  owner turned on;
+* ``accept_jobs = false`` (was ``[agent.execution] enabled``, V0.7 G5) at
+  start -> nothing is probed, nothing is advertised, every ``StartAttempt`` is
+  refused ``unauthorized``;
 * the Docker runtime is probed (bounded: a wedged daemon cannot delay the first
   Hello past :data:`PROBE_GRACE_S` over ``docker_timeout_s``);
 * the subprocess and venv runtimes exist only with ``[agent.policy]
@@ -35,6 +39,7 @@ from meshforge.agent.execution.runtime import Runtime, RuntimeAvailability
 from meshforge.agent.execution.selection import ExecutionOffer, execution_offer
 from meshforge.agent.execution.subprocess_runtime import SubprocessRuntime
 from meshforge.agent.execution.venv_runtime import VenvRuntime
+from meshforge.agent.policy import startup_policy
 from meshforge.agent.settings import AgentSettings
 from meshforge.common.logging import get_logger
 
@@ -79,7 +84,7 @@ async def build_execution(
 ) -> ExecutionSetup:
     """Probe and build the execution setup (see module docstring). Never raises."""
     cfg = settings.agent.execution
-    policy = settings.agent.policy
+    policy = startup_policy(settings)
     if not policy.accept_jobs:
         log.info("agent.execution.disabled", node_id=node_id)
         return disabled_setup()

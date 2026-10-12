@@ -34,12 +34,6 @@ def _set(*items: str) -> str:
     return result.stdout
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-9 minor: turning allow_unsandboxed on live needs a restart (the "
-    "subprocess/venv runtimes were never probed) but `policy set` only prints the "
-    "restart note for accept_jobs",
-)
 def test_set_allow_unsandboxed_on_says_a_restart_is_needed() -> None:
     assert "restart" in _set("allow_unsandboxed=true")
 

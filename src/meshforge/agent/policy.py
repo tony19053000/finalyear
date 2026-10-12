@@ -18,12 +18,15 @@ the controller (a ``PolicyUpdate`` report). No restart.
   local user cannot loosen this laptop's policy.
 * A tightened policy blocks the **next** ``StartAttempt``; attempts already
   running are not killed (the owner can cancel them; documented in OPERATIONS).
-* One change needs a restart: an agent **started** with ``accept_jobs = false``
-  probed no runtime (D45: nothing is touched on a laptop that runs no jobs), so
-  turning ``accept_jobs`` on live is advertised but has no runtime to run on until
-  the agent restarts (``policy set`` says so; the planner sees no ``exec``
-  capability meanwhile). Turning it off and on again on an agent started with it
-  on is live, like every other change.
+* Two changes need a restart: an agent **started** with ``accept_jobs = false``
+  probed no runtime (D45: nothing is touched on a laptop that runs no jobs), and
+  one started with ``allow_unsandboxed = false`` never built the subprocess/venv
+  runtimes. Turning either on live is advertised but has no runtime to run on
+  until the agent restarts (``policy set`` says so; the planner sees no ``exec``
+  capability meanwhile). The restart probes from the **effective** policy -
+  configuration + this file (:func:`startup_policy`, fix r1 T-8) - so "policy
+  set, then restart once" really enables them. Turning them off and on again on
+  an agent started with them on is live, like every other change.
 * A limit set in the configuration is removed live with ``KEY=none``; the file
   stores it as the string ``"none"``.
 """
@@ -66,6 +69,7 @@ __all__ = [
     "parse_assignments",
     "policy_path",
     "read_overlay",
+    "startup_policy",
     "write_overlay",
 ]
 
@@ -216,6 +220,31 @@ def effective_settings(
         ) from None
 
 
+def startup_policy(settings: AgentSettings) -> PolicySettings:
+    """The effective policy the runtimes are probed from at agent start
+    (configuration + ``<data_dir>/policy.toml``; V0.7 G5 fix r1, T-8).
+
+    A live file that cannot be read or is not valid gives the configuration
+    alone (``agent.policy.invalid_at_start``): what is probed only decides
+    which runtimes *exist*; :class:`LivePolicy` fails the same file closed, so
+    nothing runs until it is fixed - and once fixed, it applies live."""
+    path = policy_path(settings)
+    try:
+        return effective_settings(settings.agent.policy, read_overlay(path))
+    except ConfigError as exc:
+        log.warning(
+            "agent.policy.invalid_at_start",
+            path=str(path),
+            reason=exc.details.get("reason") if exc.details else None,
+            error=exc.message,
+        )
+        return settings.agent.policy
+
+
+_Stamp = tuple[int, int, int, int, int, int]
+"""``(mtime_ns, size, inode, mode, uid, ctime_ns)`` of the live file."""
+
+
 class LivePolicy:
     """The agent's current policy (module docstring). One event loop."""
 
@@ -236,7 +265,7 @@ class LivePolicy:
         self._gpu_count = gpu_count
         self._max_attempts = max_concurrent_attempts
         self._not_enforced = not_enforced
-        self._stamp: tuple[int, int, int] | bool | None = False
+        self._stamp: _Stamp | bool | None = False
         self.revision = 0
         self.changes = 0
         self.state = self._compute()
@@ -249,14 +278,24 @@ class LivePolicy:
     def slots(self) -> tuple[int, int]:
         return self.state.cpu_slots, self.state.gpu_slots
 
-    def _file_stamp(self) -> tuple[int, int, int] | None:
+    def _file_stamp(self) -> _Stamp | None:
+        """What a reload compares: content (mtime, size, inode) **and** the
+        file's mode, owner and ctime (fix r1, T-6) - a ``chmod``/``chown`` that
+        leaves the content alone must be re-checked by :func:`read_private`."""
         try:
             info = os.stat(self.path, follow_symlinks=False)
         except FileNotFoundError:
             return None
         except OSError:
-            return (-1, -1, -1)  # unreadable: re-read (and fail closed) once
-        return (info.st_mtime_ns, info.st_size, info.st_ino)
+            return (-1, -1, -1, -1, -1, -1)  # unreadable: re-read (fail closed) once
+        return (
+            info.st_mtime_ns,
+            info.st_size,
+            info.st_ino,
+            info.st_mode,
+            info.st_uid,
+            info.st_ctime_ns,
+        )
 
     def _compute(self) -> PolicyState:
         self._stamp = self._file_stamp()
