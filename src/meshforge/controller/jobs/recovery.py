@@ -95,11 +95,17 @@ class RecoverySteps(DispatchSteps):
             known.add(attempt.id)
             if item.held.get(attempt.id) == attempt.fencing_token:
                 if self._logs is not None:  # after a controller restart, too
+                    known_log = self._logs.live_state(attempt.id)
                     self._logs.open(
                         attempt.id,
                         job_id=job.id,
                         node_id=node_id,
                         token=attempt.fencing_token,
+                        secret_values=(
+                            await self._log_secrets(job)
+                            if known_log is None or not known_log.redactors
+                            else None
+                        ),
                     )
                 if job.cancel_requested_at is not None:
                     self._send_cancel(attempt, "cancelled by request")

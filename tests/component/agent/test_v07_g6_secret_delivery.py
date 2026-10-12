@@ -211,3 +211,68 @@ async def test_a_crashed_agents_files_are_swept_at_start(
         assert list(vault.base.iterdir()) == []
     finally:
         await again.stop()
+
+
+LEAKY = r"""
+import base64, os, sys, time, urllib.parse
+v = open(os.path.join(os.environ["MESHFORGE_SECRETS_DIR"], "API_KEY"), "rb").read()
+forms = [v, base64.b64encode(v), base64.urlsafe_b64encode(v).rstrip(b"="),
+         v.hex().encode(), v.hex().upper().encode(),
+         urllib.parse.quote(v, safe="").encode()]
+for out in (sys.stdout.buffer, sys.stderr.buffer):
+    for form in forms:
+        out.write(b"leak<" + form + b">\n")
+    # split across two writes (and two log chunks): half, flush, pause, rest
+    out.write(b"split<" + v[:7]); out.flush(); time.sleep(0.4)
+    out.write(v[7:] + b">\n"); out.flush()
+print("pass:" + os.environ["DB_PASS"], flush=True)
+"""
+
+
+async def test_logs_never_hold_a_value(
+    alice: httpx.AsyncClient,
+    grpc_target: str,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Deliverable 5: agent capture and controller store/stream redact every
+    form, also a value split across chunks; our own log records too."""
+    import base64
+
+    agent = await _agent(grpc_target, tmp_path / "agent")
+    try:
+        project = tmp_path / "leaky"
+        project.mkdir()
+        (project / "main.py").write_text(LEAKY)
+        manifest = {
+            "name": "g6-leaky",
+            "entrypoint": ["python", "main.py"],
+            "secrets": ["API_KEY", {"name": "DB_PASS", "as_env": True}],
+        }
+        job_id = await submit(alice, project, None, manifest)
+        job = await wait_job(alice, job_id, timeout_s=60)
+        assert job["state"] == "succeeded", job
+        forms = [
+            KEY,
+            base64.b64encode(KEY),
+            base64.urlsafe_b64encode(KEY).rstrip(b"="),
+            KEY.hex().encode(),
+            KEY.hex().upper().encode(),
+            PASS,
+        ]
+        for stream in ("stdout", "stderr"):
+            got = await alice.get(f"/v1/jobs/{job_id}/logs", params={"stream": stream})
+            assert got.status_code == 200
+            body = got.content
+            for form in forms:
+                assert form not in body, (stream, form)
+            assert body.count(b"[secret:API_KEY]") >= 7, body
+            assert b"split<[secret:API_KEY]>" in body
+        stdout = (
+            await alice.get(f"/v1/jobs/{job_id}/logs", params={"stream": "stdout"})
+        ).content
+        assert b"pass:[secret:DB_PASS]" in stdout
+        own = caplog.text.encode()
+        assert KEY not in own and PASS not in own
+    finally:
+        await agent.stop()

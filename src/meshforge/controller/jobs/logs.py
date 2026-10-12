@@ -65,6 +65,7 @@ from meshforge.common.hashing import Digest
 from meshforge.common.ids import validate_attempt_id
 from meshforge.common.logging import get_logger
 from meshforge.common.proto.meshforge.v1 import agent_pb2
+from meshforge.common.secret_redaction import ACTIVE, StreamRedactor
 from meshforge.controller.blobs import BlobStore
 from meshforge.controller.jobs.log_gaps import (
     GAPS_SUFFIX,
@@ -101,6 +102,8 @@ thousands of attempts end; past it an end is applied at once without the final
 copy (the live file and its gaps stay; the followers still get their end frame),
 so the queue - ``queue_chunks + queue_finals`` items - is bounded."""
 _ENDED_KEPT: Final = 4096
+_COPY_CHUNK: Final = 1024 * 1024
+"""Block size of a redacted final-log copy (V0.7 G6)."""
 _PROTO_STREAM: Final = {
     agent_pb2.LogChunk.STREAM_STDOUT: "stdout",
     agent_pb2.LogChunk.STREAM_STDERR: "stderr",
@@ -207,6 +210,10 @@ class AttemptLogState:
     """stream -> the live file was replaced by the verified final log."""
     persist_failing: bool = False
     """The last gaps-sidecar write failed (logged once per failing run)."""
+    secret_values: dict[str, bytes] = field(default_factory=dict)
+    """V0.7 G6 (D144): the job's secret values while the attempt is live
+    (length-preserving redaction of live chunks and of the final copy)."""
+    redactors: dict[str, StreamRedactor] = field(default_factory=dict)
 
     def gaps(self) -> dict[str, list[list[int]]]:
         return {s: [list(g) for g in m.gaps] for s, m in self.streams.items() if m.gaps}
@@ -296,11 +303,22 @@ class LogHub:
 
     # ----------------------------------------------------------- lifecycle
 
-    def open(self, attempt_id: str, *, job_id: str, node_id: str, token: int) -> None:
-        """Accept live chunks for this attempt (dispatch, re-send, Reconcile)."""
+    def open(
+        self,
+        attempt_id: str,
+        *,
+        job_id: str,
+        node_id: str,
+        token: int,
+        secret_values: Mapping[str, bytes] | None = None,
+    ) -> None:
+        """Accept live chunks for this attempt (dispatch, re-send, Reconcile).
+        ``secret_values`` (V0.7 G6): the job's secrets - every byte written or
+        streamed for this attempt is redacted (length-preserving) first."""
         state = self._attempts.get(attempt_id)
         if state is not None:
             state.fencing_token, state.node_id = token, node_id
+            self._arm_redaction(attempt_id, state, secret_values)
             return
         state = AttemptLogState(job_id=job_id, node_id=node_id, fencing_token=token)
         record = self._load(attempt_id)
@@ -318,10 +336,26 @@ class LogHub:
                 merge.received_to = size + merge.lost
                 merge.file_len = size
         self._attempts[attempt_id] = state
+        self._arm_redaction(attempt_id, state, secret_values)
         for sub in self._by_job.get(job_id, ()):
             if sub.attempt_id == attempt_id:
                 state.subscribers.add(sub)
                 sub.wake.set()
+
+    @staticmethod
+    def _arm_redaction(
+        attempt_id: str,
+        state: AttemptLogState,
+        secret_values: Mapping[str, bytes] | None,
+    ) -> None:
+        if not secret_values or state.redactors:
+            return
+        state.secret_values = dict(secret_values)
+        state.redactors = {
+            s: StreamRedactor(state.secret_values, length_preserving=True)
+            for s in STREAMS
+        }
+        ACTIVE.add(f"logs:{attempt_id}", state.secret_values)
 
     def finalize(
         self, attempt_id: str, logs: Mapping[str, Mapping[str, Any]] | None
@@ -416,8 +450,15 @@ class LogHub:
             return
         merge = state.streams[item.stream]
         gaps_before = merge.gaps_total
-        start = merge.file_len
+        redactor = state.redactors.get(item.stream)
+        held_before = 0 if redactor is None else redactor.held
+        start = merge.file_len - held_before
         piece = merge.accept(item.offset, item.data)
+        if redactor is not None and piece:
+            # V0.7 G6: nothing is written or streamed before it is redacted;
+            # no value spans a gap, so the held tail is released first.
+            gap = merge.gaps_total != gaps_before
+            piece = (redactor.flush() if gap else b"") + redactor.feed(piece)
         if merge.gaps_total != gaps_before:
             self.stats.gaps += 1
             log.info(
@@ -515,8 +556,32 @@ class LogHub:
             )
         self._persist(item.attempt_id, state)
 
+    def _release_held(self, attempt_id: str, state: AttemptLogState) -> None:
+        """The redactors' held tails into the live files (the attempt ended)."""
+        for stream, redactor in state.redactors.items():
+            rest = redactor.flush()
+            if not rest:
+                continue
+            merge = state.streams[stream]
+            start = merge.file_len - len(rest)
+            try:
+                fh = state.files.get(stream)
+                if fh is None:
+                    fh = self._open_live(attempt_id, stream)
+                    state.files[stream] = fh
+                written = 0
+                while written < len(rest):
+                    written += _write_some(fh, rest[written:])
+            except OSError:
+                continue
+            event = LogEvent("data", stream, start, rest)
+            for sub in list(state.subscribers):
+                sub.push(event)
+
     async def _apply_final(self, item: _Final) -> None:
         state = self._attempts.pop(item.attempt_id, None)
+        if state is not None:
+            self._release_held(item.attempt_id, state)
         if state is None:
             state = self._ended.get(item.attempt_id)
         if state is None:
@@ -534,7 +599,10 @@ class LogHub:
             try:
                 source = self._blobs.path_for(Digest.parse(str(digest)))
                 await asyncio.to_thread(
-                    _replace_with, source, self.path(item.attempt_id, stream)
+                    _replace_with,
+                    source,
+                    self.path(item.attempt_id, stream),
+                    state.secret_values,
                 )
             except (OSError, ValueError) as exc:
                 log.warning(
@@ -547,6 +615,8 @@ class LogHub:
                 continue
             state.final[stream] = True
             self.stats.finals_copied += 1
+        state.secret_values, state.redactors = {}, {}
+        ACTIVE.remove(f"logs:{item.attempt_id}")
         self._mark_ended(item.attempt_id, state)
 
     def _mark_ended(self, attempt_id: str, state: AttemptLogState) -> None:
@@ -814,10 +884,21 @@ def _require_regular(fd: int) -> None:
         raise OSError(errno.EINVAL, "not a regular file")
 
 
-def _replace_with(source: Path, dest: Path) -> None:
+def _replace_with(
+    source: Path, dest: Path, secret_values: Mapping[str, bytes] | None = None
+) -> None:
+    """``dest`` := ``source`` (atomically); with ``secret_values`` (V0.7 G6) the
+    copy is redacted, length-preserving, streamed in chunks."""
     tmp = dest.with_name(f".{dest.name}.{secrets.token_hex(4)}.tmp")
     try:
-        shutil.copyfile(source, tmp)
+        if secret_values:
+            redactor = StreamRedactor(secret_values, length_preserving=True)
+            with source.open("rb") as src, tmp.open("xb") as out:
+                while block := src.read(_COPY_CHUNK):
+                    out.write(redactor.feed(block))
+                out.write(redactor.flush())
+        else:
+            shutil.copyfile(source, tmp)
         os.replace(tmp, dest)
     finally:
         with contextlib.suppress(OSError):

@@ -164,6 +164,7 @@ from meshforge.common.logging import get_logger
 from meshforge.common.manifest import check_mount
 from meshforge.common.proto.meshforge.v1 import agent_pb2, common_pb2
 from meshforge.common.proto_codec import attempt_state_to_proto, failure_type_to_proto
+from meshforge.common.secret_redaction import ACTIVE, StreamRedactor
 from meshforge.common.states import AttemptState
 
 if TYPE_CHECKING:
@@ -1057,9 +1058,11 @@ class Executor:
         folder: Path | None = None
         try:
             if secrets:
+                # Our own log lines scrub these values from now on (D144).
+                ACTIVE.add(attempt.attempt_id, secrets)
+                attempt.secrets = secrets
                 folder = await self._materialise(attempt, plan, secrets)
                 plan = _with_secrets(plan, folder, secrets)
-                attempt.secrets = secrets
             logs = await asyncio.to_thread(
                 AttemptLogs,
                 workdir / ".meshforge",
@@ -1074,6 +1077,7 @@ class Executor:
             # Every exit path (done, failed, cancelled, agent shutdown):
             # the files are zeroed and removed, the values forgotten.
             attempt.secrets = {}
+            ACTIVE.remove(attempt.attempt_id)
             if folder is not None:
                 await asyncio.shield(asyncio.to_thread(self.vault.wipe, folder))
 
@@ -1348,7 +1352,19 @@ class Executor:
         wake = asyncio.Event()
         stderr_tail = OutputTail(STDERR_TAIL_BYTES)
 
+        # V0.7 G6 (D144): every byte is redacted before it is written, kept
+        # as evidence or sent; a value split across chunks is still found.
+        redactors = (
+            {s: StreamRedactor(attempt.secrets) for s in Stream}
+            if attempt.secrets
+            else None
+        )
+
         async def on_output(stream: Stream, data: bytes) -> None:
+            if redactors is not None:
+                data = redactors[Stream(stream)].feed(data)
+                if not data:
+                    return
             if stream == Stream.STDERR:
                 stderr_tail.add(data)  # D116: classification evidence
             pending = logs.batcher.next_deadline() is not None
@@ -1357,6 +1373,17 @@ class Executor:
             if not pending:
                 wake.set()
 
+        def drain() -> None:
+            """The redactors' held tails, at the end of the run."""
+            for stream, redactor in (redactors or {}).items():
+                rest = redactor.flush()
+                if not rest:
+                    continue
+                if stream == Stream.STDERR:
+                    stderr_tail.add(rest)
+                for chunk in logs.write(stream, rest):
+                    self._send_log(attempt, chunk)
+
         flusher = asyncio.create_task(
             self._flush_logs(attempt, logs, wake),
             name=f"attempt-logs:{attempt.attempt_id}",
@@ -1364,7 +1391,7 @@ class Executor:
         flusher.add_done_callback(self._task_done)
         try:
             await self._run_workload(
-                attempt, plan, logs, runtime, observer, on_output, stderr_tail
+                attempt, plan, logs, runtime, observer, on_output, stderr_tail, drain
             )
         finally:
             flusher.cancel()
@@ -1440,6 +1467,7 @@ class Executor:
         observer: _Observer,
         on_output: Callable[[Stream, bytes], Awaitable[None]],
         stderr_tail: OutputTail | None = None,
+        drain: Callable[[], None] | None = None,
     ) -> None:
         cap_watch = await self._output_cap(attempt)
         run: asyncio.Task[RunResult] = asyncio.ensure_future(
@@ -1465,6 +1493,8 @@ class Executor:
                 attempt.step = None
         finally:
             await stop_watch(cap)
+            if drain is not None:
+                drain()
         if stderr_tail is not None:
             result = refine_result(result, stderr_tail.data)  # D116
         attempt.env_hash = result.env_hash or attempt.env_hash

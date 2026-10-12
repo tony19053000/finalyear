@@ -11,7 +11,9 @@ layers:
    sensitive, and PEM private-key blocks (``-----BEGIN ... PRIVATE KEY-----`` up to
    the matching ``END`` line, or to the end of the text if unclosed), and V0.7
    join codes (``mf1-`` followed by at least 16 code characters), and V0.7 G4
-   API tokens (``mfat_`` followed by at least 16 URL-safe characters).
+   API tokens (``mfat_`` followed by at least 16 URL-safe characters), and
+   (V0.7 G6) the exact values of the job secrets in use in this process
+   (:data:`meshforge.common.secret_redaction.ACTIVE`) -> ``[secret:NAME]``.
 
 ``scrub_text`` runs on every string of every log record, so it must be
 **linear-time** on adversarial input (a super-linear scrubber is a
@@ -50,6 +52,8 @@ from collections.abc import Iterator, Mapping
 from typing import Any, Final
 
 from pydantic import BaseModel, SecretBytes, SecretStr
+
+from meshforge.common.secret_redaction import restore_markers, scrub_active
 
 __all__ = [
     "MAX_SCRUB_CHARS",
@@ -309,6 +313,9 @@ def scrub_text(text: str) -> str:
         dropped = text[MAX_SCRUB_CHARS:].encode("utf-8", "surrogatepass")
         suffix = f"[TRUNCATED {len(dropped)} bytes]"
         text = text[:MAX_SCRUB_CHARS]
+    # V0.7 G6 (D144): the exact values (and encodings) of the job secrets in
+    # use in this process - before the shape rules, which could split one.
+    text = scrub_active(text, placeholder=True)
     if _AUTH_ONLY_RE.fullmatch(text):
         return REDACTED + suffix
     text = _scrub_pem(text)
@@ -316,7 +323,7 @@ def scrub_text(text: str) -> str:
     text = _API_TOKEN_RE.sub(lambda m: f"{m['pre']}{REDACTED}", text)
     text = _URL_CREDS_RE.sub(lambda m: f"{m['pre']}{REDACTED}@", text)
     text = _AUTH_ANY_RE.sub(lambda m: f"{m['scheme']}{m['sp']}{REDACTED}", text)
-    return _scrub_kv(text) + suffix
+    return restore_markers(_scrub_kv(text)) + suffix
 
 
 def _redact_fields(pairs: Iterator[tuple[Any, Any]], depth: int) -> dict[Any, Any]:

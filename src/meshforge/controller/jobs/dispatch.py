@@ -280,6 +280,23 @@ class DispatchSteps:
         )
         return None
 
+    async def _log_secrets(self, job: JobRecord) -> dict[str, bytes]:
+        """V0.7 G6: the values the log store redacts for a live attempt found
+        again after a controller restart (Reconcile); best effort - the agent
+        redacts first, a store problem only costs the second layer."""
+        names = secret_names(job.manifest)
+        if not names or self._secrets is None:
+            return {}
+        try:
+            return await self._secrets.resolve(job.owner_user_id, names)
+        except Exception as exc:  # noqa: BLE001 - logged; the agent still redacts
+            log.warning(
+                "controller.jobs.log_secrets_unavailable",
+                job_id=job.id,
+                cause=type(exc).__name__,
+            )
+            return {}
+
     async def _send_start(
         self, job: JobRecord, attempt: AttemptRecord, *, resend: bool
     ) -> None:
@@ -349,6 +366,7 @@ class DispatchSteps:
                 job_id=job.id,
                 node_id=attempt.node_id,
                 token=attempt.fencing_token,
+                secret_values=secrets,
             )
         if resend:
             self.stats.start_resent += 1
