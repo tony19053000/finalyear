@@ -47,7 +47,10 @@ import os, subprocess, sys, time
 with open("/proc/self/cgroup") as fh:
     print("CG", fh.read().strip().rsplit("/", 1)[-1], flush=True)
 if sys.argv[1] == "escape":
-    child = subprocess.Popen(["sleep", "60"], start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    quiet = subprocess.DEVNULL
+    child = subprocess.Popen(
+        ["sleep", "60"], start_new_session=True, stdout=quiet, stderr=quiet
+    )
     print("ESCAPED", child.pid, flush=True)
 start_wall, start_cpu = time.monotonic(), time.process_time()
 while time.monotonic() - start_wall < 1.5:
