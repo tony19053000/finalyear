@@ -132,9 +132,7 @@ async def test_the_boundary_is_strictly_older(store: Registry) -> None:
 async def test_the_helper_applies_the_max_age(store: Registry) -> None:
     eight = await _node(store, _doc(NOW - dt.timedelta(days=8), None))
     six = await _node(store, _doc(NOW - dt.timedelta(days=6), None))
-    assert (
-        await expire_unbound_scores_once(store, 7 * 86_400.0, wall=lambda: NOW) == 1
-    )
+    assert await expire_unbound_scores_once(store, 7 * 86_400.0, wall=lambda: NOW) == 1
     eight_record = await store.get_node(eight)
     six_record = await store.get_node(six)
     assert eight_record is not None and eight_record.hardware_scores is None
