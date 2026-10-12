@@ -137,12 +137,33 @@ def _check_argv(name: str, argv: tuple[str, ...]) -> None:
 
 @dataclass(frozen=True, slots=True)
 class RunLimits:
-    """Resource limits for one run. ``cpus`` None = no CPU limit."""
+    """Resource limits for one run. ``cpus`` None = no CPU limit.
+
+    How each runtime enforces them (V0.7 G5, D142 item 5 - ``docs/OPERATIONS.md``
+    "Owner caps per OS"):
+
+    * Docker: ``memory_bytes`` (``--memory``, no swap), ``pids``
+      (``--pids-limit``), ``cpus`` (``--cpus``) - always.
+    * The unsandboxed runtimes on **Linux**: ``pids`` as ``RLIMIT_NPROC`` (at
+      most ``pids`` more tasks than the agent's user had when the workload
+      started - the limit is per user, so it is shared with that user's other
+      processes); ``memory_bytes`` as ``RLIMIT_AS`` **only** when
+      ``enforce_memory`` (an owner RAM cap): address space is not resident
+      memory, so the default limit is not applied there; ``cpus`` is NOT
+      enforced (lowered priority only - advertised as not enforced).
+    * The unsandboxed runtimes on **Windows**: the workload's job object -
+      ``pids`` as its active-process limit, ``memory_bytes`` as its job memory
+      limit when ``enforce_memory``, ``cpus`` as a hard CPU-rate cap.
+    """
 
     memory_bytes: int
     pids: int
     timeout_s: float
     cpus: float | None = None
+    enforce_memory: bool = False
+    """The node owner capped RAM (``[agent.policy] max_ram_bytes``) and this run
+    has no GPU: an unsandboxed runtime must bound memory too (it refuses to run
+    when it cannot, rather than claim the cap)."""
 
     def __post_init__(self) -> None:
         if self.memory_bytes < 6 * 1024 * 1024:

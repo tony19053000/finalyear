@@ -28,8 +28,18 @@ runtime):
   leftover descendants in the group are killed after the workload exits;
 * output bytes stream as they arrive, per stream in order, from one task.
 
-What it does **not** enforce: ``limits.memory_bytes``, ``limits.pids`` and
-``limits.cpus`` (no cgroups here), network off, filesystem isolation. ``oom`` is
+Limits (V0.7 G5, D142 item 5; :class:`~.runtime.RunLimits` has the table):
+on Linux ``limits.pids`` is ``RLIMIT_NPROC`` (per user: at most ``pids`` more
+tasks than the agent's user had at exec) and, for an owner RAM cap
+(``limits.enforce_memory``), ``limits.memory_bytes`` is ``RLIMIT_AS``
+(address space - stricter than resident memory); on Windows the workload's job
+object carries them (active processes, job memory, a hard CPU-rate cap for
+``limits.cpus``). A required cap the job object cannot take refuses the run
+(``config_error``, ``limits_not_applied``) rather than run unbounded.
+
+What it does **not** enforce: ``limits.cpus`` on Linux (no cgroup here; the
+priority is lowered), the default memory limit (no owner cap), network off,
+filesystem isolation. ``oom`` is
 still **detected** (V0.6 D116, :mod:`.failure_evidence`): a workload that died of a
 SIGKILL the agent did not send while the kernel's ``oom_kill`` counter moved, or
 that exited with a Windows out-of-memory status, ends ``oom`` (``signal = 9`` is
@@ -61,14 +71,20 @@ from meshforge.agent.execution.runtime import (
     Stream,
     classify,
 )
-from meshforge.agent.process import ProcessHandle, SpawnError, spawn
+from meshforge.agent.process import ProcessHandle, ProcessLimits, SpawnError, spawn
 from meshforge.common.errors import FailureType
 from meshforge.common.logging import get_logger
 
 if TYPE_CHECKING:
     from meshforge.agent.envs.builder import BuiltEnv, EnvBuilder
 
-__all__ = ["SUBPROCESS_RUNTIME_NAME", "EnvUse", "SubprocessRuntime", "pump_sink"]
+__all__ = [
+    "SUBPROCESS_RUNTIME_NAME",
+    "EnvUse",
+    "SubprocessRuntime",
+    "pump_sink",
+    "run_limits",
+]
 
 log = get_logger(__name__)
 
@@ -285,7 +301,9 @@ class SubprocessRuntime:
             await pump.close(_DRAIN_S)
             # the entrypoint is the user's; the setup command is ours (G4 builds it)
             spawn_failure = (
-                FailureType.INTERNAL_ERROR
+                FailureType.CONFIG_ERROR
+                if exc.reason == "limits_not_applied"
+                else FailureType.INTERNAL_ERROR
                 if exc.reason != "executable_not_found"
                 else FailureType.ENV_ERROR
                 if in_setup
@@ -392,6 +410,7 @@ class SubprocessRuntime:
             cwd=spec.workdir,
             lower_priority=self._lower_priority,
             guard_group=True,  # D59: no grandchild outlives a killed agent
+            limits=None if setup else run_limits(spec),
         )
         obs.ident = str(handle.pid)
         if not setup:
@@ -460,6 +479,17 @@ class SubprocessRuntime:
             return
         handle.kill_now()
         await handle.wait(_STOP_SLACK_S)
+
+
+def run_limits(spec: RunSpec) -> ProcessLimits:
+    """The workload's process limits (the setup step gets none: it is ours)."""
+    limits = spec.limits
+    return ProcessLimits(
+        memory_bytes=limits.memory_bytes if limits.enforce_memory else None,
+        tasks=limits.pids,
+        cpus=limits.cpus,
+        required=limits.enforce_memory,
+    )
 
 
 def pump_sink(pump: OutputPump) -> Callable[[str, bytes], Awaitable[None]]:

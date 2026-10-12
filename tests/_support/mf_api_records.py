@@ -54,6 +54,8 @@ class _FakeLiveSession:
         self.peer_address = peer_address
         self.last_rtt_ms = last_rtt_ms
         self.rtt_ewma_ms = rtt_ewma_ms
+        self.policy = None  # V0.7 G5: no advertised owner policy
+        self.policy_refused = None
 
 
 def live_session(**kwargs: Any) -> LiveSession:

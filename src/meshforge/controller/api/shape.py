@@ -211,7 +211,20 @@ def node_detail(
             for kind, (count, size) in sorted((cache or {}).items())
         },
         hardware=dict(node.hardware),
+        owner_policy=owner_policy_view(live),
     )
+
+
+def owner_policy_view(live: LiveSession | None) -> dict[str, Any] | None:
+    """The live owner policy for ``GET /v1/nodes/{id}`` (user names counted,
+    not listed: another user's allow-list is not every user's business)."""
+    if live is None or live.policy is None:
+        return None
+    view = live.policy.as_dict()
+    users = view.pop("allowed_users")
+    view["allowed_users_count"] = len(users) if isinstance(users, list) else 0
+    view["refused"] = live.policy_refused
+    return view
 
 
 def resource_snapshot(record: SnapshotRecord) -> ResourceSnapshot:

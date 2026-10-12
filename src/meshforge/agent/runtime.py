@@ -487,7 +487,7 @@ def build_live_policy(settings: AgentSettings, *, gpu_count: int) -> LivePolicy:
         policy_path(settings),
         gpu_count=gpu_count,
         max_concurrent_attempts=settings.agent.execution.max_concurrent_attempts,
-        not_enforced=not_enforced_caps(settings),
+        not_enforced=functools.partial(not_enforced_caps, gpu_count=gpu_count),
     )
 
 

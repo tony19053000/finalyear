@@ -233,6 +233,15 @@ class NodeDetail(NodeSummary):
             "run `meshforge-agent hardware show` on that laptop (D13)."
         ),
     )
+    owner_policy: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "V0.7 G5 (D142): the owner policy of the node's live session (null = "
+            "offline, or an agent from before V0.7 G5). ``not_enforced`` lists "
+            "the owner caps no runtime limit enforces on that node "
+            "(``<field>:<why>``); ``allowed_users`` is shown as a count only."
+        ),
+    )
 
 
 class NodeList(ApiModel):

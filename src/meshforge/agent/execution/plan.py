@@ -317,9 +317,14 @@ def plan_attempt(
     memory = spec.memory_bytes or settings.default_memory_mb * _MIB
     cpus = spec.cpus or settings.default_cpus
     network = manifest.limits.wants_network
+    enforce_memory = False
     if policy is not None:
         if policy.max_ram_bytes is not None:
             memory = min(memory, policy.max_ram_bytes)
+            # D142 item 5: an owner RAM cap binds the unsandboxed runtimes too
+            # (rlimit / job object) - not for a GPU run: CUDA reserves far more
+            # address space than it uses (advertised as not enforced).
+            enforce_memory = not gpus
         cap = owner_policy.allowed_cpus(policy, cpu_threads)
         if cap is not None:
             cpus = cap if cpus is None else min(cpus, cap)
@@ -336,6 +341,7 @@ def plan_attempt(
             pids=settings.default_pids,
             timeout_s=float(timeout_s),
             cpus=cpus,
+            enforce_memory=enforce_memory,
         ),
         image=image_by_base[manifest.env.base] if runtime.name == "docker" else None,
         setup_argv=_setup_argv(manifest, runtime.name, workdir),

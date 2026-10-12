@@ -118,16 +118,37 @@ _SIZE_UNITS: Final = {
 }
 
 
-def not_enforced_caps(settings: AgentSettings) -> tuple[str, ...]:
-    """Owner caps no runtime limit enforces on this node (D142 item 5: say it,
-    never claim it). VRAM: no runtime caps it (placement + admission only).
-    The unsandboxed runtimes (when allowed): no CPU *share* (rlimits bound CPU
-    time, not a share); on Windows no memory limit either (no job object yet)."""
+def not_enforced_caps(
+    policy: PolicySettings, *, gpu_count: int = 0, platform: str = sys.platform
+) -> tuple[str, ...]:
+    """Owner caps no runtime limit enforces on this node, as
+    ``<field>:<why>`` (D142 item 5: say it, never claim it). Computed from the
+    *effective* policy, so it follows ``policy set`` live.
+
+    * ``max_vram_bytes:no_runtime_limit`` - always: no runtime caps VRAM
+      (placement + admission only).
+    * With the unsandboxed runtimes allowed (Docker enforces RAM and CPUs):
+      Linux - ``max_cpu_percent:unsandboxed_linux`` (no cgroup: a lowered
+      priority, not a share); Linux and Windows on a GPU node -
+      ``max_ram_bytes:unsandboxed_gpu_jobs`` (``RLIMIT_AS`` / a job memory
+      limit would break CUDA, so GPU runs do not get one); any other OS -
+      ``max_ram_bytes:unsandboxed_runtime`` and
+      ``max_cpu_percent:unsandboxed_runtime`` (no mechanism at all).
+    """
     caps = ["max_vram_bytes:no_runtime_limit"]
-    if settings.agent.policy.allow_unsandboxed:
-        caps.append("max_cpu_percent:unsandboxed_runtime")
-        if sys.platform.startswith("win"):
-            caps.append("max_ram_bytes:windows_unsandboxed")
+    if not policy.allow_unsandboxed:
+        return tuple(caps)
+    linux = platform.startswith("linux")
+    if not linux and platform != "win32":
+        caps += [
+            "max_ram_bytes:unsandboxed_runtime",
+            "max_cpu_percent:unsandboxed_runtime",
+        ]
+        return tuple(caps)
+    if linux:
+        caps.append("max_cpu_percent:unsandboxed_linux")
+    if gpu_count > 0:
+        caps.append("max_ram_bytes:unsandboxed_gpu_jobs")
     return tuple(caps)
 
 
@@ -205,8 +226,11 @@ class LivePolicy:
         *,
         gpu_count: int,
         max_concurrent_attempts: int,
-        not_enforced: tuple[str, ...] = (),
+        not_enforced: tuple[str, ...]
+        | Callable[[PolicySettings], tuple[str, ...]] = (),
     ) -> None:
+        """``not_enforced``: the caps no runtime enforces - fixed, or computed
+        from each effective policy (:func:`not_enforced_caps`)."""
         self._base = base
         self.path = path
         self._gpu_count = gpu_count
@@ -239,8 +263,13 @@ class LivePolicy:
         try:
             overlay = read_overlay(self.path)
             effective = effective_settings(self._base, overlay)
+            not_enforced = (
+                self._not_enforced(effective)
+                if callable(self._not_enforced)
+                else self._not_enforced
+            )
             policy = effective.to_policy(
-                not_enforced=self._not_enforced, revision=self.revision
+                not_enforced=not_enforced, revision=self.revision
             )
         except (ConfigError, owner_policy.PolicyError) as exc:
             log.error(  # noqa: TRY400 - typed reason, no traceback

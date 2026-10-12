@@ -68,6 +68,7 @@ import signal
 import subprocess
 import sys
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
 
@@ -78,10 +79,13 @@ __all__ = [
     "DEATH_SIGNAL_SUPPORTED",
     "NICE",
     "ProcessHandle",
+    "ProcessLimits",
     "SpawnError",
     "kill_tree",
     "resolve_executable",
+    "shim_limits",
     "spawn",
+    "windows_cpu_rate",
 ]
 
 log = get_logger(__name__)
@@ -99,15 +103,20 @@ _TASKKILL_TIMEOUT_S: Final = 5.0
 """Bound on the (threaded, off-loop) ``taskkill`` fallback on Windows."""
 
 #: The Linux exec shim. argv: ppid, nice, keep_lc_ctype(0/1), guard_group(0/1),
-#: executable, *argv. Stdlib only, no site (-S) and isolated (-I): the user's
-#: PYTHON* variables and site-packages never reach it. PEP 538 may have added
+#: limits (``-`` or ``as=<bytes>;nproc=<extra tasks>``), executable, *argv.
+#: Stdlib only, no site (-S) and isolated (-I): the user's PYTHON* variables
+#: and site-packages never reach it. PEP 538 may have added
 #: ``LC_CTYPE=C.UTF-8`` to this interpreter's environment; it is removed again
 #: unless the caller set it, so the workload sees exactly the environment it was
 #: given. ``guard_group``: fork the group watchdog first (module docstring, D59).
+#: ``limits`` (V0.7 G5, D142 item 5) are set after the watchdog fork, right
+#: before ``execve``: ``RLIMIT_AS`` to ``as``, ``RLIMIT_NPROC`` to the tasks the
+#: real uid has now plus ``nproc`` (both never above the inherited hard limit);
+#: one that cannot be set ends the shim with 125 and a ``meshforge:`` line.
 _PDEATHSIG_SHIM: Final = r"""
 import ctypes, os, select, signal, sys
 ppid, nice, keep_lc = int(sys.argv[1]), int(sys.argv[2]), sys.argv[3] == "1"
-guard, exe, argv = sys.argv[4] == "1", sys.argv[5], sys.argv[6:]
+guard, limits, exe, argv = sys.argv[4] == "1", sys.argv[5], sys.argv[6], sys.argv[7:]
 try:
     if ctypes.CDLL(None, use_errno=True).prctl(1, int(signal.SIGKILL), 0, 0, 0) != 0:
         raise OSError(ctypes.get_errno(), "prctl(PR_SET_PDEATHSIG) failed")
@@ -167,6 +176,39 @@ if guard:
         os.waitpid(first, 0)
     if pidfd >= 0:
         os.close(pidfd)
+def user_tasks(uid):
+    used = 0
+    for name in os.listdir("/proc"):
+        if not name.isdigit():
+            continue
+        try:
+            with open("/proc/%s/status" % name, "rb") as fh:
+                fields = dict(
+                    line.split(b":", 1) for line in fh.read().splitlines() if b":" in line
+                )
+            if int(fields[b"Uid"].split()[0]) == uid:
+                used += int(fields[b"Threads"].split()[0])
+        except (OSError, KeyError, ValueError, IndexError):
+            continue
+    return used
+if limits != "-":
+    import resource
+    try:
+        want = dict(item.split("=", 1) for item in limits.split(";"))
+        for key, which, extra in (
+            ("as", resource.RLIMIT_AS, False),
+            ("nproc", resource.RLIMIT_NPROC, True),
+        ):
+            if key not in want:
+                continue
+            value = int(want[key]) + (user_tasks(os.getuid()) if extra else 0)
+            hard = resource.getrlimit(which)[1]
+            if hard != resource.RLIM_INFINITY:
+                value = min(value, hard)
+            resource.setrlimit(which, (value, value))
+    except (OSError, ValueError) as exc:
+        sys.stderr.write("meshforge: cannot apply the resource limits: %s\n" % exc)
+        os._exit(125)
 if nice > 0:
     try:
         os.nice(nice)
@@ -181,6 +223,48 @@ except OSError as exc:
     sys.stderr.write("meshforge: cannot execute %s: %s\n" % (argv[0], exc.strerror))
     os._exit(127)
 """
+
+
+@dataclass(frozen=True, slots=True)
+class ProcessLimits:
+    """Limits one spawned tree gets (V0.7 G5, D142 item 5). None = not asked.
+
+    Linux (the exec shim): ``memory_bytes`` -> ``RLIMIT_AS``; ``tasks`` ->
+    ``RLIMIT_NPROC`` = the tasks the user has at exec + ``tasks``; ``cpus`` is
+    not enforceable without a cgroup and is ignored (advertised as not enforced).
+    Windows (the job object): ``memory_bytes`` -> job memory limit; ``tasks`` ->
+    active-process limit; ``cpus`` -> hard CPU-rate cap. Elsewhere: nothing.
+
+    ``required``: the caller promised these limits (an owner cap) - when the
+    platform has a mechanism for them but it fails at spawn time, the child is
+    killed and :class:`SpawnError` (``limits_not_applied``) raised instead of
+    running unbounded.
+    """
+
+    memory_bytes: int | None = None
+    tasks: int | None = None
+    cpus: float | None = None
+    required: bool = False
+
+
+def shim_limits(limits: ProcessLimits | None) -> str:
+    """The exec shim's ``limits`` argument (``-`` = none)."""
+    if limits is None:
+        return "-"
+    parts = []
+    if limits.memory_bytes is not None:
+        parts.append(f"as={int(limits.memory_bytes)}")
+    if limits.tasks is not None:
+        parts.append(f"nproc={int(limits.tasks)}")
+    return ";".join(parts) or "-"
+
+
+def windows_cpu_rate(cpus: float, threads: int) -> int:
+    """``JOBOBJECT_CPU_RATE_CONTROL_INFORMATION.CpuRate`` for ``cpus`` cores of a
+    machine with ``threads`` logical processors: hundredths of a percent of the
+    whole machine, in [1, 10000]."""
+    share = cpus / max(1, threads)
+    return max(1, min(10_000, round(share * 10_000)))
 
 
 class SpawnError(MeshForgeError):
@@ -228,7 +312,12 @@ if sys.platform == "win32":  # pragma: no cover - exercised on Windows CI only
     from ctypes import wintypes
 
     _JOB_OBJECT_EXTENDED_LIMIT_INFORMATION_CLASS: Final = 9
+    _JOB_OBJECT_CPU_RATE_CONTROL_INFORMATION_CLASS: Final = 15
+    _JOB_OBJECT_LIMIT_ACTIVE_PROCESS: Final = 0x0008
+    _JOB_OBJECT_LIMIT_JOB_MEMORY: Final = 0x0200
     _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE: Final = 0x2000
+    _JOB_OBJECT_CPU_RATE_CONTROL_ENABLE: Final = 0x1
+    _JOB_OBJECT_CPU_RATE_CONTROL_HARD_CAP: Final = 0x4
     _PROCESS_SET_QUOTA: Final = 0x0100
     _PROCESS_TERMINATE: Final = 0x0001
 
@@ -261,6 +350,9 @@ if sys.platform == "win32":  # pragma: no cover - exercised on Windows CI only
             ("PeakJobMemoryUsed", ctypes.c_size_t),
         ]
 
+    class _CpuRate(ctypes.Structure):
+        _fields_ = [("ControlFlags", wintypes.DWORD), ("CpuRate", wintypes.DWORD)]
+
     _kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     _kernel32.CreateJobObjectW.restype = wintypes.HANDLE
     _kernel32.CreateJobObjectW.argtypes = [wintypes.LPVOID, wintypes.LPCWSTR]
@@ -277,19 +369,43 @@ if sys.platform == "win32":  # pragma: no cover - exercised on Windows CI only
     _kernel32.CloseHandle.restype = wintypes.BOOL
     _kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
 
-    def _job_for(pid: int) -> int | None:
-        """A kill-on-close job holding ``pid``, or None (fallback: taskkill)."""
+    def _job_for(pid: int, limits: ProcessLimits | None = None) -> int | None:
+        """A kill-on-close job holding ``pid`` with ``limits``, or None
+        (fallback: taskkill; no limits)."""
         job = _kernel32.CreateJobObjectW(None, None)
         if not job:
             return None
         info = _ExtendedLimits()
-        info.BasicLimitInformation.LimitFlags = _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        flags = _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        if limits is not None and limits.tasks is not None:
+            flags |= _JOB_OBJECT_LIMIT_ACTIVE_PROCESS
+            info.BasicLimitInformation.ActiveProcessLimit = max(1, limits.tasks)
+        if limits is not None and limits.memory_bytes is not None:
+            flags |= _JOB_OBJECT_LIMIT_JOB_MEMORY
+            info.JobMemoryLimit = limits.memory_bytes
+        info.BasicLimitInformation.LimitFlags = flags
         ok = _kernel32.SetInformationJobObject(
             job,
             _JOB_OBJECT_EXTENDED_LIMIT_INFORMATION_CLASS,
             ctypes.byref(info),
             ctypes.sizeof(info),
         )
+        if ok and limits is not None and limits.cpus is not None:
+            rate = _CpuRate()
+            rate.ControlFlags = (
+                _JOB_OBJECT_CPU_RATE_CONTROL_ENABLE
+                | _JOB_OBJECT_CPU_RATE_CONTROL_HARD_CAP
+            )
+            rate.CpuRate = windows_cpu_rate(limits.cpus, os.cpu_count() or 1)
+            if not _kernel32.SetInformationJobObject(
+                job,
+                _JOB_OBJECT_CPU_RATE_CONTROL_INFORMATION_CLASS,
+                ctypes.byref(rate),
+                ctypes.sizeof(rate),
+            ):
+                # Before Windows 8 there is no CPU-rate control: the job (kill
+                # on close, memory, processes) still holds; say so.
+                log.warning("agent.process.cpu_rate_not_applied", pid=pid)
         handle = _kernel32.OpenProcess(
             _PROCESS_SET_QUOTA | _PROCESS_TERMINATE, False, pid
         )
@@ -310,7 +426,7 @@ if sys.platform == "win32":  # pragma: no cover - exercised on Windows CI only
 
 else:
 
-    def _job_for(pid: int) -> int | None:
+    def _job_for(pid: int, limits: ProcessLimits | None = None) -> int | None:
         return None
 
     def _terminate_job(job: int) -> bool:
@@ -478,6 +594,7 @@ def _platform_argv(
     lower_priority: bool,
     die_with_parent: bool,
     guard_group: bool = False,
+    limits: ProcessLimits | None = None,
 ) -> tuple[list[str], dict[str, Any]]:
     exe = resolve_executable(argv[0], env)
     kwargs: dict[str, Any] = {}
@@ -499,6 +616,7 @@ def _platform_argv(
             str(NICE if lower_priority else 0),
             "1" if "LC_CTYPE" in env else "0",
             "1" if guard_group else "0",
+            shim_limits(limits),
             exe,
             *argv,
         ]
@@ -519,6 +637,7 @@ async def spawn(
     die_with_parent: bool = True,
     guard_group: bool = False,
     on_spawn: Callable[[int], None] | None = None,
+    limits: ProcessLimits | None = None,
 ) -> ProcessHandle:
     """Start ``argv`` as the root of its own killable tree (see the module docstring).
 
@@ -527,18 +646,31 @@ async def spawn(
     Linux (applied by the shim), ``BELOW_NORMAL_PRIORITY_CLASS`` on Windows,
     nothing elsewhere. ``guard_group`` (Linux, with ``die_with_parent``): the
     group watchdog that kills the whole process group once the child exits, so
-    no grandchild outlives a SIGKILLed agent (D59). Raises :class:`SpawnError`;
+    no grandchild outlives a SIGKILLed agent (D59). ``limits``: see
+    :class:`ProcessLimits` (Linux: needs ``die_with_parent``, the shim sets
+    them). Raises :class:`SpawnError`;
     on cancellation the half-started child is killed and reaped before
     ``CancelledError`` propagates.
     """
     if not argv:
         raise SpawnError("empty argv", reason="executable_not_found")
+    if (
+        limits is not None
+        and limits.required
+        and sys.platform.startswith("linux")
+        and not die_with_parent
+    ):
+        raise SpawnError(
+            "required resource limits need the exec shim (die_with_parent)",
+            reason="limits_not_applied",
+        )
     real_argv, kwargs = _platform_argv(
         argv,
         env,
         lower_priority=lower_priority,
         die_with_parent=die_with_parent,
         guard_group=guard_group,
+        limits=limits,
     )
     creating = asyncio.ensure_future(
         asyncio.create_subprocess_exec(
@@ -563,7 +695,19 @@ async def spawn(
             f"cannot start {Path(argv[0]).name!r}: {type(exc).__name__}: {why}",
             reason="spawn_failed",
         ) from exc
-    handle = ProcessHandle(proc, _job_for(proc.pid))
+    job = _job_for(proc.pid, limits)
+    handle = ProcessHandle(proc, job)
+    if (
+        limits is not None and limits.required and sys.platform == "win32" and not job
+    ):  # pragma: no cover - Windows only
+        # The owner's cap cannot be applied: never let the workload run
+        # without it (D142 item 5).
+        handle.kill_now()
+        await handle.reap()
+        raise SpawnError(
+            "cannot apply the owner's resource limits (Windows job object)",
+            reason="limits_not_applied",
+        )
     if on_spawn is not None:
         on_spawn(proc.pid)
     return handle
