@@ -408,8 +408,8 @@ A version is **complete** only when all apply:
 - [x] **0.7.5** mTLS on agent gRPC; TLS + node-cert auth on peer blob servers; scoped short-lived tokens — V0.7 G3 2026-10-11 (`64c2f1e`..`5e68599`, fix r1 `e094f10`..`b9ea681`): tester r1 FAIL (T-1..T-3, D155) → fix → tester r2 PASS (`42679c7`; unit 8303, component 1463 exit 0, cluster 72+known wss flake rerun 4/4, chaos 3) → reviewer APPROVE; 🧑 lab re-join + checklist V0.7-G3 in 0.7.12
 - [x] **0.7.6** REST user authentication + CLI credential storage — G4 closed 2026-10-12: users, scrypt passwords, hashed API tokens, `compute login`, D148 auth on GETs, cross-user 404, live-stream re-auth; tester r2 PASS `1d45758`, reviewer APPROVE; follow-ups D158/D159
 - [x] **0.7.7** Revocation + certificate rotation — revocation (0.7.7a) done in G3 2026-10-11 (live cut, superseded serials, expiry cut, migrations 0016/0017); rotation done in G4 2026-10-12 (pending cert + activate, migration 0018); tester r2 PASS, reviewer APPROVE
-- [ ] **0.7.8** Owner policy per node: accept jobs / accept GPU sessions / CPU-RAM-GPU caps
-- [ ] **0.7.9** Sandbox hardening: no privileged containers, dropped capabilities, read-only base, optional no-network jobs
+- [~] **0.7.8** Owner policy per node: accept jobs / accept GPU sessions / CPU-RAM-GPU caps — G5 code `2b42a69`..`84fc2bc`, awaiting tester/reviewer
+- [~] **0.7.9** Sandbox hardening: no privileged containers, dropped capabilities, read-only base, optional no-network jobs — G5 code `a291934` `2a379d7`, awaiting tester/reviewer
 - [ ] **0.7.10** Job secrets (injected as files/env; redacted in logs)
 - [ ] **0.7.11** Security test suite + review against threat model
 - [ ] **0.7.12** 🧑 Lab run: 4 laptops pair by code, live revoke, code reuse/expiry, Wireshark capture, Windows agent join (`lab/checklists/V0.7-security.md`) — added 2026-10-07 (V0.7 brief)

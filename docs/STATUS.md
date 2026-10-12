@@ -43,6 +43,8 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 
 ## Current Task
 
+- **2026-10-12 (late): V0.7 G5 code DONE, tester r1 STOPPED by the user before reporting.** Implementer part 1 `2b42a69`..`b1fefd5` (item 0 = D158+D159, owner policy 1-4), part 2 `f1befcf`..`84fc2bc` (runtime caps per OS, sandbox asserts, 11 real-container escape tests, D145 a/b/e, docs). unit 8700 / cluster 77 / chaos 5x / F6 20x green; whole component 1612 pass, 3 fail (GPU env + 2 load flakes 3/3 on rerun). Tester partial file `tests/unit/controller/test_v07_g5_tester_r1_unit.py` committed as wip, unverified. **Next: G5 tester r1 (relaunch) → Lead ruling on deviations → reviewer → close 0.7.8/0.7.9.**
+
 - **2026-10-12: V0.7 G4 CLOSED** (0.7.6, 0.7.7 `[x]`). Tester r2 PASS `1d45758` (new minor T-4 global upload cap, T-5 Kelvin-sign name alias, F6 replay flake still 3/11 → D158), reviewer APPROVE (5 non-blocking → D159). **Next: Lead writes brief for the next V0.7 group; its item 0 = D158 + D159.**
 
 - 2026-10-12: V0.7 G4 fix round 1 done (`9cbc258`..`8ecea92`, D157). Next: G4 tester r2 → reviewer → close 0.7.6/0.7.7. See SESSION_HANDOFF §1.
