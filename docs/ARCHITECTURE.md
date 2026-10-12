@@ -738,6 +738,11 @@ sequenceDiagram
 - **Output-folder cap while running** (`agent/execution/workdir_cap.py`): the executor measures the attempt folder (allocated blocks, inodes once, no symlink follow, unlistable = over) every `[agent.execution] output_check_interval_s` against a baseline taken before the start; past `max_written_bytes` the run is stopped -> `FAILED(output_error)`, `output_limit: ...`, not retried.
 - **D145:** (a) part uploads under an upload grant are kept against the certificate-proven node (`node:<id>`; also for a grant minted without a node, which only tests do) and logged `controller.blobs.part_stored`; (b) the hardware-score document stores the node whose authenticated session reported it, and the planner / REST never use a document bound to another node; (e) `compute run` seeds the local agent cache only when its folders are real directories owned by the CLI's uid (`other_user` skip).
 
+*Changed in G5 fix round 1 (D160):*
+- **Startup probe from the effective policy:** `build_execution` reads `agent/policy.startup_policy` (`[agent.policy]` + `<data_dir>/policy.toml`), so `policy set` + one restart enables `accept_jobs`/`allow_unsandboxed`; a broken file at start probes from the configuration (`agent.policy.invalid_at_start`) while `LivePolicy` still refuses everything. `policy set` prints a restart note for both keys. `LivePolicy` re-reads the file on a mode/owner/ctime change too.
+- **Sandbox check is an allow-list:** `SecurityOpt` = no-new-privileges only (no custom seccomp), `NetworkMode` none/default bridge, private PID/UTS/userns/IPC/cgroupns (containers now created with `cgroupns=private`), `Memory` = `MemorySwap` = the plan (`ExpectedLimits`), `/tmp` the only tmpfs with the planned options, empty Sysctls/PortBindings/GroupAdd, `OomKillDisable` off, and the create request limited to `sandbox_check.CREATE_OPTIONS` (cgroup v2 hides `oom_kill_disable` in `HostConfig`).
+- **Accepted (WS-E8):** a deleted-but-open file is not seen by the output-folder cap; `disk_full` + the timeout are the backstop.
+
 ---
 
 ## 17. Telemetry & benchmarking pipeline

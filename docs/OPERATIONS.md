@@ -396,8 +396,16 @@ INVALID) - it never falls back to something looser.
   (cancel them with `compute cancel` if needed); it blocks the next start.
 - Two changes need **one agent restart**: turning `accept_jobs` on when the
   agent was started with it off, and turning `allow_unsandboxed` on when it was
-  started off - the runtimes are found at start (`policy set` says so).
-  Turning either **off** is live.
+  started off - the runtimes are found at start (`policy set` prints a note
+  for each). The restart reads the configuration **plus** the live
+  `policy.toml`, so `policy set accept_jobs=true allow_unsandboxed=true` then
+  one restart is enough (V0.7 G5 fix r1). A broken `policy.toml` at start: the
+  runtimes are probed from the configuration alone (log
+  `agent.policy.invalid_at_start`) and every job is refused until the file is
+  fixed. Turning either **off** is live.
+- The agent also re-checks the file after a `chmod`/`chown` alone: making
+  `policy.toml` readable or writable by others makes the laptop accept nothing
+  until it is `0600` again.
 - **Why was my job refused?** `compute explain JOB` (or the 409 at submit)
   names the code per laptop: `policy_not_accepting`, `policy_user_not_allowed`,
   `policy_ram`, `policy_cpu`, `policy_vram`, `policy_unsandboxed`,
@@ -494,12 +502,16 @@ kill work. Jobs are not retried until V0.6 (G3).
   ahead on a fast link with `meshforge-agent prepare` (see "Job environments" below).
 - **The sandbox is checked before every job starts (V0.7 G5, D143).** After
   Docker creates a container the agent reads back what Docker really made and
-  refuses to start it unless it is the sandbox: not privileged, no
-  capabilities, no-new-privileges, the default seccomp profile (never
-  `unconfined`), `/proc` masked, process/memory limits, a size-capped `/tmp`,
-  no host namespaces or devices, **only the job folder mounted** (never the
-  Docker socket or another host path), a read-only system, and no network
-  unless allowed. Otherwise the job fails `config_error` with
+  refuses to start it unless it is the sandbox. The check is an allow-list
+  (fix r1, D160): not privileged, no capabilities, no-new-privileges and no
+  other security option (the daemon's default seccomp profile only - a custom
+  `seccomp=` profile is refused too), `/proc` masked, a process limit, memory
+  and memory+swap exactly the planned cap, `/tmp` the only tmpfs with exactly
+  the planned size, its own PID/UTS/user/IPC/cgroup namespaces, no sysctls,
+  published ports, extra groups or devices, **only the job folder mounted**
+  (never the Docker socket or another host path), a read-only system, network
+  only `none` or the default bridge (never `host`) and `none` unless allowed,
+  and no create option the agent does not use itself. Otherwise the job fails `config_error` with
   `sandbox_violation: <what>` and the container is removed unstarted (agent log
   `agent.execution.sandbox_violation`). A Docker daemon that does not apply a
   seccomp profile by default is not used at all (`docker_seccomp_off` /
@@ -510,7 +522,10 @@ kill work. Jobs are not retried until V0.6 (G3).
   The agent measures it every `output_check_interval_s`; past it the job is
   stopped and fails `output_error` with `output_limit: ...` (not retried; agent
   log `agent.execution.output_limit`). A very fast writer can overshoot by what
-  it writes in one interval. `/tmp` inside the container is a separate tmpfs of
+  it writes in one interval. **Known limit (accepted, THREAT_MODEL WS-E8):** a
+  file the job deletes while keeping it open is not counted (the space is
+  freed when the job ends; the job's timeout and the agent's free-disk guard,
+  `disk_full`, remain the backstop). `/tmp` inside the container is a separate tmpfs of
   `tmp_size_mb` (512 MiB) that fills up with "no space left" inside the job.
 - **Containers are labelled** `meshforge.agent=<node id>`. If the agent is killed, its
   containers are removed the next time it starts; you can also list them with

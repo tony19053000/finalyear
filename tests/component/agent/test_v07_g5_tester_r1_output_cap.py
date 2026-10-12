@@ -121,13 +121,16 @@ def test_writes_spread_over_many_small_files_still_count(tmp_path: Path) -> None
     assert (state, kind) == ("failed", FailureType.OUTPUT_ERROR), message
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-7 minor: a file the job unlinks while holding it open is invisible "
-    "to the directory walk (st_blocks of a path that no longer exists); the cap "
-    "never trips and only the free-disk guard remains",
-)
-def test_a_deleted_but_open_file_still_counts(tmp_path: Path) -> None:
+def test_a_deleted_but_open_file_is_not_counted_documented_limit(
+    tmp_path: Path,
+) -> None:
+    """ACCEPTED RISK (D160, THREAT_MODEL WS-E8): a file the job unlinks while
+    holding it open is invisible to the output-cap walk (the poll measures paths
+    under the workdir; the space is held by an open descriptor only). The cap
+    does not trip; the host stays protected by the free-disk guard
+    (``disk_full``), the job's timeout and the space being freed when the job
+    exits. Pinned here so a future fix (e.g. a per-attempt filesystem quota)
+    flips this test on purpose."""
     state, kind, message = _attempt(
         tmp_path,
         """
@@ -138,4 +141,4 @@ def test_a_deleted_but_open_file_still_counts(tmp_path: Path) -> None:
         time.sleep(3)   # still holding 24 MiB on the host disk
         """,
     )
-    assert (state, kind) == ("failed", FailureType.OUTPUT_ERROR), (state, message)
+    assert (state, kind) == ("done", None), (state, kind, message)
