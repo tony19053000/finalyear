@@ -281,6 +281,15 @@ async def test_supersede_racing_a_graceful_close_leaves_nothing_live(
         for a in agents:
             await a.connect()
             a.start_heartbeats(0.1)
+        # V0.7 G6 (D161 load flake): a heartbeat *write* in flight when the
+        # controller cuts the call makes grpc core end the client's call
+        # INTERNAL ("execute_batch") instead of delivering the server's
+        # PERMISSION_DENIED - a client-side artefact (the controller recorded
+        # cert_superseded every time; asserted below). The cut agents stop
+        # writing first so the status they read is the server's; liveness here
+        # is tolerant, so no lease runs out meanwhile.
+        for a in agents[1::2]:
+            await a.finish_heartbeats()  # never cancels a write in flight
         await asyncio.gather(
             *[_supersede(pg_settings, n) for n in nodes],
             *[a.close(graceful=True) for a in agents[::2]],
@@ -297,6 +306,13 @@ async def test_supersede_racing_a_graceful_close_leaves_nothing_live(
         for n in nodes:
             assert await _state(pg_settings, n.node_id) == "offline"
         assert [s for s in runtime.manager.snapshot() if s.cert_serial] == []
+        for a in agents[1::2]:
+            rows = await _sql(
+                pg_settings,
+                "SELECT end_reason FROM node_session WHERE node_id = :n",
+                n=a.node_id,
+            )
+            assert rows == [("cert_superseded",)], rows
     finally:
         for a in agents:
             with contextlib.suppress(Exception):

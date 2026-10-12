@@ -65,6 +65,7 @@ class FakeAgent:
     _write_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     _reader: asyncio.Task[None] | None = None
     _hb: asyncio.Task[None] | None = None
+    _hb_done: bool = False
 
     def open(self) -> None:
         channel = self.channel
@@ -190,7 +191,7 @@ class FakeAgent:
         assert self._hb is None
 
         async def loop() -> None:
-            while not self.ended.is_set():
+            while not self.ended.is_set() and not self._hb_done:
                 try:
                     await self.heartbeat()
                 except (asyncio.InvalidStateError, grpc.aio.UsageError):
@@ -208,6 +209,15 @@ class FakeAgent:
     def stop_heartbeats(self) -> None:
         if self._hb is not None:
             self._hb.cancel()
+
+    async def finish_heartbeats(self) -> None:
+        """Stop the heartbeat loop **without** cancelling a write in flight
+        (cancelling ``call.write`` cancels the whole call - the controller
+        would then see ``stream_lost``): the loop ends after its current beat."""
+        self._hb_done = True
+        if self._hb is not None:
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await self._hb
 
     def messages(self, payload: str) -> list[agent_pb2.ControllerMessage]:
         return [m for m in self.received if m.WhichOneof("payload") == payload]

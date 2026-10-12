@@ -12,6 +12,7 @@ process/DB failures, DB-level constraints) that
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from typing import TYPE_CHECKING, Any
 
 import grpc
@@ -447,14 +448,36 @@ async def test_heartbeat_just_under_suspect_threshold_never_flaps(
     agents: Any, registry: Registry
 ) -> None:
     """suspect_after_s = 0.25 s under the fixture's FAST_LIVENESS; a heartbeat
-    every 0.2 s (comfortably under) must never observe SUSPECT."""
+    every 0.2 s (comfortably under) must never observe SUSPECT.
+
+    V0.7 G6 (D161 load flake): the heartbeats run on their own **absolute**
+    0.2 s schedule in a separate task. The old loop slept 0.2 s *after* a
+    database read, so every gap was 0.2 s + one query - under a loaded full
+    component run that alone crossed 0.25 s and the node was rightly marked
+    suspect (the test's cadence, not the server, was late)."""
     agent: FakeAgent = agents()
     await agent.connect()
-    for _ in range(15):
-        await agent.heartbeat()
-        await asyncio.sleep(0.2)
-        rec = await registry.get_node(agent.node_id)
-        assert rec is not None and rec.state is NodeState.ONLINE, rec.state
+    loop = asyncio.get_running_loop()
+    start = loop.time()
+
+    async def beat() -> None:
+        tick = 0
+        while True:
+            await agent.heartbeat()
+            tick += 1
+            await asyncio.sleep(max(0.0, start + 0.2 * tick - loop.time()))
+
+    beating = asyncio.create_task(beat())
+    try:
+        for _ in range(15):
+            await asyncio.sleep(0.2)
+            rec = await registry.get_node(agent.node_id)
+            assert rec is not None and rec.state is NodeState.ONLINE, rec.state
+            assert not beating.done()
+    finally:
+        beating.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await beating
 
 
 @pytest.mark.asyncio

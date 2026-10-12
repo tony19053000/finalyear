@@ -17,7 +17,8 @@ real agents (client + executor in this loop), real PostgreSQL.
 
 A dying agent here = its session task cancelled (no Goodbye) and its executor
 closed (workloads killed); the first run of each job sleeps long, a retry
-finds the marker file and finishes at once.
+finds the marker file and finishes at once. A crash waits until the first
+run has written the marker (V0.7 G6 load-flake fix).
 """
 
 from __future__ import annotations
@@ -61,11 +62,26 @@ import os, sys, time
 marker, counter = sys.argv[1], sys.argv[2]
 with open(counter, "a") as fh:
     fh.write(os.environ["MESHFORGE_ATTEMPT_ID"] + "\\n")
-print("attempt", os.environ["MESHFORGE_ATTEMPT_ID"], flush=True)
-if not os.path.exists(marker):
+first = not os.path.exists(marker)
+if first:
     open(marker, "w").close()
+print("attempt", os.environ["MESHFORGE_ATTEMPT_ID"], flush=True)
+if first:
     time.sleep(60)
 """
+
+
+async def _first_run_started(tmp_path: Path) -> None:
+    """V0.7 G6 (D161 load flake): ``running`` is reported before the workload
+    has run a line, so a crash right after it could kill the first run before
+    it wrote the marker - then the retry slept 60 s as the "first" run and the
+    test timed out (seen 8/8 under a 16-core CPU burn). Crash only once the
+    first run has really started (marker written)."""
+    for _ in range(600):
+        if (tmp_path / "marker").exists():
+            return
+        await asyncio.sleep(0.05)
+    raise AssertionError("the first run never wrote its marker")
 
 
 @pytest.fixture
@@ -158,6 +174,7 @@ async def test_offline_by_lease_expiry_retries_on_the_other_node(
     b = await agents.start("b")
     job_id = await submit(http, _project(tmp_path), None, _manifest(tmp_path))
     running = await wait_job(http, job_id, states=frozenset({"running"}))
+    await _first_run_started(tmp_path)
     first_node = running["attempts"][0]["node_id"]
     victim, survivor = (a, b) if first_node == a.node_id else (b, a)
     await agents.crash(victim)
@@ -189,6 +206,7 @@ async def test_acked_but_not_held_at_reconcile_retries_on_the_same_lone_node(
     a = await agents.start("a")
     job_id = await submit(http, _project(tmp_path), None, _manifest(tmp_path))
     await wait_job(http, job_id, states=frozenset({"running"}))
+    await _first_run_started(tmp_path)
     await agents.crash(a)
     back = await agents.start("a")  # same data dir: same node, new process
     assert back.node_id == a.node_id
