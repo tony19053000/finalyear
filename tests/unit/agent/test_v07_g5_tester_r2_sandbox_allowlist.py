@@ -186,14 +186,54 @@ def test_a_create_option_outside_the_allow_list_is_refused(extra: str) -> None:
         check_create_options(options)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-10: DeviceRequests (GPUs) is never read; a job planned without a GPU "
-    "could be created with every GPU",
-)
 def test_a_gpu_device_request_on_a_cpu_plan_is_refused() -> None:
     _bad(
         DeviceRequests=[
             {"Driver": "nvidia", "Count": -1, "Capabilities": [["gpu"]]},
         ]
     )
+
+
+# T-10 fix (Lead): PidsLimit, NanoCpus and DeviceRequests match the plan.
+def _check_t10(limits: ExpectedLimits, **changes: Any) -> None:
+    host = copy.deepcopy(REAL)
+    host.update(changes)
+    check_host_config(
+        host, role="run", mounts=MOUNTS, network_allowed=False, limits=limits
+    )
+
+
+T10_PLAN = ExpectedLimits(MEM, TMP, pids=64, nano_cpus=500_000_000)
+GPU_PLAN = ExpectedLimits(MEM, TMP, pids=64, nano_cpus=500_000_000, gpu_ids=("1",))
+
+
+def test_the_planned_values_pass() -> None:
+    _check_t10(T10_PLAN, NanoCpus=500_000_000)
+    _check_t10(
+        GPU_PLAN,
+        NanoCpus=500_000_000,
+        DeviceRequests=[{"Count": 0, "DeviceIDs": ["1"]}],
+    )
+
+
+@pytest.mark.parametrize(
+    ("limits", "changes"),
+    [
+        (T10_PLAN, {"NanoCpus": 500_000_000, "PidsLimit": 65}),
+        (T10_PLAN, {"NanoCpus": 4_000_000_000}),
+        (T10_PLAN, {"NanoCpus": 0}),
+        (ExpectedLimits(MEM, TMP, nano_cpus=0), {"NanoCpus": 1}),
+        (T10_PLAN, {"NanoCpus": 500_000_000, "DeviceRequests": [{"DeviceIDs": ["0"]}]}),
+        (GPU_PLAN, {"NanoCpus": 500_000_000, "DeviceRequests": [{"Count": -1}]}),
+        (
+            GPU_PLAN,
+            {"NanoCpus": 500_000_000, "DeviceRequests": [{"DeviceIDs": ["0", "1"]}]},
+        ),
+        (GPU_PLAN, {"NanoCpus": 500_000_000, "DeviceRequests": []}),
+    ],
+)
+def test_a_value_off_the_plan_is_refused(
+    limits: ExpectedLimits, changes: dict[str, Any]
+) -> None:
+    with pytest.raises(SandboxViolationError):
+        _check_t10(limits, **changes)

@@ -201,10 +201,6 @@ def test_a_setup_container_with_its_network_still_starts(
 # memory cgroup), ``hostname``, ``user`` (every capability is dropped).
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-10: PidsLimit is only checked > 0, not equal to the planned pids",
-)
 def test_a_pids_limit_above_the_plan_is_refused(
     target: Target, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -213,10 +209,6 @@ def test_a_pids_limit_above_the_plan_is_refused(
     assert result.failure_type is FailureType.CONFIG_ERROR, result
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-10: NanoCpus is not compared with the planned cpus",
-)
 def test_a_cpu_cap_above_the_plan_is_refused(
     target: Target, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -227,7 +219,7 @@ def test_a_cpu_cap_above_the_plan_is_refused(
     def tampered(*args: Any, **kw: Any) -> dict[str, Any]:
         kwargs = original(*args, **kw)
         assert kwargs["nano_cpus"] == 500_000_000
-        kwargs["nano_cpus"] = 64_000_000_000
+        kwargs["nano_cpus"] = 4_000_000_000  # under the host CPUs, so Docker accepts it
         return kwargs
 
     monkeypatch.setattr(runtime, "_create_kwargs", tampered)

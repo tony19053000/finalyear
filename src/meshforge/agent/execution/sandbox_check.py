@@ -125,10 +125,16 @@ class ExpectedMount:
 @dataclass(frozen=True, slots=True)
 class ExpectedLimits:
     """What the plan asked for: ``Memory`` and ``MemorySwap`` must both be
-    ``memory_bytes``; ``/tmp`` must be a tmpfs with exactly ``tmp_options``."""
+    ``memory_bytes``; ``/tmp`` must be a tmpfs with exactly ``tmp_options``.
+    T-10: when given, ``PidsLimit`` must equal ``pids`` and ``NanoCpus`` must
+    equal ``nano_cpus`` (0 = no CPU cap); ``DeviceRequests`` may only name
+    exactly ``gpu_ids`` (empty = no device request at all)."""
 
     memory_bytes: int
     tmp_options: str
+    pids: int | None = None
+    nano_cpus: int | None = None
+    gpu_ids: tuple[str, ...] = ()
 
 
 def _list(value: Any) -> list[Any]:
@@ -179,10 +185,42 @@ def _options(text: str) -> frozenset[str]:
     return frozenset(o.strip() for o in text.split(",") if o.strip())
 
 
+def _check_devices(host: Mapping[str, Any], gpu_ids: tuple[str, ...]) -> None:
+    requests = _list(host.get("DeviceRequests"))
+    if not gpu_ids:
+        if requests:
+            raise SandboxViolationError(
+                "devices", "a device request on a plan without GPUs"
+            )
+        return
+    named: list[str] = []
+    for req in requests:
+        ids = req.get("DeviceIDs") if isinstance(req, Mapping) else None
+        if not isinstance(ids, list) or req.get("Count") not in (None, 0):
+            raise SandboxViolationError("devices", "a device request without exact ids")
+        named.extend(str(i) for i in ids)
+    if sorted(named) != sorted(gpu_ids):
+        raise SandboxViolationError(
+            "devices", f"devices {named[:8]!r}, the plan says {list(gpu_ids)!r}"
+        )
+
+
 def _check_limits(host: Mapping[str, Any], limits: ExpectedLimits | None) -> None:
     pids = host.get("PidsLimit")
     if not isinstance(pids, int) or isinstance(pids, bool) or pids <= 0:
         raise SandboxViolationError("pids_limit", "no process limit")
+    if limits is not None and limits.pids is not None and pids != limits.pids:
+        raise SandboxViolationError(
+            "pids_limit", f"PidsLimit is {pids}, the plan says {limits.pids}"
+        )
+    if limits is not None and limits.nano_cpus is not None:
+        cpus = host.get("NanoCpus") or 0
+        if cpus != limits.nano_cpus:
+            raise SandboxViolationError(
+                "cpu_limit", f"NanoCpus is {cpus}, the plan says {limits.nano_cpus}"
+            )
+    if limits is not None:
+        _check_devices(host, limits.gpu_ids)
     memory = host.get("Memory")
     if not isinstance(memory, int) or isinstance(memory, bool) or memory <= 0:
         raise SandboxViolationError("memory_limit", "no memory limit")

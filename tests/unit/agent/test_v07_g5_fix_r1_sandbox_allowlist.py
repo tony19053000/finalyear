@@ -231,7 +231,9 @@ def test_the_runtime_asserts_against_the_plan_not_its_own_kwargs() -> None:
         )
     finally:
         docker_runtime.check_host_config = original  # type: ignore[assignment]
-    assert seen["limits"] == ExpectedLimits(MEM, "rw,nosuid,nodev,size=64m")
+    assert seen["limits"] == ExpectedLimits(
+        MEM, "rw,nosuid,nodev,size=64m", pids=64, nano_cpus=0
+    )
 
 
 # ------------------------------------------------------------------ create options

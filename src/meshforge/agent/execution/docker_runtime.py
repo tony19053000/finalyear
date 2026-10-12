@@ -1263,7 +1263,7 @@ class DockerRuntime:
                 mounts=_expected_mounts(spec, role, kwargs),
                 network_allowed=spec.network,
                 # the plan, never the kwargs: a changed kwarg must not move the bar
-                limits=ExpectedLimits(spec.limits.memory_bytes, self._tmp_options()),
+                limits=_planned_limits(spec, role, self._tmp_options()),
             )
             # after the HostConfig: what the daemon accepted but does not report
             # (cgroup v2 drops oom_kill_disable) is only visible in the request
@@ -1537,3 +1537,17 @@ def _fault_result(
 def workdir_for(root: Path, attempt_id: str) -> Path:
     """``<workdir_root>/<attempt_id>`` - the convention G4's executor uses."""
     return root / attempt_id
+
+
+def _planned_limits(spec: RunSpec, role: str, tmp_options: str) -> ExpectedLimits:
+    """T-10: the bar for the create-time check, from the plan only."""
+    limits = spec.limits
+    job = role in ("run", "setup")
+    cpus = limits.cpus
+    return ExpectedLimits(
+        limits.memory_bytes,
+        tmp_options,
+        pids=limits.pids,
+        nano_cpus=(int(cpus * 1e9) if cpus is not None else 0) if job else None,
+        gpu_ids=tuple(str(i) for i in spec.gpu_indices) if role == "run" else (),
+    )
