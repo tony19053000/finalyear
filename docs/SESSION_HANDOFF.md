@@ -265,6 +265,8 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
+**2026-10-13 (tester r1) — G6 implementer hand-off DONE `022a9a3` (docs/briefs/progress/V0.7-G6.md, no code changes). Gates + unit 9183 + cluster 77 + chaos 5x + F6 20x exit 0; whole component 1718 pass / 2 fail exit 1 (known GPU-env `test_gpu_probe_really_runs...`; NEW unreproduced `tests/component/lab/test_inventory_runner.py::test_timeout_kills_grandchildren`, 23/23 on rerun, cause unproven). 9 deviations await Lead ruling. **G6 tester r1 RUNNING.** If this session died: check git log for tester commits + a "Tester r1" section in the progress file; if absent relaunch tester r1; then Lead ruling → reviewer → close 0.7.10.**
+
 **2026-10-13 (resume 2) — G6 implementer RELAUNCHED for the §5f exit list + hand-off only (no new features; code `19c4fb1`..`f21646b`). If this session died: check `git log` for commits after `1601619` and the tail of docs/briefs/progress/V0.7-G6.md; if no hand-off section there, rerun the exit list; else tester r1 → reviewer → close 0.7.10.**
 
 **2026-10-13 (stop) — G6 implementer STOPPED by the user before the exit list; nothing running, tree clean. Code = `19c4fb1`..`f21646b` (items 0-7 all committed, progress in docs/briefs/progress/V0.7-G6.md). NOT verified as a whole. Next: one implementer run = §5f exit list only (fix red, commit, ≤800-word hand-off) → tester r1 → Lead ruling → reviewer → close 0.7.10.**
