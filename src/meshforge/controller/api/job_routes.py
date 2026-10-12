@@ -120,6 +120,11 @@ from meshforge.controller.named_inputs import (
 )
 from meshforge.controller.planner.inputs import workload_fingerprint
 from meshforge.controller.prepare import PrepareTracker
+from meshforge.controller.secret_store import (
+    SecretsMissingError,
+    SecretStore,
+    SecretStoreError,
+)
 
 __all__ = [
     "DEFAULT_JOB_LIMIT",
@@ -158,8 +163,12 @@ class JobApi:
         inputs: NamedInputStore | None = None,
         pins: PinBroadcaster | None = None,
         prepare: PrepareTracker | None = None,
+        secrets: SecretStore | None = None,
     ) -> None:
         self.store = store
+        self.secrets = secrets
+        """V0.7 G6 (D144): a job naming secrets its owner lacks is refused
+        at submit (``secret_missing:<NAME>``); None = secrets refused."""
         self.prepare = prepare
         """V0.5 G5 (0.5.8): `compute node prepare` requests; None = off."""
         self.inputs = inputs
@@ -496,6 +505,31 @@ async def _check_where(
         ) from None
 
 
+async def _check_secrets(
+    jobs: JobApi, owner_user_id: str | None, manifest: Manifest
+) -> None:
+    """V0.7 G6: every secret the manifest names must be the submitting
+    user's own (never another user's; the legacy token has none)."""
+    if jobs.secrets is None:
+        raise ApiError(FailureType.CONFIG_ERROR, "secrets are not configured")
+    try:
+        await jobs.secrets.check_present(
+            owner_user_id, [item.name for item in manifest.secrets]
+        )
+    except SecretsMissingError as exc:
+        raise ApiError(
+            FailureType.INVALID_INPUT,
+            exc.message + " (store it with `compute secret set NAME`)",
+            extra={"reason": "secret_missing", "missing": list(exc.names)},
+        ) from None
+    except SecretStoreError:
+        raise ApiError(
+            FailureType.NETWORK_ERROR,
+            "the secret store is unavailable; retry",
+            headers={"Retry-After": "2"},
+        ) from None
+
+
 @job_router.post(
     "",
     status_code=status.HTTP_201_CREATED,
@@ -543,6 +577,9 @@ async def submit_job(
         existing = await jobs.store.get_job_by_key(key)
         if existing is not None:
             return _replay(existing, digest, response, user.user_id)
+
+    if manifest.secrets:
+        await _check_secrets(jobs, user.user_id, manifest)
 
     # V0.5 G5: from the blob check to the job row, no GC pass may remove a blob
     # this job references (the pass holds the same guard).

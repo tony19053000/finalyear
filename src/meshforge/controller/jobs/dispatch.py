@@ -21,9 +21,11 @@ from __future__ import annotations
 import datetime as dt
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from pydantic import SecretStr
 
+from meshforge.common.errors import FailureType
 from meshforge.common.hashing import Digest
 from meshforge.common.logging import get_logger
 from meshforge.common.proto.meshforge.v1 import agent_pb2
@@ -34,6 +36,7 @@ from meshforge.controller.jobs.execution_store import (
     LiveAttempt,
     StatusKind,
     StatusOutcome,
+    StatusReport,
 )
 from meshforge.controller.jobs.logs import LogHub
 from meshforge.controller.jobs.peers import PeerSources
@@ -42,8 +45,19 @@ from meshforge.controller.jobs.queue_reads import NetworkReads
 from meshforge.controller.jobs.retry import RetryReason
 from meshforge.controller.jobs.spec import execution_spec
 from meshforge.controller.jobs.store import AttemptRecord, JobRecord
+from meshforge.controller.jobs.transitions import AttemptEvent
 from meshforge.controller.named_inputs import NamedInputStore, ResolvedInput
 from meshforge.controller.resources import ResourceTracker
+from meshforge.controller.secret_box import (
+    SecretIntegrityError,
+    SecretKeyError,
+    SecretKeyMismatchError,
+)
+from meshforge.controller.secret_store import (
+    SecretsMissingError,
+    SecretStore,
+    secret_names,
+)
 from meshforge.controller.session.manager import SessionManager
 from meshforge.controller.settings import (
     JobApiSettings,
@@ -128,7 +142,14 @@ class DispatchSteps:
     _planner_settings: PlannerSettings
     _network_settings: NetworkSettings
     _peer_minted: dict[str, float]
+    _secrets: SecretStore | None
     stats: DispatcherStats
+
+    if TYPE_CHECKING:  # the dispatcher's (never shadowed at run time)
+
+        def _after(
+            self, outcome: StatusOutcome, report: StatusReport | None = None
+        ) -> None: ...
 
     # ------------------------------------------------------------ dispatch
 
@@ -197,9 +218,59 @@ class DispatchSteps:
 
     # ------------------------------------------------------------ StartAttempt
 
+    async def _job_secrets(
+        self, job: JobRecord, attempt: AttemptRecord
+    ) -> dict[str, bytes] | None:
+        """V0.7 G6 (D144): the values of the secrets the job names, **of its
+        owner only**, read at every (re)send. A secret that is missing,
+        unreadable or a master key that is unusable ends the attempt before
+        anything is sent - the job fails typed, never retried, never hangs
+        (``secret_missing:<NAME>``). None = the attempt was ended."""
+        names = secret_names(job.manifest)
+        if not names:
+            return {}
+        failure: tuple[FailureType, str] | None = None
+        try:
+            if self._secrets is None:
+                failure = (FailureType.CONFIG_ERROR, "secrets are not configured")
+            else:
+                return await self._secrets.resolve(job.owner_user_id, names)
+        except SecretsMissingError as exc:
+            failure = (FailureType.INVALID_INPUT, exc.message)
+        except SecretKeyMismatchError as exc:
+            failure = (FailureType.CONFIG_ERROR, f"secret_key_mismatch: {exc.message}")
+        except SecretIntegrityError as exc:
+            failure = (FailureType.INTEGRITY_ERROR, f"secret_unreadable: {exc.message}")
+        except SecretKeyError:
+            failure = (
+                FailureType.CONFIG_ERROR,
+                "secret_key_unusable: the controller's secrets master key cannot "
+                "be used (see the controller log)",
+            )
+        outcome = await self._store.end_attempt(
+            attempt.id,
+            attempt.fencing_token,
+            event=AttemptEvent.FAIL,
+            failure_type=failure[0],
+            detail=failure[1],
+            retryable=False,
+        )
+        self._after(outcome)
+        log.warning(
+            "controller.jobs.secrets_refused",
+            job_id=job.id,
+            attempt_id=attempt.id,
+            failure_type=failure[0].value,
+            detail=failure[1],
+        )
+        return None
+
     async def _send_start(
         self, job: JobRecord, attempt: AttemptRecord, *, resend: bool
     ) -> None:
+        secrets = await self._job_secrets(job, attempt)
+        if secrets is None:
+            return  # ended before anything reached the node
         peers = await self._peer_sources(job, attempt)
         inputs = await self._job_inputs(job)
         token, ttl = self._mint_fetch_token(job, attempt, inputs)

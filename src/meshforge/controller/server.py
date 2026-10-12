@@ -350,6 +350,8 @@ class ControllerRuntime:
         self.cache_index = CacheIndex(CacheLocationStore(engine))
         self.jobs = ExecutionStore(engine)
         self.inputs = NamedInputStore(engine)
+        # V0.7 G6 (D144): job secrets; the master key is loaded on first use.
+        self.secrets = SecretStore(engine, self.settings.secrets_key_path)
         swept = await registry.sweep_open_sessions(SessionEndReason.CONTROLLER_RESTART)
         offline = await registry.mark_live_nodes_offline()
         log.info(
@@ -456,6 +458,7 @@ class ControllerRuntime:
                 scheme="http" if self.settings.security.insecure else "https",
             ),
             inputs=self.inputs,
+            secrets=self.secrets,
             known_bad_envs=self.known_bad_envs,
             planner=cfg.planner,
             network=cfg.network,
@@ -516,8 +519,6 @@ class ControllerRuntime:
             manager.on_cert_activated = self._resync_revocations
         # V0.7 G4 (D141): REST users and API tokens.
         self.users = UserStore(engine)
-        # V0.7 G6 (D144): job secrets; the master key is loaded on first use.
-        self.secrets = SecretStore(engine, self.settings.secrets_key_path)
         self.login = LoginService(
             self.users,
             policy=login_policy(cfg.auth),
@@ -593,6 +594,7 @@ class ControllerRuntime:
                     inputs=self.inputs,
                     pins=self.pins,
                     prepare=self.prepare,
+                    secrets=self.secrets,
                 ),
                 network=NetworkApi(store=network_store, prober=network),
                 invites=InviteApi(

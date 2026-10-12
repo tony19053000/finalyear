@@ -30,6 +30,9 @@ V0.4 subset::
       max_attempts: 3                    # 1-10 attempts in total
       backoff_s: 5                       # 0-300 s before the 2nd attempt, doubling
       on_lost: true                      # false: never re-run after a lost node (D117)
+    secrets:                             # V0.7 G6 (D144): YOUR secrets (compute secret set)
+      - API_KEY                          # file /run/secrets/API_KEY (or $MESHFORGE_SECRETS_DIR)
+      - {name: DB_PASS, as_env: true}    # ... and also the env var DB_PASS
 
 Rules:
 
@@ -83,6 +86,12 @@ from pydantic import (
 )
 
 from meshforge.common.errors import FailureType, MeshForgeError
+from meshforge.common.secret_names import (
+    MAX_SECRET_NAME_CHARS,
+    SecretNameError,
+    check_env_name,
+    normalise_secret_name,
+)
 
 __all__ = [
     "DEFAULT_BACKOFF_S",
@@ -104,6 +113,7 @@ __all__ = [
     "MAX_OUTPUT_CHARS",
     "MAX_PRIORITY",
     "MAX_RAM_GB",
+    "MAX_SECRETS",
     "MAX_TIMEOUT_S",
     "MAX_VRAM_GB",
     "MIN_PRIORITY",
@@ -117,6 +127,7 @@ __all__ = [
     "PolicyName",
     "ResourcesSpec",
     "RetrySpec",
+    "SecretSpec",
     "check_mount",
     "infer_entrypoint",
     "load_manifest",
@@ -136,6 +147,8 @@ MAX_ARG_CHARS: Final = 4096
 MAX_OUTPUTS: Final = 64
 MAX_OUTPUT_CHARS: Final = 512
 MAX_INPUTS: Final = 16
+MAX_SECRETS: Final = 32
+"""Most secrets one job may name (V0.7 G6)."""
 MAX_MOUNT_CHARS: Final = 256
 INPUT_NAME_RE: Final = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}")
 """A named input's name (``compute data push <name>``): lower case, <= 64."""
@@ -416,6 +429,38 @@ class InputSpec(_Spec):
         return match.group("tree") if match is not None else None
 
 
+class SecretSpec(_Spec):
+    """One ``secrets:`` entry (V0.7 G6, D144): the job owner's secret ``name``
+    (:mod:`meshforge.common.secret_names` rules), delivered as the file
+    ``/run/secrets/NAME`` (Docker) or ``$MESHFORGE_SECRETS_DIR/NAME``; also as
+    the environment variable ``NAME`` when ``as_env`` (never by default)."""
+
+    name: str = Field(min_length=1, max_length=MAX_SECRET_NAME_CHARS + 8)
+    as_env: bool = Field(default=False, strict=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _bare_name(cls, data: object) -> object:
+        return {"name": data} if isinstance(data, str) else data
+
+    @field_validator("name")
+    @classmethod
+    def _canonical(cls, value: str) -> str:
+        try:
+            return normalise_secret_name(value)
+        except SecretNameError as exc:
+            raise ValueError(exc.message) from None
+
+    @model_validator(mode="after")
+    def _env_name(self) -> Self:
+        if self.as_env:
+            try:
+                check_env_name(self.name)
+            except SecretNameError as exc:
+                raise ValueError(exc.message) from None
+        return self
+
+
 def check_mount(value: str) -> str:
     """A named input's mount: a plain relative folder inside the workdir, not
     under ``.meshforge``, at most :data:`MAX_MOUNT_CHARS` (``ValueError``)."""
@@ -456,6 +501,10 @@ class Manifest(_Spec):
     """Placement policy for this job (V0.6 D107); None = the fabric default."""
     retry: RetrySpec = Field(default_factory=RetrySpec)
     """V0.6 D110."""
+    secrets: tuple[SecretSpec, ...] = Field(default=(), max_length=MAX_SECRETS)
+    """V0.7 G6 (D144): the job owner's secrets this job reads - names only, the
+    values never travel with the manifest; omitted from the canonical form
+    when empty."""
 
     @model_validator(mode="before")
     @classmethod
@@ -527,6 +576,14 @@ class Manifest(_Spec):
                     )
         return value
 
+    @field_validator("secrets")
+    @classmethod
+    def _unique_secrets(cls, value: tuple[SecretSpec, ...]) -> tuple[SecretSpec, ...]:
+        names = [item.name for item in value]
+        if len(set(names)) != len(names):
+            raise ValueError("each secret may be named once")
+        return value
+
     def canonical_dict(self) -> dict[str, Any]:
         """Every field, defaults filled in, JSON types only - except the
         V0.5/V0.6 additions (``inputs``, ``priority``, ``policy``, ``retry``),
@@ -541,6 +598,8 @@ class Manifest(_Spec):
             exclude.add("policy")
         if self.retry == RetrySpec():
             exclude.add("retry")
+        if not self.secrets:
+            exclude.add("secrets")
         return self.model_dump(mode="json", exclude=exclude or None)
 
     def canonical_json(self) -> str:

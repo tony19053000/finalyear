@@ -23,7 +23,7 @@ import datetime as dt
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final
+from typing import Any, Final
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -47,6 +47,7 @@ __all__ = [
     "SecretStore",
     "SecretStoreError",
     "SecretsMissingError",
+    "secret_names",
 ]
 
 log = get_logger(__name__)
@@ -81,6 +82,20 @@ class SecretsMissingError(MeshForgeError):
             ", ".join(f"secret_missing:{name}" for name in self.names),
             details={"missing": list(self.names)},
         )
+
+
+def secret_names(manifest: Mapping[str, Any]) -> list[str]:
+    """The secret names a stored (canonical) manifest asks for (V0.7 G6);
+    malformed entries are ignored here - the manifest was validated at submit."""
+    entries = manifest.get("secrets")
+    if not isinstance(entries, list):
+        return []
+    names: list[str] = []
+    for entry in entries:
+        name = entry.get("name") if isinstance(entry, Mapping) else entry
+        if isinstance(name, str):
+            names.append(name)
+    return names
 
 
 @dataclass(frozen=True, slots=True)
@@ -216,6 +231,36 @@ class SecretStore:
                 f"cannot delete the secret: {type(exc).__name__}"
             ) from None
         log.info("controller.secrets.deleted", owner_user_id=owner_user_id, name=name)
+
+    async def check_present(
+        self, owner_user_id: str | None, names: Iterable[str]
+    ) -> None:
+        """Submit-time check (no decryption): :class:`SecretsMissingError`
+        unless ``owner_user_id`` has every one of ``names``."""
+        wanted = sorted({normalise_secret_name(n) for n in names})
+        if not wanted:
+            return
+        if owner_user_id is None:
+            raise SecretsMissingError(wanted)
+        try:
+            async with self._sessions() as db:
+                found = set(
+                    (
+                        await db.execute(
+                            select(Secret.name).where(
+                                Secret.owner_user_id == owner_user_id,
+                                Secret.name.in_(wanted),
+                            )
+                        )
+                    ).scalars()
+                )
+        except SQLAlchemyError as exc:
+            raise SecretStoreError(
+                f"cannot read secrets: {type(exc).__name__}"
+            ) from None
+        missing = [n for n in wanted if n not in found]
+        if missing:
+            raise SecretsMissingError(missing)
 
     async def resolve(
         self, owner_user_id: str | None, names: Iterable[str]

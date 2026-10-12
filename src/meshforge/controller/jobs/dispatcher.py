@@ -123,6 +123,7 @@ from meshforge.controller.jobs.store import JobRecord, JobStoreError
 from meshforge.controller.liveness import LivenessEvent
 from meshforge.controller.named_inputs import NamedInputStore
 from meshforge.controller.resources import ResourceTracker
+from meshforge.controller.secret_store import SecretStore
 from meshforge.controller.session.live import LiveSession, PendingCommand
 from meshforge.controller.session.manager import SessionManager
 from meshforge.controller.settings import (
@@ -195,8 +196,11 @@ class Dispatcher(RecoverySteps):
         planner: PlannerSettings | None = None,
         network: NetworkSettings | None = None,
         cache_live: Callable[[str, str], bool] | None = None,
+        secrets: SecretStore | None = None,
     ) -> None:
         self._store = store
+        self._secrets = secrets
+        """V0.7 G6 (D144): the job owners' secrets, resolved at every send."""
         self.known_bad_envs = known_bad_envs
         """V0.6 G1 (D116): (node, env) pairs that failed env_error recently."""
         self._inputs = inputs
