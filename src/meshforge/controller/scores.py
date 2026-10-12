@@ -16,7 +16,6 @@ string as a ``timestamptz``, so :func:`measured_at_iso` is the only formatter.
 from __future__ import annotations
 
 import datetime as dt
-from collections.abc import Mapping
 from typing import Any, Final
 
 from meshforge.common.proto.meshforge.v1 import agent_pb2
@@ -26,7 +25,6 @@ __all__ = [
     "METRIC_NAMES",
     "STATUS_NAMES",
     "UNITS",
-    "bound_to",
     "measured_at_iso",
     "metric_name",
     "scores_document",
@@ -122,7 +120,7 @@ def scores_document(
     the agent sent them in. ``node_id`` is the node whose **certificate-authenticated**
     session reported the set (V0.7 G5, D145b): the agent's ``fingerprint`` is
     stored bound to it, and readers use a document only for that node
-    (:func:`bound_to`).
+    (:func:`meshforge.controller.planner.inputs.bound_to`).
     """
     measured_at = message.measured_at.ToDatetime(tzinfo=dt.UTC)
     conditions = message.conditions
@@ -144,16 +142,3 @@ def scores_document(
         "metrics": [_metric_document(score) for score in message.scores],
     }
     return document, measured_at
-
-
-def bound_to(document: Mapping[str, Any] | None, node_id: str) -> bool:
-    """Is ``document`` usable as ``node_id``'s scores? (V0.7 G5, D145b)
-
-    A document bound to another node is never used (a copied or misfiled row).
-    One without a binding was stored before V0.7 G5 - by a session that was
-    already certificate-authenticated (G3) - and is accepted until the node's
-    next Hello re-reports (and so re-binds) it."""
-    if document is None:
-        return False
-    owner = document.get("node_id")
-    return owner is None or owner == node_id

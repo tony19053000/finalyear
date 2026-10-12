@@ -33,9 +33,9 @@ from meshforge.controller.planner.types import (
     PlanRequest,
     TreeNeed,
 )
-from meshforge.controller.scores import bound_to
 
 __all__ = [
+    "bound_to",
     "capabilities_of",
     "effective_slots",
     "gpu_indices_of",
@@ -104,6 +104,19 @@ def effective_slots(
         return cpu, 0
     gpu = 1 if advertised_gpu is None else max(0, advertised_gpu)
     return cpu, gpu
+
+
+def bound_to(document: Mapping[str, Any] | None, node_id: str) -> bool:
+    """Is ``document`` usable as ``node_id``'s scores? (V0.7 G5, D145b)
+
+    A document bound to another node is never used (a copied or misfiled row).
+    One without a binding was stored before V0.7 G5 - by a session that was
+    already certificate-authenticated (G3) - and is accepted until the node's
+    next Hello re-reports (and so re-binds) it."""
+    if document is None:
+        return False
+    owner = document.get("node_id")
+    return owner is None or owner == node_id
 
 
 def scores_of(

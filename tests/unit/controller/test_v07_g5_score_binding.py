@@ -19,8 +19,8 @@ from test_session_manager import FakeClock, admit, make_manager, settle
 from meshforge.agent.benchmarks.wire import to_proto
 from meshforge.common.ids import new_node_id
 from meshforge.controller.api.shape import node_scores
-from meshforge.controller.planner.inputs import node_snapshot
-from meshforge.controller.scores import bound_to, scores_document
+from meshforge.controller.planner.inputs import bound_to, node_snapshot
+from meshforge.controller.scores import scores_document
 
 pytestmark = pytest.mark.unit
 

@@ -28,9 +28,10 @@ from meshforge.controller.api.models import (
     SessionSummary,
 )
 from meshforge.controller.liveness import NodeState
+from meshforge.controller.planner.inputs import bound_to
 from meshforge.controller.registry import NodeRecord, SessionRecord, SnapshotRecord
 from meshforge.controller.resources import LiveSample
-from meshforge.controller.scores import UNITS, bound_to
+from meshforge.controller.scores import UNITS
 from meshforge.controller.session.manager import LiveSession
 
 __all__ = [
