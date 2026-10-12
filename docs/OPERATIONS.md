@@ -409,7 +409,27 @@ INVALID) - it never falls back to something looser.
 - **Network (D143):** from V0.7 a job gets **no network** unless its manifest
   asks `limits.network: on` **and** the laptop's owner set `allow_network =
   true`. `limits.network: default` now means none. (Installing a job's
-  requirements still uses the network when the environment is built.)
+  requirements still uses the network when the environment is built - only the
+  requirements file is in that build container; set `[agent.envs] no_index =
+  true` + `find_links` for no network at all.)
+- **Which caps are really enforced, where (V0.7 G5, D142 item 5).** The
+  limits are applied by the runtime, not only used for placement:
+
+  | Cap | Docker (all OSes) | subprocess/venv on Linux | subprocess/venv on Windows | other OS |
+  |---|---|---|---|---|
+  | `max_ram_bytes` | `--memory` (no swap) | `RLIMIT_AS` = the cap (address space, stricter than RAM); **not** for GPU jobs | job-object memory limit; **not** for GPU jobs | not enforced |
+  | `max_cpu_percent` | `--cpus` | **not enforced** (lowered priority only) | job-object hard CPU-rate cap | not enforced |
+  | processes (`default_pids`) | `--pids-limit` | `RLIMIT_NPROC`: at most `default_pids` more processes/threads than your user had when the job started (shared with your other programs; root is exempt) | job-object active-process limit | not enforced |
+  | `max_vram_bytes` | placement only | placement only | placement only | placement only |
+
+  Whatever is not enforced on this laptop is **said**, never claimed: the agent
+  advertises it as `not_enforced` (e.g. `max_vram_bytes:no_runtime_limit`,
+  `max_cpu_percent:unsandboxed_linux`, `max_ram_bytes:unsandboxed_gpu_jobs`),
+  and `compute nodes <node id>` / `GET /v1/nodes/<node id>` shows it under
+  `owner_policy`. On Windows, if the job object cannot take a required RAM cap
+  the job is refused (`config_error`, `limits_not_applied`) rather than run
+  without it. A job that goes over `RLIMIT_AS` gets `MemoryError` (reported
+  `oom`).
 - The old `[agent.execution] enabled / allow_unsandboxed / max_cpu_jobs /
   max_gpu_jobs` keys still work for one release (`agent.config.deprecated_key`
   warning at start); a `[agent.policy]` key wins over its old spelling.
@@ -428,6 +448,8 @@ grace_s = 3.0               # cancel/timeout: SIGTERM, then SIGKILL after this (
 # default_timeout_s = 3600, max_timeout_s = 86400, run_as = "auto"
 # keep_workdirs = false     # true = keep each finished job's folder + its logs
 # max_concurrent_attempts = 4
+# max_written_bytes = 8589934592   # most disk a running job may add to its folder (V0.7 G5)
+# output_check_interval_s = 1.0    # how often that is measured
 ```
 
 **How many jobs at once (V0.6, D105).** The controller schedules by the slots
@@ -470,14 +492,35 @@ kill work. Jobs are not retried until V0.6 (G3).
   `[agent.execution.images]` (`python_cpu`, `cuda_pytorch`); a value without
   `@sha256:` is refused. The first job pulls them (the PyTorch one is ~4 GB) - pull
   ahead on a fast link with `meshforge-agent prepare` (see "Job environments" below).
+- **The sandbox is checked before every job starts (V0.7 G5, D143).** After
+  Docker creates a container the agent reads back what Docker really made and
+  refuses to start it unless it is the sandbox: not privileged, no
+  capabilities, no-new-privileges, the default seccomp profile (never
+  `unconfined`), `/proc` masked, process/memory limits, a size-capped `/tmp`,
+  no host namespaces or devices, **only the job folder mounted** (never the
+  Docker socket or another host path), a read-only system, and no network
+  unless allowed. Otherwise the job fails `config_error` with
+  `sandbox_violation: <what>` and the container is removed unstarted (agent log
+  `agent.execution.sandbox_violation`). A Docker daemon that does not apply a
+  seccomp profile by default is not used at all (`docker_seccomp_off` /
+  `docker_seccomp_unconfined` in `agent.execution.no_runtime`): fix the daemon
+  (`docker info` must list `name=seccomp,profile=builtin` or similar).
+- **Output folder cap (V0.7 G5).** A running job may add at most
+  `max_written_bytes` (8 GiB) to its folder (outputs, scratch files, its logs).
+  The agent measures it every `output_check_interval_s`; past it the job is
+  stopped and fails `output_error` with `output_limit: ...` (not retried; agent
+  log `agent.execution.output_limit`). A very fast writer can overshoot by what
+  it writes in one interval. `/tmp` inside the container is a separate tmpfs of
+  `tmp_size_mb` (512 MiB) that fills up with "no space left" inside the job.
 - **Containers are labelled** `meshforge.agent=<node id>`. If the agent is killed, its
   containers are removed the next time it starts; you can also list them with
   `docker ps -a --filter label=meshforge.managed=1`.
 - **Subprocess runtime — NOT a sandbox.** With `[agent.policy] allow_unsandboxed = true` a laptop
   without Docker can still run jobs, but the job runs **as you**: it can read and
-  change your files, see your processes and use the network. Memory, process and CPU
-  caps are *not* enforced; time limits and cancel are. Turn it on only on a machine you use
-  for the lab, never on one with personal data.
+  change your files, see your processes and use the network. Time limits and
+  cancel are enforced; memory, process and CPU caps only as far as the table in
+  section 0b0 says (Linux: rlimits; Windows: the job object). Turn it on only on
+  a machine you use for the lab, never on one with personal data.
 - **Found the controller by mDNS?** Then any machine on the Wi-Fi that pretends to be
   a controller could send this laptop work. With execution enabled, set
   `[agent] controller_address` explicitly (the agent warns with
@@ -1078,7 +1121,7 @@ volume**).
 | Jobs fail `disk_full` | auto jobs are retried on another laptop and the full one is avoided for `retry_exclude_s` (V0.6 D126), so this means the job was **pinned** to the full laptop, or no other laptop could run it and the laptop was still full after `retry_exclude_s` (retries exhausted; D129 waits the window out instead of retrying at once) | free disk on that laptop and resubmit |
 | A job stays `queued` | no node can take it **now** (V0.6): every capable node is busy (`slots_full`, `node_cap`), offline / suspect, or its environment failed there recently (`env_known_bad`) | `compute explain <JOB_ID>` lists each node's reason; free a slot, start an agent, raise `[agent.execution] max_cpu_jobs` / `max_gpu_jobs`, or cancel it |
 | `compute run` exits with `no_feasible_plan` and a list of nodes | **no** enrolled node could ever run it (V0.6 D104): no `exec`, no GPU / too little VRAM / RAM / CPUs, no runtime for `env.base`, the owner allows no jobs of that kind | each line names the node and the reason; change the manifest's `resources:` or enable execution / a runtime on a node |
-| `compute run` prints `local agent cache not seeded (...)` | the CLI could not copy the project into this laptop's agent cache: `no_cache` (the agent never ran with this data dir), `not_writable`, `over_quota` (project > `[cli] seed_max_bytes`), `disk_full`, `changed` (a file changed while copied) | nothing breaks: a job placed here downloads the project; fix the reason to save that download |
+| `compute run` prints `local agent cache not seeded (...)` | the CLI could not copy the project into this laptop's agent cache: `no_cache` (the agent never ran with this data dir), `other_user` (the agent's cache belongs to another OS user - e.g. the agent runs as a service account or you ran `compute run` as root; V0.7 G5 never writes into it), `not_writable`, `over_quota` (project > `[cli] seed_max_bytes`), `disk_full`, `changed` (a file changed while copied) | nothing breaks: a job placed here downloads the project; fix the reason to save that download |
 | Controller exits **4** at startup, log `controller.start_failed` names `controller/ca` or `controller/tls` | the fabric CA or its folder cannot be trusted (V0.7 G1): loose permissions, a missing half, a garbled file, a key that does not match | follow the message: `chmod 600` / `chmod 700`, restore `ca/` from backup, or `meshforge-controller fabric create --force` (every laptop re-joins) — §0a2 |
 | Controller exits **4** at startup | PostgreSQL unreachable or bad `[database]` settings | `docker compose -f deploy/docker-compose.dev.yml up -d --wait`, then check `[database]` |
 | Agent exits **5** immediately | another agent process already owns this identity | stop the other one, or give this one its own `data_dir` |
