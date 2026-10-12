@@ -568,6 +568,18 @@ class ExecutionSettings(SectionModel):
             "for very large folders)."
         ),
     )
+    free_disk_read_failure_limit: int = Field(
+        default=5,
+        ge=1,
+        le=1000,
+        description=(
+            "V0.7 G6 (D161 N1): while a job runs, the agent also reads the free "
+            "space of its workdir's disk each output_check_interval_s. This many "
+            "failed reads in a row stop the job, which fails disk_full with "
+            "reason disk_unknown (fail closed); a successful read resets the "
+            "count."
+        ),
+    )
     terminal_resend_s: float = Field(
         default=5.0,
         ge=0.2,

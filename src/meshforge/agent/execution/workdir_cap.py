@@ -20,8 +20,13 @@ folder's filesystem (``shutil.disk_usage``); below ``free_floor_bytes`` (the
 agent's staging floor) it calls ``on_disk_low(free)`` once and returns - the
 executor stops the run and fails it ``disk_full``. This covers what the folder
 walk cannot see: bytes in a file the job deleted but keeps open, and a disk
-another process is filling. A failed free-space read is logged and skipped (an
-``ENOSPC`` write still fails the attempt ``disk_full``, D116).
+another process is filling. A failed free-space read is logged and skipped, but
+never silently for long (V0.7 G6 item 0, D161 N1): failed reads are counted and
+a successful read resets the count; ``max_free_read_failures`` failures **in a
+row** call ``on_disk_unknown(failures)`` once and return - the executor fails
+the attempt ``disk_full`` with reason ``disk_unknown`` (fail closed: a job must
+not keep writing to a disk nobody can measure). An ``ENOSPC`` write still fails
+the attempt ``disk_full`` too (D116).
 
 **Limits, said honestly:** both checks are a poll, so a writer can overshoot by
 what it writes in one interval (bounded by the disk's speed). The interval
@@ -125,6 +130,10 @@ class WorkdirCap:
     free_floor_bytes: int = 0
     """Free space the disk must keep while the job runs; 0 = not checked."""
     disk_free: Callable[[Path], int] = free_bytes
+    max_free_read_failures: int = 5
+    """Consecutive failed free-space reads that stop the job (``disk_unknown``)."""
+    free_read_failures: int = 0
+    """Failed free-space reads in a row (reset by a successful read)."""
     baseline: int | None = None
     written: int = 0
     """Bytes added since the baseline at the last measurement
@@ -136,10 +145,13 @@ class WorkdirCap:
         self,
         on_exceeded: Callable[[int], None],
         on_disk_low: Callable[[int], None] | None = None,
+        on_disk_unknown: Callable[[int], None] | None = None,
     ) -> None:
         """Measure until the cap is passed (then call ``on_exceeded(written)``
         once and return), until the disk's free space is below the floor (then
-        call ``on_disk_low(free)`` once and return) or until cancelled."""
+        call ``on_disk_low(free)`` once and return), until the free space could
+        not be read ``max_free_read_failures`` times in a row (then call
+        ``on_disk_unknown(failures)`` once and return) or until cancelled."""
         if self.baseline is None:
             started = self.clock()
             base = await self._measure()
@@ -152,6 +164,11 @@ class WorkdirCap:
             low = await self._disk_low() if on_disk_low is not None else None
             if on_disk_low is not None and low is not None:
                 on_disk_low(low)
+                return
+            if on_disk_unknown is not None and self.free_read_failures >= max(
+                1, self.max_free_read_failures
+            ):
+                on_disk_unknown(self.free_read_failures)
                 return
             started = self.clock()
             used = await self._measure()
@@ -171,15 +188,23 @@ class WorkdirCap:
 
     async def _disk_low(self) -> int | None:
         """The free bytes when the folder's disk has less than the floor free,
-        else None. A failed read is logged and counts as fine (ENOSPC stays
-        typed ``disk_full``)."""
+        else None. A failed read is logged and counted in
+        :attr:`free_read_failures` (the caller acts on a streak); a successful
+        read resets the count."""
         if self.free_floor_bytes <= 0:
             return None
         try:
             self.free = await asyncio.to_thread(self.disk_free, self.root)
         except Exception:
-            log.warning("agent.execution.free_disk_read_failed", exc_info=True)
+            self.free_read_failures += 1
+            log.warning(
+                "agent.execution.free_disk_read_failed",
+                failures_in_a_row=self.free_read_failures,
+                limit=self.max_free_read_failures,
+                exc_info=True,
+            )
             return None
+        self.free_read_failures = 0
         return self.free if self.free < self.free_floor_bytes else None
 
     async def _measure(self) -> int:
