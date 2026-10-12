@@ -265,7 +265,7 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
-**2026-10-12 (later) — G5 brief written (§5e of the V0.7 brief); G5 implementer RUNNING. If this session died: check git log for `V0.7-G5` commits and docs/briefs/progress/V0.7-G5.md, relaunch with the same brief.**
+**2026-10-12 (later) — G5 brief written (§5e of the V0.7 brief); G5 implementer RUNNING (resumed after usage limit; item 0 committed `2b42a69`..`6b836da`, deliverables 1-4 were uncommitted WIP). If this session died: check git log for `V0.7-G5` commits and docs/briefs/progress/V0.7-G5.md, relaunch with the same brief.**
 
 **2026-10-12 — V0.7 G4 CLOSED.** Tester r2 PASS (`e5cc50e` partial + `1d45758`; strict xfails T-4/T-5 stay) → ruling D158 → reviewer APPROVE → D159. 0.7.6 `[x]`, 0.7.7 `[x]`. Nothing running, tree clean. **Next: Lead writes the next V0.7 group brief (see brief §3), item 0 = D158 + D159**, then implementer.
 
