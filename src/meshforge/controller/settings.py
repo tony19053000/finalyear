@@ -514,6 +514,26 @@ class PlannerSettings(SectionModel):
         ),
     )
 
+    unbound_scores_max_age_s: float = Field(
+        default=7 * 86_400.0,
+        ge=0.0,
+        le=365 * 86_400.0,
+        description=(
+            "V0.7 G6 (D161 N3): a hardware-score document stored before V0.7 G5 "
+            "carries no node binding and is used only until the node's next "
+            "Hello re-binds it. One measured longer ago than this is cleared "
+            "(at controller start and every unbound_scores_check_s), so a node "
+            "that never returns cannot keep unbound numbers forever. 0 = clear "
+            "every unbound document at the next check."
+        ),
+    )
+    unbound_scores_check_s: float = Field(
+        default=3600.0,
+        ge=1.0,
+        le=86_400.0,
+        description="How often unbound_scores_max_age_s is applied while running.",
+    )
+
     @field_validator("resource_weights")
     @classmethod
     def _weights(cls, value: tuple[float, float, float]) -> tuple[float, float, float]:

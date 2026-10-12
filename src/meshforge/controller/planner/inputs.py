@@ -112,7 +112,9 @@ def bound_to(document: Mapping[str, Any] | None, node_id: str) -> bool:
     A document bound to another node is never used (a copied or misfiled row).
     One without a binding was stored before V0.7 G5 - by a session that was
     already certificate-authenticated (G3) - and is accepted until the node's
-    next Hello re-reports (and so re-binds) it."""
+    next Hello re-reports (and so re-binds) it, or until it is older than
+    ``[controller.planner] unbound_scores_max_age_s`` (the controller then
+    clears it, D161 N3: ``controller.scores.expire_unbound_scores_*``)."""
     if document is None:
         return False
     owner = document.get("node_id")

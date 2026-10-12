@@ -105,6 +105,10 @@ from meshforge.controller.prepare import PrepareTracker
 from meshforge.controller.registry import Registry, SessionEndReason
 from meshforge.controller.resources import ResourceTracker
 from meshforge.controller.revocation import Revocations, RevocationStore
+from meshforge.controller.scores import (
+    expire_unbound_scores_forever,
+    expire_unbound_scores_once,
+)
 from meshforge.controller.server_tls import ServerTls
 from meshforge.controller.session.leases import LeaseTimer
 from meshforge.controller.session.live import LiveSession
@@ -348,6 +352,17 @@ class ControllerRuntime:
         offline = await registry.mark_live_nodes_offline()
         log.info(
             "controller.startup_sweep", sessions_closed=swept, nodes_offline=offline
+        )
+        # D161 N3: unbound (pre-G5) score documents expire; once now, then
+        # periodically (a node that never re-Hellos keeps none forever).
+        await expire_unbound_scores_once(registry, cfg.planner.unbound_scores_max_age_s)
+        self._spawn(
+            expire_unbound_scores_forever(
+                registry,
+                max_age_s=cfg.planner.unbound_scores_max_age_s,
+                interval_s=cfg.planner.unbound_scores_check_s,
+            ),
+            "unbound-scores-expiry",
         )
 
         resources = ResourceTracker(

@@ -15,9 +15,12 @@ string as a ``timestamptz``, so :func:`measured_at_iso` is the only formatter.
 
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
-from typing import Any, Final
+from collections.abc import Callable
+from typing import Any, Final, Protocol
 
+from meshforge.common.logging import get_logger
 from meshforge.common.proto.meshforge.v1 import agent_pb2
 
 __all__ = [
@@ -25,11 +28,15 @@ __all__ = [
     "METRIC_NAMES",
     "STATUS_NAMES",
     "UNITS",
+    "expire_unbound_scores_forever",
+    "expire_unbound_scores_once",
     "measured_at_iso",
     "metric_name",
     "scores_document",
     "status_name",
 ]
+
+log = get_logger(__name__)
 
 _METRIC_PREFIX: Final = "SCORE_METRIC_"
 _STATUS_PREFIX: Final = "SCORE_STATUS_"
@@ -142,3 +149,41 @@ def scores_document(
         "metrics": [_metric_document(score) for score in message.scores],
     }
     return document, measured_at
+
+
+class _UnboundExpirer(Protocol):
+    async def expire_unbound_scores(self, cutoff: dt.datetime) -> int: ...
+
+
+def _utcnow() -> dt.datetime:
+    return dt.datetime.now(dt.UTC)
+
+
+async def expire_unbound_scores_once(
+    registry: _UnboundExpirer,
+    max_age_s: float,
+    *,
+    wall: Callable[[], dt.datetime] = _utcnow,
+) -> int:
+    """D161 N3: clear unbound (pre-V0.7-G5) score documents measured more than
+    ``max_age_s`` ago. A database failure is logged, never raised (the next
+    round retries; the planner keeps the lenient ``bound_to`` meanwhile)."""
+    cutoff = wall() - dt.timedelta(seconds=max_age_s)
+    try:
+        return await registry.expire_unbound_scores(cutoff)
+    except Exception as exc:  # noqa: BLE001 - logged; the next round retries
+        log.warning("controller.scores.unbound_expiry_failed", cause=type(exc).__name__)
+        return 0
+
+
+async def expire_unbound_scores_forever(
+    registry: _UnboundExpirer,
+    *,
+    max_age_s: float,
+    interval_s: float,
+    wall: Callable[[], dt.datetime] = _utcnow,
+) -> None:
+    """:func:`expire_unbound_scores_once` every ``interval_s`` until cancelled."""
+    while True:
+        await asyncio.sleep(interval_s)
+        await expire_unbound_scores_once(registry, max_age_s, wall=wall)

@@ -462,6 +462,36 @@ class Registry:
         return written
 
     @_typed
+    async def expire_unbound_scores(self, cutoff: dt.datetime) -> int:
+        """Clear score documents stored before V0.7 G5 (no ``node_id``
+        binding, D145b) measured before ``cutoff``; returns how many.
+
+        D161 N3: such a document is accepted (``bound_to``) only until the
+        node's next Hello re-binds or clears it - a node that never comes back
+        would keep it forever. One statement, so a Hello that writes a bound
+        document at the same moment is never undone (it no longer matches).
+        Documents were validated at ingestion: ``measured_at`` always casts.
+        """
+        stored_at = cast(
+            Node.hardware_scores["measured_at"].astext, TIMESTAMP(timezone=True)
+        )
+        async with self._sessions() as db, db.begin():
+            result = await db.execute(
+                update(Node)
+                .where(
+                    Node.hardware_scores.is_not(None),
+                    Node.hardware_scores["node_id"].astext.is_(None),
+                    stored_at < cutoff,
+                )
+                .values(hardware_scores=None)
+                .execution_options(synchronize_session=False)
+            )
+            count = _rowcount(result)
+        if count:
+            log.info("registry.unbound_scores_expired", count=count)
+        return count
+
+    @_typed
     async def set_hardware_scores(
         self,
         node_id: str,
