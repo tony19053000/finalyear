@@ -1632,11 +1632,22 @@ class StartAttempt(_message.Message):
     ATTEMPT_ID_FIELD_NUMBER: _builtins.int
     FENCING_TOKEN_FIELD_NUMBER: _builtins.int
     SPEC_FIELD_NUMBER: _builtins.int
+    SECRETS_FIELD_NUMBER: _builtins.int
     job_id: _builtins.str
     attempt_id: _builtins.str
     fencing_token: _builtins.int
     @_builtins.property
     def spec(self) -> Global___ExecutionSpec: ...
+    @_builtins.property
+    def secrets(self) -> _containers.RepeatedCompositeFieldContainer[Global___JobSecret]:
+        """V0.7 G6 (D144): the values of the job owner's secrets the manifest names
+        (ExecutionSpec.manifest_json "secrets"), one entry per name. Sent only on a
+        mutually authenticated (mTLS) session - never in insecure-dev unless
+        [security] allow_insecure_secrets. The agent holds them in memory and in
+        the attempt's private secret files only; never logged, never persisted,
+        wiped when the attempt ends.
+        """
+
     def __init__(
         self,
         *,
@@ -1644,14 +1655,41 @@ class StartAttempt(_message.Message):
         attempt_id: _builtins.str = ...,
         fencing_token: _builtins.int = ...,
         spec: Global___ExecutionSpec | None = ...,
+        secrets: _abc.Iterable[Global___JobSecret] | None = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _typing.Literal["spec", b"spec"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["attempt_id", b"attempt_id", "fencing_token", b"fencing_token", "job_id", b"job_id", "spec", b"spec"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["attempt_id", b"attempt_id", "fencing_token", b"fencing_token", "job_id", b"job_id", "secrets", b"secrets", "spec", b"spec"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___StartAttempt: _TypeAlias = StartAttempt  # noqa: Y015
+
+@_typing.final
+class JobSecret(_message.Message):
+    """One secret value for one attempt (V0.7 G6). ``name`` follows
+    common/secret_names (A-Z, 0-9, _; not starting with a digit).
+    """
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    NAME_FIELD_NUMBER: _builtins.int
+    VALUE_FIELD_NUMBER: _builtins.int
+    name: _builtins.str
+    value: _builtins.bytes
+    def __init__(
+        self,
+        *,
+        name: _builtins.str = ...,
+        value: _builtins.bytes = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["name", b"name", "value", b"value"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___JobSecret: _TypeAlias = JobSecret  # noqa: Y015
 
 @_typing.final
 class ExecutionSpec(_message.Message):

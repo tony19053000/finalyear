@@ -128,6 +128,7 @@ from meshforge.agent.execution.sandbox_check import (
     check_create_options,
     check_host_config,
 )
+from meshforge.agent.execution.secret_files import CONTAINER_SECRETS_DIR
 from meshforge.agent.gc.leases import lease_env
 from meshforge.common.errors import FailureType
 from meshforge.common.logging import get_logger
@@ -516,6 +517,15 @@ class DockerRuntime:
             gpu_probe_image=self.config.gpu_probe_image,
             agent_label=self.config.agent_label,
         )
+
+    def secret_owner(self) -> tuple[int, int] | None:
+        """V0.7 G6: who must own the secret files so the container user can
+        read them - only when the agent runs as root (jobs then run as
+        another user); None = the agent's own uid already is the job's."""
+        if sys.platform == "win32" or os.geteuid() != 0:
+            return None
+        uid, _, gid = self._user.partition(":")
+        return int(uid), int(gid or uid)
 
     async def sweep_orphans(self) -> int:
         """Remove containers a previous (killed) agent with this label left behind."""
@@ -1158,6 +1168,17 @@ class DockerRuntime:
             "stdin_open": False,
             "tty": False,
         }
+        if spec.secrets_dir is not None and role == "run":
+            # V0.7 G6 (D144): the attempt's secret files (RAM-backed on Linux),
+            # read-only; never for setup/envbuild containers.
+            kwargs["mounts"].append(
+                docker.types.Mount(
+                    target=CONTAINER_SECRETS_DIR,
+                    source=str(spec.secrets_dir),
+                    type="bind",
+                    read_only=True,
+                )
+            )
         if limits.cpus is not None:
             kwargs["nano_cpus"] = nano_cpus_for(limits.cpus)
         if device_requests:
@@ -1403,7 +1424,16 @@ def _expected_mounts(
     ``/work`` (``run``/``setup``); the requirements staging and the wheelhouse,
     read-only, for ``envbuild`` (the agent's own folders, never the job's)."""
     if role != "envbuild":
-        return [ExpectedMount(_host_path(str(spec.workdir)), CONTAINER_WORKDIR, False)]
+        expected = [
+            ExpectedMount(_host_path(str(spec.workdir)), CONTAINER_WORKDIR, False)
+        ]
+        if spec.secrets_dir is not None and role == "run":
+            expected.append(
+                ExpectedMount(
+                    _host_path(str(spec.secrets_dir)), CONTAINER_SECRETS_DIR, True
+                )
+            )
+        return expected
     out = []
     for mount in kwargs.get("mounts") or ():
         target = str(mount.get("Target", ""))

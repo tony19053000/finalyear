@@ -315,9 +315,24 @@ class SecuritySettings(SectionModel):
         ),
     )
 
+    allow_insecure_secrets: bool = Field(
+        default=False,
+        description=(
+            "V0.7 G6 (D144): in 'insecure-dev' only, let job secrets travel on "
+            "the plaintext loopback channel (single-machine tests). Off: the "
+            "controller refuses to send them and the agent refuses to use them "
+            "(config_error, secrets_need_mtls). Ignored in 'mtls'."
+        ),
+    )
+
     @property
     def insecure(self) -> bool:
         return self.mode is SecurityMode.INSECURE_DEV
+
+    @property
+    def secrets_allowed(self) -> bool:
+        """May job secrets travel on this process's channels (V0.7 G6)?"""
+        return not self.insecure or self.allow_insecure_secrets
 
 
 class MeshForgeSettings(BaseSettings):

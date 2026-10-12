@@ -568,6 +568,14 @@ class ExecutionSettings(SectionModel):
             "for very large folders)."
         ),
     )
+    secrets_root: Path | None = Field(
+        default=None,
+        description=(
+            "V0.7 G6 (D144): where attempts' secret files are written (a private "
+            "meshforge-secrets-<uid> folder inside it). Empty = /dev/shm on "
+            "Linux (RAM, never on disk), else <data_dir>/secrets."
+        ),
+    )
     free_disk_read_failure_limit: int = Field(
         default=5,
         ge=1,

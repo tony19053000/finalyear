@@ -459,6 +459,7 @@ class ControllerRuntime:
             ),
             inputs=self.inputs,
             secrets=self.secrets,
+            insecure_secrets=self.settings.security.allow_insecure_secrets,
             known_bad_envs=self.known_bad_envs,
             planner=cfg.planner,
             network=cfg.network,

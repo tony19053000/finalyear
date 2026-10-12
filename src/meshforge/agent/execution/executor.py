@@ -93,6 +93,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import dataclasses
 import os
 import re
 import stat
@@ -135,6 +136,16 @@ from meshforge.agent.execution.plan import (
     plan_attempt,
 )
 from meshforge.agent.execution.runtime import RunObserver, RunResult, Stream
+from meshforge.agent.execution.secret_files import (
+    CONTAINER_SECRETS_DIR,
+    SECRETS_DIR_ENV,
+    SecretFilesError,
+    SecretVault,
+    agent_tag,
+    check_secrets,
+    default_root,
+    secret_env,
+)
 from meshforge.agent.execution.uploader import UploadProgress, upload_parts
 from meshforge.agent.execution.workdir_cap import UNMEASURABLE, WorkdirCap, stop_watch
 from meshforge.agent.gc.leases import AttemptLeases, LeaseError
@@ -291,6 +302,9 @@ class _Attempt:
     """Free bytes on the workdir's disk when the free-disk floor stopped it."""
     disk_read_failures: int = 0
     """Failed free-space reads in a row when ``disk_unknown`` stopped it."""
+    secrets: Mapping[str, bytes] = field(default_factory=dict)
+    """V0.7 G6: this attempt's secret values while it runs (log redaction);
+    emptied when it ends. Never logged, never persisted."""
 
     @property
     def ended(self) -> bool:
@@ -378,6 +392,12 @@ class Executor:
         self._resend_wake = asyncio.Event()
         self.terminal_resends = 0
         """Final reports re-sent because no Ack came (D75; tests read it)."""
+        self.vault = SecretVault(
+            settings.agent.execution.secrets_root or default_root(settings.data_dir),
+            tag=agent_tag(settings.data_dir),
+        )
+        """V0.7 G6 (D144): where attempts' secret files live (RAM on Linux)."""
+        self._secrets_allowed = settings.security.secrets_allowed
 
     # ------------------------------------------------------------ lifecycle
 
@@ -397,6 +417,9 @@ class Executor:
                 )
 
     def _prepare_work_root(self) -> None:
+        # V0.7 G6: secret files a previous (crashed) process left are wiped
+        # first - whatever keep_workdirs says.
+        self.vault.sweep()
         root = self.work_root
         root.mkdir(parents=True, exist_ok=True)
         if os.name == "posix":
@@ -943,7 +966,13 @@ class Executor:
                 await self._run(attempt, msg)
         except _StoppedError:
             await self._stopped(attempt, exit_code=None, signal=None)
-        except (PlanError, FetchError, BundleError, LeaseError) as exc:
+        except (
+            PlanError,
+            FetchError,
+            BundleError,
+            LeaseError,
+            SecretFilesError,
+        ) as exc:
             await self._send(
                 attempt,
                 AttemptState.FAILED,
@@ -1016,21 +1045,59 @@ class Executor:
             policy=None if self._policy is None else self._policy.policy,
             cpu_threads=self._cpu_threads,
         )
+        # V0.7 G6 (D144): checked before anything is staged; refused typed.
+        secrets = check_secrets(
+            msg.secrets, plan.manifest.secrets, allowed=self._secrets_allowed
+        )
         attempt.runtime = plan.runtime
         await self._send(attempt, AttemptState.STAGING)
         stage_started = self._clock()
         await self._stage(attempt, plan, workdir, msg.spec)
         attempt.phases["stage_s"] = self._clock() - stage_started
-        logs = await asyncio.to_thread(
-            AttemptLogs,
-            workdir / ".meshforge",
-            max_bytes=self._cfg.max_log_bytes,
-            clock=self._clock,
-        )
+        folder: Path | None = None
         try:
-            await self._execute(attempt, plan, logs)
+            if secrets:
+                folder = await self._materialise(attempt, plan, secrets)
+                plan = _with_secrets(plan, folder, secrets)
+                attempt.secrets = secrets
+            logs = await asyncio.to_thread(
+                AttemptLogs,
+                workdir / ".meshforge",
+                max_bytes=self._cfg.max_log_bytes,
+                clock=self._clock,
+            )
+            try:
+                await self._execute(attempt, plan, logs)
+            finally:
+                logs.close()
         finally:
-            logs.close()
+            # Every exit path (done, failed, cancelled, agent shutdown):
+            # the files are zeroed and removed, the values forgotten.
+            attempt.secrets = {}
+            if folder is not None:
+                await asyncio.shield(asyncio.to_thread(self.vault.wipe, folder))
+
+    async def _materialise(
+        self, attempt: _Attempt, plan: AttemptPlan, secrets: Mapping[str, bytes]
+    ) -> Path:
+        runtime = self._setup.runtimes.get(plan.runtime)
+        owner_of = getattr(runtime, "secret_owner", None)
+        owner = owner_of() if callable(owner_of) else None
+        try:
+            return await self._step(
+                attempt,
+                asyncio.to_thread(
+                    self.vault.materialise,
+                    attempt.attempt_id,
+                    secrets,
+                    read_only=plan.runtime == "docker",
+                    owner=owner,
+                ),
+            )
+        except OSError as exc:
+            raise SecretFilesError(
+                f"cannot write the attempt's secret files: {exc.strerror or exc}"
+            ) from None
 
     async def _stage(
         self,
@@ -1691,6 +1758,19 @@ class Executor:
             failure_type=None if failure is None else failure[0].value,
             exit_code=exit_code,
         )
+
+
+def _with_secrets(
+    plan: AttemptPlan, folder: Path, secrets: Mapping[str, bytes]
+) -> AttemptPlan:
+    """The plan's RunSpec with the secret folder and variables (V0.7 G6)."""
+    env = dict(plan.spec.env)
+    env[SECRETS_DIR_ENV] = (
+        CONTAINER_SECRETS_DIR if plan.runtime == "docker" else str(folder)
+    )
+    env.update(secret_env(secrets, plan.manifest.secrets))
+    spec = dataclasses.replace(plan.spec, env=env, secrets_dir=folder)
+    return dataclasses.replace(plan, spec=spec)
 
 
 def _failure_text(result: RunResult) -> str:

@@ -612,6 +612,20 @@ message StartAttempt {
   string attempt_id = 2;
   uint64 fencing_token = 3;
   ExecutionSpec spec = 4;
+  // V0.7 G6 (D144): the values of the job owner's secrets the manifest names
+  // (ExecutionSpec.manifest_json "secrets"), one entry per name. Sent only on a
+  // mutually authenticated (mTLS) session - never in insecure-dev unless
+  // [security] allow_insecure_secrets. The agent holds them in memory and in
+  // the attempt's private secret files only; never logged, never persisted,
+  // wiped when the attempt ends.
+  repeated JobSecret secrets = 5;
+}
+
+// One secret value for one attempt (V0.7 G6). ``name`` follows
+// common/secret_names (A-Z, 0-9, _; not starting with a digit).
+message JobSecret {
+  string name = 1;
+  bytes value = 2;
 }
 
 // What to run and with what (V0.4 D52). Built by the controller from the job's

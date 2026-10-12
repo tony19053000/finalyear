@@ -218,6 +218,11 @@ class RunSpec:
     network: bool = False
     grace_s: float = DEFAULT_GRACE_S
     env_request: EnvRequest | None = None
+    secrets_dir: Path | None = None
+    """V0.7 G6 (D144): host folder holding this attempt's secret files. The
+    Docker runtime bind-mounts it read-only at ``/run/secrets`` for the run
+    container only; the unsandboxed runtimes are told its path in
+    ``MESHFORGE_SECRETS_DIR`` (set by the executor in ``env``)."""
 
     def __post_init__(self) -> None:
         validate_attempt_id(self.attempt_id)

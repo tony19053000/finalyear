@@ -197,9 +197,12 @@ class Dispatcher(RecoverySteps):
         network: NetworkSettings | None = None,
         cache_live: Callable[[str, str], bool] | None = None,
         secrets: SecretStore | None = None,
+        insecure_secrets: bool = False,
     ) -> None:
         self._store = store
         self._secrets = secrets
+        self._insecure_secrets = insecure_secrets
+        """``[security] allow_insecure_secrets`` (insecure-dev tests only)."""
         """V0.7 G6 (D144): the job owners' secrets, resolved at every send."""
         self.known_bad_envs = known_bad_envs
         """V0.6 G1 (D116): (node, env) pairs that failed env_error recently."""

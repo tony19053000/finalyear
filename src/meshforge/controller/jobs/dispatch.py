@@ -143,6 +143,7 @@ class DispatchSteps:
     _network_settings: NetworkSettings
     _peer_minted: dict[str, float]
     _secrets: SecretStore | None
+    _insecure_secrets: bool
     stats: DispatcherStats
 
     if TYPE_CHECKING:  # the dispatcher's (never shadowed at run time)
@@ -230,9 +231,23 @@ class DispatchSteps:
         if not names:
             return {}
         failure: tuple[FailureType, str] | None = None
+        live = self._manager.get(attempt.node_id)
         try:
             if self._secrets is None:
                 failure = (FailureType.CONFIG_ERROR, "secrets are not configured")
+            elif (
+                live is not None
+                and live.cert_serial is None
+                and not self._insecure_secrets
+            ):
+                # D144: values travel only over mTLS (insecure-dev has no
+                # client certificate); never on a plaintext channel.
+                failure = (
+                    FailureType.CONFIG_ERROR,
+                    "secrets_need_mtls: the node's session is not mutually "
+                    "authenticated (insecure-dev); job secrets are never sent "
+                    "in plaintext ([security] allow_insecure_secrets)",
+                )
             else:
                 return await self._secrets.resolve(job.owner_user_id, names)
         except SecretsMissingError as exc:
@@ -306,6 +321,10 @@ class DispatchSteps:
                 attempt_id=attempt.id,
                 fencing_token=attempt.fencing_token,
                 spec=spec,
+                secrets=[
+                    agent_pb2.JobSecret(name=name, value=value)
+                    for name, value in sorted(secrets.items())
+                ],
             ),
             attempt_id=attempt.id,
             fencing_token=attempt.fencing_token,
