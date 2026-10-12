@@ -265,6 +265,8 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
+**2026-10-13 — G6 deliverables 0-7 committed (`19c4fb1`..`f21646b`); implementer resumed for the final exit list + hand-off only. If it died: rerun the §5f exit list, then tester.**
+
 **2026-10-12 (G6 start) — Lead wrote brief §5f (G6 secrets, item 0 = D161). G6 implementer launched. If this session died: check git log for `V0.7-G6` commits + docs/briefs/progress/V0.7-G6.md, relaunch with §5f.**
 
 **2026-10-12 (end) — V0.7 G5 CLOSED** (0.7.8, 0.7.9 `[x]`; ruling D161). Nothing running, tree clean. **Next: Lead writes the next V0.7 group brief (see brief §3), item 0 = D161 non-blocking list**, then implementer.
