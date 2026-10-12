@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import stat
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -234,6 +235,7 @@ def test_a_chmod_hidden_behind_a_restored_mtime_is_still_seen(tmp_path: Path) ->
     write_overlay(live.path, {"allow_network": True})
     assert live.reload() and live.policy.allow_network
     before = os.stat(live.path)
+    time.sleep(0.05)
     os.chmod(live.path, 0o666)  # noqa: S103 - the attack under test
     os.utime(live.path, ns=(before.st_atime_ns, before.st_mtime_ns))
     assert live.reload()
@@ -247,6 +249,7 @@ def test_a_same_size_content_swap_behind_a_restored_mtime_is_seen(
     write_overlay(live.path, {"allow_network": True})
     assert live.reload() and live.policy.allow_network
     before = os.stat(live.path)
+    time.sleep(0.05)  # ctime ticks are coarse (jiffies): a later tick, as in real life
     raw = live.path.read_bytes().replace(b"true", b"1234")
     with open(live.path, "r+b") as fh:
         fh.write(raw)
