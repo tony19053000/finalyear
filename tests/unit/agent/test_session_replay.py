@@ -28,6 +28,7 @@ def test_report_payload_set_is_exactly_the_reports() -> None:
         "attempt_status",
         "log_chunk",
         "prepare_env_status",  # V0.5 G5: acked, replayed
+        "policy_update",  # V0.7 G5 (D142): acked, replayed
     } == REPORT_PAYLOADS
     # never buffered: heartbeat, pong, ack, hello, reconcile
     for name in ("heartbeat", "pong", "ack", "hello", "reconcile"):

@@ -9,6 +9,7 @@ Commands::
     meshforge-agent hardware show [--config FILE] [--json]
     meshforge-agent hardware score [--config FILE] [--json] [--force]
     meshforge-agent prepare [--config FILE] [--base NAME]... [--timeout S] [--json]
+    meshforge-agent policy show|set KEY=VALUE...|reset [--config FILE]   (V0.7 G5)
 
 Everything beyond ``--version``/``--help`` is imported inside the command so the
 module runs on a base install (no agent extra). ``run`` itself needs only core
@@ -61,6 +62,15 @@ hardware_app = typer.Typer(
     no_args_is_help=True,
 )
 app.add_typer(hardware_app, name="hardware")
+
+
+def _add_policy_app() -> None:
+    from meshforge.agent.policy_cli import policy_app
+
+    app.add_typer(policy_app, name="policy")
+
+
+_add_policy_app()
 
 ConfigOption = Annotated[
     Path | None,

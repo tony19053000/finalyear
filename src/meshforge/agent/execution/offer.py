@@ -5,11 +5,14 @@
 ``capabilities`` go into ``Hello.hardware.capabilities``) and the runtime
 instances the executor may use. Rules (ADR-0014):
 
-* ``enabled = false`` -> nothing is probed, nothing is advertised, every
+* ``[agent.policy] accept_jobs = false`` (was ``[agent.execution] enabled``,
+  V0.7 G5) at start -> nothing is probed, nothing is advertised, every
   ``StartAttempt`` is refused ``unauthorized``;
 * the Docker runtime is probed (bounded: a wedged daemon cannot delay the first
   Hello past :data:`PROBE_GRACE_S` over ``docker_timeout_s``);
-* the subprocess and venv runtimes exist only with ``allow_unsandboxed = true``;
+* the subprocess and venv runtimes exist only with ``[agent.policy]
+  allow_unsandboxed = true`` at start (turning it on live needs a restart;
+  turning it off live is honoured per attempt by the policy check);
 * one :class:`~meshforge.agent.envs.builder.EnvBuilder` (``[agent.envs]``) is shared
   by every runtime: requirements are installed once per env hash (V0.5 D86);
 * enabled + the controller found by **mDNS** -> ``agent.execution.unpinned_controller``
@@ -76,7 +79,8 @@ async def build_execution(
 ) -> ExecutionSetup:
     """Probe and build the execution setup (see module docstring). Never raises."""
     cfg = settings.agent.execution
-    if not cfg.enabled:
+    policy = settings.agent.policy
+    if not policy.accept_jobs:
         log.info("agent.execution.disabled", node_id=node_id)
         return disabled_setup()
     if settings.agent.uses_discovery:
@@ -103,7 +107,7 @@ async def build_execution(
     subprocess_found: RuntimeAvailability | None = None
     venv_rt: VenvRuntime | None = None
     venv_found: RuntimeAvailability | None = None
-    if cfg.allow_unsandboxed:
+    if policy.allow_unsandboxed:
         subprocess_rt = SubprocessRuntime(
             host_has_nvidia_gpu=host_has_nvidia_gpu,
             env_timeout_s=cfg.env_timeout_s,
@@ -118,7 +122,7 @@ async def build_execution(
         venv_found = await venv_rt.probe()
     offer = execution_offer(
         enabled=True,
-        allow_unsandboxed=cfg.allow_unsandboxed,
+        allow_unsandboxed=policy.allow_unsandboxed,
         docker=docker_found,
         subprocess=subprocess_found,
         venv=venv_found,
@@ -141,7 +145,7 @@ async def build_execution(
         docker=docker_found.available,
         docker_reason=docker_found.reason or None,
         docker_gpu=docker_found.gpu_reason or None,
-        unsandboxed=cfg.allow_unsandboxed,
+        unsandboxed=policy.allow_unsandboxed,
     )
     return ExecutionSetup(
         offer=offer,

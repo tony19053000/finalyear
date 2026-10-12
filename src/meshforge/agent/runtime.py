@@ -100,6 +100,12 @@ from meshforge.agent.identity import (
 from meshforge.agent.peer import PeerAuthorizer, PeerBlobServer
 from meshforge.agent.peer.probe import ProbeService
 from meshforge.agent.peer.server import PeerServerTls, peer_server_tls
+from meshforge.agent.policy import (
+    LivePolicy,
+    PolicyState,
+    not_enforced_caps,
+    policy_path,
+)
 from meshforge.agent.resources import ResourceMonitor, ResourceSampler
 from meshforge.agent.session.client import AgentSessionClient
 from meshforge.agent.session.hello import basic_hardware
@@ -107,6 +113,7 @@ from meshforge.agent.session.renewal import CertRenewer
 from meshforge.agent.session.state import AgentState
 from meshforge.agent.session.tls import JOIN_HINT, SessionTlsError
 from meshforge.agent.settings import AgentSettings, parse_controller_address
+from meshforge.common import owner_policy
 from meshforge.common.capabilities import HARDWARE_SCORES_CAPABILITY
 from meshforge.common.config import INSECURE_DEV_BANNER
 from meshforge.common.errors import ExitCode, MeshForgeError
@@ -367,6 +374,10 @@ async def serve(
         hardware=hardware,
         hardware_scores=await hello_scores(settings, node_id, facts),
     )
+    # V0.7 G5 (D142): the owner's live policy - in every Hello, re-checked at
+    # every StartAttempt, changes pushed as PolicyUpdate reports.
+    live_policy = build_live_policy(settings, gpu_count=len(hardware.gpus))
+    client.live_policy = live_policy
     cas = AgentCas.at(settings.data_dir)
     peer = await start_peer(settings, cas, client, identity=identity)
     cache = await start_cache(
@@ -391,6 +402,8 @@ async def serve(
         declared_gpus=[gpu.index for gpu in hardware.gpus],
         gc=gc,
         http_tls=http_tls,
+        policy=live_policy,
+        cpu_threads=hardware.cpu_threads or hardware.cpu_cores or None,
     )
     wire_executor(client, executor)
     # 0.5.8 controller part: `compute node prepare` (only where jobs may run).
@@ -412,6 +425,7 @@ async def serve(
     if execution.enabled:
         await executor.start()
     renew_task = start_renewer(settings, client, http_tls=http_tls, peer=peer)
+    policy_task = start_policy_watch(settings, client, live_policy)
     install_signal_handlers(client.request_stop)
     log.info(
         "agent.started",
@@ -445,6 +459,7 @@ async def serve(
         if cache is not None:
             await cache.close()
         await stop_task(renew_task)
+        await stop_task(policy_task)
         # Cancelling the scoring task kills its benchmark child tree (runner).
         await stop_task(scores_task)
         if monitor is not None and monitor_task is not None:
@@ -453,6 +468,45 @@ async def serve(
             # its finally block; gather so a crash in it is reported, never swallowed.
             await asyncio.gather(monitor_task, return_exceptions=True)
     return client
+
+
+_POLICY_KEY_OF: Final = {"execution.enabled": "accept_jobs"}
+
+
+def build_live_policy(settings: AgentSettings, *, gpu_count: int) -> LivePolicy:
+    """The agent's :class:`LivePolicy` (V0.7 G5, D142); warns once per
+    deprecated ``[agent.execution]`` key the configuration still uses."""
+    for key in settings.agent.deprecated_keys:
+        log.warning(
+            "agent.config.deprecated_key",
+            key=f"agent.{key}",
+            use=f"agent.policy.{_POLICY_KEY_OF.get(key, key.split('.')[-1])}",
+        )
+    return LivePolicy(
+        settings.agent.policy,
+        policy_path(settings),
+        gpu_count=gpu_count,
+        max_concurrent_attempts=settings.agent.execution.max_concurrent_attempts,
+        not_enforced=not_enforced_caps(settings),
+    )
+
+
+def start_policy_watch(
+    settings: AgentSettings, client: AgentSessionClient, live: LivePolicy
+) -> asyncio.Task[None]:
+    """Watch the live policy file; each effective change goes to the
+    controller as a ``PolicyUpdate`` report (buffered, replayed, acked)."""
+
+    async def push(state: PolicyState) -> None:
+        update = agent_pb2.PolicyUpdate(policy=owner_policy.to_proto(state.policy))
+        if state.policy.accept_jobs:
+            update.max_cpu_jobs, update.max_gpu_jobs = state.cpu_slots, state.gpu_slots
+        await client.send_report("policy_update", update)
+
+    return asyncio.create_task(
+        live.watch(push, interval_s=settings.agent.policy.reload_interval_s),
+        name=f"agent-policy-watch:{client.node_id}",
+    )
 
 
 def start_renewer(

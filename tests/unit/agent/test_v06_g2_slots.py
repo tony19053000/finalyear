@@ -8,7 +8,7 @@ import pytest
 from pydantic import ValidationError
 
 from meshforge.agent.session.hello import build_hello
-from meshforge.agent.settings import ExecutionSettings
+from meshforge.agent.settings import AgentSection, ExecutionSettings, PolicySettings
 from meshforge.common.proto.meshforge.v1 import agent_pb2
 
 pytestmark = pytest.mark.unit
@@ -46,15 +46,25 @@ def _settings(**kw: Any) -> ExecutionSettings:
     return ExecutionSettings.model_validate(kw)
 
 
+def _policy(**kw: Any) -> PolicySettings:
+    """V0.7 G5 (D142): the slots moved to [agent.policy]."""
+    return PolicySettings.model_validate(kw)
+
+
 def test_defaults_one_cpu_slot_and_one_gpu_slot_per_gpu() -> None:
-    cfg = _settings()
+    cfg = _policy()
     assert cfg.max_cpu_jobs == 1 and cfg.max_gpu_jobs is None
-    assert cfg.slots(gpu_count=0) == (1, 0)
-    assert cfg.slots(gpu_count=2) == (1, 2)
+    assert cfg.slots(gpu_count=0, max_concurrent_attempts=4) == (1, 0)
+    assert cfg.slots(gpu_count=2, max_concurrent_attempts=4) == (1, 2)
     # trimmed so the total never exceeds max_concurrent_attempts (4)
-    assert cfg.slots(gpu_count=8) == (1, 3)
-    assert _settings(max_gpu_jobs=0).slots(gpu_count=2) == (1, 0)
-    assert _settings(max_cpu_jobs=0, max_gpu_jobs=2).slots(gpu_count=1) == (0, 2)
+    assert cfg.slots(gpu_count=8, max_concurrent_attempts=4) == (1, 3)
+    assert _policy(max_gpu_jobs=0).slots(gpu_count=2, max_concurrent_attempts=4) == (
+        1,
+        0,
+    )
+    assert _policy(max_cpu_jobs=0, max_gpu_jobs=2).slots(
+        gpu_count=1, max_concurrent_attempts=4
+    ) == (0, 2)
 
 
 @pytest.mark.parametrize("field", ["max_cpu_jobs", "max_gpu_jobs"])
@@ -67,9 +77,23 @@ def test_slot_bounds(field: str) -> None:
             _settings(**{**room, field: bad})
 
 
+def _section(policy: dict[str, Any], execution: dict[str, Any]) -> AgentSection:
+    return AgentSection.model_validate(
+        {
+            "controller_address": "127.0.0.1:47100",
+            "policy": policy,
+            "execution": execution,
+        }
+    )
+
+
 def test_slots_must_fit_max_concurrent_attempts() -> None:
-    assert _settings(max_cpu_jobs=2, max_gpu_jobs=2, max_concurrent_attempts=4)
+    attempts = {"max_concurrent_attempts": 4}
+    assert _section({"max_cpu_jobs": 2, "max_gpu_jobs": 2}, attempts)
     with pytest.raises(ValidationError, match="max_concurrent_attempts"):
-        _settings(max_cpu_jobs=3, max_gpu_jobs=2, max_concurrent_attempts=4)
+        _section({"max_cpu_jobs": 3, "max_gpu_jobs": 2}, attempts)
     with pytest.raises(ValidationError, match="max_concurrent_attempts"):
-        _settings(max_cpu_jobs=5)
+        _section({"max_cpu_jobs": 5}, {})
+    # the deprecated [agent.execution] spelling is checked the same way
+    with pytest.raises(ValidationError, match="max_concurrent_attempts"):
+        _section({}, {"max_cpu_jobs": 5})

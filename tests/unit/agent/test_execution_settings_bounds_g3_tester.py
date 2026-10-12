@@ -23,8 +23,10 @@ from meshforge.agent.settings import (
 
 def test_execution_is_disabled_by_default() -> None:
     settings = ExecutionSettings()
-    assert settings.enabled is False
-    assert settings.allow_unsandboxed is False
+    # V0.7 G5 (D142): deprecated keys, unset by default; the opt-ins live in
+    # [agent.policy] (off by default, test_v07_g5_policy_settings.py).
+    assert settings.enabled is None
+    assert settings.allow_unsandboxed is None
 
 
 @pytest.mark.parametrize(

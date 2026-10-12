@@ -29,9 +29,10 @@ import re
 from pathlib import Path
 from typing import Final
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from meshforge import __version__
+from meshforge.common import owner_policy
 from meshforge.common.config import MeshForgeSettings, SectionModel
 from meshforge.common.errors import ConfigError
 from meshforge.common.local_node import AGENT_GC_DIR_NAME
@@ -58,6 +59,7 @@ __all__ = [
     "HardwareSettings",
     "KeepaliveSettings",
     "PeerSettings",
+    "PolicySettings",
     "ProbeSettings",
     "ReconnectSettings",
     "ResourceSettings",
@@ -428,16 +430,17 @@ class ExecutionSettings(SectionModel):
     Windows; an explicit ``"uid:gid"`` must not be root (neither id 0).
     """
 
-    enabled: bool = Field(
-        default=False,
-        description="Run jobs sent by the controller (off = refuse every StartAttempt).",
-    )
-    allow_unsandboxed: bool = Field(
-        default=False,
+    enabled: bool | None = Field(
+        default=None,
         description=(
-            "Also offer the subprocess runtime, which has NO sandbox (runs as the "
-            "agent's user). Needed on a laptop without Docker."
+            "DEPRECATED (V0.7 G5): use [agent.policy] accept_jobs. Still read for "
+            "one release: enabled = false -> accept_jobs = false (a warning is "
+            "logged once at start)."
         ),
+    )
+    allow_unsandboxed: bool | None = Field(
+        default=None,
+        description="DEPRECATED (V0.7 G5): use [agent.policy] allow_unsandboxed.",
     )
     images: ExecutionImages = Field(default_factory=ExecutionImages)
     grace_s: float = Field(
@@ -522,24 +525,17 @@ class ExecutionSettings(SectionModel):
             "controller schedules by those, V0.6 D105)."
         ),
     )
-    max_cpu_jobs: int = Field(
-        default=1,
+    max_cpu_jobs: int | None = Field(
+        default=None,
         ge=0,
         le=64,
-        description=(
-            "V0.6 D105: jobs without a GPU this node runs at once (its CPU "
-            "slots), advertised in Hello. 0 = no CPU jobs (a GPU-only node)."
-        ),
+        description="DEPRECATED (V0.7 G5): use [agent.policy] max_cpu_jobs.",
     )
     max_gpu_jobs: int | None = Field(
         default=None,
         ge=0,
         le=64,
-        description=(
-            "V0.6 D105: GPU jobs this node runs at once (its GPU slots). Empty "
-            "= one per GPU the agent found; 0 = no GPU jobs. Only counts when a "
-            "runtime can pass a GPU to a job (exec-gpu)."
-        ),
+        description="DEPRECATED (V0.7 G5): use [agent.policy] max_gpu_jobs.",
     )
     max_log_bytes: int = Field(
         default=64 * 1024 * 1024,
@@ -625,23 +621,159 @@ class ExecutionSettings(SectionModel):
     def _timeouts_ordered(self) -> ExecutionSettings:
         if self.default_timeout_s > self.max_timeout_s:
             raise ValueError("execution.default_timeout_s must be <= max_timeout_s")
-        slots = self.max_cpu_jobs + (self.max_gpu_jobs or 0)
-        if slots > self.max_concurrent_attempts:
-            raise ValueError(
-                "execution.max_cpu_jobs + max_gpu_jobs must be <= "
-                "max_concurrent_attempts (the agent would refuse the extra "
-                "attempts the controller sends)"
-            )
         return self
 
-    def slots(self, *, gpu_count: int) -> tuple[int, int]:
+
+_DEPRECATED_EXECUTION_KEYS: Final = (
+    ("enabled", "accept_jobs"),
+    ("allow_unsandboxed", "allow_unsandboxed"),
+    ("max_cpu_jobs", "max_cpu_jobs"),
+    ("max_gpu_jobs", "max_gpu_jobs"),
+)
+"""``[agent.execution]`` key -> its ``[agent.policy]`` key (V0.7 G5, D142)."""
+
+
+class PolicySettings(SectionModel):
+    """``[agent.policy]`` - what this laptop's owner allows (V0.7 G5, D142).
+
+    The agent is authoritative: it advertises this policy to the controller (in
+    ``Hello`` and, after a live change, a ``PolicyUpdate``), the planner avoids
+    nodes whose policy refuses a job (``policy_*`` codes), and the agent
+    re-checks every ``StartAttempt`` against its *current* policy and refuses a
+    violating one (``FAILED(unauthorized)``, ``policy_denied:<code>``).
+    ``meshforge-agent policy set`` changes it live (no restart); the values
+    here are the base the live changes are applied on. The rule itself is
+    :mod:`meshforge.common.owner_policy`.
+    """
+
+    accept_jobs: bool = Field(
+        default=False,
+        description=(
+            "Run jobs sent by the controller (off = refuse every StartAttempt). "
+            "Replaces [agent.execution] enabled."
+        ),
+    )
+    accept_gpu_sessions: bool = Field(
+        default=False,
+        description="Remote-GPU sessions (stored and advertised now; used from V0.11).",
+    )
+    max_cpu_jobs: int = Field(
+        default=1,
+        ge=0,
+        le=64,
+        description=(
+            "V0.6 D105: jobs without a GPU this node runs at once (its CPU "
+            "slots), advertised in Hello. 0 = no CPU jobs (a GPU-only node)."
+        ),
+    )
+    max_gpu_jobs: int | None = Field(
+        default=None,
+        ge=0,
+        le=64,
+        description=(
+            "V0.6 D105: GPU jobs this node runs at once (its GPU slots). Empty "
+            "= one per GPU the agent found; 0 = no GPU jobs. Only counts when a "
+            "runtime can pass a GPU to a job (exec-gpu)."
+        ),
+    )
+    max_ram_bytes: int | None = Field(
+        default=None,
+        ge=owner_policy.MIN_RAM_BYTES,
+        le=owner_policy.MAX_RAM_BYTES,
+        description=(
+            "Most RAM one job may use (bytes); a job asking more is refused "
+            "(policy_ram) and every job's memory limit is capped at it. Empty = "
+            "no owner limit."
+        ),
+    )
+    max_cpu_percent: int | None = Field(
+        default=None,
+        ge=1,
+        le=100,
+        description=(
+            "Share of this node's CPU threads one job may use (1-100); a job "
+            "asking more CPUs is refused (policy_cpu) and every job's CPU limit "
+            "is capped at it. Empty = no owner limit."
+        ),
+    )
+    max_vram_bytes: int | None = Field(
+        default=None,
+        ge=1,
+        le=owner_policy.MAX_VRAM_BYTES,
+        description=(
+            "Most VRAM a GPU job may ask for (bytes; policy_vram). Placement and "
+            "admission only: no runtime can cap VRAM (advertised as not enforced)."
+        ),
+    )
+    allow_unsandboxed: bool = Field(
+        default=False,
+        description=(
+            "Also offer the subprocess/venv runtimes, which have NO sandbox (run "
+            "as the agent's user). Needed on a laptop without Docker."
+        ),
+    )
+    allow_network: bool = Field(
+        default=False,
+        description=(
+            "A job whose manifest asks limits.network: on may get a network "
+            "(Docker bridge). Off = no job gets one (D143); such a job is refused "
+            "policy_network."
+        ),
+    )
+    allowed_users: list[str] = Field(
+        default_factory=list,
+        max_length=owner_policy.MAX_ALLOWED_USERS,
+        description="User names whose jobs this node runs; empty = everyone.",
+    )
+    reload_interval_s: float = Field(
+        default=1.0,
+        ge=0.1,
+        le=60.0,
+        description=(
+            "How often the agent looks at the live policy file that "
+            "`meshforge-agent policy set` writes (<data_dir>/policy.toml)."
+        ),
+    )
+
+    @field_validator("allowed_users")
+    @classmethod
+    def _user_names(cls, value: list[str]) -> list[str]:
+        cleaned = [name.strip() for name in value]
+        try:
+            owner_policy.validate(
+                owner_policy.OwnerPolicy(allowed_users=tuple(cleaned))
+            )
+        except owner_policy.PolicyError as exc:
+            raise ValueError(exc.reason) from None
+        return cleaned
+
+    def to_policy(
+        self, *, not_enforced: tuple[str, ...] = (), revision: int = 0
+    ) -> owner_policy.OwnerPolicy:
+        """The validated :class:`~meshforge.common.owner_policy.OwnerPolicy`."""
+        return owner_policy.validate(
+            owner_policy.OwnerPolicy(
+                accept_jobs=self.accept_jobs,
+                accept_gpu_sessions=self.accept_gpu_sessions,
+                max_ram_bytes=self.max_ram_bytes,
+                max_cpu_percent=self.max_cpu_percent,
+                max_vram_bytes=self.max_vram_bytes,
+                allow_unsandboxed=self.allow_unsandboxed,
+                allow_network=self.allow_network,
+                allowed_users=tuple(self.allowed_users),
+                not_enforced=not_enforced,
+                revision=revision,
+            )
+        )
+
+    def slots(self, *, gpu_count: int, max_concurrent_attempts: int) -> tuple[int, int]:
         """``(cpu, gpu)`` slots for ``Hello`` (D105). An unset ``max_gpu_jobs``
         is one per GPU, trimmed so the total never exceeds
         ``max_concurrent_attempts``."""
         cpu = self.max_cpu_jobs
         if self.max_gpu_jobs is not None:
             return cpu, self.max_gpu_jobs
-        return cpu, max(0, min(gpu_count, self.max_concurrent_attempts - cpu))
+        return cpu, max(0, min(gpu_count, max_concurrent_attempts - cpu))
 
 
 ENVS_DIR_NAME: Final = "envs"
@@ -1149,6 +1281,7 @@ class AgentSection(SectionModel):
     resources: ResourceSettings = Field(default_factory=ResourceSettings)
     scores: ScoreSettings = Field(default_factory=ScoreSettings)
     execution: ExecutionSettings = Field(default_factory=ExecutionSettings)
+    policy: PolicySettings = Field(default_factory=PolicySettings)
     envs: EnvsSettings = Field(default_factory=EnvsSettings)
     peer: PeerSettings = Field(default_factory=PeerSettings)
     cache: CacheSettings = Field(default_factory=CacheSettings)
@@ -1205,6 +1338,64 @@ class AgentSection(SectionModel):
                 "must be ONLINE within 10 s)"
             )
         return self
+
+    @model_validator(mode="before")
+    @classmethod
+    def _deprecated_execution_keys(cls, data: object) -> object:
+        """V0.7 G5 (D142): ``[agent.execution] enabled / allow_unsandboxed /
+        max_cpu_jobs / max_gpu_jobs`` are still read for one release and copied
+        into ``[agent.policy]`` unless the policy key is set too (then the
+        policy key wins). :attr:`deprecated_keys` lists the ones used (the
+        agent warns once at start)."""
+        if not isinstance(data, dict):
+            return data
+        execution = data.get("execution")
+        if isinstance(execution, BaseModel):
+            old_values = {
+                k: getattr(execution, k) for k, _ in _DEPRECATED_EXECUTION_KEYS
+            }
+        elif isinstance(execution, dict):
+            old_values = {k: execution.get(k) for k, _ in _DEPRECATED_EXECUTION_KEYS}
+        else:
+            return data
+        policy = data.get("policy")
+        if isinstance(policy, BaseModel):
+            policy_data = policy.model_dump(exclude_unset=True)
+        elif isinstance(policy, dict):
+            policy_data = dict(policy)
+        elif policy is None:
+            policy_data = {}
+        else:
+            return data
+        moved = False
+        for old, new in _DEPRECATED_EXECUTION_KEYS:
+            value = old_values[old]
+            if value is not None and new not in policy_data:
+                policy_data[new] = value
+                moved = True
+        if moved:
+            data = {**data, "policy": policy_data}
+        return data
+
+    @model_validator(mode="after")
+    def _slots_fit_attempts(self) -> AgentSection:
+        slots = self.policy.max_cpu_jobs + (self.policy.max_gpu_jobs or 0)
+        if slots > self.execution.max_concurrent_attempts:
+            raise ValueError(
+                "policy.max_cpu_jobs + max_gpu_jobs must be <= "
+                "execution.max_concurrent_attempts (the agent would refuse the "
+                "extra attempts the controller sends)"
+            )
+        return self
+
+    @property
+    def deprecated_keys(self) -> tuple[str, ...]:
+        """Deprecated keys this configuration used (V0.7 G5: warn once)."""
+        return tuple(
+            f"execution.{old}"
+            for old, _new in _DEPRECATED_EXECUTION_KEYS
+            if getattr(self.execution, old) is not None
+        )
 
     @model_validator(mode="after")
     def _some_way_to_find_the_controller(self) -> AgentSection:

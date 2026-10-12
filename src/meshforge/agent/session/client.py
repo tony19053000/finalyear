@@ -100,6 +100,7 @@ import grpc
 
 from meshforge.agent.discovery import ControllerResolver, resolver_for
 from meshforge.agent.identity import NodeIdentity, next_epoch
+from meshforge.agent.policy import LivePolicy
 from meshforge.agent.session.errors import AgentContractError, SupersededError
 from meshforge.agent.session.hello import build_hello
 from meshforge.agent.session.policy import (
@@ -115,6 +116,7 @@ from meshforge.agent.session.revocations import RevokedSerials
 from meshforge.agent.session.state import AgentEvent, AgentState, next_state
 from meshforge.agent.session.tls import channel_options, load_session_tls
 from meshforge.agent.settings import AgentSettings
+from meshforge.common import owner_policy
 from meshforge.common.ids import new_command_id
 from meshforge.common.logging import get_logger
 from meshforge.common.proto.meshforge.v1 import agent_pb2, agent_pb2_grpc
@@ -327,6 +329,8 @@ class AgentSessionClient:
         self.peer_endpoint: Callable[[], str] | None = None
         """``host:port`` for ``Hello.peer_endpoint`` (asked for every Hello)."""
         self.on_hello_ack: Callable[[agent_pb2.HelloAck], None] | None = None
+        self.live_policy: LivePolicy | None = None
+        """V0.7 G5 (D142): the owner's live policy, sent in every Hello."""
         self.revoked = RevokedSerials(node_id=self.node_id)
         """V0.7 G3 (D138): the fabric's revoked certificate serials (every
         HelloAck + RevocationUpdate); the peer server refuses them."""
@@ -534,6 +538,9 @@ class AgentSessionClient:
                 hardware_scores=self.hardware_scores,
                 peer_endpoint=self._peer_endpoint(),
                 slots=self._slots(),
+                policy=None
+                if self.live_policy is None
+                else owner_policy.to_proto(self.live_policy.policy),
             )
             try:
                 await self._write(agent_pb2.AgentMessage(hello=hello))
@@ -652,12 +659,20 @@ class AgentSessionClient:
     # --------------------------------------------------------------- online
 
     def _slots(self) -> tuple[int, int] | None:
-        """D105: the owner's slot limits for Hello (None = execution is off)."""
-        execution = self.settings.agent.execution
-        if not execution.enabled:
+        """D105: the owner's slot limits for Hello (None = execution is off).
+        V0.7 G5: from the live policy when one is wired (D142)."""
+        if self.live_policy is not None:
+            if not self.live_policy.policy.accept_jobs:
+                return None
+            return self.live_policy.slots
+        policy = self.settings.agent.policy
+        if not policy.accept_jobs:
             return None
         gpus = 0 if self._hardware is None else len(self._hardware.gpus)
-        return execution.slots(gpu_count=gpus)
+        return policy.slots(
+            gpu_count=gpus,
+            max_concurrent_attempts=self.settings.agent.execution.max_concurrent_attempts,
+        )
 
     def _peer_endpoint(self) -> str:
         if self.peer_endpoint is None:

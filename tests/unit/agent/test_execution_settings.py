@@ -34,9 +34,14 @@ def _isolated_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 
 
 def test_execution_is_off_and_sandboxed_by_default() -> None:
-    e = AgentSettings.load().agent.execution
-    assert e.enabled is False
-    assert e.allow_unsandboxed is False
+    agent = AgentSettings.load().agent
+    e = agent.execution
+    # V0.7 G5 (D142): the opt-ins moved to [agent.policy]; the old keys are
+    # unset (None) unless a configuration still uses them.
+    assert e.enabled is None and e.allow_unsandboxed is None
+    assert agent.policy.accept_jobs is False
+    assert agent.policy.allow_unsandboxed is False
+    assert agent.policy.allow_network is False
     assert e.grace_s == GRACE_BOUND_S == 3.0
     assert e.images.python_cpu == PYTHON_CPU_IMAGE
     assert e.images.cuda_pytorch == CUDA_PYTORCH_IMAGE

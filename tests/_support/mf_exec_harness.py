@@ -40,12 +40,15 @@ from meshforge.agent.http_tls import AgentHttpTls, load_http_tls
 from meshforge.agent.identity import load_or_create
 from meshforge.agent.peer import PeerBlobServer
 from meshforge.agent.peer.probe import ProbeService
+from meshforge.agent.policy import LivePolicy
 from meshforge.agent.runtime import (
+    build_live_policy,
     controller_host,
     route_commands,
     start_cache,
     start_gc,
     start_peer,
+    start_policy_watch,
     start_renewer,
     stop_task,
     wire_executor,
@@ -86,6 +89,8 @@ class ExecAgent:
         self.prober: ProbeService | None = None
         self.http_tls: AgentHttpTls | None = None
         self.renew_task: asyncio.Task[None] | None = None
+        self.policy_task: asyncio.Task[None] | None = None
+        self.live_policy: LivePolicy | None = None
         self.task: asyncio.Task[None] = asyncio.create_task(client.run())
 
     @classmethod
@@ -133,6 +138,9 @@ class ExecAgent:
         for index in range(fake_gpus):
             hardware.gpus.add(index=index, model="fake", vram_bytes=4 * 1024**3)
         client = AgentSessionClient(settings, identity, hardware=hardware)
+        # V0.7 G5 (D142): the owner's live policy, wired as in serve().
+        live_policy = build_live_policy(settings, gpu_count=fake_gpus)
+        client.live_policy = live_policy
         # V0.7 G3: HTTPS with the node certificate, as in serve().
         http_tls = None if settings.security.insecure else load_http_tls(identity)
         cas = AgentCas.at(settings.data_dir)
@@ -154,6 +162,8 @@ class ExecAgent:
             gc=gc,
             declared_gpus=range(fake_gpus),
             http_tls=http_tls,
+            policy=live_policy,
+            cpu_threads=hardware.cpu_threads or hardware.cpu_cores or None,
         )
         wire_executor(client, executor)
         preparer = (
@@ -178,6 +188,8 @@ class ExecAgent:
             await executor.start()
         agent = cls(client, executor, setup)
         agent.http_tls = http_tls
+        agent.live_policy = live_policy
+        agent.policy_task = start_policy_watch(settings, client, live_policy)
         if renew:
             agent.renew_task = start_renewer(
                 settings, client, http_tls=http_tls, peer=peer
@@ -198,6 +210,7 @@ class ExecAgent:
             self.task.cancel()
             await asyncio.gather(self.task, return_exceptions=True)
         await stop_task(self.renew_task)
+        await stop_task(self.policy_task)
         await self.executor.close()
         if self.peer is not None:
             await self.peer.close()
