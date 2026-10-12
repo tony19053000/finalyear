@@ -33,6 +33,7 @@ from meshforge.controller.planner.types import (
     PlanRequest,
     TreeNeed,
 )
+from meshforge.controller.scores import bound_to
 
 __all__ = [
     "capabilities_of",
@@ -159,7 +160,10 @@ def node_snapshot(
         capabilities=caps,
         gpu_count=len(vram),
     )
-    cpu_score, gpu_score = scores_of(hardware_scores)
+    # D145b: only scores bound to this node (never a document of another).
+    cpu_score, gpu_score = scores_of(
+        hardware_scores if bound_to(hardware_scores, node_id) else None
+    )
     return NodeSnapshot(
         node_id=node_id,
         state=state,

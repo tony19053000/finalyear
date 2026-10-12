@@ -213,6 +213,20 @@ def _refused(refusal: GrantRefusal, digest: Digest) -> ApiError:
     )
 
 
+def _proven_node(request: Request, auth: ApiAuth) -> str | None:
+    """D145(a): the node the request's client certificate proves (mtls), else
+    None. Called after :func:`agent_credential_ok` accepted the request."""
+    if auth.node_certs is None:
+        return None
+    from meshforge.controller.http_tls import request_node_cert
+    from meshforge.controller.session.peer_cert import PeerCertError
+
+    try:
+        return request_node_cert(request, auth.node_certs).node_id
+    except PeerCertError:  # pragma: no cover - agent_credential_ok refused it first
+        return None
+
+
 def _user_owner(user: Principal) -> str:
     """The staging owner of a user's part upload (D157)."""
     return "legacy" if user.user_id is None else f"user:{user.user_id}"
@@ -239,6 +253,9 @@ async def _authorize_parts(
     node_id = grants.node_of(token)
     if not agent_credential_ok(request, auth, node_id):
         raise unauthorized()
+    # D145(a): the parts are kept against the node the certificate proves
+    # (equal to the grant's node when it names one - checked just above).
+    node_id = _proven_node(request, auth) or node_id
     try:
         attempt_id = grants.check(token)
         owner = f"node:{node_id}" if node_id else f"attempt:{attempt_id}"
@@ -514,7 +531,16 @@ async def put_part(
         ) from None
     except BlobError as exc:
         raise _blob_error(exc) from None
-    if not stored:
+    if stored:
+        # D145(a): every stored part is recorded against its uploader - the
+        # authenticated user or the certificate-proven node of the grant.
+        log.info(
+            "controller.blobs.part_stored",
+            digest=str(digest),
+            index=index,
+            owner=owner,
+        )
+    else:
         response.status_code = status.HTTP_200_OK
     return {"digest": str(digest), "index": index, "stored": stored}
 

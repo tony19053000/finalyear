@@ -30,7 +30,7 @@ from meshforge.controller.api.models import (
 from meshforge.controller.liveness import NodeState
 from meshforge.controller.registry import NodeRecord, SessionRecord, SnapshotRecord
 from meshforge.controller.resources import LiveSample
-from meshforge.controller.scores import UNITS
+from meshforge.controller.scores import UNITS, bound_to
 from meshforge.controller.session.manager import LiveSession
 
 __all__ = [
@@ -81,7 +81,7 @@ def node_scores(node: NodeRecord) -> NodeScores:
     shaped by ``controller/scores.py``; ``unit`` is added here from the metric name.
     """
     document = node.hardware_scores
-    if document is None:
+    if document is None or not bound_to(document, node.node_id):  # D145b
         if _scores_capable(node.hardware):
             return NodeScores(status="pending")
         return NodeScores(status="none")

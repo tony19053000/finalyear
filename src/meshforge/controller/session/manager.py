@@ -546,7 +546,9 @@ class SessionManager:
         state = prior if event is None else next_state(prior, event)
 
         session_id = new_session_id()
-        scores, scores_rejected = self.reports.hello_scores(hello, session_id)
+        scores, scores_rejected = self.reports.hello_scores(
+            hello, session_id, node_id=node_id
+        )
         cpu_slots, gpu_slots, slots_refused = slots_of(hello)
         if slots_refused is not None:
             log.warning(

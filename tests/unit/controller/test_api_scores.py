@@ -16,6 +16,7 @@ from test_api_routes import FakeRegistry, build_app, client_for
 
 from meshforge.agent.benchmarks.wire import to_proto
 from meshforge.common.capabilities import HARDWARE_SCORES_CAPABILITY
+from meshforge.common.ids import new_node_id
 from meshforge.controller.api.shape import node_detail, node_scores, node_summary
 from meshforge.controller.http import OPENAPI_URL
 from meshforge.controller.scores import scores_document
@@ -23,13 +24,16 @@ from meshforge.controller.scores import scores_document
 pytestmark = pytest.mark.unit
 
 
+NODE = str(new_node_id())
+
+
 def _document() -> dict[str, object]:
-    document, _ = scores_document(to_proto(make_scoreset()))
+    document, _ = scores_document(to_proto(make_scoreset()), node_id=NODE)
     return document
 
 
 def test_measured_scores_are_served_with_units_and_nulls() -> None:
-    scores = node_scores(node_record(hardware_scores=_document()))
+    scores = node_scores(node_record(node_id=NODE, hardware_scores=_document()))
     assert scores.status == "measured"
     assert scores.measured_at == dt.datetime(
         2026, 9, 24, 12, 0, 0, 123456, tzinfo=dt.UTC
@@ -68,7 +72,7 @@ def test_pending_needs_the_capability_otherwise_none() -> None:
 
 
 def test_summary_and_detail_both_carry_scores() -> None:
-    node = node_record(hardware_scores=_document())
+    node = node_record(node_id=NODE, hardware_scores=_document())
     summary = node_summary(node, live=None, sample=None, now=1.0)
     detail = node_detail(node, live=None, sample=None, session=None, now=1.0)
     assert summary.scores == detail.scores
@@ -95,6 +99,6 @@ def test_a_document_with_unknown_keys_still_serves() -> None:
     document["conditions"]["invented_later"] = 2  # type: ignore[index]
     document["metrics"][0]["invented_later"] = 3  # type: ignore[index]
     document["metrics"][0]["unit"] = "stored unit is ignored"  # type: ignore[index]
-    scores = node_scores(node_record(hardware_scores=document))
+    scores = node_scores(node_record(node_id=NODE, hardware_scores=document))
     assert scores.status == "measured"
     assert scores.metrics[0].unit == "GFLOP/s"

@@ -29,7 +29,8 @@ and recorded in its GC index (``<data_dir>/gc``) as just used, so the agent's
 GC treats them like blobs it fetched itself. ``compute run`` then submits
 ``seeded: true`` and the planner counts no download for the Local candidate.
 The agent finds them with its normal cache lookup (no protocol change). Any
-reason not to seed (no cache here, not writable, larger than ``[cli]
+reason not to seed (no cache here, a cache another OS user owns (V0.7 G5,
+D145e), not writable, larger than ``[cli]
 seed_max_bytes``, the free-disk floor, a file changed while copied) skips
 seeding with that reason (``compute run`` prints it on stderr) - never an
 error: the job still runs, the agent just downloads what it needs.
@@ -40,6 +41,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import os
+import stat
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -213,8 +215,9 @@ class SeedReport:
 
     seeded: bool
     reason: str | None = None
-    """Why not (``no_cache``, ``not_writable``, ``over_quota``, ``disk_full``,
-    ``changed``, ``io_error``) - or a GC-index note when seeded anyway."""
+    """Why not (``no_cache``, ``other_user``, ``not_writable``, ``over_quota``,
+    ``disk_full``, ``changed``, ``io_error``) - or a GC-index note when seeded
+    anyway."""
     blobs_written: int = 0
     bytes_written: int = 0
     blobs_present: int = 0
@@ -237,6 +240,8 @@ def seed_local(
     root = data_dir / AGENT_CAS_DIR_NAME
     if not (root / "sha256").is_dir() or not (root / "tmp").is_dir():
         return _skip("no_cache")  # no agent has prepared a cache here
+    if not _agents_own_cache(root):
+        return _skip("other_user")
     if not os.access(root / "tmp", os.W_OK) or not os.access(root / "sha256", os.W_OK):
         return _skip("not_writable")
     blobs = tree.blob_sizes()
@@ -278,6 +283,26 @@ def seed_local(
         return _skip("not_writable" if isinstance(exc, PermissionError) else "io_error")
     report.reason = _record_use(data_dir / AGENT_GC_DIR_NAME, items)
     return report
+
+
+def _agents_own_cache(root: Path) -> bool:
+    """V0.7 G5 (D145e): seed only a cache **this** OS user owns. An agent
+    running as another user (a service account; or this CLI run as root)
+    could not manage - or would have to trust - files written by us, so the
+    CAS folders must be real directories (no symlink) owned by our uid.
+    Windows has no uid: the per-user data folder's ACL decides there."""
+    geteuid = getattr(os, "geteuid", None)
+    if geteuid is None:  # pragma: no cover - Windows
+        return True
+    me = geteuid()
+    for path in (root, root / "sha256", root / "tmp"):
+        try:
+            info = path.lstat()
+        except OSError:
+            return False
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid != me:
+            return False
+    return True
 
 
 def _record_use(gc_dir: Path, items: list[tuple[str, int]]) -> str | None:

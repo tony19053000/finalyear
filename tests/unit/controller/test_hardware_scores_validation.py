@@ -237,7 +237,7 @@ def test_the_stored_document_keeps_unknown_as_null() -> None:
     )
     message = to_proto(original)
     assert check_hardware_scores(message, {0, 1}) is None
-    document, measured_at = ctl_scores.scores_document(message)
+    document, measured_at = ctl_scores.scores_document(message, node_id="node_x")
     assert measured_at == original.measured_at
     assert document["measured_at"] == "2026-09-24T12:00:00.123456+00:00"
     assert document["run_id"] == original.run_id

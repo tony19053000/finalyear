@@ -514,7 +514,7 @@ async def test_an_older_run_never_replaces_a_newer_one_and_equal_is_idempotent(
     session_id = accepted.live.session_id
 
     async def write(run: ScoreSet) -> ScoresWrite:
-        document, measured_at = scores_document(to_proto(run))
+        document, measured_at = scores_document(to_proto(run), node_id=node_id)
         return await registry.set_hardware_scores(
             node_id, document, session_id=session_id, measured_at=measured_at
         )
@@ -536,7 +536,8 @@ async def test_an_older_run_never_replaces_a_newer_one_and_equal_is_idempotent(
     assert stored is not None and stored["run_id"] == later.run_id
     # A session that never owned the node is fenced, not "older".
     document, measured_at = scores_document(
-        to_proto(make_scoreset(measured_at=T0 + dt.timedelta(days=2)))
+        to_proto(make_scoreset(measured_at=T0 + dt.timedelta(days=2))),
+        node_id=node_id,
     )
     assert (
         await registry.set_hardware_scores(

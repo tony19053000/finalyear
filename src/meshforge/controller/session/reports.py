@@ -107,7 +107,7 @@ class ReportHandlers:
             self._resources.begin_session(node_id, 0, session_epoch=session_epoch)
 
     def hello_scores(
-        self, hello: agent_pb2.Hello, session_id: str
+        self, hello: agent_pb2.Hello, session_id: str, *, node_id: str
     ) -> tuple[dict[str, Any] | None, bool]:
         """The score document a Hello carries, validated (D38); ``(None, rejected)``.
 
@@ -123,7 +123,9 @@ class ReportHandlers:
         if reason is not None:
             self.reject_scores(hello.node_id, session_id, "hello", reason)
             return None, True
-        document, _measured_at = scores_document(hello.hardware_scores)
+        # D145b: bound to the node the session's certificate proved (the
+        # admission already checked Hello.node_id against it).
+        document, _measured_at = scores_document(hello.hardware_scores, node_id=node_id)
         return document, False
 
     def reject_scores(
@@ -205,7 +207,7 @@ class ReportHandlers:
             live.hardware_scores_rejected += 1
             self.reject_scores(live.node_id, live.session_id, "report", reason)
             return
-        document, measured_at = scores_document(scores)
+        document, measured_at = scores_document(scores, node_id=live.node_id)
         live.hardware_scores_received += 1
         live.writer.enqueue(
             "set_hardware_scores",
