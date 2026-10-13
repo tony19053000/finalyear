@@ -5,8 +5,10 @@ from __future__ import annotations
 import multiprocessing as mp
 import os
 import re
+import sys
 import threading
 import time
+import traceback
 from pathlib import Path
 
 import pytest
@@ -50,6 +52,23 @@ def test_no_path_takes_digest_lock_inside_resume_lock() -> None:
                 )
 
 
+_STALL_S = 30.0
+"""No uploader finished one store call for this long = a deadlock."""
+_TOTAL_S = 240.0
+"""All six uploads take longer than this = a livelock (or a dead machine)."""
+
+
+def _stacks(threads: list[threading.Thread]) -> str:
+    """Where each still-running thread of ``threads`` stands (for a failure)."""
+    frames = sys._current_frames()
+    out: list[str] = []
+    for t in threads:
+        frame = frames.get(t.ident or -1)
+        if t.is_alive() and frame is not None:
+            out.append(f"--- {t.name}\n" + "".join(traceback.format_stack(frame)))
+    return "\n".join(out)
+
+
 def test_upload_and_fetch_of_the_same_digest_in_parallel(tmp_path: Path) -> None:
     store = _store(tmp_path / "cas")
     data = os.urandom(CS * 5 + 17)
@@ -57,13 +76,17 @@ def test_upload_and_fetch_of_the_same_digest_in_parallel(tmp_path: Path) -> None
     parts = [data[i : i + CS] for i in range(0, len(data), CS)]
     errors: list[BaseException] = []
     done = threading.Event()
+    steps: list[int] = []  # one entry per finished store call of any uploader
 
     def uploader(order: list[int]) -> None:
         try:
             p = store.resumable(digest, len(data), CS)
+            steps.append(1)
             for i in order:
                 p.write_chunk(i, parts[i], sha256_bytes(parts[i]).hex)
+                steps.append(1)
             p.complete()
+            steps.append(1)
         except CasError:
             pass
         except BaseException as exc:  # noqa: BLE001
@@ -97,9 +120,33 @@ def test_upload_and_fetch_of_the_same_digest_in_parallel(tmp_path: Path) -> None
     try:
         for t in ts:
             t.start()
-        for t in ts:
-            t.join(30)
-            assert not t.is_alive(), "deadlock between uploaders"
+        # A deadlock is "no uploader finishes a store call any more", not "the
+        # whole upload took long" (V0.7 G6 fix round 1). The reader above spins
+        # on the GIL, so every OS call of an uploader waits for it: measured
+        # here 0.03-0.07 s for the six uploads without the reader, 5-15 s with
+        # it on an idle machine and above 30 s on a throttled CPU - the old
+        # bare 30 s join then reported a deadlock that was not one. Now: fail
+        # when no call finished for _STALL_S (a single call is a handful of
+        # system calls), or when the uploads are not over after _TOTAL_S; the
+        # failure names where every thread stands.
+        started = last_step = time.monotonic()
+        seen = 0
+        while any(t.is_alive() for t in ts):
+            time.sleep(0.2)
+            now = time.monotonic()
+            if len(steps) != seen:
+                seen, last_step = len(steps), now
+            stalled = now - last_step > _STALL_S
+            if stalled or now - started > _TOTAL_S:
+                why = (
+                    f"no store call finished for {_STALL_S:.0f} s"
+                    if stalled
+                    else f"uploads not over after {_TOTAL_S:.0f} s"
+                )
+                pytest.fail(
+                    f"deadlock between uploaders: {why} ({seen} calls done)\n"
+                    + _stacks(ts)
+                )
     finally:
         done.set()
         r.join(10)
