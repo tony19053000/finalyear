@@ -358,6 +358,23 @@ def _close_socket(sock: Any) -> None:
             response.close()
 
 
+def _close_quietly(client: Any) -> None:
+    with contextlib.suppress(Exception):
+        client.close()
+
+
+def _remove_quietly(container: Any) -> None:
+    """Remove a container nobody will ever start (its creator was cancelled)."""
+    try:
+        container.remove(force=True)
+    except Exception as exc:  # noqa: BLE001 - logged; the start-up sweep is the backstop
+        log.warning(
+            "agent.execution.container_remove_failed",
+            container=getattr(container, "short_id", "?"),
+            cause=type(exc).__name__,
+        )
+
+
 def _pull_ref(image: str) -> tuple[str, str]:
     """``name[:tag]@sha256:d`` -> ``(name, "sha256:d")``; ``name:tag`` -> ``(name, tag)``."""
     name, at, digest = image.partition("@")
@@ -572,14 +589,17 @@ class DockerRuntime:
         obs.enter_env()
         try:
             try:
-                client = await asyncio.to_thread(open_client, self.config.api_timeout_s)
+                opened: DockerClient = await self._owned(
+                    lambda: open_client(self.config.api_timeout_s), _close_quietly
+                )
+                client = opened
             except Exception as exc:
                 raise _FaultError(
                     FailureType.ENV_ERROR,
                     "docker_unavailable",
                     f"cannot reach the Docker daemon: {type(exc).__name__}",
                 ) from exc
-            outcome = await self._steps(client, spec, spec.image, pump, obs, fields)
+            outcome = await self._steps(opened, spec, spec.image, pump, obs, fields)
         except _FaultError as fault:
             obs.finish()
             await pump.close(_DRAIN_S)
@@ -640,7 +660,10 @@ class DockerRuntime:
         client: DockerClient | None = None
         try:
             try:
-                client = await asyncio.to_thread(open_client, self.config.api_timeout_s)
+                opened: DockerClient = await self._owned(
+                    lambda: open_client(self.config.api_timeout_s), _close_quietly
+                )
+                client = opened
             except Exception as exc:
                 raise _FaultError(
                     FailureType.ENV_ERROR,
@@ -649,8 +672,8 @@ class DockerRuntime:
                 ) from exc
             _check_pinned(spec.image)
             deadline = self._clock() + self.config.env_timeout_s
-            await self._ensure_image(client, spec.image, deadline, fields)
-            await self._ensure_env_image(client, spec, spec.image, pump, obs, fields)
+            await self._ensure_image(opened, spec.image, deadline, fields)
+            await self._ensure_env_image(opened, spec, spec.image, pump, obs, fields)
         except _FaultError as fault:
             raise EnvError(
                 fault.detail, reason=fault.reason, failure_type=fault.failure_type
@@ -1212,11 +1235,13 @@ class DockerRuntime:
         watcher: _Watcher | None = None
         try:
             try:
-                container = await asyncio.to_thread(
-                    client.containers.create, image, **kwargs
+                created: Container = await self._owned(
+                    lambda: client.containers.create(image, **kwargs),
+                    _remove_quietly,
                 )
             except errors as exc:
                 raise _create_fault(exc, docker, role) from exc
+            container = created
             container_id = str(container.id)
             obs.ident = container_id[:12]
             self._assert_sandbox(container, spec, role, kwargs)
@@ -1227,10 +1252,12 @@ class DockerRuntime:
                     raise _FaultError(
                         FailureType.ENV_ERROR, "env_build_failed", _short(exc)
                     ) from exc
-            sock = await asyncio.to_thread(
-                client.api.attach_socket,
-                container_id,
-                params={"stdout": 1, "stderr": 1, "stream": 1, "logs": 0},
+            sock = await self._owned(
+                lambda: client.api.attach_socket(
+                    container_id,
+                    params={"stdout": 1, "stderr": 1, "stream": 1, "logs": 0},
+                ),
+                _close_socket,
             )
             watcher = _Watcher(
                 client, container_id, sock, pump, self.config.api_timeout_s
@@ -1392,6 +1419,36 @@ class DockerRuntime:
                     container=container.short_id,
                     cause=type(exc).__name__,
                 )
+
+    async def _owned[T](self, call: Callable[[], T], release: Callable[[T], None]) -> T:
+        """``call()`` in a worker thread, for a result that must be released (a
+        client, a socket, a created container).
+
+        A cancelled caller cannot stop the thread, and ``asyncio.to_thread``
+        alone would drop what the call returns: a cancel that arrived during
+        ``containers.create`` left a never-started container behind, one
+        during ``attach_socket`` / ``open_client`` an open socket to the
+        daemon (V0.7 G6 fix round 1; found under load). Here the call always
+        finishes, and when nobody is left to take its result,
+        ``release(result)`` runs in a worker thread - tracked in
+        ``_background`` like every other cleanup."""
+        work: asyncio.Future[T] = asyncio.ensure_future(asyncio.to_thread(call))
+        try:
+            return await asyncio.shield(work)
+        except asyncio.CancelledError:
+            work.add_done_callback(lambda done: self._release_late(done, release))
+            raise
+
+    def _release_late[T](
+        self, done: asyncio.Future[T], release: Callable[[T], None]
+    ) -> None:
+        if done.cancelled() or done.exception() is not None:
+            return  # the call made nothing
+        task: asyncio.Task[None] = asyncio.ensure_future(
+            asyncio.to_thread(release, done.result())
+        )
+        self._background.add(task)
+        task.add_done_callback(self._cleanup_done)
 
     async def _shielded(self, coro: Any) -> None:
         """Run a cleanup step to completion even if we are cancelled again; the task
