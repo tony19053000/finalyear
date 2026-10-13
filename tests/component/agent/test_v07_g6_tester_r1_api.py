@@ -266,13 +266,6 @@ async def test_concurrent_writers_never_500_and_end_with_one_row(
     assert sorted(r.status_code for r in dels) == [200] + [404] * 9
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-1 (minor): SecretStore.put counts existing rows and inserts in "
-    "separate statements under READ COMMITTED, so concurrent first-time PUTs "
-    "of one name all report created=true, and concurrent PUTs of different "
-    "new names can exceed the 256-per-user limit",
-)
 async def test_created_flag_is_true_exactly_once_under_concurrency(
     world: Any,
 ) -> None:
@@ -290,12 +283,6 @@ async def test_created_flag_is_true_exactly_once_under_concurrency(
         assert created.count(True) == 1, created
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-1 (minor): the per-user limit is checked, then inserted, in "
-    "separate transactions' statements: parallel new names can overshoot "
-    "MAX_SECRETS_PER_USER",
-)
 async def test_the_per_user_limit_holds_under_a_burst_of_new_names(
     world: Any, engine: AsyncEngine, runtime: ControllerRuntime
 ) -> None:

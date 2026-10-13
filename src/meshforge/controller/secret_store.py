@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, literal_column, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine
@@ -55,6 +55,8 @@ log = get_logger(__name__)
 
 MAX_SECRETS_PER_USER: Final = 256
 """Most secrets one user may store (bounds a list and a job's resolve)."""
+_OWNER_LOCK: Final = text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))")
+"""Serialises one owner's ``put`` calls until their transaction ends."""
 
 
 class SecretStoreError(MeshForgeError):
@@ -162,6 +164,13 @@ class SecretStore:
         sealed = (await self.box()).seal(value, owner_user_id=owner_user_id, name=name)
         try:
             async with self._sessions() as db, db.begin():
+                # D162 (T-1): one writer per owner at a time, in the database
+                # (a transaction-scoped advisory lock): the count below and
+                # the insert are then one step for every controller process,
+                # so the limit is exact and `created` is true exactly once.
+                await db.execute(
+                    _OWNER_LOCK, {"key": f"meshforge.secret:{owner_user_id}"}
+                )
                 exists = await db.scalar(
                     select(func.count())
                     .select_from(Secret)
@@ -184,15 +193,19 @@ class SecretStore:
                     nonce=sealed.nonce,
                     key_id=sealed.key_id,
                 )
-                await db.execute(
-                    statement.on_conflict_do_update(
-                        index_elements=[Secret.owner_user_id, Secret.name],
-                        set_={
-                            "ciphertext": statement.excluded.ciphertext,
-                            "nonce": statement.excluded.nonce,
-                            "key_id": statement.excluded.key_id,
-                            "updated_at": func.now(),
-                        },
+                # `xmax = 0` only for a row this statement inserted (PostgreSQL):
+                # the database, not the read above, says whether it was new.
+                created = bool(
+                    await db.scalar(
+                        statement.on_conflict_do_update(
+                            index_elements=[Secret.owner_user_id, Secret.name],
+                            set_={
+                                "ciphertext": statement.excluded.ciphertext,
+                                "nonce": statement.excluded.nonce,
+                                "key_id": statement.excluded.key_id,
+                                "updated_at": func.now(),
+                            },
+                        ).returning(literal_column("(xmax = 0)"))
                     )
                 )
                 await audit(
@@ -207,7 +220,7 @@ class SecretStore:
                 f"cannot store the secret: {type(exc).__name__}"
             ) from None
         log.info("controller.secrets.set", owner_user_id=owner_user_id, name=name)
-        return not exists
+        return created
 
     async def list(self, owner_user_id: str) -> list[SecretInfo]:
         try:
