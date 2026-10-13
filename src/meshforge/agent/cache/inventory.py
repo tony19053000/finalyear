@@ -58,9 +58,23 @@ _REPAIR_BATCH: Final = 256
 """Index repairs applied per lock hold in :meth:`CacheInventory.reconcile_disk`."""
 _REPAIR_YIELD_S: Final = 0.0005
 """Real pause between two repair batches. ``threading.Lock`` is not fair:
-with ``sleep(0)`` the repairing thread took the lock again before a waiting
-event loop had woken, batch after batch (0.2-0.35 s stalls measured on a laptop
-on battery, CPU in powersave); a real sleep hands the lock over (4 ms)."""
+with ``sleep(0)`` the repairing thread can take the lock again before a waiting
+event loop has woken, batch after batch.
+
+Measured (V0.7 G6 fix round 1; 40000 blobs deleted behind the cache = 157
+batches, the loop reading ``pending_count()`` + ``counts()`` every 2 ms; worst
+single read / repair phase, 5 runs each, one 16-thread laptop):
+
+* on battery, CPU throttled, ``sleep(0)``: 0.24-0.35 s reads (the failure that
+  led to this constant; not re-measured with the pause on battery);
+* on mains, idle: ``sleep(0)`` 3-68 ms / 0.46-0.47 s; this pause 1.6-3.0 ms /
+  0.52-0.54 s (about 13 % slower);
+* on mains under 16 CPU burners: ``sleep(0)`` 6-13 ms / 0.93-1.13 s; this
+  pause 14-17 ms / 1.2-2.0 s - no gain there, and the repair up to twice as
+  long (each pause waits for a busy CPU).
+
+So: the pause bounds the worst read where the lock was the problem and costs
+repair time, most on a loaded machine. Not tuned further."""
 _HEX_RE: Final = re.compile(r"[0-9a-f]{64}")
 _ENV_KINDS: Final = ("venv", "subprocess")
 _ENV_MARKER: Final = ".meshforge-env.json"
