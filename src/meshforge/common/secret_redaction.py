@@ -43,20 +43,67 @@ Every loop has a measure that only moves one way and is bounded:
   binary search halves ``hi - lo``.
 * ``SecretMatcher._build`` / ``_anchor_regex``: ``i`` moves to ``j > i``; a
   recursive call has a strictly larger ``depth`` (at most the longest form).
-* ``_Walker.run``: the measure is ``4 * start + position`` (:meth:`_Walker.key`;
-  ``start`` is the earliest candidate still alive). A turn of the loop either
-  returns, or matches at least one more byte (position up), or drops the
-  candidate for a later start (start up by >= 1; a search restarts 3 bytes
-  back only after a candidate of >= 4 bytes, so ``4 * start`` wins). Bounded
-  by ``5 * limit``.
-* ``_SelfScan.advance(depth)``: one ``run``. It returns None only with
-  ``front >= depth`` (the records are complete), or a need ``(form, d)`` with
-  ``d < depth`` - a self-scan starts at byte 1, so the prefix it follows is
-  shorter than the text it has read.
-* ``SecretMatcher.ensure``: a stack of needs. Depths strictly shrink up the
-  stack (so at most ``depth`` pushes in a row). After a pop the need below is
-  satisfied, so that scan takes the step it waited for: some walker's measure
-  goes up. The measures are bounded, so the turns are.
+* ``_Walker.run``: the measure is :meth:`_Walker.key`, an integer checked at
+  the top of every turn. Its terms: ``j`` = the text index where the current
+  candidate starts (the earliest start still alive); ``d`` = how many of its
+  bytes are matched, so ``j + d`` is the read position; ``c`` = the index the
+  search goes on from when there is no candidate (no match can start before
+  it); ``limit`` = the end of the text this call may read.
+  ``key = 5 * j + d`` while a candidate is followed (that is ``4 * start +
+  position``) and ``key = 5 * c`` while searching. A turn that does not return
+  makes the key strictly larger:
+
+  - *extend* by ``n >= 1`` matched bytes: ``d`` grows, key ``+ n``;
+  - *fall back* to a shorter candidate that starts ``s`` bytes later
+    (``1 <= s <= d - 4``: a proper suffix of at least 4 bytes): ``j + s``,
+    ``d - s``, key ``+ 4 * s >= 4``;
+  - *give up* the candidate and search on from ``c = j + d - 3``: the key
+    goes from ``5 * j + d`` to ``5 * (j + d - 3)``, that is ``+ (4 * d - 15)``.
+    A candidate begins at an anchor hit (4 matched bytes) and a fallback keeps
+    at least 4, so ``d >= 4`` here and the step is ``>= 1`` - the search
+    restarts 3 bytes back, but never at or before where the candidate began;
+  - *search* finds a hit at ``h >= c``: the candidate starts there with its
+    first byte(s) matched in the same turn, key ``>= 5 * h + 1 > 5 * c``.
+
+  ``j + d <= limit`` and ``c <= limit``, so the key never passes
+  ``5 * limit``: a call makes at most ``5 * limit - (key on entry) + 1`` turns.
+* ``_SelfScan.advance(depth)``: at most one ``run``, up to ``limit =
+  min(depth, len(form))``. It returns None in two ways: **at once, without
+  any step**, when ``front >= limit`` already; or after a ``run`` that
+  brought ``front`` up to ``limit`` (that run stepped: ``front`` was below
+  ``limit`` before). Or it returns a need ``(form, d)`` with ``d < depth`` -
+  a self-scan starts at byte 1, so the prefix it follows is shorter than the
+  text it has read. A ``run`` that stops with ``front < limit``, and a need
+  with ``d >= depth``, raise.
+* ``SecretMatcher.ensure(need)``, with ``D`` = the depth of ``need``: a stack
+  of needs, one ``advance`` of the top per turn; None pops, a need pushes.
+  ``ticks`` counts the steps of all walkers; ``idle`` counts the turns in a
+  row without a new tick.
+
+  - *It always ends, whatever the records hold.* More than ``D + 2`` idle
+    turns raise, so between two ticks there are at most ``D + 3`` turns. And
+    ticks are finite. A tick of a self-scan's walker raises its key (``<= 5 *
+    len(form)``), or turns it from searching to following at the place it
+    searched from (once per place), or is the last, empty search of a
+    ``run`` - and ``advance`` starts a ``run`` only with ``front`` below the
+    limit and accepts its end only with ``front`` at the limit, so every
+    ``run`` that ends raised ``front`` (``<= len(form)``). That is at most
+    ``12 * len(form)`` ticks per form, and ``ensure`` returns or raises
+    within ``(D + 3) * (12 * total form bytes + 1)`` turns.
+  - *The idle budget is enough: a right matcher never uses it up.* A need is
+    raised only past the anchor (depth ``> 4``) and depths strictly shrink up
+    the stack, so the stack holds at most ``D - 4`` needs: at most ``D - 5``
+    pushes can follow each other. An idle turn is a push (the scan needed
+    another scan before it could step) or the step-less None above. Inside
+    ``ensure`` that None does not happen: a need ``(k, d)`` is raised only
+    while scan ``k`` is short of ``d``, and the entries pushed above it ask
+    the same scan only for smaller depths (a ``run`` never moves ``front``
+    past its ``limit``), so a need is still open whenever its turn comes.
+    Every pop therefore follows a ``run`` that stepped - a tick. An idle run
+    is pushes only: at most ``D - 5 < D + 2`` turns.
+  - What the count catches: a scan that answers "done" although it did not
+    move, so that the scan below asks again - the T-17 defect. It is reported
+    (``RedactionStallError``) instead of repeated for ever.
 * ``StreamRedactor.feed``: each wait is followed by the step waited for, so
   the stream walker's measure rises between two waits.
 
@@ -252,7 +299,10 @@ class _Walker:
 
     def key(self) -> int:
         """The measure of :meth:`run` (module docstring, "Termination"):
-        ``4 * earliest live start + position``. It never goes down."""
+        ``5 * j + d`` while following a candidate (``j`` its start, ``d`` its
+        matched bytes - that is ``4 * j`` plus the read position ``j + d``),
+        ``5 * c`` while searching from ``c``. It never goes down, and it
+        rises with every turn of :meth:`run` that does not return."""
         return 5 * self.j + self.d if self.node is not None else 5 * self.c
 
     def run(self, limit: int) -> _Need | None:
@@ -536,10 +586,16 @@ class SecretMatcher:
 
     def ensure(self, need: _Need) -> None:
         """Advance a self-scan, and first whatever it needs (an explicit
-        stack; module docstring, "Termination"): depths strictly shrink up the
-        stack, so at most ``depth`` pushes can follow each other; a pop is
-        followed by a step forward of the scan below it. More turns than that
-        without any walker moving is a bug and raises."""
+        stack; module docstring, "Termination").
+
+        ``idle`` counts the turns in a row in which no walker stepped
+        (``ticks`` unchanged): a push whose scan needed another scan first,
+        or an ``advance`` that returned None without running (``front`` was
+        at its limit already). Depths are ``> 4`` and strictly shrink up the
+        stack, so it holds at most ``need[1] - 4`` needs, and a pop follows a
+        run that stepped; a right matcher is therefore idle for at most
+        ``need[1] - 5`` turns in a row. The budget is ``need[1] + 2``: more
+        idle turns than that is a bug and raises instead of spinning."""
         stack = [need]
         seen = self.ticks
         idle = 0

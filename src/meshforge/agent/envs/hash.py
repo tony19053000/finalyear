@@ -59,6 +59,13 @@ pinned one, whatever path it came by - and the env hash, which contains the
 line, then names one file. Requirements by name (from the owner's index or
 wheelhouse) need no hash.
 
+Both installers get only what this normaliser returns (uv venv / target builds,
+the pip of the Docker build container, ``node prepare``), so a refused line
+never reaches either. A consequence for testing (accepted, D164): the pip in
+the Docker build container is never shown a URL that merely *looks* like a
+wheel over ``http://`` - it is refused here; such lookalikes are tried against
+real uv over https only.
+
 **Environment references** (V0.7 G6 fix round 2, D163 T-15): a line with
 ``${VAR}`` or ``$VAR`` is refused **always**, wheels-only or not, naming the
 line - pip and uv expand it with the node's tool environment (``HOME``, a proxy

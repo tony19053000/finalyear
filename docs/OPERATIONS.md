@@ -163,6 +163,19 @@ secrets:
   private folder in RAM (`/dev/shm` on Linux), read-only for Docker jobs,
   wiped (overwritten, deleted) when the attempt ends - also on failure, cancel
   and agent stop; a crashed agent's leftovers are wiped at its next start.
+  **The folder is checked before every use** (V0.7 G6 fix round 3): the
+  agent's secrets folder (`/dev/shm/meshforge-secrets-<uid>-<tag>`, or the
+  one under `secrets_root` / `<data dir>/secrets`) must be a real directory,
+  owned by the agent's user, mode `0700`. `/dev/shm` is shared by all users
+  of the machine, so someone else can create that name first - as a link to
+  one of your folders, for example. The agent then touches nothing in it:
+  the log says `agent.execution.secrets_base_refused` with
+  `reason = symlink | not_a_directory | foreign_owner | wrong_mode |
+  unreadable`, jobs **with secrets fail** `config_error`
+  `secrets_base_refused:<reason>` on this laptop, jobs without secrets run.
+  Fix: look at the folder (`ls -ld /dev/shm/meshforge-secrets-*`), remove
+  what is not yours to keep (`rm` the link; `rmdir` or `chmod 700` your own
+  folder) - the next job works, no restart.
   **If writing them hangs** (a stale mount under `secrets_root`): a cancel or
   an agent stop waits for that write at most `[agent.execution]
   secret_write_wait_s` (10 s) and then goes on; the log says
@@ -200,6 +213,16 @@ secrets:
     does not appear inside it);
   - any other transformation (base32, double encoding, gzip, a hash is fine).
   A job that logs configuration as JSON should leave its secrets out of it.
+- **A log full of `*`** with the line `[meshforge: log redaction failed
+  closed - output withheld]` (V0.7 G6 fix round 3) means the scrubber hit an
+  internal safety stop for that job and withheld the output rather than risk
+  showing a value. The job itself is not affected. The agent or controller
+  log has one warning per stream (`agent.execution.log_redaction_failed_closed`
+  / `controller.logs.redaction_failed_closed`, with the job and attempt id) -
+  please report it with the shape (not the value) of the job's secrets; it is
+  a bug in MeshForge. In `compute logs` the note is written over the first
+  withheld bytes (the stored log keeps its length); on the laptop it is a
+  line of its own.
 - **Changing a value:** `compute secret set NAME` again. Running attempts keep
   the value they started with; the next attempt (a new job or a retry) gets the
   new one.
@@ -765,6 +788,13 @@ environment (subprocess runtime; install torch there with `uv sync --extra gpu`)
   arrived (checked with real uv: redirect to http + right hash installs, wrong
   hash fails, right hash + a file swapped on the http leg fails). Requirements
   by name (`pkg==1.0`, from the owner's index or wheelhouse) need no hash.
+  *Test coverage note:* all of this is decided by one gate before any
+  installer starts, for uv and for the pip inside the Docker build container
+  alike. A URL that only looks like a wheel (`.../pkg.tar.gz/.whl`) over
+  `http://` is therefore refused at the gate and the pip in the container is
+  never shown one - our Docker test proves "refused before a build container
+  exists", and the look-alike URLs themselves are tried against real uv only
+  (accepted, D164).
 - **No environment variables in a requirements file** (V0.7 G6 fix round 2):
   a line containing `${VAR}` or `$VAR` is refused always - `only_binary` on or
   off, uv and Docker pip alike - with `env_error` / `requirements_rejected`,
@@ -1301,6 +1331,11 @@ volume**).
 | `compute run` refused `invalid_input` `secret_missing:NAME`, or a job fails with it | the submitting user has no secret `NAME` (or it was deleted before the job started) - secrets are per user | `compute secret list`; `compute secret set NAME` as the user who submits |
 | A job fails `config_error` `secrets_need_mtls` | controller or agent runs `[security] mode = "insecure-dev"` | use mTLS (the default); for one-machine tests only: `[security] allow_insecure_secrets = true` on both |
 | A job fails `integrity_error` `secret_unreadable` / `config_error` `secret_key_mismatch` / `secret_key_unusable` | the stored ciphertext does not match its owner/name (database edited or restored from elsewhere), the database belongs to another `secrets.key`, or the key file is loose/missing-and-unwritable | restore the matching `secrets.key` from backup, or `compute secret set NAME` again; check the controller log `controller.jobs.secrets_refused` |
+| A job fails `config_error` `secrets_base_refused:<reason>`; agent log `agent.execution.secrets_base_refused` | the laptop's secrets folder is a link, not a directory, another user's, or not mode `0700` (someone else on the machine created `/dev/shm/meshforge-secrets-<uid>-...` first, or its mode was changed) | §0a1b: inspect it, remove the planted name or `chmod 700` your own folder; the next job works without a restart. Jobs without secrets are not affected |
+| Agent log `agent.execution.secret_write_pending` | writing a job's secret files did not finish within `[agent.execution] secret_write_wait_s` (a hung mount under `secrets_root`) | the cancel / stop went on; the files are wiped when the write returns, or at the next agent start. Check the mount; prefer the default `/dev/shm` |
+| `compute logs` shows `*` and `[meshforge: log redaction failed closed - output withheld]` | the secret scrubber stopped itself for that attempt (a bug, fail closed) | §0a1b; report the warning `...redaction_failed_closed` from the agent / controller log |
+| Agent log `agent.fs.cleanup_failed` / `agent.envs.cleanup_failed` | a job folder or build leftover could not be deleted (files owned by another user, a read-only mount) | it is removed before the next build / at the next agent start; if it repeats, check who owns `path` under the data dir |
+| A job fails `env_error` `requirements_rejected`: "a wheel URL must pin its file with `--hash=...`" | wheels-only laptop, a `pkg @ https://...whl` line without a strong digest | add `--hash=sha256:<sha256sum of the wheel>` to that line (§0b2) |
 | A job fails `invalid_input` `secret_not_text:NAME` | an `as_env` secret is not UTF-8 text | read it from its file instead (drop `as_env`) |
 | A job stays `queued` | no node can take it **now** (V0.6): every capable node is busy (`slots_full`, `node_cap`), offline / suspect, or its environment failed there recently (`env_known_bad`) | `compute explain <JOB_ID>` lists each node's reason; free a slot, start an agent, raise `[agent.execution] max_cpu_jobs` / `max_gpu_jobs`, or cancel it |
 | `compute run` exits with `no_feasible_plan` and a list of nodes | **no** enrolled node could ever run it (V0.6 D104): no `exec`, no GPU / too little VRAM / RAM / CPUs, no runtime for `env.base`, the owner allows no jobs of that kind | each line names the node and the reason; change the manifest's `resources:` or enable execution / a runtime on a node |
