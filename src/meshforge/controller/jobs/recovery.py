@@ -81,6 +81,9 @@ class RecoverySteps(DispatchSteps):
     """D117: attempts already counted as an overlapping execution."""
     _uploading_since: dict[str, dt.datetime]
     """attempt_id -> when it entered UPLOADING (from the job history)."""
+    _offline_pending: dict[str, int]
+    """node_id -> queued, not yet handled ``_Offline`` items (see
+    :meth:`_sweep_orphans`)."""
 
     # ------------------------------------------------------------ D66
 
@@ -191,6 +194,16 @@ class RecoverySteps(DispatchSteps):
             live = await self._store.live_attempts()
         for entry in live:
             node_id = entry.attempt.node_id
+            if node_id in self._offline_pending:
+                # The node's session just ended (lease expiry, Goodbye,
+                # revocation) and its ``_Offline`` item waits in the queue
+                # behind this tick: that item loses the attempts and names
+                # the real cause (``node_offline`` / ``node_revoked``). Without
+                # this, a tick already running when the lease expired labelled
+                # them ``node_not_connected`` instead (seen under load, V0.7 G6
+                # T-11). An item that was dropped (queue full) is not pending,
+                # so this sweep stays the backstop.
+                continue
             if (
                 self._manager.get(node_id) is None
                 and self._manager.get_lingering(node_id) is None

@@ -224,6 +224,7 @@ class Dispatcher(RecoverySteps):
         self._resources = resources
         self._wall = wall_clock or (lambda: dt.datetime.now(dt.UTC))
         self._queue: asyncio.Queue[_Item] = asyncio.Queue(settings.status_queue_size)
+        self._offline_pending = {}
         self._wake = asyncio.Event()
         self._stopping = False
         self._started_at = clock()
@@ -296,7 +297,7 @@ class Dispatcher(RecoverySteps):
             if self._queue.empty() and not self._wake.is_set():
                 await self._wait(timeout)
             while not self._queue.empty() and not self.stopping:
-                await self._retrying(self._handle, self._queue.get_nowait())
+                await self._retrying(self._handle, self._take(self._queue.get_nowait()))
             if self.stopping:
                 return
             if self._wake.is_set() or self._clock() >= next_tick:
@@ -367,9 +368,22 @@ class Dispatcher(RecoverySteps):
         self._put(_Reconcile(live, held))
 
     def _on_node_offline(self, live: LiveSession, event: LivenessEvent) -> None:
-        self._put(_Offline(live.node_id, live.session_id, event))
+        if self._put(_Offline(live.node_id, live.session_id, event)):
+            pending = self._offline_pending
+            pending[live.node_id] = pending.get(live.node_id, 0) + 1
 
-    def _put(self, item: _Item) -> None:
+    def _take(self, item: _Item) -> _Item:
+        """``item`` left the queue: an ``_Offline`` is no longer pending (it is
+        handled next, before any other step of this single task)."""
+        if isinstance(item, _Offline):
+            left = self._offline_pending.get(item.node_id, 0) - 1
+            if left > 0:
+                self._offline_pending[item.node_id] = left
+            else:
+                self._offline_pending.pop(item.node_id, None)
+        return item
+
+    def _put(self, item: _Item) -> bool:
         try:
             self._queue.put_nowait(item)
         except asyncio.QueueFull:
@@ -380,6 +394,8 @@ class Dispatcher(RecoverySteps):
                 item=type(item).__name__,
                 capacity=self._queue.maxsize,
             )
+            return False
+        return True
 
     # ------------------------------------------------------------ the loop
 
@@ -398,7 +414,7 @@ class Dispatcher(RecoverySteps):
             with contextlib.suppress(asyncio.CancelledError):
                 await asyncio.gather(getter, return_exceptions=True)
         if getter in done and not getter.cancelled():
-            item = getter.result()
+            item = self._take(getter.result())
             if not self._stopping:
                 await self._retrying(self._handle, item)
 
