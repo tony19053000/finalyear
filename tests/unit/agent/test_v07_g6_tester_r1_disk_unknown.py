@@ -113,12 +113,6 @@ async def test_the_configured_limit_is_bounded() -> None:
         assert ExecutionSettings(free_disk_read_failure_limit=good)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-6 (minor): a free-space read that HANGS (stale network mount) "
-    "is neither a failure nor a stop: there is no timeout around statvfs, so "
-    "the watch waits forever and the streak never counts",
-)
 async def test_a_hanging_free_space_read_counts_as_a_failure(tmp_path: Path) -> None:
     def hang(_root: Path) -> int:
         time.sleep(3)

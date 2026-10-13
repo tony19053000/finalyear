@@ -531,6 +531,7 @@ grace_s = 3.0               # cancel/timeout: SIGTERM, then SIGKILL after this (
 # max_written_bytes = 8589934592   # most disk a running job may add to its folder (V0.7 G5)
 # output_check_interval_s = 1.0    # how often that is measured
 # free_disk_read_failure_limit = 5 # failed free-disk reads in a row that stop a job (V0.7 G6)
+# free_disk_read_timeout_s = 2.0  # a free-disk read still running after this counts as failed (stale mount)
 ```
 
 **How many jobs at once (V0.6, D105).** The controller schedules by the slots
@@ -608,6 +609,9 @@ kill work. Jobs are not retried until V0.6 (G3).
   rounds; a folder with millions of files, or a slow disk / network share,
   can stretch the check from 1 s to many seconds. Keep `workdir_root` on a
   local disk. **A free-space read that keeps failing never fails open:**
+  a read that **hangs** (a stale network mount) counts as failed after
+  `free_disk_read_timeout_s` (2 s) - at every check, without starting a second
+  read (at most 4 such stuck reads exist in the whole agent);
   `[agent.execution] free_disk_read_failure_limit` (5) failures in a row stop
   the job with `disk_full` / `disk_unknown: ...` (agent log
   `agent.execution.disk_unknown`; each failure logs
@@ -1244,7 +1248,7 @@ volume**).
 | A job is `queued` again with a second (third...) attempt | its attempt was lost or failed retryably (V0.6 G3); `compute explain <JOB_ID> --attempt N` shows why the retry went where it went (`retry_excluded` = it avoids the node it failed on) | nothing, normally. If a job ran twice and must not, give it `retry: {on_lost: false}`; check the controller log for `controller.jobs.execution_overlap` |
 | Jobs fail `disk_full` | auto jobs are retried on another laptop and the full one is avoided for `retry_exclude_s` (V0.6 D126), so this means the job was **pinned** to the full laptop, or no other laptop could run it and the laptop was still full after `retry_exclude_s` (retries exhausted; D129 waits the window out instead of retrying at once) | free disk on that laptop and resubmit |
 | A job fails at once with `disk_full` / `disk_floor: ...` (or right at start) | the laptop's workdir disk already had less free than the 1 GiB staging floor when the job started (V0.7 G5/G6): staging checks the floor before fetching, the running-job poll checks it again every `output_check_interval_s` | free disk on that laptop (`df -h <data dir>/work`), or move `[agent.execution] workdir_root` to a bigger local disk; an auto job is retried elsewhere meanwhile (D126) |
-| A job fails `disk_full` / `disk_unknown: ...` | the agent could not read the free space of the workdir's disk `free_disk_read_failure_limit` times in a row (a vanished mount, an unreachable network share, an I/O error) | check the agent log `agent.execution.free_disk_read_failed` for the OS error; keep `workdir_root` on a local disk |
+| A job fails `disk_full` / `disk_unknown: ...` | the agent could not read the free space of the workdir's disk `free_disk_read_failure_limit` times in a row (a vanished mount, an unreachable or hanging network share - `cause=timeout` in the log -, an I/O error) | check the agent log `agent.execution.free_disk_read_failed` for the OS error; keep `workdir_root` on a local disk |
 | `compute run` refused `invalid_input` `secret_missing:NAME`, or a job fails with it | the submitting user has no secret `NAME` (or it was deleted before the job started) - secrets are per user | `compute secret list`; `compute secret set NAME` as the user who submits |
 | A job fails `config_error` `secrets_need_mtls` | controller or agent runs `[security] mode = "insecure-dev"` | use mTLS (the default); for one-machine tests only: `[security] allow_insecure_secrets = true` on both |
 | A job fails `integrity_error` `secret_unreadable` / `config_error` `secret_key_mismatch` / `secret_key_unusable` | the stored ciphertext does not match its owner/name (database edited or restored from elsewhere), the database belongs to another `secrets.key`, or the key file is loose/missing-and-unwritable | restore the matching `secrets.key` from backup, or `compute secret set NAME` again; check the controller log `controller.jobs.secrets_refused` |

@@ -1571,6 +1571,7 @@ class Executor:
             clock=self._clock,
             free_floor_bytes=self.cas.store.free_disk_floor_bytes,
             max_free_read_failures=self._cfg.free_disk_read_failure_limit,
+            free_read_timeout_s=self._cfg.free_disk_read_timeout_s,
         )
         cap.baseline = max(0, await self._step(attempt, cap.measure_once()))
         return cap

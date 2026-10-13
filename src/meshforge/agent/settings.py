@@ -588,6 +588,18 @@ class ExecutionSettings(SectionModel):
             "count."
         ),
     )
+    free_disk_read_timeout_s: float = Field(
+        default=2.0,
+        ge=0.05,
+        le=60.0,
+        description=(
+            "V0.7 G6 fix round 1 (D162 T-6): longest one check waits for that "
+            "free-space read. A read still running then (a stale network mount) "
+            "counts as a failed read towards free_disk_read_failure_limit; the "
+            "same hung read is waited for again at the next check, never "
+            "started twice."
+        ),
+    )
     terminal_resend_s: float = Field(
         default=5.0,
         ge=0.2,
