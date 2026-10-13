@@ -156,14 +156,20 @@ def test_base_owned_by_someone_else_or_a_file_is_refused(tmp_path: Path) -> None
         vault.materialise("att_1", {"K1": b"value-123"}, read_only=False)
 
 
-def test_a_group_writable_base_is_tightened_not_trusted(tmp_path: Path) -> None:
+def test_a_group_writable_base_is_refused_not_trusted(tmp_path: Path) -> None:
+    """Fix round 3 (D164, T-21) reverses this r1 test: it asserted that a 0777
+    base is tightened to 0700 and then used; the ruling is that a base with a
+    mode other than 0700 is REFUSED (others may have planted entries in it),
+    left exactly as it is, and nothing is written."""
     vault = SecretVault(tmp_path / "root")
     vault.root.mkdir(parents=True)
     vault.base.mkdir(mode=0o777)
     os.chmod(vault.base, 0o777)  # noqa: S103
-    folder = vault.materialise("att_1", {"K1": b"value-123"}, read_only=False)
-    assert stat.S_IMODE(vault.base.stat().st_mode) == 0o700
-    assert folder.exists()
+    with pytest.raises(SecretFilesError) as exc:
+        vault.materialise("att_1", {"K1": b"value-123"}, read_only=False)
+    assert exc.value.failure_type is FailureType.CONFIG_ERROR
+    assert stat.S_IMODE(vault.base.stat().st_mode) == 0o777
+    assert list(vault.base.iterdir()) == []
 
 
 def test_default_root_is_dev_shm_on_linux() -> None:

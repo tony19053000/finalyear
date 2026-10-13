@@ -90,13 +90,6 @@ def test_a_symlink_inside_an_attempt_folder_is_not_followed(tmp_path: Path) -> N
     assert not folder.exists()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-21 (major, local security): SecretVault.sweep() iterates and wipes "
-    "THROUGH a symlinked base (/dev/shm is world-writable and the base name is "
-    "predictable), destroying the directories inside the symlink's target; only "
-    "materialise() checks the base with lstat",
-)
 def test_a_base_that_is_a_symlink_is_refused_and_never_swept_into(
     tmp_path: Path,
 ) -> None:
