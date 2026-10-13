@@ -2,14 +2,14 @@
 
 > Concise current state. Long-term plan: [`DEVELOPMENT_ROADMAP.md`](DEVELOPMENT_ROADMAP.md). Update at the end of every work session.
 
-**Last updated:** 2026-10-08 (**V0.7 G2 CLOSED (0.7.3, 0.7.4 `[x]`) — next: write G3 brief §5c (mTLS + revocation + D153 item 0)** · **V0.7 G1 CLOSED (0.7.1, 0.7.2 `[x]`) — next: write G2 (pairing) brief** · **V0.6 G4 CLOSED + reviewer follow-ups done `1f037f2`; next: V0.7 brief; 0.6.13 🧑 lab open** · older: **V0.6 G1–G3 CLOSED**; **G4 fix round 1 stopped during its exit list — next: finish the exit list**; V0.5 closes on 🧑 0.5.11 lab; one agent at a time)
+**Last updated:** 2026-10-13 (**V0.7 G1–G5 CLOSED (0.7.1–0.7.9 `[x]`); G6 (0.7.10) `[~]`: tester r1 FAIL → D162 → fix round 1 committed, exit list blocked on 🧑 mains power** · older: **V0.7 G2 CLOSED (0.7.3, 0.7.4 `[x]`) — next: write G3 brief §5c (mTLS + revocation + D153 item 0)** · **V0.7 G1 CLOSED (0.7.1, 0.7.2 `[x]`) — next: write G2 (pairing) brief** · **V0.6 G4 CLOSED + reviewer follow-ups done `1f037f2`; next: V0.7 brief; 0.6.13 🧑 lab open** · older: **V0.6 G1–G3 CLOSED**; **G4 fix round 1 stopped during its exit list — next: finish the exit list**; V0.5 closes on 🧑 0.5.11 lab; one agent at a time)
 
 ## Progress
 
 Generated from the roadmap checkboxes by `uv run python scripts/status_bars.py` — **re-run it and replace this block whenever checkboxes change.** Deferred versions (V0.11, V0.12, V0.13, V0.16) and deferred tasks are not counted. A task is only █ when it is `[x]` (tester + reviewer + evidence); written-but-unreviewed code is ▒.
 
 ```
-TOTAL   █████████▒▒░░░░░░░░░  42%  67/156 done, 15 in progress
+TOTAL   █████████▒▒░░░░░░░░░  42%  67/156 done, 16 in progress
 
 V0.1    █████████████████▒▒▒  83%  10/12  Foundations & engineering system
 V0.2    ██▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░░   9%   1/11  Lab setup & feasibility validation
@@ -17,7 +17,7 @@ V0.3    ███████████████▒▒▒▒░  73%  11/15
 V0.4    ███████████████▒▒▒▒░  76%  13/17  Remote execution core (Mode 1 foundation)
 V0.5    ██████████████████░░  90%  10/11  Data plane & environments
 V0.6    ███████████████████░  92%  13/14  Scheduling & reliability — Mode 1 complete
-V0.7    ███████████████░░░░░  75%   9/12  Security & pairing
+V0.7    ███████████████▒▒░░░  75%   9/12  Security & pairing
 V0.8    ░░░░░░░░░░░░░░░░░░░░   0%   0/10  Dashboard & CLI v1
 V0.9    ░░░░░░░░░░░░░░░░░░░░   0%   0/10  Benchmark & telemetry system v1
 V0.10   ░░░░░░░░░░░░░░░░░░░░   0%   0/10  Mode 3 Task Splitting
@@ -29,6 +29,7 @@ V1.0    ░░░░░░░░░░░░░░░░░░░░   0%   0/8 
 █ done `[x]` · ▒ in progress or waiting on a 🧑 lab step `[~]` · ░ not started
 
 ## Current Version
+**V0.7 — Security & pairing** · started 2026-10-07 · brief `docs/briefs/V0.7-security-pairing.md` (D144–D162) · **G1–G5 CLOSED** (0.7.1–0.7.9 `[x]`) · **G6 (0.7.10 job secrets) `[~]`** fix round 1 unverified · then G7 (0.7.11 security suite) · closes on 🧑 0.7.12 lab
 **V0.6 — Scheduling & reliability** · started 2026-10-05 · brief `docs/briefs/V0.6-scheduling-reliability.md` · **G1 CLOSED** (0.6.9, 0.6.10, 0.6.14 `[x]`) · **G2 CLOSED** (0.6.1, 0.6.2, 0.6.3, 0.6.5, 0.6.11 `[x]`) · next G3 retries/recovery/chaos
 **V0.4 — Remote execution core** · started 2026-09-28 · **G1–G5 closed** (0.4.1, 0.4.3–0.4.7, 0.4.9, 0.4.10, 0.4.11–0.4.14, 0.4.16 `[x]`; 0.4.2 `[~]` Windows CI digest; 0.4.8 `[~]` real CUDA run; 0.4.17 `[~]`) · closes on 🧑 0.4.15 lab run
 **V0.5 — Data plane & environments** · started 2026-10-01 · brief `docs/briefs/V0.5-data-plane.md` (D79–D94) · **G3 (V0.4 debt D94) CLOSED** · **G1 (0.5.1, 0.5.2) CLOSED** · **G2 (0.5.7) CLOSED** · G4, G5 CLOSED — closes on 🧑 0.5.11 lab

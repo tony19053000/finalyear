@@ -125,6 +125,7 @@ The team opens a **new Claude session per roadmap version** (large versions may 
 **Session end (mandatory, even if interrupted work):**
 0. Update `docs/SESSION_HANDOFF.md` (in-flight tasks, uncommitted state, blockers) and commit work in progress.
 1. Update roadmap checkboxes (`[~]` / `[x]` with evidence).
+1b. **Refresh the status bar.** Whenever a roadmap checkbox changes (`[ ]`→`[~]`, `[~]`→`[x]`) — when a task or group is closed, not only at session end — run `uv run python scripts/status_bars.py` and replace the `## Progress` block in `docs/STATUS.md` with its output, and bring the `**Last updated:**` line and the `## Current Version` entry to today. A task is not closed until the bar shows it.
 2. Update `docs/STATUS.md`: done, in progress, blockers, exact next task, anything a fresh session must know.
 3. Record new decisions (ADR or brief §40 decision log) and roadmap changes (design change log).
 3b. If the session changed anything `docs/PROJECT_SUMMARY.md` states, update it too.

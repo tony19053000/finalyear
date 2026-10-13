@@ -410,7 +410,7 @@ A version is **complete** only when all apply:
 - [x] **0.7.7** Revocation + certificate rotation — revocation (0.7.7a) done in G3 2026-10-11 (live cut, superseded serials, expiry cut, migrations 0016/0017); rotation done in G4 2026-10-12 (pending cert + activate, migration 0018); tester r2 PASS, reviewer APPROVE
 - [x] **0.7.8** Owner policy per node: accept jobs / accept GPU sessions / CPU-RAM-GPU caps — G5 `2b42a69`..`7aad987`; tester r1 FAIL → D160 fix → tester r2 PASS → T-10 fix → reviewer APPROVE (2026-10-12). Windows job-object caps proven in 🧑 0.7.12
 - [x] **0.7.9** Sandbox hardening: no privileged containers, dropped capabilities, read-only base, optional no-network jobs — G5 `a291934`..`7aad987`; create-time allow-list vs plan, 36 real-Docker tampers refused, 36 escape probes blocked, output cap + run-time disk floor; reviewer APPROVE (2026-10-12). Docker Desktop proof in 🧑 0.7.12
-- [~] **0.7.10** Job secrets (injected as files/env; redacted in logs) — G6 code `19c4fb1`..`f21646b`, exit list + tester + reviewer pending
+- [~] **0.7.10** Job secrets (injected as files/env; redacted in logs) — G6 code `19c4fb1`..`f21646b`; tester r1 FAIL 2026-10-13 (3 major, 7 minor) → D162 → fix round 1 `bee2625`..`630e0c1` committed, NOT verified (exit list blocked: laptop on battery; unit red on one open pre-G6 test); tester r2 + reviewer pending
 - [ ] **0.7.11** Security test suite + review against threat model
 - [ ] **0.7.12** 🧑 Lab run: 4 laptops pair by code, live revoke, code reuse/expiry, Wireshark capture, Windows agent join (`lab/checklists/V0.7-security.md`) — added 2026-10-07 (V0.7 brief)
 
