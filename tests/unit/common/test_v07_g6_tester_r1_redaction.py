@@ -225,12 +225,6 @@ def test_json_or_repr_escaped_values_are_not_redacted_today() -> None:
     assert redact_bytes(b"cfg=" + escaped, {"K": value}) == b"cfg=" + escaped
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-4 (minor, docs): OPERATIONS/THREAT_MODEL name 'reversed, split, "
-    "written to an output' but not JSON/repr-escaped forms of multi-line or "
-    "quoted secrets, a common accident (PEM keys in json logs)",
-)
 def test_docs_say_escaped_forms_are_not_covered() -> None:
     import pathlib
 

@@ -160,10 +160,20 @@ secrets:
   `secret_missing:NAME`); one deleted while the job waits fails it when it is
   about to start (same message, nothing reaches the laptop, not retried).
 - **On the laptop** the values exist only while the attempt runs: files in a
-  private folder in RAM (`/dev/shm` on Linux; `<data dir>/secrets` on other
-  systems), read-only for Docker jobs, wiped (overwritten, deleted) when the
-  attempt ends - also on failure, cancel and agent stop; a crashed agent's
-  leftovers are wiped at its next start. They travel only inside the mTLS
+  private folder in RAM (`/dev/shm` on Linux), read-only for Docker jobs,
+  wiped (overwritten, deleted) when the attempt ends - also on failure, cancel
+  and agent stop; a crashed agent's leftovers are wiped at its next start.
+
+  > **Not in RAM everywhere.** On Windows and macOS, and on a Linux machine
+  > without `/dev/shm`, the secret files are **on disk** for the attempt's
+  > lifetime: `<data dir>/secrets/...` (Windows:
+  > `%LOCALAPPDATA%\MeshForge\secrets`). They are private to your
+  > account and overwritten before they are deleted, but a disk can keep
+  > copies an overwrite does not reach (SSD wear levelling, a journal, a
+  > snapshot, a backup or sync tool watching the folder). Use full-disk
+  > encryption on such a laptop, keep the data dir out of synced/backed-up
+  > folders, or point `[agent.execution] secrets_root` at a RAM disk.
+ They travel only inside the mTLS
   session (`secrets_need_mtls` in `insecure-dev` unless `[security]
   allow_insecure_secrets = true`, for one-machine tests only).
 - **Logs** show `[secret:NAME]` where a value (or its base64 / hex /
@@ -173,6 +183,15 @@ secrets:
   after the value that starts first; `compute logs` pads it with `*` to the
   original length. **This stops accidents, not a job that leaks
   its secret on purpose** (reversed, split into pieces, written to an output).
+  **Also NOT redacted** - only the exact value and the encodings above are:
+  - a secret printed JSON- or `repr`-escaped: a multi-line or quoted secret
+    (a PEM key) through `json.dumps(...)`, a `repr()` of a bytes secret, a
+    structured log line - the escapes (`\n`, `\"`, `\x..`) change the bytes;
+  - a secret embedded in a larger base64 blob: HTTP Basic `user:secret`, a
+    base64 of a config file that contains the secret (the secret's own base64
+    does not appear inside it);
+  - any other transformation (base32, double encoding, gzip, a hash is fine).
+  A job that logs configuration as JSON should leave its secrets out of it.
 - **Changing a value:** `compute secret set NAME` again. Running attempts keep
   the value they started with; the next attempt (a new job or a retry) gets the
   new one.

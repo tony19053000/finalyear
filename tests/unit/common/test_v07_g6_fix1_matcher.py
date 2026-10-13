@@ -349,3 +349,28 @@ def test_a_short_interval_in_length_preserving_mode_is_only_stars() -> None:
     # Not longer than its marker: stars only, so no cut marker is ever shown.
     got = redact_bytes(b"x abcd y", {"LONGNAME": b"abcd"}, length_preserving=True)
     assert got == b"x **** y"
+
+
+# ----------------------------------------------------------------- T-4 (docs)
+
+
+def test_a_secret_inside_a_larger_base64_blob_is_not_redacted() -> None:
+    """Pins the documented limit (WS-I3, OPERATIONS 0a1b): only the value's
+    own encodings are found, not an encoding of text that contains it."""
+    import base64
+    import pathlib
+
+    value = b"basic-auth-secret-0123"
+    blob = base64.b64encode(b"user:" + value)  # an HTTP Basic credential
+    assert base64.b64encode(value) not in blob
+    line = b"Authorization: Basic " + blob + b"\n"
+    assert redact_bytes(line, {"K": value}) == line
+    root = pathlib.Path(__file__).resolve().parents[3]
+    for doc in ("OPERATIONS.md", "THREAT_MODEL.md"):
+        text = (root / "docs" / doc).read_text()
+        assert "larger base64 blob" in text, doc
+        assert "escaped" in text and "json.dumps" in text, doc
+    operations = (root / "docs" / "OPERATIONS.md").read_text()
+    assert "**on disk** for the attempt's" in operations  # D162 condition (4)
+    lab = (root / "lab" / "checklists" / "V0.7-security.md").read_text()
+    assert "base64 -w0 /tmp/val" in lab and "icacls" in lab
