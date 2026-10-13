@@ -324,11 +324,6 @@ def test_a_pre_existing_open_folder_is_not_trusted_blindly_for_the_file(
         load_or_create_master_key(folder / "secrets.key")
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-9 (minor, docs): OPERATIONS 0a1b says as_env may not be `LD_*` but "
-    "only LD_PRELOAD and LD_LIBRARY_PATH are refused (LD_AUDIT, LD_DEBUG pass)",
-)
 def test_as_env_refuses_every_ld_variable_as_the_docs_say() -> None:
     from meshforge.common.secret_names import check_env_name
 

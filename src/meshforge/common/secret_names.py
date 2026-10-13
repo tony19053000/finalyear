@@ -42,8 +42,11 @@ SECRET_NAME_PATTERN: Final = "^[A-Z_][A-Z0-9_]{0,63}$"  # noqa: S105 - a pattern
 _NAME_RE: Final = re.compile(SECRET_NAME_PATTERN)
 MIN_SECRET_BYTES: Final = 4
 MAX_SECRET_BYTES: Final = 64 * 1024
-RESERVED_ENV_PREFIXES: Final = ("MESHFORGE_",)
-"""``as_env`` may not set a variable the agent itself sets for the job."""
+RESERVED_ENV_PREFIXES: Final = ("MESHFORGE_", "LD_")
+"""``as_env`` may not set a variable the agent itself sets for the job
+(``MESHFORGE_*``), nor any dynamic-linker variable (``LD_*``: ``LD_PRELOAD``,
+``LD_AUDIT``, ``LD_LIBRARY_PATH`` ... change what code the job's processes
+load - D162 T-9: every one of them, as OPERATIONS says)."""
 RESERVED_ENV_NAMES: Final = frozenset(
     {"PATH", "HOME", "PYTHONPATH", "LD_PRELOAD", "LD_LIBRARY_PATH", "PYTHONHOME"}
 )
