@@ -5,6 +5,7 @@ daemon, and against a daemon address where nothing listens. Skips without Docker
 from __future__ import annotations
 
 import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -23,6 +24,28 @@ pytestmark = [pytest.mark.docker, pytest.mark.timeout(120)]
 
 def _host_has_nvidia_gpu() -> bool:
     return shutil.which("nvidia-smi") is not None and Path("/dev/nvidiactl").exists()
+
+
+def _nvidia_smi_failure() -> str | None:
+    """None when ``nvidia-smi`` works on this host, else why it does not
+    (``exit 9: NVIDIA-SMI has failed because ...``). V0.7 G6 gate: a host whose
+    tool and device node exist but whose driver cannot be reached cannot run a
+    GPU container either - the only case in which the positive check below is
+    skipped."""
+    try:
+        done = subprocess.run(
+            ["nvidia-smi"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return f"{type(exc).__name__}: {exc}"
+    if done.returncode == 0:
+        return None
+    lines = (done.stdout + done.stderr).strip().splitlines()
+    return f"exit {done.returncode}: {lines[0] if lines else 'no output'}"
 
 
 def _local_image() -> str | None:
@@ -61,17 +84,7 @@ def test_gpu_probe_really_runs_a_container_and_leaves_nothing(
         agent_label=label,
     )
     assert found.available
-    if image is None:
-        pytest.skip("the python-cpu image is not local; only the heuristic ran")
-    if has_gpu:
-        assert found.gpu_capable, found.gpu_reason
-        assert found.gpu_reason.startswith("verified")
-    else:
-        assert not found.gpu_capable
-        assert found.gpu_reason in {
-            "no_nvidia_container_runtime",
-            "gpu_probe_no_device_node",
-        } or found.gpu_reason.startswith("gpu_probe_failed")
+    # Whatever the probe found, it leaves no container behind.
     client = open_client(10)
     try:
         left = client.containers.list(
@@ -80,6 +93,32 @@ def test_gpu_probe_really_runs_a_container_and_leaves_nothing(
     finally:
         client.close()
     assert left == []
+    if image is None:
+        pytest.skip("the python-cpu image is not local; only the heuristic ran")
+    not_capable = {"no_nvidia_container_runtime", "gpu_probe_no_device_node"}
+    if has_gpu and not found.gpu_capable:
+        broken = _nvidia_smi_failure()
+        if broken is not None:
+            # The host's own driver is unreachable: the probe must say "not
+            # capable" with a typed reason (it did not claim a GPU it cannot
+            # use) - checked - and the positive check cannot run here.
+            assert found.gpu_reason in not_capable or found.gpu_reason.startswith(
+                "gpu_probe_failed"
+            ), found.gpu_reason
+            pytest.skip(
+                "nvidia-smi itself fails on this host "
+                f"({broken}): no GPU container can work here; the probe "
+                f"answered {found.gpu_reason!r} and left no container"
+            )
+    if has_gpu:
+        # nvidia-smi works on the host: never skipped, the probe must verify.
+        assert found.gpu_capable, found.gpu_reason
+        assert found.gpu_reason.startswith("verified")
+    else:
+        assert not found.gpu_capable
+        assert found.gpu_reason in not_capable or found.gpu_reason.startswith(
+            "gpu_probe_failed"
+        )
 
 
 def test_an_unreachable_daemon_is_a_typed_unavailable(
