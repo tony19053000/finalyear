@@ -181,13 +181,6 @@ async def test_a_blocked_write_delays_the_cancel_until_the_write_ends_and_does_n
         await agent.stop()
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason="T-19 (minor, flaky by nature): agent.stop() returns after its own "
-    "deadline (8 s) while the secret-write thread is still blocked; when the thread "
-    "ends later the plaintext folder is written after the agent is gone and stays "
-    "until the next start's sweep (in a real process nobody can wipe it)",
-)
 async def test_agent_shutdown_with_a_write_blocked_for_a_long_time_returns(
     alice: httpx.AsyncClient,
     grpc_target: str,

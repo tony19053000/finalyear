@@ -145,6 +145,7 @@ from meshforge.agent.execution.secret_files import (
     SECRETS_DIR_ENV,
     SecretFilesError,
     SecretVault,
+    SecretWrite,
     agent_tag,
     check_secrets,
     default_root,
@@ -156,7 +157,6 @@ from meshforge.agent.gc.leases import AttemptLeases, LeaseError
 from meshforge.agent.http_tls import AgentHttpTls
 from meshforge.agent.policy import LivePolicy
 from meshforge.agent.settings import AgentSettings
-from meshforge.agent.threads import settled
 from meshforge.common.bundle import BundleError, BundleLimits, unpack
 from meshforge.common.errors import FailureType, InvalidIdError
 from meshforge.common.hashing import Digest
@@ -397,6 +397,9 @@ class Executor:
         self._by_terminal_message: dict[str, str] = {}
         self._closing = False
         self._cleanup: set[asyncio.Task[None]] = set()
+        self._wipes: set[asyncio.Future[None]] = set()
+        """Secret wipes in progress (each bounded by ``secret_write_wait_s``);
+        :meth:`close` joins them (T-19)."""
         self._resend_task: asyncio.Task[None] | None = None
         self._resend_wake = asyncio.Event()
         self.terminal_resends = 0
@@ -475,6 +478,11 @@ class Executor:
         for task in [*leftovers, *self._cleanup]:
             task.cancel()
         await asyncio.gather(*leftovers, *self._cleanup, return_exceptions=True)
+        # T-19: a cancelled attempt's wipe runs on (shielded). Each one ends
+        # within secret_write_wait_s - wiped, or handed to its write thread -
+        # so the agent does not return with a wipe that nobody will finish.
+        if self._wipes:
+            await asyncio.gather(*self._wipes, return_exceptions=True)
 
     # ------------------------------------------------------------ commands
 
@@ -1066,6 +1074,7 @@ class Executor:
         await self._stage(attempt, plan, workdir, msg.spec)
         attempt.phases["stage_s"] = self._clock() - stage_started
         writing: asyncio.Future[Path] | None = None
+        write = SecretWrite(self.vault, attempt.attempt_id)
         try:
             if secrets:
                 # One matcher per attempt, compiled off the loop (D162, T-8);
@@ -1074,7 +1083,7 @@ class Executor:
                 attempt.matcher = await asyncio.to_thread(SecretMatcher, secrets)
                 ACTIVE.add(attempt.attempt_id, attempt.matcher)
                 attempt.secrets = secrets
-                writing = self._write_secrets(attempt, plan, secrets)
+                writing = self._write_secrets(write, plan, secrets)
                 folder = await self._written(attempt, writing)
                 plan = _with_secrets(plan, folder, secrets)
             logs = await asyncio.to_thread(
@@ -1094,10 +1103,17 @@ class Executor:
             attempt.matcher = None
             ACTIVE.remove(attempt.attempt_id)
             if writing is not None:
-                await asyncio.shield(self._wipe_secrets(attempt.attempt_id, writing))
+                # A task the executor keeps: close() joins it, so an agent stop
+                # does not return while a wipe is still waiting (T-19).
+                wipe = asyncio.ensure_future(
+                    self._wipe_secrets(attempt, write, writing)
+                )
+                self._wipes.add(wipe)
+                wipe.add_done_callback(self._wipes.discard)
+                await asyncio.shield(wipe)
 
     def _write_secrets(
-        self, attempt: _Attempt, plan: AttemptPlan, secrets: Mapping[str, bytes]
+        self, write: SecretWrite, plan: AttemptPlan, secrets: Mapping[str, bytes]
     ) -> asyncio.Future[Path]:
         """Start writing the attempt's secret files in a worker thread.
 
@@ -1109,8 +1125,7 @@ class Executor:
         owner = owner_of() if callable(owner_of) else None
         return asyncio.ensure_future(
             asyncio.to_thread(
-                self.vault.materialise,
-                attempt.attempt_id,
+                write.run,
                 secrets,
                 read_only=plan.runtime == "docker",
                 owner=owner,
@@ -1127,7 +1142,7 @@ class Executor:
             ) from None
 
     async def _wipe_secrets(
-        self, attempt_id: str, writing: asyncio.Future[Path]
+        self, attempt: _Attempt, write: SecretWrite, writing: asyncio.Future[Path]
     ) -> None:
         """Wipe ``<base>/<attempt_id>`` - by path, after the write has ended.
 
@@ -1136,9 +1151,28 @@ class Executor:
         it and the plaintext files stayed). The write runs in a thread that a
         cancel cannot stop; it is the only writer of this folder, so waiting
         for it first means nothing can appear after the wipe.
+
+        The wait is bounded (``secret_write_wait_s``, T-19): a hung filesystem
+        call must not hold a cancel or an agent stop for ever. Past the bound
+        the wipe is handed to the write thread (:class:`SecretWrite`) - it
+        still happens after the write, by the only party that is sure to be
+        there when the write returns.
         """
-        await settled(writing)
-        await asyncio.to_thread(self.vault.wipe, self.vault.folder(attempt_id))
+        bound = self._cfg.secret_write_wait_s
+        await asyncio.wait([writing], timeout=bound)
+        if writing.done() and not writing.cancelled():
+            writing.exception()  # retrieved: its awaiter reported it, or a stop won
+        if await asyncio.to_thread(write.finish):
+            return
+        log.warning(
+            "agent.execution.secret_write_pending",
+            node_id=self._node_id,
+            job_id=attempt.job_id,
+            attempt_id=attempt.attempt_id,
+            bound_s=bound,
+        )
+        # Its result is nobody's any more (the thread wipes what it wrote).
+        writing.add_done_callback(_retrieved)
 
     async def _stage(
         self,
@@ -1969,6 +2003,12 @@ def _free_mount(workdir: Path, mount: str) -> Path:
         )
     dest.parent.mkdir(parents=True, exist_ok=True)
     return dest
+
+
+def _retrieved(future: asyncio.Future[Any]) -> None:
+    """Done callback: consume an outcome nobody waits for any more."""
+    if not future.cancelled():
+        future.exception()
 
 
 def _remove_quietly(path: Path) -> None:

@@ -78,6 +78,7 @@ import os
 import shutil
 import stat
 import sys
+import threading
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -99,6 +100,7 @@ __all__ = [
     "SECRETS_DIR_ENV",
     "SecretFilesError",
     "SecretVault",
+    "SecretWrite",
     "SecretsBaseRefusedError",
     "agent_tag",
     "check_secrets",
@@ -536,6 +538,70 @@ class SecretVault:
                 fh.write(b"\0" * n)
                 remaining -= n
             os.fsync(fd)
+
+
+class SecretWrite:
+    """One attempt's secret files being written in a worker thread - and the
+    guarantee that they are wiped, whoever is still there to do it (T-19).
+
+    A cancelled ``await`` cannot stop the thread that writes, and a
+    filesystem call can hang (a stale mount). The attempt's cleanup therefore
+    waits for the write only for a bound (``[agent.execution]
+    secret_write_wait_s``) and then calls :meth:`finish`:
+
+    * the write has returned -> the folder is wiped now (True);
+    * it has not -> the wipe is **handed to the write thread itself** (False):
+      the moment ``materialise`` returns, that thread wipes the folder - no
+      event loop, no attempt, no executor is needed any more. A write that
+      had not even started is skipped.
+
+    One lock decides which of the two happens, so no order of "the write
+    returns" and "the wait gives up" leaves the folder behind. What remains:
+    until a hung write returns, the files it already wrote exist (``0600``,
+    in a ``0700`` folder in RAM); if the process is killed first, the next
+    start's :meth:`SecretVault.sweep` removes them.
+    """
+
+    def __init__(self, vault: SecretVault, attempt_id: str) -> None:
+        self._vault = vault
+        self._attempt_id = attempt_id
+        self._lock = threading.Lock()
+        self._returned = False
+        self._abandoned = threading.Event()
+
+    def run(
+        self,
+        values: Mapping[str, bytes],
+        *,
+        read_only: bool,
+        owner: tuple[int, int] | None = None,
+    ) -> Path:
+        """In the worker thread: :meth:`SecretVault.materialise`."""
+        with self._lock:
+            if self._abandoned.is_set():  # the attempt ended before we started
+                self._returned = True
+                raise SecretFilesError(
+                    "the attempt ended before its secrets were written"
+                )
+        try:
+            return self._vault.materialise(
+                self._attempt_id, values, read_only=read_only, owner=owner
+            )
+        finally:
+            with self._lock:
+                self._returned = True
+                if self._abandoned.is_set():
+                    self._vault.wipe(self._vault.folder(self._attempt_id))
+
+    def finish(self) -> bool:
+        """Wipe now if the write has returned (True); else leave the wipe to
+        the write thread (False). Blocking (a few small files): off the loop."""
+        with self._lock:
+            if not self._returned:
+                self._abandoned.set()
+                return False
+            self._vault.wipe(self._vault.folder(self._attempt_id))
+            return True
 
 
 def _check_component(name: str) -> None:

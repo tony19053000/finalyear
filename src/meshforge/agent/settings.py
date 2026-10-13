@@ -576,6 +576,20 @@ class ExecutionSettings(SectionModel):
             "Linux (RAM, never on disk), else <data_dir>/secrets."
         ),
     )
+    secret_write_wait_s: float = Field(
+        default=10.0,
+        ge=0.1,
+        le=120.0,
+        description=(
+            "V0.7 G6 fix round 3 (D164 T-19): longest the end of an attempt (a "
+            "cancel, an agent stop) waits for the thread that writes its secret "
+            "files before it goes on. Normally the write takes milliseconds. A "
+            "write still running then (a hung filesystem) is logged "
+            "(agent.execution.secret_write_pending) and wipes its own files the "
+            "moment it returns; if the agent is killed first, the next start "
+            "sweeps them."
+        ),
+    )
     free_disk_read_failure_limit: int = Field(
         default=5,
         ge=1,
