@@ -177,7 +177,8 @@ def test_differential_against_an_independent_oracle(preserve: bool) -> None:
             try:
                 got, held = _run(data, matcher, preserve, cuts)
             except RedactorHang:
-                continue  # T-17: reported by test_a_pair_of_secrets_can_hang_the_matcher
+                # fix round 2: T-17 is fixed, a hang is a failure again
+                pytest.fail(f"redactor hang: {(n, secrets, data, cuts, preserve)}")
             assert got == want, (n, secrets, data, cuts, preserve)
             if preserve:
                 assert len(got) == len(data)
@@ -196,7 +197,8 @@ def test_no_form_of_any_value_survives_and_other_bytes_are_untouched() -> None:
             try:
                 got, _ = _run(data, matcher, preserve, cuts)
             except RedactorHang:
-                continue  # T-17
+                # fix round 2: T-17 is fixed, a hang is a failure again
+                pytest.fail(f"redactor hang: {(secrets, data, cuts, preserve)}")
             covered = bytearray(len(data))
             for s, e, _n in _intervals(data, secrets):
                 covered[s:e] = b"\x01" * (e - s)
@@ -398,7 +400,8 @@ def test_hold_back_never_exceeds_the_longest_suffix_that_could_still_begin_a_for
                 with _guard():
                     red.feed(data[len(seen) : cut])
             except RedactorHang:
-                break  # T-17
+                # fix round 2: T-17 is fixed, a hang is a failure again
+                pytest.fail(f"redactor hang: {(secrets, data, cut)}")
             seen = data[:cut]
             # brute force: longest suffix of the stream that is a PROPER prefix
             # of some form
@@ -416,13 +419,6 @@ is an ordinary thing for a job to print; the second secret is a substring of
 its own hex form (``6130303061``) overlapping the first's."""
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-17 (BLOCKER): StreamRedactor.feed never returns for two secrets "
-    "{00aaaa000a, a000a} and the output 3030616161613030306 (spin in "
-    "_Walker.run via SecretMatcher.ensure); a synchronous loop on the "
-    "controller's / agent's event loop = control plane frozen forever",
-)
 @pytest.mark.parametrize(
     ("data", "preserve"),
     [(b"3030616161613030306", False), (b"30306161616130303061", True)],

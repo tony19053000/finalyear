@@ -35,6 +35,45 @@ build for the largest job (256 KiB of values -> ~5.5 MB of forms):
   *inside* a form. Every query is a bisect, so a stream never re-reads a byte:
   the work is linear in the output whatever the values look like.
 
+Termination (D163, T-17)
+------------------------
+Every loop has a measure that only moves one way and is bounded:
+
+* ``_lcp``: the gallop adds ``step >= 16`` to ``lo`` (bounded by ``hi``); the
+  binary search halves ``hi - lo``.
+* ``SecretMatcher._build`` / ``_anchor_regex``: ``i`` moves to ``j > i``; a
+  recursive call has a strictly larger ``depth`` (at most the longest form).
+* ``_Walker.run``: the measure is ``4 * start + position`` (:meth:`_Walker.key`;
+  ``start`` is the earliest candidate still alive). A turn of the loop either
+  returns, or matches at least one more byte (position up), or drops the
+  candidate for a later start (start up by >= 1; a search restarts 3 bytes
+  back only after a candidate of >= 4 bytes, so ``4 * start`` wins). Bounded
+  by ``5 * limit``.
+* ``_SelfScan.advance(depth)``: one ``run``. It returns None only with
+  ``front >= depth`` (the records are complete), or a need ``(form, d)`` with
+  ``d < depth`` - a self-scan starts at byte 1, so the prefix it follows is
+  shorter than the text it has read.
+* ``SecretMatcher.ensure``: a stack of needs. Depths strictly shrink up the
+  stack (so at most ``depth`` pushes in a row). After a pop the need below is
+  satisfied, so that scan takes the step it waited for: some walker's measure
+  goes up. The measures are bounded, so the turns are.
+* ``StreamRedactor.feed``: each wait is followed by the step waited for, so
+  the stream walker's measure rises between two waits.
+
+T-17 was a break of the second-to-last line: after an anchor hit, ``front``
+(and the new episode's reach) kept their old value, so a scan asked for a
+depth it had already jumped past answered "done" with ``front < depth``, and
+the scan that asked, asked again - for ever. The same half-updated state made
+a waiting scan's episode list unsorted, which could hide a match (a value
+printed in clear). The hit is now one step: candidate, ``front`` and episode
+together.
+
+**The measures are also checked while running**: a loop that would go round
+without moving raises :class:`RedactionStallError`; the stream (and every
+other stream of that matcher) then emits ``*`` for every byte
+(:attr:`StreamRedactor.failed`). A bug here can cost a log, never freeze an
+event loop and never print a value.
+
 Overlaps (T-2): **the union of all matched intervals is redacted**. A merged
 interval gets ONE replacement, named after the match that starts first (the
 longest one if several start there): ``[secret:NAME]`` on the agent; on the
@@ -74,6 +113,7 @@ from typing import Final
 __all__ = [
     "ACTIVE",
     "ActiveSecrets",
+    "RedactionStallError",
     "SecretMatcher",
     "StreamRedactor",
     "encoded_forms",
@@ -86,6 +126,12 @@ __all__ = [
 _MIN_FORM_BYTES: Final = 4
 _ANCHOR: Final = _MIN_FORM_BYTES
 """Every form is at least this long, so its first ``_ANCHOR`` bytes exist."""
+
+
+class RedactionStallError(RuntimeError):
+    """A matcher loop went round without moving forward (module docstring,
+    "Termination"). Never expected; raised instead of spinning, and the stream
+    then withholds its output (:attr:`StreamRedactor.failed`)."""
 
 
 def marker(name: str) -> bytes:
@@ -204,27 +250,45 @@ class _Walker:
         self.on_match = on_match
         self.scan = scan
 
+    def key(self) -> int:
+        """The measure of :meth:`run` (module docstring, "Termination"):
+        ``4 * earliest live start + position``. It never goes down."""
+        return 5 * self.j + self.d if self.node is not None else 5 * self.c
+
     def run(self, limit: int) -> _Need | None:
-        """Read ``text[:limit]``. Returns None when done, or the self-scan
-        that has to advance first (the caller advances it and calls again)."""
+        """Read ``text[:limit]``. Returns None when done (then ``front >=
+        limit``), or the self-scan that has to advance first (the caller
+        advances it and calls again; nothing was changed)."""
         m = self.m
         text = self.text
         scan = self.scan
+        last = self.key() - 1
         while True:
             node = self.node
+            key = 5 * self.j + self.d if node is not None else 5 * self.c
+            if key <= last:
+                raise RedactionStallError("matcher position did not advance")
+            last = key
             if node is None:
                 hit = m.anchor.search(text, self.c, limit)
+                m.ticks += 1
                 if hit is None:
                     if limit - (_ANCHOR - 1) > self.c:
                         self.c = limit - (_ANCHOR - 1)
                     if limit > self.front:
                         self.front = limit
                     return None
+                # One step, with nothing observable in between: the candidate,
+                # ``front`` (no candidate lives before the hit - T-17) and the
+                # new episode, whose reach starts at ``front`` so that the
+                # episode list stays sorted while this scan waits for another.
                 self.j = self.c = hit.start()
                 self.d = 0
+                if self.j > self.front:
+                    self.front = self.j
                 self.node = node = m.root
                 if scan is not None:
-                    scan.open_episode(self.j, self.j)
+                    scan.open_episode(self.j, self.front)
             j, d = self.j, self.d
             pos = j + d
             if d == node.end:
@@ -264,6 +328,7 @@ class _Walker:
                     for s, e, f in inner.m_recs[lo:hi]:
                         self.on_match(j + s, j + e, f)
                 self.d = nd
+                m.ticks += 1
                 if j + nd > self.front:
                     self.front = j + nd
                 if scan is not None:
@@ -283,6 +348,7 @@ class _Walker:
             if inner is not self.scan and inner.front < d:
                 return (node.k, d)
             state = inner.state_at(d)
+        self.m.ticks += 1
         if state is None:
             self.node = None
             self.c = j + d - (_ANCHOR - 1)
@@ -345,11 +411,19 @@ class _SelfScan:
         self.e_ends[-1].append(node.end)
 
     def advance(self, depth: int) -> _Need | None:
+        """Scan up to ``depth``. None: the records are complete up to there.
+        Otherwise the scan that must advance first, to a smaller depth."""
         walker = self._walker
         limit = min(depth, len(walker.text))
         if walker.front >= limit:
             return None
-        return walker.run(limit)
+        need = walker.run(limit)
+        if need is None:
+            if walker.front < limit:
+                raise RedactionStallError("self-scan stopped short")
+        elif need[1] >= depth:
+            raise RedactionStallError("self-scan asked for a deeper scan")
+        return need
 
     def state_at(self, depth: int) -> tuple[int, _Node] | None:
         """``(start, node)`` of the longest proper suffix of ``forms[k][:depth]``
@@ -409,6 +483,11 @@ class SecretMatcher:
         """Forms that are valid text, for :class:`ActiveSecrets`."""
         self.lock: Final = threading.Lock()
         self._scans: dict[int, _SelfScan] = {}
+        self.ticks = 0
+        """Steps forward made by any walker (the progress witness of
+        :meth:`ensure`)."""
+        self.stalled = False
+        """A loop guard fired: every stream of this matcher withholds output."""
 
     def __bool__(self) -> bool:
         return bool(self.forms)
@@ -456,13 +535,24 @@ class SecretMatcher:
         return scan
 
     def ensure(self, need: _Need) -> None:
-        """Advance a self-scan (and whatever it needs first; depths only
-        shrink along the chain, so this ends). An explicit stack: a chain can
-        be as long as the number of forms."""
+        """Advance a self-scan, and first whatever it needs (an explicit
+        stack; module docstring, "Termination"): depths strictly shrink up the
+        stack, so at most ``depth`` pushes can follow each other; a pop is
+        followed by a step forward of the scan below it. More turns than that
+        without any walker moving is a bug and raises."""
         stack = [need]
+        seen = self.ticks
+        idle = 0
         while stack:
             k, depth = stack[-1]
             more = self.scan(k).advance(depth)
+            if self.ticks != seen:
+                seen = self.ticks
+                idle = 0
+            else:
+                idle += 1
+                if idle > need[1] + 2:
+                    raise RedactionStallError("self-scans wait for each other")
             if more is None:
                 stack.pop()
             else:
@@ -493,6 +583,10 @@ class StreamRedactor:
         self._walker = _Walker(self._m, self._buf, 0, self._match)
         self.replaced = 0
         """Replacements made so far (tests and metrics; never the values)."""
+        self.failed = False
+        """A loop guard fired (:class:`RedactionStallError`): from then on
+        this stream emits ``*`` for every byte - nothing can leak, nothing can
+        hang."""
 
     @property
     def held(self) -> int:
@@ -564,6 +658,20 @@ class StreamRedactor:
             walker.front -= upto
         return b"".join(out)
 
+    def _read(self, end: int) -> None:
+        """Run the walker over ``_buf[:end]``, advancing the self-scans it
+        waits for."""
+        m = self._m
+        walker = self._walker
+        waited = walker.key() - 1
+        while (need := walker.run(end)) is not None:
+            # Between two waits the walker took the step it waited for, so
+            # its measure went up.
+            if walker.key() <= waited:
+                raise RedactionStallError("stream waits twice in place")
+            waited = walker.key()
+            m.ensure(need)
+
     def feed(self, data: bytes) -> bytes:
         """The redacted bytes that are safe to emit now."""
         m = self._m
@@ -572,10 +680,15 @@ class StreamRedactor:
         with m.lock:
             buf = self._buf
             buf += data
+            if m.stalled:
+                return self._withhold()
             walker = self._walker
             end = len(buf)
-            while (need := walker.run(end)) is not None:
-                m.ensure(need)
+            try:
+                self._read(end)
+            except RedactionStallError:
+                m.stalled = True
+                return self._withhold()
             if walker.node is None:
                 # Nothing in progress: keep only the longest tail that could
                 # begin a form (T-3).
@@ -587,12 +700,25 @@ class StreamRedactor:
                     walker.c = end
             return self._emit(walker.c)
 
+    def _withhold(self) -> bytes:
+        """Fail closed: everything held becomes ``*`` (same length)."""
+        self.failed = True
+        out = b"*" * len(self._buf)
+        self._buf.clear()
+        self._iv.clear()
+        walker = self._walker
+        walker.node = None
+        walker.c = walker.j = walker.d = walker.front = 0
+        return out
+
     def flush(self) -> bytes:
         """Release what is held (the end of the stream, or a gap)."""
         m = self._m
         if not m:
             return b""
         with m.lock:
+            if m.stalled:
+                return self._withhold()
             out = self._emit(len(self._buf))
             self._buf.clear()
             self._iv.clear()
