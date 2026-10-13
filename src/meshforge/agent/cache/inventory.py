@@ -56,6 +56,11 @@ log = get_logger(__name__)
 TREES_INDEX_NAME: Final = "trees.idx"
 _REPAIR_BATCH: Final = 256
 """Index repairs applied per lock hold in :meth:`CacheInventory.reconcile_disk`."""
+_REPAIR_YIELD_S: Final = 0.0005
+"""Real pause between two repair batches. ``threading.Lock`` is not fair:
+with ``sleep(0)`` the repairing thread took the lock again before a waiting
+event loop had woken, batch after batch (0.2-0.35 s stalls measured on a laptop
+on battery, CPU in powersave); a real sleep hands the lock over (4 ms)."""
 _HEX_RE: Final = re.compile(r"[0-9a-f]{64}")
 _ENV_KINDS: Final = ("venv", "subprocess")
 _ENV_MARKER: Final = ".meshforge-env.json"
@@ -200,7 +205,7 @@ class CacheInventory:
             gone = [h for h in self._blobs if h not in on_disk]
         unseen = [h for h in on_disk if h not in self._blobs]
         added = removed = 0
-        # Bounded batches, the lock released (and the GIL yielded) between them:
+        # Bounded batches, the lock released and a real pause between them:
         # the event loop's pending_count()/counts() never wait for the whole
         # repair (G4 fix round 2). Each candidate is re-checked inside its batch.
         for start in range(0, len(gone), _REPAIR_BATCH):
@@ -213,7 +218,7 @@ class CacheInventory:
                     for tree_hex in list(self._trees_of.get(hex_, ())):
                         self._drop_tree_locked(tree_hex)
                     removed += 1
-            time.sleep(0)
+            time.sleep(_REPAIR_YIELD_S)
         for start in range(0, len(unseen), _REPAIR_BATCH):
             with self._lock:
                 for hex_ in unseen[start : start + _REPAIR_BATCH]:
@@ -222,7 +227,7 @@ class CacheInventory:
                     self._blobs[hex_] = on_disk[hex_]
                     self._mark("blob", hex_, True, on_disk[hex_])
                     added += 1
-            time.sleep(0)
+            time.sleep(_REPAIR_YIELD_S)
         if added or removed:
             log.warning("agent.cache.index_repaired", added=added, removed=removed)
         return added, removed
