@@ -461,7 +461,7 @@ class EnvBuilder:
                 except OSError as exc:
                     raise _io_error(exc) from exc
             except BaseException as exc:
-                await _shielded(remove_tree, building)
+                await _discard(building)
                 log.warning(
                     "agent.envs.build_failed",
                     **fields,
@@ -581,7 +581,7 @@ class EnvBuilder:
                 asyncio.to_thread(self._write_requirements, digest, requirements)
             )
         except BaseException:
-            await _shielded(remove_tree, self.staging_dir(digest))
+            await _discard(self.staging_dir(digest))
             raise
 
     async def find_interpreter(self, request: str | None) -> Interpreter:
@@ -733,7 +733,7 @@ class EnvBuilder:
                         on_output=on_output,
                     )
                 finally:
-                    await _shielded(remove_tree, req.parent)
+                    await _discard(req.parent)
 
         return await self.ensure_dir_env(
             "venv", digest, build, deadline=deadline, log_fields=log_fields
@@ -789,7 +789,7 @@ class EnvBuilder:
                     on_output=on_output,
                 )
             finally:
-                await _shielded(remove_tree, req.parent)
+                await _discard(req.parent)
 
         return await self.ensure_dir_env(
             "subprocess", digest, build, deadline=deadline, log_fields=log_fields
@@ -826,6 +826,18 @@ async def _to_thread[T](func: Callable[..., T], *args: object) -> T:
     return await asyncio.to_thread(func, *args)
 
 
-async def _shielded(func: Callable[..., object], *args: object) -> None:
-    """Cleanup that a second cancellation must not cut short."""
-    await asyncio.shield(asyncio.to_thread(func, *args))
+async def _discard(path: Path) -> None:
+    """Remove a build leftover from a cleanup (``except`` / ``finally``).
+
+    Shielded: a second cancellation cannot cut the removal short. And it never
+    raises an error of its own: it runs while another exception - often a
+    ``CancelledError`` - is on its way, and must not replace it (T-20). What
+    cannot be removed is logged and removed by path before the next build
+    (:meth:`EnvBuilder._clear`, :meth:`EnvBuilder._write_requirements`).
+    """
+    try:
+        await asyncio.shield(asyncio.to_thread(remove_tree, path))
+    except Exception as exc:  # noqa: BLE001 - never replace the exception in flight
+        log.warning(
+            "agent.envs.cleanup_failed", path=path.name, cause=type(exc).__name__
+        )

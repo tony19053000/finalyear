@@ -108,7 +108,11 @@ from typing import TYPE_CHECKING, Any, Final, Protocol
 from meshforge.agent.cas import AgentCas
 from meshforge.agent.cas.fetcher import BlobSource, FetchTuning
 from meshforge.agent.cas.sources import TokenLookup
-from meshforge.agent.envs.fsutil import make_read_only, remove_tree
+from meshforge.agent.envs.fsutil import (
+    make_read_only,
+    remove_tree,
+    remove_tree_quietly,
+)
 from meshforge.agent.execution.failure_evidence import (
     STDERR_TAIL_BYTES,
     OutputTail,
@@ -1968,5 +1972,4 @@ def _free_mount(workdir: Path, mount: str) -> Path:
 
 
 def _remove_quietly(path: Path) -> None:
-    with contextlib.suppress(OSError):
-        remove_tree(path)
+    remove_tree_quietly(path)

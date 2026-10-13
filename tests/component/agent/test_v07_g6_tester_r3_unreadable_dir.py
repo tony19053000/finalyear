@@ -21,12 +21,6 @@ pytestmark = [
 ]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-20 (minor, pre-G6): remove_tree raises TypeError (not OSError) on a tree "
-    "with an unreadable directory; _remove_quietly / evict handlers catch OSError "
-    "only, and a shielded cleanup's TypeError replaces the CancelledError",
-)
 @pytest.mark.parametrize("mode", [0o000, 0o300, 0o100])
 def test_remove_tree_removes_a_tree_with_an_unreadable_directory(
     tmp_path: Path, mode: int

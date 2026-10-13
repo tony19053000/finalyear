@@ -34,15 +34,19 @@ from typing import Final
 from meshforge.agent.envs.errors import EnvError
 from meshforge.common.errors import FailureType
 from meshforge.common.filelock import locked
+from meshforge.common.logging import get_logger
 
 __all__ = [
     "TreeSummary",
     "env_lock",
     "make_read_only",
     "remove_tree",
+    "remove_tree_quietly",
     "tree_size",
     "tree_summary",
 ]
+
+log = get_logger(__name__)
 
 _POLL_S: Final = 0.05
 _WRITE_BITS: Final = stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH
@@ -105,23 +109,54 @@ def _drop_write(path: str) -> None:
     os.chmod(path, stat.S_IMODE(os.lstat(path).st_mode) & ~_WRITE_BITS)
 
 
-def _writable_again(func: Callable[..., object], path: str, exc: BaseException) -> None:
-    """``rmtree`` error hook: a read-only entry (or its read-only parent) blocks
-    removal - make both writable and retry once."""
-    if not isinstance(exc, OSError):
-        raise exc
-    parent = os.path.dirname(path)
-    with contextlib.suppress(OSError):
-        os.chmod(parent, stat.S_IRWXU)
-    with contextlib.suppress(OSError):
-        if not os.path.islink(path):
-            os.chmod(path, stat.S_IRWXU)
-    func(path)
+def _remover() -> Callable[[Callable[..., object], str, BaseException], None]:
+    """The ``rmtree`` error hook of ONE :func:`remove_tree` call.
+
+    ``rmtree`` reports the step that failed (``func``) and the entry
+    (``target``). A read-only or unreadable entry - or parent - is what blocks
+    it, so both get the owner's ``rwx`` and the entry is tried again, **once**:
+
+    * ``os.unlink`` / ``os.rmdir`` (one entry): the same call again;
+    * every other step (``os.lstat``, ``os.open``, ``os.scandir`` - the walk
+      INTO a directory failed, e.g. a mode ``000`` directory a job left): the
+      directory is walked again from here, now that it can be read.
+
+    Never ``func(target)`` for a step other than those two: ``os.open`` needs
+    flags, and calling it with the path alone raised ``TypeError`` (T-20) -
+    which no caller catches and which replaced a ``CancelledError`` in a
+    shielded cleanup. A second failure of the same entry is raised as the
+    ``OSError`` it is (so the walk ends: each entry is retried at most once);
+    an entry that is gone already is what we wanted.
+    """
+    retried: set[str] = set()
+
+    def again(func: Callable[..., object], target: str, exc: BaseException) -> None:
+        if isinstance(exc, FileNotFoundError):
+            return
+        if not isinstance(exc, OSError) or target in retried:
+            raise exc
+        retried.add(target)
+        with contextlib.suppress(OSError):
+            os.chmod(os.path.dirname(target), stat.S_IRWXU)
+        is_link = os.path.islink(target)
+        with contextlib.suppress(OSError):
+            if not is_link:
+                os.chmod(target, stat.S_IRWXU)
+        with contextlib.suppress(FileNotFoundError):  # gone meanwhile: done
+            if func is os.unlink or func is os.rmdir:
+                func(target)
+            elif is_link or not os.path.isdir(target):
+                os.unlink(target)
+            else:
+                shutil.rmtree(target, onexc=again)
+
+    return again
 
 
 def remove_tree(path: Path) -> None:
-    """Remove ``path`` (a file, a symlink or a whole tree, read-only or not).
-    Missing is fine."""
+    """Remove ``path`` (a file, a symlink or a whole tree - read-only,
+    unreadable or not). Missing is fine. Raises only :class:`OSError` (an
+    entry that cannot be removed even after it was made writable)."""
     if not os.path.lexists(path):
         return
     if path.is_symlink() or not path.is_dir():
@@ -130,7 +165,21 @@ def remove_tree(path: Path) -> None:
         return
     with contextlib.suppress(OSError):
         os.chmod(path, stat.S_IRWXU)
-    shutil.rmtree(path, onexc=_writable_again)
+    shutil.rmtree(path, onexc=_remover())
+
+
+def remove_tree_quietly(path: Path) -> bool:
+    """:func:`remove_tree` for a cleanup that runs while another exception is
+    on its way (a cancel above all): it **never raises**, so it can never
+    replace that exception. A tree that cannot be removed is logged (its name
+    and the cause) and left to the next build or start sweep, which removes
+    leftovers by path. True when nothing is left."""
+    try:
+        remove_tree(path)
+    except Exception as exc:  # noqa: BLE001 - must not replace the exception in flight
+        log.warning("agent.fs.cleanup_failed", path=path.name, cause=type(exc).__name__)
+        return False
+    return True
 
 
 def tree_size(root: Path) -> int:

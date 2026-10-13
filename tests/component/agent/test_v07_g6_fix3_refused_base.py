@@ -12,6 +12,7 @@ to a directory. Real mTLS controller, PostgreSQL, a real agent in this loop:
 
 from __future__ import annotations
 
+import asyncio
 import os
 import sys
 from collections.abc import AsyncIterator
@@ -151,3 +152,54 @@ async def test_a_planted_base_fails_secret_jobs_typed_and_nothing_else(
         elif planted.is_dir():
             planted.rmdir()
     assert (victim / "att_precious" / "f").read_bytes() == b"keep"
+
+
+LOCKING_WORKLOAD = r"""
+import asyncio
+import os
+os.makedirs("locked/deep/deeper")
+open("locked/deep/f", "w").write("x")
+open("locked/deep/deeper/g", "w").write("y")
+os.chmod("locked/deep/deeper", 0o300)
+os.chmod("locked/deep", 0o100)
+os.chmod("locked", 0)
+print("locked", flush=True)
+"""
+
+
+async def test_a_job_cannot_make_its_workdir_undeletable(
+    alice: httpx.AsyncClient, grpc_target: str, tmp_path: Path
+) -> None:
+    """T-20: the workdir of a job that leaves ``chmod 000`` directories is
+    removed when the attempt ends - not at the next agent start."""
+    project = tmp_path / "proj"
+    project.mkdir()
+    (project / "main.py").write_text(LOCKING_WORKLOAD)
+    agent = await ExecAgent.start(
+        grpc_target,
+        tmp_path / "agent",
+        agent_overrides={"policy": {"accept_jobs": True, "allow_unsandboxed": True}},
+    )
+    try:
+        work_root = agent.executor.work_root
+        job_id = await submit(
+            alice,
+            project,
+            None,
+            {
+                "name": "g6-fix3-locked",
+                "entrypoint": ["python", "main.py"],
+                "retry": {"max_attempts": 1},
+            },
+        )
+        job = await wait_job(alice, job_id, timeout_s=60)
+        assert job["state"] == "succeeded", job
+        left = ["?"]
+        for _ in range(200):
+            left = sorted(p.name for p in work_root.iterdir())
+            if not left:
+                break
+            await asyncio.sleep(0.05)
+        assert left == [], left
+    finally:
+        await agent.stop()

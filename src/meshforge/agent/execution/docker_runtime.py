@@ -94,7 +94,7 @@ from typing import TYPE_CHECKING, Any, Final
 
 from meshforge.agent.envs.builder import only_binary_hint
 from meshforge.agent.envs.errors import EnvError
-from meshforge.agent.envs.fsutil import remove_tree
+from meshforge.agent.envs.fsutil import remove_tree, remove_tree_quietly
 from meshforge.agent.envs.hash import EnvInputs, env_hash
 from meshforge.agent.execution._pump import OutputPump
 from meshforge.agent.execution.docker_support import (
@@ -1025,7 +1025,7 @@ class DockerRuntime:
                 asyncio.to_thread(self._stage_requirements, digest, requirements)
             )
         except BaseException:
-            await asyncio.shield(asyncio.to_thread(remove_tree, staging))
+            await asyncio.shield(asyncio.to_thread(remove_tree_quietly, staging))
             raise
         archive = self._env_dir_archive()
         tag = f"{ENV_IMAGE_REPO}:{digest}"
@@ -1059,7 +1059,7 @@ class DockerRuntime:
                 after_exit=commit,
             )
         finally:
-            await asyncio.shield(asyncio.to_thread(remove_tree, staging))
+            await asyncio.shield(asyncio.to_thread(remove_tree_quietly, staging))
         if outcome.timed_out:
             raise _FaultError(
                 FailureType.TIMEOUT,
