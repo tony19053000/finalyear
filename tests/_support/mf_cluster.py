@@ -958,8 +958,28 @@ class Fabric:
         if self.loop is not None:
             self.loop.close()
         self._http.close()
+        if not survivors:
+            self._drop_secret_bases()
         if survivors:
             raise HarnessError(f"processes survived teardown: {survivors}")
+
+    def _drop_secret_bases(self) -> None:
+        """The agents are dead and their data dirs are never used again: do
+        what their next start would have done (sweep), and remove the base
+        folder itself so ``/dev/shm`` does not fill with one per test agent."""
+        from meshforge.agent.execution.secret_files import (
+            SecretVault,
+            agent_tag,
+            default_root,
+        )
+
+        for node in self.nodes:
+            vault = SecretVault(
+                default_root(node.data_dir), tag=agent_tag(node.data_dir)
+            )
+            with contextlib.suppress(OSError):
+                vault.sweep()
+                vault.base.rmdir()
 
     def all_pids(self) -> list[int]:
         procs = [n.process for n in self.nodes]

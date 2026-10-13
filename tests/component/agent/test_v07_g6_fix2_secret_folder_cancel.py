@@ -105,3 +105,39 @@ async def test_a_write_that_starts_after_the_cancel_is_still_wiped(
     finally:
         release.set()
         await agent.stop()
+
+
+async def test_an_agent_start_sweeps_leftovers_under_its_own_base_only(
+    grpc_target: str, tmp_path: Path, runtime: object
+) -> None:
+    """D163 item 7: the stale folders found in ``/dev/shm`` had this shape
+    (an attempt folder ``0500`` with ``0600`` files). The agent that owns the
+    data dir removes them at its next start; an agent on ANOTHER data dir has
+    another base (the tag is a hash of the data dir) and never touches them -
+    which is why leftovers of test agents, each on its own temporary data dir,
+    were never swept."""
+    owner = await ExecAgent.start(grpc_target, tmp_path / "agent-a")
+    vault = owner.executor.vault
+    await owner.stop()
+    for attempt in ("att_01M4RE6FP5MGDN7S4FA3VRMBWK", "att_crashed"):
+        vault.materialise(
+            attempt,
+            {"API_KEY": b"left-api-key", "DB_PASS": b"left-pass"},
+            read_only=False,
+        )
+    left = sorted(p.name for p in vault.base.iterdir())
+    assert left == ["att_01M4RE6FP5MGDN7S4FA3VRMBWK", "att_crashed"]
+
+    other = await ExecAgent.start(grpc_target, tmp_path / "agent-b")
+    try:
+        assert other.executor.vault.base != vault.base
+        assert sorted(p.name for p in vault.base.iterdir()) == left  # not its own
+    finally:
+        await other.stop()
+
+    again = await ExecAgent.start(grpc_target, tmp_path / "agent-a")
+    try:
+        assert again.executor.vault.base == vault.base
+        assert list(vault.base.iterdir()) == []
+    finally:
+        await again.stop()

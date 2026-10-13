@@ -52,9 +52,10 @@ that directory on ``sys.path`` so they import as top-level modules (e.g.
 
 from __future__ import annotations
 
+import contextlib
 import io
 import sys
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from pathlib import Path
 from typing import Final
 
@@ -226,6 +227,53 @@ def fabric_ca() -> object:
     import mf_fabric
 
     return mf_fabric.fabric_ca()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _secret_bases_cleaned() -> Iterator[None]:
+    """Remove the (empty) secret base folders this test process created.
+
+    Every in-process test agent has its own data dir, hence its own
+    ``/dev/shm/meshforge-secrets-<uid>-<tag>`` base (V0.7 G6); no agent ever
+    starts on that data dir again, so nothing sweeps it and the empty folders
+    pile up in RAM (425 of them were found in fix round 2). A base that is
+    NOT empty at the end is a secret folder an agent failed to wipe: it is
+    left in place and named (file names only) in red.
+    """
+    try:
+        from meshforge.agent.execution.secret_files import SecretVault
+    except ImportError:  # a tier without the agent extra
+        yield
+        return
+    created: set[Path] = set()
+    real = SecretVault._ensure_base
+
+    def recording(vault: SecretVault) -> Path:
+        base = real(vault)
+        created.add(base)
+        return base
+
+    SecretVault._ensure_base = recording  # type: ignore[method-assign]
+    try:
+        yield
+    finally:
+        SecretVault._ensure_base = real  # type: ignore[method-assign]
+        left: list[str] = []
+        for base in sorted(created):
+            try:
+                base.rmdir()
+            except FileNotFoundError:
+                continue
+            except OSError:
+                with contextlib.suppress(OSError):
+                    left.extend(
+                        str(path) for path in sorted(base.rglob("*")) if path.is_file()
+                    )
+        if left:
+            sys.stderr.write(
+                "\nsecret files left behind by this test run (an agent did not "
+                "wipe them):\n  " + "\n  ".join(left) + "\n"
+            )
 
 
 @pytest.fixture(autouse=True)
