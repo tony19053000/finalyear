@@ -437,6 +437,11 @@ class LogHub:
 
     async def run(self) -> None:
         """The one writer: append live chunks, apply finals, fan out."""
+        # A writer started again on the same hub scrubs its live attempts'
+        # values from our own logs again (see the ``finally`` below).
+        for attempt_id, state in self._attempts.items():
+            if state.matcher is not None:
+                ACTIVE.add(_holder(attempt_id), state.matcher)
         try:
             while True:
                 item = await self._queue.get()
@@ -447,8 +452,13 @@ class LogHub:
                     self._pending_finals -= 1
                     await self._apply_final(item)
         finally:
-            for state in self._attempts.values():
+            for attempt_id, state in self._attempts.items():
                 _close_files(state)
+                # D162 (T-10): a stopped hub handles no more log lines of
+                # these attempts, so the process forgets their values (the
+                # redactors stay on the state: nothing is ever written
+                # unredacted if the writer runs again).
+                ACTIVE.remove(_holder(attempt_id))
 
     def _append(self, item: _Chunk) -> None:
         state = self._attempts.get(item.attempt_id)

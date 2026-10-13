@@ -55,13 +55,6 @@ async def test_finalize_removes_the_attempts_values_from_active(tmp_path: Path) 
         await asyncio.gather(task, return_exceptions=True)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-10 (minor): stopping the LogHub writer task (`run()` ends) does not remove the "
-    "live attempts' values from ACTIVE: they stay scrubbed-for (and in memory) "
-    "for the rest of the process - visible when a controller runtime is "
-    "restarted in-process (tests) and a hygiene gap otherwise",
-)
 async def test_stopping_the_hub_releases_values_of_attempts_still_live(
     tmp_path: Path,
 ) -> None:

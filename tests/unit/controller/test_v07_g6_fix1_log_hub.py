@@ -124,3 +124,44 @@ async def test_overlapping_values_over_two_chunks_leave_nothing(
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
     assert f"logs:{A}" not in ACTIVE._by_holder
+
+
+async def test_a_stopped_hub_forgets_values_and_a_restarted_one_still_redacts(
+    tmp_path: Path,
+) -> None:
+    """D162 (T-10): stopping the writer removes live attempts' values from the
+    process-wide ``ACTIVE`` set (other attempts' holders stay); the redactors
+    stay armed, so a writer started again never writes a value in clear."""
+    from meshforge.common.logging import scrub_text
+
+    value = b"stop-and-go-secret-9"
+    hub = _hub(tmp_path)
+    other = "logs:att_other_holder"
+    ACTIVE.add(other, {"OTHER": b"other-holder-value"})
+    try:
+        hub.open(A, job_id=J, node_id=N, token=1, secret_values={"K": value})
+        hub.open("att_plain", job_id=J, node_id=N, token=1)
+        assert scrub_text(f"x {value.decode()} y") == "x [secret:K] y"
+        first = asyncio.create_task(hub.run())
+        await asyncio.sleep(0.02)
+        first.cancel()
+        await asyncio.gather(first, return_exceptions=True)
+        assert f"logs:{A}" not in ACTIVE._by_holder
+        assert other in ACTIVE._by_holder
+        assert scrub_text(f"x {value.decode()} y") == f"x {value.decode()} y"
+        # The same hub's writer again: scrubbing is back, chunks are redacted.
+        second = asyncio.create_task(hub.run())
+        try:
+            await asyncio.sleep(0.02)
+            assert f"logs:{A}" in ACTIVE._by_holder
+            await hub.on_chunk(LIVE, _msg(0, b"v=" + value + b"\n"))  # type: ignore[arg-type]
+            await _drain(hub)
+            written = hub.path(A, "stdout").read_bytes()
+            assert value not in written and written.startswith(b"v=[secret:K]")
+        finally:
+            second.cancel()
+            await asyncio.gather(second, return_exceptions=True)
+        assert f"logs:{A}" not in ACTIVE._by_holder
+    finally:
+        ACTIVE.remove(other)
+        ACTIVE.remove(f"logs:{A}")
