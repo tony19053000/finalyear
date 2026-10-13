@@ -24,13 +24,27 @@ from _inventory import runner  # noqa: E402
 
 pytestmark = pytest.mark.timeout(60)
 
-#: Parent starts a grandchild that writes its pid, then both sleep.
+#: Parent starts a grandchild, records its pid and (Linux) the kernel's start
+#: time of that process (/proc/<pid>/stat field 22), then both sleep. The start
+#: time identifies the process: a pid the kernel hands out again later has
+#: another one (V0.7 G6 gate hardening).
 PARENT_WITH_GRANDCHILD: Final = """
 import subprocess, sys, time
 child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
-open(sys.argv[1], "w").write(str(child.pid))
+try:
+    with open(f"/proc/{child.pid}/stat", encoding="ascii") as f:
+        started = f.read().rsplit(") ", 1)[1].split()[19]
+except (OSError, IndexError):
+    started = "-"
+open(sys.argv[1], "w").write(f"{child.pid} {started}")
 time.sleep(120)
 """
+GONE_WAIT_S: Final = 20.0
+"""How long a SIGKILLed tree may take to disappear. The kill itself cannot
+miss (the runner kills the whole process group); only the exit of a killed
+process can be slow on a machine under heavy I/O - 5 s was exceeded once at
+the end of a 60-minute component run (V0.7 G6 hand-off; never reproduced in
+120 cycles under 40 CPU burners)."""
 
 
 @pytest.fixture(autouse=True)
@@ -40,7 +54,10 @@ def _fresh_runner() -> Iterator[None]:
     runner.reset()
 
 
-def _alive(pid: int) -> bool:
+def _alive(pid: int, started: str = "-") -> bool:
+    """``pid`` still runs - and, where ``started`` is known, is still the
+    process that was started then (a recycled pid is another process: the
+    one we look for is gone)."""
     if sys.platform == "win32":
         import subprocess
 
@@ -61,9 +78,12 @@ def _alive(pid: int) -> bool:
     # by someone. Our grandchild's parent is killed too, so init reaps it.
     try:
         with open(f"/proc/{pid}/stat", encoding="ascii") as f:
-            return f.read().split(") ", 1)[1][0] != "Z"
-    except OSError:
+            fields = f.read().rsplit(") ", 1)[1].split()
+    except (OSError, IndexError):
         return False
+    if started != "-" and len(fields) > 19 and fields[19] != started:
+        return False  # the pid was handed out again: not our grandchild
+    return fields[0] != "Z"
 
 
 def test_timeout_kills_grandchildren(tmp_path: Path) -> None:
@@ -74,11 +94,26 @@ def test_timeout_kills_grandchildren(tmp_path: Path) -> None:
     )
     assert time.monotonic() - start < 15
     assert result.error == f"{sys.executable}: timed out after 3 s"
-    grandchild = int(pid_file.read_text(encoding="ascii"))
-    deadline = time.monotonic() + 5
-    while _alive(grandchild) and time.monotonic() < deadline:
+    pid_text, started = pid_file.read_text(encoding="ascii").split()
+    grandchild = int(pid_text)
+    deadline = time.monotonic() + GONE_WAIT_S
+    while _alive(grandchild, started) and time.monotonic() < deadline:
         time.sleep(0.1)
-    assert not _alive(grandchild), f"grandchild {grandchild} survived the timeout"
+    assert not _alive(grandchild, started), (
+        f"grandchild {grandchild} (started {started}) survived the timeout "
+        f"for {GONE_WAIT_S:g} s"
+    )
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="/proc start time is Linux")
+def test_alive_tells_a_recycled_pid_from_the_original() -> None:
+    """The hardening itself: this process is alive under its own start time,
+    and "not alive" under another one (what a recycled pid looks like)."""
+    with open(f"/proc/{os.getpid()}/stat", encoding="ascii") as f:
+        mine = f.read().rsplit(") ", 1)[1].split()[19]
+    assert _alive(os.getpid(), mine)
+    assert _alive(os.getpid())  # start time unknown: the old check
+    assert not _alive(os.getpid(), str(int(mine) + 1))
 
 
 def test_budget_bounds_total_time_and_skips_the_rest() -> None:
