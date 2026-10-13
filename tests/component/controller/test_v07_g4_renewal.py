@@ -33,7 +33,7 @@ import pytest
 
 pytest.importorskip("sqlalchemy", reason="needs the controller extra")
 
-from mf_controller_harness import make_settings
+from mf_controller_harness import make_settings, tolerant_liveness
 from mf_forged_certs import Forged, forge, grpc_credentials
 from mf_jobs_harness import api_client, token_of
 from mf_session_client import FakeAgent, make_hello
@@ -52,7 +52,14 @@ pytestmark = [pytest.mark.component, pytest.mark.docker, pytest.mark.asyncio]
 
 @pytest.fixture
 def settings(pg_settings: DatabaseSettings) -> ControllerSettings:
-    return make_settings(pg_settings, renewal={"min_interval_s": 2.0})
+    # The subject is certificate renewal, not liveness: with the harness's
+    # FAST_LIVENESS the Hello admission deadline is 0.5 s, and one descheduled
+    # half-second in a long run refused a Hello "admission did not finish
+    # within 0.5 s" (V0.7 G6 fix round 2: measured 7-22 ms idle, up to 117 ms
+    # under 16 CPU burners). The helpers here do not retry, as an agent would.
+    return make_settings(
+        pg_settings, renewal={"min_interval_s": 2.0}, **tolerant_liveness()
+    )
 
 
 def _channel(rt: ControllerRuntime, forged: Forged) -> grpc.aio.Channel:
