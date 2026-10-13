@@ -1,4 +1,4 @@
-# ruff: noqa: RUF005, RUF059, S311, SIM201, T201  # tester test file: seeded RNG, report prints, re-imported fixtures
+# ruff: noqa: RUF005, RUF059, S311, SIM201, T201
 """V0.7 G6 tester r2: the Aho-Corasick redactor against an INDEPENDENT oracle.
 
 The oracle here is written from the D162 rules (union of every occurrence of
@@ -9,10 +9,13 @@ invariants, not from the implementation or the implementer's own test.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import random
+import signal
 import time
 import tracemalloc
+from collections.abc import Iterator
 
 import pytest
 
@@ -27,6 +30,26 @@ from meshforge.common.secret_redaction import (
 pytestmark = pytest.mark.unit
 
 KIB = 1024
+
+
+class RedactorHang(Exception):  # noqa: N818 - a finding, not an error class
+    """A feed/flush ran longer than the guard allows (T-17)."""
+
+
+@contextlib.contextmanager
+def _guard(seconds: float = 3.0) -> Iterator[None]:
+    """Turn a spinning pure-Python loop into :class:`RedactorHang`."""
+
+    def fire(*_a: object) -> None:
+        raise RedactorHang
+
+    old = signal.signal(signal.SIGALRM, fire)
+    signal.setitimer(signal.ITIMER_REAL, seconds)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, old)
 
 
 def _forms_owner(secrets: dict[str, bytes]) -> dict[bytes, str]:
@@ -82,11 +105,12 @@ def _run(
     out: list[bytes] = []
     held: list[int] = []
     prev = 0
-    for c in [*cuts, len(data)]:
-        out.append(red.feed(data[prev:c]))
-        held.append(red.held)
-        prev = c
-    out.append(red.flush())
+    with _guard():
+        for c in [*cuts, len(data)]:
+            out.append(red.feed(data[prev:c]))
+            held.append(red.held)
+            prev = c
+        out.append(red.flush())
     assert red.held == 0
     return b"".join(out), held
 
@@ -126,7 +150,7 @@ def _case(rnd: random.Random) -> tuple[dict[str, bytes], bytes]:
                 value = value + b"zzzz"
         secrets[f"S{i}"] = value
     pieces: list[bytes] = []
-    pool = [f for s in secrets.values() for f in encoded_forms(s)]
+    pool = [f for s in secrets.values() for f in sorted(encoded_forms(s))]
     for _ in range(rnd.randint(0, 12)):
         r = rnd.random()
         if r < 0.55:
@@ -150,7 +174,10 @@ def test_differential_against_an_independent_oracle(preserve: bool) -> None:
         want = _expected(data, secrets, preserve)
         for _ in range(3):
             cuts = _random_cuts(rnd, len(data))
-            got, held = _run(data, matcher, preserve, cuts)
+            try:
+                got, held = _run(data, matcher, preserve, cuts)
+            except RedactorHang:
+                continue  # T-17: reported by test_a_pair_of_secrets_can_hang_the_matcher
             assert got == want, (n, secrets, data, cuts, preserve)
             if preserve:
                 assert len(got) == len(data)
@@ -166,7 +193,10 @@ def test_no_form_of_any_value_survives_and_other_bytes_are_untouched() -> None:
         matcher = SecretMatcher(secrets)
         for preserve in (False, True):
             cuts = _random_cuts(rnd, len(data))
-            got, _ = _run(data, matcher, preserve, cuts)
+            try:
+                got, _ = _run(data, matcher, preserve, cuts)
+            except RedactorHang:
+                continue  # T-17
             covered = bytearray(len(data))
             for s, e, _n in _intervals(data, secrets):
                 covered[s:e] = b"\x01" * (e - s)
@@ -232,7 +262,7 @@ def test_secrets_that_are_prefixes_suffixes_substrings_of_each_other() -> None:
         "T": b"abcdefgh" * 2,
     }
     rnd = random.Random(3)
-    pool = [f for v in values.values() for f in encoded_forms(v)]
+    pool = [f for v in values.values() for f in sorted(encoded_forms(v))]
     for _ in range(600):
         data = b"".join(
             rnd.choice(pool + [b"-", b"abcdefgh"]) for _ in range(rnd.randint(1, 8))
@@ -364,7 +394,11 @@ def test_hold_back_never_exceeds_the_longest_suffix_that_could_still_begin_a_for
         red = StreamRedactor(matcher)
         seen = b""
         for cut in sorted({rnd.randint(0, len(data)) for _ in range(6)} | {len(data)}):
-            red.feed(data[len(seen) : cut])
+            try:
+                with _guard():
+                    red.feed(data[len(seen) : cut])
+            except RedactorHang:
+                break  # T-17
             seen = data[:cut]
             # brute force: longest suffix of the stream that is a PROPER prefix
             # of some form
@@ -374,3 +408,40 @@ def test_hold_back_never_exceeds_the_longest_suffix_that_could_still_begin_a_for
                 if any(len(f) > k and f.startswith(tail) for f in forms):
                     bound = k
             assert red.held <= bound, (secrets, seen, red.held, bound)
+
+
+HANG_SECRETS = {"S0": b"00aaaa000a", "S1": b"a000a"}
+"""Two secrets of 10 and 5 bytes. The hex of the first, ``30306161616130303061``,
+is an ordinary thing for a job to print; the second secret is a substring of
+its own hex form (``6130303061``) overlapping the first's."""
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="T-17 (BLOCKER): StreamRedactor.feed never returns for two secrets "
+    "{00aaaa000a, a000a} and the output 3030616161613030306 (spin in "
+    "_Walker.run via SecretMatcher.ensure); a synchronous loop on the "
+    "controller's / agent's event loop = control plane frozen forever",
+)
+@pytest.mark.parametrize(
+    ("data", "preserve"),
+    [(b"3030616161613030306", False), (b"30306161616130303061", True)],
+    ids=["agent-hex-minus-one-char", "controller-hex-of-the-first-secret"],
+)
+def test_a_pair_of_secrets_can_hang_the_matcher(data: bytes, preserve: bool) -> None:
+    # A second process: a spinning loop must not freeze this test run.
+    import subprocess
+    import sys
+
+    code = (
+        "from meshforge.common.secret_redaction import redact_bytes\n"
+        f"print(redact_bytes({data!r}, {HANG_SECRETS!r}, length_preserving={preserve}))"
+    )
+    done = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        timeout=15,
+        check=False,
+    )
+    assert done.returncode == 0, done.stderr[-500:]
