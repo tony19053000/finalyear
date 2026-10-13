@@ -153,3 +153,46 @@ async def test_a_value_grown_while_queued_fails_the_job_before_the_node(
     assert f"total {CAP + 1} bytes" in attempt["detail"]
     assert not (tmp_path / "ran.txt").exists()  # nothing reached the node
     assert grown.hex() not in str(job)
+
+
+async def test_the_agent_compiles_its_matcher_once_and_off_the_loop(
+    alice: httpx.AsyncClient,
+    grpc_target: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D162 (T-8): one matcher per attempt, built in a worker thread - on the
+    agent (both streams share it) and on the controller (this process hosts
+    both, so each side's build is seen)."""
+    import threading
+
+    from meshforge.agent.execution import executor
+    from meshforge.common.secret_redaction import SecretMatcher
+    from meshforge.controller.jobs import dispatch
+
+    built: dict[str, list[threading.Thread]] = {"agent": [], "controller": []}
+
+    def recording(side: str) -> type[SecretMatcher]:
+        class Recording(SecretMatcher):
+            def __init__(self, secrets: Any) -> None:
+                built[side].append(threading.current_thread())
+                super().__init__(secrets)
+
+        return Recording
+
+    monkeypatch.setattr(executor, "SecretMatcher", recording("agent"))
+    monkeypatch.setattr(dispatch, "SecretMatcher", recording("controller"))
+    assert (await alice.put("/v1/secrets/ONCE", content=b"built-once")).is_success
+    agent = await _agent(grpc_target, tmp_path / "a")
+    try:
+        job_id = await submit(
+            alice, _project(tmp_path), None, _manifest(tmp_path, ["ONCE"])
+        )
+        job = await wait_job(alice, job_id, timeout_s=60)
+    finally:
+        await agent.stop()
+    assert job["state"] == "succeeded", job
+    loop_thread = threading.current_thread()
+    for side, threads in built.items():
+        assert len(threads) == 1, (side, threads)
+        assert threads[0] is not loop_thread, side
