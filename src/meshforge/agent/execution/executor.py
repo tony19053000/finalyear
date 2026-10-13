@@ -1025,6 +1025,8 @@ class Executor:
     async def _step[T](self, attempt: _Attempt, awaitable: Awaitable[T]) -> T:
         """Run one cancellable step; a purposeful stop becomes :class:`_StoppedError`."""
         if attempt.stop_reason is not None:
+            if asyncio.iscoroutine(awaitable):
+                awaitable.close()  # never started: no "never awaited" warning
             raise _StoppedError
         step: asyncio.Future[T] = asyncio.ensure_future(awaitable)
         attempt.step = step

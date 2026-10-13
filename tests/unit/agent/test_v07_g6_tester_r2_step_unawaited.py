@@ -20,11 +20,6 @@ from meshforge.agent.execution.executor import Executor, _StoppedError
 pytestmark = pytest.mark.unit
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-13 (minor, pre-G6): _step drops the awaitable un-awaited when a "
-    "stop was already requested",
-)
 def test_a_stop_before_a_step_does_not_leave_an_unawaited_coroutine() -> None:
     async def work() -> int:
         return 1
