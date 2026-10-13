@@ -129,12 +129,16 @@ WHEELS_ONLY_REFUSED = {
 }
 
 WHEELS_ONLY_ACCEPTED = {
-    "https": f"pkg @ {WHEEL}\n",
+    # fix round 3 (D164 T-18): a wheel URL must carry --hash; the hash was
+    # added to these five lines, the assertion is unchanged.
+    "https": f"pkg @ {WHEEL} --hash=sha256:{H}\n",
     "https-hash": f"pkg @ {WHEEL} --hash=sha256:{H}\n",
-    "https-glued": f"pkg@{WHEEL}\n",
-    "https-userinfo": "pkg @ https://u:p@files.example/p-1-py3-none-any.whl\n",
-    "https-port": "pkg @ https://files.example:8443/p-1-py3-none-any.whl\n",
-    "https-ip": "pkg @ https://127.0.0.1:9/p-1-py3-none-any.whl\n",
+    "https-glued": f"pkg@{WHEEL} --hash=sha256:{H}\n",
+    "https-userinfo": "pkg @ https://u:p@files.example/p-1-py3-none-any.whl"
+    f" --hash=sha256:{H}\n",
+    "https-port": "pkg @ https://files.example:8443/p-1-py3-none-any.whl"
+    f" --hash=sha256:{H}\n",
+    "https-ip": f"pkg @ https://127.0.0.1:9/p-1-py3-none-any.whl --hash=sha256:{H}\n",
 }
 
 

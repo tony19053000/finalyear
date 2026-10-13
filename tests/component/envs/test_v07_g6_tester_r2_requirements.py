@@ -85,7 +85,8 @@ ACCEPTED = {
     "two-hashes-continued": f"x==1 \\\n --hash=sha256:{H} \\\n --hash=sha256:{'b' * 64}\n",
     "comment": "x==1 # --no-binary x\n",
     "comment-line": "# --no-binary x\nx==1\n",
-    "wheel-url": "pkg @ https://files.example/pkg-1-py3-none-any.whl\n",
+    # fix round 3 (D164 T-18): a wheel URL must carry --hash (added here)
+    "wheel-url": f"pkg @ https://files.example/pkg-1-py3-none-any.whl --hash=sha256:{H}\n",
     "marker-with-dashes": "pkg; platform_machine != '--x'\n",
     "local-version": "x==1+local-1\n",
 }
@@ -282,17 +283,21 @@ async def test_no_accepted_line_runs_build_code_on_real_uv(
 ) -> None:
     base_url, marker, sdist = server
     digest = hashlib.sha256(sdist.read_bytes()).hexdigest()
+    pin = f" --hash=sha256:{digest}"
     wheels = tmp_path / "wheels"
     base._make_sdist(wheels, marker)
     lines = {
-        # accepted by the gate (path ends in .whl) but the bytes are an sdist
-        "hidden-dotwhl": f"mfsrc @ {base_url}/mfsrc-1.0.tar.gz/.whl\n",
-        "params": f"mfsrc @ {base_url}/mfsrc-1.0.tar.gz;x.whl\n",
-        "pct": f"mfsrc @ {base_url}/mfsrc-1.0.tar.gz%2F.whl\n",
-        "upper": f"mfsrc @ {base_url.upper()}/mfsrc-1.0.tar.gz/A.WHL\n",
-        "dotdot": f"mfsrc @ {base_url}/a.whl/../mfsrc-1.0.tar.gz\n",
+        # accepted by the gate (path ends in .whl) but the bytes are an sdist.
+        # Fix round 3 (D164 T-18): a wheel URL must carry --hash, so each URL
+        # line pins the sdist's own digest (what an attacker would write) and
+        # still reaches real uv; the assertions are unchanged.
+        "hidden-dotwhl": f"mfsrc @ {base_url}/mfsrc-1.0.tar.gz/.whl{pin}\n",
+        "params": f"mfsrc @ {base_url}/mfsrc-1.0.tar.gz;x.whl{pin}\n",
+        "pct": f"mfsrc @ {base_url}/mfsrc-1.0.tar.gz%2F.whl{pin}\n",
+        "upper": f"mfsrc @ {base_url.upper()}/mfsrc-1.0.tar.gz/A.WHL{pin}\n",
+        "dotdot": f"mfsrc @ {base_url}/a.whl/../mfsrc-1.0.tar.gz{pin}\n",
         "named-sdist-with-hash": f"mfsrc==1.0 --hash=sha256:{digest}\n",
-        "wheel-named-like-sdist": f"mfsrc @ {base_url}/mfsrc-1.0-py3-none-any.whl\n",
+        "wheel-named-like-sdist": f"mfsrc @ {base_url}/mfsrc-1.0-py3-none-any.whl{pin}\n",
         "bare-name": "mfsrc\n",
         "bare-name-marker": "mfsrc ; python_version >= '3'\n",
     }
@@ -310,12 +315,16 @@ async def test_a_wheel_url_and_a_hashed_wheel_still_install(
     base_url, marker, _sdist = server
     wheels = tmp_path / "wheels"
     make_wheel(wheels, "mfdemo", "1.0")
-    got = await _try(
-        tmp_path, wheels, f"mfdemo @ {base_url}/mfdemo-1.0-py3-none-any.whl\n", "url"
-    )
-    assert got is not None and got.startswith("installed:"), got
     whl = wheels / "mfdemo-1.0-py3-none-any.whl"
     h = hashlib.sha256(whl.read_bytes()).hexdigest()
+    got = await _try(
+        tmp_path,
+        wheels,
+        # fix round 3 (D164 T-18): a wheel URL must carry --hash (added here)
+        f"mfdemo @ {base_url}/mfdemo-1.0-py3-none-any.whl --hash=sha256:{h}\n",
+        "url",
+    )
+    assert got is not None and got.startswith("installed:"), got
     got = await _try(tmp_path, wheels, f"mfdemo==1.0 --hash=sha256:{h}\n", "hash")
     assert got is not None and got.startswith("installed:"), got
     got = await _try(tmp_path, wheels, "mfdemo>=0.5,<2; python_version>'3.8'\n", "r")

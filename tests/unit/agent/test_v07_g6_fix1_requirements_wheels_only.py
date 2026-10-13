@@ -78,9 +78,11 @@ ACCEPTED = [
     "Pkg [b,a] >= 1.0 , < 2 ; python_version >= '3.9'",
     f"pkg==1.0 --hash={HASH}",
     f"pkg==1.0 --hash {HASH} --hash=sha256:{'cd' * 32}",
-    "pkg @ https://example.org/dist/pkg-1.0-py3-none-any.whl",
-    "pkg@https://example.org/dist/pkg-1.0-py3-none-any.whl",
-    "https://user@example.org/dist/pkg-1.0-py3-none-any.WHL?x=1#sha256=" + "ab" * 32,
+    f"pkg @ https://example.org/dist/pkg-1.0-py3-none-any.whl --hash={HASH}",
+    f"pkg@https://example.org/dist/pkg-1.0-py3-none-any.whl --hash={HASH}",
+    "https://user@example.org/dist/pkg-1.0-py3-none-any.WHL?x=1#sha256="
+    + "ab" * 32
+    + f" --hash={HASH}",
     f"pkg @ https://example.org/pkg-1.0-py3-none-any.whl --hash={HASH}",
     "pre-release-pkg==1.0",
 ]

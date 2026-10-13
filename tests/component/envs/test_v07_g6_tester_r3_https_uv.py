@@ -132,7 +132,12 @@ async def test_https_wheel_installs_with_and_without_hash_and_wrong_hash_fails(
 ) -> None:
     secure, _plain, wheel, hits = servers
     digest = hashlib.sha256(wheel.read_bytes()).hexdigest()
-    plain_install = await _install(tmp_path, f"mfdemo @ {secure}/{WHEEL_NAME}\n", "a")
+    # fix round 3 (D164 T-18): an unhashed wheel URL is refused at the gate now,
+    # so this line carries the hash too (assertion unchanged); the refusal is
+    # tests/component/envs/test_v07_g6_fix3_wheel_url_real_uv.py.
+    plain_install = await _install(
+        tmp_path, f"mfdemo @ {secure}/{WHEEL_NAME} --hash=sha256:{digest}\n", "a"
+    )
     assert plain_install.startswith("installed:"), plain_install
     hashed = await _install(
         tmp_path, f"mfdemo @ {secure}/{WHEEL_NAME} --hash=sha256:{digest}\n", "b"
@@ -148,20 +153,18 @@ async def test_https_wheel_installs_with_and_without_hash_and_wrong_hash_fails(
 async def test_userinfo_in_an_https_wheel_url_is_accepted_and_sent_as_basic_auth(
     tmp_path: Path, servers: tuple[str, str, Path, Hits]
 ) -> None:
-    secure, _plain, _wheel, hits = servers
+    secure, _plain, wheel, hits = servers
     url = secure.replace("https://", "https://alice:s3cret@")
-    got = await _install(tmp_path, f"mfdemo @ {url}/{WHEEL_NAME}\n", "u")
+    # fix round 3 (D164 T-18): the hash was added (a wheel URL must carry it)
+    digest = hashlib.sha256(wheel.read_bytes()).hexdigest()
+    got = await _install(
+        tmp_path, f"mfdemo @ {url}/{WHEEL_NAME} --hash=sha256:{digest}\n", "u"
+    )
     print("userinfo outcome:", got, hits.https)
     assert got.startswith("installed:"), got
     assert any(auth and auth.startswith("Basic ") for _p, auth in hits.https)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-18 (minor): real uv follows an https wheel URL's redirect to plain "
-    "http and installs the wheel without --hash; the https-only gate reads only "
-    "the requirements line",
-)
 async def test_an_https_url_that_redirects_to_plain_http_is_not_followed(
     tmp_path: Path, servers: tuple[str, str, Path, Hits]
 ) -> None:

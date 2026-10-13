@@ -50,6 +50,15 @@ reference that is not the ``https://`` URL of a ``.whl`` file (pip builds a sour
 archive or a VCS checkout named by URL even under ``--only-binary :all:``). What
 is accepted is normalised exactly as before, so no hash changes.
 
+**A wheel URL must be pinned** (fix round 3, D164 T-18): such a line is accepted
+only with ``--hash=sha256:<64 hex>`` (or sha384 / sha512; every ``--hash`` on the
+line must be one of these). "https only" is a rule about the text of the line:
+real uv follows a redirect from that URL to plain ``http://``, and the host may
+serve other bytes later. With the digest the installer refuses any file but the
+pinned one, whatever path it came by - and the env hash, which contains the
+line, then names one file. Requirements by name (from the owner's index or
+wheelhouse) need no hash.
+
 **Environment references** (V0.7 G6 fix round 2, D163 T-15): a line with
 ``${VAR}`` or ``$VAR`` is refused **always**, wheels-only or not, naming the
 line - pip and uv expand it with the node's tool environment (``HOME``, a proxy
@@ -228,6 +237,13 @@ def _check_line(line: str, number: int) -> None:
         )
 
 
+_STRONG_HASH: Final = re.compile(
+    r"sha256:[0-9a-fA-F]{64}|sha384:[0-9a-fA-F]{96}|sha512:[0-9a-fA-F]{128}"
+)
+"""What pins a wheel URL: a full digest of a hash without known collisions
+(``md5:`` / ``sha1:``, which uv would also accept, do not count)."""
+
+
 def _check_wheels_only(line: str, number: int) -> None:
     """Module docstring, "Wheels-only nodes": nothing in the job's own file may
     make an installer run a package's build code."""
@@ -245,17 +261,21 @@ def _check_wheels_only(line: str, number: int) -> None:
         )
     tokens = line.split()
     skip = False
+    wheel_url = False
+    hashes: list[str] = []
     for index, word in enumerate(tokens):
         if skip:
             skip = False
             continue
         if index and word.startswith("-"):
             if word.startswith("--hash="):
+                hashes.append(word.removeprefix("--hash="))
                 continue
             takes_value = index + 1 < len(tokens) and not tokens[index + 1].startswith(
                 "-"
             )
             if word == "--hash" and takes_value:
+                hashes.append(tokens[index + 1])
                 skip = True
                 continue
             raise _rejected(
@@ -282,6 +302,17 @@ def _check_wheels_only(line: str, number: int) -> None:
                     f"https:// URL of a wheel (.whl) ({shown!r}): {why}, and a source "
                     "archive or a repository would be built"
                 )
+            wheel_url = True
+    # T-18 (D164): the https rule above is about the LINE; the installer follows
+    # a redirect to plain http, and a host can serve other bytes tomorrow. Only
+    # a pinned digest says which file is installed.
+    if wheel_url and not (hashes and all(_STRONG_HASH.fullmatch(h) for h in hashes)):
+        raise _rejected(
+            f"requirements line {number}: a wheel URL must pin its file with "
+            f"`--hash=sha256:<64 hex digits>` (sha384 / sha512 also) ({shown!r}): "
+            f"{why}, and without the digest a redirect or anyone on the network "
+            "path could swap the file. Get it with `sha256sum <file>.whl`"
+        )
 
 
 def _pep503(name: str) -> str:

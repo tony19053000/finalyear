@@ -163,6 +163,14 @@ secrets:
   private folder in RAM (`/dev/shm` on Linux), read-only for Docker jobs,
   wiped (overwritten, deleted) when the attempt ends - also on failure, cancel
   and agent stop; a crashed agent's leftovers are wiped at its next start.
+  **If writing them hangs** (a stale mount under `secrets_root`): a cancel or
+  an agent stop waits for that write at most `[agent.execution]
+  secret_write_wait_s` (10 s) and then goes on; the log says
+  `agent.execution.secret_write_pending`. The files are not forgotten: the
+  moment the hung write returns, the same thread wipes what it wrote. Until
+  then the files it already wrote exist (private to your account, in RAM on
+  Linux) - accepted, because nothing can remove a file a hung filesystem call
+  is still writing; if the agent is killed first, its next start wipes them.
 
   > **Not in RAM everywhere.** On Windows and macOS, and on a Linux machine
   > without `/dev/shm`, the secret files are **on disk** for the attempt's
@@ -551,6 +559,7 @@ grace_s = 3.0               # cancel/timeout: SIGTERM, then SIGKILL after this (
 # output_check_interval_s = 1.0    # how often that is measured
 # free_disk_read_failure_limit = 5 # failed free-disk reads in a row that stop a job (V0.7 G6)
 # free_disk_read_timeout_s = 2.0  # a free-disk read still running after this counts as failed (stale mount)
+# secret_write_wait_s = 10.0      # longest a cancel / agent stop waits for a job's secret files being written (0.1 .. 120)
 ```
 
 **How many jobs at once (V0.6, D105).** The controller schedules by the slots
@@ -743,6 +752,19 @@ environment (subprocess runtime; install torch there with `uv sync --extra gpu`)
   naming the line. A job that needs another package index (for example the
   PyTorch wheel index) gets it from the laptop owner's `[agent.envs] index_url`
   or a `find_links` wheelhouse, not from its own file.
+  **A wheel URL must be pinned** (V0.7 G6 fix round 3): while
+  `only_binary = true`, a line with the `https://` URL of a wheel is accepted
+  only with its digest -
+  `pkg @ https://host/pkg-1.0-py3-none-any.whl --hash=sha256:<64 hex digits>`
+  (`sha384:` / `sha512:` also; `md5:` / `sha1:` do not count; get it with
+  `sha256sum pkg-1.0-py3-none-any.whl`). Without it the line is refused
+  (`requirements_rejected`, naming the line). Why: "https only" is a rule about
+  the text of the line - the installer follows a redirect from that URL to
+  plain `http://`, and the host can serve another file tomorrow. With the
+  digest the installer refuses every file but the pinned one, whichever way it
+  arrived (checked with real uv: redirect to http + right hash installs, wrong
+  hash fails, right hash + a file swapped on the http leg fails). Requirements
+  by name (`pkg==1.0`, from the owner's index or wheelhouse) need no hash.
 - **No environment variables in a requirements file** (V0.7 G6 fix round 2):
   a line containing `${VAR}` or `$VAR` is refused always - `only_binary` on or
   off, uv and Docker pip alike - with `env_error` / `requirements_rejected`,

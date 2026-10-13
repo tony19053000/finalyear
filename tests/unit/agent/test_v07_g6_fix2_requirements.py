@@ -70,7 +70,8 @@ def test_the_builder_read_refuses_it_for_every_runtime(
     [
         "six==1.16.0  # costs $5, see ${HOME}",  # a comment is not installed
         "pkg==1.0 ; python_version >= '3.9'",
-        "pkg @ https://files.example/a%24b/pkg-1-py3-none-any.whl",
+        "pkg @ https://files.example/a%24b/pkg-1-py3-none-any.whl --hash=sha256:"
+        + "0" * 64,
         "pkg==1.0 --hash=sha256:" + "0" * 64,
     ],
 )
@@ -103,9 +104,9 @@ def test_a_wheel_url_that_is_not_https_is_refused_under_wheels_only(line: str) -
 @pytest.mark.parametrize(
     "line",
     [
-        "pkg @ https://files.example/pkg-1-py3-none-any.whl",
-        "pkg @ https://files.example/pkg-1-py3-none-any.WHL",
-        "https://files.example/pkg-1-py3-none-any.whl",
+        "pkg @ https://files.example/pkg-1-py3-none-any.whl --hash=sha256:" + "0" * 64,
+        "pkg @ https://files.example/pkg-1-py3-none-any.WHL --hash=sha256:" + "0" * 64,
+        "https://files.example/pkg-1-py3-none-any.whl --hash=sha256:" + "0" * 64,
     ],
 )
 def test_an_https_wheel_url_is_accepted_under_wheels_only(line: str) -> None:
