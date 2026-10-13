@@ -73,6 +73,37 @@ FAST_HISTORY: dict[str, Any] = {
     "retention_sweep_s": 3600.0,
     "live_ring_size": 100,
 }
+LEASE_EDGE_TESTS = frozenset(
+    {"test_a_killed_stream_walks_suspect_then_offline_at_the_lease_edge"}
+)
+"""The tests here whose subject IS the lease: they keep the fast one."""
+
+
+@pytest.fixture
+def settings(
+    pg_settings: DatabaseSettings, request: pytest.FixtureRequest
+) -> ControllerSettings:
+    """The controller settings of this module (overrides the conftest's).
+
+    V0.7 G6 gate fix: every test here used ``FAST_LIVENESS`` (OFFLINE after
+    0.6 s of silence) although only one is about the lease. The agent runs in
+    the test's own event loop, so one loop stall above 0.6 s on a loaded
+    machine (TLS context set-up of the REST client, a slow database round
+    trip) expired the lease and the node read ``offline`` in the very next
+    ``GET /v1/nodes`` - ``test_a_connected_agent_appears_online_with_a_fresh_
+    sample_age`` failed that way once in a whole-component run. Proven by
+    injecting one 0.75 s stall before the read: ``'offline' == 'online'``,
+    session ``end_reason: lease_expired``. Not a product bug: the lease did
+    what it was configured to do. These tests now use ``TOLERANT_LIVENESS``
+    (heartbeat still 0.2 s; OFFLINE after 10 s)."""
+    from mf_agent_harness import make_controller_settings
+    from mf_controller_harness import tolerant_liveness
+
+    if request.node.name in LEASE_EDGE_TESTS:
+        return make_controller_settings(pg_settings)
+    return make_controller_settings(pg_settings, **tolerant_liveness())
+
+
 SLOW_LIVENESS = LivenessSettings(
     heartbeat_interval_s=30.0, miss_allowance_s=5.0, lease_multiplier=3
 )
