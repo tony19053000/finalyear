@@ -165,6 +165,7 @@ from meshforge.common.logging import get_logger
 from meshforge.common.manifest import check_mount
 from meshforge.common.proto.meshforge.v1 import agent_pb2, common_pb2
 from meshforge.common.proto_codec import attempt_state_to_proto, failure_type_to_proto
+from meshforge.common.redaction_notice import FailClosedNotice
 from meshforge.common.secret_redaction import ACTIVE, SecretMatcher, StreamRedactor
 from meshforge.common.states import AttemptState
 
@@ -1395,9 +1396,30 @@ class Executor:
             else None
         )
 
+        notices = {s: FailClosedNotice() for s in Stream}
+
+        def failed_closed(stream: Stream, withheld: bytes) -> bytes:
+            """T-22: the first time output of ``stream`` was withheld because
+            its redactor failed closed - one warning (ids only) and the note
+            line for the log."""
+            redactor = None if redactors is None else redactors[stream]
+            if not withheld or redactor is None:
+                return b""
+            if not notices[stream].first(redactor):
+                return b""
+            log.warning(
+                "agent.execution.log_redaction_failed_closed",
+                job_id=attempt.job_id,
+                attempt_id=attempt.attempt_id,
+                node_id=self._node_id,
+                stream=stream.value,
+            )
+            return FailClosedNotice.line()
+
         async def on_output(stream: Stream, data: bytes) -> None:
             if redactors is not None:
                 data = redactors[Stream(stream)].feed(data)
+                data += failed_closed(Stream(stream), data)
                 if not data:
                     return
             if stream == Stream.STDERR:
@@ -1412,6 +1434,7 @@ class Executor:
             """The redactors' held tails, at the end of the run."""
             for stream, redactor in (redactors or {}).items():
                 rest = redactor.flush()
+                rest += failed_closed(stream, rest)
                 if not rest:
                     continue
                 if stream == Stream.STDERR:

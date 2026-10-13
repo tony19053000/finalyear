@@ -70,11 +70,6 @@ def test_after_a_stall_later_feeds_and_flush_stay_blank_and_do_not_raise(
     assert set(r.flush()) <= {ord("*")}
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-22 (minor): a redactor that failed closed is invisible - no log line, "
-    "counter or job note; the user just sees `*` where output was",
-)
 def test_a_fail_closed_redactor_is_reported_somewhere() -> None:
     src = Path(sr.__file__).parents[1]
     pattern = re.compile(r"RedactionStallError|\.stalled\b|redact\w*\.failed\b")

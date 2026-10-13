@@ -65,6 +65,7 @@ from meshforge.common.hashing import Digest
 from meshforge.common.ids import validate_attempt_id
 from meshforge.common.logging import get_logger
 from meshforge.common.proto.meshforge.v1 import agent_pb2
+from meshforge.common.redaction_notice import FailClosedNotice
 from meshforge.common.secret_redaction import ACTIVE, SecretMatcher, StreamRedactor
 from meshforge.controller.blobs import BlobStore
 from meshforge.controller.jobs.log_gaps import (
@@ -215,6 +216,11 @@ class AttemptLogState:
     live, compiled once (length-preserving redaction of live chunks and of
     the final copy); every stream's redactor shares it."""
     redactors: dict[str, StreamRedactor] = field(default_factory=dict)
+    notices: dict[str, FailClosedNotice] = field(
+        default_factory=lambda: {s: FailClosedNotice() for s in STREAMS}
+    )
+    """T-22: what each stream already said about a redactor that failed
+    closed (one warning, the note written over the first withheld bytes)."""
 
     def gaps(self) -> dict[str, list[list[int]]]:
         return {s: [list(g) for g in m.gaps] for s, m in self.streams.items() if m.gaps}
@@ -230,6 +236,8 @@ class LogHubStats:
     gaps: int = 0
     finals_copied: int = 0
     slow_subscribers: int = 0
+    redaction_failed_closed: int = 0
+    """Streams whose secret redactor failed closed (T-22; output withheld)."""
     write_failures: int = 0
     finals_overflowed: int = 0
     gaps_persist_failures: int = 0
@@ -475,7 +483,11 @@ class LogHub:
             # V0.7 G6: nothing is written or streamed before it is redacted;
             # no value spans a gap, so the held tail is released first.
             gap = merge.gaps_total != gaps_before
-            piece = (redactor.flush() if gap else b"") + redactor.feed(piece)
+            head = redactor.flush() if gap else b""
+            body = redactor.feed(piece)
+            if redactor.failed:  # this call's output is all ``*``
+                body = self._failed_closed(item.attempt_id, state, item.stream, body)
+            piece = head + body
         if merge.gaps_total != gaps_before:
             self.stats.gaps += 1
             log.info(
@@ -577,6 +589,8 @@ class LogHub:
         """The redactors' held tails into the live files (the attempt ended)."""
         for stream, redactor in state.redactors.items():
             rest = redactor.flush()
+            if redactor.failed and rest:  # something of this stream was withheld
+                rest = self._failed_closed(attempt_id, state, stream, rest)
             if not rest:
                 continue
             merge = state.streams[stream]
@@ -594,6 +608,26 @@ class LogHub:
             event = LogEvent("data", stream, start, rest)
             for sub in list(state.subscribers):
                 sub.push(event)
+
+    def _failed_closed(
+        self, attempt_id: str, state: AttemptLogState, stream: str, withheld: bytes
+    ) -> bytes:
+        """T-22: a redactor of this stream failed closed (its output is ``*``).
+        One warning per attempt and stream - ids only, never a byte of the
+        output - and the note written over the first withheld bytes (same
+        length: offsets stay true)."""
+        notice = state.notices[stream]
+        if not notice.seen:
+            notice.seen = True
+            self.stats.redaction_failed_closed += 1
+            log.warning(
+                "controller.logs.redaction_failed_closed",
+                attempt_id=attempt_id,
+                job_id=state.job_id,
+                node_id=state.node_id,
+                stream=stream,
+            )
+        return notice.overlay(withheld)
 
     async def _apply_final(self, item: _Final) -> None:
         state = self._attempts.pop(item.attempt_id, None)
@@ -615,12 +649,14 @@ class LogHub:
                 continue
             try:
                 source = self._blobs.path_for(Digest.parse(str(digest)))
-                await asyncio.to_thread(
+                failed_closed = await asyncio.to_thread(
                     _replace_with,
                     source,
                     self.path(item.attempt_id, stream),
                     state.matcher,
                 )
+                if failed_closed:  # the copy carries the note; warn once
+                    self._failed_closed(item.attempt_id, state, stream, b"")
             except (OSError, ValueError) as exc:
                 log.warning(
                     "controller.logs.final_copy_failed",
@@ -908,20 +944,27 @@ def _require_regular(fd: int) -> None:
 
 def _replace_with(
     source: Path, dest: Path, secret_values: SecretMatcher | None = None
-) -> None:
+) -> bool:
     """``dest`` := ``source`` (atomically); with ``secret_values`` (V0.7 G6) the
-    copy is redacted, length-preserving, streamed in chunks."""
+    copy is redacted, length-preserving, streamed in chunks. True when the
+    redactor failed closed (T-22): the copy is ``*`` and starts with the note."""
     tmp = dest.with_name(f".{dest.name}.{secrets.token_hex(4)}.tmp")
+    failed_closed = False
     try:
         if secret_values:
             redactor = StreamRedactor(secret_values, length_preserving=True)
+            notice = FailClosedNotice()
             with source.open("rb") as src, tmp.open("xb") as out:
                 while block := src.read(_COPY_CHUNK):
-                    out.write(redactor.feed(block))
-                out.write(redactor.flush())
+                    data = redactor.feed(block)
+                    out.write(notice.overlay(data) if redactor.failed else data)
+                data = redactor.flush()
+                out.write(notice.overlay(data) if redactor.failed else data)
+            failed_closed = redactor.failed
         else:
             shutil.copyfile(source, tmp)
         os.replace(tmp, dest)
     finally:
         with contextlib.suppress(OSError):
             tmp.unlink()
+    return failed_closed
