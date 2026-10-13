@@ -168,7 +168,10 @@ secrets:
   allow_insecure_secrets = true`, for one-machine tests only).
 - **Logs** show `[secret:NAME]` where a value (or its base64 / hex /
   URL-encoded form) was printed - on the laptop, in `compute logs`, in the live
-  follow and in our own log files. **This stops accidents, not a job that leaks
+  follow and in our own log files. When two values overlap in the output (one
+  ends inside the next), the whole stretch is replaced by **one** marker, named
+  after the value that starts first; `compute logs` pads it with `*` to the
+  original length. **This stops accidents, not a job that leaks
   its secret on purpose** (reversed, split into pieces, written to an output).
 - **Changing a value:** `compute secret set NAME` again. Running attempts keep
   the value they started with; the next attempt (a new job or a retry) gets the
