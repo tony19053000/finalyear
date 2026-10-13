@@ -44,6 +44,7 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 
 ## Current Task
 
+- **2026-10-13 (night): V0.7 G6 tester r2 FAIL (T-17 blocker matcher hang, T-14 major secret folder left on cancel) → D163 → fix round 2 committed `8c54823`..`5897278`, NOT verified: exit list blocked - 🧑 laptop on battery again.** Next (on mains): implementer exit list + hand-off → tester r3 → reviewer → close 0.7.10. See SESSION_HANDOFF §1.
 - **2026-10-13 (late): V0.7 G6 tester r1 FAIL (3 major, 7 minor) → D162 → fix round 1 committed `bee2625`..`630e0c1`, NOT verified: exit list blocked - 🧑 laptop on battery.** Unit red on one open pre-G6 test (digest_lock, cause unproven). **Next (on mains): implementer exit list + hand-off → tester r2 → reviewer → close 0.7.10.** See SESSION_HANDOFF §1.
 - **2026-10-13: V0.7 G6 (0.7.10 job secrets + D161) code committed `19c4fb1`..`f21646b`, exit list NOT run (implementer stopped).** Migration 0019, AES-GCM store, /v1/secrets + `compute secret`, StartAttempt delivery, redaction, recorder marker, docs. **Next: implementer exit list + hand-off → tester → reviewer.**
 - **2026-10-12 (end): V0.7 G5 CLOSED** — 0.7.8, 0.7.9 `[x]`. Tester r1 FAIL (T-8 major + 4 minor) → D160 → fix r1 → tester r2 PASS (T-10 minor, Lead fix `777f28e`) → reviewer REQUEST_CHANGES (disk backstop) → `7aad987` → APPROVE → D161. unit 9056 exit 0; G5+Docker component green except known GPU env; cluster 77 exit 0. **Next: Lead writes the next V0.7 group brief (brief §3), item 0 = D161.**
