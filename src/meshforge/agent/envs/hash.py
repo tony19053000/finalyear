@@ -49,6 +49,13 @@ package), every per-requirement option except ``--hash``, and every direct
 reference that is not an ``http(s)`` URL of a ``.whl`` file (pip builds a source
 archive or a VCS checkout named by URL even under ``--only-binary :all:``). What
 is accepted is normalised exactly as before, so no hash changes.
+
+**Environment references** (V0.7 G6 fix round 2, D163 T-15): a line with
+``${VAR}`` or ``$VAR`` is refused **always**, wheels-only or not, naming the
+line - pip and uv expand it with the node's tool environment (``HOME``, a proxy
+URL with credentials ...) and the result goes to the host the line names; a job
+must not read the agent's environment, and the hash would not cover the
+expanded text.
 """
 
 from __future__ import annotations
@@ -178,9 +185,25 @@ def _logical_lines(text: str) -> list[str]:
     return lines
 
 
+_ENV_REFERENCE: Final = re.compile(r"\$(?:\{|[A-Za-z_])")
+"""``${VAR}`` (pip, uv) or ``$VAR``: an installer would put the AGENT's
+environment into the line."""
+
+
 def _check_line(line: str, number: int) -> None:
     if any(not ch.isprintable() for ch in line):
         raise _rejected(f"requirements line {number} has a control character")
+    if _ENV_REFERENCE.search(line):
+        # Always, whatever only_binary says (V0.7 G6 T-15): the installer
+        # expands it with the tool environment of this node (HOME, a proxy URL
+        # with credentials ...) and sends the result to the host the line
+        # names; and the env hash would not cover the expanded text.
+        shown = line if len(line) <= 100 else f"{line[:97]}..."
+        raise _rejected(
+            f"requirements line {number}: an environment variable reference "
+            f"(${{VAR}} or $VAR) is not accepted ({shown!r}) - a job must not "
+            "read the node's environment; write the value out"
+        )
     head = line.split(" ", 1)[0].split("=", 1)[0]
     if head in _INCLUDE_OPTIONS or any(
         line.startswith(opt) and len(opt) == 2 and line[2:3] != "-"

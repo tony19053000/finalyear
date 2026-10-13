@@ -742,6 +742,13 @@ environment (subprocess runtime; install torch there with `uv sync --extra gpu`)
   naming the line. A job that needs another package index (for example the
   PyTorch wheel index) gets it from the laptop owner's `[agent.envs] index_url`
   or a `find_links` wheelhouse, not from its own file.
+- **No environment variables in a requirements file** (V0.7 G6 fix round 2):
+  a line containing `${VAR}` or `$VAR` is refused always - `only_binary` on or
+  off, uv and Docker pip alike - with `env_error` / `requirements_rejected`,
+  naming the line. pip and uv would fill it in from this laptop's environment
+  (`HOME`, a proxy URL with a password ...) and send it to the host the line
+  names. Write the value out; a private index belongs in the owner's
+  `[agent.envs] index_url`.
 - **What is refused** (`env_error / requirements_rejected`): `-r`/`-c`/`-e` lines,
   local paths, `file:` URLs and `name @ <anything but an http(s) URL or a git+/hg+/svn+/bzr+
   URL over http(s)/ssh/git>` (so `git+file://` is refused too), and `--index-url`/`--extra-index-url`/`--find-links`
