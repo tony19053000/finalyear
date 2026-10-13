@@ -9,20 +9,53 @@ encodings** before a byte is written or streamed:
 * hex - lower and upper case;
 * URL-encoding - ``%XX`` upper and lower case, with ``+`` or ``%20`` for a space.
 
-:class:`StreamRedactor` works on a byte stream delivered in chunks: it keeps
-back the last ``max form length - 1`` bytes of what it was given, so a value
-split across two chunks is still found; :meth:`StreamRedactor.flush` releases
-the tail at the end. Two replacement styles:
+**Not covered** (documented in THREAT_MODEL WS-I3 and OPERATIONS): any other
+transformation - JSON/``repr``-escaped values (a multi-line or quoted value
+through ``json.dumps``), a value embedded in a larger base64 blob (HTTP Basic
+``user:secret``), reversed, split, base32, double encoding. This stops
+*accidents*; a workload that wants to leak its own secret can.
+
+Matcher (D162, T-8)
+-------------------
+:class:`SecretMatcher` is one **immutable, shareable** multi-pattern matcher
+per attempt; :class:`StreamRedactor` holds only per-stream state. It is an
+Aho-Corasick automaton over every form, in a shape that costs milliseconds to
+build for the largest job (256 KiB of values -> ~5.5 MB of forms):
+
+* the forms sit in a **radix trie** (one node per branch, edges are slices of
+  the forms - a few hundred nodes, never one node per byte);
+* a state is "the longest suffix of the stream that is a prefix of a form" =
+  a start position plus a (node, depth) pair; advancing along an edge is one
+  ``memcmp``;
+* where no form is in progress, a compiled regex of the forms' 4-byte
+  prefixes (every form is >= 4 bytes) jumps to the next place one could start;
+* the **failure function** is the automaton run over the forms themselves
+  (``fail(p[:d])`` is the state after reading ``p[1:d]``), computed lazily and
+  remembered per form (:class:`_SelfScan`), together with the forms that occur
+  *inside* a form. Every query is a bisect, so a stream never re-reads a byte:
+  the work is linear in the output whatever the values look like.
+
+Overlaps (T-2): **the union of all matched intervals is redacted**. A merged
+interval gets ONE replacement, named after the match that starts first (the
+longest one if several start there): ``[secret:NAME]`` on the agent; on the
+controller the length-preserving form (below). Two matches that only touch
+(one ends where the next starts) stay two replacements.
+
+Hold-back (T-3): a feed keeps back only the longest suffix of the stream that
+is a proper prefix of some form - a line that cannot begin a secret is
+released at once. :meth:`StreamRedactor.flush` releases the tail at the end.
+
+Two replacement styles:
 
 * ``[secret:NAME]`` (the agent: it owns its stream's offsets);
 * **length-preserving** (the controller: its log files are addressed by the
   agent's byte offsets, so a replacement must not change lengths) - the marker
-  cut or padded with ``*`` to the match's length.
+  padded with ``*`` to the interval's length, or only ``*`` when the interval
+  is not longer than the marker.
 
 Values shorter than :data:`~meshforge.common.secret_names.MIN_SECRET_BYTES` are
 refused at ``compute secret set``: a 1-3 byte value would match all over normal
-output. **Honest limit:** this stops *accidents*; a workload that wants to leak
-its own secret can (reversed, split, another encoding) - THREAT_MODEL.
+output.
 
 :data:`ACTIVE` is the process-wide set of values currently in use (an attempt
 running on this agent, a controller holding a job's values); the structlog
@@ -34,13 +67,14 @@ from __future__ import annotations
 import base64
 import re
 import threading
-from collections.abc import Iterable, Mapping
+from bisect import bisect_left, bisect_right
+from collections.abc import Callable, Iterable, Mapping
 from typing import Final
-from urllib.parse import quote, quote_plus
 
 __all__ = [
     "ACTIVE",
     "ActiveSecrets",
+    "SecretMatcher",
     "StreamRedactor",
     "encoded_forms",
     "marker",
@@ -50,14 +84,32 @@ __all__ = [
 ]
 
 _MIN_FORM_BYTES: Final = 4
+_ANCHOR: Final = _MIN_FORM_BYTES
+"""Every form is at least this long, so its first ``_ANCHOR`` bytes exist."""
 
 
 def marker(name: str) -> bytes:
     return f"[secret:{name}]".encode("ascii")
 
 
-def _lower_percent(text: str) -> str:
-    return re.sub(r"%[0-9A-F]{2}", lambda m: m.group(0).lower(), text)
+def _percent_table(*, upper: bool, plus: bool) -> tuple[bytes, ...]:
+    # Same output as urllib.parse.quote(value, safe="") / quote_plus: only
+    # ASCII letters, digits and "_.-~" stay; a table keeps it at C speed.
+    safe = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.-~"
+    fmt = "%{:02X}" if upper else "%{:02x}"
+    table = [
+        bytes([b]) if b in safe else fmt.format(b).encode("ascii") for b in range(256)
+    ]
+    if plus:
+        table[0x20] = b"+"
+    return tuple(table)
+
+
+_PERCENT_TABLES: Final = tuple(
+    _percent_table(upper=upper, plus=plus)
+    for upper in (True, False)
+    for plus in (False, True)
+)
 
 
 def encoded_forms(value: bytes) -> set[bytes]:
@@ -69,9 +121,8 @@ def encoded_forms(value: bytes) -> set[bytes]:
         forms.add(padded.rstrip(b"="))
     forms.add(value.hex().encode("ascii"))
     forms.add(value.hex().upper().encode("ascii"))
-    for quoted in (quote(value, safe=""), quote_plus(value, safe="")):
-        forms.add(quoted.encode("ascii"))
-        forms.add(_lower_percent(quoted).encode("ascii"))
+    for table in _PERCENT_TABLES:
+        forms.add(b"".join(map(table.__getitem__, value)))
     return {form for form in forms if len(form) >= _MIN_FORM_BYTES}
 
 
@@ -82,79 +133,480 @@ def _length_preserving(name: str, length: int) -> bytes:
     return mark + b"*" * (length - len(mark))
 
 
-class _Patterns:
+def _lcp(text: bytes | bytearray, pos: int, form: memoryview, d: int, k: int) -> int:
+    """How many of ``form[d:d+k]`` equal ``text[pos:pos+k]`` from the left.
+
+    ``memcmp`` only (it stops at the first difference): a gallop, then a
+    binary search inside the last step.
+    """
+    if text.startswith(form[d : d + k], pos):
+        return k
+    lo, hi, step = 0, k, 16
+    while lo + step < hi and text.startswith(form[d + lo : d + lo + step], pos + lo):
+        lo += step
+        step *= 2
+    hi = min(hi, lo + step)
+    while hi - lo > 1:
+        mid = (lo + hi) // 2
+        if text.startswith(form[d + lo : d + mid], pos + lo):
+            lo = mid
+        else:
+            hi = mid
+    return lo
+
+
+class _Node:
+    """Radix-trie node: the prefix ``forms[k][:end]``; its edge is
+    ``forms[k][start:end]``; ``term`` is the form equal to that prefix (-1 if
+    none)."""
+
+    __slots__ = ("children", "end", "k", "start", "term")
+
+    def __init__(self, k: int, start: int, end: int, term: int) -> None:
+        self.k = k
+        self.start = start
+        self.end = end
+        self.term = term
+        self.children: dict[int, _Node] = {}
+
+
+_Need = tuple[int, int]
+"""``(form index, depth)``: a self-scan that must reach that depth first."""
+
+
+class _Walker:
+    """The automaton's position in one text.
+
+    Either *searching* (``node is None``: no start before ``c`` can still
+    become a match) or *following* a candidate that starts at ``j`` and has
+    matched ``d`` bytes, ending in ``node``. ``j`` is always the earliest
+    start still alive, so the state is the Aho-Corasick state.
+    """
+
+    __slots__ = ("c", "d", "front", "j", "m", "node", "on_match", "scan", "text")
+
+    def __init__(
+        self,
+        matcher: SecretMatcher,
+        text: bytes | bytearray,
+        start: int,
+        on_match: Callable[[int, int, int], None],
+        scan: _SelfScan | None = None,
+    ) -> None:
+        self.m = matcher
+        self.text = text
+        self.c = start
+        self.j = 0
+        self.d = 0
+        self.node: _Node | None = None
+        self.front = start
+        """Everything about positions up to here is recorded (self-scans)."""
+        self.on_match = on_match
+        self.scan = scan
+
+    def run(self, limit: int) -> _Need | None:
+        """Read ``text[:limit]``. Returns None when done, or the self-scan
+        that has to advance first (the caller advances it and calls again)."""
+        m = self.m
+        text = self.text
+        scan = self.scan
+        while True:
+            node = self.node
+            if node is None:
+                hit = m.anchor.search(text, self.c, limit)
+                if hit is None:
+                    if limit - (_ANCHOR - 1) > self.c:
+                        self.c = limit - (_ANCHOR - 1)
+                    if limit > self.front:
+                        self.front = limit
+                    return None
+                self.j = self.c = hit.start()
+                self.d = 0
+                self.node = node = m.root
+                if scan is not None:
+                    scan.open_episode(self.j, self.j)
+            j, d = self.j, self.d
+            pos = j + d
+            if d == node.end:
+                if not node.children:
+                    need = self._die(node, j, d)
+                    if need is not None:
+                        return need
+                    continue
+                if pos >= limit:
+                    return None
+                child = node.children.get(text[pos])
+                if child is None:
+                    need = self._die(node, j, d)
+                    if need is not None:
+                        return need
+                    continue
+                self.node = node = child
+                if scan is not None:
+                    scan.enter(node)
+            k = min(node.end - d, limit - pos)
+            own = scan is not None and node.k == scan.k
+            if own:
+                # A form read along itself (a periodic value): its own records
+                # exist only up to ``front``.
+                k = min(k, self.front - d)
+            if k <= 0:
+                return None
+            n = _lcp(text, pos, m.views[node.k], d, k)
+            if n:
+                nd = d + n
+                if nd > _ANCHOR:
+                    inner = m.scan(node.k)
+                    if not own and inner.front < nd:
+                        return (node.k, nd)
+                    lo = bisect_right(inner.m_ends, d)
+                    hi = bisect_right(inner.m_ends, nd)
+                    for s, e, f in inner.m_recs[lo:hi]:
+                        self.on_match(j + s, j + e, f)
+                self.d = nd
+                if j + nd > self.front:
+                    self.front = j + nd
+                if scan is not None:
+                    scan.e_reach[-1] = j + nd
+                if nd == node.end and node.term >= 0:
+                    self.on_match(j, j + nd, node.term)
+            if n < k:
+                need = self._die(node, j, self.d)
+                if need is not None:
+                    return need
+
+    def _die(self, node: _Node, j: int, d: int) -> _Need | None:
+        """The candidate cannot grow: fall back to the longest shorter one."""
+        state: tuple[int, _Node] | None = None
+        if d > _ANCHOR:
+            inner = self.m.scan(node.k)
+            if inner is not self.scan and inner.front < d:
+                return (node.k, d)
+            state = inner.state_at(d)
+        if state is None:
+            self.node = None
+            self.c = j + d - (_ANCHOR - 1)
+            return None
+        s, node2 = state
+        self.j = self.c = j + s
+        self.d = d - s
+        self.node = node2
+        if self.scan is not None:
+            self.scan.open_episode(self.j, j + d)
+            self.scan.enter(node2)
+        return None
+
+
+class _SelfScan:
+    """The automaton run over ``forms[k][1:]``, as far as anyone asked.
+
+    Records (a) the forms that occur inside this form, by end position, and
+    (b) for every depth ``D`` the automaton state after ``forms[k][1:D]`` when
+    it is at least ``_ANCHOR`` deep - the failure function of ``forms[k][:D]``.
+    """
+
+    __slots__ = (
+        "_walker",
+        "e_ends",
+        "e_nodes",
+        "e_reach",
+        "e_start",
+        "k",
+        "m_ends",
+        "m_recs",
+    )
+
+    def __init__(self, matcher: SecretMatcher, k: int) -> None:
+        self.k = k
+        self.m_ends: list[int] = []
+        self.m_recs: list[tuple[int, int, int]] = []
+        self.e_start: list[int] = []
+        self.e_reach: list[int] = []
+        self.e_nodes: list[list[_Node]] = []
+        self.e_ends: list[list[int]] = []
+        self._walker = _Walker(matcher, matcher.forms[k], 1, self._match, self)
+
+    @property
+    def front(self) -> int:
+        return self._walker.front
+
+    def _match(self, start: int, end: int, form: int) -> None:
+        self.m_ends.append(end)
+        self.m_recs.append((start, end, form))
+
+    def open_episode(self, start: int, reach: int) -> None:
+        self.e_start.append(start)
+        self.e_reach.append(reach)
+        self.e_nodes.append([])
+        self.e_ends.append([])
+
+    def enter(self, node: _Node) -> None:
+        self.e_nodes[-1].append(node)
+        self.e_ends[-1].append(node.end)
+
+    def advance(self, depth: int) -> _Need | None:
+        walker = self._walker
+        limit = min(depth, len(walker.text))
+        if walker.front >= limit:
+            return None
+        return walker.run(limit)
+
+    def state_at(self, depth: int) -> tuple[int, _Node] | None:
+        """``(start, node)`` of the longest proper suffix of ``forms[k][:depth]``
+        that is a form prefix of at least ``_ANCHOR`` bytes, or None."""
+        i = bisect_left(self.e_reach, depth)
+        if i == len(self.e_reach):
+            return None
+        start = self.e_start[i]
+        if start > depth - _ANCHOR:
+            return None
+        ends = self.e_ends[i]
+        return start, self.e_nodes[i][bisect_left(ends, depth - start)]
+
+
+def _bytes_lcp(a: bytes, b: bytes) -> int:
+    return _lcp(a, 0, memoryview(b), 0, min(len(a), len(b)))
+
+
+class SecretMatcher:
+    """One job's secrets, compiled once and shared by every stream (module
+    docstring). Build it off the event loop (``asyncio.to_thread``): encoding
+    256 KiB of values takes tens of milliseconds.
+
+    Immutable to its users; the lazily filled failure records are guarded by
+    :attr:`lock`.
+    """
+
     def __init__(self, secrets: Mapping[str, bytes]) -> None:
         owner: dict[bytes, str] = {}
         for name in sorted(secrets):
             for form in encoded_forms(secrets[name]):
                 owner.setdefault(form, name)
-        # Longest first: at one position the longest encoding wins.
-        ordered = sorted(owner, key=lambda f: (-len(f), f))
-        self.owner = owner
-        self.max_len = max((len(f) for f in ordered), default=0)
-        self.regex = (
-            re.compile(b"|".join(re.escape(f) for f in ordered)) if ordered else None
+        self.names: Final = tuple(sorted(secrets))
+        self.forms: Final = sorted(owner)
+        self.owners: Final = tuple(owner[form] for form in self.forms)
+        self.marks: Final = tuple(marker(name) for name in self.owners)
+        self.views: Final = tuple(memoryview(form) for form in self.forms)
+        self.max_len: Final = max((len(form) for form in self.forms), default=0)
+        self.short: Final = frozenset(
+            form[:i] for form in self.forms for i in range(1, _ANCHOR)
         )
+        self.root: Final = _Node(0, 0, 0, -1)
+        self.root.children = self._build(0, len(self.forms), 0)
+        self.anchor: Final = re.compile(
+            self._anchor_regex(sorted({form[:_ANCHOR] for form in self.forms}), 0)
+            if self.forms
+            else rb"(?!)",
+            re.DOTALL,
+        )
+        pairs: dict[str, str] = {}
+        for form, name in zip(self.forms, self.owners, strict=True):
+            try:
+                pairs.setdefault(form.decode("utf-8"), name)
+            except UnicodeDecodeError:
+                continue
+        self.text_pairs: Final = tuple(pairs.items())
+        """Forms that are valid text, for :class:`ActiveSecrets`."""
+        self.lock: Final = threading.Lock()
+        self._scans: dict[int, _SelfScan] = {}
+
+    def __bool__(self) -> bool:
+        return bool(self.forms)
+
+    def _build(self, lo: int, hi: int, depth: int) -> dict[int, _Node]:
+        """Children of the node whose prefix (``depth`` bytes) the sorted forms
+        ``lo..hi`` share and all extend."""
+        forms = self.forms
+        children: dict[int, _Node] = {}
+        i = lo
+        while i < hi:
+            byte = forms[i][depth]
+            j = i + 1
+            while j < hi and forms[j][depth] == byte:
+                j += 1
+            first = forms[i]
+            end = len(first) if j - i == 1 else _bytes_lcp(first, forms[j - 1])
+            is_form = len(first) == end
+            node = _Node(i, depth, end, i if is_form else -1)
+            node.children = self._build(i + 1 if is_form else i, j, end)
+            children[byte] = node
+            i = j
+        return children
+
+    def _anchor_regex(self, anchors: list[bytes], depth: int) -> bytes:
+        if depth == _ANCHOR:
+            return b""
+        parts: list[bytes] = []
+        i = 0
+        while i < len(anchors):
+            byte = anchors[i][depth]
+            j = i + 1
+            while j < len(anchors) and anchors[j][depth] == byte:
+                j += 1
+            parts.append(
+                re.escape(bytes([byte])) + self._anchor_regex(anchors[i:j], depth + 1)
+            )
+            i = j
+        return parts[0] if len(parts) == 1 else b"(?:" + b"|".join(parts) + b")"
+
+    def scan(self, k: int) -> _SelfScan:
+        scan = self._scans.get(k)
+        if scan is None:
+            scan = self._scans[k] = _SelfScan(self, k)
+        return scan
+
+    def ensure(self, need: _Need) -> None:
+        """Advance a self-scan (and whatever it needs first; depths only
+        shrink along the chain, so this ends). An explicit stack: a chain can
+        be as long as the number of forms."""
+        stack = [need]
+        while stack:
+            k, depth = stack[-1]
+            more = self.scan(k).advance(depth)
+            if more is None:
+                stack.pop()
+            else:
+                stack.append(more)
 
 
 class StreamRedactor:
-    """Redact one byte stream fed in chunks (module docstring)."""
+    """Redact one byte stream fed in chunks (module docstring).
+
+    ``secrets`` is a :class:`SecretMatcher` (shared; nothing is compiled here)
+    or a plain mapping (compiled here - tests and one-shot use).
+    """
 
     def __init__(
-        self, secrets: Mapping[str, bytes], *, length_preserving: bool = False
+        self,
+        secrets: SecretMatcher | Mapping[str, bytes],
+        *,
+        length_preserving: bool = False,
     ) -> None:
-        self._p = _Patterns(secrets)
+        self._m = (
+            secrets if isinstance(secrets, SecretMatcher) else SecretMatcher(secrets)
+        )
         self._preserve = length_preserving
-        self._held = b""
+        self._buf = bytearray()
+        # Merged matched intervals not fully emitted yet, in ``_buf``
+        # coordinates: [start, end, form, already started].
+        self._iv: list[list[int]] = []
+        self._walker = _Walker(self._m, self._buf, 0, self._match)
         self.replaced = 0
-        """Matches replaced so far (tests and metrics; never the values)."""
+        """Replacements made so far (tests and metrics; never the values)."""
 
     @property
     def held(self) -> int:
         """Bytes kept back for the next chunk."""
-        return len(self._held)
+        return len(self._buf)
 
-    def _replacement(self, form: bytes) -> bytes:
-        name = self._p.owner[form]
-        return _length_preserving(name, len(form)) if self._preserve else marker(name)
+    def _match(self, start: int, end: int, form: int) -> None:
+        # Matches arrive by end position; one that starts first (or, at the
+        # same start, is longer) names the merged interval.
+        iv = self._iv
+        while iv and iv[-1][0] >= start:
+            iv.pop()
+        if iv and iv[-1][1] > start:
+            iv[-1][1] = max(iv[-1][1], end)
+        else:
+            iv.append([start, end, form, 0])
+
+    def _replacement(self, item: list[int], lo: int, hi: int) -> bytes:
+        start, end, form, begun = item
+        mark = self._m.marks[form]
+        if not begun:
+            item[3] = 1
+            self.replaced += 1
+        if not self._preserve:
+            return b"" if begun else mark
+        if end - start <= len(mark):
+            return b"*" * (hi - lo)
+        a, b = lo - start, hi - start
+        return mark[a:b] + b"*" * (b - max(a, len(mark)))
+
+    def _emit(self, upto: int) -> bytes:
+        """Release ``_buf[:upto]`` (less if an interval's shape is undecided)."""
+        buf = self._buf
+        out: list[bytes | bytearray] = []
+        pos = 0
+        done = 0
+        for item in self._iv:
+            start, end = item[0], item[1]
+            if start >= upto:
+                break
+            if (
+                end > upto
+                and self._preserve
+                and end - start <= len(self._m.marks[item[2]])
+            ):
+                # Still growing and not yet longer than its marker: whether it
+                # is "marker + stars" or "stars" is not known. Keep it.
+                upto = start
+                break
+            if start > pos:
+                out.append(buf[pos:start])
+            hi = min(end, upto)
+            out.append(self._replacement(item, max(start, pos), hi))
+            pos = hi
+            if end > upto:
+                break
+            done += 1
+        del self._iv[:done]
+        if pos < upto:
+            out.append(buf[pos:upto])
+        if upto:
+            del buf[:upto]
+            for item in self._iv:
+                item[0] -= upto
+                item[1] -= upto
+            walker = self._walker
+            walker.c -= upto
+            walker.j -= upto
+            walker.front -= upto
+        return b"".join(out)
 
     def feed(self, data: bytes) -> bytes:
         """The redacted bytes that are safe to emit now."""
-        regex = self._p.regex
-        if regex is None:
+        m = self._m
+        if not m:
             return data
-        buf = self._held + data
-        safe = max(0, len(buf) - (self._p.max_len - 1))
-        out: list[bytes] = []
-        pos = 0
-        for match in regex.finditer(buf):
-            if match.start() >= safe:
-                break
-            out.append(buf[pos : match.start()])
-            out.append(self._replacement(match.group(0)))
-            self.replaced += 1
-            pos = match.end()
-        emit_to = max(pos, safe)
-        out.append(buf[pos:emit_to])
-        self._held = buf[emit_to:]
-        return b"".join(out)
+        with m.lock:
+            buf = self._buf
+            buf += data
+            walker = self._walker
+            end = len(buf)
+            while (need := walker.run(end)) is not None:
+                m.ensure(need)
+            if walker.node is None:
+                # Nothing in progress: keep only the longest tail that could
+                # begin a form (T-3).
+                for start in range(max(walker.c, 0), end):
+                    if bytes(buf[start:end]) in m.short:
+                        walker.c = start
+                        break
+                else:
+                    walker.c = end
+            return self._emit(walker.c)
 
     def flush(self) -> bytes:
-        """Release what is held (the end of the stream)."""
-        regex = self._p.regex
-        rest, self._held = self._held, b""
-        if regex is None or not rest:
-            return rest
-        out = regex.sub(lambda m: self._count(self._replacement(m.group(0))), rest)
-        return out
-
-    def _count(self, replacement: bytes) -> bytes:
-        self.replaced += 1
-        return replacement
+        """Release what is held (the end of the stream, or a gap)."""
+        m = self._m
+        if not m:
+            return b""
+        with m.lock:
+            out = self._emit(len(self._buf))
+            self._buf.clear()
+            self._iv.clear()
+            walker = self._walker
+            walker.node = None
+            walker.c = walker.j = walker.d = walker.front = 0
+            return out
 
 
 def redact_bytes(
-    data: bytes, secrets: Mapping[str, bytes], *, length_preserving: bool = False
+    data: bytes,
+    secrets: SecretMatcher | Mapping[str, bytes],
+    *,
+    length_preserving: bool = False,
 ) -> bytes:
     """One-shot :class:`StreamRedactor` over a whole buffer."""
     redactor = StreamRedactor(secrets, length_preserving=length_preserving)
@@ -166,14 +618,19 @@ class ActiveSecrets:
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._by_holder: dict[str, dict[str, bytes]] = {}
+        self._by_holder: dict[str, SecretMatcher] = {}
         self._text: list[tuple[str, str]] = []
 
-    def add(self, holder: str, secrets: Mapping[str, bytes]) -> None:
+    def add(self, holder: str, secrets: SecretMatcher | Mapping[str, bytes]) -> None:
+        """Register a holder's values. Pass the attempt's :class:`SecretMatcher`
+        (built off the event loop) - a plain mapping is compiled here."""
         if not secrets:
             return
+        matcher = (
+            secrets if isinstance(secrets, SecretMatcher) else SecretMatcher(secrets)
+        )
         with self._lock:
-            self._by_holder[holder] = dict(secrets)
+            self._by_holder[holder] = matcher
             self._rebuild()
 
     def remove(self, holder: str) -> None:
@@ -181,18 +638,23 @@ class ActiveSecrets:
             if self._by_holder.pop(holder, None) is not None:
                 self._rebuild()
 
+    def remove_prefix(self, prefix: str) -> None:
+        """Remove every holder whose id starts with ``prefix``."""
+        with self._lock:
+            gone = [h for h in self._by_holder if h.startswith(prefix)]
+            for holder in gone:
+                del self._by_holder[holder]
+            if gone:
+                self._rebuild()
+
     def __bool__(self) -> bool:
         return bool(self._text)
 
     def _rebuild(self) -> None:
         pairs: dict[str, str] = {}
-        for secrets in self._by_holder.values():
-            for name, value in secrets.items():
-                for form in encoded_forms(value):
-                    try:
-                        pairs.setdefault(form.decode("utf-8"), name)
-                    except UnicodeDecodeError:
-                        continue
+        for matcher in self._by_holder.values():
+            for text, name in matcher.text_pairs:
+                pairs.setdefault(text, name)
         self._text = sorted(pairs.items(), key=lambda kv: -len(kv[0]))
 
     def scrub(self, text: str, *, placeholder: bool = False) -> str:
@@ -212,7 +674,7 @@ class ActiveSecrets:
 
     def names(self) -> Iterable[str]:
         with self._lock:
-            return sorted({n for s in self._by_holder.values() for n in s})
+            return sorted({n for m in self._by_holder.values() for n in m.names})
 
 
 ACTIVE: Final = ActiveSecrets()
@@ -223,8 +685,8 @@ def scrub_active(text: str, *, placeholder: bool = False) -> str:
     return ACTIVE.scrub(text, placeholder=placeholder) if ACTIVE else text
 
 
-_PH_OPEN: Final = "\ue000"
-_PH_CLOSE: Final = "\ue001"
+_PH_OPEN: Final = ""
+_PH_CLOSE: Final = ""
 _PH_RE: Final = re.compile(f"{_PH_OPEN}([A-Z0-9_]{{1,64}}){_PH_CLOSE}")
 
 

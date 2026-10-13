@@ -544,13 +544,6 @@ async def test_insecure_dev_refuses_secrets_unless_the_explicit_flag_on_both_sid
     assert not ran.exists(), "the workload ran although the channel is plaintext"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-3 (minor-major): with any secret on the job, the last "
-    "max-form-length - 1 bytes of each stream are held back until more output "
-    "arrives or the job ends, so a job that prints a short status line and "
-    "then works for an hour shows nothing live (`compute run -f`, logs API)",
-)
 async def test_a_short_status_line_is_visible_live_while_the_job_runs(
     alice: httpx.AsyncClient, grpc_target: str, tmp_path: Path
 ) -> None:

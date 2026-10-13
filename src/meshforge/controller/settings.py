@@ -218,6 +218,20 @@ class JobApiSettings(SectionModel):
             "dropped above this, so a flood of attempts cannot grow the controller."
         ),
     )
+    # --- secrets (V0.7 G6, D162) -------------------------------------------
+    max_job_secret_bytes: int = Field(
+        default=256 * 1024,
+        ge=4,
+        le=1024 * 1024,
+        description=(
+            "Bytes of secret values one job may name in total (the sum over its "
+            "manifest's `secrets`). A larger job is refused at submit and again "
+            "at dispatch (invalid_input, secret_bytes_over_limit). It bounds the "
+            "log redactor: every value is searched for in ~14 encodings, so this "
+            "many bytes cost about 21x as much memory and tens of milliseconds "
+            "per attempt on the controller and on the laptop."
+        ),
+    )
     # --- outputs (V0.4 G5, D73) -------------------------------------------
     max_output_bytes: int = Field(
         default=2 * 1024**3,

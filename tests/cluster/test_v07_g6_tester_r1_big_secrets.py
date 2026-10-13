@@ -49,13 +49,6 @@ SECRETS = 6
 MAX_ALLOWED_STALL_S = 2.0
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-8 (major): redactor construction is O(total secret bytes x 14 "
-    "forms) of CPU and memory and runs on the event loop of the controller "
-    "(LogHub.open) and of the agent; six 64 KiB secrets freeze the controller's "
-    "REST loop for seconds, 32 would take minutes and gigabytes",
-)
 def test_big_secrets_do_not_freeze_the_controller_loop(
     make_fabric: Callable[..., Fabric], tmp_path: Path
 ) -> None:
@@ -63,7 +56,14 @@ def test_big_secrets_do_not_freeze_the_controller_loop(
         agents=1,
         timing=TIMING,
         agent_execution=EXEC,
-        controller_jobs={"dispatch_interval_s": 0.1},
+        # Fix round 1 (D162): 6 x 64 KiB is above the new default per-job cap
+        # (256 KiB); the cap is raised here so this test still drives MORE
+        # than a default fabric accepts through the redactor. The default cap
+        # has its own test (test_v07_g6_fix1_secret_cap.py).
+        controller_jobs={
+            "dispatch_interval_s": 0.1,
+            "max_job_secret_bytes": SECRETS * 64 * 1024,
+        },
         agent_env={"DOCKER_HOST": "unix:///nonexistent/meshforge-test.sock"},
     )
     (node,) = fabric.nodes

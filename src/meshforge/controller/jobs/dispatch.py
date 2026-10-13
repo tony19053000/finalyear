@@ -18,8 +18,9 @@ dispatcher's one task (checklist item 5).
 
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -29,6 +30,7 @@ from meshforge.common.errors import FailureType
 from meshforge.common.hashing import Digest
 from meshforge.common.logging import get_logger
 from meshforge.common.proto.meshforge.v1 import agent_pb2
+from meshforge.common.secret_redaction import SecretMatcher
 from meshforge.common.states import AttemptState
 from meshforge.controller.blobs import MAX_FETCH_TOKEN_TTL_S, FetchTokens
 from meshforge.controller.jobs.execution_store import (
@@ -55,6 +57,7 @@ from meshforge.controller.secret_box import (
 )
 from meshforge.controller.secret_store import (
     SecretsMissingError,
+    SecretsTooLargeError,
     SecretStore,
     secret_names,
 )
@@ -117,6 +120,15 @@ def fetch_scope(job: JobRecord, inputs: Sequence[str] = ()) -> list[Digest]:
     if not job.bundle_digest:
         raise ValueError(f"job {job.id} has neither a tree nor a bundle")
     return [Digest.parse(job.bundle_digest)]
+
+
+async def _matcher(values: Mapping[str, bytes]) -> SecretMatcher | None:
+    """The attempt's shared log-redaction matcher (None without secrets),
+    compiled in a worker thread: encoding the largest allowed job's values
+    takes tens of milliseconds, too long for the loop every session shares."""
+    if not values:
+        return None
+    return await asyncio.to_thread(SecretMatcher, values)
 
 
 class DispatchSteps:
@@ -249,8 +261,16 @@ class DispatchSteps:
                     "in plaintext ([security] allow_insecure_secrets)",
                 )
             else:
-                return await self._secrets.resolve(job.owner_user_id, names)
+                return await self._secrets.resolve(
+                    job.owner_user_id,
+                    names,
+                    max_total_bytes=self._settings.max_job_secret_bytes,
+                )
         except SecretsMissingError as exc:
+            failure = (FailureType.INVALID_INPUT, exc.message)
+        except SecretsTooLargeError as exc:
+            # D162: the same cap as at submit (a value replaced by a larger
+            # one while the job waited, or a lowered setting).
             failure = (FailureType.INVALID_INPUT, exc.message)
         except SecretKeyMismatchError as exc:
             failure = (FailureType.CONFIG_ERROR, f"secret_key_mismatch: {exc.message}")
@@ -280,22 +300,28 @@ class DispatchSteps:
         )
         return None
 
-    async def _log_secrets(self, job: JobRecord) -> dict[str, bytes]:
+    async def _log_secrets(self, job: JobRecord) -> SecretMatcher | None:
         """V0.7 G6: the values the log store redacts for a live attempt found
-        again after a controller restart (Reconcile); best effort - the agent
-        redacts first, a store problem only costs the second layer."""
+        again after a controller restart (Reconcile), compiled off the event
+        loop; best effort - the agent redacts first, a store problem only
+        costs the second layer."""
         names = secret_names(job.manifest)
         if not names or self._secrets is None:
-            return {}
+            return None
         try:
-            return await self._secrets.resolve(job.owner_user_id, names)
+            values = await self._secrets.resolve(
+                job.owner_user_id,
+                names,
+                max_total_bytes=self._settings.max_job_secret_bytes,
+            )
+            return await _matcher(values)
         except Exception as exc:  # noqa: BLE001 - logged; the agent still redacts
             log.warning(
                 "controller.jobs.log_secrets_unavailable",
                 job_id=job.id,
                 cause=type(exc).__name__,
             )
-            return {}
+            return None
 
     async def _send_start(
         self, job: JobRecord, attempt: AttemptRecord, *, resend: bool
@@ -303,6 +329,8 @@ class DispatchSteps:
         secrets = await self._job_secrets(job, attempt)
         if secrets is None:
             return  # ended before anything reached the node
+        # D162 (T-8): one matcher per attempt, compiled off the event loop.
+        matcher = await _matcher(secrets)
         peers = await self._peer_sources(job, attempt)
         inputs = await self._job_inputs(job)
         token, ttl = self._mint_fetch_token(job, attempt, inputs)
@@ -366,7 +394,7 @@ class DispatchSteps:
                 job_id=job.id,
                 node_id=attempt.node_id,
                 token=attempt.fencing_token,
-                secret_values=secrets,
+                secret_values=matcher,
             )
         if resend:
             self.stats.start_resent += 1

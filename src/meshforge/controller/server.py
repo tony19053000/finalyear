@@ -596,6 +596,7 @@ class ControllerRuntime:
                     pins=self.pins,
                     prepare=self.prepare,
                     secrets=self.secrets,
+                    max_job_secret_bytes=cfg.jobs.max_job_secret_bytes,
                 ),
                 network=NetworkApi(store=network_store, prober=network),
                 invites=InviteApi(

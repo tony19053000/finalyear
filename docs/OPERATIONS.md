@@ -149,7 +149,11 @@ secrets:
 - **Rules.** Names: letters, digits and `_`, not starting with a digit
   (`hf_token` is stored as `HF_TOKEN`); values 4 bytes .. 64 KiB. Shorter values
   are refused because every log is scrubbed of each value (a 2-byte value
-  would blank half of every log). `as_env` needs text (UTF-8, no NUL) and may
+  would blank half of every log). **One job may name at most 256 KiB of secret
+  values in total** (`[controller.jobs] max_job_secret_bytes`, 4 B .. 1 MiB):
+  more is refused at submit - and when the job is about to start, if a value
+  grew meanwhile - with `invalid_input` `secret_bytes_over_limit`; the cap keeps
+  log scrubbing cheap on the controller and on the laptop. `as_env` needs text (UTF-8, no NUL) and may
   not be `PATH`, `HOME`, `PYTHONPATH`, `LD_*` or `MESHFORGE_*`.
 - **Only your own.** A job can name only the secrets of the user who submits
   it. A missing one is refused at submit (`invalid_input`

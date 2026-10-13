@@ -122,6 +122,7 @@ from meshforge.controller.planner.inputs import workload_fingerprint
 from meshforge.controller.prepare import PrepareTracker
 from meshforge.controller.secret_store import (
     SecretsMissingError,
+    SecretsTooLargeError,
     SecretStore,
     SecretStoreError,
 )
@@ -164,8 +165,12 @@ class JobApi:
         pins: PinBroadcaster | None = None,
         prepare: PrepareTracker | None = None,
         secrets: SecretStore | None = None,
+        max_job_secret_bytes: int | None = None,
     ) -> None:
         self.store = store
+        self.max_job_secret_bytes = max_job_secret_bytes
+        """``[controller.jobs] max_job_secret_bytes`` (D162); None = no cap
+        (tests that mount the routes alone)."""
         self.secrets = secrets
         """V0.7 G6 (D144): a job naming secrets its owner lacks is refused
         at submit (``secret_missing:<NAME>``); None = secrets refused."""
@@ -514,13 +519,26 @@ async def _check_secrets(
         raise ApiError(FailureType.CONFIG_ERROR, "secrets are not configured")
     try:
         await jobs.secrets.check_present(
-            owner_user_id, [item.name for item in manifest.secrets]
+            owner_user_id,
+            [item.name for item in manifest.secrets],
+            max_total_bytes=jobs.max_job_secret_bytes,
         )
     except SecretsMissingError as exc:
         raise ApiError(
             FailureType.INVALID_INPUT,
             exc.message + " (store it with `compute secret set NAME`)",
             extra={"reason": "secret_missing", "missing": list(exc.names)},
+        ) from None
+    except SecretsTooLargeError as exc:
+        # D162: bounds the log redactor's cost on the controller and the node.
+        raise ApiError(
+            FailureType.INVALID_INPUT,
+            exc.message,
+            extra={
+                "reason": "secret_bytes_over_limit",
+                "total_bytes": exc.total_bytes,
+                "max_bytes": exc.max_bytes,
+            },
         ) from None
     except SecretStoreError:
         raise ApiError(

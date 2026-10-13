@@ -37,7 +37,7 @@ from meshforge.controller.enrollment.invites import audit
 from meshforge.controller.secret_box import SealedSecret, SecretBox
 from meshforge.controller.store.engine import create_session_factory
 from meshforge.controller.store.models.enrollment import AuditAction
-from meshforge.controller.store.models.secret import Secret
+from meshforge.controller.store.models.secret import GCM_TAG_BYTES, Secret
 
 __all__ = [
     "MAX_SECRETS_PER_USER",
@@ -47,6 +47,7 @@ __all__ = [
     "SecretStore",
     "SecretStoreError",
     "SecretsMissingError",
+    "SecretsTooLargeError",
     "secret_names",
 ]
 
@@ -84,6 +85,23 @@ class SecretsMissingError(MeshForgeError):
         )
 
 
+class SecretsTooLargeError(MeshForgeError):
+    """A job's secrets together exceed ``[controller.jobs]
+    max_job_secret_bytes`` (D162; ``secret_bytes_over_limit``)."""
+
+    default_failure_type = FailureType.INVALID_INPUT
+
+    def __init__(self, total_bytes: int, max_bytes: int) -> None:
+        self.total_bytes = total_bytes
+        self.max_bytes = max_bytes
+        super().__init__(
+            f"secret_bytes_over_limit: the job's secrets total {total_bytes} "
+            f"bytes; at most {max_bytes} per job "
+            "([controller.jobs] max_job_secret_bytes)",
+            details={"total_bytes": total_bytes, "max_bytes": max_bytes},
+        )
+
+
 def secret_names(manifest: Mapping[str, Any]) -> list[str]:
     """The secret names a stored (canonical) manifest asks for (V0.7 G6);
     malformed entries are ignored here - the manifest was validated at submit."""
@@ -105,6 +123,11 @@ class SecretInfo:
     name: str
     created_at: dt.datetime
     updated_at: dt.datetime
+
+
+def _check_total(total_bytes: int, max_total_bytes: int | None) -> None:
+    if max_total_bytes is not None and total_bytes > max_total_bytes:
+        raise SecretsTooLargeError(total_bytes, max_total_bytes)
 
 
 class SecretStore:
@@ -233,10 +256,16 @@ class SecretStore:
         log.info("controller.secrets.deleted", owner_user_id=owner_user_id, name=name)
 
     async def check_present(
-        self, owner_user_id: str | None, names: Iterable[str]
+        self,
+        owner_user_id: str | None,
+        names: Iterable[str],
+        *,
+        max_total_bytes: int | None = None,
     ) -> None:
         """Submit-time check (no decryption): :class:`SecretsMissingError`
-        unless ``owner_user_id`` has every one of ``names``."""
+        unless ``owner_user_id`` has every one of ``names``; then
+        :class:`SecretsTooLargeError` if their values together exceed
+        ``max_total_bytes`` (D162; sizes from the ciphertext lengths)."""
         wanted = sorted({normalise_secret_name(n) for n in names})
         if not wanted:
             return
@@ -244,16 +273,13 @@ class SecretStore:
             raise SecretsMissingError(wanted)
         try:
             async with self._sessions() as db:
-                found = set(
-                    (
-                        await db.execute(
-                            select(Secret.name).where(
-                                Secret.owner_user_id == owner_user_id,
-                                Secret.name.in_(wanted),
-                            )
-                        )
-                    ).scalars()
+                rows = await db.execute(
+                    select(Secret.name, func.octet_length(Secret.ciphertext)).where(
+                        Secret.owner_user_id == owner_user_id,
+                        Secret.name.in_(wanted),
+                    )
                 )
+                found = {name: int(size) - GCM_TAG_BYTES for name, size in rows.all()}
         except SQLAlchemyError as exc:
             raise SecretStoreError(
                 f"cannot read secrets: {type(exc).__name__}"
@@ -261,13 +287,20 @@ class SecretStore:
         missing = [n for n in wanted if n not in found]
         if missing:
             raise SecretsMissingError(missing)
+        _check_total(sum(found.values()), max_total_bytes)
 
     async def resolve(
-        self, owner_user_id: str | None, names: Iterable[str]
+        self,
+        owner_user_id: str | None,
+        names: Iterable[str],
+        *,
+        max_total_bytes: int | None = None,
     ) -> dict[str, bytes]:
         """The values of ``names`` for ``owner_user_id`` (a job's owner).
         Raises :class:`SecretsMissingError` naming every absent one (a job
-        without an owner has none). Integrity/key failures raise typed."""
+        without an owner has none), :class:`SecretsTooLargeError` past
+        ``max_total_bytes`` (D162; before anything is decrypted).
+        Integrity/key failures raise typed."""
         wanted = sorted({normalise_secret_name(n) for n in names})
         if not wanted:
             return {}
@@ -291,6 +324,10 @@ class SecretStore:
         missing = [n for n in wanted if n not in found]
         if missing:
             raise SecretsMissingError(missing)
+        _check_total(
+            sum(len(row.ciphertext) - GCM_TAG_BYTES for row in found.values()),
+            max_total_bytes,
+        )
         box = await self.box()
         return {
             name: box.open(

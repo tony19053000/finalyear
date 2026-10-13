@@ -164,7 +164,7 @@ from meshforge.common.logging import get_logger
 from meshforge.common.manifest import check_mount
 from meshforge.common.proto.meshforge.v1 import agent_pb2, common_pb2
 from meshforge.common.proto_codec import attempt_state_to_proto, failure_type_to_proto
-from meshforge.common.secret_redaction import ACTIVE, StreamRedactor
+from meshforge.common.secret_redaction import ACTIVE, SecretMatcher, StreamRedactor
 from meshforge.common.states import AttemptState
 
 if TYPE_CHECKING:
@@ -306,6 +306,8 @@ class _Attempt:
     secrets: Mapping[str, bytes] = field(default_factory=dict)
     """V0.7 G6: this attempt's secret values while it runs (log redaction);
     emptied when it ends. Never logged, never persisted."""
+    matcher: SecretMatcher | None = None
+    """D162 (T-8): the attempt's one compiled log matcher (both streams)."""
 
     @property
     def ended(self) -> bool:
@@ -1058,8 +1060,11 @@ class Executor:
         folder: Path | None = None
         try:
             if secrets:
-                # Our own log lines scrub these values from now on (D144).
-                ACTIVE.add(attempt.attempt_id, secrets)
+                # One matcher per attempt, compiled off the loop (D162, T-8);
+                # both streams and our own log lines share it. Our own log
+                # lines scrub these values from now on (D144).
+                attempt.matcher = await asyncio.to_thread(SecretMatcher, secrets)
+                ACTIVE.add(attempt.attempt_id, attempt.matcher)
                 attempt.secrets = secrets
                 folder = await self._materialise(attempt, plan, secrets)
                 plan = _with_secrets(plan, folder, secrets)
@@ -1077,6 +1082,7 @@ class Executor:
             # Every exit path (done, failed, cancelled, agent shutdown):
             # the files are zeroed and removed, the values forgotten.
             attempt.secrets = {}
+            attempt.matcher = None
             ACTIVE.remove(attempt.attempt_id)
             if folder is not None:
                 await asyncio.shield(asyncio.to_thread(self.vault.wipe, folder))
@@ -1354,9 +1360,12 @@ class Executor:
 
         # V0.7 G6 (D144): every byte is redacted before it is written, kept
         # as evidence or sent; a value split across chunks is still found.
+        matcher = attempt.matcher
+        if matcher is None and attempt.secrets:  # never run unredacted
+            matcher = await asyncio.to_thread(SecretMatcher, attempt.secrets)
         redactors = (
-            {s: StreamRedactor(attempt.secrets) for s in Stream}
-            if attempt.secrets
+            {s: StreamRedactor(matcher) for s in Stream}
+            if matcher is not None
             else None
         )
 

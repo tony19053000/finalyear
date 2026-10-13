@@ -65,7 +65,7 @@ from meshforge.common.hashing import Digest
 from meshforge.common.ids import validate_attempt_id
 from meshforge.common.logging import get_logger
 from meshforge.common.proto.meshforge.v1 import agent_pb2
-from meshforge.common.secret_redaction import ACTIVE, StreamRedactor
+from meshforge.common.secret_redaction import ACTIVE, SecretMatcher, StreamRedactor
 from meshforge.controller.blobs import BlobStore
 from meshforge.controller.jobs.log_gaps import (
     GAPS_SUFFIX,
@@ -210,9 +210,10 @@ class AttemptLogState:
     """stream -> the live file was replaced by the verified final log."""
     persist_failing: bool = False
     """The last gaps-sidecar write failed (logged once per failing run)."""
-    secret_values: dict[str, bytes] = field(default_factory=dict)
-    """V0.7 G6 (D144): the job's secret values while the attempt is live
-    (length-preserving redaction of live chunks and of the final copy)."""
+    matcher: SecretMatcher | None = None
+    """V0.7 G6 (D144, D162): the job's secret values while the attempt is
+    live, compiled once (length-preserving redaction of live chunks and of
+    the final copy); every stream's redactor shares it."""
     redactors: dict[str, StreamRedactor] = field(default_factory=dict)
 
     def gaps(self) -> dict[str, list[list[int]]]:
@@ -310,11 +311,13 @@ class LogHub:
         job_id: str,
         node_id: str,
         token: int,
-        secret_values: Mapping[str, bytes] | None = None,
+        secret_values: SecretMatcher | Mapping[str, bytes] | None = None,
     ) -> None:
         """Accept live chunks for this attempt (dispatch, re-send, Reconcile).
         ``secret_values`` (V0.7 G6): the job's secrets - every byte written or
-        streamed for this attempt is redacted (length-preserving) first."""
+        streamed for this attempt is redacted (length-preserving) first. Pass
+        the attempt's :class:`SecretMatcher`, **built off the event loop**
+        (D162, T-8); a plain mapping is compiled here (tests, small values)."""
         state = self._attempts.get(attempt_id)
         if state is not None:
             state.fencing_token, state.node_id = token, node_id
@@ -346,16 +349,20 @@ class LogHub:
     def _arm_redaction(
         attempt_id: str,
         state: AttemptLogState,
-        secret_values: Mapping[str, bytes] | None,
+        secret_values: SecretMatcher | Mapping[str, bytes] | None,
     ) -> None:
         if not secret_values or state.redactors:
             return
-        state.secret_values = dict(secret_values)
+        matcher = (
+            secret_values
+            if isinstance(secret_values, SecretMatcher)
+            else SecretMatcher(secret_values)
+        )
+        state.matcher = matcher
         state.redactors = {
-            s: StreamRedactor(state.secret_values, length_preserving=True)
-            for s in STREAMS
+            s: StreamRedactor(matcher, length_preserving=True) for s in STREAMS
         }
-        ACTIVE.add(f"logs:{attempt_id}", state.secret_values)
+        ACTIVE.add(_holder(attempt_id), matcher)
 
     def finalize(
         self, attempt_id: str, logs: Mapping[str, Mapping[str, Any]] | None
@@ -602,7 +609,7 @@ class LogHub:
                     _replace_with,
                     source,
                     self.path(item.attempt_id, stream),
-                    state.secret_values,
+                    state.matcher,
                 )
             except (OSError, ValueError) as exc:
                 log.warning(
@@ -615,8 +622,8 @@ class LogHub:
                 continue
             state.final[stream] = True
             self.stats.finals_copied += 1
-        state.secret_values, state.redactors = {}, {}
-        ACTIVE.remove(f"logs:{item.attempt_id}")
+        state.matcher, state.redactors = None, {}
+        ACTIVE.remove(_holder(item.attempt_id))
         self._mark_ended(item.attempt_id, state)
 
     def _mark_ended(self, attempt_id: str, state: AttemptLogState) -> None:
@@ -864,6 +871,11 @@ def _state_from(record: GapRecord) -> AttemptLogState:
     return state
 
 
+def _holder(attempt_id: str) -> str:
+    """This attempt's id in the process-wide ``ACTIVE`` secret set."""
+    return f"logs:{attempt_id}"
+
+
 def _close_files(state: AttemptLogState) -> None:
     for fh in state.files.values():
         with contextlib.suppress(OSError):
@@ -885,7 +897,7 @@ def _require_regular(fd: int) -> None:
 
 
 def _replace_with(
-    source: Path, dest: Path, secret_values: Mapping[str, bytes] | None = None
+    source: Path, dest: Path, secret_values: SecretMatcher | None = None
 ) -> None:
     """``dest`` := ``source`` (atomically); with ``secret_values`` (V0.7 G6) the
     copy is redacted, length-preserving, streamed in chunks."""

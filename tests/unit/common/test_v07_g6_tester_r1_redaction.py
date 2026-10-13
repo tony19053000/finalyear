@@ -139,11 +139,6 @@ def test_a_secret_that_is_a_substring_of_another_secrets_encoding() -> None:
     assert short_value not in got
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-2: two secrets that OVERLAP in the output (one ends where the "
-    "other starts) - the regex is non-overlapping, so the second's tail leaks",
-)
 def test_overlapping_matches_of_two_secrets_leave_no_tail() -> None:
     got = redact_bytes(b"abcd1234wxyz", {"A": b"abcd1234", "B": b"1234wxyz"})
     assert b"wxyz" not in got and b"abcd" not in got
@@ -247,12 +242,6 @@ def test_docs_say_escaped_forms_are_not_covered() -> None:
     assert any("escap" in x.lower() for x in lines)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-3: the redactor holds back max-form-length - 1 bytes of EVERY "
-    "stream, even bytes that cannot start a form, so a short line is not "
-    "visible live until later output arrives or the job ends",
-)
 def test_bytes_that_cannot_start_a_secret_are_not_held_back() -> None:
     red = StreamRedactor({"K": b"a-typical-api-key-0123456789abcdef"})
     out = red.feed(b"Epoch 1 done\n")  # no byte of this can begin any form
@@ -303,12 +292,6 @@ def test_a_64kib_secret_compiles_quickly_enough_to_start_an_attempt() -> None:
     assert time.perf_counter() - t0 < 10
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-8 (major): constructing a redactor for a job's allowed maximum "
-    "(32 secrets x 64 KiB) takes ~25 s and ~4 GB per stream; four of them "
-    "already take seconds - it runs on the event loop of controller and agent",
-)
 def test_construction_cost_is_bounded_for_many_large_secrets() -> None:
     secs = {f"S{i}": os.urandom(64 * 1024) for i in range(4)}
     t0 = time.perf_counter()
