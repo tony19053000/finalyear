@@ -157,6 +157,10 @@ class SecretVault:
         suffix = f"-{self.tag}" if self.tag else ""
         return self.root / f"meshforge-secrets-{uid}{suffix}"
 
+    def folder(self, attempt_id: str) -> Path:
+        """Where one attempt's files are (or would be); creates nothing."""
+        return self.base / attempt_id
+
     def _ensure_base(self) -> Path:
         base = self.base
         self.root.mkdir(parents=True, exist_ok=True)
@@ -189,7 +193,8 @@ class SecretVault:
         owner: tuple[int, int] | None = None,
     ) -> Path:
         """Write ``values`` to ``<base>/<attempt_id>/NAME``; returns the folder."""
-        folder = self._ensure_base() / attempt_id
+        self._ensure_base()
+        folder = self.folder(attempt_id)
         if folder.exists() or folder.is_symlink():
             self._wipe_folder(folder)
         folder.mkdir(mode=0o700)

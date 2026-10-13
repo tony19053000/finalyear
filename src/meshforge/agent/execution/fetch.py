@@ -67,6 +67,7 @@ from meshforge.agent.cas.fetcher import FetchError, FetchTuning, SourceStats
 from meshforge.agent.cas.sources import TokenLookup
 from meshforge.agent.cas.store import DEFAULT_FREE_DISK_FLOOR_BYTES
 from meshforge.agent.execution.failure_evidence import DISK_FULL_ERRNOS
+from meshforge.agent.threads import uninterrupted
 from meshforge.common.errors import FailureType, MeshForgeError
 from meshforge.common.hashing import Digest
 from meshforge.common.logging import get_logger
@@ -453,7 +454,7 @@ async def stage_tree(
         await fetcher.ensure_all(tree)
         while True:
             try:
-                await _uninterrupted(
+                await uninterrupted(
                     asyncio.to_thread(
                         materialise,
                         cas.store,
@@ -493,23 +494,3 @@ async def stage_tree(
         bytes_hit=stats.bytes_hit,
         manifest_hit=stats.manifest_hit,
     )
-
-
-async def _uninterrupted[T](work: Awaitable[T]) -> T:
-    """Await ``work`` to completion even if cancelled meanwhile, then re-raise.
-
-    The copy runs in a thread that a cancellation cannot stop; returning early
-    would let the caller delete the workdir while the thread still writes in it.
-    """
-    future = asyncio.ensure_future(work)
-    cancelled = False
-    while not future.done():
-        try:
-            await asyncio.shield(future)
-        except asyncio.CancelledError:
-            cancelled = True
-    if cancelled:
-        if not future.cancelled():
-            future.exception()  # retrieved on purpose: the stop wins
-        raise asyncio.CancelledError
-    return future.result()

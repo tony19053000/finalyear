@@ -78,6 +78,7 @@ from meshforge.agent.execution.runtime import (
     classify,
 )
 from meshforge.agent.process import ProcessHandle, ProcessLimits, SpawnError, spawn
+from meshforge.agent.threads import uninterrupted
 from meshforge.common.errors import FailureType
 from meshforge.common.logging import get_logger
 
@@ -437,9 +438,17 @@ class SubprocessRuntime:
         if self._cgroups is None or spec.limits.cpus is None:
             return None
         try:
-            return await asyncio.to_thread(
-                self._cgroups.create, spec.attempt_id, spec.limits.cpus
+            # The thread always ends before we go on: a cancel during the
+            # create must not lose the cgroup it makes (the T-14 class).
+            return await uninterrupted(
+                asyncio.to_thread(
+                    self._cgroups.create, spec.attempt_id, spec.limits.cpus
+                )
             )
+        except asyncio.CancelledError:
+            # By name: the create's result never reached us.
+            await self._drop_cgroup(self._cgroups.path_for(spec.attempt_id))
+            raise
         except (OSError, ValueError) as exc:
             raise SpawnError(
                 f"cannot create the job's CPU cgroup: {type(exc).__name__}",

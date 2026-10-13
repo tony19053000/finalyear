@@ -130,6 +130,7 @@ from meshforge.agent.execution.sandbox_check import (
 )
 from meshforge.agent.execution.secret_files import CONTAINER_SECRETS_DIR
 from meshforge.agent.gc.leases import lease_env
+from meshforge.agent.threads import uninterrupted
 from meshforge.common.errors import FailureType
 from meshforge.common.logging import get_logger
 
@@ -1016,9 +1017,16 @@ class DockerRuntime:
         envs = self._envs
         if envs is None:
             raise RuntimeError("no environment builder")
-        staging = await asyncio.to_thread(
-            self._stage_requirements, digest, requirements
-        )
+        # By path, and only after the staging thread has ended: a cancel during
+        # the write must not leave the folder behind (the T-14 class).
+        staging = envs.staging_dir(digest)
+        try:
+            await uninterrupted(
+                asyncio.to_thread(self._stage_requirements, digest, requirements)
+            )
+        except BaseException:
+            await asyncio.shield(asyncio.to_thread(remove_tree, staging))
+            raise
         archive = self._env_dir_archive()
         tag = f"{ENV_IMAGE_REPO}:{digest}"
 

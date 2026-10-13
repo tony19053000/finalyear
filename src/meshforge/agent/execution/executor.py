@@ -152,6 +152,7 @@ from meshforge.agent.gc.leases import AttemptLeases, LeaseError
 from meshforge.agent.http_tls import AgentHttpTls
 from meshforge.agent.policy import LivePolicy
 from meshforge.agent.settings import AgentSettings
+from meshforge.agent.threads import settled
 from meshforge.common.bundle import BundleError, BundleLimits, unpack
 from meshforge.common.errors import FailureType, InvalidIdError
 from meshforge.common.hashing import Digest
@@ -1057,7 +1058,7 @@ class Executor:
         stage_started = self._clock()
         await self._stage(attempt, plan, workdir, msg.spec)
         attempt.phases["stage_s"] = self._clock() - stage_started
-        folder: Path | None = None
+        writing: asyncio.Future[Path] | None = None
         try:
             if secrets:
                 # One matcher per attempt, compiled off the loop (D162, T-8);
@@ -1066,7 +1067,8 @@ class Executor:
                 attempt.matcher = await asyncio.to_thread(SecretMatcher, secrets)
                 ACTIVE.add(attempt.attempt_id, attempt.matcher)
                 attempt.secrets = secrets
-                folder = await self._materialise(attempt, plan, secrets)
+                writing = self._write_secrets(attempt, plan, secrets)
+                folder = await self._written(attempt, writing)
                 plan = _with_secrets(plan, folder, secrets)
             logs = await asyncio.to_thread(
                 AttemptLogs,
@@ -1084,30 +1086,52 @@ class Executor:
             attempt.secrets = {}
             attempt.matcher = None
             ACTIVE.remove(attempt.attempt_id)
-            if folder is not None:
-                await asyncio.shield(asyncio.to_thread(self.vault.wipe, folder))
+            if writing is not None:
+                await asyncio.shield(self._wipe_secrets(attempt.attempt_id, writing))
 
-    async def _materialise(
+    def _write_secrets(
         self, attempt: _Attempt, plan: AttemptPlan, secrets: Mapping[str, bytes]
-    ) -> Path:
+    ) -> asyncio.Future[Path]:
+        """Start writing the attempt's secret files in a worker thread.
+
+        The caller keeps this future: a cancelled ``await`` cannot stop the
+        thread, so the wipe has to wait for it (:meth:`_wipe_secrets`, T-14).
+        """
         runtime = self._setup.runtimes.get(plan.runtime)
         owner_of = getattr(runtime, "secret_owner", None)
         owner = owner_of() if callable(owner_of) else None
-        try:
-            return await self._step(
-                attempt,
-                asyncio.to_thread(
-                    self.vault.materialise,
-                    attempt.attempt_id,
-                    secrets,
-                    read_only=plan.runtime == "docker",
-                    owner=owner,
-                ),
+        return asyncio.ensure_future(
+            asyncio.to_thread(
+                self.vault.materialise,
+                attempt.attempt_id,
+                secrets,
+                read_only=plan.runtime == "docker",
+                owner=owner,
             )
+        )
+
+    async def _written(self, attempt: _Attempt, writing: asyncio.Future[Path]) -> Path:
+        try:
+            # Shielded: a stop cancels our wait, never the handle on the write.
+            return await self._step(attempt, asyncio.shield(writing))
         except OSError as exc:
             raise SecretFilesError(
                 f"cannot write the attempt's secret files: {exc.strerror or exc}"
             ) from None
+
+    async def _wipe_secrets(
+        self, attempt_id: str, writing: asyncio.Future[Path]
+    ) -> None:
+        """Wipe ``<base>/<attempt_id>`` - by path, after the write has ended.
+
+        The folder's path is known before the write starts, so nothing depends
+        on the write's result reaching us (T-14: a stop during the write lost
+        it and the plaintext files stayed). The write runs in a thread that a
+        cancel cannot stop; it is the only writer of this folder, so waiting
+        for it first means nothing can appear after the wipe.
+        """
+        await settled(writing)
+        await asyncio.to_thread(self.vault.wipe, self.vault.folder(attempt_id))
 
     async def _stage(
         self,
@@ -1635,17 +1659,19 @@ class Executor:
             return Collected(None, None, 0, 0, ())
         dest = self.work_root / f"{attempt.attempt_id}.outputs"
         max_bytes = plan.upload_max_bytes or 0
-        try:
-            collected = await self._step(
-                attempt,
-                asyncio.to_thread(
-                    collect_outputs,
-                    attempt.workdir,
-                    patterns,
-                    dest,
-                    max_bytes=max_bytes if max_bytes > 0 else 2**62,
-                ),
+        # Kept: a stop cancels our wait, not the thread - it may create the
+        # archive after the ``finally`` below has run (same class as T-14).
+        packing = asyncio.ensure_future(
+            asyncio.to_thread(
+                collect_outputs,
+                attempt.workdir,
+                patterns,
+                dest,
+                max_bytes=max_bytes if max_bytes > 0 else 2**62,
             )
+        )
+        try:
+            collected = await self._step(attempt, asyncio.shield(packing))
             if collected.archive is None or collected.digest is None:
                 return collected
             if not plan.upload_token:
@@ -1667,8 +1693,11 @@ class Executor:
             )
             return collected
         finally:
-            with contextlib.suppress(OSError):
-                dest.unlink()
+            _unlink_quietly(dest)
+            if not packing.done():
+                # Packing can take long; do not hold the stop for it. Remove
+                # what the thread leaves when it ends.
+                packing.add_done_callback(lambda done: _unlink_after(done, dest))
 
     async def _announce_run(self, attempt: _Attempt) -> None:
         """``ENV_READY`` then ``RUNNING``, once (the env phase is inside run())."""
@@ -1798,6 +1827,17 @@ class Executor:
             failure_type=None if failure is None else failure[0].value,
             exit_code=exit_code,
         )
+
+
+def _unlink_quietly(path: Path) -> None:
+    with contextlib.suppress(OSError):
+        path.unlink()
+
+
+def _unlink_after(done: asyncio.Future[Any], path: Path) -> None:
+    if not done.cancelled():
+        done.exception()  # retrieved: nobody waits for this result any more
+    _unlink_quietly(path)
 
 
 def _with_secrets(

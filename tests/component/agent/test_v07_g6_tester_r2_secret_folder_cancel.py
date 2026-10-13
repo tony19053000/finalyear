@@ -39,11 +39,6 @@ pytestmark = [
 ]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-14 (major): a stop during the secret-file write leaves the folder "
-    "(plaintext values) on the agent: `folder` is assigned only after the await",
-)
 async def test_a_cancel_during_the_secret_file_write_still_wipes_the_folder(
     alice: httpx.AsyncClient,
     grpc_target: str,

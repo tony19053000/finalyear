@@ -76,6 +76,7 @@ from meshforge.agent.execution.failure_evidence import (
     OutputTail,
 )
 from meshforge.agent.gc.leases import lease_env
+from meshforge.agent.threads import uninterrupted
 from meshforge.common.atomic import atomic_write_bytes
 from meshforge.common.errors import FailureType
 from meshforge.common.logging import get_logger
@@ -571,6 +572,18 @@ class EnvBuilder:
         atomic_write_bytes(path, requirements, mode=0o600)
         return path
 
+    async def _staged_requirements(self, digest: str, requirements: bytes) -> Path:
+        """:meth:`_write_requirements` in a thread that has ended when this
+        returns or raises: a cancel during the write removes the staging
+        folder by path instead of leaving it (V0.7 G6 T-14 class)."""
+        try:
+            return await uninterrupted(
+                asyncio.to_thread(self._write_requirements, digest, requirements)
+            )
+        except BaseException:
+            await _shielded(remove_tree, self.staging_dir(digest))
+            raise
+
     async def find_interpreter(self, request: str | None) -> Interpreter:
         """The interpreter for ``env.python`` (default: this agent's major.minor)."""
         wanted = request or f"{sys.version_info[0]}.{sys.version_info[1]}"
@@ -699,7 +712,7 @@ class EnvBuilder:
             ]
             await self._install(venv, deadline=deadline, on_output=on_output)
             if requirements:
-                req = await _to_thread(self._write_requirements, digest, requirements)
+                req = await self._staged_requirements(digest, requirements)
                 try:
                     await self._install(
                         [
@@ -720,7 +733,7 @@ class EnvBuilder:
                         on_output=on_output,
                     )
                 finally:
-                    await _to_thread(remove_tree, req.parent)
+                    await _shielded(remove_tree, req.parent)
 
         return await self.ensure_dir_env(
             "venv", digest, build, deadline=deadline, log_fields=log_fields
@@ -753,7 +766,7 @@ class EnvBuilder:
         )
 
         async def build(target: Path) -> None:
-            req = await _to_thread(self._write_requirements, digest, requirements)
+            req = await self._staged_requirements(digest, requirements)
             try:
                 await self._install(
                     [
@@ -776,7 +789,7 @@ class EnvBuilder:
                     on_output=on_output,
                 )
             finally:
-                await _to_thread(remove_tree, req.parent)
+                await _shielded(remove_tree, req.parent)
 
         return await self.ensure_dir_env(
             "subprocess", digest, build, deadline=deadline, log_fields=log_fields
