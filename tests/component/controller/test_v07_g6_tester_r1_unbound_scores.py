@@ -125,12 +125,6 @@ async def test_bulk_expiry_in_one_statement_leaves_bound_documents_alone(
         assert await _has_scores(store, node_id)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-7 (minor): the expiry UPDATE casts measured_at inside its WHERE; one "
-    "unparseable legacy value fails the whole statement, so no unbound document "
-    "ever expires (the helper only logs)",
-)
 async def test_one_garbage_legacy_row_does_not_block_every_other_expiry(
     store: Registry, pg_settings: DatabaseSettings
 ) -> None:

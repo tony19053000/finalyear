@@ -284,6 +284,19 @@ def _session_record(row: NodeSession) -> SessionRecord:
     )
 
 
+def _parse_measured_at(raw: object) -> dt.datetime | None:
+    """A stored ``measured_at`` (ISO-8601; ``Z`` or an offset) as an aware
+    time, or None when it is missing or not a time. A value without an offset
+    is read as UTC."""
+    if not isinstance(raw, str):
+        return None
+    try:
+        parsed = dt.datetime.fromisoformat(raw.strip())
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=dt.UTC)
+
+
 class Registry:
     """Async repository over the node registry tables."""
 
@@ -468,27 +481,47 @@ class Registry:
 
         D161 N3: such a document is accepted (``bound_to``) only until the
         node's next Hello re-binds or clears it - a node that never comes back
-        would keep it forever. One statement, so a Hello that writes a bound
-        document at the same moment is never undone (it no longer matches).
-        Documents were validated at ingestion: ``measured_at`` always casts.
+        would keep it forever.
+
+        D162 (T-7): ``measured_at`` is read as text and parsed here, never
+        cast inside the statement - one unparseable legacy value used to fail
+        the whole UPDATE, so nothing ever expired. A document whose
+        ``measured_at`` is missing or cannot be parsed has no provable age
+        and is cleared too (fail closed; the node measures again). Each
+        document is cleared by its own guarded UPDATE (still unbound, same
+        ``measured_at`` text), so a Hello that writes a bound document at the
+        same moment is never undone.
         """
-        stored_at = cast(
-            Node.hardware_scores["measured_at"].astext, TIMESTAMP(timezone=True)
+        unbound = (
+            Node.hardware_scores.is_not(None),
+            Node.hardware_scores["node_id"].astext.is_(None),
         )
+        stored_at = Node.hardware_scores["measured_at"].astext
+        count = undated = 0
         async with self._sessions() as db, db.begin():
-            result = await db.execute(
-                update(Node)
-                .where(
-                    Node.hardware_scores.is_not(None),
-                    Node.hardware_scores["node_id"].astext.is_(None),
-                    stored_at < cutoff,
+            rows = (
+                await db.execute(select(Node.node_id, stored_at).where(*unbound))
+            ).all()
+            for node_id, raw in rows:
+                measured = _parse_measured_at(raw)
+                if measured is not None and measured >= cutoff:
+                    continue
+                result = await db.execute(
+                    update(Node)
+                    .where(
+                        Node.node_id == node_id,
+                        *unbound,
+                        stored_at.is_not_distinct_from(raw),
+                    )
+                    .values(hardware_scores=None)
+                    .execution_options(synchronize_session=False)
                 )
-                .values(hardware_scores=None)
-                .execution_options(synchronize_session=False)
-            )
-            count = _rowcount(result)
+                cleared = _rowcount(result)
+                count += cleared
+                if measured is None:
+                    undated += cleared
         if count:
-            log.info("registry.unbound_scores_expired", count=count)
+            log.info("registry.unbound_scores_expired", count=count, undated=undated)
         return count
 
     @_typed
