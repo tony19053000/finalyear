@@ -47,7 +47,8 @@ SCRIPT = textwrap.dedent(
                 await asyncio.sleep(0.05)
                 stop.set(); await t
                 out[f"{label}/{how}"] = [round(build, 3), round(max(lags) * 1000, 1)]
-        out["maxrss_mb"] = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
+        hwm = [l for l in open("/proc/self/status") if l.startswith("VmHWM")][0]
+        out["maxrss_mb"] = int(hwm.split()[1]) / 1024  # not ru_maxrss: it is inherited across exec
         print("RESULT" + json.dumps(out))
 
     asyncio.run(main())
