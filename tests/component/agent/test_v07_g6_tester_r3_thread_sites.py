@@ -201,6 +201,11 @@ async def test_env_seal_against_the_shielded_remove_leaves_no_partial_env(
         outcome = "cancelled"
     except EnvError as exc:
         outcome = f"EnvError:{exc.reason}"
+    except TypeError as exc:
+        # T-20 (see test_v07_g6_tester_r3_unreadable_dir.py): rmtree's error
+        # hook retries os.open(path) without flags when the tree vanishes under
+        # it; the TypeError replaces the CancelledError.
+        outcome = f"TypeError:{exc}"
     except OSError as exc:
         # OBSERVATION (T-20, minor): the shielded remove of `.building` raised
         # FileNotFoundError because `_seal` renamed the tree under it; that
