@@ -17,6 +17,8 @@ class EnvError(MeshForgeError):
     ==========================  ==============  ===================================
     ``requirements_rejected``   env_error       file too big / too many lines / not
                                                 UTF-8 / a line the hash cannot cover
+                                                / on a wheels-only node an option
+                                                line or a non-wheel direct reference
     ``requirements_missing``    env_error       the manifest names a file that is not
                                                 in the project (or escapes it)
     ``setup_failed``            env_error       the installer exited non-zero

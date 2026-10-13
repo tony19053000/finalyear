@@ -50,16 +50,7 @@ def _local_source_dir(folder: Path, marker: Path) -> Path:
     "lines",
     [
         "--no-binary :all:\nmfsrc==1.0\n",
-        pytest.param(
-            "--no-binary mfsrc\nmfsrc==1.0\n",
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="T-5 (major): a per-package `--no-binary NAME` line in the "
-                "job's own requirements.txt overrides the owner's `--only-binary "
-                ":all:` (uv honours the file's option) - the package's build code "
-                "runs although `only_binary = true`",
-            ),
-        ),
+        "--no-binary mfsrc\nmfsrc==1.0\n",
         "--no-binary=:all:\n--only-binary=:none:\nmfsrc==1.0\n",
         "--only-binary :none:\nmfsrc==1.0\n",
         "mfsrc==1.0\n--no-binary :all:\n",

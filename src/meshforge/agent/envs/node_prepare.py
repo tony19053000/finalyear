@@ -291,6 +291,7 @@ class PrepareService:
                 env.requirements,
                 max_bytes=self._settings.agent.envs.max_requirements_bytes,
                 max_lines=self._settings.agent.envs.max_requirements_lines,
+                wheels_only=self._settings.agent.envs.only_binary,
             )
         except EnvError as exc:
             item.fail(exc.failure_type, exc.reason, exc.message)

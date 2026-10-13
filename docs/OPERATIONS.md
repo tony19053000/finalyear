@@ -709,6 +709,16 @@ environment (subprocess runtime; install torch there with `uv sync --extra gpu`)
   `[agent.envs] only_binary = false` on a laptop where you accept that build
   code runs (in the Docker build container, or as you for the venv/subprocess
   runtimes), or put a pre-built wheel into a `find_links` wheelhouse.
+  **The job's own `requirements.txt` cannot switch this off** (V0.7 G6 fix
+  round 1): while `only_binary = true`, a file with an **option line** (any
+  line starting with `-`: `--no-binary NAME`, `--index-url ...`,
+  `--extra-index-url ...`, `--find-links ...`, `--pre` ...), with an option
+  other than `--hash=...` after a requirement, or with a direct reference that
+  is not the `https://` URL of a `.whl` file (a `.tar.gz`, a `git+` URL) is
+  refused before anything is installed: `env_error` / `requirements_rejected`,
+  naming the line. A job that needs another package index (for example the
+  PyTorch wheel index) gets it from the laptop owner's `[agent.envs] index_url`
+  or a `find_links` wheelhouse, not from its own file.
 - **What is refused** (`env_error / requirements_rejected`): `-r`/`-c`/`-e` lines,
   local paths, `file:` URLs and `name @ <anything but an http(s) URL or a git+/hg+/svn+/bzr+
   URL over http(s)/ssh/git>` (so `git+file://` is refused too), and `--index-url`/`--extra-index-url`/`--find-links`

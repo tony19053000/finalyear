@@ -324,6 +324,7 @@ class EnvBuilder:
             data,
             max_bytes=limit,
             max_lines=self.config.max_requirements_lines,
+            wheels_only=self.config.only_binary,
         )
 
     # ------------------------------------------------------ shared machinery
@@ -538,6 +539,7 @@ class EnvBuilder:
             requirements,
             max_bytes=self.config.max_requirements_bytes,
             max_lines=self.config.max_requirements_lines,
+            wheels_only=self.config.only_binary,
         )
 
     # ------------------------------------------------------------- the tools

@@ -39,6 +39,16 @@ two different environments would get the same hash: ``-r``/``-c`` includes and
 reference (``name @ ...``) that is not an ``http(s)://`` or VCS (``git+``, ``hg+``,
 ``svn+``, ``bzr+``) URL (their contents are not in this file). Size and line count
 are bounded (settings).
+
+**Wheels-only nodes** (``[agent.envs] only_binary = true``, the default; V0.7 G6
+fix round 1, D162 T-5): the file is the job author's text and both installers
+honour options written in it, so with ``wheels_only`` the normaliser also refuses
+(``requirements_rejected``, naming the line) every **option line** (a line that
+starts with ``-``: ``--no-binary NAME`` would switch wheels-only off for that
+package), every per-requirement option except ``--hash``, and every direct
+reference that is not an ``http(s)`` URL of a ``.whl`` file (pip builds a source
+archive or a VCS checkout named by URL even under ``--only-binary :all:``). What
+is accepted is normalised exactly as before, so no hash changes.
 """
 
 from __future__ import annotations
@@ -48,6 +58,7 @@ import json
 import re
 from dataclasses import dataclass
 from typing import Final
+from urllib.parse import urlsplit
 
 from meshforge.agent.envs.errors import EnvError
 
@@ -194,6 +205,59 @@ def _check_line(line: str, number: int) -> None:
         )
 
 
+def _check_wheels_only(line: str, number: int) -> None:
+    """Module docstring, "Wheels-only nodes": nothing in the job's own file may
+    make an installer run a package's build code."""
+    shown = line if len(line) <= 100 else f"{line[:97]}..."
+    why = (
+        "installs on this node are wheels-only ([agent.envs] only_binary = true; "
+        "only the node's owner can change that)"
+    )
+    if line.startswith("-"):
+        raise _rejected(
+            f"requirements line {number}: option lines are not accepted "
+            f"({shown!r}): {why}. Remove the line - only `--hash=...` after a "
+            "requirement is allowed; another package index is the owner's "
+            "[agent.envs] index_url / find_links"
+        )
+    tokens = line.split()
+    skip = False
+    for index, word in enumerate(tokens):
+        if skip:
+            skip = False
+            continue
+        if index and word.startswith("-"):
+            if word.startswith("--hash="):
+                continue
+            takes_value = index + 1 < len(tokens) and not tokens[index + 1].startswith(
+                "-"
+            )
+            if word == "--hash" and takes_value:
+                skip = True
+                continue
+            raise _rejected(
+                f"requirements line {number}: the option {word.split('=', 1)[0]!r} "
+                f"is not accepted ({shown!r}): {why}. Only `--hash=...` is allowed "
+                "after a requirement"
+            )
+        if "://" in word:
+            scheme_part, _, _ = word.partition("://")
+            url = word.split("@", 1)[1] if "@" in scheme_part else word
+            try:
+                parts = urlsplit(url)
+                wheel = parts.scheme.lower() in ("http", "https") and (
+                    parts.path.lower().endswith(".whl")
+                )
+            except ValueError:
+                wheel = False
+            if not wheel:
+                raise _rejected(
+                    f"requirements line {number}: a direct reference must be the "
+                    f"http(s) URL of a wheel (.whl) ({shown!r}): {why}, and a source "
+                    "archive or a repository would be built"
+                )
+
+
 def _pep503(name: str) -> str:
     return _NAME_RUNS.sub("-", name).lower()
 
@@ -294,10 +358,16 @@ def _canonical_requirement(line: str, number: int) -> str:
 
 
 def normalize_requirements(
-    data: bytes, *, max_bytes: int = 65_536, max_lines: int = 1000
+    data: bytes,
+    *,
+    max_bytes: int = 65_536,
+    max_lines: int = 1000,
+    wheels_only: bool = False,
 ) -> bytes:
     """Canonical requirements bytes (module docstring). Raises :class:`EnvError`
-    (``requirements_rejected``) for an oversize, non-UTF-8 or unhashable file."""
+    (``requirements_rejected``) for an oversize, non-UTF-8 or unhashable file,
+    and with ``wheels_only`` (the node installs wheels only) for a line that
+    could make an installer build from source."""
     if len(data) > max_bytes:
         raise _rejected(
             f"the requirements file is {len(data)} bytes; the maximum is {max_bytes}"
@@ -313,6 +383,8 @@ def normalize_requirements(
         if not line:
             continue
         _check_line(line, number)
+        if wheels_only:
+            _check_wheels_only(line, number)
         kept.add(_canonical_line(line, number))
         if len(kept) > max_lines:
             raise _rejected(f"the requirements file has more than {max_lines} entries")
