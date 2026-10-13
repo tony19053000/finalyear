@@ -737,7 +737,8 @@ environment (subprocess runtime; install torch there with `uv sync --extra gpu`)
   line starting with `-`: `--no-binary NAME`, `--index-url ...`,
   `--extra-index-url ...`, `--find-links ...`, `--pre` ...), with an option
   other than `--hash=...` after a requirement, or with a direct reference that
-  is not the `https://` URL of a `.whl` file (a `.tar.gz`, a `git+` URL) is
+  is not the `https://` URL of a `.whl` file (a `.tar.gz`, a `git+` URL, a
+  wheel over plain `http://`) is
   refused before anything is installed: `env_error` / `requirements_rejected`,
   naming the line. A job that needs another package index (for example the
   PyTorch wheel index) gets it from the laptop owner's `[agent.envs] index_url`

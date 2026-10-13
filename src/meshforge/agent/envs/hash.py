@@ -46,7 +46,7 @@ honour options written in it, so with ``wheels_only`` the normaliser also refuse
 (``requirements_rejected``, naming the line) every **option line** (a line that
 starts with ``-``: ``--no-binary NAME`` would switch wheels-only off for that
 package), every per-requirement option except ``--hash``, and every direct
-reference that is not an ``http(s)`` URL of a ``.whl`` file (pip builds a source
+reference that is not the ``https://`` URL of a ``.whl`` file (pip builds a source
 archive or a VCS checkout named by URL even under ``--only-binary :all:``). What
 is accepted is normalised exactly as before, so no hash changes.
 
@@ -268,7 +268,10 @@ def _check_wheels_only(line: str, number: int) -> None:
             url = word.split("@", 1)[1] if "@" in scheme_part else word
             try:
                 parts = urlsplit(url)
-                wheel = parts.scheme.lower() in ("http", "https") and (
+                # https only (OPERATIONS; D163): a wheel fetched over plain
+                # http could be replaced on the way. Spelled in lower case:
+                # uv reads ``HTTPS://...`` as a local path.
+                wheel = url.startswith("https://") and (
                     parts.path.lower().endswith(".whl")
                 )
             except ValueError:
@@ -276,7 +279,7 @@ def _check_wheels_only(line: str, number: int) -> None:
             if not wheel:
                 raise _rejected(
                     f"requirements line {number}: a direct reference must be the "
-                    f"http(s) URL of a wheel (.whl) ({shown!r}): {why}, and a source "
+                    f"https:// URL of a wheel (.whl) ({shown!r}): {why}, and a source "
                     "archive or a repository would be built"
                 )
 

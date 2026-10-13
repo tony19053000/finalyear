@@ -138,9 +138,76 @@ import test_v07_g6_only_binary_real as base  # noqa: E402
 from mf_envs_support import make_wheel  # noqa: E402
 
 
+def _self_signed(folder: Path) -> tuple[Path, Path, Path]:
+    """A one-day CA and a certificate for 127.0.0.1 (fix round 2: wheel URLs
+    are https only, D163, so the tester's server speaks TLS and uv trusts the
+    CA by SSL_CERT_FILE). Returns (ca cert, server cert, server key)."""
+    import datetime
+    import ipaddress
+
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from cryptography.x509.oid import NameOID
+
+    now = datetime.datetime.now(datetime.UTC)
+
+    def build(
+        subject: str,
+        key: ec.EllipticCurvePrivateKey,
+        issuer: str,
+        issuer_key: ec.EllipticCurvePrivateKey,
+        *,
+        ca: bool,
+    ) -> x509.Certificate:
+        builder = (
+            x509.CertificateBuilder()
+            .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, subject)]))
+            .issuer_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, issuer)]))
+            .public_key(key.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(now - datetime.timedelta(minutes=5))
+            .not_valid_after(now + datetime.timedelta(days=1))
+            .add_extension(
+                x509.BasicConstraints(ca=ca, path_length=None), critical=True
+            )
+        )
+        if not ca:
+            builder = builder.add_extension(
+                x509.SubjectAlternativeName(
+                    [x509.IPAddress(ipaddress.ip_address("127.0.0.1"))]
+                ),
+                critical=False,
+            )
+        return builder.sign(issuer_key, hashes.SHA256())
+
+    ca_key = ec.generate_private_key(ec.SECP256R1())
+    key = ec.generate_private_key(ec.SECP256R1())
+    ca_cert = build("tester r2 test CA", ca_key, "tester r2 test CA", ca_key, ca=True)
+    cert = build("127.0.0.1", key, "tester r2 test CA", ca_key, ca=False)
+    folder.mkdir(parents=True, exist_ok=True)
+    ca_path, cert_path, key_path = (
+        folder / "ca.pem",
+        folder / "cert.pem",
+        folder / "key.pem",
+    )
+    ca_path.write_bytes(ca_cert.public_bytes(serialization.Encoding.PEM))
+    cert_path.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+    key_path.write_bytes(
+        key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        )
+    )
+    return ca_path, cert_path, key_path
+
+
 @pytest.fixture
-def server(tmp_path: Path) -> Iterator[tuple[str, Path, Path]]:
-    """An HTTP server that serves the SDIST bytes for every path ending in the
+def server(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[tuple[str, Path, Path]]:
+    """An HTTPS server that serves the SDIST bytes for every path ending in the
     sdist name or '.whl' tricks, and the real wheel for the wheel path."""
     folder = tmp_path / "www"
     marker = tmp_path / "marker.txt"
@@ -166,10 +233,17 @@ def server(tmp_path: Path) -> Iterator[tuple[str, Path, Path]]:
         def log_message(self, *args: object) -> None:
             pass
 
+    import ssl
+
+    ca_path, cert_path, key_path = _self_signed(tmp_path / "tls")
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(cert_path, key_path)
     httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    httpd.socket = context.wrap_socket(httpd.socket, server_side=True)
+    monkeypatch.setenv("SSL_CERT_FILE", str(ca_path))  # the tool allowlist keeps it
     t = threading.Thread(target=httpd.serve_forever, daemon=True)
     t.start()
-    yield f"http://127.0.0.1:{httpd.server_port}", marker, sdist
+    yield f"https://127.0.0.1:{httpd.server_port}", marker, sdist
     httpd.shutdown()
     httpd.server_close()
 

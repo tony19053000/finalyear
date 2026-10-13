@@ -81,3 +81,32 @@ def test_lines_without_a_reference_are_still_accepted(line: str) -> None:
 def test_a_dollar_that_names_nothing_is_not_a_reference() -> None:
     # "$" followed by neither "{" nor a name character expands to nothing.
     assert normalize_requirements(b"pkg @ https://h.example/a$/p-1-py3-none-any.whl\n")
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "pkg @ http://files.example/pkg-1-py3-none-any.whl",
+        "pkg @ HTTP://files.example/pkg-1-py3-none-any.whl",
+        "pkg @ HTTPS://files.example/pkg-1-py3-none-any.whl",  # uv: a local path
+        "http://files.example/pkg-1-py3-none-any.whl",
+        "pkg @ ftp://files.example/pkg-1-py3-none-any.whl",
+    ],
+)
+def test_a_wheel_url_that_is_not_https_is_refused_under_wheels_only(line: str) -> None:
+    with pytest.raises(EnvError, match="requirements line 1") as caught:
+        normalize_requirements(f"{line}\n".encode(), wheels_only=True)
+    assert caught.value.reason == "requirements_rejected"
+    assert "https:// URL of a wheel" in caught.value.message
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "pkg @ https://files.example/pkg-1-py3-none-any.whl",
+        "pkg @ https://files.example/pkg-1-py3-none-any.WHL",
+        "https://files.example/pkg-1-py3-none-any.whl",
+    ],
+)
+def test_an_https_wheel_url_is_accepted_under_wheels_only(line: str) -> None:
+    assert normalize_requirements(f"{line}\n".encode(), wheels_only=True)
