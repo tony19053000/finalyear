@@ -1,7 +1,8 @@
 """V0.7 G7 tester r1: can ``scripts/threat_model_check.py`` be fooled?
 
-Every test states what a *correct* gate must do. Tests that currently fail are
-strict xfails, one per defect (see docs/briefs/progress/V0.7-G7.md, Tester r1).
+Every test states what a *correct* gate must do. They were strict xfails (one
+per defect, TQ-1..TQ-4, docs/briefs/progress/V0.7-G7.md, Tester r1) and pass
+since fix round 1 (D167).
 """
 
 from __future__ import annotations
@@ -27,40 +28,27 @@ def test_control_the_good_doc_passes() -> None:
     assert not _gate_fails(doc(GOOD))
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="TQ-1: a §5 row whose ID is malformed (CG-s2, CGX-S2, CG-S2a) is skipped silently",
-)
 @pytest.mark.parametrize("bad_id", ["CG-s2", "CGX-S2", "CG-S2a", "CG_S2", "CG-S"])
 def test_a_row_with_a_malformed_id_is_not_silently_ignored(bad_id: str) -> None:
     open_row = row(bad_id, "—", "open (G9)")
     assert _gate_fails(doc(GOOD, open_row))
 
 
-@pytest.mark.xfail(
-    strict=True, reason="TQ-2: a duplicate row ID is not reported (second copy can hide)"
-)
 def test_a_duplicate_row_id_is_reported() -> None:
     assert _gate_fails(doc(GOOD, GOOD))
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="TQ-3: an accepted row is 'named in §7' by a mention anywhere in §7 prose",
-)
 def test_section_7_must_list_the_row_not_merely_mention_it() -> None:
     accepted = "| Other risk | CG-D2 is NOT accepted, we will fix it | V0.9 |"
     text = doc(row("CG-D2", "—", "**accepted**: " + "x" * 20), accepted=accepted)
     assert _gate_fails(text)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="TQ-4: 'accepted' + any 10 non-blank characters counts as a reason",
-)
 def test_a_filler_reason_is_not_a_reason() -> None:
     accepted = "| CG-D2 | n/a | - |"
-    text = doc(row("CG-D2", "—", "**accepted**: n/a n/a n/a n/a n/a"), accepted=accepted)
+    text = doc(
+        row("CG-D2", "—", "**accepted**: n/a n/a n/a n/a n/a"), accepted=accepted
+    )
     assert _gate_fails(text)
 
 

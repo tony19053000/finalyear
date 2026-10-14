@@ -8,13 +8,21 @@ accepted with a reason") made mechanical. For every row of
   and **every** test reference must match a test that
   ``pytest --collect-only -q -m security`` collects (so it exists and carries
   the ``security`` capability marker); or
-* ``accepted`` (``**accepted**``) - with a non-empty reason in the row, and the
-  row ID named in the §7 "Accepted risks" table. Test references in an
-  accepted row are optional but, if given, must be collected the same way.
+* ``accepted`` (``**accepted**``) - with a reason in the row's own text after
+  the word ``accepted`` (status or mitigation cell) that is at least one
+  sentence (three distinct words; placeholders such as ``n/a``/``tbd`` do not
+  count), and the row ID cited in the **first (Risk) cell** of a §7 "Accepted
+  risks" table row whose "Why accepted" cell is itself such a sentence (a
+  mention in prose or in another cell is not a citation). Test references in
+  an accepted row are optional but, if given, must be collected the same way.
 
 A status may combine both (``mitigated; **accepted**: residual ...``): then
 both rules apply. ``open``, ``decision (Gn)`` or ``to be written`` anywhere in
 a row fails it.
+
+Structure (fail closed): every table line in §5 that is not a header or a
+separator must be a well-formed row (``XX-Yn``, e.g. ``CG-S2``) - a malformed ID
+fails instead of being skipped - and a row ID may appear only once.
 
 Test references (inside backticks): ``tests/<tier>/.../test_x.py`` (a whole
 file: at least one collected test in it), ``tests/...py::test_name`` (that
@@ -58,6 +66,17 @@ _ACCEPTED = re.compile(r"\*\*accepted\*\*|^accepted\b", re.IGNORECASE)
 _MITIGATED = re.compile(r"^\s*(\*\*)?mitigated\b", re.IGNORECASE)
 #: A test cell whose code spans look like tests but are not (bare file names).
 _BARE_TEST_FILE = re.compile(r"^test_\w+\.py(::.*)?$")
+#: A Markdown table separator cell (``---``, ``:--``, ``--:``).
+_SEPARATOR_CELL = re.compile(r"^:?-+:?$")
+#: A word of a reason: two or more letters (``n/a`` is no word).
+_WORD = re.compile(r"[A-Za-z][A-Za-z'-]*[A-Za-z]")
+#: Placeholder text that never counts towards a reason.
+_PLACEHOLDER = re.compile(
+    r"\b(tbd|todo|fixme|none|n/?a|xxx+|to be (decided|done|confirmed|added))\b",
+    re.IGNORECASE,
+)
+#: Distinct words a reason needs to count as one sentence.
+MIN_REASON_WORDS = 3
 
 
 @dataclass
@@ -124,11 +143,28 @@ def test_refs(cell: str) -> tuple[list[str], list[str]]:
     return refs, problems
 
 
-def parse(text: str) -> tuple[list[Row], str]:
-    """Rows of §5 and the text of §7."""
+@dataclass(frozen=True)
+class AcceptedEntry:
+    """One row of the §7 "Accepted risks" table."""
+
+    risk: str
+    why: str
+
+
+def _is_header_or_separator(cells: Sequence[str], header: str) -> bool:
+    """A separator line, or the table header (first cell ``header``)."""
+    if all(_SEPARATOR_CELL.match(cell) for cell in cells):
+        return True
+    return cells[0] == header
+
+
+def parse(text: str) -> tuple[list[Row], list[AcceptedEntry]]:
+    """Rows of §5 (malformed and duplicate ones carry a problem) and the
+    table rows of §7."""
     rows: list[Row] = []
+    seen: set[str] = set()
     section = ""
-    accepted_section: list[str] = []
+    accepted: list[AcceptedEntry] = []
     in_section7 = False
     for line in text.splitlines():
         if line.startswith("## "):
@@ -136,15 +172,28 @@ def parse(text: str) -> tuple[list[Row], str]:
             section = line[3:].strip()
         elif line.startswith("### "):
             section = line[4:].strip()
-        if in_section7:
-            accepted_section.append(line)
-            continue
-        if not section.startswith("5.") or not line.startswith("|"):
+        if not line.startswith("|"):
             continue
         cells = split_cells(line)
-        if not cells or not _ROW_ID.match(cells[0]):
+        if not cells or _is_header_or_separator(cells, "Risk" if in_section7 else "ID"):
+            continue
+        if in_section7:
+            accepted.append(
+                AcceptedEntry(risk=cells[0], why=cells[1] if len(cells) > 1 else "")
+            )
+            continue
+        if not section.startswith("5."):
             continue
         row = Row(row_id=cells[0], section=section, status="", text=line)
+        if not _ROW_ID.match(cells[0]):
+            row.problems.append(
+                f"malformed row ID {cells[0]!r} (expected XX-Yn, e.g. CG-S2)"
+            )
+            rows.append(row)
+            continue
+        if row.row_id in seen:
+            row.problems.append(f"duplicate row ID {row.row_id}")
+        seen.add(row.row_id)
         if len(cells) != 8:
             row.problems.append(f"expected 8 cells, found {len(cells)}")
             rows.append(row)
@@ -156,10 +205,10 @@ def parse(text: str) -> tuple[list[Row], str]:
             row.refs.extend(refs)
             row.problems.extend(problems)
         rows.append(row)
-    return rows, "\n".join(accepted_section)
+    return rows, accepted
 
 
-def judge(row: Row, accepted_text: str) -> None:
+def judge(row: Row, accepted_rows: Sequence[AcceptedEntry]) -> None:
     """Add the rule violations of ``row`` to ``row.problems`` (collection
     is checked separately)."""
     for pattern in _FORBIDDEN:
@@ -167,24 +216,40 @@ def judge(row: Row, accepted_text: str) -> None:
             row.problems.append(f"contains '{pattern.pattern}'")
     status = row.status
     mitigated = bool(_MITIGATED.match(status))
-    accepted = bool(_ACCEPTED.search(status))
-    if not mitigated and not accepted:
+    is_accepted = bool(_ACCEPTED.search(status))
+    if not mitigated and not is_accepted:
         row.problems.append("status is neither `mitigated` nor `**accepted**`")
     if mitigated and not row.refs:
         row.problems.append("`mitigated` without a test reference")
-    if accepted and not (_reason(status) or _reason(row.mitigation)):
+    if not is_accepted:
+        return
+    if not (_reason(status) or _reason(row.mitigation)):
         row.problems.append("`accepted` without a reason")
-    if accepted and not re.search(rf"\b{re.escape(row.row_id)}\b", accepted_text):
+    cited = re.compile(rf"(?<![\w-]){re.escape(row.row_id)}(?![\w-])")
+    entries = [entry for entry in accepted_rows if cited.search(entry.risk)]
+    if not entries:
         row.problems.append(f"`accepted` but {row.row_id} is not named in §7")
+    elif not any(is_sentence(entry.why) for entry in entries):
+        row.problems.append(
+            f"`accepted` but the §7 row of {row.row_id} gives no reason"
+        )
+
+
+def is_sentence(text: str) -> bool:
+    """Whether ``text`` is at least one sentence: ``MIN_REASON_WORDS``
+    distinct words of two or more letters, placeholders removed."""
+    words = {word.lower() for word in _WORD.findall(_PLACEHOLDER.sub(" ", text))}
+    return len(words) >= MIN_REASON_WORDS
 
 
 def _reason(cell: str) -> bool:
     """Whether ``cell`` gives a reason after the word ``accepted``: at least
-    a few words of text after it (``accepted`` alone is no reason)."""
+    one sentence of the row's own text after it (``accepted`` alone, or
+    filler such as ``n/a n/a``, is no reason)."""
     match = re.search(r"accepted\**\s*(.*)", cell, flags=re.IGNORECASE | re.DOTALL)
     if match is None:
         return False
-    return len(re.sub(r"[\s*:;()\-]", "", match.group(1))) >= 10
+    return is_sentence(match.group(1))
 
 
 def collect_security_ids(repo: Path = REPO) -> list[str]:
@@ -239,10 +304,10 @@ def ref_matches(ref: str, collected: Iterable[str]) -> bool:
 def check(text: str, collected: Sequence[str]) -> tuple[list[Row], dict[str, bool]]:
     """Judge every row; returns the rows and, per reference, whether it is
     collected with the ``security`` marker."""
-    rows, accepted_text = parse(text)
+    rows, accepted_rows = parse(text)
     found: dict[str, bool] = {}
     for row in rows:
-        judge(row, accepted_text)
+        judge(row, accepted_rows)
         for ref in row.refs:
             if ref not in found:
                 found[ref] = ref_matches(ref, collected)

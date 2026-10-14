@@ -264,7 +264,7 @@ Columns: **ID** · **S/T/R/I/D/E** · **threat** · **today (V0.6)** · **V0.7 m
 | Risk | Why accepted | Revisit |
 |---|---|---|
 | CA key compromise = re-join everyone (PK-I1) | one controller, CA never leaves its host; rotation planned V0.17 (Q2) | V0.17 |
-| Subprocess runtime (incl. Windows) unsandboxed | two explicit owner opt-ins; AppContainer is a large Windows-only effort (Q3) | if Windows sandboxing becomes a requirement |
+| Subprocess runtime (incl. Windows) unsandboxed (WS-E3) | two explicit owner opt-ins; AppContainer is a large Windows-only effort (Q3) | if Windows sandboxing becomes a requirement |
 | A workload can leak its own secrets on purpose (WS-I3) | inherent; redaction stops accidents | — |
 | Losing `secrets.key` loses every stored secret (LF-I5) | the price of encryption at rest; users re-set them; documented backup | master-key rotation (V0.17, with CA rotation) |
 | A compromised controller sees every secret (LF-I7) | it must decrypt to deliver; it is the root of trust | if a KMS/HSM is ever introduced |

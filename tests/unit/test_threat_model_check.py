@@ -132,24 +132,105 @@ def test_accepted_needs_a_reason_and_a_section_7_entry() -> None:
     assert problems(doc(row("MD-D1", "—", reason)))["MD-D1"] == [
         "`accepted` but MD-D1 is not named in §7"
     ]
-    ok = doc(row("MD-D1", "—", reason), accepted="| spoofed mDNS (MD-D1) | x | - |")
+    ok = doc(
+        row("MD-D1", "—", reason),
+        accepted="| spoofed mDNS (MD-D1) | mDNS is unauthenticated by nature | - |",
+    )
     assert problems(ok) == {"MD-D1": []}
     # A bare word is no reason - unless the mitigation cell gives it.
-    bare = doc(row("MD-D1", "—", "accepted"), accepted="| (MD-D1) | x | - |")
+    bare = doc(
+        row("MD-D1", "—", "accepted"),
+        accepted="| (MD-D1) | owners can pin the controller address | - |",
+    )
     assert problems(bare)["MD-D1"] == ["`accepted` without a reason"]
     in_mitigation = doc(
         row(
             "MD-D1", "—", "accepted", mitigation="**accepted**: mDNS is unauthenticated"
         ),
-        accepted="| (MD-D1) | x | - |",
+        accepted="| (MD-D1) | owners can pin the controller address | - |",
     )
     assert problems(in_mitigation) == {"MD-D1": []}
+
+
+WHY = "out of scope for a LAN fabric"
+REASON = "**accepted**: LAN DoS is out of scope for a LAN fabric"
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "| CG-s2 | S | t | t | m | G7 | — | open (G9) |",
+        "| CGX-S2 | S | t | t | m | G7 | — | mitigated |",
+        "| Risk | S | t | t | m | G7 | — | open (G9) |",
+        "| | S | t | t | m | G7 | — | open (G9) |",
+    ],
+)
+def test_a_section_5_table_line_with_a_malformed_id_fails(line: str) -> None:
+    """TQ-1: a §5 table line that is neither header, separator nor a
+    well-formed row fails (it used to be skipped, hiding an `open` row)."""
+    rows, _ = tmc.check(
+        doc(row("CG-S1", f"`{A}::test_one`", "mitigated"), line), COLLECTED
+    )
+    assert rows[0].problems == []
+    assert any("malformed row ID" in p for p in rows[1].problems), rows[1].problems
+
+
+def test_a_duplicate_row_id_fails_on_its_second_copy() -> None:
+    """TQ-2."""
+    good = row("CG-S1", f"`{A}::test_one`", "mitigated")
+    rows, _ = tmc.check(doc(good, good), COLLECTED)
+    assert rows[0].problems == []
+    assert rows[1].problems == ["duplicate row ID CG-S1"]
+
+
+@pytest.mark.parametrize(
+    "accepted",
+    [
+        f"| Other risk | MD-D1 is not accepted: {WHY} | - |",  # another cell
+        f"| Other risk (MD-D10) | {WHY} | - |",  # a longer ID
+        f"| Other risk (XMD-D1) | {WHY} | - |",
+        f"MD-D1 is accepted because {WHY}.",  # prose, not a table row
+    ],
+)
+def test_section_7_must_cite_the_id_in_a_risk_cell(accepted: str) -> None:
+    """TQ-3: with a real reason in the row, only a §7 Risk-cell citation
+    counts; a mention elsewhere in §7 does not."""
+    got = problems(doc(row("MD-D1", "—", REASON), accepted=accepted))["MD-D1"]
+    assert got == ["`accepted` but MD-D1 is not named in §7"]
+
+
+@pytest.mark.parametrize(
+    "status",
+    [
+        "**accepted**: n/a n/a n/a n/a n/a",
+        "**accepted**: xxxxxxxxxxxxxxxxxxxx",
+        "**accepted**: tbd, tbd, TBD - todo",
+        "**accepted**: to be decided later",
+        "**accepted** (see §7)",
+        "accepted: 1234567890 !!!",
+    ],
+)
+def test_filler_after_accepted_is_no_reason(status: str) -> None:
+    """TQ-4: the row's own text after `accepted` must be a sentence."""
+    text = doc(row("MD-D1", "—", status), accepted=f"| (MD-D1) | {WHY} | - |")
+    assert problems(text)["MD-D1"] == ["`accepted` without a reason"]
+
+
+@pytest.mark.parametrize("why", ["", "x", "n/a", "-", "tbd tbd"])
+def test_the_section_7_row_needs_a_reason_too(why: str) -> None:
+    """TQ-4: an empty or filler "Why accepted" cell fails."""
+    text = doc(
+        row("MD-D1", "—", REASON), accepted=f"| spoofed mDNS (MD-D1) | {why} | - |"
+    )
+    assert problems(text)["MD-D1"] == [
+        "`accepted` but the §7 row of MD-D1 gives no reason"
+    ]
 
 
 def test_an_accepted_row_may_cite_tests_but_they_must_be_collected() -> None:
     text = doc(
         row("EN-D2", f"`{A}::test_gone`", "**accepted**: a new code costs one command"),
-        accepted="| lost reply (EN-D2) | x | - |",
+        accepted="| lost reply (EN-D2) | single use is the point | - |",
     )
     assert problems(text)["EN-D2"] == [
         f"not collected with -m security: {A}::test_gone"
