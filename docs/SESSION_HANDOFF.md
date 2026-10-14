@@ -265,6 +265,8 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
+**2026-10-14 (G7 tester r1) — G7 implementer DONE `d1c4c61`..`cbc4834` (hand-off in docs/briefs/progress/V0.7-G7.md; all deliverables 0-6; exit list green incl. whole component 1909/14 skipped exit 0; threat_model_check 99 rows: 84 mitigated / 15 accepted). Production fixes for the reviewer: `0e670a5` (CG-E2 cross-node status report, real defect), `2aa2caa` (insecure-dev blob cert). **G7 tester r1 RUNNING.** If this session died: look for "## Tester r1" in the progress file; then reviewer → close 0.7.11.**
+
 **2026-10-14 (G7 start) — Lead wrote brief §5g (G7: 0.7.11 security suite, item 0 = D165) + ruling D166 (`security` = capability marker, `scripts/threat_model_check.py` makes criterion 5 mechanical) `ba17d9d`. 0.7.11 `[~]`. **G7 implementer RUNNING.** If this session died: check git log for `V0.7-G7` commits + docs/briefs/progress/V0.7-G7.md; relaunch with §5g (resume, do not redo); then tester r1 → reviewer → whole component once → close 0.7.11.**
 
 **2026-10-14 (G6 CLOSED) — 0.7.10 `[x]`: tester r4 PASS `bde4410`, reviewer APPROVE, D165 recorded, STATUS bar refreshed; then whole component at `147942b`: 1901 passed / 14 skipped / 0 failed, exit 0 (67 min, 2026-10-14). Nothing running. Next: Lead writes G7 brief (brief §3, 0.7.11 security suite); item 0 = D165 follow-ups. Run the whole component suite once per group, at the end.**
