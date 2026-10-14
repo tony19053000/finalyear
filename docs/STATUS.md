@@ -44,7 +44,7 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 
 ## Current Task
 
-- **2026-10-14: V0.7 G6 CLOSED** — 0.7.10 `[x]`. Fix r3 exit list green (final whole-component rerun skipped by Lead: only failure was a test-only race, fixed + 20x green), tester r4 PASS `bde4410`, reviewer APPROVE (4 non-blocking → D165). **Next: Lead writes the G7 brief (0.7.11 security suite); item 0 = D165.**
+- **2026-10-14: V0.7 G6 CLOSED** — 0.7.10 `[x]`. Fix r3 exit list green (final whole component at `147942b`: 1901 passed / 14 skipped / 0 failed, exit 0 (67 min, 2026-10-14)), tester r4 PASS `bde4410`, reviewer APPROVE (4 non-blocking → D165). **Next: Lead writes the G7 brief (0.7.11 security suite); item 0 = D165.**
 - **2026-10-14: V0.7 G6 tester r3 FAIL (T-21 major symlinked secrets base; T-18..T-20, T-22 minor) → D164 → fix round 3 committed `8f113b4`..`1266086`, NOT verified (exit list stopped by the user mid-run).** Next: implementer exit list + hand-off → tester r4 → reviewer → close 0.7.10. See SESSION_HANDOFF §1.
 - **2026-10-13 (night): V0.7 G6 tester r2 FAIL (T-17 blocker matcher hang, T-14 major secret folder left on cancel) → D163 → fix round 2 committed `8c54823`..`5897278`, NOT verified: exit list blocked - 🧑 laptop on battery again.** Next (on mains): implementer exit list + hand-off → tester r3 → reviewer → close 0.7.10. See SESSION_HANDOFF §1.
 - **2026-10-13 (late): V0.7 G6 tester r1 FAIL (3 major, 7 minor) → D162 → fix round 1 committed `bee2625`..`630e0c1`, NOT verified: exit list blocked - 🧑 laptop on battery.** Unit red on one open pre-G6 test (digest_lock, cause unproven). **Next (on mains): implementer exit list + hand-off → tester r2 → reviewer → close 0.7.10.** See SESSION_HANDOFF §1.
