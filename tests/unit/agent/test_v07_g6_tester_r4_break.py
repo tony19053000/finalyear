@@ -19,7 +19,10 @@ from meshforge.agent.execution.secret_files import (
     SecretVault,
 )
 
-pytestmark = [pytest.mark.unit, pytest.mark.skipif(sys.platform == "win32", reason="POSIX")]
+pytestmark = [
+    pytest.mark.unit,
+    pytest.mark.skipif(sys.platform == "win32", reason="POSIX"),
+]
 
 S256 = "ab" * 32
 URL = "https://files.example/p-1-py3-none-any.whl"
@@ -40,7 +43,9 @@ def test_t18_wheel_url_variants_without_a_valid_pin_are_refused(text: str) -> No
         normalize_requirements(text.encode(), wheels_only=True)
 
 
-def test_t18_pinned_wheel_url_is_accepted_and_unpinned_still_fine_off_wheels_only() -> None:
+def test_t18_pinned_wheel_url_is_accepted_and_unpinned_still_fine_off_wheels_only() -> (
+    None
+):
     ok = f"p @ {URL} --hash=sha256:{S256}\n".encode()
     assert normalize_requirements(ok, wheels_only=True)
     normalize_requirements(f"p @ {URL}\n".encode(), wheels_only=False)
@@ -82,20 +87,29 @@ def _plant(vault: SecretVault, kind: str, tmp_path: Path) -> None:
         os.symlink(f, vault.base)
     elif kind == "mode755":
         vault.base.mkdir(mode=0o755)
-        os.chmod(vault.base, 0o755)
+        os.chmod(vault.base, 0o755)  # noqa: S103 - a hostile base on purpose
     elif kind == "mode000":
         vault.base.mkdir()
         os.chmod(vault.base, 0)
     elif kind == "mode777":
         vault.base.mkdir()
-        os.chmod(vault.base, 0o777)
+        os.chmod(vault.base, 0o777)  # noqa: S103 - a hostile base on purpose
     elif kind == "file":
         vault.base.write_bytes(b"x")
     elif kind == "fifo":
         os.mkfifo(vault.base)
 
 
-KINDS = ["symlink", "dangling", "symlink_to_file", "mode755", "mode000", "mode777", "file", "fifo"]
+KINDS = [
+    "symlink",
+    "dangling",
+    "symlink_to_file",
+    "mode755",
+    "mode000",
+    "mode777",
+    "file",
+    "fifo",
+]
 
 
 @pytest.mark.parametrize("kind", KINDS)
@@ -220,7 +234,9 @@ def test_t20_symlink_to_unreadable_dir_inside_tree_not_followed(tmp_path: Path) 
     assert not t.exists()
 
 
-def test_t20_quietly_never_raises_and_never_typeerror(tmp_path: Path, monkeypatch) -> None:
+def test_t20_quietly_never_raises_and_never_typeerror(
+    tmp_path: Path, monkeypatch
+) -> None:
     import shutil
 
     def boom(*a, **k):
@@ -232,7 +248,9 @@ def test_t20_quietly_never_raises_and_never_typeerror(tmp_path: Path, monkeypatc
     assert remove_tree_quietly(d) is False
 
 
-def test_t20_remove_tree_raises_only_oserror_on_unremovable(tmp_path: Path, monkeypatch) -> None:
+def test_t20_remove_tree_raises_only_oserror_on_unremovable(
+    tmp_path: Path, monkeypatch
+) -> None:
     d = tmp_path / "d"
     (d / "x").mkdir(parents=True)
     real_rmdir = os.rmdir
@@ -250,7 +268,9 @@ def test_t20_remove_tree_raises_only_oserror_on_unremovable(tmp_path: Path, monk
 
 
 # ---- T-19: every interleaving of "write returns" and "wait gives up" -------------
-def test_t19_secret_write_never_leaves_a_folder_in_any_interleaving(tmp_path: Path) -> None:
+def test_t19_secret_write_never_leaves_a_folder_in_any_interleaving(
+    tmp_path: Path,
+) -> None:
     import random
     import threading
     import time
@@ -258,7 +278,7 @@ def test_t19_secret_write_never_leaves_a_folder_in_any_interleaving(tmp_path: Pa
     from meshforge.agent.execution.secret_files import SecretWrite
 
     vault = SecretVault(tmp_path / "root", "t")
-    rnd = random.Random(19)
+    rnd = random.Random(19)  # noqa: S311 - a reproducible schedule, not crypto
     for i in range(300):
         write = SecretWrite(vault, f"att{i}")
         delay_run, delay_finish = rnd.random() * 0.002, rnd.random() * 0.002

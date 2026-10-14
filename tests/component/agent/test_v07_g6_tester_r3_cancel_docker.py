@@ -99,7 +99,11 @@ async def test_cancel_docker_jobs_at_random_moments_leaves_nothing(
             while _listing(base) and time.monotonic() < deadline:
                 await asyncio.sleep(0.05)
             assert _listing(base) == [], (i, _listing(base))
-            extra = {n for n in os.listdir("/dev/shm") if n.startswith("meshforge-")} - shm_before - {base.name}
+            extra = (
+                {n for n in os.listdir("/dev/shm") if n.startswith("meshforge-")}
+                - shm_before
+                - {base.name}
+            )
             assert extra == set(), (i, extra)
         print(f"docker cancels=45 states={states} worst_latency={max(latencies):.2f}s")
         left: set[str] = set()
@@ -188,6 +192,8 @@ async def test_cancel_while_container_start_runs_in_its_thread_leaves_nothing(
                 break
             await asyncio.sleep(0.2)
         assert left == set(), (where, left)
-        assert {n for n in os.listdir("/dev/shm") if n.startswith("meshforge-")} - shm_before - {base.name} == set()
+        assert {
+            n for n in os.listdir("/dev/shm") if n.startswith("meshforge-")
+        } - shm_before - {base.name} == set()
     finally:
         await agent.stop()
