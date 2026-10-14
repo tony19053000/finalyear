@@ -3,21 +3,30 @@ secret, password, signature or a hash of one goes through
 ``hmac.compare_digest`` - checked over the whole of ``src/`` by reading its
 syntax tree, so a new ``presented == expected`` fails here.
 
-The scan flags ``==`` / ``!=`` whose operands name such a value: a variable or
-attribute called ``token``, ``*_token``, ``secret``, ``password``, ``pw``,
-``signature``, ``mac``, ``token_hash``, ``pw_hash``, ``key_hash``,
-``api_key`` (whole ``_``-separated words, any case). Not flagged, by rule:
+The scan (widened in fix round 1, D167 TQ-6) flags ``==`` / ``!=`` / ``in`` /
+``not in`` where either side names a credential-like value: a variable,
+attribute or call result whose name contains (as a whole ``_``-separated
+word, any case, plural too) ``token``, ``secret``, ``password``, ``passwd``,
+``pw``, ``pin``, ``fingerprint``, ``hash``, ``hexdigest``, ``mac``, ``sig``,
+``signature``, ``expected``, ``presented``, ``bearer``, ``credential``,
+``cookie``, ``code`` or ``api_key``, or a ``.digest()`` / ``.hexdigest()``
+call. Not flagged, by rule:
 
-* ``len(...)`` operands (a length is not the value) and comparisons with a
-  literal constant (``is None``-style checks, versions);
+* ``len(...)`` operands and names ending ``_len`` (a length is not the value);
+* comparisons with ``None``, a bool, a number or an empty string (``is
+  None``-style checks, versions) - a **non-empty** string/bytes literal is
+  flagged (``password == "hunter2"`` is a hard-coded credential);
 * the base object of an attribute (``Secret.name`` is the model's name
   column, not a secret);
 * ``fencing_token`` - the attempt epoch counter (ADR-0015), public by design;
+  ``status_code`` - an HTTP status;
 * ALL-CAPS constants (``TOKEN_VERSION``, ``TOKEN_BYTES``) and row ids
   (``token_id``, ``*_id``).
 
 Everything else that matches is either fixed or listed in :data:`ALLOWED`
-with the reason it is not a credential check.
+with the reason it is not a credential check. The wide word list makes most
+entries public data (certificate/key fingerprints, content digests, error
+codes); each was read, none is a secret compared in Python.
 """
 
 from __future__ import annotations
@@ -33,12 +42,26 @@ pytestmark = [pytest.mark.unit, pytest.mark.security]
 SRC = Path(__file__).resolve().parents[2] / "src" / "meshforge"
 
 SENSITIVE = re.compile(
-    r"(?i)(?:^|_)(?:token|secret|password|passwd|pw|signature|mac|token_hash|"
-    r"pw_hash|key_hash|api_key)(?:_|$)"
+    r"(?i)(?:^|_)(?:tokens?|secrets?|passwords?|passwd|pw|pins?|fingerprints?|"
+    r"hexdigest|hash(?:es)?|mac|sig|signatures?|expected|presented|bearer|"
+    r"credentials?|cookies?|code|api_key)(?:_|$)"
 )
-NOT_SECRET_NAMES = frozenset({"fencing_token"})
+NOT_SECRET_NAMES = frozenset({"fencing_token", "status_code"})
+#: Calls whose result is a hash value (``h.digest()``, ``sha256(x).hexdigest()``).
+DIGEST_CALLS = frozenset({"digest", "hexdigest"})
+_DIGEST_CALL = "digest()"
+#: Comparison operators the scan looks at (``in`` is ``==`` on each element).
+_OPS = (ast.Eq, ast.NotEq, ast.In, ast.NotIn)
 
 _EPOCH = "the attempt's fencing epoch (a public counter) held in a variable named token"
+_HTTP = "an HTTP/gRPC status or error code, public protocol data"
+_CODE = "a public refusal/failure code from a fixed vocabulary, not a join code"
+_CA_FP = (
+    "the SHA-256 fingerprint of a CA certificate - public (it is printed by "
+    "`fabric show` and embedded in every join code)"
+)
+_KEY_FP = "a public-key fingerprint (a hash of public data), not a secret"
+_CONTENT = "a content digest of a blob/tree (content addressing, public data)"
 
 #: (path under src/meshforge, the comparison as ``ast.unparse`` prints it) ->
 #: why it is not a credential check that needs a constant-time compare.
@@ -82,22 +105,98 @@ ALLOWED: dict[tuple[str, str], str] = {
         "a file stat tuple (size, mtime, inode, mode) deciding a re-read - "
         "named 'signature', holds nothing secret"
     ),
+    # --- added when the scan was widened (fix round 1, D167 TQ-6) ---
+    ("agent/execution/executor.py", "(attempt_id, token) in self._finished"): _EPOCH,
+    ("agent/execution/executor.py", "key not in attempt.peer_tokens"): (
+        "a dict lookup by (tree id, node id) - the key holds no token value"
+    ),
+    ("agent/benchmarks/cache.py", "scores.fingerprint != current_fingerprint"): (
+        "the hardware fingerprint of the laptop's benchmark cache (public)"
+    ),
+    (
+        "agent/enrollment.py",
+        "pki.cert_fingerprint(ca) != pki.cert_fingerprint(pinned_ca)",
+    ): _CA_FP,
+    (
+        "agent/enrollment.py",
+        "pki.cert_fingerprint(ca) != current.ca_fingerprint",
+    ): _CA_FP,
+    ("agent/identity.py", "meta.get('key_fingerprint_sha256') != fingerprint"): _KEY_FP,
+    (
+        "agent/identity.py",
+        "current.get('key_fingerprint_sha256') != identity.fingerprint",
+    ): (_KEY_FP),
+    ("agent/identity.py", "_fingerprint(staged) != new_fp"): _KEY_FP,
+    (
+        "controller/enrollment/renewal.py",
+        "key_fp != presented.public_key_fingerprint",
+    ): (_KEY_FP),
+    (
+        "controller/enrollment/renewal.py",
+        "node.pending_public_key_fingerprint != node.public_key_fingerprint",
+    ): _KEY_FP,
+    (
+        "controller/blobs.py",
+        "hashlib.sha256(data).hexdigest() != tree_id.hex",
+    ): _CONTENT,
+    ("common/tree.py", "tree_id != expected"): _CONTENT,
+    ("controller/planner/estimator.py", "env_hash in node.cached_envs"): (
+        "an environment's content hash (public, advertised by every agent)"
+    ),
+    ("agent/envs/hash.py", "'=' not in token"): (
+        "parsing a pip requirement word named token (`--opt=value`), no credential"
+    ),
+    ("controller/api/auth.py", "' ' in token"): (
+        "rejects a malformed Authorization header (a space inside the bearer "
+        "value) before any lookup; reveals only that the presented value had "
+        "a space, which the caller already knows"
+    ),
+    ("agent/main.py", "code == '-'"): (
+        "the `-` argument sentinel meaning 'read the join code from stdin'; "
+        "the real code is checked by the controller with compare_digest on its hash"
+    ),
+    ("agent/gc/service.py", "generation != self._pins_gen"): (
+        "a counter of GC pin requests (cache pins, not a PIN)"
+    ),
+    ("agent/execution/subprocess_runtime.py", "sig == _SIGKILL"): (
+        "a POSIX signal number"
+    ),
+    ("agent/benchmarks/runner.py", "exc.code in _UNAVAILABLE"): _HTTP,
+    (
+        "agent/enrollment.py",
+        "code in (grpc.StatusCode.UNAVAILABLE, grpc.StatusCode.DEADLINE_EXCEEDED)",
+    ): _HTTP,
+    ("cli/job_commands.py", "code != ExitCode.OK"): "a process exit code",
+    ("agent/session/policy.py", "code in _FATAL_CODES"): _CODE,
+    ("agent/session/policy.py", "reject_code == codes.REJECT_CODE_STALE_EPOCH"): _CODE,
+    ("agent/session/policy.py", "reject_code == codes.REJECT_CODE_PROTOCOL_VERSION"): (
+        _CODE
+    ),
+    ("controller/jobs/planning.py", "refused.code in _GPU_GONE"): _CODE,
+    ("controller/planner/types.py", "self.code in STATIC_CODES"): _CODE,
 }
 
 
+def _call_name(node: ast.Call) -> str:
+    if isinstance(node.func, ast.Attribute):
+        return node.func.attr
+    if isinstance(node.func, ast.Name):
+        return node.func.id
+    return ""
+
+
 def _names(operand: ast.expr) -> list[str]:
-    """Identifiers an operand names, without attribute bases and ``len()``."""
-    if (
-        isinstance(operand, ast.Call)
-        and isinstance(operand.func, ast.Name)
-        and operand.func.id == "len"
-    ):
+    """Identifiers an operand names, without attribute bases and ``len()``;
+    a ``.digest()``/``.hexdigest()`` call is reported as ``digest()``."""
+    if isinstance(operand, ast.Call) and _call_name(operand) == "len":
         return []
     bases = {
         id(node.value) for node in ast.walk(operand) if isinstance(node, ast.Attribute)
     }
     out: list[str] = []
     for node in ast.walk(operand):
+        if isinstance(node, ast.Call) and _call_name(node) in DIGEST_CALLS:
+            out.append(_DIGEST_CALL)
         if isinstance(node, ast.Attribute):
             out.append(node.attr)
         elif isinstance(node, ast.Name) and id(node) not in bases:
@@ -106,21 +205,33 @@ def _names(operand: ast.expr) -> list[str]:
 
 
 def _sensitive(name: str) -> bool:
-    if name in NOT_SECRET_NAMES or name.isupper() or name.endswith("_id"):
+    if name == _DIGEST_CALL:
+        return True
+    if name in NOT_SECRET_NAMES or name.isupper() or name.endswith(("_id", "_len")):
         return False
     return bool(SENSITIVE.search(name))
 
 
+def _harmless_literal(operand: ast.expr) -> bool:
+    """``None``, a bool, a number or an empty string/bytes: never a credential
+    value. A non-empty string literal is not harmless (hard-coded secret)."""
+    if not isinstance(operand, ast.Constant):
+        return False
+    value = operand.value
+    return not (isinstance(value, str | bytes) and value)
+
+
 def flagged(source: str) -> list[tuple[int, str]]:
-    """``(line, comparison)`` for every ``==``/``!=`` on a sensitive name."""
+    """``(line, comparison)`` for every ``==``/``!=``/``in``/``not in`` on a
+    sensitive name."""
     found: list[tuple[int, str]] = []
     for node in ast.walk(ast.parse(source)):
         if not isinstance(node, ast.Compare):
             continue
-        if not any(isinstance(op, ast.Eq | ast.NotEq) for op in node.ops):
+        if not any(isinstance(op, _OPS) for op in node.ops):
             continue
         operands = [node.left, *node.comparators]
-        if any(isinstance(o, ast.Constant) for o in operands):
+        if any(_harmless_literal(o) for o in operands):
             continue
         names = [n for o in operands for n in _names(o)]
         if any(_sensitive(n) for n in names):
@@ -140,6 +251,13 @@ Secret.name == name
 body["v"] != TOKEN_VERSION_X
 x == None
 hmac.compare_digest(a_token, b_token)
+token in allowed
+h.hexdigest() != wanted
+user.password == "hunter2"
+user.password == ""
+attempt.status_code == 200
+if len(body) != expected_len: pass
+x.pin is not None
 """
     hits = [text for _, text in flagged(source)]
     assert hits == [
@@ -147,6 +265,9 @@ hmac.compare_digest(a_token, b_token)
         "a.api_token != b",
         "token_hash == stored",
         "user.password == given",
+        "token in allowed",
+        "h.hexdigest() != wanted",
+        "user.password == 'hunter2'",
     ]
 
 
