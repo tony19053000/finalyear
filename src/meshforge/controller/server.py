@@ -575,12 +575,18 @@ class ControllerRuntime:
                     verifier=self.token_verifier,
                     fetch_tokens=self.fetch_tokens,
                     upload_grants=self.upload_grants,
+                    # D139 two locks - only where the port is TLS: plain HTTP
+                    # (insecure-dev, loopback) never carries a client
+                    # certificate, so requiring one there refused every agent
+                    # fetch once a fabric CA existed (V0.7 G7).
                     node_certs=(
                         NodeCertPolicy(
                             fabric_id=self.fabric.fabric_id,
                             revoked=revocations.revoked_serials,
                         )
-                        if self.fabric is not None and self.server_tls is not None
+                        if self.fabric is not None
+                        and self.server_tls is not None
+                        and not self.settings.security.insecure
                         else None
                     ),
                 ),
