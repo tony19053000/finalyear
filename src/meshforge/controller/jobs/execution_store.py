@@ -63,6 +63,7 @@ from meshforge.common.states import (
     AttemptState,
     JobState,
 )
+from meshforge.controller.enrollment.invites import audit
 from meshforge.controller.jobs.decision_store import DecisionReads
 from meshforge.controller.jobs.progress import (
     AgentPhases,
@@ -102,6 +103,7 @@ from meshforge.controller.jobs.transitions import (
     next_job_state,
 )
 from meshforge.controller.store.models.data import TransferEvent
+from meshforge.controller.store.models.enrollment import AuditAction
 from meshforge.controller.store.models.job import (
     Attempt,
     AttemptPhaseRow,
@@ -556,6 +558,20 @@ class ExecutionStore(DecisionReads):
             if row is None:
                 return StatusOutcome(StatusKind.UNKNOWN)
             if row.node_id != node_id:
+                # D168 N3: the refusal is audited in this transaction (the
+                # attempt row itself is untouched); it feeds D180 alerts.
+                await audit(
+                    db,
+                    AuditAction.ATTEMPT_WRONG_NODE,
+                    actor=f"node:{node_id}",
+                    node_id=node_id,
+                    details={
+                        "attempt_id": report.attempt_id,
+                        "job_id": row.job_id,
+                        "placed_node_id": row.node_id,
+                        "reported": report.state.value,
+                    },
+                )
                 return StatusOutcome(StatusKind.WRONG_NODE)
             if int(row.fencing_token) != report.fencing_token:
                 return StatusOutcome(StatusKind.FENCED, attempt=attempt_record(row))

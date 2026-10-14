@@ -49,7 +49,7 @@ def _msg(offset: int, data: bytes) -> agent_pb2.AgentMessage:
 
 async def _drain(hub: LogHub) -> None:
     for _ in range(100):
-        if hub._queue.empty():
+        if hub._queue.empty() and not hub.busy:  # D168 T-12: off-loop redaction
             await asyncio.sleep(0)
             return
         await asyncio.sleep(0.001)

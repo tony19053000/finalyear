@@ -78,6 +78,12 @@ class AuditAction(StrEnum):
     SECRET_SET = "secret_set"  # noqa: S105 - an action name
     """A user stored or replaced a secret (its name, never the value)."""
     SECRET_DELETED = "secret_deleted"  # noqa: S105 - an action name
+    # --- V0.8 G1 (migration 0020) ------------------------------------------
+    ATTEMPT_WRONG_NODE = "attempt_wrong_node"
+    """D168 N3 / D180: a node reported status for an attempt placed on another
+    node (THREAT_MODEL CG-E2); refused, nothing applied. ``node_id`` = the
+    reporting node, ``details`` = attempt id, the attempt's node, the state
+    reported. The dashboard's ``alert`` events are fed from the same refusal."""
 
 
 def _in_list(values: type[StrEnum]) -> str:

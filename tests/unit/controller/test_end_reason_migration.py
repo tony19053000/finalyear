@@ -81,7 +81,9 @@ def test_migration_0016_lists_are_the_model_enums() -> None:
     assert set(mig.ACTIONS_0016) == set(mig18.ACTIONS_0016)
     mig19 = _load("0019_secret.py")
     assert set(mig19.ACTIONS_0018) == set(mig18.ACTIONS_0018)  # frozen copy
-    assert set(mig19.ACTIONS_0019) == {a.value for a in AuditAction}  # V0.7 G6
+    mig20 = _load("0020_dashboard.py")
+    assert set(mig20.ACTIONS_0019) == set(mig19.ACTIONS_0019)  # frozen copy
+    assert set(mig20.ACTIONS_0020) == {a.value for a in AuditAction}  # V0.8 G1
     assert set(mig.REASONS_0016) == {r.value for r in RevocationReason}
 
 

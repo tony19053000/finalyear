@@ -27,11 +27,14 @@ from typing import Any, Final
 from starlette.requests import HTTPConnection
 from uvicorn.protocols.http.auto import AutoHTTPProtocol
 
+from meshforge.common.errors import ConfigError
 from meshforge.controller.session.peer_cert import PeerCert, parse_peer
 
 __all__ = [
     "TLS_PEER_STATE_KEY",
+    "BlobPortSecurity",
     "NodeCertPolicy",
+    "blob_port_security",
     "peer_cert_protocol",
     "request_node_cert",
 ]
@@ -73,3 +76,53 @@ def request_node_cert(conn: HTTPConnection, policy: NodeCertPolicy) -> PeerCert:
     return parse_peer(
         pem, fabric_id=policy.fabric_id, now=policy.clock(), revoked=policy.revoked()
     )
+
+
+@dataclass(frozen=True, slots=True)
+class BlobPortSecurity:
+    """V0.8 G1 (D168 N2): **one** value says whether the REST + blob port
+    speaks TLS, and every decision that depends on it reads it here - the
+    listener's TLS options, the URL scheme the port is reached by, and the
+    D139 node-certificate lock on agent blob credentials. Two flags that could
+    disagree were how an ``insecure-dev`` controller with a fabric CA demanded
+    client certificates on plain HTTP (V0.7 G7, ``2aa2caa``)."""
+
+    blob_port_is_tls: bool
+
+    @property
+    def scheme(self) -> str:
+        return "https" if self.blob_port_is_tls else "http"
+
+    def node_cert_policy(
+        self, fabric_id: str | None, revoked: Callable[[], Collection[str]]
+    ) -> NodeCertPolicy | None:
+        """The D139 lock - only on a TLS port (plain HTTP carries no client
+        certificate) and only with a fabric to check it against."""
+        if not self.blob_port_is_tls or fabric_id is None:
+            return None
+        return NodeCertPolicy(fabric_id=fabric_id, revoked=revoked)
+
+    def check_url(self, url: str | None, *, setting: str) -> None:
+        """A configured URL of this port must use :attr:`scheme` (an agent told
+        ``https://`` for a plain port, or the reverse, could never fetch)."""
+        if url is None:
+            return
+        if not url.lower().startswith(f"{self.scheme}://"):
+            raise ConfigError(
+                f"{setting} must be {self.scheme}:// - the REST + blob port "
+                f"{'serves TLS' if self.blob_port_is_tls else 'is plain HTTP'} "
+                f"here, got {url}",
+                details={"reason": "blob_url_scheme", "scheme": self.scheme},
+            )
+
+
+def blob_port_security(*, insecure: bool, server_tls_ready: bool) -> BlobPortSecurity:
+    """TLS exactly when not ``insecure-dev`` - and then a server certificate is
+    required (fail closed: ``mtls`` never falls back to plain HTTP)."""
+    if not insecure and not server_tls_ready:
+        raise ConfigError(
+            "[security] mode = 'mtls' needs the fabric CA's server certificate "
+            "for the REST + blob port (run `meshforge-controller fabric create`)",
+            details={"reason": "no_server_cert"},
+        )
+    return BlobPortSecurity(blob_port_is_tls=not insecure)

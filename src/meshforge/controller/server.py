@@ -87,7 +87,11 @@ from meshforge.controller.fabric_token import (
 )
 from meshforge.controller.gc import BlobScrubber, ControllerGc
 from meshforge.controller.http import create_http_app
-from meshforge.controller.http_tls import NodeCertPolicy, peer_cert_protocol
+from meshforge.controller.http_tls import (
+    BlobPortSecurity,
+    blob_port_security,
+    peer_cert_protocol,
+)
 from meshforge.controller.jobs.dispatcher import Dispatcher
 from meshforge.controller.jobs.env_health import KnownBadEnvs
 from meshforge.controller.jobs.execution_store import ExecutionStore
@@ -192,6 +196,8 @@ class ControllerRuntime:
         self.server_cert: ServerCert | None = None
         """V0.7 D134: the server cert as issued/renewed at start."""
         self.server_tls: ServerTls | None = None
+        self.blob_port = BlobPortSecurity(blob_port_is_tls=False)
+        """D168 N2: set once in ``_start`` (see :class:`BlobPortSecurity`)."""
         """V0.7 G3: the server cert *in use*, renewed while running; every TLS
         listener takes its credentials from here."""
         self.blobs: BlobStore | None = None
@@ -292,6 +298,15 @@ class ControllerRuntime:
             self._spawn(
                 self.server_tls.run(cfg.tls.check_interval_s), "server-cert-renewer"
             )
+        # D168 N2: one value for "is the REST + blob port TLS" - listener,
+        # URL scheme and the D139 node-certificate lock all read it.
+        self.blob_port = blob_port_security(
+            insecure=self.settings.security.insecure,
+            server_tls_ready=self.server_tls is not None,
+        )
+        self.blob_port.check_url(
+            cfg.api.advertise_url, setting="[controller.api] advertise_url"
+        )
         # D48: the blob store (and a sweep of part files a crash left behind).
         blobs = BlobStore(
             self.settings.blobs_dir,
@@ -579,15 +594,9 @@ class ControllerRuntime:
                     # (insecure-dev, loopback) never carries a client
                     # certificate, so requiring one there refused every agent
                     # fetch once a fabric CA existed (V0.7 G7).
-                    node_certs=(
-                        NodeCertPolicy(
-                            fabric_id=self.fabric.fabric_id,
-                            revoked=revocations.revoked_serials,
-                        )
-                        if self.fabric is not None
-                        and self.server_tls is not None
-                        and not self.settings.security.insecure
-                        else None
+                    node_certs=self.blob_port.node_cert_policy(
+                        None if self.fabric is None else self.fabric.fabric_id,
+                        revocations.revoked_serials,
                     ),
                 ),
                 blobs=blobs,
@@ -660,7 +669,7 @@ class ControllerRuntime:
         hands a presented certificate to the API. Plain HTTP only in
         ``insecure-dev`` (loopback)."""
         tls = self.server_tls
-        if self.settings.security.insecure or tls is None:
+        if not self.blob_port.blob_port_is_tls or tls is None:
             return {}
         context = tls.ssl_context(client_certs="optional")
         return {

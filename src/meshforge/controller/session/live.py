@@ -215,6 +215,9 @@ class LiveSession:
     attempt_status_received: int = 0
     attempt_status_fenced: int = 0
     """Reports for a stale token / an attempt the controller already ended."""
+    attempt_status_wrong_node: int = 0
+    """V0.8 G1 (D168 N1): reports about an attempt placed on another node
+    (THREAT_MODEL CG-E2) - a security refusal, never counted as fencing."""
     attempt_status_rejected: int = 0
     """Reports that broke a bound (dropped, logged)."""
     attempt_status_dropped: int = 0
@@ -245,6 +248,7 @@ class LiveSession:
             "commands_unacked": len(self.awaiting_ack),
             "attempt_status_received": self.attempt_status_received,
             "attempt_status_fenced": self.attempt_status_fenced,
+            "attempt_status_wrong_node": self.attempt_status_wrong_node,
             "attempt_status_rejected": self.attempt_status_rejected,
             "attempt_status_dropped": self.attempt_status_dropped,
         }

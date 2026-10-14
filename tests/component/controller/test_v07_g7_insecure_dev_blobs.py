@@ -68,3 +68,30 @@ async def test_insecure_dev_with_a_fabric_ca_serves_fetch_tokens_without_a_cert(
             # the token is still the lock
             refused = await http.get(url, headers={"authorization": "Bearer nope"})
             assert refused.status_code == 401
+
+
+async def test_insecure_dev_refuses_an_https_advertise_url_at_start(
+    pg_settings: DatabaseSettings,
+) -> None:
+    """V0.8 G1 (D168 N2): the advertised blob URL is checked against the same
+    ``blob_port_is_tls`` value as the listener and the cert lock - an agent
+    told ``https://`` for a plain-HTTP port could never fetch."""
+    from meshforge.common.errors import ConfigError
+
+    base = make_settings(pg_settings)
+    controller = base.controller.model_copy(
+        update={
+            "api": base.controller.api.model_copy(
+                update={"advertise_url": "https://127.0.0.1:47110"}
+            )
+        }
+    )
+    settings = ControllerSettings(
+        security={"mode": "insecure-dev"},
+        controller=controller,
+        database=base.database,
+    )
+    with pytest.raises(ConfigError) as refused:
+        async with ControllerRuntime.start(settings):
+            pass
+    assert refused.value.details["reason"] == "blob_url_scheme"

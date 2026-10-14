@@ -521,7 +521,7 @@ class Dispatcher(RecoverySteps):
             # V0.7 G7 (CG-E2): another node's attempt - nothing was applied and
             # nothing follows (no cancel to this node, no retry, no scrub).
             self.stats.statuses_wrong_node += 1
-            live.attempt_status_fenced += 1
+            live.attempt_status_wrong_node += 1  # D168 N1: not a fencing count
             log.warning(
                 "controller.jobs.status_wrong_node",
                 node_id=live.node_id,

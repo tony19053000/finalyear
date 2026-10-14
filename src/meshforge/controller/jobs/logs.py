@@ -238,6 +238,8 @@ class LogHubStats:
     slow_subscribers: int = 0
     redaction_failed_closed: int = 0
     """Streams whose secret redactor failed closed (T-22; output withheld)."""
+    redactions_off_loop: int = 0
+    """Live chunks redacted in a worker thread (D168 T-12)."""
     write_failures: int = 0
     finals_overflowed: int = 0
     gaps_persist_failures: int = 0
@@ -288,6 +290,9 @@ class LogHub:
         )
         self._pending_chunks = 0
         self._pending_finals = 0
+        self.busy = False
+        """The writer is handling an item it took off the queue (it may be
+        awaiting a worker thread - D168 T-12); for tests that wait for idle."""
         self._attempts: dict[str, AttemptLogState] = {}
         self._ended: OrderedDict[str, AttemptLogState] = OrderedDict()
         self._by_job: dict[str, set[Subscription]] = {}
@@ -453,12 +458,16 @@ class LogHub:
         try:
             while True:
                 item = await self._queue.get()
-                if isinstance(item, _Chunk):
-                    self._pending_chunks -= 1
-                    self._append(item)
-                else:
-                    self._pending_finals -= 1
-                    await self._apply_final(item)
+                self.busy = True
+                try:
+                    if isinstance(item, _Chunk):
+                        self._pending_chunks -= 1
+                        await self._append(item)
+                    else:
+                        self._pending_finals -= 1
+                        await self._apply_final(item)
+                finally:
+                    self.busy = False
         finally:
             for attempt_id, state in self._attempts.items():
                 _close_files(state)
@@ -468,7 +477,7 @@ class LogHub:
                 # unredacted if the writer runs again).
                 ACTIVE.remove(_holder(attempt_id))
 
-    def _append(self, item: _Chunk) -> None:
+    async def _append(self, item: _Chunk) -> None:
         state = self._attempts.get(item.attempt_id)
         if state is None or state.ended:
             self.stats.chunks_fenced += 1
@@ -482,9 +491,17 @@ class LogHub:
         if redactor is not None and piece:
             # V0.7 G6: nothing is written or streamed before it is redacted;
             # no value spans a gap, so the held tail is released first.
+            # D168 T-12: the matching runs in a worker thread - its cost
+            # depends on the job's values (RE-D2), and the loop is shared by
+            # every session. Bounded: this one writer task awaits it, so at
+            # most one redaction per hub runs at a time, in order; the chunk
+            # queue behind it stays bounded (a full queue drops, as always).
             gap = merge.gaps_total != gaps_before
-            head = redactor.flush() if gap else b""
-            body = redactor.feed(piece)
+            head, body = await asyncio.to_thread(_redact, redactor, piece, gap)
+            self.stats.redactions_off_loop += 1
+            if _ended(state):  # ended meanwhile (final overflow): write nothing
+                self.stats.chunks_fenced += 1
+                return
             if redactor.failed:  # this call's output is all ``*``
                 body = self._failed_closed(item.attempt_id, state, item.stream, body)
             piece = head + body
@@ -940,6 +957,18 @@ def _write_some(fh: IO[bytes], data: bytes) -> int:
 def _require_regular(fd: int) -> None:
     if not stat.S_ISREG(os.fstat(fd).st_mode):
         raise OSError(errno.EINVAL, "not a regular file")
+
+
+def _ended(state: AttemptLogState) -> bool:
+    """Re-read after an ``await`` (another task may have ended the attempt)."""
+    return state.ended
+
+
+def _redact(redactor: StreamRedactor, piece: bytes, gap: bool) -> tuple[bytes, bytes]:
+    """``(held tail released by a gap, redacted piece)`` - in a worker thread
+    (D168 T-12). The matcher's lock makes the shared matcher safe there."""
+    head = redactor.flush() if gap else b""
+    return head, redactor.feed(piece)
 
 
 def _replace_with(
