@@ -10,7 +10,7 @@
 > Read docs/SESSION_HANDOFF.md (§0e first, then §1 and §2), then docs/STATUS.md, then
 > docs/briefs/V0.7-security-pairing.md. RULE: run ONE subagent at a time (team, re-imposed 2026-10-01).
 > V0.7 G1-G5 CLOSED; G6 (0.7.10) CLOSED 2026-10-14 (D165).
-> G7 (0.7.11) CLOSED 2026-10-15 (D168). V0.8 brief DRAFT written; waiting for team approval (§7).
+> G7 (0.7.11) CLOSED 2026-10-15 (D168). V0.8 brief APPROVED; G1 running (brief §5a).
 > Check git log and docs/briefs/progress/ first to see which round last finished.
 > ```
 >
@@ -264,6 +264,8 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 - Commits: keep using `git commit -- <paths>` even with one agent — the Lead also commits docs.
 
 ## 1. Where the project is
+
+**2026-10-15 (V0.8 G1 start) — team approved the brief ("go with your suggestions"); ADR-0017 Accepted; roadmap 0.8.2/0.8.7 `[~]`. **G1 implementer RUNNING** (brief §5a). If died: check git log for `V0.8-G1` + docs/briefs/progress/V0.8-G1.md; relaunch with §5a (resume); then tester r1 → reviewer → whole component once → close.**
 
 **2026-10-15 (V0.8 brief) — Lead wrote `docs/briefs/V0.8-dashboard-cli.md` (DRAFT): D169–D180, groups G1–G7, G1 brief with item 0 = D168 (N1, N2, N3, T-12), questions Q1–Q7. **Waiting for team discussion — no implementer until approved.** Next: record team answers in brief §7, write ADR-0017, mark 0.8.x `[~]`, launch G1 implementer.**
 

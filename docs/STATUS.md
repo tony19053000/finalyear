@@ -2,14 +2,14 @@
 
 > Concise current state. Long-term plan: [`DEVELOPMENT_ROADMAP.md`](DEVELOPMENT_ROADMAP.md). Update at the end of every work session.
 
-**Last updated:** 2026-10-15 (V0.7 G7 closed)
+**Last updated:** 2026-10-15 (V0.8 brief approved; G1 started)
 
 ## Progress
 
 Generated from the roadmap checkboxes by `uv run python scripts/status_bars.py` — **re-run it and replace this block whenever checkboxes change.** Deferred versions (V0.11, V0.12, V0.13, V0.16) and deferred tasks are not counted. A task is only █ when it is `[x]` (tester + reviewer + evidence); written-but-unreviewed code is ▒.
 
 ```
-TOTAL   █████████▒▒░░░░░░░░░  44%  69/156 done, 15 in progress
+TOTAL   █████████▒▒░░░░░░░░░  44%  69/156 done, 17 in progress
 
 V0.1    █████████████████▒▒▒  83%  10/12  Foundations & engineering system
 V0.2    ██▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░░   9%   1/11  Lab setup & feasibility validation
@@ -18,7 +18,7 @@ V0.4    ███████████████▒▒▒▒░  76%  13/17
 V0.5    ██████████████████░░  90%  10/11  Data plane & environments
 V0.6    ███████████████████░  92%  13/14  Scheduling & reliability — Mode 1 complete
 V0.7    ██████████████████░░  91%  11/12  Security & pairing
-V0.8    ░░░░░░░░░░░░░░░░░░░░   0%   0/10  Dashboard & CLI v1
+V0.8    ▒▒▒▒░░░░░░░░░░░░░░░░   0%   0/10  Dashboard & CLI v1
 V0.9    ░░░░░░░░░░░░░░░░░░░░   0%   0/10  Benchmark & telemetry system v1
 V0.10   ░░░░░░░░░░░░░░░░░░░░   0%   0/10  Mode 3 Task Splitting
 V0.14   ░░░░░░░░░░░░░░░░░░░░   0%   0/8   Unified planner v2
@@ -31,6 +31,7 @@ V1.0    ░░░░░░░░░░░░░░░░░░░░   0%   0/8 
 █ done `[x]` · ▒ in progress or waiting on a 🧑 lab step `[~]` · ░ not started
 
 ## Current Version
+**V0.8 — Dashboard & CLI v1** · started 2026-10-15 · brief `docs/briefs/V0.8-dashboard-cli.md` (D169–D180, approved) · ADR-0017 · groups G1–G7 sequential · **G1 (backend for UI + D168 item 0) RUNNING** (0.8.2, 0.8.7 `[~]`)
 **V0.7 — Security & pairing** · started 2026-10-07 · brief `docs/briefs/V0.7-security-pairing.md` (D144–D162) · **G1–G5 CLOSED** (0.7.1–0.7.9 `[x]`) · **G6 CLOSED** (0.7.10 `[x]`, 2026-10-14) · **G7 CLOSED** (0.7.11 `[x]`, 2026-10-15, D168) · agent-side complete · closes on 🧑 0.7.12 lab
 **V0.6 — Scheduling & reliability** · started 2026-10-05 · brief `docs/briefs/V0.6-scheduling-reliability.md` · **G1 CLOSED** (0.6.9, 0.6.10, 0.6.14 `[x]`) · G1–G4 CLOSED agent-side · closes on 🧑 0.6.13 lab
 **V0.4 — Remote execution core** · started 2026-09-28 · **G1–G5 closed** (0.4.1, 0.4.3–0.4.7, 0.4.9, 0.4.10, 0.4.11–0.4.14, 0.4.16 `[x]`; 0.4.2 `[~]` Windows CI digest; 0.4.8 `[~]` real CUDA run; 0.4.17 `[~]`) · closes on 🧑 0.4.15 lab run
@@ -46,6 +47,7 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 
 ## Current Task
 
+- **2026-10-15: V0.8 STARTED** — brief approved by the team (all §7 recommendations), ADR-0017 Accepted. G1 implementer running (brief §5a). Next: tester r1 → reviewer → whole component once → close G1.
 - **2026-10-15: V0.7 G7 CLOSED** — 0.7.11 `[x]` (D168). Security suite `-m security` 1475 passed; threat_model_check 99 rows 0 failing; whole component 1916 exit 0. **V0.7 agent-side complete; closes on 🧑 0.7.12 lab** (`lab/checklists/V0.7-security.md`). Next agent work: V0.8 (dashboard & CLI v1), item 0 = D168 non-blocking list.
 - **2026-10-14: V0.7 G7 STARTED** — brief §5g + D166 `ba17d9d`; 0.7.11 `[~]`; implementer running. Next: tester r1 → reviewer → whole component once → close.
 - **2026-10-14: V0.7 G6 CLOSED** — 0.7.10 `[x]`. Fix r3 exit list green (final whole component at `147942b`: 1901 passed / 14 skipped / 0 failed, exit 0 (67 min, 2026-10-14)), tester r4 PASS `bde4410`, reviewer APPROVE (4 non-blocking → D165). **Next: Lead writes the G7 brief (0.7.11 security suite); item 0 = D165.**

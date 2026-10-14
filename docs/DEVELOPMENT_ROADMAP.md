@@ -435,14 +435,16 @@ A version is **complete** only when all apply:
 **Dependencies:** React, TypeScript, Vite, TanStack Query, Tailwind + Radix, Recharts, Playwright.
 **Prerequisites:** V0.6 (APIs stable); V0.7 for auth screens (can integrate when ready).
 
+**Brief:** `docs/briefs/V0.8-dashboard-cli.md` (approved 2026-10-15, D169–D180, ADR-0017). **G1 item 0 = D168** (V0.7 non-blocking N1, N2, N3, T-12).
+
 **Tasks**
 - [ ] **0.8.1** Design system: dark default, neutral grays, one accent, typography scale, status colours, spacing tokens (per brief §24)
-- [ ] **0.8.2** App shell, auth, routing, API client (generated from OpenAPI)
+- [~] **0.8.2** App shell, auth, routing, API client (generated from OpenAPI) — backend part (browser session, SPA serving, OpenAPI models) in G1, frontend part in G2 (D169–D171)
 - [ ] **0.8.3** Overview page (fabric health, nodes online, active jobs, utilization)
 - [ ] **0.8.4** Nodes list + node detail (capabilities, live metrics, network links, caches, owner settings)
 - [ ] **0.8.5** Jobs list + job detail (plan explanation table, timeline, terminal-style logs, artifacts, attempts)
 - [ ] **0.8.6** Settings (fabric, invite/join code + QR, revoke, policies)
-- [ ] **0.8.7** Live updates via WebSocket (≤ 2 s latency)
+- [~] **0.8.7** Live updates via WebSocket (≤ 2 s latency) — event bus + `/v1/events/ws` in G1 (D172), UI wiring in G3
 - [ ] **0.8.8** CLI polish: consistent output, `--json`, shell completion, helpful errors
 - [ ] **0.8.9** Playwright e2e suite against a cluster-harness fabric
 - [ ] **0.8.10** 🧑 Visual review against brief §24 checklist
@@ -833,6 +835,7 @@ A version is **complete** only when all apply:
 
 | Date | Change | Reason |
 |---|---|---|
+| **2026-10-15** | **V0.8 planned and approved** (`docs/briefs/V0.8-dashboard-cli.md`, D169–D180, groups G1–G7, ADR-0017). 0.8.2 split into backend (G1) + frontend (G2); V0.7 D168 leftovers are V0.8 G1 item 0; browser submit is in V0.8 scope (criterion 1). | Team: "go with your suggestions". |
 | **2026-10-07** | **V0.7 planned and approved** (`docs/briefs/V0.7-security-pairing.md`, D133–D146, groups G1–G7). **ADR-0016 (Accepted)** supersedes ADR-0014: fabric CA + code pairing, mTLS everywhere, per-user API tokens, owner policy on the agent, job secrets. **New task 0.7.12 🧑 lab run.** Team answers: CA installed in browsers (V0.8), CA rotation → V0.17, Windows subprocess stays unsandboxed opt-in, fabric token deleted in V0.8, no QR dependency now. | Criteria 1 and 3 need real machines; choices keep zero new dependencies. | V0.7, V0.8, V0.17 |
 | **2026-10-05** | **V0.6 planned** (`docs/briefs/V0.6-scheduling-reliability.md`, D102–D119): 4 sequential groups (G1 reliability floor 0.6.9/0.6.10/0.6.14 + dispatcher/gc_index splits + D59; G2 planner core; G3 retries/recovery/chaos; G4 network matrix + estimator). **`cost_model` policy added to 0.6.3's list and made the default** (needed for criterion 4). **Local seeding (D109):** `compute run` puts the tree into the submitting laptop's agent CAS. **ADR-0015 (Proposed):** at-least-once execution, exactly-once commit; criterion 1 counts duplicate commits and duplicates under kills, partition overlaps reported separately. | Pure planner keeps Mode 3/ML reuse; honest retry semantics. | V0.6 |
 | **2026-09-29** | **V0.4 criterion 1 reworded:** byte-identical on the same hardware class; within `compare.py`'s stated tolerance across different CPU/GPU models (D76). | GPU (and some CPU) kernels are not bit-reproducible across hardware; the old wording would make the 0.4.15 lab result pass or fail depending on which document was read (G5 reviewer pass 2). |
