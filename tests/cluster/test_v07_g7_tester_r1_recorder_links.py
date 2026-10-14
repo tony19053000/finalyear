@@ -2,9 +2,10 @@
 
 Criterion 3 reads "no plaintext job data or credentials on **any plane**". The
 controller listens on four ports (session 47100, enrol 47101, REST + blobs 47110)
-and every agent on one (peer 47120). The G7 recorder run puts a recording link
+and every agent on one (peer 47120). The G7 recorder run put a recording link
 in front of all of them except the enrolment listener, so a join code redeemed
-over 47101 is never captured.
+over 47101 was never captured (TQ-5, strict xfail; fixed in fix round 1, D167:
+the harness records an "enroll" link and the criterion 3 run joins through it).
 """
 
 from __future__ import annotations
@@ -33,12 +34,9 @@ def test_control_every_other_plane_has_a_recording_link(
     assert {"rest", "agent0", "agent1", "agent0-peer", "agent1-peer"} <= names
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="TQ-5: the enrolment listener (47101) has no recording link, so the "
-    "criterion 3 run never captures a join code being redeemed",
-)
-def test_the_enrolment_plane_is_recorded_too(make_fabric: Callable[..., Fabric]) -> None:
+def test_the_enrolment_plane_is_recorded_too(
+    make_fabric: Callable[..., Fabric],
+) -> None:
     fabric = make_fabric(
         agents=1,
         record_links=True,

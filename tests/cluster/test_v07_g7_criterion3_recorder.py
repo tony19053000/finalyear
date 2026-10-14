@@ -14,8 +14,14 @@ upload grants, peer tokens) and the fixed prefix of every peer token (the
 base64 of its canonical JSON), and the insecure-dev control.
 
 Links (``record_links``): each agent's gRPC session, the REST + blob port
-(the harness, the CLI upload and the agents' blob traffic all go through it)
-and each agent's peer server.
+(the harness, the CLI upload and the agents' blob traffic all go through it),
+each agent's peer server and (fix round 1, D167 TQ-5) the enrolment listener
+47101: in the mtls run the join code is **redeemed** by a real
+``meshforge-agent join`` through that link (its code names the link), and
+every byte on it must be TLS records - no join code, token or CSR. The
+insecure-dev control cannot cover it: ``Enroll`` exists only with TLS (no
+listener in insecure-dev), so the mtls run asserts the record structure
+instead of a control.
 """
 
 from __future__ import annotations
@@ -23,9 +29,12 @@ from __future__ import annotations
 import base64
 import hashlib
 import io
+import json
 import os
 import re
 import secrets
+import subprocess
+import sys
 import tarfile
 import time
 from collections.abc import Callable
@@ -44,6 +53,7 @@ from pydantic import SecretStr
 
 from meshforge.cli.client import ControllerClient
 from meshforge.cli.transfer import upload_tree
+from meshforge.common import join_code
 from meshforge.common.tree import BuiltTree, build_tree
 
 pytestmark = [pytest.mark.cluster, pytest.mark.security, pytest.mark.timeout(300)]
@@ -90,6 +100,62 @@ class Run:
     markers: dict[str, bytes]
     output_archive: bytes
     stdout_b: bytes
+    joined_node: str | None = None
+
+
+def _join(fabric: Fabric, tmp_path: Path, code: str) -> str:
+    """Redeem ``code`` with a real ``meshforge-agent join -`` (code on stdin)
+    for a fresh laptop; the code names the recorded "enroll" link. Returns
+    the new node id (enrolled, its invite used by it)."""
+    data_dir = tmp_path / "joiner-data"
+    config = tmp_path / "joiner.toml"
+    config.write_text(f"data_dir = {json.dumps(str(data_dir))}\n", "utf-8")
+    env = {k: v for k, v in os.environ.items() if not k.startswith("MESHFORGE_")}
+    env["PYTHONUTF8"] = "1"
+    done = subprocess.run(
+        [sys.executable, "-m", "meshforge.agent", "join", "-", "--config", str(config)],
+        input=code + "\n", env=env, capture_output=True, text=True, timeout=60,
+        check=False,
+    )  # fmt: skip
+    assert done.returncode == 0, done.stderr
+    shown = subprocess.run(
+        [sys.executable, "-m", "meshforge.agent", "identity", "show", "--json",
+         "--config", str(config)],
+        env=env, capture_output=True, text=True, timeout=60, check=False,
+    )  # fmt: skip
+    facts = json.loads(shown.stdout)
+    assert facts["enrolled"] is True, facts
+    node_id = str(facts["node_id"])
+    invites = fabric.call("GET", "/v1/fabric/invites").json()["invites"]
+    assert node_id in {i["used_by_node"] for i in invites}, invites
+    return node_id
+
+
+#: TLS record content types: change_cipher_spec, alert, handshake, application_data.
+_TLS_TYPES = frozenset({20, 21, 22, 23})
+_TLS_MAX_RECORD = 2**14 + 256
+
+
+def _tls_problems(data: bytes) -> list[str]:
+    """Walk ``data`` as a sequence of whole TLS records; every way it is not
+    one (wrong type, version, oversized, trailing bytes) is a problem."""
+    out: list[str] = []
+    i = 0
+    while i < len(data):
+        header = data[i : i + 5]
+        if len(header) < 5:
+            out.append(f"truncated record header at {i}")
+            break
+        kind, major, minor = header[0], header[1], header[2]
+        length = int.from_bytes(header[3:5], "big")
+        if kind not in _TLS_TYPES or major != 3 or minor not in (1, 3):
+            out.append(f"not a TLS record at {i}: {header[:3].hex()}")
+            break
+        if length > _TLS_MAX_RECORD or i + 5 + length > len(data):
+            out.append(f"bad record length {length} at {i}")
+            break
+        i += 5 + length
+    return out
 
 
 def _tree(tmp_path: Path, file_marker: bytes) -> BuiltTree:
@@ -186,6 +252,11 @@ def _scenario(
     invite = fabric.call("POST", "/v1/fabric/invites", json={})
     assert invite.status_code == 201, invite.text
     code = str(invite.json()["code"])
+    joined_node: str | None = None
+    if security_mode == "mtls":
+        assert fabric.enroll_link is not None
+        assert fabric.enroll_target == fabric.enroll_link.target
+        joined_node = _join(fabric, tmp_path, code)
 
     built = _tree(tmp_path, file_marker)
     client = ControllerClient(
@@ -252,7 +323,27 @@ def _scenario(
         "bearer_header": b"Bearer ",
         "peer_token": PEER_TOKEN_PREFIX,
     }
-    return fabric, Run(markers, archive.content, logs.content)
+    if joined_node is not None:
+        markers |= {
+            # What a plaintext Enroll would carry: the 16 token bytes, the CSR
+            # (PEM; its node id is inside base64, so the PEM armour is the
+            # readable part) and the issued certificate's armour.
+            "join_token": join_code.decode(code).token,
+            "join_token_hex": join_code.decode(code).token.hex().encode(),
+            "csr_pem": b"-----BEGIN CERTIFICATE REQUEST-----",
+            "cert_pem": b"-----BEGIN CERTIFICATE-----",
+            "joined_node_id": joined_node.encode(),
+        }
+    return fabric, Run(markers, archive.content, logs.content, joined_node)
+
+
+def test_the_tls_record_walker_refuses_plaintext() -> None:
+    """Self-check of :func:`_tls_problems` (it guards the enrolment link)."""
+    assert _tls_problems(b"\x16\x03\x01\x00\x02ab\x17\x03\x03\x00\x01c") == []
+    assert _tls_problems(b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n")  # h2c preface
+    assert _tls_problems(b"\x0a\x10" + bytes(16))  # a protobuf field
+    assert _tls_problems(b"\x17\x03\x03\x00\x09abc")  # length past the end
+    assert _tls_problems(b"\x17\x03\x03\x00\x01c\x00")  # trailing byte
 
 
 def _hits(fabric: Fabric, markers: dict[str, bytes]) -> dict[str, list[str]]:
@@ -277,7 +368,21 @@ def test_no_marker_of_a_full_run_crosses_any_link_in_mtls(
     leaks = {name: where for name, where in hits.items() if where}
     assert leaks == {}, leaks
     names = {link.name for link in fabric.links()}
-    assert {"rest", "agent0", "agent1", "agent0-peer", "agent1-peer"} <= names
+    assert {"rest", "enroll", "agent0", "agent1", "agent0-peer", "agent1-peer"} <= names
+    # The join really went through the enrolment link, and all of it is TLS.
+    assert run.joined_node is not None
+    assert fabric.enroll_link is not None
+    enroll = fabric.enroll_link.recording()
+    assert not enroll.truncated
+    ups = [data for (_, way), data in enroll.streams.items() if way == "up"]
+    downs = [data for (_, way), data in enroll.streams.items() if way == "down"]
+    assert ups and downs and sum(map(len, ups)) > 1024, enroll.streams.keys()
+    problems = {
+        key: found
+        for key, data in enroll.streams.items()
+        if (found := _tls_problems(data))
+    }
+    assert problems == {}, problems
 
 
 #: Markers the insecure-dev control run must find. The secret's base64/hex

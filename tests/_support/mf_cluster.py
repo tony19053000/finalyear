@@ -651,8 +651,12 @@ class Fabric:
         # agent->controller gRPC (always proxied), REST/blobs (the controller
         # advertises a "rest" link; the harness's own REST calls use it too)
         # and each agent's peer server (advertise_port = its "peer" link).
+        # V0.7 G7 fix round 1 (D167 TQ-5): also the enrolment listener (47101):
+        # join codes name the "enroll" link ([controller.enroll] advertise), so
+        # a `meshforge-agent join` redeems its code through the recorder.
         self.record_links = record_links
         self.rest_link: FaultLink | None = None
+        self.enroll_link: FaultLink | None = None
         self._peer_links: dict[int, FaultLink] = {}
         self._start_agents = start_agents
         self.enroll_target = ""
@@ -811,6 +815,12 @@ class Fabric:
             self._controller_extra.setdefault("api", {})["advertise_url"] = (
                 f"{self.scheme}://{self.rest_link.target}"
             )
+            self.enroll_link = self.loop.link(("127.0.0.1", 9), name="enroll")
+            self.enroll_link.record()
+            enroll_table = self._controller_extra.setdefault(
+                "enroll", {"bind": "127.0.0.1:0"}
+            )
+            enroll_table["advertise"] = self.enroll_link.target
         env = self._base_env()
         env.update(self._db_env)
         controller_config = self._controller_config()
@@ -900,7 +910,7 @@ class Fabric:
 
     def links(self) -> list[FaultLink]:
         """Every link of this fabric (gRPC per agent, and with ``record_links``
-        the REST link and each agent's peer link)."""
+        the REST link, the enrolment link and each agent's peer link)."""
         return [] if self.loop is None else list(self.loop.links)
 
     @property
@@ -917,6 +927,9 @@ class Fabric:
         self.grpc_target = str(event["grpc"])
         self.http_base = f"{self.scheme}://{event['http']}"
         self.enroll_target = str(event.get("enroll") or "")
+        if self.enroll_link is not None and self.enroll_target:
+            self.enroll_link.retarget(*_host_port(self.enroll_target))
+            self.enroll_target = self.enroll_link.target
         if self.rest_link is not None:
             self.rest_link.retarget(*_host_port(str(event["http"])))
             self.http_base = f"{self.scheme}://{self.rest_link.target}"
