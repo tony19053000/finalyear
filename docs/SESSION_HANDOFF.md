@@ -265,6 +265,8 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
+**2026-10-15 (G7 reviewer) — fix round 1 DONE `7ee71f6`..`e4438f5` (TQ-1..TQ-7 + weak rows; 25 tester xfails now pass; whole component at `1b35f4a` 1916 passed/14 skipped exit 0 = group-end run). **G7 reviewer RUNNING.** If died: relaunch reviewer (scope: all G7 commits d1c4c61..HEAD, production changes `0e670a5`, `2aa2caa`, `c06fdfa`); then close 0.7.11 + STATUS bar.**
+
 **2026-10-14 (G7 fix r1) — tester r1 PASS `17aa8e7` (no src defect; TQ-1..TQ-7 minor gate weaknesses, strict xfails). Ruling D167: small fix round, then reviewer (no tester r2). **G7 implementer FIX ROUND 1 RUNNING.** If died: look for "## Fix round 1" in the progress file; resume D167; then reviewer → close 0.7.11.**
 
 **2026-10-14 (G7 tester r1) — G7 implementer DONE `d1c4c61`..`cbc4834` (hand-off in docs/briefs/progress/V0.7-G7.md; all deliverables 0-6; exit list green incl. whole component 1909/14 skipped exit 0; threat_model_check 99 rows: 84 mitigated / 15 accepted). Production fixes for the reviewer: `0e670a5` (CG-E2 cross-node status report, real defect), `2aa2caa` (insecure-dev blob cert). **G7 tester r1 RUNNING.** If this session died: look for "## Tester r1" in the progress file; then reviewer → close 0.7.11.**
