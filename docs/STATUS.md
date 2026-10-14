@@ -2,7 +2,7 @@
 
 > Concise current state. Long-term plan: [`DEVELOPMENT_ROADMAP.md`](DEVELOPMENT_ROADMAP.md). Update at the end of every work session.
 
-**Last updated:** 2026-10-13 (**V0.7 G1–G5 CLOSED (0.7.1–0.7.9 `[x]`); G6 (0.7.10) `[~]`: tester r1 FAIL → D162 → fix round 1 committed, exit list blocked on 🧑 mains power** · older: **V0.7 G2 CLOSED (0.7.3, 0.7.4 `[x]`) — next: write G3 brief §5c (mTLS + revocation + D153 item 0)** · **V0.7 G1 CLOSED (0.7.1, 0.7.2 `[x]`) — next: write G2 (pairing) brief** · **V0.6 G4 CLOSED + reviewer follow-ups done `1f037f2`; next: V0.7 brief; 0.6.13 🧑 lab open** · older: **V0.6 G1–G3 CLOSED**; **G4 fix round 1 stopped during its exit list — next: finish the exit list**; V0.5 closes on 🧑 0.5.11 lab; one agent at a time)
+**Last updated:** 2026-10-13 (**V0.7 G1–G5 CLOSED (0.7.1–0.7.9 `[x]`); G6 (0.7.10) `[~]`: tester r1 FAIL → D162 → fix rounds 1-3 committed (D162-D164), fix-round-3 exit list pending** · older: **V0.7 G2 CLOSED (0.7.3, 0.7.4 `[x]`) — next: write G3 brief §5c (mTLS + revocation + D153 item 0)** · **V0.7 G1 CLOSED (0.7.1, 0.7.2 `[x]`) — next: write G2 (pairing) brief** · **V0.6 G4 CLOSED + reviewer follow-ups done `1f037f2`; next: V0.7 brief; 0.6.13 🧑 lab open** · older: **V0.6 G1–G3 CLOSED**; **G4 fix round 1 stopped during its exit list — next: finish the exit list**; V0.5 closes on 🧑 0.5.11 lab; one agent at a time)
 
 ## Progress
 
@@ -44,6 +44,7 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 
 ## Current Task
 
+- **2026-10-14: V0.7 G6 tester r3 FAIL (T-21 major symlinked secrets base; T-18..T-20, T-22 minor) → D164 → fix round 3 committed `8f113b4`..`1266086`, NOT verified (exit list stopped by the user mid-run).** Next: implementer exit list + hand-off → tester r4 → reviewer → close 0.7.10. See SESSION_HANDOFF §1.
 - **2026-10-13 (night): V0.7 G6 tester r2 FAIL (T-17 blocker matcher hang, T-14 major secret folder left on cancel) → D163 → fix round 2 committed `8c54823`..`5897278`, NOT verified: exit list blocked - 🧑 laptop on battery again.** Next (on mains): implementer exit list + hand-off → tester r3 → reviewer → close 0.7.10. See SESSION_HANDOFF §1.
 - **2026-10-13 (late): V0.7 G6 tester r1 FAIL (3 major, 7 minor) → D162 → fix round 1 committed `bee2625`..`630e0c1`, NOT verified: exit list blocked - 🧑 laptop on battery.** Unit red on one open pre-G6 test (digest_lock, cause unproven). **Next (on mains): implementer exit list + hand-off → tester r2 → reviewer → close 0.7.10.** See SESSION_HANDOFF §1.
 - **2026-10-13: V0.7 G6 (0.7.10 job secrets + D161) code committed `19c4fb1`..`f21646b`, exit list NOT run (implementer stopped).** Migration 0019, AES-GCM store, /v1/secrets + `compute secret`, StartAttempt delivery, redaction, recorder marker, docs. **Next: implementer exit list + hand-off → tester → reviewer.**

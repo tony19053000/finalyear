@@ -9,8 +9,8 @@
 > ```
 > Read docs/SESSION_HANDOFF.md (§0e first, then §1 and §2), then docs/STATUS.md, then
 > docs/briefs/V0.7-security-pairing.md. RULE: run ONE subagent at a time (team, re-imposed 2026-10-01).
-> V0.7 G1-G3 CLOSED; G4 code committed, exit list unfinished — see §1 "2026-10-11 (stop)".
-> Next: G4 implementer finishes the exit list + hand-off → tester → reviewer → close.
+> V0.7 G1-G5 CLOSED; G6 (0.7.10) fix rounds 1-3 committed (D162-D164), not verified — see §1 "STOP, user".
+> Next: G6 fix-round-3 exit list + hand-off → tester r4 → reviewer → close 0.7.10 (see §1 "STOP, user").
 > Check git log and docs/briefs/progress/ first to see which round last finished.
 > ```
 >
@@ -264,6 +264,8 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 - Commits: keep using `git commit -- <paths>` even with one agent — the Lead also commits docs.
 
 ## 1. Where the project is
+
+**2026-10-14 (STOP, user) — G6 fix-round-3 exit list STOPPED by the user mid-run; nothing running, tree clean, /dev/shm empty, no test containers left. Code: D164 items `8f113b4`..`2062bf0` + one exit-list fix `1266086` (agent HTTPS connect/TLS cancel leaked a socket - root cause in anyio/httpcore, new `agent/http_connect.py` CancelSafeBackend; r3 cancel tests were red 4/5 under burners on ResourceWarning). Reached before the stop: static gates + unit + cluster etc. presumably green (NOT recorded - no hand-off written); whole `-m component` was 38 min in when killed. The agent was last checking something reported as "baseline 2/2 fails ... with the scratch backend" - most likely the `1266086` probe, unverified. **Next: one implementer run = full §5f exit list from scratch at HEAD (gates, unit, cluster, chaos x5, F6 x20, G6 redaction files under PYTHONHASHSEED 2/3/7, tester-r3 sweep/cancel/thread-site/unreadable-dir/https-uv files 5x under 16 burners, whole component alone) + "### Fix round 3 hand-off" incl. `1266086` (outside D164 - reviewer must look) → tester r4 (narrow: T-18..T-22 + `1266086`) → reviewer → close 0.7.10 + STATUS bar (CLAUDE.md §4c 1b).** Keep the laptop on mains.**
 
 **2026-10-14 08:25 (fix r3 exit list) — every D164 item COMMITTED `8f113b4`..`2062bf0` (T-21 fd-based base check, T-22 fail-closed notice in the log, T-20 remove_tree, T-19 bounded wait, T-18 wheel URL needs --hash, docs incl. ARCHITECTURE "How log redaction works"); implementer hit the usage limit before the exit list. **Implementer RELAUNCHED for exit list + "### Fix round 3 hand-off" only.** If this session died: look for that hand-off; if absent rerun; then tester r4 (narrow) → reviewer → close 0.7.10 + STATUS bar.**
 
