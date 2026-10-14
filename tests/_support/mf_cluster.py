@@ -627,8 +627,16 @@ class Fabric:
         enroll_agents: bool = True,
         start_agents: bool = True,
         record_links: bool = False,
+        security_mode: str = "mtls",
     ) -> None:
         self.workdir = workdir
+        # V0.7 G7 (D146 control run): ``"insecure-dev"`` runs every process in
+        # plaintext on loopback (job secrets allowed on it), so the recorder can
+        # be shown to SEE what the mtls run must hide. Never anything else.
+        if security_mode not in ("mtls", "insecure-dev"):
+            raise ValueError(f"unknown security mode {security_mode!r}")
+        self.security_mode = security_mode
+        self.scheme = "https" if security_mode == "mtls" else "http"
         # V0.7 G3: a controller in mtls mode needs a fabric CA. ``fabric_ca``:
         # make it with the real `meshforge-controller fabric create` (its own
         # CA); otherwise the test process's fixture CA (``mf_fabric``) is
@@ -722,6 +730,7 @@ class Fabric:
                     "lease_multiplier": t.lease_multiplier,
                 }
             ),
+            "security": self._security_table(),
             "controller.discovery": {"advertise": False},
             "controller.resources": self._controller_resources,
             "controller.jobs": self._controller_jobs,
@@ -736,6 +745,11 @@ class Fabric:
         path.write_text(_toml({k: v for k, v in tables.items() if v}), "utf-8")
         return path
 
+    def _security_table(self) -> dict[str, Any]:
+        if self.security_mode == "mtls":
+            return {}
+        return {"mode": self.security_mode, "allow_insecure_secrets": True}
+
     def _tmpfs_dir(self, index: int) -> Path:
         return self.workdir / f"agent{index}-tmpfs-work"
 
@@ -749,6 +763,7 @@ class Fabric:
                 {"base_s": t.agent_reconnect_base_s, "cap_s": t.agent_reconnect_cap_s}
             ),
             "agent.keepalive": self._agent_keepalive,
+            "security": self._security_table(),
             "agent.discovery": {"enabled": False},
             "agent.resources": self._agent_resources,
             # G7 (0.3.4): N agents share one host here, so each one's background
@@ -794,7 +809,7 @@ class Fabric:
             self.rest_link = self.loop.link(("127.0.0.1", 9), name="rest")
             self.rest_link.record()
             self._controller_extra.setdefault("api", {})["advertise_url"] = (
-                f"https://{self.rest_link.target}"
+                f"{self.scheme}://{self.rest_link.target}"
             )
         env = self._base_env()
         env.update(self._db_env)
@@ -900,11 +915,11 @@ class Fabric:
             self.controller, "controller.listening", within=START_TIMEOUT_S
         )
         self.grpc_target = str(event["grpc"])
-        self.http_base = f"https://{event['http']}"
+        self.http_base = f"{self.scheme}://{event['http']}"
         self.enroll_target = str(event.get("enroll") or "")
         if self.rest_link is not None:
             self.rest_link.retarget(*_host_port(str(event["http"])))
-            self.http_base = f"https://{self.rest_link.target}"
+            self.http_base = f"{self.scheme}://{self.rest_link.target}"
 
     def _create_users(self, config: Path, env: Mapping[str, str]) -> None:
         """V0.7 G4 (D141): an admin and a normal user, created with the real
