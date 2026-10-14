@@ -185,7 +185,7 @@ Reviewer non-blocking follow-ups (carry into G2/G3): (1) `mint` should carry `pe
 - Windows: not yet run (first real CI run will cover unit + fresh-clone on windows-latest)
 
 ## Next Recommended Task
-**V0.6 G3 implementer** with brief §5c + item 0 = reviewer N-1 (see Current Task). Then tester → fix → reviewer → close 0.6.7/0.6.8/0.6.12.
+**V0.8 (dashboard & CLI v1):** Lead writes the V0.8 brief, item 0 = D168 non-blocking list. V0.4–V0.7 are complete agent-side; each closes on its 🧑 lab run (0.4.15, 0.5.11, 0.6.13, 0.7.12).
 
 **2026-10-05 (later): V0.6 started.** Brief `docs/briefs/V0.6-scheduling-reliability.md` (D102–D119, ADR-0015 Proposed). **G1 implementer RUNNING** (0.6.9, 0.6.10, 0.6.14 + dispatcher/gc_index splits + D59); progress `docs/briefs/progress/V0.6-G1.md`. Then G1 tester → reviewer → G2. 🧑 0.5.11 lab still closes V0.5; 🧑 team: review ADR-0015 before G3.
 
