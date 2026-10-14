@@ -534,7 +534,9 @@ class ControllerRuntime:
             manager.activate_cert = self.renewals.activate
             manager.on_cert_activated = self._resync_revocations
         # V0.7 G4 (D141): REST users and API tokens.
-        self.users = UserStore(engine)
+        self.users = UserStore(
+            engine, session_idle_s=round(cfg.auth.session_idle_hours * 3600)
+        )
         self.login = LoginService(
             self.users,
             policy=login_policy(cfg.auth),

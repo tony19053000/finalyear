@@ -31,11 +31,26 @@ from dataclasses import dataclass
 from typing import Any, Final
 
 from pydantic import SecretStr
-from sqlalchemy import Interval, func, insert, literal, or_, select, update
+from sqlalchemy import (
+    ColumnElement,
+    Interval,
+    func,
+    insert,
+    literal,
+    or_,
+    select,
+    update,
+)
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
-from meshforge.common.api_token import api_token_hash, is_api_token, new_api_token
+from meshforge.common.api_token import (
+    api_token_hash,
+    is_api_token,
+    is_browser_session_token,
+    new_api_token,
+    new_browser_session_token,
+)
 from meshforge.common.errors import ExitCode, FailureType, MeshForgeError
 from meshforge.common.ids import new_api_token_id, new_user_id
 from meshforge.common.logging import get_logger
@@ -47,6 +62,7 @@ from meshforge.controller.store.models.auth import (
     USER_NAME_PATTERN,
     ApiToken,
     AppUser,
+    TokenKind,
     UserRole,
 )
 from meshforge.controller.store.models.enrollment import AuditAction
@@ -70,6 +86,8 @@ __all__ = [
 log = get_logger(__name__)
 
 LAST_USED_RESOLUTION_S: Final = 60
+DEFAULT_SESSION_IDLE_S: Final = 12 * 3600
+"""D170: a browser session unused this long has ended (``session_idle_hours``)."""
 MAX_LISTED_TOKENS: Final = 500
 MAX_LISTED_USERS: Final = 1000
 DEFAULT_TOKEN_NAME: Final = "compute"  # noqa: S105 - a label, not a secret
@@ -157,12 +175,17 @@ class TokenRecord:
     last_used_at: dt.datetime | None
     revoked_at: dt.datetime | None
     now: dt.datetime
+    kind: TokenKind = TokenKind.API
+    idle_expires_at: dt.datetime | None = None
+    """Browser sessions only (D170): when it ends if unused until then."""
 
     @property
     def state(self) -> str:
         if self.revoked_at is not None:
             return "revoked"
         if self.expires_at <= self.now:
+            return "expired"
+        if self.idle_expires_at is not None and self.idle_expires_at <= self.now:
             return "expired"
         return "active"
 
@@ -180,6 +203,10 @@ class TokenRecord:
             if self.last_used_at
             else None,
             "revoked_at": self.revoked_at.isoformat() if self.revoked_at else None,
+            "kind": self.kind.value,
+            "idle_expires_at": self.idle_expires_at.isoformat()
+            if self.idle_expires_at
+            else None,
         }
 
 
@@ -193,7 +220,15 @@ def _user(row: AppUser) -> UserRecord:
     )
 
 
-def _token(row: ApiToken, user_name: str, now: dt.datetime) -> TokenRecord:
+def _token(
+    row: ApiToken, user_name: str, now: dt.datetime, *, idle_s: int
+) -> TokenRecord:
+    kind = TokenKind(row.kind)
+    idle_expires_at = None
+    if kind is TokenKind.BROWSER_SESSION:
+        idle_expires_at = (row.last_used_at or row.created_at) + dt.timedelta(
+            seconds=idle_s
+        )
     return TokenRecord(
         id=row.id,
         user_id=row.user_id,
@@ -204,6 +239,18 @@ def _token(row: ApiToken, user_name: str, now: dt.datetime) -> TokenRecord:
         last_used_at=row.last_used_at,
         revoked_at=row.revoked_at,
         now=now,
+        kind=kind,
+        idle_expires_at=idle_expires_at,
+    )
+
+
+def _not_idle(idle_s: int) -> ColumnElement[bool]:
+    """D170: an API token never idles out; a browser session ends after
+    ``idle_s`` without use (``last_used_at``, else ``created_at``)."""
+    return or_(
+        ApiToken.kind != TokenKind.BROWSER_SESSION.value,
+        func.coalesce(ApiToken.last_used_at, ApiToken.created_at)
+        > func.now() - literal(dt.timedelta(seconds=idle_s), Interval()),
     )
 
 
@@ -225,10 +272,15 @@ async def _db_now(db: AsyncSession) -> dt.datetime:
 class UserStore:
     """Async repository over ``app_user`` / ``api_token`` (+ audit rows)."""
 
-    def __init__(self, engine: AsyncEngine) -> None:
+    def __init__(
+        self, engine: AsyncEngine, *, session_idle_s: int = DEFAULT_SESSION_IDLE_S
+    ) -> None:
+        if session_idle_s <= LAST_USED_RESOLUTION_S:
+            raise ValueError("session_idle_s must exceed the last-use resolution")
         self._sessions: async_sessionmaker[AsyncSession] = create_session_factory(
             engine
         )
+        self.session_idle_s = session_idle_s
         self._legacy_audited = False
         self._legacy_logged_at: float | None = None
         self.legacy_uses = 0
@@ -391,10 +443,16 @@ class UserStore:
         ttl_s: int,
         token_name: str = DEFAULT_TOKEN_NAME,
         source: str | None = None,
+        kind: TokenKind = TokenKind.API,
     ) -> tuple[SecretStr, TokenRecord]:
-        """A fresh API token for ``user`` (the login's audit row in the same
-        transaction); the token is returned once and never stored."""
-        token = new_api_token()
+        """A fresh API token - or browser session (D170) - for ``user`` (the
+        login's audit row in the same transaction); the token is returned once
+        and never stored."""
+        token = (
+            new_browser_session_token()
+            if kind is TokenKind.BROWSER_SESSION
+            else new_api_token()
+        )
         token_id = new_api_token_id()
         name = token_name[:MAX_TOKEN_NAME_CHARS] or DEFAULT_TOKEN_NAME
         try:
@@ -408,6 +466,7 @@ class UserStore:
                         created_at=func.now(),
                         expires_at=func.now()
                         + literal(dt.timedelta(seconds=ttl_s), Interval()),
+                        kind=kind.value,
                     )
                 )
                 await audit(
@@ -415,16 +474,19 @@ class UserStore:
                     AuditAction.LOGIN,
                     actor=f"user:{user.user_id}",
                     source=source,
-                    details={"token_id": token_id, "ttl_s": ttl_s},
+                    details={"token_id": token_id, "ttl_s": ttl_s, "kind": kind.value},
                 )
                 row = await db.get_one(ApiToken, token_id)
-                record = _token(row, user.name, row.created_at)
+                record = _token(
+                    row, user.name, row.created_at, idle_s=self.session_idle_s
+                )
         except SQLAlchemyError as exc:
             raise _store_error("issue_token", exc) from exc
         log.info(
             "controller.auth.login",
             user_id=user.user_id,
             token_id=token_id,
+            kind=kind.value,
             expires_at=record.expires_at.isoformat(),
         )
         return token, record
@@ -450,10 +512,23 @@ class UserStore:
                 cause=type(exc).__name__,
             )
 
-    async def authenticate(self, token: str) -> Principal | None:
+    async def authenticate(
+        self, token: str, *, kind: TokenKind = TokenKind.API
+    ) -> Principal | None:
         """The user behind a live API token, or ``None`` (unknown, revoked,
-        expired, or the user is disabled - one answer for all four)."""
-        if not is_api_token(token):
+        expired, or the user is disabled - one answer for all four).
+
+        ``kind`` (D170): the credential the caller presented - a ``Bearer``
+        header is an API token, the dashboard cookie a browser session; a
+        token of the other kind is unknown here (an API token pasted into
+        the cookie, or a stolen session cookie sent as ``Bearer``, is refused).
+        A browser session idle for ``session_idle_s`` is expired."""
+        shape_ok = (
+            is_browser_session_token(token)
+            if kind is TokenKind.BROWSER_SESSION
+            else is_api_token(token)
+        )
+        if not shape_ok:
             return None
         wanted = api_token_hash(token)
         try:
@@ -472,8 +547,10 @@ class UserStore:
                         .join(AppUser, AppUser.id == ApiToken.user_id)
                         .where(
                             ApiToken.token_hash == wanted,
+                            ApiToken.kind == kind.value,
                             ApiToken.revoked_at.is_(None),
                             ApiToken.expires_at > func.now(),
+                            _not_idle(self.session_idle_s),
                             AppUser.disabled.is_(False),
                         )
                     )
@@ -500,7 +577,11 @@ class UserStore:
         except SQLAlchemyError as exc:
             raise _store_error("authenticate", exc) from exc
         return Principal(
-            user_id=str(user_id), name=str(name), role=UserRole(role), token_id=token_id
+            user_id=str(user_id),
+            name=str(name),
+            role=UserRole(role),
+            token_id=token_id,
+            token_kind=kind,
         )
 
     async def live_token_ids(self, token_ids: Collection[str]) -> set[str]:
@@ -521,6 +602,7 @@ class UserStore:
                             ApiToken.id.in_(batch),
                             ApiToken.revoked_at.is_(None),
                             ApiToken.expires_at > func.now(),
+                            _not_idle(self.session_idle_s),
                             AppUser.disabled.is_(False),
                         )
                     )
@@ -542,7 +624,11 @@ class UserStore:
                 ).one_or_none()
         except SQLAlchemyError as exc:
             raise _store_error("get_token", exc) from exc
-        return None if found is None else _token(found[0], found[1], now)
+        return (
+            None
+            if found is None
+            else _token(found[0], found[1], now, idle_s=self.session_idle_s)
+        )
 
     async def list_tokens(self, user_id: str | None) -> list[TokenRecord]:
         """Newest first; ``user_id`` None = every user's (admin)."""
@@ -558,7 +644,10 @@ class UserStore:
             async with self._sessions() as db:
                 now = await _db_now(db)
                 rows: Sequence[Any] = (await db.execute(query)).all()
-                return [_token(row[0], row[1], now) for row in rows]
+                return [
+                    _token(row[0], row[1], now, idle_s=self.session_idle_s)
+                    for row in rows
+                ]
         except SQLAlchemyError as exc:
             raise _store_error("list_tokens", exc) from exc
 
@@ -594,7 +683,9 @@ class UserStore:
                         details={"token_id": row.id, "user_id": row.user_id},
                     )
                     await db.flush()
-                record = _token(row, user_name, await _db_now(db))
+                record = _token(
+                    row, user_name, await _db_now(db), idle_s=self.session_idle_s
+                )
         except UserError:
             raise
         except SQLAlchemyError as exc:

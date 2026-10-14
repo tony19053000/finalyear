@@ -15,6 +15,13 @@ lower-case hex, unique), compared in constant time. Expiry is mandatory;
 ``revoked_at`` ends it early (``compute tokens revoke``, a password reset, a
 disabled user). ``last_used_at`` is coarse (written at most once a minute per
 token) - it says "still in use", it is not an access log.
+
+``kind`` (V0.8 G1, D170, migration 0020): ``api`` (``compute login``) or
+``browser_session`` (the dashboard's ``HttpOnly`` cookie). A browser session
+also ends after ``[controller.auth] session_idle_hours`` without use - measured
+from ``last_used_at`` (or ``created_at``), so with its one-minute resolution -
+and its ``expires_at`` is the absolute limit (``session_max_days``). Both kinds
+are listed and revoked together (``compute tokens``).
 """
 
 from __future__ import annotations
@@ -35,6 +42,7 @@ __all__ = [
     "USER_NAME_PATTERN",
     "ApiToken",
     "AppUser",
+    "TokenKind",
     "UserRole",
 ]
 
@@ -50,6 +58,13 @@ class UserRole(StrEnum):
 
     ADMIN = "admin"
     USER = "user"
+
+
+class TokenKind(StrEnum):
+    """Persisted (``api_token.kind``): never rename, only add."""
+
+    API = "api"
+    BROWSER_SESSION = "browser_session"
 
 
 class AppUser(Base):
@@ -89,6 +104,10 @@ class ApiToken(Base):
         CheckConstraint(
             f"length(name) BETWEEN 1 AND {MAX_TOKEN_NAME_CHARS}", name="name"
         ),
+        CheckConstraint(
+            "kind IN (" + ", ".join(f"'{k.value}'" for k in TokenKind) + ")",
+            name="kind",
+        ),
         Index("ix_api_token_user_id", "user_id"),
         Index("ix_api_token_expires_at", "expires_at"),
     )
@@ -105,3 +124,6 @@ class ApiToken(Base):
     expires_at: Mapped[dt.datetime] = mapped_column(nullable=False)
     last_used_at: Mapped[dt.datetime | None] = mapped_column(nullable=True)
     revoked_at: Mapped[dt.datetime | None] = mapped_column(nullable=True)
+    kind: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default=text("'api'")
+    )

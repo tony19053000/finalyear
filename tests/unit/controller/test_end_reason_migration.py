@@ -84,6 +84,9 @@ def test_migration_0016_lists_are_the_model_enums() -> None:
     mig20 = _load("0020_dashboard.py")
     assert set(mig20.ACTIONS_0019) == set(mig19.ACTIONS_0019)  # frozen copy
     assert set(mig20.ACTIONS_0020) == {a.value for a in AuditAction}  # V0.8 G1
+    from meshforge.controller.store.models.auth import TokenKind
+
+    assert set(mig20.TOKEN_KINDS_0020) == {k.value for k in TokenKind}
     assert set(mig.REASONS_0016) == {r.value for r in RevocationReason}
 
 

@@ -58,6 +58,7 @@ from meshforge.controller.api.revocation_routes import (
     revocation_router,
 )
 from meshforge.controller.api.secret_routes import SECRETS_STATE_KEY, secret_router
+from meshforge.controller.api.session_routes import session_router
 from meshforge.controller.blobs import BlobStore
 from meshforge.controller.cache_index import CacheLocationStore
 from meshforge.controller.registry import Registry
@@ -159,6 +160,7 @@ def create_http_app(
     if users is not None:
         setattr(app.state, AUTH_API_STATE_KEY, users)
         app.include_router(auth_router)  # V0.7 G4 login + tokens (D141)
+        app.include_router(session_router)  # V0.8 G1 browser session (D170)
     if secrets is not None:
         setattr(app.state, SECRETS_STATE_KEY, secrets)
         app.include_router(secret_router)  # V0.7 G6 job secrets (D144)

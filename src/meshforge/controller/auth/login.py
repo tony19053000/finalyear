@@ -46,10 +46,10 @@ from meshforge.common.errors import ExitCode, FailureType, MeshForgeError
 from meshforge.common.logging import get_logger
 from meshforge.controller.auth.passwords import MAX_PASSWORD_CHARS, PasswordHasher
 from meshforge.controller.auth.principal import Principal
-from meshforge.controller.auth.users import TokenRecord, UserStore
+from meshforge.controller.auth.users import LoginRecord, TokenRecord, UserStore
 from meshforge.controller.enrollment.listener import SourceRateLimiter, ip_rate_key
 from meshforge.controller.settings import AuthSettings
-from meshforge.controller.store.models.auth import MAX_USER_NAME_CHARS
+from meshforge.controller.store.models.auth import MAX_USER_NAME_CHARS, TokenKind
 
 __all__ = [
     "LoginPolicy",
@@ -88,6 +88,8 @@ class LoginPolicy:
     """``[controller.auth]`` login knobs (see the settings for meanings)."""
 
     token_ttl_s: int = 90 * 86_400
+    session_ttl_s: int = 7 * 86_400
+    """D170: absolute life of a browser session."""
     rate_per_minute: float = 10.0
     rate_burst: int = 10
     free_failures: int = 5
@@ -100,6 +102,7 @@ def login_policy(settings: AuthSettings) -> LoginPolicy:
     """The :class:`LoginPolicy` of ``[controller.auth]``."""
     return LoginPolicy(
         token_ttl_s=settings.token_ttl_days * 86_400,
+        session_ttl_s=settings.session_max_days * 86_400,
         rate_per_minute=settings.login_rate_per_minute,
         rate_burst=settings.login_rate_burst,
         free_failures=settings.login_free_failures,
@@ -206,6 +209,44 @@ class LoginService:
         source: str | None,
         token_name: str,
     ) -> LoginResult:
+        """``POST /v1/auth/login``: an API token (``compute login``)."""
+        user = await self._verify(name, password, host=host, source=source)
+        token, record = await self.store.issue_token(
+            user, ttl_s=self.policy.token_ttl_s, token_name=token_name, source=source
+        )
+        return _result(user, token, record)
+
+    async def open_session(
+        self,
+        name: str,
+        password: SecretStr,
+        *,
+        host: str | None,
+        source: str | None,
+    ) -> LoginResult:
+        """``POST /v1/session`` (V0.8 G1, D170): a browser session token, behind
+        the **same** throttle, backoff and checks as :meth:`login` (D159) - a
+        guesser gains nothing by switching between the two doors."""
+        user = await self._verify(name, password, host=host, source=source)
+        token, record = await self.store.issue_token(
+            user,
+            ttl_s=self.policy.session_ttl_s,
+            token_name="dashboard",  # noqa: S106 - a label, not a secret
+            source=source,
+            kind=TokenKind.BROWSER_SESSION,
+        )
+        return _result(user, token, record)
+
+    async def _verify(
+        self,
+        name: str,
+        password: SecretStr,
+        *,
+        host: str | None,
+        source: str | None,
+    ) -> LoginRecord:
+        """Throttle, look up, check the password; the user or
+        :class:`LoginRefusedError`."""
         if not self.throttle.allow_source(host):
             log.warning("controller.auth.login_rate_limited", scope="source")
             raise LoginRefusedError(
@@ -253,16 +294,18 @@ class LoginService:
             )
             raise LoginRefusedError(_BAD_CREDENTIALS, reason="bad_credentials")
         self.throttle.succeeded(key)
-        token, record = await self.store.issue_token(
-            user, ttl_s=self.policy.token_ttl_s, token_name=token_name, source=source
-        )
-        return LoginResult(
-            token=token,
-            record=record,
-            principal=Principal(
-                user_id=user.user_id,
-                name=user.name,
-                role=user.role,
-                token_id=record.id,
-            ),
-        )
+        return user
+
+
+def _result(user: LoginRecord, token: SecretStr, record: TokenRecord) -> LoginResult:
+    return LoginResult(
+        token=token,
+        record=record,
+        principal=Principal(
+            user_id=user.user_id,
+            name=user.name,
+            role=user.role,
+            token_id=record.id,
+            token_kind=record.kind,
+        ),
+    )

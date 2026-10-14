@@ -11,7 +11,8 @@ layers:
    sensitive, and PEM private-key blocks (``-----BEGIN ... PRIVATE KEY-----`` up to
    the matching ``END`` line, or to the end of the text if unclosed), and V0.7
    join codes (``mf1-`` followed by at least 16 code characters), and V0.7 G4
-   API tokens (``mfat_`` followed by at least 16 URL-safe characters), and
+   API tokens (``mfat_`` followed by at least 16 URL-safe characters; V0.8 G1
+   browser session tokens ``mfbs_`` alike), and
    (V0.7 G6) the exact values of the job secrets in use in this process
    (:data:`meshforge.common.secret_redaction.ACTIVE`) -> ``[secret:NAME]``.
 
@@ -158,8 +159,9 @@ _JOIN_CODE_RE: Final = re.compile(
 # characters. Scrubbed by shape wherever they appear (checklist 20); a shorter
 # tail (16+) still counts so a truncated paste is masked too. Linear.
 _API_TOKEN_RE: Final = re.compile(
-    r"(?<![A-Za-z0-9_])(?P<pre>mfat_)[A-Za-z0-9_\-]{16,600}"
+    r"(?<![A-Za-z0-9_])(?P<pre>mf(?:at|bs)_)[A-Za-z0-9_\-]{16,600}"
 )
+"""Also V0.8 G1 browser session tokens (``mfbs_``, D170): same shape rule."""
 _BRACKET_SCAN_LIMIT: Final = 4096
 _CLOSERS: Final = {"{": "}", "[": "]"}
 

@@ -954,6 +954,35 @@ class AuthSettings(SectionModel):
         le=64,
         description=("Password checks (scrypt, ~32 MiB each) run at once; more wait."),
     )
+    session_idle_hours: float = Field(
+        default=12.0,
+        ge=0.25,
+        le=168.0,
+        description=(
+            "V0.8 dashboard (D170): a browser session not used for this long "
+            "has ended (the next request or the open event stream is refused "
+            "and the user logs in again). Measured to the minute."
+        ),
+    )
+    session_max_days: int = Field(
+        default=7,
+        ge=1,
+        le=30,
+        description=(
+            "Absolute life of a browser session (D170), however busy: after "
+            "this the dashboard asks for the password again."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _idle_within_life(self) -> AuthSettings:
+        if self.session_idle_hours > self.session_max_days * 24:
+            raise ValueError(
+                "[controller.auth] session_idle_hours cannot exceed "
+                "session_max_days (in hours)"
+            )
+        return self
+
     stream_recheck_interval_s: float = Field(
         default=1.0,
         ge=0.1,

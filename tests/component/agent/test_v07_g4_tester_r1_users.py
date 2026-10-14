@@ -423,7 +423,15 @@ async def test_open_routes_are_exactly_healthz_login_blobs_and_docs(
     """D148 from the live OpenAPI document: every (method, path) not on the
     allow-list answers 401 to an anonymous caller."""
     spec = (await anon.get("/v1/openapi.json")).json()
-    allowed = {("get", "/healthz"), ("post", "/v1/auth/login")}
+    allowed = {
+        ("get", "/healthz"),
+        ("post", "/v1/auth/login"),
+        # V0.8 G1 (D170): the dashboard login, and logout - which must clear
+        # the cookies of a dead session too (both tested in
+        # test_v08_g1_browser_session.py).
+        ("post", "/v1/session"),
+        ("delete", "/v1/session"),
+    }
     node, job = str(new_node_id()), str(new_job_id())
     digest = "0" * 64
     checked = 0

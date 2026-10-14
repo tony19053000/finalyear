@@ -22,6 +22,15 @@ One authentication path, enforced here and nowhere else:
    user), :meth:`Principal.may_see_job` for every job route (another user's job
    is 404, exactly like a job that does not exist).
 
+**Browser sessions (V0.8 G1, D170).** A request with **no** ``Authorization``
+header may instead carry the dashboard's ``mf_session`` cookie: a
+``browser_session`` token (12 h idle / 7 d absolute). Cookie requests obey
+:mod:`meshforge.controller.auth.browser`: a mutating request needs the CSRF
+header (403 ``csrf``), a WebSocket handshake an ``Origin`` of the controller's
+own (else no user). A request that has an ``Authorization`` header is judged by
+it alone - a bad header is 401 even with a good cookie (no fallback). An API
+token in the cookie or a session token as ``Bearer`` is unknown.
+
 A missing, malformed, unknown, expired or revoked token and a disabled user all
 get the same ``unauthorized`` envelope (401, ``WWW-Authenticate: Bearer``) with
 one fixed message: the response never says *which* part was wrong and never
@@ -37,11 +46,13 @@ from typing import TYPE_CHECKING, Annotated, Final, Protocol
 from fastapi import Depends, Request, status
 from starlette.requests import HTTPConnection
 
-from meshforge.common.api_token import is_api_token
+from meshforge.common.api_token import is_api_token, is_browser_session_token
 from meshforge.common.errors import FailureType, MeshForgeError
 from meshforge.common.logging import get_logger
 from meshforge.controller.api.errors import ApiError
+from meshforge.controller.auth import browser
 from meshforge.controller.auth.principal import LEGACY_PRINCIPAL, Principal
+from meshforge.controller.store.models.auth import TokenKind
 
 if TYPE_CHECKING:
     from meshforge.controller.auth.live_streams import LiveStreams
@@ -64,12 +75,14 @@ __all__ = [
     "agent_credential_ok",
     "authenticate",
     "bearer_token",
+    "csrf_refused",
     "current_user",
     "forbidden",
     "get_auth",
     "guard_requests",
     "request_source",
     "require_admin",
+    "session_cookie",
     "unauthorized",
 ]
 
@@ -78,7 +91,14 @@ _PRINCIPAL_STATE_KEY: Final = "meshforge_principal"
 _UNSET: Final = object()
 BLOB_ROUTE_PREFIX: Final = "/v1/blobs/{"
 """Routes under this template check their own credentials (user or agent)."""
-OPEN_ROUTES: Final = frozenset({("GET", "/healthz"), ("POST", "/v1/auth/login")})
+OPEN_ROUTES: Final = frozenset(
+    {
+        ("GET", "/healthz"),
+        ("POST", "/v1/auth/login"),
+        ("POST", "/v1/session"),  # D170: the browser's way in
+        ("DELETE", "/v1/session"),  # D170: logout clears the cookies even when dead
+    }
+)
 """(method, route template) pairs that need no user (D148: only these)."""
 MAX_AUTHORIZATION_CHARS: Final = 512
 """An ``Authorization`` header longer than this is refused unread (a token is 48)."""
@@ -93,7 +113,9 @@ class UserDirectory(Protocol):
     """What the API needs from the user store
     (:class:`~meshforge.controller.auth.users.UserStore`)."""
 
-    async def authenticate(self, token: str) -> Principal | None: ...
+    async def authenticate(
+        self, token: str, *, kind: TokenKind = TokenKind.API
+    ) -> Principal | None: ...
 
     async def note_legacy_use(self, source: str | None) -> None: ...
 
@@ -208,8 +230,71 @@ async def authenticate(conn: HTTPConnection) -> Principal | None:
     return principal
 
 
+def _unavailable() -> ApiError:
+    log.warning("controller.auth.directory_unavailable")
+    return ApiError(
+        FailureType.NETWORK_ERROR,
+        "the user database is unavailable; retry",
+        headers={"Retry-After": "2"},
+    )
+
+
+def csrf_refused() -> ApiError:
+    return ApiError(
+        FailureType.UNAUTHORIZED,
+        "this request came with the dashboard session but without a valid "
+        f"{browser.CSRF_HEADER} header (or from another origin); reload the page",
+        http_status=status.HTTP_403_FORBIDDEN,
+        extra={"reason": "csrf"},
+    )
+
+
+def session_cookie(conn: HTTPConnection) -> str | None:
+    """The ``mf_session`` cookie's value when it has a session token's shape."""
+    value = conn.cookies.get(browser.SESSION_COOKIE)
+    return value if is_browser_session_token(value) else None
+
+
+async def _from_cookie(conn: HTTPConnection, auth: ApiAuth) -> Principal | None:
+    token = session_cookie(conn)
+    if token is None or auth.users is None:
+        return None
+    # Cross-site WebSocket hijacking: same-site pages on other ports get the
+    # cookie too, so the origin decides (checked before the database).
+    if conn.scope.get("type") == "websocket" and browser.cross_origin(
+        conn, require=True
+    ):
+        log.warning("controller.auth.session_refused", reason="ws_origin")
+        return None
+    try:
+        principal = await auth.users.authenticate(token, kind=TokenKind.BROWSER_SESSION)
+    except MeshForgeError:
+        raise _unavailable() from None
+    if principal is None:
+        return None
+    method = conn.scope.get("method")
+    if (
+        conn.scope.get("type") == "http"
+        and method not in browser.SAFE_METHODS
+        and (
+            not browser.csrf_ok(conn, token)
+            or browser.cross_origin(conn, require=False)
+        )
+    ):
+        log.warning(
+            "controller.auth.session_refused",
+            reason="csrf",
+            user_id=principal.user_id,
+            token_id=principal.token_id,
+        )
+        raise csrf_refused()
+    return principal
+
+
 async def _resolve(conn: HTTPConnection) -> Principal | None:
     auth = get_auth(conn)
+    if not conn.headers.getlist("authorization"):
+        return await _from_cookie(conn, auth)  # D170 (no header: maybe the cookie)
     token = bearer_token(conn)
     if token is None:
         return None
@@ -217,12 +302,7 @@ async def _resolve(conn: HTTPConnection) -> Principal | None:
         try:
             principal = await auth.users.authenticate(token)
         except MeshForgeError:
-            log.warning("controller.auth.directory_unavailable")
-            raise ApiError(
-                FailureType.NETWORK_ERROR,
-                "the user database is unavailable; retry",
-                headers={"Retry-After": "2"},
-            ) from None
+            raise _unavailable() from None
         if principal is not None:
             return principal
     if (

@@ -12,7 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Final
 
-from meshforge.controller.store.models.auth import UserRole
+from meshforge.controller.store.models.auth import TokenKind, UserRole
 
 __all__ = ["LEGACY_ACTOR", "LEGACY_PRINCIPAL", "Principal"]
 
@@ -31,6 +31,9 @@ class Principal:
     token_id: str | None = None
     """The ``api_token`` the call used (``tok_...``)."""
     legacy: bool = False
+    token_kind: TokenKind = TokenKind.API
+    """V0.8 G1 (D170): ``browser_session`` when the call came with the
+    dashboard's session cookie (then mutations needed the CSRF header)."""
 
     @property
     def is_admin(self) -> bool:
