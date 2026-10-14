@@ -10,7 +10,7 @@
 > Read docs/SESSION_HANDOFF.md (§0e first, then §1 and §2), then docs/STATUS.md, then
 > docs/briefs/V0.7-security-pairing.md. RULE: run ONE subagent at a time (team, re-imposed 2026-10-01).
 > V0.7 G1-G5 CLOSED; G6 (0.7.10) CLOSED 2026-10-14 (D165).
-> Next: Lead writes G7 brief (0.7.11 security suite), item 0 = D165.
+> G7 brief §5g written; G7 implementer running (0.7.11).
 > Check git log and docs/briefs/progress/ first to see which round last finished.
 > ```
 >
@@ -264,6 +264,8 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 - Commits: keep using `git commit -- <paths>` even with one agent — the Lead also commits docs.
 
 ## 1. Where the project is
+
+**2026-10-14 (G7 start) — Lead wrote brief §5g (G7: 0.7.11 security suite, item 0 = D165) + ruling D166 (`security` = capability marker, `scripts/threat_model_check.py` makes criterion 5 mechanical) `ba17d9d`. 0.7.11 `[~]`. **G7 implementer RUNNING.** If this session died: check git log for `V0.7-G7` commits + docs/briefs/progress/V0.7-G7.md; relaunch with §5g (resume, do not redo); then tester r1 → reviewer → whole component once → close 0.7.11.**
 
 **2026-10-14 (G6 CLOSED) — 0.7.10 `[x]`: tester r4 PASS `bde4410`, reviewer APPROVE, D165 recorded, STATUS bar refreshed; then whole component at `147942b`: 1901 passed / 14 skipped / 0 failed, exit 0 (67 min, 2026-10-14). Nothing running. Next: Lead writes G7 brief (brief §3, 0.7.11 security suite); item 0 = D165 follow-ups. Run the whole component suite once per group, at the end.**
 
