@@ -332,6 +332,7 @@ async def test_token_hash_is_not_a_usable_token(
 # ------------------------------------------------------------- clocks and expiry
 
 
+@pytest.mark.security
 async def test_expiry_is_the_database_clock_and_strict(
     rt: ControllerRuntime, make_code: MakeCode, pg_settings: DatabaseSettings
 ) -> None:
@@ -371,6 +372,7 @@ async def test_expiry_is_the_database_clock_and_strict(
 # ---------------------------------------------------- revoke vs redeem, key races
 
 
+@pytest.mark.security
 async def test_revoke_and_redeem_race_has_exactly_one_winner(
     rt: ControllerRuntime,
     make_code: MakeCode,
