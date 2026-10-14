@@ -10,7 +10,7 @@ import pytest
 
 from meshforge.controller.jobs.dispatcher import fetch_scope
 
-pytestmark = [pytest.mark.unit]
+pytestmark = [pytest.mark.unit, pytest.mark.security]
 
 A, B, C = ("sha256:" + c * 64 for c in "abc")
 

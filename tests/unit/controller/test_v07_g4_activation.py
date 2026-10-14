@@ -24,7 +24,7 @@ from meshforge.controller.registry import NodeRecord, Registry, SessionEndReason
 from meshforge.controller.session.manager import Accepted, Rejected, SessionManager
 from meshforge.controller.session.peer_cert import PeerCert
 
-pytestmark = [pytest.mark.unit, pytest.mark.asyncio]
+pytestmark = [pytest.mark.unit, pytest.mark.asyncio, pytest.mark.security]
 
 LATER = dt.datetime(2030, 1, 1, tzinfo=dt.UTC)
 

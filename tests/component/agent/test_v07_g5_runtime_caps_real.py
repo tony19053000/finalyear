@@ -94,6 +94,7 @@ def _limits_seen(capture: Capture) -> dict[str, str]:
     return seen
 
 
+@pytest.mark.security
 @linux_only
 def test_an_owner_ram_cap_is_the_address_space_limit(tmp_path: Path) -> None:
     target = _sub_target()
@@ -105,6 +106,7 @@ def test_an_owner_ram_cap_is_the_address_space_limit(tmp_path: Path) -> None:
     assert seen["nproc"] != "unlimited" and int(seen["nproc"]) >= 64
 
 
+@pytest.mark.security
 @linux_only
 def test_allocating_past_the_owner_cap_fails_inside(tmp_path: Path) -> None:
     target = _sub_target()
@@ -144,6 +146,7 @@ FORK_BOMB = textwrap.dedent(
 )
 
 
+@pytest.mark.security
 @linux_only
 def test_the_task_limit_contains_a_fork_bomb(tmp_path: Path) -> None:
     if resource.getrlimit(resource.RLIMIT_NPROC)[1] != resource.RLIM_INFINITY and (
@@ -198,6 +201,7 @@ CGROUP_PROBE = textwrap.dedent(
 )
 
 
+@pytest.mark.security
 @pytest.mark.docker
 def test_docker_gets_the_owner_caps_in_its_cgroup(tmp_path: Path) -> None:
     if not _image_local(PYTHON_CPU_IMAGE):

@@ -83,6 +83,7 @@ def _compute(
     )
 
 
+@pytest.mark.security
 def test_a_normal_user_runs_a_job_through_the_cli(
     make_fabric: Callable[..., Fabric], tmp_path: Path
 ) -> None:

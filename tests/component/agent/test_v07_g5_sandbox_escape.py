@@ -42,7 +42,7 @@ from meshforge.agent.identity import KEY_FILE_NAME, load_or_create
 from meshforge.agent.settings import PYTHON_CPU_IMAGE
 from meshforge.common.errors import FailureType
 
-pytestmark = [pytest.mark.docker, pytest.mark.timeout(180)]
+pytestmark = [pytest.mark.docker, pytest.mark.timeout(180), pytest.mark.security]
 
 MIB = 1024 * 1024
 

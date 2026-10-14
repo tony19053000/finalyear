@@ -74,6 +74,7 @@ def test_status_for() -> None:
 # ------------------------------------------------------------- D152 (T-1)
 
 
+@pytest.mark.security
 def test_rate_key_decodes_grpc_peers_and_buckets_ipv6_per_64() -> None:
     from meshforge.controller.enrollment.listener import UNKNOWN_SOURCE, rate_key
 
@@ -95,6 +96,7 @@ def test_rate_key_decodes_grpc_peers_and_buckets_ipv6_per_64() -> None:
         assert rate_key(peer) == UNKNOWN_SOURCE, peer
 
 
+@pytest.mark.security
 def test_unknown_peers_exhaust_one_shared_bucket() -> None:
     from meshforge.controller.enrollment.listener import rate_key
 

@@ -24,7 +24,7 @@ from meshforge.agent.policy import not_enforced_caps
 from meshforge.agent.process import ProcessLimits, shim_limits
 from meshforge.agent.settings import PolicySettings
 
-pytestmark = pytest.mark.unit
+pytestmark = [pytest.mark.unit, pytest.mark.security]
 
 
 def _tree(

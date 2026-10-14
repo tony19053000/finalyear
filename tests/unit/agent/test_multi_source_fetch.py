@@ -171,6 +171,7 @@ async def test_peer_401_drops_it_at_once_no_waiting(tmp_path: Path) -> None:
     assert cas.store.path_for(sha256_bytes(data)).read_bytes() == data
 
 
+@pytest.mark.security
 async def test_corrupt_peer_is_dropped_and_nothing_corrupt_is_kept(
     tmp_path: Path,
 ) -> None:

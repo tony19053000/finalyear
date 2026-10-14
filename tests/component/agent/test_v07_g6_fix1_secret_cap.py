@@ -101,6 +101,7 @@ async def test_the_default_cap_is_256_kib() -> None:
     assert JobApiSettings().max_job_secret_bytes == 256 * 1024
 
 
+@pytest.mark.security
 async def test_submit_refuses_a_job_over_the_cap_and_accepts_one_at_it(
     alice: httpx.AsyncClient, grpc_target: str, tmp_path: Path
 ) -> None:
@@ -130,6 +131,7 @@ async def test_submit_refuses_a_job_over_the_cap_and_accepts_one_at_it(
         await agent.stop()
 
 
+@pytest.mark.security
 async def test_a_value_grown_while_queued_fails_the_job_before_the_node(
     alice: httpx.AsyncClient, grpc_target: str, tmp_path: Path
 ) -> None:

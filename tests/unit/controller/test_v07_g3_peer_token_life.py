@@ -36,7 +36,7 @@ from meshforge.controller.liveness import NodeState
 from meshforge.controller.peer_signing import PeerTokenIssuer
 from meshforge.controller.settings import JobApiSettings
 
-pytestmark = [pytest.mark.unit]
+pytestmark = [pytest.mark.unit, pytest.mark.security]
 
 TREE = "sha256:" + "ab" * 32
 INPUT = "sha256:" + "ef" * 32

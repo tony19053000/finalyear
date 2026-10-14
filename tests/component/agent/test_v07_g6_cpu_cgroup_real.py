@@ -147,6 +147,7 @@ def _systemd_run() -> str | None:
     return exe if probe.returncode == 0 else None
 
 
+@pytest.mark.security
 def test_a_delegated_agent_holds_jobs_to_their_cpu_share(tmp_path: Path) -> None:
     exe = _systemd_run()
     if exe is None:

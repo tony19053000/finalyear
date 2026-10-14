@@ -95,6 +95,7 @@ async def test_odd_spellings_never_5xx_and_never_log_in_a_different_user(
         assert name.strip().lower() == "kevin", f"{name!r} logged in as kevin"
 
 
+@pytest.mark.security
 async def test_a_non_ascii_look_alike_is_not_an_alias_of_the_ascii_name(
     anon: httpx.AsyncClient,
 ) -> None:

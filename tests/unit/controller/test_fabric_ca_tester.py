@@ -158,6 +158,7 @@ def test_loose_server_key_or_folder_is_reissued_and_tightened(
 # --------------------------------------------------------------------- symlinks
 
 
+@pytest.mark.security
 @posix_only
 def test_force_over_a_symlinked_ca_never_writes_or_deletes_through_it(
     tmp_path: Path, ca_dir: Path
@@ -193,6 +194,7 @@ def test_dangling_symlink_at_ca_is_present_and_refused_then_forceable(
     assert not (tmp_path / "nowhere").exists()
 
 
+@pytest.mark.security
 @posix_only
 def test_symlinked_key_files_inside_ca_are_not_written_through_by_force(
     tmp_path: Path, ca_dir: Path
@@ -226,6 +228,7 @@ def test_symlinked_key_to_a_world_readable_file_is_refused(
         load_fabric(ca_dir, now=NOW)
 
 
+@pytest.mark.security
 @posix_only
 def test_symlinked_tls_folder_is_never_written_through(
     tmp_path: Path, ca_dir: Path, tls_dir: Path
@@ -256,6 +259,7 @@ def test_tls_path_that_is_a_regular_file_is_replaced_by_a_folder(
     assert again.action is ServerCertAction.KEPT
 
 
+@pytest.mark.security
 @posix_only
 def test_ca_key_that_is_a_fifo_or_device_does_not_hang_and_is_refused(
     tmp_path: Path, ca_dir: Path
@@ -280,6 +284,7 @@ def test_ca_key_that_is_a_fifo_or_device_does_not_hang_and_is_refused(
     assert proc.returncode == 0, proc.stderr
 
 
+@pytest.mark.security
 @posix_only
 @pytest.mark.parametrize("victim", ["server.key", "server.crt"])
 def test_fifo_in_tls_folder_does_not_hang_the_start(
@@ -306,6 +311,7 @@ def test_fifo_in_tls_folder_does_not_hang_the_start(
     assert proc.returncode == 0, proc.stderr
 
 
+@pytest.mark.security
 @posix_only
 def test_dev_zero_symlinked_as_server_key_is_bounded_and_reissued(
     ca_dir: Path, tls_dir: Path
@@ -530,6 +536,7 @@ def test_san_set_changes_always_reissue_and_then_settle(
         assert b.cert == a.cert
 
 
+@pytest.mark.security
 def test_scoped_ipv6_host_does_not_reissue_forever(ca_dir: Path, tls_dir: Path) -> None:
     fabric = create_fabric(ca_dir, now=NOW)
     ensure_server_cert(tls_dir, fabric, hosts=["fe80::1%eth0"], now=NOW)
@@ -537,6 +544,7 @@ def test_scoped_ipv6_host_does_not_reissue_forever(ca_dir: Path, tls_dir: Path) 
     assert again.action is ServerCertAction.KEPT
 
 
+@pytest.mark.security
 def test_server_cert_from_a_same_subject_foreign_ca_is_reissued(
     ca_dir: Path, tls_dir: Path
 ) -> None:

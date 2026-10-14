@@ -42,7 +42,7 @@ from meshforge.common.proto_codec import (
     failure_type_from_proto,
 )
 
-pytestmark = pytest.mark.unit
+pytestmark = [pytest.mark.unit, pytest.mark.security]
 
 MIB = 1024 * 1024
 posix_only = pytest.mark.skipif(sys.platform == "win32", reason="POSIX blocks/modes")

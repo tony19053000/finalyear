@@ -264,6 +264,7 @@ async def test_controller_name_is_never_satisfied_by_a_peer_node_cert(
 # ------------------------------------------------------------ token binding
 
 
+@pytest.mark.security
 async def test_peer_token_minted_for_b_is_refused_to_node_c(tmp_path: Path) -> None:
     rig = await _rig(tmp_path)
     b, c = str(new_node_id()), str(new_node_id())

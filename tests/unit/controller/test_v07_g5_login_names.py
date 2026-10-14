@@ -29,7 +29,7 @@ from meshforge.controller.auth.users import (
 )
 from meshforge.controller.store.models.auth import UserRole
 
-pytestmark = pytest.mark.unit
+pytestmark = [pytest.mark.unit, pytest.mark.security]
 
 PASSWORD = SecretStr("correct horse battery")
 KELVIN = chr(0x212A)

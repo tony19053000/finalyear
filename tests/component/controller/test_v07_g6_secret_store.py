@@ -88,6 +88,7 @@ async def test_put_list_resolve_delete(env: Any) -> None:
     assert await store.resolve(bob, ["API_KEY"]) == {"API_KEY": b"bobs-value"}
 
 
+@pytest.mark.security
 async def test_the_database_never_holds_the_value(env: Any) -> None:
     engine, store, alice, _bob = env
     await store.put(alice, "TOKEN", VALUE, actor="alice")
@@ -106,6 +107,7 @@ async def test_the_database_never_holds_the_value(env: Any) -> None:
     assert any(a == "secret_set" and '"TOKEN"' in d for a, d in actions), actions
 
 
+@pytest.mark.security
 async def test_owner_scoping(env: Any) -> None:
     _engine, store, alice, bob = env
     await store.put(alice, "ONLY_ALICE", VALUE, actor="alice")
@@ -118,6 +120,7 @@ async def test_owner_scoping(env: Any) -> None:
     assert await store.resolve(alice, []) == {}
 
 
+@pytest.mark.security
 @pytest.mark.parametrize("tamper", ["owner", "name"])
 async def test_a_copied_or_renamed_row_does_not_decrypt(env: Any, tamper: str) -> None:
     engine, store, alice, bob = env

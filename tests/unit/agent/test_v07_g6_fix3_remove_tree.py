@@ -50,6 +50,7 @@ def _unlock(root: Path) -> None:
                 os.chmod(path, stat.S_IRWXU)
 
 
+@pytest.mark.security
 @pytest.mark.parametrize("inner", MODES)
 @pytest.mark.parametrize("outer", [0o000, 0o300, 0o500, 0o700])
 def test_a_tree_with_locked_directories_at_two_levels_is_removed(
@@ -86,6 +87,7 @@ def test_the_top_of_the_tree_may_be_locked_too(tmp_path: Path) -> None:
         _unlock(tree)
 
 
+@pytest.mark.security
 def test_a_tree_that_cannot_be_removed_raises_oserror_and_ends(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -183,6 +185,7 @@ def test_quietly_never_raises_and_says_what_stayed(
     assert remove_tree_quietly(tree) is True  # missing is fine
 
 
+@pytest.mark.security
 @pytest.mark.asyncio
 @pytest.mark.parametrize("error", [TypeError("flags"), PermissionError(13, "denied")])
 async def test_a_shielded_discard_never_replaces_the_cancel(

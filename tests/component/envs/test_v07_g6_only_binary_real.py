@@ -107,6 +107,7 @@ def _builder(root: Path, wheels: Path, *, only_binary: bool) -> EnvBuilder:
     )
 
 
+@pytest.mark.security
 async def test_the_default_never_runs_a_packages_build_code(tmp_path: Path) -> None:
     wheels = tmp_path / "wheels"
     marker = tmp_path / "marker.txt"
@@ -119,6 +120,7 @@ async def test_the_default_never_runs_a_packages_build_code(tmp_path: Path) -> N
     assert not marker.exists()
 
 
+@pytest.mark.security
 async def test_the_escape_hatch_builds_from_source(tmp_path: Path) -> None:
     wheels = tmp_path / "wheels"
     marker = tmp_path / "marker.txt"

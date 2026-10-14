@@ -143,6 +143,7 @@ async def test_hasher_runs_at_most_max_concurrent_at_once(
     assert peak == 2
 
 
+@pytest.mark.security
 @pytest.mark.asyncio
 async def test_unknown_user_still_costs_one_verification(
     monkeypatch: pytest.MonkeyPatch,
@@ -199,6 +200,7 @@ def test_not_an_api_token(text: str | None) -> None:
     assert not is_api_token(text)
 
 
+@pytest.mark.security
 def test_the_scrubber_masks_an_api_token_anywhere_in_text() -> None:
     """Checklist 20 - fails if ``_API_TOKEN_RE`` is removed from the scrubber."""
     token = new_api_token().get_secret_value()
@@ -212,6 +214,7 @@ def test_the_scrubber_masks_an_api_token_anywhere_in_text() -> None:
     assert "mfat_[REDACTED]" in scrub_text(f"using {token} now")
 
 
+@pytest.mark.security
 def test_password_and_token_fields_are_redacted_in_log_records() -> None:
     token = new_api_token()
     from meshforge.common.logging import redact_processor
@@ -285,6 +288,7 @@ def _policy(**kw: object) -> LoginPolicy:
     return LoginPolicy(**base)  # type: ignore[arg-type]
 
 
+@pytest.mark.security
 def test_backoff_starts_after_the_free_failures_doubles_and_caps() -> None:
     clock = _Clock()
     throttle = LoginThrottle(_policy(), clock=clock)
@@ -311,6 +315,7 @@ def test_the_name_table_is_bounded() -> None:
     assert len(throttle._names) == 16
 
 
+@pytest.mark.security
 def test_source_bucket_shares_an_ipv6_slash_64_and_one_unknown_bucket() -> None:
     throttle = LoginThrottle(_policy(rate_per_minute=1.0, rate_burst=2), clock=_Clock())
     assert throttle.allow_source("2001:db8:1:2::1")
@@ -421,6 +426,7 @@ async def test_login_success_wrong_password_unknown_and_disabled(stored: str) ->
     assert store.issued == 1
 
 
+@pytest.mark.security
 @pytest.mark.asyncio
 async def test_a_blocked_user_is_refused_before_any_lookup(stored: str) -> None:
     store = _FakeStore()
@@ -439,6 +445,7 @@ async def test_a_blocked_user_is_refused_before_any_lookup(stored: str) -> None:
     await _login(service, "alice", PASSWORD)
 
 
+@pytest.mark.security
 @pytest.mark.asyncio
 async def test_an_exhausted_source_is_refused_before_any_lookup(stored: str) -> None:
     store = _FakeStore()
@@ -465,6 +472,7 @@ def test_out_of_range_parameters_are_refused_before_any_scrypt_work(
     assert calls == []
 
 
+@pytest.mark.security
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "name", ["alice\x00", "\x00", "al\x01ice", "alice\n", "\x7f", "", "Alice", "a" * 65]

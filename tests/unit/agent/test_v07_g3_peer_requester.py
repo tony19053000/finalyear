@@ -18,7 +18,7 @@ from meshforge.common.hashing import Digest
 from meshforge.common.ids import new_attempt_id, new_node_id
 from meshforge.common.peer_token import sign_peer_token, sign_probe_token
 
-pytestmark = [pytest.mark.unit, pytest.mark.asyncio]
+pytestmark = [pytest.mark.unit, pytest.mark.asyncio, pytest.mark.security]
 
 TREE = Digest("ab" * 32)
 

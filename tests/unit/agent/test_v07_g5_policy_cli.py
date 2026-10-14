@@ -90,6 +90,7 @@ def test_show_defaults_then_set_then_reset(data_dir: Path) -> None:
     assert not (data_dir / "policy.toml").exists()
 
 
+@pytest.mark.security
 @pytest.mark.parametrize(
     "args",
     [

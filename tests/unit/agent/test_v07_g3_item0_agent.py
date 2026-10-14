@@ -44,6 +44,7 @@ def ident(tmp_path: Path) -> NodeIdentity:
 # ------------------------------------------------------------------ item 2
 
 
+@pytest.mark.security
 @pytest.mark.parametrize("failing", [1, 2])
 def test_failed_force_rejoin_keeps_the_old_enrolment(
     ident: NodeIdentity, monkeypatch: pytest.MonkeyPatch, failing: int
@@ -86,6 +87,7 @@ def test_force_rejoin_swaps_in_the_new_pair(ident: NodeIdentity) -> None:
     assert not list(ident.path.glob(".*.tmp"))
 
 
+@pytest.mark.security
 def test_mutation_unstaged_write_would_lose_the_old_pair(
     ident: NodeIdentity, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -116,6 +118,7 @@ def _hang(*args: Any, **kwargs: Any) -> Any:
     raise subprocess.TimeoutExpired(cmd=args[0], timeout=kwargs["timeout"])
 
 
+@pytest.mark.security
 def test_private_files_icacls_and_whoami_hangs_are_typed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -127,6 +130,7 @@ def test_private_files_icacls_and_whoami_hangs_are_typed(
         private_files._protect_windows(tmp_path / "f")
 
 
+@pytest.mark.security
 def test_identity_icacls_and_whoami_hangs_are_typed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

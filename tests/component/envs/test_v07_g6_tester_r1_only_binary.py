@@ -46,6 +46,7 @@ def _local_source_dir(folder: Path, marker: Path) -> Path:
     return src
 
 
+@pytest.mark.security
 @pytest.mark.parametrize(
     "lines",
     [

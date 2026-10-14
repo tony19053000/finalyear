@@ -181,6 +181,7 @@ async def test_a_blocked_write_delays_the_cancel_until_the_write_ends_and_does_n
         await agent.stop()
 
 
+@pytest.mark.security
 async def test_agent_shutdown_with_a_write_blocked_for_a_long_time_returns(
     alice: httpx.AsyncClient,
     grpc_target: str,

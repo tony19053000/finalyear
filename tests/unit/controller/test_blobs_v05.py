@@ -120,6 +120,7 @@ async def test_parts_whose_whole_does_not_match_restart(tmp_path: Path) -> None:
     assert await store.part_status(claimed) is None  # starts over
 
 
+@pytest.mark.security
 async def test_part_bounds(tmp_path: Path) -> None:
     store = _store(tmp_path, cap=2 * CS)
     data = os.urandom(2 * CS)

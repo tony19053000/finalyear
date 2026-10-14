@@ -14,7 +14,7 @@ import pytest
 from meshforge.common import owner_policy as op
 from meshforge.common.proto.meshforge.v1 import agent_pb2
 
-pytestmark = pytest.mark.unit
+pytestmark = [pytest.mark.unit, pytest.mark.security]
 
 GIB = 1024**3
 OPEN = op.OPEN_POLICY

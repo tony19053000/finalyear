@@ -22,7 +22,7 @@ from meshforge.controller.api.shape import node_scores
 from meshforge.controller.planner.inputs import bound_to, node_snapshot
 from meshforge.controller.scores import scores_document
 
-pytestmark = pytest.mark.unit
+pytestmark = [pytest.mark.unit, pytest.mark.security]
 
 HW = {"cpu_threads": 8, "capabilities": ["exec", "hardware-scores"]}
 

@@ -157,6 +157,7 @@ def test_real_ipv4_peers_collapse_to_one_key() -> None:
     assert {source_ip(p) for p in peers} == {"127.0.0.1"}
 
 
+@pytest.mark.security
 @pytest.mark.skipif(not _has_ipv6(), reason="no IPv6 loopback")
 def test_real_ipv6_peers_collapse_to_one_key() -> None:
     peers = asyncio.run(_real_peers("[::1]:0", "[::1]"))

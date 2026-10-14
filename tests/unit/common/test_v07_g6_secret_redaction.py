@@ -30,7 +30,7 @@ from meshforge.common.secret_redaction import (
     redact_bytes,
 )
 
-pytestmark = pytest.mark.unit
+pytestmark = [pytest.mark.unit, pytest.mark.security]
 
 VALUE = b"s3cret value/with+symbols?&=\xc3\xa9\xfb!"
 LOGV = "log-secret välue+/=".encode()

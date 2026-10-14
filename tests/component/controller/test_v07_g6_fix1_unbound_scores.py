@@ -131,6 +131,7 @@ GARBAGE: list[Any] = [
 ]
 
 
+@pytest.mark.security
 async def test_garbage_never_blocks_the_others_and_is_cleared_itself(
     env: tuple[Registry, AsyncEngine],
 ) -> None:

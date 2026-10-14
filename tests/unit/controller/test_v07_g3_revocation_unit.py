@@ -39,7 +39,7 @@ from meshforge.controller.session.manager import (
     SessionManager,
 )
 
-pytestmark = [pytest.mark.unit, pytest.mark.asyncio]
+pytestmark = [pytest.mark.unit, pytest.mark.asyncio, pytest.mark.security]
 
 
 class Registry_:  # noqa: N801 - a fake of Registry

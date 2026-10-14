@@ -14,7 +14,7 @@ from meshforge.controller.session.admission import (
     peer_endpoint_of,
 )
 
-pytestmark = pytest.mark.unit
+pytestmark = [pytest.mark.unit, pytest.mark.security]
 
 
 def _of(

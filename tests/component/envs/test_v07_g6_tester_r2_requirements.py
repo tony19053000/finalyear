@@ -277,6 +277,7 @@ async def _try(tmp_path: Path, wheels: Path, text: str, tag: str) -> str | None:
     return f"installed:{sorted(p.name for p in built.path.iterdir())}"
 
 
+@pytest.mark.security
 @pytest.mark.asyncio
 async def test_no_accepted_line_runs_build_code_on_real_uv(
     tmp_path: Path, server: tuple[str, Path, Path]

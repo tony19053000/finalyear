@@ -371,6 +371,7 @@ async def test_owner_keys_do_not_collide_across_many_owners_and_digests(
             assert got == [[0], [1], [0]]
 
 
+@pytest.mark.security
 async def test_one_user_cannot_starve_the_resumable_cap_for_everyone_else(
     runtime: ControllerRuntime, tokens: dict[str, str]
 ) -> None:

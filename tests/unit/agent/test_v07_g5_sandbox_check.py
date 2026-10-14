@@ -21,7 +21,7 @@ from meshforge.agent.execution.sandbox_check import (
     daemon_seccomp_problem,
 )
 
-pytestmark = pytest.mark.unit
+pytestmark = [pytest.mark.unit, pytest.mark.security]
 
 WORK = "/home/me/.local/share/meshforge/work/att_x"
 GOOD: dict[str, Any] = {

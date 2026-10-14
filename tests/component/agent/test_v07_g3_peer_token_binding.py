@@ -33,7 +33,7 @@ from meshforge.common.ids import new_attempt_id, new_node_id
 from meshforge.common.peer_token import sign_peer_token, sign_probe_token
 from meshforge.common.tree import build_tree
 
-pytestmark = [pytest.mark.component, pytest.mark.asyncio]
+pytestmark = [pytest.mark.component, pytest.mark.asyncio, pytest.mark.security]
 
 
 class Rig:

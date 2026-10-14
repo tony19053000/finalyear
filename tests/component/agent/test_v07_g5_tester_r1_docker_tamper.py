@@ -23,7 +23,7 @@ from meshforge.agent.execution.docker_support import open_client
 from meshforge.agent.settings import PYTHON_CPU_IMAGE
 from meshforge.common.errors import FailureType
 
-pytestmark = [pytest.mark.docker, pytest.mark.timeout(120)]
+pytestmark = [pytest.mark.docker, pytest.mark.timeout(120), pytest.mark.security]
 
 
 def _image_local(image: str) -> bool:

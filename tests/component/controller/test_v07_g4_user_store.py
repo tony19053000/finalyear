@@ -63,6 +63,7 @@ async def _user(
     return found
 
 
+@pytest.mark.security
 async def test_a_live_token_authenticates_and_nothing_else_does(
     store: UserStore, engine: AsyncEngine
 ) -> None:
@@ -90,6 +91,7 @@ async def test_a_live_token_authenticates_and_nothing_else_does(
     assert token.get_secret_value()[5:] not in dumped
 
 
+@pytest.mark.security
 async def test_expired_revoked_and_disabled_are_refused(
     store: UserStore, engine: AsyncEngine
 ) -> None:
@@ -123,6 +125,7 @@ async def test_expired_revoked_and_disabled_are_refused(
     assert await store.authenticate(live.get_secret_value()) is None
 
 
+@pytest.mark.security
 async def test_a_password_reset_revokes_every_live_token(store: UserStore) -> None:
     alice = await _user(store, "alice")
     one, _ = await store.issue_token(alice, ttl_s=3600)
@@ -133,6 +136,7 @@ async def test_a_password_reset_revokes_every_live_token(store: UserStore) -> No
     assert await store.authenticate(two.get_secret_value()) is None
 
 
+@pytest.mark.security
 async def test_last_used_is_coarse(store: UserStore, engine: AsyncEngine) -> None:
     alice = await _user(store, "alice")
     token, _ = await store.issue_token(alice, ttl_s=3600)

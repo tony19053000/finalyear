@@ -123,6 +123,7 @@ async def agent(grpc_target: str, data_dir: Path) -> AsyncIterator[ExecAgent]:
 # ---------------------------------------------------------------- D148
 
 
+@pytest.mark.security
 async def test_every_read_needs_a_user_only_healthz_is_open(
     runtime: ControllerRuntime, anon: httpx.AsyncClient, users: dict[str, str]
 ) -> None:
@@ -153,6 +154,7 @@ async def test_every_read_needs_a_user_only_healthz_is_open(
             assert (await alice.get(path)).status_code == 200, path
 
 
+@pytest.mark.security
 async def test_legacy_fabric_token_is_refused_by_default(
     runtime: ControllerRuntime, anon: httpx.AsyncClient
 ) -> None:
@@ -165,6 +167,7 @@ async def test_legacy_fabric_token_is_refused_by_default(
 # ---------------------------------------------------------------- tokens
 
 
+@pytest.mark.security
 async def test_login_whoami_and_every_way_a_token_stops_working(
     runtime: ControllerRuntime,
     anon: httpx.AsyncClient,
@@ -237,6 +240,7 @@ async def test_login_whoami_and_every_way_a_token_stops_working(
     assert (await anon.get("/v1/jobs", headers=bearer(bob_token))).status_code == 200
 
 
+@pytest.mark.security
 async def test_login_backoff_per_user_and_audit(
     runtime: ControllerRuntime,
     anon: httpx.AsyncClient,
@@ -276,6 +280,7 @@ async def test_login_backoff_per_user_and_audit(
     assert [r[0] for r in rows].count("login") == 1  # bob
 
 
+@pytest.mark.security
 async def test_login_backoff_per_source(
     pg_settings: DatabaseSettings, users: dict[str, str]
 ) -> None:
@@ -311,6 +316,7 @@ async def _follow_close(runtime: ControllerRuntime, job_id: str, token: str) -> 
         return ws.close_code, ws.close_reason, frames
 
 
+@pytest.mark.security
 async def test_another_users_job_is_404_on_every_job_route(
     runtime: ControllerRuntime,
     anon: httpx.AsyncClient,
@@ -391,6 +397,7 @@ async def test_another_users_job_is_404_on_every_job_route(
         }
 
 
+@pytest.mark.security
 async def test_invites_and_node_revoke_are_admin_only(
     runtime: ControllerRuntime, anon: httpx.AsyncClient, users: dict[str, str]
 ) -> None:
@@ -412,6 +419,7 @@ async def test_invites_and_node_revoke_are_admin_only(
         assert (await admin.post(f"/v1/nodes/{node}/revoke")).status_code == 404
 
 
+@pytest.mark.security
 async def test_no_password_or_token_in_any_log_event(
     runtime: ControllerRuntime, anon: httpx.AsyncClient, users: dict[str, str]
 ) -> None:

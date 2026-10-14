@@ -91,6 +91,7 @@ def _recorded_argv(tmp_path: Path, *, only_binary: bool, kind: str) -> list[str]
     return exc.value.argv
 
 
+@pytest.mark.security
 @pytest.mark.parametrize("kind", ["venv", "target"])
 def test_uv_installs_carry_the_option(tmp_path: Path, kind: str) -> None:
     argv = _recorded_argv(tmp_path, only_binary=True, kind=kind)
@@ -105,6 +106,7 @@ def test_the_escape_hatch_drops_it(tmp_path: Path, kind: str) -> None:
     assert "--only-binary" not in argv
 
 
+@pytest.mark.security
 @pytest.mark.parametrize("only_binary", [True, False])
 def test_the_docker_envbuild_command(tmp_path: Path, only_binary: bool) -> None:
     docker = pytest.importorskip("docker", reason="needs the agent extra (docker SDK)")

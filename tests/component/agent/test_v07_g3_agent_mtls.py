@@ -84,6 +84,7 @@ def _enrolled_node_as_server() -> tuple[Any, bytes]:
     return key, pki.cert_to_pem(cert) + pki.cert_to_pem(ca.cert)
 
 
+@pytest.mark.security
 @pytest.mark.parametrize("rogue", ["other_ca", "enrolled_node"])
 async def test_agent_never_says_hello_to_a_rogue_controller(
     agents: AgentFactory, rogue: str
@@ -104,6 +105,7 @@ async def test_agent_never_says_hello_to_a_rogue_controller(
         await server.stop(None)
 
 
+@pytest.mark.security
 async def test_agent_verifies_the_name_not_the_dialled_address(
     runtime: ControllerRuntime, agents: AgentFactory
 ) -> None:

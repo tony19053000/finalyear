@@ -370,6 +370,7 @@ def test_process_death_during_a_fresh_join_never_looks_enrolled(
     assert enrollment.load(identity) is not None
 
 
+@pytest.mark.security
 @pytest.mark.parametrize("step", _FORCE_STEPS)
 def test_process_death_during_force_rejoin_never_pairs_old_cert_with_new_ca(
     tmp_path: Path, step: str

@@ -255,6 +255,7 @@ async def test_superseded_serial_is_refused_on_session_and_blob_planes(
     assert response.status_code == 401
 
 
+@pytest.mark.security
 async def test_superseding_a_cert_cuts_the_live_session_that_uses_it(
     runtime: ControllerRuntime, pg_settings: DatabaseSettings
 ) -> None:
@@ -474,6 +475,7 @@ async def test_session_port_does_not_accept_tls12_clients(
     assert outcome in {"TLSv1.2"} or outcome.startswith("refused:"), outcome
 
 
+@pytest.mark.security
 async def test_a_session_does_not_outlive_its_certificate(
     runtime: ControllerRuntime,
 ) -> None:

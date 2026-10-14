@@ -37,7 +37,7 @@ from meshforge.controller.settings import ControllerSettings
 from meshforge.controller.store.engine import create_engine
 from meshforge.controller.store.settings import DatabaseSettings
 
-pytestmark = [pytest.mark.asyncio, pytest.mark.timeout(240)]
+pytestmark = [pytest.mark.asyncio, pytest.mark.timeout(240), pytest.mark.security]
 
 ADMIN_PW = "admin-password-1"
 ALICE_PW = "alice-password-1"

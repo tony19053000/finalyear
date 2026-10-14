@@ -193,6 +193,7 @@ def test_scrub_active_hides_every_form_in_our_own_logs() -> None:
     assert "LOGKEY" not in ACTIVE.names()
 
 
+@pytest.mark.security
 def test_not_claimed_transformations_are_documented_as_not_covered() -> None:
     """A transformation the module does not list must not be silently implied:
     the THREAT_MODEL (WS-I3) and the module docstring both say 'accidents only'.
@@ -215,6 +216,7 @@ def test_not_claimed_transformations_are_documented_as_not_covered() -> None:
     assert "reversed" in threat and "accident" in threat.lower()
 
 
+@pytest.mark.security
 def test_json_or_repr_escaped_values_are_not_redacted_today() -> None:
     """Pins reality (T-4): a multi-line / quoted secret printed through
     json.dumps or repr() is NOT caught (only the listed encodings are)."""

@@ -165,6 +165,7 @@ STATIC_CASES: list[tuple[RejectCode, dict[str, Any], dict[str, Any]]] = [
 ]
 
 
+@pytest.mark.security
 @pytest.mark.parametrize(("code", "node_kw", "req_kw"), STATIC_CASES)
 def test_every_static_rejection(
     code: RejectCode, node_kw: dict[str, Any], req_kw: dict[str, Any]

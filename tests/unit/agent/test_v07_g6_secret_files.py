@@ -71,6 +71,7 @@ def test_mismatches_are_refused(received: list[agent_pb2.JobSecret]) -> None:
     assert "value-1" not in exc.value.message
 
 
+@pytest.mark.security
 def test_insecure_dev_refuses_unless_allowed() -> None:
     with pytest.raises(SecretFilesError) as exc:
         check_secrets([_js("API_KEY", b"value-1")], [A], allowed=False)
@@ -93,6 +94,7 @@ def test_secret_env_only_as_env() -> None:
     }
 
 
+@pytest.mark.security
 @POSIX
 @pytest.mark.parametrize(("read_only", "mode"), [(True, 0o400), (False, 0o600)])
 def test_materialise_modes(tmp_path: Path, read_only: bool, mode: int) -> None:
@@ -111,6 +113,7 @@ def test_materialise_modes(tmp_path: Path, read_only: bool, mode: int) -> None:
     assert not folder.exists()
 
 
+@pytest.mark.security
 @POSIX
 def test_wipe_zeroes_before_unlinking(tmp_path: Path) -> None:
     vault = SecretVault(tmp_path)
@@ -124,6 +127,7 @@ def test_wipe_zeroes_before_unlinking(tmp_path: Path) -> None:
     assert not folder.exists() and list(vault.base.iterdir()) == []
 
 
+@pytest.mark.security
 @POSIX
 def test_a_planted_symlink_base_is_refused(tmp_path: Path) -> None:
     elsewhere = tmp_path / "attacker"

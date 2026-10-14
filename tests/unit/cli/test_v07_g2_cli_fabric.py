@@ -137,6 +137,7 @@ def test_join_without_an_agent_is_a_clear_config_error(
     assert "no MeshForge agent is installed" in result.stderr
 
 
+@pytest.mark.security
 def test_join_hands_the_code_to_the_agent_on_stdin(
     runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

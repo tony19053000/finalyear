@@ -50,6 +50,7 @@ ACCEPTED = {
 }
 
 
+@pytest.mark.security
 @pytest.mark.parametrize("name", sorted(REFUSED))
 def test_a_wheel_url_without_a_strong_pin_is_refused_naming_the_line(name: str) -> None:
     text = f"good==1.0\n# a comment\n{REFUSED[name]}\n".encode()
@@ -62,6 +63,7 @@ def test_a_wheel_url_without_a_strong_pin_is_refused_naming_the_line(name: str) 
     assert "--hash=sha256:" in message and "only_binary" in message
 
 
+@pytest.mark.security
 @pytest.mark.parametrize("name", sorted(ACCEPTED))
 def test_a_pinned_wheel_url_is_accepted_and_hashes_as_before(name: str) -> None:
     text = f"{ACCEPTED[name]}\n".encode()

@@ -45,7 +45,12 @@ from meshforge.controller.server import ControllerRuntime
 from meshforge.controller.settings import ControllerSettings
 from meshforge.controller.store.settings import DatabaseSettings
 
-pytestmark = [pytest.mark.component, pytest.mark.asyncio, pytest.mark.timeout(180)]
+pytestmark = [
+    pytest.mark.component,
+    pytest.mark.asyncio,
+    pytest.mark.timeout(180),
+    pytest.mark.security,
+]
 
 CS = MIN_CHUNK_SIZE
 CHUNKS = 40

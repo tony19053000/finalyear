@@ -76,6 +76,7 @@ async def _trailer(agent: FakeAgent) -> str | None:
     return dict(metadata or ()).get("meshforge-reason")
 
 
+@pytest.mark.security
 async def test_superseded_cert_cuts_its_live_session_within_the_poll_interval(
     runtime: ControllerRuntime, pg_settings: DatabaseSettings
 ) -> None:
@@ -130,6 +131,7 @@ async def test_superseded_cert_cuts_its_live_session_within_the_poll_interval(
     assert runtime.revocations is not None and runtime.revocations.cert_cuts == 1
 
 
+@pytest.mark.security
 async def test_a_session_is_cut_at_its_certificates_not_after(
     runtime: ControllerRuntime, pg_settings: DatabaseSettings
 ) -> None:
@@ -173,6 +175,7 @@ async def test_a_session_is_cut_at_its_certificates_not_after(
     )
 
 
+@pytest.mark.security
 async def test_a_closed_session_cancels_its_certificate_expiry_timer(
     runtime: ControllerRuntime,
 ) -> None:

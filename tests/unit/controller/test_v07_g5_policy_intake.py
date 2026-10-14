@@ -50,6 +50,7 @@ def test_hello_with_a_valid_policy() -> None:
     assert hello_policy(hello) == (policy, None)
 
 
+@pytest.mark.security
 def test_hello_with_a_malformed_policy_fails_closed() -> None:
     msg = op.to_proto(OPEN)
     msg.allowed_users.append("Not-A-Name")
@@ -73,6 +74,7 @@ def test_a_not_accepting_update_zeroes_the_slots() -> None:
     assert live.policy == op.DENY_ALL and live.policy_slots == (0, 0)
 
 
+@pytest.mark.security
 @pytest.mark.parametrize(
     "update",
     [
@@ -134,6 +136,7 @@ def test_no_policy_is_no_restriction() -> None:
     )
 
 
+@pytest.mark.security
 def test_docker_makes_a_job_sandboxable_even_when_unsandboxed_is_off() -> None:
     policy = dataclasses.replace(OPEN, allow_unsandboxed=False)
     assert static_rejection(_request(), _node(policy)) is None
@@ -164,6 +167,7 @@ def _record(node_id: str) -> Any:
 MANIFEST = Manifest.model_validate({"name": "x", "entrypoint": ["python", "m.py"]})
 
 
+@pytest.mark.security
 def test_submit_refuses_when_every_policy_refuses_the_submitter() -> None:
     nodes = [_record("node_a"), _record("node_b")]
     only_bob = dataclasses.replace(OPEN, allowed_users=("bob",))

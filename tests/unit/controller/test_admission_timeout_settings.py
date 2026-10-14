@@ -8,7 +8,7 @@ from pydantic import ValidationError
 
 from meshforge.controller.settings import ControllerSection, LivenessSettings
 
-pytestmark = pytest.mark.unit
+pytestmark = [pytest.mark.unit, pytest.mark.security]
 
 # A lease long enough (11 s x 3 = 33 s) that only the field bounds are in play.
 LONG_LEASE = LivenessSettings(heartbeat_interval_s=11.0, lease_multiplier=3)

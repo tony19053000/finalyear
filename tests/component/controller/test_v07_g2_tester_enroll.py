@@ -551,6 +551,7 @@ async def test_replace_invites_racing_with_different_keys_one_wins(
     assert row[1] == last
 
 
+@pytest.mark.security
 async def test_revoked_node_cannot_enrol_even_with_a_replace_code(
     rt: ControllerRuntime, make_code: MakeCode, pg_settings: DatabaseSettings
 ) -> None:

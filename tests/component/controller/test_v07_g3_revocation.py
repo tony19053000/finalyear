@@ -125,6 +125,7 @@ async def _revoke_rest(
 # ------------------------------------------------------------- the REST path
 
 
+@pytest.mark.security
 async def test_revoke_cuts_the_live_session_within_one_heartbeat(
     runtime: ControllerRuntime, registry: Registry, pg_settings: DatabaseSettings
 ) -> None:
@@ -241,6 +242,7 @@ async def test_the_https_plane_refuses_the_revoked_certificate(
         await victim.wait_ended(5.0)
 
 
+@pytest.mark.security
 async def test_every_agent_learns_the_serial_and_new_sessions_get_the_set(
     runtime: ControllerRuntime,
 ) -> None:
@@ -262,6 +264,7 @@ async def test_every_agent_learns_the_serial_and_new_sessions_get_the_set(
         await bystander.close()
 
 
+@pytest.mark.security
 async def test_a_cli_revocation_is_enforced_by_the_periodic_sync(
     runtime: ControllerRuntime, registry: Registry
 ) -> None:
@@ -282,6 +285,7 @@ async def test_a_cli_revocation_is_enforced_by_the_periodic_sync(
     assert record is not None and record.state is NodeState.REVOKED
 
 
+@pytest.mark.security
 async def test_who_may_revoke(runtime: ControllerRuntime) -> None:
     node = str(new_node_id())
     assert (await _revoke_rest(runtime, node, token=None)).status_code == 401
@@ -293,6 +297,7 @@ async def test_who_may_revoke(runtime: ControllerRuntime) -> None:
 # ------------------------------------------------------------- no un-revoke
 
 
+@pytest.mark.security
 async def test_a_revoked_node_never_comes_back_and_rekeys_supersede(
     runtime: ControllerRuntime,
     registry: Registry,

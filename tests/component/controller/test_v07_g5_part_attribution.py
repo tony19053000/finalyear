@@ -69,6 +69,7 @@ async def _put_part(
     )
 
 
+@pytest.mark.security
 async def test_parts_are_kept_against_the_proven_node(
     runtime: ControllerRuntime,
 ) -> None:
@@ -91,6 +92,7 @@ async def test_parts_are_kept_against_the_proven_node(
     assert await blobs.part_status(Digest(DIGEST), owner=f"node:{node_b}") is None
 
 
+@pytest.mark.security
 async def test_a_grant_bound_to_no_node_is_kept_against_the_certificates_node(
     runtime: ControllerRuntime,
 ) -> None:

@@ -97,6 +97,7 @@ def _manifest(out: Path, *, secrets: bool) -> dict[str, Any]:
     return manifest
 
 
+@pytest.mark.security
 async def test_a_planted_base_fails_secret_jobs_typed_and_nothing_else(
     alice: httpx.AsyncClient, grpc_target: str, tmp_path: Path
 ) -> None:
@@ -167,6 +168,7 @@ print("locked", flush=True)
 """
 
 
+@pytest.mark.security
 async def test_a_job_cannot_make_its_workdir_undeletable(
     alice: httpx.AsyncClient, grpc_target: str, tmp_path: Path
 ) -> None:

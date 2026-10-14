@@ -40,6 +40,7 @@ def _digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+@pytest.mark.security
 async def test_an_unhashed_wheel_url_is_refused_before_anything_is_fetched(
     tmp_path: Path, servers: tuple[str, str, Path, Hits]
 ) -> None:
@@ -51,6 +52,7 @@ async def test_an_unhashed_wheel_url_is_refused_before_anything_is_fetched(
     assert hits.https == [] and hits.http == []
 
 
+@pytest.mark.security
 async def test_a_redirect_to_http_installs_only_the_pinned_bytes(
     tmp_path: Path, servers: tuple[str, str, Path, Hits]
 ) -> None:
@@ -67,6 +69,7 @@ async def test_a_redirect_to_http_installs_only_the_pinned_bytes(
     assert not bad.startswith("installed:"), bad
 
 
+@pytest.mark.security
 async def test_bytes_swapped_on_the_http_leg_are_not_installed(
     tmp_path: Path, servers: tuple[str, str, Path, Hits]
 ) -> None:

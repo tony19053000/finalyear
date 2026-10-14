@@ -22,7 +22,7 @@ pytest.importorskip("psutil", reason="the cluster harness needs the agent extra"
 
 from mf_cluster import MakeFabric
 
-pytestmark = [pytest.mark.docker]
+pytestmark = [pytest.mark.docker, pytest.mark.security]
 
 
 def test_two_agents_join_with_two_codes(make_fabric: MakeFabric) -> None:

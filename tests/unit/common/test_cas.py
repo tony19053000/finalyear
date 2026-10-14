@@ -68,6 +68,7 @@ def test_second_put_is_idempotent(tmp_path: Path) -> None:
     assert len(_blobs(store)) == 1 and store.used_bytes == 1
 
 
+@pytest.mark.security
 def test_put_with_wrong_digest_keeps_nothing(tmp_path: Path) -> None:
     store = _store(tmp_path)
     with pytest.raises(CasIntegrityError) as info:
@@ -122,6 +123,7 @@ def test_prepare_sweeps_one_shot_parts_and_expired_resumes(tmp_path: Path) -> No
 # -------------------------------------------------------------- admission
 
 
+@pytest.mark.security
 def test_max_blob_bytes_max_accepted_and_max_plus_one_rejected(tmp_path: Path) -> None:
     store = _store(tmp_path, max_blob_bytes=10)
     assert store.put_bytes(b"a" * 10).created
@@ -132,6 +134,7 @@ def test_max_blob_bytes_max_accepted_and_max_plus_one_rejected(tmp_path: Path) -
     assert list(store.tmp.iterdir()) == []
 
 
+@pytest.mark.security
 def test_quota_max_accepted_and_max_plus_one_rejected(tmp_path: Path) -> None:
     store = _store(tmp_path, quota_bytes=10)
     assert store.put_bytes(b"a" * 6).created
@@ -152,6 +155,7 @@ def test_quota_counts_unknown_size_streams_as_they_grow(tmp_path: Path) -> None:
     assert list(store.tmp.iterdir()) == [] and store.used_bytes == 0
 
 
+@pytest.mark.security
 def test_free_disk_floor_max_accepted_and_max_plus_one_rejected(
     tmp_path: Path,
 ) -> None:
@@ -174,6 +178,7 @@ def test_resumable_open_checks_the_floor(tmp_path: Path) -> None:
 # -------------------------------------------------------------- integrity
 
 
+@pytest.mark.security
 def test_verify_detects_on_disk_corruption_and_evicts(tmp_path: Path) -> None:
     store = _store(tmp_path)
     result = store.put_bytes(b"precious bytes")
@@ -284,6 +289,7 @@ def test_resumable_assembles_out_of_order_and_resumes(tmp_path: Path) -> None:
     assert list(again.tmp.iterdir()) == []
 
 
+@pytest.mark.security
 def test_resumable_refuses_a_corrupt_chunk(tmp_path: Path) -> None:
     store = _store(tmp_path)
     data = os.urandom(2 * CS)
@@ -298,6 +304,7 @@ def test_resumable_refuses_a_corrupt_chunk(tmp_path: Path) -> None:
         part.write_chunk(1, pieces[1][:-1], None)  # wrong length
 
 
+@pytest.mark.security
 def test_resumable_whole_digest_mismatch_restarts(tmp_path: Path) -> None:
     store = _store(tmp_path)
     data = os.urandom(2 * CS)
@@ -352,6 +359,7 @@ def test_chunk_writes_recheck_the_disk_floor(tmp_path: Path) -> None:
     assert part.missing() == [7, 8, 9]  # nothing marked that was not kept
 
 
+@pytest.mark.security
 def test_resumable_transfers_are_capped_and_swept(tmp_path: Path) -> None:
     now = [time.time()]
     store = _store(tmp_path, max_resumable=1, wall_clock=lambda: now[0])

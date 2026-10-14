@@ -37,6 +37,7 @@ pytestmark = [
     pytest.mark.docker,
     pytest.mark.asyncio,
     pytest.mark.timeout(400),
+    pytest.mark.security,
 ]
 
 

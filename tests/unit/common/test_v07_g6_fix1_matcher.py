@@ -107,6 +107,7 @@ def _cuts(rng: random.Random, n: int, style: int) -> list[int]:
     return sorted(rng.sample(range(1, n), min(n - 1, rng.randrange(0, 8))))
 
 
+@pytest.mark.security
 @pytest.mark.parametrize("block", range(8))
 def test_output_equals_the_brute_force_oracle_at_any_chunking(block: int) -> None:
     for seed in range(block * 150, block * 150 + 150):
@@ -142,6 +143,7 @@ def test_the_percent_tables_equal_urllib() -> None:
 # ----------------------------------------------------------------- T-8
 
 
+@pytest.mark.security
 @pytest.mark.parametrize(
     "shape", ["4x64KiB", "32x8KiB", "1x64KiB+48x4KiB", "periodic", "suffixes"]
 )
@@ -200,6 +202,7 @@ def test_streams_on_one_matcher_do_not_share_state() -> None:
     assert got_err + err_stream.flush() == (b"err " + value[:5] + b"-not-it [secret:K]")
 
 
+@pytest.mark.security
 @pytest.mark.parametrize(
     "value",
     [b"a" * 64 * KIB, b"\xff" * 64 * KIB, b"ab" * 32 * KIB],
@@ -354,6 +357,7 @@ def test_a_short_interval_in_length_preserving_mode_is_only_stars() -> None:
 # ----------------------------------------------------------------- T-4 (docs)
 
 
+@pytest.mark.security
 def test_a_secret_inside_a_larger_base64_blob_is_not_redacted() -> None:
     """Pins the documented limit (WS-I3, OPERATIONS 0a1b): only the value's
     own encodings are found, not an encoding of text that contains it."""

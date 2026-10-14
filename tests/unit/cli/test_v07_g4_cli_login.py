@@ -74,6 +74,7 @@ def _save(directory: Path, url: str = URL, token: str = TOKEN) -> None:
 # ------------------------------------------------------------ credentials
 
 
+@pytest.mark.security
 def test_save_and_load_round_trip_private(creds: Path) -> None:
     _save(creds)
     stored = load_login(creds)
@@ -91,6 +92,7 @@ def test_save_and_load_round_trip_private(creds: Path) -> None:
     assert forget_login(creds) is False
 
 
+@pytest.mark.security
 @pytest.mark.skipif(os.name != "posix", reason="POSIX mode bits")
 def test_a_login_file_others_can_read_is_refused(creds: Path) -> None:
     _save(creds)
@@ -237,6 +239,7 @@ def _login_ok(seen: list[httpx.Request]) -> Handler:
     return handler
 
 
+@pytest.mark.security
 def test_login_stores_the_token_privately_and_never_prints_it(
     runner: CliRunner, creds: Path, transport: Callable[[Handler], None]
 ) -> None:
@@ -318,6 +321,7 @@ def test_backoff_answer_is_shown_with_its_reason(
     assert load_login(creds) is None
 
 
+@pytest.mark.security
 def test_there_is_no_password_option(runner: CliRunner, creds: Path) -> None:
     result = runner.invoke(
         cli_app.app, ["login", "--ca", str(ca_file()), "--password", PASSWORD]
@@ -358,6 +362,7 @@ def test_tokens_revoke_validates_the_id_before_any_request(
     assert result.exit_code == ExitCode.USAGE_ERROR
 
 
+@pytest.mark.security
 def test_fingerprint_must_be_the_full_form(runner: CliRunner, creds: Path) -> None:
     short = pki.short_fingerprint(fabric_ca().cert)
     result = runner.invoke(
@@ -369,6 +374,7 @@ def test_fingerprint_must_be_the_full_form(runner: CliRunner, creds: Path) -> No
     assert "64 hex" in result.output
 
 
+@pytest.mark.security
 def test_ca_and_fingerprint_must_agree(runner: CliRunner, creds: Path) -> None:
     other = pki.create_ca(new_fabric_id())
     result = runner.invoke(
@@ -392,6 +398,7 @@ def test_ca_and_fingerprint_must_agree(runner: CliRunner, creds: Path) -> None:
 # ------------------------------------------------------------ pinning
 
 
+@pytest.mark.security
 def test_pinned_ca_keeps_only_the_fingerprinted_issuer() -> None:
     ca = fabric_ca()
     server = pki.issue_server_cert(ca, hosts=["127.0.0.1"]).cert

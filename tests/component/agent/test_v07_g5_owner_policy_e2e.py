@@ -146,6 +146,7 @@ async def _post(
     )
 
 
+@pytest.mark.security
 async def test_hello_policy_live_change_and_submit_codes(
     runtime: ControllerRuntime,
     grpc_target: str,
@@ -235,6 +236,7 @@ async def test_hello_policy_live_change_and_submit_codes(
 OPEN = op.OPEN_POLICY
 
 
+@pytest.mark.security
 async def test_the_agent_refuses_what_a_stale_controller_sends(
     runtime: ControllerRuntime,
     grpc_target: str,

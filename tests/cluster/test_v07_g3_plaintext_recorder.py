@@ -137,6 +137,7 @@ def _holds(fabric: Fabric, node: Node) -> None:
     fabric.fail(f"{node.name} never reported holding the tree")
 
 
+@pytest.mark.security
 def test_no_plaintext_marker_crosses_any_link_of_a_full_job_run(
     make_fabric: Callable[..., Fabric], tmp_path: Path
 ) -> None:

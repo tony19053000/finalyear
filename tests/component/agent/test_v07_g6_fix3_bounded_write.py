@@ -120,6 +120,7 @@ async def _wiped_by_the_thread(held: Held, base: Path) -> None:
     assert _left(base) == []
 
 
+@pytest.mark.security
 async def test_a_cancel_waits_for_a_hung_write_only_for_the_bound(
     alice: httpx.AsyncClient,
     grpc_target: str,
@@ -152,6 +153,7 @@ async def test_a_cancel_waits_for_a_hung_write_only_for_the_bound(
     assert _left(base) == []
 
 
+@pytest.mark.security
 async def test_agent_stop_does_not_wait_for_a_hung_write_and_it_is_still_wiped(
     alice: httpx.AsyncClient,
     grpc_target: str,
@@ -178,6 +180,7 @@ async def test_agent_stop_does_not_wait_for_a_hung_write_and_it_is_still_wiped(
         held.release.set()
 
 
+@pytest.mark.security
 async def test_agent_stop_joins_a_write_that_ends_within_the_bound(
     alice: httpx.AsyncClient,
     grpc_target: str,

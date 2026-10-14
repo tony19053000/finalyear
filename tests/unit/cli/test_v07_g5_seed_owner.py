@@ -23,6 +23,7 @@ from meshforge.common.tree import BuiltTree, build_tree
 pytestmark = [
     pytest.mark.unit,
     pytest.mark.skipif(sys.platform == "win32", reason="POSIX uids"),
+    pytest.mark.security,
 ]
 
 

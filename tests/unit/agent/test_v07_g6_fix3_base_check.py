@@ -121,6 +121,7 @@ def unlocked(vault: SecretVault) -> Iterator[None]:
         os.chmod(vault.base, 0o700)
 
 
+@pytest.mark.security
 @pytest.mark.usefixtures("unlocked")
 @pytest.mark.parametrize("plant", sorted(PLANTS))
 def test_a_bad_base_is_refused_by_materialise_sweep_and_wipe(
@@ -160,6 +161,7 @@ def test_a_bad_base_is_refused_by_materialise_sweep_and_wipe(
     assert str(victim) not in exc.value.message
 
 
+@pytest.mark.security
 @pytest.mark.parametrize("call", ["materialise", "sweep", "wipe"])
 def test_a_base_owned_by_another_user_is_refused(
     vault: SecretVault, monkeypatch: pytest.MonkeyPatch, call: str
@@ -194,6 +196,7 @@ def test_a_base_owned_by_another_user_is_refused(
     assert vault.sweep() == 1
 
 
+@pytest.mark.security
 @pytest.mark.parametrize("call", ["sweep", "wipe", "materialise"])
 def test_a_base_swapped_for_a_symlink_after_the_check_redirects_nothing(
     vault: SecretVault,
@@ -234,6 +237,7 @@ def test_a_base_swapped_for_a_symlink_after_the_check_redirects_nothing(
     vault.sweep()
 
 
+@pytest.mark.security
 def test_odd_entries_inside_a_good_base_are_unlinked_not_followed(
     vault: SecretVault, victim: Path
 ) -> None:
@@ -309,6 +313,7 @@ def test_a_new_base_is_0700_under_any_umask(vault: SecretVault) -> None:
     assert vault.sweep() == 1
 
 
+@pytest.mark.security
 def test_the_data_dir_fallback_root_goes_through_the_same_check(
     tmp_path: Path, victim: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -330,6 +335,7 @@ def test_the_data_dir_fallback_root_goes_through_the_same_check(
     _intact(victim)
 
 
+@pytest.mark.security
 def test_without_directory_descriptors_a_symlinked_base_is_still_refused(
     vault: SecretVault, victim: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

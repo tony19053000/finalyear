@@ -23,7 +23,7 @@ from meshforge.common.cas import (
 from meshforge.common.errors import FailureType
 from meshforge.common.hashing import Digest, sha256_bytes
 
-pytestmark = pytest.mark.unit
+pytestmark = [pytest.mark.unit, pytest.mark.security]
 CS = MIN_CHUNK_SIZE
 
 

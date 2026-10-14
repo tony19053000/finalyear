@@ -105,6 +105,7 @@ def test_read_bounded_size_bound_max_and_max_plus_one(tmp_path: Path) -> None:
     assert info.value.reason is PrivateFileReason.OVERSIZED
 
 
+@pytest.mark.security
 @posix_only
 def test_read_private_refuses_loose_mode_and_another_owner(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -124,6 +125,7 @@ def test_read_private_refuses_loose_mode_and_another_owner(
         read_private(path, limit=8, what="secret")
 
 
+@pytest.mark.security
 @posix_only
 def test_peer_signing_key_uses_the_strict_reader(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -148,6 +150,7 @@ def test_peer_signing_key_uses_the_strict_reader(
         load_or_create_signing_key(key_path)
 
 
+@pytest.mark.security
 @posix_only
 def test_fabric_token_file_uses_the_strict_reader(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch

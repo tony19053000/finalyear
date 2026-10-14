@@ -74,6 +74,7 @@ def test_create_prints_facts_and_no_secrets(tmp_path: Path, config: Path) -> Non
     assert facts["tls_enforced"] is True  # V0.7 G3: mtls by default
 
 
+@pytest.mark.security
 def test_create_refuses_overwrite_without_force(tmp_path: Path, config: Path) -> None:
     _invoke("fabric", "create", "--config", str(config))
     before = (_ca_dir(tmp_path) / "ca.key").read_bytes()
@@ -86,6 +87,7 @@ def test_create_refuses_overwrite_without_force(tmp_path: Path, config: Path) ->
     assert _show_json(config)["fabric_id"] == first["fabric_id"]
 
 
+@pytest.mark.security
 def test_force_replaces_and_warns(config: Path) -> None:
     _invoke("fabric", "create", "--config", str(config))
     old = _show_json(config)

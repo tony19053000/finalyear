@@ -81,6 +81,7 @@ async def _count(engine: Any, owner: str) -> int:
         return int(result.scalar_one())
 
 
+@pytest.mark.security
 async def test_created_is_true_exactly_once_across_two_stores(env: Any) -> None:
     engine, stores, alice, _bob = env
     for round_ in range(4):
@@ -97,6 +98,7 @@ async def test_created_is_true_exactly_once_across_two_stores(env: Any) -> None:
     assert await _count(engine, alice) == 4
 
 
+@pytest.mark.security
 async def test_the_limit_is_exact_under_a_burst_from_two_stores(env: Any) -> None:
     engine, stores, alice, bob = env
     total = MAX_SECRETS_PER_USER + 144

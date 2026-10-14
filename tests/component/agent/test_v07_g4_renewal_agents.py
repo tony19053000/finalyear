@@ -161,6 +161,7 @@ def _serial_of(cert: Any) -> str:
     return format(cert.serial_number, "x")
 
 
+@pytest.mark.security
 async def test_a_busy_node_renews_and_hands_over_before_expiry_while_the_server_cert_renews(
     runtime: ControllerRuntime,
     settings: ControllerSettings,
@@ -278,6 +279,7 @@ async def test_a_busy_node_renews_and_hands_over_before_expiry_while_the_server_
         await b.stop()
 
 
+@pytest.mark.security
 async def test_rotate_key_on_a_running_agent_end_to_end(
     runtime: ControllerRuntime,
     pg_settings: DatabaseSettings,

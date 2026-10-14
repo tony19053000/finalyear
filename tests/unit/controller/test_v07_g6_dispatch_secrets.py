@@ -86,6 +86,7 @@ def test_mtls_gets_the_owners_values() -> None:
     assert steps._store.ended == []
 
 
+@pytest.mark.security
 def test_insecure_dev_is_refused_without_the_flag() -> None:
     secrets = Secrets({"API_KEY": b"value-1"})
     steps = _steps(secrets, cert=None)

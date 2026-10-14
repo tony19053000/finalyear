@@ -30,7 +30,7 @@ from meshforge.controller.auth.live_streams import (
 from meshforge.controller.auth.principal import LEGACY_PRINCIPAL, Principal
 from meshforge.controller.store.models.auth import UserRole
 
-pytestmark = [pytest.mark.unit]
+pytestmark = [pytest.mark.unit, pytest.mark.security]
 
 
 def _user(tok: str) -> Principal:

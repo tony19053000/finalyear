@@ -88,6 +88,7 @@ ACCEPTED = [
 ]
 
 
+@pytest.mark.security
 @pytest.mark.parametrize("line", REFUSED + REFUSED_OPTIONS + REFUSED_REFERENCES)
 def test_refused_on_a_wheels_only_node_naming_the_line(line: str) -> None:
     text = f"good==1.0\n# comment\n{line}\nother==2.0\n".encode()

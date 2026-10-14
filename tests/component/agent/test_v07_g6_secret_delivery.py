@@ -147,6 +147,7 @@ async def _wait_seen(tmp_path: Path) -> None:
     raise AssertionError("the workload never wrote what it saw")
 
 
+@pytest.mark.security
 @pytest.mark.parametrize(("mode", "state"), [("ok", "succeeded"), ("fail", "failed")])
 async def test_delivered_then_wiped_on_success_and_failure(
     alice: httpx.AsyncClient,
@@ -169,6 +170,7 @@ async def test_delivered_then_wiped_on_success_and_failure(
         await agent.stop()
 
 
+@pytest.mark.security
 @pytest.mark.parametrize("how", ["cancel", "agent_stop"])
 async def test_wiped_on_cancel_and_agent_stop(
     alice: httpx.AsyncClient, grpc_target: str, tmp_path: Path, how: str
@@ -197,6 +199,7 @@ async def test_wiped_on_cancel_and_agent_stop(
         await agent.stop()
 
 
+@pytest.mark.security
 async def test_a_crashed_agents_files_are_swept_at_start(
     grpc_target: str, tmp_path: Path, runtime: ControllerRuntime
 ) -> None:
@@ -229,6 +232,7 @@ print("pass:" + os.environ["DB_PASS"], flush=True)
 """
 
 
+@pytest.mark.security
 async def test_logs_never_hold_a_value(
     alice: httpx.AsyncClient,
     grpc_target: str,

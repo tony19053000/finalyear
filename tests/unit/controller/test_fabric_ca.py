@@ -75,6 +75,7 @@ def test_create_then_load_round_trip(ca_dir: Path) -> None:
     assert "authority" not in repr(loaded)
 
 
+@pytest.mark.security
 @posix_only
 def test_files_are_private(ca_dir: Path, tls_dir: Path) -> None:
     fabric = create_fabric(ca_dir, now=NOW)
@@ -85,6 +86,7 @@ def test_files_are_private(ca_dir: Path, tls_dir: Path) -> None:
         assert stat.S_IMODE(path.stat().st_mode) == 0o600, path
 
 
+@pytest.mark.security
 @posix_only
 def test_server_key_is_private(ca_dir: Path, tls_dir: Path) -> None:
     fabric = create_fabric(ca_dir, now=NOW)
@@ -141,6 +143,7 @@ def test_two_racing_creates_end_with_one_ca(ca_dir: Path) -> None:
     assert load_fabric(ca_dir, now=NOW).fabric_id == winners[0]
 
 
+@pytest.mark.security
 def test_held_lock_is_a_typed_error(
     ca_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -204,6 +207,7 @@ sys.exit(0)
 """
 
 
+@pytest.mark.security
 @pytest.mark.parametrize("phase", ["before_new_in", "after_old_aside"])
 def test_crash_between_files_never_leaves_a_mismatched_pair(
     ca_dir: Path, phase: str
@@ -269,6 +273,7 @@ def test_incomplete_ca_is_refused(ca_dir: Path, gone: str) -> None:
     assert exc.value.exit_code == ExitCode.CONFIG_ERROR
 
 
+@pytest.mark.security
 @posix_only
 def test_loose_ca_key_is_refused(ca_dir: Path) -> None:
     create_fabric(ca_dir, now=NOW)
@@ -296,6 +301,7 @@ def test_symlinked_ca_folder_is_refused(tmp_path: Path, ca_dir: Path) -> None:
         load_fabric(ca_dir, now=NOW)
 
 
+@pytest.mark.security
 def test_mismatched_pair_is_refused(tmp_path: Path, ca_dir: Path) -> None:
     create_fabric(ca_dir, now=NOW)
     other = create_fabric(tmp_path / "other", now=NOW)
@@ -347,6 +353,7 @@ def fabric(ca_dir: Path) -> fabric_ca.FabricCa:
     return create_fabric(ca_dir, now=NOW)
 
 
+@pytest.mark.security
 def test_server_cert_sans_follow_hosts(
     fabric: fabric_ca.FabricCa, tls_dir: Path
 ) -> None:
@@ -360,6 +367,7 @@ def test_server_cert_sans_follow_hosts(
     assert "issued" not in repr(again)  # the key never reaches repr
 
 
+@pytest.mark.security
 def test_server_cert_sans_changed_reissues(
     fabric: fabric_ca.FabricCa, tls_dir: Path
 ) -> None:
@@ -370,6 +378,7 @@ def test_server_cert_sans_changed_reissues(
     assert pki.cert_sans(moved.cert) == [pki.SERVER_NAME, "192.168.1.11"]
 
 
+@pytest.mark.security
 def test_server_cert_renewed_at_two_thirds(
     fabric: fabric_ca.FabricCa, tls_dir: Path
 ) -> None:
@@ -406,6 +415,7 @@ def test_server_cert_refused_while_the_ca_is_not_valid(
     assert not tls_dir.exists()
 
 
+@pytest.mark.security
 def test_server_cert_from_old_ca_reissued_after_force(
     ca_dir: Path, tls_dir: Path
 ) -> None:
@@ -547,6 +557,7 @@ def test_logs_carry_fingerprints_never_key_material(
 # ------------------------------------------------- fix round 1 (T-1, T-2, T-3, O-2)
 
 
+@pytest.mark.security
 def test_scoped_ipv6_is_refused_in_extra_sans_but_stripped_from_binds(
     tmp_path: Path, ca_dir: Path, tls_dir: Path
 ) -> None:
@@ -570,6 +581,7 @@ def test_scoped_ipv6_is_refused_in_extra_sans_but_stripped_from_binds(
     assert again.action is ServerCertAction.KEPT
 
 
+@pytest.mark.security
 @posix_only
 @pytest.mark.parametrize("victim", ["server.key", "server.crt"])
 def test_symlinked_tls_file_is_treated_as_unreadable_and_reissued(
@@ -585,6 +597,7 @@ def test_symlinked_tls_file_is_treated_as_unreadable_and_reissued(
     assert not (tls_dir / victim).is_symlink()
 
 
+@pytest.mark.security
 @posix_only
 def test_read_private_key_refuses_a_symlink_and_a_fifo(tmp_path: Path) -> None:
     key = tmp_path / "k.key"
@@ -600,6 +613,7 @@ def test_read_private_key_refuses_a_symlink_and_a_fifo(tmp_path: Path) -> None:
         pki.read_private_key(fifo)
 
 
+@pytest.mark.security
 @posix_only
 def test_key_owned_by_another_user_is_refused(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -614,6 +628,7 @@ def test_key_owned_by_another_user_is_refused(
         pki.read_private_key(key)
 
 
+@pytest.mark.security
 @posix_only
 def test_ca_folder_owned_by_another_user_is_refused(
     ca_dir: Path, monkeypatch: pytest.MonkeyPatch
@@ -625,6 +640,7 @@ def test_ca_folder_owned_by_another_user_is_refused(
         load_fabric(ca_dir)
 
 
+@pytest.mark.security
 @posix_only
 @pytest.mark.skipif(
     hasattr(os, "geteuid") and os.geteuid() == 0, reason="root ignores modes"

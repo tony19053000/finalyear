@@ -20,7 +20,7 @@ from meshforge.controller.server import ControllerRuntime, run_controller
 from meshforge.controller.settings import ControllerSettings
 from meshforge.controller.store.settings import DEV_DB_PASSWORD, DatabaseSettings
 
-pytestmark = pytest.mark.unit
+pytestmark = [pytest.mark.unit, pytest.mark.security]
 
 
 def _settings(

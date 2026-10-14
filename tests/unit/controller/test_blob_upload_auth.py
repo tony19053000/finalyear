@@ -26,7 +26,7 @@ from meshforge.controller.api.blob_routes import _authorize_upload
 from meshforge.controller.api.errors import ApiError
 from meshforge.controller.upload_grants import UploadGrants
 
-pytestmark = [pytest.mark.unit, pytest.mark.asyncio]
+pytestmark = [pytest.mark.unit, pytest.mark.asyncio, pytest.mark.security]
 
 DIGEST = sha256_bytes(b"payload")
 

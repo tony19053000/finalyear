@@ -39,7 +39,7 @@ from meshforge.cli.render import (
 from meshforge.common.exit_codes import ExitCode
 from meshforge.common.ids import new_node_id
 
-pytestmark = pytest.mark.unit
+pytestmark = [pytest.mark.unit, pytest.mark.security]
 
 NODE_ID = str(new_node_id())
 """A syntactically valid id: `compute nodes <id>` validates it before requesting."""

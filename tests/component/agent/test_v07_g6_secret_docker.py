@@ -104,6 +104,7 @@ async def alice(
         yield client
 
 
+@pytest.mark.security
 async def test_docker_gets_a_read_only_secret_file(
     alice: httpx.AsyncClient, grpc_target: str, tmp_path: Path
 ) -> None:

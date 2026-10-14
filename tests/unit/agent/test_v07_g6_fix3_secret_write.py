@@ -62,6 +62,7 @@ def test_finish_before_the_write_started_means_nothing_is_ever_written(
     assert write.finish() is True  # nothing pending any more
 
 
+@pytest.mark.security
 @pytest.mark.parametrize("fails", [False, True])
 def test_finish_during_the_write_hands_the_wipe_to_the_write_thread(
     vault: SecretVault, monkeypatch: pytest.MonkeyPatch, fails: bool

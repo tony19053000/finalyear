@@ -46,7 +46,12 @@ from meshforge.controller.registry import Registry
 from meshforge.controller.server import ControllerRuntime
 from meshforge.controller.store.settings import DatabaseSettings
 
-pytestmark = [pytest.mark.component, pytest.mark.docker, pytest.mark.asyncio]
+pytestmark = [
+    pytest.mark.component,
+    pytest.mark.docker,
+    pytest.mark.asyncio,
+    pytest.mark.security,
+]
 
 
 def _target(rt: ControllerRuntime) -> str:

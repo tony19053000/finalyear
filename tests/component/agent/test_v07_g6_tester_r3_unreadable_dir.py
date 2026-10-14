@@ -18,6 +18,7 @@ from meshforge.agent.envs.fsutil import remove_tree
 pytestmark = [
     pytest.mark.component,
     pytest.mark.skipif(sys.platform == "win32", reason="POSIX modes"),
+    pytest.mark.security,
 ]
 
 

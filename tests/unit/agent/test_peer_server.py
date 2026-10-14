@@ -356,6 +356,7 @@ async def test_methods_paths_and_ranges(env: Env) -> None:
                 assert r.headers["content-range"] == f"bytes */{size}"
 
 
+@pytest.mark.security
 async def test_request_with_a_body_is_refused(env: Env) -> None:
     digest = _digest_of(env.built, "small.txt")
     raw = (
@@ -376,6 +377,7 @@ async def test_duplicate_authorization_header_is_400(env: Env) -> None:
     assert (await _raw(env.server.port, raw)).startswith(b"HTTP/1.1 400")
 
 
+@pytest.mark.security
 async def test_header_bytes_max_accepted_and_max_plus_one_refused(
     tmp_path: Path,
 ) -> None:
@@ -400,6 +402,7 @@ async def test_header_bytes_max_accepted_and_max_plus_one_refused(
         await e.server.close()
 
 
+@pytest.mark.security
 async def test_slowloris_is_cut_at_the_idle_deadline(tmp_path: Path) -> None:
     e = await _make(tmp_path, idle_timeout_s=0.2)
     try:
@@ -429,6 +432,7 @@ async def test_slowloris_is_cut_at_the_idle_deadline(tmp_path: Path) -> None:
         await e.server.close()
 
 
+@pytest.mark.security
 async def test_connection_cap_answers_503(tmp_path: Path) -> None:
     e = await _make(tmp_path, max_connections=1)
     try:
@@ -445,6 +449,7 @@ async def test_connection_cap_answers_503(tmp_path: Path) -> None:
         await e.server.close()
 
 
+@pytest.mark.security
 async def test_requests_per_connection_bound(tmp_path: Path) -> None:
     e = await _make(tmp_path, max_requests_per_conn=2)
     try:

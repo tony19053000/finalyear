@@ -151,6 +151,7 @@ def _warned(logs: list[Any], event: str) -> list[Any]:
     return [entry for entry in logs if entry["event"] == event]
 
 
+@pytest.mark.security
 async def test_an_agent_side_stall_is_logged_once_per_stream_and_noted_in_the_log(
     alice: httpx.AsyncClient,
     grpc_target: str,
@@ -183,6 +184,7 @@ async def test_an_agent_side_stall_is_logged_once_per_stream_and_noted_in_the_lo
     assert _warned(logs, CONTROLLER_EVENT) == []  # its own matcher is healthy
 
 
+@pytest.mark.security
 async def test_a_controller_side_stall_is_logged_once_per_stream_and_noted_in_place(
     alice: httpx.AsyncClient,
     grpc_target: str,

@@ -242,6 +242,7 @@ async def test_ack_for_message_id_the_controller_never_sent(
     assert not agent.ended.is_set()
 
 
+@pytest.mark.security
 @pytest.mark.asyncio
 async def test_burst_of_2000_heartbeats_never_hangs_the_server(
     channel: grpc.aio.Channel, registry: Registry
@@ -300,6 +301,7 @@ async def test_burst_of_2000_heartbeats_never_hangs_the_server(
     ), rec.end_reason
 
 
+@pytest.mark.security
 @pytest.mark.asyncio
 async def test_message_larger_than_default_grpc_max_ends_cleanly(
     channel: grpc.aio.Channel, registry: Registry

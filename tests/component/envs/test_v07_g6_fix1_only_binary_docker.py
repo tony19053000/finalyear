@@ -52,6 +52,7 @@ pytestmark = [
     pytest.mark.asyncio,
     pytest.mark.timeout(300),
     pytest.mark.skipif(sys.platform == "win32", reason="Linux containers on this host"),
+    pytest.mark.security,
 ]
 
 pytest.importorskip("docker", reason="needs the agent extra (docker SDK)")

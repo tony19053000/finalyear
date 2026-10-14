@@ -72,6 +72,7 @@ def test_network_mode_is_set_per_container_role(tmp_path: Path, network: bool) -
 # ------------------------------------------------------------- permissions
 
 
+@pytest.mark.security
 @posix_only
 def test_owner_agent_gets_an_owner_only_workdir(tmp_path: Path) -> None:
     work = tmp_path / "attempt"
@@ -82,6 +83,7 @@ def test_owner_agent_gets_an_owner_only_workdir(tmp_path: Path) -> None:
     assert stat.S_IMODE(work.stat().st_mode) == WORKDIR_MODE == 0o700
 
 
+@pytest.mark.security
 @posix_only
 def test_root_agent_chowns_to_the_workload_user_and_stays_owner_only(
     tmp_path: Path,
@@ -99,6 +101,7 @@ def test_root_agent_chowns_to_the_workload_user_and_stays_owner_only(
     assert stat.S_IMODE(work.stat().st_mode) == 0o700
 
 
+@pytest.mark.security
 @posix_only
 def test_a_non_root_agent_never_opens_the_workdir_for_another_uid(
     tmp_path: Path,

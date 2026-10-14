@@ -23,7 +23,7 @@ from meshforge.common.logging import (
     scrub_text,
 )
 
-pytestmark = pytest.mark.unit
+pytestmark = [pytest.mark.unit, pytest.mark.security]
 
 
 def _reset_logging() -> None:

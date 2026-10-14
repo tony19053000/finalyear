@@ -160,6 +160,7 @@ def test_none_removes_a_configured_limit(tmp_path: Path) -> None:
     assert live.policy.max_ram_bytes is None
 
 
+@pytest.mark.security
 @pytest.mark.parametrize(
     "text",
     [
@@ -184,6 +185,7 @@ def test_a_broken_live_file_fails_closed(tmp_path: Path, text: str) -> None:
     assert live.policy.accept_jobs is True and live.state.invalid_reason is None
 
 
+@pytest.mark.security
 @pytest.mark.skipif(os.name != "posix", reason="POSIX permission bits")
 def test_a_live_file_others_can_write_is_refused(tmp_path: Path) -> None:
     live = _live(tmp_path)
@@ -193,6 +195,7 @@ def test_a_live_file_others_can_write_is_refused(tmp_path: Path) -> None:
     assert "mode" in (live.state.invalid_reason or "")
 
 
+@pytest.mark.security
 @pytest.mark.skipif(os.name != "posix", reason="symlinks")
 def test_a_symlinked_live_file_is_refused(tmp_path: Path) -> None:
     target = tmp_path / "elsewhere.toml"
@@ -315,6 +318,7 @@ def _denied(exc: pytest.ExceptionInfo[PlanError]) -> str:
     return message.split(":", 2)[1]
 
 
+@pytest.mark.security
 @pytest.mark.parametrize(
     ("manifest", "policy", "kw", "code"),
     [
@@ -392,6 +396,7 @@ def test_a_sandboxed_runtime_is_chosen_when_unsandboxed_is_off(tmp_path: Path) -
     assert plan.runtime == "docker"
 
 
+@pytest.mark.security
 def test_the_owner_limits_cap_the_run(tmp_path: Path) -> None:
     policy = dataclasses.replace(OPEN, max_ram_bytes=GIB, max_cpu_percent=25)
     plan = _plan(tmp_path, BASE, policy)
@@ -402,6 +407,7 @@ def test_the_owner_limits_cap_the_run(tmp_path: Path) -> None:
     assert small.spec.limits.cpus == 1.0
 
 
+@pytest.mark.security
 def test_network_only_when_asked_and_allowed(tmp_path: Path) -> None:
     on = {**BASE, "limits": {"network": "on"}}
     assert _plan(tmp_path, on, OPEN).spec.network is True
@@ -417,6 +423,7 @@ def test_an_allowed_user_runs(tmp_path: Path) -> None:
     assert _plan(tmp_path, BASE, policy, owner="bob").runtime == "docker"
 
 
+@pytest.mark.security
 def test_gpu_preferred_falls_back_to_the_sandbox_rather_than_unsandboxed(
     tmp_path: Path,
 ) -> None:

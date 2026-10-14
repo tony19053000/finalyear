@@ -27,7 +27,7 @@ from meshforge.controller.store.engine import create_engine
 from meshforge.controller.store.migrate import upgrade_to_head
 from meshforge.controller.store.settings import DatabaseSettings
 
-pytestmark = [pytest.mark.component, pytest.mark.asyncio]
+pytestmark = [pytest.mark.component, pytest.mark.asyncio, pytest.mark.security]
 
 NOW = dt.datetime(2026, 10, 12, 12, 0, 0, tzinfo=dt.UTC)
 

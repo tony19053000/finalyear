@@ -31,6 +31,7 @@ LD_NAMES = [
 ]
 
 
+@pytest.mark.security
 @pytest.mark.parametrize("name", LD_NAMES)
 def test_every_ld_name_is_refused_as_an_environment_variable(name: str) -> None:
     with pytest.raises(SecretNameError) as exc:

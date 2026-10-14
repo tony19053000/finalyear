@@ -98,6 +98,7 @@ def _put(client: httpx.AsyncClient, name: str, value: bytes) -> Any:
     return client.put(f"/v1/secrets/{name}", content=value)
 
 
+@pytest.mark.security
 async def test_per_user_and_never_a_value(
     clients: Any, runtime: ControllerRuntime
 ) -> None:

@@ -225,6 +225,7 @@ async def test_happy_path_and_first_hello(
 # ------------------------------------------------------------- refused codes
 
 
+@pytest.mark.security
 async def test_used_expired_and_revoked_codes(
     fabric_runtime: ControllerRuntime,
     make_code: MakeCode,
@@ -260,6 +261,7 @@ async def test_used_expired_and_revoked_codes(
     assert [r for (r,) in refused] == ["token_used", "token_expired", "token_revoked"]
 
 
+@pytest.mark.security
 async def test_wrong_ca_pin_sends_nothing(
     fabric_runtime: ControllerRuntime,
     make_code: MakeCode,
@@ -294,6 +296,7 @@ async def test_wrong_ca_pin_sends_nothing(
     assert len(enroll_calls) == 1
 
 
+@pytest.mark.security
 async def test_a_plain_tcp_server_is_not_a_controller(tmp_path: Path) -> None:
     server = await asyncio.start_server(
         lambda r, w: w.close(), host="127.0.0.1", port=0
@@ -340,6 +343,7 @@ def _csr_pem(csr: x509.CertificateSigningRequest) -> bytes:
     return csr.public_bytes(serialization.Encoding.PEM)
 
 
+@pytest.mark.security
 async def test_hostile_csrs_are_refused_and_do_not_burn_the_code(
     fabric_runtime: ControllerRuntime,
     make_code: MakeCode,
@@ -413,6 +417,7 @@ def _rekeyed(identity: NodeIdentity, tmp_path: Path) -> NodeIdentity:
     )
 
 
+@pytest.mark.security
 async def test_replace_flow(
     fabric_runtime: ControllerRuntime,
     make_code: MakeCode,
@@ -470,6 +475,7 @@ async def test_same_key_rejoin_needs_force_and_reissues(
 # ----------------------------------------------------------------------- race
 
 
+@pytest.mark.security
 async def test_sixteen_laptops_race_one_code(
     fabric_runtime: ControllerRuntime,
     make_code: MakeCode,
@@ -520,6 +526,7 @@ async def _forward(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -
         writer.close()
 
 
+@pytest.mark.security
 @pytest.mark.skipif(
     not sys.platform.startswith("linux"), reason="needs 127.0.0.0/8 source addresses"
 )

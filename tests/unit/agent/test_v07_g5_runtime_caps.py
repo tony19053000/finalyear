@@ -43,7 +43,7 @@ from meshforge.common.ids import new_attempt_id, new_job_id
 from meshforge.common.proto.meshforge.v1 import agent_pb2
 from meshforge.controller.api.shape import owner_policy_view
 
-pytestmark = pytest.mark.unit
+pytestmark = [pytest.mark.unit, pytest.mark.security]
 
 GIB = 1024**3
 MIB = 1024**2

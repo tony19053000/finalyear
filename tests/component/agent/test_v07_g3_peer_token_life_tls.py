@@ -39,7 +39,12 @@ from meshforge.common.ids import new_attempt_id, new_node_id
 from meshforge.common.peer_token import MAX_TTL_S, SKEW_S, sign_peer_token
 from meshforge.common.tree import BuiltTree, build_tree
 
-pytestmark = [pytest.mark.component, pytest.mark.asyncio, pytest.mark.timeout(120)]
+pytestmark = [
+    pytest.mark.component,
+    pytest.mark.asyncio,
+    pytest.mark.timeout(120),
+    pytest.mark.security,
+]
 
 CS = MIN_CHUNK_SIZE
 CHUNKS = 24

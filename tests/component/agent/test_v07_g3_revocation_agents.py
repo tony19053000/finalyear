@@ -109,6 +109,7 @@ async def _until_job(
         await asyncio.sleep(0.05)
 
 
+@pytest.mark.security
 async def test_revoking_a_busy_node_moves_its_job_and_closes_the_peer_plane(
     runtime: ControllerRuntime, grpc_target: str, project: str, tmp_path: Path
 ) -> None:

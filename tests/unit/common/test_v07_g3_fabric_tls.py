@@ -120,6 +120,7 @@ async def _serve(servers: list[_Server], ctx: ssl.SSLContext) -> _Server:
     return server
 
 
+@pytest.mark.security
 @pytest.mark.asyncio
 async def test_controller_check(
     ca: pki.CertificateAuthority, tmp_path: Path, servers: list[_Server]
@@ -169,6 +170,7 @@ def test_controller_check_sync(ca: pki.CertificateAuthority, tmp_path: Path) -> 
     assert good_bytes > 0 and rogue_bytes == 0
 
 
+@pytest.mark.security
 @pytest.mark.asyncio
 async def test_peer_check_and_client_certificate(
     ca: pki.CertificateAuthority, tmp_path: Path, servers: list[_Server]

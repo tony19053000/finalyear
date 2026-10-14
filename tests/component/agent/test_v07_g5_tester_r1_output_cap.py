@@ -121,6 +121,7 @@ def test_writes_spread_over_many_small_files_still_count(tmp_path: Path) -> None
     assert (state, kind) == ("failed", FailureType.OUTPUT_ERROR), message
 
 
+@pytest.mark.security
 def test_a_deleted_but_open_file_is_not_counted_documented_limit(
     tmp_path: Path,
 ) -> None:

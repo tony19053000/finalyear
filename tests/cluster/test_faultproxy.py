@@ -506,6 +506,7 @@ def test_close_releases_every_socket_and_the_thread(upstream: Upstream) -> None:
 # ------------------------------------------------------- recorder (V0.7 G3, D146)
 
 
+@pytest.mark.security
 def test_recorder_keeps_each_direction_of_each_connection_and_finds_split_markers(
     fault_loop: FaultLoop, upstream: Upstream
 ) -> None:

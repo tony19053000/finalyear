@@ -32,6 +32,15 @@ Remote GPU test can be ``component`` + ``gpu`` and a Mode 4 test ``cluster`` + `
 * ``slow`` — skipped unless ``--run-slow`` (minutes of wall time, network or cold
   caches; e.g. the fresh-clone ``uv sync`` test). Combines with any tier, so
   ``pytest -m component --run-slow`` runs component tests including slow ones.
+* ``security`` — never skipped by itself: it says the test **proves a row of
+  ``docs/THREAT_MODEL.md``** (V0.7 G7, D166). It is a marker, not a tier: a
+  security test lives in its tier's directory like every other test, and
+  ``pytest -m security`` runs the security suite across unit, component and
+  cluster (``-m "security and unit"`` for the fast part). Every test a
+  threat-model row names must carry it - ``scripts/threat_model_check.py``
+  (run by ``tests/unit/test_threat_model_check.py``) fails otherwise. Add it
+  with ``@pytest.mark.security`` on the test, or in ``pytestmark`` when every
+  test of the file proves a row.
 
 Environment variables read by the suite:
 
@@ -73,7 +82,7 @@ if _SUPPORT_DIR not in sys.path:
 TIERS: Final = ("unit", "component", "cluster", "lab", "e2e", "soak", "chaos")
 
 #: Capability markers: what a test needs, combined with exactly one tier.
-CAPABILITY_MARKERS: Final = ("docker", "gpu", "slow")
+CAPABILITY_MARKERS: Final = ("docker", "gpu", "slow", "security")
 
 #: Tiers/markers that only run when explicitly requested with ``--run-<name>``
 #: (hardware, humans, or long runtimes). ``gpu``/``slow`` are capabilities, not tiers.

@@ -102,6 +102,7 @@ async def _agent(grpc_target: str, data_dir: Path) -> ExecAgent:
     )
 
 
+@pytest.mark.security
 async def test_submit_refuses_a_secret_the_owner_lacks(
     users: dict[str, httpx.AsyncClient], grpc_target: str, tmp_path: Path
 ) -> None:
@@ -124,6 +125,7 @@ async def test_submit_refuses_a_secret_the_owner_lacks(
         await agent.stop()
 
 
+@pytest.mark.security
 async def test_a_secret_deleted_while_queued_fails_the_job_before_the_node(
     users: dict[str, httpx.AsyncClient], grpc_target: str, tmp_path: Path
 ) -> None:

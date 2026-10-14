@@ -165,6 +165,7 @@ async def test_userinfo_in_an_https_wheel_url_is_accepted_and_sent_as_basic_auth
     assert any(auth and auth.startswith("Basic ") for _p, auth in hits.https)
 
 
+@pytest.mark.security
 async def test_an_https_url_that_redirects_to_plain_http_is_not_followed(
     tmp_path: Path, servers: tuple[str, str, Path, Hits]
 ) -> None:

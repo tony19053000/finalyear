@@ -23,7 +23,7 @@ from meshforge.common.errors import ConfigError
 from meshforge.common.netaddr import is_loopback_host
 from meshforge.controller.settings import ControllerSection, ControllerSettings
 
-pytestmark = pytest.mark.unit
+pytestmark = [pytest.mark.unit, pytest.mark.security]
 
 DEV = {"mode": "insecure-dev"}
 

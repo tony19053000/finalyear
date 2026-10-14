@@ -126,6 +126,7 @@ def _project(tmp_path: Path, program: str) -> tuple[Path, dict[str, Any]]:
 # --------------------------------------------------------------- login input
 
 
+@pytest.mark.security
 @pytest.mark.parametrize(
     "body",
     [
@@ -179,6 +180,7 @@ async def test_hostile_login_bodies_get_a_clean_4xx_and_never_a_token(
     assert await login(anon, "alice", ALICE_PW)
 
 
+@pytest.mark.security
 @pytest.mark.parametrize(
     "name", ["alice\x00", "\x00", "al\x01ice", "alice\x1b[0m", "bob\x7f"]
 )
@@ -625,6 +627,7 @@ async def test_bob_learns_nothing_of_alices_running_job_from_the_other_reads(
         await alice.post(f"/v1/jobs/{job_id}/cancel")
 
 
+@pytest.mark.security
 async def test_disabling_a_user_closes_their_open_log_follow(
     runtime: ControllerRuntime,
     anon: httpx.AsyncClient,
@@ -664,6 +667,7 @@ async def test_disabling_a_user_closes_their_open_log_follow(
 # ------------------------------------------------------------------- blobs
 
 
+@pytest.mark.security
 async def test_bob_cannot_download_alices_inputs_or_outputs_by_digest(
     runtime: ControllerRuntime,
     anon: httpx.AsyncClient,
@@ -738,6 +742,7 @@ async def _alice_uploads(alice: httpx.AsyncClient) -> httpx.Response:
     return await alice.post(f"/v1/blobs/{digest}/complete")
 
 
+@pytest.mark.security
 async def test_bob_cannot_poison_alices_resumable_upload(
     runtime: ControllerRuntime, anon: httpx.AsyncClient, users: dict[str, str]
 ) -> None:
@@ -758,6 +763,7 @@ async def test_bob_cannot_poison_alices_resumable_upload(
         assert done.status_code in (200, 201), (done.status_code, done.text)
 
 
+@pytest.mark.security
 async def test_after_a_poisoned_complete_the_owner_can_simply_retry(
     runtime: ControllerRuntime, anon: httpx.AsyncClient, users: dict[str, str]
 ) -> None:

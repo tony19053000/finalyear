@@ -85,6 +85,7 @@ def test_ca_is_self_signed_p256_with_fabric_id(ca: pki.CertificateAuthority) -> 
     assert NOW - cert.not_valid_before_utc == pki.CLOCK_SKEW
 
 
+@pytest.mark.security
 def test_ca_path_length_zero(ca: pki.CertificateAuthority) -> None:
     bc = ca.cert.extensions.get_extension_for_class(x509.BasicConstraints)
     assert bc.critical and bc.value.ca and bc.value.path_length == 0
@@ -217,6 +218,7 @@ def test_node_cert_round_trip(
     assert cert.not_valid_after_utc - NOW == pki.NODE_CERT_LIFETIME
 
 
+@pytest.mark.security
 def test_leaf_certs_are_not_cas(
     ca: pki.CertificateAuthority, node_key: ec.EllipticCurvePrivateKey
 ) -> None:
@@ -286,6 +288,7 @@ def _verify(pem: bytes, fabric_id: str, node_id: str | None = None) -> PkiReason
     return _reason(exc)
 
 
+@pytest.mark.security
 def test_verify_csr_accepts_pem_and_der(
     ca: pki.CertificateAuthority, node_key: ec.EllipticCurvePrivateKey
 ) -> None:
@@ -301,6 +304,7 @@ def test_verify_csr_accepts_pem_and_der(
         assert pki.public_keys_equal(verified.public_key, node_key.public_key())
 
 
+@pytest.mark.security
 def test_verify_csr_refuses_wrong_curve(ca: pki.CertificateAuthority) -> None:
     node_id = new_node_id()
     key = ec.generate_private_key(ec.SECP384R1())
@@ -308,6 +312,7 @@ def test_verify_csr_refuses_wrong_curve(ca: pki.CertificateAuthority) -> None:
     assert _verify(pem, ca.fabric_id, node_id) is PkiReason.WRONG_CURVE
 
 
+@pytest.mark.security
 def test_verify_csr_refuses_rsa(ca: pki.CertificateAuthority) -> None:
     node_id = new_node_id()
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -315,6 +320,7 @@ def test_verify_csr_refuses_rsa(ca: pki.CertificateAuthority) -> None:
     assert _verify(pem, ca.fabric_id, node_id) is PkiReason.WRONG_KEY_TYPE
 
 
+@pytest.mark.security
 def test_verify_csr_refuses_ed25519(ca: pki.CertificateAuthority) -> None:
     node_id = new_node_id()
     key = ed25519.Ed25519PrivateKey.generate()
@@ -322,6 +328,7 @@ def test_verify_csr_refuses_ed25519(ca: pki.CertificateAuthority) -> None:
     assert _verify(pem, ca.fabric_id, node_id) is PkiReason.WRONG_KEY_TYPE
 
 
+@pytest.mark.security
 def test_verify_csr_refuses_sha384(
     ca: pki.CertificateAuthority, node_key: ec.EllipticCurvePrivateKey
 ) -> None:
@@ -330,6 +337,7 @@ def test_verify_csr_refuses_sha384(
     assert _verify(pem, ca.fabric_id, node_id) is PkiReason.WRONG_HASH
 
 
+@pytest.mark.security
 def test_verify_csr_refuses_bad_signature(
     ca: pki.CertificateAuthority, node_key: ec.EllipticCurvePrivateKey
 ) -> None:
@@ -345,6 +353,7 @@ def test_verify_csr_refuses_bad_signature(
     assert _verify(bytes(der), ca.fabric_id, node_id) is PkiReason.BAD_SIGNATURE
 
 
+@pytest.mark.security
 def test_verify_csr_refuses_two_sans(
     ca: pki.CertificateAuthority, node_key: ec.EllipticCurvePrivateKey
 ) -> None:
@@ -357,6 +366,7 @@ def test_verify_csr_refuses_two_sans(
     assert _verify(pem, ca.fabric_id, node_id) is PkiReason.SAN_COUNT
 
 
+@pytest.mark.security
 def test_verify_csr_refuses_missing_or_wrong_san(
     ca: pki.CertificateAuthority, node_key: ec.EllipticCurvePrivateKey
 ) -> None:
@@ -381,6 +391,7 @@ def test_verify_csr_refuses_missing_or_wrong_san(
         assert _verify(pem, ca.fabric_id) is PkiReason.SAN_MALFORMED, bad
 
 
+@pytest.mark.security
 def test_verify_csr_refuses_other_node_and_fabric(
     ca: pki.CertificateAuthority, node_key: ec.EllipticCurvePrivateKey
 ) -> None:
@@ -392,6 +403,7 @@ def test_verify_csr_refuses_other_node_and_fabric(
     assert _verify(pem, new_fabric_id(), node_id) is PkiReason.FABRIC_MISMATCH
 
 
+@pytest.mark.security
 def test_verify_csr_size_bound(
     ca: pki.CertificateAuthority, node_key: ec.EllipticCurvePrivateKey
 ) -> None:
@@ -405,6 +417,7 @@ def test_verify_csr_size_bound(
     assert _verify(at_max + b"\n", ca.fabric_id) is PkiReason.OVERSIZED
 
 
+@pytest.mark.security
 @pytest.mark.parametrize(
     "data",
     [
@@ -431,6 +444,7 @@ def test_pki_error_is_typed_and_carries_no_input(
 # -------------------------------------------------------------- issuer / validity
 
 
+@pytest.mark.security
 def test_cert_from_another_ca_is_refused(
     ca: pki.CertificateAuthority, node_key: ec.EllipticCurvePrivateKey
 ) -> None:
@@ -455,6 +469,7 @@ def test_cert_from_another_ca_is_refused(
         )
 
 
+@pytest.mark.security
 def test_is_expired_boundaries(ca: pki.CertificateAuthority) -> None:
     cert = pki.issue_server_cert(ca, hosts=[], now=NOW, lifetime=timedelta(days=3)).cert
     end = cert.not_valid_after_utc
@@ -466,6 +481,7 @@ def test_is_expired_boundaries(ca: pki.CertificateAuthority) -> None:
     assert _reason(exc) is PkiReason.EXPIRED
 
 
+@pytest.mark.security
 def test_is_expired_not_yet_valid(ca: pki.CertificateAuthority) -> None:
     cert = pki.issue_server_cert(ca, hosts=[], now=NOW).cert
     start = cert.not_valid_before_utc
@@ -490,6 +506,7 @@ def test_renewal_due_at_two_thirds(ca: pki.CertificateAuthority) -> None:
 # -------------------------------------------------------------------- fingerprints
 
 
+@pytest.mark.security
 def test_short_fingerprint_is_128_bits_of_sha256(ca: pki.CertificateAuthority) -> None:
     full = pki.cert_fingerprint(ca.cert)
     assert len(full) == 64 and full == full.lower()
@@ -497,6 +514,7 @@ def test_short_fingerprint_is_128_bits_of_sha256(ca: pki.CertificateAuthority) -
     assert pki.format_fingerprint(full[:8]) == f"{full[:4]} {full[4:8]}"
 
 
+@pytest.mark.security
 def test_short_fingerprint_matches_forms(ca: pki.CertificateAuthority) -> None:
     full = pki.cert_fingerprint(ca.cert)
     short = full[:32]

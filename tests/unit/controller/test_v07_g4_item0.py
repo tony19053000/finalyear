@@ -296,6 +296,7 @@ async def test_admission_refuses_a_serial_the_set_lists(reason: str, code: str) 
 # --------------------------------------------------------------------- (d)
 
 
+@pytest.mark.security
 async def test_an_early_expiry_timer_rearms_and_a_due_one_cuts() -> None:
     wall = Wall()
     manager = _manager(wall)

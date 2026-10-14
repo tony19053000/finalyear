@@ -89,6 +89,7 @@ async def _dump(pg: DatabaseSettings) -> str:
     return " ".join(str(r[0]) for r in rows)
 
 
+@pytest.mark.security
 @pytest.mark.asyncio
 async def test_token_is_stored_hashed_only(
     store: InviteStore, migrated: DatabaseSettings
@@ -111,6 +112,7 @@ async def test_token_is_stored_hashed_only(
     assert audit == [("invite_created", "test", new.record.id)]
 
 
+@pytest.mark.security
 @pytest.mark.asyncio
 async def test_ttl_bounds(store: InviteStore) -> None:
     for ttl in (60, 86_400):
@@ -120,6 +122,7 @@ async def test_ttl_bounds(store: InviteStore) -> None:
             await store.create(ttl_s=ttl, actor="test")
 
 
+@pytest.mark.security
 @pytest.mark.asyncio
 async def test_single_use_under_a_16_way_race(
     store: InviteStore, migrated: DatabaseSettings
@@ -151,6 +154,7 @@ async def test_single_use_under_a_16_way_race(
     assert rows == [(winners[0],)]
 
 
+@pytest.mark.security
 @pytest.mark.asyncio
 async def test_a_rolled_back_redeem_does_not_burn_the_code(
     store: InviteStore, migrated: DatabaseSettings
@@ -172,6 +176,7 @@ async def test_a_rolled_back_redeem_does_not_burn_the_code(
         await engine.dispose()
 
 
+@pytest.mark.security
 @pytest.mark.asyncio
 async def test_refusal_reasons(store: InviteStore, migrated: DatabaseSettings) -> None:
     expired = await store.create(ttl_s=60, actor="test")
@@ -202,6 +207,7 @@ async def test_refusal_reasons(store: InviteStore, migrated: DatabaseSettings) -
     assert states[revoked.record.id] is InviteState.REVOKED
 
 
+@pytest.mark.security
 @pytest.mark.asyncio
 async def test_revoke_rules(store: InviteStore, migrated: DatabaseSettings) -> None:
     new = await store.create(ttl_s=900, actor="test")

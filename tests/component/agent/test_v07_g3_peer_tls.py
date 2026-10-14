@@ -91,6 +91,7 @@ async def _server(
     return server, next(iter(built.tree.files())).digest, token
 
 
+@pytest.mark.security
 async def test_peer_server_tls_rules(tmp_path: Path) -> None:
     holder, fetcher = str(new_node_id()), str(new_node_id())
     revoked: set[str] = set()
@@ -158,6 +159,7 @@ async def test_peer_server_tls_rules(tmp_path: Path) -> None:
         await server.close()
 
 
+@pytest.mark.security
 async def test_a_serial_revoked_mid_connection_is_refused_at_its_next_request(
     tmp_path: Path,
 ) -> None:

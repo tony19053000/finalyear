@@ -109,6 +109,7 @@ def test_exec_bit_changes_the_id(tmp_path: Path) -> None:
     assert build_tree(root).tree.tree_id != first
 
 
+@pytest.mark.security
 @posix_only
 def test_symlinks_inside_are_kept_and_escaping_ones_refused(tmp_path: Path) -> None:
     root = tmp_path / "p"
@@ -184,6 +185,7 @@ def test_parse_accepts_a_valid_manifest() -> None:
     assert [e.kind for e in tree.entries] == ["file", "dir", "symlink", "file"]
 
 
+@pytest.mark.security
 @pytest.mark.parametrize(
     ("data", "why"),
     [
@@ -220,6 +222,7 @@ def test_parse_refuses_hostile_manifests(data: bytes, why: str) -> None:
     assert info.value.failure_type is FailureType.INVALID_INPUT, why
 
 
+@pytest.mark.security
 def test_parse_checks_the_expected_id() -> None:
     data = _manifest([_file("a")])
     with pytest.raises(TreeError) as info:

@@ -29,7 +29,7 @@ from meshforge.cli.render import (
 )
 from meshforge.common.owner_policy import OPEN_POLICY
 
-pytestmark = pytest.mark.unit
+pytestmark = [pytest.mark.unit, pytest.mark.security]
 
 VRAM = "max_vram_bytes:no_runtime_limit"
 CPU = "max_cpu_percent:unsandboxed_linux"

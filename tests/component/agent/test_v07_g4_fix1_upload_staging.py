@@ -27,7 +27,7 @@ from meshforge.controller.settings import ControllerSettings
 from meshforge.controller.store.engine import create_engine
 from meshforge.controller.store.settings import DatabaseSettings
 
-pytestmark = [pytest.mark.asyncio, pytest.mark.timeout(120)]
+pytestmark = [pytest.mark.asyncio, pytest.mark.timeout(120), pytest.mark.security]
 
 CHUNK = 64 * 1024
 DATA = b"".join(bytes([i % 251]) * CHUNK for i in range(3))

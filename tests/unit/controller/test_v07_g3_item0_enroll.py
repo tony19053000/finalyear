@@ -34,6 +34,7 @@ from meshforge.controller.enrollment.service import _TOKEN_MESSAGES
 pytestmark = pytest.mark.unit
 
 
+@pytest.mark.security
 def test_token_used_message_names_the_lost_reply_case() -> None:
     message = _TOKEN_MESSAGES["token_used"]
     assert "timed out" in message
@@ -85,6 +86,7 @@ def _limiter() -> SourceRateLimiter:
     )
 
 
+@pytest.mark.security
 @pytest.mark.asyncio
 async def test_hanging_enrolment_is_refused_unavailable_after_the_deadline(
     monkeypatch: pytest.MonkeyPatch,

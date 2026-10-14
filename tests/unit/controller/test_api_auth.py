@@ -44,7 +44,7 @@ from meshforge.controller.api.errors import install_error_handlers
 from meshforge.controller.fabric_token import FabricTokenVerifier, load_or_create_token
 from meshforge.controller.store.errors import DatabaseUnavailableError
 
-pytestmark = [pytest.mark.asyncio, pytest.mark.unit]
+pytestmark = [pytest.mark.asyncio, pytest.mark.unit, pytest.mark.security]
 
 
 def _app(auth: ApiAuth) -> FastAPI:

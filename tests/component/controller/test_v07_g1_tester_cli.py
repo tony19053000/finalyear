@@ -251,6 +251,7 @@ def test_very_long_data_dir_is_a_typed_error_or_works(tmp_path: Path) -> None:
 # ------------------------------------------------------------- concurrency, crashes
 
 
+@pytest.mark.security
 def test_racing_creates_exactly_one_wins(data_dir: Path, config: Path) -> None:
     procs = [_popen("fabric", "create", "--config", str(config)) for _ in range(8)]
     results = [(p.communicate(timeout=180), p.returncode) for p in procs]
@@ -266,6 +267,7 @@ def test_racing_creates_exactly_one_wins(data_dir: Path, config: Path) -> None:
     _no_leftovers(data_dir)
 
 
+@pytest.mark.security
 @posix_only
 def test_racing_forced_creates_leave_one_consistent_fabric(
     data_dir: Path, config: Path
@@ -306,6 +308,7 @@ _ENSURE_SCRIPT = textwrap.dedent(
 )
 
 
+@pytest.mark.security
 def test_racing_server_cert_issues_converge_on_one_cert(
     data_dir: Path, config: Path
 ) -> None:
@@ -426,6 +429,7 @@ def test_full_disk_on_force_keeps_the_old_ca(data_dir: Path, config: Path) -> No
     _no_leftovers(data_dir)
 
 
+@pytest.mark.security
 @posix_only
 @pytest.mark.skipif(
     hasattr(os, "geteuid") and os.geteuid() == 0, reason="root ignores modes"

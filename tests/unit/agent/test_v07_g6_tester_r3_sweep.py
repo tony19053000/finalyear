@@ -90,6 +90,7 @@ def test_a_symlink_inside_an_attempt_folder_is_not_followed(tmp_path: Path) -> N
     assert not folder.exists()
 
 
+@pytest.mark.security
 def test_a_base_that_is_a_symlink_is_refused_and_never_swept_into(
     tmp_path: Path,
 ) -> None:

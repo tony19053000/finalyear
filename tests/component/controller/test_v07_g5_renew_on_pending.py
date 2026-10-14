@@ -26,7 +26,12 @@ from test_v07_g4_renewal import (  # noqa: F401 - settings is a fixture
 from meshforge.controller.server import ControllerRuntime
 from meshforge.controller.store.settings import DatabaseSettings
 
-pytestmark = [pytest.mark.component, pytest.mark.docker, pytest.mark.asyncio]
+pytestmark = [
+    pytest.mark.component,
+    pytest.mark.docker,
+    pytest.mark.asyncio,
+    pytest.mark.security,
+]
 
 MIN_INTERVAL_S = 2.0  # the renewal module's settings fixture (test_v07_g4_renewal)
 

@@ -273,6 +273,7 @@ def test_invalid_epoch_is_refused(id_dir: Path, bad_epoch: Any) -> None:
         load_or_create(id_dir)
 
 
+@pytest.mark.security
 def test_swapped_key_fails_fingerprint_check(id_dir: Path) -> None:
     identity = load_or_create(id_dir)
     (id_dir / "node.key").write_bytes(_other_key_pem())  # valid key, wrong one
@@ -308,6 +309,7 @@ def test_reset_deletes_both_files_and_is_idempotent(id_dir: Path) -> None:
 # ---------------------------------------------------------------------- secrecy
 
 
+@pytest.mark.security
 def test_no_key_material_in_repr_str_redact_or_logs(id_dir: Path) -> None:
     with structlog.testing.capture_logs() as captured:
         identity = load_or_create(id_dir)
@@ -355,6 +357,7 @@ def test_scrub_text_removes_pem_private_key_blocks() -> None:
 # --------------------------------------------------------------------- protection
 
 
+@pytest.mark.security
 @posix_only
 def test_posix_modes_are_restricted(id_dir: Path) -> None:
     load_or_create(id_dir)
@@ -363,6 +366,7 @@ def test_posix_modes_are_restricted(id_dir: Path) -> None:
         assert stat.S_IMODE((id_dir / name).stat().st_mode) == 0o600, name
 
 
+@pytest.mark.security
 @posix_only
 def test_posix_pre_existing_loose_dir_is_tightened(id_dir: Path) -> None:
     id_dir.mkdir(mode=0o755)
@@ -370,6 +374,7 @@ def test_posix_pre_existing_loose_dir_is_tightened(id_dir: Path) -> None:
     assert stat.S_IMODE(id_dir.stat().st_mode) == 0o700
 
 
+@pytest.mark.security
 @posix_only
 def test_posix_loose_file_mode_is_refused(id_dir: Path) -> None:
     load_or_create(id_dir)
@@ -379,6 +384,7 @@ def test_posix_loose_file_mode_is_refused(id_dir: Path) -> None:
     assert "chmod 600" in info.value.remedy
 
 
+@pytest.mark.security
 @windows_only
 def test_windows_acl_grants_only_the_current_user(id_dir: Path) -> None:
     load_or_create(id_dir)

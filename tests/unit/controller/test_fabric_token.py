@@ -44,6 +44,7 @@ def test_first_load_creates_then_reloads_the_same_token(tmp_path: Path) -> None:
     assert [p.name for p in path.parent.glob(".*.tmp")] == []
 
 
+@pytest.mark.security
 @posix_only
 def test_created_private_from_the_start(tmp_path: Path) -> None:
     path = tmp_path / "controller" / "fabric.token"
@@ -52,6 +53,7 @@ def test_created_private_from_the_start(tmp_path: Path) -> None:
     assert stat.S_IMODE(path.parent.stat().st_mode) == 0o700
 
 
+@pytest.mark.security
 @posix_only
 def test_a_loosened_file_is_refused_at_load(tmp_path: Path) -> None:
     path = tmp_path / "fabric.token"
@@ -137,6 +139,7 @@ def test_fails_closed_when_the_file_disappears(tmp_path: Path) -> None:
     assert verifier.verify(token)
 
 
+@pytest.mark.security
 @posix_only
 def test_fails_closed_when_the_file_is_loosened(tmp_path: Path) -> None:
     path = tmp_path / "fabric.token"
@@ -156,6 +159,7 @@ def test_verifier_without_initial_reads_the_file(tmp_path: Path) -> None:
     assert not FabricTokenVerifier(tmp_path / "none", clock=Clock()).verify("a" * 43)
 
 
+@pytest.mark.security
 def test_secret_never_in_repr(tmp_path: Path) -> None:
     token, _ = load_or_create_token(tmp_path / "t")
     assert isinstance(token, SecretStr)

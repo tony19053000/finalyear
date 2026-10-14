@@ -60,6 +60,7 @@ async def test_plaintext_and_tls12_are_refused_tls13_negotiated(
         await asyncio.to_thread(version, ssl.TLSVersion.TLSv1_2)
 
 
+@pytest.mark.security
 async def test_cli_context_trusts_the_controller_by_name(
     runtime: ControllerRuntime,
 ) -> None:
@@ -74,6 +75,7 @@ def _agent_client(node_id: str | None) -> httpx.AsyncClient:
     return httpx.AsyncClient(verify=client_ssl_context(node_id=node_id), timeout=10)
 
 
+@pytest.mark.security
 async def test_fetch_token_needs_the_minted_nodes_certificate(
     runtime: ControllerRuntime,
 ) -> None:
@@ -102,6 +104,7 @@ async def test_fetch_token_needs_the_minted_nodes_certificate(
         assert (await http.get(url)).status_code == 401  # the cert alone: no
 
 
+@pytest.mark.security
 async def test_upload_grant_needs_the_minted_nodes_certificate(
     runtime: ControllerRuntime,
 ) -> None:

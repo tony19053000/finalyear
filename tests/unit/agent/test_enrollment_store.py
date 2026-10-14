@@ -73,6 +73,7 @@ def _response(
 # ---------------------------------------------------------------------- pin_ca
 
 
+@pytest.mark.security
 def test_pin_ca_accepts_only_the_pinned_issuing_ca(
     ca: pki.CertificateAuthority,
 ) -> None:
@@ -106,6 +107,7 @@ def test_check_issued_accepts_our_cert(
     assert got == cert and fabric_id == ca.fabric_id
 
 
+@pytest.mark.security
 def test_check_issued_refusals(
     ca: pki.CertificateAuthority, identity: NodeIdentity, tmp_path: Path
 ) -> None:
@@ -152,6 +154,7 @@ def test_check_issued_refusals(
 # --------------------------------------------------------------- store / load
 
 
+@pytest.mark.security
 def test_store_load_and_force(
     ca: pki.CertificateAuthority, identity: NodeIdentity
 ) -> None:
@@ -180,6 +183,7 @@ def _assert_invalid(identity: NodeIdentity) -> None:
     assert "join --force" in info.value.message
 
 
+@pytest.mark.security
 def test_load_refuses_a_cert_for_another_key_or_ca(
     ca: pki.CertificateAuthority, identity: NodeIdentity, tmp_path: Path
 ) -> None:
@@ -193,6 +197,7 @@ def test_load_refuses_a_cert_for_another_key_or_ca(
     _assert_invalid(identity)
 
 
+@pytest.mark.security
 @posix_only
 def test_load_refuses_hostile_files(
     ca: pki.CertificateAuthority, identity: NodeIdentity, tmp_path: Path
@@ -212,6 +217,7 @@ def test_load_refuses_hostile_files(
     _assert_invalid(identity)  # O_NONBLOCK: returns, never hangs
 
 
+@pytest.mark.security
 def test_reset_removes_the_enrolment(
     ca: pki.CertificateAuthority, identity: NodeIdentity
 ) -> None:

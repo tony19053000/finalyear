@@ -90,6 +90,7 @@ async def test_hello_is_accepted_and_persisted(
     assert session.peer_address.startswith("ipv4:127.0.0.1:")
 
 
+@pytest.mark.security
 async def test_missing_hello_is_closed_failed_precondition(
     runtime: ControllerRuntime, agents: Any, registry: Registry
 ) -> None:

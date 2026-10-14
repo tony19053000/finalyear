@@ -49,6 +49,7 @@ SECRETS = 6
 MAX_ALLOWED_STALL_S = 2.0
 
 
+@pytest.mark.security
 def test_big_secrets_do_not_freeze_the_controller_loop(
     make_fabric: Callable[..., Fabric], tmp_path: Path
 ) -> None:

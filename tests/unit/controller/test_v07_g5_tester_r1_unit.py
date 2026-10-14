@@ -483,6 +483,7 @@ _UNCHECKED = [
 ]
 
 
+@pytest.mark.security
 @pytest.mark.parametrize("change", _UNCHECKED)
 def test_a_tampered_field_the_assertion_does_not_read_is_refused(
     change: dict[str, Any],

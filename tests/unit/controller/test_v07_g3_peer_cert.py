@@ -31,7 +31,7 @@ from meshforge.controller.session.peer_cert import (
     status_for,
 )
 
-pytestmark = pytest.mark.unit
+pytestmark = [pytest.mark.unit, pytest.mark.security]
 
 NOW = dt.datetime.now(dt.UTC)
 

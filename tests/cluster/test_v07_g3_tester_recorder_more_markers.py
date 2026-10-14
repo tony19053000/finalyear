@@ -39,7 +39,7 @@ from meshforge.cli.follow import follow_logs, ws_url
 from meshforge.cli.transfer import upload_tree
 from meshforge.common.tree import BuiltTree, build_tree
 
-pytestmark = [pytest.mark.cluster, pytest.mark.timeout(300)]
+pytestmark = [pytest.mark.cluster, pytest.mark.timeout(300), pytest.mark.security]
 
 TIMING = Timing(
     name="recorder2",

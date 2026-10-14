@@ -123,6 +123,7 @@ def test_aad_binds_owner_and_name(owner: str, name: str) -> None:
     assert VALUE.decode() not in str(exc.value)
 
 
+@pytest.mark.security
 def test_tampering_and_another_key_fail_typed() -> None:
     box = _box()
     sealed = box.seal(VALUE, owner_user_id=OWNER, name="K")
@@ -145,6 +146,7 @@ def test_tampering_and_another_key_fail_typed() -> None:
         other.open(sealed, owner_user_id=OWNER, name="K")
 
 
+@pytest.mark.security
 @POSIX
 def test_the_key_file_is_created_private_and_reused(tmp_path: Path) -> None:
     path = tmp_path / "controller" / "secrets.key"
@@ -156,6 +158,7 @@ def test_the_key_file_is_created_private_and_reused(tmp_path: Path) -> None:
     assert again == key and not created2
 
 
+@pytest.mark.security
 @POSIX
 @pytest.mark.parametrize("mode", [0o644, 0o640, 0o604, 0o660])
 def test_a_key_readable_by_others_is_refused(tmp_path: Path, mode: int) -> None:
@@ -168,6 +171,7 @@ def test_a_key_readable_by_others_is_refused(tmp_path: Path, mode: int) -> None:
     assert path.read_bytes()  # never replaced by a new key
 
 
+@pytest.mark.security
 @POSIX
 def test_a_symlink_or_wrong_size_key_is_refused(tmp_path: Path) -> None:
     folder = tmp_path / "controller"

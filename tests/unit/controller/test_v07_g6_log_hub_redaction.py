@@ -27,7 +27,7 @@ from meshforge.common.secret_redaction import ACTIVE
 from meshforge.controller.blobs import BlobStore
 from meshforge.controller.jobs.logs import LogHub
 
-pytestmark = pytest.mark.unit
+pytestmark = [pytest.mark.unit, pytest.mark.security]
 
 A, J, N = "att_g6", "job_g6", "node_g6"
 VALUE = b"controller-side-secret-42"

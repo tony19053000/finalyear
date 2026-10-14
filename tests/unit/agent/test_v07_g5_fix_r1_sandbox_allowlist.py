@@ -20,7 +20,7 @@ from meshforge.agent.execution.sandbox_check import (
     check_host_config,
 )
 
-pytestmark = pytest.mark.unit
+pytestmark = [pytest.mark.unit, pytest.mark.security]
 
 WORK = "/data/work/att_x"
 MEM = 67108864

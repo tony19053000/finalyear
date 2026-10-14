@@ -108,6 +108,7 @@ def test_the_notice_fires_once_and_writes_the_note_over_stars() -> None:
     assert b"\n" not in FAIL_CLOSED_NOTE
 
 
+@pytest.mark.security
 @pytest.mark.asyncio
 @pytest.mark.usefixtures("stall")
 @pytest.mark.parametrize("step", [1, 5, 4096])
@@ -164,6 +165,7 @@ async def test_live_streams_say_so_once_each_and_keep_their_length(
     assert hub.stats.redaction_failed_closed == 2
 
 
+@pytest.mark.security
 @pytest.mark.asyncio
 @pytest.mark.usefixtures("stall")
 @pytest.mark.parametrize("live_first", [False, True])

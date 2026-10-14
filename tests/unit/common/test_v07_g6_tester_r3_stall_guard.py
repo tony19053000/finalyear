@@ -18,7 +18,7 @@ from meshforge.common.secret_redaction import (
     StreamRedactor,
 )
 
-pytestmark = pytest.mark.unit
+pytestmark = [pytest.mark.unit, pytest.mark.security]
 
 SECRETS = {"S0": b"00aaaa000a", "S1": b"a000a"}
 STREAM = b"hello 30306161616130303061 world 00aaaa000a a000a tail\n"

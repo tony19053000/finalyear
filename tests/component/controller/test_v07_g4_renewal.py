@@ -47,7 +47,12 @@ from meshforge.controller.settings import ControllerSettings
 from meshforge.controller.store.engine import create_engine
 from meshforge.controller.store.settings import DatabaseSettings
 
-pytestmark = [pytest.mark.component, pytest.mark.docker, pytest.mark.asyncio]
+pytestmark = [
+    pytest.mark.component,
+    pytest.mark.docker,
+    pytest.mark.asyncio,
+    pytest.mark.security,
+]
 
 
 @pytest.fixture

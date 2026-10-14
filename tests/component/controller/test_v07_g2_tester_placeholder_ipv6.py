@@ -124,6 +124,7 @@ def _has_ipv6() -> bool:
     return True
 
 
+@pytest.mark.security
 @pytest.mark.skipif(not _has_ipv6(), reason="no IPv6 loopback")
 async def test_ipv6_clients_are_rate_limited_per_ip(
     pg_settings: DatabaseSettings,

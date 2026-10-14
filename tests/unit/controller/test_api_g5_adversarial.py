@@ -31,7 +31,7 @@ from meshforge.controller.registry import NodeRecord, RegistryError
 from meshforge.controller.resources import ResourceTracker
 from meshforge.controller.session.manager import SessionManager
 
-pytestmark = pytest.mark.unit
+pytestmark = [pytest.mark.unit, pytest.mark.security]
 
 NODE_A = str(new_node_id())
 
