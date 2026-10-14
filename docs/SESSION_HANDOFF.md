@@ -9,8 +9,8 @@
 > ```
 > Read docs/SESSION_HANDOFF.md (§0e first, then §1 and §2), then docs/STATUS.md, then
 > docs/briefs/V0.7-security-pairing.md. RULE: run ONE subagent at a time (team, re-imposed 2026-10-01).
-> V0.7 G1-G5 CLOSED; G6 (0.7.10) fix rounds 1-3 committed (D162-D164), not verified — see §1 "STOP, user".
-> Next: G6 fix-round-3 exit list + hand-off → tester r4 → reviewer → close 0.7.10 (see §1 "STOP, user").
+> V0.7 G1-G5 CLOSED; G6 (0.7.10) CLOSED 2026-10-14 (D165).
+> Next: Lead writes G7 brief (0.7.11 security suite), item 0 = D165.
 > Check git log and docs/briefs/progress/ first to see which round last finished.
 > ```
 >
@@ -264,6 +264,8 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 - Commits: keep using `git commit -- <paths>` even with one agent — the Lead also commits docs.
 
 ## 1. Where the project is
+
+**2026-10-14 (G6 CLOSED) — 0.7.10 `[x]`: tester r4 PASS `bde4410`, reviewer APPROVE, D165 recorded, STATUS bar refreshed. Nothing running. Next: Lead writes G7 brief (brief §3, 0.7.11 security suite); item 0 = D165 follow-ups. Run the whole component suite once per group, at the end.**
 
 **2026-10-14 (fix r3 HAND-OFF DONE) — "### Fix round 3 hand-off" written in `docs/briefs/progress/V0.7-G6.md` (per-item file:line + tests, `1266086` root cause for the reviewer, `8b9871d`/`30f2cc0` rationale, evidence table). Exit list accepted as recorded by Lead decision; whole-component run after `30f2cc0` SKIPPED (run 4 result not awaited; both whole-component failures were test-only races, fixed and rerun green). **Next: tester r4 (narrow: D164 items + `1266086`)** → reviewer → close 0.7.10 + STATUS bar.**
 
