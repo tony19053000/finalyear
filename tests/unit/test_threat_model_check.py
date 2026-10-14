@@ -185,7 +185,6 @@ def test_rows_outside_section_5_are_ignored_and_none_found_is_an_error() -> None
         tmc.check("# T\n\n## 4. Inventory\n\n| CG-S1 | a | b |\n", COLLECTED)
 
 
-@pytest.mark.xfail(reason="rows still open until G7 deliverables 3-4", strict=True)
 def test_the_real_threat_model_has_every_row_closed() -> None:
     """Criterion 5 of V0.7, mechanically: every row of docs/THREAT_MODEL.md is
     mitigated by a collected `security` test or accepted with a §7 reason."""
