@@ -127,7 +127,8 @@ async def _job_on(store: ExecutionStore, node: str, **sched: Any) -> Any:
     )
     (res,) = [r for r in await _tick(store, OnNode(node)) if r.job.id == job.id]
     out = await apply_as_placed(
-        store, StatusReport(res.attempt.id, res.attempt.fencing_token, AttemptState.RUNNING)
+        store,
+        StatusReport(res.attempt.id, res.attempt.fencing_token, AttemptState.RUNNING),
     )
     assert out.kind is StatusKind.APPLIED
     return job, out.attempt
@@ -177,7 +178,9 @@ async def test_wrong_node_after_reassignment_never_moves_either_attempt(
     for who in (node_c, node_a):
         for attempt in (first, second):
             for token in (1, 2, 99):
-                forgeries.append((who, attempt.id, token, AttemptState.FAILED, retryable_fail))
+                forgeries.append(
+                    (who, attempt.id, token, AttemptState.FAILED, retryable_fail)
+                )
                 forgeries.append((who, attempt.id, token, AttemptState.DONE, {}))
                 forgeries.append((who, attempt.id, token, AttemptState.UPLOADING, {}))
     forgeries.append((node_b, first.id, 1, AttemptState.DONE, {}))
@@ -200,9 +203,7 @@ async def test_wrong_node_after_reassignment_never_moves_either_attempt(
         StatusReport(first.id, 1, AttemptState.DONE), node_id=node_a
     )
     assert late.kind is StatusKind.FENCED
-    done = await apply_as_placed(
-        store, StatusReport(second.id, 2, AttemptState.DONE)
-    )
+    done = await apply_as_placed(store, StatusReport(second.id, 2, AttemptState.DONE))
     assert done.kind is StatusKind.APPLIED and done.ended
     j = await store.get_job(job.id)
     assert j is not None and j.state is JobState.SUCCEEDED
@@ -236,7 +237,7 @@ async def test_wrong_node_on_an_ended_attempt_is_still_wrong_node_not_duplicate(
 # ------------------------------------------------------- e2e (real mTLS controller)
 
 import os  # noqa: E402
-from collections.abc import AsyncIterator as _AI  # noqa: E402
+from collections.abc import AsyncIterator as _AsyncIterator  # noqa: E402
 
 from mf_fabric import session_channel  # noqa: E402
 from mf_jobs_harness import (  # noqa: E402
@@ -256,7 +257,7 @@ BUNDLE = os.urandom(1500)
 
 
 @pytest_asyncio.fixture
-async def rt(pg_settings: DatabaseSettings) -> _AI[ControllerRuntime]:
+async def rt(pg_settings: DatabaseSettings) -> _AsyncIterator[ControllerRuntime]:
     settings = g2_settings(pg_settings, jobs={"dispatch_interval_s": 60.0})
     async with running_controller(settings) as runtime:
         yield runtime
@@ -264,19 +265,26 @@ async def rt(pg_settings: DatabaseSettings) -> _AI[ControllerRuntime]:
 
 def _hw(*caps: str) -> agent_pb2.HardwareSummary:
     return agent_pb2.HardwareSummary(
-        cpu_model="t", cpu_cores=4, cpu_threads=8, ram_bytes=16 * 1024**3,
+        cpu_model="t",
+        cpu_cores=4,
+        cpu_threads=8,
+        ram_bytes=16 * 1024**3,
         capabilities=list(caps),
     )
 
 
-def _st(agent: FakeAgent, start: Any, state: int, message_id: str | None = None,
-        **kw: Any) -> agent_pb2.AgentMessage:
+def _st(
+    agent: FakeAgent, start: Any, state: int, message_id: str | None = None, **kw: Any
+) -> agent_pb2.AgentMessage:
     return agent_pb2.AgentMessage(
         message_id=message_id or new_command_id(),
         session_id=agent.session_id,
         attempt_status=agent_pb2.AttemptStatus(
-            job_id=start.job_id, attempt_id=start.attempt_id,
-            fencing_token=start.fencing_token, state=state, **kw,  # type: ignore[arg-type]
+            job_id=start.job_id,
+            attempt_id=start.attempt_id,
+            fencing_token=start.fencing_token,
+            state=state,
+            **kw,  # type: ignore[arg-type]
         ),
     )
 
@@ -298,7 +306,9 @@ async def test_reconcile_claim_and_reconnect_replay_from_node_b_move_nothing(
 ) -> None:
     digest = sha256_bytes(BUNDLE)
     async with api_client(rt, token=token_of(rt)) as client:
-        assert (await client.put(f"/v1/blobs/{digest.hex}", content=BUNDLE)).status_code == 201
+        assert (
+            await client.put(f"/v1/blobs/{digest.hex}", content=BUNDLE)
+        ).status_code == 201
     node_a, node_b = str(new_node_id()), str(new_node_id())
     async with (
         session_channel(rt, node_a) as ch_a,
@@ -315,8 +325,10 @@ async def test_reconcile_claim_and_reconnect_replay_from_node_b_move_nothing(
             async with api_client(rt, token=token_of(rt)) as client:
                 created = await client.post(
                     "/v1/jobs",
-                    json={"manifest": {"name": "demo", "entrypoint": "python main.py"},
-                          "bundle_digest": str(digest)},
+                    json={
+                        "manifest": {"name": "demo", "entrypoint": "python main.py"},
+                        "bundle_digest": str(digest),
+                    },
                 )
                 assert created.status_code == 201, created.text
                 job_id = created.json()["job_id"]
@@ -325,29 +337,47 @@ async def test_reconcile_claim_and_reconnect_replay_from_node_b_move_nothing(
                 await _until(lambda: bool(a.messages("start_attempt")))
                 (sm,) = a.messages("start_attempt")
                 start = sm.start_attempt
-                await a.write(agent_pb2.AgentMessage(
-                    message_id=new_command_id(), session_id=a.session_id,
-                    ack=agent_pb2.Ack(acked_message_id=sm.message_id)))
+                await a.write(
+                    agent_pb2.AgentMessage(
+                        message_id=new_command_id(),
+                        session_id=a.session_id,
+                        ack=agent_pb2.Ack(acked_message_id=sm.message_id),
+                    )
+                )
                 running = _st(a, start, common_pb2.ATTEMPT_STATE_RUNNING)
                 await a.write(running)
                 await _until(lambda: _acked(a, running.message_id))
                 a_cmds = len(a.received)
 
                 # B claims A's attempt in a Reconcile, then forges final reports.
-                await b.write(agent_pb2.AgentMessage(
-                    message_id=new_command_id(), session_id=b.session_id,
-                    reconcile=agent_pb2.Reconcile(running_attempts=[
-                        agent_pb2.AttemptStatus(
-                            job_id=start.job_id, attempt_id=start.attempt_id,
-                            fencing_token=start.fencing_token,
-                            state=common_pb2.ATTEMPT_STATE_RUNNING)])))
+                await b.write(
+                    agent_pb2.AgentMessage(
+                        message_id=new_command_id(),
+                        session_id=b.session_id,
+                        reconcile=agent_pb2.Reconcile(
+                            running_attempts=[
+                                agent_pb2.AttemptStatus(
+                                    job_id=start.job_id,
+                                    attempt_id=start.attempt_id,
+                                    fencing_token=start.fencing_token,
+                                    state=common_pb2.ATTEMPT_STATE_RUNNING,
+                                )
+                            ]
+                        ),
+                    )
+                )
                 forged_ids = []
-                for state in (common_pb2.ATTEMPT_STATE_FAILED, common_pb2.ATTEMPT_STATE_DONE):
+                for state in (
+                    common_pb2.ATTEMPT_STATE_FAILED,
+                    common_pb2.ATTEMPT_STATE_DONE,
+                ):
                     kw: dict[str, Any] = {}
                     if state == common_pb2.ATTEMPT_STATE_FAILED:
                         kw["failure"] = common_pb2.Failure(
                             failure_type=common_pb2.FAILURE_TYPE_INTEGRITY_ERROR,
-                            message="forged", retryable=True)
+                            message="forged",
+                            retryable=True,
+                        )
                     m = _st(b, start, state, **kw)
                     forged_ids.append((m.message_id, state, kw))
                     await b.write(m)
@@ -371,8 +401,11 @@ async def test_reconcile_claim_and_reconnect_replay_from_node_b_move_nothing(
                 body = (await client.get(f"/v1/jobs/{job_id}")).json()
                 assert body["state"] == "running", body
                 # A was never told to cancel / release, and still finishes the job.
-                assert not [m for m in a.received[a_cmds:]
-                            if m.WhichOneof("payload") in ("cancel_attempt", "release_attempt")]
+                assert not [
+                    m
+                    for m in a.received[a_cmds:]
+                    if m.WhichOneof("payload") in ("cancel_attempt", "release_attempt")
+                ]
                 done = _st(a, start, common_pb2.ATTEMPT_STATE_DONE, exit_code=0)
                 await a.write(done)
                 await _until(lambda: _acked(a, done.message_id))
