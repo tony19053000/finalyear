@@ -10,7 +10,9 @@ is sent: the controller by its ``meshforge-controller`` name, a peer by the
 node id the controller named (:func:`peer_extensions`).
 
 :meth:`AgentHttpTls.transport` makes a fresh httpx transport per client (an
-``httpx.AsyncClient`` closes its transport when it closes).
+``httpx.AsyncClient`` closes its transport when it closes); its connections
+open through :mod:`meshforge.agent.http_connect`, so a cancelled request
+cannot leave a socket open.
 """
 
 from __future__ import annotations
@@ -22,6 +24,7 @@ from typing import Any
 import httpx
 
 from meshforge.agent import enrollment
+from meshforge.agent.http_connect import cancel_safe_transport
 from meshforge.agent.identity import KEY_FILE_NAME, NODE_CERT_FILE_NAME, NodeIdentity
 from meshforge.agent.session.tls import JOIN_HINT, SessionTlsError
 from meshforge.common.fabric_tls import client_context, peer_server_name
@@ -36,7 +39,7 @@ class AgentHttpTls:
     context: ssl.SSLContext = field(repr=False)
 
     def transport(self) -> httpx.AsyncHTTPTransport:
-        return httpx.AsyncHTTPTransport(verify=self.context)
+        return cancel_safe_transport(self.context)
 
     def reload(self, identity: NodeIdentity) -> None:
         """V0.7 G4 (D140): present the renewed certificate (or rotated key)
