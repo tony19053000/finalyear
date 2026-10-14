@@ -328,6 +328,43 @@ meshforge-controller fabric show          # any time; --json for scripts
   join`. The controller refuses to start without a CA (run `fabric create`).
   Revoking a laptop: §0a2c. Still to come: per-user logins (G4).
 
+### 0a1d. The dashboard in a browser (V0.8 G1, D169/D170 - [ADR-0017](adr/0017-dashboard-architecture.md))
+
+The controller serves the dashboard at `https://<controller>:47110/` (the same port as the API). Until the
+frontend is built (`cd frontend && npm ci && npm run build`, V0.8 G2) that address shows a plain "dashboard not
+built" page; the API and `compute` work either way.
+
+**Trust the fabric CA once per machine** - never click through the browser's warning:
+
+```
+meshforge-controller ca trust-helper            # path + SHA-256 of ca.crt, steps for Linux, Windows, macOS
+meshforge-controller ca trust-helper --os windows
+meshforge-controller ca trust-helper --pem > ca.crt   # the (public) certificate, to copy to that machine
+```
+
+It only prints; you run the steps, after checking that the fingerprint the OS shows equals the printed one.
+On the controller host itself you may instead set `[controller.http] loopback_plain = "127.0.0.1:47111"` and open
+`http://127.0.0.1:47111` - plain HTTP that never leaves the machine (only `127.0.0.1` or `[::1]` is accepted; any
+other value stops the controller at start).
+
+**Logging in.** The dashboard asks for the same user name and password as `compute login`. It never receives an
+API token: it gets a *session* cookie (`HttpOnly`, `Secure`, `SameSite=Strict`) that ends after **12 h unused**
+or **7 days** in any case (`[controller.auth] session_idle_hours`, `session_max_days`), at logout, or when the
+user's password is reset or the user disabled. Sessions show up in `compute tokens list` as `browser_session`
+and can be revoked there like any token (`compute tokens revoke tok_...`); open dashboard tabs then lose their live
+stream within a second. Failed dashboard logins count against the same per-address / per-user limits as
+`compute login`.
+
+**Security headers.** Every response carries a strict `Content-Security-Policy` (only the controller's own
+scripts, styles, fonts and connections; no frames), `X-Content-Type-Options: nosniff`,
+`Referrer-Policy: no-referrer` and `X-Frame-Options: DENY`. If the controller is ever put behind a reverse proxy,
+keep them and keep the proxy on the same origin (ADR-0017 "revisit").
+
+**Live updates** come over one WebSocket (`/v1/events/ws`). The bus is in memory: a controller restart makes
+every open dashboard reload its data (`resync`). Tuning (rarely needed): `[controller.events] ring_size`
+(10 000 events kept for reconnects), `queue_size` (1 000 per tab - a tab that falls further behind is
+disconnected and reconnects), `max_subscribers` (256), `watch_interval_s` (0.25), `metrics_interval_s` (1).
+
 ### 0a1c. Running the security suite (V0.7 G7)
 
 Every security claim in `docs/THREAT_MODEL.md` names the test that proves it. To check the claims
