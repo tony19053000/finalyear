@@ -190,12 +190,16 @@ async def test_agent_shutdown_with_a_write_blocked_for_a_long_time_returns(
     """`agent.stop()` while the write thread is blocked 12 s: how long?"""
     entered = threading.Event()
     release = threading.Event()
+    returned = threading.Event()
     real = SecretVault.materialise
 
     def blocked(self: SecretVault, *args: Any, **kwargs: Any) -> Path:
         entered.set()
         release.wait(12)
-        return real(self, *args, **kwargs)
+        try:
+            return real(self, *args, **kwargs)
+        finally:
+            returned.set()
 
     monkeypatch.setattr(SecretVault, "materialise", blocked)
     agent = await _agent(grpc_target, tmp_path / "agent")
@@ -212,6 +216,9 @@ async def test_agent_shutdown_with_a_write_blocked_for_a_long_time_returns(
         print(f"agent.stop() with a write blocked 12 s: {took:.1f}s")
     finally:
         release.set()
+    # The write runs on after the stop (that is the point); an empty base
+    # before it has even made the folder proves nothing - poll once it is done.
+    assert await asyncio.to_thread(returned.wait, 30)
     for _ in range(100):
         if not _listing(base):
             break
