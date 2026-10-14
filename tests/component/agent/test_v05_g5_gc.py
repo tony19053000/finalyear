@@ -117,16 +117,11 @@ async def test_a_running_attempt_keeps_its_tree_through_gc_passes(
     built = build_tree(project, chunk_size=CS)
     await _upload(runtime, built)
     flag, started = tmp_path / "go", tmp_path / "started"
-    posted = await http.post(
-        "/v1/jobs",
-        json={
-            "manifest": {
-                "name": "gc",
-                "entrypoint": ["python", "main.py", str(flag), str(started)],
-            },
-            "tree_id": str(built.tree.tree_id),
-            "placement": {"node_id": agent.node_id},
-        },
+    posted = await _post_pinned(
+        http,
+        built,
+        agent.node_id,
+        {"name": "gc", "entrypoint": ["python", "main.py", str(flag), str(started)]},
     )
     assert posted.status_code == 201, posted.text
     await _wait_for(started)  # the workload runs: staging is over, lease held
@@ -162,7 +157,12 @@ async def test_the_next_job_after_eviction_fetches_again_and_succeeds(
     built = build_tree(project, chunk_size=CS)
     await _upload(runtime, built)
     for _ in range(2):
-        posted = await _post_pinned(http, built, agent.node_id)
+        posted = await _post_pinned(
+            http,
+            built,
+            agent.node_id,
+            {"name": "gc2", "entrypoint": ["python", "main.py"]},
+        )
         job = await wait_job(http, str(posted.json()["job_id"]))
         assert job["state"] == "succeeded", job
         stage = agent.executor.last_stage
@@ -171,17 +171,22 @@ async def test_the_next_job_after_eviction_fetches_again_and_succeeds(
 
 
 async def _post_pinned(
-    http: httpx.AsyncClient, built: BuiltTree, node_id: str
+    http: httpx.AsyncClient,
+    built: BuiltTree,
+    node_id: str,
+    manifest: dict[str, object],
 ) -> httpx.Response:
     """POST a job pinned to ``node_id``. Under full-tier load the agent's
-    session can expire and re-enrol; a pinned job is then refused 409 (node
-    offline) until it is back, so retry 409 for a bounded time."""
+    session can expire and re-enrol (this module's fixture runs controller
+    and agent in one process with a 0.6 s lease, so a blocked event loop
+    alone can expire it); a pinned job is then refused 409 (node offline)
+    until it is back, so retry 409 for a bounded time."""
     deadline = time.monotonic() + 30.0
     while True:
         posted = await http.post(
             "/v1/jobs",
             json={
-                "manifest": {"name": "gc2", "entrypoint": ["python", "main.py"]},
+                "manifest": manifest,
                 "tree_id": str(built.tree.tree_id),
                 "placement": {"node_id": node_id},
             },
