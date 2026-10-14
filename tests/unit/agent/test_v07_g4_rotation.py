@@ -301,6 +301,7 @@ def test_reset_drops_a_staged_key(ident: NodeIdentity) -> None:
     assert not (ident.path / ROTATION_KEY_FILE_NAME).exists()
 
 
+@pytest.mark.security
 def test_renewal_due_at_is_two_thirds_of_the_window() -> None:
     start = dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
     end = start + dt.timedelta(days=30)
