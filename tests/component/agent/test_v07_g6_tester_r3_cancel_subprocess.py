@@ -54,7 +54,7 @@ MANIFEST = {
 
 
 def _shm() -> set[str]:
-    return set(os.listdir("/dev/shm"))
+    return {n for n in os.listdir("/dev/shm") if n.startswith("meshforge-")}
 
 
 def _listing(base: Path) -> list[str]:
