@@ -338,7 +338,7 @@ on your machine:
 uv run python scripts/threat_model_check.py
 # the fast part of the security suite (no Docker)
 uv run python scripts/pytest_exit_guard.py -m "security and unit" -q
-# the whole security suite: unit + component + cluster (needs Docker for PostgreSQL; ~15 min)
+# the whole security suite: unit + component + cluster (needs Docker for PostgreSQL; ~10 min)
 uv run python scripts/pytest_exit_guard.py -m security -q
 ```
 
