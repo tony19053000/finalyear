@@ -222,7 +222,11 @@ secrets:
   please report it with the shape (not the value) of the job's secrets; it is
   a bug in MeshForge. In `compute logs` the note is written over the first
   withheld bytes (the stored log keeps its length); on the laptop it is a
-  line of its own.
+  line of its own. **The log is the only place it shows** (D165 (4)): the
+  job and attempt records (`compute jobs <JOB_ID>`, `compute explain`,
+  `GET /v1/jobs/...`) have no field for it and the job's state is whatever
+  the workload's was - so read the log of a job whose output matters, and
+  look for that line, before trusting an empty-looking result.
 - **Changing a value:** `compute secret set NAME` again. Running attempts keep
   the value they started with; the next attempt (a new job or a retry) gets the
   new one.
@@ -343,6 +347,15 @@ meshforge-controller fabric show          # any time; --json for scripts
   `security.insecure_dev`. Never use it on a network.
 - **Enrolment port.** Join codes keep pointing at the enrolment listener (47101):
   open it on the LAN firewall profile next to 47100/47110/47120.
+- **A cancelled HTTPS request never leaks its socket** (V0.7 G6): the agent opens
+  every HTTPS connection (bundles, trees, outputs, peer fetches, probes) through
+  a cancel-safe connect (`agent/http_connect.py`). One narrow case is accepted
+  (D165 (2)): a connect or TLS handshake still in progress at the moment the
+  agent's event loop itself shuts down is cancelled by the loop and its socket
+  may be left to the operating system. It happens only while the agent process
+  is exiting, and the OS closes every socket of a process that ends - no action
+  needed; a `ResourceWarning: unclosed <socket>` in a test run at shutdown is
+  this case.
 
 | Symptom | Cause | Remedy |
 |---|---|---|

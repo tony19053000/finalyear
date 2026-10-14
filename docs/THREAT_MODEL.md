@@ -282,5 +282,6 @@ Columns: **ID** · **S/T/R/I/D/E** · **threat** · **today (V0.6)** · **V0.7 m
 | `submitter_node_id` is unproven | placement hint only, grants nothing | if the CLI ever holds a node credential |
 | Peer TLS server names (node ids) visible on the LAN (PB-I2) | node ids are public inside the fabric; ECH is not in our TLS stacks | if node ids ever become sensitive |
 | A CLI revocation reaches the running controller only at its next sync (≤ `poll_interval_s`, 1 s) | the REST path is immediate; the CLI path writes the database directly and works with the controller down | — |
+| A connect / TLS handshake still running when the agent's event loop shuts down can leave its socket open until the process exits (D165 (2), `agent/http_connect.py`) | only at agent exit, and the OS closes every socket of an ending process; every cancel while the loop runs is leak-free (`tests/component/agent/test_v07_g6_tester_r4_https_storm.py`) | if the agent ever stops its loop without exiting |
 | LAN-level DoS (handshake floods, mDNS spoof loops, Wi-Fi jamming) | out of scope for a LAN fabric; bounds exist on every listener | if the fabric spans untrusted networks |
 | Root/Administrator on a fabric laptop | owns the machine by definition | — |

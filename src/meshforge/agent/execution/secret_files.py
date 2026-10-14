@@ -528,7 +528,10 @@ class SecretVault:
             os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0),
             dir_fd=folder.fd,
         )
-        with os.fdopen(fd, "r+b", buffering=0) as fh:
+        # "wb" on an fd neither truncates nor reopens: the file keeps its size
+        # and is overwritten in place from offset 0 (the fd is write-only, so
+        # a read mode would only describe it wrongly - D165 (3)).
+        with os.fdopen(fd, "wb", buffering=0) as fh:
             info = os.fstat(fd)
             if not stat.S_ISREG(info.st_mode):
                 return

@@ -146,7 +146,17 @@ def cancel_safe_transport(verify: ssl.SSLContext) -> httpx.AsyncHTTPTransport:
 
     httpx 0.28 takes no network backend, so the one of the connection pool it
     builds is replaced (pinned by a unit test: an httpx upgrade that changes
-    the pool fails there instead of silently leaking again)."""
+    the pool fails there instead of silently leaking again; and by a
+    component test counting this backend's ``connect_tcp`` on a real HTTPS
+    fetch - ``tests/component/agent/test_v07_g7_item0_http_backend.py`` - so a
+    rename of the attribute the pool *reads* fails loudly too).
+
+    The transport is built here with ``verify=`` only. Any future pool
+    option - connection ``limits``, ``http2``, retries, ``local_address`` -
+    must be passed to this ``httpx.AsyncHTTPTransport(...)`` call (add a
+    parameter), never by building another transport elsewhere: a transport
+    made anywhere else opens its connections through httpcore's default
+    backend and brings the cancel leak back."""
     transport = httpx.AsyncHTTPTransport(verify=verify)
     pool = transport._pool
     if not isinstance(pool, httpcore.AsyncConnectionPool):
