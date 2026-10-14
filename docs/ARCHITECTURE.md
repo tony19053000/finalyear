@@ -751,6 +751,12 @@ sequenceDiagram
 
 - **Fix round 3 (D164):** the secrets base is checked through one descriptor-based check before every use (`SecretVault._open_base`: `O_NOFOLLOW`, our uid, mode 0700; a planted base is refused, typed `secrets_base_refused`, never walked into); the wait for the secret write thread is bounded (`secret_write_wait_s`; past it the write thread wipes its own files); on a wheels-only node a wheel URL must carry a strong `--hash`; a log redactor that failed closed is logged and noted in the log; `remove_tree` removes unreadable directories and cleanups never replace a cancel.
 
+*Shipped in G7 (0.7.11, D165/D166) - the security suite:*
+- **What "secure" means is a check, not an opinion.** `docs/THREAT_MODEL.md` §5 has one row per threat on every plane (99 rows). `scripts/threat_model_check.py` fails unless every row is `mitigated` with tests that pytest collects under the `security` marker, or `accepted` with a reason that §7 names; it runs as a unit test (`tests/unit/test_threat_model_check.py`), so a deleted test, a missing marker or a reopened row fails CI. `security` is a capability marker, not a tier: the tests stay in `tests/unit|component|cluster` and `pytest -m security` runs all of them (THREAT_MODEL §9).
+- **The five V0.7 criteria map to tests** (THREAT_MODEL §8): every listener (47100, 47101, 47110, 47120) x every unacceptable certificate (none, another CA, expired, revoked, superseded); join codes single-use / expiring / revocable under races; a full fabric run recorded byte by byte on every link with zero plaintext markers *and* an `insecure-dev` control run in which the same recorder finds them; a secret on no surface after a failed and a cancelled run; an AST scan that no token/secret/hash-of-secret is compared with `==` in `src/`.
+- **Found and fixed by the sweep:** a status report was applied whoever sent it (`ExecutionStore.apply_status` now takes the session's proven node and refuses another node's attempt, `WRONG_NODE` - CG-E2); an `insecure-dev` controller with a CA demanded client certificates on plain HTTP (now only on TLS).
+- **Item 0 (D165):** a component test counts the cancel-safe HTTP backend's `connect_tcp` on a real HTTPS fetch, so an httpcore rename of the pool attribute fails loudly; `_zero` opens its write-only descriptor `wb`; loop-shutdown socket leak accepted (THREAT_MODEL §7).
+
 ### 16.1 How log redaction works
 
 *Plain-language guide to `common/secret_redaction.py` (for explaining the module; the exact arguments are in its docstring).*

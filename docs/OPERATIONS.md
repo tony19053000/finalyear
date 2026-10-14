@@ -328,6 +328,26 @@ meshforge-controller fabric show          # any time; --json for scripts
   join`. The controller refuses to start without a CA (run `fabric create`).
   Revoking a laptop: §0a2c. Still to come: per-user logins (G4).
 
+### 0a1c. Running the security suite (V0.7 G7)
+
+Every security claim in `docs/THREAT_MODEL.md` names the test that proves it. To check the claims
+on your machine:
+
+```bash
+# criterion 5: every threat-model row is closed, every named test exists and is marked (no DB/Docker; ~5 s)
+uv run python scripts/threat_model_check.py
+# the fast part of the security suite (no Docker)
+uv run python scripts/pytest_exit_guard.py -m "security and unit" -q
+# the whole security suite: unit + component + cluster (needs Docker for PostgreSQL; ~15 min)
+uv run python scripts/pytest_exit_guard.py -m security -q
+```
+
+`threat_model_check` prints one line per row - ID, status, how many of its tests are collected
+under `-m security`, and the problem if any - and exits 1 when a row is open, a named test is
+missing or not marked `@pytest.mark.security`, or an accepted row is not listed in the accepted-risks
+table. The real-network half (four laptops, packet captures, a Windows agent) is the 🧑 lab
+checklist `lab/checklists/V0.7-security.md`.
+
 ### 0a2b. TLS operations (V0.7 G3)
 
 - **`compute` and the CA.** `compute` talks `https://` only. It trusts the fabric
