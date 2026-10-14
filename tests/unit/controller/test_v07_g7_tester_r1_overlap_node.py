@@ -3,7 +3,7 @@ claims a superseded attempt. Node B, claiming A's LOST attempt in a Reconcile
 (or in a forged report that the CG-E2 fix refuses), still gets an
 ``execution_overlap`` counted and logged against B - and the once-per-attempt
 memory then hides the real overlap if A shows up later. Telemetry poisoning,
-not a state change."""
+not a state change. Fixed in fix round 1 (D167 TQ-7): was a strict xfail."""
 
 from __future__ import annotations
 
@@ -29,11 +29,9 @@ def test_control_the_owning_node_counts_one_overlap() -> None:
     assert len(_claim(steps, "node_x")) == 1  # the fake attempt is placed on node_x
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="TQ-7: _check_overlap never compares the claiming node with attempt.node_id",
-)
-def test_another_nodes_claim_is_not_an_overlap_and_does_not_use_up_the_real_one() -> None:
+def test_another_nodes_claim_is_not_an_overlap_and_does_not_use_up_the_real_one() -> (
+    None
+):
     steps = Steps(FakeStore(_attempt(AttemptState.LOST), _job(epoch=2)))
     assert _claim(steps, "node_other") == []
     assert steps.stats.execution_overlaps == 0

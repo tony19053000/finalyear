@@ -150,12 +150,16 @@ class RecoverySteps(DispatchSteps):
         controller ended ``LOST`` while the job has a newer attempt - the
         partitioned laptop kept running it while the retry ran elsewhere.
         Never committed (fenced) and now released, but the overlap is real:
-        count it and log it, once per attempt."""
+        count it and log it, once per attempt. Only the attempt's own node can
+        overlap with it: a claim from any other node (V0.7 G7 CG-E2 residual,
+        D167 TQ-7) is ignored here - no count, no log, and it does not use up
+        the once-per-attempt memory that the real owner's claim needs."""
         if attempt_id in self._overlaps_seen:
             return
         attempt = await self._store.get_attempt(attempt_id)
         if (
             attempt is None
+            or attempt.node_id != node_id
             or attempt.fencing_token != token
             or attempt.state is not AttemptState.LOST
         ):
