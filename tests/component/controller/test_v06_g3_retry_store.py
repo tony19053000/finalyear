@@ -28,6 +28,7 @@ import pytest_asyncio
 pytest.importorskip("alembic", reason="needs the controller extra")
 
 from alembic import command
+from mf_reports import apply_as_placed
 from sqlalchemy import text
 
 from meshforge.common.errors import FailureType
@@ -157,8 +158,8 @@ async def _running(store: ExecutionStore, node: str, **scheduling: Any) -> Any:
 
 
 async def _run(store: ExecutionStore, attempt: Any) -> Any:
-    outcome = await store.apply_status(
-        StatusReport(attempt.id, attempt.fencing_token, AttemptState.RUNNING)
+    outcome = await apply_as_placed(
+        store, StatusReport(attempt.id, attempt.fencing_token, AttemptState.RUNNING)
     )
     assert outcome.kind is StatusKind.APPLIED
     return outcome.attempt
@@ -192,7 +193,9 @@ async def test_a_retryable_failure_requeues_the_job_in_the_same_transaction(
 ) -> None:
     (node, _) = await _nodes(pg_settings)
     attempt = await _running(store, node, retry_backoff_s=7)
-    outcome = await store.apply_status(_fail(attempt, FailureType.TRANSFER_ERROR, True))
+    outcome = await apply_as_placed(
+        store, _fail(attempt, FailureType.TRANSFER_ERROR, True)
+    )
     assert outcome.kind is StatusKind.APPLIED and outcome.ended
     assert outcome.retry is not None and outcome.retry.retry
     assert outcome.retry.backoff_s == 7.0
@@ -219,7 +222,7 @@ async def test_not_before_is_respected_and_the_next_attempt_gets_token_2(
 ) -> None:
     node, other = await _nodes(pg_settings)
     attempt = await _running(store, node, retry_backoff_s=60)
-    await store.apply_status(_fail(attempt, FailureType.TIMEOUT))
+    await apply_as_placed(store, _fail(attempt, FailureType.TIMEOUT))
     decide = OnNode(other)
     assert await _tick(store, decide) == []  # backing off: not even offered
     later = dt.datetime.now(dt.UTC) + dt.timedelta(seconds=61)
@@ -265,14 +268,16 @@ async def test_the_per_instance_flag_and_non_retryable_failures(
 ) -> None:
     (node, _) = await _nodes(pg_settings)
     blip = await _running(store, node)
-    out = await store.apply_status(_fail(blip, FailureType.OUTPUT_ERROR, True))
+    out = await apply_as_placed(store, _fail(blip, FailureType.OUTPUT_ERROR, True))
     assert out.job is not None and out.job.state is JobState.QUEUED
     refused = await _running(store, node)
-    out = await store.apply_status(_fail(refused, FailureType.TRANSFER_ERROR, False))
+    out = await apply_as_placed(
+        store, _fail(refused, FailureType.TRANSFER_ERROR, False)
+    )
     assert out.job is not None and out.job.state is JobState.FAILED
     assert out.job.failure_type is FailureType.TRANSFER_ERROR
     crash = await _running(store, node)
-    out = await store.apply_status(_fail(crash, FailureType.USER_ERROR))
+    out = await apply_as_placed(store, _fail(crash, FailureType.USER_ERROR))
     assert out.job is not None and out.job.state is JobState.FAILED
     assert out.retry is not None and out.retry.reason is RetryReason.NOT_RETRYABLE
     assert out.job.failure_detail == "boom"
@@ -283,11 +288,11 @@ async def test_the_last_allowed_attempt_fails_the_job_retries_exhausted(
 ) -> None:
     node, other = await _nodes(pg_settings)
     attempt = await _running(store, node, max_attempts=2)
-    await store.apply_status(_fail(attempt, FailureType.INTEGRITY_ERROR))
+    await apply_as_placed(store, _fail(attempt, FailureType.INTEGRITY_ERROR))
     (result,) = await _tick(store, OnNode(other))
     second = await _run(store, result.attempt)
     assert second.fencing_token == 2
-    out = await store.apply_status(_fail(second, FailureType.INTEGRITY_ERROR))
+    out = await apply_as_placed(store, _fail(second, FailureType.INTEGRITY_ERROR))
     assert out.retry is not None
     assert out.retry.reason is RetryReason.RETRIES_EXHAUSTED
     job = out.job
@@ -313,7 +318,7 @@ async def test_a_cancel_request_stops_retries(
     attempt = await _running(store, node)
     cancel = await store.request_cancel(attempt.job_id)
     assert cancel is not None and cancel.attempt is not None
-    out = await store.apply_status(_fail(attempt, FailureType.TIMEOUT))
+    out = await apply_as_placed(store, _fail(attempt, FailureType.TIMEOUT))
     assert out.job is not None and out.job.state is JobState.CANCELLED  # D127
     assert out.retry is not None and out.retry.reason is RetryReason.CANCELLED
 
@@ -323,8 +328,8 @@ async def test_a_lost_upload_retries_from_collecting(
 ) -> None:
     (node, _) = await _nodes(pg_settings)
     attempt = await _running(store, node)
-    up = await store.apply_status(
-        StatusReport(attempt.id, attempt.fencing_token, AttemptState.UPLOADING)
+    up = await apply_as_placed(
+        store, StatusReport(attempt.id, attempt.fencing_token, AttemptState.UPLOADING)
     )
     assert up.job is not None and up.job.state is JobState.COLLECTING
     out = await store.end_attempt(
@@ -360,16 +365,16 @@ async def test_the_superseded_attempt_never_moves_the_retried_job(
     (result,) = await _tick(store, OnNode(other))
     new = await _run(store, result.attempt)
     # the partitioned agent comes back and reports DONE for the old attempt
-    late = await store.apply_status(
-        StatusReport(old.id, old.fencing_token, AttemptState.DONE)
+    late = await apply_as_placed(
+        store, StatusReport(old.id, old.fencing_token, AttemptState.DONE)
     )
     assert late.kind is StatusKind.FENCED
     # even if the old row were (wrongly) still live, the job's epoch fences it
     await _sql(
         pg_settings, "UPDATE attempt SET state = 'uploading' WHERE id = :a", a=old.id
     )
-    late = await store.apply_status(
-        StatusReport(old.id, old.fencing_token, AttemptState.DONE)
+    late = await apply_as_placed(
+        store, StatusReport(old.id, old.fencing_token, AttemptState.DONE)
     )
     assert late.kind is StatusKind.FENCED
     gone = await store.end_attempt(
@@ -383,8 +388,8 @@ async def test_the_superseded_attempt_never_moves_the_retried_job(
     job = await store.get_job(new.job_id)
     assert job is not None and job.state is JobState.RUNNING
     assert job.attempt_epoch == 2
-    done = await store.apply_status(
-        StatusReport(new.id, new.fencing_token, AttemptState.DONE)
+    done = await apply_as_placed(
+        store, StatusReport(new.id, new.fencing_token, AttemptState.DONE)
     )
     assert done.job is not None and done.job.state is JobState.SUCCEEDED
 
@@ -411,7 +416,7 @@ async def test_killing_the_connection_between_end_and_requeue_leaves_neither(
 
     monkeypatch.setattr(store_module, "_move_job", kill_at_plan)
     with pytest.raises(JobStoreError):
-        await store.apply_status(_fail(attempt, FailureType.TIMEOUT))
+        await apply_as_placed(store, _fail(attempt, FailureType.TIMEOUT))
     assert killed == [JobEvent.PLAN]
     rows = await _sql(
         pg_settings,
@@ -422,7 +427,7 @@ async def test_killing_the_connection_between_end_and_requeue_leaves_neither(
     )
     assert [tuple(r) for r in rows] == [("running", "running", None, 0)]
     # the agent replays its un-acked report: the retry happens exactly once
-    out = await store.apply_status(_fail(attempt, FailureType.TIMEOUT))
+    out = await apply_as_placed(store, _fail(attempt, FailureType.TIMEOUT))
     assert out.job is not None and out.job.state is JobState.QUEUED
     assert (await _arrows(store, out.job.id)).count(("running", "retrying")) == 1
 
@@ -494,7 +499,7 @@ async def test_the_failed_attempt_keeps_its_own_queue_phase(
     entry exists: attempt 1's queue phase is its own wait, not skipped."""
     node, other = await _nodes(pg_settings)
     attempt = await _running(store, node)
-    await store.apply_status(_fail(attempt, FailureType.TIMEOUT))
+    await apply_as_placed(store, _fail(attempt, FailureType.TIMEOUT))
     lost_job = await _running(store, node)
     await store.end_attempt(
         lost_job.id,
@@ -518,8 +523,8 @@ async def test_the_failed_attempt_keeps_its_own_queue_phase(
             if r.job.id == attempt.job_id
         ]
     second = await _run(store, retried[0])
-    await store.apply_status(StatusReport(second.id, 2, AttemptState.UPLOADING))
-    await store.apply_status(StatusReport(second.id, 2, AttemptState.DONE))
+    await apply_as_placed(store, StatusReport(second.id, 2, AttemptState.UPLOADING))
+    await apply_as_placed(store, StatusReport(second.id, 2, AttemptState.DONE))
     phases = {p.phase: p for p in await store.phases(second.id)}
     assert phases["queue"].skipped is False
     first = {p.phase: p for p in await store.phases(attempt.id)}

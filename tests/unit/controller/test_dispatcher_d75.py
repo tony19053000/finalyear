@@ -61,7 +61,9 @@ class FakeStore:
         self.raises: BaseException | None = None
         self.calls = 0
 
-    async def apply_status(self, _report: StatusReport) -> StatusOutcome:
+    async def apply_status(
+        self, _report: StatusReport, *, node_id: str
+    ) -> StatusOutcome:
         self.calls += 1
         if self.raises is not None:
             raise self.raises

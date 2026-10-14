@@ -24,6 +24,7 @@ import pytest_asyncio
 pytest.importorskip("alembic", reason="needs the controller extra")
 
 from alembic import command
+from mf_reports import apply_as_placed
 from sqlalchemy import event, text
 
 from meshforge.common.errors import FailureType
@@ -141,8 +142,8 @@ async def _tick(
 
 
 async def _run(store: ExecutionStore, attempt: Any) -> Any:
-    out = await store.apply_status(
-        StatusReport(attempt.id, attempt.fencing_token, AttemptState.RUNNING)
+    out = await apply_as_placed(
+        store, StatusReport(attempt.id, attempt.fencing_token, AttemptState.RUNNING)
     )
     assert out.kind is StatusKind.APPLIED
     return out.attempt
@@ -276,7 +277,7 @@ async def test_kill_before_every_statement_of_a_reported_retry(
         return await _running(store, node)
 
     async def act(a: Any) -> None:
-        await store.apply_status(_fail(a, FailureType.TRANSFER_ERROR, True))
+        await apply_as_placed(store, _fail(a, FailureType.TRANSFER_ERROR, True))
 
     n = await _kill_every_statement(
         engine,
@@ -322,7 +323,7 @@ async def test_kill_before_every_statement_of_the_exhausting_failure(
         return await _running(store, node, max_attempts=1)
 
     async def act(a: Any) -> None:
-        await store.apply_status(_fail(a, FailureType.TIMEOUT))
+        await apply_as_placed(store, _fail(a, FailureType.TIMEOUT))
 
     await _kill_every_statement(
         engine,
@@ -363,8 +364,8 @@ async def test_concurrent_loss_and_failure_reports_retry_exactly_once(
         results = await asyncio.gather(
             _lose(store, a, "node_offline"),
             _lose(store, a, "node_not_connected"),
-            store.apply_status(_fail(a, FailureType.TIMEOUT)),
-            store.apply_status(_fail(a, FailureType.TIMEOUT)),
+            apply_as_placed(store, _fail(a, FailureType.TIMEOUT)),
+            apply_as_placed(store, _fail(a, FailureType.TIMEOUT)),
             _lose(store, a, "agent_lost_attempt"),
         )
         applied = [r for r in results if r.kind is StatusKind.APPLIED]
@@ -403,7 +404,7 @@ async def test_a_late_report_from_the_old_attempt_never_moves_the_job(
     if old_end == "lost":
         await _lose(store, old)
     else:
-        await store.apply_status(_fail(old, FailureType.TIMEOUT))
+        await apply_as_placed(store, _fail(old, FailureType.TIMEOUT))
     for phase in ("queued", "attempt2_running"):
         if phase == "attempt2_running":
             (r,) = await _tick(store, other)
@@ -418,7 +419,7 @@ async def test_a_late_report_from_the_old_attempt_never_moves_the_job(
             else None,
             detail="late",
         )
-        out = await store.apply_status(report)
+        out = await apply_as_placed(store, report)
         assert out.kind in (StatusKind.FENCED, StatusKind.DUPLICATE), (phase, out.kind)
         after = await store.get_job(old.job_id)
         assert before is not None and after is not None
@@ -437,7 +438,7 @@ async def test_a_report_with_a_wrong_or_future_token_is_fenced(
     (node, _) = await _nodes(pg_settings)
     a = await _running(store, node)
     for token in (0, 2, 99, -1):
-        out = await store.apply_status(StatusReport(a.id, token, AttemptState.DONE))
+        out = await apply_as_placed(store, StatusReport(a.id, token, AttemptState.DONE))
         assert out.kind is StatusKind.FENCED
     job = await store.get_job(a.job_id)
     assert job is not None and job.state is JobState.RUNNING
@@ -451,7 +452,7 @@ async def test_max_attempts_one_fails_at_the_first_retryable_failure(
 ) -> None:
     (node, _) = await _nodes(pg_settings)
     a = await _running(store, node, max_attempts=1)
-    out = await store.apply_status(_fail(a, FailureType.TIMEOUT))
+    out = await apply_as_placed(store, _fail(a, FailureType.TIMEOUT))
     assert out.job is not None and out.job.state is JobState.FAILED
     assert out.job.failure_type is FailureType.TIMEOUT
     assert out.job.failure_detail is not None
@@ -466,7 +467,7 @@ async def test_ten_attempts_then_exhausted_with_doubling_capped_backoff(
     seen: list[float] = []
     for n in range(1, 10):
         assert a.fencing_token == n
-        out = await store.apply_status(_fail(a, FailureType.TIMEOUT))
+        out = await apply_as_placed(store, _fail(a, FailureType.TIMEOUT))
         assert out.job is not None and out.job.state is JobState.QUEUED, n
         rows = await _sql(
             pg_settings,
@@ -482,7 +483,7 @@ async def test_ten_attempts_then_exhausted_with_doubling_capped_backoff(
     for got, want in zip(seen, [100, 200] + [300] * 7, strict=True):
         assert want - 5 < got <= want, (seen, want)
     assert a.fencing_token == 10
-    out = await store.apply_status(_fail(a, FailureType.TIMEOUT))
+    out = await apply_as_placed(store, _fail(a, FailureType.TIMEOUT))
     assert out.retry is not None and out.retry.reason is RetryReason.RETRIES_EXHAUSTED
     assert out.job is not None and out.job.state is JobState.FAILED
     assert "after 10 attempts" in (out.job.failure_detail or "")
@@ -510,11 +511,11 @@ async def test_on_lost_false_does_not_block_other_retryable_failures(
 ) -> None:
     (node, _) = await _nodes(pg_settings)
     a = await _running(store, node, on_lost_retry=False)
-    out = await store.apply_status(_fail(a, FailureType.TIMEOUT))
+    out = await apply_as_placed(store, _fail(a, FailureType.TIMEOUT))
     assert out.job is not None and out.job.state is JobState.QUEUED
     # agent-reported node_lost (graceful shutdown) is a loss: no retry
     b = await _running(store, node, on_lost_retry=False)
-    out = await store.apply_status(_fail(b, FailureType.NODE_LOST))
+    out = await apply_as_placed(store, _fail(b, FailureType.NODE_LOST))
     assert out.job is not None and out.job.state is JobState.FAILED
     assert out.job.failure_type is FailureType.NODE_LOST
 
@@ -527,15 +528,15 @@ async def test_cancel_while_waiting_out_not_before_ends_cancelled_for_good(
 ) -> None:
     (node, _) = await _nodes(pg_settings)
     a = await _running(store, node, retry_backoff_s=60)
-    await store.apply_status(_fail(a, FailureType.TIMEOUT))
+    await apply_as_placed(store, _fail(a, FailureType.TIMEOUT))
     cancel = await store.request_cancel(a.job_id)
     assert cancel is not None and cancel.cancelled_now
     assert cancel.job.state is JobState.CANCELLED
     far = dt.datetime.now(dt.UTC) + dt.timedelta(hours=1)
     assert await _tick(store, node, at=far) == []
     # late report from the old attempt cannot resurrect it
-    out = await store.apply_status(
-        StatusReport(a.id, a.fencing_token, AttemptState.DONE)
+    out = await apply_as_placed(
+        store, StatusReport(a.id, a.fencing_token, AttemptState.DONE)
     )
     assert out.kind in (StatusKind.FENCED, StatusKind.DUPLICATE)
     job = await store.get_job(a.job_id)
@@ -596,7 +597,7 @@ async def test_cancel_racing_the_retry_transaction_never_leaves_a_live_retry(
         a = await _running(store, node)
         cancel, out = await asyncio.gather(
             store.request_cancel(a.job_id),
-            store.apply_status(_fail(a, FailureType.TIMEOUT)),
+            apply_as_placed(store, _fail(a, FailureType.TIMEOUT)),
         )
         assert cancel is not None and out.kind is StatusKind.APPLIED
         job = await store.get_job(a.job_id)
@@ -620,6 +621,6 @@ async def test_a_cancelled_report_without_a_cancel_request_is_not_retried(
 ) -> None:
     (node, _) = await _nodes(pg_settings)
     a = await _running(store, node)
-    out = await store.apply_status(_fail(a, FailureType.CANCELLED))
+    out = await apply_as_placed(store, _fail(a, FailureType.CANCELLED))
     assert out.job is not None and out.job.state is JobState.CANCELLED
     assert out.retry is None or not out.retry.retry

@@ -28,6 +28,7 @@ import pytest_asyncio
 pytest.importorskip("alembic", reason="needs the controller extra")
 
 from alembic import command
+from mf_reports import apply_as_placed
 from sqlalchemy import text
 
 from meshforge.common.ids import new_attempt_id, new_job_id, new_node_id, new_session_id
@@ -189,7 +190,7 @@ async def test_death_between_done_and_succeeded_leaves_the_attempt_uploading(
     (result,) = await _tick(store, _decide(node))
     attempt = result.attempt
     for state in (AttemptState.RUNNING, AttemptState.UPLOADING):
-        await store.apply_status(StatusReport(attempt.id, 1, state))
+        await apply_as_placed(store, StatusReport(attempt.id, 1, state))
     real = store_module._move_job
 
     async def die_at_collected(db: Any, row: Any, event: JobEvent, **kw: Any) -> bool:
@@ -200,7 +201,7 @@ async def test_death_between_done_and_succeeded_leaves_the_attempt_uploading(
 
     monkeypatch.setattr(store_module, "_move_job", die_at_collected)
     with pytest.raises(JobStoreError):
-        await store.apply_status(StatusReport(attempt.id, 1, AttemptState.DONE))
+        await apply_as_placed(store, StatusReport(attempt.id, 1, AttemptState.DONE))
     rows = await _sql(
         pg_settings,
         "SELECT a.state, j.state, (SELECT count(*) FROM attempt_phase p WHERE "
@@ -210,7 +211,9 @@ async def test_death_between_done_and_succeeded_leaves_the_attempt_uploading(
     )
     assert [tuple(r) for r in rows] == [("uploading", "collecting", 0)]
     monkeypatch.setattr(store_module, "_move_job", real)
-    replay = await store.apply_status(StatusReport(attempt.id, 1, AttemptState.DONE))
+    replay = await apply_as_placed(
+        store, StatusReport(attempt.id, 1, AttemptState.DONE)
+    )
     assert replay.job is not None and replay.job.state is JobState.SUCCEEDED
     phases = await _sql(
         pg_settings,

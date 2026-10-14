@@ -17,6 +17,7 @@ import pytest_asyncio
 pytest.importorskip("alembic", reason="needs the controller extra")
 
 from alembic import command
+from mf_reports import apply_as_placed
 
 from meshforge.common.errors import FailureType
 from meshforge.common.ids import new_attempt_id, new_job_id, new_node_id, new_session_id
@@ -158,19 +159,20 @@ async def test_success_path_moves_the_job_and_writes_five_phase_rows(
     store: ExecutionStore, node_id: str
 ) -> None:
     job_id, attempt_id = await _running_attempt(store, node_id)
-    staging = await store.apply_status(
-        StatusReport(attempt_id, 1, AttemptState.STAGING, runtime="subprocess")
+    staging = await apply_as_placed(
+        store, StatusReport(attempt_id, 1, AttemptState.STAGING, runtime="subprocess")
     )
     assert staging.kind is StatusKind.APPLIED
     # skip ENV_READY/RUNNING/UPLOADING: the path is walked, every arrow recorded
-    done = await store.apply_status(
+    done = await apply_as_placed(
+        store,
         StatusReport(
             attempt_id,
             1,
             AttemptState.DONE,
             exit_code=0,
             phases=AgentPhases(stage_s=0.25, env_s=0.0, run_s=1.5, collect_s=0.01),
-        )
+        ),
     )
     assert done.kind is StatusKind.APPLIED and done.ended
     assert done.job is not None and done.job.state is JobState.SUCCEEDED
@@ -193,7 +195,7 @@ async def test_success_path_moves_the_job_and_writes_five_phase_rows(
     assert phases["env"].duration_ms == 0 and not phases["env"].skipped  # measured 0
     assert not phases["queue"].skipped
     # a replayed DONE is a duplicate, never a second terminal write
-    again = await store.apply_status(StatusReport(attempt_id, 1, AttemptState.DONE))
+    again = await apply_as_placed(store, StatusReport(attempt_id, 1, AttemptState.DONE))
     assert again.kind is StatusKind.DUPLICATE
 
 
@@ -201,7 +203,9 @@ async def test_stale_token_and_contradicting_terminal_reports_are_fenced(
     store: ExecutionStore, node_id: str
 ) -> None:
     _job_id, attempt_id = await _running_attempt(store, node_id)
-    stale = await store.apply_status(StatusReport(attempt_id, 7, AttemptState.RUNNING))
+    stale = await apply_as_placed(
+        store, StatusReport(attempt_id, 7, AttemptState.RUNNING)
+    )
     assert stale.kind is StatusKind.FENCED
     lost = await store.end_attempt(
         attempt_id,
@@ -218,10 +222,10 @@ async def test_stale_token_and_contradicting_terminal_reports_are_fenced(
     phases = {p.phase: p for p in await store.phases(attempt_id)}
     assert set(phases) == {p.value for p in AttemptPhase}
     assert all(phases[p].skipped for p in ("stage", "env", "run", "collect"))
-    late = await store.apply_status(StatusReport(attempt_id, 1, AttemptState.DONE))
+    late = await apply_as_placed(store, StatusReport(attempt_id, 1, AttemptState.DONE))
     assert late.kind is StatusKind.FENCED
-    unknown = await store.apply_status(
-        StatusReport(str(new_attempt_id()), 1, AttemptState.DONE)
+    unknown = await apply_as_placed(
+        store, StatusReport(str(new_attempt_id()), 1, AttemptState.DONE)
     )
     assert unknown.kind is StatusKind.UNKNOWN
 
@@ -237,19 +241,20 @@ async def test_cancel_queued_now_and_running_via_agent(
     assert again is not None and not again.cancelled_now and again.attempt is None
 
     job_id, attempt_id = await _running_attempt(store, node_id)
-    await store.apply_status(StatusReport(attempt_id, 1, AttemptState.RUNNING))
+    await apply_as_placed(store, StatusReport(attempt_id, 1, AttemptState.RUNNING))
     via = await store.request_cancel(job_id)
     assert via is not None and not via.cancelled_now
     assert via.attempt is not None and via.attempt.id == attempt_id
     assert via.job.cancel_requested_at is not None
-    ended = await store.apply_status(
+    ended = await apply_as_placed(
+        store,
         StatusReport(
             attempt_id,
             1,
             AttemptState.FAILED,
             failure_type=FailureType.CANCELLED,
             detail="cancelled",
-        )
+        ),
     )
     assert ended.job is not None and ended.job.state is JobState.CANCELLED
     assert await store.request_cancel(str(new_job_id())) is None
@@ -259,7 +264,7 @@ async def test_overdue_running_uses_the_job_timeout(
     store: ExecutionStore, node_id: str
 ) -> None:
     _job_id, attempt_id = await _running_attempt(store, node_id)
-    await store.apply_status(StatusReport(attempt_id, 1, AttemptState.RUNNING))
+    await apply_as_placed(store, StatusReport(attempt_id, 1, AttemptState.RUNNING))
     assert await store.overdue_running(30.0) == []
     # timeout 60 s: with a grace of -61 s it is "overdue" already
     (overdue,) = await store.overdue_running(-61.0)

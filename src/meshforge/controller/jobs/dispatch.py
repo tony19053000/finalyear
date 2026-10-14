@@ -89,6 +89,8 @@ class DispatcherStats:
     statuses_applied: int = 0
     statuses_duplicate: int = 0
     statuses_fenced: int = 0
+    statuses_wrong_node: int = 0
+    """V0.7 G7 (CG-E2): reports about an attempt placed on another node."""
     statuses_rejected: int = 0
     statuses_dropped: int = 0
     attempts_lost: int = 0

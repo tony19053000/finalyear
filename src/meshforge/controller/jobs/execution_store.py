@@ -262,6 +262,10 @@ class StatusKind(StrEnum):
     """Stale token, or the attempt already ended differently: dropped."""
     UNKNOWN = "unknown"
     """No such attempt."""
+    WRONG_NODE = "wrong_node"
+    """Reported by a node the attempt is not placed on (V0.7 G7, THREAT_MODEL
+    CG-E2): dropped before the token or the state is looked at; the outcome
+    carries no attempt, so nothing follows from it (no cancel, no retry)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -535,13 +539,24 @@ class ExecutionStore(DecisionReads):
         return done is not None
 
     @typed_store_call
-    async def apply_status(self, report: StatusReport) -> StatusOutcome:
+    async def apply_status(
+        self, report: StatusReport, *, node_id: str
+    ) -> StatusOutcome:
         """Apply one agent report (see module docstring); never raises for a
-        stale/duplicate/unknown report - that is the outcome's ``kind``."""
+        stale/duplicate/unknown report - that is the outcome's ``kind``.
+
+        ``node_id`` is the reporting node, proven by its session's client
+        certificate (V0.7 G3). Only the node the attempt is placed on may move
+        it: any other node's report is ``WRONG_NODE`` and changes nothing
+        (V0.7 G7, CG-E2) - a node that learned another node's attempt id and
+        fencing token (both small or visible to a job's owner) cannot end,
+        fail or "complete" an attempt it does not run."""
         async with self._sessions() as db, db.begin():
             row = await db.get(Attempt, report.attempt_id, with_for_update=True)
             if row is None:
                 return StatusOutcome(StatusKind.UNKNOWN)
+            if row.node_id != node_id:
+                return StatusOutcome(StatusKind.WRONG_NODE)
             if int(row.fencing_token) != report.fencing_token:
                 return StatusOutcome(StatusKind.FENCED, attempt=attempt_record(row))
             try:

@@ -38,6 +38,7 @@ from mf_jobs_harness import api_client, token_of
 pytest.importorskip("alembic", reason="needs the controller extra")
 
 from alembic import command
+from mf_reports import apply_as_placed
 from sqlalchemy import text
 
 from meshforge.common.errors import FailureType
@@ -171,7 +172,7 @@ async def _attempt_in(
     assert result.attempt is not None
     attempt_id = result.attempt.id
     assert await store.mark_start_acked(attempt_id, 1)
-    await store.apply_status(StatusReport(attempt_id, 1, state))
+    await apply_as_placed(store, StatusReport(attempt_id, 1, state))
     return job.id, attempt_id
 
 

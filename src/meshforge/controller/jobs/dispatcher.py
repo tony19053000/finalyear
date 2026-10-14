@@ -516,7 +516,22 @@ class Dispatcher(RecoverySteps):
 
     async def _apply_status(self, item: _Status) -> None:
         report, live = self._verified(item.report, item.live), item.live
-        outcome = await self._store.apply_status(report)
+        outcome = await self._store.apply_status(report, node_id=live.node_id)
+        if outcome.kind is StatusKind.WRONG_NODE:
+            # V0.7 G7 (CG-E2): another node's attempt - nothing was applied and
+            # nothing follows (no cancel to this node, no retry, no scrub).
+            self.stats.statuses_wrong_node += 1
+            live.attempt_status_fenced += 1
+            log.warning(
+                "controller.jobs.status_wrong_node",
+                node_id=live.node_id,
+                session_id=live.session_id,
+                attempt_id=report.attempt_id,
+                reported=report.state.value,
+                reason="wrong_node",
+            )
+            self._manager.ack_message(live, item.message_id)  # never replay it
+            return
         if outcome.kind is StatusKind.APPLIED:
             self.stats.statuses_applied += 1
         elif outcome.kind is StatusKind.DUPLICATE:

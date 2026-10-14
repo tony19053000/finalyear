@@ -14,6 +14,7 @@ import pytest_asyncio
 pytest.importorskip("alembic", reason="needs the controller extra")
 
 from alembic import command
+from mf_reports import apply_as_placed
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
@@ -84,8 +85,8 @@ async def _venv_attempt(store: ExecutionStore, pg_settings: DatabaseSettings) ->
 
     (result,) = await store.dispatch_queued(dispatch, limit=10, max_per_node=1)
     assert result.attempt is not None
-    applied = await store.apply_status(
-        StatusReport(result.attempt.id, 1, AttemptState.STAGING, runtime="venv")
+    applied = await apply_as_placed(
+        store, StatusReport(result.attempt.id, 1, AttemptState.STAGING, runtime="venv")
     )
     assert applied.kind is StatusKind.APPLIED
     assert applied.attempt is not None and applied.attempt.runtime == "venv"

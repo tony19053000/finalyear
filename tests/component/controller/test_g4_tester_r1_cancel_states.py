@@ -22,6 +22,7 @@ import pytest_asyncio
 pytest.importorskip("alembic", reason="needs the controller extra")
 
 from alembic import command
+from mf_reports import apply_as_placed
 
 from meshforge.common.ids import new_attempt_id, new_job_id, new_node_id, new_session_id
 from meshforge.common.states import AttemptState, JobState
@@ -165,9 +166,9 @@ async def test_cancel_via_agent_from_collecting(
     (result,) = await store.dispatch_queued(_dispatch_all, limit=10, max_per_node=1)
     assert result.attempt is not None
     attempt_id = result.attempt.id
-    await store.apply_status(StatusReport(attempt_id, 1, AttemptState.RUNNING))
-    exited = await store.apply_status(
-        StatusReport(attempt_id, 1, AttemptState.UPLOADING)
+    await apply_as_placed(store, StatusReport(attempt_id, 1, AttemptState.RUNNING))
+    exited = await apply_as_placed(
+        store, StatusReport(attempt_id, 1, AttemptState.UPLOADING)
     )
     assert exited.job is not None and exited.job.state is JobState.COLLECTING
     outcome = await store.request_cancel(job.id)
@@ -189,12 +190,12 @@ async def test_cancel_racing_a_concurrent_done_report_never_corrupts_the_row(
         (result,) = await store.dispatch_queued(_dispatch_all, limit=10, max_per_node=1)
         assert result.attempt is not None
         attempt_id = result.attempt.id
-        await store.apply_status(StatusReport(attempt_id, 1, AttemptState.RUNNING))
+        await apply_as_placed(store, StatusReport(attempt_id, 1, AttemptState.RUNNING))
 
         cancel_task = asyncio.create_task(store.request_cancel(job.id))
         done_task = asyncio.create_task(
-            store.apply_status(
-                StatusReport(attempt_id, 1, AttemptState.DONE, exit_code=0)
+            apply_as_placed(
+                store, StatusReport(attempt_id, 1, AttemptState.DONE, exit_code=0)
             )
         )
         cancel_outcome, done_outcome = await asyncio.gather(cancel_task, done_task)

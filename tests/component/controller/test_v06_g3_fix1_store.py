@@ -18,6 +18,7 @@ import pytest_asyncio
 pytest.importorskip("alembic", reason="needs the controller extra")
 
 from alembic import command
+from mf_reports import apply_as_placed
 from sqlalchemy import text
 
 from meshforge.common.errors import FailureType
@@ -129,8 +130,9 @@ async def _tick(store: ExecutionStore, decide: Decide) -> list[Any]:
 
 async def _running(store: ExecutionStore, job: JobRecord, node: str) -> Any:
     (mine,) = [r for r in await _tick(store, Decide(node)) if r.job.id == job.id]
-    out = await store.apply_status(
-        StatusReport(mine.attempt.id, mine.attempt.fencing_token, AttemptState.RUNNING)
+    out = await apply_as_placed(
+        store,
+        StatusReport(mine.attempt.id, mine.attempt.fencing_token, AttemptState.RUNNING),
     )
     assert out.kind is StatusKind.APPLIED
     return out.attempt
@@ -170,7 +172,7 @@ async def test_disk_full_of_an_auto_job_is_retried_in_the_same_transaction(
     node = await _node(pg_settings)
     job = await _queued(store)
     a = await _running(store, job, node)
-    out = await store.apply_status(_fail(a, FailureType.DISK_FULL, retryable=False))
+    out = await apply_as_placed(store, _fail(a, FailureType.DISK_FULL, retryable=False))
     assert out.retry is not None and out.retry.reason is RetryReason.RETRY
     assert out.job is not None and out.job.state is JobState.QUEUED
     assert (await _states(store, job.id))[-3:] == ["retrying", "planning", "queued"]
@@ -183,7 +185,7 @@ async def test_disk_full_of_a_pinned_job_fails_it_with_one_attempt(
     node = await _node(pg_settings)
     job = await _queued(store, pinned=node)
     a = await _running(store, job, node)
-    out = await store.apply_status(_fail(a, FailureType.DISK_FULL))
+    out = await apply_as_placed(store, _fail(a, FailureType.DISK_FULL))
     assert out.retry is not None and out.retry.reason is RetryReason.NOT_RETRYABLE
     assert out.job is not None and out.job.state is JobState.FAILED
     assert out.job.failure_type is FailureType.DISK_FULL
@@ -202,7 +204,7 @@ async def test_a_failure_after_a_cancel_request_ends_the_job_cancelled(
     a = await _running(store, job, node)
     cancel = await store.request_cancel(job.id)
     assert cancel is not None and not cancel.cancelled_now
-    out = await store.apply_status(_fail(a, FailureType.TIMEOUT, retryable=True))
+    out = await apply_as_placed(store, _fail(a, FailureType.TIMEOUT, retryable=True))
     assert out.retry is not None and out.retry.reason is RetryReason.CANCELLED
     assert out.job is not None and out.job.state is JobState.CANCELLED
     assert out.job.failure_type is FailureType.CANCELLED
@@ -238,7 +240,7 @@ async def test_a_failure_racing_a_cancel_request_never_ends_failed(
         a = await _running(store, job, node)
         await asyncio.gather(
             store.request_cancel(job.id),
-            store.apply_status(_fail(a, FailureType.DISK_FULL)),
+            apply_as_placed(store, _fail(a, FailureType.DISK_FULL)),
         )
         got = await store.get_job(job.id)
         assert got is not None and got.state is JobState.CANCELLED, got
@@ -254,9 +256,9 @@ async def test_a_failed_retry_keeps_the_first_failure_type_in_the_detail(
     node = await _node(pg_settings)
     job = await _queued(store)
     a = await _running(store, job, node)
-    await store.apply_status(_fail(a, FailureType.INTEGRITY_ERROR, retryable=True))
+    await apply_as_placed(store, _fail(a, FailureType.INTEGRITY_ERROR, retryable=True))
     b = await _running(store, job, node)
-    out = await store.apply_status(_fail(b, FailureType.NOT_FOUND))
+    out = await apply_as_placed(store, _fail(b, FailureType.NOT_FOUND))
     assert out.job is not None and out.job.state is JobState.FAILED
     assert out.job.failure_type is FailureType.NOT_FOUND
     assert out.job.failure_detail == "first failure: integrity_error; boom"
@@ -268,9 +270,9 @@ async def test_an_exhausted_retry_of_the_same_type_has_no_prefix(
     node = await _node(pg_settings)
     job = await _queued(store, max_attempts=2)
     a = await _running(store, job, node)
-    await store.apply_status(_fail(a, FailureType.TIMEOUT, retryable=True))
+    await apply_as_placed(store, _fail(a, FailureType.TIMEOUT, retryable=True))
     b = await _running(store, job, node)
-    out = await store.apply_status(_fail(b, FailureType.TIMEOUT, retryable=True))
+    out = await apply_as_placed(store, _fail(b, FailureType.TIMEOUT, retryable=True))
     assert out.job is not None and out.job.state is JobState.FAILED
     assert out.job.failure_detail == "retries_exhausted after 2 attempts: boom"
 
@@ -281,7 +283,7 @@ async def test_a_retried_job_refused_by_the_planner_keeps_its_root_cause(
     node = await _node(pg_settings)
     job = await _queued(store)
     a = await _running(store, job, node)
-    await store.apply_status(_fail(a, FailureType.DISK_FULL))
+    await apply_as_placed(store, _fail(a, FailureType.DISK_FULL))
     gone = DispatchFailure(FailureType.NODE_LOST, "placed_node_offline")
     await _tick(store, Decide(node, fail=gone))
     got = await store.get_job(job.id)
