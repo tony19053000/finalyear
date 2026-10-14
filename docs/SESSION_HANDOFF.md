@@ -265,6 +265,8 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
+**2026-10-15 (G1 tester r1) — G1 implementer DONE `b7de7d5`..`7ea19bb` (items 0–7; hand-off in progress/V0.8-G1.md; deviations accepted D181). **G1 tester r1 RUNNING.** If died: look for "## Tester r1" in the progress file; then reviewer → whole component + `-m security` once → close G1.**
+
 **2026-10-15 (G1 resumed) — implementer hit the usage limit after item 0 (`b7de7d5`, D168 N1/N2/N3/T-12 done). Resumed on deliverable 1 (browser session; uncommitted edits were in the tree). If died again: check progress file + git log, relaunch with §5a from the next undone deliverable.**
 
 **2026-10-15 (V0.8 G1 start) — team approved the brief ("go with your suggestions"); ADR-0017 Accepted; roadmap 0.8.2/0.8.7 `[~]`. **G1 implementer RUNNING** (brief §5a). If died: check git log for `V0.8-G1` + docs/briefs/progress/V0.8-G1.md; relaunch with §5a (resume); then tester r1 → reviewer → whole component once → close.**
