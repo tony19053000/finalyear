@@ -32,7 +32,7 @@ V1.0    ░░░░░░░░░░░░░░░░░░░░   0%   0/8 
 
 ## Current Version
 **V0.7 — Security & pairing** · started 2026-10-07 · brief `docs/briefs/V0.7-security-pairing.md` (D144–D162) · **G1–G5 CLOSED** (0.7.1–0.7.9 `[x]`) · **G6 CLOSED** (0.7.10 `[x]`, 2026-10-14) · **G7 CLOSED** (0.7.11 `[x]`, 2026-10-15, D168) · agent-side complete · closes on 🧑 0.7.12 lab
-**V0.6 — Scheduling & reliability** · started 2026-10-05 · brief `docs/briefs/V0.6-scheduling-reliability.md` · **G1 CLOSED** (0.6.9, 0.6.10, 0.6.14 `[x]`) · **G2 CLOSED** (0.6.1, 0.6.2, 0.6.3, 0.6.5, 0.6.11 `[x]`) · next G3 retries/recovery/chaos
+**V0.6 — Scheduling & reliability** · started 2026-10-05 · brief `docs/briefs/V0.6-scheduling-reliability.md` · **G1 CLOSED** (0.6.9, 0.6.10, 0.6.14 `[x]`) · G1–G4 CLOSED agent-side · closes on 🧑 0.6.13 lab
 **V0.4 — Remote execution core** · started 2026-09-28 · **G1–G5 closed** (0.4.1, 0.4.3–0.4.7, 0.4.9, 0.4.10, 0.4.11–0.4.14, 0.4.16 `[x]`; 0.4.2 `[~]` Windows CI digest; 0.4.8 `[~]` real CUDA run; 0.4.17 `[~]`) · closes on 🧑 0.4.15 lab run
 **V0.5 — Data plane & environments** · started 2026-10-01 · brief `docs/briefs/V0.5-data-plane.md` (D79–D94) · **G3 (V0.4 debt D94) CLOSED** · **G1 (0.5.1, 0.5.2) CLOSED** · **G2 (0.5.7) CLOSED** · G4, G5 CLOSED — closes on 🧑 0.5.11 lab
 **V0.3 — Fabric core** · started 2026-09-20 on the team's decision (before the laptop 2–4 inventory); **G1–G7 closed agent-side** (0.3.1, 0.3.3, 0.3.4, 0.3.5, 0.3.6, 0.3.8, 0.3.9, 0.3.10, 0.3.11, 0.3.12, 0.3.14 `[x]`; 0.3.2 `[~]` Windows run; 0.3.7 `[~]` lab evidence; 0.3.13 `[~]` Windows logoff check). Remaining: **only 🧑 0.3.15 lab run** (+ the three 🧑 Windows checks)
@@ -46,7 +46,7 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 
 ## Current Task
 
-- **2026-10-15: V0.7 G7 CLOSED** — 0.7.11 `[x]` (D168). Security suite `-m security` 1475 passed; threat_model_check 99 rows 0 failing; whole component 1916 exit 0. **V0.7 agent-side complete; closes on 🧑 0.7.12 lab** (`lab/checklists/V0.7-security.md`). Next agent work: Lead picks the next version (V0.6 G3 retries/recovery/chaos is open), item 0 = D168 non-blocking list.
+- **2026-10-15: V0.7 G7 CLOSED** — 0.7.11 `[x]` (D168). Security suite `-m security` 1475 passed; threat_model_check 99 rows 0 failing; whole component 1916 exit 0. **V0.7 agent-side complete; closes on 🧑 0.7.12 lab** (`lab/checklists/V0.7-security.md`). Next agent work: V0.8 (dashboard & CLI v1), item 0 = D168 non-blocking list.
 - **2026-10-14: V0.7 G7 STARTED** — brief §5g + D166 `ba17d9d`; 0.7.11 `[~]`; implementer running. Next: tester r1 → reviewer → whole component once → close.
 - **2026-10-14: V0.7 G6 CLOSED** — 0.7.10 `[x]`. Fix r3 exit list green (final whole component at `147942b`: 1901 passed / 14 skipped / 0 failed, exit 0 (67 min, 2026-10-14)), tester r4 PASS `bde4410`, reviewer APPROVE (4 non-blocking → D165). **Next: Lead writes the G7 brief (0.7.11 security suite); item 0 = D165.**
 - **2026-10-14: V0.7 G6 tester r3 FAIL (T-21 major symlinked secrets base; T-18..T-20, T-22 minor) → D164 → fix round 3 committed `8f113b4`..`1266086`, NOT verified (exit list stopped by the user mid-run).** Next: implementer exit list + hand-off → tester r4 → reviewer → close 0.7.10. See SESSION_HANDOFF §1.

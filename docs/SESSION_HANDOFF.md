@@ -10,7 +10,7 @@
 > Read docs/SESSION_HANDOFF.md (§0e first, then §1 and §2), then docs/STATUS.md, then
 > docs/briefs/V0.7-security-pairing.md. RULE: run ONE subagent at a time (team, re-imposed 2026-10-01).
 > V0.7 G1-G5 CLOSED; G6 (0.7.10) CLOSED 2026-10-14 (D165).
-> G7 (0.7.11) CLOSED 2026-10-15 (D168). Next: Lead picks next group; item 0 = D168.
+> G7 (0.7.11) CLOSED 2026-10-15 (D168). Next: V0.8 brief; item 0 = D168.
 > Check git log and docs/briefs/progress/ first to see which round last finished.
 > ```
 >
@@ -265,7 +265,7 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
-**2026-10-15 (G7 CLOSED) — 0.7.11 `[x]`, reviewer APPROVE, D168 recorded, STATUS bar refreshed. V0.7 agent-side complete; only 🧑 0.7.12 lab left. Nothing running. Next: Lead picks the next group (V0.6 G3 retries/recovery/chaos is open per STATUS), item 0 = D168 non-blocking list.**
+**2026-10-15 (G7 CLOSED) — 0.7.11 `[x]`, reviewer APPROVE, D168 recorded, STATUS bar refreshed. V0.7 agent-side complete; only 🧑 0.7.12 lab left. Nothing running. Next: V0.8 brief (dashboard & CLI v1), item 0 = D168 non-blocking list.**
 
 **2026-10-15 (G7 reviewer) — fix round 1 DONE `7ee71f6`..`e4438f5` (TQ-1..TQ-7 + weak rows; 25 tester xfails now pass; whole component at `1b35f4a` 1916 passed/14 skipped exit 0 = group-end run). **G7 reviewer RUNNING.** If died: relaunch reviewer (scope: all G7 commits d1c4c61..HEAD, production changes `0e670a5`, `2aa2caa`, `c06fdfa`); then close 0.7.11 + STATUS bar.**
 
