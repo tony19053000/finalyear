@@ -75,6 +75,13 @@ from meshforge.controller.api.auth import (
     unauthorized,
 )
 from meshforge.controller.api.errors import ApiError
+from meshforge.controller.api.response_models import (
+    BlobCompleted,
+    BlobMissing,
+    BlobParts,
+    BlobPartStored,
+    BlobStored,
+)
 from meshforge.controller.auth.principal import Principal
 from meshforge.controller.blobs import (
     MAX_HAVE_DIGESTS,
@@ -279,6 +286,8 @@ def _declared_size(request: Request) -> int | None:
     "/{sha256}",
     status_code=status.HTTP_201_CREATED,
     summary="Upload a blob (idempotent; verified before it is kept)",
+    response_model=BlobStored,
+    responses={200: {"model": BlobStored, "description": "Already stored"}},
 )
 async def put_blob(
     request: Request, sha256: Sha256, store: Store, auth: Auth, response: Response
@@ -358,7 +367,17 @@ async def head_blob(
     )
 
 
-@blob_router.get("/{sha256}", summary="Download a blob", response_class=FileResponse)
+@blob_router.get(
+    "/{sha256}",
+    summary="Download a blob",
+    response_class=FileResponse,
+    responses={
+        200: {
+            "content": {"application/octet-stream": {}},
+            "description": "The blob's bytes (Range supported)",
+        }
+    },
+)
 async def get_blob(
     request: Request, sha256: Sha256, store: Store, auth: Auth
 ) -> Response:
@@ -415,7 +434,11 @@ async def _bounded_body(request: Request, limit: int) -> bytes:
     return bytes(data)
 
 
-@blob_router.post("/have", summary="Which of these blobs are missing? (have/need)")
+@blob_router.post(
+    "/have",
+    summary="Which of these blobs are missing? (have/need)",
+    response_model=BlobMissing,
+)
 async def have_blobs(
     request: Request, _user: CurrentUser, store: Store
 ) -> dict[str, list[str]]:
@@ -461,6 +484,7 @@ PartIndex = Annotated[int, Path(ge=0, lt=MAX_PART_INDEX)]
     "/{sha256}/parts/{index}",
     status_code=status.HTTP_201_CREATED,
     summary="Upload one verified part of a large blob (resumable)",
+    response_model=BlobPartStored,
 )
 async def put_part(
     request: Request,
@@ -545,7 +569,11 @@ async def put_part(
     return {"digest": str(digest), "index": index, "stored": stored}
 
 
-@blob_router.get("/{sha256}/parts", summary="Parts already received (resume)")
+@blob_router.get(
+    "/{sha256}/parts",
+    summary="Parts already received (resume)",
+    response_model=BlobParts,
+)
 async def part_status(
     request: Request, sha256: Sha256, auth: Auth, store: Store
 ) -> dict[str, object]:
@@ -567,6 +595,8 @@ async def part_status(
     "/{sha256}/complete",
     status_code=status.HTTP_201_CREATED,
     summary="Verify the assembled parts and store the blob",
+    response_model=BlobCompleted,
+    responses={200: {"model": BlobCompleted, "description": "Already stored"}},
 )
 async def complete_parts(
     request: Request, response: Response, sha256: Sha256, auth: Auth, store: Store

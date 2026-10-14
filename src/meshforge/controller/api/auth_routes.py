@@ -35,6 +35,12 @@ from meshforge.controller.api.auth import (
 )
 from meshforge.controller.api.errors import ApiError
 from meshforge.controller.api.models import ApiModel
+from meshforge.controller.api.response_models import (
+    LoginOut,
+    TokenList,
+    TokenRevoked,
+    WhoAmI,
+)
 from meshforge.controller.auth.login import LoginRefusedError, LoginService
 from meshforge.controller.auth.passwords import MAX_PASSWORD_CHARS
 from meshforge.controller.auth.principal import Principal
@@ -120,7 +126,9 @@ def _user_out(principal: Principal) -> dict[str, Any]:
     }
 
 
-@auth_router.post("/login", summary="Log in: name + password -> API token")
+@auth_router.post(
+    "/login", summary="Log in: name + password -> API token", response_model=LoginOut
+)
 async def login(request: Request, api: Api) -> dict[str, Any]:
     body = await _login_body(request)
     client = request.client
@@ -167,7 +175,7 @@ def _not_legacy(principal: Principal) -> str:
     return principal.user_id
 
 
-@auth_router.get("/whoami", summary="The calling user and token")
+@auth_router.get("/whoami", summary="The calling user and token", response_model=WhoAmI)
 async def whoami(user: CurrentUser, api: Api) -> dict[str, Any]:
     out: dict[str, Any] = {
         "user": _user_out(user),
@@ -185,7 +193,9 @@ async def whoami(user: CurrentUser, api: Api) -> dict[str, Any]:
     return out
 
 
-@auth_router.get("/tokens", summary="Your API tokens (admin: ?all=true)")
+@auth_router.get(
+    "/tokens", summary="Your API tokens (admin: ?all=true)", response_model=TokenList
+)
 async def list_tokens(
     user: CurrentUser,
     api: Api,
@@ -202,7 +212,9 @@ async def list_tokens(
     return {"tokens": tokens, "count": len(tokens)}
 
 
-@auth_router.delete("/tokens/{token_id}", summary="Revoke one API token")
+@auth_router.delete(
+    "/tokens/{token_id}", summary="Revoke one API token", response_model=TokenRevoked
+)
 async def revoke_token(
     token_id: str, request: Request, user: CurrentUser, api: Api
 ) -> dict[str, Any]:

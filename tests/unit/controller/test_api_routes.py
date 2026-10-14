@@ -587,11 +587,23 @@ async def test_the_openapi_schema_is_served_and_covers_every_v1_path() -> None:
 @pytest.mark.asyncio
 @pytest.mark.parametrize("path", ["/docs", "/redoc", "/openapi.json"])
 async def test_the_interactive_docs_pages_are_not_served(path: str) -> None:
-    """They fetch assets from a public CDN an isolated lab LAN cannot reach."""
+    """They fetch assets from a public CDN an isolated lab LAN cannot reach.
+
+    V0.8 G1 (D169): outside ``/v1`` the controller serves the dashboard SPA, so
+    ``/docs`` and ``/redoc`` are dashboard (client-side) routes now - still no
+    Swagger UI or ReDoc and nothing from a CDN; ``/openapi.json`` (a file name)
+    stays a 404 envelope."""
     async with client_for(build_app(FakeRegistry())) as client:
         response = await client.get(path)
-    assert response.status_code == 404
-    assert envelope(response)["code"] == FailureType.NOT_FOUND.value
+    body = response.text.lower()
+    assert "swagger" not in body and "redoc.standalone" not in body
+    assert "cdn" not in body and "https://" not in body
+    if path == "/openapi.json":
+        assert response.status_code == 404
+        assert envelope(response)["code"] == FailureType.NOT_FOUND.value
+    else:
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/html")
 
 
 @pytest.mark.asyncio

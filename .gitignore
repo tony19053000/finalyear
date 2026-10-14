@@ -116,3 +116,7 @@ mlruns/
 
 # import-linter cache
 .import_linter_cache/
+
+# ---------- Dashboard build output (V0.8, D169) ----------
+# Built by `cd frontend && npm run build`; shipped in the wheel as an artifact.
+/src/meshforge/controller/web/dist/

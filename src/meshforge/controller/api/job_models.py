@@ -210,3 +210,6 @@ class JobDetail(JobSummary):
 class JobList(ApiModel):
     jobs: tuple[JobSummary, ...]
     count: int
+    """Jobs on this page."""
+    next_cursor: str | None = None
+    """V0.8 G1 (D174): pass as ``?cursor=`` for the next page; None = last page."""

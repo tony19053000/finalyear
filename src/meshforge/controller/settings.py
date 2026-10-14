@@ -1228,6 +1228,79 @@ class LivenessSettings(SectionModel):
         )
 
 
+LOOPBACK_PLAIN_HOSTS: Final = frozenset({"127.0.0.1", "::1"})
+
+
+class HttpSettings(SectionModel):
+    """``[controller.http]`` - extra REST listeners (V0.8 G1, brief Q1)."""
+
+    loopback_plain: str | None = Field(
+        default=None,
+        description=(
+            "Also serve the REST API and dashboard in plain HTTP on this "
+            "loopback address (``127.0.0.1:47111`` or ``[::1]:47111``) for a "
+            "browser on the controller host itself, which then needs no CA "
+            "import. Only 127.0.0.1 or ::1 are accepted - never a LAN or "
+            "wildcard address, never a host name. Off by default."
+        ),
+    )
+
+    @field_validator("loopback_plain")
+    @classmethod
+    def _loopback_only(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        bind = parse_bind(value, allow_any=False)
+        if bind.host not in LOOPBACK_PLAIN_HOSTS:
+            raise ValueError(
+                "[controller.http] loopback_plain must bind 127.0.0.1 or [::1] "
+                f"(plain HTTP never leaves this machine), got {value}"
+            )
+        return value
+
+
+class EventsSettings(SectionModel):
+    """``[controller.events]`` - the dashboard's live event stream (V0.8 G1,
+    D172): ``/v1/events/ws``. All in memory; lost on restart (clients resync)."""
+
+    ring_size: int = Field(
+        default=10_000,
+        ge=100,
+        le=1_000_000,
+        description=(
+            "Events kept for reconnecting clients to resume from (``since``); "
+            "an older resume point gets ``resync``."
+        ),
+    )
+    queue_size: int = Field(
+        default=1_000,
+        ge=10,
+        le=100_000,
+        description=(
+            "Events queued per connected client; a client that falls this far "
+            "behind is closed 4008 slow_consumer (it reconnects and resumes)."
+        ),
+    )
+    max_subscribers: int = Field(
+        default=256, ge=1, le=10_000, description="Open event streams at once."
+    )
+    watch_interval_s: float = Field(
+        default=0.25,
+        gt=0,
+        le=2.0,
+        description=(
+            "How often node status and live metrics are diffed into events "
+            "(adds at most this much delay)."
+        ),
+    )
+    metrics_interval_s: float = Field(
+        default=1.0,
+        ge=0.5,
+        le=60.0,
+        description="At most one node.metrics event per node per this many seconds.",
+    )
+
+
 class ControllerSection(SectionModel):
     """``[controller]`` section."""
 
@@ -1352,6 +1425,8 @@ class ControllerSection(SectionModel):
     revocation: RevocationSettings = Field(default_factory=RevocationSettings)
     renewal: RenewalSettings = Field(default_factory=RenewalSettings)
     auth: AuthSettings = Field(default_factory=AuthSettings)
+    events: EventsSettings = Field(default_factory=EventsSettings)
+    http: HttpSettings = Field(default_factory=HttpSettings)
 
     @field_validator("grpc_bind", "http_bind")
     @classmethod

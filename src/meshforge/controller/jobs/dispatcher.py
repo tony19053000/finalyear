@@ -198,8 +198,11 @@ class Dispatcher(RecoverySteps):
         cache_live: Callable[[str, str], bool] | None = None,
         secrets: SecretStore | None = None,
         insecure_secrets: bool = False,
+        on_alert: Callable[[dict[str, str]], None] | None = None,
     ) -> None:
         self._store = store
+        self._on_alert = on_alert
+        """V0.8 G1 (D180): security refusals for the operator (the event bus)."""
         self._secrets = secrets
         self._insecure_secrets = insecure_secrets
         """``[security] allow_insecure_secrets`` (insecure-dev tests only)."""
@@ -531,6 +534,22 @@ class Dispatcher(RecoverySteps):
                 reason="wrong_node",
             )
             self._manager.ack_message(live, item.message_id)  # never replay it
+            if self._on_alert is not None:
+                # D180: the audit row (same refusal, D168 N3) is the record;
+                # this is the operator's live alert.
+                try:
+                    self._on_alert(
+                        {
+                            "kind": "wrong_node",
+                            "node_id": live.node_id,
+                            "attempt_id": report.attempt_id,
+                            "reported": report.state.value,
+                        }
+                    )
+                except Exception as exc:  # noqa: BLE001 - an alert never breaks dispatch
+                    log.warning(
+                        "controller.jobs.alert_failed", cause=type(exc).__name__
+                    )
             return
         if outcome.kind is StatusKind.APPLIED:
             self.stats.statuses_applied += 1

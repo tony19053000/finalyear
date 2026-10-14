@@ -39,11 +39,18 @@ from __future__ import annotations
 import datetime as dt
 import functools
 import hmac
-from collections.abc import Awaitable, Callable, Coroutine, Mapping, Sequence
+from collections.abc import (
+    Awaitable,
+    Callable,
+    Collection,
+    Coroutine,
+    Mapping,
+    Sequence,
+)
 from dataclasses import dataclass, field
 from typing import Any, Final
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, literal, select, tuple_, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
@@ -56,6 +63,7 @@ from meshforge.common.states import (
     AttemptState,
     JobState,
 )
+from meshforge.controller.events import changes
 from meshforge.controller.jobs.transitions import (
     AttemptEvent,
     JobEvent,
@@ -339,6 +347,10 @@ async def _append_transition(
         )
     )
     await db.flush()
+    if changes.wanted(db):  # V0.8 G1 (D172): a job.state event after commit
+        changes.note_job(
+            db, job_id, to_state.value, owner_user_id=await _owner_of(db, job_id)
+        )
 
 
 class JobStore:
@@ -538,17 +550,46 @@ class JobStore:
         self,
         *,
         limit: int,
-        state: JobState | None = None,
+        state: JobState | Collection[JobState] | None = None,
         owner_user_id: str | None = None,
+        node_id: str | None = None,
+        created_after: dt.datetime | None = None,
+        created_before: dt.datetime | None = None,
+        after: tuple[dt.datetime, str] | None = None,
     ) -> list[JobRecord]:
         """Newest first (by ``created_at``, then id), at most ``limit``;
-        ``owner_user_id`` set = only that user's jobs (D141)."""
+        ``owner_user_id`` set = only that user's jobs (D141).
+
+        V0.8 G1 (D174) - **keyset paging**: ``after`` = the ``(created_at,
+        id)`` of the last job of the previous page; this page starts strictly
+        after it in the same order, so a page is one index range scan however
+        deep the list is, and jobs created meanwhile never shift a page.
+        Filters: ``state`` (one or several), ``node_id`` (an attempt of the job
+        ran or runs on that node), ``created_after`` (inclusive) /
+        ``created_before`` (exclusive)."""
         limit = max(1, min(limit, _MAX_LIST))
         query = select(Job).order_by(Job.created_at.desc(), Job.id.desc()).limit(limit)
         if state is not None:
-            query = query.where(Job.state == state.value)
+            states = [state] if isinstance(state, JobState) else list(state)
+            query = query.where(Job.state.in_([s.value for s in states]))
         if owner_user_id is not None:
             query = query.where(Job.owner_user_id == owner_user_id)
+        if node_id is not None:
+            query = query.where(
+                select(Attempt.id)
+                .where(Attempt.job_id == Job.id, Attempt.node_id == node_id)
+                .exists()
+            )
+        if created_after is not None:
+            query = query.where(Job.created_at >= created_after)
+        if created_before is not None:
+            query = query.where(Job.created_at < created_before)
+        if after is not None:
+            at, last_id = after
+            query = query.where(
+                tuple_(Job.created_at, Job.id)
+                < tuple_(literal(at, Job.created_at.type), literal(last_id))
+            )
         async with self._sessions() as db:
             return [job_record(row) for row in await db.scalars(query)]
 
@@ -652,6 +693,7 @@ class JobStore:
             db.add(row)
             await db.flush()
             await db.refresh(row)
+            await _note_attempt(db, row)
             return attempt_record(row)
 
     @typed_store_call
@@ -711,6 +753,7 @@ class JobStore:
                 .execution_options(synchronize_session=False)
             )
             if row is not None:
+                await _note_attempt(db, row)
                 return attempt_record(row)
             current = (
                 await db.execute(
@@ -781,6 +824,32 @@ class JobStore:
                 )
                 for r in rows
             ]
+
+
+async def _owner_of(db: AsyncSession, job_id: str) -> str | None:
+    """The job's owner by a column read - never ``db.get``: loading the row
+    into the session would hand later ``get_one`` calls of this transaction a
+    stale object after a Core ``UPDATE`` (``synchronize_session=False``)."""
+    owner = await db.scalar(select(Job.owner_user_id).where(Job.id == job_id))
+    return None if owner is None else str(owner)
+
+
+async def _note_attempt(db: AsyncSession, row: Attempt) -> None:
+    """V0.8 G1 (D172): an ``attempt.state`` event once this transaction commits."""
+    if not changes.wanted(db):
+        return
+    changes.note_attempt(
+        db,
+        attempt_id=row.id,
+        job_id=row.job_id,
+        node_id=row.node_id,
+        state=str(row.state),
+        owner_user_id=await _owner_of(db, row.job_id),
+    )
+
+
+note_attempt_change = _note_attempt
+"""Public name for the execution store (same module rule as ``append_transition``)."""
 
 
 async def append_transition(

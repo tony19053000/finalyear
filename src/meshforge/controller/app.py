@@ -83,6 +83,13 @@ user_app = typer.Typer(
     no_args_is_help=True,
 )
 app.add_typer(user_app)
+ca_app = typer.Typer(
+    name="ca",
+    help="Help browsers trust the fabric CA (V0.8): printed steps, no changes made.",
+    add_completion=False,
+    no_args_is_help=True,
+)
+app.add_typer(ca_app)
 
 ConfigOption = Annotated[
     Path | None,
@@ -342,6 +349,56 @@ def fabric_show(
         typer.echo(json.dumps(facts, indent=2, sort_keys=True))
     else:
         _print_facts(facts)
+
+
+@ca_app.command("trust-helper")
+def ca_trust_helper(
+    config: ConfigOption = None,
+    os_name: Annotated[
+        str,
+        typer.Option("--os", help="linux, windows, macos or all."),
+    ] = "all",
+    pem: Annotated[
+        bool,
+        typer.Option(
+            "--pem", help="Print the CA certificate (public) instead, to copy it."
+        ),
+    ] = False,
+) -> None:
+    """Print how to make a browser trust the fabric CA (Q1, ADR-0017).
+
+    Reads ca.crt and prints its path, SHA-256 fingerprint and per-OS import
+    steps. Changes nothing on this or any other machine.
+    """
+    from meshforge.common.errors import MeshForgeError
+    from meshforge.common.logging import configure_logging
+    from meshforge.controller.ca_trust import OSES, trust_steps
+    from meshforge.controller.fabric_ca import CA_CERT_NAME, load_fabric
+
+    settings = _load_settings(config)
+    configure_logging("WARNING", fmt=settings.log.format, component="controller")
+    if os_name != "all" and os_name not in OSES:
+        typer.echo(f"{PROG_NAME}: --os must be {', '.join(OSES)} or all", err=True)
+        raise typer.Exit(ExitCode.USAGE_ERROR)
+    try:
+        fabric = load_fabric(settings.ca_dir)
+    except MeshForgeError as exc:
+        typer.echo(f"{PROG_NAME}: {exc}", err=True)
+        raise typer.Exit(exc.exit_code) from None
+    ca_path = settings.ca_dir / CA_CERT_NAME
+    if pem:
+        typer.echo(ca_path.read_text(encoding="ascii"), nl=False)
+        return
+    hex_digest = fabric.fingerprint.upper()
+    colons = ":".join(hex_digest[i : i + 2] for i in range(0, len(hex_digest), 2))
+    typer.echo(
+        trust_steps(
+            ca_path=str(ca_path),
+            fingerprint=colons,
+            fabric_id=fabric.fabric_id,
+            os_name=os_name,
+        )
+    )
 
 
 _INVITE_HINT = (

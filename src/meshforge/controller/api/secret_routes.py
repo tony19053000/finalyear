@@ -28,6 +28,11 @@ from meshforge.common.secret_names import (
 )
 from meshforge.controller.api.auth import CurrentUser, request_source
 from meshforge.controller.api.errors import ApiError
+from meshforge.controller.api.response_models import (
+    SecretDeleted,
+    SecretList,
+    SecretStored,
+)
 from meshforge.controller.auth.principal import Principal
 from meshforge.controller.secret_box import SecretKeyError
 from meshforge.controller.secret_store import (
@@ -112,7 +117,11 @@ def _key_problem() -> ApiError:
     )
 
 
-@secret_router.put("/{name}", summary="Store or replace one of your secrets")
+@secret_router.put(
+    "/{name}",
+    summary="Store or replace one of your secrets",
+    response_model=SecretStored,
+)
 async def put_secret(
     name: str, request: Request, user: CurrentUser, store: Store
 ) -> dict[str, Any]:
@@ -138,7 +147,11 @@ async def put_secret(
     return {"name": checked, "created": created}
 
 
-@secret_router.get("", summary="Your secrets: names and timestamps, never values")
+@secret_router.get(
+    "",
+    summary="Your secrets: names and timestamps, never values",
+    response_model=SecretList,
+)
 async def list_secrets(user: CurrentUser, store: Store) -> dict[str, Any]:
     owner = _owner(user)
     try:
@@ -158,7 +171,9 @@ async def list_secrets(user: CurrentUser, store: Store) -> dict[str, Any]:
     }
 
 
-@secret_router.delete("/{name}", summary="Delete one of your secrets")
+@secret_router.delete(
+    "/{name}", summary="Delete one of your secrets", response_model=SecretDeleted
+)
 async def delete_secret(
     name: str, request: Request, user: CurrentUser, store: Store
 ) -> dict[str, Any]:

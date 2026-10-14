@@ -33,6 +33,12 @@ from meshforge.controller.api.models import (
     NodeSummary,
     SessionList,
 )
+from meshforge.controller.api.response_models import (
+    MAX_METRICS_WINDOW_S,
+    MIN_METRICS_WINDOW_S,
+    MetricPoint,
+    NodeMetrics,
+)
 from meshforge.controller.api.shape import (
     node_detail,
     node_summary,
@@ -40,6 +46,7 @@ from meshforge.controller.api.shape import (
     resource_snapshot,
     session_summary,
 )
+from meshforge.controller.events.watcher import metrics_frame
 
 __all__ = [
     "DEFAULT_LIVE_LIMIT",
@@ -192,6 +199,48 @@ async def get_node_resources(
         history_count=len(history),
         live=tuple(resource_sample(sample, now) for sample in samples),
         live_count=len(samples),
+    )
+
+
+@router.get(
+    "/nodes/{node_id}/metrics",
+    response_model=NodeMetrics,
+    summary="One node's live metrics for sparklines (in-memory, last 5 minutes)",
+)
+async def get_node_metrics(
+    fabric: Fabric,
+    node_id: NodeId,
+    window: Annotated[
+        int,
+        Query(
+            ge=MIN_METRICS_WINDOW_S,
+            le=MAX_METRICS_WINDOW_S,
+            description="Seconds back from now (the ring holds about 5 minutes).",
+        ),
+    ] = MAX_METRICS_WINDOW_S,
+) -> NodeMetrics:
+    """V0.8 G1 (D173): the controller's in-memory live ring of the node's
+    heartbeat samples (one per ~2 s, the last ``live_ring_size`` of *this*
+    process) - nothing is read from or written to PostgreSQL. Oldest first.
+    ``age_s`` is measured on the controller's monotonic clock. Empty after a
+    controller restart until the node reports again; V0.9 replaces the source
+    (durable telemetry) behind the same shape."""
+    checked = _checked_node_id(node_id)
+    if await fabric.registry.get_node(checked) is None:
+        raise ApiError.not_found("node")
+    now = fabric.clock()
+    ring = fabric.resources.ring(checked)
+    samples = [] if ring is None else ring.snapshot()
+    points = tuple(
+        MetricPoint(
+            **metrics_frame(checked, sample),  # type: ignore[arg-type]
+            age_s=round(max(0.0, now - sample.received_at), 3),
+        )
+        for sample in samples
+        if now - sample.received_at <= window
+    )
+    return NodeMetrics(
+        node_id=checked, window_s=window, samples=points, count=len(points)
     )
 
 

@@ -35,6 +35,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import functools
+import ipaddress
 import signal
 import socket
 from collections.abc import Coroutine, Iterator
@@ -72,6 +73,9 @@ from meshforge.controller.enrollment.listener import (
 )
 from meshforge.controller.enrollment.renewal import CertRenewals
 from meshforge.controller.enrollment.service import Enroller
+from meshforge.controller.events import changes
+from meshforge.controller.events.bus import Audience, EventBus, EventType
+from meshforge.controller.events.watcher import NodeWatcher
 from meshforge.controller.fabric_ca import (
     FabricCa,
     ServerCert,
@@ -120,7 +124,7 @@ from meshforge.controller.session.live import LiveSession
 from meshforge.controller.session.manager import SessionManager
 from meshforge.controller.session.peer_cert import NodeCertInterceptor, peer_cert
 from meshforge.controller.session.servicer import AgentControlServicer
-from meshforge.controller.settings import ControllerSettings
+from meshforge.controller.settings import LOOPBACK_PLAIN_HOSTS, ControllerSettings
 from meshforge.controller.snapshots import SnapshotFlusher
 from meshforge.controller.store.engine import check_connection, create_engine
 from meshforge.controller.store.migrate import upgrade_to_head
@@ -184,6 +188,10 @@ class ControllerRuntime:
         self._enroll_listener: EnrollListener | None = None
         self._http_server: _NoSignalUvicorn | None = None
         self._http_sock: socket.socket | None = None
+        self._plain_sock: socket.socket | None = None
+        self._plain_server: _NoSignalUvicorn | None = None
+        self.plain_port: int | None = None
+        """Q1: the plain-HTTP loopback port (``[controller.http] loopback_plain``)."""
         self._advertiser: ServiceAdvertiser | None = None
         self._lease_timer_task: asyncio.Task[None] | None = None
         self._flusher_task: asyncio.Task[None] | None = None
@@ -196,6 +204,10 @@ class ControllerRuntime:
         self.server_cert: ServerCert | None = None
         """V0.7 D134: the server cert as issued/renewed at start."""
         self.server_tls: ServerTls | None = None
+        self.events: EventBus | None = None
+        """V0.8 G1 (D172): the dashboard's event bus."""
+        self.node_watcher: NodeWatcher | None = None
+        self._watcher_task: asyncio.Task[None] | None = None
         self.blob_port = BlobPortSecurity(blob_port_is_tls=False)
         """D168 N2: set once in ``_start`` (see :class:`BlobPortSecurity`)."""
         """V0.7 G3: the server cert *in use*, renewed while running; every TLS
@@ -364,6 +376,15 @@ class ControllerRuntime:
         self.registry = registry
         self.cache_index = CacheIndex(CacheLocationStore(engine))
         self.jobs = ExecutionStore(engine)
+        # V0.8 G1 (D172): the dashboard's event bus; job/attempt changes are
+        # published once their transaction commits (events.changes).
+        ev = cfg.events
+        self.events = EventBus(
+            ring_size=ev.ring_size,
+            queue_size=ev.queue_size,
+            max_subscribers=ev.max_subscribers,
+        )
+        changes.attach(engine, self._publish_changes)
         self.inputs = NamedInputStore(engine)
         # V0.7 G6 (D144): job secrets; the master key is loaded on first use.
         self.secrets = SecretStore(engine, self.settings.secrets_key_path)
@@ -475,6 +496,7 @@ class ControllerRuntime:
             inputs=self.inputs,
             secrets=self.secrets,
             insecure_secrets=self.settings.security.allow_insecure_secrets,
+            on_alert=self._publish_alert,
             known_bad_envs=self.known_bad_envs,
             planner=cfg.planner,
             network=cfg.network,
@@ -557,6 +579,15 @@ class ControllerRuntime:
         flusher = SnapshotFlusher(resources, registry, cfg.resources, clock=loop.time)
         self.flusher = flusher
         self._flusher_task = self._spawn(flusher.run(), "snapshot-flusher")
+        self.node_watcher = NodeWatcher(
+            self.events,
+            manager,
+            resources,
+            clock=loop.time,
+            interval_s=cfg.events.watch_interval_s,
+            metrics_interval_s=cfg.events.metrics_interval_s,
+        )
+        self._watcher_task = self._spawn(self.node_watcher.run(), "event-node-watcher")
 
         await self._start_enrollment(engine, loop)
 
@@ -577,55 +608,57 @@ class ControllerRuntime:
         # is harmless.)
         self._http_sock.listen(_HTTP_BACKLOG)
         self.http_port = int(self._http_sock.getsockname()[1])
-        http_config = uvicorn.Config(
-            create_http_app(
-                manager,
-                registry=registry,
-                resources=resources,
-                # The API reads sample ages against the same monotonic clock the
-                # session manager and the leases use (D16).
-                clock=loop.time,
-                auth=ApiAuth(
-                    users=self.users,
-                    legacy_fabric_token=cfg.auth.legacy_fabric_token,
-                    live_streams=self.live_streams,
-                    verifier=self.token_verifier,
-                    fetch_tokens=self.fetch_tokens,
-                    upload_grants=self.upload_grants,
-                    # D139 two locks - only where the port is TLS: plain HTTP
-                    # (insecure-dev, loopback) never carries a client
-                    # certificate, so requiring one there refused every agent
-                    # fetch once a fabric CA existed (V0.7 G7).
-                    node_certs=self.blob_port.node_cert_policy(
-                        None if self.fabric is None else self.fabric.fabric_id,
-                        revocations.revoked_serials,
-                    ),
+        http_app = create_http_app(
+            manager,
+            registry=registry,
+            resources=resources,
+            # The API reads sample ages against the same monotonic clock the
+            # session manager and the leases use (D16).
+            clock=loop.time,
+            auth=ApiAuth(
+                users=self.users,
+                legacy_fabric_token=cfg.auth.legacy_fabric_token,
+                live_streams=self.live_streams,
+                verifier=self.token_verifier,
+                fetch_tokens=self.fetch_tokens,
+                upload_grants=self.upload_grants,
+                # D139 two locks - only where the port is TLS: plain HTTP
+                # (insecure-dev, loopback) never carries a client
+                # certificate, so requiring one there refused every agent
+                # fetch once a fabric CA existed (V0.7 G7).
+                node_certs=self.blob_port.node_cert_policy(
+                    None if self.fabric is None else self.fabric.fabric_id,
+                    revocations.revoked_serials,
                 ),
-                blobs=blobs,
-                cache=self.cache_index.store,
-                jobs=JobApi(
-                    store=self.jobs,
-                    blobs=blobs,
-                    max_request_bytes=cfg.jobs.max_request_bytes,
-                    dispatcher=self.dispatcher,
-                    logs=log_hub,
-                    inputs=self.inputs,
-                    pins=self.pins,
-                    prepare=self.prepare,
-                    secrets=self.secrets,
-                    max_job_secret_bytes=cfg.jobs.max_job_secret_bytes,
-                ),
-                network=NetworkApi(store=network_store, prober=network),
-                invites=InviteApi(
-                    store=InviteStore(engine),
-                    settings=self.settings,
-                    fabric=lambda: self.fabric,
-                    enroll_port=lambda: self.enroll_port,
-                ),
-                revocations=revocations,
-                users=AuthApi(users=self.users, login=self.login),
-                secrets=self.secrets,
             ),
+            blobs=blobs,
+            cache=self.cache_index.store,
+            jobs=JobApi(
+                store=self.jobs,
+                blobs=blobs,
+                max_request_bytes=cfg.jobs.max_request_bytes,
+                dispatcher=self.dispatcher,
+                logs=log_hub,
+                inputs=self.inputs,
+                pins=self.pins,
+                prepare=self.prepare,
+                secrets=self.secrets,
+                max_job_secret_bytes=cfg.jobs.max_job_secret_bytes,
+            ),
+            network=NetworkApi(store=network_store, prober=network),
+            invites=InviteApi(
+                store=InviteStore(engine),
+                settings=self.settings,
+                fabric=lambda: self.fabric,
+                enroll_port=lambda: self.enroll_port,
+            ),
+            revocations=revocations,
+            users=AuthApi(users=self.users, login=self.login),
+            secrets=self.secrets,
+            events=self.events,
+        )
+        http_config = uvicorn.Config(
+            http_app,
             host=self._http_bind.host,
             port=self.http_port,
             log_config=None,
@@ -636,6 +669,8 @@ class ControllerRuntime:
         )
         self._http_server = _NoSignalUvicorn(http_config)
         self._spawn(self._http_server.serve(sockets=[self._http_sock]), "http-server")
+        if cfg.http.loopback_plain is not None:
+            self._serve_loopback_plain(http_app, cfg.http.loopback_plain)
         log.info(
             "controller.listening",
             grpc=BindAddress((self._grpc_bind.host, self.grpc_port)).grpc_target(),
@@ -662,6 +697,44 @@ class ControllerRuntime:
             http_bind=f"{self._http_bind.host}:{self.http_port}",
             heartbeat_interval_s=cfg.liveness.heartbeat_interval_s,
             lease_s=cfg.liveness.to_config().offline_after_s,
+        )
+
+    def _serve_loopback_plain(self, http_app: Any, bind_text: str) -> None:
+        """Q1 (V0.8 G1): the same app in plain HTTP on 127.0.0.1 / ::1 only, for
+        a browser on this host. The settings refuse any other address; the
+        bound socket is checked again here (fail closed: never a LAN port)."""
+        bind = parse_bind(bind_text)
+        if bind.host not in LOOPBACK_PLAIN_HOSTS:  # the settings already refuse it
+            raise ConfigError(
+                "[controller.http] loopback_plain must bind 127.0.0.1 or [::1]",
+                details={"bind": bind_text},
+            )
+        sock = _bind_socket(bind)
+        bound_host = str(sock.getsockname()[0])
+        if not ipaddress.ip_address(bound_host).is_loopback:
+            sock.close()
+            raise ConfigError(
+                "[controller.http] loopback_plain did not bind a loopback address",
+                details={"bind": bind_text},
+            )
+        sock.listen(_HTTP_BACKLOG)
+        self._plain_sock = sock
+        self.plain_port = int(sock.getsockname()[1])
+        config = uvicorn.Config(
+            http_app,
+            host=bind.host,
+            port=self.plain_port,
+            log_config=None,
+            access_log=False,
+            lifespan="off",
+            timeout_graceful_shutdown=int(self.settings.controller.shutdown_drain_s)
+            or 1,
+        )
+        self._plain_server = _NoSignalUvicorn(config)
+        self._spawn(self._plain_server.serve(sockets=[sock]), "http-loopback-plain")
+        log.info(
+            "controller.listening_loopback_plain",
+            http=BindAddress((bind.host, self.plain_port)).grpc_target(),
         )
 
     def _https_options(self) -> dict[str, Any]:
@@ -768,6 +841,23 @@ class ControllerRuntime:
         self._resyncs.add(task)
         task.add_done_callback(self._resyncs.discard)
 
+    def _publish_changes(self, notes: list[changes.Change]) -> None:
+        """Committed job/attempt changes -> bus events (D172; owner-scoped)."""
+        if self.events is None:
+            return
+        for note in notes:
+            self.events.publish(
+                EventType.JOB_STATE if note.kind == "job" else EventType.ATTEMPT_STATE,
+                note.data,
+                audience=Audience.OWNER,
+                owner_user_id=note.owner_user_id,
+            )
+
+    def _publish_alert(self, data: dict[str, str]) -> None:
+        """D180: a security refusal -> an admin-only ``alert`` event."""
+        if self.events is not None:
+            self.events.publish(EventType.ALERT, data, audience=Audience.ADMIN)
+
     def _spawn(self, coro: Coroutine[Any, Any, None], name: str) -> asyncio.Task[None]:
         task = asyncio.create_task(coro, name=name)
         self._tasks.add(task)
@@ -861,6 +951,9 @@ class ControllerRuntime:
             # Runs forever by design; nothing to drain once the sessions are closed.
             self._lease_timer_task.cancel()
             await asyncio.gather(self._lease_timer_task, return_exceptions=True)
+        if self._watcher_task is not None and not self._watcher_task.done():
+            self._watcher_task.cancel()  # forever by design; nothing to drain
+            await asyncio.gather(self._watcher_task, return_exceptions=True)
         if self._flusher_task is not None and not self._flusher_task.done():
             # Stop the periodic loop first, then write the closed buckets once -
             # inside the shared deadline, so history never delays the drain.
@@ -875,6 +968,8 @@ class ControllerRuntime:
             await self._grpc_server.stop(grace=remaining())
         if self._http_server is not None:
             self._http_server.should_exit = True
+        if self._plain_server is not None:
+            self._plain_server.should_exit = True
         pending = [t for t in self._tasks if not t.done()]
         if pending:
             _done, still = await asyncio.wait(pending, timeout=remaining())
@@ -884,11 +979,14 @@ class ControllerRuntime:
                 await asyncio.gather(*still, return_exceptions=True)
         if self._http_sock is not None:
             self._http_sock.close()
+        if self._plain_sock is not None:
+            self._plain_sock.close()
         if self.scrubber is not None:
             await self.scrubber.close()
         if self.gc is not None:
             await self.gc.close()
         if self._engine is not None:
+            changes.detach(self._engine)
             await self._engine.dispose()
         log.info("controller.stopped", took_s=round(drain - remaining(), 3))
 

@@ -29,6 +29,9 @@ from meshforge.common.errors import FailureType, MeshForgeError
 from meshforge.common.ids import validate_node_id
 from meshforge.controller.api.auth import AdminUser, request_source
 from meshforge.controller.api.errors import ApiError
+from meshforge.controller.api.response_models import (
+    NodeRevoked,
+)
 from meshforge.controller.revocation import (
     NodeNotFoundError,
     RevocationError,
@@ -60,7 +63,7 @@ def _is_node_id(text: str) -> bool:
     return True
 
 
-@revocation_router.post("/{node_id}/revoke")
+@revocation_router.post("/{node_id}/revoke", response_model=NodeRevoked)
 async def revoke_node(
     node_id: str,
     request: Request,

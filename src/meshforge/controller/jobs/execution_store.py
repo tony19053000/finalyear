@@ -93,6 +93,7 @@ from meshforge.controller.jobs.store import (
     attempt_record,
     clean_detail,
     job_record,
+    note_attempt_change,
     typed_store_call,
 )
 from meshforge.controller.jobs.transitions import (
@@ -491,6 +492,7 @@ class ExecutionStore(DecisionReads):
         db.add(attempt)
         await _move_job(db, row, JobEvent.DISPATCHED)
         await _fresh(db, attempt)
+        await note_attempt_change(db, attempt)
         return attempt_record(attempt)
 
     @typed_store_call
@@ -979,6 +981,7 @@ async def _move_attempt(
     current = AttemptState(row.state)
     target = next_attempt_state(current, event)
     row.state = target.value
+    await note_attempt_change(db, row)
     if report.runtime and row.runtime is None:
         row.runtime = report.runtime
     if target is AttemptState.RUNNING:

@@ -27,6 +27,13 @@ from meshforge.common.manifest import INPUT_NAME_RE
 from meshforge.controller.api.auth import CurrentUser
 from meshforge.controller.api.errors import ApiError
 from meshforge.controller.api.job_routes import JobApi, check_tree, get_job_api
+from meshforge.controller.api.response_models import (
+    InputList,
+    InputOut,
+    InputRegistered,
+    InputRemoved,
+    InputVersions,
+)
 from meshforge.controller.named_inputs import (
     NamedInputError,
     NamedInputRecord,
@@ -90,7 +97,11 @@ async def _pins_changed(jobs: JobApi) -> None:
         await jobs.pins.refresh(broadcast=True)
 
 
-@data_router.post("", summary="Register an uploaded tree as a named input")
+@data_router.post(
+    "",
+    summary="Register an uploaded tree as a named input",
+    response_model=InputRegistered,
+)
 async def push_input(
     request: Request, response: Response, _user: CurrentUser, jobs: Jobs
 ) -> dict[str, Any]:
@@ -130,13 +141,15 @@ async def push_input(
     return {**record.as_dict(), "created": created}
 
 
-@data_router.get("", summary="Every named input version")
+@data_router.get("", summary="Every named input version", response_model=InputList)
 async def list_inputs(_user: CurrentUser, jobs: Jobs) -> dict[str, Any]:
     records = await _store(jobs).list_all()
     return {"inputs": [r.as_dict() for r in records], "count": len(records)}
 
 
-@data_router.get("/{name}", summary="One named input's versions")
+@data_router.get(
+    "/{name}", summary="One named input's versions", response_model=InputVersions
+)
 async def show_input(name: Name, _user: CurrentUser, jobs: Jobs) -> dict[str, Any]:
     records = await _store(jobs).versions(_name(name))
     if not records:
@@ -144,7 +157,9 @@ async def show_input(name: Name, _user: CurrentUser, jobs: Jobs) -> dict[str, An
     return {"name": name, "versions": [r.as_dict() for r in records]}
 
 
-@data_router.patch("/{name}/{version}", summary="Pin or unpin one version")
+@data_router.patch(
+    "/{name}/{version}", summary="Pin or unpin one version", response_model=InputOut
+)
 async def pin_input(
     request: Request,
     name: Name,
@@ -163,7 +178,9 @@ async def pin_input(
     return record.as_dict()
 
 
-@data_router.delete("/{name}/{version}", summary="Remove one version")
+@data_router.delete(
+    "/{name}/{version}", summary="Remove one version", response_model=InputRemoved
+)
 async def remove_input(
     name: Name, version: Version, _user: CurrentUser, jobs: Jobs
 ) -> dict[str, Any]:

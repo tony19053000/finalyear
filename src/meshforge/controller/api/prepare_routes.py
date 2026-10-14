@@ -26,6 +26,11 @@ from meshforge.common.proto.meshforge.v1 import agent_pb2
 from meshforge.controller.api.auth import CurrentUser
 from meshforge.controller.api.errors import ApiError
 from meshforge.controller.api.job_routes import JobApi, get_job_api
+from meshforge.controller.api.response_models import (
+    GcRequested,
+    PrepareStarted,
+    PrepareStatus,
+)
 from meshforge.controller.prepare import PrepareTracker
 
 __all__ = ["prepare_router"]
@@ -117,6 +122,7 @@ def _envs(raw: object) -> list[agent_pb2.EnvSpecRequest]:
     "/{node_id}/prepare",
     status_code=status.HTTP_202_ACCEPTED,
     summary="Pull base images / build environments on a node",
+    response_model=PrepareStarted,
 )
 async def start_prepare(
     request: Request, node_id: NodeId, _user: CurrentUser, jobs: Jobs
@@ -141,7 +147,9 @@ async def start_prepare(
 
 
 @prepare_router.get(
-    "/{node_id}/prepare/{request_id}", summary="Progress of a prepare request"
+    "/{node_id}/prepare/{request_id}",
+    summary="Progress of a prepare request",
+    response_model=PrepareStatus,
 )
 async def prepare_status(
     node_id: NodeId, request_id: RequestId, _user: CurrentUser, jobs: Jobs
@@ -156,6 +164,7 @@ async def prepare_status(
     "/{node_id}/gc",
     status_code=status.HTTP_202_ACCEPTED,
     summary="Ask a node to run a GC pass now",
+    response_model=GcRequested,
 )
 async def node_gc(node_id: NodeId, _user: CurrentUser, jobs: Jobs) -> dict[str, Any]:
     tracker = _tracker(jobs)

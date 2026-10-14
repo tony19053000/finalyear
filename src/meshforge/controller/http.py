@@ -20,9 +20,11 @@ reach and an operator's browser should not be asked to fetch.
 from __future__ import annotations
 
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, FastAPI
+from pydantic import BaseModel
 
 from meshforge import __version__
 from meshforge.controller.api import (
@@ -40,6 +42,7 @@ from meshforge.controller.api.auth_routes import (
 from meshforge.controller.api.blob_routes import BLOBS_STATE_KEY, blob_router
 from meshforge.controller.api.data_routes import data_router
 from meshforge.controller.api.decision_routes import decision_router
+from meshforge.controller.api.event_routes import EVENTS_STATE_KEY, event_router
 from meshforge.controller.api.fabric_routes import (
     FABRIC_STATE_KEY_INVITES,
     InviteApi,
@@ -53,6 +56,7 @@ from meshforge.controller.api.network_routes import (
     network_router,
 )
 from meshforge.controller.api.prepare_routes import prepare_router
+from meshforge.controller.api.response_models import ERROR_RESPONSES
 from meshforge.controller.api.revocation_routes import (
     REVOCATION_STATE_KEY,
     revocation_router,
@@ -61,13 +65,28 @@ from meshforge.controller.api.secret_routes import SECRETS_STATE_KEY, secret_rou
 from meshforge.controller.api.session_routes import session_router
 from meshforge.controller.blobs import BlobStore
 from meshforge.controller.cache_index import CacheLocationStore
+from meshforge.controller.events.bus import EventBus
 from meshforge.controller.registry import Registry
 from meshforge.controller.resources import ResourceTracker
 from meshforge.controller.revocation import Revocations
 from meshforge.controller.secret_store import SecretStore
 from meshforge.controller.session.manager import SessionManager
+from meshforge.controller.web.spa import (
+    DEFAULT_DIST,
+    SecurityHeadersMiddleware,
+    SpaMiddleware,
+)
 
-__all__ = ["create_http_app"]
+__all__ = ["Health", "create_http_app", "openapi_document"]
+
+
+class Health(BaseModel):
+    """``GET /healthz``: ``ok`` or ``degraded`` (still 200)."""
+
+    status: str
+    sessions: int
+    degraded: list[str] | None = None
+
 
 OPENAPI_URL = "/v1/openapi.json"
 
@@ -87,6 +106,8 @@ def create_http_app(
     revocations: Revocations | None = None,
     users: AuthApi | None = None,
     secrets: SecretStore | None = None,
+    events: EventBus | None = None,
+    web_dist: Path | None = DEFAULT_DIST,
 ) -> FastAPI:
     """Build the controller's HTTP app. ``clock`` must be the loop's monotonic clock.
 
@@ -106,6 +127,8 @@ def create_http_app(
         redoc_url=None,
         openapi_url=OPENAPI_URL,
         dependencies=[Depends(guard_requests)],
+        # V0.8 G1 (D171): every route documents the one error envelope.
+        responses=ERROR_RESPONSES,
     )
     setattr(app.state, AUTH_STATE_KEY, auth or ApiAuth(verifier=None))
     setattr(
@@ -120,8 +143,18 @@ def create_http_app(
         ),
     )
     install_error_handlers(app)
+    # V0.8 G1 (D169): the dashboard SPA outside /v1 and /healthz (None = off),
+    # and the security headers on every response. Outermost added last.
+    if web_dist is not None:
+        app.add_middleware(SpaMiddleware, dist=web_dist)
+    app.add_middleware(SecurityHeadersMiddleware)
 
-    @app.get("/healthz", tags=["health"])
+    @app.get(
+        "/healthz",
+        tags=["health"],
+        response_model=Health,
+        response_model_exclude_none=True,
+    )
     async def healthz() -> dict[str, Any]:
         """Liveness probe: the process is up; ``sessions`` = live agent streams.
         ``"degraded"`` (still 200) names a supervised background loop that keeps
@@ -164,4 +197,36 @@ def create_http_app(
     if secrets is not None:
         setattr(app.state, SECRETS_STATE_KEY, secrets)
         app.include_router(secret_router)  # V0.7 G6 job secrets (D144)
+    if events is not None:
+        setattr(app.state, EVENTS_STATE_KEY, events)
+        app.include_router(event_router)  # V0.8 G1 live events (D172)
     return app
+
+
+def openapi_document() -> dict[str, Any]:
+    """The controller's complete OpenAPI document - every optional router
+    mounted - built without a database, a server or a socket (V0.8 G1, D171:
+    ``scripts/export_openapi.py`` and the dashboard's drift gate use it). The
+    collaborators are inert placeholders: no route is ever called."""
+    from types import SimpleNamespace
+
+    def inert() -> Any:
+        return SimpleNamespace()
+
+    app = create_http_app(
+        inert(),
+        registry=inert(),
+        resources=inert(),
+        clock=lambda: 0.0,
+        auth=ApiAuth(verifier=None),
+        blobs=inert(),
+        jobs=SimpleNamespace(inputs=inert(), prepare=inert()),  # type: ignore[arg-type]
+        network=inert(),
+        invites=inert(),
+        revocations=inert(),
+        users=inert(),
+        secrets=inert(),
+        events=inert(),
+        web_dist=None,
+    )
+    return app.openapi()

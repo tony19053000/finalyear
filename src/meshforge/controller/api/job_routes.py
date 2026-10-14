@@ -57,6 +57,7 @@ from __future__ import annotations
 
 import asyncio
 import bisect
+import datetime as dt
 import hashlib
 import hmac
 import json
@@ -69,7 +70,12 @@ from pydantic import ValidationError
 
 from meshforge.common.errors import FailureType, InvalidIdError
 from meshforge.common.hashing import Digest
-from meshforge.common.ids import new_job_id, validate_job_id, validate_node_id
+from meshforge.common.ids import (
+    new_job_id,
+    validate_job_id,
+    validate_node_id,
+    validate_user_id,
+)
 from meshforge.common.logging import get_logger
 from meshforge.common.manifest import (
     Manifest,
@@ -94,6 +100,11 @@ from meshforge.controller.api.job_models import (
     Placement,
     TransferOut,
     TransitionOut,
+)
+from meshforge.controller.api.paging import (
+    MAX_CURSOR_CHARS,
+    decode_cursor,
+    encode_cursor,
 )
 from meshforge.controller.blobs import BlobStore
 from meshforge.controller.jobs.dispatcher import Dispatcher
@@ -697,26 +708,86 @@ async def submit_job(
     return JobCreated(job_id=job.id, state=job.state, created=True)
 
 
-@job_router.get("", response_model=JobList, summary="Recent jobs, newest first")
+@job_router.get(
+    "",
+    response_model=JobList,
+    summary="Jobs, newest first - keyset pages and filters (D174)",
+)
 async def list_jobs(
     user: CurrentUser,
     jobs: Jobs,
     limit: Annotated[
-        int, Query(ge=1, le=MAX_JOB_LIMIT, description="Jobs returned, newest first.")
+        int, Query(ge=1, le=MAX_JOB_LIMIT, description="Jobs per page, newest first.")
     ] = DEFAULT_JOB_LIMIT,
     state: Annotated[
-        JobState | None, Query(description="Only jobs in this state.")
+        list[JobState] | None,
+        Query(description="Only jobs in this state (repeat for several)."),
+    ] = None,
+    owner: Annotated[
+        str | None,
+        Query(
+            max_length=40,
+            description="Only this user's jobs (usr_...). A non-admin only "
+            "ever sees their own jobs.",
+        ),
+    ] = None,
+    node: Annotated[
+        str | None,
+        Query(max_length=40, description="Only jobs with an attempt on this node."),
+    ] = None,
+    created_after: Annotated[
+        dt.datetime | None,
+        Query(description="Created at or after (ISO 8601 with a zone)."),
+    ] = None,
+    created_before: Annotated[
+        dt.datetime | None,
+        Query(description="Created before (ISO 8601 with a zone)."),
+    ] = None,
+    cursor: Annotated[
+        str | None,
+        Query(
+            max_length=MAX_CURSOR_CHARS,
+            description="The previous page's next_cursor.",
+        ),
     ] = None,
 ) -> JobList:
-    records = await jobs.store.list_jobs(
-        limit=limit,
-        state=state,
-        # D141: a user lists only their jobs; an admin (and the legacy fabric
-        # token) every job.
-        owner_user_id=None if user.is_admin else user.user_id,
+    for name, value in (
+        ("created_after", created_after),
+        ("created_before", created_before),
+    ):
+        if value is not None and value.tzinfo is None:
+            raise ApiError.invalid(f"{name} needs a time zone (e.g. ...Z)")
+    try:
+        owner_id = None if owner is None else str(validate_user_id(owner))
+        node_id = None if node is None else str(validate_node_id(node))
+    except InvalidIdError:
+        raise ApiError.invalid("owner must be usr_... and node node_...") from None
+    after = (
+        None if cursor is None else decode_cursor(cursor, validate_id=validate_job_id)
     )
-    summaries = tuple(JobSummary(**_summary_fields(j)) for j in records)
-    return JobList(jobs=summaries, count=len(summaries))
+    if not user.is_admin:
+        # D141: a user lists only their jobs; asking for another owner's is
+        # an empty page, exactly as if that user had none.
+        if owner_id is not None and owner_id != user.user_id:
+            return JobList(jobs=(), count=0, next_cursor=None)
+        owner_id = user.user_id
+    records = await jobs.store.list_jobs(
+        limit=limit + 1,  # one more: is there a next page?
+        state=state or None,
+        owner_user_id=owner_id,
+        node_id=node_id,
+        created_after=created_after,
+        created_before=created_before,
+        after=after,
+    )
+    page, more = records[:limit], len(records) > limit
+    summaries = tuple(JobSummary(**_summary_fields(j)) for j in page)
+    last = page[-1] if page and more else None
+    return JobList(
+        jobs=summaries,
+        count=len(summaries),
+        next_cursor=None if last is None else encode_cursor(last.created_at, last.id),
+    )
 
 
 @job_router.get("/{job_id}", response_model=JobDetail, summary="One job")

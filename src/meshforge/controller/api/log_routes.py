@@ -116,7 +116,18 @@ def _hub(jobs: JobApi) -> LogHub:
 # ------------------------------------------------------------------- plain
 
 
-@log_router.get("/{job_id}/logs", summary="The job's persisted logs (plain bytes)")
+@log_router.get(
+    "/{job_id}/logs",
+    summary="The job's persisted logs (plain bytes)",
+    response_class=StreamingResponse,
+    responses={
+        200: {
+            "content": {"application/octet-stream": {}},
+            "description": "stdout and/or stderr bytes; X-MeshForge-Stdout-Bytes, "
+            "X-MeshForge-Attempt and X-MeshForge-Log-Gaps headers",
+        }
+    },
+)
 async def get_logs(
     user: CurrentUser,
     jobs: Jobs,

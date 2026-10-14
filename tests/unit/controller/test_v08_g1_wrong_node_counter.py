@@ -83,7 +83,9 @@ def _live() -> LiveSession:
     )
 
 
-def _dispatcher(kind: StatusKind) -> tuple[Dispatcher, _Manager]:
+def _dispatcher(
+    kind: StatusKind, alerts: list[dict[str, str]] | None = None
+) -> tuple[Dispatcher, _Manager]:
     manager = _Manager()
     dispatcher = Dispatcher(
         store=_Store(kind),  # type: ignore[arg-type]
@@ -92,6 +94,7 @@ def _dispatcher(kind: StatusKind) -> tuple[Dispatcher, _Manager]:
         settings=JobApiSettings(),
         clock=lambda: 0.0,
         blob_port=lambda: 1,
+        on_alert=None if alerts is None else alerts.append,
     )
     return dispatcher, manager
 
@@ -121,3 +124,47 @@ async def test_a_fenced_report_still_counts_as_fenced_only() -> None:
     assert live.attempt_status_wrong_node == 0
     assert dispatcher.stats.statuses_wrong_node == 0
     assert live.summary()["attempt_status_wrong_node"] == 0
+
+
+async def test_a_wrong_node_report_raises_an_operator_alert() -> None:
+    """D180: the refusal becomes an ``alert`` (the audit row is the record)."""
+    alerts: list[dict[str, str]] = []
+    dispatcher, _ = _dispatcher(StatusKind.WRONG_NODE, alerts)
+    live = _live()
+    report = StatusReport(str(new_attempt_id()), 2, AttemptState.DONE)
+    await dispatcher._handle(_Status(live, str(new_command_id()), report))  # type: ignore[arg-type]
+    assert alerts == [
+        {
+            "kind": "wrong_node",
+            "node_id": live.node_id,
+            "attempt_id": report.attempt_id,
+            "reported": "done",
+        }
+    ]
+    fenced_alerts: list[dict[str, str]] = []
+    other, _ = _dispatcher(StatusKind.FENCED, fenced_alerts)
+    await other._handle(_Status(_live(), str(new_command_id()), report))  # type: ignore[arg-type]
+    assert fenced_alerts == []  # fencing is routine, not an alert
+
+
+async def test_a_failing_alert_sink_never_breaks_the_report() -> None:
+    def boom(_alert: dict[str, str]) -> None:
+        raise RuntimeError("bus down")
+
+    manager = _Manager()
+    dispatcher = Dispatcher(
+        store=_Store(StatusKind.WRONG_NODE),  # type: ignore[arg-type]
+        manager=manager,  # type: ignore[arg-type]
+        fetch_tokens=SimpleNamespace(),  # type: ignore[arg-type]
+        settings=JobApiSettings(),
+        clock=lambda: 0.0,
+        blob_port=lambda: 1,
+        on_alert=boom,
+    )
+    item = _Status(
+        _live(),
+        str(new_command_id()),
+        StatusReport(str(new_attempt_id()), 2, AttemptState.DONE),
+    )
+    await dispatcher._handle(item)  # type: ignore[arg-type]
+    assert manager.acked == [item.message_id]

@@ -154,6 +154,7 @@ async def test_every_v1_route_is_enumerated_and_none_is_a_write_verb(
         "/v1/nodes",
         "/v1/nodes/{node_id}",
         "/v1/nodes/{node_id}/resources",
+        "/v1/nodes/{node_id}/metrics",  # V0.8 G1 (D173): GET-only live metrics
         "/v1/sessions",
         "/v1/openapi.json",  # GET-only schema endpoint; not a fabric resource route
     }, app_routes
@@ -166,6 +167,7 @@ async def test_every_v1_route_is_enumerated_and_none_is_a_write_verb(
         "/v1/nodes",
         f"/v1/nodes/{NODE_A}",
         f"/v1/nodes/{NODE_A}/resources",
+        f"/v1/nodes/{NODE_A}/metrics",
         "/v1/sessions",
     ],
 )
@@ -211,6 +213,14 @@ async def test_hostile_node_id_values_are_a_clean_typed_envelope_never_echoed(
             # the client layer - "never reaches the server" satisfies the
             # contract at least as well as a clean typed rejection would.
             return
+    if not response.request.url.path.startswith("/v1/"):
+        # The client resolved "../" before sending: the request left /v1, and
+        # since V0.8 G1 (D169) a GET outside /v1 is the dashboard SPA (its page,
+        # 200 HTML) - still no 500 and no echo of the raw value.
+        assert response.status_code == 200, (raw, response.status_code)
+        assert response.headers["content-type"].startswith("text/html")
+        assert raw not in response.text
+        return
     # Every hostile shape must resolve to a typed client error, never a 500/hang,
     # and the raw value must never come back verbatim in the body.
     assert response.status_code in (400, 404), (raw, response.status_code)

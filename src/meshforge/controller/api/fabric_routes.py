@@ -28,6 +28,11 @@ from meshforge.common.ids import validate_node_id
 from meshforge.controller.api.auth import AdminUser
 from meshforge.controller.api.errors import ApiError
 from meshforge.controller.api.models import ApiModel
+from meshforge.controller.api.response_models import (
+    InviteCreated,
+    InviteList,
+    InviteOut,
+)
 from meshforge.controller.auth.principal import Principal
 from meshforge.controller.enrollment.codes import (
     CodeAddressError,
@@ -136,7 +141,9 @@ def _api_error(exc: MeshForgeError) -> ApiError:
     return ApiError(FailureType.INTERNAL_ERROR, "the invite could not be made")
 
 
-@fabric_router.post("/invites", status_code=status.HTTP_201_CREATED)
+@fabric_router.post(
+    "/invites", status_code=status.HTTP_201_CREATED, response_model=InviteCreated
+)
 async def create_invite(
     request: Request,
     admin: InviteAdmin,
@@ -171,7 +178,7 @@ async def create_invite(
     return issue_code(new, fabric=fabric, host=host, port=port).as_dict()
 
 
-@fabric_router.get("/invites")
+@fabric_router.get("/invites", response_model=InviteList)
 async def list_invites(
     _admin: InviteAdmin, api: Annotated[InviteApi, Depends(get_invite_api)]
 ) -> dict[str, Any]:
@@ -182,7 +189,7 @@ async def list_invites(
     return {"invites": [row.as_dict() for row in rows]}
 
 
-@fabric_router.post("/invites/{invite_id}/revoke")
+@fabric_router.post("/invites/{invite_id}/revoke", response_model=InviteOut)
 async def revoke_invite(
     invite_id: str,
     request: Request,
