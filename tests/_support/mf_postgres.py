@@ -14,6 +14,7 @@ Imported as the top-level module ``mf_postgres`` (``tests/conftest.py`` puts
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final
@@ -82,7 +83,16 @@ class PostgresServer:
             finally:
                 await conn.close()
 
-        asyncio.run(go())
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:  # the usual case: no loop in this thread
+            asyncio.run(go())
+            return
+        # A loop already runs in this thread - Playwright's sync API keeps one
+        # in the main thread for the whole e2e session (V0.8 G2): run the
+        # statements on a fresh loop in a worker thread instead.
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            pool.submit(asyncio.run, go()).result()
 
 
 @pytest.fixture(scope="session")

@@ -23,7 +23,7 @@
   /* Text. */
   --mf-fg: #e3e7ec;
   --mf-fg-muted: #9aa4b1;
-  --mf-fg-subtle: #6c7683;
+  --mf-fg-subtle: #858f9c;
 
   /* The one accent: actions, links, the selected nav item, focus. */
   --mf-accent: #4d8eff;
@@ -37,12 +37,12 @@
   --mf-status-busy: #d4a72c;
   --mf-status-degraded: #e3793b;
   --mf-status-failed: #f05a4f;
-  --mf-status-unknown: #7d8794;
+  --mf-status-unknown: #8c96a3;
   --mf-status-ok-soft: #3fb95024;
   --mf-status-busy-soft: #d4a72c24;
   --mf-status-degraded-soft: #e3793b24;
   --mf-status-failed-soft: #f05a4f24;
-  --mf-status-unknown-soft: #7d879424;
+  --mf-status-unknown-soft: #8c96a324;
 
   --mf-shadow: 0 8px 24px #00000066;
   --mf-backdrop: #05070acc;
@@ -60,24 +60,24 @@
 
   --mf-fg: #161b22;
   --mf-fg-muted: #4f5966;
-  --mf-fg-subtle: #6f7884;
+  --mf-fg-subtle: #5c6571;
 
-  --mf-accent: #1f63e0;
+  --mf-accent: #1a5bd0;
   --mf-accent-hover: #1852bd;
   --mf-accent-fg: #ffffff;
-  --mf-accent-soft: #1f63e014;
-  --mf-focus: #1f63e0;
+  --mf-accent-soft: #1a5bd014;
+  --mf-focus: #1a5bd0;
 
-  --mf-status-ok: #1a7f37;
-  --mf-status-busy: #9a6700;
-  --mf-status-degraded: #bc4c00;
+  --mf-status-ok: #17702f;
+  --mf-status-busy: #7f5600;
+  --mf-status-degraded: #a24200;
   --mf-status-failed: #cf222e;
-  --mf-status-unknown: #6e7781;
-  --mf-status-ok-soft: #1a7f371a;
-  --mf-status-busy-soft: #9a67001a;
-  --mf-status-degraded-soft: #bc4c001a;
+  --mf-status-unknown: #5c6571;
+  --mf-status-ok-soft: #17702f1a;
+  --mf-status-busy-soft: #7f56001a;
+  --mf-status-degraded-soft: #a242001a;
   --mf-status-failed-soft: #cf222e1a;
-  --mf-status-unknown-soft: #6e77811a;
+  --mf-status-unknown-soft: #5c65711a;
 
   --mf-shadow: 0 8px 24px #1b1f2426;
   --mf-backdrop: #1b1f2466;
