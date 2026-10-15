@@ -480,6 +480,8 @@ A version is **complete** only when all apply:
 - [ ] **0.9.9** Benchmarks page in dashboard
 - [ ] **0.9.10** 🧑 Overnight campaign on the lab
 
+*Carried from V0.8 G1 (D181/D184):* agent-side live-log redaction still runs on the agent's event loop (THREAT_MODEL RE-D2 residual) — move it off the loop with the telemetry/agent work here, without reopening the T-14 drain/cancel race.
+
 **Success criteria**
 1. Unattended campaign of **≥ 1,000 runs** across 4 laptops with **< 2 %** infrastructure failures.
 2. Export reproducible (same campaign ID → same dataset rows).
