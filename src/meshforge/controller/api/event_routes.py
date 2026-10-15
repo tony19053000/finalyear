@@ -90,6 +90,12 @@ async def _next(sub: Subscriber, handle: StreamAuth | None) -> Any:
             if not waiter.done():
                 waiter.cancel()
         await asyncio.gather(*waits, return_exceptions=True)
+    # Revoke/dequeue race (G1 review, D184): the queue's get and the revoke can
+    # both complete in the same wait. Revocation wins on purpose - the event
+    # already taken off the queue is dropped, never sent to a principal that
+    # is no longer authorised. Nothing is lost for a legitimate client: it
+    # reconnects with ``since``/``epoch`` and replays the ring (or is told to
+    # resync), so the dropped event comes back once it is authorised again.
     if handle is not None and handle.revoked.is_set():
         reason = handle.reason or StreamEndReason.UNAUTHORIZED
         code = (
