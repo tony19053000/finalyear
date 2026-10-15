@@ -265,6 +265,8 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
+**2026-10-16 (G1 CLOSED) — gate green (D186); G2 item 0 merged. Running: G2 frontend tester r1 (worktree agent-af40f…), G6 CLI implementer (worktree). Next: G2 reviewer → merge G2; G6 tester → reviewer → merge; then whole component once per group.**
+
 **2026-10-16 (parallel wave, team request) — while the G1 gate runs, three implementers run in parallel in git worktrees: G2 item 0 (brief §5b0), G2 frontend (§5b), G6 CLI (§5f). If died: check `git worktree list` + branches + progress files V0.8-G2-item0/G2/G6.md; merge order item0 → G2 → G6 into main after the G1 gate is green.**
 
 **2026-10-16 (G1 gate) — reviewer APPROVE (D184, G2 item 0 list). **Group-end gate RUNNING:** whole `-m component` then full `-m security` (logs in session scratchpad). If died: rerun both once; if green → G1 closed, update STATUS (Known Bugs: T-5), then write G2 brief §5b.**
