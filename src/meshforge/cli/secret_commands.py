@@ -32,8 +32,12 @@ from meshforge.common.secret_names import (
     check_secret_value,
     normalise_secret_name,
 )
+from meshforge.common.secret_redaction import ACTIVE
 
 __all__ = ["secret_app"]
+
+_HOLDER = "cli-secret-set"
+"""This process's entry in the active-secrets registry while a value is sent."""
 
 secret_app = typer.Typer(
     name="secret",
@@ -103,8 +107,15 @@ def set_secret(
     except SecretValueError as exc:
         cli._die(exc.message, CliExit.USAGE_ERROR)
     settings = cli._settings()
-    with cli._client(settings) as client:
-        payload = cli._fetch(lambda: client.put_secret(checked, value))
+    # V0.8 G6: while the value is in flight, any error line that quotes it (a
+    # proxy or server echoing the body) prints `[secret:NAME]` instead - the
+    # error path scrubs through the same active-secrets registry as the logs.
+    ACTIVE.add(_HOLDER, {checked: value})
+    try:
+        with cli._client(settings) as client:
+            payload = cli._fetch(lambda: client.put_secret(checked, value))
+    finally:
+        ACTIVE.remove(_HOLDER)
     verb = "stored" if payload.get("created") else "replaced"
     render.line(f"{verb} secret {checked}")
 
