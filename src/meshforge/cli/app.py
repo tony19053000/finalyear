@@ -54,6 +54,7 @@ from rich.console import Console
 
 from meshforge import __version__
 from meshforge.cli import render
+from meshforge.cli.completion import use_safe_installers
 from meshforge.cli.exits import CliExit
 from meshforge.cli.settings import CliSettings
 from meshforge.common.errors import ConfigError
@@ -63,6 +64,10 @@ if TYPE_CHECKING:  # `meshforge.cli.client` pulls in httpx - see `_client` below
     from meshforge.cli.credentials import StoredLogin
 
 PROG_NAME = render.PROG_NAME
+
+# `--install-completion` for PowerShell must not change the execution policy
+# (meshforge.cli.completion explains why this patches Typer's installer table).
+use_safe_installers()
 
 app = typer.Typer(
     name=PROG_NAME,
