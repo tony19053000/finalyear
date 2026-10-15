@@ -25,6 +25,7 @@ from typing import Any
 
 from fastapi import Depends, FastAPI
 from pydantic import BaseModel
+from starlette.types import ASGIApp
 
 from meshforge import __version__
 from meshforge.controller.api import (
@@ -91,6 +92,18 @@ class Health(BaseModel):
 OPENAPI_URL = "/v1/openapi.json"
 
 
+class _ControllerApp(FastAPI):
+    """FastAPI with :class:`SecurityHeadersMiddleware` OUTSIDE everything.
+
+    ``add_middleware`` always lands inside Starlette's ``ServerErrorMiddleware``
+    (which answers an unhandled exception's 500), so the headers are wrapped
+    around the built stack instead (V0.8 G1, D182 T-1: every response).
+    """
+
+    def build_middleware_stack(self) -> ASGIApp:
+        return SecurityHeadersMiddleware(super().build_middleware_stack())
+
+
 def create_http_app(
     manager: SessionManager,
     *,
@@ -116,7 +129,7 @@ def create_http_app(
     call but ``/healthz`` is refused (fail closed). ``users`` mounts
     ``/v1/auth`` (login, tokens, whoami).
     """
-    app = FastAPI(
+    app = _ControllerApp(
         title="MeshForge controller",
         version=__version__,
         summary=(
@@ -143,11 +156,11 @@ def create_http_app(
         ),
     )
     install_error_handlers(app)
-    # V0.8 G1 (D169): the dashboard SPA outside /v1 and /healthz (None = off),
-    # and the security headers on every response. Outermost added last.
+    # V0.8 G1 (D169): the dashboard SPA outside /v1 and /healthz (None = off).
+    # The security headers wrap the whole stack (_ControllerApp), so even a
+    # 500 from Starlette's ServerErrorMiddleware carries them (D182 T-1).
     if web_dist is not None:
         app.add_middleware(SpaMiddleware, dist=web_dist)
-    app.add_middleware(SecurityHeadersMiddleware)
 
     @app.get(
         "/healthz",

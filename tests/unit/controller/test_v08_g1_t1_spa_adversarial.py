@@ -256,17 +256,10 @@ async def test_unicode_and_odd_segments_never_500(tree: Path) -> None:
         assert resp.status_code < 500, path
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-1 (minor): a 500 from an unhandled exception is produced by "
-    "Starlette's ServerErrorMiddleware, which sits OUTSIDE SecurityHeadersMiddleware, "
-    "so it carries no CSP / nosniff / Referrer-Policy / X-Frame-Options "
-    "(brief 5b: 'security headers on every response').",
-)
 async def test_t1_an_unhandled_500_still_carries_the_security_headers() -> None:
     from types import SimpleNamespace
 
-    from mf_users import static_auth
+    from mf_users import ADMIN_TOKEN, bearer, static_auth
 
     from meshforge.controller.http import create_http_app
 
@@ -290,7 +283,9 @@ async def test_t1_an_unhandled_500_still_carries_the_security_headers() -> None:
         raise RuntimeError("boom")
 
     async with _client(app) as client:
-        resp = await client.get("/v1/_t1_boom")
+        # Fix round 1: authenticated, so the request reaches the route (without
+        # a token the guard answered 401 and the 500 path was never taken).
+        resp = await client.get("/v1/_t1_boom", headers=bearer(ADMIN_TOKEN))
     assert resp.status_code == 500
     assert resp.headers.get("x-content-type-options") == "nosniff"
     assert resp.headers.get("content-security-policy") == CSP
