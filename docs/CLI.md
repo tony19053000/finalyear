@@ -59,7 +59,8 @@ Every read command (and the write commands marked "yes" above) takes `--json`. T
 3. **Stability:** fields are only ever *added* within one `schema_version`. Removing, renaming or changing the
    type of a field listed below raises `schema_version`. A script should ignore fields it does not know.
 4. **Errors are not JSON:** a failing command prints nothing on stdout, one `compute: ...` line on stderr, and
-   exits with the code from section 4. Check the exit code first.
+   exits with the code from section 4. Check the exit code first. The one exception is `compute status`: telling
+   you whether the controller answers is its job, so it always prints its document and still exits 3 or 6.
 
 Guaranteed fields per command (`a[].b` = field `b` of every item of list `a`; `a.b` = field `b` of object `a`):
 
