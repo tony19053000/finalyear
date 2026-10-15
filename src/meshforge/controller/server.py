@@ -129,6 +129,7 @@ from meshforge.controller.snapshots import SnapshotFlusher
 from meshforge.controller.store.engine import check_connection, create_engine
 from meshforge.controller.store.migrate import upgrade_to_head
 from meshforge.controller.upload_grants import UploadGrants
+from meshforge.controller.web.host_guard import LoopbackHostGuard
 
 __all__ = ["GRPC_SERVER_OPTIONS", "ControllerRuntime", "run_controller"]
 
@@ -721,7 +722,8 @@ class ControllerRuntime:
         self._plain_sock = sock
         self.plain_port = int(sock.getsockname()[1])
         config = uvicorn.Config(
-            http_app,
+            # D182 O-1: only Host localhost / 127.0.0.1 / [::1] (DNS rebinding).
+            LoopbackHostGuard(http_app, port=self.plain_port),
             host=bind.host,
             port=self.plain_port,
             log_config=None,

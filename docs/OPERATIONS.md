@@ -345,7 +345,8 @@ meshforge-controller ca trust-helper --pem > ca.crt   # the (public) certificate
 It only prints; you run the steps, after checking that the fingerprint the OS shows equals the printed one.
 On the controller host itself you may instead set `[controller.http] loopback_plain = "127.0.0.1:47111"` and open
 `http://127.0.0.1:47111` - plain HTTP that never leaves the machine (only `127.0.0.1` or `[::1]` is accepted; any
-other value stops the controller at start).
+other value stops the controller at start). Open it as `localhost`, `127.0.0.1` or `[::1]`: any other host name
+(a hosts-file alias, a DNS name pointing at 127.0.0.1) is refused with 400 - that blocks DNS-rebinding attacks.
 
 **Logging in.** The dashboard asks for the same user name and password as `compute login`. It never receives an
 API token: it gets a *session* cookie (`HttpOnly`, `Secure`, `SameSite=Strict`) that ends after **12 h unused**
