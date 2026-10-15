@@ -1,0 +1,126 @@
+/**
+ * The dashboard's one HTTP client (D170, D171).
+ *
+ * - Auth is the HttpOnly `mf_session` cookie (Path=/v1) the browser sends by
+ *   itself; this code never sees a token. `credentials: "same-origin"`.
+ * - Every mutation (non-GET/HEAD) carries `X-MeshForge-CSRF` = the readable
+ *   `mf_csrf` cookie (signed double submit, ARCHITECTURE §16 V0.8).
+ * - A non-2xx answer becomes a typed `ApiError` from the error envelope; no
+ *   answer at all is a `NetworkError`.
+ * - A 401 (session ended, revoked, expired) calls the registered handler,
+ *   which sends the user to the login page - except for the login call itself.
+ */
+import { ApiError, NetworkError, errorFromResponse } from "./errors";
+
+export const CSRF_COOKIE = "mf_csrf";
+export const CSRF_HEADER = "X-MeshForge-CSRF";
+
+type UnauthorizedHandler = (error: ApiError) => void;
+
+let onUnauthorized: UnauthorizedHandler | null = null;
+
+/** The app shell registers where a 401 sends the user (the login page). */
+export function setUnauthorizedHandler(handler: UnauthorizedHandler | null): void {
+  onUnauthorized = handler;
+}
+
+/** The value of cookie `name` readable by script (`mf_csrf` only, by design). */
+export function readCookie(name: string, cookies: string = document.cookie): string | undefined {
+  for (const part of cookies.split(";")) {
+    const eq = part.indexOf("=");
+    if (eq < 0) continue;
+    if (part.slice(0, eq).trim() === name) {
+      const value = part.slice(eq + 1).trim();
+      try {
+        return decodeURIComponent(value);
+      } catch {
+        return value;
+      }
+    }
+  }
+  return undefined;
+}
+
+export type Method = "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE";
+
+export interface RequestOptions {
+  method?: Method;
+  /** JSON-encoded as the request body. */
+  json?: unknown;
+  /** Query parameters; undefined values are skipped, arrays repeat the key. */
+  query?: Record<string, string | number | boolean | readonly string[] | undefined>;
+  signal?: AbortSignal;
+  /** Do not call the 401 handler (the login request, the session probe). */
+  skipUnauthorizedHandler?: boolean;
+}
+
+function buildUrl(path: string, query: RequestOptions["query"]): string {
+  if (!path.startsWith("/v1/") && path !== "/healthz") {
+    throw new Error(`API paths start with /v1/ (got ${path})`);
+  }
+  if (query === undefined) return path;
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) {
+    if (value === undefined) continue;
+    if (Array.isArray(value)) {
+      for (const item of value as readonly string[]) params.append(key, item);
+    } else {
+      params.append(key, String(value));
+    }
+  }
+  const qs = params.toString();
+  return qs ? `${path}?${qs}` : path;
+}
+
+/** Call the controller; resolve with the parsed JSON body (or undefined for 204). */
+export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const method = options.method ?? "GET";
+  const url = buildUrl(path, options.query); // a bad path is a bug: throw, not NetworkError
+  const headers = new Headers({ Accept: "application/json" });
+  if (method !== "GET" && method !== "HEAD") {
+    const csrf = readCookie(CSRF_COOKIE);
+    if (csrf !== undefined) headers.set(CSRF_HEADER, csrf);
+  }
+  let body: string | undefined;
+  if (options.json !== undefined) {
+    headers.set("Content-Type", "application/json");
+    body = JSON.stringify(options.json);
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method,
+      headers,
+      body,
+      credentials: "same-origin",
+      cache: "no-store",
+      signal: options.signal,
+    });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") throw err;
+    throw new NetworkError("The controller did not answer.");
+  }
+
+  const text = await response.text();
+  let parsed: unknown = undefined;
+  if (text !== "") {
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      parsed = undefined;
+    }
+  }
+
+  if (!response.ok) {
+    const error = errorFromResponse(response.status, response.headers, parsed);
+    if (response.status === 401 && options.skipUnauthorizedHandler !== true) {
+      onUnauthorized?.(error);
+    }
+    throw error;
+  }
+  if (text !== "" && parsed === undefined) {
+    throw new ApiError(response.status, "invalid_response", "The controller sent a body that is not JSON.");
+  }
+  return parsed as T;
+}
