@@ -66,6 +66,7 @@ __all__ = [
     "NODE_COLUMNS",
     "PROG_NAME",
     "cell",
+    "clip",
     "console",
     "emit_json",
     "fail",
@@ -80,6 +81,7 @@ __all__ = [
     "note",
     "scores_cell",
     "scores_table",
+    "scrub",
     "show",
     "state_counts",
     "status_table",
@@ -147,9 +149,23 @@ def fail(message: object) -> None:
     controller sent, and an error line ends up in scrollback, CI logs and bug
     reports.
     """
+    note(scrub(message))
+
+
+def scrub(text: object) -> str:
+    """Flattened and scrubbed with the logs' rules (see :func:`fail`). For any
+    server-supplied error text shown *outside* :func:`fail` - ``compute
+    status`` prints it in its table and in ``--json`` ``detail`` (V0.8 G6 T-1)."""
     from meshforge.common.redaction import scrub_text
 
-    note(scrub_text(flat(message)))
+    return scrub_text(flat(text))
+
+
+def clip(value: object) -> str:
+    """A server value for a plain line: flattened and capped at
+    :data:`MAX_CELL_LENGTH` like a table cell (V0.8 G6 T-2)."""
+    text = flat("" if value is None else value)
+    return text if len(text) <= MAX_CELL_LENGTH else text[:MAX_CELL_LENGTH] + "..."
 
 
 def emit_json(payload: Mapping[str, Any]) -> None:

@@ -14,10 +14,15 @@ installed into Typer's installer table by :func:`use_safe_installers`, which
 :mod:`meshforge.cli.app` calls once at import; a unit test pins that Typer still
 looks the function up there, so a Typer upgrade that moves it fails loudly
 instead of quietly bringing the policy change back.
+
+The bash installer is replaced too (:func:`install_bash`, V0.8 G6 T-5): Typer's
+appends a newline to ``~/.bashrc`` on every run; ours leaves it byte-identical
+on a re-run.
 """
 
 from __future__ import annotations
 
+import shlex
 import subprocess
 from pathlib import Path
 from typing import Final
@@ -86,6 +91,40 @@ def install_powershell(*, prog_name: str, complete_var: str, shell: str) -> Path
     return profile
 
 
+def _bash_source_line(script: Path) -> str:
+    """``source '<script>'`` - Typer's exact form when the path has no single
+    quote (so a line Typer wrote earlier is recognised), else shell-quoted."""
+    text = str(script)
+    return f"source '{text}'" if "'" not in text else f"source {shlex.quote(text)}"
+
+
+def install_bash(*, prog_name: str, complete_var: str, shell: str) -> Path:
+    """Write ``~/.bash_completions/<prog>.sh`` and source it from ``~/.bashrc``
+    once. Re-running leaves ``~/.bashrc`` byte-identical (V0.8 G6 T-5: Typer's
+    installer appends a newline on every run); an existing file without a final
+    newline is completed with one before the line is added, never rewritten."""
+    home = Path.home()
+    script = home / ".bash_completions" / f"{prog_name}.sh"
+    script.parent.mkdir(parents=True, exist_ok=True)
+    script.write_text(
+        typer_completion.get_completion_script(
+            prog_name=prog_name, complete_var=complete_var, shell=shell
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    rc = home / ".bashrc"
+    existing = rc.read_text(encoding="utf-8", errors="replace") if rc.is_file() else ""
+    line = _bash_source_line(script)
+    if line not in existing.splitlines():
+        with rc.open("a", encoding="utf-8") as fh:
+            if existing and not existing.endswith("\n"):
+                fh.write("\n")
+            fh.write(f"{line}\n")
+    return script
+
+
 def use_safe_installers() -> None:
-    """Route Typer's PowerShell installer to :func:`install_powershell`."""
+    """Route Typer's PowerShell and bash installers to ours (module docstring)."""
     typer_completion.install_powershell = install_powershell
+    typer_completion.install_bash = install_bash

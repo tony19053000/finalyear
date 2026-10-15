@@ -184,6 +184,9 @@ def test_typer_still_routes_powershell_through_our_installer() -> None:
     assert typer_completion.install_powershell is completion.install_powershell
     source = Path(typer_completion.__file__).read_text(encoding="utf-8")
     assert "installed_path = install_powershell(" in source
+    # fix round 1 (T-5): bash goes through ours too
+    assert typer_completion.install_bash is completion.install_bash
+    assert "installed_path = install_bash(" in source
 
 
 @pytest.mark.parametrize("shell", ["powershell", "pwsh"])

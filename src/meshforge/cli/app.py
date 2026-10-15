@@ -352,7 +352,7 @@ def status(json_output: JsonOption = False) -> None:
             health = client.health()
             node_payload = client.nodes()
         except ControllerError as exc:
-            detail = exc.message
+            detail = render.scrub(exc.message)  # T-1: server text, scrubbed
             code = exit_code_for(exc)
     # V0.8 G6: a controller that answered /healthz but refused the node list
     # (not logged in: exit 3) *is* reachable - only exit 6 means it is not.

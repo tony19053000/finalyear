@@ -424,8 +424,14 @@ class ControllerClient:
             error = body.get("error")
             if isinstance(error, dict):
                 code, message = _clean(error.get("code")), _clean(error.get("message"))
-        failure_type = _failure_type(code)
         status = response.status_code
+        # T-3: no envelope (a reverse proxy, an older controller) -> the HTTP
+        # status alone decides auth / not found, so a script still gets 3 / 8.
+        failure_type = (
+            _failure_type(code)
+            if code
+            else _STATUS_FALLBACK.get(status, _failure_type(""))
+        )
         detail = message or f"HTTP {status}"
         if failure_type is FailureType.UNAUTHORIZED and status == 403:
             return ControllerError(
@@ -459,6 +465,15 @@ class ControllerClient:
             details=details,
         )
 
+
+_STATUS_FALLBACK: Final = {
+    401: FailureType.UNAUTHORIZED,
+    403: FailureType.UNAUTHORIZED,
+    404: FailureType.NOT_FOUND,
+}
+"""What a refusal without the typed envelope means, by HTTP status (V0.8 G6
+T-3). Only statuses with one unambiguous meaning; everything else stays
+``INTERNAL_ERROR`` (exit 1), so an unreadable 5xx is never retried forever."""
 
 _MAX_REJECTIONS: Final = 64
 

@@ -15,6 +15,7 @@ No value is ever printed, logged or sent anywhere but the request body.
 from __future__ import annotations
 
 import getpass
+import json
 import sys
 from pathlib import Path
 from typing import Annotated
@@ -52,6 +53,22 @@ def _name(raw: str) -> str:
         return normalise_secret_name(raw)
     except SecretNameError as exc:
         cli._die(f"NAME: {exc.message}", CliExit.USAGE_ERROR)
+
+
+def _json_forms(value: bytes) -> list[bytes]:
+    """The value as it appears inside a JSON string (a server that echoes the
+    body through ``json.dumps``): ASCII-escaped and UTF-8 forms, quotes and
+    backslashes escaped. Only those that differ from the raw value (which is
+    registered already); none for a value that is not UTF-8 text."""
+    try:
+        text = value.decode("utf-8")
+    except UnicodeDecodeError:
+        return []
+    forms = {
+        json.dumps(text, ensure_ascii=ascii_only)[1:-1].encode("utf-8")
+        for ascii_only in (True, False)
+    }
+    return sorted(f for f in forms if f != value)
 
 
 def _strip_newline(data: bytes) -> bytes:
@@ -111,11 +128,13 @@ def set_secret(
     # proxy or server echoing the body) prints `[secret:NAME]` instead - the
     # error path scrubs through the same active-secrets registry as the logs.
     ACTIVE.add(_HOLDER, {checked: value})
+    for i, form in enumerate(_json_forms(value)):  # T-4: JSON-escaped echoes
+        ACTIVE.add(f"{_HOLDER}-json{i}", {checked: form})
     try:
         with cli._client(settings) as client:
             payload = cli._fetch(lambda: client.put_secret(checked, value))
     finally:
-        ACTIVE.remove(_HOLDER)
+        ACTIVE.remove_prefix(_HOLDER)
     verb = "stored" if payload.get("created") else "replaced"
     render.line(f"{verb} secret {checked}")
 

@@ -288,13 +288,16 @@ def whoami(json_output: cli.JsonOption = False) -> None:
         return
     user = payload.get("user")
     user = user if isinstance(user, dict) else {}
-    line = f"{user.get('name', '?')} ({user.get('role', '?')})"
+    # T-2: every server string capped like a table cell.
+    clip = render.clip
+    line = f"{clip(user.get('name', '?'))} ({clip(user.get('role', '?'))})"
     if payload.get("legacy"):
         line += " - the legacy fabric token (switch to `compute login`)"
     render.line(line)
     if payload.get("token_expires_at"):
         render.line(
-            f"token {payload.get('token_id')} until {payload['token_expires_at']}"
+            f"token {clip(payload.get('token_id'))} until "
+            f"{clip(payload['token_expires_at'])}"
         )
 
 

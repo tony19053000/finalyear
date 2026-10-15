@@ -8,7 +8,7 @@ real-bash completion idempotence, the PowerShell installer, and flag
 backward compatibility against the audit list.
 """
 
-# ruff: noqa: E501, E741, PLE2502, PT006, SIM222
+# ruff: noqa: E741, PLE2502, PT006, SIM222
 from __future__ import annotations
 
 import json
@@ -593,10 +593,6 @@ def test_hostile_error_message_is_flattened_scrubbed_and_one_line(
     assert len(result.stderr) < 10000, len(result.stderr)  # bounded
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-1 (major): `compute status` prints the server's error text unscrubbed (table and --json detail)",
-)
 @pytest.mark.parametrize("as_json", [False, True])
 @pytest.mark.parametrize(
     "status,code",
@@ -623,10 +619,6 @@ def test_status_scrubs_secrets_echoed_in_server_errors(
     ]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-2 (minor): `compute whoami` prints a server-sent name with no length cap (10 kB line)",
-)
 def test_whoami_caps_very_long_server_strings(
     runner: CliRunner, controller: TransportFactory
 ) -> None:
@@ -702,10 +694,6 @@ def test_status_with_nonstandard_bodies_never_traceback(
     assert result.stdout == "" and len(result.stderr.splitlines()) == 1
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-3 (minor): a 401/403/404 whose body is not the controller's JSON error (reverse proxy, older controller) exits 1, not 3/3/8: the code is derived from the body, not the HTTP status",
-)
 @pytest.mark.parametrize("status,expected", [(401, 3), (403, 3), (404, 8)])
 @pytest.mark.parametrize("content", [b"<html>x</html>", b"plain"], ids=["html", "text"])
 def test_http_status_alone_decides_auth_and_not_found(
@@ -815,10 +803,6 @@ def test_secret_set_success_does_not_print_value(
     assert value not in r.output
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-4 (minor): a secret echoed JSON-escaped (quote/backslash/non-ASCII) by the server is not masked; only the raw form is",
-)
 def test_secret_value_urlencoded_or_jsonescaped_echo(
     runner: CliRunner, controller: TransportFactory
 ) -> None:
@@ -1018,10 +1002,6 @@ def test_bash_install_completion_sources_once_and_keeps_rc(tmp_path: Path) -> No
     assert rc.count("compute.sh") == 1
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-5 (minor): Typer's bash installer appends a blank line to ~/.bashrc on every re-run (file is not byte-identical after run 2)",
-)
 @pytest.mark.skipif(shutil.which("bash") is None, reason="needs bash")
 def test_bash_install_completion_is_idempotent_three_times(tmp_path: Path) -> None:
     home = tmp_path / "home é"
