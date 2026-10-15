@@ -10,6 +10,9 @@ from collections.abc import AsyncIterator
 
 import pytest
 import pytest_asyncio
+
+pytest.importorskip("sqlalchemy", reason="needs the controller extra")
+
 from alembic import command
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError

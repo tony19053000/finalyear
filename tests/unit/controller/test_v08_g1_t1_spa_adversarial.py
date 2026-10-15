@@ -13,6 +13,9 @@ from pathlib import Path
 
 import httpx
 import pytest
+
+pytest.importorskip("fastapi", reason="needs the controller extra")
+
 from fastapi import FastAPI
 from starlette.responses import JSONResponse
 
