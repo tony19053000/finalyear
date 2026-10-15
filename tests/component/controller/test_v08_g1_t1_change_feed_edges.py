@@ -1,7 +1,7 @@
 """V0.8 G1 tester r1: the change feed (D172) "events only after commit" under
 savepoints, explicit rollbacks, a failing sink and concurrent sessions."""
 
-# ruff: noqa: E501, PT012
+# ruff: noqa: PT012
 
 from __future__ import annotations
 
@@ -38,13 +38,6 @@ def _ids(seen: list[changes.Change]) -> list[str]:
     return [c.data["job_id"] for c in seen]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-2 (minor, latent: no store path notes inside a savepoint today): a change noted inside a SAVEPOINT that is rolled back "
-    "is still published when the outer transaction commits - the dashboard "
-    "would show a state the database never kept (after_rollback only fires "
-    "for a real rollback, not for after_soft_rollback / begin_nested).",
-)
 async def test_t2_a_rolled_back_savepoint_publishes_nothing(
     engine: AsyncEngine,
 ) -> None:
@@ -66,15 +59,6 @@ async def test_t2_a_rolled_back_savepoint_publishes_nothing(
     assert _ids(seen) == ["job_kept"]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-3 (major, reachable: _record_decision savepoint): SQLAlchemy fires after_commit when a SAVEPOINT is "
-    "released, so notes made before it are published (and dropped from "
-    "session.info) BEFORE the outer transaction commits; if that transaction "
-    "then rolls back, the dashboard has shown a state the database never "
-    "kept. Real path: execution_store._record_decision wraps a SAVEPOINT in "
-    "the dispatch / failure transactions after _move_job noted its changes.",
-)
 async def test_t3_a_released_savepoint_does_not_publish_before_the_outer_commit(
     engine: AsyncEngine,
 ) -> None:
