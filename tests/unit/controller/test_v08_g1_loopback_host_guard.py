@@ -67,6 +67,52 @@ def test_every_other_host_is_refused(host: str) -> None:
     assert not allowed_host(host, PORT)
 
 
+@pytest.mark.parametrize(
+    "host",
+    [
+        f"localhost:0{PORT}",
+        f"127.0.0.1:00{PORT}",
+        f"[::1]:0{PORT}",
+        f"LOCALHOST:000{PORT}",
+        f"localhost:{PORT}.0",
+        f"localhost:{PORT}e0",
+        f"localhost:-{PORT}",
+        "localhost:\uff14\uff17\uff11\uff11\uff11",  # fullwidth digits
+    ],
+)
+def test_port_must_be_the_exact_decimal_digits(host: str) -> None:
+    """D184 (4): ``int()`` would accept ``047111``; only the canonical spelling
+    of the listener's port passes."""
+    assert not allowed_host(host, PORT)
+
+
+@pytest.mark.parametrize("port", [80, 443, 8080, 65535])
+def test_exact_port_passes_for_other_listener_ports(port: int) -> None:
+    assert allowed_host(f"localhost:{port}", port)
+    assert not allowed_host(f"localhost:0{port}", port)
+
+
+@pytest.mark.asyncio
+async def test_a_zero_padded_port_is_refused_end_to_end() -> None:
+    sent: list[Message] = []
+
+    async def receive() -> Message:
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(message: Message) -> None:
+        sent.append(message)
+
+    scope: Scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/",
+        "headers": [(b"host", f"localhost:0{PORT}".encode("ascii"))],
+    }
+    await LoopbackHostGuard(_app, port=PORT)(scope, receive, send)
+    assert sent[0]["status"] == 400
+    assert b"APP" not in b"".join(m.get("body", b"") for m in sent)
+
+
 async def _app(scope: Scope, receive: Receive, send: Send) -> None:
     if scope["type"] == "websocket":
         await send({"type": "websocket.accept"})

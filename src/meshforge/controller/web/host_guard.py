@@ -42,20 +42,15 @@ _REFUSED: Final = json.dumps(
 def allowed_host(host: str, port: int) -> bool:
     """Is ``host`` (a ``Host`` header value) a loopback name, with no port or
     exactly ``port``? Case-insensitive; nothing else (no trailing dot, no
-    userinfo, no other port)."""
+    userinfo, no other port). The port must be the exact decimal digits of
+    ``port`` - no leading zeros, sign, spaces or non-ASCII digits (D184)."""
     if not host or len(host) > _MAX_HOST_CHARS:
         return False
     host = host.lower()
     if host in LOOPBACK_HOST_NAMES:
         return True
     name, sep, port_text = host.rpartition(":")
-    return (
-        bool(sep)
-        and name in LOOPBACK_HOST_NAMES
-        and port_text.isascii()
-        and port_text.isdigit()
-        and int(port_text) == port
-    )
+    return bool(sep) and name in LOOPBACK_HOST_NAMES and port_text == str(port)
 
 
 class LoopbackHostGuard:
