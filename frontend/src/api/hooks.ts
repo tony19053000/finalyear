@@ -36,17 +36,22 @@ export function useLogin() {
   });
 }
 
+/** Lets the shell tell "the user is signing out" from "the session died". */
+export const LOGOUT_MUTATION_KEY = ["logout"] as const;
+
+/**
+ * `DELETE /v1/session`. The caller leaves the shell first and then calls
+ * `forgetUser()` - whatever the answer (a dead session is logged out anyway),
+ * so the next user of this tab never sees cached data.
+ */
 export function useLogout() {
   const client = useQueryClient();
-  return useMutation({
-    mutationFn: closeSession,
-    onSettled: () => {
-      // Whatever the answer, this tab forgets the user (the cookies are
-      // cleared by the controller; a dead session is logged out anyway).
-      client.clear();
-      client.setQueryData(queryKeys.session, null);
-    },
-  });
+  const mutation = useMutation({ mutationKey: LOGOUT_MUTATION_KEY, mutationFn: closeSession });
+  const forgetUser = () => {
+    client.clear();
+    client.setQueryData(queryKeys.session, null);
+  };
+  return { ...mutation, forgetUser };
 }
 
 export function useWhoAmI() {
