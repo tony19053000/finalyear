@@ -19,10 +19,25 @@ from typing import Final
 from meshforge.common.errors import InvalidIdError
 from meshforge.controller.api.errors import ApiError
 
-__all__ = ["MAX_CURSOR_CHARS", "decode_cursor", "encode_cursor"]
+__all__ = ["MAX_CURSOR_CHARS", "decode_cursor", "encode_cursor", "utc_instant"]
 
 MAX_CURSOR_CHARS: Final = 160
 _VERSION: Final = "v1"
+
+
+def utc_instant(value: dt.datetime, *, name: str) -> dt.datetime:
+    """``value`` (zone-aware) as UTC, or 400 ``invalid_input``.
+
+    An instant at the edge of the calendar with a zone offset (year 1 at
+    ``+23:59``, year 9999 at ``-23:59``) has no UTC form inside Python's
+    range; it is bad input, never a database error (D182 T-4).
+    """
+    if value.tzinfo is None:
+        raise ApiError.invalid(f"{name} needs a time zone (e.g. ...Z)")
+    try:
+        return value.astimezone(dt.UTC)
+    except OverflowError:
+        raise ApiError.invalid(f"{name} is outside the supported time range") from None
 
 
 def encode_cursor(created_at: dt.datetime, row_id: str) -> str:
@@ -52,4 +67,7 @@ def decode_cursor(
         raise bad from None
     if version != _VERSION or at.tzinfo is None:
         raise bad
-    return at, row_id
+    try:
+        return at.astimezone(dt.UTC), row_id
+    except OverflowError:
+        raise bad from None

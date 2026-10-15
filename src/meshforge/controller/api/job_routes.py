@@ -105,6 +105,7 @@ from meshforge.controller.api.paging import (
     MAX_CURSOR_CHARS,
     decode_cursor,
     encode_cursor,
+    utc_instant,
 )
 from meshforge.controller.blobs import BlobStore
 from meshforge.controller.jobs.dispatcher import Dispatcher
@@ -751,12 +752,10 @@ async def list_jobs(
         ),
     ] = None,
 ) -> JobList:
-    for name, value in (
-        ("created_after", created_after),
-        ("created_before", created_before),
-    ):
-        if value is not None and value.tzinfo is None:
-            raise ApiError.invalid(f"{name} needs a time zone (e.g. ...Z)")
+    if created_after is not None:
+        created_after = utc_instant(created_after, name="created_after")
+    if created_before is not None:
+        created_before = utc_instant(created_before, name="created_before")
     try:
         owner_id = None if owner is None else str(validate_user_id(owner))
         node_id = None if node is None else str(validate_node_id(node))

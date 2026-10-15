@@ -1,7 +1,7 @@
 """V0.8 G1 tester r1: ``GET /v1/jobs`` paging (D174) against a brute-force
 model and against hostile cursors / times / filters. Real PostgreSQL."""
 
-# ruff: noqa: C416, E501, PERF401, S311
+# ruff: noqa: C416, PERF401, S311
 
 from __future__ import annotations
 
@@ -238,20 +238,8 @@ def _b64(raw: str) -> str:
         _b64("v1|2026-01-01T00:00:00+00:00|"),
         _b64("v1|2026-01-01T00:00:00+00:00|job_01J0000000000000000000000A|extra"),
         _b64("v1|2026-01-01T00:00:00+00:00"),
-        pytest.param(
-            _b64("v1|0001-01-01T00:00:00+23:59|job_01J0000000000000000000000A"),
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="T-4 (minor): a time/cursor that overflows once converted to UTC (year 1 / 9999 with a zone offset) is a 503 network_error (unhandled error), not a 400 - authenticated callers can force an error-level failure at will",
-            ),
-        ),
-        pytest.param(
-            _b64("v1|9999-12-31T23:59:59.999999-23:59|job_01J0000000000000000000000A"),
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="T-4 (minor): a time/cursor that overflows once converted to UTC (year 1 / 9999 with a zone offset) is a 503 network_error (unhandled error), not a 400 - authenticated callers can force an error-level failure at will",
-            ),
-        ),
+        _b64("v1|0001-01-01T00:00:00+23:59|job_01J0000000000000000000000A"),
+        _b64("v1|9999-12-31T23:59:59.999999-23:59|job_01J0000000000000000000000A"),
         _b64("v1|9999-12-31T23:59:59.999999+00:00|job_01J0000000000000000000000A"),
         _b64("v1|0001-01-01T00:00:00+00:00|job_01J0000000000000000000000A"),
         _b64("v1|2026-13-45T99:99:99+00:00|job_01J0000000000000000000000A"),
@@ -276,20 +264,8 @@ async def test_hostile_cursors_are_4xx_or_a_clean_page_never_500(
 @pytest.mark.parametrize(
     "params",
     [
-        pytest.param(
-            {"created_after": "0001-01-01T00:00:00+23:59"},
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="T-4 (minor): a time/cursor that overflows once converted to UTC (year 1 / 9999 with a zone offset) is a 503 network_error (unhandled error), not a 400 - authenticated callers can force an error-level failure at will",
-            ),
-        ),
-        pytest.param(
-            {"created_before": "9999-12-31T23:59:59-23:59"},
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="T-4 (minor): a time/cursor that overflows once converted to UTC (year 1 / 9999 with a zone offset) is a 503 network_error (unhandled error), not a 400 - authenticated callers can force an error-level failure at will",
-            ),
-        ),
+        {"created_after": "0001-01-01T00:00:00+23:59"},
+        {"created_before": "9999-12-31T23:59:59-23:59"},
         {"created_after": "9999-12-31T23:59:59.999999+00:00"},
         {
             "created_after": "0001-01-01T00:00:00Z",

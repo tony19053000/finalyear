@@ -260,6 +260,13 @@ async def test_filters_state_owner_node_and_time(
         {"state": "flying"},
         {"limit": "0"},
         {"limit": "501"},
+        # D182 T-4: instants with no UTC form are bad input, not a DB error.
+        {"created_after": "0001-01-01T00:00:00+23:59"},
+        {"created_before": "9999-12-31T23:59:59-23:59"},
+        {  # base64url of v1|0001-01-01T00:00:00+23:59|job_01J000...0A
+            "cursor": "djF8MDAwMS0wMS0wMVQwMDowMDowMCsyMzo1OXxqb2JfMDFKMDAwMDAw"
+            "MDAwMDAwMDAwMDAwMDAwMEE"
+        },
     ],
 )
 async def test_bad_paging_input_is_400(
