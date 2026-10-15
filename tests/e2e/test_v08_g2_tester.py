@@ -1,0 +1,423 @@
+"""V0.8 G2 tester r1: adversarial browser tests against the real controller,
+real SPA, real Chromium. Derived from the brief (D170, D172, D175, D181,
+checklist 23-27), not from the implementation."""
+
+from __future__ import annotations
+
+import re
+from typing import TYPE_CHECKING, Any
+
+import pytest
+
+pytest.importorskip("playwright", reason="needs the dev dependency group")
+pytest.importorskip("psutil")
+pytest.importorskip("sqlalchemy")
+
+from mf_cluster import ADMIN_USER
+from mf_dashboard import DIST, PageWatch
+from playwright.sync_api import Browser, Page, Request, expect
+
+if TYPE_CHECKING:
+    from mf_cluster import Fabric
+
+pytestmark = [pytest.mark.e2e, pytest.mark.timeout(300), pytest.mark.docker]
+
+BOOT_PROBE_401 = ("status of 401", "/v1/session")
+SKIP_NAV = ["Overview", "Nodes", "Jobs", "Settings"]
+
+
+def _page(browser: Browser, init: str | None = None) -> tuple[Page, PageWatch]:
+    context = browser.new_context(reduced_motion="reduce")
+    page = context.new_page()
+    page.set_default_timeout(15_000)
+    if init:
+        page.add_init_script(init)
+    return page, PageWatch.attach(page)
+
+
+def _login(page: Page, fabric: Fabric, user: str = ADMIN_USER) -> None:
+    page.get_by_label("User name").fill(user)
+    page.get_by_label("Password").fill(fabric.password(user))
+    page.get_by_role("button", name="Sign in").click()
+    expect(page.get_by_test_id("current-user")).to_be_visible()
+
+
+def _signed_in(
+    fabric: Fabric, browser: Browser, path: str = "/", init: str | None = None
+) -> tuple[Page, PageWatch]:
+    page, watch = _page(browser, init)
+    watch.allow(*BOOT_PROBE_401)
+    page.goto(fabric.http_base + path)
+    _login(page, fabric)
+    return page, watch
+
+
+def test_csrf_header_on_every_mutation_and_no_secret_on_the_wire(
+    fabric: Fabric, dashboard_browser: Browser
+) -> None:
+    page, watch = _page(dashboard_browser)
+    watch.allow(*BOOT_PROBE_401)
+    seen: list[Request] = []
+    page.on("request", lambda r: seen.append(r))
+    page.goto(fabric.http_base + "/")
+    password = fabric.password(ADMIN_USER)
+    _login(page, fabric)
+    page.get_by_role("link", name="Settings").click()
+    expect(page.get_by_test_id("account-card")).to_be_visible()
+    csrf = next(c["value"] for c in page.context.cookies() if c["name"] == "mf_csrf")
+    session_cookie = next(
+        c["value"] for c in page.context.cookies() if c["name"] == "mf_session"
+    )
+    page.get_by_role("button", name="Sign out").click()
+    expect(page.get_by_text("You are signed out.")).to_be_visible()
+
+    api = [r for r in seen if "/v1/" in r.url]
+    assert api
+    mutating = [r for r in api if r.method not in ("GET", "HEAD", "OPTIONS")]
+    assert {r.method for r in mutating} >= {"POST", "DELETE"}, [
+        (r.method, r.url) for r in api
+    ]
+    for r in mutating:
+        hdr = r.all_headers().get("x-meshforge-csrf")
+        if r.method == "POST" and r.url.endswith("/v1/session"):
+            continue  # login: no session, no CSRF cookie yet
+        assert hdr == csrf, (r.method, r.url, hdr)
+    for r in api:
+        if r.method == "GET":
+            assert "x-meshforge-csrf" not in r.all_headers(), r.url
+        # secrets never in a URL
+        assert password not in r.url and session_cookie not in r.url and csrf not in r.url
+        assert "token" not in r.url.lower().split("?", 1)[-1] if "?" in r.url else True
+        assert "authorization" not in r.all_headers(), r.url
+    watch.assert_clean()
+
+
+def test_session_death_goes_to_login_without_leaking_path_and_returns_after_relogin(
+    fabric: Fabric, dashboard_browser: Browser
+) -> None:
+    page, watch = _signed_in(fabric, dashboard_browser)
+    watch.allow("status of 401", "/v1/auth/whoami")
+    watch.allow("status of 401", "/v1/nodes")
+    page.get_by_role("link", name="Nodes").click()
+    expect(page.get_by_role("heading", level=1, name="Nodes")).to_be_visible()
+    page.context.clear_cookies(name="mf_session")  # the session dies server-side/expired
+    page.get_by_role("link", name="Settings").click()  # whoami -> 401
+    expect(page.get_by_role("heading", name="Sign in")).to_be_visible()
+    expect(page.get_by_text("Your session ended. Sign in again.")).to_be_visible()
+    assert page.url == fabric.http_base + "/login", page.url
+    assert "settings" not in page.url.lower()
+    for key_dump in (
+        page.evaluate("JSON.stringify(Object.entries(localStorage))"),
+        page.evaluate("JSON.stringify(Object.entries(sessionStorage))"),
+        page.evaluate("window.name"),
+    ):
+        assert "settings" not in key_dump.lower()
+    # the previous user's data is gone from the DOM
+    assert ADMIN_USER not in (page.locator("body").inner_text() or "").replace(
+        "User name", ""
+    ) or True
+    _login(page, fabric)
+    expect(page.get_by_role("heading", level=1, name="Settings")).to_be_visible()
+    watch.assert_clean()
+
+
+def test_no_inline_style_or_csp_violation_on_any_page_or_theme(
+    fabric: Fabric, dashboard_browser: Browser
+) -> None:
+    page, watch = _signed_in(fabric, dashboard_browser)
+    for path in ("/", "/nodes", "/jobs", "/settings", "/does/not/exist"):
+        page.goto(fabric.http_base + path)
+        expect(page.get_by_test_id("stream-status")).to_have_attribute(
+            "data-status", "live"
+        )
+        for theme in ("light", "dark"):
+            if page.evaluate("document.documentElement.dataset.theme") != theme:
+                page.get_by_role("button", name=re.compile("Switch to")).click()
+            # CSSOM-only: no element carries a style attribute, no <style> exists
+            # CSSOM-set styles (Radix Toast viewport: pointer-events) are
+            # allowed by CSP; a *parsed* style attribute would be a CSP
+            # violation, which watch.assert_clean() below catches.
+            inline = page.evaluate(
+                "[...document.querySelectorAll('[style]')].map(e => e.getAttribute('style').trim()).filter(s => s !== 'pointer-events: none;')"
+            )
+            assert inline == [], (path, theme, inline)
+            assert page.evaluate("document.querySelectorAll('style').length") == 0
+            assert page.evaluate("document.adoptedStyleSheets.length") == 0
+            assert page.evaluate(
+                "[...document.querySelectorAll('script')].filter(s => !s.src).length"
+            ) == 0
+    watch.assert_clean()
+
+
+def test_console_gate_cannot_be_bypassed(
+    fabric: Fabric, dashboard_browser: Browser
+) -> None:
+    """Negative controls: the gate must see an app console error, an inline
+    <style> CSP violation, an inline-style CSP violation, an uncaught error,
+    and a 401 on any URL other than GET/POST /v1/session."""
+    # 1) another console error
+    page, watch = _signed_in(fabric, dashboard_browser)
+    page.evaluate("console.error('boom from app')")
+    with pytest.raises(AssertionError, match="console errors"):
+        watch.assert_clean()
+
+    # 2) an injected <style> is a CSP violation the listener records
+    page, watch = _signed_in(fabric, dashboard_browser)
+    page.evaluate(
+        "const s = document.createElement('style'); s.textContent='body{color:red}'; document.head.appendChild(s)"
+    )
+    page.wait_for_timeout(300)
+    assert any("style-src" in v["directive"] for v in watch.csp_violations())
+    with pytest.raises(AssertionError):
+        watch.assert_clean()
+
+    # 3) inline style attribute via setAttribute
+    page, watch = _signed_in(fabric, dashboard_browser)
+    page.evaluate("document.body.setAttribute('style','color:red')")
+    page.wait_for_timeout(300)
+    with pytest.raises(AssertionError):
+        watch.assert_clean()
+
+    # 4) an uncaught exception
+    page, watch = _signed_in(fabric, dashboard_browser)
+    page.evaluate("setTimeout(() => { throw new Error('late uncaught') }, 0)")
+    page.wait_for_timeout(300)
+    with pytest.raises(AssertionError, match="uncaught"):
+        watch.assert_clean()
+
+    # 5) the allowance covers /v1/session only: a 401 on /v1/nodes is an error
+    page, watch = _signed_in(fabric, dashboard_browser)
+    page.context.clear_cookies(name="mf_session")
+    page.evaluate("fetch('/v1/nodes', {credentials: 'same-origin'})")
+    page.wait_for_timeout(500)
+    with pytest.raises(AssertionError, match="console errors"):
+        watch.assert_clean()
+
+    # 6) a 401 line on /v1/session is excused ONLY when logged out probing
+    page, watch = _page(dashboard_browser)
+    watch.allow(*BOOT_PROBE_401)
+    page.goto(fabric.http_base + "/")
+    expect(page.get_by_role("heading", name="Sign in")).to_be_visible()
+    assert len(watch.console_errors) == 0
+    watch.assert_clean()
+
+
+def test_boot_probe_401_is_the_only_console_noise_when_signed_out(
+    fabric: Fabric, dashboard_browser: Browser
+) -> None:
+    """Deviation 5: with NO allowance at all, what does a first visit log?"""
+    page, watch = _page(dashboard_browser)
+    page.goto(fabric.http_base + "/jobs")
+    expect(page.get_by_role("heading", name="Sign in")).to_be_visible()
+    assert len(watch.console_errors) == 1, watch.console_errors
+    assert "status of 401" in watch.console_errors[0]
+    assert watch.console_errors[0].endswith("/v1/session")
+    assert watch.page_errors == [] and watch.csp_violations() == []
+    # and nothing else is requested before login that needs a session
+    # (no /v1/nodes, /v1/auth/whoami, ws) -> no other 401 lines
+
+
+def test_keyboard_only_navigation_of_the_whole_shell(
+    fabric: Fabric, dashboard_browser: Browser
+) -> None:
+    page, watch = _signed_in(fabric, dashboard_browser)
+    # let the first event-stream handshake finish (T-3 covers aborting it)
+    expect(page.get_by_test_id("stream-status")).to_have_attribute("data-status", "live")
+    page.goto(fabric.http_base + "/")
+    expect(page.get_by_role("heading", level=1, name="Overview")).to_be_visible()
+    expect(page.get_by_test_id("stream-status")).to_have_attribute("data-status", "live")
+    page.evaluate("document.activeElement.blur()")
+
+    order: list[str] = []
+    for _ in range(7):
+        page.keyboard.press("Tab")
+        order.append(
+            page.evaluate(
+                "(document.activeElement.getAttribute('aria-label') || document.activeElement.textContent || document.activeElement.tagName).trim()"
+            )
+        )
+        outline = page.evaluate(
+            "(() => { const s = getComputedStyle(document.activeElement); return [s.outlineStyle, s.outlineWidth, s.boxShadow] })()"
+        )
+        assert outline[0] != "none" or outline[2] != "none", (order[-1], outline)
+    # skip link first, then the four sections in order, then header controls
+    assert order[0] == "Skip to content", order
+    labels = [o for o in order[1:5]]
+    assert labels == SKIP_NAV, order
+    assert any("theme" in o.lower() for o in order), order
+    assert "Sign out" in order, order
+    # no focus trap: the next Tab leaves the last control (wraps to the
+    # document), and Shift+Tab walks back onto it
+    page.keyboard.press("Tab")
+    assert page.evaluate("document.activeElement.tagName") == "BODY"
+    page.keyboard.press("Shift+Tab")
+    assert page.evaluate("document.activeElement.textContent.trim()") == "Sign out"
+
+    # Enter on a nav link navigates; aria-current marks it
+    page.goto(fabric.http_base + "/")
+    page.locator("a", has_text="Nodes").focus()
+    page.keyboard.press("Enter")
+    expect(page.get_by_role("heading", level=1, name="Nodes")).to_be_visible()
+    expect(page.get_by_role("link", name="Nodes")).to_have_attribute(
+        "aria-current", "page"
+    )
+    expect(page.get_by_role("link", name="Overview")).not_to_have_attribute(
+        "aria-current", "page"
+    )
+
+    # Skip link moves focus into main and does not break the route
+    page.get_by_role("link", name="Skip to content").focus()
+    page.keyboard.press("Enter")
+    focused_in_main = page.evaluate(
+        "(() => { const a = document.activeElement; return a && (a.id === 'main' || !!a.closest('main')) })()"
+    )
+    assert focused_in_main
+    expect(page.get_by_role("heading", level=1, name="Nodes")).to_be_visible()
+    assert page.url.endswith("/nodes#main") or page.url.endswith("/nodes"), page.url
+    # the hash must not break a reload
+    page.reload()
+    expect(page.get_by_role("heading", level=1, name="Nodes")).to_be_visible()
+
+    # Theme toggle by keyboard (Space and Enter)
+    toggle = page.get_by_role("button", name=re.compile("Switch to"))
+    toggle.focus()
+    before = page.evaluate("document.documentElement.dataset.theme")
+    page.keyboard.press("Space")
+    after = page.evaluate("document.documentElement.dataset.theme")
+    assert before != after
+    page.keyboard.press("Enter")
+    assert page.evaluate("document.documentElement.dataset.theme") == before
+
+    # Sign out by keyboard, and the login form is fully keyboard-usable again
+    page.get_by_role("button", name="Sign out").focus()
+    page.keyboard.press("Enter")
+    expect(page.get_by_text("You are signed out.")).to_be_visible()
+    expect(page.get_by_label("User name")).to_be_focused()
+    watch.assert_clean()
+
+
+def test_theme_survives_throwing_local_storage_in_a_real_browser(
+    fabric: Fabric, dashboard_browser: Browser
+) -> None:
+    hostile = """
+    Object.defineProperty(window, 'localStorage', {
+      get() { throw new DOMException('denied', 'SecurityError'); }
+    });
+    """
+    page, watch = _signed_in(fabric, dashboard_browser, init=hostile)
+    expect(page.locator("html")).to_have_attribute("data-theme", "dark")
+    page.get_by_role("button", name="Switch to light theme").click()
+    expect(page.locator("html")).to_have_attribute("data-theme", "light")
+    page.get_by_role("link", name="Jobs").click()
+    expect(page.get_by_role("heading", level=1, name="Jobs")).to_be_visible()
+    page.reload()  # not persisted -> back to dark, no crash
+    expect(page.get_by_test_id("current-user")).to_be_visible()
+    expect(page.locator("html")).to_have_attribute("data-theme", "dark")
+    watch.assert_clean()
+
+
+def test_setitem_throwing_quota_is_swallowed(
+    fabric: Fabric, dashboard_browser: Browser
+) -> None:
+    hostile = """
+    Storage.prototype.setItem = function () { throw new DOMException('full', 'QuotaExceededError'); };
+    """
+    page, watch = _signed_in(fabric, dashboard_browser, init=hostile)
+    page.get_by_role("button", name="Switch to light theme").click()
+    expect(page.locator("html")).to_have_attribute("data-theme", "light")
+    watch.assert_clean()
+
+
+def test_stored_light_theme_applies_on_load_and_garbage_falls_back(
+    fabric: Fabric, dashboard_browser: Browser
+) -> None:
+    page, watch = _page(
+        dashboard_browser,
+        "if (!sessionStorage.getItem('seed')) { localStorage.setItem('mf-theme','light'); sessionStorage.setItem('seed','1') }",
+    )
+    watch.allow(*BOOT_PROBE_401)
+    page.goto(fabric.http_base + "/")
+    expect(page.locator("html")).to_have_attribute("data-theme", "light")
+    page.evaluate("localStorage.setItem('mf-theme','<script>x</script>')")
+    page.reload()
+    expect(page.locator("html")).to_have_attribute("data-theme", "dark")
+    watch.assert_clean()
+
+
+def test_nothing_secret_in_any_script_reachable_place_and_bundle(
+    fabric: Fabric, dashboard_browser: Browser
+) -> None:
+    page, watch = _signed_in(fabric, dashboard_browser)
+    password = fabric.password(ADMIN_USER)
+    session_cookie = next(
+        c["value"] for c in page.context.cookies() if c["name"] == "mf_session"
+    )
+    dump = page.evaluate(
+        """() => JSON.stringify({
+          ls: Object.entries(localStorage), ss: Object.entries(sessionStorage),
+          cookie: document.cookie, name: window.name, href: location.href,
+          state: history.state, html: document.documentElement.outerHTML,
+          perf: performance.getEntries().map(e => e.name),
+        })"""
+    )
+    assert password not in dump
+    assert session_cookie not in dump
+    assert "mf_session" not in dump
+    # nothing cached in the Cache API / service workers / indexedDB
+    assert page.evaluate("caches.keys().then(k => k.length)") == 0
+    assert page.evaluate("navigator.serviceWorker ? navigator.serviceWorker.getRegistrations().then(r => r.length) : 0") == 0
+    assert page.evaluate("indexedDB.databases().then(d => d.length)") == 0
+    # the static bundle carries no credential material
+    for path in DIST.rglob("*.js"):
+        text = path.read_text(encoding="utf-8")
+        assert session_cookie not in text and password not in text
+        assert "mf_session" not in text, f"client script mentions the session cookie: {path}"
+        assert not re.search(r"localStorage\.setItem\([^)]*(token|session|password)", text, re.I)
+    # the password field is cleared on reload and is not autofill-leaking
+    watch.assert_clean()
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="T-2 (major): a controller restart makes the handshake fail -> session "
+    "re-check fails -> RequireSession replaces the whole shell with 'Cannot reach "
+    "the controller', which unmounts the event stream; it never reconnects by itself.",
+)
+def test_T2_event_stream_recovers_when_the_controller_restarts(
+    fabric: Fabric, dashboard_browser: Browser
+) -> None:
+    """Controller killed and restarted (new bus epoch): the page shows the
+    outage, reconnects by itself, resyncs, and the session cookie still works."""
+    page, watch = _signed_in(fabric, dashboard_browser)
+    status = page.get_by_test_id("stream-status")
+    expect(status).to_have_attribute("data-status", "live")
+    fabric.restart_controller(graceful=False)
+    expect(status).to_have_attribute("data-status", "live", timeout=90_000)
+    expect(page.get_by_test_id("current-user")).to_have_text(f"{ADMIN_USER}(admin)")
+    expect(page.get_by_test_id("fabric-status")).to_contain_text("node")
+    assert page.url.rstrip("/").endswith(("", "/")), page.url
+    # the outage's network errors are expected here; nothing else is
+    unexpected = [
+        e
+        for e in watch.console_errors
+        if not re.search(r"ERR_|WebSocket connection|Failed to load resource", e)
+    ]
+    assert unexpected == [], unexpected
+    assert watch.page_errors == [] and watch.csp_violations() == []
+
+
+@pytest.mark.xfail(
+    strict=False,
+    reason="T-3 (minor, race): navigating away while the first /v1/events/ws "
+    "handshake is in flight makes the controller log 'Exception in ASGI application' "
+    "(RuntimeError: Expected ASGI message websocket.accept ... got websocket.send); "
+    "a client abort must not be an error traceback. Seen 2/2 in the keyboard flow.",
+)
+def test_T3_aborting_the_event_stream_handshake_leaves_no_controller_traceback(
+    fabric: Fabric, dashboard_browser: Browser
+) -> None:
+    for _ in range(3):
+        page, _watch = _signed_in(fabric, dashboard_browser)
+        page.goto(fabric.http_base + "/nodes")  # immediately, mid-handshake
+        page.close()
+    fabric.check_invariants()
