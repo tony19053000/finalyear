@@ -265,6 +265,8 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
+**2026-10-15 (G1 fix r1) — tester r1 FAIL `b3e6332` (T-3 major savepoint publishes early; T-1/T-2/T-4 minor); `-m security` 1745 passed. Ruling D182. **G1 FIX ROUND 1 RUNNING.** If died: look for "## Fix round 1" in progress/V0.8-G1.md; resume D182; then tester r2 (delta) → reviewer → whole component once → close.**
+
 **2026-10-15 (G1 tester r1) — G1 implementer DONE `b7de7d5`..`7ea19bb` (items 0–7; hand-off in progress/V0.8-G1.md; deviations accepted D181). **G1 tester r1 RUNNING.** If died: look for "## Tester r1" in the progress file; then reviewer → whole component + `-m security` once → close G1.**
 
 **2026-10-15 (G1 resumed) — implementer hit the usage limit after item 0 (`b7de7d5`, D168 N1/N2/N3/T-12 done). Resumed on deliverable 1 (browser session; uncommitted edits were in the tree). If died again: check progress file + git log, relaunch with §5a from the next undone deliverable.**
