@@ -265,6 +265,8 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
+**2026-10-16 (G1 reviewer) — tester r2 PASS `b5b4696` (T-5 minor latent → G2 item 0, D183). **G1 reviewer RUNNING** (scope b7de7d5..HEAD). If died: relaunch reviewer; then whole component + full `-m security` once → close G1 (0.8.2/0.8.7 stay `[~]`, they finish in G2/G3).**
+
 **2026-10-16 (G1 tester r2) — fix r1 DONE `3c4401c`..`0ae8120` (T-1..T-4, O-1 DB-S6, unit tier green 10257). **G1 tester r2 (delta) RUNNING.** If died: look for "## Tester r2" in progress/V0.8-G1.md; then reviewer → whole component once → close.**
 
 **2026-10-16 (G1 fix r1 resumed) — usage limit hit mid-round; T-3/T-2 `3c4401c`, T-4 `bc93cd6`, T-1 `70e7cd9` committed; O-1 host guard was uncommitted (server.py, web/host_guard.py, its unit test). Fix agent resumed on O-1. Then tester r2 (delta) → reviewer → whole component once → close G1.**
