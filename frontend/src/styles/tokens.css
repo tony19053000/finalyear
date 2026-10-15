@@ -1,0 +1,84 @@
+/*
+ * MeshForge design tokens (V0.8 G2, D175; brief §24).
+ *
+ * Every colour the dashboard uses is one of these CSS variables. Dark is the
+ * default (`<html data-theme="dark">`); the light theme swaps the same names.
+ * Neutral grays, ONE accent (blue), five status colours. Components never use
+ * raw colours - Tailwind utilities map to these names in index.css (@theme).
+ * Status is never colour alone: every StatusDot/Badge also prints its label.
+ */
+
+:root,
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  /* Neutral surfaces, darkest to lightest. */
+  --mf-bg: #0e1116;
+  --mf-surface: #151a21;
+  --mf-surface-raised: #1b212a;
+  --mf-surface-sunken: #0a0d11;
+  --mf-border: #262d37;
+  --mf-border-strong: #36404c;
+
+  /* Text. */
+  --mf-fg: #e3e7ec;
+  --mf-fg-muted: #9aa4b1;
+  --mf-fg-subtle: #6c7683;
+
+  /* The one accent: actions, links, the selected nav item, focus. */
+  --mf-accent: #4d8eff;
+  --mf-accent-hover: #6aa1ff;
+  --mf-accent-fg: #071021;
+  --mf-accent-soft: #4d8eff1f;
+  --mf-focus: #79a9ff;
+
+  /* Status: online/ok, busy, degraded, offline/failed, unknown. */
+  --mf-status-ok: #3fb950;
+  --mf-status-busy: #d4a72c;
+  --mf-status-degraded: #e3793b;
+  --mf-status-failed: #f05a4f;
+  --mf-status-unknown: #7d8794;
+  --mf-status-ok-soft: #3fb95024;
+  --mf-status-busy-soft: #d4a72c24;
+  --mf-status-degraded-soft: #e3793b24;
+  --mf-status-failed-soft: #f05a4f24;
+  --mf-status-unknown-soft: #7d879424;
+
+  --mf-shadow: 0 8px 24px #00000066;
+  --mf-backdrop: #05070acc;
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+
+  --mf-bg: #f5f6f8;
+  --mf-surface: #ffffff;
+  --mf-surface-raised: #ffffff;
+  --mf-surface-sunken: #eceef2;
+  --mf-border: #dde1e7;
+  --mf-border-strong: #c3c9d2;
+
+  --mf-fg: #161b22;
+  --mf-fg-muted: #4f5966;
+  --mf-fg-subtle: #6f7884;
+
+  --mf-accent: #1f63e0;
+  --mf-accent-hover: #1852bd;
+  --mf-accent-fg: #ffffff;
+  --mf-accent-soft: #1f63e014;
+  --mf-focus: #1f63e0;
+
+  --mf-status-ok: #1a7f37;
+  --mf-status-busy: #9a6700;
+  --mf-status-degraded: #bc4c00;
+  --mf-status-failed: #cf222e;
+  --mf-status-unknown: #6e7781;
+  --mf-status-ok-soft: #1a7f371a;
+  --mf-status-busy-soft: #9a67001a;
+  --mf-status-degraded-soft: #bc4c001a;
+  --mf-status-failed-soft: #cf222e1a;
+  --mf-status-unknown-soft: #6e77811a;
+
+  --mf-shadow: 0 8px 24px #1b1f2426;
+  --mf-backdrop: #1b1f2466;
+}

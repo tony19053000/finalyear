@@ -11,10 +11,11 @@
     "build": "tsc -b && vite build && node scripts/check-dist.mjs",
     "check:dist": "node scripts/check-dist.mjs",
     "lint": "eslint . --max-warnings 0",
-    "typecheck": "tsc -b --noEmit",
+    "typecheck": "tsc -b",
     "test": "vitest run",
-    "gen:api": "node scripts/gen-api.mjs",
-    "check:api": "node scripts/gen-api.mjs --check"
+    "gen:openapi": "uv run python ../scripts/export_openapi.py --out openapi.json",
+    "gen:api": "npm run gen:openapi && node scripts/gen-api.mjs",
+    "check:api": "uv run python ../scripts/export_openapi.py --check openapi.json && node scripts/gen-api.mjs --check"
   },
   "dependencies": {
     "@radix-ui/react-tabs": "1.2.1",
