@@ -18,14 +18,13 @@ lists them in full). Every string from the controller goes through
 
 from __future__ import annotations
 
-import json
 from collections.abc import Mapping
-from typing import Annotated, Any, Final
+from typing import Any, Final
 
-import typer
-from rich.table import Column, Table
+from rich.table import Table
 
 from meshforge.cli import app as cli
+from meshforge.cli import render
 
 __all__ = ["format_age", "format_rate", "format_rtt", "matrix_table", "network"]
 
@@ -87,12 +86,11 @@ def matrix_table(payload: Mapping[str, Any]) -> Table:
     for failure in failures:
         key = (str(failure.get("src_node_id")), str(failure.get("dst_node_id")))
         cells.setdefault(key, f"fail:{failure.get('error')}")
-    table = Table(
-        "FROM \\ TO",
-        *(Column(header=_cell(_short(n))) for n in nodes),
-        title="measured links (FROM downloads from TO's peer server)",
-        title_justify="left",
+    table = render.table(
+        "FROM \\ TO", title="measured links (FROM downloads from TO's peer server)"
     )
+    for node in nodes:
+        table.add_column(_cell(_short(node)), overflow="fold")
     for src in nodes:
         row = [
             "x" if src == dst else _cell(cells.get((src, dst), _DASH)) for dst in nodes
@@ -107,13 +105,12 @@ def _controller_table(payload: Mapping[str, Any]) -> Table | None:
     rows = [x for x in payload.get("controller_links") or [] if isinstance(x, Mapping)]
     if not rows:
         return None
-    table = Table(
+    table = render.table(
         "NODE",
         "CONTROLLER -> NODE",
         "SAMPLES",
         "LAST",
         title="controller links (from transfer history)",
-        title_justify="left",
     )
     for row in rows:
         table.add_row(
@@ -141,36 +138,29 @@ def _status_line(payload: Mapping[str, Any]) -> str:
     )
 
 
-def network(
-    as_json: Annotated[
-        bool, typer.Option("--json", help="Print the API answer as JSON.")
-    ] = False,
-) -> None:
+def network(as_json: cli.JsonOption = False) -> None:
     """The measured network matrix: bandwidth, RTT and age of every probed
     node pair, controller links from transfer history, and probe status."""
-    from meshforge.cli.render import _cell
-
     settings = cli._settings()
     with cli._client(settings) as client:
         payload = cli._fetch(client.network)
     if as_json:
-        typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+        cli._echo_json(payload)
         return
-    console = cli._out()
     links = payload.get("links") or []
     if not links and not payload.get("failures"):
-        console.print("no node pair measured yet (probes run every few minutes)")
+        render.line("no node pair measured yet (probes run every few minutes)")
     else:
-        console.print(matrix_table(payload))
+        render.show(matrix_table(payload))
         nodes = sorted(
             {str(x.get("src_node_id")) for x in links if isinstance(x, Mapping)}
             | {str(x.get("dst_node_id")) for x in links if isinstance(x, Mapping)}
         )
         for node in nodes:
-            console.print(_cell(f"  {_short(node)} = {node}"))
+            render.line(f"  {_short(node)} = {node}")
     controller = _controller_table(payload)
     if controller is not None:
-        console.print(controller)
+        render.show(controller)
     line = _status_line(payload)
     if line:
-        console.print(_cell(line))
+        render.line(line)

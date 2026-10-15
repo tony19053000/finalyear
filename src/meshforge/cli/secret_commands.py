@@ -22,7 +22,8 @@ from typing import Annotated
 import typer
 
 from meshforge.cli import app as cli
-from meshforge.common.errors import ExitCode
+from meshforge.cli import render
+from meshforge.cli.exits import CliExit
 from meshforge.common.private_files import PrivateFileError, read_bounded
 from meshforge.common.secret_names import (
     MAX_SECRET_BYTES,
@@ -38,6 +39,7 @@ secret_app = typer.Typer(
     name="secret",
     help="Store, list or delete your job secrets (V0.7; values never shown).",
     no_args_is_help=True,
+    rich_markup_mode=None,
 )
 
 
@@ -45,7 +47,7 @@ def _name(raw: str) -> str:
     try:
         return normalise_secret_name(raw)
     except SecretNameError as exc:
-        cli._die(f"NAME: {exc.message}", ExitCode.USAGE_ERROR)
+        cli._die(f"NAME: {exc.message}", CliExit.USAGE_ERROR)
 
 
 def _strip_newline(data: bytes) -> bytes:
@@ -67,7 +69,7 @@ def read_value(from_file: Path | None) -> bytes:
                 follow_symlinks=True,
             )
         except PrivateFileError as exc:
-            cli._die(exc.message, ExitCode.USAGE_ERROR)
+            cli._die(exc.message, CliExit.USAGE_ERROR)
         return data
     if sys.stdin.isatty():
         typed = getpass.getpass("secret value (not echoed): ")
@@ -77,7 +79,7 @@ def read_value(from_file: Path | None) -> bytes:
     if len(data) > MAX_SECRET_BYTES:
         cli._die(
             f"the value on stdin is larger than {MAX_SECRET_BYTES} bytes",
-            ExitCode.USAGE_ERROR,
+            CliExit.USAGE_ERROR,
         )
     return data
 
@@ -99,12 +101,12 @@ def set_secret(
     try:
         check_secret_value(value)
     except SecretValueError as exc:
-        cli._die(exc.message, ExitCode.USAGE_ERROR)
+        cli._die(exc.message, CliExit.USAGE_ERROR)
     settings = cli._settings()
     with cli._client(settings) as client:
         payload = cli._fetch(lambda: client.put_secret(checked, value))
     verb = "stored" if payload.get("created") else "replaced"
-    typer.echo(f"{verb} secret {checked}")
+    render.line(f"{verb} secret {checked}")
 
 
 @secret_app.command("list")
@@ -118,11 +120,17 @@ def list_secrets(json_output: cli.JsonOption = False) -> None:
         return
     rows = payload.get("secrets")
     if not isinstance(rows, list) or not rows:
-        typer.echo("no secrets")
+        render.line("no secrets")
         return
+    table = render.table("NAME", "CREATED", "UPDATED", title="secrets")
     for row in rows:
         if isinstance(row, dict):
-            typer.echo(f"{row.get('name')}  updated {row.get('updated_at')}")
+            table.add_row(
+                render.cell(row.get("name")),
+                render.cell(row.get("created_at")),
+                render.cell(row.get("updated_at")),
+            )
+    render.show(table)
 
 
 @secret_app.command("delete")
@@ -134,4 +142,4 @@ def delete_secret(
     settings = cli._settings()
     with cli._client(settings) as client:
         cli._fetch(lambda: client.delete_secret(checked))
-    typer.echo(f"deleted secret {checked}")
+    render.line(f"deleted secret {checked}")

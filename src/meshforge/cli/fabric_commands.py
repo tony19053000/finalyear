@@ -26,7 +26,9 @@ from typing import Annotated, Any
 import typer
 
 from meshforge.cli import app as cli
-from meshforge.common.errors import ExitCode, MeshForgeError
+from meshforge.cli import render
+from meshforge.cli.exits import CliExit
+from meshforge.common.errors import MeshForgeError
 
 __all__ = ["agent_command", "fabric_app"]
 
@@ -34,6 +36,7 @@ fabric_app = typer.Typer(
     name="fabric",
     help="Invite laptops into the fabric and join one (V0.7).",
     no_args_is_help=True,
+    rich_markup_mode=None,
 )
 
 _AGENT = "meshforge-agent"
@@ -47,7 +50,7 @@ def _ttl(text: str | None) -> int | None:
     try:
         return parse_ttl(text)
     except ValueError as exc:
-        cli._die(f"--ttl: {exc}", ExitCode.USAGE_ERROR)
+        cli._die(f"--ttl: {exc}", CliExit.USAGE_ERROR)
 
 
 @fabric_app.command("invite")
@@ -75,7 +78,7 @@ def invite(
         try:
             validate_node_id(replace)
         except MeshForgeError:
-            cli._die("--replace needs a node id (node_...)", ExitCode.USAGE_ERROR)
+            cli._die("--replace needs a node id (node_...)", CliExit.USAGE_ERROR)
     ttl_s = _ttl(ttl)
     settings = cli._settings()
     with cli._client(settings) as client:
@@ -85,7 +88,7 @@ def invite(
     if json_output:
         cli._echo_json(issued)
         return
-    typer.echo(str(issued.get("code", "")))
+    render.line(str(issued.get("code", "")))
     for label, key in (
         ("invite:    ", "invite_id"),
         ("controller:", "address"),
@@ -95,15 +98,16 @@ def invite(
     ):
         value = issued.get(key)
         if value:
-            typer.echo(f"{label} {_printable(value)}", err=True)
-    typer.echo(
+            render.line(f"{label} {_printable(value)}", err=True)
+    render.line(
         "On the new laptop: meshforge-agent join   (paste the code when asked)",
         err=True,
     )
 
 
 def _printable(value: Any) -> str:
-    return "".join(ch if ch.isprintable() else " " for ch in str(value))[:200]
+    """A server value for one line: flattened by the renderer, capped."""
+    return render.flat(value)[:200]
 
 
 @fabric_app.command("invites")
@@ -121,7 +125,7 @@ def invites(
         try:
             validate_invite_id(revoke)
         except MeshForgeError:
-            cli._die("--revoke needs an invite id (inv_...)", ExitCode.USAGE_ERROR)
+            cli._die("--revoke needs an invite id (inv_...)", CliExit.USAGE_ERROR)
     settings = cli._settings()
     with cli._client(settings) as client:
         if revoke is not None:
@@ -129,7 +133,7 @@ def invites(
             if json_output:
                 cli._echo_json(row)
             else:
-                typer.echo(f"revoked {_printable(row.get('id'))}")
+                render.line(f"revoked {_printable(row.get('id'))}")
             return
         payload = cli._fetch(client.invites)
     if json_output:
@@ -137,19 +141,20 @@ def invites(
         return
     rows = [r for r in payload.get("invites") or [] if isinstance(r, dict)]
     if not rows:
-        typer.echo("no invites")
+        render.line("no invites")
         return
+    table = render.table(
+        "INVITE", "STATE", "EXPIRES", "USED BY", "REPLACES", title="invites"
+    )
     for row in rows:
-        used = f" by {row['used_by_node']}" if row.get("used_by_node") else ""
-        extra = (
-            f" replaces {row['replace_node_id']}" if row.get("replace_node_id") else ""
+        table.add_row(
+            render.cell(row.get("id")),
+            render.cell(row.get("state")),
+            render.cell(row.get("expires_at")),
+            render.cell(row.get("used_by_node")),
+            render.cell(row.get("replace_node_id")),
         )
-        typer.echo(
-            _printable(
-                f"{row.get('id')}  {row.get('state', '?'):<8} expires "
-                f"{row.get('expires_at')}{used}{extra}"
-            )
-        )
+    render.show(table)
 
 
 def agent_command() -> list[str] | None:
@@ -193,7 +198,7 @@ def join(
             "no MeshForge agent is installed on this laptop, so there is nothing "
             "to join: install it (see docs/OPERATIONS.md) and run "
             "`meshforge-agent join` - `compute` itself needs no certificate",
-            ExitCode.CONFIG_ERROR,
+            CliExit.CONFIG_ERROR,
         )
     if code is None:
         code = typer.prompt("join code", hide_input=True)

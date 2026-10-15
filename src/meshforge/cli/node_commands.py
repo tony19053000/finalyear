@@ -28,12 +28,16 @@ from typing import Annotated, Any, Final
 import typer
 
 from meshforge.cli import app as cli
-from meshforge.common.errors import ExitCode
+from meshforge.cli import render
+from meshforge.cli.exits import CliExit
 
 __all__ = ["node_app"]
 
 node_app = typer.Typer(
-    name="node", help="Act on one node (or all of them).", no_args_is_help=True
+    name="node",
+    help="Act on one node (or all of them).",
+    no_args_is_help=True,
+    rich_markup_mode=None,
 )
 
 _MAX_ENVS_FILE: Final = 1024 * 1024
@@ -46,20 +50,20 @@ def _envs(path: Path) -> list[dict[str, str]]:
     try:
         raw = path.read_bytes()
     except OSError as exc:
-        cli._die(f"cannot read {path}: {type(exc).__name__}", ExitCode.USAGE_ERROR)
+        cli._die(f"cannot read {path}: {type(exc).__name__}", CliExit.USAGE_ERROR)
     if len(raw) > _MAX_ENVS_FILE:
-        cli._die(f"{path} is over {_MAX_ENVS_FILE} bytes", ExitCode.USAGE_ERROR)
+        cli._die(f"{path} is over {_MAX_ENVS_FILE} bytes", CliExit.USAGE_ERROR)
     try:
         data = yaml.safe_load(raw)
     except yaml.YAMLError:
-        cli._die(f"{path} is not valid YAML", ExitCode.USAGE_ERROR)
+        cli._die(f"{path} is not valid YAML", CliExit.USAGE_ERROR)
     listed = data.get("envs") if isinstance(data, dict) else None
     if not isinstance(listed, list):
-        cli._die(f"{path} must have an 'envs:' list", ExitCode.USAGE_ERROR)
+        cli._die(f"{path} must have an 'envs:' list", CliExit.USAGE_ERROR)
     out: list[dict[str, str]] = []
     for env in listed:
         if not isinstance(env, dict):
-            cli._die("every env is a mapping", ExitCode.USAGE_ERROR)
+            cli._die("every env is a mapping", CliExit.USAGE_ERROR)
         entry = {"base": str(env.get("base", "python-cpu"))}
         if env.get("python") is not None:
             entry["python"] = str(env["python"])
@@ -73,7 +77,7 @@ def _envs(path: Path) -> list[dict[str, str]]:
             except (OSError, UnicodeDecodeError) as exc:
                 cli._die(
                     f"cannot read the requirements file {req}: {type(exc).__name__}",
-                    ExitCode.USAGE_ERROR,
+                    CliExit.USAGE_ERROR,
                 )
         out.append(entry)
     return out
@@ -109,14 +113,14 @@ def _wait(client: Any, node_id: str, request_id: str, timeout_s: float) -> bool:
                 key
             ) != item.get("state"):
                 shown[key] = str(item.get("state"))
-                typer.echo(_line(item))
+                render.line(_line(item))
         if status.get("done"):
             return bool(status.get("ok"))
         if time.monotonic() > deadline:
             cli._die(
                 f"{node_id}: still preparing after {timeout_s:g} s "
                 f"(request {request_id}; it keeps going on the node)",
-                ExitCode.FAILURE,
+                CliExit.FAILURE,
             )
         time.sleep(_POLL_S)
 
@@ -147,7 +151,7 @@ def prepare(
 ) -> None:
     """Pull base images and build environments on a node ahead of a run."""
     if (node_id is None) == (not all_nodes):
-        cli._die("give exactly one of NODE_ID or --all", ExitCode.USAGE_ERROR)
+        cli._die("give exactly one of NODE_ID or --all", CliExit.USAGE_ERROR)
     body: dict[str, Any] = {"images": list(dict.fromkeys(image or ["python-cpu"]))}
     if envs is not None:
         body["envs"] = _envs(envs)
@@ -161,10 +165,10 @@ def prepare(
         for target in targets:
             started = cli._fetch(_starter(client, target, body))
             request_id = str(started.get("request_id"))
-            typer.echo(f"{target}: preparing (request {request_id})")
+            render.line(f"{target}: preparing (request {request_id})")
             ok = _wait(client, target, request_id, timeout_s) and ok
     if not ok:
-        raise typer.Exit(ExitCode.FAILURE)
+        raise typer.Exit(CliExit.FAILURE)
 
 
 @node_app.command("gc")
@@ -178,7 +182,7 @@ def gc(
 ) -> None:
     """Ask a node's agent to run a cache GC pass now (its log: agent.gc.pass)."""
     if (node_id is None) == (not all_nodes):
-        cli._die("give exactly one of NODE_ID or --all", ExitCode.USAGE_ERROR)
+        cli._die("give exactly one of NODE_ID or --all", CliExit.USAGE_ERROR)
     settings = cli._settings()
     with cli._client(settings) as client:
         if all_nodes:
@@ -187,7 +191,7 @@ def gc(
             targets = [cli._checked_node_id(node_id) or ""]
         for target in targets:
             cli._fetch(_gc_call(client, target))
-            typer.echo(f"{target}: GC pass requested")
+            render.line(f"{target}: GC pass requested")
 
 
 @node_app.command("revoke")
@@ -206,11 +210,11 @@ def revoke(
         cli._echo_json(outcome)
         return
     if outcome.get("already_revoked"):
-        typer.echo(f"{target} was already revoked")
+        render.line(f"{target} was already revoked")
         return
     cut = "session cut" if outcome.get("session_killed") else "not connected"
-    typer.echo(f"revoked {target} ({cut})")
-    typer.echo(
+    render.line(f"revoked {target} ({cut})")
+    render.line(
         "there is no un-revoke: that laptop can come back only under a new "
         "identity (`meshforge-agent identity reset --yes`, then `meshforge-agent "
         "join` with a new code)",
@@ -228,7 +232,7 @@ def _connected(client: Any, what: str) -> list[str]:
         if isinstance(n, dict) and n.get("connected") is True
     ]
     if not targets:
-        cli._die(f"no connected node to {what}", ExitCode.UNAVAILABLE)
+        cli._die(f"no connected node to {what}", CliExit.UNAVAILABLE)
     return targets
 
 

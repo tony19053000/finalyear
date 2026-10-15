@@ -26,16 +26,23 @@ commands, not at module scope: importing the client imports ``httpx``, which cos
 roughly 150 ms, and ``compute --version`` (ADR-0010's base-install check) needs
 neither. Every command that talks to the controller imports them on its first line.
 
-Failure behaviour: an unreachable or timed-out controller prints one typed line on
-stderr and exits :attr:`~meshforge.common.exit_codes.ExitCode.UNAVAILABLE` (D18);
-a refused request exits ``FAILURE``; bad configuration exits ``CONFIG_ERROR``. No
-command ever shows a traceback.
+Failure behaviour: every expected failure prints one line on stderr (what failed,
+why, what to do) and exits with a code from :mod:`meshforge.cli.exits` - the one
+mapping (V0.8 G6, D178): 3 auth, 4 bad configuration, 6 controller unreachable
+(D18), 8 not found, 1 any other refusal. No command ever shows a traceback; an
+unexpected exception (a bug) is one line too, unless ``COMPUTE_DEBUG=1``.
+
+All human output goes through :mod:`meshforge.cli.render` (``NO_COLOR``, TTY
+detection, the control-character gate, ``--json`` with ``schema_version``).
+Shell completion: ``compute --install-completion`` / ``--show-completion``
+(Typer's, for bash, zsh, fish and PowerShell).
 """
 
 from __future__ import annotations
 
-import json
+import os
 import ssl
+import sys
 import time
 from collections.abc import Callable, Mapping
 from contextvars import ContextVar
@@ -46,55 +53,59 @@ import typer
 from rich.console import Console
 
 from meshforge import __version__
+from meshforge.cli import render
+from meshforge.cli.exits import CliExit
 from meshforge.cli.settings import CliSettings
-from meshforge.common.errors import ConfigError, ExitCode
+from meshforge.common.errors import ConfigError
 
 if TYPE_CHECKING:  # `meshforge.cli.client` pulls in httpx - see `_client` below.
     from meshforge.cli.client import ControllerClient
     from meshforge.cli.credentials import StoredLogin
 
-PROG_NAME = "compute"
+PROG_NAME = render.PROG_NAME
 
 app = typer.Typer(
     name=PROG_NAME,
     help="MeshForge compute fabric command-line tool.",
-    add_completion=False,
+    add_completion=True,
     no_args_is_help=True,
+    rich_markup_mode=None,
+    pretty_exceptions_enable=False,
+    pretty_exceptions_show_locals=False,
 )
 
 JsonOption = Annotated[
     bool,
     typer.Option(
         "--json",
-        help="Print the controller's raw JSON payload on one line (for scripting).",
+        help=(
+            "Print the answer as one line of JSON with a schema_version "
+            "(for scripts; see docs/CLI.md)."
+        ),
     ),
 ]
 
 
 def _out() -> Console:
-    """stdout console. Rich turns colour off by itself when stdout is not a TTY."""
-    return Console(highlight=False, emoji=False, markup=False)
+    """The stdout console (:func:`meshforge.cli.render.console`)."""
+    return render.console()
 
 
 def _echo_json(payload: Mapping[str, Any]) -> None:
-    """One unindented JSON object on one line, straight to stdout.
-
-    Not via Rich: a console would wrap and style it, and this output is meant to
-    be piped into ``jq``.
-    """
-    typer.echo(json.dumps(payload, separators=(",", ":"), sort_keys=False))
+    """``--json`` output (:func:`meshforge.cli.render.emit_json`)."""
+    render.emit_json(payload)
 
 
-def _die(message: str, code: ExitCode) -> NoReturn:
-    """One sanitised line on stderr, then exit. Never a traceback.
+def _die(message: str, code: int) -> NoReturn:
+    """One sanitised line on stderr, then exit with ``code`` (a :class:`CliExit`).
+    Never a traceback.
 
-    Deliberately ``typer.echo`` and not a Rich console: a console would wrap the
+    Deliberately a plain line and not a Rich console: a console would wrap the
     line at the terminal width (turning a single error into several lines a
-    ``grep`` would miss) and would interpret square brackets as markup. The
-    message is already one short printable line - :mod:`meshforge.cli.client`
-    flattens and truncates anything the server supplied.
+    ``grep`` would miss). :func:`meshforge.cli.render.fail` flattens control
+    characters and scrubs anything token-shaped.
     """
-    typer.echo(f"{PROG_NAME}: {message}", err=True)
+    render.fail(message)
     raise typer.Exit(code)
 
 
@@ -104,7 +115,7 @@ def _settings() -> CliSettings:
     try:
         settings = CliSettings.load()
     except ConfigError as exc:
-        _die(exc.message, ExitCode.CONFIG_ERROR)
+        _die(exc.message, CliExit.CONFIG_ERROR)
     if "controller_url" in settings.cli.model_fields_set:
         return settings
     stored = _load_stored(settings)
@@ -120,7 +131,7 @@ def _load_stored(settings: CliSettings) -> StoredLogin | None:
     try:
         return load_login(credentials_dir(settings.cli.credentials_dir))
     except ConfigError as exc:
-        _die(exc.message, ExitCode.CONFIG_ERROR)
+        _die(exc.message, CliExit.CONFIG_ERROR)
 
 
 def _stored_login(settings: CliSettings) -> StoredLogin | None:
@@ -153,7 +164,7 @@ def _client(settings: CliSettings) -> ControllerClient:
     try:
         token = resolve_token(settings, _token_file_option(), stored=stored)
     except ConfigError as exc:
-        _die(exc.message, ExitCode.CONFIG_ERROR)
+        _die(exc.message, CliExit.CONFIG_ERROR)
     return ControllerClient(
         settings.cli.controller_url,
         timeout_s=settings.cli.timeout_s,
@@ -176,7 +187,7 @@ def _ssl_context(settings: CliSettings) -> ssl.SSLContext | None:
             resolve_ca(settings, _CA_FILE.get(), stored=_stored_login(settings))
         )
     except ConfigError as exc:
-        _die(exc.message, ExitCode.CONFIG_ERROR)
+        _die(exc.message, CliExit.CONFIG_ERROR)
 
 
 def _fetch[T](call: Callable[[], T]) -> T:
@@ -208,14 +219,14 @@ def _checked_node_id(value: str | None) -> str | None:
     except InvalidIdError:
         _die(
             "NODE_ID is not a canonical node_<ULID>; run `compute nodes` to list them",
-            ExitCode.USAGE_ERROR,
+            CliExit.USAGE_ERROR,
         )
 
 
 def _version_callback(value: bool) -> None:
     if value:
-        typer.echo(f"{PROG_NAME} {__version__}")
-        raise typer.Exit(ExitCode.OK)
+        render.line(f"{PROG_NAME} {__version__}")
+        raise typer.Exit(CliExit.OK)
 
 
 @app.callback()
@@ -298,8 +309,8 @@ def nodes(
             if json_output:
                 _echo_json(payload)
             else:
-                _out().print(node_detail_table(payload))
-                _out().print(scores_table(payload))
+                render.show(node_detail_table(payload))
+                render.show(scores_table(payload))
             return
         if watch and not json_output:
             _watch(
@@ -311,7 +322,7 @@ def nodes(
         if json_output:
             _echo_json(payload)
         else:
-            _out().print(nodes_table(payload))
+            render.show(nodes_table(payload))
 
 
 @app.command()
@@ -327,17 +338,20 @@ def status(json_output: JsonOption = False) -> None:
 
     settings = _settings()
     url = settings.cli.controller_url
+    health: Mapping[str, Any] = {}
+    node_payload: Mapping[str, Any] | None = None
+    detail: str | None = None
+    code = CliExit.OK
     with _client(settings) as client:
         try:
             health = client.health()
-            node_payload: Mapping[str, Any] | None = client.nodes()
-            detail: str | None = None
-            reachable = True
-            code = ExitCode.OK
+            node_payload = client.nodes()
         except ControllerError as exc:
-            health, node_payload, detail = {}, None, exc.message
-            reachable = False
+            detail = exc.message
             code = exit_code_for(exc)
+    # V0.8 G6: a controller that answered /healthz but refused the node list
+    # (not logged in: exit 3) *is* reachable - only exit 6 means it is not.
+    reachable = code is not CliExit.UNAVAILABLE
 
     if json_output:
         _echo_json(
@@ -350,7 +364,7 @@ def status(json_output: JsonOption = False) -> None:
             }
         )
     else:
-        _out().print(
+        render.show(
             status_table(
                 controller_url=url,
                 reachable=reachable,
@@ -359,7 +373,7 @@ def status(json_output: JsonOption = False) -> None:
                 sessions=health.get("sessions"),
             )
         )
-    if code is not ExitCode.OK:
+    if code is not CliExit.OK:
         raise typer.Exit(code)
 
 
@@ -384,9 +398,31 @@ def _watch(render: Callable[[], Any], *, interval_s: float) -> None:
         console.print("")
 
 
+DEBUG_ENV = "COMPUTE_DEBUG"
+"""``COMPUTE_DEBUG=1`` shows the traceback of an unexpected exception (a bug)."""
+
+
 def main() -> None:
-    """Console-script entry point."""
-    app(prog_name=PROG_NAME)
+    """Console-script entry point.
+
+    Every expected failure already exits through :func:`_die`. Anything else
+    escaping a command is a bug: it is reported as one line naming the
+    exception type (not its text - it may hold a path or a value the user did
+    not mean to share) and exits ``FAILURE``; ``COMPUTE_DEBUG=1`` re-raises it
+    for the full traceback. Typer's own pretty traceback is off: with locals it
+    would print a token held in a local variable.
+    """
+    try:
+        app(prog_name=PROG_NAME)
+    except Exception as exc:
+        if os.environ.get(DEBUG_ENV, "") not in ("", "0"):
+            raise
+        render.fail(
+            f"internal error ({type(exc).__name__}) - this is a bug in compute "
+            f"{__version__}; re-run with {DEBUG_ENV}=1 to see the traceback and "
+            "report it"
+        )
+        sys.exit(CliExit.FAILURE)
 
 
 # The job commands (V0.4 G5); they look the shared helpers above up at call time.

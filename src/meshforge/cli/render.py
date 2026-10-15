@@ -33,31 +33,136 @@ the metric names) and goes through :func:`_cell`.
 
 **Portability.** Tables use the ASCII box style, not Unicode box-drawing, so the
 output is identical in Windows Terminal, a legacy ``cmd.exe`` code page and a
-pipe. Colour is Rich's own TTY detection (a redirected stdout gets none).
+pipe.
+
+**The one output path (V0.8 G6, D178).** Every byte ``compute`` prints for a
+human goes through this module: :func:`show` (a table or text on stdout),
+:func:`line` (one plain line), :func:`note` (a ``compute: ...`` line on
+stderr), :func:`fail` (the error line before a non-zero exit) and
+:func:`emit_json` (``--json``). The only exception is the workload's own log
+bytes (``compute logs``), which are copied byte for byte. Colour is off when
+``NO_COLOR`` is set to anything non-empty (https://no-color.org) and when the
+stream is not a terminal (Rich's own detection); it is never needed - every
+status is spelled out in words. ``--json`` output is one line, keys sorted,
+with a top-level ``schema_version`` (docs/CLI.md).
 """
 
 from __future__ import annotations
 
+import json
+import os
 from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import Any, Final
 
+import typer
 from rich import box
+from rich.console import Console, RenderableType
 from rich.table import Table
 from rich.text import Text
 
 __all__ = [
+    "JSON_SCHEMA_VERSION",
     "MAX_CELL_LENGTH",
     "NODE_COLUMNS",
+    "PROG_NAME",
+    "cell",
+    "console",
+    "emit_json",
+    "fail",
+    "flat",
     "format_age",
     "format_bytes",
+    "line",
+    "no_color",
     "node_detail_table",
     "nodes_table",
     "not_enforced_cell",
+    "note",
     "scores_cell",
     "scores_table",
+    "show",
     "state_counts",
     "status_table",
+    "table",
 ]
+
+PROG_NAME: Final = "compute"
+
+JSON_SCHEMA_VERSION: Final = 1
+"""``schema_version`` of every ``--json`` document (docs/CLI.md). Adding a field
+keeps it; renaming, removing or retyping a documented field bumps it."""
+
+
+# ------------------------------------------------------------------ output path
+
+
+def no_color() -> bool:
+    """``NO_COLOR`` set to any non-empty value turns colour off (no-color.org)."""
+    return os.environ.get("NO_COLOR", "") != ""
+
+
+def console(*, stderr: bool = False) -> Console:
+    """The console for tables: no markup, emoji or highlighting (a value from
+    the network is never interpreted), colour per :func:`no_color` and the
+    stream's TTY-ness."""
+    return Console(
+        stderr=stderr,
+        highlight=False,
+        emoji=False,
+        markup=False,
+        no_color=no_color(),
+    )
+
+
+def show(renderable: RenderableType) -> None:
+    """A table (or :class:`~rich.text.Text`) on stdout."""
+    console().print(renderable)
+
+
+def flat(text: object) -> str:
+    """One printable line: every control character (ESC, CR, LF, NUL...) becomes
+    a space, so nothing a server sent can move the cursor or forge a line."""
+    raw = text if isinstance(text, str) else str(text)
+    return "".join(ch if ch.isprintable() else " " for ch in raw)
+
+
+def line(text: object = "", *, err: bool = False) -> None:
+    """One plain line, flattened. Not through Rich: a console would wrap a long
+    line at the terminal width (or at 80 columns in a pipe), which breaks
+    ``grep`` and the scripts that read a job id from stdout."""
+    typer.echo(flat(text), err=err)
+
+
+def note(text: object) -> None:
+    """A ``compute: ...`` progress or advice line on stderr (stdout stays for
+    the command's result, so it can be piped)."""
+    line(f"{PROG_NAME}: {flat(text)}", err=True)
+
+
+def fail(message: object) -> None:
+    """The error line printed before a non-zero exit, on stderr.
+
+    Scrubbed with the logs' rules (bearer/API/session tokens, join codes,
+    ``key=value`` secrets, PEM keys): the message may quote text the
+    controller sent, and an error line ends up in scrollback, CI logs and bug
+    reports.
+    """
+    from meshforge.common.redaction import scrub_text
+
+    note(scrub_text(flat(message)))
+
+
+def emit_json(payload: Mapping[str, Any]) -> None:
+    """``--json``: one line, keys sorted, ``schema_version`` at the top level.
+
+    The payload is the controller's answer (or, for ``compute status``, the
+    CLI's own document). Not through Rich: a console would wrap and style it,
+    and this output is meant for ``jq``. JSON string escaping already turns a
+    control character into ``\\u001b``, so nothing needs flattening.
+    """
+    document = {**payload, "schema_version": JSON_SCHEMA_VERSION}
+    typer.echo(json.dumps(document, separators=(",", ":"), sort_keys=True))
+
 
 NODE_COLUMNS = (
     "NODE",
@@ -334,11 +439,18 @@ def scores_table(payload: Mapping[str, Any]) -> Table:
     return table
 
 
-def _table(*columns: str, title: str | None = None) -> Table:
+def _table(*columns: str, title: str | Text | None = None) -> Table:
     table = Table(title=title, box=box.ASCII, header_style="bold", pad_edge=False)
     for column in columns:
         table.add_column(column, overflow="fold", no_wrap=False)
     return table
+
+
+cell = _cell
+"""Public name of the one string gate (command modules build their own tables)."""
+
+table = _table
+"""Public name of the one table style (ASCII box, bold header, folding cells)."""
 
 
 def nodes_table(payload: Mapping[str, Any]) -> Table:

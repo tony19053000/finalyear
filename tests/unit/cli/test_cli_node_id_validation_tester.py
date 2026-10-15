@@ -99,7 +99,7 @@ def test_a_syntactically_correct_but_never_enrolled_node_id_is_still_sent(
     controller(handler)
     result = runner.invoke(app, ["nodes", VALID_NODE_ID])
     assert seen == [f"https://127.0.0.1:47110/v1/nodes/{VALID_NODE_ID}"]
-    assert result.exit_code == ExitCode.FAILURE, result.output
+    assert result.exit_code == 8, result.output  # V0.8 G6: NOT_FOUND (was FAILURE)
 
 
 # ------------------------------------------------------- mutation: has teeth?

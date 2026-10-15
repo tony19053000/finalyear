@@ -290,7 +290,7 @@ def test_wrong_password_stores_nothing(
         ["login", "--ca", str(ca_file()), "-u", "alice", "--password-stdin"],
         input="nope-nope-nope\n",
     )
-    assert result.exit_code == ExitCode.FAILURE
+    assert result.exit_code == 3  # V0.8 G6: AUTH (was FAILURE)
     assert "wrong user name or password" in result.output
     assert load_login(creds) is None
 
@@ -338,7 +338,7 @@ def test_401_and_403_messages(
         )
     )
     result = runner.invoke(cli_app.app, ["jobs"])
-    assert result.exit_code == ExitCode.FAILURE
+    assert result.exit_code == 3  # V0.8 G6: AUTH (was FAILURE)
     assert "run `compute login`" in result.output
     transport(
         lambda r: httpx.Response(
@@ -391,7 +391,7 @@ def test_ca_and_fingerprint_must_agree(runner: CliRunner, creds: Path) -> None:
         ],
         input=PASSWORD + "\n",
     )
-    assert result.exit_code == ExitCode.FAILURE
+    assert result.exit_code == 3  # V0.8 G6: AUTH (was FAILURE)
     assert "nothing was sent" in result.output
 
 

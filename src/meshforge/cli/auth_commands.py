@@ -28,7 +28,9 @@ import typer
 from pydantic import SecretStr
 
 from meshforge.cli import app as cli
-from meshforge.common.errors import ConfigError, ExitCode, FailureType
+from meshforge.cli import render
+from meshforge.cli.exits import CliExit
+from meshforge.common.errors import ConfigError, FailureType
 
 if TYPE_CHECKING:
     from cryptography import x509
@@ -45,6 +47,7 @@ tokens_app = typer.Typer(
     name="tokens",
     help="List or revoke your API tokens (V0.7).",
     no_args_is_help=True,
+    rich_markup_mode=None,
 )
 
 
@@ -56,7 +59,7 @@ def _url(settings: CliSettings, controller: str | None) -> str:
     try:
         return normalise_controller_url(controller)
     except ConfigError as exc:
-        cli._die(f"--controller: {exc.message}", ExitCode.USAGE_ERROR)
+        cli._die(f"--controller: {exc.message}", CliExit.USAGE_ERROR)
 
 
 def _pinned_from_handshake(url: str, fingerprint: str) -> x509.Certificate:
@@ -71,7 +74,7 @@ def _pinned_from_handshake(url: str, fingerprint: str) -> x509.Certificate:
         cli._die(
             "--fingerprint needs the CA's full SHA-256 fingerprint (64 hex "
             "characters; `meshforge-controller fabric show` prints it)",
-            ExitCode.USAGE_ERROR,
+            CliExit.USAGE_ERROR,
         )
     try:
         presented = presented_chain(host, port, timeout_s=_HANDSHAKE_TIMEOUT_S)
@@ -80,13 +83,13 @@ def _pinned_from_handshake(url: str, fingerprint: str) -> x509.Certificate:
             f"{host}:{port} did not complete a TLS handshake "
             f"({exc.reason or type(exc).__name__}); is this the controller's REST "
             "address (https://HOST:47110)?",
-            ExitCode.UNAVAILABLE,
+            CliExit.UNAVAILABLE,
         )
     except (OSError, RuntimeError) as exc:
         cli._die(
             f"cannot read the controller's certificate at {host}:{port} "
             f"({type(exc).__name__})",
-            ExitCode.UNAVAILABLE,
+            CliExit.UNAVAILABLE,
         )
     ca = pinned_ca(presented, cleaned, require_full=True)
     if ca is None:
@@ -94,7 +97,7 @@ def _pinned_from_handshake(url: str, fingerprint: str) -> x509.Certificate:
             "the controller at this address does not hold the fabric CA with "
             "that fingerprint (wrong address, another fabric, or someone in "
             "between). Nothing was sent; check the address and the fingerprint",
-            ExitCode.FAILURE,
+            CliExit.AUTH,
         )
     assert ca is not None  # noqa: S101 - _die does not return
     return ca
@@ -111,20 +114,20 @@ def _trusted_ca(
         if ca is not None or fingerprint is not None:
             cli._die(
                 "--ca/--fingerprint need an https:// controller URL",
-                ExitCode.USAGE_ERROR,
+                CliExit.USAGE_ERROR,
             )
         return None
     if ca is not None:
         try:
             cert = pki.read_cert(ca, what="fabric CA certificate")
         except pki.PkiError as exc:
-            cli._die(f"--ca: {exc.message}", ExitCode.CONFIG_ERROR)
+            cli._die(f"--ca: {exc.message}", CliExit.CONFIG_ERROR)
         if fingerprint is not None and not pki.fingerprint_matches(
             cert, fingerprint, require_full=True
         ):
             cli._die(
                 "--ca does not have the --fingerprint you gave; nothing was sent",
-                ExitCode.FAILURE,
+                CliExit.AUTH,
             )
         return cert
     if fingerprint is not None:
@@ -132,7 +135,7 @@ def _trusted_ca(
     try:
         return resolve_ca(settings, stored=cli._stored_login(settings))
     except ConfigError as exc:
-        cli._die(exc.message, ExitCode.CONFIG_ERROR)
+        cli._die(exc.message, CliExit.CONFIG_ERROR)
 
 
 def _read_password(password_stdin: bool) -> SecretStr:
@@ -206,7 +209,7 @@ def login(
 
     if password_stdin and user is None:
         # stdin carries the password; the name cannot be prompted for too.
-        cli._die("--password-stdin needs --user NAME", ExitCode.USAGE_ERROR)
+        cli._die("--password-stdin needs --user NAME", CliExit.USAGE_ERROR)
     settings = cli._settings()
     url = _url(settings, controller)
     trusted = _trusted_ca(settings, url, ca or cli._CA_FILE.get(), fingerprint)
@@ -217,12 +220,12 @@ def login(
             answer = client.login(name.strip(), password, token_name=token_name)
         except ControllerError as exc:
             if exc.failure_type is FailureType.UNAUTHORIZED:
-                cli._die("wrong user name or password", ExitCode.FAILURE)
+                cli._die("wrong user name or password", CliExit.AUTH)
             cli._die(exc.message, exit_code_for(exc))
     token = answer.get("token")
     who = answer.get("user")
     if not isinstance(token, str) or not isinstance(who, dict):
-        cli._die("the controller sent an unexpected login answer", ExitCode.FAILURE)
+        cli._die("the controller sent an unexpected login answer", CliExit.FAILURE)
     try:
         stored = save_login(
             credentials_dir(settings.cli.credentials_dir),
@@ -235,10 +238,10 @@ def login(
             ca_cert=trusted,
         )
     except ConfigError as exc:
-        cli._die(exc.message, ExitCode.CONFIG_ERROR)
-    typer.echo(f"logged in to {url} as {stored.user} ({stored.role})")
+        cli._die(exc.message, CliExit.CONFIG_ERROR)
+    render.line(f"logged in to {url} as {stored.user} ({stored.role})")
     if stored.expires_at:
-        typer.echo(f"the login lasts until {stored.expires_at}", err=True)
+        render.line(f"the login lasts until {stored.expires_at}", err=True)
 
 
 def _str(value: Any) -> str | None:
@@ -255,7 +258,7 @@ def logout() -> None:
     directory = credentials_dir(settings.cli.credentials_dir)
     if stored is None:
         forget_login(directory)
-        typer.echo("not logged in")
+        render.line("not logged in")
         return
     note = "the token was revoked on the controller"
     if stored.token_id is not None:
@@ -271,8 +274,8 @@ def logout() -> None:
                 else:
                     note = "the token no longer worked on the controller"
     forget_login(directory)
-    typer.echo(f"logged out of {stored.controller_url}")
-    typer.echo(note, err=True)
+    render.line(f"logged out of {stored.controller_url}")
+    render.line(note, err=True)
 
 
 def whoami(json_output: cli.JsonOption = False) -> None:
@@ -288,9 +291,9 @@ def whoami(json_output: cli.JsonOption = False) -> None:
     line = f"{user.get('name', '?')} ({user.get('role', '?')})"
     if payload.get("legacy"):
         line += " - the legacy fabric token (switch to `compute login`)"
-    typer.echo(line)
+    render.line(line)
     if payload.get("token_expires_at"):
-        typer.echo(
+        render.line(
             f"token {payload.get('token_id')} until {payload['token_expires_at']}"
         )
 
@@ -311,16 +314,25 @@ def tokens_list(
         return
     rows = payload.get("tokens")
     if not isinstance(rows, list) or not rows:
-        typer.echo("no tokens")
+        render.line("no tokens")
         return
+    table = render.table(
+        "", "TOKEN", "USER", "KIND", "STATE", "NAME", "EXPIRES", title="API tokens"
+    )
     for row in rows:
         if not isinstance(row, dict):
             continue
-        mark = "*" if row.get("current") else " "
-        typer.echo(
-            f"{mark} {row.get('id')}  {row.get('user', ''):<16} {row.get('state', ''):<8} "
-            f"{row.get('name', '')}  expires {row.get('expires_at')}"
+        table.add_row(
+            "*" if row.get("current") is True else "",
+            render.cell(row.get("id")),
+            render.cell(row.get("user")),
+            render.cell(row.get("kind")),
+            render.cell(row.get("state")),
+            render.cell(row.get("name")),
+            render.cell(row.get("expires_at")),
         )
+    render.show(table)
+    render.line("* = the token this command used", err=True)
 
 
 @tokens_app.command("revoke")
@@ -334,11 +346,11 @@ def tokens_revoke(
     try:
         checked = str(validate_api_token_id(token_id))
     except InvalidIdError:
-        cli._die("TOKEN_ID is not a token id (tok_...)", ExitCode.USAGE_ERROR)
+        cli._die("TOKEN_ID is not a token id (tok_...)", CliExit.USAGE_ERROR)
     settings = cli._settings()
     with cli._client(settings) as client:
         payload = cli._fetch(lambda: client.revoke_token(checked))
     if payload.get("already_revoked"):
-        typer.echo(f"{checked} was already revoked")
+        render.line(f"{checked} was already revoked")
     else:
-        typer.echo(f"revoked {checked}")
+        render.line(f"revoked {checked}")

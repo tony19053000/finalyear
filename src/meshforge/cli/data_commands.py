@@ -19,12 +19,14 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Annotated, Any, Final
+from typing import Annotated, Final
 
 import typer
+from rich.table import Table
 
 from meshforge.cli import app as cli
-from meshforge.common.errors import ExitCode
+from meshforge.cli import render
+from meshforge.cli.exits import CliExit
 
 __all__ = ["data_app"]
 
@@ -32,6 +34,7 @@ data_app = typer.Typer(
     name="data",
     help="Named inputs: datasets and models registered once, used by name.",
     no_args_is_help=True,
+    rich_markup_mode=None,
 )
 
 _REF_RE: Final = re.compile(
@@ -46,7 +49,7 @@ def _name(value: str) -> str:
         cli._die(
             "NAME is 1-64 lower-case letters, digits, '.', '_', '-' (starting with "
             "a letter or digit)",
-            ExitCode.USAGE_ERROR,
+            CliExit.USAGE_ERROR,
         )
     return value
 
@@ -54,25 +57,24 @@ def _name(value: str) -> str:
 def _ref(value: str) -> tuple[str, int]:
     match = _REF_RE.fullmatch(value)
     if match is None:
-        cli._die("give NAME@VERSION (see `compute data ls`)", ExitCode.USAGE_ERROR)
+        cli._die("give NAME@VERSION (see `compute data ls`)", CliExit.USAGE_ERROR)
     return match.group("name"), int(match.group("version"))
 
 
-def _size(n: int) -> str:
-    value = float(n)
-    for unit in ("B", "KiB", "MiB", "GiB"):
-        if value < 1024 or unit == "GiB":
-            return f"{value:.0f} {unit}" if unit == "B" else f"{value:.1f} {unit}"
-        value /= 1024
-    return f"{n} B"  # pragma: no cover
-
-
-def _row(item: dict[str, Any]) -> str:
-    pin = "pinned" if item.get("pinned") else ""
-    return (
-        f"{item.get('ref', '')!s:<32} {item.get('tree_id', '')!s:<71} "
-        f"{item.get('files', 0)!s:>7} {_size(int(item.get('size', 0))):>10} {pin}"
-    )
+def inputs_table(items: object, *, title: str) -> Table:
+    """Input versions as the standard table (every server string via ``cell``)."""
+    table = render.table("REF", "TREE", "FILES", "SIZE", "PINNED", title=title)
+    for item in items if isinstance(items, list) else []:
+        if not isinstance(item, dict):
+            continue
+        table.add_row(
+            render.cell(item.get("ref")),
+            render.cell(item.get("tree_id")),
+            render.cell(item.get("files")),
+            render.format_bytes(item.get("size")),
+            "yes" if item.get("pinned") is True else "no",
+        )
+    return table
 
 
 @data_app.command("push")
@@ -92,12 +94,12 @@ def push(
     _name(name)
     folder = path.resolve()
     if not folder.is_dir():
-        cli._die(f"{path} is not a folder", ExitCode.USAGE_ERROR)
+        cli._die(f"{path} is not a folder", CliExit.USAGE_ERROR)
     try:
         built = build_tree(folder)
     except (TreeError, OSError) as exc:
         reason = exc.message if isinstance(exc, TreeError) else type(exc).__name__
-        cli._die(f"cannot read {path}: {reason}", ExitCode.FAILURE)
+        cli._die(f"cannot read {path}: {reason}", CliExit.FAILURE)
     settings = cli._settings()
     with cli._client(settings) as client:
         try:
@@ -106,64 +108,52 @@ def push(
             reason = (
                 exc.message if isinstance(exc, TransferError) else type(exc).__name__
             )
-            cli._die(f"upload failed: {reason}", ExitCode.FAILURE)
-        typer.echo(
-            f"{cli.PROG_NAME}: uploaded {report.uploaded_blobs} files / "
-            f"{report.uploaded_bytes} bytes, skipped {report.skipped_blobs}",
-            err=True,
+            cli._die(f"upload failed: {reason}", CliExit.FAILURE)
+        render.note(
+            f"uploaded {report.uploaded_blobs} files / "
+            f"{report.uploaded_bytes} bytes, skipped {report.skipped_blobs}"
         )
         done = cli._fetch(
             lambda: client.push_input(name, str(built.tree.tree_id), pinned=pin)
         )
     verb = "registered" if done.get("created") else "already registered as"
-    typer.echo(
+    render.line(
         f"{verb} {done.get('ref')} ({done.get('files')} files, "
-        f"{_size(int(done.get('size', 0)))}){' pinned' if done.get('pinned') else ''}"
+        f"{render.format_bytes(done.get('size'))})"
+        f"{' pinned' if done.get('pinned') else ''}"
     )
 
 
 @data_app.command("ls")
-def ls(
-    as_json: Annotated[bool, typer.Option("--json", help="Raw JSON.")] = False,
-) -> None:
+def ls(as_json: cli.JsonOption = False) -> None:
     """Every registered input version."""
-    import json
-
     settings = cli._settings()
     with cli._client(settings) as client:
         listed = cli._fetch(client.inputs)
     if as_json:
-        typer.echo(json.dumps(listed, indent=2, sort_keys=True))
+        cli._echo_json(listed)
         return
     items = listed.get("inputs") or []
     if not items:
-        typer.echo("no named inputs (compute data push NAME DIR)")
+        render.line("no named inputs (compute data push NAME DIR)")
         return
-    typer.echo(f"{'REF':<32} {'TREE':<71} {'FILES':>7} {'SIZE':>10}")
-    for item in items:
-        if isinstance(item, dict):
-            typer.echo(_row(item))
+    render.show(inputs_table(items, title="named inputs"))
 
 
 @data_app.command("show")
 def show(
     name: Annotated[str, typer.Argument(metavar="NAME")],
-    as_json: Annotated[bool, typer.Option("--json", help="Raw JSON.")] = False,
+    as_json: cli.JsonOption = False,
 ) -> None:
     """One input's versions."""
-    import json
-
     _name(name)
     settings = cli._settings()
     with cli._client(settings) as client:
         listed = cli._fetch(lambda: client.input_versions(name))
     if as_json:
-        typer.echo(json.dumps(listed, indent=2, sort_keys=True))
+        cli._echo_json(listed)
         return
-    typer.echo(f"{'REF':<32} {'TREE':<71} {'FILES':>7} {'SIZE':>10}")
-    for item in listed.get("versions") or []:
-        if isinstance(item, dict):
-            typer.echo(_row(item))
+    render.show(inputs_table(listed.get("versions"), title=f"input {name}"))
 
 
 @data_app.command("pin")
@@ -176,7 +166,7 @@ def pin(
     settings = cli._settings()
     with cli._client(settings) as client:
         done = cli._fetch(lambda: client.pin_input(name, version, pinned=not off))
-    typer.echo(f"{done.get('ref')} {'pinned' if done.get('pinned') else 'unpinned'}")
+    render.line(f"{done.get('ref')} {'pinned' if done.get('pinned') else 'unpinned'}")
 
 
 @data_app.command("rm")
@@ -186,4 +176,4 @@ def rm(ref: Annotated[str, typer.Argument(metavar="NAME@VERSION")]) -> None:
     settings = cli._settings()
     with cli._client(settings) as client:
         done = cli._fetch(lambda: client.remove_input(name, version))
-    typer.echo(f"removed {done.get('ref')}")
+    render.line(f"removed {done.get('ref')}")
