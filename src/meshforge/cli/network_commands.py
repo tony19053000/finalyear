@@ -13,7 +13,7 @@ Prints ``GET /v1/network`` as:
 
 Node ids are shortened to their last 8 characters in the matrix (the legend
 lists them in full). Every string from the controller goes through
-:func:`~.render._cell`. ``--json`` prints the API answer as is.
+:func:`~.render._cell`. ``--json`` prints the API answer + ``schema_version`` (docs/CLI.md).
 """
 
 from __future__ import annotations

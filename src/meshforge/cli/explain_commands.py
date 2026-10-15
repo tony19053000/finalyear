@@ -12,7 +12,7 @@ assumed reads as measured); and, once the attempt ran, predicted vs actual
 ``output``~``collect``, ``queue``~``queue``).
 
 Every string from the controller goes through :func:`~.render._cell` (control
-characters flattened). ``--json`` prints the API answer as is.
+characters flattened). ``--json`` prints the API answer + ``schema_version`` (docs/CLI.md).
 """
 
 from __future__ import annotations

@@ -8,7 +8,7 @@ nothing but ``common`` (and later ``sdk``).
 Shape of the commands::
 
     compute nodes                  list every node (Rich table)
-    compute nodes --json           the raw API payload, one line, for scripting
+    compute nodes --json           the API payload + schema_version, one line (docs/CLI.md)
     compute nodes --watch          re-render every [cli] watch_interval_s; Ctrl-C = 0
     compute nodes <node_id>        one node's detail
     compute status                 where the controller is, whether it answers

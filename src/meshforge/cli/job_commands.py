@@ -382,10 +382,7 @@ def jobs(
         ),
     ] = None,
     limit: Annotated[int, typer.Option("--limit", min=1, max=1000)] = 50,
-    json_output: Annotated[
-        bool,
-        typer.Option("--json", help="Print the controller's raw JSON on one line."),
-    ] = False,
+    json_output: cli.JsonOption = False,
 ) -> None:
     """List recent jobs, newest first (or show one job in detail)."""
     from meshforge.cli.render import job_detail_table, jobs_table
