@@ -145,12 +145,6 @@ async def test_explicit_commit_style_and_reuse(engine) -> None:
     assert _ids(seen) == ["a", "b", "d"]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-5 (minor, latent: every store helper writes before it notes): a note made on a "
-    "session with NO open transaction is not tied to one - rollback() is a no-op "
-    "(no after_rollback), so the note leaks into the next transaction's commit.",
-)
 async def test_t5_note_without_an_open_transaction_does_not_leak_after_rollback(
     engine,
 ) -> None:
@@ -162,6 +156,28 @@ async def test_t5_note_without_an_open_transaction_does_not_leak_after_rollback(
         async with db.begin():
             _n(db, "real")
     assert _ids(seen) == ["real"]
+
+
+async def test_t5_note_without_an_open_transaction_dies_with_close(engine) -> None:
+    seen: list[changes.Change] = []
+    changes.attach(engine, seen.extend)
+    db = create_session_factory(engine)()
+    _n(db, "orphan")
+    await db.close()
+    async with db.begin():
+        _n(db, "real")
+    await db.close()
+    assert _ids(seen) == ["real"]
+
+
+async def test_t5_note_without_an_open_transaction_publishes_on_commit(engine) -> None:
+    seen: list[changes.Change] = []
+    changes.attach(engine, seen.extend)
+    async with create_session_factory(engine)() as db:
+        _n(db, "first")
+        assert db.in_transaction()  # the note opened the root transaction
+        await db.commit()
+    assert _ids(seen) == ["first"]
 
 
 async def test_savepoint_open_then_session_closed_leaks_nothing(engine) -> None:

@@ -16,6 +16,8 @@ savepoint it was made in (its "frame"; ``None`` = the outer transaction).
 Releasing a savepoint hands its notes to the enclosing frame; rolling one back
 (or ending it any other way) discards only its own notes; the outer commit
 publishes what is left; the outer rollback or close discards everything.
+A note made with no transaction open begins the root transaction (as
+autobegin would on the next statement), so ``rollback()`` discards it (T-5).
 
 The sink is registered per engine (:func:`attach`): tests and tools that use
 the stores without a bus publish nothing and pay nothing.
@@ -84,6 +86,14 @@ def _note(db: AsyncSession, change: Change) -> None:
     sync = db.sync_session
     if not wanted(db):
         return
+    if not sync.in_transaction():
+        # T-5 (D184): a note must belong to a transaction. With none open,
+        # ``rollback()`` is a no-op (no ``after_rollback``, no
+        # ``after_transaction_end``), so the note would leak into whatever
+        # transaction commits next. Begin the root transaction now - exactly
+        # what autobegin does on the next statement (no I/O: the connection
+        # is taken lazily) - so the note lives and dies with it.
+        sync.begin()
     notes: _Notes = sync.info.setdefault(_INFO_KEY, [])
     if len(notes) < _MAX_PER_TRANSACTION:
         notes.append((sync.get_nested_transaction(), change))
