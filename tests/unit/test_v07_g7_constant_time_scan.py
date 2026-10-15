@@ -166,7 +166,7 @@ ALLOWED: dict[tuple[str, str], str] = {
         "agent/enrollment.py",
         "code in (grpc.StatusCode.UNAVAILABLE, grpc.StatusCode.DEADLINE_EXCEEDED)",
     ): _HTTP,
-    ("cli/job_commands.py", "code != ExitCode.OK"): "a process exit code",
+    ("cli/job_commands.py", "code != CliExit.OK"): "a process exit code",
     ("agent/session/policy.py", "code in _FATAL_CODES"): _CODE,
     ("agent/session/policy.py", "reject_code == codes.REJECT_CODE_STALE_EPOCH"): _CODE,
     ("agent/session/policy.py", "reject_code == codes.REJECT_CODE_PROTOCOL_VERSION"): (
