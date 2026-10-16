@@ -231,17 +231,7 @@ def test_the_real_dist_stamp_matches_the_real_sources_or_says_stale() -> None:
 @pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
 @pytest.mark.parametrize(
     "astral",
-    [
-        False,
-        pytest.param(
-            True,
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="T-5 (minor): JS sorts UTF-16 units, Python code points: "
-                "an astral-plane file name makes the digests differ",
-            ),
-        ),
-    ],
+    [False, True],  # T-5 fixed: both sort by UTF-8 bytes (= code points)
     ids=["bmp-unicode", "astral"],
 )
 def test_node_and_python_digests_agree_on_unusual_file_names(

@@ -66,9 +66,9 @@ def _stamp_sources(frontend: Path) -> list[str]:
             if rel.startswith("src/test/") or _TEST_SOURCE.search(rel):
                 continue
             found.append(rel)
-    # JavaScript's default sort compares UTF-16 code units; for the ASCII paths
-    # of this tree that is the same order as Python's.
-    return sorted(found)
+    # By UTF-8 bytes = code points; build-stamp.mjs sorts the same way (its
+    # default JS sort would compare UTF-16 units and differ for astral names).
+    return sorted(found, key=lambda rel: rel.encode("utf-8", "surrogateescape"))
 
 
 def sources_digest(frontend: Path = FRONTEND) -> str:
@@ -76,7 +76,7 @@ def sources_digest(frontend: Path = FRONTEND) -> str:
     outer = hashlib.sha256()
     for rel in _stamp_sources(frontend):
         inner = hashlib.sha256((frontend / rel).read_bytes()).hexdigest()
-        outer.update(f"{rel}\0{inner}\n".encode())
+        outer.update(f"{rel}\0{inner}\n".encode("utf-8", "surrogateescape"))
     return outer.hexdigest()
 
 

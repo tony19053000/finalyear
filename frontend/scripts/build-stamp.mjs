@@ -10,7 +10,11 @@
 // of failing on a symptom of the stale bundle (D206).
 //
 // Digest: SHA-256 over, for each input file in sorted order of its POSIX path
-// relative to frontend/, the line `<path>\0<sha256 hex of its bytes>\n`.
+// relative to frontend/, the line `<path>\0<sha256 hex of its bytes>\n`. "Sorted"
+// means by the path's UTF-8 bytes (= Unicode code point order, what Python's
+// sort uses): JavaScript's default sort compares UTF-16 code units, which puts
+// an astral-plane name (U+10000 and up) before U+E000-U+FFFF and would make the
+// two digests differ (tester r1 T-5).
 // Inputs = what `vite build` reads: index.html, package.json, package-lock.json,
 // vite.config.ts, tsconfig*.json except the test one, public/**, src/** except
 // tests (src/test/**, *.test.ts, *.test.tsx).
@@ -58,7 +62,16 @@ export function sourceFiles() {
       if (!isTest(rel)) found.push(rel);
     }
   }
-  return found.sort();
+  return found.sort(byUtf8);
+}
+
+/**
+ * Order by UTF-8 bytes (= code points), as Python's `sorted` on str does.
+ * @param {string} a
+ * @param {string} b
+ */
+function byUtf8(a, b) {
+  return Buffer.compare(Buffer.from(a, "utf8"), Buffer.from(b, "utf8"));
 }
 
 export function sourcesDigest() {
