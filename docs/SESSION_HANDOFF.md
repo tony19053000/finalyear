@@ -7,11 +7,9 @@
 > **Cold-start prompt** (paste this as the first message on the new account):
 >
 > ```
-> Read docs/SESSION_HANDOFF.md (§0e first, then §1 and §2), then docs/STATUS.md, then
-> docs/briefs/V0.7-security-pairing.md. RULE: run ONE subagent at a time (team, re-imposed 2026-10-01; parallel wave 2026-10-16 ended same day).
-> V0.7 G1-G5 CLOSED; G6 (0.7.10) CLOSED 2026-10-14 (D165).
-> G7 (0.7.11) CLOSED 2026-10-15 (D168). V0.8 brief APPROVED; G1 running (brief §5a).
-> Check git log and docs/briefs/progress/ first to see which round last finished.
+> Read docs/SESSION_HANDOFF.md §1, then docs/STATUS.md, then docs/briefs/V0.8-dashboard-cli.md (§5c, §5d, D191-D192).
+> Parallel agents allowed. Continue V0.8: finish G3 and G4 implementer exit lists + hand-offs in their worktrees
+> → tester r1 → reviewer per group → merge G3 then G4 (wire applyJobEvent) → whole component once → close → G5 brief.
 > ```
 >
 > Order of truth: `PROJECT_BRIEF → ARCHITECTURE → ROADMAP → STATUS → this file`. If this file
@@ -265,7 +263,10 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
-**2026-10-16 (evening) — G2+G6 CLOSED (D192; roadmap + STATUS bar updated). PARALLEL agents allowed again (independent work, worktrees). G3 (§5c) and G4 (§5d, file-ownership split) implementers running in parallel worktrees, alongside the component gate on main. If the session died: check each worktree branch log + progress/V0.8-G3.md, V0.8-G4.md; resume from last item.**
+**2026-10-16 (night, session end — team asked to stop) — NOTHING RUNNING. Parallel agents ALLOWED (team, 2026-10-16 evening; confirm at session start). G2 + G6 CLOSED (D192).**
+- **G3** (Overview + Nodes, brief §5c) branch `worktree-agent-ae15d430443abfb84`, worktree `.claude/worktrees/agent-ae15d430443abfb84`: item 0 (D191 a–e) `1502537`, item 1 GET /v1/alerts `9e2b332`, pages + live patching `fee4a1e`, vitest + e2e `c72b35c`, wip `progress + browser_session test` (last). Implementer was STOPPED while starting its exit list (unit tier + touched component/drift). Next: resume implementer for the exit list + hand-off note only → tester r1 → reviewer.
+- **G4** (Jobs, brief §5d) branch `worktree-agent-adfe02d5c6bab08ed`: `7211007`, `beb5578`, progress `eb7f091` (applyJobEvent wiring note), e2e `c4a4f4e`, `38cb493`. Clean tree. STOPPED before updating progress + exit list. Next: resume implementer (progress file + exit list + hand-off; check its dependency question in progress) → tester r1 → reviewer.
+- Merge order: G3 then G4 (Lead wires `applyJobEvent` into G3's shell hook point) → whole `-m component` once for both → close 0.8.3, 0.8.4, 0.8.5 (+0.8.7 if live latency evidence OK) → write G5 brief (Settings) — G5 and G7 prep can be parallel.
 
 **2026-10-16 (resumed) — G2 tester r2 PASS `90b4b27`, reviewer APPROVE, merged `96620ee`. G6 reviewer APPROVE, merged `d2ac586`. D191 records non-blocking → G3 item 0. RUNNING: whole `-m component` once on merged main (covers G2+G6; log in session scratchpad). If the session died: re-run `uv run python scripts/pytest_exit_guard.py -m component -q` on main; green → close G2/G6 (roadmap 0.8.1/0.8.2/0.8.8 per brief §3, STATUS bar) → write G3 brief.**
 
