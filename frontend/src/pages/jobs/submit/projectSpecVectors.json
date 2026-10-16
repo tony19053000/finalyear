@@ -1,0 +1,635 @@
+{
+  "about": "Test vectors for projectSpec.json. The expectations come from the CLI's own code: tests/unit/test_v08_g4_project_spec.py checks them there and frontend/src/pages/jobs/submit/projectSpec.test.ts runs them through the browser code.",
+  "walk_vectors": [
+    {
+      "name": "builtins_and_basic",
+      "files": {
+        "main.py": "print('hi')\n",
+        "data/a.txt": "a\n",
+        "__pycache__/main.cpython-312.pyc": "x",
+        "pkg/__pycache__/m.pyc": "x",
+        "stray.pyc": "x",
+        ".git/config": "[core]\n",
+        ".venv/bin/python": "x",
+        "web/node_modules/left-pad/index.js": "x",
+        "requirements.txt": "numpy==2.0\n"
+      },
+      "expect_entries": [
+        {
+          "path": "data/a.txt",
+          "sha256": "87428fc522803d31065e7bce3cf03fe475096631e5e07bbd7a0fde60c4cf25c7",
+          "size": 2,
+          "exec": false
+        },
+        {
+          "path": "main.py",
+          "sha256": "caf026f25d7140209f98072605307a438914b9ce6f3c14b23d15d9667241de52",
+          "size": 12,
+          "exec": false
+        },
+        {
+          "path": "pkg",
+          "dir": true
+        },
+        {
+          "path": "requirements.txt",
+          "sha256": "4e6648d7d85857bfc096a531dd6dcd0f7423b987d7a61e232eee8ac7deff0b96",
+          "size": 11,
+          "exec": false
+        },
+        {
+          "path": "web",
+          "dir": true
+        }
+      ],
+      "expect_ignored": 6,
+      "expect_tree_id": "sha256:74c138c13293e0b7600a022bbb2ff02d00fda7bad58d1f64628438d883001692"
+    },
+    {
+      "name": "nested_ignore_files",
+      "files": {
+        ".gitignore": "# comment\n*.log\n!keep.log\nbuild/\n/root_only.txt\ndocs/**\n[ab].tmp\n?.md\n\\#hash.txt\ntrailing.txt   \n",
+        ".computeignore": "data/raw/\n",
+        "a.log": "x",
+        "keep.log": "x",
+        "build/out.bin": "x",
+        "src/build/inner.bin": "x",
+        "root_only.txt": "x",
+        "src/root_only.txt": "x",
+        "docs/readme.md": "x",
+        "a.tmp": "x",
+        "c.tmp": "x",
+        "x.md": "x",
+        "xy.md": "x",
+        "#hash.txt": "x",
+        "trailing.txt": "x",
+        "data/raw/big.csv": "x",
+        "data/clean.csv": "x",
+        "src/.gitignore": "local.txt\n/anchored.txt\nsub/deeper.txt\n",
+        "src/.computeignore": "!local.txt\n*.cache\n",
+        "src/local.txt": "x",
+        "src/anchored.txt": "x",
+        "src/pkg/anchored.txt": "x",
+        "src/sub/deeper.txt": "x",
+        "src/x.cache": "x",
+        "other/x.cache": "x",
+        "other/local.txt": "x"
+      },
+      "expect_entries": [
+        {
+          "path": ".computeignore",
+          "sha256": "caa5c920e728f452652f2486589c1a3bdb5425275badfd981b8f83856bbbe8c7",
+          "size": 10,
+          "exec": false
+        },
+        {
+          "path": ".gitignore",
+          "sha256": "f6c7274ed6c29310b5ef589b42dd1b387c7f25c4d33be5c1b3fc6ceace67c210",
+          "size": 97,
+          "exec": false
+        },
+        {
+          "path": "c.tmp",
+          "sha256": "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881",
+          "size": 1,
+          "exec": false
+        },
+        {
+          "path": "data/clean.csv",
+          "sha256": "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881",
+          "size": 1,
+          "exec": false
+        },
+        {
+          "path": "keep.log",
+          "sha256": "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881",
+          "size": 1,
+          "exec": false
+        },
+        {
+          "path": "other/local.txt",
+          "sha256": "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881",
+          "size": 1,
+          "exec": false
+        },
+        {
+          "path": "other/x.cache",
+          "sha256": "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881",
+          "size": 1,
+          "exec": false
+        },
+        {
+          "path": "src/.computeignore",
+          "sha256": "77aadd2250d5955f4dc3ae8b1dd941069cc39375356a6232156117500c8d07a1",
+          "size": 19,
+          "exec": false
+        },
+        {
+          "path": "src/.gitignore",
+          "sha256": "7fe8db3766861a1813b43edb3a71f5c6af5a277a606fdb12de87b72caa87f088",
+          "size": 39,
+          "exec": false
+        },
+        {
+          "path": "src/local.txt",
+          "sha256": "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881",
+          "size": 1,
+          "exec": false
+        },
+        {
+          "path": "src/pkg/anchored.txt",
+          "sha256": "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881",
+          "size": 1,
+          "exec": false
+        },
+        {
+          "path": "src/root_only.txt",
+          "sha256": "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881",
+          "size": 1,
+          "exec": false
+        },
+        {
+          "path": "src/sub",
+          "dir": true
+        },
+        {
+          "path": "xy.md",
+          "sha256": "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881",
+          "size": 1,
+          "exec": false
+        }
+      ],
+      "expect_ignored": 13,
+      "expect_tree_id": "sha256:630a54ca580148adfeb6b9a0519a2060d9d7e79c3935c3bbe501f8e304d869bc"
+    },
+    {
+      "name": "negation_and_dir_patterns",
+      "files": {
+        ".gitignore": "logs/*\n!logs/keep/\n*.bin\n!important.bin\n**/deep/*.dat\nout/\n!out/keep.txt\n",
+        "logs/a.txt": "x",
+        "logs/keep/b.txt": "x",
+        "x.bin": "x",
+        "important.bin": "x",
+        "sub/important.bin": "x",
+        "a/deep/x.dat": "x",
+        "deep/y.dat": "x",
+        "a/b/deep/z.dat": "x",
+        "a/deep/z.txt": "x",
+        "out/keep.txt": "x",
+        "out/drop.txt": "x"
+      },
+      "expect_entries": [
+        {
+          "path": ".gitignore",
+          "sha256": "fa6dc02bd07cd61b438a3a2f2f9e76d017d03dbb5c0c5ee97a5d587c550a5432",
+          "size": 73,
+          "exec": false
+        },
+        {
+          "path": "a/b/deep",
+          "dir": true
+        },
+        {
+          "path": "a/deep/z.txt",
+          "sha256": "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881",
+          "size": 1,
+          "exec": false
+        },
+        {
+          "path": "deep",
+          "dir": true
+        },
+        {
+          "path": "important.bin",
+          "sha256": "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881",
+          "size": 1,
+          "exec": false
+        },
+        {
+          "path": "logs/keep/b.txt",
+          "sha256": "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881",
+          "size": 1,
+          "exec": false
+        },
+        {
+          "path": "sub/important.bin",
+          "sha256": "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881",
+          "size": 1,
+          "exec": false
+        }
+      ],
+      "expect_ignored": 6,
+      "expect_tree_id": "sha256:81ede1c21972b8fe1b808137b68d9a62c9f416f72a3d81092df4328970fae7a8"
+    },
+    {
+      "name": "crlf_bom_ignore_file",
+      "files": {
+        ".gitignore": "﻿*.tmp\r\n!keep.tmp\r\n",
+        "a.tmp": "x",
+        "keep.tmp": "x",
+        "b.txt": "x"
+      },
+      "expect_entries": [
+        {
+          "path": ".gitignore",
+          "sha256": "90521c9d73025552744005b895d17da16710a7922d5733fb5b531c0cc9683fc3",
+          "size": 21,
+          "exec": false
+        },
+        {
+          "path": "b.txt",
+          "sha256": "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881",
+          "size": 1,
+          "exec": false
+        },
+        {
+          "path": "keep.tmp",
+          "sha256": "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881",
+          "size": 1,
+          "exec": false
+        }
+      ],
+      "expect_ignored": 1,
+      "expect_tree_id": "sha256:ff5d5c62fd3f208cdca3d416b1cae92f796c93de852e321f246fe07cfe5afe8e"
+    },
+    {
+      "name": "byte_order_unicode_exec",
+      "files": {
+        "a-b.txt": "1",
+        "a/b.txt": "2",
+        "Z.txt": "3",
+        "z.txt": "4",
+        "é.txt": "5",
+        "ä/ü.txt": "6",
+        "数据.txt": "7",
+        "run.sh": {
+          "text": "#!/bin/sh\necho hi\n",
+          "exec": true
+        },
+        "empty.txt": ""
+      },
+      "expect_entries": [
+        {
+          "path": "Z.txt",
+          "sha256": "4e07408562bedb8b60ce05c1decfe3ad16b72230967de01f640b7e4729b49fce",
+          "size": 1,
+          "exec": false
+        },
+        {
+          "path": "a-b.txt",
+          "sha256": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b",
+          "size": 1,
+          "exec": false
+        },
+        {
+          "path": "a/b.txt",
+          "sha256": "d4735e3a265e16eee03f59718b9b5d03019c07d8b6c51f90da3a666eec13ab35",
+          "size": 1,
+          "exec": false
+        },
+        {
+          "path": "empty.txt",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "size": 0,
+          "exec": false
+        },
+        {
+          "path": "run.sh",
+          "sha256": "299001868fb8c02fd431c336c6d058f5558c5dff5b5af5e6fe04b870a6a9cbba",
+          "size": 18,
+          "exec": true
+        },
+        {
+          "path": "z.txt",
+          "sha256": "4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a",
+          "size": 1,
+          "exec": false
+        },
+        {
+          "path": "ä/ü.txt",
+          "sha256": "e7f6c011776e8db7cd330b54174fd76f7d0216b612387a5ffcfb81e6f0919683",
+          "size": 1,
+          "exec": false
+        },
+        {
+          "path": "é.txt",
+          "sha256": "ef2d127de37b942baad06145e54b0c619a1f22327b2ebbcfbec78f5564afe39d",
+          "size": 1,
+          "exec": false
+        },
+        {
+          "path": "数据.txt",
+          "sha256": "7902699be42c8a8e46fbbb4501726517e86b22c56a189f7625a6da49081b2451",
+          "size": 1,
+          "exec": false
+        }
+      ],
+      "expect_ignored": 0,
+      "expect_tree_id": "sha256:4b5211256523edc2a2f171aaf0d57b22d150a0b73e4eac0300a1d1e0de28edc0"
+    },
+    {
+      "name": "chunked_files",
+      "chunk_size": 65536,
+      "files": {
+        "big.bin": {
+          "repeat": "0123456789abcdef",
+          "size": 150000
+        },
+        "exact.bin": {
+          "repeat": "Q",
+          "size": 65536
+        },
+        "plus_one.bin": {
+          "repeat": "Z",
+          "size": 65537
+        },
+        "small.txt": "small\n"
+      },
+      "expect_entries": [
+        {
+          "path": "big.bin",
+          "sha256": "8b94efb6377830bbac53f6a4c8875a071642879df9ff4f104d64d9bef3515328",
+          "size": 150000,
+          "exec": false,
+          "chunks": [
+            "d8b2af1c85cdb4588e978aed5875e12cbfd20f68009823cf914b40cf41d8e4ce",
+            "d8b2af1c85cdb4588e978aed5875e12cbfd20f68009823cf914b40cf41d8e4ce",
+            "dfce0289dd44592f762ff5792636438a8b39d1bdd7da2422cf7cb89e9bd24894"
+          ]
+        },
+        {
+          "path": "exact.bin",
+          "sha256": "8972076cb336eb71044adb1be09e761ec0070ceb9e833595dedce38fd1478c2f",
+          "size": 65536,
+          "exec": false
+        },
+        {
+          "path": "plus_one.bin",
+          "sha256": "866a0d5bb3f1ddb04de4ed7ef911957b0fff959c4bdf17569109727c7c2e1254",
+          "size": 65537,
+          "exec": false,
+          "chunks": [
+            "944044fe482bc4e91085c15c5a923a1b9e02eac98d3bce04997d6dbecd2a5b8d",
+            "bbeebd879e1dff6918546dc0c179fdde505f2a21591c9a9c96e36b054ec5af83"
+          ]
+        },
+        {
+          "path": "small.txt",
+          "sha256": "4c47b3e816fbe7d40cef9f665ba8f0be1ae68b5e8e7ed70f5b6bab7f70528e8f",
+          "size": 6,
+          "exec": false
+        }
+      ],
+      "expect_ignored": 0,
+      "expect_tree_id": "sha256:6201f4041e684a17785bee5df297e58f27ae2ee323a728fc7b7d5c38fe1495d4"
+    },
+    {
+      "name": "empty_dirs",
+      "files": {
+        "keep/file.txt": "x"
+      },
+      "dirs": [
+        "empty",
+        "nested/also_empty",
+        "keep"
+      ],
+      "expect_entries": [
+        {
+          "path": "empty",
+          "dir": true
+        },
+        {
+          "path": "keep/file.txt",
+          "sha256": "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881",
+          "size": 1,
+          "exec": false
+        },
+        {
+          "path": "nested/also_empty",
+          "dir": true
+        }
+      ],
+      "expect_ignored": 0,
+      "expect_tree_id": "sha256:06a17bd9d8e6165c3726bc512bb53df672b692125e663313ec5b6078b02cc93c"
+    }
+  ],
+  "yaml_vectors": [
+    {
+      "name": "example",
+      "text": "name: image-classify\nentrypoint: python train.py --epochs 3\nenv:\n  base: cuda-pytorch\n  python: \"3.12\"\n  requirements: requirements.txt\nresources:\n  gpu: preferred\n  vram_gb: 4\n  ram_gb: 8\n  cpus: 4\noutputs: [results/, \"*.csv\"]\ninputs:\n  - ref: imagenet-mini@3\n    mount: data/imagenet\nlimits:\n  timeout: 2h\n  network: none\npriority: 0\npolicy: cost_model\nretry:\n  max_attempts: 3\n  backoff_s: 5\n  on_lost: true\nsecrets:\n  - API_KEY\n  - {name: DB_PASS, as_env: true}\n",
+      "expect": {
+        "name": "image-classify",
+        "entrypoint": "python train.py --epochs 3",
+        "env": {
+          "base": "cuda-pytorch",
+          "python": "3.12",
+          "requirements": "requirements.txt"
+        },
+        "resources": {
+          "gpu": "preferred",
+          "vram_gb": 4,
+          "ram_gb": 8,
+          "cpus": 4
+        },
+        "outputs": [
+          "results/",
+          "*.csv"
+        ],
+        "inputs": [
+          {
+            "ref": "imagenet-mini@3",
+            "mount": "data/imagenet"
+          }
+        ],
+        "limits": {
+          "timeout": "2h",
+          "network": "none"
+        },
+        "priority": 0,
+        "policy": "cost_model",
+        "retry": {
+          "max_attempts": 3,
+          "backoff_s": 5,
+          "on_lost": true
+        },
+        "secrets": [
+          "API_KEY",
+          {
+            "name": "DB_PASS",
+            "as_env": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "comments_and_doc_marker",
+      "text": "---\n# a comment\nname: x   # trailing comment\nentrypoint: [\"python\", \"a b.py\"]  # list\n",
+      "expect": {
+        "name": "x",
+        "entrypoint": [
+          "python",
+          "a b.py"
+        ]
+      }
+    },
+    {
+      "name": "yaml11_scalars",
+      "text": "a: yes\nb: No\nc: on\nd: OFF\ne: ~\nf: null\ng:\nh: 010\ni: 0x1F\nj: 1_000\nk: -7\nl: 3.10\nm: .5\nn: 1.5e+3\no: '3.12'\np: \"tab\\there\"\nq: 'it''s'\nr: 1:30\ns: +12\nt: 0b101\nu: 1e3\nv: True\nw: \"\\u00e9\\x41\"\nx: 0\ny: -0.25\nz: 2h\n",
+      "expect": {
+        "a": true,
+        "b": false,
+        "c": true,
+        "d": false,
+        "e": null,
+        "f": null,
+        "g": null,
+        "h": 8,
+        "i": 31,
+        "j": 1000,
+        "k": -7,
+        "l": 3.1,
+        "m": 0.5,
+        "n": 1500.0,
+        "o": "3.12",
+        "p": "tab\there",
+        "q": "it's",
+        "r": 90,
+        "s": 12,
+        "t": 5,
+        "u": "1e3",
+        "v": true,
+        "w": "éA",
+        "x": 0,
+        "y": -0.25,
+        "z": "2h"
+      }
+    },
+    {
+      "name": "block_sequences",
+      "text": "outputs:\n- results/\n- \"*.csv\"\nentrypoint:\n  - python\n  - main.py\nsecrets:\n  - name: A\n    as_env: true\n  - B\n",
+      "expect": {
+        "outputs": [
+          "results/",
+          "*.csv"
+        ],
+        "entrypoint": [
+          "python",
+          "main.py"
+        ],
+        "secrets": [
+          {
+            "name": "A",
+            "as_env": true
+          },
+          "B"
+        ]
+      }
+    },
+    {
+      "name": "multiline_flow",
+      "text": "outputs: [\n  results/,\n  'logs/*.txt'\n]\nresources: {gpu: none, cpus: 2}\nempty_list: []\nempty_map: {}\n",
+      "expect": {
+        "outputs": [
+          "results/",
+          "logs/*.txt"
+        ],
+        "resources": {
+          "gpu": "none",
+          "cpus": 2
+        },
+        "empty_list": [],
+        "empty_map": {}
+      }
+    },
+    {
+      "name": "empty_document",
+      "text": "# nothing here\n",
+      "expect": null
+    },
+    {
+      "name": "colon_in_value",
+      "text": "entrypoint: python -c \"print('a:b')\"\nname: x:y\nurl: http://x.y/z\n",
+      "expect": {
+        "entrypoint": "python -c \"print('a:b')\"",
+        "name": "x:y",
+        "url": "http://x.y/z"
+      }
+    },
+    {
+      "name": "quoted_keys",
+      "text": "\"name\": 'q'\n'priority': 3\n",
+      "expect": {
+        "name": "q",
+        "priority": 3
+      }
+    },
+    {
+      "name": "nested_maps",
+      "text": "env:\n  base: python-cpu\n  extra:\n    deep: 1\n    deeper:\n      - a\n      - b\nlast: z\n",
+      "expect": {
+        "env": {
+          "base": "python-cpu",
+          "extra": {
+            "deep": 1,
+            "deeper": [
+              "a",
+              "b"
+            ]
+          }
+        },
+        "last": "z"
+      }
+    },
+    {
+      "name": "crlf_lines",
+      "text": "name: crlf\r\npriority: 2\r\n",
+      "expect": {
+        "name": "crlf",
+        "priority": 2
+      }
+    },
+    {
+      "name": "duplicate_key",
+      "text": "name: a\nname: b\n",
+      "error": true
+    },
+    {
+      "name": "alias",
+      "text": "a: &x 1\nb: *x\n",
+      "error": true
+    },
+    {
+      "name": "block_scalar",
+      "text": "entrypoint: |\n  python a.py\n",
+      "expect": {
+        "entrypoint": "python a.py\n"
+      },
+      "browser_unsupported": true
+    },
+    {
+      "name": "tab_indent",
+      "text": "env:\n\tbase: x\n",
+      "error": true
+    },
+    {
+      "name": "bad_indent",
+      "text": "env:\n    base: x\n  python: '3.12'\n",
+      "error": true
+    },
+    {
+      "name": "mapping_value_in_plain",
+      "text": "a: b: c\n",
+      "error": true
+    },
+    {
+      "name": "unclosed_flow",
+      "text": "outputs: [a, b\n",
+      "error": true
+    },
+    {
+      "name": "unclosed_quote",
+      "text": "name: \"abc\n",
+      "error": true
+    }
+  ]
+}
