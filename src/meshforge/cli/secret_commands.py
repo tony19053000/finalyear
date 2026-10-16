@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import getpass
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Annotated
@@ -55,20 +56,49 @@ def _name(raw: str) -> str:
         cli._die(f"NAME: {exc.message}", CliExit.USAGE_ERROR)
 
 
-def _json_forms(value: bytes) -> list[bytes]:
-    """The value as it appears inside a JSON string (a server that echoes the
-    body through ``json.dumps``): ASCII-escaped and UTF-8 forms, quotes and
-    backslashes escaped. Only those that differ from the raw value (which is
-    registered already); none for a value that is not UTF-8 text."""
+def _echo_forms(value: bytes) -> list[bytes]:
+    """The value as it appears inside a JSON string echoed by a server: every
+    combination of ASCII-escaped / UTF-8, lower / upper-case ``\\uXXXX`` hex
+    (T-7: .NET, some JS encoders), Go's HTML escaping of ``< > &`` and
+    U+2028/9 (T-8) and ``\\/``. Only those that differ from the raw value
+    (registered already); none for a value that is not UTF-8 text."""
     try:
         text = value.decode("utf-8")
     except UnicodeDecodeError:
         return []
-    forms = {
-        json.dumps(text, ensure_ascii=ascii_only)[1:-1].encode("utf-8")
-        for ascii_only in (True, False)
-    }
-    return sorted(f for f in forms if f != value)
+    forms: set[str] = set()
+    for ascii_only in (True, False):
+        base = json.dumps(text, ensure_ascii=ascii_only)[1:-1]
+        for html in (False, True):
+            form = _go_html(base) if html else base
+            for slash in (False, True):
+                spelled = form.replace("/", "\\/") if slash else form
+                forms.add(spelled)
+                forms.add(
+                    _UNICODE_ESCAPE.sub(
+                        lambda m: "\\u" + m.group(0)[2:].upper(), spelled
+                    )
+                )
+    # T-9: the raw text as an error line shows it after flattening (control
+    # characters -> spaces), so a multi-line value is still masked there.
+    forms.add("".join(ch if ch.isprintable() else " " for ch in text))
+    encoded = {f.encode("utf-8") for f in forms}
+    return sorted(f for f in encoded if f != value)
+
+
+_UNICODE_ESCAPE = re.compile(r"\\u[0-9a-f]{4}")
+_GO_HTML = {
+    "<": "\\u003c",
+    ">": "\\u003e",
+    "&": "\\u0026",
+    chr(0x2028): "\\u2028",
+    chr(0x2029): "\\u2029",
+}
+
+
+def _go_html(form: str) -> str:
+    """Go's ``encoding/json`` default: ``< > &`` and U+2028/9 as ``\\uXXXX``."""
+    return "".join(_GO_HTML.get(ch, ch) for ch in form)
 
 
 def _strip_newline(data: bytes) -> bytes:
@@ -128,7 +158,7 @@ def set_secret(
     # proxy or server echoing the body) prints `[secret:NAME]` instead - the
     # error path scrubs through the same active-secrets registry as the logs.
     ACTIVE.add(_HOLDER, {checked: value})
-    for i, form in enumerate(_json_forms(value)):  # T-4: JSON-escaped echoes
+    for i, form in enumerate(_echo_forms(value)):  # T-4: JSON-escaped echoes
         ACTIVE.add(f"{_HOLDER}-json{i}", {checked: form})
     try:
         with cli._client(settings) as client:

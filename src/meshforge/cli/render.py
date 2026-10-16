@@ -68,6 +68,7 @@ __all__ = [
     "cell",
     "clip",
     "console",
+    "echo",
     "emit_json",
     "fail",
     "flat",
@@ -158,7 +159,12 @@ def scrub(text: object) -> str:
     status`` prints it in its table and in ``--json`` ``detail`` (V0.8 G6 T-1)."""
     from meshforge.common.redaction import scrub_text
 
-    return scrub_text(flat(text))
+    raw = text if isinstance(text, str) else str(text)
+    # T-9: scrubbed BEFORE flattening, so a multi-line active secret (a PEM key
+    # from `secret set --from-file`) still matches; scrub_text masks active
+    # secrets and keeps its own `[secret:NAME]` markers intact. Once only:
+    # a second pass would mangle those markers.
+    return flat(scrub_text(raw))
 
 
 def clip(value: object) -> str:
@@ -166,6 +172,12 @@ def clip(value: object) -> str:
     :data:`MAX_CELL_LENGTH` like a table cell (V0.8 G6 T-2)."""
     text = flat("" if value is None else value)
     return text if len(text) <= MAX_CELL_LENGTH else text[:MAX_CELL_LENGTH] + "..."
+
+
+def echo(value: object) -> str:
+    """A server value inside a *success* line (V0.8 G6 T-6): scrubbed like an
+    error line, flattened, capped. ``None`` prints ``-``."""
+    return clip(scrub(DASH if value is None else value))
 
 
 def emit_json(payload: Mapping[str, Any]) -> None:

@@ -8,7 +8,7 @@
 * T-5: the replacement bash installer on awkward ``~/.bashrc`` files.
 """
 
-# ruff: noqa: E501, E731, E741, PT006, RUF059, C416
+# ruff: noqa: E731, E741, PT006, RUF059, C416
 from __future__ import annotations
 
 import json
@@ -108,10 +108,6 @@ def test_success_paths_flatten_and_cap_server_values(
         )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-6 (minor): success-path lines that echo a server value (cancel state, data pin/rm ref, node revoke) are flattened but not length-capped or secret-scrubbed - render.clip/scrub only wired into whoami/status",
-)
 @pytest.mark.parametrize(
     "argv",
     [["cancel", JOB], ["data", "pin", "ds@1"], ["data", "rm", "ds@1"]],
@@ -274,8 +270,6 @@ def test_secret_echo_spellings_are_masked(
     spelling: str,
 ) -> None:
     value = VALUES[name]
-    if name == "ctl" and spelling == "raw":
-        pytest.skip("covered by the T-9 xfail below")
     f = tmp_path / "v"
     f.write_bytes(value.encode("utf-8"))
 
@@ -300,10 +294,6 @@ def test_secret_echo_spellings_are_masked(
     assert "Traceback" not in r.output
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-7 (minor): a secret echoed with upper-case \\uXXXX hex (e.g. .NET / some JS encoders) is not masked; only the lower-case json.dumps spelling is",
-)
 def test_secret_echo_uppercase_unicode_escapes_masked(
     runner: CliRunner, controller: TransportFactory, tmp_path: Path
 ) -> None:
@@ -320,10 +310,6 @@ def test_secret_echo_uppercase_unicode_escapes_masked(
     assert "y" * 20 not in r.output
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-8 (minor): a secret echoed with Go-style HTML escapes (\\u003c \\u003e \\u0026 for < > &) is not masked",
-)
 def test_secret_echo_go_html_escapes_masked(
     runner: CliRunner, controller: TransportFactory, tmp_path: Path
 ) -> None:
@@ -479,13 +465,11 @@ def test_dangling_symlink_bashrc_does_not_traceback(tmp_path: Path) -> None:
     (home / ".bashrc").symlink_to(tmp_path / "nowhere" / "bashrc")
     d = _install(home)
     assert "Traceback" not in d.stderr
-    assert d.returncode in (0, 1)
+    # fix round 2 (D190 T-10): an install I/O error is exit 4 (config), not the
+    # old internal-error exit 1. Same strictness: still exactly two outcomes.
+    assert d.returncode in (0, 4)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-10 (minor): an unwritable home / .bashrc is reported as 'internal error ... this is a bug' (PermissionError, IsADirectoryError, FileExistsError escape install_bash) instead of a what/why/what-to-do line",
-)
 @pytest.mark.skipif(os.geteuid() == 0, reason="root ignores permissions")
 @pytest.mark.parametrize(
     "what", ["home_ro", "rc_ro", "rc_is_dir", "completions_is_file"]

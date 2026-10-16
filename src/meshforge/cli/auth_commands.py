@@ -239,9 +239,11 @@ def login(
         )
     except ConfigError as exc:
         cli._die(exc.message, CliExit.CONFIG_ERROR)
-    render.line(f"logged in to {url} as {stored.user} ({stored.role})")
+    render.line(
+        f"logged in to {url} as {render.echo(stored.user)} ({render.echo(stored.role)})"
+    )
     if stored.expires_at:
-        render.line(f"the login lasts until {stored.expires_at}", err=True)
+        render.line(f"the login lasts until {render.echo(stored.expires_at)}", err=True)
 
 
 def _str(value: Any) -> str | None:
@@ -289,7 +291,7 @@ def whoami(json_output: cli.JsonOption = False) -> None:
     user = payload.get("user")
     user = user if isinstance(user, dict) else {}
     # T-2: every server string capped like a table cell.
-    clip = render.clip
+    clip = render.echo  # T-2 cap, T-6 scrub
     line = f"{clip(user.get('name', '?'))} ({clip(user.get('role', '?'))})"
     if payload.get("legacy"):
         line += " - the legacy fabric token (switch to `compute login`)"

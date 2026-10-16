@@ -25,11 +25,12 @@ from __future__ import annotations
 import shlex
 import subprocess
 from pathlib import Path
-from typing import Final
+from typing import Final, NoReturn
 
 from typer import _completion_shared as typer_completion
 
 from meshforge.cli import render
+from meshforge.cli.exits import CliExit
 
 __all__ = ["MARKER", "install_powershell", "use_safe_installers"]
 
@@ -73,17 +74,20 @@ def install_powershell(*, prog_name: str, complete_var: str, shell: str) -> Path
     script = typer_completion.get_completion_script(
         prog_name=prog_name, complete_var=complete_var, shell=shell
     )
-    existing = (
-        profile.read_text(encoding="utf-8", errors="replace")
-        if profile.is_file()
-        else ""
-    )
-    if MARKER not in existing:
-        profile.parent.mkdir(parents=True, exist_ok=True)
-        with profile.open("a", encoding="utf-8") as fh:
-            if existing and not existing.endswith("\n"):
-                fh.write("\n")
-            fh.write(f"{MARKER}\n{script}\n")
+    try:
+        existing = (
+            profile.read_text(encoding="utf-8", errors="replace")
+            if profile.is_file()
+            else ""
+        )
+        if MARKER not in existing:
+            profile.parent.mkdir(parents=True, exist_ok=True)
+            with profile.open("a", encoding="utf-8") as fh:
+                if existing and not existing.endswith("\n"):
+                    fh.write("\n")
+                fh.write(f"{MARKER}\n{script}\n")
+    except OSError as exc:
+        _install_failed(shell, exc)
     render.note(
         "if PowerShell says running scripts is disabled, allow your own profile "
         "once with: Set-ExecutionPolicy -Scope CurrentUser RemoteSigned"
@@ -105,23 +109,43 @@ def install_bash(*, prog_name: str, complete_var: str, shell: str) -> Path:
     newline is completed with one before the line is added, never rewritten."""
     home = Path.home()
     script = home / ".bash_completions" / f"{prog_name}.sh"
-    script.parent.mkdir(parents=True, exist_ok=True)
-    script.write_text(
+    rc = home / ".bashrc"
+    content = (
         typer_completion.get_completion_script(
             prog_name=prog_name, complete_var=complete_var, shell=shell
         )
-        + "\n",
-        encoding="utf-8",
+        + "\n"
     )
-    rc = home / ".bashrc"
-    existing = rc.read_text(encoding="utf-8", errors="replace") if rc.is_file() else ""
-    line = _bash_source_line(script)
-    if line not in existing.splitlines():
-        with rc.open("a", encoding="utf-8") as fh:
-            if existing and not existing.endswith("\n"):
-                fh.write("\n")
-            fh.write(f"{line}\n")
+    try:
+        script.parent.mkdir(parents=True, exist_ok=True)
+        script.write_text(content, encoding="utf-8")
+        existing = (
+            rc.read_text(encoding="utf-8", errors="replace") if rc.is_file() else ""
+        )
+        line = _bash_source_line(script)
+        if line not in existing.splitlines():
+            with rc.open("a", encoding="utf-8") as fh:
+                if existing and not existing.endswith("\n"):
+                    fh.write("\n")
+                fh.write(f"{line}\n")
+    except OSError as exc:
+        _install_failed("bash", exc)
     return script
+
+
+def _install_failed(shell: str, exc: OSError) -> NoReturn:
+    """T-10: a file the installer must write is not writable (read-only home,
+    ``~/.bashrc`` is a directory, ``~/.bash_completions`` is a file...): one
+    what / why / what-to-do line and exit 4 (local configuration), never the
+    "internal error - this is a bug" line."""
+    where = exc.filename if exc.filename else "your home folder"
+    why = exc.strerror or type(exc).__name__
+    render.fail(
+        f"cannot install {shell} completion: {where}: {why} - fix that file or "
+        "folder (permissions, or a file where a folder belongs), or print the "
+        "script with `compute --show-completion` and install it yourself"
+    )
+    raise SystemExit(CliExit.CONFIG_ERROR)
 
 
 def use_safe_installers() -> None:

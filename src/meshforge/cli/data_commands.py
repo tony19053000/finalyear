@@ -118,7 +118,7 @@ def push(
         )
     verb = "registered" if done.get("created") else "already registered as"
     render.line(
-        f"{verb} {done.get('ref')} ({done.get('files')} files, "
+        f"{verb} {render.echo(done.get('ref'))} ({render.echo(done.get('files'))} files, "
         f"{render.format_bytes(done.get('size'))})"
         f"{' pinned' if done.get('pinned') else ''}"
     )
@@ -166,7 +166,9 @@ def pin(
     settings = cli._settings()
     with cli._client(settings) as client:
         done = cli._fetch(lambda: client.pin_input(name, version, pinned=not off))
-    render.line(f"{done.get('ref')} {'pinned' if done.get('pinned') else 'unpinned'}")
+    render.line(
+        f"{render.echo(done.get('ref'))} {'pinned' if done.get('pinned') else 'unpinned'}"
+    )
 
 
 @data_app.command("rm")
@@ -176,4 +178,4 @@ def rm(ref: Annotated[str, typer.Argument(metavar="NAME@VERSION")]) -> None:
     settings = cli._settings()
     with cli._client(settings) as client:
         done = cli._fetch(lambda: client.remove_input(name, version))
-    render.line(f"removed {done.get('ref')}")
+    render.line(f"removed {render.echo(done.get('ref'))}")

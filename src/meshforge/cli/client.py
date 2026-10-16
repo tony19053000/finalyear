@@ -67,6 +67,10 @@ def _clean(text: object) -> str:
     """One short printable line: control characters and newlines cannot reach a TTY."""
     if not isinstance(text, str):
         return ""
+    # V0.8 G6 T-9: no secret masking here (a marker made now would be mangled
+    # by the error line's own scrub); `compute secret set` registers the
+    # flattened spellings of its value too, so the masking in render.fail
+    # still recognises a multi-line secret after this flattening.
     flat = "".join(ch if ch.isprintable() else " " for ch in text).strip()
     return flat[:_MAX_ERROR_MESSAGE]
 

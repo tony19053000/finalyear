@@ -88,7 +88,9 @@ def invite(
     if json_output:
         cli._echo_json(issued)
         return
-    render.line(str(issued.get("code", "")))
+    render.line(
+        render.clip(issued.get("code", ""))
+    )  # the code itself: capped, not scrubbed
     for label, key in (
         ("invite:    ", "invite_id"),
         ("controller:", "address"),
@@ -133,7 +135,7 @@ def invites(
             if json_output:
                 cli._echo_json(row)
             else:
-                render.line(f"revoked {_printable(row.get('id'))}")
+                render.line(f"revoked {render.echo(row.get('id'))}")
             return
         payload = cli._fetch(client.invites)
     if json_output:

@@ -113,7 +113,7 @@ def _wait(client: Any, node_id: str, request_id: str, timeout_s: float) -> bool:
                 key
             ) != item.get("state"):
                 shown[key] = str(item.get("state"))
-                render.line(_line(item))
+                render.line(render.echo(_line(item)))
         if status.get("done"):
             return bool(status.get("ok"))
         if time.monotonic() > deadline:
@@ -165,7 +165,7 @@ def prepare(
         for target in targets:
             started = cli._fetch(_starter(client, target, body))
             request_id = str(started.get("request_id"))
-            render.line(f"{target}: preparing (request {request_id})")
+            render.line(f"{target}: preparing (request {render.echo(request_id)})")
             ok = _wait(client, target, request_id, timeout_s) and ok
     if not ok:
         raise typer.Exit(CliExit.FAILURE)

@@ -246,7 +246,7 @@ def run(
                 _print_rejections(exc.details.get("rejections"))
             cli._die(exc.message, exit_code_for(exc))
         job_id = str(created.get("job_id"))
-        render.line(job_id)
+        render.line(render.echo(job_id))
         if not follow:
             return
         _follow_to_exit(client, job_id, settings.cli.timeout_s)
@@ -305,8 +305,8 @@ def _print_rejections(rejections: object) -> None:
     for item in rejections:
         if isinstance(item, dict):
             render.note(
-                f"  {item.get('node_id')}: "
-                f"{item.get('reject_code')} - {item.get('reject_text')}"
+                f"  {render.echo(item.get('node_id'))}: "
+                f"{render.echo(item.get('reject_code'))} - {render.echo(item.get('reject_text'))}"
             )
 
 
@@ -353,10 +353,10 @@ def _follow_to_exit(client: Any, job_id: str, timeout_s: float) -> None:
     )
     if code != CliExit.OK:
         render.note(
-            f"{job_id} {state}"
-            + (f" ({failure})" if failure else "")
+            f"{render.echo(job_id)} {render.echo(state)}"
+            + (f" ({render.echo(failure)})" if failure else "")
             + (
-                f", workload exit code {end.get('exit_code')}"
+                f", workload exit code {render.echo(end.get('exit_code'))}"
                 if end.get("exit_code") is not None
                 else ""
             )
@@ -474,7 +474,7 @@ def cancel(job_id: Annotated[str, typer.Argument(metavar="JOB_ID")]) -> None:
     settings = cli._settings()
     with cli._client(settings) as client:
         payload = cli._fetch(lambda: client.cancel(checked))
-    render.line(f"{checked} {payload.get('state')}")
+    render.line(f"{checked} {render.echo(payload.get('state'))}")
 
 
 # ------------------------------------------------------------------- get
