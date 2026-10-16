@@ -332,7 +332,7 @@ def _follow_failed_hint(job_id: str, failure_type: FailureType) -> str:
     """
     if failure_type is FailureType.UNAUTHORIZED:
         return (
-            f"{job_id} was submitted and keeps running, but the controller refused "
+            f"{job_id} was submitted and keeps running, but the fabric refused "
             "this login for its log stream (expired, revoked, or not allowed) - "
             "log in again with `compute login`, then check on it with `compute jobs`"
         )
