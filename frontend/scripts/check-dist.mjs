@@ -5,6 +5,10 @@
 // style="..." attribute, no setAttribute("style", ...) and no external
 // (CDN) URL in HTML/CSS. Exit 1 with every finding listed.
 //
+// V0.8 G5 (D195): also no JavaScript chunk over MAX_CHUNK_BYTES - the pages are
+// split per route (app/App.tsx, React.lazy), so a big chunk means a heavy
+// dependency slipped into a shared or entry chunk.
+//
 //   node scripts/check-dist.mjs [DIST_DIR]
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -47,8 +51,19 @@ if (!files.some((f) => f.endsWith("index.html"))) {
   process.exit(1);
 }
 
+/** Largest JavaScript chunk allowed (bytes, as Vite reports kB = 1000 B). */
+const MAX_CHUNK_BYTES = 350 * 1000;
+
 const findings = [];
 for (const file of files) {
+  if (/\.(js|mjs)$/.test(file)) {
+    const size = statSync(file).size;
+    if (size > MAX_CHUNK_BYTES) {
+      findings.push(
+        `${relative(dist, file)}: JavaScript chunk of ${String(size)} bytes is over ${String(MAX_CHUNK_BYTES)} - split it (route-level React.lazy)`,
+      );
+    }
+  }
   const text = /\.(html|css|js|mjs)$/.test(file) ? readFileSync(file, "utf8") : null;
   if (text === null) continue;
   for (const [ext, rule, message] of RULES) {
@@ -63,8 +78,10 @@ for (const file of files) {
 }
 
 if (findings.length > 0) {
-  console.error("check-dist: the build would break the dashboard CSP:");
+  console.error("check-dist: the build would break the dashboard CSP or its chunk budget:");
   for (const finding of findings) console.error(`  ${finding}`);
   process.exit(1);
 }
-console.log(`check-dist: ${files.length} files OK (CSP-safe: no inline style/script, no CDN)`);
+console.log(
+  `check-dist: ${files.length} files OK (CSP-safe: no inline style/script, no CDN; every JS chunk <= ${String(MAX_CHUNK_BYTES / 1000)} kB)`,
+);
