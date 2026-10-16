@@ -7,8 +7,13 @@
   name / password / disabled user: one 401. The token appears only in the
   ``HttpOnly`` cookie, never in the body. A fresh token every time - a cookie
   the browser already had is ignored (no fixation).
-* ``GET /v1/session`` - the current session (``401`` without one): who, when
-  it ends (absolute and idle). The dashboard's "am I logged in".
+* ``GET /v1/session`` - the dashboard's "am I logged in": ``200 {session:
+  {user, session_id, expires_at, ...}}`` with a live session cookie, ``200
+  {session: null}`` without one (no cookie, or a dead one - whose cookies are
+  then cleared). Signed out is an answer, not an error (V0.8 G3, D189/D191 b:
+  the browser logs every 4xx). An ``Authorization`` header is judged alone,
+  as everywhere: a bad one is 401, an API token 400 ``not_a_session``; a
+  database failure is 503 (fail closed, never "signed out").
 * ``DELETE /v1/session`` - log out: the session is revoked server-side (its
   open streams close at once, D157) and both cookies are expired. Needs the
   CSRF header like every cookie mutation; a dead or absent session still gets
@@ -28,10 +33,11 @@ from pydantic import Field, SecretStr, ValidationError
 
 from meshforge.common.errors import FailureType
 from meshforge.controller.api.auth import (
-    CurrentUser,
     authenticate,
     get_auth,
     request_source,
+    session_cookie,
+    unauthorized,
 )
 from meshforge.controller.api.auth_routes import AUTH_API_STATE_KEY, AuthApi
 from meshforge.controller.api.errors import ApiError
@@ -46,7 +52,7 @@ from meshforge.controller.auth.users import (
 )
 from meshforge.controller.store.models.auth import MAX_USER_NAME_CHARS, TokenKind
 
-__all__ = ["SessionOut", "session_router"]
+__all__ = ["SessionOut", "SessionState", "session_router"]
 
 _MAX_BODY_BYTES: Final = 4096
 
@@ -75,6 +81,12 @@ class SessionOut(ApiModel):
     idle_expires_at: str | None
     """When it ends if not used before (``session_idle_hours``)."""
     idle_timeout_s: int
+
+
+class SessionState(ApiModel):
+    """``GET /v1/session``: the browser's session, or ``null`` when signed out."""
+
+    session: SessionOut | None
 
 
 class LogoutOut(ApiModel):
@@ -192,27 +204,42 @@ async def open_session(request: Request, api: Api) -> JSONResponse:
 
 
 @session_router.get(
-    "/session", summary="The current dashboard session", response_model=SessionOut
+    "/session",
+    summary="The current dashboard session (null when signed out)",
+    response_model=SessionState,
 )
-async def current_session(user: CurrentUser, api: Api) -> SessionOut:
-    if user.token_kind is not TokenKind.BROWSER_SESSION or user.token_id is None:
-        raise ApiError(
-            FailureType.INVALID_INPUT,
-            "this call is for the dashboard's session cookie; an API token has "
-            "`GET /v1/auth/whoami`",
-            extra={"reason": "not_a_session"},
-        )
-    try:
-        record = await api.users.get_token(user.token_id)
-    except UserStoreError:
-        raise _unavailable() from None
-    if record is None:  # revoked and gone between the two reads
-        raise ApiError(FailureType.UNAUTHORIZED, "the session has ended")
-    return _out(
-        api,
-        SessionUser(id=str(user.user_id), name=user.name, role=user.role.value),
-        record,
+async def current_session(request: Request, api: Api) -> JSONResponse:
+    # An open route (auth.OPEN_ROUTES): signed out is 200 {session: null}.
+    user = await authenticate(request)  # 503 when the user database is down
+    if user is None and request.headers.getlist("authorization"):
+        raise unauthorized()  # a header is judged alone, as on every route
+    session: SessionOut | None = None
+    if user is not None:
+        if user.token_kind is not TokenKind.BROWSER_SESSION or user.token_id is None:
+            raise ApiError(
+                FailureType.INVALID_INPUT,
+                "this call is for the dashboard's session cookie; an API token "
+                "has `GET /v1/auth/whoami`",
+                extra={"reason": "not_a_session"},
+            )
+        try:
+            record = await api.users.get_token(user.token_id)
+        except UserStoreError:
+            raise _unavailable() from None
+        if record is not None:  # None: revoked and gone between the two reads
+            session = _out(
+                api,
+                SessionUser(id=str(user.user_id), name=user.name, role=user.role.value),
+                record,
+            )
+    response = JSONResponse(
+        SessionState(session=session).model_dump(),
+        headers={"Cache-Control": "no-store"},
     )
+    if session is None and session_cookie(request) is not None:
+        # A dead session's cookies are useless: let the browser drop them.
+        browser.clear_session_cookies(response)
+    return response
 
 
 @session_router.delete("/session", summary="Dashboard logout", response_model=LogoutOut)

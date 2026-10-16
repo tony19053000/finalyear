@@ -69,7 +69,7 @@ async def test_loopback_plain_serves_the_same_api_and_auth(
         cookie = login.cookies.get("mf_session")
         assert cookie
         me = await client.get("/v1/session", headers={"cookie": f"mf_session={cookie}"})
-        assert me.status_code == 200
+        assert me.status_code == 200 and me.json()["session"] is not None
     # The LAN listener is still TLS-only.
     async with httpx.AsyncClient(timeout=5) as client:
         with pytest.raises(httpx.HTTPError):

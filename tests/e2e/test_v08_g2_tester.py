@@ -22,7 +22,8 @@ if TYPE_CHECKING:
 
 pytestmark = [pytest.mark.e2e, pytest.mark.timeout(300), pytest.mark.docker]
 
-BOOT_PROBE_401 = ("status of 401", "/v1/session")
+# V0.8 G3 (D191 b): the boot probe GET /v1/session is 200 {session: null}, so
+# no test here allows a /v1/session 401 any more.
 SKIP_NAV = ["Overview", "Nodes", "Jobs", "Settings"]
 
 
@@ -46,7 +47,6 @@ def _signed_in(
     fabric: Fabric, browser: Browser, path: str = "/", init: str | None = None
 ) -> tuple[Page, PageWatch]:
     page, watch = _page(browser, init)
-    watch.allow(*BOOT_PROBE_401)
     page.goto(fabric.http_base + path)
     _login(page, fabric)
     return page, watch
@@ -56,13 +56,12 @@ def test_csrf_header_on_every_mutation_and_no_secret_on_the_wire(
     fabric: Fabric, dashboard_browser: Browser
 ) -> None:
     page, watch = _page(dashboard_browser)
-    watch.allow(*BOOT_PROBE_401)
     seen: list[Request] = []
     page.on("request", lambda r: seen.append(r))
     page.goto(fabric.http_base + "/")
     password = fabric.password(ADMIN_USER)
     _login(page, fabric)
-    page.get_by_role("link", name="Settings").click()
+    page.get_by_role("link", name="Settings", exact=True).click()
     expect(page.get_by_test_id("account-card")).to_be_visible()
     csrf = next(c["value"] for c in page.context.cookies() if c["name"] == "mf_csrf")
     session_cookie = next(
@@ -100,12 +99,12 @@ def test_session_death_goes_to_login_without_leaking_path_and_returns_after_relo
     page, watch = _signed_in(fabric, dashboard_browser)
     watch.allow("status of 401", "/v1/auth/whoami")
     watch.allow("status of 401", "/v1/nodes")
-    page.get_by_role("link", name="Nodes").click()
+    page.get_by_role("link", name="Nodes", exact=True).click()
     expect(page.get_by_role("heading", level=1, name="Nodes")).to_be_visible()
     page.context.clear_cookies(
         name="mf_session"
     )  # the session dies server-side/expired
-    page.get_by_role("link", name="Settings").click()  # whoami -> 401
+    page.get_by_role("link", name="Settings", exact=True).click()  # whoami -> 401
     expect(page.get_by_role("heading", name="Sign in")).to_be_visible()
     expect(page.get_by_text("Your session ended. Sign in again.")).to_be_visible()
     assert page.url == fabric.http_base + "/login", page.url
@@ -202,25 +201,23 @@ def test_console_gate_cannot_be_bypassed(
     with pytest.raises(AssertionError, match="console errors"):
         watch.assert_clean()
 
-    # 6) a 401 line on /v1/session is excused ONLY when logged out probing
+    # 6) logged out probing logs nothing at all now (D191 b: 200 {session: null})
     page, watch = _page(dashboard_browser)
-    watch.allow(*BOOT_PROBE_401)
     page.goto(fabric.http_base + "/")
     expect(page.get_by_role("heading", name="Sign in")).to_be_visible()
     assert len(watch.console_errors) == 0
     watch.assert_clean()
 
 
-def test_boot_probe_401_is_the_only_console_noise_when_signed_out(
+def test_a_signed_out_first_visit_logs_no_console_noise(
     fabric: Fabric, dashboard_browser: Browser
 ) -> None:
-    """Deviation 5: with NO allowance at all, what does a first visit log?"""
+    """Deviation 5, closed in V0.8 G3 (D191 b): with NO allowance at all, a
+    first visit logs nothing - the probe is 200 {session: null}, not a 401."""
     page, watch = _page(dashboard_browser)
     page.goto(fabric.http_base + "/jobs")
     expect(page.get_by_role("heading", name="Sign in")).to_be_visible()
-    assert len(watch.console_errors) == 1, watch.console_errors
-    assert "status of 401" in watch.console_errors[0]
-    assert watch.console_errors[0].endswith("/v1/session")
+    assert watch.console_errors == [], watch.console_errors
     assert watch.page_errors == [] and watch.csp_violations() == []
     # and nothing else is requested before login that needs a session
     # (no /v1/nodes, /v1/auth/whoami, ws) -> no other 401 lines
@@ -259,22 +256,29 @@ def test_keyboard_only_navigation_of_the_whole_shell(
     assert labels == SKIP_NAV, order
     assert any("theme" in o.lower() for o in order), order
     assert "Sign out" in order, order
-    # no focus trap: the next Tab leaves the last control (wraps to the
-    # document), and Shift+Tab walks back onto it
+    # no focus trap: the next Tab leaves the last header control - into the
+    # page's own content since V0.8 G3 (the Overview has links; it was the
+    # empty document while the page was a placeholder) - and Shift+Tab walks
+    # back onto it
     page.keyboard.press("Tab")
-    assert page.evaluate("document.activeElement.tagName") == "BODY"
+    assert page.evaluate(
+        "document.activeElement.tagName === 'BODY' || "
+        "document.activeElement.closest('main') !== null"
+    )
     page.keyboard.press("Shift+Tab")
     assert page.evaluate("document.activeElement.textContent.trim()") == "Sign out"
 
     # Enter on a nav link navigates; aria-current marks it
     page.goto(fabric.http_base + "/")
-    page.locator("a", has_text="Nodes").focus()
+    page.get_by_role("navigation", name="Main").get_by_role(
+        "link", name="Nodes", exact=True
+    ).focus()
     page.keyboard.press("Enter")
     expect(page.get_by_role("heading", level=1, name="Nodes")).to_be_visible()
-    expect(page.get_by_role("link", name="Nodes")).to_have_attribute(
+    expect(page.get_by_role("link", name="Nodes", exact=True)).to_have_attribute(
         "aria-current", "page"
     )
-    expect(page.get_by_role("link", name="Overview")).not_to_have_attribute(
+    expect(page.get_by_role("link", name="Overview", exact=True)).not_to_have_attribute(
         "aria-current", "page"
     )
 
@@ -321,7 +325,9 @@ def test_theme_survives_throwing_local_storage_in_a_real_browser(
     expect(page.locator("html")).to_have_attribute("data-theme", "dark")
     page.get_by_role("button", name="Switch to light theme").click()
     expect(page.locator("html")).to_have_attribute("data-theme", "light")
-    page.get_by_role("link", name="Jobs").click()
+    page.get_by_role("navigation", name="Main").get_by_role(
+        "link", name="Jobs", exact=True
+    ).click()
     expect(page.get_by_role("heading", level=1, name="Jobs")).to_be_visible()
     page.reload()  # not persisted -> back to dark, no crash
     expect(page.get_by_test_id("current-user")).to_be_visible()
@@ -348,7 +354,6 @@ def test_stored_light_theme_applies_on_load_and_garbage_falls_back(
         dashboard_browser,
         "if (!sessionStorage.getItem('seed')) { localStorage.setItem('mf-theme','light'); sessionStorage.setItem('seed','1') }",  # noqa: E501 - tester r1 test data / T-id name
     )
-    watch.allow(*BOOT_PROBE_401)
     page.goto(fabric.http_base + "/")
     expect(page.locator("html")).to_have_attribute("data-theme", "light")
     page.evaluate("localStorage.setItem('mf-theme','<script>x</script>')")

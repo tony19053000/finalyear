@@ -267,7 +267,7 @@ describe("T: theme survives hostile storage", () => {
       idle_expires_at: "2026-10-16T12:00:00+00:00",
       idle_timeout_s: 1,
     };
-    stubFetch((url) => (url === "/v1/session" ? json(200, session) : url.startsWith("/v1/nodes") ? json(200, { nodes: [] }) : json(404, { error: { code: "x", message: "x" } })));
+    stubFetch((url) => (url === "/v1/session" ? json(200, { session }) : url.startsWith("/v1/nodes") ? json(200, { nodes: [] }) : json(404, { error: { code: "x", message: "x" } })));
     document.documentElement.dataset.theme = "dark";
     const user = userEvent.setup();
     render(<App initialPath="/" socketFactory={() => ({ onopen: null, onmessage: null, onclose: null, onerror: null, close() {} })} queryClient={new QueryClient({ defaultOptions: { queries: { retry: false } } })} />);
@@ -287,9 +287,11 @@ describe("T: placeholder pages invent nothing", () => {
     idle_expires_at: "2026-10-16T12:00:00+00:00",
     idle_timeout_s: 1,
   };
-  it.each(["/", "/nodes", "/jobs"])("%s shows no numbers, percentages, host names or job ids", async (path) => {
+  // V0.8 G3: "/" and "/nodes" are real pages now - they show exactly what the
+  // API returns (pages/overview, pages/nodes tests); only Jobs is a placeholder.
+  it.each(["/jobs"])("%s shows no numbers, percentages, host names or job ids", async (path) => {
     stubFetch((url) => {
-      if (url === "/v1/session") return json(200, session);
+      if (url === "/v1/session") return json(200, { session });
       if (url.startsWith("/v1/nodes"))
         return json(200, { nodes: [{ node_id: "n1", state: "online", connected: true, hostname: "UNIQUE-HOST-XYZ", os: "linux", platform: "p", gpus: [], last_seen_at: "2026-10-16T00:00:00Z" }] });
       return json(404, { error: { code: "x", message: "x" } });
@@ -633,7 +635,7 @@ describe("T: a failed session re-check while signed in must not tear down the sh
     let down = false;
     const fetchFn = vi.fn((url: string) => {
       if (down) return Promise.reject(new TypeError("Failed to fetch"));
-      if (url === "/v1/session") return Promise.resolve(json(200, session));
+      if (url === "/v1/session") return Promise.resolve(json(200, { session }));
       if (url.startsWith("/v1/nodes")) return Promise.resolve(json(200, { nodes: [] }));
       return Promise.resolve(json(404, { error: { code: "x", message: "x" } }));
     });

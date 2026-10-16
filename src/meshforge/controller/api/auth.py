@@ -96,6 +96,7 @@ OPEN_ROUTES: Final = frozenset(
         ("GET", "/healthz"),
         ("POST", "/v1/auth/login"),
         ("POST", "/v1/session"),  # D170: the browser's way in
+        ("GET", "/v1/session"),  # D191 b: "signed out" is 200 {session: null}
         ("DELETE", "/v1/session"),  # D170: logout clears the cookies even when dead
     }
 )

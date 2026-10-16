@@ -52,6 +52,8 @@ CLOSE_AUTH_UNAVAILABLE: Final = 4503
 _SEND_TIMEOUT_S: Final = 10.0
 _CLOSE_WAIT_S: Final = 5.0
 _MAX_EPOCH_CHARS: Final = 32
+_ACCEPT_REFUSAL: Final = "websocket.accept"
+"""In uvicorn's ``RuntimeError`` text when it refuses a send (see ``_send_first``)."""
 
 event_router = APIRouter(prefix="/v1/events", tags=["events"])
 
@@ -80,13 +82,17 @@ async def _send_first(ws: WebSocket, payload: dict[str, Any]) -> None:
     the next ``websocket.send`` with ``RuntimeError("Expected ASGI message
     'websocket.accept' ...")`` - logged as "Exception in ASGI application".
     Straight after a successful ``accept()`` Starlette's own state is
-    ``CONNECTED``, so a ``RuntimeError`` here can only be that refusal: end the
-    connection as the server's own ``ClientDisconnected`` (which uvicorn ends
-    quietly), never as a traceback.
+    ``CONNECTED``, so that refusal is the only expected ``RuntimeError`` here:
+    end the connection as the server's own ``ClientDisconnected`` (which
+    uvicorn ends quietly), never as a traceback. Only a ``RuntimeError`` whose
+    text names ``websocket.accept`` is converted (D191 a); any other one is a
+    real fault and propagates.
     """
     try:
         await _send(ws, payload)
-    except RuntimeError:
+    except RuntimeError as error:
+        if _ACCEPT_REFUSAL not in str(error):
+            raise
         log.info("controller.events.client_gone_in_handshake")
         raise _client_disconnected() from None
 

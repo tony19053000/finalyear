@@ -98,7 +98,7 @@ def fabric_options() -> dict[str, Any]:
     restart needs ``record_links=True``: the REST port then sits behind a
     stable proxy address, as a real controller keeps its configured port (the
     harness otherwise restarts it on a new ephemeral port, which no browser
-    page could follow)."""
+    page could follow). ``agents`` (default 1) sets how many real agents run."""
     return {}
 
 
@@ -115,7 +115,9 @@ def fabric(
     )
     from mf_cluster import Fabric
 
-    made = Fabric(pg_settings, tmp_path / "fabric", agents=1, **fabric_options)
+    options = dict(fabric_options)
+    agents = int(options.pop("agents", 1))  # V0.8 G3: pages with >= 2 nodes
+    made = Fabric(pg_settings, tmp_path / "fabric", agents=agents, **options)
     try:
         made.start()
         yield made

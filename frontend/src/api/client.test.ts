@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CSRF_HEADER, apiRequest, readCookie, setUnauthorizedHandler } from "./client";
-import { ApiError, NetworkError, describeError, errorFromResponse } from "./errors";
+import { ApiError, CsrfMissingError, NetworkError, describeError, errorFromResponse } from "./errors";
 import { shouldRetry } from "./queryClient";
 
 type FetchArgs = [string, RequestInit];
@@ -61,6 +61,27 @@ describe("apiRequest", () => {
     expect(post.body).toBe('{"a":1}');
   });
 
+  it("a mutation without the mf_csrf cookie is not sent: typed error that says to sign in again (D191 c)", async () => {
+    document.cookie = "mf_csrf=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+    expect(readCookie("mf_csrf")).toBeUndefined();
+    const fetchMock = stubFetch(json(200, {}));
+    const err = await apiRequest("/v1/nodes/n1/revoke", { method: "POST" }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(CsrfMissingError);
+    expect((err as Error).message).toMatch(/sign in again/i);
+    expect(describeError(err).message).toMatch(/sign in again/i);
+    expect(fetchMock).not.toHaveBeenCalled();
+    // An empty value is no better than none.
+    document.cookie = "mf_csrf=; path=/";
+    await expect(apiRequest("/v1/jobs", { method: "POST", json: {} })).rejects.toBeInstanceOf(CsrfMissingError);
+    // Reads need no CSRF; login and logout are sent without it.
+    await expect(apiRequest("/v1/nodes")).resolves.toEqual({});
+    await apiRequest("/v1/session", { method: "POST", json: {}, csrfOptional: true });
+    await apiRequest("/v1/session", { method: "DELETE", csrfOptional: true });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    const [, del] = fetchMock.mock.calls[2] ?? ["", {}];
+    expect(new Headers(del.headers).has(CSRF_HEADER)).toBe(false);
+  });
+
   it("builds query strings, repeating array keys and skipping undefined", async () => {
     const fetchMock = stubFetch(json(200, {}));
     await apiRequest("/v1/jobs", { query: { state: ["running", "queued"], limit: 50, owner: undefined } });
@@ -75,7 +96,7 @@ describe("apiRequest", () => {
     stubFetch(
       json(429, { error: { code: "resource_busy", message: "slow down", reason: "rate_limited_user" } }, { "retry-after": "30" }),
     );
-    const err = await apiRequest("/v1/session", { method: "POST", json: {} }).catch((e: unknown) => e);
+    const err = await apiRequest("/v1/session", { method: "POST", json: {}, csrfOptional: true }).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ApiError);
     const apiErr = err as ApiError;
     expect([apiErr.status, apiErr.code, apiErr.reason, apiErr.retryAfterS, apiErr.message]).toEqual([
@@ -110,7 +131,7 @@ describe("apiRequest", () => {
     await expect(apiRequest("/v1/nodes")).rejects.toBeInstanceOf(ApiError);
     expect(handler).toHaveBeenCalledTimes(1);
     stubFetch(json(401, { error: { code: "unauthorized", message: "bad password" } }));
-    await expect(apiRequest("/v1/session", { method: "POST", skipUnauthorizedHandler: true })).rejects.toBeInstanceOf(
+    await expect(apiRequest("/v1/session", { method: "POST", skipUnauthorizedHandler: true, csrfOptional: true })).rejects.toBeInstanceOf(
       ApiError,
     );
     expect(handler).toHaveBeenCalledTimes(1);

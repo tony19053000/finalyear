@@ -31,9 +31,25 @@ async def test_sends_the_frame_normally() -> None:
     assert ws.sent == ['{"type":"hello"}']
 
 
+#: uvicorn's refusal text (uvicorn/protocols/websockets/*_impl.py, accept state).
+_REFUSAL = (
+    "Expected ASGI message 'websocket.accept', 'websocket.close', or "
+    "'websocket.http.response.start' but got 'websocket.send'."
+)
+
+
 async def test_runtimeerror_on_first_frame_is_a_quiet_disconnect() -> None:
     with pytest.raises(ClientDisconnected):
-        await er._send_first(_WS(RuntimeError("Expected ASGI message")), {"a": 1})  # type: ignore[arg-type]
+        await er._send_first(_WS(RuntimeError(_REFUSAL)), {"a": 1})  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    "text", ["Expected ASGI message", "boom", "Cannot call send once a close message"]
+)
+async def test_other_runtimeerrors_on_first_frame_propagate(text: str) -> None:
+    """V0.8 G3 item 0 (D191 a): only the accept refusal is a disconnect."""
+    with pytest.raises(RuntimeError, match=text):
+        await er._send_first(_WS(RuntimeError(text)), {"a": 1})  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize(

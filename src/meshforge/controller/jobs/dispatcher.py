@@ -544,6 +544,9 @@ class Dispatcher(RecoverySteps):
                             "node_id": live.node_id,
                             "attempt_id": report.attempt_id,
                             "reported": report.state.value,
+                            # V0.8 G3: the audit row's id (+ what it names),
+                            # the key GET /v1/alerts shares (no duplicates).
+                            **(outcome.alert or {}),
                         }
                     )
                 except Exception as exc:  # noqa: BLE001 - an alert never breaks dispatch

@@ -22,6 +22,7 @@ on a re-run.
 
 from __future__ import annotations
 
+import os
 import shlex
 import subprocess
 from pathlib import Path
@@ -55,7 +56,8 @@ def _profile_path(shell: str) -> Path:
             f"print the script with `compute --show-completion` and add it to "
             "$PROFILE yourself"
         )
-        raise SystemExit(1) from None
+        # V0.8 G3 item 0 (D191 d): one exit code for every install failure.
+        raise SystemExit(CliExit.CONFIG_ERROR) from None
     for encoding in ("utf-8", "cp1252", "cp850"):
         try:
             text = result.stdout.decode(encoding).strip()
@@ -63,8 +65,11 @@ def _profile_path(shell: str) -> Path:
             continue
         if text:
             return Path(text)
-    render.fail(f"{shell} did not print a profile path")
-    raise SystemExit(1)
+    render.fail(
+        f"{shell} did not print a profile path; print the script with "
+        "`compute --show-completion` and add it to $PROFILE yourself"
+    )
+    raise SystemExit(CliExit.CONFIG_ERROR)
 
 
 def install_powershell(*, prog_name: str, complete_var: str, shell: str) -> Path:
@@ -95,18 +100,25 @@ def install_powershell(*, prog_name: str, complete_var: str, shell: str) -> Path
     return profile
 
 
-def _bash_source_line(script: Path) -> str:
+def _bash_source_line(script: Path) -> bytes:
     """``source '<script>'`` - Typer's exact form when the path has no single
-    quote (so a line Typer wrote earlier is recognised), else shell-quoted."""
+    quote (so a line Typer wrote earlier is recognised), else shell-quoted.
+
+    Bytes, in the file system's encoding: a home folder whose name is not
+    UTF-8 is still one exact line (V0.8 G3 item 0, D191 e)."""
     text = str(script)
-    return f"source '{text}'" if "'" not in text else f"source {shlex.quote(text)}"
+    line = f"source '{text}'" if "'" not in text else f"source {shlex.quote(text)}"
+    return os.fsencode(line)
 
 
 def install_bash(*, prog_name: str, complete_var: str, shell: str) -> Path:
     """Write ``~/.bash_completions/<prog>.sh`` and source it from ``~/.bashrc``
     once. Re-running leaves ``~/.bashrc`` byte-identical (V0.8 G6 T-5: Typer's
     installer appends a newline on every run); an existing file without a final
-    newline is completed with one before the line is added, never rewritten."""
+    newline is completed with one before the line is added, never rewritten.
+    ``~/.bashrc`` is handled as bytes: text in any encoding (Latin-1 comments,
+    a non-UTF-8 home path) neither breaks the check nor duplicates the line
+    (V0.8 G3 item 0, D191 e)."""
     home = Path.home()
     script = home / ".bash_completions" / f"{prog_name}.sh"
     rc = home / ".bashrc"
@@ -119,15 +131,13 @@ def install_bash(*, prog_name: str, complete_var: str, shell: str) -> Path:
     try:
         script.parent.mkdir(parents=True, exist_ok=True)
         script.write_text(content, encoding="utf-8")
-        existing = (
-            rc.read_text(encoding="utf-8", errors="replace") if rc.is_file() else ""
-        )
+        existing = rc.read_bytes() if rc.is_file() else b""
         line = _bash_source_line(script)
         if line not in existing.splitlines():
-            with rc.open("a", encoding="utf-8") as fh:
-                if existing and not existing.endswith("\n"):
-                    fh.write("\n")
-                fh.write(f"{line}\n")
+            with rc.open("ab") as fh:
+                if existing and not existing.endswith(b"\n"):
+                    fh.write(b"\n")
+                fh.write(line + b"\n")
     except OSError as exc:
         _install_failed("bash", exc)
     return script

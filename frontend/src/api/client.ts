@@ -4,13 +4,17 @@
  * - Auth is the HttpOnly `mf_session` cookie (Path=/v1) the browser sends by
  *   itself; this code never sees a token. `credentials: "same-origin"`.
  * - Every mutation (non-GET/HEAD) carries `X-MeshForge-CSRF` = the readable
- *   `mf_csrf` cookie (signed double submit, ARCHITECTURE §16 V0.8).
+ *   `mf_csrf` cookie (signed double submit, ARCHITECTURE §16 V0.8). Without
+ *   that cookie a mutation is not sent at all: it would only be refused, so
+ *   the caller gets a `CsrfMissingError` that says to sign in again (D191 c).
+ *   Login and logout are exempt (`csrfOptional`): login has no session yet,
+ *   logout must still clear a dead session's cookies.
  * - A non-2xx answer becomes a typed `ApiError` from the error envelope; no
  *   answer at all is a `NetworkError`.
  * - A 401 (session ended, revoked, expired) calls the registered handler,
  *   which sends the user to the login page - except for the login call itself.
  */
-import { ApiError, NetworkError, errorFromResponse } from "./errors";
+import { ApiError, CsrfMissingError, NetworkError, errorFromResponse } from "./errors";
 
 export const CSRF_COOKIE = "mf_csrf";
 export const CSRF_HEADER = "X-MeshForge-CSRF";
@@ -52,6 +56,8 @@ export interface RequestOptions {
   signal?: AbortSignal;
   /** Do not call the 401 handler (the login request, the session probe). */
   skipUnauthorizedHandler?: boolean;
+  /** Send a mutation even without the `mf_csrf` cookie (login, logout). */
+  csrfOptional?: boolean;
 }
 
 function buildUrl(path: string, query: RequestOptions["query"]): string {
@@ -79,7 +85,11 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   const headers = new Headers({ Accept: "application/json" });
   if (method !== "GET" && method !== "HEAD") {
     const csrf = readCookie(CSRF_COOKIE);
-    if (csrf !== undefined) headers.set(CSRF_HEADER, csrf);
+    if (csrf !== undefined && csrf !== "") {
+      headers.set(CSRF_HEADER, csrf);
+    } else if (options.csrfOptional !== true) {
+      throw new CsrfMissingError();
+    }
   }
   let body: string | undefined;
   if (options.json !== undefined) {

@@ -53,6 +53,7 @@ from meshforge.common.gc_index import GcIndexBusyError
 from meshforge.common.logging import get_logger
 from meshforge.common.netaddr import BindAddress, parse_bind
 from meshforge.common.proto.meshforge.v1 import agent_pb2, agent_pb2_grpc
+from meshforge.controller.alerts import AlertLog
 from meshforge.controller.api.auth import ApiAuth
 from meshforge.controller.api.auth_routes import AuthApi
 from meshforge.controller.api.fabric_routes import InviteApi
@@ -657,6 +658,7 @@ class ControllerRuntime:
             users=AuthApi(users=self.users, login=self.login),
             secrets=self.secrets,
             events=self.events,
+            alerts=AlertLog(engine),
         )
         http_config = uvicorn.Config(
             http_app,

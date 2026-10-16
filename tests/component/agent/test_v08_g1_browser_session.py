@@ -158,7 +158,8 @@ async def test_login_sets_httponly_secure_strict_cookies_and_no_token_in_the_bod
     assert csrf.value == csrf_value(session.value)
     # The session works for reads, and says who it is.
     me = await anon.get("/v1/session", headers=_cookie(session.value))
-    assert me.status_code == 200 and me.json()["session_id"] == body["session_id"]
+    assert me.status_code == 200
+    assert me.json()["session"]["session_id"] == body["session_id"]
     nodes = await anon.get("/v1/nodes", headers=_cookie(session.value))
     assert nodes.status_code == 200
 
@@ -205,8 +206,9 @@ async def test_session_fixation_a_planted_cookie_is_never_adopted(
     assert response.status_code == 200
     issued = _set_cookies(response)["mf_session"].value
     assert issued != planted
+    # V0.8 G3 (D191 b): signed out is 200 {session: null}, never the planted one.
     refused = await anon.get("/v1/session", headers=_cookie(planted))
-    assert refused.status_code == 401
+    assert refused.status_code == 200 and refused.json() == {"session": None}
     # Two logins never share a token.
     again, _ = await _session(anon, runtime)
     assert again != issued
@@ -313,18 +315,20 @@ async def test_idle_and_absolute_expiry(
     now = dt.datetime.now(dt.UTC)
     session, _ = await _session(anon, runtime)
     me = await anon.get("/v1/session", headers=_cookie(session))
-    sid = me.json()["session_id"]
+    sid = me.json()["session"]["session_id"]
     # Unused for 13 h (> 12 h idle): ended, although far from its 7 d limit.
     old = now - dt.timedelta(hours=13)
     await _age(engine, sid, created_at=old, last_used_at=old)
-    assert (await anon.get("/v1/session", headers=_cookie(session))).status_code == 401
+    ended = await anon.get("/v1/session", headers=_cookie(session))
+    assert ended.status_code == 200 and ended.json() == {"session": None}
+    assert (await anon.get("/v1/nodes", headers=_cookie(session))).status_code == 401
     store = UserStore(engine)
     assert await store.live_token_ids([sid]) == set()  # D157 re-check agrees
     listed = await store.get_token(sid)
     assert listed is not None and listed.state == "expired"
 
     session2, _ = await _session(anon, runtime)
-    sid2 = (await anon.get("/v1/session", headers=_cookie(session2))).json()[
+    sid2 = (await anon.get("/v1/session", headers=_cookie(session2))).json()["session"][
         "session_id"
     ]
     # Busy (used a minute ago) but past its absolute end.
@@ -339,7 +343,7 @@ async def test_idle_and_absolute_expiry(
 
     # Used 11 h ago: still live (the idle clock is last use, not creation).
     session3, _ = await _session(anon, runtime)
-    sid3 = (await anon.get("/v1/session", headers=_cookie(session3))).json()[
+    sid3 = (await anon.get("/v1/session", headers=_cookie(session3))).json()["session"][
         "session_id"
     ]
     await _age(

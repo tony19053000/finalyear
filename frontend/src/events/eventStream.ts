@@ -29,7 +29,7 @@ export type EventStreamStatus = "connecting" | "live" | "reconnecting" | "stoppe
 export interface FabricEvent {
   seq: number;
   type: string;
-  /** Server time, seconds since the epoch. */
+  /** Server time, seconds since the epoch; 0 when the frame carried no usable `at` (consumers skip it). */
   at: number;
   data: Record<string, unknown>;
 }
@@ -245,7 +245,9 @@ export class EventStreamClient {
     if (typeof seq !== "number" || typeof type !== "string") return;
     if (this.seq !== null && seq <= this.seq) return; // a replay we already had
     this.seq = seq;
-    this.opts.onEvent({ seq, type, at: typeof at === "number" ? at : 0, data: isRecord(data) ? data : {} });
+    // Missing / non-finite / non-positive `at` -> 0 = "unknown": never fed to the server clock.
+    const atS = typeof at === "number" && Number.isFinite(at) && at > 0 ? at : 0;
+    this.opts.onEvent({ seq, type, at: atS, data: isRecord(data) ? data : {} });
   }
 
   /** Delay before reconnect attempt number `failures` (full jitter). */
