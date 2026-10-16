@@ -114,15 +114,23 @@ describe("T: CSRF header on every mutating call, never on reads", () => {
     },
   );
 
-  it("the ONLY fetch/XHR/sendBeacon/EventSource call site in src is api/client.ts", () => {
-    const offenders = SOURCES.filter((f) => !f.endsWith(join("api", "client.ts"))).filter((f) =>
+  // V0.8 G4: pages/jobs/jobsApi.ts `rawRequest` is the second call site - blob
+  // uploads need a binary body and custom headers that apiRequest (G3-owned
+  // during the parallel wave) does not offer yet. Same rules: /v1/ only,
+  // same-origin cookie, CSRF header from mf_csrf (tested in jobsApi.test.ts).
+  // Remove this allowance when client.ts gains `headers`/`body`.
+  it("the ONLY fetch/XHR/sendBeacon/EventSource call sites in src are api/client.ts (+ G4 jobsApi.ts)", () => {
+    const allowed = [join("api", "client.ts"), join("pages", "jobs", "jobsApi.ts")];
+    const offenders = SOURCES.filter((f) => !allowed.some((a) => f.endsWith(a))).filter((f) =>
       /\bfetch\s*\(|XMLHttpRequest|sendBeacon|new EventSource/.test(readFileSync(f, "utf8")),
     );
     expect(offenders).toEqual([]);
   });
 
-  it("WebSocket is created only by the event stream client", () => {
-    const offenders = SOURCES.filter((f) => !f.endsWith(join("events", "eventStream.ts"))).filter((f) =>
+  // V0.8 G4: the job log follower (/v1/jobs/{id}/logs/ws, D72) is the second socket.
+  it("WebSocket is created only by the event stream client and the G4 log follower", () => {
+    const allowed = [join("events", "eventStream.ts"), join("pages", "jobs", "logFollower.ts")];
+    const offenders = SOURCES.filter((f) => !allowed.some((a) => f.endsWith(a))).filter((f) =>
       /new WebSocket/.test(readFileSync(f, "utf8")),
     );
     expect(offenders).toEqual([]);
@@ -287,7 +295,9 @@ describe("T: placeholder pages invent nothing", () => {
     idle_expires_at: "2026-10-16T12:00:00+00:00",
     idle_timeout_s: 1,
   };
-  it.each(["/", "/nodes", "/jobs"])("%s shows no numbers, percentages, host names or job ids", async (path) => {
+  // "/jobs" left this list in V0.8 G4: it is a real page now (its numbers come
+  // from the API - pages/jobs/*.test.tsx check that, checklist 26).
+  it.each(["/", "/nodes"])("%s shows no numbers, percentages, host names or job ids", async (path) => {
     stubFetch((url) => {
       if (url === "/v1/session") return json(200, session);
       if (url.startsWith("/v1/nodes"))

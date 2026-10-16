@@ -5,8 +5,12 @@ import { BrowserRouter, MemoryRouter, Route, Routes } from "react-router-dom";
 import { createQueryClient } from "../api/queryClient";
 import { ToastProvider } from "../components/Toast";
 import { LoginPage } from "../pages/LoginPage";
-import { JobsPage, NodesPage, NotFoundPage, OverviewPage } from "../pages/PlaceholderPages";
+import { NodesPage, NotFoundPage, OverviewPage } from "../pages/PlaceholderPages";
 import { SettingsPage } from "../pages/SettingsPage";
+// V0.8 G4: Jobs pages (routes in the marked block below).
+import { JobDetailPage } from "../pages/jobs/JobDetailPage";
+import { JobsListPage } from "../pages/jobs/JobsListPage";
+import { SubmitJobPage } from "../pages/jobs/submit/SubmitJobPage";
 import { AppShell, type AppShellProps } from "./AppShell";
 import { RequireSession } from "./RequireSession";
 
@@ -23,7 +27,11 @@ export function AppRoutes({ socketFactory }: AppShellProps) {
       >
         <Route index element={<OverviewPage />} />
         <Route path="nodes" element={<NodesPage />} />
-        <Route path="jobs" element={<JobsPage />} />
+        {/* ---- V0.8 G4: Jobs (list, submit, detail) ---- */}
+        <Route path="jobs" element={<JobsListPage />} />
+        <Route path="jobs/new" element={<SubmitJobPage />} />
+        <Route path="jobs/:jobId" element={<JobDetailPage />} />
+        {/* ---- end V0.8 G4 ---- */}
         <Route path="settings" element={<SettingsPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>

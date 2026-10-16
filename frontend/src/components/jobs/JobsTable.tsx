@@ -6,7 +6,7 @@ import { cn } from "../../lib/cn";
 import { StatusDot } from "../Status";
 import type { JobSummary } from "../../pages/jobs/jobsApi";
 import { formatTime } from "./format";
-import { useCssHeight, useWindowedRows } from "./useWindowedRows";
+import { useWindowedRows } from "./useWindowedRows";
 
 /** Rows are one line each, so every row has the same height (windowing). */
 const DEFAULT_ROW_HEIGHT = 37;
@@ -19,12 +19,16 @@ export interface JobsTableProps {
   className?: string;
 }
 
+/**
+ * The space of the rows not rendered. Sized by the cell's `height`
+ * attribute - an HTML presentational hint, not a style: no `style=`, no
+ * CSSOM write, so CSP `style-src 'self'` (D181) and the source-level
+ * "no inline style" invariant both hold.
+ */
 function SpacerRow({ height }: { height: number }) {
-  const ref = useRef<HTMLTableCellElement>(null);
-  useCssHeight(ref, height);
   return (
     <tr aria-hidden="true" data-testid="jobs-spacer">
-      <td ref={ref} colSpan={COLUMNS} className="p-0" />
+      <td colSpan={COLUMNS} height={height} className="p-0" />
     </tr>
   );
 }
@@ -58,7 +62,7 @@ export function JobsTable({ jobs, onNearEnd, className }: JobsTableProps) {
     if (head !== null && head.offsetHeight !== offset) setOffset(head.offsetHeight);
   }, [rowHeight, offset, jobs]);
 
-  const nearEnd = jobs.length > 0 && rows.lastVisible >= jobs.length - 20;
+  const nearEnd = rows.lastVisible >= 0 && rows.lastVisible >= jobs.length - 20;
   useEffect(() => {
     if (nearEnd) onNearEnd?.();
   }, [nearEnd, jobs.length, onNearEnd]);

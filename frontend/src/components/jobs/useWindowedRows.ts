@@ -8,11 +8,10 @@
  * replace `useWindowedRows` with `useVirtualizer({count, getScrollElement,
  * estimateSize})` and read `getVirtualItems()`; the table code stays.
  *
- * CSP (D181, `style-src 'self'`): spacer heights are set through the CSSOM
- * (`element.style.height`), which the CSP allows; there is no `style=`
- * attribute anywhere (see `useCssHeight`).
+ * CSP (D181, `style-src 'self'`): the table sizes its spacer cells with the
+ * `height` attribute (a presentational hint) - no `style=`, no CSSOM write.
  */
-import { useEffect, useLayoutEffect, useState, type RefObject } from "react";
+import { useEffect, useState, type RefObject } from "react";
 
 export interface RowWindow {
   /** First rendered row (inclusive). */
@@ -89,12 +88,4 @@ export function useWindowedRows(scrollRef: RefObject<HTMLElement | null>, count:
   // paint) but claim nothing is visible yet (no page load on a guess).
   if (view.height === 0) return { ...computeWindow(count, 0, 1200, options), lastVisible: -1 };
   return computeWindow(count, view.scrollTop, view.height, options);
-}
-
-/** Size an element through the CSSOM (CSP-safe; no `style=` attribute). */
-export function useCssHeight(ref: RefObject<HTMLElement | null>, pixels: number): void {
-  useLayoutEffect(() => {
-    const element = ref.current;
-    if (element !== null) element.style.height = `${pixels}px`;
-  }, [ref, pixels]);
 }

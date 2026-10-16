@@ -109,7 +109,10 @@ async function centralDirectory(zip: Blob): Promise<CentralEntry[]> {
 }
 
 async function inflate(data: Blob): Promise<Uint8Array> {
-  const stream = data.stream().pipeThrough(new DecompressionStream("deflate-raw"));
+  // From the bytes (not Blob.stream(): not every Blob implementation has it).
+  const body = new Response(await data.arrayBuffer()).body;
+  if (body === null) throw new Error("no body");
+  const stream = body.pipeThrough(new DecompressionStream("deflate-raw"));
   return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
