@@ -264,6 +264,8 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
+**2026-10-17 (tester r1) — G7 tester r1 PASS with gate weaknesses (D207). RUNNING: G7 fix round 1 in the worktree. If died: look for "## Fix round 1" in progress/V0.8-G7.md there, relaunch per D207; then tester r2 (delta) → reviewer → merge → rebuild frontend → whole component once alone (0 e2e skips except perf) → close 0.8.9 → 🧑 0.8.10.**
+
 **2026-10-17 (later) — G7 implementer DONE (`c607519`..`6b6bcc0`, hand-off in progress/V0.8-G7.md in the worktree; exit gate green). RUNNING: G7 tester r1 in the same worktree. If died: relaunch tester r1 there (look for "## Tester r1"); then reviewer → merge → rebuild frontend → whole component once alone → close 0.8.9 → 🧑 0.8.10.**
 
 **2026-10-17 (resumed) — was RUNNING: G7 implementer resumed in worktree `.claude/worktrees/agent-a67711c51fc0582d6` (verify WIP 32adf39, then §5g items 2-6; progress docs/briefs/progress/V0.8-G7.md there). If died: relaunch there, resume from the progress file; then tester r1 → reviewer → merge → rebuild frontend → whole component once alone → close 0.8.9 → 🧑 0.8.10.**
