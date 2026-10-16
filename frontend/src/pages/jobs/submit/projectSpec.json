@@ -1,0 +1,33 @@
+{
+  "about": "The ONE spec of how a project folder becomes a job (V0.8 G4, D177), shared by the CLI (Python: common/walk.py, common/tree.py, common/manifest.py, cli/transfer.py) and the dashboard's browser submit (frontend/src/pages/jobs/submit/). Change the Python constants and this file together - tests/unit/test_v08_g4_project_spec.py fails otherwise. Vectors: projectSpecVectors.json.",
+  "version": 1,
+  "manifest_file": "compute.yaml",
+  "max_manifest_file_bytes": 65536,
+  "inferred_entrypoints": [
+    "main.py",
+    "__main__.py"
+  ],
+  "max_name_chars": 64,
+  "builtin_ignores": [
+    ".git/",
+    "__pycache__/",
+    ".venv/",
+    "node_modules/",
+    "*.pyc"
+  ],
+  "ignore_file_names": [
+    ".gitignore",
+    ".computeignore"
+  ],
+  "max_ignore_file_bytes": 1048576,
+  "max_path_bytes": 4096,
+  "max_component_bytes": 255,
+  "tree_version": 1,
+  "max_entries": 100000,
+  "max_total_bytes": 68719476736,
+  "max_tree_manifest_bytes": 67108864,
+  "chunk_size": 8388608,
+  "min_chunk_size": 65536,
+  "max_chunk_size": 67108864,
+  "have_batch": 10000
+}

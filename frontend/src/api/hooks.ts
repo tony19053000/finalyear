@@ -2,6 +2,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { closeSession, getSession, getWhoAmI, listNodes, openSession, type SessionOut } from "./endpoints";
+import { setSigningOut } from "./client";
 import { ApiError } from "./errors";
 import { queryKeys } from "./queryKeys";
 
@@ -28,7 +29,10 @@ export function useSession() {
 export function useLogin() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: ({ name, password }: { name: string; password: string }) => openSession(name, password),
+    mutationFn: ({ name, password }: { name: string; password: string }) => {
+      setSigningOut(false);
+      return openSession(name, password);
+    },
     onSuccess: (session) => {
       // A new user may see other data: drop everything the last one loaded.
       client.clear();
@@ -47,7 +51,16 @@ export const LOGOUT_MUTATION_KEY = ["logout"] as const;
  */
 export function useLogout() {
   const client = useQueryClient();
-  const mutation = useMutation({ mutationKey: LOGOUT_MUTATION_KEY, mutationFn: closeSession });
+  const mutation = useMutation({
+    mutationKey: LOGOUT_MUTATION_KEY,
+    // Abort reads still in flight first: once the session is closed they would
+    // come back 401 and the browser logs each one as a console error.
+    mutationFn: async () => {
+      setSigningOut(true); // reopened by the next sign-in (useLogin)
+      await client.cancelQueries();
+      return closeSession();
+    },
+  });
   const forgetUser = () => {
     client.clear();
     client.setQueryData(queryKeys.session, null);

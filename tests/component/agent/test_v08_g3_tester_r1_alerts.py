@@ -72,7 +72,9 @@ async def tokens(
     }
 
 
-async def _add(engine: AsyncEngine, n: int, *, action: AuditAction | None = None) -> list[str]:
+async def _add(
+    engine: AsyncEngine, n: int, *, action: AuditAction | None = None
+) -> list[str]:
     sessions = create_session_factory(engine)
     ids: list[str] = []
     async with sessions() as db, db.begin():
@@ -116,7 +118,9 @@ async def test_inserts_between_pages_never_duplicate_or_skip(
     cursor = first["next_cursor"]
     while cursor is not None:
         page = (
-            await anon.get("/v1/alerts", headers=admin, params={"limit": 3, "before": cursor})
+            await anon.get(
+                "/v1/alerts", headers=admin, params={"limit": 3, "before": cursor}
+            )
         ).json()
         seen += [a["id"] for a in page["alerts"]]
         cursor = page["next_cursor"]
@@ -129,16 +133,28 @@ async def test_a_page_of_exactly_limit_has_no_cursor_and_200_is_the_cap(
 ) -> None:
     admin = bearer(tokens["admin"])
     ids = await _add(engine, 205)
-    exact = (await anon.get("/v1/alerts", headers=admin, params={"limit": 205 - 5})).json()
+    exact = (
+        await anon.get("/v1/alerts", headers=admin, params={"limit": 205 - 5})
+    ).json()
     assert exact["count"] == 200 and exact["next_cursor"] == ids[5]
     tail = (
-        await anon.get("/v1/alerts", headers=admin, params={"limit": 200, "before": ids[5]})
+        await anon.get(
+            "/v1/alerts", headers=admin, params={"limit": 200, "before": ids[5]}
+        )
     ).json()
     assert tail["count"] == 5 and tail["next_cursor"] is None
-    five = (await anon.get("/v1/alerts", headers=admin, params={"limit": 200, "before": ids[5]})).json()
+    five = (
+        await anon.get(
+            "/v1/alerts", headers=admin, params={"limit": 200, "before": ids[5]}
+        )
+    ).json()
     assert five["count"] == 5
     # exactly `limit` left -> no phantom next page
-    last = (await anon.get("/v1/alerts", headers=admin, params={"limit": 5, "before": ids[5]})).json()
+    last = (
+        await anon.get(
+            "/v1/alerts", headers=admin, params={"limit": 5, "before": ids[5]}
+        )
+    ).json()
     assert last["count"] == 5 and last["next_cursor"] is None
 
 
@@ -176,12 +192,25 @@ async def test_cookie_sessions_admin_ok_user_403_no_csrf_needed_for_get(
 
 @pytest.mark.parametrize(
     "before",
-    ["٣", " 5", "5 ", "5\n", "0x5", "+5", "5.0", "5;DROP TABLE audit_event", "%00", "１２"],
+    [
+        "٣",
+        " 5",
+        "5 ",
+        "5\n",
+        "0x5",
+        "+5",
+        "5.0",
+        "5;DROP TABLE audit_event",
+        "%00",
+        "１２",  # noqa: RUF001 - hostile full-width digits on purpose
+    ],
 )
 async def test_hostile_cursors_are_400(
     anon: httpx.AsyncClient, tokens: dict[str, str], before: str
 ) -> None:
-    r = await anon.get("/v1/alerts", headers=bearer(tokens["admin"]), params={"before": before})
+    r = await anon.get(
+        "/v1/alerts", headers=bearer(tokens["admin"]), params={"before": before}
+    )
     assert r.status_code == 400, (before, r.text)
 
 
@@ -190,9 +219,13 @@ async def test_a_cursor_past_the_newest_or_below_the_oldest_is_not_an_error(
 ) -> None:
     admin = bearer(tokens["admin"])
     ids = await _add(engine, 3)
-    above = (await anon.get("/v1/alerts", headers=admin, params={"before": str(10**15)})).json()
+    above = (
+        await anon.get("/v1/alerts", headers=admin, params={"before": str(10**15)})
+    ).json()
     assert [a["id"] for a in above["alerts"]] == ids[::-1]
-    below = (await anon.get("/v1/alerts", headers=admin, params={"before": ids[0]})).json()
+    below = (
+        await anon.get("/v1/alerts", headers=admin, params={"before": ids[0]})
+    ).json()
     assert below["alerts"] == []
 
 
@@ -202,6 +235,9 @@ async def test_concurrent_readers_agree(
     admin = bearer(tokens["admin"])
     await _add(engine, 20)
     results = await asyncio.gather(
-        *(anon.get("/v1/alerts", headers=admin, params={"limit": 10}) for _ in range(16))
+        *(
+            anon.get("/v1/alerts", headers=admin, params={"limit": 10})
+            for _ in range(16)
+        )
     )
     assert {r.text for r in results} and len({r.text for r in results}) == 1

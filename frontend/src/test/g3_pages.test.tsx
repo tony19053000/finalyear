@@ -380,8 +380,10 @@ describe("Node detail", () => {
     });
     const post = ctl.calls.find((c) => c.key === "POST /v1/nodes/node_A/revoke");
     expect(new Headers(post?.init.headers).get(CSRF_HEADER)).toBe("csrf-value");
-    expect(await screen.findByText("lab-a revoked")).toBeTruthy();
-    expect(screen.getByText(/Its live session was cut/)).toBeTruthy();
+    // Scoped to the toast: Radix also renders a delayed screen-reader copy of its text.
+    const toast = (await screen.findByText("lab-a revoked")).closest("li");
+    expect(toast).not.toBeNull();
+    expect(within(toast as HTMLElement).getByText(/Its live session was cut/)).toBeTruthy();
   });
 
   it("revoke refused by the server (403) is said in the dialog; the node stays", async () => {

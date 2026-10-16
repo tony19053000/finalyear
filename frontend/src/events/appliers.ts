@@ -3,12 +3,12 @@
  * event goes through each applier, in order; each patches or invalidates the
  * TanStack Query cache. The shell passes this list to its one event stream.
  *
- * MERGE POINT (V0.8 G4, Jobs): append `applyJobEvent` from "../pages/jobs"
- * here - `[applyEvent, applyJobEvent]`. `applyEvent` already invalidates the
- * job's detail, the plain jobs list and the Overview's active-job counts on
- * `job.state` / `attempt.state`; the jobs applier adds its own list keys.
+ * `applyEvent` invalidates the job's detail, the plain jobs list and the
+ * Overview's active-job counts on `job.state` / `attempt.state`;
+ * `applyJobEvent` (V0.8 G4) patches the jobs list pages in place.
  * Keep it a module constant: a new array identity reconnects the stream.
  */
+import { applyJobEvent } from "../pages/jobs/applyJobEvent";
 import { applyEvent, type EventApplier } from "./applyEvent";
 
-export const EVENT_APPLIERS: readonly EventApplier[] = [applyEvent];
+export const EVENT_APPLIERS: readonly EventApplier[] = [applyEvent, applyJobEvent];

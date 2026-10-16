@@ -12,7 +12,7 @@
  *   controller's clock), and "last heartbeat" moved to the event's time.
  * - `job.state` / `attempt.state`: invalidate that job, the plain jobs list
  *   and the Overview's active-job counts. (The Jobs pages add their own
- *   applier - see `EVENT_APPLIERS` in app/AppShell.tsx.)
+ *   applier - see `EVENT_APPLIERS` in events/appliers.ts.)
  * - `alert` (admins only): merged into the first alerts page by `id`, so the
  *   same alert from the list and the stream is shown once.
  * - unknown types are ignored, never an error.

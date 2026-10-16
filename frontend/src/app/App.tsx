@@ -8,8 +8,12 @@ import { LoginPage } from "../pages/LoginPage";
 import { NodeDetailPage } from "../pages/nodes/NodeDetailPage";
 import { NodesPage } from "../pages/nodes/NodesPage";
 import { OverviewPage } from "../pages/overview/OverviewPage";
-import { JobsPage, NotFoundPage } from "../pages/PlaceholderPages";
+import { NotFoundPage } from "../pages/PlaceholderPages";
 import { SettingsPage } from "../pages/SettingsPage";
+// V0.8 G4: Jobs pages (routes in the marked block below).
+import { JobDetailPage } from "../pages/jobs/JobDetailPage";
+import { JobsListPage } from "../pages/jobs/JobsListPage";
+import { SubmitJobPage } from "../pages/jobs/submit/SubmitJobPage";
 import { AppShell, type AppShellProps } from "./AppShell";
 import { RequireSession } from "./RequireSession";
 
@@ -27,7 +31,11 @@ export function AppRoutes({ socketFactory }: AppShellProps) {
         <Route index element={<OverviewPage />} />
         <Route path="nodes" element={<NodesPage />} />
         <Route path="nodes/:nodeId" element={<NodeDetailPage />} />
-        <Route path="jobs" element={<JobsPage />} />
+        {/* ---- V0.8 G4: Jobs (list, submit, detail) ---- */}
+        <Route path="jobs" element={<JobsListPage />} />
+        <Route path="jobs/new" element={<SubmitJobPage />} />
+        <Route path="jobs/:jobId" element={<JobDetailPage />} />
+        {/* ---- end V0.8 G4 ---- */}
         <Route path="settings" element={<SettingsPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>

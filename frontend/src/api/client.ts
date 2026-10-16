@@ -28,6 +28,23 @@ export function setUnauthorizedHandler(handler: UnauthorizedHandler | null): voi
   onUnauthorized = handler;
 }
 
+// Set while the user's own sign-out is in progress. A read started then would
+// come back 401 once the controller closes the session (the browser logs each
+// one as a console error), so only the session call itself goes out.
+let signingOut = false;
+
+/** Logout: refuse new API calls except `/v1/session` until the next sign-in. */
+export function setSigningOut(value: boolean): void {
+  signingOut = value;
+}
+
+/** Throws when a sign-out is in progress and `path` is not the session call. */
+export function assertNotSigningOut(path: string): void {
+  if (signingOut && path !== "/v1/session") {
+    throw new DOMException("signing out: request not sent", "AbortError");
+  }
+}
+
 /** The value of cookie `name` readable by script (`mf_csrf` only, by design). */
 export function readCookie(name: string, cookies: string = document.cookie): string | undefined {
   for (const part of cookies.split(";")) {
@@ -80,6 +97,7 @@ function buildUrl(path: string, query: RequestOptions["query"]): string {
 
 /** Call the controller; resolve with the parsed JSON body (or undefined for 204). */
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  assertNotSigningOut(path);
   const method = options.method ?? "GET";
   const url = buildUrl(path, options.query); // a bad path is a bug: throw, not NetworkError
   const headers = new Headers({ Accept: "application/json" });
