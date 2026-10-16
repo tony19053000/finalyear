@@ -188,20 +188,11 @@ CASES: dict[str, str] = {
     ),
 }
 HOLES: dict[str, str] = {
-    "ls_property_assign": "T-7c (minor): `localStorage.k = s` does not go through the "
-    "wrapped Storage.prototype.setItem; stored-then-removed is missed",
-    "ls_bracket_assign": "T-7c (minor): `localStorage['k'] = s` bypasses the setItem hook",
-    "ss_property_assign": "T-7c (minor): `sessionStorage.k = s` bypasses the setItem hook",
     "window_name_then_reset": "T-7d (minor): window.name is read once at the end, never hooked",
     "cookiestore_set_delete": "T-7e (minor): the Cookie Store API (cookieStore.set) is not hooked",
     "idb_cursor_update": "T-7f (minor): IDBCursor.update / IDBObjectStore.openCursor writes are not hooked",
     "worker_idb_put_then_delete": "T-7g (minor): writes made inside a Web Worker are not hooked "
     "(no init script runs in workers)",
-    "console_nested_object": "T-7h (major for the gate): m.text of console.log({a:{b:{c:secret}}}) is "
-    "Chromium's preview ({a: {...}}); the args are never evaluated, so a credential nested 2+ deep is missed",
-    "console_array_nested": "T-7h: nested array in console.log: preview only",
-    "console_map": "T-7h: console.log(new Map(...)): preview only / not expanded",
-    "console_table": "T-7h: console.table: not expanded",
 }
 
 
@@ -352,14 +343,6 @@ def test_t2d_chromium_names_no_resource_for_a_failed_websocket(
     assert not url.endswith("logs/ws")
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-2d (minor): test_v08_g4_tester_r1 declares allow('WebSocket', 'logs/ws', "
-    "may_not_occur=True) and allow('ERR_', 'logs/ws', ...): a failed WebSocket's "
-    "console line has no 'logs/ws' resource URL, so these can never apply - and "
-    "may_not_occur hides that they are dead (the item-1 bug class). Use "
-    "allow_matching on the line text for sockets.",
-)
 def test_t2d_the_g4_log_socket_allowances_can_apply(bare_browser: Browser) -> None:
     from mf_dashboard import PageWatch
 

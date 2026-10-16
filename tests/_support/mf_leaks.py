@@ -3,11 +3,14 @@
 The e2e ``new_page`` fixture attaches a :class:`LeakWatch` (one per test
 session) to every page it opens. While the whole e2e run goes on it records:
 
-* **places** a value must never reach - every console message (all types),
+* **places** a value must never reach - every console message (all types;
+  its text and each argument serialised in full, tester r2 T-7h),
   every URL a page requested or navigated to (WebSockets included), every
   WRITE a page script makes to web storage, IndexedDB, ``document.cookie``,
   Cache Storage and ``history`` state (recorded as it happens, so a value
-  stored and removed again is still seen - fix round 1, T-7), and, at the end
+  stored and removed again is still seen - fix round 1, T-7; web storage also
+  through DevTools DOMStorage events, so ``localStorage.k = v`` is seen too,
+  tester r2 T-7c), and, at the end
   of each test, each page's ``localStorage``, ``sessionStorage``, every
   IndexedDB record, Cache Storage, ``history.state``, ``document.cookie``
   minus the CSRF companion (it is readable by design, D170) and
@@ -46,7 +49,7 @@ from typing import TYPE_CHECKING, Any, Final
 from urllib.parse import unquote, urlsplit
 
 if TYPE_CHECKING:
-    from playwright.sync_api import BrowserContext, Page, Response
+    from playwright.sync_api import BrowserContext, ConsoleMessage, Page, Response
 
 #: Credential shapes (as ``common.redaction`` scrubs them): API tokens,
 #: browser session tokens, join codes.
@@ -111,6 +114,69 @@ WRITE_HOOK_JS: Final = """(() => {
     });
   }
 })();"""
+
+#: One console argument as JSON (G7 tester r2 T-7h): Chromium's message text
+#: is only a preview (``{a: {...}}``), so a value nested in a logged object,
+#: array, Map, Set or Error would never be seen. Depth- and size-limited and
+#: cycle-safe; a getter or Proxy that throws is recorded, never propagated.
+CONSOLE_ARG_JS: Final = """(root) => {
+  const MAX_DEPTH = 16, MAX_ITEMS = 2000, MAX_TEXT = 262144;
+  const seen = new WeakSet();
+  let budget = 50000;
+  const text = (bytes) => {
+    try { return new TextDecoder().decode(bytes.slice(0, MAX_TEXT)); }
+    catch (e) { return "[bytes]"; }
+  };
+  const walk = (v, depth) => {
+    if (--budget < 0) return "[budget]";
+    const t = typeof v;
+    if (v === null || t === "string" || t === "number" || t === "boolean") return v;
+    if (t === "undefined") return "[undefined]";
+    if (t === "bigint" || t === "symbol") return String(v);
+    if (t === "function") return "[function " + v.name + "]";
+    if (depth >= MAX_DEPTH) return "[depth]";
+    if (seen.has(v)) return "[cycle]";
+    seen.add(v);
+    try {
+      if (v instanceof Error) {
+        return {error: v.name, message: v.message, stack: String(v.stack),
+                cause: walk(v.cause, depth + 1), own: walk(Object.assign({}, v), depth + 1)};
+      }
+      if (v instanceof Map) {
+        return {map: Array.from(v).slice(0, MAX_ITEMS)
+          .map(([k, x]) => [walk(k, depth + 1), walk(x, depth + 1)])};
+      }
+      if (v instanceof Set) {
+        return {set: Array.from(v).slice(0, MAX_ITEMS).map((x) => walk(x, depth + 1))};
+      }
+      if (v instanceof ArrayBuffer) return {bytes: text(new Uint8Array(v))};
+      if (ArrayBuffer.isView(v)) {
+        return {bytes: text(new Uint8Array(v.buffer, v.byteOffset, v.byteLength))};
+      }
+      if (typeof Node !== "undefined" && v instanceof Node) {
+        return {node: String(v.outerHTML ?? v.textContent ?? "").slice(0, MAX_TEXT)};
+      }
+      if (Array.isArray(v)) return v.slice(0, MAX_ITEMS).map((x) => walk(x, depth + 1));
+      const out = {};
+      for (const k of Object.keys(v).slice(0, MAX_ITEMS)) {
+        let x;
+        try { x = v[k]; } catch (e) { x = "[throws]"; }
+        out[k] = walk(x, depth + 1);
+      }
+      return out;
+    } catch (e) { return "[unreadable]"; }
+  };
+  try { return JSON.stringify(walk(root, 0)); } catch (e) { return "[unserialisable]"; }
+}"""
+
+#: Live DOMStorage events of a page (DevTools protocol, Chromium): every
+#: localStorage / sessionStorage change, also ``localStorage.k = v`` and
+#: ``localStorage["k"] = v``, which bypass ``Storage.prototype.setItem`` (a
+#: named-property setter no script can wrap - G7 tester r2 T-7c).
+DOM_STORAGE_EVENTS: Final = (
+    "DOMStorage.domStorageItemAdded",
+    "DOMStorage.domStorageItemUpdated",
+)
 
 #: Everything a page script can keep, as one JSON string.
 DUMP_JS: Final = """async () => {
@@ -247,10 +313,8 @@ class LeakWatch:
 
     def _listen(self, page: Page, test: str) -> None:
         self.pages += 1
-        page.on(
-            "console",
-            lambda m: self.places.append((f"{test}: console.{m.type}", m.text)),
-        )
+        page.on("console", lambda m: self._console(m, test))
+        self._storage_events(page, test)
         page.on(
             "request", lambda r: self.places.append((f"{test}: request URL", r.url))
         )
@@ -263,6 +327,43 @@ class LeakWatch:
             lambda f: self.places.append((f"{test}: navigated URL", f.url)),
         )
         page.on("response", self._learn)
+
+    def _console(self, message: ConsoleMessage, test: str) -> None:
+        """Record a console message: its text and (T-7h) each argument
+        serialised in full - the text is only Chromium's preview."""
+        where = f"{test}: console.{message.type}"
+        self.places.append((where, message.text))
+        for index, arg in enumerate(message.args):
+            try:
+                text = str(arg.evaluate(CONSOLE_ARG_JS))
+            except Exception as exc:  # noqa: BLE001 - the page is gone meanwhile
+                text = f"(argument not readable: {type(exc).__name__})"
+            self.places.append((f"{where} argument {index}", text))
+
+    def _storage_events(self, page: Page, test: str) -> None:
+        """Record every web storage change of ``page`` as it happens (T-7c),
+        through the DevTools protocol's DOMStorage domain."""
+
+        def record(event: dict[str, Any]) -> None:
+            storage = event.get("storageId") or {}
+            kind = "localStorage" if storage.get("isLocalStorage") else "sessionStorage"
+            self.places.append(
+                (
+                    f"{test}: {kind} change",
+                    f"{event.get('key', '')}={event.get('newValue', '')}",
+                )
+            )
+
+        try:
+            session = page.context.new_cdp_session(page)
+            for name in DOM_STORAGE_EVENTS:
+                session.on(name, record)
+            session.send("DOMStorage.enable")
+        except Exception as exc:  # noqa: BLE001 - not Chromium: listed, not hidden
+            self.unread.append(
+                f"{test}: no live storage events ({type(exc).__name__}); "
+                "property-assigned storage writes are seen only if still present"
+            )
 
     def _learn(self, response: Response) -> None:
         """Remember the credential a successful call carried or returned."""
