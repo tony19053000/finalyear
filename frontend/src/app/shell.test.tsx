@@ -236,6 +236,35 @@ describe("shell", () => {
     expect(new Headers(del?.init.headers).get(CSRF_HEADER)).toBe("csrf-value");
   });
 
+  it("our own sign-out is not reported as an expired session, whenever the stream's 4401 lands", async () => {
+    let live = true;
+    const holder: { app?: ReturnType<typeof renderApp> } = {};
+    signedIn({
+      "GET /v1/session": () => (live ? json(200, SESSION) : unauthorized()),
+      "DELETE /v1/session": async () => {
+        live = false;
+        const response = json(200, { logged_out: true });
+        // The controller closes the stream as it revokes; the 4401 lands
+        // around the time the answer does. (The exact window the e2e hit -
+        // mutation settled, navigation not yet run - is browser timing; jsdom
+        // does not reproduce it. This guards the flow; the e2e keyboard and
+        // logout tests guard the timing.)
+        await Promise.resolve();
+        setTimeout(() => {
+          holder.app?.socket().serverClose(4401);
+        }, 0);
+        return response;
+      },
+    });
+    const app = renderApp("/");
+    holder.app = app;
+    await screen.findByRole("heading", { level: 1, name: "Overview" });
+    app.socket().greet();
+    await userEvent.click(screen.getByRole("button", { name: "Sign out" }));
+    expect(await screen.findByText("You are signed out.")).toBeTruthy();
+    expect(screen.queryByText("Your session ended. Sign in again.")).toBeNull();
+  });
+
   it("a 401 on any call while signed in ends the session -> login, with the reason", async () => {
     signedIn({ "GET /v1/auth/whoami": unauthorized });
     renderApp("/settings");
@@ -249,6 +278,59 @@ describe("shell", () => {
     app.socket().greet();
     app.socket().serverClose(4401);
     expect(await screen.findByText("Your session ended. Sign in again.")).toBeTruthy();
+  });
+});
+
+describe("controller restart (T-2)", () => {
+  it("keeps the shell through a failed session re-check and goes live again by itself", async () => {
+    let down = false;
+    const fetchMock = vi.fn((input: string) => {
+      if (down) return Promise.reject(new TypeError("Failed to fetch"));
+      const path = input.split("?")[0];
+      if (path === "/v1/session") return Promise.resolve(json(200, SESSION));
+      if (path === "/v1/nodes") return Promise.resolve(json(200, { count: 1, nodes: [node("n1", "online")] }));
+      return Promise.resolve(json(404, { error: { code: "not_found", message: input } }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const app = renderApp("/");
+      await screen.findByTestId("current-user");
+      app.socket().greet();
+      await waitFor(() => {
+        expect(screen.getByTestId("stream-status").dataset.status).toBe("live");
+      });
+
+      // The controller goes away: the stream drops, the handshake is refused,
+      // and the session re-check that triggers fails with a network error.
+      down = true;
+      app.socket().serverClose(1006);
+      await vi.advanceTimersByTimeAsync(1_000);
+      app.socket().serverClose(1006); // refused handshake -> session re-check
+      await vi.advanceTimersByTimeAsync(50);
+      await waitFor(() => {
+        expect(app.queryClient.getQueryState(["session"])?.status).toBe("error");
+      });
+      expect(screen.queryByText("Cannot reach the controller")).toBeNull();
+      expect(screen.getByTestId("current-user").textContent).toBe("alice(admin)");
+      expect(screen.getByTestId("stream-status").dataset.status).toBe("reconnecting");
+
+      // It comes back (new epoch): the stream reconnects on its own backoff.
+      down = false;
+      const before = app.sockets.length;
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(app.sockets.length).toBeGreaterThan(before);
+      app.socket().onopen?.(new Event("open"));
+      app.socket().send({ type: "resync", epoch: "e2", seq: 1, reason: "epoch" });
+      await waitFor(() => {
+        expect(screen.getByTestId("stream-status").dataset.status).toBe("live");
+      });
+      await waitFor(() => {
+        expect(app.queryClient.getQueryState(["session"])?.status).toBe("success");
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

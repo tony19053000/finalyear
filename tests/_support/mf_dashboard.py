@@ -121,6 +121,7 @@ def axe_violations(page: Page) -> list[dict[str, Any]]:
           return r.violations.map((v) => ({
             id: v.id, impact: v.impact, help: v.help,
             nodes: v.nodes.slice(0, 5).map((n) => n.target.join(" ")),
+            why: v.nodes.slice(0, 3).map((n) => n.failureSummary),
           }));
         }"""
     )

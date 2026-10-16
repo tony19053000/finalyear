@@ -52,7 +52,11 @@ def test_a_new_backend_route_fails_the_gate(monkeypatch: pytest.MonkeyPatch) -> 
     _patched(
         monkeypatch,
         lambda d: d["paths"].update(
-            {"/v1/added-by-tester": {"get": {"responses": {"200": {"description": "x"}}}}}
+            {
+                "/v1/added-by-tester": {
+                    "get": {"responses": {"200": {"description": "x"}}}
+                }
+            }
         ),
     )
     assert _load().main(["--check", str(SPEC)]) == 1
@@ -79,7 +83,9 @@ def test_a_changed_description_only_also_fails_the_gate(
 ) -> None:
     """Byte-for-byte comparison: even a doc-string edit demands a regenerate
     (strict, by design)."""
-    _patched(monkeypatch, lambda d: d["info"].update({"title": d["info"]["title"] + "!"}))
+    _patched(
+        monkeypatch, lambda d: d["info"].update({"title": d["info"]["title"] + "!"})
+    )
     assert _load().main(["--check", str(SPEC)]) == 1
 
 
@@ -89,7 +95,9 @@ def test_a_missing_committed_spec_fails_the_gate(tmp_path: Path) -> None:
 
 def test_a_hand_edited_openapi_json_fails_the_gate(tmp_path: Path) -> None:
     edited = tmp_path / "openapi.json"
-    edited.write_text(SPEC.read_text(encoding="utf-8").replace('"/v1/nodes"', '"/v1/nodez"', 1))
+    edited.write_text(
+        SPEC.read_text(encoding="utf-8").replace('"/v1/nodes"', '"/v1/nodez"', 1)
+    )
     assert _load().main(["--check", str(edited)]) == 1
 
 
@@ -139,9 +147,15 @@ def test_gate_excuses_exactly_the_session_probe_401(watch: Any) -> None:
         (BOOT, "https://h:1/v1/nodes"),  # another endpoint's 401
         (BOOT, "https://h:1/v1/session/other"),  # sub-path
         (BOOT, "https://h:1/v1/session?x=/v1/session/x"),  # suffix only by prefix
-        ("Failed to load resource: the server responded with a status of 500 ()", "https://h:1/v1/session"),
+        (
+            "Failed to load resource: the server responded with a status of 500 ()",
+            "https://h:1/v1/session",
+        ),
         ("Uncaught TypeError: x is not a function", "https://h:1/assets/index.js"),
-        ("Error: status of 401", "https://h:1/assets/index.js"),  # text matches, URL not
+        (
+            "Error: status of 401",
+            "https://h:1/assets/index.js",
+        ),  # text matches, URL not
     ],
 )
 def test_gate_rejects_everything_else(watch: Any, text: str, url: str) -> None:

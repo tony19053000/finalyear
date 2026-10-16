@@ -15,6 +15,7 @@
  *   could skip a replay still in flight.
  * - Reconnect with exponential backoff and full jitter; reset after a
  *   connection reached `hello`.
+ * - `hello`/`resync` after the greeting are control frames, never events.
  * - Close 4401 (session ended / revoked) stops for good and calls
  *   `onUnauthorized`; a handshake refused before `open` (403 - also a dead
  *   session) calls `onHandshakeFailed` so the app can re-check its session,
@@ -166,6 +167,10 @@ export class EventStreamClient {
         greeted = this.greet(frame);
         return;
       }
+      if (frame.type === "hello" || frame.type === "resync") {
+        this.control(frame);
+        return;
+      }
       this.dispatch(frame);
     };
     socket.onerror = () => {
@@ -215,6 +220,24 @@ export class EventStreamClient {
       this.opts.onResync(reason === "ring" || reason === "epoch" || reason === "future" ? reason : "ring");
     }
     return true;
+  }
+
+  /**
+   * A control frame after the greeting (the server sends them only first
+   * today; defence in depth, tester T-1). Never an app event: a `resync`
+   * restarts the position and asks the app to refetch; a `hello` from another
+   * epoch means the bus restarted under us, which is a resync too; a `hello`
+   * of the same epoch changes nothing.
+   */
+  private control(frame: Record<string, unknown>): void {
+    const { type, epoch, seq, reason } = frame;
+    if (typeof epoch !== "string" || typeof seq !== "number") return;
+    if (type === "hello" && epoch === this.epoch) return;
+    this.epoch = epoch;
+    this.seq = seq;
+    const why: ResyncReason =
+      type === "hello" ? "epoch" : reason === "ring" || reason === "epoch" || reason === "future" ? reason : "ring";
+    this.opts.onResync(why);
   }
 
   private dispatch(frame: Record<string, unknown>): void {

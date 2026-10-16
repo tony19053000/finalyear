@@ -26,8 +26,12 @@ def sandbox(tmp_path: Path) -> Path:
     shutil.copytree(FRONTEND / "scripts", box / "scripts")
     shutil.copy(FRONTEND / "openapi.json", box / "openapi.json")
     shutil.copy(FRONTEND / "package.json", box / "package.json")
-    shutil.copy(FRONTEND / "src" / "api" / "schema.d.ts", box / "src" / "api" / "schema.d.ts")
-    (box / "node_modules").symlink_to(FRONTEND / "node_modules", target_is_directory=True)
+    shutil.copy(
+        FRONTEND / "src" / "api" / "schema.d.ts", box / "src" / "api" / "schema.d.ts"
+    )
+    (box / "node_modules").symlink_to(
+        FRONTEND / "node_modules", target_is_directory=True
+    )
     return box
 
 
@@ -50,7 +54,9 @@ def test_hand_edited_schema_fails(sandbox: Path) -> None:
     schema = sandbox / "src" / "api" / "schema.d.ts"
     text = schema.read_text(encoding="utf-8")
     assert "string" in text
-    schema.write_text(text.replace("session_id: string", "session_id: number", 1), encoding="utf-8")
+    schema.write_text(
+        text.replace("session_id: string", "session_id: number", 1), encoding="utf-8"
+    )
     result = _check(sandbox)
     assert result.returncode == 1, result.stdout
     assert "out of date" in result.stderr
@@ -59,13 +65,21 @@ def test_hand_edited_schema_fails(sandbox: Path) -> None:
 def test_schema_with_digest_kept_but_body_edited_fails(sandbox: Path) -> None:
     """The cheat the unit digest test cannot see: header digest intact."""
     schema = sandbox / "src" / "api" / "schema.d.ts"
-    schema.write_text(schema.read_text(encoding="utf-8") + "\nexport type Sneaky = 1;\n", encoding="utf-8")
+    schema.write_text(
+        schema.read_text(encoding="utf-8") + "\nexport type Sneaky = 1;\n",
+        encoding="utf-8",
+    )
     assert _check(sandbox).returncode == 1
 
 
-def test_backend_change_in_openapi_json_without_regeneration_fails(sandbox: Path) -> None:
+def test_backend_change_in_openapi_json_without_regeneration_fails(
+    sandbox: Path,
+) -> None:
     spec = sandbox / "openapi.json"
-    spec.write_text(spec.read_text(encoding="utf-8").replace('"/v1/nodes"', '"/v1/nodez"', 1), encoding="utf-8")
+    spec.write_text(
+        spec.read_text(encoding="utf-8").replace('"/v1/nodes"', '"/v1/nodez"', 1),
+        encoding="utf-8",
+    )
     assert _check(sandbox).returncode == 1
 
 

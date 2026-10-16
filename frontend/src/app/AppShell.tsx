@@ -34,8 +34,18 @@ export function AppShell({ socketFactory }: AppShellProps) {
     navigateRef.current = navigate;
   }, [location.pathname, location.search, navigate]);
 
+  // Set when the user presses "Sign out" and never cleared: the shell unmounts
+  // on the way to the login page. Our own logout closes the event stream with
+  // 4401 too, and that close can arrive after the DELETE has settled but before
+  // its navigation ran - so "is the logout mutation pending?" alone is a race
+  // (fix round 1).
+  const signingOut = useRef(false);
+  const markSigningOut = useCallback(() => {
+    signingOut.current = true;
+  }, []);
+
   const sessionEnded = useCallback(() => {
-    // Our own logout closes the event stream with 4401 too: not an expiry.
+    if (signingOut.current) return;
     if (client.isMutating({ mutationKey: LOGOUT_MUTATION_KEY }) > 0) return;
     const state: LoginState = { from: here.current, reason: "expired" };
     void navigateRef.current("/login", { replace: true, state });
@@ -62,7 +72,7 @@ export function AppShell({ socketFactory }: AppShellProps) {
       </a>
       <Sidebar />
       <div className="flex min-w-0 flex-1 flex-col">
-        <Header streamStatus={streamStatus} />
+        <Header streamStatus={streamStatus} onSigningOut={markSigningOut} />
         <main id="main" tabIndex={-1} className="flex-1 px-6 py-5 outline-none">
           <Outlet />
         </main>

@@ -12,7 +12,7 @@ import pytest
 pytestmark = pytest.mark.component
 
 FRONTEND = Path(__file__).resolve().parents[2] / "frontend"
-GOOD = '<!doctype html><html><head><link rel="stylesheet" href="/assets/a.css"></head><body><div id="root"></div><script type="module" src="/assets/a.js"></script></body></html>'
+GOOD = '<!doctype html><html><head><link rel="stylesheet" href="/assets/a.css"></head><body><div id="root"></div><script type="module" src="/assets/a.js"></script></body></html>'  # noqa: E501 - tester r1 test data / T-id name
 
 
 def _run(dist: Path) -> subprocess.CompletedProcess[str]:
@@ -21,11 +21,17 @@ def _run(dist: Path) -> subprocess.CompletedProcess[str]:
         pytest.skip("node is not installed")
     return subprocess.run(
         [node, "scripts/check-dist.mjs", str(dist)],
-        cwd=FRONTEND, capture_output=True, text=True, timeout=60, check=False,
+        cwd=FRONTEND,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
     )
 
 
-def _dist(tmp: Path, html: str = GOOD, css: str = "a{color:red}", js: str = "export{}") -> Path:
+def _dist(
+    tmp: Path, html: str = GOOD, css: str = "a{color:red}", js: str = "export{}"
+) -> Path:
     (tmp / "assets").mkdir()
     (tmp / "index.html").write_text(html)
     (tmp / "assets" / "a.css").write_text(css)
@@ -41,19 +47,46 @@ def test_clean_dist_passes(tmp_path: Path) -> None:
     ("kind", "html", "css", "js"),
     [
         ("style attr", GOOD.replace("<div ", '<div style="color:red" '), "a{}", ""),
-        ("style attr single quote", GOOD.replace("<div ", "<div style='x' "), "a{}", ""),
-        ("style element", GOOD.replace("<body>", "<body><style>a{}</style>"), "a{}", ""),
-        ("inline script", GOOD.replace("<body>", "<body><script>alert(1)</script>"), "a{}", ""),
+        (
+            "style attr single quote",
+            GOOD.replace("<div ", "<div style='x' "),
+            "a{}",
+            "",
+        ),
+        (
+            "style element",
+            GOOD.replace("<body>", "<body><style>a{}</style>"),
+            "a{}",
+            "",
+        ),
+        (
+            "inline script",
+            GOOD.replace("<body>", "<body><script>alert(1)</script>"),
+            "a{}",
+            "",
+        ),
         ("handler", GOOD.replace("<div ", '<div onclick="x()" '), "a{}", ""),
-        ("cdn script", GOOD.replace("/assets/a.js", "https://cdn.example/a.js"), "a{}", ""),
-        ("proto-relative", GOOD.replace("/assets/a.css", "//cdn.example/a.css"), "a{}", ""),
+        (
+            "cdn script",
+            GOOD.replace("/assets/a.js", "https://cdn.example/a.js"),
+            "a{}",
+            "",
+        ),
+        (
+            "proto-relative",
+            GOOD.replace("/assets/a.css", "//cdn.example/a.css"),
+            "a{}",
+            "",
+        ),
         ("css import url", GOOD, "a{background:url(https://x/y.png)}", ""),
         ("css data font", GOOD, "@font-face{src:url(data:font/woff2;base64,AAAA)}", ""),
-        ("js style attr", GOOD, "a{}", 'e.innerHTML=\'<i style="x">\''),
+        ("js style attr", GOOD, "a{}", "e.innerHTML='<i style=\"x\">'"),
         ("js setAttribute", GOOD, "a{}", 'el.setAttribute("style","x")'),
     ],
 )
-def test_bad_dist_fails(tmp_path: Path, kind: str, html: str, css: str, js: str) -> None:
+def test_bad_dist_fails(
+    tmp_path: Path, kind: str, html: str, css: str, js: str
+) -> None:
     result = _run(_dist(tmp_path, html, css, js))
     assert result.returncode == 1, (kind, result.stdout, result.stderr)
 

@@ -58,7 +58,13 @@ function ThemeToggle() {
   );
 }
 
-export function Header({ streamStatus }: { streamStatus: EventStreamStatus }) {
+export interface HeaderProps {
+  streamStatus: EventStreamStatus;
+  /** Called before the logout request, so the shell knows the session end is ours. */
+  onSigningOut?: () => void;
+}
+
+export function Header({ streamStatus, onSigningOut }: HeaderProps) {
   const session = useSession();
   const logout = useLogout();
   const navigate = useNavigate();
@@ -87,6 +93,7 @@ export function Header({ streamStatus }: { streamStatus: EventStreamStatus }) {
           size="sm"
           loading={logout.isPending}
           onClick={() => {
+            onSigningOut?.();
             logout.mutate(undefined, {
               onSettled: (_data, error) => {
                 const state: LoginState = { reason: "logged_out" };

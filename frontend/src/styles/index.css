@@ -91,12 +91,17 @@
     background-color: var(--mf-accent-soft);
   }
 
+  /* No motion at all. Not the common "duration: 0.01ms" trick: with the
+     default transition-property `all` that turns EVERY property change into
+     a one-frame transition (a theme switch read mid-way showed dark text on a
+     light page - fix round 1). */
   @media (prefers-reduced-motion: reduce) {
     *,
     *::before,
     *::after {
-      animation-duration: 0.01ms !important;
-      transition-duration: 0.01ms !important;
+      animation: none !important;
+      transition: none !important;
+      scroll-behavior: auto !important;
     }
   }
 }

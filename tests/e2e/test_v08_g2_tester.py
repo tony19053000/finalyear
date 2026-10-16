@@ -5,7 +5,7 @@ checklist 23-27), not from the implementation."""
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -86,7 +86,9 @@ def test_csrf_header_on_every_mutation_and_no_secret_on_the_wire(
         if r.method == "GET":
             assert "x-meshforge-csrf" not in r.all_headers(), r.url
         # secrets never in a URL
-        assert password not in r.url and session_cookie not in r.url and csrf not in r.url
+        assert (
+            password not in r.url and session_cookie not in r.url and csrf not in r.url
+        )
         assert "token" not in r.url.lower().split("?", 1)[-1] if "?" in r.url else True
         assert "authorization" not in r.all_headers(), r.url
     watch.assert_clean()
@@ -100,7 +102,9 @@ def test_session_death_goes_to_login_without_leaking_path_and_returns_after_relo
     watch.allow("status of 401", "/v1/nodes")
     page.get_by_role("link", name="Nodes").click()
     expect(page.get_by_role("heading", level=1, name="Nodes")).to_be_visible()
-    page.context.clear_cookies(name="mf_session")  # the session dies server-side/expired
+    page.context.clear_cookies(
+        name="mf_session"
+    )  # the session dies server-side/expired
     page.get_by_role("link", name="Settings").click()  # whoami -> 401
     expect(page.get_by_role("heading", name="Sign in")).to_be_visible()
     expect(page.get_by_text("Your session ended. Sign in again.")).to_be_visible()
@@ -113,9 +117,11 @@ def test_session_death_goes_to_login_without_leaking_path_and_returns_after_relo
     ):
         assert "settings" not in key_dump.lower()
     # the previous user's data is gone from the DOM
-    assert ADMIN_USER not in (page.locator("body").inner_text() or "").replace(
-        "User name", ""
-    ) or True
+    assert (
+        ADMIN_USER
+        not in (page.locator("body").inner_text() or "").replace("User name", "")
+        or True
+    )
     _login(page, fabric)
     expect(page.get_by_role("heading", level=1, name="Settings")).to_be_visible()
     watch.assert_clean()
@@ -138,14 +144,17 @@ def test_no_inline_style_or_csp_violation_on_any_page_or_theme(
             # allowed by CSP; a *parsed* style attribute would be a CSP
             # violation, which watch.assert_clean() below catches.
             inline = page.evaluate(
-                "[...document.querySelectorAll('[style]')].map(e => e.getAttribute('style').trim()).filter(s => s !== 'pointer-events: none;')"
+                "[...document.querySelectorAll('[style]')].map(e => e.getAttribute('style').trim()).filter(s => s !== 'pointer-events: none;')"  # noqa: E501 - tester r1 test data / T-id name
             )
             assert inline == [], (path, theme, inline)
             assert page.evaluate("document.querySelectorAll('style').length") == 0
             assert page.evaluate("document.adoptedStyleSheets.length") == 0
-            assert page.evaluate(
-                "[...document.querySelectorAll('script')].filter(s => !s.src).length"
-            ) == 0
+            assert (
+                page.evaluate(
+                    "[...document.querySelectorAll('script')].filter(s => !s.src).length"
+                )
+                == 0
+            )
     watch.assert_clean()
 
 
@@ -164,7 +173,7 @@ def test_console_gate_cannot_be_bypassed(
     # 2) an injected <style> is a CSP violation the listener records
     page, watch = _signed_in(fabric, dashboard_browser)
     page.evaluate(
-        "const s = document.createElement('style'); s.textContent='body{color:red}'; document.head.appendChild(s)"
+        "const s = document.createElement('style'); s.textContent='body{color:red}'; document.head.appendChild(s)"  # noqa: E501 - tester r1 test data / T-id name
     )
     page.wait_for_timeout(300)
     assert any("style-src" in v["directive"] for v in watch.csp_violations())
@@ -222,10 +231,14 @@ def test_keyboard_only_navigation_of_the_whole_shell(
 ) -> None:
     page, watch = _signed_in(fabric, dashboard_browser)
     # let the first event-stream handshake finish (T-3 covers aborting it)
-    expect(page.get_by_test_id("stream-status")).to_have_attribute("data-status", "live")
+    expect(page.get_by_test_id("stream-status")).to_have_attribute(
+        "data-status", "live"
+    )
     page.goto(fabric.http_base + "/")
     expect(page.get_by_role("heading", level=1, name="Overview")).to_be_visible()
-    expect(page.get_by_test_id("stream-status")).to_have_attribute("data-status", "live")
+    expect(page.get_by_test_id("stream-status")).to_have_attribute(
+        "data-status", "live"
+    )
     page.evaluate("document.activeElement.blur()")
 
     order: list[str] = []
@@ -233,16 +246,16 @@ def test_keyboard_only_navigation_of_the_whole_shell(
         page.keyboard.press("Tab")
         order.append(
             page.evaluate(
-                "(document.activeElement.getAttribute('aria-label') || document.activeElement.textContent || document.activeElement.tagName).trim()"
+                "(document.activeElement.getAttribute('aria-label') || document.activeElement.textContent || document.activeElement.tagName).trim()"  # noqa: E501 - tester r1 test data / T-id name
             )
         )
         outline = page.evaluate(
-            "(() => { const s = getComputedStyle(document.activeElement); return [s.outlineStyle, s.outlineWidth, s.boxShadow] })()"
+            "(() => { const s = getComputedStyle(document.activeElement); return [s.outlineStyle, s.outlineWidth, s.boxShadow] })()"  # noqa: E501 - tester r1 test data / T-id name
         )
         assert outline[0] != "none" or outline[2] != "none", (order[-1], outline)
     # skip link first, then the four sections in order, then header controls
     assert order[0] == "Skip to content", order
-    labels = [o for o in order[1:5]]
+    labels = list(order[1:5])
     assert labels == SKIP_NAV, order
     assert any("theme" in o.lower() for o in order), order
     assert "Sign out" in order, order
@@ -269,7 +282,7 @@ def test_keyboard_only_navigation_of_the_whole_shell(
     page.get_by_role("link", name="Skip to content").focus()
     page.keyboard.press("Enter")
     focused_in_main = page.evaluate(
-        "(() => { const a = document.activeElement; return a && (a.id === 'main' || !!a.closest('main')) })()"
+        "(() => { const a = document.activeElement; return a && (a.id === 'main' || !!a.closest('main')) })()"  # noqa: E501 - tester r1 test data / T-id name
     )
     assert focused_in_main
     expect(page.get_by_role("heading", level=1, name="Nodes")).to_be_visible()
@@ -321,7 +334,7 @@ def test_setitem_throwing_quota_is_swallowed(
 ) -> None:
     hostile = """
     Storage.prototype.setItem = function () { throw new DOMException('full', 'QuotaExceededError'); };
-    """
+    """  # noqa: E501 - tester r1 test data / T-id name
     page, watch = _signed_in(fabric, dashboard_browser, init=hostile)
     page.get_by_role("button", name="Switch to light theme").click()
     expect(page.locator("html")).to_have_attribute("data-theme", "light")
@@ -333,7 +346,7 @@ def test_stored_light_theme_applies_on_load_and_garbage_falls_back(
 ) -> None:
     page, watch = _page(
         dashboard_browser,
-        "if (!sessionStorage.getItem('seed')) { localStorage.setItem('mf-theme','light'); sessionStorage.setItem('seed','1') }",
+        "if (!sessionStorage.getItem('seed')) { localStorage.setItem('mf-theme','light'); sessionStorage.setItem('seed','1') }",  # noqa: E501 - tester r1 test data / T-id name
     )
     watch.allow(*BOOT_PROBE_401)
     page.goto(fabric.http_base + "/")
@@ -365,25 +378,32 @@ def test_nothing_secret_in_any_script_reachable_place_and_bundle(
     assert "mf_session" not in dump
     # nothing cached in the Cache API / service workers / indexedDB
     assert page.evaluate("caches.keys().then(k => k.length)") == 0
-    assert page.evaluate("navigator.serviceWorker ? navigator.serviceWorker.getRegistrations().then(r => r.length) : 0") == 0
+    assert (
+        page.evaluate(
+            "navigator.serviceWorker ? navigator.serviceWorker.getRegistrations().then(r => r.length) : 0"  # noqa: E501 - tester r1 test data / T-id name
+        )
+        == 0
+    )
     assert page.evaluate("indexedDB.databases().then(d => d.length)") == 0
     # the static bundle carries no credential material
     for path in DIST.rglob("*.js"):
         text = path.read_text(encoding="utf-8")
         assert session_cookie not in text and password not in text
-        assert "mf_session" not in text, f"client script mentions the session cookie: {path}"
-        assert not re.search(r"localStorage\.setItem\([^)]*(token|session|password)", text, re.I)
+        assert "mf_session" not in text, (
+            f"client script mentions the session cookie: {path}"
+        )
+        assert not re.search(
+            r"localStorage\.setItem\([^)]*(token|session|password)", text, re.I
+        )
     # the password field is cleared on reload and is not autofill-leaking
     watch.assert_clean()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-2 (major): a controller restart makes the handshake fail -> session "
-    "re-check fails -> RequireSession replaces the whole shell with 'Cannot reach "
-    "the controller', which unmounts the event stream; it never reconnects by itself.",
-)
-def test_T2_event_stream_recovers_when_the_controller_restarts(
+# A real controller restarts on its configured port; the harness default is a
+# new ephemeral port, so here the REST port sits behind the stable proxy link
+# (fix round 1: without it no page could follow the restart at all).
+@pytest.mark.parametrize("fabric_options", [{"record_links": True}])
+def test_T2_event_stream_recovers_when_the_controller_restarts(  # noqa: N802 - tester r1 test data / T-id name
     fabric: Fabric, dashboard_browser: Browser
 ) -> None:
     """Controller killed and restarted (new bus epoch): the page shows the
@@ -391,6 +411,14 @@ def test_T2_event_stream_recovers_when_the_controller_restarts(
     page, watch = _signed_in(fabric, dashboard_browser)
     status = page.get_by_test_id("stream-status")
     expect(status).to_have_attribute("data-status", "live")
+    # Fix round 1: keep the controller down long enough that the page's
+    # refused handshakes trigger (and fail) a session re-check - the exact
+    # T-2 path - before it comes back. The shell must stay up meanwhile.
+    fabric.kill_controller()
+    expect(status).to_have_attribute("data-status", "reconnecting", timeout=15_000)
+    page.wait_for_timeout(10_000)  # > backoff + 2 query retries (1 s + 2 s)
+    expect(page.get_by_text("Cannot reach the controller")).to_have_count(0)
+    expect(page.get_by_test_id("current-user")).to_have_text(f"{ADMIN_USER}(admin)")
     fabric.restart_controller(graceful=False)
     expect(status).to_have_attribute("data-status", "live", timeout=90_000)
     expect(page.get_by_test_id("current-user")).to_have_text(f"{ADMIN_USER}(admin)")
@@ -406,14 +434,7 @@ def test_T2_event_stream_recovers_when_the_controller_restarts(
     assert watch.page_errors == [] and watch.csp_violations() == []
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason="T-3 (minor, race): navigating away while the first /v1/events/ws "
-    "handshake is in flight makes the controller log 'Exception in ASGI application' "
-    "(RuntimeError: Expected ASGI message websocket.accept ... got websocket.send); "
-    "a client abort must not be an error traceback. Seen 2/2 in the keyboard flow.",
-)
-def test_T3_aborting_the_event_stream_handshake_leaves_no_controller_traceback(
+def test_T3_aborting_the_event_stream_handshake_leaves_no_controller_traceback(  # noqa: N802 - tester r1 test data / T-id name
     fabric: Fabric, dashboard_browser: Browser
 ) -> None:
     for _ in range(3):

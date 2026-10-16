@@ -209,6 +209,34 @@ describe("EventStreamClient", () => {
     expect(u.sockets).toHaveLength(1);
   });
 
+  it("a resync mid-stream is a control frame: onResync, new position, no event (T-1)", () => {
+    const t = setup();
+    t.client.start();
+    t.last().open();
+    t.last().send({ type: "hello", epoch: "e1", seq: 5, resumed: false });
+    t.last().send({ seq: 6, type: "job.state", at: 0, data: {} });
+    t.last().send({ type: "resync", epoch: "e1", seq: 120, reason: "ring" });
+    expect(t.resyncs).toEqual(["ring"]);
+    expect([t.client.epoch, t.client.seq]).toEqual(["e1", 120]);
+    t.last().send({ seq: 121, type: "job.state", at: 0, data: {} });
+    expect(t.events.map((e) => e.seq)).toEqual([6, 121]);
+    expect(t.events.map((e) => e.type)).not.toContain("resync");
+  });
+
+  it("a hello mid-stream: same epoch is ignored, a new epoch is a resync (T-1)", () => {
+    const t = setup();
+    t.client.start();
+    t.last().open();
+    t.last().send({ type: "hello", epoch: "e1", seq: 5, resumed: false });
+    t.last().send({ type: "hello", epoch: "e1", seq: 99, resumed: false });
+    expect(t.resyncs).toEqual([]);
+    expect(t.client.seq).toBe(5);
+    t.last().send({ type: "hello", epoch: "e2", seq: 3, resumed: false });
+    expect(t.resyncs).toEqual(["epoch"]);
+    expect([t.client.epoch, t.client.seq]).toEqual(["e2", 3]);
+    expect(t.events).toEqual([]);
+  });
+
   it("ignores a first frame that is not hello/resync", () => {
     const t = setup();
     t.client.start();

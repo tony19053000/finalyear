@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from mf_postgres import pg_settings, postgres_server  # noqa: F401
@@ -32,7 +32,7 @@ pytest.importorskip(
 
 if TYPE_CHECKING:
     from mf_cluster import Fabric
-    from playwright.sync_api import Browser, BrowserType
+    from playwright.sync_api import Browser, BrowserType, Playwright
 
     from meshforge.controller.store.settings import DatabaseSettings
 
@@ -52,7 +52,31 @@ def dashboard_dist() -> Path:
     return DIST
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
+def playwright() -> Iterator[Playwright]:
+    """pytest-playwright's ``playwright`` fixture, narrowed to module scope.
+
+    The sync API keeps an event loop running in the main thread while it is
+    started; with the plugin's session scope it stayed up after the e2e tests
+    and every later ``asyncio`` test in the same run failed (fix round 1).
+    Stopped at the end of each e2e module, the loop never leaks out of this
+    directory. (Tracing via ``--tracing`` is not wired here.)
+    """
+    from playwright.sync_api import sync_playwright
+
+    started = sync_playwright().start()
+    try:
+        yield started
+    finally:
+        started.stop()
+
+
+@pytest.fixture(scope="module")
+def browser_type(playwright: Playwright, browser_name: str) -> BrowserType:
+    return getattr(playwright, browser_name)  # type: ignore[no-any-return]
+
+
+@pytest.fixture(scope="module")
 def chromium_installed(browser_type: BrowserType) -> None:
     if not Path(browser_type.executable_path).exists():
         pytest.skip(
@@ -68,10 +92,22 @@ def _trust_the_test_fabric(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture
+def fabric_options() -> dict[str, Any]:
+    """Extra :class:`mf_cluster.Fabric` arguments; a test overrides it with
+    ``@pytest.mark.parametrize("fabric_options", [{...}])``. A controller
+    restart needs ``record_links=True``: the REST port then sits behind a
+    stable proxy address, as a real controller keeps its configured port (the
+    harness otherwise restarts it on a new ephemeral port, which no browser
+    page could follow)."""
+    return {}
+
+
+@pytest.fixture
 def fabric(
     pg_settings: DatabaseSettings,  # noqa: F811 - the imported fixture
     tmp_path: Path,
     dashboard_dist: Path,
+    fabric_options: dict[str, Any],
 ) -> Iterator[Fabric]:
     pytest.importorskip("psutil", reason="the cluster harness needs the agent extra")
     pytest.importorskip(
@@ -79,7 +115,7 @@ def fabric(
     )
     from mf_cluster import Fabric
 
-    made = Fabric(pg_settings, tmp_path / "fabric", agents=1)
+    made = Fabric(pg_settings, tmp_path / "fabric", agents=1, **fabric_options)
     try:
         made.start()
         yield made

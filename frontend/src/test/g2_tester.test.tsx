@@ -567,7 +567,7 @@ describe("T: event stream edge cases", () => {
   // T-1 (minor): control frames (hello/resync) after the greeting are treated as ordinary
   // events (advance seq, reach onEvent; a mid-stream resync would never call onResync).
   // The server today only sends them first, so this is defence in depth.
-  it.fails("T-1: a second 'hello'/'resync' frame mid-stream is not delivered as an app event", () => {
+  it("T-1: a second 'hello'/'resync' frame mid-stream is not delivered as an app event", () => {
     const t = stream();
     t.client.start();
     t.last().hello("E", 5);
@@ -621,7 +621,7 @@ describe("T: event stream edge cases", () => {
 /* ------------------------------------------------------------ T-2: transient session-check failure */
 
 describe("T: a failed session re-check while signed in must not tear down the shell", () => {
-  it.fails("T-2 (major): network error on the session refetch keeps the shell (and its event stream) mounted", async () => {
+  it("T-2 (major): network error on the session refetch keeps the shell (and its event stream) mounted", async () => {
     const { queryKeys } = await import("../api/queryKeys");
     const session = {
       user: { id: "u", name: "alice", role: "admin" },
