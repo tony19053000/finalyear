@@ -56,6 +56,39 @@ def test_a_chunk_over_the_limit_fails_and_says_what_to_do(tmp_path: Path) -> Non
     assert "React.lazy" in done.stderr
 
 
+QR_DEAD = 'createTableTag:function(){let n=``;n+=`<table style="`;n+=`<td style="`}'
+
+
+def _dist_js(tmp: Path, js: str) -> Path:
+    (tmp / "assets").mkdir()
+    (tmp / "index.html").write_text(HTML)
+    (tmp / "assets" / "a.js").write_text(js)
+    return tmp
+
+
+def test_the_qr_librarys_dead_table_builder_is_the_only_exception(
+    tmp_path: Path,
+) -> None:
+    """D199: qrcode-generator's never-called HTML builders are ignored."""
+    done = _run(_dist_js(tmp_path, QR_DEAD))
+    assert done.returncode == 0, done.stderr
+
+
+@pytest.mark.parametrize(
+    "js",
+    [
+        # the same literal without the library around it
+        'n+=`<table style="`',
+        # the library present, but some other inline style
+        QR_DEAD + 'x.innerHTML=`<div style="color:red">`',
+        QR_DEAD + "el.setAttribute('style','x')",
+    ],
+)
+def test_anything_else_with_style_still_fails(tmp_path: Path, js: str) -> None:
+    done = _run(_dist_js(tmp_path, js))
+    assert done.returncode == 1, done.stdout
+
+
 def test_the_app_routes_are_lazy() -> None:
     """Every page behind the shell is a dynamic import (one chunk per route)."""
     app = (FRONTEND / "src" / "app" / "App.tsx").read_text(encoding="utf-8")

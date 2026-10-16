@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { useLogout, useNodes, useSession } from "../api/hooks";
@@ -71,6 +71,10 @@ export function Header({ streamStatus, onSigningOut }: HeaderProps) {
   const toast = useToast();
   const stream = STREAM[streamStatus];
   const user = session.data?.user;
+  // One sign-out per click burst: TanStack publishes `isPending` on its next
+  // tick, so a double click could reach `mutate` twice before the button is
+  // disabled (V0.8 G5: G2 tester's "double-click sends one DELETE" flaked).
+  const signingOut = useRef(false);
 
   return (
     <header className="flex h-12 shrink-0 items-center justify-between gap-4 border-b border-border bg-surface px-6">
@@ -93,6 +97,8 @@ export function Header({ streamStatus, onSigningOut }: HeaderProps) {
           size="sm"
           loading={logout.isPending}
           onClick={() => {
+            if (signingOut.current) return;
+            signingOut.current = true;
             onSigningOut?.();
             logout.mutate(undefined, {
               onSettled: (_data, error) => {

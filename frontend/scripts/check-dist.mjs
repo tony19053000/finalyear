@@ -54,6 +54,24 @@ if (!files.some((f) => f.endsWith("index.html"))) {
 /** Largest JavaScript chunk allowed (bytes, as Vite reports kB = 1000 B). */
 const MAX_CHUNK_BYTES = 350 * 1000;
 
+/*
+ * One known, dead exception (V0.8 G5, D199): `qrcode-generator` ships HTML
+ * builders (`createTableTag`) that write `<table style="` / `<td style="`.
+ * The dashboard never calls them - components/QrCode.tsx draws its own SVG
+ * path from `isDark()` - so these exact two literals are ignored, and only in
+ * a chunk that holds that library. Any other `style="` still fails, and the
+ * e2e CSP watch would catch the builders if they ever ran.
+ */
+const QR_LIBRARY_MARKER = "createTableTag";
+const QR_LIBRARY_DEAD_LITERALS = ["`<table style=\"`", "`<td style=\"`", "'<table style=\"'", "'<td style=\"'"];
+
+function withoutKnownDeadCode(file, text) {
+  if (!/\.(js|mjs)$/.test(file) || !text.includes(QR_LIBRARY_MARKER)) return text;
+  let out = text;
+  for (const literal of QR_LIBRARY_DEAD_LITERALS) out = out.split(literal).join("");
+  return out;
+}
+
 const findings = [];
 for (const file of files) {
   if (/\.(js|mjs)$/.test(file)) {
@@ -64,7 +82,8 @@ for (const file of files) {
       );
     }
   }
-  const text = /\.(html|css|js|mjs)$/.test(file) ? readFileSync(file, "utf8") : null;
+  const raw = /\.(html|css|js|mjs)$/.test(file) ? readFileSync(file, "utf8") : null;
+  const text = raw === null ? null : withoutKnownDeadCode(file, raw);
   if (text === null) continue;
   for (const [ext, rule, message] of RULES) {
     if (!ext.test(file)) continue;

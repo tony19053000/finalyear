@@ -282,18 +282,20 @@ describe("shell", () => {
 });
 
 /**
- * Fake-time stand-in for `waitFor`: advance the fake clock in small steps until
- * `check` passes. With real time out of the picture (no `shouldAdvanceTime`)
- * and the backoff jitter fixed, every timer fires at the same point on every
- * run, however loaded the machine is (V0.8 G5 item 0h, D197).
+ * Fake-time stand-in for `waitFor`: flush promises and due timers, advancing
+ * the fake clock by `stepMs` per round (0 = never move the clock: wait for
+ * promise work only), until `check` passes. Real time is out of the picture
+ * (no `shouldAdvanceTime`) and the backoff jitter is fixed, so the stream's
+ * timers fire at the same fake instant on every run, however loaded the
+ * machine is (V0.8 G5 item 0h, D197).
  */
-async function untilFake(check: () => void, stepMs = 10, maxMs = 30_000): Promise<void> {
-  for (let waited = 0; ; waited += stepMs) {
+async function untilFake(check: () => void, stepMs: number, maxRounds = 3_000): Promise<void> {
+  for (let round = 0; ; round += 1) {
     try {
       check();
       return;
     } catch (error) {
-      if (waited >= maxMs) throw error;
+      if (round >= maxRounds) throw error;
     }
     await vi.advanceTimersByTimeAsync(stepMs);
   }
@@ -333,7 +335,7 @@ describe("controller restart (T-2)", () => {
       await vi.advanceTimersByTimeAsync(50);
       await untilFake(() => {
         expect(app.queryClient.getQueryState(["session"])?.status).toBe("error");
-      });
+      }, 0);
       expect(screen.queryByText("Cannot reach the controller")).toBeNull();
       expect(screen.getByTestId("current-user").textContent).toBe("alice(admin)");
       expect(screen.getByTestId("stream-status").dataset.status).toBe("reconnecting");
@@ -342,17 +344,17 @@ describe("controller restart (T-2)", () => {
       down = false;
       // Sockets so far: the first one and the refused handshake.
       const beforeRestart = 2;
-      expect(app.sockets.length).toBe(beforeRestart); // no real time ran a timer
+      expect(app.sockets.length).toBe(beforeRestart); // the fake clock has not reached the backoff
       await vi.advanceTimersByTimeAsync(20_000);
       expect(app.sockets.length).toBeGreaterThan(beforeRestart);
       app.socket().onopen?.(new Event("open"));
       app.socket().send({ type: "resync", epoch: "e2", seq: 1, reason: "epoch" });
       await untilFake(() => {
         expect(screen.getByTestId("stream-status").dataset.status).toBe("live");
-      });
+      }, 10);
       await untilFake(() => {
         expect(app.queryClient.getQueryState(["session"])?.status).toBe("success");
-      });
+      }, 10);
     } finally {
       vi.useRealTimers();
     }
