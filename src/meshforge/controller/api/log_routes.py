@@ -350,7 +350,8 @@ async def follow_logs(
         if streams is not None and handle is not None:
             streams.close(handle)
     if websocket.application_state is WebSocketState.CONNECTED:
-        with contextlib.suppress(RuntimeError):
+        # The browser may close first once it has read the final frame (D196).
+        with contextlib.suppress(RuntimeError, WebSocketDisconnect):
             await websocket.close(code=1000)
 
 
