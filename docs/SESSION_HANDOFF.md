@@ -265,6 +265,8 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
+**2026-10-16 (evening) — team: PARALLEL agents allowed again (independent work, worktrees). G3 implementer started in a worktree in parallel with the component gate.**
+
 **2026-10-16 (resumed) — G2 tester r2 PASS `90b4b27`, reviewer APPROVE, merged `96620ee`. G6 reviewer APPROVE, merged `d2ac586`. D191 records non-blocking → G3 item 0. RUNNING: whole `-m component` once on merged main (covers G2+G6; log in session scratchpad). If the session died: re-run `uv run python scripts/pytest_exit_guard.py -m component -q` on main; green → close G2/G6 (roadmap 0.8.1/0.8.2/0.8.8 per brief §3, STATUS bar) → write G3 brief.**
 
 **2026-10-16 (session end, team asked to stop) — NOTHING RUNNING. ONE subagent at a time, fast mode off.**
