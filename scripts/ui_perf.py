@@ -70,6 +70,9 @@ THRESHOLDS_MS: Final[dict[str, float]] = {
     "job_state_latency_p95": 2000.0,
 }
 TERMINAL: Final = frozenset({"succeeded", "failed", "cancelled"})
+#: Cancelled jobs added to the run history so a state filter has two
+#: non-empty answers to switch between (succeeded <-> cancelled).
+MIXED_CANCELLED: Final = 20
 JOB_ROW: Final = 'table tbody tr a[href^="/jobs/job_"]'
 
 
@@ -251,20 +254,20 @@ class JobStream(threading.Thread):
         self.api, self.tree_id, self.interval_s = api, tree_id, interval_s
         self.ids: list[str] = []
         self.errors: list[str] = []
-        self._stop = threading.Event()
+        self._halt = threading.Event()
 
     def run(self) -> None:
         n = 0
-        while not self._stop.is_set():
+        while not self._halt.is_set():
             try:
                 self.ids.append(self.api.submit(self.tree_id, f"stream-{n:04d}"))
             except Exception as exc:  # noqa: BLE001 - reported, the stream goes on
                 self.errors.append(str(exc))
             n += 1
-            self._stop.wait(self.interval_s)
+            self._halt.wait(self.interval_s)
 
     def stop(self) -> None:
-        self._stop.set()
+        self._halt.set()
         self.join(timeout=30)
 
 
@@ -452,6 +455,8 @@ def measure_list(
     }
 
     # 5. a filter change (server query) -> the table shows only that state.
+    #    Both states must exist (the seed adds MIXED_CANCELLED cancelled jobs):
+    #    an empty answer would time an empty table, not a filtered list.
     page.goto(base + "/jobs")
     expect(page.locator(JOB_ROW).first).to_be_visible()
     filters: list[float] = []
@@ -742,6 +747,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             if not args.skip_seed:
                 seeds["history"] = dataclasses.asdict(
                     seed_history(api, tree_id, args.history)
+                )
+                seeds["mixed"] = dataclasses.asdict(
+                    seed_bulk(api, tree_id, MIXED_CANCELLED)
                 )
             phases["history"] = run(
                 browser, api, base=base, user=args.user, password=password,

@@ -65,7 +65,9 @@ def _mutations(page: Page) -> list[str]:
     return seen
 
 
-def _push_dataset(fabric: Fabric, tmp_path: Path, name: str, files: int = 2) -> dict[str, Any]:
+def _push_dataset(
+    fabric: Fabric, tmp_path: Path, name: str, files: int = 2
+) -> dict[str, Any]:
     root = tmp_path / f"ds-{name}"
     root.mkdir()
     for i in range(files):

@@ -112,6 +112,9 @@ def test_dashboard_stays_responsive_at_4x100_history_and_10k_jobs(
         history = ui_perf.seed_history(api, tree_id, HISTORY_PER_NODE)
         seeds["history"] = dataclasses.asdict(history)
         assert history.states == {"succeeded": NODES * HISTORY_PER_NODE}, history
+        seeds["mixed"] = dataclasses.asdict(
+            ui_perf.seed_bulk(api, tree_id, ui_perf.MIXED_CANCELLED)
+        )
         phases["4x100"] = measure(with_events=True)
         seeds["bulk"] = dataclasses.asdict(ui_perf.seed_bulk(api, tree_id, BULK))
         phases["10k"] = measure(with_events=True)
