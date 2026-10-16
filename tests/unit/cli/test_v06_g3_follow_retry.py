@@ -7,7 +7,7 @@ from __future__ import annotations
 import base64
 import io
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Generator
 from typing import Any
 
 import pytest
@@ -22,6 +22,13 @@ class FakeWs:
 
     def __init__(self, frames: list[dict[str, Any]]) -> None:
         self.frames = frames
+
+    def __await__(self) -> Generator[Any, None, FakeWs]:
+        # Like the real ``connect``: awaiting it opens the connection.
+        async def opened() -> FakeWs:
+            return self
+
+        return opened().__await__()
 
     async def __aenter__(self) -> FakeWs:
         return self

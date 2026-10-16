@@ -343,7 +343,14 @@ def _follow_to_exit(client: Any, job_id: str, timeout_s: float) -> None:
         )
         raise typer.Exit(CliExit.INTERRUPTED) from None
     except ControllerError as exc:
-        cli._die(exc.message, exit_code_for(exc))
+        # The job was submitted: losing (or never getting) its log stream does
+        # not stop it, and the exit code is ours, not the job's.
+        render.fail(exc.message)
+        render.note(
+            f"{job_id} was submitted and keeps running - follow it with "
+            f"`compute logs -f {job_id}`, or cancel it with `compute cancel {job_id}`"
+        )
+        raise typer.Exit(exit_code_for(exc)) from None
     state = str(end.get("state"))
     failure = end.get("failure_type")
     code = job_exit_code(
