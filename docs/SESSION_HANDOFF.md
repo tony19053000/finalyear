@@ -263,7 +263,7 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
-**2026-10-16 (new session, parallel ON per team, D201) — RUNNING in parallel: (a) stabilisation implementer (backend flakes D200/D156, progress docs/briefs/progress/V0.8-stabilise-flakes.md in its worktree) → then tester → reviewer → merge; (b) G5 implementer (brief §5e) in an agent worktree (see `git worktree list`, newest `agent-*`; progress docs/briefs/progress/V0.8-G5.md there). If died: relaunch with §5e, resume from the progress file; then tester r1 → reviewer → merge → whole component once → close 0.8.6 → G7 (brief §5g, written).**
+**2026-10-16 (new session, parallel ON per team, D201) — RUNNING in parallel: (a) stabilisation lane: implementer DONE (branch worktree-agent-a3fcd03f304b9d8ea, `fd443a1`; progress docs/briefs/progress/V0.8-stabilise-flakes.md there); tester r1 RUNNING in that worktree → then → reviewer → merge; (b) G5 implementer (brief §5e) in an agent worktree (see `git worktree list`, newest `agent-*`; progress docs/briefs/progress/V0.8-G5.md there). If died: relaunch with §5e, resume from the progress file; then tester r1 → reviewer → merge → whole component once → close 0.8.6 → G7 (brief §5g, written).**
 
 **2026-10-16 (session end — team asked to stop) — NOTHING RUNNING. G5 implementer was stopped seconds after launch with no changes; its worktree was auto-removed. G5 has NOT started. Main is clean at this commit; G3+G4 closed (D200). Next: launch G5 implementer with brief §5e.**
 
