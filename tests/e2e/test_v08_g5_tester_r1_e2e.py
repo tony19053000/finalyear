@@ -65,7 +65,7 @@ def _mutations(page: Page) -> list[str]:
     return seen
 
 
-def _push_dataset(fabric: Fabric, tmp_path: Path, name: str, files: int = 2) -> dict:
+def _push_dataset(fabric: Fabric, tmp_path: Path, name: str, files: int = 2) -> dict[str, Any]:
     root = tmp_path / f"ds-{name}"
     root.mkdir()
     for i in range(files):
@@ -183,6 +183,7 @@ def test_revoked_token_is_401_everywhere_and_closes_its_live_stream(
     bearer = {"authorization": f"Bearer {token}"}
     ws_url = fabric.http_base.replace("https://", "wss://") + "/v1/events/ws"
     paths = ["/v1/auth/whoami", "/v1/nodes", "/v1/jobs", "/v1/secrets", "/v1/data"]
+    assert fabric.ssl_context is not None
     with httpx.Client(verify=fabric.ssl_context, timeout=10) as http:
         for p in paths:
             assert http.get(fabric.http_base + p, headers=bearer).status_code == 200, p
@@ -235,6 +236,13 @@ def test_revoking_own_session_signs_the_browser_out_for_real(
     fabric: Fabric, new_page: NewPage
 ) -> None:
     page, watch = new_page()
+    # Revoking the session this page runs on: the reads in flight at that
+    # moment are refused (401) before the page shows the sign-in form. The
+    # watch judges each console line as it arrives, so say it up front.
+    watch.allow("status of 401", "/v1/auth/whoami")
+    watch.allow("status of 401", "/v1/auth/tokens")
+    watch.allow("status of 401", "/v1/nodes")
+    watch.allow("status of 401", "/v1/overview")
     sign_in(page, fabric, NORMAL_USER)
     # a second tab of the same session
     other = page.context.new_page()
@@ -255,16 +263,13 @@ def test_revoking_own_session_signs_the_browser_out_for_real(
     expect(other.get_by_label("User name")).to_be_visible(timeout=20_000)
     # And the cookie really is dead server-side.
     cookies = {c["name"]: c["value"] for c in page.context.cookies()}
+    assert fabric.ssl_context is not None
     r = httpx.get(
         fabric.http_base + "/v1/auth/whoami",
         cookies={k: v for k, v in cookies.items() if k.startswith("mf_")},
         verify=fabric.ssl_context,
     )
     assert r.status_code == 401
-    watch.allow("status of 401", "/v1/auth/whoami")
-    watch.allow("status of 401", "/v1/auth/tokens")
-    watch.allow("status of 401", "/v1/nodes")
-    watch.allow("status of 401", "/v1/overview")
     assert not watch.page_errors, watch.page_errors
 
 
@@ -596,6 +601,7 @@ def test_displayed_tokens_invites_and_controller_card_match_the_endpoints(
     )
     page.goto(fabric.http_base + "/settings")
     health = fabric.get("/healthz")
+    assert health is not None
     card = page.get_by_test_id("controller-card")
     expect(card).to_contain_text(str(health["status"]))
     who = fabric.call("GET", "/v1/auth/whoami").json()

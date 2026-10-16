@@ -189,6 +189,7 @@ def test_a_browser_made_token_works_until_revoked_in_the_browser(
     assert fabric.password(ADMIN_USER) not in (page.content() or "")
 
     bearer = {"authorization": f"Bearer {token}"}
+    assert fabric.ssl_context is not None
     with httpx.Client(verify=fabric.ssl_context, timeout=10) as http:
         who = http.get(fabric.http_base + "/v1/auth/whoami", headers=bearer)
         assert who.status_code == 200, who.text

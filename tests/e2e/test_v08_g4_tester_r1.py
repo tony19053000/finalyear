@@ -53,6 +53,11 @@ def _tree(fabric: Fabric, root: Path) -> str:
     return put_tree(fabric, project)
 
 
+# One agent, as when this test was written (the harness ran one before G7):
+# the admin's job holds it, so alice's job is still queued when the admin
+# cancels it, and a queued job is cancelled at once - which the test asserts.
+# With 2 agents alice's job is already `preparing` there and cancel is async.
+@pytest.mark.parametrize("fabric_options", [{**EXEC_OPTIONS, "agents": 1}])
 def test_cancel_authz_user_vs_admin_v08_g4_tester_r1(
     fabric: Fabric, tmp_path: Path
 ) -> None:
@@ -270,8 +275,10 @@ def test_axe_on_empty_list_missing_job_and_submit_errors_v08_g4_tester_r1(
     fabric: Fabric, new_page: NewPage, tmp_path: Path
 ) -> None:
     page, watch = new_page()
-    watch.allow("status of 404", "/v1/jobs/")
-    watch.allow("status of 400", "/v1/jobs/")
+    # The missing job's read is a 404 (Chromium logs it). Before G7 this
+    # allowance named the suffix "/v1/jobs/", which no URL ends with, and the
+    # test never checked the watch; the shared guard now does.
+    watch.allow("status of 404", "/v1/jobs/job_00000000000000000000000000")
     sign_in(page, fabric, NORMAL_USER)
     page.goto(fabric.http_base + "/jobs")
     expect(page.get_by_role("heading", name="No jobs yet")).to_be_visible()
