@@ -8,9 +8,8 @@
 >
 > ```
 > Read docs/SESSION_HANDOFF.md §1, then docs/STATUS.md, then docs/briefs/V0.8-dashboard-cli.md (§5e, D195-D200).
-> Parallel agents allowed. Continue V0.8 G5: check the G5 implementer worktree + its progress file
-> (docs/briefs/progress/V0.8-G5.md) → finish/resume it → tester r1 → reviewer → merge → whole component once
-> → close 0.8.6 + status bar → G7 brief.
+> Parallel agents allowed. Continue V0.8: launch the G5 implementer (brief §5e, worktree; G5 has NOT started)
+> → tester r1 → reviewer → merge → whole component once → close 0.8.6 + status bar → G7 brief.
 > ```
 >
 > Order of truth: `PROJECT_BRIEF → ARCHITECTURE → ROADMAP → STATUS → this file`. If this file
@@ -263,6 +262,8 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 - Commits: keep using `git commit -- <paths>` even with one agent — the Lead also commits docs.
 
 ## 1. Where the project is
+
+**2026-10-16 (session end — team asked to stop) — NOTHING RUNNING. G5 implementer was stopped seconds after launch with no changes; its worktree was auto-removed. G5 has NOT started. Main is clean at this commit; G3+G4 closed (D200). Next: launch G5 implementer with brief §5e.**
 
 **2026-10-16 (evening) — G3 + G4 CLOSED (D200): gate 2220 passed / 1 pre-existing intermittent V0.5 test (Known Bugs). 0.8.3/0.8.4/0.8.5/0.8.7 `[x]`, status bar refreshed. RUNNING: G5 implementer (brief §5e) in worktree `.claude/worktrees/agent-a5672c5809a990ceb` (branch `worktree-agent-a5672c5809a990ceb`; progress docs/briefs/progress/V0.8-G5.md in that worktree). If died: relaunch with §5e, resume from the progress file; then tester r1 → reviewer → merge → whole component once → close 0.8.6.**
 
