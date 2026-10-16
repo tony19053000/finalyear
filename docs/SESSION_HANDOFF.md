@@ -263,6 +263,8 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
+**2026-10-16 (late) — RUNNING in parallel: G3 implementer (exit list + hand-off, worktree agent-ae15d…) and G4 implementer (same, worktree agent-adfe0…). D193 answers Q-G4-1/2 (no new deps). If died: check "## Hand-off" in progress/V0.8-G3.md / V0.8-G4.md; relaunch for whatever is missing; then tester r1 → reviewer per group → merge G3, then G4 (EVENT_APPLIERS = [applyEvent, applyJobEvent]) → whole component once.**
+
 **2026-10-16 (night, session end — team asked to stop) — NOTHING RUNNING. Parallel agents ALLOWED (team, 2026-10-16 evening; confirm at session start). G2 + G6 CLOSED (D192).**
 - **G3** (Overview + Nodes, brief §5c) branch `worktree-agent-ae15d430443abfb84`, worktree `.claude/worktrees/agent-ae15d430443abfb84`: item 0 (D191 a–e) `1502537`, item 1 GET /v1/alerts `9e2b332`, pages + live patching `fee4a1e`, vitest + e2e `c72b35c`, wip `progress + browser_session test` (last). Implementer was STOPPED while starting its exit list (unit tier + touched component/drift). Next: resume implementer for the exit list + hand-off note only → tester r1 → reviewer.
 - **G4** (Jobs, brief §5d) branch `worktree-agent-adfe02d5c6bab08ed`: `7211007`, `beb5578`, progress `eb7f091` (applyJobEvent wiring note), e2e `c4a4f4e`, `38cb493`. Clean tree. STOPPED before updating progress + exit list. Next: resume implementer (progress file + exit list + hand-off; check its dependency question in progress) → tester r1 → reviewer.
