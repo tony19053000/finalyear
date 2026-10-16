@@ -287,6 +287,56 @@ def test_keyboard_only_submit_and_cancel_a_running_job(
     watch.assert_clean()
 
 
+@pytest.mark.docker
+def test_an_interrupted_upload_resumes_after_a_reload(
+    fabric: Fabric, dashboard_browser: Browser, tmp_path: Path
+) -> None:
+    """D177: a large file goes up in verified 8 MiB parts; the network dies at
+    part 2, the user reloads and picks the folder again - parts 0 and 1 are
+    not sent twice (the server's per-uploader part status says they arrived)."""
+    project = _project(tmp_path, lines=1, pause_s=0)
+    data = hashlib.sha256(b"seed").digest() * (
+        40 * 1024 * 1024 // 32
+    )  # 40 MiB, 5 parts
+    (project / "data" / "weights.bin").write_bytes(data)
+    page, watch = _page(dashboard_browser)
+    watch.allow("ERR_FAILED", "/parts/2")  # the aborted part (this test's fault)
+    # GET .../parts answers 404 "no part upload in progress" for a fresh large
+    # file - the documented answer (blob_routes.part_status), which Chromium
+    # logs like any 4xx. Backend follow-up in the G4 progress file: answer 200
+    # {received: []} instead, then drop this allowance.
+    watch.allow("status of 404", "/parts")
+    _login(page, fabric)
+    page.goto(fabric.http_base + "/jobs/new")
+    page.route("**/parts/2", lambda route: route.abort())
+    page.get_by_label("Project folder").set_input_files(project)
+    expect(page.get_by_label("Project summary")).to_contain_text("browser-proj")
+    page.get_by_role("button", name="Upload and submit").click()
+    alert = page.get_by_role("alert")
+    expect(alert).to_contain_text("The upload stopped", timeout=30_000)
+
+    page.unroute("**/parts/2")
+    page.reload()
+    sent: list[str] = []
+    page.on(
+        "request",
+        lambda r: (
+            sent.append(r.url.rsplit("/", 1)[-1])
+            if r.method == "PUT" and "/parts/" in r.url
+            else None
+        ),
+    )
+    page.get_by_label("Project folder").set_input_files(project)
+    expect(page.get_by_label("Project summary")).to_contain_text("browser-proj")
+    page.get_by_role("button", name="Upload and submit").click()
+    expect(page).to_have_url(JOB_URL)
+    assert sorted(sent) == ["2", "3", "4"], sent
+    match = JOB_URL.search(page.url)
+    assert match is not None
+    _wait_state(fabric, match.group(1), {"succeeded"}, 60)
+    watch.assert_clean()
+
+
 def _tiny_tree(fabric: Fabric, root: Path) -> str:
     project = root / "tiny"
     project.mkdir()
