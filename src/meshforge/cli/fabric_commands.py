@@ -25,8 +25,8 @@ from typing import Annotated, Any
 
 import typer
 
-from meshforge.cli import app as cli
 from meshforge.cli import render
+from meshforge.cli import shared as cli
 from meshforge.cli.exits import CliExit
 from meshforge.common.errors import MeshForgeError
 

@@ -41,27 +41,19 @@ Shell completion: ``compute --install-completion`` / ``--show-completion``
 from __future__ import annotations
 
 import os
-import ssl
 import sys
 import time
 from collections.abc import Callable, Mapping
-from contextvars import ContextVar
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any, NoReturn
+from typing import Annotated, Any
 
 import typer
-from rich.console import Console
 
 from meshforge import __version__
 from meshforge.cli import render
+from meshforge.cli import shared as cli
 from meshforge.cli.completion import use_safe_installers
 from meshforge.cli.exits import CliExit
-from meshforge.cli.settings import CliSettings
-from meshforge.common.errors import ConfigError
-
-if TYPE_CHECKING:  # `meshforge.cli.client` pulls in httpx - see `_client` below.
-    from meshforge.cli.client import ControllerClient
-    from meshforge.cli.credentials import StoredLogin
 
 PROG_NAME = render.PROG_NAME
 
@@ -78,154 +70,6 @@ app = typer.Typer(
     pretty_exceptions_enable=False,
     pretty_exceptions_show_locals=False,
 )
-
-JsonOption = Annotated[
-    bool,
-    typer.Option(
-        "--json",
-        help=(
-            "Print the answer as one line of JSON with a schema_version "
-            "(for scripts; see docs/CLI.md)."
-        ),
-    ),
-]
-
-
-def _out() -> Console:
-    """The stdout console (:func:`meshforge.cli.render.console`)."""
-    return render.console()
-
-
-def _echo_json(payload: Mapping[str, Any]) -> None:
-    """``--json`` output (:func:`meshforge.cli.render.emit_json`)."""
-    render.emit_json(payload)
-
-
-def _die(message: str, code: int) -> NoReturn:
-    """One sanitised line on stderr, then exit with ``code`` (a :class:`CliExit`).
-    Never a traceback.
-
-    Deliberately a plain line and not a Rich console: a console would wrap the
-    line at the terminal width (turning a single error into several lines a
-    ``grep`` would miss). :func:`meshforge.cli.render.fail` flattens control
-    characters and scrubs anything token-shaped.
-    """
-    render.fail(message)
-    raise typer.Exit(code)
-
-
-def _settings() -> CliSettings:
-    """The CLI settings; with no ``controller_url`` configured, the controller
-    ``compute login`` last logged in to (V0.7 G4)."""
-    try:
-        settings = CliSettings.load()
-    except ConfigError as exc:
-        _die(exc.message, CliExit.CONFIG_ERROR)
-    if "controller_url" in settings.cli.model_fields_set:
-        return settings
-    stored = _load_stored(settings)
-    if stored is None or stored.controller_url == settings.cli.controller_url:
-        return settings
-    cli = settings.cli.model_copy(update={"controller_url": stored.controller_url})
-    return settings.model_copy(update={"cli": cli})
-
-
-def _load_stored(settings: CliSettings) -> StoredLogin | None:
-    from meshforge.cli.credentials import credentials_dir, load_login
-
-    try:
-        return load_login(credentials_dir(settings.cli.credentials_dir))
-    except ConfigError as exc:
-        _die(exc.message, CliExit.CONFIG_ERROR)
-
-
-def _stored_login(settings: CliSettings) -> StoredLogin | None:
-    """The stored login, only if it belongs to the controller being called."""
-    stored = _load_stored(settings)
-    if stored is None or stored.controller_url != settings.cli.controller_url:
-        return None
-    return stored
-
-
-_TOKEN_FILE: ContextVar[Path | None] = ContextVar("compute_token_file", default=None)
-"""``compute --token-file PATH`` for this invocation. Set by the root callback
-before any subcommand runs (a ContextVar rather than Typer's ``ctx.obj`` so that
-``_client(settings)`` keeps the one-argument signature the tests patch)."""
-
-
-_CA_FILE: ContextVar[Path | None] = ContextVar("compute_ca_file", default=None)
-"""``compute --ca PATH`` (V0.7 G3): the fabric CA certificate to trust."""
-
-
-def _token_file_option() -> Path | None:
-    return _TOKEN_FILE.get()
-
-
-def _client(settings: CliSettings) -> ControllerClient:
-    from meshforge.cli.client import ControllerClient
-    from meshforge.cli.settings import resolve_token
-
-    stored = _stored_login(settings)
-    try:
-        token = resolve_token(settings, _token_file_option(), stored=stored)
-    except ConfigError as exc:
-        _die(exc.message, CliExit.CONFIG_ERROR)
-    return ControllerClient(
-        settings.cli.controller_url,
-        timeout_s=settings.cli.timeout_s,
-        token=token,
-        ssl_context=_ssl_context(settings),
-    )
-
-
-def _ssl_context(settings: CliSettings) -> ssl.SSLContext | None:
-    """V0.7 G3 (D139): an ``https`` controller is verified against the fabric
-    CA (``--ca`` / ``[cli] ca_file`` / found locally) and must be the
-    controller (``meshforge-controller`` name), whatever address was typed."""
-    from meshforge.cli.settings import resolve_ca
-    from meshforge.common.fabric_tls import client_context
-
-    if not settings.cli.controller_url.startswith("https://"):
-        return None
-    try:
-        return client_context(
-            resolve_ca(settings, _CA_FILE.get(), stored=_stored_login(settings))
-        )
-    except ConfigError as exc:
-        _die(exc.message, CliExit.CONFIG_ERROR)
-
-
-def _fetch[T](call: Callable[[], T]) -> T:
-    """Run one request, turning every typed client failure into an exit."""
-    from meshforge.cli.client import ControllerError, exit_code_for
-
-    try:
-        return call()
-    except ControllerError as exc:
-        _die(exc.message, exit_code_for(exc))
-
-
-def _checked_node_id(value: str | None) -> str | None:
-    """A NODE_ID argument is validated here, before any request is built.
-
-    Without this, ``compute nodes ../healthz`` becomes ``GET /v1/healthz`` (httpx
-    collapses the dot segments) and renders a row of dashes, and
-    ``compute nodes 'x?limit=9'`` silently sends a query string. Both are usage
-    errors, so they exit ``USAGE_ERROR`` rather than reaching the controller. The
-    offending value is not echoed: it is argv, and argv reaches a terminal.
-    """
-    from meshforge.common.errors import InvalidIdError
-    from meshforge.common.ids import validate_node_id
-
-    if value is None:
-        return None
-    try:
-        return str(validate_node_id(value))
-    except InvalidIdError:
-        _die(
-            "NODE_ID is not a canonical node_<ULID>; run `compute nodes` to list them",
-            CliExit.USAGE_ERROR,
-        )
 
 
 def _version_callback(value: bool) -> None:
@@ -271,8 +115,8 @@ def _root(
     ] = None,
 ) -> None:
     """MeshForge compute fabric command-line tool."""
-    _TOKEN_FILE.set(token_file)
-    _CA_FILE.set(ca)
+    cli._TOKEN_FILE.set(token_file)
+    cli._CA_FILE.set(ca)
 
 
 @app.command()
@@ -284,7 +128,7 @@ def nodes(
             help="Show this node's detail instead of the list.",
         ),
     ] = None,
-    json_output: JsonOption = False,
+    json_output: cli.JsonOption = False,
     watch: Annotated[
         bool,
         typer.Option(
@@ -306,32 +150,32 @@ def nodes(
     """
     from meshforge.cli.render import node_detail_table, nodes_table, scores_table
 
-    checked = _checked_node_id(node_id)
-    settings = _settings()
-    with _client(settings) as client:
+    checked = cli._checked_node_id(node_id)
+    settings = cli._settings()
+    with cli._client(settings) as client:
         if checked is not None:
-            payload = _fetch(lambda: client.node(checked))
+            payload = cli._fetch(lambda: client.node(checked))
             if json_output:
-                _echo_json(payload)
+                cli._echo_json(payload)
             else:
                 render.show(node_detail_table(payload))
                 render.show(scores_table(payload))
             return
         if watch and not json_output:
             _watch(
-                lambda: nodes_table(_fetch(client.nodes)),
+                lambda: nodes_table(cli._fetch(client.nodes)),
                 interval_s=settings.cli.watch_interval_s,
             )
             return
-        payload = _fetch(client.nodes)
+        payload = cli._fetch(client.nodes)
         if json_output:
-            _echo_json(payload)
+            cli._echo_json(payload)
         else:
             render.show(nodes_table(payload))
 
 
 @app.command()
-def status(json_output: JsonOption = False) -> None:
+def status(json_output: cli.JsonOption = False) -> None:
     """Show where the controller is, whether it answers, and what it reports.
 
     Unlike the other commands this one **reports** unreachability instead of
@@ -341,13 +185,13 @@ def status(json_output: JsonOption = False) -> None:
     from meshforge.cli.client import ControllerError, exit_code_for
     from meshforge.cli.render import status_table
 
-    settings = _settings()
+    settings = cli._settings()
     url = settings.cli.controller_url
     health: Mapping[str, Any] = {}
     node_payload: Mapping[str, Any] | None = None
     detail: str | None = None
     code = CliExit.OK
-    with _client(settings) as client:
+    with cli._client(settings) as client:
         try:
             health = client.health()
             node_payload = client.nodes()
@@ -359,7 +203,7 @@ def status(json_output: JsonOption = False) -> None:
     reachable = code is not CliExit.UNAVAILABLE
 
     if json_output:
-        _echo_json(
+        cli._echo_json(
             {
                 "controller_url": url,
                 "reachable": reachable,
@@ -389,7 +233,7 @@ def _watch(render: Callable[[], Any], *, interval_s: float) -> None:
     one small table, and a full-screen alternate buffer is what makes a watch
     command leave a terminal in a strange state when it is killed.
     """
-    console = _out()
+    console = cli._out()
     try:
         while True:
             table = render()
@@ -410,7 +254,7 @@ DEBUG_ENV = "COMPUTE_DEBUG"
 def main() -> None:
     """Console-script entry point.
 
-    Every expected failure already exits through :func:`_die`. Anything else
+    Every expected failure already exits through :func:`meshforge.cli.shared._die`. Anything else
     escaping a command is a bug: it is reported as one line naming the
     exception type (not its text - it may hold a path or a value the user did
     not mean to share) and exits ``FAILURE``; ``COMPUTE_DEBUG=1`` re-raises it

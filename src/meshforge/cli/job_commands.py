@@ -2,9 +2,9 @@
 
 REST only (and the log WebSocket), like every ``compute`` command. The shared
 plumbing - settings, the client, ``_die``, ``_fetch`` - lives in
-:mod:`meshforge.cli.app` and is looked up there at call time (the tests patch
-``app._client``); ``app`` imports these functions at its end and registers them
-on the one Typer application.
+the leaf module :mod:`meshforge.cli.shared` and is looked up there at call time
+(the tests patch ``shared._client``); :mod:`meshforge.cli.app` imports these
+functions at its end and registers them on the one Typer application.
 
 ``compute run [PATH] [--node ID | --local] [--policy P] [--priority N] [-f]``
 (V0.6: without --node/--local the controller's planner places the job; this
@@ -46,9 +46,10 @@ from typing import TYPE_CHECKING, Annotated, Any
 
 import typer
 
-from meshforge.cli import app as cli
 from meshforge.cli import render
+from meshforge.cli import shared as cli
 from meshforge.cli.exits import CliExit
+from meshforge.common.errors import FailureType
 
 _WORD = re.compile(r"[a-z_]{1,32}")
 """A failure type / state name from the controller, printed as is; anything
@@ -320,6 +321,27 @@ def _key_ok(key: str) -> bool:
     return 1 <= len(key) <= 128 and all(32 < ord(c) < 127 for c in key)
 
 
+def _follow_failed_hint(job_id: str, failure_type: FailureType) -> str:
+    """The advice line after ``compute run -f`` lost (or never got) the log
+    stream of a job it did submit.
+
+    Usually: follow it again with ``compute logs -f``. Not when the controller
+    refused the login (UNAUTHORIZED, D202): ``compute logs -f`` would be refused
+    the same way, so the line says what happened, why, and to log in again -
+    with no ``logs -f`` suggestion that cannot work yet.
+    """
+    if failure_type is FailureType.UNAUTHORIZED:
+        return (
+            f"{job_id} was submitted and keeps running, but the controller refused "
+            "this login for its log stream (expired, revoked, or not allowed) - "
+            "log in again with `compute login`, then check on it with `compute jobs`"
+        )
+    return (
+        f"{job_id} was submitted and keeps running - follow it with "
+        f"`compute logs -f {job_id}`, or cancel it with `compute cancel {job_id}`"
+    )
+
+
 def _follow_to_exit(client: Any, job_id: str, timeout_s: float) -> None:
     from meshforge.cli.client import ControllerError, exit_code_for
     from meshforge.cli.follow import follow_logs, ws_url
@@ -346,10 +368,7 @@ def _follow_to_exit(client: Any, job_id: str, timeout_s: float) -> None:
         # The job was submitted: losing (or never getting) its log stream does
         # not stop it, and the exit code is ours, not the job's.
         render.fail(exc.message)
-        render.note(
-            f"{job_id} was submitted and keeps running - follow it with "
-            f"`compute logs -f {job_id}`, or cancel it with `compute cancel {job_id}`"
-        )
+        render.note(_follow_failed_hint(job_id, exc.failure_type))
         raise typer.Exit(exit_code_for(exc)) from None
     state = str(end.get("state"))
     failure = end.get("failure_type")

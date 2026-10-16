@@ -26,6 +26,7 @@ from typer.testing import CliRunner
 
 from meshforge.cli import app as cli_app
 from meshforge.cli import auth_commands
+from meshforge.cli import shared as cli_shared
 from meshforge.cli.client import ControllerClient
 from meshforge.cli.credentials import (
     CA_FILE_NAME,
@@ -157,13 +158,13 @@ def test_settings_follow_the_stored_controller_unless_one_is_configured(
     creds: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _save(creds, url=OTHER_URL)
-    assert cli_app._settings().cli.controller_url == OTHER_URL
-    assert cli_app._stored_login(cli_app._settings()) is not None
+    assert cli_shared._settings().cli.controller_url == OTHER_URL
+    assert cli_shared._stored_login(cli_shared._settings()) is not None
     monkeypatch.setenv("MESHFORGE_CLI__CONTROLLER_URL", URL)
-    settings = cli_app._settings()
+    settings = cli_shared._settings()
     assert settings.cli.controller_url == URL
     # The token of OTHER_URL is never sent to URL.
-    assert cli_app._stored_login(settings) is None
+    assert cli_shared._stored_login(settings) is None
 
 
 # ------------------------------------------------------------ commands
@@ -192,12 +193,12 @@ def transport(monkeypatch: pytest.MonkeyPatch) -> Iterator[Callable[[Handler], N
             return client
 
         def shared(settings: CliSettings) -> ControllerClient:
-            stored = cli_app._stored_login(settings)
+            stored = cli_shared._stored_login(settings)
             token = resolve_token(settings, stored=stored)
             return login_client(settings, settings.cli.controller_url, None, token)
 
         monkeypatch.setattr(auth_commands, "_client_for", login_client)
-        monkeypatch.setattr(cli_app, "_client", shared)
+        monkeypatch.setattr(cli_shared, "_client", shared)
 
     yield install
     for client in made:

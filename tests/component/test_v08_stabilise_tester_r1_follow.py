@@ -15,8 +15,6 @@ from collections.abc import Iterator
 import pytest
 import typer
 
-import meshforge.cli  # noqa: F401  (import app first: circular import otherwise)
-from meshforge.cli import app as _app  # noqa: F401
 from meshforge.cli import job_commands
 from meshforge.cli.client import ControllerError
 from meshforge.cli.exits import CliExit

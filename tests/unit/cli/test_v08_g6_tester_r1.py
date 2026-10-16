@@ -30,6 +30,7 @@ from typer.testing import CliRunner
 
 from meshforge.cli import app as cli_app
 from meshforge.cli import completion
+from meshforge.cli import shared as cli_shared
 
 pytestmark = pytest.mark.unit
 
@@ -959,7 +960,7 @@ def test_internal_error_line_has_no_secret_and_no_traceback(
         raise RuntimeError(f"oops {TOKEN}")
 
     monkeypatch.setattr(render, "emit_json", explode)
-    monkeypatch.setattr(cli_app, "_echo_json", explode, raising=False)
+    monkeypatch.setattr(cli_shared, "_echo_json", explode, raising=False)
     code, out, err = run_main(["jobs", "--json"], capsys, monkeypatch)
     assert code == 1
     assert TOKEN not in out + err and "Traceback" not in out + err

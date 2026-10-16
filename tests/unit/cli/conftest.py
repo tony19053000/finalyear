@@ -20,7 +20,7 @@ import pytest
 from mf_cli_support import Handler, TransportFactory
 from typer.testing import CliRunner
 
-from meshforge.cli import app as cli_app
+from meshforge.cli import shared as cli_shared
 from meshforge.cli.client import ControllerClient
 from meshforge.cli.settings import CliSettings
 
@@ -63,7 +63,7 @@ def controller(monkeypatch: pytest.MonkeyPatch) -> Iterator[TransportFactory]:
             installed.append(client)
             return client
 
-        monkeypatch.setattr(cli_app, "_client", factory)
+        monkeypatch.setattr(cli_shared, "_client", factory)
 
     yield install
     for client in installed:

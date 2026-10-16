@@ -62,7 +62,7 @@ def find_token() -> str | None:
     ``compute`` would (``compute login`` on this laptop, or
     ``MESHFORGE_CLI__TOKEN`` / ``[cli] token_file``); ``None`` when there is
     none (every REST read then answers 401 "run compute login")."""
-    from meshforge.cli import app as cli
+    from meshforge.cli import shared as cli
     from meshforge.cli.settings import resolve_token
 
     settings = cli._settings()
@@ -86,7 +86,7 @@ def fabric_ssl_context() -> ssl.SSLContext:
     ``compute`` does (``--ca`` / ``[cli] ca_file`` / the CA ``compute login``
     stored / the local enrolment / the local controller) and check its
     ``meshforge-controller`` name."""
-    from meshforge.cli import app as cli
+    from meshforge.cli import shared as cli
     from meshforge.cli.settings import resolve_ca
     from meshforge.common.fabric_tls import client_context
 

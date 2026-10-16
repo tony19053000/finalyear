@@ -23,8 +23,8 @@ from typing import Annotated
 
 import typer
 
-from meshforge.cli import app as cli
 from meshforge.cli import render
+from meshforge.cli import shared as cli
 from meshforge.cli.exits import CliExit
 from meshforge.common.private_files import PrivateFileError, read_bounded
 from meshforge.common.secret_names import (

@@ -23,6 +23,7 @@ from pydantic import SecretStr
 from typer.testing import CliRunner
 
 from meshforge.cli import app as cli_app
+from meshforge.cli import shared as cli_shared
 from meshforge.cli.client import ControllerClient, ControllerError
 from meshforge.cli.exits import CliExit, exit_code_for, job_exit_code
 from meshforge.cli.settings import CliSettings
@@ -149,7 +150,7 @@ def with_token(monkeypatch: pytest.MonkeyPatch) -> Callable[[Handler], None]:
             clients.append(client)
             return client
 
-        monkeypatch.setattr(cli_app, "_client", factory)
+        monkeypatch.setattr(cli_shared, "_client", factory)
 
     yield install  # type: ignore[misc]
     for client in clients:

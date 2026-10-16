@@ -27,8 +27,8 @@ from urllib.parse import urlsplit
 import typer
 from pydantic import SecretStr
 
-from meshforge.cli import app as cli
 from meshforge.cli import render
+from meshforge.cli import shared as cli
 from meshforge.cli.exits import CliExit
 from meshforge.common.errors import ConfigError, FailureType
 
