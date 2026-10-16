@@ -60,14 +60,28 @@ if TYPE_CHECKING:
     from playwright.sync_api import Browser, Page
 
 #: Criterion 2 and the D174 headroom, as asserted by the -m perf test.
+#:
+#: * Live updates (criterion 2: "<= 2 s"): p50, p95 AND the slowest event, for
+#:   heartbeat samples and job.state changes (G7 tester r1 T-8, Lead ruling
+#:   D207) - a p95 alone ignores the slowest 5 %, so a few events tens of
+#:   seconds late would pass. A job.state change the page never showed is a
+#:   failure too (``job_state_missed``), not a sample left out.
+#: * The list numbers are "responsive" limits chosen by G7 (criterion 2 gives
+#:   no number): a user-visible ceiling, not a regression guard - measured
+#:   values are 10-30x below them on the dev laptop (progress file, item 4).
+#:   Kept as they are by the Lead's ruling; lab step E3 measures the real fabric.
+LIVE_LATENCY_MS: Final = 2000.0
 THRESHOLDS_MS: Final[dict[str, float]] = {
     "list_first_render_p95": 3000.0,
     "list_in_app_nav_p95": 1000.0,
     "filter_change_p95": 1500.0,
     "detail_open_p95": 1500.0,
     "scroll_long_task_max": 200.0,
-    "heartbeat_latency_p95": 2000.0,
-    "job_state_latency_p95": 2000.0,
+    **{
+        f"{event}_latency_{stat}": LIVE_LATENCY_MS
+        for event in ("heartbeat", "job_state")
+        for stat in ("p50", "p95", "max")
+    },
 }
 TERMINAL: Final = frozenset({"succeeded", "failed", "cancelled"})
 #: Cancelled jobs added to the run history so a state filter has two
@@ -588,6 +602,7 @@ def measure_events(
     seen: dict[str, dict[str, float]] = jobs_page.evaluate("window.__mfSeen")
     lags: list[float] = []
     terminal_lags: list[float] = []
+    missed: list[str] = []
     missed_terminal = 0
     for job_id in ids:
         job = api.job(job_id)
@@ -599,7 +614,10 @@ def measure_events(
                 lags.append(lag)
                 if state in TERMINAL:
                     terminal_lags.append(lag)
-            elif state in TERMINAL:
+                continue
+            # Never shown: a failure, not a sample left out (T-8).
+            missed.append(f"{job_id}:{state}")
+            if state in TERMINAL:
                 missed_terminal += 1
     heartbeat = [float(x) for x in node_page.evaluate("window.__mfLag")]
     return {
@@ -608,6 +626,8 @@ def measure_events(
         "job_state_latency": summary(lags),
         "job_terminal_latency": summary(terminal_lags),
         "job_terminal_missed": missed_terminal,
+        "job_state_missed": len(missed),
+        "job_state_missed_examples": missed[:10],
         "heartbeat_latency": summary(heartbeat),
     }
 
@@ -621,14 +641,23 @@ def check(results: dict[str, Any]) -> list[str]:
         "detail_open_p95": results["list"]["detail_open"]["p95"],
         "scroll_long_task_max": results["list"]["scroll"]["long_task_max"],
     }
+    problems: list[str] = []
     if "events" in results:
-        got["heartbeat_latency_p95"] = results["events"]["heartbeat_latency"]["p95"]
-        got["job_state_latency_p95"] = results["events"]["job_state_latency"]["p95"]
+        events = results["events"]
+        for event in ("heartbeat", "job_state"):
+            latency = events[f"{event}_latency"]
+            for stat in ("p50", "p95", "max"):
+                got[f"{event}_latency_{stat}"] = latency[stat]
+        if events["job_state_missed"]:
+            problems.append(
+                f"job_state_missed: {events['job_state_missed']} job.state "
+                f"changes never shown (e.g. {events.get('job_state_missed_examples')})"
+            )
     return [
         f"{name}: {value} ms > {THRESHOLDS_MS[name]} ms"
         for name, value in got.items()
         if value > THRESHOLDS_MS[name]
-    ]
+    ] + problems
 
 
 @contextlib.contextmanager

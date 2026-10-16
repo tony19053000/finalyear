@@ -672,7 +672,10 @@ def _ui_perf() -> ModuleType:
 
 
 def _results(**override: float) -> dict[str, Any]:
-    base = {
+    # Fix round 1 (T-8): live latency is checked at p50, p95 and max, and a
+    # job.state change never shown is counted - the fixture carries all three
+    # statistics (each = the override) and the missed count.
+    base: dict[str, Any] = {
         "list": {
             "list_first_render": {"p95": 100.0},
             "list_in_app_nav": {"p95": 100.0},
@@ -681,14 +684,16 @@ def _results(**override: float) -> dict[str, Any]:
             "scroll": {"long_task_max": 10.0},
         },
         "events": {
-            "heartbeat_latency": {"p95": 100.0},
-            "job_state_latency": {"p95": 100.0},
+            "heartbeat_latency": {"p50": 100.0, "p95": 100.0, "max": 100.0},
+            "job_state_latency": {"p50": 100.0, "p95": 100.0, "max": 100.0},
+            "job_state_missed": 0,
         },
     }
     for key, value in override.items():
         for section in ("list", "events"):
             if key in base[section]:
-                base[section][key]["p95"] = value
+                for stat in base[section][key]:
+                    base[section][key][stat] = value
         if key == "long_task_max":
             base["list"]["scroll"]["long_task_max"] = value
     return base
@@ -740,12 +745,6 @@ def test_without_the_events_phase_latency_is_not_checked() -> None:
     assert perf.check(r) == []
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-8: criterion 2 names p50 AND p95 but only p95 is asserted, and a "
-    "p95 over ~100 samples ignores the 5 slowest, so a stall of tens of "
-    "seconds on a few events passes",
-)
 def test_a_rare_multi_second_stall_must_fail_the_latency_check() -> None:
     perf = _ui_perf()
     values = [50.0] * 95 + [30_000.0] * 5  # 5 % of events arrive 30 s late
