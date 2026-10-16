@@ -411,6 +411,106 @@
       ],
       "expect_ignored": 0,
       "expect_tree_id": "sha256:06a17bd9d8e6165c3726bc512bb53df672b692125e663313ec5b6078b02cc93c"
+    },
+    {
+      "name": "direct_match_beats_later_dir_marker",
+      "files": {
+        ".gitignore": "!.computeignore\n",
+        "src/.computeignore": "**/",
+        "src/a.py": "x",
+        "src/sub/b.py": "x",
+        "top.py": "x"
+      },
+      "expect_entries": [
+        {
+          "path": ".gitignore",
+          "sha256": "a2046cfa532f781787356a2c41844277a637d3e43b798ceb97b72ebde894600f",
+          "size": 16,
+          "exec": false
+        },
+        {
+          "path": "src/.computeignore",
+          "sha256": "717e2b6b653979620539bfe80d3d00bd51a383ca0c6c63b239a4b520d946287c",
+          "size": 3,
+          "exec": false
+        },
+        {
+          "path": "top.py",
+          "sha256": "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881",
+          "size": 1,
+          "exec": false
+        }
+      ],
+      "expect_ignored": 2,
+      "expect_tree_id": "sha256:5bb7a6a05d1515b3dcafacdf732ad0879987b00d0866a73b718c650f6c11d2c5"
+    },
+    {
+      "name": "escaped_trailing_space_rule_order",
+      "files": {
+        ".gitignore": "*.log\n*.log\ntrail\\ \n!keep.log",
+        "keep.log/build/trail /k.log": "",
+        "keep.log/build/trail /k.txt": "x",
+        "keep.log/x.log": "x",
+        "keep.log/y.txt": "x",
+        "trail /z.txt": "x",
+        "a.log": "x"
+      },
+      "expect_entries": [
+        {
+          "path": ".gitignore",
+          "sha256": "bde5b3718a8a2797159b59a53717de33372c6030ee45dab489230ffd29d94e66",
+          "size": 29,
+          "exec": false
+        },
+        {
+          "path": "keep.log/build/trail /k.txt",
+          "sha256": "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881",
+          "size": 1,
+          "exec": false
+        },
+        {
+          "path": "keep.log/y.txt",
+          "sha256": "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881",
+          "size": 1,
+          "exec": false
+        }
+      ],
+      "expect_ignored": 4,
+      "expect_tree_id": "sha256:b37584d3864273b21e8d25a7ebecae996b0983ffab0c705e66edff92020322f1"
+    },
+    {
+      "name": "nested_dir_glob_vs_negations",
+      "files": {
+        ".gitignore": "!*.md\nnotes.md\n",
+        "docs/.gitignore": "**/\n!keep/\n",
+        "docs/notes.md": "x",
+        "docs/r.md": "x",
+        "docs/keep/k.txt": "x",
+        "docs/sub/s.txt": "x",
+        "notes.md": "x"
+      },
+      "expect_entries": [
+        {
+          "path": ".gitignore",
+          "sha256": "8da900d2d24fc44f1022f669b45b1db05a871edc969d4ce35336db7274e358ca",
+          "size": 15,
+          "exec": false
+        },
+        {
+          "path": "docs/keep/k.txt",
+          "sha256": "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881",
+          "size": 1,
+          "exec": false
+        },
+        {
+          "path": "docs/r.md",
+          "sha256": "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881",
+          "size": 1,
+          "exec": false
+        }
+      ],
+      "expect_ignored": 4,
+      "expect_tree_id": "sha256:85f1e9f2ad77c3dc1af22cd0208e451d2fcaec1ddce8f8b3070b2b8480b18bf2"
     }
   ],
   "yaml_vectors": [
@@ -630,6 +730,93 @@
       "name": "unclosed_quote",
       "text": "name: \"abc\n",
       "error": true
+    },
+    {
+      "name": "yaml_whitespace_is_space_and_tab",
+      "text": "a:  x\nb: 　y\nc: z  \n",
+      "expect": {
+        "a": " x",
+        "b": "　y",
+        "c": "z  "
+      }
+    },
+    {
+      "name": "unicode_space_does_not_make_a_key",
+      "text": "a:　b\n",
+      "expect": "a:　b"
+    },
+    {
+      "name": "sequence_after_key",
+      "text": "k: - x\n",
+      "error": true
+    },
+    {
+      "name": "stray_closing_bracket",
+      "text": "k: ]\n",
+      "error": true
+    },
+    {
+      "name": "empty_flow_entry",
+      "text": "k: [a,,b]\n",
+      "error": true
+    },
+    {
+      "name": "tab_inside_plain",
+      "text": "k: a\tb\n",
+      "error": true
+    },
+    {
+      "name": "control_character",
+      "text": "k: a\u0007b\n",
+      "error": true
+    },
+    {
+      "name": "flow_key_across_lines",
+      "text": "k: {a\n  : 1}\n",
+      "error": true
+    },
+    {
+      "name": "question_indicator",
+      "text": "- ? x\n",
+      "expect": [
+        {
+          "x": null
+        }
+      ],
+      "browser_unsupported": true
+    },
+    {
+      "name": "question_indicator_flow",
+      "text": "k: [?x]\n",
+      "expect": {
+        "k": [
+          {
+            "x": null
+          }
+        ]
+      },
+      "browser_unsupported": true
+    },
+    {
+      "name": "unicode_line_separator",
+      "text": "k: x \n",
+      "expect": {
+        "k": "x"
+      },
+      "browser_unsupported": true
+    },
+    {
+      "name": "flow_value_after_line_break",
+      "text": "k: {a:\n  1, b: [x,\n  y]}\n",
+      "expect": {
+        "k": {
+          "a": 1,
+          "b": [
+            "x",
+            "y"
+          ]
+        }
+      }
     }
   ]
 }

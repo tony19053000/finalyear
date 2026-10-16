@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { ApiError, NetworkError } from "../../api/errors";
 import { formatBytes, formatDuration, isoToLocalInput, localInputToIso, shortDigest } from "../../components/jobs/format";
 import { WINDOW_THRESHOLD, computeWindow } from "../../components/jobs/useWindowedRows";
@@ -89,4 +93,37 @@ describe("jobsApi", () => {
     vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(new Response("<html>", { status: 200 }))));
     await expect(rawRequest("/v1/x", { method: "GET" })).rejects.toBeInstanceOf(ApiError);
   });
+});
+
+describe("refused-project alert contrast (fix round 1, T-16)", () => {
+  // The submit page's alert prints `text-status-failed` on `bg-status-failed-soft` (a translucent
+  // tone) over a card. axe measures the BLENDED background, so check exactly that, both themes.
+  const css = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../../styles/tokens.css"), "utf8");
+  const theme = (selector: string) => {
+    const open = css.indexOf("{", css.indexOf(selector));
+    const body = css.slice(open + 1, css.indexOf("}", open));
+    return new Map([...body.matchAll(/--mf-([a-z0-9-]+):\s*#([0-9a-f]{6,8})\b/g)].map((m) => [m[1] ?? "", m[2] ?? ""] as const));
+  };
+  const rgb = (hex: string) => [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  const lum = (c: number[]) => {
+    const [r = 0, g = 0, b = 0] = c.map((v) => v / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const ratio = (a: number[], b: number[]) => {
+    const [hi = 0, lo = 0] = [lum(a), lum(b)].sort((x, y) => y - x);
+    return (hi + 0.05) / (lo + 0.05);
+  };
+  for (const selector of ['[data-theme="dark"]', '[data-theme="light"]']) {
+    it(`status-failed text on its soft tone is >= 4.5:1 over every surface (${selector})`, () => {
+      const t = theme(selector);
+      const text = rgb(t.get("status-failed") ?? "000000");
+      const soft = t.get("status-failed-soft") ?? "00000000";
+      const alpha = parseInt(soft.slice(6, 8), 16) / 255;
+      for (const surface of ["bg", "surface", "surface-raised", "surface-sunken"]) {
+        const under = rgb(t.get(surface) ?? "000000");
+        const blended = rgb(soft).map((v, i) => Math.round(v * alpha + (under[i] ?? 0) * (1 - alpha)));
+        expect(ratio(text, blended), `${selector} on ${surface}`).toBeGreaterThanOrEqual(4.5);
+      }
+    });
+  }
 });

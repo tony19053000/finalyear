@@ -39,23 +39,11 @@ async function browserVerdict(files: Record<string, string>) {
   }
 }
 
-/** Known defect classes (pinned by it.fails below): T-6 `**\/` + a `!.` negation, T-7 an escaped trailing space. */
-function knownClass(files: Record<string, string>): string | null {
-  const ignoreTexts = Object.entries(files)
-    .filter(([path]) => /(^|\/)\.(gitignore|computeignore)$/.test(path))
-    .map(([, text]) => text);
-  const all = ignoreTexts.join("\n");
-  if (all.includes("trail\\ ")) return "T-7";
-  if (/^\*\*\/\s*$/m.test(all) && /^!\./m.test(all)) return "T-6";
-  return null;
-}
-
 describe("browser walk vs CLI build_tree on random projects (tester r1)", () => {
   it("same tree id + ignored count whenever the CLI accepts; ProjectError whenever it rejects", async () => {
     const bad: string[] = [];
     let refused = 0;
     for (const c of corpus as unknown as Case[]) {
-      if (knownClass(c.files) !== null) continue;
       const got = await browserVerdict(c.files);
       if (c.expect.error !== undefined) {
         if (got.error !== "ProjectError") bad.push(`CLI rejects (${c.expect.error}) but browser: ${JSON.stringify(got)} for ${JSON.stringify(c.files)}`);
@@ -80,8 +68,8 @@ describe("browser walk vs CLI build_tree on random projects (tester r1)", () => 
   }, 120_000);
 });
 
-describe("known walk defects (strict: must start passing when fixed)", () => {
-  it.fails("T-6 a nested `**/` rule + an earlier `!.computeignore` must not ignore a FILE (CLI keeps src/.computeignore)", async () => {
+describe("walk defects fixed in G4 fix round 1 (T-6, T-7)", () => {
+  it("T-6 a nested `**/` rule + an earlier `!.computeignore` must not ignore a FILE (CLI keeps src/.computeignore)", async () => {
     const got = await browserVerdict({ ".gitignore": "!.computeignore\n", "src/.computeignore": "**/" });
     const want = (corpus as unknown as Case[]).find(
       (c) => JSON.stringify(c.files) === JSON.stringify({ ".gitignore": "!.computeignore\n", "src/.computeignore": "**/" }),
@@ -89,7 +77,7 @@ describe("known walk defects (strict: must start passing when fixed)", () => {
     expect(got).toMatchObject({ treeId: want?.expect.tree_id, ignored: 0 });
   });
 
-  it.fails("T-7 .gitignore `*.log`,`trail\\ ` (escaped trailing space) ignores k.log like the CLI", async () => {
+  it("T-7 .gitignore `*.log`,`trail\\ ` (escaped trailing space) ignores k.log like the CLI", async () => {
     const files = { ".gitignore": "*.log\n*.log\ntrail\\ \n!keep.log", "keep.log/build/trail /k.log": "" };
     const want = (corpus as unknown as Case[]).find((c) => JSON.stringify(c.files) === JSON.stringify(files));
     const got = await browserVerdict(files);

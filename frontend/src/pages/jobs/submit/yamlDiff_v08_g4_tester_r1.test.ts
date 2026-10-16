@@ -33,11 +33,8 @@ function same(a: unknown, b: unknown): boolean {
 }
 
 const all = corpus as Case[];
-// Known defect classes are pinned by the explicit it.fails tests below; the corpus guards run on the rest.
-const T1_UNICODE_WS = /[\u0085\u00a0\u2028\u2029\u3000]/; // T-1
-const T2_QUESTION = /\?/; // T-2 (`?` complex-key indicator)
-const T3_RANGE = /\\U00110000|\\ud8/; // T-3 + lone-surrogate escapes (CLI value itself is not encodable)
-const cases = all.filter((c) => !T1_UNICODE_WS.test(c.text) && !T2_QUESTION.test(c.text) && !T3_RANGE.test(c.text));
+// Fix round 1: T-1/T-2/T-3 are fixed, so the corpus guards run on EVERY case (no class filtered out).
+const cases = all;
 
 describe("yaml differential vs PyYAML (tester r1)", () => {
   it("never mis-parses: any accepted document equals the CLI's value", () => {
@@ -66,8 +63,8 @@ describe("yaml differential vs PyYAML (tester r1)", () => {
     expect(bad.slice(0, 25), `${bad.length} cases`).toEqual([]);
   });
 
-  // T-4: the reader is more lenient than PyYAML (stray ]/}, [,a], [a,,b], control chars, `k: - x`).
-  it.fails("T-4 refuses what the CLI loader rejects (accepting = browser/CLI disagree)", () => {
+  // T-4 (fixed r1): the reader refuses what PyYAML rejects (stray ]/}, [,a], [a,,b], control chars, `k: - x`).
+  it("T-4 refuses what the CLI loader rejects (accepting = browser/CLI disagree)", () => {
     const bad = cases
       .filter((c) => c.expect.error === true)
       .filter((c) => run(c.text).refused !== true)
@@ -75,18 +72,24 @@ describe("yaml differential vs PyYAML (tester r1)", () => {
     expect(bad.slice(0, 100), `${bad.length} cases`).toEqual([]);
   });
 
-  it.fails("T-1 YAML whitespace is only space/tab (NBSP, U+3000, U+2028 are content, not blanks)", () => {
+  it("T-1 YAML whitespace is only space/tab (NBSP, U+3000, U+2028 are content, not blanks)", () => {
     expect(run("a: \u00a0x\n").value).toEqual({ a: "\u00a0x" });
-    expect(run("a: \u2028x\n").refused ?? run("a: \u2028x\n").value).toEqual({ a: "\u2028x" });
+    // Fix r1: U+2028 is a LINE BREAK to PyYAML, which rejects this text (corpus: error), so the
+    // browser must refuse it. (The r1 form `refused ?? value` toEqual({a: "\u2028x"}) could never
+    // pass with a refusal and contradicted the T-4 corpus guard; tightened to the CLI's verdict.)
+    expect(run("a: \u2028x\n").refused).toBe(true);
+    expect(run("a: \u3000x\n").value).toEqual({ a: "\u3000x" });
+    expect(run("a:\u3000b\n").value).toEqual("a:\u3000b");
+    expect(run("a: x \u00a0\n").value).toEqual({ a: "x \u00a0" });
   });
 
-  it.fails("T-2 the `?` complex-key indicator is refused everywhere (block list item, top level, flow)", () => {
+  it("T-2 the `?` complex-key indicator is refused everywhere (block list item, top level, flow)", () => {
     for (const t of ["- ? x\n", "? x\n", "k:\n  - ? x\n", "a: [?x]\n", "a: {?: 1}\n"]) {
       expect(run(t).refused, JSON.stringify(t)).toBe(true);
     }
   });
 
-  it.fails("T-3 a bad escape (\\U00110000) is a ManifestYamlError, not a RangeError", () => {
+  it("T-3 a bad escape (\\U00110000) is a ManifestYamlError, not a RangeError", () => {
     expect(run('a: "\\U00110000"\n').crashed).toBeUndefined();
   });
 

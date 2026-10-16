@@ -223,7 +223,7 @@ describe("uploadTree failure injection", () => {
     expect(report.uploadedBytes).toBeLessThan(10);
   });
 
-  it.fails("T-9 a server that lists parts with indexes outside the file does not inflate resumedParts", async () => {
+  it("T-9 a server that lists parts with indexes outside the file does not inflate resumedParts", async () => {
     const [t, blobs, sha] = await oneFileTree(new Uint8Array(65_536 * 2 + 1).fill(7), 65_536);
     stubFetch((m, p) => {
       if (p === "/v1/blobs/have") return json(200, { missing: [`sha256:${sha}`] });
@@ -234,7 +234,7 @@ describe("uploadTree failure injection", () => {
     expect(report.resumedParts).toBeLessThanOrEqual(3); // only 0 of {0,1,2} is real
   });
 
-  it.fails("T-8 an absurd Retry-After does not freeze the upload past a user cancel", async () => {
+  it("T-8 an absurd Retry-After does not freeze the upload past a user cancel", async () => {
     vi.useFakeTimers();
     const [t, blobs, sha] = await oneFileTree(new Uint8Array([1]));
     stubFetch((m, p) =>
@@ -452,7 +452,7 @@ describe("applyJobEvent with malformed and hostile events (never throws, never p
     expect(spy).not.toHaveBeenCalled();
   });
 
-  it.fails("T-10 a list query whose key has an unexpected shape (e.g. another page's) is skipped, not a crash", () => {
+  it("T-10 a list query whose key has an unexpected shape (e.g. another page's) is skipped, not a crash", () => {
     const client = new QueryClient();
     client.setQueryData(["jobs", "list"], { pages: [{ jobs: [] }], pageParams: [null] }); // no filters element
     client.setQueryData(["jobs", "list", { states: "failed" }], { pages: [{ jobs: [{ job_id: "job_1", state: "queued" }] }], pageParams: [null] });
@@ -461,7 +461,7 @@ describe("applyJobEvent with malformed and hostile events (never throws, never p
     expect(() => applyJobEvent(client, ev("job.state", { job_id: "job_9", state: "queued" }))).not.toThrow();
   });
 
-  it.fails("T-10 a list page object without `jobs` (cache corrupted by another writer) does not throw", () => {
+  it("T-10 a list page object without `jobs` (cache corrupted by another writer) does not throw", () => {
     const client = new QueryClient();
     client.setQueryData(jobKeys.list(NO_FILTERS), { pages: [{}], pageParams: [null] });
     expect(() => applyJobEvent(client, ev("job.state", { job_id: "job_9", state: "queued" }))).not.toThrow();

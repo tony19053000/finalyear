@@ -85,6 +85,28 @@ function newKey(): string {
   return `web-${crypto.randomUUID()}`;
 }
 
+/** The priority field's problem, or null (empty = the manifest's/default). Same range as the API. */
+function priorityProblem(text: string): string | null {
+  const trimmed = text.trim();
+  if (trimmed === "") return null;
+  const value = Number(trimmed);
+  if (!/^[+-]?\d+$/.test(trimmed) || !Number.isInteger(value) || value < -10 || value > 10) {
+    return "Priority must be a whole number from -10 to 10.";
+  }
+  return null;
+}
+
+/**
+ * One idempotency key per distinct request (T-14): an identical retry after a
+ * failure reuses it (the controller answers with the job it may already have
+ * made), but a request whose body changed gets a new key - the controller
+ * would answer 409 to a reused key with a different body.
+ */
+interface KeyedRequest {
+  key: string;
+  body: string;
+}
+
 /**
  * Submit from the browser (D177, 0.8.5): pick a project folder or a .zip;
  * the same ignore/size rules as `compute run` (projectSpec.json); SHA-256 in
@@ -105,9 +127,17 @@ export function SubmitJobPage() {
   const [node, setNode] = useState("");
   const abort = useRef<AbortController | null>(null);
   const hasher = useRef<FileHasher | null>(null);
-  const idempotencyKey = useRef<string | null>(null);
+  const idempotencyKey = useRef<KeyedRequest | null>(null);
   const folderInput = useRef<HTMLInputElement>(null);
-  const ids = { folder: useId(), zip: useId(), name: useId(), priority: useId(), policy: useId(), node: useId() };
+  const ids = {
+    folder: useId(),
+    zip: useId(),
+    name: useId(),
+    priority: useId(),
+    priorityError: useId(),
+    policy: useId(),
+    node: useId(),
+  };
 
   useEffect(() => {
     // Not in React's DOM types; the browser's folder picker attribute.
@@ -148,10 +178,25 @@ export function SubmitJobPage() {
     }
   };
 
+  const buildBody = (prepared: Prepared): JobSubmissionBody => {
+    const manifest = { ...prepared.manifest.manifest };
+    if (name.trim() !== "") manifest.name = sanitizeName(name.trim());
+    if (priority.trim() !== "") manifest.priority = Number(priority.trim());
+    const placement: JobSubmissionBody["placement"] = {};
+    if (node !== "") placement.node_id = node;
+    if (policy !== "") placement.policy = policy as PolicyName;
+    return { manifest, tree_id: prepared.tree.treeId, placement };
+  };
+
   const send = async (prepared: Prepared) => {
+    if (priorityProblem(priority) !== null) return; // refused before any upload (T-15)
     const controller = new AbortController();
     abort.current = controller;
-    idempotencyKey.current ??= newKey();
+    // Fixed now: what was picked when the user clicked is what is submitted.
+    const body = buildBody(prepared);
+    const fingerprint = JSON.stringify(body);
+    if (idempotencyKey.current?.body !== fingerprint) idempotencyKey.current = { key: newKey(), body: fingerprint };
+    const key = idempotencyKey.current.key;
     setPhase({ kind: "uploading", prepared, progress: null });
     let report: UploadReport;
     try {
@@ -168,18 +213,8 @@ export function SubmitJobPage() {
       return;
     }
     setPhase({ kind: "submitting", prepared, report });
-    const manifest = { ...prepared.manifest.manifest };
-    if (name.trim() !== "") manifest.name = sanitizeName(name.trim());
-    if (priority.trim() !== "") manifest.priority = Number(priority);
-    const placement: JobSubmissionBody["placement"] = {};
-    if (node !== "") placement.node_id = node;
-    if (policy !== "") placement.policy = policy as PolicyName;
     try {
-      const created = await submitJob(
-        { manifest, tree_id: prepared.tree.treeId, placement },
-        idempotencyKey.current,
-        controller.signal,
-      );
+      const created = await submitJob(body, key, controller.signal);
       void client.invalidateQueries({ queryKey: jobKeys.lists });
       toast({ title: "Job submitted", description: `${created.job_id} is ${created.state}.`, tone: "ok" });
       void navigate(`/jobs/${created.job_id}`);
@@ -200,6 +235,7 @@ export function SubmitJobPage() {
   };
 
   const busy = phase.kind === "preparing" || phase.kind === "uploading" || phase.kind === "submitting";
+  const badPriority = priorityProblem(priority);
   const prepared = phase.kind === "idle" || phase.kind === "preparing" ? null : phase.prepared;
 
   return (
@@ -319,10 +355,17 @@ export function SubmitJobPage() {
                 className={`${FIELD} w-24`}
                 value={priority}
                 disabled={busy}
+                aria-invalid={badPriority !== null}
+                aria-describedby={badPriority !== null ? ids.priorityError : undefined}
                 onChange={(e) => {
                   setPriority(e.target.value);
                 }}
               />
+              {badPriority !== null && (
+                <p id={ids.priorityError} className="text-xs text-status-failed">
+                  {badPriority}
+                </p>
+              )}
             </div>
             <div className="flex flex-col gap-1">
               <label htmlFor={ids.policy} className="text-2xs font-medium text-fg-muted uppercase">
@@ -397,7 +440,7 @@ export function SubmitJobPage() {
             <div className="flex gap-2">
               <Button
                 variant="primary"
-                disabled={prepared === null || busy}
+                disabled={prepared === null || busy || badPriority !== null}
                 onClick={() => {
                   if (prepared !== null) void send(prepared);
                 }}

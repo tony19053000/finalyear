@@ -328,10 +328,7 @@ def test_axe_on_empty_list_missing_job_and_submit_errors_v08_g4_tester_r1(
     expect(page.get_by_role("heading", level=1, name="Submit a job")).to_be_visible()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-16: .text-status-failed on the soft failed background is 4.43:1 (< 4.5:1 AA) in the refused-project alert",
-)
+# T-16 fixed in G4 fix round 1 (status-failed tokens: >= 4.5:1 on the soft tone over every surface).
 def test_axe_on_the_refused_project_alert_v08_g4_tester_r1(
     fabric: Fabric, dashboard_browser: Browser, tmp_path: Path
 ) -> None:

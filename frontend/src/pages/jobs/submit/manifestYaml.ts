@@ -12,10 +12,15 @@
  * `_`, `1:30` = 90), floats (`3.10` = 3.1, `1e3` stays a string).
  *
  * Anything outside the subset - block scalars (`|`, `>`), anchors, aliases,
- * tags, `?` keys, multi-line plain scalars, dates, .inf/.nan, non-string
- * keys - is refused with `unsupported: true`: the message tells the user to
- * submit with the CLI. It is never guessed. The controller validates the
- * result again with the real manifest model.
+ * tags, `?` (anywhere), multi-line plain scalars, dates, .inf/.nan,
+ * non-string keys, Unicode line separators (U+0085/2028/2029) - is refused
+ * with `unsupported: true`: the message tells the user to submit with the
+ * CLI. It is never guessed. What PyYAML rejects (tabs outside quotes and
+ * comments, control characters, stray `]`/`}`/`,`, empty flow entries,
+ * `key: - x`) is refused too. White space is YAML's: space and tab only -
+ * NBSP, U+3000 etc. are content. The principle (D196): refuse rather than
+ * mis-parse; tester r1's 4 898-case differential against the CLI's loader
+ * keeps it honest.
  */
 
 export type YamlValue = null | boolean | number | string | YamlValue[] | { [key: string]: YamlValue };
@@ -34,6 +39,40 @@ export class ManifestYamlError extends Error {
 
 function unsupported(what: string, line?: number): ManifestYamlError {
   return new ManifestYamlError(`${what} - the dashboard cannot read this; submit with \`compute run\``, line, true);
+}
+
+/* ---------------------------------------------------------- characters */
+
+/** YAML white space is space and tab only (JS `\s`/`trim()` would eat NBSP, U+3000, ...). */
+function isWs(ch: string): boolean {
+  return ch === " " || ch === "\t";
+}
+
+function trimWs(text: string): string {
+  return text.replace(/^[ \t]+|[ \t]+$/g, "");
+}
+
+function trimWsEnd(text: string): string {
+  return text.replace(/[ \t]+$/, "");
+}
+
+/** PyYAML's reader refuses anything outside its printable set (control chars, lone surrogates). */
+const NON_PRINTABLE = /[^\t\n\r\x20-\x7e\x85\xa0-\ud7ff\ue000-\ufffd\u{10000}-\u{10ffff}]/u;
+/** Line breaks to PyYAML, but not to this reader: refused instead of guessed. */
+const UNICODE_BREAKS = /[\x85\u2028\u2029]/;
+
+function lineOf(text: string, index: number): number {
+  return text.slice(0, index).split(/\r\n|\r|\n/).length;
+}
+
+function checkCharacters(text: string): void {
+  const bad = NON_PRINTABLE.exec(text);
+  if (bad !== null) {
+    const code = bad[0].codePointAt(0) ?? 0;
+    throw new ManifestYamlError(`control character U+${code.toString(16).toUpperCase().padStart(4, "0")} is not allowed`, lineOf(text, bad.index));
+  }
+  const brk = UNICODE_BREAKS.exec(text);
+  if (brk !== null) throw unsupported("a Unicode line separator (U+0085, U+2028 or U+2029)", lineOf(text, brk.index));
 }
 
 interface Line {
@@ -150,7 +189,12 @@ function readQuoted(text: string, start: number, line: number): [string, number]
         if (!/^[0-9a-fA-F]+$/.test(hex) || hex.length !== length) {
           throw new ManifestYamlError(`bad escape \\${code}${hex}`, line);
         }
-        out += String.fromCodePoint(parseInt(hex, 16));
+        const point = parseInt(hex, 16);
+        if (point > 0x10ffff || (point >= 0xd800 && point <= 0xdfff)) {
+          // String.fromCodePoint would throw a RangeError / make a lone surrogate (T-3).
+          throw new ManifestYamlError(`the escape \\${code}${hex} is not a valid character`, line);
+        }
+        out += String.fromCodePoint(point);
         i += 2 + length;
         continue;
       }
@@ -170,27 +214,28 @@ function stripComment(text: string, line: number): string {
   let prev = "";
   while (i < text.length) {
     const ch = text[i] ?? "";
-    if ((ch === '"' || ch === "'") && /^$|[\s:[{,-]$/.test(prev) && quoteStarts(text, i)) {
+    if ((ch === '"' || ch === "'") && /^$|[ \t:[{,-]$/.test(prev) && quoteStarts(text, i)) {
       const [, end] = readQuoted(text, i, line);
       i = end;
       prev = ch;
       continue;
     }
-    if (ch === "#" && (i === 0 || /\s/.test(text[i - 1] ?? ""))) return text.slice(0, i).trimEnd();
-    if (!/\s/.test(ch)) prev = ch;
+    if (ch === "#" && (i === 0 || isWs(text[i - 1] ?? ""))) return trimWsEnd(text.slice(0, i));
+    if (ch === "\t") throw new ManifestYamlError("a tab is only allowed inside quotes or a comment", line);
+    if (!isWs(ch)) prev = ch;
     i += 1;
   }
-  return text.trimEnd();
+  return trimWsEnd(text);
 }
 
 /** A quote opens a quoted scalar only where a token starts. */
 function quoteStarts(text: string, i: number): boolean {
-  const before = text.slice(0, i).trimEnd();
+  const before = trimWsEnd(text.slice(0, i));
   if (before === "") return true;
   const last = before[before.length - 1] ?? "";
   if (last === "[" || last === "{" || last === ",") return true;
   // `key: "v"` or `- "v"`: the indicator must be followed by a space.
-  return (last === ":" || last === "-" || last === "?") && /\s/.test(text[before.length] ?? "");
+  return (last === ":" || last === "-" || last === "?") && isWs(text[before.length] ?? "");
 }
 
 function splitLinesOf(text: string): Line[] {
@@ -228,7 +273,7 @@ class Flow {
   ) {}
 
   skip(): void {
-    while (this.i < this.text.length && /\s/.test(this.text[this.i] ?? "")) this.i += 1;
+    while (this.i < this.text.length && (isWs(this.text[this.i] ?? "") || this.text[this.i] === "\n")) this.i += 1;
   }
 
   peek(): string {
@@ -245,15 +290,26 @@ class Flow {
       this.i = end;
       return value;
     }
+    if (ch === "") throw new ManifestYamlError("a flow collection ends too early", this.line);
     checkIndicator(ch, this.line);
+    const after = this.text[this.i + 1] ?? "";
+    // In a flow collection `:` never starts a plain scalar, and `- x` is no item.
+    if (ch === ":" || (ch === "-" && (after === "" || after === "\n" || isWs(after)))) {
+      throw new ManifestYamlError(`unexpected ${ch} in a flow collection`, this.line);
+    }
     const start = this.i;
     while (this.i < this.text.length) {
       const c = this.peek();
       if (c === "," || c === "]" || c === "}") break;
-      if (c === ":" && /^[\s,\]}]?$/.test(this.text[this.i + 1] ?? "")) break;
+      if (c === ":" && /^[ \t\n,[\]{}]?$/.test(this.text[this.i + 1] ?? "")) break;
+      // PyYAML ends a flow plain scalar here and then fails or reads it differently.
+      if (c === "[" || c === "{" || c === "?") throw new ManifestYamlError(`unexpected ${c} inside a flow value`, this.line);
       this.i += 1;
     }
-    return resolvePlain(this.text.slice(start, this.i).trim(), this.line);
+    const raw = this.text.slice(start, this.i).replace(/^[ \t\n]+|[ \t\n]+$/g, "");
+    // PyYAML folds a plain scalar split across lines (blank lines -> "\n"); never guessed here.
+    if (raw.includes("\n")) throw unsupported("a value split across lines inside [ ] or { }", this.line);
+    return resolvePlain(raw, this.line);
   }
 
   list(): YamlValue[] {
@@ -266,6 +322,7 @@ class Flow {
         return out;
       }
       if (this.i >= this.text.length) throw new ManifestYamlError("a [ list is not closed", this.line);
+      if (this.peek() === ",") throw new ManifestYamlError("an empty entry in a [ list", this.line);
       out.push(this.value());
       this.skip();
       if (this.peek() === ",") this.i += 1;
@@ -283,8 +340,13 @@ class Flow {
         return out;
       }
       if (this.i >= this.text.length) throw new ManifestYamlError("a { map is not closed", this.line);
+      if (this.peek() === ",") throw new ManifestYamlError("an empty entry in a { map", this.line);
+      const keyStart = this.i;
       const key = this.value();
       this.skip();
+      if (this.peek() === ":" && this.text.slice(keyStart, this.i).includes("\n")) {
+        throw new ManifestYamlError("a key and its : must be on one line", this.line);
+      }
       let value: YamlValue = null;
       if (this.peek() === ":") {
         this.i += 1;
@@ -300,6 +362,8 @@ class Flow {
 }
 
 function checkIndicator(ch: string, line: number): void {
+  if (ch === "?") throw unsupported("the ? (complex key) indicator - quote the text if it starts with ?", line);
+  if (ch === "," || ch === "]" || ch === "}" || ch === "#") throw new ManifestYamlError(`a value cannot start with ${ch}`, line);
   if (ch === "&") throw unsupported("YAML anchors (&name)", line);
   if (ch === "*") throw new ManifestYamlError("YAML aliases (*name) are not allowed", line);
   if (ch === "!") throw unsupported("YAML tags (!tag)", line);
@@ -330,7 +394,8 @@ class Block {
       if (balanced(joined)) break;
       const next = this.lines[this.i];
       if (next === undefined) throw new ManifestYamlError("a [ or { is not closed", line.no);
-      joined += ` ${next.text}`;
+      // "\n" keeps the line boundary visible to the flow reader (keys and values must not span it).
+      joined += `\n${next.text}`;
       this.i += 1;
     }
     const parser = new Flow(joined, line.no);
@@ -346,11 +411,12 @@ class Block {
     if (first === "[" || first === "{") return this.flow(text, line);
     if (first === '"' || first === "'") {
       const [value, end] = readQuoted(text, 0, line.no);
-      if (text.slice(end).trim() !== "") throw new ManifestYamlError("unexpected text after a quoted string", line.no);
+      if (trimWs(text.slice(end)) !== "") throw new ManifestYamlError("unexpected text after a quoted string", line.no);
       return value;
     }
     checkIndicator(first, line.no);
-    if (/:(\s|$)/.test(text)) throw new ManifestYamlError("mapping values are not allowed here", line.no);
+    if (isItem(text)) throw new ManifestYamlError("a list cannot start on the same line as its key (`key: - x`)", line.no);
+    if (/:([ \t]|$)/.test(text)) throw new ManifestYamlError("mapping values are not allowed here", line.no);
     return resolvePlain(text, line.no);
   }
 
@@ -378,7 +444,7 @@ class Block {
       if (line === undefined || line.indent < indent) return out;
       if (line.indent > indent) throw new ManifestYamlError("bad indentation", line.no);
       if (!isItem(line.text)) return out;
-      const rest = line.text.slice(1).replace(/^\s+/, "");
+      const rest = line.text.slice(1).replace(/^[ \t]+/, "");
       const column = line.indent + (line.text.length - rest.length);
       this.i += 1;
       if (rest === "") {
@@ -417,7 +483,7 @@ class Block {
 }
 
 function isItem(text: string): boolean {
-  return text === "-" || /^-\s/.test(text);
+  return text === "-" || /^-[ \t]/.test(text);
 }
 
 /** `key: rest` -> [key, rest]; null when the line is not a mapping entry. */
@@ -431,15 +497,16 @@ function keyColon(text: string): [YamlValue, string] | null {
     } catch {
       return null;
     }
-    const after = text.slice(end).replace(/^\s+/, "");
-    if (!after.startsWith(":") || !/^:(\s|$)/.test(after)) return null;
-    return [key, after.slice(1).trim()];
+    const after = text.slice(end).replace(/^[ \t]+/, "");
+    if (!after.startsWith(":") || !/^:([ \t]|$)/.test(after)) return null;
+    return [key, trimWs(after.slice(1))];
   }
-  if (first === "[" || first === "{" || first === "?" || first === "&" || first === "*" || first === "!") return null;
-  const match = /:(\s|$)/.exec(text);
+  // Characters that cannot start a plain key (PyYAML `check_plain`): not a mapping entry.
+  if ("[{?&*!,]}%@`|>#".includes(first)) return null;
+  const match = /:([ \t]|$)/.exec(text);
   if (match === null) return null;
-  const rawKey = text.slice(0, match.index).trim();
-  return [resolvePlain(rawKey, 0), text.slice(match.index + 1).trim()];
+  const rawKey = trimWs(text.slice(0, match.index));
+  return [resolvePlain(rawKey, 0), trimWs(text.slice(match.index + 1))];
 }
 
 /** Are the brackets of a flow collection closed (outside quotes)? */
@@ -469,6 +536,17 @@ function balanced(text: string): boolean {
  * not read; submit with the CLI).
  */
 export function parseManifestYaml(text: string): YamlValue {
+  try {
+    return parseDocument(text);
+  } catch (error) {
+    // A RangeError (bad code point, nesting deep enough to exhaust the stack) is still a refusal.
+    if (error instanceof RangeError) throw new ManifestYamlError(`this YAML cannot be read (${error.message})`);
+    throw error;
+  }
+}
+
+function parseDocument(text: string): YamlValue {
+  checkCharacters(text.replace(/^\uFEFF/, ""));
   const lines = splitLinesOf(text);
   if (lines.length === 0) return null;
   const parser = new Block(lines);

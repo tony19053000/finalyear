@@ -11,8 +11,8 @@
  * walk asks about a folder as `path/`); `*`, `?`, `[...]` within one path
  * segment, `**` across segments; an invalid `[` range drops the rule (as git
  * does); a match against a folder marker (`foo/` matched by `foo/**`) loses
- * to a later direct match, and an include of the folder marker always wins
- * (pathspec's priority rule).
+ * to ANY direct match, earlier or later; among folder-marker matches the last
+ * wins (pathspec's priority rule, evaluated in its default reversed order).
  */
 
 export class IgnorePatternError extends Error {
@@ -172,22 +172,31 @@ export class IgnoreSpec {
     return new IgnoreSpec(rules);
   }
 
-  /** _backends/simple/gitignore.py `SimpleGiBackend.match_file` (forward order). */
+  /**
+   * _backends/simple/gitignore.py `SimpleGiBackend.match_file` in the order
+   * `GitIgnoreSpec` really uses: REVERSED (`no_reverse` defaults to None, so
+   * `_is_reversed` is true). Walking from the last rule back, a direct
+   * (non-folder-marker) match wins at once; otherwise the LAST folder-marker
+   * match counts. So any direct match - even an earlier `!x` - beats a later
+   * `dir/**` match (T-6, T-7: the forward variant disagreed with the CLI).
+   */
   matches(path: string): boolean {
     let file = path;
     if (file.startsWith("/")) file = file.slice(1);
     else if (file.startsWith("./")) file = file.slice(2);
     let outInclude: boolean | null = null;
     let outPriority = 0;
-    for (const rule of this.rules) {
+    for (let i = this.rules.length - 1; i >= 0; i -= 1) {
+      const rule = this.rules[i];
+      if (rule === undefined) continue;
       const match = rule.regex.exec(file);
       if (match === null) continue;
-      const dirMark = match.groups?.[DIR_MARK];
-      const priority = dirMark ? 1 : 2;
-      if ((rule.include && dirMark) || priority >= outPriority) {
+      const priority = match.groups?.[DIR_MARK] ? 1 : 2;
+      if (priority > outPriority) {
         outInclude = rule.include;
         outPriority = priority;
       }
+      if (priority === 2) break;
     }
     return outInclude === true;
   }

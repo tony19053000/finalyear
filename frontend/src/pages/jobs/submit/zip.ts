@@ -5,7 +5,11 @@
  * and size are checked. Refused (with a reason): encryption, zip64, other
  * methods, symlinks, names that are not UTF-8, archives over `maxBytes`
  * unpacked. A folder zip whose entries all sit under one top folder is
- * unwrapped (that folder's name becomes the default job name).
+ * unwrapped (that folder's name becomes the default job name). macOS Finder's
+ * `__MACOSX/` resource-fork folder is archive junk, never project content: its
+ * entries are skipped (so a Finder zip unwraps too). Inflating stops as soon
+ * as the output passes the size the directory declares (a lying entry is
+ * refused without materialising its real size).
  */
 import { ProjectError, type ProjectSource, type SourceFile } from "./projectWalk";
 
@@ -108,12 +112,48 @@ async function centralDirectory(zip: Blob): Promise<CentralEntry[]> {
   return entries;
 }
 
-async function inflate(data: Blob): Promise<Uint8Array> {
+/** Compressed bytes fed per step: one step inflates to at most ~1032x this. */
+const INFLATE_STEP = 16 * 1024;
+
+/**
+ * Inflate `data`, or null as soon as the output exceeds `limit` bytes (T-12):
+ * the input is fed in small steps and the output read chunk by chunk, so a
+ * lying size costs at most `limit` + one step's output, never the real size.
+ */
+async function inflate(data: Blob, limit: number): Promise<Uint8Array | null> {
   // From the bytes (not Blob.stream(): not every Blob implementation has it).
-  const body = new Response(await data.arrayBuffer()).body;
-  if (body === null) throw new Error("no body");
-  const stream = body.pipeThrough(new DecompressionStream("deflate-raw"));
-  return new Uint8Array(await new Response(stream).arrayBuffer());
+  const packed = new Uint8Array(await data.arrayBuffer());
+  let fed = 0;
+  const input = new ReadableStream<Uint8Array<ArrayBuffer>>({
+    pull(controller) {
+      if (fed >= packed.length) {
+        controller.close();
+        return;
+      }
+      controller.enqueue(packed.slice(fed, fed + INFLATE_STEP));
+      fed += INFLATE_STEP;
+    },
+  });
+  const reader = input.pipeThrough(new DecompressionStream("deflate-raw")).getReader();
+  const parts: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.length;
+    if (total > limit) {
+      await reader.cancel().catch(() => undefined);
+      return null;
+    }
+    parts.push(value);
+  }
+  const out = new Uint8Array(total);
+  let at = 0;
+  for (const part of parts) {
+    out.set(part, at);
+    at += part.length;
+  }
+  return out;
 }
 
 async function entryData(zip: Blob, entry: CentralEntry): Promise<Blob> {
@@ -121,19 +161,19 @@ async function entryData(zip: Blob, entry: CentralEntry): Promise<Blob> {
   if (local.byteLength < 30 || local.getUint32(0, true) !== LOCAL) throw new ProjectError("the zip is damaged", entry.name);
   const start = entry.localOffset + 30 + local.getUint16(26, true) + local.getUint16(28, true);
   const packed = zip.slice(start, start + entry.compressedSize);
-  let data: Uint8Array;
+  let data: Uint8Array | null;
   if (entry.method === 0) {
-    data = new Uint8Array(await packed.arrayBuffer());
+    data = entry.compressedSize === entry.size ? new Uint8Array(await packed.arrayBuffer()) : null;
   } else if (entry.method === 8) {
     try {
-      data = await inflate(packed);
+      data = await inflate(packed, entry.size);
     } catch {
       throw new ProjectError("a zip entry cannot be decompressed", entry.name);
     }
   } else {
     throw new ProjectError(`zip compression method ${entry.method} is not supported (use deflate or store)`, entry.name);
   }
-  if (data.length !== entry.size || crc32(data) !== entry.crc) throw new ProjectError("a zip entry is damaged (size or CRC)", entry.name);
+  if (data === null || data.length !== entry.size || crc32(data) !== entry.crc) throw new ProjectError("a zip entry is damaged (size or CRC)", entry.name);
   return new Blob([data as Uint8Array<ArrayBuffer>]);
 }
 
@@ -141,8 +181,12 @@ const S_IFMT = 0o170000;
 const S_IFLNK = 0o120000;
 
 /** Read a zip into a project source (see the module comment). */
+const MACOS_JUNK = "__MACOSX";
+
 export async function readZip(zip: File, maxBytes = MAX_ZIP_UNPACKED_BYTES): Promise<ProjectSource> {
-  const entries = await centralDirectory(zip);
+  const entries = (await centralDirectory(zip)).filter(
+    (e) => e.name.replace(/^\.\//, "").split("/")[0] !== MACOS_JUNK,
+  );
   const declared = entries.reduce((sum, e) => sum + e.size, 0);
   if (declared > maxBytes) {
     throw new ProjectError(`the zip unpacks to more than ${maxBytes} bytes - pick the folder instead (or use the CLI)`);

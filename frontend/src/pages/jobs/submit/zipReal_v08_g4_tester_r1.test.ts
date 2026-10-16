@@ -86,12 +86,19 @@ describe("zip reader vs real zips", () => {
     await expect(readZip(new File([], "z.zip"))).rejects.toBeInstanceOf(ProjectError);
   });
 
-  it.fails("T-11 a Finder zip (__MACOSX/ resource forks beside the project folder) still unwraps the project", async () => {
+  it("T-11 a Finder zip (__MACOSX/ resource forks beside the project folder) still unwraps the project", async () => {
     const source = await readZip(zip("finder.zip"));
     expect(source.files.map((f) => f.path)).toContain("main.py");
   });
 
-  it.fails("T-12 a zip whose central directory understates a size is refused before materialising the real size", async () => {
+  it("fix r1: a Finder zip unwraps to the project folder's name and carries no __MACOSX entry", async () => {
+    const source = await readZip(zip("finder.zip"));
+    expect(source.name).toBe("proj");
+    expect(source.files.map((f) => f.path)).toEqual(["main.py"]);
+    expect([...source.files.map((f) => f.path), ...source.dirs].some((p) => p.includes("__MACOSX"))).toBe(false);
+  });
+
+  it("T-12 a zip whose central directory understates a size is refused before materialising the real size", async () => {
     // bomb.zip: 64 MiB of zeros declared as 10 bytes. The reader must not inflate it all into memory first.
     const biggest: number[] = [];
     // eslint-disable-next-line @typescript-eslint/unbound-method

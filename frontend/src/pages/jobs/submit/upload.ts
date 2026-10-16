@@ -14,7 +14,10 @@
  * Every part is re-hashed just before it is sent and checked against the
  * manifest: a file edited after hashing is reported, never sent under the
  * wrong name. Transient failures (no answer, 5xx, 429, 503 busy) are retried
- * a few times with backoff (Retry-After honoured).
+ * a few times with backoff. A Retry-After hint is honoured up to
+ * MAX_RETRY_WAIT_MS; a longer one fails the upload with a clear message (the
+ * user can try again later) instead of freezing the page. Every wait ends at
+ * once when the upload is cancelled.
  */
 import { ApiError, NetworkError } from "../../../api/errors";
 import { rawRequest, type BlobMissing, type BlobParts } from "../jobsApi";
@@ -63,10 +66,39 @@ interface Blobby {
   blob: Blob;
 }
 
+/** The longest server-requested wait (Retry-After) the upload sits through. */
+export const MAX_RETRY_WAIT_MS = 60_000;
+
 const defaultSleep = (ms: number) =>
   new Promise<void>((resolve) => {
     setTimeout(resolve, ms);
   });
+
+function cancelled(): DOMException {
+  return new DOMException("cancelled", "AbortError");
+}
+
+/** `sleep(ms)` that rejects with an AbortError as soon as `signal` aborts. */
+function abortableSleep(sleep: (ms: number) => Promise<void>, ms: number, signal: AbortSignal | undefined): Promise<void> {
+  if (signal === undefined) return sleep(ms);
+  if (signal.aborted) return Promise.reject(cancelled());
+  return new Promise<void>((resolve, reject) => {
+    const onAbort = () => {
+      reject(cancelled());
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    sleep(ms).then(
+      () => {
+        signal.removeEventListener("abort", onAbort);
+        resolve();
+      },
+      (error: unknown) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      },
+    );
+  });
+}
 
 function transient(error: unknown): boolean {
   if (error instanceof NetworkError) return true;
@@ -77,13 +109,20 @@ async function withRetry<T>(call: () => Promise<T>, options: UploadOptions): Pro
   const retries = options.retries ?? 3;
   const sleep = options.sleep ?? defaultSleep;
   for (let attempt = 0; ; attempt += 1) {
-    if (options.signal?.aborted === true) throw new DOMException("cancelled", "AbortError");
+    if (options.signal?.aborted === true) throw cancelled();
     try {
       return await call();
     } catch (error) {
       if (attempt >= retries || !transient(error)) throw error;
       const hinted = error instanceof ApiError && error.retryAfterS !== undefined ? error.retryAfterS * 1000 : 0;
-      await sleep(Math.max(hinted, 500 * 2 ** attempt));
+      if (!(hinted <= MAX_RETRY_WAIT_MS)) {
+        // NaN/Infinity/huge: never sit through it (T-8).
+        const seconds = Number.isFinite(hinted) ? String(Math.ceil(hinted / 1000)) : "an unknown number of";
+        throw new UploadError(
+          `the controller is busy and asked to wait ${seconds} seconds (more than ${String(MAX_RETRY_WAIT_MS / 1000)}); try again later`,
+        );
+      }
+      await abortableSleep(sleep, Math.min(MAX_RETRY_WAIT_MS, Math.max(hinted, 500 * 2 ** attempt)), options.signal);
     }
   }
 }
@@ -169,7 +208,8 @@ export async function uploadTree(
         progress.totalBytes -= item.size;
         return;
       }
-      received = new Set(status.received);
+      // Only real part indexes of THIS file count (T-9: a confused server may list others).
+      received = new Set(status.received.filter((i) => Number.isInteger(i) && i >= 0 && i < item.chunks.length));
     } catch (error) {
       if (!(error instanceof ApiError && error.status === 404)) throw error;
     }

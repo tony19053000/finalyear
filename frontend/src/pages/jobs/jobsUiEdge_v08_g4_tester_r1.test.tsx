@@ -279,7 +279,7 @@ describe("submit page edge cases", () => {
     expect(posts).toBe(1);
   });
 
-  it.fails("T-14 changing the priority after a failed submit does not retry with the OLD idempotency key", async () => {
+  it("T-14 changing the priority after a failed submit does not retry with the OLD idempotency key", async () => {
     const keys: (string | null)[] = [];
     controller((url, init) => {
       if (url.pathname === "/v1/blobs/have") return json(200, { missing: [] });
@@ -303,7 +303,7 @@ describe("submit page edge cases", () => {
     expect(keys[1]).not.toBe(keys[0]);
   });
 
-  it.fails("T-15 an out-of-range priority is refused BEFORE the upload (not after sending the whole project)", async () => {
+  it("T-15 an out-of-range priority is refused BEFORE the upload (not after sending the whole project)", async () => {
     const calls = controller((url, init) => {
       if (url.pathname === "/v1/blobs/have") return json(200, { missing: [] });
       if (url.pathname === "/v1/jobs" && init.method === "POST") return json(400, { error: { code: "invalid_request", message: "priority must be -10..10" } });
@@ -317,5 +317,67 @@ describe("submit page edge cases", () => {
     if (!button.disabled) await userEvent.click(button);
     await new Promise((r) => setTimeout(r, 200));
     expect(calls.some((c) => c.url.pathname.startsWith("/v1/blobs/"))).toBe(false);
+  });
+});
+
+describe("submit request identity and priority (fix round 1)", () => {
+  const pick = (rel: string, text: string) => {
+    const f = new File([text], rel.split("/").pop() ?? "f");
+    Object.defineProperty(f, "webkitRelativePath", { value: rel });
+    return f;
+  };
+
+  it("an IDENTICAL retry after a failed submit reuses the idempotency key", async () => {
+    const keys: (string | null)[] = [];
+    controller((url, init) => {
+      if (url.pathname === "/v1/blobs/have") return json(200, { missing: [] });
+      if (url.pathname === "/v1/jobs" && init.method === "POST") {
+        keys.push(new Headers(init.headers).get("Idempotency-Key"));
+        return keys.length === 1 ? json(503, { error: { code: "resource_busy", message: "busy" } }) : json(201, { job_id: "job_2", state: "queued", created: true });
+      }
+      return undefined;
+    });
+    renderAt("/jobs/new", <SubmitJobPage />, "/jobs/new");
+    fireEvent.change(screen.getByLabelText("Project folder"), { target: { files: [pick("p/main.py", "1")] } });
+    await screen.findByLabelText("Project summary");
+    await userEvent.click(screen.getByRole("button", { name: "Upload and submit" }));
+    await screen.findByRole("alert");
+    await userEvent.click(screen.getByRole("button", { name: "Retry upload and submit" }));
+    await waitFor(() => {
+      expect(keys).toHaveLength(2);
+    });
+    expect(keys[0]).toMatch(/^web-/);
+    expect(keys[1]).toBe(keys[0]);
+  });
+
+  it("a bad priority shows the reason, disables submit, and a valid one is sent as a number", async () => {
+    let body: unknown = null;
+    controller((url, init) => {
+      if (url.pathname === "/v1/blobs/have") return json(200, { missing: [] });
+      if (url.pathname === "/v1/jobs" && init.method === "POST") {
+        body = JSON.parse(init.body as string);
+        return json(201, { job_id: "job_P", state: "queued", created: true });
+      }
+      return undefined;
+    });
+    renderAt("/jobs/new", <SubmitJobPage />, "/jobs/new");
+    fireEvent.change(screen.getByLabelText("Project folder"), { target: { files: [pick("p/main.py", "1")] } });
+    await screen.findByLabelText("Project summary");
+    const field = screen.getByLabelText("Priority (-10 to 10)");
+    const button = screen.getByRole<HTMLButtonElement>("button", { name: "Upload and submit" });
+    for (const bad of ["11", "-11", "2.5", "1e1"]) {
+      fireEvent.change(field, { target: { value: bad } });
+      expect(field.getAttribute("aria-invalid"), bad).toBe("true");
+      expect(screen.getByText("Priority must be a whole number from -10 to 10.")).toBeTruthy();
+      expect(button.disabled, bad).toBe(true);
+    }
+    fireEvent.change(field, { target: { value: "-10" } });
+    expect(field.getAttribute("aria-invalid")).toBe("false");
+    expect(button.disabled).toBe(false);
+    await userEvent.click(button);
+    await waitFor(() => {
+      expect(screen.getByTestId("where").textContent).toBe("/jobs/job_P");
+    });
+    expect((body as { manifest: { priority: unknown } }).manifest.priority).toBe(-10);
   });
 });

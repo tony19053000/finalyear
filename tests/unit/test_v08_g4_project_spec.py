@@ -115,7 +115,15 @@ def test_yaml_vectors(vector: dict[str, Any]) -> None:
 def test_every_vector_kind_is_present() -> None:
     """Guard against a spec edit that silently drops the hard cases."""
     names = {v["name"] for v in VECTORS["walk_vectors"]}
-    hard = {"nested_ignore_files", "negation_and_dir_patterns", "chunked_files"}
+    hard = {
+        "nested_ignore_files",
+        "negation_and_dir_patterns",
+        "chunked_files",
+        # pathspec evaluates GitIgnoreSpec rules in REVERSED order (fix round 1, T-6/T-7)
+        "direct_match_beats_later_dir_marker",
+        "escaped_trailing_space_rule_order",
+        "nested_dir_glob_vs_negations",
+    }
     assert hard | {"empty_dirs"} <= names
     assert any(v.get("error") for v in VECTORS["yaml_vectors"])
     assert any(v.get("browser_unsupported") for v in VECTORS["yaml_vectors"])

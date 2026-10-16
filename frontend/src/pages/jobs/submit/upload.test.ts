@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../../api/errors";
 import { sha256Hex } from "./sha256";
 import type { BuiltTree } from "./treeManifest";
-import { UploadError, uploadTree } from "./upload";
+import { MAX_RETRY_WAIT_MS, UploadError, uploadTree } from "./upload";
 
 const CHUNK = 65_536;
 
@@ -157,5 +157,56 @@ describe("uploadTree (resumable CAS upload, as cli/transfer.py)", () => {
     const controller = new AbortController();
     controller.abort();
     await expect(uploadTree(t, blobs, { signal: controller.signal })).rejects.toThrow(/cancelled|abort/i);
+  });
+
+  it("cancel during a Retry-After wait settles at once (the wait is abortable)", async () => {
+    const [t, blobs] = await tree([{ path: "a.txt", data: new Uint8Array([1]) }]);
+    fakeController((c) =>
+      c.path === "/v1/blobs/have"
+        ? json(200, { missing: [`sha256:${t.entries[0]?.kind === "file" ? t.entries[0].sha256 : ""}`] })
+        : json(503, { error: { code: "resource_busy", message: "busy" } }, { "retry-after": "30" }),
+    );
+    const controller = new AbortController();
+    let waited = -1;
+    // A sleep that never ends on its own: only the abort can end the wait.
+    const sleep = (ms: number) => {
+      waited = ms;
+      return new Promise<void>(() => undefined);
+    };
+    const run = uploadTree(t, blobs, { signal: controller.signal, sleep });
+    await vi.waitFor(() => {
+      expect(waited).toBe(30_000);
+    });
+    controller.abort();
+    await expect(run).rejects.toThrow(/cancelled|abort/i);
+  });
+
+  it("a Retry-After beyond the ceiling fails with a clear message instead of waiting", async () => {
+    const [t, blobs] = await tree([{ path: "a.txt", data: new Uint8Array([1]) }]);
+    let puts = 0;
+    fakeController((c) => {
+      if (c.path === "/v1/blobs/have") return json(200, { missing: [`sha256:${t.entries[0]?.kind === "file" ? t.entries[0].sha256 : ""}`] });
+      puts += 1;
+      return json(503, { error: { code: "resource_busy", message: "busy" } }, { "retry-after": String(MAX_RETRY_WAIT_MS / 1000 + 1) });
+    });
+    const sleep = vi.fn(() => Promise.resolve());
+    const error: unknown = await uploadTree(t, blobs, { sleep }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(UploadError);
+    expect(String(error)).toMatch(/busy.*61 seconds.*try again later/);
+    expect(sleep).not.toHaveBeenCalled();
+    expect(puts).toBe(1);
+  });
+
+  it("a Retry-After exactly at the ceiling is still honoured", async () => {
+    const [t, blobs] = await tree([{ path: "a.txt", data: new Uint8Array([1]) }]);
+    let puts = 0;
+    fakeController((c) => {
+      if (c.path === "/v1/blobs/have") return json(200, { missing: [`sha256:${t.entries[0]?.kind === "file" ? t.entries[0].sha256 : ""}`] });
+      puts += 1;
+      return puts < 2 ? json(503, { error: { code: "resource_busy", message: "busy" } }, { "retry-after": String(MAX_RETRY_WAIT_MS / 1000) }) : undefined;
+    });
+    const sleep = vi.fn(() => Promise.resolve());
+    await uploadTree(t, blobs, { sleep });
+    expect(sleep).toHaveBeenCalledWith(MAX_RETRY_WAIT_MS);
   });
 });
