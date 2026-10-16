@@ -303,8 +303,12 @@ class LeakWatch:
             except Exception as exc:  # noqa: BLE001 - the context is closed too
                 self.unread.append(f"{where} (closed): {type(exc).__name__}")
                 return
+            # Only what a script could read: HttpOnly cookies (the session
+            # cookie) are out of a page's reach, the CSRF companion is exempt.
             state["cookies"] = [
-                c for c in state.get("cookies", []) if c["name"] != CSRF_COOKIE
+                c
+                for c in state.get("cookies", [])
+                if not c.get("httpOnly") and c["name"] != CSRF_COOKIE
             ]
             self.snapshots += 1
             self.places.append((f"{where} (closed page)", json.dumps(state)))
