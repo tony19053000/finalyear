@@ -7,9 +7,9 @@
 > **Cold-start prompt** (paste this as the first message on the new account):
 >
 > ```
-> Read docs/SESSION_HANDOFF.md §1, then docs/STATUS.md, then docs/briefs/V0.8-dashboard-cli.md (§5c, §5d, D191-D192).
-> Parallel agents allowed. Continue V0.8: finish G3 and G4 implementer exit lists + hand-offs in their worktrees
-> → tester r1 → reviewer per group → merge G3 then G4 (wire applyJobEvent) → whole component once → close → G5 brief.
+> Read docs/SESSION_HANDOFF.md §1, then docs/STATUS.md, then docs/briefs/V0.8-dashboard-cli.md (§5e, D195-D199).
+> Parallel agents allowed. Continue V0.8: run whole `-m component` once on main (G3+G4 merged) → if green close
+> 0.8.3/0.8.4/0.8.5/0.8.7 + status bar → G5 implementer (brief §5e, worktree) → tester → reviewer → merge → G7 brief.
 > ```
 >
 > Order of truth: `PROJECT_BRIEF → ARCHITECTURE → ROADMAP → STATUS → this file`. If this file
@@ -262,6 +262,8 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 - Commits: keep using `git commit -- <paths>` even with one agent — the Lead also commits docs.
 
 ## 1. Where the project is
+
+**2026-10-16 (session end — team asked to stop) — NOTHING RUNNING. The whole `-m component` run on `dcb72a6` was STOPPED unfinished (no result). Main = G3 + G4 merged (D195, D198) + G5 brief §5e + D199 (`06a08c2`). Next: rerun `uv run python scripts/pytest_exit_guard.py -m component -q` on main ALONE (no agents in parallel - load flakes, D192); green (or flake proven by reruns) → close 0.8.3, 0.8.4, 0.8.5, 0.8.7 (latency evidence: progress/V0.8-G3.md hand-off) + `scripts/status_bars.py` → STATUS → G5 implementer (§5e) → tester r1 → reviewer → merge → G7 brief. Old worktrees for G2/G3/G4/G6 are merged and can be removed.**
 
 **2026-10-16 (later) — G3 + G4 MERGED into main (`2f1fc0c`, `dcb72a6`, D195/D198). RUNNING: whole `-m component` once on `dcb72a6` (log in session scratchpad). If died: rerun `uv run python scripts/pytest_exit_guard.py -m component -q`; green (or load-flake proven by reruns) → close 0.8.3, 0.8.4, 0.8.5, 0.8.7 (live latency evidence in progress/V0.8-G3.md hand-off) → status bar → write G5 brief (item 0 = D195 + D197 + D198 follow-ups).**
 
