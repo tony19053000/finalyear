@@ -91,10 +91,10 @@ def follow_logs(
         status = exc.response.status_code
         raise ControllerError(
             _CLOSE_REASONS[1008]
-            if status == 403
+            if status in (401, 403)  # 401 from a proxy in front (D202-T1)
             else f"log stream refused (HTTP {status})",
             failure_type=FailureType.UNAUTHORIZED
-            if status == 403
+            if status in (401, 403)
             else FailureType.INTERNAL_ERROR,
         ) from None
     except ConnectionClosed as exc:

@@ -144,12 +144,6 @@ def test_real_4401_midstream_close_exit_3_relogin_hint(
     assert SECRET not in out + err
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="D202-T1 (minor, pre-existing in follow.py): an HTTP 401 on the WS upgrade "
-    "is classified INTERNAL_ERROR (exit 1, logs -f hint), only 403 is UNAUTHORIZED. "
-    "The real controller sends 403, so only a proxy in front would hit it.",
-)
 def test_real_401_handshake_is_not_silently_misclassified(
     s401: int, capsys: pytest.CaptureFixture[str]
 ) -> None:
