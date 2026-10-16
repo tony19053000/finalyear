@@ -28,6 +28,12 @@ V0.8 G7 (one shared layer):
   expects with ``watch.allow`` / ``allow_matching`` / ``skip_final_axe`` /
   ``disarm`` (each with its reason). The shared helpers (sign-in, axe, Tab
   navigation, job API) are in ``tests/_support/mf_e2e.py``.
+* ``leak_watch`` (one per session, checklist 25): every page from
+  ``new_page`` reports its console, the URLs it requested and visited, and at
+  the end of each test its storage (web storage, IndexedDB, script-readable
+  cookies); credentials are learnt from the traffic
+  (``tests/_support/mf_leaks.py``). ``test_v08_g7_zz_leak_gate.py`` runs last
+  and asserts that no credential reached any of those places.
 """
 
 from __future__ import annotations
@@ -47,6 +53,7 @@ if TYPE_CHECKING:
     from mf_cluster import Fabric
     from mf_dashboard import PageWatch
     from mf_e2e import NewPage
+    from mf_leaks import LeakWatch
     from playwright.sync_api import Browser, BrowserType, Page, Playwright
 
     from meshforge.controller.store.settings import DatabaseSettings
@@ -135,24 +142,36 @@ def fabric_options() -> dict[str, Any]:
     return {}
 
 
+@pytest.fixture(scope="session")
+def leak_watch() -> LeakWatch:
+    """Where credentials could leak, across the whole e2e run (checklist 25)."""
+    from mf_leaks import LeakWatch
+
+    return LeakWatch()
+
+
 @pytest.fixture
 def fabric(
     pg_settings: DatabaseSettings,  # noqa: F811 - the imported fixture
     tmp_path: Path,
     dashboard_dist: Path,
     fabric_options: dict[str, Any],
+    leak_watch: LeakWatch,
 ) -> Iterator[Fabric]:
     pytest.importorskip("psutil", reason="the cluster harness needs the agent extra")
     pytest.importorskip(
         "sqlalchemy", reason="the controller needs the controller extra"
     )
-    from mf_cluster import Fabric
+    from mf_cluster import ADMIN_USER, NORMAL_USER, Fabric
 
     options = dict(fabric_options)
     agents = int(options.pop("agents", DEFAULT_AGENTS))
     made = Fabric(pg_settings, tmp_path / "fabric", agents=agents, **options)
     try:
         made.start()
+        for user in (ADMIN_USER, NORMAL_USER):
+            leak_watch.add_known(made.password(user))
+            leak_watch.add_known(made.api_token(user))
         yield made
         made.check_invariants()
     finally:
@@ -181,7 +200,9 @@ def dashboard_browser(
 
 @pytest.fixture
 def new_page(
-    dashboard_browser: Browser, request: pytest.FixtureRequest
+    dashboard_browser: Browser,
+    request: pytest.FixtureRequest,
+    leak_watch: LeakWatch,
 ) -> Iterator[NewPage]:
     """``new_page(init=None, timeout_ms=..., **context) -> (page, watch)``: a
     page in a fresh browser context (reduced motion: axe measures colours at
@@ -202,9 +223,13 @@ def new_page(
             page.add_init_script(init)
         watch = PageWatch.attach(page)
         watches.append(watch)
+        leak_watch.attach(page, test)
         return page, watch
 
+    test = request.node.nodeid
     yield make
+    for watch in watches:
+        leak_watch.snapshot(watch.page, test)
     if not request.node.stash.get(_CALL_PASSED, False):
         return
     problems = [problem for watch in watches for problem in watch.final_problems()]
