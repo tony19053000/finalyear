@@ -443,7 +443,7 @@ A version is **complete** only when all apply:
 - [x] **0.8.3** Overview page (fabric health, nodes online, active jobs, utilization) — G3 CLOSED 2026-10-16 (D195, D200)
 - [x] **0.8.4** Nodes list + node detail (capabilities, live metrics, network links, caches, owner settings) — G3 CLOSED 2026-10-16 (D195, D200); cache details "Not reported" until agents report them
 - [x] **0.8.5** Jobs list + job detail (plan explanation table, timeline, terminal-style logs, artifacts, attempts) + browser submit (D177) — G4 CLOSED 2026-10-16 (D198, D200)
-- [ ] **0.8.6** Settings (fabric, invite/join code + QR, revoke, policies)
+- [x] **0.8.6** Settings (fabric, invite/join code + QR, revoke, policies) — G5 CLOSED 2026-10-17 (D203, D204, D206); Users page = CLI command list until a `/v1/users` API exists
 - [x] **0.8.7** Live updates via WebSocket (≤ 2 s latency) — event bus + `/v1/events/ws` in G1 (D172), UI wiring in G3; measured node kill → page 18–261 ms, heartbeat p95 ≤ 237 ms (G3 hand-off) — CLOSED 2026-10-16 (D200); load-scale latency is G7
 - [x] **0.8.8** CLI polish: consistent output, `--json`, shell completion, helpful errors — G6 CLOSED 2026-10-16 (D192)
 - [ ] **0.8.9** Playwright e2e suite against a cluster-harness fabric
