@@ -209,9 +209,16 @@ class PageWatch:
     def attach(cls, page: Page) -> PageWatch:
         watch = cls(page)
         page.add_init_script(CSP_LISTENER)
-        page.on("console", watch._on_console)
-        page.on("pageerror", lambda exc: watch.page_errors.append(str(exc)))
+        watch._follow(page)
         return watch
+
+    def _follow(self, page: Page) -> None:
+        """Judge ``page``'s console and uncaught errors - and those of every
+        popup it opens (G7 tester r1 T-7b), recursively - in this watch.
+        (A popup's CSP violations and final axe state are not judged.)"""
+        page.on("console", self._on_console)
+        page.on("pageerror", lambda exc: self.page_errors.append(str(exc)))
+        page.on("popup", self._follow)
 
     def allow(
         self,

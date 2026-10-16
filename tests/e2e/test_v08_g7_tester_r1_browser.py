@@ -111,12 +111,6 @@ def test_the_leak_gate_finds_a_secret_planted_in(
     assert findings, f"a secret in {place} was not noticed"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-10: a finding is labelled 'storage of <page.url>' and the URL "
-    "can itself hold the credential, so the report prints the value it says "
-    "it never prints",
-)
 def test_a_finding_never_prints_the_value_even_when_the_page_url_holds_it(
     bare_browser: Browser,
 ) -> None:
@@ -179,18 +173,14 @@ HOLES = {
         f"console.log(new Error('{SECRET}').stack)", None
     ),
     "control: console.log(object)": _hole(f"console.log({{token: '{SECRET}'}})", None),
+    # T-7 fixed in fix round 1: Cache Storage and history.state are read, and
+    # every write is recorded as it happens.
     "Cache Storage": _hole(
-        f"caches.open('c').then(c => c.put('/x', new Response('{SECRET}')))",
-        "T-7: the dump never reads Cache Storage",
+        f"caches.open('c').then(c => c.put('/x', new Response('{SECRET}')))", None
     ),
-    "history.state": _hole(
-        f"history.replaceState({{secret: '{SECRET}'}}, '')",
-        "T-7: the dump never reads history.state",
-    ),
+    "history.state": _hole(f"history.replaceState({{secret: '{SECRET}'}}, '')", None),
     "set then removed before the test ends": _hole(
-        f"localStorage.setItem('k', '{SECRET}'); localStorage.removeItem('k')",
-        "T-7: storage is read only once, at the end of the test, so a secret "
-        "that was stored and cleaned up in between is not seen",
+        f"localStorage.setItem('k', '{SECRET}'); localStorage.removeItem('k')", None
     ),
 }
 
@@ -207,10 +197,6 @@ def test_leak_gate_blind_spots(bare_browser: Browser, script: str) -> None:
     assert watch.findings(), "the gate did not see the planted secret"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-7: closed pages escape the storage snapshot (silently)",
-)
 def test_a_page_the_test_closed_before_teardown_is_still_snapshotted(
     bare_browser: Browser,
 ) -> None:
@@ -315,10 +301,6 @@ def test_guard_sees_a_console_error_logged_before_a_navigation_inside_the_app(
     assert "before reload" in text and "after reload" in text
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-7b (minor): a popup's console errors are not guarded (no app popups today)",
-)
 def test_guard_blind_spot_popup_window(bare_browser: Browser) -> None:
     """T-7b (minor): a popup opened by the page has no PageWatch."""
     page, watch = _guarded(bare_browser)

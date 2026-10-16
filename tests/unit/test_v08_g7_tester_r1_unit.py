@@ -559,11 +559,6 @@ def test_url_encoded_secret_is_found() -> None:
     assert watch.findings()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-6: a secret holding a quote/backslash/newline is JSON-escaped in "
-    "the storage dump, so the plain substring test misses it in storage",
-)
 def test_a_secret_with_special_characters_is_found_in_a_storage_dump() -> None:
     secret = 'line1 "quoted"\nline2 \\back' + "z" * 8
     watch = LeakWatch(known={secret})
@@ -573,11 +568,6 @@ def test_a_secret_with_special_characters_is_found_in_a_storage_dump() -> None:
     assert watch.findings(), "multi-line/quoted secret in localStorage went unnoticed"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-6: one line / one base64 form of a multi-line secret is not "
-    "searched (only the whole stripped body is)",
-)
 def test_one_line_of_a_multiline_secret_is_found() -> None:
     body = "-----BEGIN KEY-----\nAAAAAAAAAAAAAAAAAAAA\nBBBBBBBBBBBBBBBBBBBB\n-----END KEY-----"
     watch = LeakWatch()
@@ -586,12 +576,14 @@ def test_one_line_of_a_multiline_secret_is_found() -> None:
     assert watch.findings()
 
 
-def test_base64_of_a_secret_is_not_searched_documented_limit() -> None:
+def test_base64_of_a_secret_is_found() -> None:
+    """Was a documented limit; fix round 1 (T-6, Lead ruling D207) searches the
+    base64 form too, so this now asserts the opposite."""
     import base64
 
     watch = LeakWatch(known={LONG})
     watch.places.append(("storage", base64.b64encode(LONG.encode()).decode()))
-    assert watch.findings() == []  # documented limit: only plain / URL-decoded forms
+    assert watch.findings() == ["storage: holds a known credential"]
 
 
 @pytest.mark.parametrize(
