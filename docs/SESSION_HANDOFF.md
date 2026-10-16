@@ -263,7 +263,7 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
-**2026-10-16 (evening) — G3 + G4 CLOSED (D200): gate 2220 passed / 1 pre-existing intermittent V0.5 test (Known Bugs). 0.8.3/0.8.4/0.8.5/0.8.7 `[x]`, status bar refreshed. NEXT: G5 implementer (brief §5e) in a worktree.**
+**2026-10-16 (evening) — G3 + G4 CLOSED (D200): gate 2220 passed / 1 pre-existing intermittent V0.5 test (Known Bugs). 0.8.3/0.8.4/0.8.5/0.8.7 `[x]`, status bar refreshed. RUNNING: G5 implementer (brief §5e) in a new worktree (see `git worktree list`; progress docs/briefs/progress/V0.8-G5.md in that worktree). If died: relaunch with §5e, resume from the progress file; then tester r1 → reviewer → merge → whole component once → close 0.8.6.**
 
 **2026-10-16 (resumed) — another account briefly ran this handoff, then stopped and reverted its own changes (`b9fdc2a`..`aee664e`; the files are the same as `30df758`; worktrees restored). RUNNING: whole `-m component` on main, alone (log in session scratchpad). If died: rerun it; then follow the next line.**
 
