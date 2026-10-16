@@ -24,7 +24,8 @@ function median(values: readonly number[]): number {
 
 /** Record one controller timestamp (ms since the epoch) received now. */
 export function noteServerTime(atMs: number, receivedMs: number = Date.now()): void {
-  if (!Number.isFinite(atMs)) return;
+  // 0 / negative is a missing timestamp, not 1970: it would drag the offset by decades.
+  if (!Number.isFinite(atMs) || atMs <= 0 || !Number.isFinite(receivedMs)) return;
   samples.push(atMs - receivedMs);
   if (samples.length > WINDOW) samples.shift();
   offsetMs = median(samples);

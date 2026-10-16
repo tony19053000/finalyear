@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { NodeList } from "../api/endpoints";
 import type { AlertList, NodeDetail, NodeMetrics } from "../api/fabric";
 import { queryKeys } from "../api/queryKeys";
-import { MAX_SERIES_POINTS, applyEvent } from "../events/applyEvent";
+import { MAX_FUTURE_SKEW_S, MAX_SERIES_POINTS, applyEvent } from "../events/applyEvent";
 import { resetServerClock, serverClockOffsetMs } from "../lib/serverClock";
 import { event, node, nodeDetail } from "./fakeFabric";
 
@@ -106,7 +106,8 @@ describe("node.metrics", () => {
       age_s: 0,
     }));
     qc.setQueryData(queryKeys.nodeMetrics("n1"), { node_id: "n1", window_s: 300, count: samples.length, samples });
-    applyEvent(qc, event("node.metrics", metric("n1", new Date(base + 400_000).toISOString(), 1)));
+    // Published by the controller as it arrives (`at` = the sample's time): the window is cut from there.
+    applyEvent(qc, event("node.metrics", metric("n1", new Date(base + 400_000).toISOString(), 1), (base + 400_000) / 1000));
     const after = qc.getQueryData<NodeMetrics>(queryKeys.nodeMetrics("n1"))?.samples ?? [];
     expect(after.length).toBeLessThanOrEqual(MAX_SERIES_POINTS);
     // Everything more than 300 s before the new point is gone.
@@ -174,5 +175,84 @@ describe("job events", () => {
       { queryKey: queryKeys.jobs, exact: true },
       { queryKey: queryKeys.activeJobs },
     ]);
+  });
+});
+
+describe("G3 fix r1 edges (T-1..T-4)", () => {
+  const T0 = Date.parse("2026-10-16T10:00:00Z");
+  const iso = (ms: number) => new Date(ms).toISOString();
+  const withSeries = (offsetsS: number[]) => {
+    const qc = seeded();
+    const samples = offsetsS.map((o, i) => ({ ...metric("n1", iso(T0 + o * 1000), i), age_s: 0 }));
+    qc.setQueryData(queryKeys.nodeMetrics("n1"), { node_id: "n1", window_s: 300, count: samples.length, samples });
+    return qc;
+  };
+  const times = (qc: QueryClient) =>
+    (qc.getQueryData<NodeMetrics>(queryKeys.nodeMetrics("n1"))?.samples ?? []).map((s) => (Date.parse(s.observed_at) - T0) / 1000);
+  const send = (qc: QueryClient, offsetS: number, atOffsetS: number, cpu = 50) => {
+    applyEvent(qc, event("node.metrics", metric("n1", iso(T0 + offsetS * 1000), cpu), (T0 + atOffsetS * 1000) / 1000));
+  };
+
+  it("a late sample lands in place; the same instant spelled differently is a duplicate", () => {
+    const qc = withSeries([0, 20, 40]);
+    send(qc, 30, 45);
+    send(qc, 10, 45);
+    expect(times(qc)).toEqual([0, 10, 20, 30, 40]);
+    // "10:00:10.000Z" vs "10:00:10Z": one instant, not a second point.
+    applyEvent(qc, event("node.metrics", metric("n1", "2026-10-16T10:00:10Z"), (T0 + 45_000) / 1000));
+    expect(times(qc)).toEqual([0, 10, 20, 30, 40]);
+    const series = qc.getQueryData<NodeMetrics>(queryKeys.nodeMetrics("n1"));
+    expect(series?.count).toBe(5);
+  });
+
+  it("a late sample older than the window is not drawn", () => {
+    const qc = withSeries([400, 410]);
+    send(qc, 50, 412);
+    expect(times(qc)).toEqual([400, 410]);
+  });
+
+  it("small agent skew ahead of the controller is kept; beyond the bound it is dropped, history intact", () => {
+    const qc = withSeries([0, 10, 20]);
+    send(qc, 21 + MAX_FUTURE_SKEW_S - 1, 21); // ahead, but within the bound
+    expect(times(qc)).toEqual([0, 10, 20, 20 + MAX_FUTURE_SKEW_S]);
+    send(qc, 21 + MAX_FUTURE_SKEW_S + 5, 21); // beyond: an agent clock jump
+    expect(times(qc)).toHaveLength(4);
+    // The live numbers still move (the controller published them now).
+    expect(list(qc)[0]?.cpu_percent).toBe(50);
+  });
+
+  it("the window is cut from the controller's clock, not from a skewed-ahead sample", () => {
+    const qc = withSeries([0, 100, 200]);
+    // Controller says 250 s; the agent stamps 350 s (100 s ahead, inside the bound).
+    send(qc, 350, 250);
+    // Cut at min(350, 250) - 300 = -50: nothing is lost.
+    expect(times(qc)).toEqual([0, 100, 200, 350]);
+  });
+
+  it("a disconnected row stays empty on a late sample, the history still records it, reconnect refills", () => {
+    const qc = withSeries([0]);
+    applyEvent(qc, event("node.status", { node_id: "n1", state: "offline", connected: false }, (T0 + 5_000) / 1000));
+    send(qc, 4, 6, 88);
+    expect(list(qc)[0]).toMatchObject({ connected: false, cpu_percent: null, ram_used_bytes: null, gpus: [] });
+    expect(qc.getQueryData<NodeDetail>(queryKeys.node("n1"))?.cpu_percent).toBeNull();
+    expect(times(qc)).toEqual([0, 4]);
+    applyEvent(qc, event("node.status", { node_id: "n1", state: "online", connected: true }, (T0 + 7_000) / 1000));
+    send(qc, 8, 9, 42);
+    expect(list(qc)[0]).toMatchObject({ connected: true, cpu_percent: 42 });
+    expect(qc.getQueryData<NodeDetail>(queryKeys.node("n1"))?.cpu_percent).toBe(42);
+  });
+
+  it("an event without a usable `at` moves neither the clock nor 'last heartbeat'; an alert is stamped now", () => {
+    const qc = seeded();
+    const before = list(qc)[0]?.last_seen_at;
+    for (const bad of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      applyEvent(qc, event("node.metrics", metric("n1", iso(Date.now())), bad));
+      expect(serverClockOffsetMs()).toBe(0);
+      expect(list(qc)[0]?.last_seen_at).toBe(before);
+    }
+    qc.setQueryData(queryKeys.alerts, { pages: [{ count: 0, next_cursor: null, alerts: [] }], pageParams: [undefined] });
+    applyEvent(qc, event("alert", { id: "a1", kind: "wrong_node", node_id: "n2" }, 0));
+    const alert = qc.getQueryData<InfiniteData<AlertList>>(queryKeys.alerts)?.pages[0]?.alerts[0];
+    expect(Math.abs(Date.parse(alert?.at ?? "") - Date.now())).toBeLessThan(5_000);
   });
 });

@@ -1,8 +1,8 @@
 /**
  * V0.8 G3 tester r1 (*_v08_g3_tester_r1*): adversarial checks derived from
  * brief 5c / D191 / 0.8.7 - figures equal the API under churn, resync, clock
- * skew, hostile events, user vs admin. `it.fails` = a real defect (T-n in the
- * progress file); it flips to red when the defect is fixed.
+ * skew, hostile events, user vs admin. T-n = a defect found here (progress file),
+ * pinned by `it.fails` until G3 fix round 1 fixed it; now a normal test.
  */
 import { QueryClient, type InfiniteData } from "@tanstack/react-query";
 import { act, screen, waitFor } from "@testing-library/react";
@@ -69,23 +69,27 @@ function series(qc: QueryClient, nodeId: string, times: string[]) {
   });
 }
 
+/** A controller `at` (seconds) for an ISO time. */
+const at = (iso: string) => Date.parse(iso) / 1000;
+
 const samplesOf = (qc: QueryClient, id: string) =>
   qc.getQueryData<NodeMetrics>(queryKeys.nodeMetrics(id))?.samples ?? [];
 
 describe("metrics window (300 s, cap 200) under hostile samples", () => {
-  // T-1 (minor): the sample list is appended in arrival order, so a late sample is drawn out of place.
-  it.fails("T-1 (defect) sample list stays sorted: see above", () => {
+  // T-1 (minor, fixed in G3 fix r1): the sample list is appended in arrival order, so a late sample is drawn out of place.
+  it("T-1 (fixed r1) sample list stays sorted: see above", () => {
     const qc = qcWith(node("n1"));
     series(qc, "n1", ["2026-10-16T10:00:00Z", "2026-10-16T10:00:20Z"]);
-    applyEvent(qc, event("node.metrics", metric("n1", "2026-10-16T10:00:05Z")));
+    // Published by the controller at 10:00:25 (its clock), so 10:00:05 is a plausible late sample.
+    applyEvent(qc, event("node.metrics", metric("n1", "2026-10-16T10:00:05Z"), at("2026-10-16T10:00:25Z")));
     const times = samplesOf(qc, "n1").map((s) => Date.parse(s.observed_at));
     expect(times).toEqual([...times].sort((a, b) => a - b));
   });
 
-  // T-2 (minor): the window is cut relative to the NEW point, so one sample stamped far in the future
+  // T-2 (minor, fixed in G3 fix r1): the window is cut relative to the NEW point, so one sample stamped far in the future
   // (an agent clock jump) erases the whole history.
-  it.fails(
-    "T-2 (defect) one future-stamped sample must not erase the series",
+  it(
+    "T-2 (fixed r1) one future-stamped sample must not erase the series",
     () => {
       const qc = qcWith(node("n1"));
       series(qc, "n1", [
@@ -95,7 +99,8 @@ describe("metrics window (300 s, cap 200) under hostile samples", () => {
       ]);
       applyEvent(
         qc,
-        event("node.metrics", metric("n1", "2026-10-16T14:00:00Z")),
+        // The controller's clock says 10:00:25: the sample claims 14:00 (agent clock jump).
+        event("node.metrics", metric("n1", "2026-10-16T14:00:00Z"), at("2026-10-16T10:00:25Z")),
       );
       expect(samplesOf(qc, "n1").length).toBeGreaterThan(1);
     },
@@ -111,6 +116,7 @@ describe("metrics window (300 s, cap 200) under hostile samples", () => {
         event(
           "node.metrics",
           metric("n1", new Date(base + i * 1000).toISOString(), i % 100),
+          (base + i * 1000) / 1000, // the controller publishes each sample as it arrives
         ),
       );
       expect(samplesOf(qc, "n1").length).toBeLessThanOrEqual(200);
@@ -125,9 +131,9 @@ describe("metrics window (300 s, cap 200) under hostile samples", () => {
     ).toBe(s.length);
   });
 
-  // T-3 (minor): a metrics event that arrives after the node went offline brings the live numbers back.
-  it.fails(
-    "T-3 (defect) a late metrics event must not revive numbers on a disconnected node (D16)",
+  // T-3 (minor, fixed in G3 fix r1): a metrics event that arrives after the node went offline brings the live numbers back.
+  it(
+    "T-3 (fixed r1) a late metrics event must not revive numbers on a disconnected node (D16)",
     () => {
       const qc = qcWith(node("n1"));
       applyEvent(
@@ -259,10 +265,10 @@ describe("browser clock skew (serverClock)", () => {
     expect(serverClockOffsetMs()).toBe(0);
   });
 
-  // T-4 (minor): the stream coerces a frame with no numeric `at` to 0, and 0 is "finite": the clock offset
+  // T-4 (minor, fixed in G3 fix r1): the stream coerces a frame with no numeric `at` to 0, and 0 is "finite": the clock offset
   // becomes -56 years and "last heartbeat" prints nonsense until 8 good samples arrive.
-  it.fails(
-    "T-4 (defect) an event with no usable `at` must not move the clock",
+  it(
+    "T-4 (fixed r1) an event with no usable `at` must not move the clock",
     () => {
       const qc = qcWith(node("n1"));
       applyEvent(

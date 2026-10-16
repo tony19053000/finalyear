@@ -107,6 +107,19 @@ describe("EventStreamClient", () => {
     expect(t.client.seq).toBe(9);
   });
 
+  it("a missing / non-finite / non-positive `at` is delivered as 0 (unknown) - G3 fix r1 T-4", () => {
+    const t = setup();
+    t.client.start();
+    t.last().open();
+    t.last().send({ type: "hello", epoch: "e1", seq: 0, resumed: false });
+    t.last().send({ seq: 1, type: "job.state", data: {} });
+    t.last().send({ seq: 2, type: "job.state", at: "1700000000", data: {} });
+    t.last().send({ seq: 3, type: "job.state", at: -5, data: {} });
+    t.last().send('{"seq": 4, "type": "job.state", "at": 1e400, "data": {}}'); // parses to Infinity
+    t.last().send({ seq: 5, type: "job.state", at: 1700000000.5, data: {} });
+    expect(t.events.map((e) => e.at)).toEqual([0, 0, 0, 0, 1700000000.5]);
+  });
+
   it("reconnects with since+epoch after a drop and resumes", () => {
     const t = setup();
     t.client.start();
