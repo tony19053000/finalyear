@@ -16,6 +16,16 @@
  * - `alert` (admins only): merged into the first alerts page by `id`, so the
  *   same alert from the list and the stream is shown once.
  * - unknown types are ignored, never an error.
+ *
+ * Clock (D195): `serverNow()` is the controller's clock as this browser
+ * estimates it from the events' `at`. Before the first frame with a usable
+ * `at` it has no sample and falls back to the browser's own clock (offset 0).
+ * Every event notes its `at` *before* it is applied, so the only reads that
+ * can see the fallback are those of a frame whose `at` is missing or bad (the
+ * window cut of `mergeSample`, an alert's stamp). With a skewed laptop clock
+ * such a frame can cut a series too early/late by that skew - bounded by
+ * `MAX_FUTURE_SKEW_S` for future samples - and corrects itself with the next
+ * good frame. The pages' "x s ago" texts use the same estimate.
  */
 import type { InfiniteData, QueryClient } from "@tanstack/react-query";
 

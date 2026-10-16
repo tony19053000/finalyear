@@ -20,7 +20,8 @@
  * once when the upload is cancelled.
  */
 import { ApiError, NetworkError } from "../../../api/errors";
-import { rawRequest, type BlobMissing, type BlobParts } from "../jobsApi";
+import { apiRequest } from "../../../api/client";
+import type { BlobMissing, BlobParts } from "../jobsApi";
 import { sha256Hex } from "./sha256";
 import { SPEC } from "./spec";
 import type { BuiltTree } from "./treeManifest";
@@ -155,10 +156,9 @@ export async function uploadTree(
     const batch = digests.slice(start, start + SPEC.have_batch);
     const answer = await withRetry(
       () =>
-        rawRequest<BlobMissing>("/v1/blobs/have", {
+        apiRequest<BlobMissing>("/v1/blobs/have", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ digests: batch }),
+          json: { digests: batch },
           signal,
         }),
       options,
@@ -188,7 +188,7 @@ export async function uploadTree(
   const sendWhole = async (item: Blobby) => {
     await withRetry(
       () =>
-        rawRequest(`/v1/blobs/${item.hex}`, {
+        apiRequest(`/v1/blobs/${item.hex}`, {
           method: "PUT",
           headers: { "Content-Type": "application/octet-stream" },
           body: item.blob,
@@ -203,7 +203,7 @@ export async function uploadTree(
   const sendParts = async (item: Blobby) => {
     let received = new Set<number>();
     try {
-      const status = await withRetry(() => rawRequest<BlobParts>(`/v1/blobs/${item.hex}/parts`, { method: "GET", signal }), options);
+      const status = await withRetry(() => apiRequest<BlobParts>(`/v1/blobs/${item.hex}/parts`, { signal }), options);
       if (status.complete) {
         progress.totalBytes -= item.size;
         return;
@@ -228,7 +228,7 @@ export async function uploadTree(
       }
       await withRetry(
         () =>
-          rawRequest(`/v1/blobs/${item.hex}/parts/${String(index)}`, {
+          apiRequest(`/v1/blobs/${item.hex}/parts/${String(index)}`, {
             method: "PUT",
             headers: {
               "Content-Type": "application/octet-stream",
@@ -245,7 +245,7 @@ export async function uploadTree(
       report.uploadedBytes += length;
       emit();
     }
-    await withRetry(() => rawRequest(`/v1/blobs/${item.hex}/complete`, { method: "POST", signal }), options);
+    await withRetry(() => apiRequest(`/v1/blobs/${item.hex}/complete`, { method: "POST", signal }), options);
   };
 
   const queue = [...todo];
@@ -276,7 +276,7 @@ export async function uploadTree(
   if (missing.has(tree.treeId)) {
     await withRetry(
       () =>
-        rawRequest(`/v1/blobs/${treeHex}`, {
+        apiRequest(`/v1/blobs/${treeHex}`, {
           method: "PUT",
           headers: { "Content-Type": "application/octet-stream" },
           body: tree.manifest,

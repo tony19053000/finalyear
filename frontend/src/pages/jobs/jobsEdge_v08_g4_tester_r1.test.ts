@@ -24,6 +24,13 @@ import { SPEC } from "./submit/spec";
 import type { BuiltTree } from "./submit/treeManifest";
 import { uploadTree } from "./submit/upload";
 
+// V0.8 G5 (D198 follow-up): uploads and submit now go through api/client.ts,
+// which refuses a mutation without the mf_csrf cookie (D191 c). A signed-in
+// browser always has it; tests that model one set it here (setup.ts clears it).
+beforeEach(() => {
+  document.cookie = "mf_csrf=test-csrf";
+});
+
 const enc = new TextEncoder();
 
 function json(status: number, body: unknown, headers: Record<string, string> = {}): Response {

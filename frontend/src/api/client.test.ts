@@ -82,6 +82,35 @@ describe("apiRequest", () => {
     expect(new Headers(del.headers).has(CSRF_HEADER)).toBe(false);
   });
 
+  it("raw bodies and extra headers (G5: was G4's rawRequest) keep the CSRF rules", async () => {
+    document.cookie = "mf_csrf=tok-raw; path=/";
+    const fetchMock = stubFetch(json(200, { ok: true }));
+    const bytes = new Uint8Array([0, 1, 2, 255]);
+    await apiRequest("/v1/blobs/abc", {
+      method: "PUT",
+      body: bytes,
+      // A caller's own CSRF header is dropped: only the cookie value is sent.
+      headers: { "Content-Type": "application/octet-stream", "X-MeshForge-Chunk-Size": "4", [CSRF_HEADER]: "forged" },
+    });
+    const [, put] = fetchMock.mock.calls[0] ?? ["", {}];
+    const headers = new Headers(put.headers);
+    expect(put.body).toBe(bytes);
+    expect(headers.get("content-type")).toBe("application/octet-stream");
+    expect(headers.get("x-meshforge-chunk-size")).toBe("4");
+    expect(headers.get(CSRF_HEADER)).toBe("tok-raw");
+    // A GET never carries one, even if a caller passes it.
+    await apiRequest("/v1/blobs/abc/parts", { headers: { [CSRF_HEADER]: "forged" } });
+    const [, get] = fetchMock.mock.calls[1] ?? ["", {}];
+    expect(new Headers(get.headers).has(CSRF_HEADER)).toBe(false);
+    // json and body together is a programming error, nothing is sent.
+    await expect(apiRequest("/v1/x", { method: "POST", json: {}, body: "x" })).rejects.toThrow(/not both/);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    // Without the cookie a raw mutation is not sent either (D191 c parity).
+    document.cookie = "mf_csrf=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+    await expect(apiRequest("/v1/blobs/abc", { method: "PUT", body: bytes })).rejects.toBeInstanceOf(CsrfMissingError);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("builds query strings, repeating array keys and skipping undefined", async () => {
     const fetchMock = stubFetch(json(200, {}));
     await apiRequest("/v1/jobs", { query: { state: ["running", "queued"], limit: 50, owner: undefined } });

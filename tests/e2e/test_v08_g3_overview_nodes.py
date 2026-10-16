@@ -33,6 +33,8 @@ from mf_cluster import ADMIN_USER, NORMAL_USER
 from mf_dashboard import PageWatch, axe_violations
 from playwright.sync_api import Browser, Page, expect
 
+from meshforge.common.errors import ExitCode
+
 if TYPE_CHECKING:
     from mf_cluster import Fabric
 
@@ -311,14 +313,12 @@ def test_revoke_by_keyboard_only(fabric: Fabric, dashboard_browser: Browser) -> 
     _sign_in(page, fabric)
     page.goto(f"{fabric.http_base}/nodes/{victim.node_id}")
     expect(page.get_by_role("heading", level=1)).to_have_text(detail["hostname"])
-    # The laptop is gone first (stolen / dead): a revoked agent that is still
-    # running exits with a logged traceback (`agent.exited_with_error`, V0.7
-    # behaviour - a follow-up), which the harness's invariant check refuses.
-    # Cutting a live session on revoke is covered by the V0.7 G3 tests.
-    victim.kill()
+    # The agent is still running (V0.8 G5, D195): revoking it cuts its live
+    # session and the agent exits cleanly (`agent.revoked`, no traceback - the
+    # harness's invariant check at teardown refuses any traceback).
     expect(
         page.get_by_test_id("node-status").locator("[data-state]")
-    ).to_have_attribute("data-connected", "false")
+    ).to_have_attribute("data-connected", "true")
 
     trigger = page.get_by_role("button", name="Revoke node")
     for _ in range(40):
@@ -349,6 +349,13 @@ def test_revoke_by_keyboard_only(fabric: Fabric, dashboard_browser: Browser) -> 
     assert after is not None and after["state"] == "revoked"
     # A revoked node has no Revoke button any more.
     expect(page.get_by_role("button", name="Revoke node")).to_have_count(0)
+    # The running agent stopped by itself, for good, with the contract exit
+    # code and a clean `agent.revoked` line (no traceback).
+    assert victim.process.wait_exit(30) == int(ExitCode.CONFIG_ERROR)
+    victim.process.expected_alive = False
+    events = [r.get("event") for r in victim.process.logs[-1].records()]
+    assert "agent.revoked" in events, events
+    assert "agent.exited_with_error" not in events, events
     watch.assert_clean()
 
 

@@ -281,6 +281,26 @@ describe("shell", () => {
   });
 });
 
+/**
+ * Fake-time stand-in for `waitFor`: flush promises and due timers, advancing
+ * the fake clock by `stepMs` per round (0 = never move the clock: wait for
+ * promise work only), until `check` passes. Real time is out of the picture
+ * (no `shouldAdvanceTime`) and the backoff jitter is fixed, so the stream's
+ * timers fire at the same fake instant on every run, however loaded the
+ * machine is (V0.8 G5 item 0h, D197).
+ */
+async function untilFake(check: () => void, stepMs: number, maxRounds = 3_000): Promise<void> {
+  for (let round = 0; ; round += 1) {
+    try {
+      check();
+      return;
+    } catch (error) {
+      if (round >= maxRounds) throw error;
+    }
+    await vi.advanceTimersByTimeAsync(stepMs);
+  }
+}
+
 describe("controller restart (T-2)", () => {
   it("keeps the shell through a failed session re-check and goes live again by itself", async () => {
     let down = false;
@@ -292,15 +312,24 @@ describe("controller restart (T-2)", () => {
       return Promise.resolve(json(404, { error: { code: "not_found", message: input } }));
     });
     vi.stubGlobal("fetch", fetchMock);
-    vi.useFakeTimers({ shouldAdvanceTime: true });
-    try {
-      const app = renderApp("/");
-      await screen.findByTestId("current-user");
-      app.socket().greet();
-      await waitFor(() => {
-        expect(screen.getByTestId("stream-status").dataset.status).toBe("live");
-      });
+    // Fix r1 T-2: the stream client captures `Math.random` when it is CREATED
+    // (`options.random ?? Math.random`), so the jitter must be fixed before the
+    // app renders. Spying later left the real random in the client: a backoff
+    // drawn under 50 ms opened a 3rd socket inside the 50 ms advance below.
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const app = renderApp("/");
+    await screen.findByTestId("current-user");
+    app.socket().greet();
+    await waitFor(() => {
+      expect(screen.getByTestId("stream-status").dataset.status).toBe("live");
+    });
 
+    // From here on time is fully fake (V0.8 G5 item 0h): the stream's backoff
+    // timers only move when the test advances them, and the jitter is fixed.
+    // Before, `shouldAdvanceTime` let real time run the backoff during a
+    // waitFor under load, so the socket count raced (D197).
+    vi.useFakeTimers();
+    try {
       // The controller goes away: the stream drops, the handshake is refused,
       // and the session re-check that triggers fails with a network error.
       down = true;
@@ -308,30 +337,28 @@ describe("controller restart (T-2)", () => {
       await vi.advanceTimersByTimeAsync(1_000);
       app.socket().serverClose(1006); // refused handshake -> session re-check
       await vi.advanceTimersByTimeAsync(50);
-      await waitFor(() => {
+      await untilFake(() => {
         expect(app.queryClient.getQueryState(["session"])?.status).toBe("error");
-      });
+      }, 0);
       expect(screen.queryByText("Cannot reach the controller")).toBeNull();
       expect(screen.getByTestId("current-user").textContent).toBe("alice(admin)");
       expect(screen.getByTestId("stream-status").dataset.status).toBe("reconnecting");
 
       // It comes back (new epoch): the stream reconnects on its own backoff.
       down = false;
-      // Sockets so far: the first one and the refused handshake. (Counting at
-      // this point raced: with shouldAdvanceTime the backoff timer can fire
-      // during the waitFor above and open a third socket that the fake never
-      // closes - V0.8 G3 saw it fail "3 > 3" twice under load.)
+      // Sockets so far: the first one and the refused handshake.
       const beforeRestart = 2;
+      expect(app.sockets.length).toBe(beforeRestart); // the fake clock has not reached the backoff
       await vi.advanceTimersByTimeAsync(20_000);
       expect(app.sockets.length).toBeGreaterThan(beforeRestart);
       app.socket().onopen?.(new Event("open"));
       app.socket().send({ type: "resync", epoch: "e2", seq: 1, reason: "epoch" });
-      await waitFor(() => {
+      await untilFake(() => {
         expect(screen.getByTestId("stream-status").dataset.status).toBe("live");
-      });
-      await waitFor(() => {
+      }, 10);
+      await untilFake(() => {
         expect(app.queryClient.getQueryState(["session"])?.status).toBe("success");
-      });
+      }, 10);
     } finally {
       vi.useRealTimers();
     }

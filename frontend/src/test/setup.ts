@@ -4,6 +4,20 @@ import { afterEach } from "vitest";
 
 import { setSigningOut } from "../api/client";
 
+// Route-level code splitting (V0.8 G5 item 0f): the pages are `React.lazy`.
+// Load their modules once here, so a page test's first `findBy` (1 s default)
+// never includes the time to transform a page and its libraries (Recharts).
+// In the browser the chunks are tiny same-origin files; this is test-only.
+await Promise.all([
+  import("../pages/overview/OverviewPage"),
+  import("../pages/nodes/NodesPage"),
+  import("../pages/nodes/NodeDetailPage"),
+  import("../pages/jobs/JobsListPage"),
+  import("../pages/jobs/JobDetailPage"),
+  import("../pages/jobs/submit/SubmitJobPage"),
+  import("../pages/settings/SettingsRoutes"),
+]);
+
 afterEach(() => {
   cleanup();
   setSigningOut(false); // module state: one test's sign-out must not leak into the next

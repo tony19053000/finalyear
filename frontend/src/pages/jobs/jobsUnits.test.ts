@@ -4,11 +4,13 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { ApiError, NetworkError } from "../../api/errors";
 import { formatBytes, formatDuration, isoToLocalInput, localInputToIso, shortDigest } from "../../components/jobs/format";
 import { WINDOW_THRESHOLD, computeWindow } from "../../components/jobs/useWindowedRows";
 import { ACTIVE_STATES, filtersFromSearch, searchFromFilters, stateChoice, statesFromChoice } from "./jobFilters";
-import { NO_FILTERS, blobUrl, logDownloadUrl, rawRequest } from "./jobsApi";
+import { apiRequest } from "../../api/client";
+import { CsrfMissingError } from "../../api/errors";
+import * as jobsApi from "./jobsApi";
+import { NO_FILTERS, blobUrl, logDownloadUrl, submitJob } from "./jobsApi";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -69,29 +71,42 @@ describe("jobsApi", () => {
     expect(logDownloadUrl("job_1", "att_2")).toBe("/v1/jobs/job_1/logs?stream=both&attempt=att_2");
   });
 
-  it("rawRequest: /v1 only, same-origin cookie, CSRF on mutations only, typed errors", async () => {
-    document.cookie = "mf_csrf=c-9";
-    const seen: RequestInit[] = [];
+  // V0.8 G5: G4's rawRequest is folded into api/client.ts (D198 follow-up);
+  // the same rules now hold for the job calls that send headers or bytes.
+  it("submit + uploads go through apiRequest: CSRF on mutations, refused without mf_csrf (D191 c parity)", async () => {
+    const seen: [string, RequestInit][] = [];
     vi.stubGlobal(
       "fetch",
-      vi.fn((_: string, init: RequestInit) => {
-        seen.push(init);
-        return Promise.resolve(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+      vi.fn((url: string, init: RequestInit) => {
+        seen.push([url, init]);
+        return Promise.resolve(new Response(JSON.stringify({ job_id: "job_1", missing: [] }), { status: 200 }));
       }),
     );
-    await expect(rawRequest("/elsewhere", { method: "GET" })).rejects.toThrow(/start with \/v1\//);
-    await rawRequest("/v1/x", { method: "PUT", body: "b" });
-    await rawRequest("/v1/x", { method: "GET" });
-    expect(seen[0]?.credentials).toBe("same-origin");
-    expect(new Headers(seen[0]?.headers).get("X-MeshForge-CSRF")).toBe("c-9");
-    expect(new Headers(seen[1]?.headers).get("X-MeshForge-CSRF")).toBeNull();
+    document.cookie = "mf_csrf=c-9";
+    await submitJob({ manifest: {}, tree_id: "sha256:x", placement: {} }, "web-key-1");
+    const [url, init] = seen[0] ?? ["", {}];
+    expect(url).toBe("/v1/jobs");
+    expect(init.credentials).toBe("same-origin");
+    const headers = new Headers(init.headers);
+    expect(headers.get("X-MeshForge-CSRF")).toBe("c-9");
+    expect(headers.get("Idempotency-Key")).toBe("web-key-1");
+    expect(headers.get("Content-Type")).toBe("application/json");
+    expect(JSON.parse(init.body as string)).toEqual({ manifest: {}, tree_id: "sha256:x", placement: {} });
 
-    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(new Response(JSON.stringify({ error: { code: "conflict", message: "busy" } }), { status: 409 }))));
-    await expect(rawRequest("/v1/x", { method: "POST" })).rejects.toMatchObject({ status: 409, code: "conflict" });
-    vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new TypeError("down"))));
-    await expect(rawRequest("/v1/x", { method: "POST" })).rejects.toBeInstanceOf(NetworkError);
-    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(new Response("<html>", { status: 200 }))));
-    await expect(rawRequest("/v1/x", { method: "GET" })).rejects.toBeInstanceOf(ApiError);
+    // The cookie is gone: nothing is sent, the error says to sign in again.
+    document.cookie = "mf_csrf=; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+    seen.length = 0;
+    await expect(submitJob({ manifest: {}, tree_id: "sha256:x", placement: {} }, "web-key-2")).rejects.toBeInstanceOf(
+      CsrfMissingError,
+    );
+    await expect(apiRequest("/v1/blobs/abc", { method: "PUT", body: new Uint8Array([1]) })).rejects.toBeInstanceOf(
+      CsrfMissingError,
+    );
+    expect(seen).toEqual([]);
+  });
+
+  it("no second fetch helper is left in the jobs pages", () => {
+    expect(Object.keys(jobsApi)).not.toContain("rawRequest");
   });
 });
 

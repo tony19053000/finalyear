@@ -53,7 +53,9 @@ _SEND_TIMEOUT_S: Final = 10.0
 _CLOSE_WAIT_S: Final = 5.0
 _MAX_EPOCH_CHARS: Final = 32
 _ACCEPT_REFUSAL: Final = "websocket.accept"
-"""In uvicorn's ``RuntimeError`` text when it refuses a send (see ``_send_first``)."""
+"""In uvicorn's ``RuntimeError`` text when it refuses a send (see ``_send_first``);
+pinned against every installed uvicorn protocol by
+``tests/unit/controller/test_v08_g5_uvicorn_accept_text.py`` (D195)."""
 
 event_router = APIRouter(prefix="/v1/events", tags=["events"])
 

@@ -31,7 +31,15 @@ __all__ = ["ALERT_KINDS", "AlertLog", "AlertLogError", "AlertRecord", "alert_kin
 ALERT_KINDS: Final = MappingProxyType(
     {AuditAction.ATTEMPT_WRONG_NODE.value: "wrong_node"}
 )
-"""``audit_event.action`` -> the alert ``kind`` (the same word the live event uses)."""
+"""``audit_event.action`` -> the alert ``kind`` (the same word the live event uses).
+
+An alert's ``details`` (the audit row's ``details`` that ``GET /v1/alerts``
+returns, and the data of the live ``alert`` event) go to every admin's browser
+and stay in the audit table: they carry **ids, states and node names only -
+never a token, password, join code, secret value, cookie, key or certificate**
+(D195). Adding an action here means its ``audit(...)`` details must be a dict
+literal with plain keys; ``tests/unit/controller/test_v08_g5_alert_details.py``
+checks every alert producer for secret-looking keys and fails otherwise."""
 
 
 def alert_kind(action: str) -> str:

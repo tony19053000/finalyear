@@ -32,7 +32,10 @@ onto a later stream.
 transient -> BACKOFF (full jitter, monotonic clock); ``ABORTED superseded`` ->
 :class:`~meshforge.agent.session.errors.SupersededError` (exit ``CONFLICT``);
 ``INVALID_ARGUMENT`` / ``PERMISSION_DENIED`` / ``PROTOCOL_VERSION`` ->
-:class:`~meshforge.agent.session.errors.AgentContractError` (exit ``CONFIG_ERROR``).
+:class:`~meshforge.agent.session.errors.AgentContractError` (exit ``CONFIG_ERROR``);
+``PERMISSION_DENIED node_revoked`` -> its subclass
+:class:`~meshforge.agent.session.errors.NodeRevokedError` (same exit code, logged
+without a traceback - an admin's decision, not a fault).
 
 **Reconcile is the first message of every reconnect - structurally (D21).** Each
 accepted stream gets a :class:`_StreamGate`: a per-stream *generation* and an
@@ -101,9 +104,14 @@ import grpc
 from meshforge.agent.discovery import ControllerResolver, resolver_for
 from meshforge.agent.identity import NodeIdentity, next_epoch
 from meshforge.agent.policy import LivePolicy
-from meshforge.agent.session.errors import AgentContractError, SupersededError
+from meshforge.agent.session.errors import (
+    AgentContractError,
+    NodeRevokedError,
+    SupersededError,
+)
 from meshforge.agent.session.hello import build_hello
 from meshforge.agent.session.policy import (
+    NODE_REVOKED_REASON,
     Backoff,
     BackoffPolicy,
     HelloRejectAction,
@@ -1193,6 +1201,9 @@ class AgentSessionClient:
         if end.action is StreamEndAction.STOP_SUPERSEDED:
             self._transition(AgentEvent.FATAL, reason="superseded")
             raise SupersededError(self.node_id, self.session_id)
+        if end.action is StreamEndAction.STOP_REVOKED:
+            self._transition(AgentEvent.FATAL, reason=NODE_REVOKED_REASON)
+            raise NodeRevokedError(self.node_id, end.details)
         if end.action is StreamEndAction.FATAL_CONFIG:
             self._transition(AgentEvent.FATAL, reason=end.code.name if end.code else "")
             raise AgentContractError(
