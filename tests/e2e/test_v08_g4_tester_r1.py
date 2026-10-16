@@ -23,13 +23,13 @@ pytest.importorskip("psutil", reason="the cluster harness needs the agent extra"
 pytest.importorskip("sqlalchemy", reason="the controller needs the controller extra")
 
 from mf_cluster import ADMIN_USER, NORMAL_USER
-from mf_dashboard import PageWatch
-from playwright.sync_api import Browser, Page, expect
-
-from meshforge.common.tree import build_tree
+from mf_e2e import EXEC_OPTIONS, job_state, put_tree, sign_in, submit_job
+from playwright.sync_api import expect
 
 if TYPE_CHECKING:
     from mf_cluster import Fabric
+    from mf_e2e import NewPage
+    from playwright.sync_api import Page
 
 pytestmark = [
     pytest.mark.e2e,
@@ -43,65 +43,22 @@ CSRF_HEADER = "x-meshforge-csrf"
 
 @pytest.fixture
 def fabric_options() -> dict[str, Any]:
-    return {
-        "agent_execution": {"enabled": True, "allow_unsandboxed": True, "grace_s": 1.0},
-        "controller_jobs": {"dispatch_interval_s": 0.1},
-        "agent_env": {"DOCKER_HOST": "unix:///nonexistent/meshforge-test.sock"},
-    }
+    return dict(EXEC_OPTIONS)
 
 
 def _tree(fabric: Fabric, root: Path) -> str:
     project = root / "tiny"
     project.mkdir()
     (project / "main.py").write_text("import time\ntime.sleep(120)\n", "utf-8")
-    built = build_tree(project)
-    for hex_, path in built.sources.items():
-        assert fabric.call(
-            "PUT", f"/v1/blobs/{hex_}", content=path.read_bytes()
-        ).status_code in (200, 201)
-    assert fabric.call(
-        "PUT", f"/v1/blobs/{built.tree.tree_id.hex}", content=built.manifest
-    ).status_code in (200, 201)
-    return str(built.tree.tree_id)
-
-
-def _make_job(fabric: Fabric, tree_id: str, name: str, user: str) -> str:
-    body = {
-        "manifest": {"name": name, "entrypoint": ["python", "main.py"]},
-        "tree_id": tree_id,
-    }
-    resp = fabric.call("POST", "/v1/jobs", as_user=user, json=body)
-    assert resp.status_code == 201, resp.text
-    return str(resp.json()["job_id"])
-
-
-def _page(browser: Browser) -> tuple[Page, PageWatch]:
-    context = browser.new_context(reduced_motion="reduce")
-    page = context.new_page()
-    page.set_default_timeout(20_000)
-    watch = PageWatch.attach(page)
-    watch.allow("status of 401", "/v1/session")
-    return page, watch
-
-
-def _login(page: Page, fabric: Fabric, user: str) -> None:
-    page.goto(fabric.http_base + "/")
-    page.get_by_label("User name").fill(user)
-    page.get_by_label("Password").fill(fabric.password(user))
-    page.get_by_role("button", name="Sign in").click()
-    expect(page.get_by_role("heading", level=1, name="Overview")).to_be_visible()
-
-
-def _state(fabric: Fabric, job_id: str) -> str:
-    return str(fabric.call("GET", f"/v1/jobs/{job_id}").json()["state"])
+    return put_tree(fabric, project)
 
 
 def test_cancel_authz_user_vs_admin_v08_g4_tester_r1(
     fabric: Fabric, tmp_path: Path
 ) -> None:
     tree = _tree(fabric, tmp_path)
-    admins = _make_job(fabric, tree, "admins-job", ADMIN_USER)
-    alices = _make_job(fabric, tree, "alices-job", NORMAL_USER)
+    admins = submit_job(fabric, tree, "admins-job", ADMIN_USER)
+    alices = submit_job(fabric, tree, "alices-job", NORMAL_USER)
     # alice cannot see / cancel the admin's job: 404 like a missing one, job untouched.
     assert (
         fabric.call("GET", f"/v1/jobs/{admins}", as_user=NORMAL_USER).status_code == 404
@@ -118,7 +75,7 @@ def test_cancel_authz_user_vs_admin_v08_g4_tester_r1(
         ).status_code
         == 404
     )
-    assert _state(fabric, admins) not in {"cancelled"}
+    assert job_state(fabric, admins) not in {"cancelled"}
     ids = {
         j["job_id"]
         for j in fabric.call("GET", "/v1/jobs", as_user=NORMAL_USER).json()["jobs"]
@@ -129,7 +86,7 @@ def test_cancel_authz_user_vs_admin_v08_g4_tester_r1(
     assert first.status_code in (200, 202), first.text
     again = fabric.call("POST", f"/v1/jobs/{alices}/cancel")
     assert again.status_code in (200, 202)
-    assert _state(fabric, alices) == "cancelled"
+    assert job_state(fabric, alices) == "cancelled"
     # cancel of an unknown / malformed id
     assert (
         fabric.call(
@@ -141,12 +98,14 @@ def test_cancel_authz_user_vs_admin_v08_g4_tester_r1(
 
 
 def test_cancel_without_csrf_header_is_refused_v08_g4_tester_r1(
-    fabric: Fabric, dashboard_browser: Browser, tmp_path: Path
+    fabric: Fabric, new_page: NewPage, tmp_path: Path
 ) -> None:
     tree = _tree(fabric, tmp_path)
-    job = _make_job(fabric, tree, "csrf-job", NORMAL_USER)
-    page, _watch = _page(dashboard_browser)
-    _login(page, fabric, NORMAL_USER)
+    job = submit_job(fabric, tree, "csrf-job", NORMAL_USER)
+    page, watch = new_page()
+    # The two refused fetches below (this test's own probes) log a 403.
+    watch.allow("status of 403", f"/v1/jobs/{job}/cancel")
+    sign_in(page, fabric, NORMAL_USER)
     path = f"/v1/jobs/{job}/cancel"
     send = """async ([path, headers]) => {
         const r = await fetch(path, {method: "POST", headers, credentials: "same-origin"});
@@ -154,9 +113,9 @@ def test_cancel_without_csrf_header_is_refused_v08_g4_tester_r1(
     }"""
     # Same-origin fetch carries the session cookie but we add no / a wrong CSRF header.
     assert page.evaluate(send, [path, {}]) == 403
-    assert _state(fabric, job) != "cancelled"
+    assert job_state(fabric, job) != "cancelled"
     assert page.evaluate(send, [path, {CSRF_HEADER: "0" * 43}]) == 403
-    assert _state(fabric, job) != "cancelled"
+    assert job_state(fabric, job) != "cancelled"
     cookies = {c["name"]: c["value"] for c in page.context.cookies()}
     assert CSRF_COOKIE in cookies
     assert page.evaluate(send, [path, {CSRF_HEADER: cookies[CSRF_COOKIE]}]) in (
@@ -164,19 +123,19 @@ def test_cancel_without_csrf_header_is_refused_v08_g4_tester_r1(
         202,
     )
     deadline = time.monotonic() + 60
-    while _state(fabric, job) != "cancelled" and time.monotonic() < deadline:
+    while job_state(fabric, job) != "cancelled" and time.monotonic() < deadline:
         time.sleep(0.3)
-    assert _state(fabric, job) == "cancelled"
+    assert job_state(fabric, job) == "cancelled"
 
 
 def test_foreign_job_page_is_an_honest_not_found_v08_g4_tester_r1(
-    fabric: Fabric, dashboard_browser: Browser, tmp_path: Path
+    fabric: Fabric, new_page: NewPage, tmp_path: Path
 ) -> None:
     tree = _tree(fabric, tmp_path)
-    admins = _make_job(fabric, tree, "secret-admin-job", ADMIN_USER)
-    page, watch = _page(dashboard_browser)
+    admins = submit_job(fabric, tree, "secret-admin-job", ADMIN_USER)
+    page, watch = new_page()
     watch.allow("status of 404", f"/v1/jobs/{admins}")
-    _login(page, fabric, NORMAL_USER)
+    sign_in(page, fabric, NORMAL_USER)
     page.goto(f"{fabric.http_base}/jobs/{admins}")
     expect(page.get_by_text("secret-admin-job")).to_have_count(0)
     expect(page.get_by_role("button", name="Cancel job")).to_have_count(0)
@@ -232,15 +191,15 @@ def _submit(page: Page, fabric: Fabric, project: Path) -> str:
 
 @pytest.mark.docker
 def test_log_follower_reconnects_without_gaps_or_duplicates_v08_g4_tester_r1(
-    fabric: Fabric, dashboard_browser: Browser, tmp_path: Path
+    fabric: Fabric, new_page: NewPage, tmp_path: Path
 ) -> None:
     """Drop the live log WebSocket twice mid-job (real Chromium, the real controller behind it): the
     page reconnects from its byte offsets, so every line appears exactly once, in order."""
     project = _chatty_project(tmp_path, lines=60, pause_s=0.25)
-    page, watch = _page(dashboard_browser)
+    page, watch = new_page()
     watch.allow("WebSocket", "logs/ws")  # Chromium logs a closed socket
     watch.allow("ERR_", "logs/ws")
-    _login(page, fabric, NORMAL_USER)
+    sign_in(page, fabric, NORMAL_USER)
     opened: list[int] = []
 
     def handler(ws: Any) -> None:
@@ -272,11 +231,11 @@ def test_log_follower_reconnects_without_gaps_or_duplicates_v08_g4_tester_r1(
 
 @pytest.mark.docker
 def test_cancel_dialog_escape_and_axe_v08_g4_tester_r1(
-    fabric: Fabric, dashboard_browser: Browser, tmp_path: Path
+    fabric: Fabric, new_page: NewPage, tmp_path: Path
 ) -> None:
     project = _chatty_project(tmp_path, lines=400, pause_s=0.2)
-    page, watch = _page(dashboard_browser)
-    _login(page, fabric, NORMAL_USER)
+    page, watch = new_page()
+    sign_in(page, fabric, NORMAL_USER)
     job_id = _submit(page, fabric, project)
     expect(page.get_by_role("log", name="Job output")).to_contain_text(
         "step 1 of", timeout=60_000
@@ -290,14 +249,14 @@ def test_cancel_dialog_escape_and_axe_v08_g4_tester_r1(
     expect(dialog).to_have_count(0)
     # focus returns to the button that opened it (keyboard users keep their place)
     expect(page.get_by_role("button", name="Cancel job")).to_be_focused()
-    assert _state(fabric, job_id) not in {"cancelled"}
+    assert job_state(fabric, job_id) not in {"cancelled"}
     # cancel through the page, then retry-cancel via the API: idempotent, terminal
     page.get_by_role("button", name="Cancel job").click()
     page.get_by_role("dialog").get_by_role("button", name="Cancel job").click()
     deadline = time.monotonic() + 60
-    while _state(fabric, job_id) != "cancelled" and time.monotonic() < deadline:
+    while job_state(fabric, job_id) != "cancelled" and time.monotonic() < deadline:
         time.sleep(0.3)
-    assert _state(fabric, job_id) == "cancelled"
+    assert job_state(fabric, job_id) == "cancelled"
     assert (
         fabric.call(
             "POST", f"/v1/jobs/{job_id}/cancel", as_user=NORMAL_USER
@@ -308,12 +267,12 @@ def test_cancel_dialog_escape_and_axe_v08_g4_tester_r1(
 
 
 def test_axe_on_empty_list_missing_job_and_submit_errors_v08_g4_tester_r1(
-    fabric: Fabric, dashboard_browser: Browser, tmp_path: Path
+    fabric: Fabric, new_page: NewPage, tmp_path: Path
 ) -> None:
-    page, watch = _page(dashboard_browser)
+    page, watch = new_page()
     watch.allow("status of 404", "/v1/jobs/")
     watch.allow("status of 400", "/v1/jobs/")
-    _login(page, fabric, NORMAL_USER)
+    sign_in(page, fabric, NORMAL_USER)
     page.goto(fabric.http_base + "/jobs")
     expect(page.get_by_role("heading", name="No jobs yet")).to_be_visible()
     assert axe_violations(page) == []
@@ -330,10 +289,10 @@ def test_axe_on_empty_list_missing_job_and_submit_errors_v08_g4_tester_r1(
 
 # T-16 fixed in G4 fix round 1 (status-failed tokens: >= 4.5:1 on the soft tone over every surface).
 def test_axe_on_the_refused_project_alert_v08_g4_tester_r1(
-    fabric: Fabric, dashboard_browser: Browser, tmp_path: Path
+    fabric: Fabric, new_page: NewPage, tmp_path: Path
 ) -> None:
-    page, _watch = _page(dashboard_browser)
-    _login(page, fabric, NORMAL_USER)
+    page, _watch = new_page()
+    sign_in(page, fabric, NORMAL_USER)
     notes = tmp_path / "notes"
     notes.mkdir()
     (notes / "readme.txt").write_text("x", "utf-8")

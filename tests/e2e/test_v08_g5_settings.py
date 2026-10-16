@@ -24,7 +24,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import httpx
 import pytest
@@ -36,17 +36,24 @@ pytest.importorskip("psutil", reason="the cluster harness needs the agent extra"
 pytest.importorskip("sqlalchemy", reason="the controller needs the controller extra")
 
 from mf_cluster import ADMIN_USER, NORMAL_USER
-from mf_dashboard import PageWatch, axe_violations
-from playwright.sync_api import Browser, Page, Response, expect
-from pydantic import SecretStr
+from mf_e2e import (
+    EXEC_OPTIONS,
+    TOKEN_PASSWORD_REFUSED_401,
+    assert_axe_clean,
+    sign_in,
+    storage_dump,
+    tab_to,
+    user_client,
+)
+from playwright.sync_api import Response, expect
 from qr_decode import decode_matrix, matrix_from_svg_path
 
-from meshforge.cli.client import ControllerClient
 from meshforge.cli.transfer import upload_tree
 from meshforge.common.tree import build_tree
 
 if TYPE_CHECKING:
     from mf_cluster import Fabric
+    from mf_e2e import NewPage
 
 pytestmark = [
     pytest.mark.e2e,
@@ -55,56 +62,8 @@ pytestmark = [
     pytest.mark.skipif(sys.platform.startswith("win"), reason="POSIX agent runtime"),
 ]
 
-#: Chromium's console line for the refused password of a token create (a real 401).
-LOGIN_REFUSED_401 = ("status of 401", "/v1/auth/login")
 SETTINGS_PAGES = ("", "/tokens", "/secrets", "/data")
 ADMIN_PAGES = ("/invites", "/users")
-EXEC_OPTIONS = {
-    "agent_execution": {"enabled": True, "allow_unsandboxed": True, "grace_s": 1.0},
-    "controller_jobs": {"dispatch_interval_s": 0.1},
-    "agent_env": {"DOCKER_HOST": "unix:///nonexistent/meshforge-test.sock"},
-}
-
-
-def _page(browser: Browser, **context: Any) -> tuple[Page, PageWatch]:
-    made = browser.new_context(reduced_motion="reduce", **context)
-    page = made.new_page()
-    page.set_default_timeout(20_000)
-    return page, PageWatch.attach(page)
-
-
-def _sign_in(page: Page, fabric: Fabric, user: str = ADMIN_USER) -> None:
-    page.goto(fabric.http_base + "/")
-    page.get_by_label("User name").fill(user)
-    page.get_by_label("Password").fill(fabric.password(user))
-    page.get_by_role("button", name="Sign in").click()
-    expect(page.get_by_role("heading", level=1, name="Overview")).to_be_visible()
-    expect(page.get_by_test_id("stream-status")).to_have_attribute(
-        "data-status", "live"
-    )
-
-
-def _no_axe(page: Page, where: str) -> None:
-    violations = axe_violations(page)
-    assert violations == [], f"axe violations on {where}: {violations}"
-
-
-def _storage(page: Page) -> str:
-    return str(
-        page.evaluate(
-            "JSON.stringify([Object.entries(localStorage), "
-            "Object.entries(sessionStorage), document.cookie, location.href, window.name])"
-        )
-    )
-
-
-def _client(fabric: Fabric, user: str) -> ControllerClient:
-    return ControllerClient(
-        fabric.http_base,
-        timeout_s=30,
-        token=SecretStr(fabric.api_token(user)),
-        ssl_context=fabric.ssl_context,
-    )
 
 
 def _agent_env() -> dict[str, str]:
@@ -121,18 +80,18 @@ def _agent_env() -> dict[str, str]:
     [{"agents": 1, "enroll_agents": False, "start_agents": False}],
 )
 def test_invite_in_the_browser_lets_a_laptop_join(
-    fabric: Fabric, dashboard_browser: Browser
+    fabric: Fabric, new_page: NewPage
 ) -> None:
-    page, watch = _page(dashboard_browser)
+    page, watch = new_page()
     page.context.grant_permissions(
         ["clipboard-read", "clipboard-write"], origin=fabric.http_base
     )
-    _sign_in(page, fabric)
+    sign_in(page, fabric)
     page.get_by_role("link", name="Settings", exact=True).click()
     settings_nav = page.get_by_role("navigation", name="Settings")
     settings_nav.get_by_role("link", name="Invites").click()
     expect(page.get_by_text("No invites yet.")).to_be_visible()
-    _no_axe(page, "the empty invites page")
+    assert_axe_clean(page, "the empty invites page")
 
     page.get_by_role("button", name="Create invite").click()
     dialog = page.get_by_role("dialog")
@@ -142,7 +101,7 @@ def test_invite_in_the_browser_lets_a_laptop_join(
     expect(issued).to_be_visible()
     code = issued.locator("pre").first.inner_text().strip()
     assert code.startswith("mf1-"), code
-    _no_axe(page, "the issued invite dialog")
+    assert_axe_clean(page, "the issued invite dialog")
 
     # The QR says exactly the code: read back from the SVG, decoded independently.
     qr = issued.get_by_role("img", name="QR code of the join code")
@@ -167,7 +126,7 @@ def test_invite_in_the_browser_lets_a_laptop_join(
     issued.get_by_role("button", name="Done").click()
     expect(dialog).to_be_hidden()
     assert code not in (page.content() or "")
-    assert code not in _storage(page)
+    assert code not in storage_dump(page)
     row = page.get_by_role("row").filter(has_text=invite_id)
     expect(row).to_contain_text("pending")
 
@@ -197,29 +156,17 @@ def test_invite_in_the_browser_lets_a_laptop_join(
 # --------------------------------------------------------------- tokens
 
 
-def _focus_by_tab(page: Page, accessible_name: str, limit: int = 80) -> None:
-    for _ in range(limit):
-        label = page.evaluate(
-            "document.activeElement?.getAttribute('aria-label') "
-            "|| document.activeElement?.textContent"
-        )
-        if label == accessible_name:
-            return
-        page.keyboard.press("Tab")
-    pytest.fail(f"Tab never reached {accessible_name!r}")
-
-
 def test_a_browser_made_token_works_until_revoked_in_the_browser(
-    fabric: Fabric, dashboard_browser: Browser
+    fabric: Fabric, new_page: NewPage
 ) -> None:
-    page, watch = _page(dashboard_browser)
-    _sign_in(page, fabric)
+    page, watch = new_page()
+    sign_in(page, fabric)
     page.goto(fabric.http_base + "/settings/tokens")
     expect(page.get_by_role("table")).to_contain_text("Browser session")
-    _no_axe(page, "the tokens page")
+    assert_axe_clean(page, "the tokens page")
 
     # A wrong password is an error in the dialog, never a sign-out.
-    watch.allow(*LOGIN_REFUSED_401)
+    watch.allow(*TOKEN_PASSWORD_REFUSED_401)
     page.get_by_role("button", name="Create API token").click()
     dialog = page.get_by_role("dialog")
     dialog.get_by_label("Token name").fill("e2e-ci")
@@ -234,11 +181,11 @@ def test_a_browser_made_token_works_until_revoked_in_the_browser(
     expect(shown).to_be_visible()
     token = shown.locator("pre").first.inner_text().strip()
     assert len(token) >= 32
-    _no_axe(page, "the new token dialog")
+    assert_axe_clean(page, "the new token dialog")
     shown.get_by_role("button", name="Done").click()
     expect(dialog).to_be_hidden()
     assert token not in (page.content() or "")
-    assert token not in _storage(page)
+    assert token not in storage_dump(page)
     assert fabric.password(ADMIN_USER) not in (page.content() or "")
 
     bearer = {"authorization": f"Bearer {token}"}
@@ -250,11 +197,11 @@ def test_a_browser_made_token_works_until_revoked_in_the_browser(
         # Revoke it in the browser, keyboard only.
         row = page.get_by_role("row").filter(has_text=token_id)
         expect(row).to_contain_text("active")
-        _focus_by_tab(page, f"Revoke e2e-ci ({token_id})")
+        tab_to(page, f"Revoke e2e-ci ({token_id})")
         page.keyboard.press("Enter")
         confirm = page.get_by_role("dialog")
         expect(confirm).to_be_visible()
-        _no_axe(page, "the revoke confirm dialog")
+        assert_axe_clean(page, "the revoke confirm dialog")
         expect(confirm.get_by_role("button", name="Cancel")).to_be_focused()
         page.keyboard.press("Tab")
         expect(confirm.get_by_role("button", name="Revoke")).to_be_focused()
@@ -280,10 +227,10 @@ print("value=" + value.decode(), flush=True)
 
 @pytest.mark.parametrize("fabric_options", [EXEC_OPTIONS])
 def test_a_secret_set_in_the_browser_reaches_a_job_and_never_the_browser(
-    fabric: Fabric, dashboard_browser: Browser, tmp_path: Path
+    fabric: Fabric, new_page: NewPage, tmp_path: Path
 ) -> None:
     value = "mf-e2e-" + secrets.token_hex(12)
-    page, watch = _page(dashboard_browser)
+    page, watch = new_page()
     bodies: list[str] = []
     consoles: list[str] = []
 
@@ -296,17 +243,17 @@ def test_a_secret_set_in_the_browser_reaches_a_job_and_never_the_browser(
 
     page.on("response", keep)
     page.on("console", lambda m: consoles.append(m.text))
-    _sign_in(page, fabric, NORMAL_USER)
+    sign_in(page, fabric, NORMAL_USER)
     page.goto(fabric.http_base + "/settings/secrets")
     expect(page.get_by_text("No secrets yet.")).to_be_visible()
-    _no_axe(page, "the secrets page")
+    assert_axe_clean(page, "the secrets page")
 
     page.get_by_role("button", name="Set a secret").click()
     dialog = page.get_by_role("dialog")
     dialog.get_by_label("Name", exact=True).fill("e2e_greeting")
     expect(dialog.get_by_text("Stored as E2E_GREETING.")).to_be_visible()
     dialog.get_by_label("Value", exact=True).fill(value)
-    _no_axe(page, "the set-secret dialog")
+    assert_axe_clean(page, "the set-secret dialog")
     dialog.get_by_role("button", name="Store secret").click()
     expect(page.get_by_text("Secret E2E_GREETING stored", exact=True)).to_be_visible()
     expect(page.get_by_role("cell", name="E2E_GREETING", exact=True)).to_be_visible()
@@ -316,7 +263,7 @@ def test_a_secret_set_in_the_browser_reaches_a_job_and_never_the_browser(
     root.mkdir()
     (root / "main.py").write_text(JOB_MAIN)
     built = build_tree(root)
-    client = _client(fabric, NORMAL_USER)
+    client = user_client(fabric, NORMAL_USER)
     try:
         upload_tree(client, built)
     finally:
@@ -359,7 +306,7 @@ def test_a_secret_set_in_the_browser_reaches_a_job_and_never_the_browser(
     page.goto(fabric.http_base + "/settings/secrets")
     expect(page.get_by_role("cell", name="E2E_GREETING", exact=True)).to_be_visible()
     assert value not in (page.content() or "")
-    assert value not in _storage(page)
+    assert value not in storage_dump(page)
     assert all(value not in body for body in bodies), "a response carried the value"
     assert all(value not in line for line in consoles)
 
@@ -377,14 +324,14 @@ def test_a_secret_set_in_the_browser_reaches_a_job_and_never_the_browser(
 
 
 def test_data_pin_and_delete_from_the_browser(
-    fabric: Fabric, dashboard_browser: Browser, tmp_path: Path
+    fabric: Fabric, new_page: NewPage, tmp_path: Path
 ) -> None:
     root = tmp_path / "dataset"
     root.mkdir()
     (root / "a.txt").write_text("alpha\n")
     (root / "b.txt").write_text("beta\n")
     built = build_tree(root)
-    client = _client(fabric, NORMAL_USER)
+    client = user_client(fabric, NORMAL_USER)
     try:
         upload_tree(client, built)
         pushed = client.push_input("e2e-data", str(built.tree.tree_id), pinned=False)
@@ -392,13 +339,13 @@ def test_data_pin_and_delete_from_the_browser(
         client.close()
     ref = str(pushed["ref"])
 
-    page, watch = _page(dashboard_browser)
-    _sign_in(page, fabric, NORMAL_USER)
+    page, watch = new_page()
+    sign_in(page, fabric, NORMAL_USER)
     page.goto(fabric.http_base + "/settings/data")
     row = page.get_by_role("row").filter(has_text=ref)
     expect(row).to_contain_text("not pinned")
     expect(row).to_contain_text(str(pushed["files"]))
-    _no_axe(page, "the data page")
+    assert_axe_clean(page, "the data page")
 
     row.get_by_role("button", name=f"Pin {ref}").click()
     expect(page.get_by_text(f"{ref} pinned", exact=True)).to_be_visible()
@@ -408,7 +355,7 @@ def test_data_pin_and_delete_from_the_browser(
 
     row.get_by_role("button", name=f"Delete {ref}").click()
     confirm = page.get_by_role("dialog")
-    _no_axe(page, "the delete confirm dialog")
+    assert_axe_clean(page, "the delete confirm dialog")
     confirm.get_by_role("button", name="Delete version").click()
     expect(page.get_by_text(f"{ref} deleted", exact=True)).to_be_visible()
     expect(page.get_by_text("No named inputs yet.")).to_be_visible()
@@ -421,13 +368,13 @@ def test_data_pin_and_delete_from_the_browser(
 
 
 def test_user_and_admin_views_and_axe_on_every_settings_page(
-    fabric: Fabric, dashboard_browser: Browser
+    fabric: Fabric, new_page: NewPage
 ) -> None:
     # A user: no admin sections, no admin calls, axe clean.
-    page, watch = _page(dashboard_browser)
+    page, watch = new_page()
     requested: list[str] = []
     page.on("request", lambda r: requested.append(r.url))
-    _sign_in(page, fabric, NORMAL_USER)
+    sign_in(page, fabric, NORMAL_USER)
     page.get_by_role("link", name="Settings", exact=True).click()
     nav = page.get_by_role("navigation", name="Settings")
     expect(nav.get_by_role("link")).to_have_text(
@@ -437,11 +384,11 @@ def test_user_and_admin_views_and_axe_on_every_settings_page(
         page.goto(fabric.http_base + "/settings" + path)
         expect(page.get_by_role("heading", level=1, name="Settings")).to_be_visible()
         expect(page.get_by_text("Loading…")).to_have_count(0)
-        _no_axe(page, f"user /settings{path}")
+        assert_axe_clean(page, f"user /settings{path}")
     expect(page.get_by_label("Every user")).to_have_count(0)
     page.goto(fabric.http_base + "/settings/invites")
     expect(page.get_by_text("Invites are made by admins")).to_be_visible()
-    _no_axe(page, "user /settings/invites")
+    assert_axe_clean(page, "user /settings/invites")
     page.goto(fabric.http_base + "/settings/users")
     expect(page.get_by_text("Users are managed by admins")).to_be_visible()
     assert not [u for u in requested if "/v1/fabric/invites" in u]
@@ -450,8 +397,8 @@ def test_user_and_admin_views_and_axe_on_every_settings_page(
     page.context.close()
 
     # An admin: every section, the controller card shows /healthz's figures.
-    page, watch = _page(dashboard_browser)
-    _sign_in(page, fabric, ADMIN_USER)
+    page, watch = new_page()
+    sign_in(page, fabric, ADMIN_USER)
     page.get_by_role("link", name="Settings", exact=True).click()
     nav = page.get_by_role("navigation", name="Settings")
     expect(nav.get_by_role("link")).to_have_text(
@@ -466,7 +413,7 @@ def test_user_and_admin_views_and_axe_on_every_settings_page(
         page.goto(fabric.http_base + "/settings" + path)
         expect(page.get_by_role("heading", level=1, name="Settings")).to_be_visible()
         expect(page.get_by_text("Loading…")).to_have_count(0)
-        _no_axe(page, f"admin /settings{path}")
+        assert_axe_clean(page, f"admin /settings{path}")
     expect(page.get_by_test_id("users-card")).to_contain_text(
         "meshforge-controller user create"
     )
@@ -478,5 +425,5 @@ def test_user_and_admin_views_and_axe_on_every_settings_page(
             page.get_by_role("button", name="Switch to light theme").or_(
                 page.get_by_role("button", name="Switch to dark theme")
             ).click()
-        _no_axe(page, f"admin tokens ({theme})")
+        assert_axe_clean(page, f"admin tokens ({theme})")
     watch.assert_clean()

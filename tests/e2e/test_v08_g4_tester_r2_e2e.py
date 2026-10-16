@@ -16,11 +16,12 @@ pytest.importorskip("psutil", reason="the cluster harness needs the agent extra"
 pytest.importorskip("sqlalchemy", reason="the controller needs the controller extra")
 
 from mf_cluster import NORMAL_USER
-from mf_dashboard import PageWatch
-from playwright.sync_api import Browser, Page, expect
+from mf_e2e import EXEC_OPTIONS, sign_in
+from playwright.sync_api import expect
 
 if TYPE_CHECKING:
     from mf_cluster import Fabric
+    from mf_e2e import NewPage
 
 pytestmark = [
     pytest.mark.e2e,
@@ -31,28 +32,7 @@ pytestmark = [
 
 @pytest.fixture
 def fabric_options() -> dict[str, Any]:
-    return {
-        "agent_execution": {"enabled": True, "allow_unsandboxed": True, "grace_s": 1.0},
-        "controller_jobs": {"dispatch_interval_s": 0.1},
-        "agent_env": {"DOCKER_HOST": "unix:///nonexistent/meshforge-test.sock"},
-    }
-
-
-def _page(browser: Browser) -> tuple[Page, PageWatch]:
-    context = browser.new_context(reduced_motion="reduce")
-    page = context.new_page()
-    page.set_default_timeout(20_000)
-    watch = PageWatch.attach(page)
-    watch.allow("status of 401", "/v1/session")
-    return page, watch
-
-
-def _login(page: Page, fabric: Fabric) -> None:
-    page.goto(fabric.http_base + "/")
-    page.get_by_label("User name").fill(NORMAL_USER)
-    page.get_by_label("Password").fill(fabric.password(NORMAL_USER))
-    page.get_by_role("button", name="Sign in").click()
-    expect(page.get_by_role("heading", level=1, name="Overview")).to_be_visible()
+    return dict(EXEC_OPTIONS)
 
 
 def _project(root: Path) -> Path:
@@ -74,15 +54,15 @@ def _project(root: Path) -> Path:
     ],
 )
 def test_unparseable_priority_text_never_silently_becomes_the_default_v08_g4_tester_r2(
-    fabric: Fabric, dashboard_browser: Browser, tmp_path: Path, typed: str
+    fabric: Fabric, new_page: NewPage, tmp_path: Path, typed: str
 ) -> None:
     """A browser number input hands the page "" for text it cannot parse (validity.badInput).
 
     The page must then either block the submit or tell the user; it must not submit a job whose
     priority silently differs from what the field shows.
     """
-    page, _watch = _page(dashboard_browser)
-    _login(page, fabric)
+    page, _watch = new_page()
+    sign_in(page, fabric, NORMAL_USER)
     posts: list[dict[str, Any]] = []
     page.on(
         "request",

@@ -21,36 +21,22 @@ pytest.importorskip("psutil", reason="the cluster harness needs the agent extra"
 pytest.importorskip("sqlalchemy", reason="the controller needs the controller extra")
 
 from mf_cluster import ADMIN_USER, NORMAL_USER
-from mf_dashboard import DIST, PageWatch, axe_violations
-from playwright.sync_api import Browser, Page, expect
+from mf_dashboard import DIST
+from mf_e2e import LOGIN_REFUSED_401, assert_axe_clean, fill_login, tab_to
+from playwright.sync_api import expect
 
 from meshforge.controller.web.spa import CSP
 
 if TYPE_CHECKING:
     from mf_cluster import Fabric
+    from mf_e2e import NewPage
 
 pytestmark = [pytest.mark.e2e, pytest.mark.timeout(240)]
 
-#: What Chromium logs for a REFUSED login (`POST /v1/session` -> 401): the
-#: browser reports every 4xx. Only the wrong-password test allows it. (The boot
-#: probe `GET /v1/session` answers 200 `{session: null}` since V0.8 G3 - D191 b
-#: - so a signed-out first visit logs nothing and needs no allowance.)
-LOGIN_REFUSED_401 = ("status of 401", "/v1/session")
-
-
-def _page(browser: Browser) -> tuple[Page, PageWatch]:
-    # Reduced motion: the CSS then has no colour transitions, so axe measures
-    # contrast at rest, not half-way through a theme switch.
-    context = browser.new_context(reduced_motion="reduce")
-    page = context.new_page()
-    page.set_default_timeout(15_000)
-    return page, PageWatch.attach(page)
-
-
-def _login(page: Page, name: str, password: str) -> None:
-    page.get_by_label("User name").fill(name)
-    page.get_by_label("Password").fill(password)
-    page.get_by_role("button", name="Sign in").click()
+# LOGIN_REFUSED_401 (mf_e2e): what Chromium logs for a REFUSED login (`POST
+# /v1/session` -> 401). Only the wrong-password test allows it. (The boot probe
+# `GET /v1/session` answers 200 `{session: null}` since V0.8 G3 - D191 b - so a
+# signed-out first visit logs nothing and needs no allowance.)
 
 
 def _expected_online(fabric: Fabric) -> str:
@@ -62,14 +48,9 @@ def _expected_online(fabric: Fabric) -> str:
     return f"{online} of {len(nodes)} node{'' if len(nodes) == 1 else 's'} online"
 
 
-def _assert_no_axe_violations(page: Page, where: str) -> None:
-    violations = axe_violations(page)
-    assert violations == [], f"axe violations on {where}: {violations}"
-
-
 @pytest.mark.docker
-def test_login_shell_and_logout(fabric: Fabric, dashboard_browser: Browser) -> None:
-    page, watch = _page(dashboard_browser)
+def test_login_shell_and_logout(fabric: Fabric, new_page: NewPage) -> None:
+    page, watch = new_page()
 
     response = page.goto(fabric.http_base + "/jobs")
     assert response is not None and response.status == 200
@@ -78,9 +59,9 @@ def test_login_shell_and_logout(fabric: Fabric, dashboard_browser: Browser) -> N
     # Not signed in: the login page, focus in the name field.
     expect(page.get_by_role("heading", name="Sign in")).to_be_visible()
     expect(page.get_by_label("User name")).to_be_focused()
-    _assert_no_axe_violations(page, "the login page")
+    assert_axe_clean(page, "the login page")
 
-    _login(page, ADMIN_USER, fabric.password(ADMIN_USER))
+    fill_login(page, ADMIN_USER, fabric.password(ADMIN_USER))
 
     # Back where the user was going, inside the shell.
     expect(page.get_by_role("heading", level=1, name="Jobs")).to_be_visible()
@@ -101,10 +82,10 @@ def test_login_shell_and_logout(fabric: Fabric, dashboard_browser: Browser) -> N
     expect(page.get_by_test_id("stream-status")).to_have_attribute(
         "data-status", "live"
     )
-    _assert_no_axe_violations(page, "the shell")
+    assert_axe_clean(page, "the shell")
     page.get_by_role("button", name="Switch to light theme").click()
     expect(page.locator("html")).to_have_attribute("data-theme", "light")
-    _assert_no_axe_violations(page, "the shell (light theme)")
+    assert_axe_clean(page, "the shell (light theme)")
 
     # Checklist 25: no token anywhere script can reach.
     cookies = {c["name"]: c for c in page.context.cookies()}
@@ -134,12 +115,12 @@ def test_login_shell_and_logout(fabric: Fabric, dashboard_browser: Browser) -> N
 
 @pytest.mark.docker
 def test_wrong_password_is_refused_with_a_message(
-    fabric: Fabric, dashboard_browser: Browser
+    fabric: Fabric, new_page: NewPage
 ) -> None:
-    page, watch = _page(dashboard_browser)
+    page, watch = new_page()
     watch.allow(*LOGIN_REFUSED_401)  # the refused POST below
     page.goto(fabric.http_base + "/")
-    _login(page, NORMAL_USER, "not-the-password")
+    fill_login(page, NORMAL_USER, "not-the-password")
     expect(page.get_by_role("alert")).to_have_text("Wrong user name or password.")
     expect(page.get_by_label("Password")).to_have_value("")
     expect(page.get_by_role("heading", name="Sign in")).to_be_visible()
@@ -148,10 +129,8 @@ def test_wrong_password_is_refused_with_a_message(
 
 
 @pytest.mark.docker
-def test_keyboard_only_login_and_logout(
-    fabric: Fabric, dashboard_browser: Browser
-) -> None:
-    page, watch = _page(dashboard_browser)
+def test_keyboard_only_login_and_logout(fabric: Fabric, new_page: NewPage) -> None:
+    page, watch = new_page()
     page.goto(fabric.http_base + "/")
     expect(page.get_by_label("User name")).to_be_focused()
     page.keyboard.type(NORMAL_USER)
@@ -170,10 +149,7 @@ def test_keyboard_only_login_and_logout(
 
     # Tab on to "Sign out" and press it - no mouse anywhere.
     sign_out = page.get_by_role("button", name="Sign out")
-    for _ in range(20):
-        if page.evaluate("document.activeElement?.textContent") == "Sign out":
-            break
-        page.keyboard.press("Tab")
+    tab_to(page, "Sign out", limit=20)
     expect(sign_out).to_be_focused()
     outline = page.evaluate("getComputedStyle(document.activeElement).outlineStyle")
     assert outline != "none", "keyboard focus must be visible"

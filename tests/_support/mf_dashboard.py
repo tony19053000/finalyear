@@ -155,10 +155,22 @@ class Allowed:
 
 @dataclasses.dataclass
 class PageWatch:
+    """What one page logged. V0.8 G7: the e2e ``new_page`` fixture checks
+    every watch it made when the test ends (:meth:`final_problems`) - console
+    errors, uncaught errors, CSP violations and axe-core on the page's final
+    state - so no test can forget to; a test states its expectations with
+    :meth:`allow` / :meth:`allow_matching` / :meth:`skip_final_axe` /
+    :meth:`disarm`, each with a reason in the test."""
+
     page: Page
     console_errors: list[str] = dataclasses.field(default_factory=list)
     page_errors: list[str] = dataclasses.field(default_factory=list)
     allowed: list[Allowed] = dataclasses.field(default_factory=list)
+    noise: list[re.Pattern[str]] = dataclasses.field(default_factory=list)
+    """Console errors matching one of these are expected (an outage's network
+    errors); filtered when checked, so it may be declared at any time."""
+    final_axe: bool = True
+    disarmed: str | None = None
 
     @classmethod
     def attach(cls, page: Page) -> PageWatch:
@@ -170,6 +182,28 @@ class PageWatch:
 
     def allow(self, text: str, url_suffix: str) -> None:
         self.allowed.append(Allowed(text, url_suffix))
+
+    def allow_matching(self, pattern: str) -> None:
+        """Expect console errors whose text matches ``pattern`` (regex)."""
+        self.noise.append(re.compile(pattern))
+
+    def skip_final_axe(self, reason: str) -> None:
+        """The page ends in a state axe must not judge (``reason`` says why)."""
+        assert reason
+        self.final_axe = False
+
+    def disarm(self, reason: str) -> None:
+        """A negative control: this page is dirty on purpose; the end-of-test
+        check skips it (``reason`` says why)."""
+        assert reason
+        self.disarmed = reason
+
+    def unexpected_console_errors(self) -> list[str]:
+        return [
+            line
+            for line in self.console_errors
+            if not any(p.search(line) for p in self.noise)
+        ]
 
     def _on_console(self, message: ConsoleMessage) -> None:
         if message.type not in ("error", "assert"):
@@ -186,9 +220,29 @@ class PageWatch:
 
     def assert_clean(self) -> None:
         violations = self.csp_violations()
-        assert not self.console_errors, f"console errors: {self.console_errors}"
+        errors = self.unexpected_console_errors()
+        assert not errors, f"console errors: {errors}"
         assert not self.page_errors, f"uncaught page errors: {self.page_errors}"
         assert not violations, f"CSP violations: {violations}"
+
+    def final_problems(self) -> list[str]:
+        """Everything wrong with this page at the end of a test (V0.8 G7):
+        console/uncaught errors and, while the page is open, CSP violations
+        and axe-core findings on its final state. Empty when disarmed."""
+        if self.disarmed is not None:
+            return []
+        problems = [f"console error: {e}" for e in self.unexpected_console_errors()]
+        problems += [f"uncaught page error: {e}" for e in self.page_errors]
+        if self.page.is_closed():
+            return problems
+        where = self.page.url
+        problems += [f"CSP violation on {where}: {v}" for v in self.csp_violations()]
+        if self.final_axe and where.startswith("https://"):
+            problems += [
+                f"axe violation on {where} (final state): {v}"
+                for v in axe_violations(self.page)
+            ]
+        return problems
 
 
 def axe_violations(page: Page) -> list[dict[str, Any]]:

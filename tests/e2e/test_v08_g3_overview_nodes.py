@@ -19,7 +19,7 @@ from __future__ import annotations
 import re
 import statistics
 import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -29,70 +29,32 @@ pytest.importorskip(
 pytest.importorskip("psutil", reason="the cluster harness needs the agent extra")
 pytest.importorskip("sqlalchemy", reason="the controller needs the controller extra")
 
-from mf_cluster import ADMIN_USER, NORMAL_USER
-from mf_dashboard import PageWatch, axe_violations
-from playwright.sync_api import Browser, Page, expect
+from mf_cluster import NORMAL_USER
+from mf_e2e import api_nodes, assert_axe_clean, sign_in, tab_to, wait_all_reporting
+from playwright.sync_api import expect
 
 from meshforge.common.errors import ExitCode
 
 if TYPE_CHECKING:
     from mf_cluster import Fabric
+    from mf_e2e import NewPage
 
 pytestmark = [pytest.mark.e2e, pytest.mark.docker, pytest.mark.timeout(300)]
 
 TWO_AGENTS = pytest.mark.parametrize("fabric_options", [{"agents": 2}])
+ONE_AGENT = pytest.mark.parametrize("fabric_options", [{"agents": 1}])
 LIVE_BUDGET_MS = 2000.0
 """Criterion 2: a fabric change is visible in the page within 2 s."""
-
-
-def _page(browser: Browser) -> tuple[Page, PageWatch]:
-    context = browser.new_context(reduced_motion="reduce")
-    page = context.new_page()
-    page.set_default_timeout(15_000)
-    return page, PageWatch.attach(page)
-
-
-def _sign_in(page: Page, fabric: Fabric, user: str = ADMIN_USER) -> None:
-    page.goto(fabric.http_base + "/")
-    page.get_by_label("User name").fill(user)
-    page.get_by_label("Password").fill(fabric.password(user))
-    page.get_by_role("button", name="Sign in").click()
-    expect(page.get_by_role("heading", level=1, name="Overview")).to_be_visible()
-    expect(page.get_by_test_id("stream-status")).to_have_attribute(
-        "data-status", "live"
-    )
-
-
-def _no_axe(page: Page, where: str) -> None:
-    violations = axe_violations(page)
-    assert violations == [], f"axe violations on {where}: {violations}"
-
-
-def _nodes(fabric: Fabric) -> list[dict[str, Any]]:
-    listed = fabric.get("/v1/nodes")
-    assert listed is not None
-    return list(listed["nodes"])
-
-
-def _wait_all_reporting(fabric: Fabric, n: int) -> list[dict[str, Any]]:
-    deadline = time.monotonic() + 30
-    while time.monotonic() < deadline:
-        nodes = _nodes(fabric)
-        live = [x for x in nodes if x["connected"] and x["cpu_percent"] is not None]
-        if len(nodes) == n and len(live) == n:
-            return nodes
-        time.sleep(0.2)
-    pytest.fail(f"the {n} agents did not all report a sample: {_nodes(fabric)}")
 
 
 @pytest.mark.docker
 @TWO_AGENTS
 def test_overview_and_nodes_show_what_the_api_returns(
-    fabric: Fabric, dashboard_browser: Browser
+    fabric: Fabric, new_page: NewPage
 ) -> None:
-    nodes = _wait_all_reporting(fabric, 2)
-    page, watch = _page(dashboard_browser)
-    _sign_in(page, fabric)
+    nodes = wait_all_reporting(fabric, 2)
+    page, watch = new_page()
+    sign_in(page, fabric)
 
     # --- Overview: every figure is the API's.
     online = sum(1 for n in nodes if n["state"] == "online")
@@ -129,7 +91,7 @@ def test_overview_and_nodes_show_what_the_api_returns(
     alerts = fabric.get("/v1/alerts")
     assert alerts is not None and alerts["alerts"] == []
     expect(page.get_by_test_id("alerts-empty")).to_be_visible()
-    _no_axe(page, "the Overview")
+    assert_axe_clean(page, "the Overview")
 
     # --- Nodes: one row per API node, sorted and filtered in the page.
     page.get_by_role("navigation", name="Main").get_by_role(
@@ -156,7 +118,7 @@ def test_overview_and_nodes_show_what_the_api_returns(
     expect(page).to_have_url(re.compile(r"sort=cpu&dir=desc"))
     page.get_by_role("button", name=re.compile(r"^online \(2\)$")).click()
     expect(table.locator("tbody tr")).to_have_count(2)
-    _no_axe(page, "the Nodes list")
+    assert_axe_clean(page, "the Nodes list")
 
     # --- Node detail: every tab renders (Radix Tabs under the CSP), axe-clean.
     first = nodes[0]
@@ -170,7 +132,7 @@ def test_overview_and_nodes_show_what_the_api_returns(
         page.get_by_test_id("node-status").locator("[data-state]")
     ).to_have_attribute("data-state", detail["state"])
     expect(page.get_by_test_id("live-metrics")).to_be_visible()
-    _no_axe(page, "the Node detail (live)")
+    assert_axe_clean(page, "the Node detail (live)")
     tabs = page.get_by_role("tablist", name="Node details")
     for name, marker in (
         ("Hardware", "hardware-card"),
@@ -179,7 +141,7 @@ def test_overview_and_nodes_show_what_the_api_returns(
     ):
         tabs.get_by_role("tab", name=name).click()
         expect(page.get_by_test_id(marker)).to_be_visible()
-        _no_axe(page, f"the Node detail ({name})")
+        assert_axe_clean(page, f"the Node detail ({name})")
     # Arrow keys move between tabs (Radix roving focus).
     tabs.get_by_role("tab", name="Caches & policy").focus()
     page.keyboard.press("ArrowLeft")
@@ -199,12 +161,12 @@ def test_overview_and_nodes_show_what_the_api_returns(
 @pytest.mark.docker
 @TWO_AGENTS
 def test_a_killed_node_changes_in_the_page_within_2_s(
-    fabric: Fabric, dashboard_browser: Browser
+    fabric: Fabric, new_page: NewPage
 ) -> None:
-    _wait_all_reporting(fabric, 2)
+    wait_all_reporting(fabric, 2)
     victim = fabric.nodes[1]
-    page, watch = _page(dashboard_browser)
-    _sign_in(page, fabric)
+    page, watch = new_page()
+    sign_in(page, fabric)
     page.goto(fabric.http_base + "/nodes")
     status = page.locator(f'tr:has([title="{victim.node_id}"]) [data-state]')
     expect(status).to_have_attribute("data-connected", "true")
@@ -229,7 +191,7 @@ def test_a_killed_node_changes_in_the_page_within_2_s(
     api_ms: float | None = None
     deadline = time.monotonic() + 20
     while api_ms is None and time.monotonic() < deadline:
-        row = {n["node_id"]: n for n in _nodes(fabric)}[victim.node_id]
+        row = {n["node_id"]: n for n in api_nodes(fabric)}[victim.node_id]
         if not row["connected"] or row["state"] != "online":
             api_ms = time.time() * 1000
         else:
@@ -256,20 +218,21 @@ def test_a_killed_node_changes_in_the_page_within_2_s(
     # default only reports a change > 5 % or every 10 s, too few for a sample.
     [
         {
+            "agents": 1,
             "agent_resources": {
                 "sample_interval_s": 1.0,
                 "change_threshold_percent": 0.0,
                 "max_report_interval_s": 1.0,
-            }
+            },
         }
     ],
 )
 def test_a_heartbeat_sample_is_visible_within_2_s(
-    fabric: Fabric, dashboard_browser: Browser
+    fabric: Fabric, new_page: NewPage
 ) -> None:
-    node = _wait_all_reporting(fabric, 1)[0]
-    page, watch = _page(dashboard_browser)
-    _sign_in(page, fabric)
+    node = wait_all_reporting(fabric, 1)[0]
+    page, watch = new_page()
+    sign_in(page, fabric)
     page.goto(f"{fabric.http_base}/nodes/{node['node_id']}")
     expect(page.get_by_test_id("latest-sample")).to_be_visible()
     page.evaluate(
@@ -304,13 +267,13 @@ def test_a_heartbeat_sample_is_visible_within_2_s(
 
 @pytest.mark.docker
 @TWO_AGENTS
-def test_revoke_by_keyboard_only(fabric: Fabric, dashboard_browser: Browser) -> None:
-    _wait_all_reporting(fabric, 2)
+def test_revoke_by_keyboard_only(fabric: Fabric, new_page: NewPage) -> None:
+    wait_all_reporting(fabric, 2)
     victim = fabric.nodes[1]
     detail = fabric.get(f"/v1/nodes/{victim.node_id}")
     assert detail is not None
-    page, watch = _page(dashboard_browser)
-    _sign_in(page, fabric)
+    page, watch = new_page()
+    sign_in(page, fabric)
     page.goto(f"{fabric.http_base}/nodes/{victim.node_id}")
     expect(page.get_by_role("heading", level=1)).to_have_text(detail["hostname"])
     # The agent is still running (V0.8 G5, D195): revoking it cuts its live
@@ -321,10 +284,7 @@ def test_revoke_by_keyboard_only(fabric: Fabric, dashboard_browser: Browser) -> 
     ).to_have_attribute("data-connected", "true")
 
     trigger = page.get_by_role("button", name="Revoke node")
-    for _ in range(40):
-        if page.evaluate("document.activeElement?.textContent") == "Revoke node":
-            break
-        page.keyboard.press("Tab")
+    tab_to(page, "Revoke node", limit=40)
     expect(trigger).to_be_focused()
     page.keyboard.press("Enter")
     dialog = page.get_by_role("dialog")
@@ -335,7 +295,7 @@ def test_revoke_by_keyboard_only(fabric: Fabric, dashboard_browser: Browser) -> 
     expect(field).to_be_focused()
     page.keyboard.type(detail["hostname"])
     expect(confirm).to_be_enabled()
-    _no_axe(page, "the revoke dialog")
+    assert_axe_clean(page, "the revoke dialog")
     page.keyboard.press("Enter")
 
     expect(
@@ -360,29 +320,26 @@ def test_revoke_by_keyboard_only(fabric: Fabric, dashboard_browser: Browser) -> 
 
 
 @pytest.mark.docker
-def test_a_user_sees_no_revoke_and_no_alerts(
-    fabric: Fabric, dashboard_browser: Browser
-) -> None:
-    node = _wait_all_reporting(fabric, 1)[0]
-    page, watch = _page(dashboard_browser)
-    _sign_in(page, fabric, NORMAL_USER)
+@ONE_AGENT
+def test_a_user_sees_no_revoke_and_no_alerts(fabric: Fabric, new_page: NewPage) -> None:
+    node = wait_all_reporting(fabric, 1)[0]
+    page, watch = new_page()
+    sign_in(page, fabric, NORMAL_USER)
     expect(page.get_by_test_id("alerts-card")).to_contain_text(
         "Alerts are shown to admins only."
     )
     page.goto(f"{fabric.http_base}/nodes/{node['node_id']}")
     expect(page.get_by_test_id("summary-card")).to_be_visible()
     expect(page.get_by_role("button", name="Revoke node")).to_have_count(0)
-    _no_axe(page, "the Node detail (user)")
+    assert_axe_clean(page, "the Node detail (user)")
     watch.assert_clean()
 
 
 @pytest.mark.docker
-def test_signed_out_first_visit_logs_nothing(
-    fabric: Fabric, dashboard_browser: Browser
-) -> None:
+def test_signed_out_first_visit_logs_nothing(fabric: Fabric, new_page: NewPage) -> None:
     """D191 b: the boot probe is `200 {session: null}` - no 401 console line,
     so no test needs the old allowance for it."""
-    page, watch = _page(dashboard_browser)
+    page, watch = new_page()
     for path in ("/", "/nodes", "/nodes/node_01J00000000000000000000000"):
         page.goto(fabric.http_base + path)
         expect(page.get_by_role("heading", name="Sign in")).to_be_visible()

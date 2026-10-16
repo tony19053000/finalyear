@@ -17,13 +17,16 @@ pytest.importorskip("psutil", reason="the cluster harness needs the agent extra"
 pytest.importorskip("sqlalchemy", reason="the controller needs the controller extra")
 
 from mf_cluster import NORMAL_USER
-from mf_dashboard import PageWatch
-from playwright.sync_api import Browser, Page, expect
+from mf_e2e import sign_in
+from playwright.sync_api import expect
 
 if TYPE_CHECKING:
     from pathlib import Path
 
     from mf_cluster import Fabric
+    from mf_dashboard import PageWatch
+    from mf_e2e import NewPage
+    from playwright.sync_api import Page
 
 pytestmark = [
     pytest.mark.e2e,
@@ -49,18 +52,12 @@ class Puts:
             self.headers.append(dict(request.headers))  # type: ignore[attr-defined]
 
 
-def _open(browser: Browser, fabric: Fabric) -> tuple[Page, PageWatch, Puts, list[str]]:
-    page = browser.new_context(reduced_motion="reduce").new_page()
-    page.set_default_timeout(20_000)
-    watch = PageWatch.attach(page)
+def _open(new_page: NewPage, fabric: Fabric) -> tuple[Page, PageWatch, Puts, list[str]]:
+    page, watch = new_page()
     puts = Puts(page)
     console: list[str] = []
     page.on("console", lambda m: console.append(m.text))
-    page.goto(fabric.http_base + "/")
-    page.get_by_label("User name").fill(NORMAL_USER)
-    page.get_by_label("Password").fill(fabric.password(NORMAL_USER))
-    page.get_by_role("button", name="Sign in").click()
-    expect(page.get_by_role("heading", level=1, name="Overview")).to_be_visible()
+    sign_in(page, fabric, NORMAL_USER)
     page.goto(fabric.http_base + "/settings/secrets")
     page.get_by_role("button", name="Set a secret").click()
     return page, watch, puts, console
@@ -74,9 +71,9 @@ def _file(tmp_path: Path, name: str, data: bytes) -> str:
 
 @pytest.mark.parametrize("fabric_options", [{"agents": 1}])
 def test_file_secret_edge_cases_are_byte_exact_or_an_honest_refusal(
-    fabric: Fabric, dashboard_browser: Browser, tmp_path: Path
+    fabric: Fabric, new_page: NewPage, tmp_path: Path
 ) -> None:
-    page, watch, puts, console = _open(dashboard_browser, fabric)
+    page, watch, puts, console = _open(new_page, fabric)
     d = page.get_by_role("dialog")
     name = d.get_by_label("Name", exact=True)
     chooser = d.get_by_label(FILE_LABEL, exact=False)
@@ -140,9 +137,9 @@ def test_file_secret_edge_cases_are_byte_exact_or_an_honest_refusal(
 
 @pytest.mark.parametrize("fabric_options", [{"agents": 1}])
 def test_typed_value_after_a_file_replaces_it_and_file_bytes_leave_no_trace(
-    fabric: Fabric, dashboard_browser: Browser, tmp_path: Path
+    fabric: Fabric, new_page: NewPage, tmp_path: Path
 ) -> None:
-    page, watch, puts, console = _open(dashboard_browser, fabric)
+    page, watch, puts, console = _open(new_page, fabric)
     d = page.get_by_role("dialog")
     marker = b"FILEMARK-" + os.urandom(8).hex().encode()
     payload = marker + b"\x00\xff\xfe\r\n"

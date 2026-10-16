@@ -32,6 +32,10 @@ Remote GPU test can be ``component`` + ``gpu`` and a Mode 4 test ``cluster`` + `
 * ``slow`` — skipped unless ``--run-slow`` (minutes of wall time, network or cold
   caches; e.g. the fresh-clone ``uv sync`` test). Combines with any tier, so
   ``pytest -m component --run-slow`` runs component tests including slow ones.
+* ``perf`` — UI performance measurements with thresholds (V0.8 G7,
+  ``scripts/ui_perf.py``): minutes of seeding (4 nodes x 100 jobs, 10 000
+  jobs). Skipped unless ``--run-perf`` is given or the ``-m`` expression
+  selects it (``pytest -m perf``) - a bare run never pays for it.
 * ``security`` — never skipped by itself: it says the test **proves a row of
   ``docs/THREAT_MODEL.md``** (V0.7 G7, D166). It is a marker, not a tier: a
   security test lives in its tier's directory like every other test, and
@@ -82,7 +86,7 @@ if _SUPPORT_DIR not in sys.path:
 TIERS: Final = ("unit", "component", "cluster", "lab", "e2e", "soak", "chaos")
 
 #: Capability markers: what a test needs, combined with exactly one tier.
-CAPABILITY_MARKERS: Final = ("docker", "gpu", "slow", "security")
+CAPABILITY_MARKERS: Final = ("docker", "gpu", "slow", "perf", "security")
 
 #: Tiers/markers that only run when explicitly requested with ``--run-<name>``
 #: (hardware, humans, or long runtimes). ``gpu``/``slow`` are capabilities, not tiers.
@@ -92,7 +96,23 @@ OPT_IN: Final = {
     "chaos": "long-running chaos test",
     "gpu": "needs an NVIDIA GPU with CUDA",
     "slow": "slow test (minutes; network or cold caches)",
+    "perf": "UI performance run (minutes: seeds 10 000 jobs; `pytest -m perf`)",
 }
+
+#: Opt-in markers that a ``-m`` expression naming them also enables (V0.8 G7):
+#: ``pytest -m perf`` means "run the perf test", so it must not then skip it.
+SELECTED_BY_MARKEXPR: Final = frozenset({"perf"})
+
+
+def _selected_by_markexpr(config: pytest.Config, name: str) -> bool:
+    """``-m`` names ``name`` positively (not only as ``not name``)."""
+    import re
+
+    expr = str(config.getoption("markexpr", "") or "")
+    return bool(re.search(rf"(?<!not )\b{re.escape(name)}\b", expr)) and not re.search(
+        rf"\bnot\s+{re.escape(name)}\b", expr
+    )
+
 
 _DOCKER_REASON_KEY: Final = pytest.StashKey[str | None]()
 _CUDA_REASON_KEY: Final = pytest.StashKey[str | None]()
@@ -206,6 +226,8 @@ def pytest_runtest_setup(item: pytest.Item) -> None:
     config = item.config
     for name, why in OPT_IN.items():
         if item.get_closest_marker(name) and not config.getoption(f"--run-{name}"):
+            if name in SELECTED_BY_MARKEXPR and _selected_by_markexpr(config, name):
+                continue
             pytest.skip(f"{name} test skipped: {why}; pass --run-{name} to run it")
     if item.get_closest_marker("gpu"):
         reason = _cuda_unavailable_reason(config)

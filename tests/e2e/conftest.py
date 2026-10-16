@@ -16,13 +16,25 @@ the built SPA, driven by real Chromium through pytest-playwright.
 * Browser trust: Chromium accepts exactly this controller's TLS key
   (``--ignore-certificate-errors-spki-list``, pinned after the harness
   verified the certificate against the fabric CA) - not any certificate.
+
+V0.8 G7 (one shared layer):
+
+* ``fabric`` runs **2 real agents** by default (``fabric_options`` may say
+  ``agents``: 1 for a test about exactly one laptop).
+* ``new_page`` is the one way a test opens a page. When the test passed, it
+  checks EVERY page it opened (``PageWatch.final_problems``): no console error,
+  no uncaught error, no CSP violation, and axe-core clean on the page's final
+  state - so the guard cannot be forgotten per test. A test states what it
+  expects with ``watch.allow`` / ``allow_matching`` / ``skip_final_axe`` /
+  ``disarm`` (each with its reason). The shared helpers (sign-in, axe, Tab
+  navigation, job API) are in ``tests/_support/mf_e2e.py``.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Generator, Iterator
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final
 
 import pytest
 from mf_postgres import pg_settings, postgres_server  # noqa: F401
@@ -33,9 +45,30 @@ pytest.importorskip(
 
 if TYPE_CHECKING:
     from mf_cluster import Fabric
-    from playwright.sync_api import Browser, BrowserType, Playwright
+    from mf_dashboard import PageWatch
+    from mf_e2e import NewPage
+    from playwright.sync_api import Browser, BrowserType, Page, Playwright
 
     from meshforge.controller.store.settings import DatabaseSettings
+
+#: Agents the shared fabric runs unless a test's ``fabric_options`` says.
+DEFAULT_AGENTS: Final = 2
+#: Default Playwright timeout of a page from ``new_page`` (ms).
+PAGE_TIMEOUT_MS: Final = 20_000
+
+_CALL_PASSED: Final = pytest.StashKey[bool]()
+
+
+@pytest.hookimpl(wrapper=True, tryfirst=True)
+def pytest_runtest_makereport(
+    item: pytest.Item, call: pytest.CallInfo[None]
+) -> Generator[None, pytest.TestReport, pytest.TestReport]:
+    """Remember whether the test body passed: the end-of-test page guard only
+    judges a passing test (a failed one already reported its own problem)."""
+    report: pytest.TestReport = yield
+    if report.when == "call":
+        item.stash[_CALL_PASSED] = report.passed
+    return report
 
 
 @pytest.fixture(scope="session")
@@ -97,7 +130,8 @@ def fabric_options() -> dict[str, Any]:
     restart needs ``record_links=True``: the REST port then sits behind a
     stable proxy address, as a real controller keeps its configured port (the
     harness otherwise restarts it on a new ephemeral port, which no browser
-    page could follow). ``agents`` (default 1) sets how many real agents run."""
+    page could follow). ``agents`` (default :data:`DEFAULT_AGENTS`) sets how
+    many real agents run."""
     return {}
 
 
@@ -115,7 +149,7 @@ def fabric(
     from mf_cluster import Fabric
 
     options = dict(fabric_options)
-    agents = int(options.pop("agents", 1))  # V0.8 G3: pages with >= 2 nodes
+    agents = int(options.pop("agents", DEFAULT_AGENTS))
     made = Fabric(pg_settings, tmp_path / "fabric", agents=agents, **options)
     try:
         made.start()
@@ -143,3 +177,35 @@ def dashboard_browser(
         yield browser
     finally:
         browser.close()
+
+
+@pytest.fixture
+def new_page(
+    dashboard_browser: Browser, request: pytest.FixtureRequest
+) -> Iterator[NewPage]:
+    """``new_page(init=None, timeout_ms=..., **context) -> (page, watch)``: a
+    page in a fresh browser context (reduced motion: axe measures colours at
+    rest), watched from its first document. At the end of a passing test every
+    page made here must be clean (console, uncaught errors, CSP, axe on the
+    final state); the test fails at teardown otherwise, listing each problem."""
+    from mf_dashboard import PageWatch
+
+    watches: list[PageWatch] = []
+
+    def make(
+        *, init: str | None = None, timeout_ms: int = PAGE_TIMEOUT_MS, **context: Any
+    ) -> tuple[Page, PageWatch]:
+        context.setdefault("reduced_motion", "reduce")
+        page = dashboard_browser.new_context(**context).new_page()
+        page.set_default_timeout(timeout_ms)
+        if init:
+            page.add_init_script(init)
+        watch = PageWatch.attach(page)
+        watches.append(watch)
+        return page, watch
+
+    yield make
+    if not request.node.stash.get(_CALL_PASSED, False):
+        return
+    problems = [problem for watch in watches for problem in watch.final_problems()]
+    assert not problems, "the end-of-test page guard found:\n  " + "\n  ".join(problems)
