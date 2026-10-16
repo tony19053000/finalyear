@@ -193,7 +193,7 @@ def test_built_bundle_has_no_inline_styles_or_scripts(dashboard_dist: object) ->
         if path.suffix == ".js" and "createTableTag" in text:
             # V0.8 G5 (D199), as check-dist.mjs: qrcode-generator's never-called
             # HTML table builder - exactly these two literals, nothing else.
-            for dead in ("`<table style=\"`", "`<td style=\"`"):
+            for dead in ('`<table style="`', '`<td style="`'):
                 text = text.replace(dead, "")
         assert 'style="' not in text, path
         if path.suffix == ".html":
