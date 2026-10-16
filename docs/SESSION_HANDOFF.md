@@ -263,8 +263,6 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
-**2026-10-16 (new session) — RUNNING: whole `-m component` on main `30df758` ALONE (log in session scratchpad). If died: rerun it; green → close 0.8.3/0.8.4/0.8.5/0.8.7 → G5 implementer (§5e).**
-
 **2026-10-16 (session end — team asked to stop) — NOTHING RUNNING. The whole `-m component` run on `dcb72a6` was STOPPED unfinished (no result). Main = G3 + G4 merged (D195, D198) + G5 brief §5e + D199 (`06a08c2`). Next: rerun `uv run python scripts/pytest_exit_guard.py -m component -q` on main ALONE (no agents in parallel - load flakes, D192); green (or flake proven by reruns) → close 0.8.3, 0.8.4, 0.8.5, 0.8.7 (latency evidence: progress/V0.8-G3.md hand-off) + `scripts/status_bars.py` → STATUS → G5 implementer (§5e) → tester r1 → reviewer → merge → G7 brief. Old worktrees for G2/G3/G4/G6 are merged and can be removed.**
 
 **2026-10-16 (later) — G3 + G4 MERGED into main (`2f1fc0c`, `dcb72a6`, D195/D198). RUNNING: whole `-m component` once on `dcb72a6` (log in session scratchpad). If died: rerun `uv run python scripts/pytest_exit_guard.py -m component -q`; green (or load-flake proven by reruns) → close 0.8.3, 0.8.4, 0.8.5, 0.8.7 (live latency evidence in progress/V0.8-G3.md hand-off) → status bar → write G5 brief (item 0 = D195 + D197 + D198 follow-ups).**
