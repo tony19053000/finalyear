@@ -140,6 +140,10 @@ def test_foreign_job_page_is_an_honest_not_found_v08_g4_tester_r1(
     admins = submit_job(fabric, tree, "secret-admin-job", ADMIN_USER)
     page, watch = new_page()
     watch.allow("status of 404", f"/v1/jobs/{admins}")
+    # The garbage id below is read too and answered 404 (Chromium logs it;
+    # whether before or after the test ends is timing - so always allowed).
+    garbage = "%3Cscript%3Ealert(1)%3C%2Fscript%3E"
+    watch.allow("status of 404", f"/v1/jobs/{garbage}")
     sign_in(page, fabric, NORMAL_USER)
     page.goto(f"{fabric.http_base}/jobs/{admins}")
     expect(page.get_by_text("secret-admin-job")).to_have_count(0)
@@ -151,7 +155,7 @@ def test_foreign_job_page_is_an_honest_not_found_v08_g4_tester_r1(
     page.goto(f"{fabric.http_base}/jobs")
     expect(page.get_by_text("secret-admin-job")).to_have_count(0)
     # a garbage id in the URL does not crash the page
-    page.goto(f"{fabric.http_base}/jobs/%3Cscript%3Ealert(1)%3C%2Fscript%3E")
+    page.goto(f"{fabric.http_base}/jobs/{garbage}")
     expect(page.locator("main")).to_be_visible()
 
 
