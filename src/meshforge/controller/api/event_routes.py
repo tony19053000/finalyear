@@ -71,6 +71,35 @@ async def _send(ws: WebSocket, payload: dict[str, Any]) -> None:
         raise _EndedError(CLOSE_SLOW_CONSUMER, "slow_consumer") from None
 
 
+async def _send_first(ws: WebSocket, payload: dict[str, Any]) -> None:
+    """The first frame after ``accept()``; a client that aborted the handshake
+    is a disconnect, not an application error (V0.8 G2 tester T-3).
+
+    uvicorn's sans-I/O WebSocket protocol drops ``websocket.accept`` without a
+    word when the client's TCP connection is already closing, and then refuses
+    the next ``websocket.send`` with ``RuntimeError("Expected ASGI message
+    'websocket.accept' ...")`` - logged as "Exception in ASGI application".
+    Straight after a successful ``accept()`` Starlette's own state is
+    ``CONNECTED``, so a ``RuntimeError`` here can only be that refusal: end the
+    connection as the server's own ``ClientDisconnected`` (which uvicorn ends
+    quietly), never as a traceback.
+    """
+    try:
+        await _send(ws, payload)
+    except RuntimeError:
+        log.info("controller.events.client_gone_in_handshake")
+        raise _client_disconnected() from None
+
+
+def _client_disconnected() -> BaseException:
+    """uvicorn's quiet "the client left" exception (its run loop expects it)."""
+    try:
+        from uvicorn.protocols.utils import ClientDisconnected
+    except ImportError:  # another ASGI server: a normal disconnect
+        return WebSocketDisconnect(1006)
+    return ClientDisconnected()
+
+
 async def _next(sub: Subscriber, handle: StreamAuth | None) -> Any:
     """The next queued event, or :class:`_EndedError` (overflow or revoked)."""
     if sub.overflowed:
@@ -166,7 +195,7 @@ async def follow_events(
                 "seq": bus.seq,
                 "reason": resync.reason,
             }
-        await _send(websocket, hello)
+        await _send_first(websocket, hello)
         await _until_gone(websocket, _follow(websocket, bus, sub, user, handle))
     except WebSocketDisconnect:
         return

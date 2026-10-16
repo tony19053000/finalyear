@@ -1,0 +1,114 @@
+@import "tailwindcss";
+@import "./fonts.css";
+@import "./tokens.css";
+
+/*
+ * Tailwind theme = the tokens in tokens.css (D175). The default palette is
+ * removed (`--color-*: initial`) so only token colours exist as utilities:
+ * bg-bg, bg-surface, text-fg, text-fg-muted, border-border, bg-accent,
+ * text-status-ok, ... `inline` keeps the var() references, so switching
+ * data-theme on <html> re-colours everything with no rebuild.
+ */
+@theme inline {
+  --color-*: initial;
+  --color-transparent: transparent;
+  --color-current: currentColor;
+
+  --color-bg: var(--mf-bg);
+  --color-surface: var(--mf-surface);
+  --color-surface-raised: var(--mf-surface-raised);
+  --color-surface-sunken: var(--mf-surface-sunken);
+  --color-border: var(--mf-border);
+  --color-border-strong: var(--mf-border-strong);
+  --color-fg: var(--mf-fg);
+  --color-fg-muted: var(--mf-fg-muted);
+  --color-fg-subtle: var(--mf-fg-subtle);
+  --color-accent: var(--mf-accent);
+  --color-accent-hover: var(--mf-accent-hover);
+  --color-accent-fg: var(--mf-accent-fg);
+  --color-accent-soft: var(--mf-accent-soft);
+  --color-focus: var(--mf-focus);
+  --color-backdrop: var(--mf-backdrop);
+  --color-status-ok: var(--mf-status-ok);
+  --color-status-busy: var(--mf-status-busy);
+  --color-status-degraded: var(--mf-status-degraded);
+  --color-status-failed: var(--mf-status-failed);
+  --color-status-unknown: var(--mf-status-unknown);
+  --color-status-ok-soft: var(--mf-status-ok-soft);
+  --color-status-busy-soft: var(--mf-status-busy-soft);
+  --color-status-degraded-soft: var(--mf-status-degraded-soft);
+  --color-status-failed-soft: var(--mf-status-failed-soft);
+  --color-status-unknown-soft: var(--mf-status-unknown-soft);
+
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, "SFMono-Regular", Consolas, monospace;
+
+  /* Compact type scale (an operator console, not a landing page). */
+  --text-2xs: 0.6875rem;
+  --text-2xs--line-height: 1rem;
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1rem;
+  --text-sm: 0.8125rem;
+  --text-sm--line-height: 1.25rem;
+  --text-base: 0.875rem;
+  --text-base--line-height: 1.375rem;
+  --text-lg: 1rem;
+  --text-lg--line-height: 1.5rem;
+  --text-xl: 1.25rem;
+  --text-xl--line-height: 1.75rem;
+  --text-2xl: 1.5rem;
+  --text-2xl--line-height: 2rem;
+
+  --radius-sm: 0.1875rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+
+  --shadow-overlay: var(--mf-shadow);
+}
+
+@layer base {
+  html {
+    background-color: var(--mf-bg);
+    color: var(--mf-fg);
+    font-family: var(--font-sans);
+    font-size: 100%;
+    -webkit-font-smoothing: antialiased;
+    font-feature-settings: "cv11", "tnum";
+  }
+
+  body {
+    font-size: var(--text-base);
+    line-height: var(--text-base--line-height);
+  }
+
+  /* Visible keyboard focus everywhere (checklist 27); mouse clicks stay clean. */
+  :focus-visible {
+    outline: 2px solid var(--mf-focus);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background-color: var(--mf-accent-soft);
+  }
+
+  /* No motion at all. Not the common "duration: 0.01ms" trick: with the
+     default transition-property `all` that turns EVERY property change into
+     a one-frame transition (a theme switch read mid-way showed dark text on a
+     light page - fix round 1). */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation: none !important;
+      transition: none !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer components {
+  /* Native <dialog> backdrop (Dialog.tsx) - Tailwind has no utility for it. */
+  dialog.mf-dialog::backdrop {
+    background-color: var(--mf-backdrop);
+  }
+}
