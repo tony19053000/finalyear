@@ -225,12 +225,12 @@ def test_bad_flags_are_usage_errors_before_any_request(argv: list[str]) -> None:
 def test_explain_json_passes_the_answer_through(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from meshforge.cli import app as cli_app
+    from meshforge.cli import shared as cli_shared
 
     def handler(_r: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json=PAYLOAD)
 
-    monkeypatch.setattr(cli_app, "_client", lambda _settings: _client(handler))
+    monkeypatch.setattr(cli_shared, "_client", lambda _settings: _client(handler))
     result = CliRunner().invoke(
         app, ["explain", "job_01J00000000000000000000000", "--json"]
     )

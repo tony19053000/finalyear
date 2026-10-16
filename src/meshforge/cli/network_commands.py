@@ -23,8 +23,8 @@ from typing import Any, Final
 
 from rich.table import Table
 
-from meshforge.cli import app as cli
 from meshforge.cli import render
+from meshforge.cli import shared as cli
 
 __all__ = ["format_age", "format_rate", "format_rtt", "matrix_table", "network"]
 

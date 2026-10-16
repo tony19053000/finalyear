@@ -2,9 +2,9 @@
 
 REST only (and the log WebSocket), like every ``compute`` command. The shared
 plumbing - settings, the client, ``_die``, ``_fetch`` - lives in
-:mod:`meshforge.cli.app` and is looked up there at call time (the tests patch
-``app._client``); ``app`` imports these functions at its end and registers them
-on the one Typer application.
+the leaf module :mod:`meshforge.cli.shared` and is looked up there at call time
+(the tests patch ``shared._client``); :mod:`meshforge.cli.app` imports these
+functions at its end and registers them on the one Typer application.
 
 ``compute run [PATH] [--node ID | --local] [--policy P] [--priority N] [-f]``
 (V0.6: without --node/--local the controller's planner places the job; this
@@ -46,8 +46,8 @@ from typing import TYPE_CHECKING, Annotated, Any
 
 import typer
 
-from meshforge.cli import app as cli
 from meshforge.cli import render
+from meshforge.cli import shared as cli
 from meshforge.cli.exits import CliExit
 
 _WORD = re.compile(r"[a-z_]{1,32}")

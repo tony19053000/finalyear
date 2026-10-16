@@ -113,9 +113,9 @@ def test_mutation_a_validator_that_accepts_everything_is_caught(
     pre-fix code effectively did, and confirms the suite would have failed.
     This does not touch ``src/`` - it monkeypatches the imported symbol for the
     duration of this one test only."""
-    import meshforge.cli.app as app_module
+    from meshforge.cli import shared as cli_shared
 
-    monkeypatch.setattr(app_module, "_checked_node_id", lambda value: value)
+    monkeypatch.setattr(cli_shared, "_checked_node_id", lambda value: value)
     # `no_network` would now legitimately fire for a would-be-valid-looking value,
     # proving the earlier tests are not vacuously true: with validation bypassed,
     # the request reaches the transport and the "never called" handler fires.

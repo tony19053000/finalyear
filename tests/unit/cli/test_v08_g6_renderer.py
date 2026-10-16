@@ -26,6 +26,7 @@ from typer.testing import CliRunner
 
 from meshforge.cli import app as cli_app
 from meshforge.cli import render
+from meshforge.cli import shared as cli_shared
 from meshforge.cli.exits import CliExit
 
 pytestmark = pytest.mark.unit
@@ -197,7 +198,7 @@ def test_an_unexpected_exception_is_one_line_without_its_text(
     def broken(_settings: object) -> object:
         raise RuntimeError(f"bug holding {secret}")
 
-    monkeypatch.setattr(cli_app, "_client", broken)
+    monkeypatch.setattr(cli_shared, "_client", broken)
     code = _run_main(monkeypatch, ["nodes"])
     out, err = capsys.readouterr()
     assert code == CliExit.FAILURE
@@ -210,7 +211,7 @@ def test_compute_debug_shows_the_traceback(monkeypatch: pytest.MonkeyPatch) -> N
     def broken(_settings: object) -> object:
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(cli_app, "_client", broken)
+    monkeypatch.setattr(cli_shared, "_client", broken)
     monkeypatch.setenv("COMPUTE_DEBUG", "1")
     monkeypatch.setattr(sys, "argv", ["compute", "nodes"])
     with pytest.raises(RuntimeError, match="boom"):

@@ -27,8 +27,8 @@ from typing import Annotated, Any, Final
 
 import typer
 
-from meshforge.cli import app as cli
 from meshforge.cli import render
+from meshforge.cli import shared as cli
 from meshforge.cli.exits import CliExit
 
 __all__ = ["node_app"]

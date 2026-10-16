@@ -24,8 +24,8 @@ from typing import Annotated, Final
 import typer
 from rich.table import Table
 
-from meshforge.cli import app as cli
 from meshforge.cli import render
+from meshforge.cli import shared as cli
 from meshforge.cli.exits import CliExit
 
 __all__ = ["data_app"]

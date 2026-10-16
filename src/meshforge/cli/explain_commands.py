@@ -23,8 +23,8 @@ from typing import Annotated, Any, Final
 import typer
 from rich.table import Table
 
-from meshforge.cli import app as cli
 from meshforge.cli import render
+from meshforge.cli import shared as cli
 
 __all__ = ["decision_tables", "explain"]
 
