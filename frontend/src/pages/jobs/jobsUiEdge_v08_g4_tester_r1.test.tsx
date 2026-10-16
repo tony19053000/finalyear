@@ -17,6 +17,13 @@ import { JobsListPage } from "./JobsListPage";
 import type { JobDetail, JobSummary } from "./jobsApi";
 import { SubmitJobPage } from "./submit/SubmitJobPage";
 
+// V0.8 G5 (D198 follow-up): uploads and submit now go through api/client.ts,
+// which refuses a mutation without the mf_csrf cookie (D191 c). A signed-in
+// browser always has it; tests that model one set it here (setup.ts clears it).
+beforeEach(() => {
+  document.cookie = "mf_csrf=test-csrf";
+});
+
 type Handler = (url: URL, init: RequestInit) => Response | undefined;
 interface Call {
   method: string;

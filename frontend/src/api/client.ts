@@ -9,6 +9,9 @@
  *   the caller gets a `CsrfMissingError` that says to sign in again (D191 c).
  *   Login and logout are exempt (`csrfOptional`): login has no session yet,
  *   logout must still clear a dead session's cookies.
+ * - JSON bodies (`json`) and raw bodies (`body` + `headers`, e.g. blob
+ *   uploads, secret values) go through this one function: there is no second
+ *   fetch call site in the app (V0.8 G5 folded G4's `rawRequest` in here).
  * - A non-2xx answer becomes a typed `ApiError` from the error envelope; no
  *   answer at all is a `NetworkError`.
  * - A 401 (session ended, revoked, expired) calls the registered handler,
@@ -68,6 +71,16 @@ export interface RequestOptions {
   method?: Method;
   /** JSON-encoded as the request body. */
   json?: unknown;
+  /**
+   * A raw body (blob upload bytes, a secret value): sent as given. Use
+   * `json` or `body`, never both. Set its `Content-Type` in `headers`.
+   */
+  body?: BodyInit;
+  /**
+   * Extra request headers (`Idempotency-Key`, the `X-MeshForge-*` part
+   * headers). They cannot replace the CSRF header this client sets.
+   */
+  headers?: Readonly<Record<string, string>>;
   /** Query parameters; undefined values are skipped, arrays repeat the key. */
   query?: Record<string, string | number | boolean | readonly string[] | undefined>;
   signal?: AbortSignal;
@@ -100,7 +113,11 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   assertNotSigningOut(path);
   const method = options.method ?? "GET";
   const url = buildUrl(path, options.query); // a bad path is a bug: throw, not NetworkError
-  const headers = new Headers({ Accept: "application/json" });
+  if (options.json !== undefined && options.body !== undefined) {
+    throw new Error("apiRequest: pass `json` or `body`, not both");
+  }
+  const headers = new Headers({ Accept: "application/json", ...options.headers });
+  headers.delete(CSRF_HEADER); // only this client sets it, from the cookie
   if (method !== "GET" && method !== "HEAD") {
     const csrf = readCookie(CSRF_COOKIE);
     if (csrf !== undefined && csrf !== "") {
@@ -109,7 +126,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
       throw new CsrfMissingError();
     }
   }
-  let body: string | undefined;
+  let body: BodyInit | undefined = options.body;
   if (options.json !== undefined) {
     headers.set("Content-Type", "application/json");
     body = JSON.stringify(options.json);

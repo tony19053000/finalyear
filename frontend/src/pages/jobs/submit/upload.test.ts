@@ -1,9 +1,16 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError } from "../../../api/errors";
 import { sha256Hex } from "./sha256";
 import type { BuiltTree } from "./treeManifest";
 import { MAX_RETRY_WAIT_MS, UploadError, uploadTree } from "./upload";
+
+// V0.8 G5 (D198 follow-up): uploads and submit now go through api/client.ts,
+// which refuses a mutation without the mf_csrf cookie (D191 c). A signed-in
+// browser always has it; tests that model one set it here (setup.ts clears it).
+beforeEach(() => {
+  document.cookie = "mf_csrf=test-csrf";
+});
 
 const CHUNK = 65_536;
 

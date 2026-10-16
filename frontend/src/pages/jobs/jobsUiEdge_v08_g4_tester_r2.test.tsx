@@ -7,10 +7,17 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ToastProvider } from "../../components/Toast";
 import { SubmitJobPage } from "./submit/SubmitJobPage";
+
+// V0.8 G5 (D198 follow-up): uploads and submit now go through api/client.ts,
+// which refuses a mutation without the mf_csrf cookie (D191 c). A signed-in
+// browser always has it; tests that model one set it here (setup.ts clears it).
+beforeEach(() => {
+  document.cookie = "mf_csrf=test-csrf";
+});
 
 type Handler = (url: URL, init: RequestInit) => Response | undefined;
 interface Call {

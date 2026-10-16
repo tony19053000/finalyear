@@ -114,13 +114,10 @@ describe("T: CSRF header on every mutating call, never on reads", () => {
     },
   );
 
-  // V0.8 G4: pages/jobs/jobsApi.ts `rawRequest` is the second call site - blob
-  // uploads need a binary body and custom headers that apiRequest (G3-owned
-  // during the parallel wave) does not offer yet. Same rules: /v1/ only,
-  // same-origin cookie, CSRF header from mf_csrf (tested in jobsApi.test.ts).
-  // Remove this allowance when client.ts gains `headers`/`body`.
-  it("the ONLY fetch/XHR/sendBeacon/EventSource call sites in src are api/client.ts (+ G4 jobsApi.ts)", () => {
-    const allowed = [join("api", "client.ts"), join("pages", "jobs", "jobsApi.ts")];
+  // V0.8 G5: G4's `rawRequest` allowance is gone - client.ts gained
+  // `headers`/`body`, so blob uploads and submit use apiRequest too.
+  it("the ONLY fetch/XHR/sendBeacon/EventSource call site in src is api/client.ts", () => {
+    const allowed = [join("api", "client.ts")];
     const offenders = SOURCES.filter((f) => !allowed.some((a) => f.endsWith(a))).filter((f) =>
       /\bfetch\s*\(|XMLHttpRequest|sendBeacon|new EventSource/.test(readFileSync(f, "utf8")),
     );
