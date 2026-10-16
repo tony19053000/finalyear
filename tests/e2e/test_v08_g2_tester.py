@@ -15,7 +15,7 @@ pytest.importorskip("sqlalchemy")
 
 from mf_cluster import ADMIN_USER
 from mf_dashboard import DIST
-from mf_e2e import sign_in
+from mf_e2e import OUTAGE_NOISE, sign_in
 from playwright.sync_api import Request, expect
 
 if TYPE_CHECKING:
@@ -84,8 +84,10 @@ def test_session_death_goes_to_login_without_leaking_path_and_returns_after_relo
     fabric: Fabric, new_page: NewPage
 ) -> None:
     page, watch = _signed_in(fabric, new_page)
-    watch.allow("status of 401", "/v1/auth/whoami")
-    watch.allow("status of 401", "/v1/nodes")
+    watch.allow("status of 401", "/v1/auth/whoami", "the dead session's re-check")
+    watch.allow(
+        "status of 401", "/v1/nodes", "a nodes read in flight", may_not_occur=True
+    )
     page.get_by_role("link", name="Nodes", exact=True).click()
     expect(page.get_by_role("heading", level=1, name="Nodes")).to_be_visible()
     page.context.clear_cookies(
@@ -402,7 +404,9 @@ def test_T2_event_stream_recovers_when_the_controller_restarts(  # noqa: N802 - 
     outage, reconnects by itself, resyncs, and the session cookie still works."""
     page, watch = _signed_in(fabric, new_page)
     # The outage's network errors are expected here (the end-of-test guard).
-    watch.allow_matching(r"ERR_|WebSocket connection|Failed to load resource")
+    watch.allow_matching(
+        OUTAGE_NOISE, "the outage's refused connections", may_not_occur=True
+    )
     status = page.get_by_test_id("stream-status")
     expect(status).to_have_attribute("data-status", "live")
     # Fix round 1: keep the controller down long enough that the page's
@@ -419,11 +423,7 @@ def test_T2_event_stream_recovers_when_the_controller_restarts(  # noqa: N802 - 
     expect(page.get_by_test_id("fabric-status")).to_contain_text("node")
     assert page.url.rstrip("/").endswith(("", "/")), page.url
     # the outage's network errors are expected here; nothing else is
-    unexpected = [
-        e
-        for e in watch.console_errors
-        if not re.search(r"ERR_|WebSocket connection|Failed to load resource", e)
-    ]
+    unexpected = [e for e in watch.console_errors if not re.search(OUTAGE_NOISE, e)]
     assert unexpected == [], unexpected
     assert watch.page_errors == [] and watch.csp_violations() == []
 
@@ -435,7 +435,9 @@ def test_T3_aborting_the_event_stream_handshake_leaves_no_controller_traceback( 
         page, watch = _signed_in(fabric, new_page)
         # Closing mid-handshake may log the aborted socket; the controller
         # side is what this test judges.
-        watch.allow_matching(r"WebSocket connection|ERR_")
+        watch.allow_matching(
+            OUTAGE_NOISE, "the socket closed mid-handshake", may_not_occur=True
+        )
         page.goto(fabric.http_base + "/nodes")  # immediately, mid-handshake
         page.close()
     fabric.check_invariants()

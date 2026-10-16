@@ -241,10 +241,11 @@ def test_revoking_own_session_signs_the_browser_out_for_real(
     # Revoking the session this page runs on: the reads in flight at that
     # moment are refused (401) before the page shows the sign-in form. The
     # watch judges each console line as it arrives, so say it up front.
-    watch.allow("status of 401", "/v1/auth/whoami")
-    watch.allow("status of 401", "/v1/auth/tokens")
-    watch.allow("status of 401", "/v1/nodes")
-    watch.allow("status of 401", "/v1/overview")
+    # Which reads are in flight at that moment is timing: each may not happen.
+    for path in ("/v1/auth/whoami", "/v1/auth/tokens", "/v1/nodes", "/v1/overview"):
+        watch.allow(
+            "status of 401", path, "a read in flight at revocation", may_not_occur=True
+        )
     sign_in(page, fabric, NORMAL_USER)
     # a second tab of the same session
     other = page.context.new_page()

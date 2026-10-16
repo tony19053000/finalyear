@@ -74,7 +74,7 @@ def test_the_end_of_test_guard_reports_each_kind_of_problem(
     ), problems
 
     # Each escape hatch removes exactly its own kind.
-    watch.allow_matching(r"g7 guard probe: app error")
+    watch.allow_matching(r"g7 guard probe: app error", "the probe's own console.error")
     left = watch.final_problems()
     assert not any("app error" in p for p in left), left
     # (Chromium also logs the refused <style> as a console error: still there.)
@@ -89,7 +89,11 @@ def test_the_end_of_test_guard_reports_each_kind_of_problem(
     # line arrives, so it is declared before the line. Signed out, both reads
     # below are refused (401); only the allowed one is not reported.
     other, other_watch = new_page()
-    other_watch.allow("status of 401", "/v1/jobs/job_00000000000000000000000000")
+    other_watch.allow(
+        "status of 401",
+        "/v1/jobs/job_00000000000000000000000000",
+        "the signed-out read below, on purpose",
+    )
     other.goto(fabric.http_base + "/")
     expect(other.get_by_label("User name")).to_be_visible()
     for job in ("job_00000000000000000000000000", "job_11111111111111111111111111"):

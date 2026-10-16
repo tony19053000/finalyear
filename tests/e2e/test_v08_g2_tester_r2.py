@@ -13,7 +13,7 @@ pytest.importorskip("psutil")
 pytest.importorskip("sqlalchemy")
 
 from mf_cluster import ADMIN_USER
-from mf_e2e import fill_login, sign_in
+from mf_e2e import OUTAGE_NOISE, fill_login, sign_in
 from playwright.sync_api import expect
 
 if TYPE_CHECKING:
@@ -29,13 +29,15 @@ pytestmark = [
     pytest.mark.parametrize("fabric_options", [{"record_links": True}]),
 ]
 
-NOISE = re.compile(r"ERR_|WebSocket connection|Failed to load resource")
+NOISE = re.compile(OUTAGE_NOISE)
 
 
 def _signed_in(fabric: Fabric, new_page: NewPage) -> tuple[Page, PageWatch]:
     page, watch = new_page()
     # A restart's network errors are expected (also for the end-of-test guard).
-    watch.allow_matching(NOISE.pattern)
+    watch.allow_matching(
+        NOISE.pattern, "the restart's refused connections", may_not_occur=True
+    )
     sign_in(page, fabric, path="/nodes")
     return page, watch
 
@@ -50,6 +52,13 @@ def test_restart_with_expired_session_lands_on_login_not_a_stuck_shell(
     fabric: Fabric, new_page: NewPage
 ) -> None:
     page, watch = _signed_in(fabric, new_page)
+    # The dead session's reads after the restart are refused (401); which ones
+    # are in flight is timing. (Before G7 these were declared at the end, where
+    # they never applied; the broad noise pattern hid the lines instead.)
+    for path in ("/v1/nodes", "/v1/auth/whoami"):
+        watch.allow(
+            "status of 401", path, "the dead session's reads", may_not_occur=True
+        )
     fabric.kill_controller()
     expect(page.get_by_test_id("stream-status")).to_have_attribute(
         "data-status", "reconnecting", timeout=15_000
@@ -65,8 +74,6 @@ def test_restart_with_expired_session_lands_on_login_not_a_stuck_shell(
     expect(page.get_by_test_id("stream-status")).to_have_attribute(
         "data-status", "live", timeout=30_000
     )
-    watch.allow("status of 401", "/v1/nodes")
-    watch.allow("status of 401", "/v1/auth/whoami")
     _only_expected_noise(watch)
 
 
@@ -101,7 +108,9 @@ def test_rapid_repeated_restarts(fabric: Fabric, new_page: NewPage) -> None:
 
 def test_restart_during_login(fabric: Fabric, new_page: NewPage) -> None:
     page, watch = new_page()
-    watch.allow_matching(NOISE.pattern)  # the controller is down meanwhile
+    watch.allow_matching(
+        NOISE.pattern, "the controller is down meanwhile", may_not_occur=True
+    )
     page.goto(fabric.http_base + "/")
     expect(page.get_by_role("heading", name="Sign in")).to_be_visible()
     fabric.kill_controller()

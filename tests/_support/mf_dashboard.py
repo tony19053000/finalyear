@@ -144,13 +144,46 @@ def spki_pin(host: str, port: int, context: ssl.SSLContext) -> str:
     return base64.b64encode(hashlib.sha256(spki).digest()).decode("ascii")
 
 
-@dataclasses.dataclass(frozen=True)
+#: Console lines no ``allow_matching`` pattern may match (G7 tester r1 T-2):
+#: an application error and HTTP 4xx/5xx answers. A pattern is for transport
+#: noise (an outage's refused connections); an HTTP status is expected with
+#: :meth:`PageWatch.allow`, which names the one resource.
+NOISE_CANARIES: Final = (
+    "",
+    "an unrelated application error @ https://h/assets/index-abc.js",
+    "Uncaught TypeError: x is not a function @ https://h/assets/index-abc.js",
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized) @ https://h/v1/nodes",
+    "Failed to load resource: the server responded with a status of 404 (Not Found) @ https://h/v1/jobs/x",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ https://h/v1/jobs",
+    "Failed to load resource: net::ERR_HTTP_RESPONSE_CODE_FAILURE @ https://h/v1/jobs",
+    "WebSocket connection to 'wss://h/v1/events/ws' failed: Error during WebSocket handshake: "
+    "Unexpected response code: 500 @ https://h/assets/index-abc.js",
+)
+#: Shortest ``allow`` text: a one- or two-letter fragment is in almost any line.
+MIN_ALLOW_TEXT: Final = 3
+
+
+@dataclasses.dataclass(eq=False)
 class Allowed:
     """One expected console error: its text contains ``text`` and the
-    resource that caused it ends with ``url_suffix``."""
+    resource that caused it ends with ``url_suffix``. ``used`` counts the
+    lines it excused; one never used is reported (T-2) unless the test said
+    the line may not happen (``may_not_occur``, a timing-dependent line)."""
 
     text: str
     url_suffix: str
+    reason: str = ""
+    may_not_occur: bool = False
+    used: int = 0
+
+
+@dataclasses.dataclass(eq=False)
+class Noise:
+    """Expected console errors matching ``pattern`` (judged when checked)."""
+
+    pattern: re.Pattern[str]
+    reason: str
+    may_not_occur: bool = False
 
 
 @dataclasses.dataclass
@@ -166,7 +199,7 @@ class PageWatch:
     console_errors: list[str] = dataclasses.field(default_factory=list)
     page_errors: list[str] = dataclasses.field(default_factory=list)
     allowed: list[Allowed] = dataclasses.field(default_factory=list)
-    noise: list[re.Pattern[str]] = dataclasses.field(default_factory=list)
+    noise: list[Noise] = dataclasses.field(default_factory=list)
     """Console errors matching one of these are expected (an outage's network
     errors); filtered when checked, so it may be declared at any time."""
     final_axe: bool = True
@@ -180,12 +213,45 @@ class PageWatch:
         page.on("pageerror", lambda exc: watch.page_errors.append(str(exc)))
         return watch
 
-    def allow(self, text: str, url_suffix: str) -> None:
-        self.allowed.append(Allowed(text, url_suffix))
+    def allow(
+        self,
+        text: str,
+        url_suffix: str,
+        reason: str = "",
+        *,
+        may_not_occur: bool = False,
+    ) -> None:
+        """Expect console errors whose text contains ``text`` and whose
+        resource URL ends with ``url_suffix``. Judged as each line arrives, so
+        declare it BEFORE the action. ``reason`` is required; an empty or
+        trivial text or suffix (which would excuse everything) is refused
+        (G7 tester r1 T-2), and an allowance that excused nothing is reported
+        at the end unless ``may_not_occur``."""
+        if not reason.strip():
+            raise ValueError("watch.allow needs a reason")
+        if len(text.strip()) < MIN_ALLOW_TEXT:
+            raise ValueError(f"watch.allow text {text!r} would match almost any line")
+        if url_suffix.strip() in ("", "/"):
+            raise ValueError("watch.allow needs the resource (URL suffix) it excuses")
+        self.allowed.append(Allowed(text, url_suffix, reason, may_not_occur))
 
-    def allow_matching(self, pattern: str) -> None:
-        """Expect console errors whose text matches ``pattern`` (regex)."""
-        self.noise.append(re.compile(pattern))
+    def allow_matching(
+        self, pattern: str, reason: str = "", *, may_not_occur: bool = False
+    ) -> None:
+        """Expect console errors whose text matches ``pattern`` (regex), for
+        transport noise such as an outage's refused connections. ``reason`` is
+        required; a pattern that matches an empty line, an application error
+        or an HTTP 4xx/5xx line (:data:`NOISE_CANARIES`) is refused (T-2), and
+        a pattern that matched nothing is reported unless ``may_not_occur``."""
+        if not reason.strip():
+            raise ValueError("watch.allow_matching needs a reason")
+        compiled = re.compile(pattern)
+        hidden = [c for c in NOISE_CANARIES if compiled.search(c)]
+        if hidden:
+            raise ValueError(
+                f"watch.allow_matching({pattern!r}) would also hide {hidden[0]!r}"
+            )
+        self.noise.append(Noise(compiled, reason, may_not_occur))
 
     def skip_final_axe(self, reason: str) -> None:
         """The page ends in a state axe must not judge (``reason`` says why)."""
@@ -202,8 +268,24 @@ class PageWatch:
         return [
             line
             for line in self.console_errors
-            if not any(p.search(line) for p in self.noise)
+            if not any(n.pattern.search(line) for n in self.noise)
         ]
+
+    def unused_allowances(self) -> list[str]:
+        """Allowances that excused no line (and were not marked optional): a
+        stale or mistyped allowance - the G7 item-1 bug - is reported (T-2)."""
+        unused = [
+            f"allow({a.text!r}, {a.url_suffix!r}) - {a.reason}"
+            for a in self.allowed
+            if a.used == 0 and not a.may_not_occur
+        ]
+        unused += [
+            f"allow_matching({n.pattern.pattern!r}) - {n.reason}"
+            for n in self.noise
+            if not n.may_not_occur
+            and not any(n.pattern.search(line) for line in self.console_errors)
+        ]
+        return unused
 
     def _on_console(self, message: ConsoleMessage) -> None:
         if message.type not in ("error", "assert"):
@@ -211,6 +293,7 @@ class PageWatch:
         url = str(message.location.get("url", ""))
         for allowed in self.allowed:
             if allowed.text in message.text and url.endswith(allowed.url_suffix):
+                allowed.used += 1
                 return
         self.console_errors.append(f"{message.text} @ {url}")
 
@@ -233,6 +316,7 @@ class PageWatch:
             return []
         problems = [f"console error: {e}" for e in self.unexpected_console_errors()]
         problems += [f"uncaught page error: {e}" for e in self.page_errors]
+        problems += [f"allowance never used: {a}" for a in self.unused_allowances()]
         if self.page.is_closed():
             return problems
         where = self.page.url

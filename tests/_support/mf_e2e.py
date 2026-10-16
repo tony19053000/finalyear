@@ -49,6 +49,15 @@ TERMINAL_JOB_STATES: Final = frozenset({"succeeded", "failed", "cancelled"})
 #: token create's `POST /v1/auth/login` -> 401): the browser reports every 4xx.
 LOGIN_REFUSED_401: Final = ("status of 401", "/v1/session")
 TOKEN_PASSWORD_REFUSED_401: Final = ("status of 401", "/v1/auth/login")
+#: What Chromium logs while the controller is DOWN (G7 tester r1 T-2): refused
+#: or dropped connections (``net::ERR_...`` - not ERR_HTTP_RESPONSE_CODE_FAILURE,
+#: which is an HTTP status) and a WebSocket that could not connect - but NOT a
+#: WebSocket handshake answered with an HTTP error code. An HTTP 4xx/5xx line is
+#: never outage noise: allow it per resource with ``watch.allow``.
+OUTAGE_NOISE: Final = (
+    r"net::ERR_(?!HTTP_RESPONSE_CODE_FAILURE)[A-Z_]+"
+    r"|WebSocket connection to '[^']*' failed:(?!\s*Error during WebSocket handshake)"
+)
 
 
 # --------------------------------------------------------------- browser

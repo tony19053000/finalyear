@@ -476,18 +476,13 @@ def test_console_assert_counts_as_an_error() -> None:
 
 def test_allow_is_narrow_by_text_and_resource() -> None:
     w = _watch()
-    w.allow("status of 401", "/v1/session")
+    w.allow("status of 401", "/v1/session", "the refused login probe")
     w._on_console(_Msg("Failed ... status of 401 ()", url="https://h/v1/session"))  # type: ignore[arg-type]
     w._on_console(_Msg("Failed ... status of 401 ()", url="https://h/v1/nodes"))  # type: ignore[arg-type]
     w._on_console(_Msg("Failed ... status of 500 ()", url="https://h/v1/session"))  # type: ignore[arg-type]
     assert len(w.unexpected_console_errors()) == 2
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-2: watch.allow('', '') hides every console error (text '' is in "
-    "any message, every URL ends with '')",
-)
 def test_an_empty_allow_must_not_mask_everything() -> None:
     w = _watch()
     try:
@@ -498,11 +493,6 @@ def test_an_empty_allow_must_not_mask_everything() -> None:
     assert w.unexpected_console_errors(), "allow('', '') masked a real error"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-2: allow_matching('.*') hides every console error for the page's "
-    "whole life, with no reason required",
-)
 def test_a_match_everything_pattern_must_not_mask_everything() -> None:
     w = _watch()
     try:

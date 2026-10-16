@@ -166,7 +166,7 @@ def test_a_browser_made_token_works_until_revoked_in_the_browser(
     assert_axe_clean(page, "the tokens page")
 
     # A wrong password is an error in the dialog, never a sign-out.
-    watch.allow(*TOKEN_PASSWORD_REFUSED_401)
+    watch.allow(*TOKEN_PASSWORD_REFUSED_401, "the wrong password below")
     page.get_by_role("button", name="Create API token").click()
     dialog = page.get_by_role("dialog")
     dialog.get_by_label("Token name").fill("e2e-ci")

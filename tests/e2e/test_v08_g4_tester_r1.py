@@ -109,7 +109,7 @@ def test_cancel_without_csrf_header_is_refused_v08_g4_tester_r1(
     job = submit_job(fabric, tree, "csrf-job", NORMAL_USER)
     page, watch = new_page()
     # The two refused fetches below (this test's own probes) log a 403.
-    watch.allow("status of 403", f"/v1/jobs/{job}/cancel")
+    watch.allow("status of 403", f"/v1/jobs/{job}/cancel", "the refused probes")
     sign_in(page, fabric, NORMAL_USER)
     path = f"/v1/jobs/{job}/cancel"
     send = """async ([path, headers]) => {
@@ -139,11 +139,16 @@ def test_foreign_job_page_is_an_honest_not_found_v08_g4_tester_r1(
     tree = _tree(fabric, tmp_path)
     admins = submit_job(fabric, tree, "secret-admin-job", ADMIN_USER)
     page, watch = new_page()
-    watch.allow("status of 404", f"/v1/jobs/{admins}")
+    watch.allow("status of 404", f"/v1/jobs/{admins}", "another user's job")
     # The garbage id below is read too and answered 404 (Chromium logs it;
     # whether before or after the test ends is timing - so always allowed).
     garbage = "%3Cscript%3Ealert(1)%3C%2Fscript%3E"
-    watch.allow("status of 404", f"/v1/jobs/{garbage}")
+    watch.allow(
+        "status of 404",
+        f"/v1/jobs/{garbage}",
+        "the garbage id (logged before or after the test ends)",
+        may_not_occur=True,
+    )
     sign_in(page, fabric, NORMAL_USER)
     page.goto(f"{fabric.http_base}/jobs/{admins}")
     expect(page.get_by_text("secret-admin-job")).to_have_count(0)
@@ -206,8 +211,9 @@ def test_log_follower_reconnects_without_gaps_or_duplicates_v08_g4_tester_r1(
     page reconnects from its byte offsets, so every line appears exactly once, in order."""
     project = _chatty_project(tmp_path, lines=60, pause_s=0.25)
     page, watch = new_page()
-    watch.allow("WebSocket", "logs/ws")  # Chromium logs a closed socket
-    watch.allow("ERR_", "logs/ws")
+    # Chromium may log the socket this test drops (how, and whether, is timing).
+    watch.allow("WebSocket", "logs/ws", "the dropped log socket", may_not_occur=True)
+    watch.allow("ERR_", "logs/ws", "the dropped log socket", may_not_occur=True)
     sign_in(page, fabric, NORMAL_USER)
     opened: list[int] = []
 
@@ -282,7 +288,11 @@ def test_axe_on_empty_list_missing_job_and_submit_errors_v08_g4_tester_r1(
     # The missing job's read is a 404 (Chromium logs it). Before G7 this
     # allowance named the suffix "/v1/jobs/", which no URL ends with, and the
     # test never checked the watch; the shared guard now does.
-    watch.allow("status of 404", "/v1/jobs/job_00000000000000000000000000")
+    watch.allow(
+        "status of 404",
+        "/v1/jobs/job_00000000000000000000000000",
+        "the missing job's read",
+    )
     sign_in(page, fabric, NORMAL_USER)
     page.goto(fabric.http_base + "/jobs")
     expect(page.get_by_role("heading", name="No jobs yet")).to_be_visible()

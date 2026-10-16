@@ -248,12 +248,12 @@ def test_an_interrupted_upload_resumes_after_a_reload(
     )  # 40 MiB, 5 parts
     (project / "data" / "weights.bin").write_bytes(data)
     page, watch = new_page(accept_downloads=True)
-    watch.allow("ERR_FAILED", "/parts/2")  # the aborted part (this test's fault)
+    watch.allow("ERR_FAILED", "/parts/2", "the aborted part (this test's fault)")
     # GET .../parts answers 404 "no part upload in progress" for a fresh large
     # file - the documented answer (blob_routes.part_status), which Chromium
     # logs like any 4xx. Backend follow-up in the G4 progress file: answer 200
     # {received: []} instead, then drop this allowance.
-    watch.allow("status of 404", "/parts")
+    watch.allow("status of 404", "/parts", "no part upload in progress yet (404)")
     sign_in(page, fabric, NORMAL_USER)
     page.goto(fabric.http_base + "/jobs/new")
     page.route("**/parts/2", lambda route: route.abort())

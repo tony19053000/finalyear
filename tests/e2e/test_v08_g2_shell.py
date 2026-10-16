@@ -118,7 +118,7 @@ def test_wrong_password_is_refused_with_a_message(
     fabric: Fabric, new_page: NewPage
 ) -> None:
     page, watch = new_page()
-    watch.allow(*LOGIN_REFUSED_401)  # the refused POST below
+    watch.allow(*LOGIN_REFUSED_401, "the refused POST below")
     page.goto(fabric.http_base + "/")
     fill_login(page, NORMAL_USER, "not-the-password")
     expect(page.get_by_role("alert")).to_have_text("Wrong user name or password.")
