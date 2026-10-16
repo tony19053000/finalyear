@@ -156,7 +156,9 @@ describe("T2: controller restarts under a signed-in shell", () => {
       vi.stubGlobal("fetch", vi.fn((url: string) => {
         if (s.down) return Promise.reject(new TypeError("Failed to fetch"));
         if (url === "/v1/session") return Promise.resolve(json(200, { session: SESSION }));
-        return Promise.resolve(json(200, { nodes: [] }));
+        // Answer each route with its own shape (the Overview on "/" also asks for jobs, alerts, health).
+        if (url.split("?")[0] === "/v1/nodes") return Promise.resolve(json(200, { nodes: [] }));
+        return Promise.resolve(json(404, { error: { code: "nf", message: url } }));
       }));
       render(<App initialPath="/" queryClient={new QueryClient({ defaultOptions: { queries: { retry: false } } })} socketFactory={() => new Sock("x")} />);
       return s;
