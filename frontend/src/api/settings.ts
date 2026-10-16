@@ -110,12 +110,17 @@ export function listSecrets(signal?: AbortSignal): Promise<SecretList> {
   return apiRequest<SecretList>("/v1/secrets", { signal });
 }
 
-/** `PUT /v1/secrets/{name}` - the raw value as the body; never echoed back. */
-export function putSecret(name: string, value: string): Promise<SecretStored> {
+/**
+ * `PUT /v1/secrets/{name}` - the raw value as the body; never echoed back.
+ * Typed text is sent as UTF-8; a file's bytes are sent exactly as read (no
+ * decoding: a BOM, CRLF, NUL or non-UTF-8 byte reaches the job unchanged -
+ * the same raw body `compute secret set` sends).
+ */
+export function putSecret(name: string, value: string | Uint8Array<ArrayBuffer>): Promise<SecretStored> {
   return apiRequest<SecretStored>(`/v1/secrets/${encodeURIComponent(name)}`, {
     method: "PUT",
     headers: { "Content-Type": "application/octet-stream" },
-    body: new TextEncoder().encode(value),
+    body: typeof value === "string" ? new TextEncoder().encode(value) : value,
   });
 }
 

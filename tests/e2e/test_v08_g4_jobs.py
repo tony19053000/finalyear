@@ -275,7 +275,7 @@ def test_keyboard_only_submit_and_cancel_a_running_job(
         page.keyboard.press("Tab")
     expect(confirm).to_be_focused()
     page.keyboard.press("Enter")
-    expect(page.get_by_text("Cancel requested")).to_be_visible()
+    expect(page.get_by_text("Cancel requested", exact=True)).to_be_visible()
 
     job = _wait_state(fabric, job_id, {"cancelled"}, 60)
     assert job["state"] == "cancelled"

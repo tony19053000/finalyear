@@ -155,7 +155,7 @@ def test_invite_in_the_browser_lets_a_laptop_join(
 
     # Copy puts exactly the code on the clipboard.
     issued.get_by_role("button", name="Copy").click()
-    expect(issued.get_by_text("Copied.")).to_be_visible()
+    expect(issued.get_by_text("Copied.", exact=True)).to_be_visible()
     assert page.evaluate("navigator.clipboard.readText()") == code
 
     # The API lists the invite (never its code).
@@ -308,7 +308,7 @@ def test_a_secret_set_in_the_browser_reaches_a_job_and_never_the_browser(
     dialog.get_by_label("Value", exact=True).fill(value)
     _no_axe(page, "the set-secret dialog")
     dialog.get_by_role("button", name="Store secret").click()
-    expect(page.get_by_text("Secret E2E_GREETING stored")).to_be_visible()
+    expect(page.get_by_text("Secret E2E_GREETING stored", exact=True)).to_be_visible()
     expect(page.get_by_role("cell", name="E2E_GREETING", exact=True)).to_be_visible()
 
     # A job of the same user reads it.
@@ -366,7 +366,7 @@ def test_a_secret_set_in_the_browser_reaches_a_job_and_never_the_browser(
     # Delete, behind a confirm.
     page.get_by_role("button", name="Delete secret E2E_GREETING").click()
     page.get_by_role("dialog").get_by_role("button", name="Delete secret").click()
-    expect(page.get_by_text("Secret E2E_GREETING deleted")).to_be_visible()
+    expect(page.get_by_text("Secret E2E_GREETING deleted", exact=True)).to_be_visible()
     expect(page.get_by_text("No secrets yet.")).to_be_visible()
     listed = fabric.call("GET", "/v1/secrets", as_user=NORMAL_USER).json()
     assert listed["secrets"] == []

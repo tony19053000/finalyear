@@ -59,10 +59,12 @@ function SetSecretForm({
   const [rawName, setRawName] = useState("");
   const [value, setValue] = useState("");
   const [fileNote, setFileNote] = useState<string | null>(null);
+  // A file's value is kept as its exact bytes (T-1): never decoded as text.
+  const [fileBytes, setFileBytes] = useState<Uint8Array<ArrayBuffer> | null>(null);
   const save = useAction(putSecret);
   const first = useRef<HTMLInputElement>(null);
   const name = normaliseSecretName(rawName);
-  const bytes = utf8Length(value);
+  const bytes = fileBytes !== null ? fileBytes.length : utf8Length(value);
   const problem = valueProblem(bytes);
   const replacing = name !== null && existing.includes(name);
   const ready = name !== null && bytes >= SECRET_MIN_BYTES && problem === null && !save.pending;
@@ -80,15 +82,18 @@ function SetSecretForm({
       setFileNote(`${file.name} is larger than ${String(SECRET_MAX_BYTES / 1024)} KiB.`);
       return;
     }
-    setValue(await file.text());
-    setFileNote(`Value read from ${file.name} (${String(file.size)} bytes).`);
+    const read = new Uint8Array(await file.arrayBuffer());
+    setValue("");
+    setFileBytes(read);
+    setFileNote(`Value read from ${file.name} (${String(read.length)} bytes, sent exactly as in the file).`);
   };
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (!ready) return;
-    const sent = value;
+    const sent = fileBytes ?? value;
     setValue(""); // write-only: gone from the page once sent
+    setFileBytes(null);
     setFileNote(null);
     const stored = await save.run(name, sent);
     if (stored === undefined) return;
@@ -141,6 +146,7 @@ function SetSecretForm({
             aria-invalid={problem !== null}
             onChange={(e) => {
               setValue(e.target.value);
+              setFileBytes(null); // typing replaces a value read from a file
               setFileNote(null);
             }}
           />

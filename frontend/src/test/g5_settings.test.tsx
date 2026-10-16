@@ -430,6 +430,27 @@ describe("Secrets", () => {
     expect(cacheDump(app.queryClient)).not.toContain(SECRET_VALUE);
   });
 
+  it("a value read from a file is sent byte-for-byte (BOM, CRLF, NUL, invalid UTF-8 kept) - fix r1 T-1", async () => {
+    const payload = new Uint8Array([0xef, 0xbb, 0xbf, 0x41, 0x0d, 0x0a, 0x00, 0xff, 0xfe, 0x80, 0x42]);
+    const fake = fakeController(
+      routes(USER_SESSION, {
+        "GET /v1/secrets": () => json(200, { count: 0, secrets: [] }),
+        "PUT /v1/secrets/BLOB": () => json(200, { name: "BLOB", created: true }),
+      }),
+    );
+    const app = renderApp("/settings/secrets");
+    await userEvent.click(await screen.findByRole("button", { name: "Set a secret" }));
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.type(within(dialog).getByRole("textbox", { name: "Name" }), "BLOB");
+    await userEvent.upload(within(dialog).getByLabelText(/read the value from a file/), new File([payload], "blob.bin"));
+    expect(await within(dialog).findByText(/11 bytes, sent exactly as in the file/)).toBeTruthy();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Store secret" }));
+    expect(await screen.findByText("Secret BLOB stored")).toBeTruthy();
+    const put = fake.calls.find((c) => c.key === "PUT /v1/secrets/BLOB");
+    expect(Array.from(put?.init.body as Uint8Array)).toEqual(Array.from(payload));
+    expect(cacheDump(app.queryClient)).not.toContain("BOM");
+  });
+
   it("refuses what the controller would refuse before sending: bad name, value under 4 bytes", async () => {
     const fake = fakeController(routes(USER_SESSION, { "GET /v1/secrets": () => json(200, { count: 0, secrets: [] }) }));
     renderApp("/settings/secrets");

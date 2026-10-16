@@ -24,13 +24,19 @@ pytest.importorskip("sqlalchemy", reason="needs the controller extra")
 
 from mf_fabric import enroll_agent, server_credentials
 
-from meshforge.agent.session.client import AgentSessionClient
+from meshforge.agent.session.client import (
+    MAX_HEARTBEAT_INTERVAL_S,
+    AgentSessionClient,
+)
 from meshforge.agent.session.state import AgentState
 from meshforge.agent.settings import AgentSettings
 from meshforge.common.ids import new_session_id
 from meshforge.common.proto.meshforge.v1 import agent_pb2, agent_pb2_grpc
 
 pytestmark = [pytest.mark.component]
+
+HEARTBEAT_MARGIN_S = 15.0
+"""Slack over the clamped heartbeat interval for a loaded machine (fix r1 T-4)."""
 
 SessionHandler = Callable[
     [AsyncIterator[agent_pb2.AgentMessage], "grpc.aio.ServicerContext"], Awaitable[None]
@@ -163,12 +169,17 @@ async def test_heartbeat_interval_extreme_value_is_clamped(tmp_path: Path) -> No
             async def got_heartbeat() -> bool:
                 return client.stats.heartbeats_sent >= 1
 
+            # V0.8 G5 fix r1 (T-4): the first heartbeat is due one CLAMPED
+            # interval after ONLINE; a budget equal to the clamp left no margin
+            # for scheduling under load. Clamp + a fixed margin, from the code.
+            budget_s = MAX_HEARTBEAT_INTERVAL_S + HEARTBEAT_MARGIN_S
             with contextlib.suppress(AssertionError):
-                await poll_until(got_heartbeat, timeout_s=30.0, interval_s=0.2)
+                await poll_until(got_heartbeat, timeout_s=budget_s, interval_s=0.2)
             assert client.stats.heartbeats_sent >= 1, (
                 "agent accepted a ~11.6 day heartbeat interval verbatim and never "
-                "sent a heartbeat within 30 s -- heartbeat_interval_ms must be "
-                "clamped to a sane maximum"
+                f"sent a heartbeat within {budget_s:.0f} s (clamp "
+                f"{MAX_HEARTBEAT_INTERVAL_S:.0f} s + margin) -- heartbeat_interval_ms "
+                "must be clamped to a sane maximum"
             )
         finally:
             client.request_stop()

@@ -312,6 +312,11 @@ describe("controller restart (T-2)", () => {
       return Promise.resolve(json(404, { error: { code: "not_found", message: input } }));
     });
     vi.stubGlobal("fetch", fetchMock);
+    // Fix r1 T-2: the stream client captures `Math.random` when it is CREATED
+    // (`options.random ?? Math.random`), so the jitter must be fixed before the
+    // app renders. Spying later left the real random in the client: a backoff
+    // drawn under 50 ms opened a 3rd socket inside the 50 ms advance below.
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
     const app = renderApp("/");
     await screen.findByTestId("current-user");
     app.socket().greet();
@@ -324,7 +329,6 @@ describe("controller restart (T-2)", () => {
     // Before, `shouldAdvanceTime` let real time run the backoff during a
     // waitFor under load, so the socket count raced (D197).
     vi.useFakeTimers();
-    vi.spyOn(Math, "random").mockReturnValue(0.5);
     try {
       // The controller goes away: the stream drops, the handshake is refused,
       // and the session re-check that triggers fails with a network error.
