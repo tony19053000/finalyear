@@ -7,9 +7,10 @@
 > **Cold-start prompt** (paste this as the first message on the new account):
 >
 > ```
-> Read docs/SESSION_HANDOFF.md §1, then docs/STATUS.md, then docs/briefs/V0.8-dashboard-cli.md (§5e, D195-D200).
-> Parallel agents allowed. Continue V0.8: launch the G5 implementer (brief §5e, worktree; G5 has NOT started)
-> → tester r1 → reviewer → merge → whole component once → close 0.8.6 + status bar → G7 brief.
+> Read docs/SESSION_HANDOFF.md §1, then docs/STATUS.md, then docs/briefs/V0.8-dashboard-cli.md (§5g, D201-D206).
+> Parallel agents allowed for independent work. Continue V0.8 G7: resume the implementer in worktree
+> .claude/worktrees/agent-a67711c51fc0582d6 (brief §5g; item 0 done c607519, fixture consolidation WIP 32adf39 unverified)
+> → tester r1 → reviewer → merge → rebuild frontend → whole component once alone → close 0.8.9 → 🧑 0.8.10.
 > ```
 >
 > Order of truth: `PROJECT_BRIEF → ARCHITECTURE → ROADMAP → STATUS → this file`. If this file
@@ -263,7 +264,7 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
-**2026-10-17 — G5 CLOSED (D206), 0.8.6 `[x]`, status bar refreshed. RUNNING: G7 implementer (brief §5g) in a worktree (newest `agent-*`; progress docs/briefs/progress/V0.8-G7.md there). If died: relaunch with §5g, resume from progress; then tester r1 → reviewer → merge → rebuild frontend → whole component once alone → close 0.8.9 → 🧑 0.8.10 checklist.**
+**2026-10-17 (session end — team asked to stop) — NOTHING RUNNING. G5 CLOSED (D206), 0.8.6 `[x]`. G7 implementer STOPPED mid-work in worktree `.claude/worktrees/agent-a67711c51fc0582d6` (branch `worktree-agent-a67711c51fc0582d6`): item 0 (D204 + D206) committed `c607519`; item 1 fixture consolidation (tests/e2e conftest + edits to existing e2e files, pyproject, tests/_support/mf_dashboard.py) committed as WIP `32adf39` - UNVERIFIED, may not pass; perf script not started. Next: relaunch a G7 implementer IN THAT WORKTREE with §5g, told to verify/finish the WIP first (run tests/e2e), then items 2-6; write progress docs/briefs/progress/V0.8-G7.md; then tester r1 → reviewer → merge → rebuild frontend → whole component once alone → close 0.8.9 → 🧑 0.8.10 checklist.**
 
 **2026-10-16 (late) — G5, stabilisation and D202 lanes ALL MERGED (D204, D205). RUNNING: whole `-m component` ONCE on main, ALONE (log in session scratchpad). If died: rerun `uv run python scripts/pytest_exit_guard.py -m component -q` alone; green → close 0.8.6 + STATUS Known Bugs D200/D156 + status bar → launch G7 (§5g, item 0 = D204).**
 
