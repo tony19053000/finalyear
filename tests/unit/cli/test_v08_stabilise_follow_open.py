@@ -91,7 +91,6 @@ class _Client:
     [
         (FailureType.TIMEOUT, CliExit.UNAVAILABLE),
         (FailureType.NETWORK_ERROR, CliExit.UNAVAILABLE),
-        (FailureType.UNAUTHORIZED, CliExit.AUTH),
     ],
 )
 def test_run_follow_failure_says_the_job_keeps_running(
@@ -112,3 +111,54 @@ def test_run_follow_failure_says_the_job_keeps_running(
     assert "job_01ABC was submitted and keeps running" in err
     assert "compute logs -f job_01ABC" in err
     assert "compute cancel job_01ABC" in err
+
+
+# --------------------------------------------- D202: UNAUTHORIZED -> re-login
+
+
+def _assert_relogin_hint(err: str) -> None:
+    # what happened (the job is safe), why (the login was refused), what to do.
+    assert "job_01ABC was submitted and keeps running" in err
+    assert "refused this login" in err
+    assert "compute login" in err
+    # `compute logs -f` would be refused the same way: not suggested.
+    assert "logs -f" not in err
+    assert len(err.splitlines()) == 2  # the error line + the one hint line
+
+
+def test_run_follow_unauthorized_hints_relogin_not_logs_follow(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def refused(*_args: object, **_kwargs: object) -> dict[str, Any]:
+        raise ControllerError(
+            "the controller closed the log stream: this login was revoked",
+            failure_type=FailureType.UNAUTHORIZED,
+        )
+
+    monkeypatch.setattr(follow_module, "follow_logs", refused)
+    with pytest.raises(typer.Exit) as exited:
+        job_commands._follow_to_exit(_Client(), "job_01ABC", 5.0)
+    assert exited.value.exit_code == CliExit.AUTH
+    _assert_relogin_hint(capsys.readouterr().err)
+
+
+def test_run_follow_refused_handshake_classifies_and_hints_relogin(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The real classifier in :func:`follow_logs`: a 403 on the WebSocket
+    handshake is UNAUTHORIZED, so ``run -f`` exits AUTH with the re-login hint."""
+    from websockets.datastructures import Headers
+    from websockets.exceptions import InvalidStatus
+    from websockets.http11 import Response
+
+    def forbidden(*_args: object, **_kwargs: object) -> Any:
+        async def opening() -> None:
+            raise InvalidStatus(Response(403, "Forbidden", Headers()))
+
+        return opening()
+
+    monkeypatch.setattr("websockets.asyncio.client.connect", forbidden)
+    with pytest.raises(typer.Exit) as exited:
+        job_commands._follow_to_exit(_Client(), "job_01ABC", 5.0)
+    assert exited.value.exit_code == CliExit.AUTH
+    _assert_relogin_hint(capsys.readouterr().err)
