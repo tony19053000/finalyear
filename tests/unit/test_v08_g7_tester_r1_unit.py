@@ -323,11 +323,6 @@ def test_removing_a_command_from_the_cli_fails_the_parity_test(
         parity_compute_test()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-3: hidden=True commands are skipped by the enumeration, so a new "
-    "hidden user-facing command needs no parity entry",
-)
 def test_a_hidden_new_command_still_needs_a_mapping(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -436,11 +431,6 @@ def test_parity_helper_rejects_a_method_or_nested_function_as_a_test_id() -> Non
     assert not e2e_test_exists("")
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-4: an e2e id with ../ can cite a unit test outside tests/e2e as "
-    "the UI proof of a command",
-)
 def test_parity_ids_cannot_escape_tests_e2e() -> None:
     assert not e2e_test_exists(
         "../unit/test_v08_g7_cli_ui_parity.py::test_cli_only_is_the_exception"

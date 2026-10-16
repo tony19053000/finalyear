@@ -8,7 +8,8 @@ enumerates the real command trees from typer at test time: a new command with
 no entry here fails, a removed command left here fails, a route that is not in
 the SPA router fails, and an e2e test id that does not exist fails.
 
-Test ids are ``<file under tests/e2e>::<test function>``.
+Test ids are ``<file directly in tests/e2e>::<top-level test function>`` (no
+path: a test outside tests/e2e is no UI proof). Hidden CLI commands count too.
 """
 
 from __future__ import annotations

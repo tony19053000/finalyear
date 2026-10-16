@@ -41,14 +41,15 @@ PARITY = _parity()
 
 
 def _leaves(command: Any, prefix: tuple[str, ...] = ()) -> list[str]:
-    """Every runnable (leaf) command under a click/typer group, space-joined."""
+    """Every runnable (leaf) command under a click/typer group, space-joined.
+    Hidden commands count too (tester r1 T-3): ``hidden=True`` only keeps a
+    command out of ``--help``, a user can still run it, so it still needs a
+    dashboard mapping or a CLI-only reason."""
     sub = getattr(command, "commands", None)
     if sub is None:
         return [" ".join(prefix)]
     found: list[str] = []
     for name, child in sorted(sub.items()):
-        if getattr(child, "hidden", False):
-            continue
         found.extend(_leaves(child, (*prefix, name)))
     return found
 
@@ -78,8 +79,15 @@ def _spa_routes() -> set[str]:
 
 
 def _e2e_test_exists(test_id: str) -> bool:
+    """A top-level ``test_`` function of a file directly in ``tests/e2e``. A
+    path (``../unit/x.py``, ``sub/x.py``) is rejected (tester r1 T-4): a unit
+    test is no proof that the dashboard does the command."""
     file_name, _, function = test_id.partition("::")
+    if not re.fullmatch(r"test_[\w]+\.py", file_name):
+        return False
     path = E2E / file_name
+    if path.resolve().parent != E2E.resolve():
+        return False
     if not path.is_file() or not function.startswith("test_"):
         return False
     tree = ast.parse(path.read_text(encoding="utf-8"))
