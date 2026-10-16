@@ -94,3 +94,35 @@ describe("contrast (WCAG AA 4.5:1 for text)", () => {
     });
   }
 });
+
+/*
+ * V0.8 G5 (D197 follow-up): a Badge prints its status tone on that tone's
+ * translucent soft fill, over whatever surface it sits on. axe measures the
+ * BLENDED background, so every status (not only `failed`, G4 T-16) must reach
+ * 4.5:1 on its own soft tone over every surface, in both themes.
+ */
+describe("status text on its own soft tone (blended, WCAG AA)", () => {
+  const rgb = (hex: string): number[] => [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  const hex = (c: number[]): string => `#${c.map((v) => v.toString(16).padStart(2, "0")).join("")}`;
+  const surfaces = ["bg", "surface", "surface-raised", "surface-sunken"];
+  for (const theme of ["dark", "light"]) {
+    for (const tone of ["ok", "busy", "degraded", "failed", "unknown"]) {
+      it(`status-${tone} on status-${tone}-soft over every surface (${theme})`, () => {
+        const values = new Map(
+          [...block(tokensCss, `[data-theme="${theme}"]`).matchAll(/--mf-([a-z0-9-]+):\s*#([0-9a-f]{6,8})\b/g)].map(
+            (m) => [m[1] ?? "", m[2] ?? ""] as const,
+          ),
+        );
+        const text = values.get(`status-${tone}`) ?? "000000";
+        const soft = values.get(`status-${tone}-soft`) ?? "00000000";
+        expect(soft, "soft tone has an alpha channel").toHaveLength(8);
+        const alpha = parseInt(soft.slice(6, 8), 16) / 255;
+        for (const surface of surfaces) {
+          const under = rgb(values.get(surface) ?? "000000");
+          const blended = rgb(soft).map((v, i) => Math.round(v * alpha + (under[i] ?? 0) * (1 - alpha)));
+          expect(contrast(`#${text}`, hex(blended)), `${theme} ${tone} on ${surface}`).toBeGreaterThanOrEqual(4.5);
+        }
+      });
+    }
+  }
+});

@@ -35,14 +35,14 @@
   /* Status: online/ok, busy, degraded, offline/failed, unknown. */
   --mf-status-ok: #3fb950;
   --mf-status-busy: #d4a72c;
-  --mf-status-degraded: #e3793b;
+  --mf-status-degraded: #e8834a;
   --mf-status-failed: #f47067;
-  --mf-status-unknown: #8c96a3;
+  --mf-status-unknown: #97a1ae;
   --mf-status-ok-soft: #3fb95024;
   --mf-status-busy-soft: #d4a72c24;
-  --mf-status-degraded-soft: #e3793b24;
+  --mf-status-degraded-soft: #e8834a24;
   --mf-status-failed-soft: #f4706724;
-  --mf-status-unknown-soft: #8c96a324;
+  --mf-status-unknown-soft: #97a1ae24;
 
   --mf-shadow: 0 8px 24px #00000066;
   --mf-backdrop: #05070acc;
@@ -72,12 +72,12 @@
   --mf-status-busy: #7f5600;
   --mf-status-degraded: #a24200;
   --mf-status-failed: #b91c26;
-  --mf-status-unknown: #5c6571;
+  --mf-status-unknown: #545d69;
   --mf-status-ok-soft: #17702f1a;
   --mf-status-busy-soft: #7f56001a;
   --mf-status-degraded-soft: #a242001a;
   --mf-status-failed-soft: #b91c261a;
-  --mf-status-unknown-soft: #5c65711a;
+  --mf-status-unknown-soft: #545d691a;
 
   --mf-shadow: 0 8px 24px #1b1f2426;
   --mf-backdrop: #1b1f2466;
