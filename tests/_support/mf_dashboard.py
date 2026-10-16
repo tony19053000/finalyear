@@ -12,6 +12,12 @@
 * :func:`axe_violations` - runs axe-core (vendored by ``frontend/node_modules``)
   in the page through the DevTools protocol (not a page script: the CSP still
   forbids inline script for the app itself).
+* :func:`dist_problem` / :func:`require_fresh_dist` (V0.8 G7, D206) - the
+  build is git-ignored, so a checkout can hold one made from OLDER frontend
+  sources. ``npm run build`` stamps ``dist/build-info.json`` with a digest of
+  the sources (``frontend/scripts/build-stamp.mjs``); every test that reads the
+  build compares it with the sources on disk and skips with "rebuild" as the
+  reason, never failing on a symptom of a stale bundle.
 """
 
 from __future__ import annotations
@@ -19,6 +25,8 @@ from __future__ import annotations
 import base64
 import dataclasses
 import hashlib
+import json
+import re
 import socket
 import ssl
 from pathlib import Path
@@ -28,8 +36,81 @@ if TYPE_CHECKING:
     from playwright.sync_api import ConsoleMessage, Page
 
 REPO: Final = Path(__file__).resolve().parents[2]
+FRONTEND: Final = REPO / "frontend"
 DIST: Final = REPO / "src" / "meshforge" / "controller" / "web" / "dist"
 AXE_JS: Final = REPO / "frontend" / "node_modules" / "axe-core" / "axe.min.js"
+BUILD_STAMP: Final = "build-info.json"
+REBUILD: Final = "run `cd frontend && npm ci && npm run build`"
+
+#: Build inputs, exactly as ``frontend/scripts/build-stamp.mjs`` lists them.
+_STAMP_TOP_FILES: Final = (
+    "index.html",
+    "package.json",
+    "package-lock.json",
+    "vite.config.ts",
+    "tsconfig.json",
+    "tsconfig.app.json",
+    "tsconfig.node.json",
+)
+_STAMP_TREES: Final = ("public", "src")
+_TEST_SOURCE: Final = re.compile(r"\.test\.tsx?$")
+
+
+def _stamp_sources(frontend: Path) -> list[str]:
+    found = [name for name in _STAMP_TOP_FILES if (frontend / name).is_file()]
+    for tree in _STAMP_TREES:
+        for path in (frontend / tree).rglob("*"):
+            if not path.is_file():
+                continue
+            rel = path.relative_to(frontend).as_posix()
+            if rel.startswith("src/test/") or _TEST_SOURCE.search(rel):
+                continue
+            found.append(rel)
+    # JavaScript's default sort compares UTF-16 code units; for the ASCII paths
+    # of this tree that is the same order as Python's.
+    return sorted(found)
+
+
+def sources_digest(frontend: Path = FRONTEND) -> str:
+    """SHA-256 of the dashboard's build inputs (build-stamp.mjs algorithm)."""
+    outer = hashlib.sha256()
+    for rel in _stamp_sources(frontend):
+        inner = hashlib.sha256((frontend / rel).read_bytes()).hexdigest()
+        outer.update(f"{rel}\0{inner}\n".encode())
+    return outer.hexdigest()
+
+
+def dist_problem(dist: Path = DIST, frontend: Path = FRONTEND) -> str | None:
+    """``None`` when ``dist`` holds a build of the frontend sources now on
+    disk; otherwise a one-line reason that says what to run."""
+    if not (dist / "index.html").is_file():
+        return f"the dashboard is not built - {REBUILD}"
+    stamp_path = dist / BUILD_STAMP
+    try:
+        stamp = json.loads(stamp_path.read_text(encoding="utf-8"))
+        built_from = str(stamp["sources_sha256"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return (
+            f"the dashboard build has no valid {BUILD_STAMP} (made before V0.8 G7 "
+            f"or by hand), so it may be stale - {REBUILD}"
+        )
+    if built_from != sources_digest(frontend):
+        return (
+            "the dashboard build is STALE: it was built from other frontend "
+            f"sources than the ones on disk - {REBUILD}"
+        )
+    return None
+
+
+def require_fresh_dist(dist: Path = DIST) -> Path:
+    """Skip the calling test, with the reason, unless ``dist`` is a fresh build."""
+    import pytest
+
+    problem = dist_problem(dist)
+    if problem is not None:
+        pytest.skip(problem)
+    return dist
+
 
 #: Collects CSP violations from the first moment of every document.
 CSP_LISTENER: Final = """

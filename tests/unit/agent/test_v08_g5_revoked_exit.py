@@ -49,6 +49,22 @@ DETAIL = (
             StreamEndAction.FATAL_CONFIG,
         ),
         (grpc.StatusCode.PERMISSION_DENIED, "revoked", StreamEndAction.FATAL_CONFIG),
+        # V0.8 G7 (D204): the reason word is matched exactly, never as a prefix.
+        (
+            grpc.StatusCode.PERMISSION_DENIED,
+            "node_revoked_pending: x",
+            StreamEndAction.FATAL_CONFIG,
+        ),
+        (
+            grpc.StatusCode.PERMISSION_DENIED,
+            "node_revokedx",
+            StreamEndAction.FATAL_CONFIG,
+        ),
+        (
+            grpc.StatusCode.PERMISSION_DENIED,
+            "node_revoked :x",
+            StreamEndAction.STOP_REVOKED,
+        ),
         (grpc.StatusCode.PERMISSION_DENIED, "", StreamEndAction.FATAL_CONFIG),
         # The word on another status is not the revocation signal.
         (grpc.StatusCode.ABORTED, DETAIL, StreamEndAction.RECONNECT),

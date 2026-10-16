@@ -190,9 +190,14 @@ def test_built_bundle_has_no_inline_styles_or_scripts(dashboard_dist: object) ->
     assert files
     for path in files:
         text = path.read_text(encoding="utf-8")
-        if path.suffix == ".js" and "createTableTag" in text:
+        if (
+            path.suffix == ".js"
+            and path.name.startswith("qrcode-generator-")
+            and "createTableTag" in text
+        ):
             # V0.8 G5 (D199), as check-dist.mjs: qrcode-generator's never-called
-            # HTML table builder - exactly these two literals, nothing else.
+            # HTML table builder - exactly these two literals, nothing else, and
+            # only in the library's own chunk (V0.8 G7, D204).
             for dead in ('`<table style="`', '`<td style="`'):
                 text = text.replace(dead, "")
         assert 'style="' not in text, path

@@ -12,7 +12,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { queryKeys } from "../api/queryKeys";
-import { PageLoadBoundary } from "../app/App";
+import { PageLoadBoundary, PreloadPages } from "../app/App";
 import { qrModules, qrPath, QR_MARGIN } from "../components/qr";
 import { applySettingsEvent } from "../pages/settings/applySettingsEvent";
 import { ADMIN_SESSION, USER_SESSION, event, fakeController, json, node, renderApp, type Handler } from "./fakeFabric";
@@ -451,6 +451,73 @@ describe("Secrets", () => {
     expect(cacheDump(app.queryClient)).not.toContain("BOM");
   });
 
+  it("a slow file read that ends after a newer choice is dropped (D204, V0.8 G7)", async () => {
+    const fake = fakeController(
+      routes(USER_SESSION, {
+        "GET /v1/secrets": () => json(200, { count: 0, secrets: [] }),
+        "PUT /v1/secrets/SLOW": () => json(200, { name: "SLOW", created: true }),
+      }),
+    );
+    renderApp("/settings/secrets");
+    await userEvent.click(await screen.findByRole("button", { name: "Set a secret" }));
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.type(within(dialog).getByRole("textbox", { name: "Name" }), "SLOW");
+    const picker = within(dialog).getByLabelText(/read the value from a file/);
+    /** A file whose bytes arrive only when the test says so. */
+    const slowFile = (name: string, text: string) => {
+      const file = new File([text], name);
+      let release: () => void = () => undefined;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      Object.defineProperty(file, "arrayBuffer", {
+        value: async () => {
+          await gate;
+          return new TextEncoder().encode(text).buffer;
+        },
+      });
+      return { file, release };
+    };
+
+    // 1. old.bin is slow; new.bin is chosen after it and read first.
+    const old = slowFile("old.bin", "OLD-VALUE");
+    await userEvent.upload(picker, old.file);
+    await userEvent.upload(picker, new File(["NEW-VALUE"], "new.bin"));
+    expect(await within(dialog).findByText(/Value read from new\.bin/)).toBeTruthy();
+    await act(async () => {
+      old.release();
+      await Promise.resolve();
+    });
+    expect(within(dialog).queryByText(/old\.bin/)).toBeNull();
+
+    // 2. typing beats a read still in flight.
+    const late = slowFile("late.bin", "LATE-VALUE");
+    await userEvent.upload(picker, late.file);
+    await userEvent.type(within(dialog).getByLabelText("Value"), "TYPED-VALUE");
+    await act(async () => {
+      late.release();
+      await Promise.resolve();
+    });
+    expect(within(dialog).queryByText(/late\.bin/)).toBeNull();
+
+    await userEvent.click(within(dialog).getByRole("button", { name: "Store secret" }));
+    expect(await screen.findByText("Secret SLOW stored")).toBeTruthy();
+    const puts = fake.calls.filter((c) => c.key === "PUT /v1/secrets/SLOW");
+    expect(puts.length).toBe(1);
+    expect(new TextDecoder().decode(puts[0]?.init.body as Uint8Array)).toBe("TYPED-VALUE");
+  });
+
+  it("an empty file says why Store is disabled (D204)", async () => {
+    fakeController(routes(USER_SESSION, { "GET /v1/secrets": () => json(200, { count: 0, secrets: [] }) }));
+    renderApp("/settings/secrets");
+    await userEvent.click(await screen.findByRole("button", { name: "Set a secret" }));
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.type(within(dialog).getByRole("textbox", { name: "Name" }), "EMPTY");
+    await userEvent.upload(within(dialog).getByLabelText(/read the value from a file/), new File([], "empty.bin"));
+    expect(await within(dialog).findByText(/empty\.bin is empty - a secret needs at least 4 bytes/)).toBeTruthy();
+    expect(within(dialog).getByRole<HTMLButtonElement>("button", { name: "Store secret" }).disabled).toBe(true);
+  });
+
   it("refuses what the controller would refuse before sending: bad name, value under 4 bytes", async () => {
     const fake = fakeController(routes(USER_SESSION, { "GET /v1/secrets": () => json(200, { count: 0, secrets: [] }) }));
     renderApp("/settings/secrets");
@@ -563,6 +630,32 @@ describe("a page chunk that cannot be loaded (item 0f)", () => {
     );
     expect(screen.getByRole("alert").textContent).toContain("This page could not be loaded");
     expect(screen.getByRole("button", { name: "Reload" })).toBeTruthy();
+  });
+});
+
+describe("PreloadPages (D204, V0.8 G7)", () => {
+  it("a failed preload is one warning naming the page, never an error", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const error = vi.spyOn(console, "error");
+    const loaded = vi.fn(() => Promise.resolve({}));
+    render(
+      <PreloadPages
+        loaders={{
+          jobs: () => Promise.reject(new TypeError("Failed to fetch dynamically imported module")),
+          nodes: loaded,
+        }}
+      />,
+    );
+    await waitFor(() => {
+      expect(warn).toHaveBeenCalledTimes(1);
+    });
+    expect(warn.mock.calls[0]).toEqual([
+      "page preload failed; it loads again when opened",
+      "jobs",
+      "Failed to fetch dynamically imported module",
+    ]);
+    expect(loaded).toHaveBeenCalledTimes(1);
+    expect(error).not.toHaveBeenCalled();
   });
 });
 

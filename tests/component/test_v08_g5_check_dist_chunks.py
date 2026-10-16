@@ -57,12 +57,14 @@ def test_a_chunk_over_the_limit_fails_and_says_what_to_do(tmp_path: Path) -> Non
 
 
 QR_DEAD = 'createTableTag:function(){let n=``;n+=`<table style="`;n+=`<td style="`}'
+#: The library's own chunk (vite.config.ts manualChunks, V0.8 G7 D204).
+QR_CHUNK = "qrcode-generator-Bx_9-a1.js"
 
 
-def _dist_js(tmp: Path, js: str) -> Path:
+def _dist_js(tmp: Path, js: str, name: str = QR_CHUNK) -> Path:
     (tmp / "assets").mkdir()
     (tmp / "index.html").write_text(HTML)
-    (tmp / "assets" / "a.js").write_text(js)
+    (tmp / "assets" / name).write_text(js)
     return tmp
 
 
@@ -72,6 +74,19 @@ def test_the_qr_librarys_dead_table_builder_is_the_only_exception(
     """D199: qrcode-generator's never-called HTML builders are ignored."""
     done = _run(_dist_js(tmp_path, QR_DEAD))
     assert done.returncode == 0, done.stderr
+
+
+@pytest.mark.parametrize(
+    "name", ["a.js", "SettingsRoutes-abc.js", "index-qrcode-generator-x.js"]
+)
+def test_the_exception_holds_only_in_the_qr_librarys_own_chunk(
+    tmp_path: Path, name: str
+) -> None:
+    """D204: the same dead builder inside any other chunk (app code, or a
+    chunk merely mentioning the name) is refused."""
+    done = _run(_dist_js(tmp_path, QR_DEAD, name))
+    assert done.returncode == 1, done.stdout
+    assert name in done.stderr
 
 
 @pytest.mark.parametrize(
@@ -114,11 +129,14 @@ def test_the_app_routes_are_lazy() -> None:
 
 
 def test_the_built_dashboard_meets_the_budget() -> None:
-    """When a build is present (the e2e tier builds it), it passes the gate."""
-    dist = ROOT / "src" / "meshforge" / "controller" / "web" / "dist"
-    if not (dist / "index.html").is_file():
-        pytest.skip("dashboard not built: cd frontend && npm run build")
+    """When a FRESH build is present (the e2e tier builds it), it passes the
+    gate. A missing or stale build skips with the rebuild command (D206)."""
+    from mf_dashboard import require_fresh_dist
+
+    dist = require_fresh_dist()
     chunks = list((dist / "assets").glob("*.js"))
     assert len(chunks) > 3, "the build is not split"
+    # D204: the QR library sits in its own chunk.
+    assert [p.name for p in chunks if p.name.startswith("qrcode-generator-")]
     done = _run(dist)
     assert done.returncode == 0, done.stderr

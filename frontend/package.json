@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build && node scripts/check-dist.mjs",
+    "build": "tsc -b && vite build && node scripts/build-stamp.mjs && node scripts/check-dist.mjs",
     "check:dist": "node scripts/check-dist.mjs",
     "lint": "eslint . --max-warnings 0",
     "typecheck": "tsc -b",

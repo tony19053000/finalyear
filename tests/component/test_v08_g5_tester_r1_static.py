@@ -8,6 +8,7 @@ import re
 from pathlib import Path
 
 import pytest
+from mf_dashboard import require_fresh_dist
 
 pytestmark = pytest.mark.component
 
@@ -89,8 +90,7 @@ def test_body_text_tokens_keep_4_5_to_1_on_every_surface(theme: str) -> None:
 
 
 def test_no_javascript_chunk_exceeds_350_kb_and_the_entry_stays_small() -> None:
-    if not (DIST / "index.html").is_file():
-        pytest.skip("dashboard not built")
+    require_fresh_dist(DIST)  # V0.8 G7 (D206): a stale build skips, says why
     sizes = {p.name: p.stat().st_size for p in (DIST / "assets").glob("*.js")}
     assert sizes, "no chunks?"
     over = {n: s for n, s in sizes.items() if s > 350_000}
@@ -102,8 +102,7 @@ def test_no_javascript_chunk_exceeds_350_kb_and_the_entry_stays_small() -> None:
 
 
 def test_built_bundle_carries_no_secret_shaped_literal() -> None:
-    if not (DIST / "index.html").is_file():
-        pytest.skip("dashboard not built")
+    require_fresh_dist(DIST)  # V0.8 G7 (D206): a stale build skips, says why
     pat = re.compile(
         rb"mf1-[A-Z2-7]{16,}|Bearer [A-Za-z0-9_-]{20,}|BEGIN [A-Z ]*PRIVATE KEY"
     )

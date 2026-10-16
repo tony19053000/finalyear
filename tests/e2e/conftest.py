@@ -9,7 +9,8 @@ the built SPA, driven by real Chromium through pytest-playwright.
   the header's node count has a real source. Torn down with the harness's
   invariant check (no tracebacks, no forbidden events).
 * The SPA: the controller serves ``src/meshforge/controller/web/dist`` - the
-  output of ``cd frontend && npm run build``. Not built -> skip with that
+  output of ``cd frontend && npm run build``. Not built, or built from other
+  frontend sources than the ones on disk (stale, D206) -> skip with that
   command as the reason (as are a missing Playwright Chromium and a missing
   ``frontend/node_modules`` for axe-core).
 * Browser trust: Chromium accepts exactly this controller's TLS key
@@ -39,12 +40,10 @@ if TYPE_CHECKING:
 
 @pytest.fixture(scope="session")
 def dashboard_dist() -> Path:
-    from mf_dashboard import AXE_JS, DIST
+    from mf_dashboard import AXE_JS, DIST, require_fresh_dist
 
-    if not (DIST / "index.html").is_file():
-        pytest.skip(
-            "the dashboard is not built - run `cd frontend && npm ci && npm run build`"
-        )
+    # Not built, or built from other sources than these (V0.8 G7, D206).
+    require_fresh_dist(DIST)
     if not AXE_JS.is_file():
         pytest.skip(
             "frontend/node_modules is missing (axe-core) - run `cd frontend && npm ci`"
