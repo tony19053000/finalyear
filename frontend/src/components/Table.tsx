@@ -11,6 +11,8 @@ export interface Column<T> {
   /** Monospace + tabular numbers (ids, digests, sizes). */
   mono?: boolean;
   className?: string;
+  /** `aria-sort` of a sortable column's header (the header holds the sort button). */
+  sort?: "ascending" | "descending" | "none";
 }
 
 export interface TableProps<T> {
@@ -40,6 +42,7 @@ export function Table<T>({ columns, rows, rowKey, caption, empty, onRowClick, cl
               <th
                 key={col.id}
                 scope="col"
+                aria-sort={col.sort}
                 className={cn(
                   "h-8 px-3 text-2xs font-medium tracking-wide text-fg-subtle uppercase",
                   col.align === "right" ? "text-right" : "text-left",

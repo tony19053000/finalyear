@@ -5,7 +5,10 @@ import { BrowserRouter, MemoryRouter, Route, Routes } from "react-router-dom";
 import { createQueryClient } from "../api/queryClient";
 import { ToastProvider } from "../components/Toast";
 import { LoginPage } from "../pages/LoginPage";
-import { JobsPage, NodesPage, NotFoundPage, OverviewPage } from "../pages/PlaceholderPages";
+import { NodeDetailPage } from "../pages/nodes/NodeDetailPage";
+import { NodesPage } from "../pages/nodes/NodesPage";
+import { OverviewPage } from "../pages/overview/OverviewPage";
+import { JobsPage, NotFoundPage } from "../pages/PlaceholderPages";
 import { SettingsPage } from "../pages/SettingsPage";
 import { AppShell, type AppShellProps } from "./AppShell";
 import { RequireSession } from "./RequireSession";
@@ -23,6 +26,7 @@ export function AppRoutes({ socketFactory }: AppShellProps) {
       >
         <Route index element={<OverviewPage />} />
         <Route path="nodes" element={<NodesPage />} />
+        <Route path="nodes/:nodeId" element={<NodeDetailPage />} />
         <Route path="jobs" element={<JobsPage />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="*" element={<NotFoundPage />} />

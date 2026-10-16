@@ -261,10 +261,13 @@ describe("applyEvent", () => {
     const qc = new QueryClient();
     const spy = vi.spyOn(qc, "invalidateQueries");
     applyEvent(qc, { seq: 1, type: "node.status", at: 0, data: { node_id: "n1" } });
-    expect(spy).toHaveBeenLastCalledWith({ queryKey: queryKeys.nodes });
+    // V0.8 G3: the list and that node's detail (patched first: applyEvent.test.ts).
+    expect(spy).toHaveBeenCalledWith({ queryKey: queryKeys.nodes, exact: true });
+    expect(spy).toHaveBeenLastCalledWith({ queryKey: queryKeys.node("n1"), exact: true });
     applyEvent(qc, { seq: 2, type: "attempt.state", at: 0, data: { job_id: "j9" } });
     expect(spy).toHaveBeenCalledWith({ queryKey: queryKeys.job("j9") });
-    expect(spy).toHaveBeenLastCalledWith({ queryKey: queryKeys.jobs, exact: true });
+    expect(spy).toHaveBeenCalledWith({ queryKey: queryKeys.jobs, exact: true });
+    expect(spy).toHaveBeenLastCalledWith({ queryKey: queryKeys.activeJobs }); // the Overview counts
     spy.mockClear();
     applyEvent(qc, { seq: 3, type: "node.metrics", at: 0, data: {} });
     applyEvent(qc, { seq: 4, type: "from.the.future", at: 0, data: {} });

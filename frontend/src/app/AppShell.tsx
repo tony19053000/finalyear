@@ -5,6 +5,7 @@ import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { setUnauthorizedHandler } from "../api/client";
 import { LOGOUT_MUTATION_KEY } from "../api/hooks";
 import { queryKeys } from "../api/queryKeys";
+import { EVENT_APPLIERS } from "../events/appliers";
 import { useEventStream, type UseEventStreamOptions } from "../events/useEventStream";
 import type { LoginState } from "../pages/loginMessages";
 import { Header } from "./Header";
@@ -60,7 +61,12 @@ export function AppShell({ socketFactory }: AppShellProps) {
     };
   }, [sessionEnded]);
 
-  const streamStatus = useEventStream({ enabled: true, onUnauthorized: sessionEnded, socketFactory });
+  const streamStatus = useEventStream({
+    enabled: true,
+    onUnauthorized: sessionEnded,
+    socketFactory,
+    appliers: EVENT_APPLIERS,
+  });
 
   return (
     <div className="flex min-h-screen bg-bg text-fg">

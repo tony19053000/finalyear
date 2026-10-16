@@ -287,7 +287,9 @@ describe("T: placeholder pages invent nothing", () => {
     idle_expires_at: "2026-10-16T12:00:00+00:00",
     idle_timeout_s: 1,
   };
-  it.each(["/", "/nodes", "/jobs"])("%s shows no numbers, percentages, host names or job ids", async (path) => {
+  // V0.8 G3: "/" and "/nodes" are real pages now - they show exactly what the
+  // API returns (pages/overview, pages/nodes tests); only Jobs is a placeholder.
+  it.each(["/jobs"])("%s shows no numbers, percentages, host names or job ids", async (path) => {
     stubFetch((url) => {
       if (url === "/v1/session") return json(200, { session });
       if (url.startsWith("/v1/nodes"))
