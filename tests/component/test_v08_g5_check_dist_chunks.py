@@ -101,8 +101,16 @@ def test_the_app_routes_are_lazy() -> None:
         "SubmitJobPage",
         "SettingsRoutes",
     ):
-        assert re.search(rf"const {page} = lazy\(\(\) => import\(", app), page
+        loader = re.search(
+            rf"const {page} = lazy\(\(\) => PAGE_LOADERS\.(\w+)\(\)", app
+        )
+        assert loader, page
+        assert re.search(
+            rf"^  {loader.group(1)}: \(\) => import\(\"\.\./pages/", app, re.M
+        ), page
         assert not re.search(rf"^import \{{[^}}]*\b{page}\b", app, re.M), page
+    # Loaded in the background once signed in (offline navigation, G2 T-2).
+    assert "<PreloadPages />" in app
 
 
 def test_the_built_dashboard_meets_the_budget() -> None:

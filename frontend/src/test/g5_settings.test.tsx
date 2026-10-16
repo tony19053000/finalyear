@@ -7,11 +7,12 @@
  * sections are hidden from a user and never called for one.
  */
 import { QueryClient } from "@tanstack/react-query";
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { queryKeys } from "../api/queryKeys";
+import { PageLoadBoundary } from "../app/App";
 import { qrModules, qrPath, QR_MARGIN } from "../components/qr";
 import { applySettingsEvent } from "../pages/settings/applySettingsEvent";
 import { ADMIN_SESSION, USER_SESSION, event, fakeController, json, node, renderApp, type Handler } from "./fakeFabric";
@@ -521,6 +522,26 @@ describe("Data", () => {
     const dialog = await screen.findByRole("dialog");
     await userEvent.click(within(dialog).getByRole("button", { name: "Delete version" }));
     expect((await within(dialog).findByRole("alert")).textContent).toContain("job_X");
+  });
+});
+
+/* ------------------------------------------------------------ code splitting */
+
+describe("a page chunk that cannot be loaded (item 0f)", () => {
+  it("shows what failed and a reload, never a blank page", () => {
+    const failing = (): never => {
+      throw new TypeError("Failed to fetch dynamically imported module");
+    };
+    const Failing = () => <>{failing()}</>;
+    vi.spyOn(console, "error").mockImplementation(() => undefined); // React reports the caught error
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    render(
+      <PageLoadBoundary>
+        <Failing />
+      </PageLoadBoundary>,
+    );
+    expect(screen.getByRole("alert").textContent).toContain("This page could not be loaded");
+    expect(screen.getByRole("button", { name: "Reload" })).toBeTruthy();
   });
 });
 
