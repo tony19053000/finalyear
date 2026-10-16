@@ -39,7 +39,7 @@ export function UsersPage({ isAdmin }: { isAdmin: boolean }) {
       />
       <p className="mt-3 text-sm text-fg-muted">
         Every user&apos;s API tokens and sessions are listed (and can be revoked) under{" "}
-        <Link className="text-accent underline-offset-2 hover:underline" to="/settings/tokens">
+        <Link className="text-accent underline underline-offset-2" to="/settings/tokens">
           API tokens
         </Link>{" "}
         with &ldquo;Every user&rdquo;.

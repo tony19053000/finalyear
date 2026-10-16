@@ -60,7 +60,7 @@ function AccountCard() {
       )}
       <p className="mt-3 text-xs text-fg-muted">
         This browser session is listed with your API tokens and can be ended there or with Sign out.{" "}
-        <Link className="text-accent underline-offset-2 hover:underline" to="/settings/tokens">
+        <Link className="text-accent underline underline-offset-2" to="/settings/tokens">
           API tokens
         </Link>
       </p>
