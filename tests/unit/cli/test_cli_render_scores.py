@@ -266,7 +266,7 @@ def test_json_passes_scores_through_verbatim(
     controller(_handler(payload))
     result = runner.invoke(app, ["nodes", "--json"])
     assert result.exit_code == ExitCode.OK
-    assert json.loads(result.stdout) == payload
+    assert json.loads(result.stdout) == {**payload, "schema_version": 1}  # V0.8 G6
     controller(_handler(_node(MEASURED)))
     detail = runner.invoke(app, ["nodes", NODE_ID, "--json"])
     assert json.loads(detail.stdout)["scores"] == MEASURED

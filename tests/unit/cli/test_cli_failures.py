@@ -22,6 +22,7 @@ from mf_cli_support import TransportFactory
 from typer.testing import CliRunner
 
 from meshforge.cli.app import app
+from meshforge.cli.exits import CliExit
 from meshforge.common.errors import FailureType
 from meshforge.common.exit_codes import ExitCode
 
@@ -130,22 +131,24 @@ def test_a_503_envelope_exits_unavailable_with_the_controllers_safe_message(
     assert_no_traceback(result.output)
 
 
-def test_a_404_on_one_node_exits_failure_not_unavailable(
+def test_a_404_on_one_node_exits_not_found_not_unavailable(
     runner: CliRunner, controller: TransportFactory
 ) -> None:
-    """A node that does not exist is a *request* problem: retrying will not help."""
+    """A node that does not exist is a *request* problem: retrying will not help.
+    V0.8 G6 (D178): its own code, NOT_FOUND (was FAILURE)."""
     controller(answering(404, body=envelope(FailureType.NOT_FOUND, "no such node")))
     result = runner.invoke(app, ["nodes", NODE_ID])
-    assert result.exit_code == ExitCode.FAILURE
+    assert result.exit_code == CliExit.NOT_FOUND
     assert "404" in result.stderr
     assert "no such node" in result.stderr
     assert_no_traceback(result.output)
 
 
-def test_a_400_envelope_exits_failure(
+def test_a_400_envelope_exits_usage_error(
     runner: CliRunner, controller: TransportFactory
 ) -> None:
-    """A *server-side* 400 exits FAILURE.
+    """A *server-side* 400 (``invalid_input``) exits USAGE_ERROR since V0.8 G6
+    (D178: the value we sent was refused; was FAILURE). Still not UNAVAILABLE.
 
     The id is a valid one on purpose: since the G5 fix round the CLI refuses a
     malformed NODE_ID itself with ``USAGE_ERROR`` before any request is built
@@ -158,7 +161,7 @@ def test_a_400_envelope_exits_failure(
         )
     )
     result = runner.invoke(app, ["nodes", NODE_ID])
-    assert result.exit_code == ExitCode.FAILURE
+    assert result.exit_code == CliExit.USAGE_ERROR
     assert_no_traceback(result.output)
 
 
@@ -294,4 +297,5 @@ def test_watch_is_ignored_with_json_so_a_pipe_gets_one_object(
     )
     result = runner.invoke(app, ["nodes", "--watch", "--json"])
     assert result.exit_code == ExitCode.OK
-    assert json.loads(result.stdout) == {"nodes": [], "count": 0}
+    # V0.8 G6: every --json document carries schema_version.
+    assert json.loads(result.stdout) == {"nodes": [], "count": 0, "schema_version": 1}

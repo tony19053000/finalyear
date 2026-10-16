@@ -270,7 +270,7 @@ def test_compute_network_json_is_the_api_answer(
     controller(_serve(payload))
     result = runner.invoke(app, ["network", "--json"])
     assert result.exit_code == 0, result.output
-    assert json.loads(result.output) == payload
+    assert json.loads(result.output) == {**payload, "schema_version": 1}  # V0.8 G6
 
 
 @pytest.mark.parametrize("bad", [None, "fast", True, -1, [1], {"x": 1}])

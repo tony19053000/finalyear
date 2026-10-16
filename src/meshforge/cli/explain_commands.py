@@ -12,12 +12,11 @@ assumed reads as measured); and, once the attempt ran, predicted vs actual
 ``output``~``collect``, ``queue``~``queue``).
 
 Every string from the controller goes through :func:`~.render._cell` (control
-characters flattened). ``--json`` prints the API answer as is.
+characters flattened). ``--json`` prints the API answer + ``schema_version`` (docs/CLI.md).
 """
 
 from __future__ import annotations
 
-import json
 from collections.abc import Mapping
 from typing import Annotated, Any, Final
 
@@ -25,6 +24,7 @@ import typer
 from rich.table import Table
 
 from meshforge.cli import app as cli
+from meshforge.cli import render
 
 __all__ = ["decision_tables", "explain"]
 
@@ -133,7 +133,7 @@ def _score_cell(score: Any) -> Any:
 def _candidates_table(decision: Mapping[str, Any]) -> Table:
     from meshforge.cli.render import _cell
 
-    table = Table(
+    table = render.table(
         "RANK",
         "NODE",
         "MODE",
@@ -145,7 +145,6 @@ def _candidates_table(decision: Mapping[str, Any]) -> Table:
             f"decision {decision.get('id')} - attempt {decision.get('attempt_no')}: "
             f"{decision.get('outcome')} (policy {decision.get('policy')})"
         ),
-        title_justify="left",
     )
     candidates = decision.get("candidates")
     for c in candidates if isinstance(candidates, list) else []:
@@ -183,7 +182,9 @@ def _terms_table(decision: Mapping[str, Any]) -> Table | None:
     ]
     if not ranked:
         return None
-    table = Table("NODE", *(t.upper() for t in _TERMS), "TOTAL", title="predicted")
+    table = render.table(
+        "NODE", *(t.upper() for t in _TERMS), "TOTAL", title="predicted"
+    )
     for c in ranked:
         estimate = c["estimate"]
         terms = estimate.get("terms") if isinstance(estimate, Mapping) else None
@@ -197,7 +198,7 @@ def _terms_table(decision: Mapping[str, Any]) -> Table | None:
 
 
 def _actual_table(decision: Mapping[str, Any]) -> Table | None:
-    from meshforge.cli.render import _cell
+    from meshforge.cli.render import _cell, _num
 
     actual = decision.get("actual")
     if not isinstance(actual, Mapping):
@@ -215,7 +216,7 @@ def _actual_table(decision: Mapping[str, Any]) -> Table | None:
     terms = terms if isinstance(terms, Mapping) else {}
     phases = actual.get("phases_ms")
     phases = phases if isinstance(phases, Mapping) else {}
-    table = Table(
+    table = render.table(
         "TERM",
         "PREDICTED",
         "ACTUAL PHASE",
@@ -225,17 +226,19 @@ def _actual_table(decision: Mapping[str, Any]) -> Table | None:
             f"- {actual.get('state')}"
             + (f" ({actual.get('failure_type')})" if actual.get("failure_type") else "")
         ),
-        title_justify="left",
     )
     for term in _TERMS:
         phase = _ACTUAL_PHASE[term]
         ms = phases.get(phase)
+        number = _num(ms)
         if phase not in phases:
             shown = "not yet"
         elif ms is None:
             shown = "skipped"
+        elif number is None:  # not a number: never a traceback (V0.8 G6)
+            shown = _DASH
         else:
-            shown = _seconds(int(ms) / 1000.0)
+            shown = _seconds(number / 1000.0)
         table.add_row(term, _cell(_term_cell(terms.get(term))), phase, shown)
     return table
 
@@ -259,9 +262,7 @@ def explain(
         int | None,
         typer.Option("--attempt", min=1, help="Only the decisions of attempt N."),
     ] = None,
-    as_json: Annotated[
-        bool, typer.Option("--json", help="Print the API answer as JSON.")
-    ] = False,
+    as_json: cli.JsonOption = False,
 ) -> None:
     """Why the planner placed (or has not placed) a job: every candidate,
     rejections with reasons, predicted times with their source, and the actual
@@ -273,16 +274,15 @@ def explain(
     with cli._client(settings) as client:
         payload = cli._fetch(lambda: client.decisions(checked, attempt=attempt))
     if as_json:
-        typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+        cli._echo_json(payload)
         return
     tables = decision_tables(payload)
-    console = cli._out()
     if not tables:
-        console.print(
+        render.line(
             "no planner decision recorded for this job"
             + (f" (attempt {attempt})" if attempt is not None else "")
             + " - jobs submitted before V0.6 have none"
         )
         return
     for table in tables:
-        console.print(table)
+        render.show(table)

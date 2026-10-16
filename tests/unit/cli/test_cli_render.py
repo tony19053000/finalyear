@@ -220,7 +220,7 @@ def test_nodes_json_is_one_unindented_line_of_the_raw_payload(
     assert "\n" not in line
     assert line.startswith("{") and line.endswith("}")
     assert ": " not in line.split('"hostname"')[0]  # compact separators
-    assert json.loads(line) == NODES_PAYLOAD
+    assert json.loads(line) == {**NODES_PAYLOAD, "schema_version": 1}  # V0.8 G6
 
 
 def test_nodes_json_passes_an_unknown_field_straight_through(
@@ -250,7 +250,7 @@ def test_nodes_with_an_id_and_json_prints_the_detail_payload(
 ) -> None:
     controller(json_handler(DETAIL_PAYLOAD))
     result = runner.invoke(app, ["nodes", "node_01JQZ00000000000000000000A", "--json"])
-    assert json.loads(result.stdout) == DETAIL_PAYLOAD
+    assert json.loads(result.stdout) == {**DETAIL_PAYLOAD, "schema_version": 1}
 
 
 def test_bare_nodes_still_lists_even_though_an_id_is_accepted(

@@ -102,7 +102,9 @@ def test_json_output_is_stable_and_sorted(
     first = runner.invoke(app, ["network", "--json"])
     second = runner.invoke(app, ["network", "--json"])
     assert first.exit_code == 0 and first.output == second.output
-    assert json.loads(first.output) == payload
+    # V0.8 G6: one line (was indented) with schema_version; still sorted.
+    assert json.loads(first.output) == {**payload, "schema_version": 1}
+    assert first.output.count("\n") == 1
     keys = list(json.loads(first.output))
     assert keys == sorted(keys) and first.output.index('"a"') < first.output.index(
         '"b"'

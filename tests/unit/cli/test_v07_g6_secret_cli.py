@@ -11,6 +11,7 @@ The real :class:`ControllerClient` runs; only the transport is faked.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import httpx
@@ -103,7 +104,9 @@ def test_list_and_delete(runner: CliRunner, controller: TransportFactory) -> Non
     )
     controller(rec)
     listed = runner.invoke(cli_app.app, ["secret", "list"])
-    assert listed.exit_code == 0 and "A  updated t1" in listed.output
+    # V0.8 G6: a table (NAME / CREATED / UPDATED) instead of "A  updated t1".
+    assert listed.exit_code == 0 and "UPDATED" in listed.output
+    assert re.search(r"\|A +\| t0 +\| t1 +\|", listed.output), listed.output
     rec.response = {"name": "DB_PASS", "deleted": True}
     gone = runner.invoke(cli_app.app, ["secret", "delete", "db_pass"])
     assert gone.exit_code == 0 and "deleted secret DB_PASS" in gone.output

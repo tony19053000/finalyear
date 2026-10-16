@@ -13,7 +13,8 @@ table until someone renders it.
 
 Every failure leaves this module as one :class:`ControllerError` carrying a
 :class:`~meshforge.common.errors.FailureType` and a short, safe message - no
-traceback, no httpx type, no server-side driver text. ``exit_code`` maps it to the
+traceback, no httpx type, no server-side driver text.
+:func:`~meshforge.cli.exits.exit_code_for` (re-exported here) maps it to the
 process exit code (``UNAVAILABLE`` for unreachable/timed out, D18).
 """
 
@@ -29,7 +30,8 @@ from typing import Any, BinaryIO, Final, Self
 import httpx
 from pydantic import SecretStr
 
-from meshforge.common.errors import ExitCode, FailureType, MeshForgeError
+from meshforge.cli.exits import exit_code_for
+from meshforge.common.errors import FailureType, MeshForgeError
 
 __all__ = ["ControllerClient", "ControllerError", "exit_code_for"]
 
@@ -37,7 +39,20 @@ _MAX_ERROR_MESSAGE = 200
 """Server-supplied text is truncated: it reaches a terminal, and V0.3's REST
 surface is unauthenticated, so it is not fully trusted input."""
 
-_UNREACHABLE: Final = frozenset({FailureType.NETWORK_ERROR, FailureType.TIMEOUT})
+_UNREACHABLE_HINT: Final = (
+    " - is it running and is the address right? `compute status` shows which "
+    "address is used ([cli] controller_url, or the one `compute login` stored)"
+)
+_TIMEOUT_HINT: Final = (
+    " - it may be overloaded or the network slow; retry, or raise [cli] timeout_s"
+)
+_NOT_FOUND_HINT: Final = (
+    " - check the id or name (`compute jobs`, `compute nodes`, `compute data ls`...)"
+)
+_FORBIDDEN_HINT: Final = " - your user is not allowed to do this; ask a fabric admin"
+_RETRY_HINT: Final = " - retry in a moment"
+"""V0.8 G6 (D178): every client error says what failed, why, and what to do."""
+
 _TRANSFER_TIMEOUT_S: Final = 300.0
 """Bundle/output transfers and log downloads: bigger than one small JSON call."""
 
@@ -48,22 +63,14 @@ class ControllerError(MeshForgeError):
     default_failure_type = FailureType.NETWORK_ERROR
 
 
-def exit_code_for(error: ControllerError) -> ExitCode:
-    """Map a client failure to a process exit code.
-
-    ``UNAVAILABLE`` (D18) means "the controller could not be reached or did not
-    answer in time" - distinct from a bad request (``FAILURE``) so a polling
-    script can retry the first and stop on the second.
-    """
-    if error.failure_type in _UNREACHABLE:
-        return ExitCode.UNAVAILABLE
-    return ExitCode.FAILURE
-
-
 def _clean(text: object) -> str:
     """One short printable line: control characters and newlines cannot reach a TTY."""
     if not isinstance(text, str):
         return ""
+    # V0.8 G6 T-9: no secret masking here (a marker made now would be mangled
+    # by the error line's own scrub); `compute secret set` registers the
+    # flattened spellings of its value too, so the masking in render.fail
+    # still recognises a multi-line secret after this flattening.
     flat = "".join(ch if ch.isprintable() else " " for ch in text).strip()
     return flat[:_MAX_ERROR_MESSAGE]
 
@@ -358,13 +365,14 @@ class ControllerClient:
     def _transport_error(self, exc: httpx.HTTPError, path: str) -> ControllerError:
         if isinstance(exc, httpx.TimeoutException):
             return ControllerError(
-                f"the controller at {self.controller_url} did not answer in time",
+                f"the controller at {self.controller_url} did not answer in time"
+                + _TIMEOUT_HINT,
                 failure_type=FailureType.TIMEOUT,
                 details={"path": path},
             )
         return ControllerError(
             f"cannot reach the controller at {self.controller_url} "
-            f"({type(exc).__name__})",
+            f"({type(exc).__name__})" + _UNREACHABLE_HINT,
             failure_type=FailureType.NETWORK_ERROR,
             details={"path": path},
         )
@@ -377,7 +385,7 @@ class ControllerClient:
         except httpx.TimeoutException as exc:
             raise ControllerError(
                 f"the controller at {self.controller_url} did not answer within "
-                f"{self.timeout_s:g}s",
+                f"{self.timeout_s:g}s" + _TIMEOUT_HINT,
                 failure_type=FailureType.TIMEOUT,
                 details={"path": path},
             ) from exc
@@ -387,7 +395,7 @@ class ControllerClient:
             # can be long and platform-specific, so only its type is kept.
             raise ControllerError(
                 f"cannot reach the controller at {self.controller_url} "
-                f"({type(exc).__name__})",
+                f"({type(exc).__name__})" + _UNREACHABLE_HINT,
                 failure_type=FailureType.NETWORK_ERROR,
                 details={"path": path},
             ) from exc
@@ -420,12 +428,18 @@ class ControllerClient:
             error = body.get("error")
             if isinstance(error, dict):
                 code, message = _clean(error.get("code")), _clean(error.get("message"))
-        failure_type = _failure_type(code)
         status = response.status_code
+        # T-3: no envelope (a reverse proxy, an older controller) -> the HTTP
+        # status alone decides auth / not found, so a script still gets 3 / 8.
+        failure_type = (
+            _failure_type(code)
+            if code
+            else _STATUS_FALLBACK.get(status, _failure_type(""))
+        )
         detail = message or f"HTTP {status}"
         if failure_type is FailureType.UNAUTHORIZED and status == 403:
             return ControllerError(
-                f"the controller refused the request (403): {detail}",
+                f"the controller refused the request (403): {detail}" + _FORBIDDEN_HINT,
                 failure_type=FailureType.UNAUTHORIZED,
                 details={"status": status, "path": path, "code": code},
             )
@@ -440,20 +454,30 @@ class ControllerClient:
             # 503: the controller is up but its database is not - to a caller this
             # is still "the fabric cannot answer right now", hence UNAVAILABLE.
             return ControllerError(
-                f"the controller cannot answer right now: {detail}",
+                f"the controller cannot answer right now: {detail}" + _RETRY_HINT,
                 failure_type=FailureType.NETWORK_ERROR,
                 details={"status": status, "path": path},
             )
+        hint = _NOT_FOUND_HINT if failure_type is FailureType.NOT_FOUND else ""
         details: dict[str, Any] = {"status": status, "path": path, "code": code or None}
         rejections = _rejections(body)
         if rejections:
             details["rejections"] = rejections
         return ControllerError(
-            f"the controller refused the request ({status}): {detail}",
+            f"the controller refused the request ({status}): {detail}{hint}",
             failure_type=failure_type,
             details=details,
         )
 
+
+_STATUS_FALLBACK: Final = {
+    401: FailureType.UNAUTHORIZED,
+    403: FailureType.UNAUTHORIZED,
+    404: FailureType.NOT_FOUND,
+}
+"""What a refusal without the typed envelope means, by HTTP status (V0.8 G6
+T-3). Only statuses with one unambiguous meaning; everything else stays
+``INTERNAL_ERROR`` (exit 1), so an unreadable 5xx is never retried forever."""
 
 _MAX_REJECTIONS: Final = 64
 

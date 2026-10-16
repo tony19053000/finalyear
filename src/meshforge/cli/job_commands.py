@@ -47,7 +47,8 @@ from typing import TYPE_CHECKING, Annotated, Any
 import typer
 
 from meshforge.cli import app as cli
-from meshforge.common.errors import ExitCode
+from meshforge.cli import render
+from meshforge.cli.exits import CliExit
 
 _WORD = re.compile(r"[a-z_]{1,32}")
 """A failure type / state name from the controller, printed as is; anything
@@ -81,7 +82,7 @@ def _checked_job_id(value: str) -> str:
     except InvalidIdError:
         cli._die(
             "JOB_ID is not a canonical job_<ULID>; run `compute jobs` to list them",
-            ExitCode.USAGE_ERROR,
+            CliExit.USAGE_ERROR,
         )
 
 
@@ -92,10 +93,8 @@ def _print_retry(frame: Mapping[str, Any]) -> None:
     word = why if isinstance(why, str) and _WORD.fullmatch(why) else "?"
     token = frame.get("fencing_token")
     number = token if isinstance(token, int) and not isinstance(token, bool) else "?"
-    typer.echo(
-        f"{cli.PROG_NAME}: the attempt ended ({word}); the job was retried - "
-        f"following attempt {number}",
-        err=True,
+    render.note(
+        f"the attempt ended ({word}); the job was retried - following attempt {number}"
     )
 
 
@@ -175,9 +174,9 @@ def run(
     from meshforge.common.tree import TreeError, build_tree
 
     if node is not None and local:
-        cli._die("give at most one of --node NODE_ID and --local", ExitCode.USAGE_ERROR)
+        cli._die("give at most one of --node NODE_ID and --local", CliExit.USAGE_ERROR)
     if policy is not None and policy not in POLICIES:
-        cli._die("--policy must be one of " + ", ".join(POLICIES), ExitCode.USAGE_ERROR)
+        cli._die("--policy must be one of " + ", ".join(POLICIES), CliExit.USAGE_ERROR)
     settings = cli._settings()
     own_node = _own_node_id(settings.data_dir, required=local)
     node_id = own_node if local else cli._checked_node_id(node)
@@ -185,13 +184,13 @@ def run(
     if not _key_ok(key):
         cli._die(
             "--idempotency-key must be 1-128 printable ASCII characters",
-            ExitCode.USAGE_ERROR,
+            CliExit.USAGE_ERROR,
         )
     project = path.resolve()
     try:
         manifest = load_manifest(project)
     except ManifestError as exc:
-        cli._die(f"compute.yaml: {exc.message}", ExitCode.FAILURE)
+        cli._die(f"compute.yaml: {exc.message}", CliExit.FAILURE)
     body_manifest = manifest.canonical_dict()
     if name is not None:
         body_manifest["name"] = sanitize_name(name)
@@ -201,7 +200,7 @@ def run(
         built = build_tree(project)
     except (TreeError, OSError) as exc:
         reason = exc.message if isinstance(exc, TreeError) else type(exc).__name__
-        cli._die(f"cannot read {path}: {reason}", ExitCode.FAILURE)
+        cli._die(f"cannot read {path}: {reason}", CliExit.FAILURE)
     placement: dict[str, Any] = {}
     if node_id is not None:
         placement = {"node_id": node_id, "local": local}
@@ -221,26 +220,24 @@ def run(
             reason = (
                 exc.message if isinstance(exc, TransferError) else type(exc).__name__
             )
-            cli._die(f"upload failed: {reason}", ExitCode.FAILURE)
-        typer.echo(
-            f"{cli.PROG_NAME}: uploaded {report.uploaded_blobs} files / "
+            cli._die(f"upload failed: {reason}", CliExit.FAILURE)
+        render.note(
+            f"uploaded {report.uploaded_blobs} files / "
             f"{report.uploaded_bytes} bytes, skipped {report.skipped_blobs}"
             + (
                 f" (resumed {report.resumed_parts} parts)"
                 if report.resumed_parts
                 else ""
-            ),
-            err=True,
+            )
         )
         if own_node is not None and (node_id is None or node_id == own_node):
             # D109: the Local candidate needs no download if its cache holds
             # the project already.
             body["seeded"] = _seed(settings, built)
         if idempotency_key is None:
-            typer.echo(
-                f"{cli.PROG_NAME}: idempotency key {key} (after a network error, "
-                f"re-run with --idempotency-key {key} to avoid a second job)",
-                err=True,
+            render.note(
+                f"idempotency key {key} (after a network error, "
+                f"re-run with --idempotency-key {key} to avoid a second job)"
             )
         try:
             created = client.submit_job(body, idempotency_key=key)
@@ -249,7 +246,7 @@ def run(
                 _print_rejections(exc.details.get("rejections"))
             cli._die(exc.message, exit_code_for(exc))
         job_id = str(created.get("job_id"))
-        typer.echo(job_id)
+        render.line(render.echo(job_id))
         if not follow:
             return
         _follow_to_exit(client, job_id, settings.cli.timeout_s)
@@ -274,16 +271,14 @@ def _seed(settings: Any, built: Any) -> bool:
         free_disk_floor_bytes=cfg.seed_free_disk_floor_mb * 1024 * 1024,
     )
     if report.seeded:
-        typer.echo(
-            f"{cli.PROG_NAME}: local agent cache seeded ({report.blobs_written} "
-            f"new, {report.blobs_present} already there)",
-            err=True,
+        render.note(
+            f"local agent cache seeded ({report.blobs_written} "
+            f"new, {report.blobs_present} already there)"
         )
     else:
-        typer.echo(
-            f"{cli.PROG_NAME}: local agent cache not seeded ({report.reason}); "
-            "a job placed here downloads the project",
-            err=True,
+        render.note(
+            f"local agent cache not seeded ({report.reason}); "
+            "a job placed here downloads the project"
         )
     return report.seeded
 
@@ -297,7 +292,7 @@ def _own_node_id(data_dir: Path, *, required: bool) -> str | None:
         return str(read_local_node_id(data_dir))
     except LocalNodeError as exc:
         if required:
-            cli._die(exc.message, ExitCode.CONFIG_ERROR)
+            cli._die(exc.message, CliExit.CONFIG_ERROR)
         return None
 
 
@@ -306,13 +301,12 @@ def _print_rejections(rejections: object) -> None:
     if not isinstance(rejections, list):
         return
     if not rejections:
-        typer.echo(f"{cli.PROG_NAME}: no node has joined the fabric", err=True)
+        render.note("no node has joined the fabric")
     for item in rejections:
         if isinstance(item, dict):
-            typer.echo(
-                f"{cli.PROG_NAME}:   {item.get('node_id')}: "
-                f"{item.get('reject_code')} - {item.get('reject_text')}",
-                err=True,
+            render.note(
+                f"  {render.echo(item.get('node_id'))}: "
+                f"{render.echo(item.get('reject_code'))} - {render.echo(item.get('reject_text'))}"
             )
 
 
@@ -342,12 +336,12 @@ def _follow_to_exit(client: Any, job_id: str, timeout_s: float) -> None:
             ssl_context=client.ssl_context,
         )
     except KeyboardInterrupt:
-        typer.echo(
-            f"\n{cli.PROG_NAME}: detached - {job_id} keeps running. "
-            f"Cancel it with: compute cancel {job_id}",
-            err=True,
+        render.line(err=True)  # end the half-printed log line first
+        render.note(
+            f"detached - {job_id} keeps running. "
+            f"Cancel it with: compute cancel {job_id}"
         )
-        raise typer.Exit(ExitCode.INTERRUPTED) from None
+        raise typer.Exit(CliExit.INTERRUPTED) from None
     except ControllerError as exc:
         cli._die(exc.message, exit_code_for(exc))
     state = str(end.get("state"))
@@ -357,16 +351,15 @@ def _follow_to_exit(client: Any, job_id: str, timeout_s: float) -> None:
         None if failure is None else str(failure),
         end.get("exit_code") if isinstance(end.get("exit_code"), int) else None,
     )
-    if code != ExitCode.OK:
-        typer.echo(
-            f"{cli.PROG_NAME}: {job_id} {state}"
-            + (f" ({failure})" if failure else "")
+    if code != CliExit.OK:
+        render.note(
+            f"{render.echo(job_id)} {render.echo(state)}"
+            + (f" ({render.echo(failure)})" if failure else "")
             + (
-                f", workload exit code {end.get('exit_code')}"
+                f", workload exit code {render.echo(end.get('exit_code'))}"
                 if end.get("exit_code") is not None
                 else ""
-            ),
-            err=True,
+            )
         )
     raise typer.Exit(code)
 
@@ -389,10 +382,7 @@ def jobs(
         ),
     ] = None,
     limit: Annotated[int, typer.Option("--limit", min=1, max=1000)] = 50,
-    json_output: Annotated[
-        bool,
-        typer.Option("--json", help="Print the controller's raw JSON on one line."),
-    ] = False,
+    json_output: cli.JsonOption = False,
 ) -> None:
     """List recent jobs, newest first (or show one job in detail)."""
     from meshforge.cli.render import job_detail_table, jobs_table
@@ -405,12 +395,12 @@ def jobs(
         if json_output:
             cli._echo_json(detail)
         else:
-            cli._out().print(job_detail_table(detail))
+            render.show(job_detail_table(detail))
         return
 
     if state is not None and state not in _JOB_STATES:
         cli._die(
-            f"--state must be one of: {', '.join(_JOB_STATES)}", ExitCode.USAGE_ERROR
+            f"--state must be one of: {', '.join(_JOB_STATES)}", CliExit.USAGE_ERROR
         )
     settings = cli._settings()
     with cli._client(settings) as client:
@@ -418,7 +408,7 @@ def jobs(
     if json_output:
         cli._echo_json(payload)
     else:
-        cli._out().print(jobs_table(payload))
+        render.show(jobs_table(payload))
 
 
 # ------------------------------------------------------------------ logs
@@ -439,7 +429,7 @@ def logs(
 
     checked = _checked_job_id(job_id)
     if stream not in ("stdout", "stderr", "both"):
-        cli._die("--stream must be stdout, stderr or both", ExitCode.USAGE_ERROR)
+        cli._die("--stream must be stdout, stderr or both", CliExit.USAGE_ERROR)
     settings = cli._settings()
     with cli._client(settings) as client:
         if follow:
@@ -453,14 +443,13 @@ def logs(
                     ssl_context=client.ssl_context,
                 )
             except KeyboardInterrupt:
-                raise typer.Exit(ExitCode.INTERRUPTED) from None
+                raise typer.Exit(CliExit.INTERRUPTED) from None
             except ControllerError as exc:
                 cli._die(exc.message, exit_code_for(exc))
             if end.get("gaps"):
-                typer.echo(
-                    f"{cli.PROG_NAME}: the live stream had gaps; "
-                    f"`compute logs {checked}` shows the stored log",
-                    err=True,
+                render.note(
+                    f"the live stream had gaps; "
+                    f"`compute logs {checked}` shows the stored log"
                 )
             return
         data, headers = cli._fetch(lambda: client.logs(checked, stream=stream))
@@ -485,7 +474,7 @@ def cancel(job_id: Annotated[str, typer.Argument(metavar="JOB_ID")]) -> None:
     settings = cli._settings()
     with cli._client(settings) as client:
         payload = cli._fetch(lambda: client.cancel(checked))
-    typer.echo(f"{checked} {payload.get('state')}")
+    render.line(f"{checked} {render.echo(payload.get('state'))}")
 
 
 # ------------------------------------------------------------------- get
@@ -514,16 +503,16 @@ def get(
     checked = _checked_job_id(job_id)
     target = dest if dest is not None else Path("outputs") / checked
     if target.is_symlink() or (target.exists() and not target.is_dir()):
-        cli._die(f"{target} exists and is not a folder", ExitCode.USAGE_ERROR)
+        cli._die(f"{target} exists and is not a folder", CliExit.USAGE_ERROR)
     if force:
         refused = _unsafe_force_target(target)
         if refused is not None:
             cli._die(
                 f"refusing --force: {target} is {refused}; pick a dedicated folder",
-                ExitCode.USAGE_ERROR,
+                CliExit.USAGE_ERROR,
             )
     if target.is_dir() and any(target.iterdir()) and not force:
-        cli._die(f"{target} is not empty; pass --force to replace it", ExitCode.FAILURE)
+        cli._die(f"{target} is not empty; pass --force to replace it", CliExit.FAILURE)
     settings = cli._settings()
     with cli._client(settings) as client:
         job = cli._fetch(lambda: client.job(checked))
@@ -531,7 +520,7 @@ def get(
         digest = None if attempt is None else attempt.get("output_digest")
         if not isinstance(digest, str) or not digest.startswith("sha256:"):
             cli._die(
-                f"{checked} has no outputs (state {job.get('state')})", ExitCode.FAILURE
+                f"{checked} has no outputs (state {job.get('state')})", CliExit.FAILURE
             )
         hex_digest = digest.removeprefix("sha256:")
         tmp = _staging_dir(target)
@@ -546,24 +535,24 @@ def get(
                 cli._die(
                     f"cannot save the outputs to {archive}: {_os_cause(exc)}; "
                     f"{target} was left as it was",
-                    ExitCode.FAILURE,
+                    CliExit.FAILURE,
                 )
             if not matches:
                 cli._die(
                     "the downloaded outputs do not match their digest; nothing was "
                     "unpacked",
-                    ExitCode.FAILURE,
+                    CliExit.FAILURE,
                 )
             fresh = tmp / "new"
             try:
                 stats = unpack(archive, fresh)
             except BundleError as exc:
-                cli._die(f"cannot unpack the outputs: {exc.message}", ExitCode.FAILURE)
+                cli._die(f"cannot unpack the outputs: {exc.message}", CliExit.FAILURE)
             except OSError as exc:
                 cli._die(
                     f"cannot unpack the outputs into {tmp}: {_os_cause(exc)}; "
                     f"{target} was left as it was",
-                    ExitCode.FAILURE,
+                    CliExit.FAILURE,
                 )
             try:
                 _swap_in(fresh, target, parked)
@@ -572,33 +561,31 @@ def get(
                 cli._die(
                     f"cannot move the outputs into {target} ({_os_cause(exc)}) and "
                     f"cannot put the old folder back; it is safe at {exc.parked}",
-                    ExitCode.FAILURE,
+                    CliExit.FAILURE,
                 )
             except OSError as exc:
                 cli._die(
                     f"cannot move the outputs into {target} ({_os_cause(exc)}); "
                     "the existing folder was left as it was",
-                    ExitCode.FAILURE,
+                    CliExit.FAILURE,
                 )
         finally:
             if not keep_tmp and _parked_only(parked, target):
                 # interrupted (Ctrl-C, any non-OSError) between parking the old
                 # folder and putting something back at ``target``: never delete it
                 keep_tmp = True
-                typer.echo(
-                    f"{cli.PROG_NAME}: interrupted while replacing {target}; the old "
-                    f"folder is safe at {parked}",
-                    err=True,
+                render.note(
+                    f"interrupted while replacing {target}; the old "
+                    f"folder is safe at {parked}"
                 )
             if not keep_tmp:
                 shutil.rmtree(tmp, ignore_errors=True)
     missing = attempt.get("missing_outputs") if attempt else None
-    typer.echo(f"{stats.files} files -> {target}")
+    render.line(f"{stats.files} files -> {target}")
     if isinstance(missing, list) and missing:
-        typer.echo(
-            f"{cli.PROG_NAME}: declared outputs that matched nothing: "
-            + ", ".join(str(m)[:100] for m in missing[:20]),
-            err=True,
+        render.note(
+            "declared outputs that matched nothing: "
+            + ", ".join(str(m)[:100] for m in missing[:20])
         )
 
 
@@ -646,7 +633,7 @@ def _staging_dir(target: Path) -> Path:
     except OSError as exc:
         cli._die(
             f"cannot create a staging folder in {target.parent}: {_os_cause(exc)}",
-            ExitCode.FAILURE,
+            CliExit.FAILURE,
         )
 
 
