@@ -178,14 +178,15 @@ function ActiveJobsCard() {
 
 function UsageRow({ label, percent, text, testId }: { label: string; percent: number | null; text: string; testId: string }) {
   return (
-    <div className="flex flex-col gap-1">
-      <div className="flex items-baseline justify-between gap-3">
-        <dt className="text-sm text-fg-muted">{label}</dt>
-        <dd className="text-sm font-medium tabular-nums" data-testid={testId}>
-          {text}
-        </dd>
-      </div>
-      <Meter percent={percent} />
+    // dt + dd directly in the row's div: the only nesting a <dl> allows (axe).
+    <div className="grid grid-cols-[1fr_auto] items-baseline gap-x-3 gap-y-1">
+      <dt className="text-sm text-fg-muted">{label}</dt>
+      <dd className="text-sm font-medium tabular-nums" data-testid={testId}>
+        {text}
+      </dd>
+      <dd className="col-span-2">
+        <Meter percent={percent} />
+      </dd>
     </div>
   );
 }

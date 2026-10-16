@@ -31,9 +31,11 @@ if TYPE_CHECKING:
 
 pytestmark = [pytest.mark.e2e, pytest.mark.timeout(240)]
 
-#: What Chromium logs for the boot probe `GET /v1/session` before any login:
-#: a 401 is the answer "not signed in", but the browser reports every 4xx.
-BOOT_PROBE_401 = ("status of 401", "/v1/session")
+#: What Chromium logs for a REFUSED login (`POST /v1/session` -> 401): the
+#: browser reports every 4xx. Only the wrong-password test allows it. (The boot
+#: probe `GET /v1/session` answers 200 `{session: null}` since V0.8 G3 - D191 b
+#: - so a signed-out first visit logs nothing and needs no allowance.)
+LOGIN_REFUSED_401 = ("status of 401", "/v1/session")
 
 
 def _page(browser: Browser) -> tuple[Page, PageWatch]:
@@ -68,7 +70,6 @@ def _assert_no_axe_violations(page: Page, where: str) -> None:
 @pytest.mark.docker
 def test_login_shell_and_logout(fabric: Fabric, dashboard_browser: Browser) -> None:
     page, watch = _page(dashboard_browser)
-    watch.allow(*BOOT_PROBE_401)
 
     response = page.goto(fabric.http_base + "/jobs")
     assert response is not None and response.status == 200
@@ -116,7 +117,7 @@ def test_login_shell_and_logout(fabric: Fabric, dashboard_browser: Browser) -> N
     assert "mfbs_" not in page.url
 
     # Settings shows the real whoami.
-    page.get_by_role("link", name="Settings").click()
+    page.get_by_role("link", name="Settings", exact=True).click()
     card = page.get_by_test_id("account-card")
     expect(card.locator("dd").nth(0)).to_have_text(ADMIN_USER)  # User
     expect(card.locator("dd").nth(1)).to_have_text("admin")  # Role
@@ -136,7 +137,7 @@ def test_wrong_password_is_refused_with_a_message(
     fabric: Fabric, dashboard_browser: Browser
 ) -> None:
     page, watch = _page(dashboard_browser)
-    watch.allow(*BOOT_PROBE_401)
+    watch.allow(*LOGIN_REFUSED_401)  # the refused POST below
     page.goto(fabric.http_base + "/")
     _login(page, NORMAL_USER, "not-the-password")
     expect(page.get_by_role("alert")).to_have_text("Wrong user name or password.")
@@ -151,7 +152,6 @@ def test_keyboard_only_login_and_logout(
     fabric: Fabric, dashboard_browser: Browser
 ) -> None:
     page, watch = _page(dashboard_browser)
-    watch.allow(*BOOT_PROBE_401)
     page.goto(fabric.http_base + "/")
     expect(page.get_by_label("User name")).to_be_focused()
     page.keyboard.type(NORMAL_USER)

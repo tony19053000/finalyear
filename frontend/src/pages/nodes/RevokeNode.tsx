@@ -5,7 +5,7 @@
  * Dialog is the native <dialog> (G2: Radix Dialog injects inline styles the
  * CSP refuses): Escape cancels, focus returns to the button.
  */
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { describeError } from "../../api/errors";
 import { useRevokeNode, type NodeRevoked } from "../../api/fabric";
@@ -29,6 +29,13 @@ export function RevokeNode({ nodeId, hostname }: { nodeId: string; hostname: str
   const revoke = useRevokeNode(nodeId);
   const toast = useToast();
   const armed = typed === hostname && !revoke.isPending;
+  const field = useRef<HTMLInputElement>(null);
+
+  // Focus the only field once the dialog is shown (this effect runs after the
+  // Dialog's own showModal() effect: parents' effects run after children's).
+  useEffect(() => {
+    if (open) field.current?.focus();
+  }, [open]);
 
   const close = () => {
     if (revoke.isPending) return;
@@ -71,8 +78,7 @@ export function RevokeNode({ nodeId, hostname }: { nodeId: string; hostname: str
               Type <span className="font-mono font-semibold">{hostname}</span> to confirm
             </span>
             <input
-              // The dialog opens on a deliberate click; focus belongs in its only field.
-              autoFocus
+              ref={field}
               autoComplete="off"
               spellCheck={false}
               value={typed}
