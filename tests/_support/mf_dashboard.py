@@ -161,6 +161,23 @@ NOISE_CANARIES: Final = (
 )
 #: Shortest ``allow`` text: a one- or two-letter fragment is in almost any line.
 MIN_ALLOW_TEXT: Final = 3
+#: Shortest ``allow`` URL suffix without a ``/`` (T-2c): "s" ends every resource.
+MIN_ALLOW_SUFFIX: Final = 3
+#: The console line of a failed WebSocket names its socket only in the TEXT;
+#: Chromium leaves the line's location URL empty or the script's (G7 tester r2
+#: T-2d), so the socket URL in the text is (also) the line's resource.
+_WS_LINE: Final = re.compile(r"^WebSocket connection to '([^']*)'")
+
+
+def line_resources(text: str, location_url: str) -> tuple[str, ...]:
+    """The resource URLs a console line is about: its location URL and, for a
+    WebSocket connection line, the socket URL named in the text (without query
+    or fragment, like a path the test can name)."""
+    found = [location_url]
+    socket_line = _WS_LINE.match(text)
+    if socket_line is not None:
+        found.append(re.split(r"[?#]", socket_line.group(1), maxsplit=1)[0])
+    return tuple(found)
 
 
 @dataclasses.dataclass(eq=False)
@@ -229,7 +246,9 @@ class PageWatch:
         may_not_occur: bool = False,
     ) -> None:
         """Expect console errors whose text contains ``text`` and whose
-        resource URL ends with ``url_suffix``. Judged as each line arrives, so
+        resource URL ends with ``url_suffix`` (for a WebSocket line: the
+        socket URL its text names, :func:`line_resources`; a suffix without
+        ``/`` needs >= 3 characters, T-2c). Judged as each line arrives, so
         declare it BEFORE the action. ``reason`` is required; an empty or
         trivial text or suffix (which would excuse everything) is refused
         (G7 tester r1 T-2), and an allowance that excused nothing is reported
@@ -238,8 +257,15 @@ class PageWatch:
             raise ValueError("watch.allow needs a reason")
         if len(text.strip()) < MIN_ALLOW_TEXT:
             raise ValueError(f"watch.allow text {text!r} would match almost any line")
-        if url_suffix.strip() in ("", "/"):
+        suffix = url_suffix.strip()
+        if suffix in ("", "/"):
             raise ValueError("watch.allow needs the resource (URL suffix) it excuses")
+        if "/" not in suffix and len(suffix) < MIN_ALLOW_SUFFIX:
+            # G7 tester r2 T-2c: "s" or "e" ends almost every resource URL.
+            raise ValueError(
+                f"watch.allow suffix {url_suffix!r} is no resource: give a path "
+                f"('/...') or at least {MIN_ALLOW_SUFFIX} characters"
+            )
         self.allowed.append(Allowed(text, url_suffix, reason, may_not_occur))
 
     def allow_matching(
@@ -298,8 +324,11 @@ class PageWatch:
         if message.type not in ("error", "assert"):
             return
         url = str(message.location.get("url", ""))
+        resources = line_resources(message.text, url)
         for allowed in self.allowed:
-            if allowed.text in message.text and url.endswith(allowed.url_suffix):
+            if allowed.text in message.text and any(
+                r.endswith(allowed.url_suffix) for r in resources
+            ):
                 allowed.used += 1
                 return
         self.console_errors.append(f"{message.text} @ {url}")

@@ -416,12 +416,6 @@ def test_t2b_a_lookahead_pattern_cannot_hide_a_class_of_errors(pattern: str) -> 
         _watch().allow_matching(pattern, "reason")
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-2c (minor): allow() accepts a one-character URL suffix ('s', 'e', "
-    "'1'), which is 'every resource' in practice; a suffix should be a path "
-    "(start with '/') or at least 3 characters",
-)
 @pytest.mark.parametrize("suffix", ["s", "e"])
 def test_t2c_a_tiny_url_suffix_is_refused(suffix: str) -> None:
     with pytest.raises(ValueError):

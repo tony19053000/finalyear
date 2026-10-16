@@ -212,8 +212,15 @@ def test_log_follower_reconnects_without_gaps_or_duplicates_v08_g4_tester_r1(
     project = _chatty_project(tmp_path, lines=60, pause_s=0.25)
     page, watch = new_page()
     # Chromium may log the socket this test drops (how, and whether, is timing).
-    watch.allow("WebSocket", "logs/ws", "the dropped log socket", may_not_occur=True)
-    watch.allow("ERR_", "logs/ws", "the dropped log socket", may_not_occur=True)
+    # Its console line names the socket only in the TEXT (the line's location
+    # URL is empty - G7 tester r2 T-2d), so the allowance is on the text: this
+    # job's log socket failing, never a handshake answered with a status code.
+    watch.allow_matching(
+        r"^WebSocket connection to 'wss://[^']+/v1/jobs/job_[0-9A-Z]{26}/logs/ws"
+        r"(?:\?[^']*)?' failed:(?!\s*Error during WebSocket handshake)",
+        "the log socket this test drops (refused / reset, no HTTP answer)",
+        may_not_occur=True,
+    )
     sign_in(page, fabric, NORMAL_USER)
     opened: list[int] = []
 
