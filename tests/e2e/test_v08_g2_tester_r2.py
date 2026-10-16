@@ -43,7 +43,7 @@ def _signed_in(fabric: Fabric, new_page: NewPage) -> tuple[Page, PageWatch]:
 
 
 def _only_expected_noise(watch: PageWatch) -> None:
-    unexpected = [e for e in watch.console_errors if not NOISE.search(e)]
+    unexpected = watch.unexpected_console_errors()  # the outage noise + declared
     assert unexpected == [], unexpected
     assert watch.page_errors == [] and watch.csp_violations() == []
 
@@ -59,6 +59,14 @@ def test_restart_with_expired_session_lands_on_login_not_a_stuck_shell(
         watch.allow(
             "status of 401", path, "the dead session's reads", may_not_occur=True
         )
+    # ... and its event stream's reconnect is refused at the handshake (403);
+    # Chromium names the script, not the socket, as the line's resource.
+    watch.allow_matching(
+        r"WebSocket connection to '[^']*/v1/events/ws[^']*' failed: "
+        r"Error during WebSocket handshake: Unexpected response code: 403",
+        "the dead session's event-stream reconnect",
+        may_not_occur=True,
+    )
     fabric.kill_controller()
     expect(page.get_by_test_id("stream-status")).to_have_attribute(
         "data-status", "reconnecting", timeout=15_000
