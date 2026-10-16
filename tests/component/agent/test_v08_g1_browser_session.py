@@ -328,9 +328,9 @@ async def test_idle_and_absolute_expiry(
     assert listed is not None and listed.state == "expired"
 
     session2, _ = await _session(anon, runtime)
-    sid2 = (await anon.get("/v1/session", headers=_cookie(session2))).json()[
-        "session"
-    ]["session_id"]
+    sid2 = (await anon.get("/v1/session", headers=_cookie(session2))).json()["session"][
+        "session_id"
+    ]
     # Busy (used a minute ago) but past its absolute end.
     await _age(
         engine,
@@ -343,9 +343,9 @@ async def test_idle_and_absolute_expiry(
 
     # Used 11 h ago: still live (the idle clock is last use, not creation).
     session3, _ = await _session(anon, runtime)
-    sid3 = (await anon.get("/v1/session", headers=_cookie(session3))).json()[
-        "session"
-    ]["session_id"]
+    sid3 = (await anon.get("/v1/session", headers=_cookie(session3))).json()["session"][
+        "session_id"
+    ]
     await _age(
         engine,
         sid3,
