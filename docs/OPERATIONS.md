@@ -424,7 +424,7 @@ checklist `lab/checklists/V0.7-security.md`.
 | controller exits 4: `no fabric CA` | mtls mode on a controller without a CA | `meshforge-controller fabric create` |
 | `compute`: `no fabric CA certificate to verify the controller` | the CLI found no `ca.crt` | `--ca PATH` or `[cli] ca_file` |
 | `compute`: `cli.controller_url must be https://` | an old `http://` config | write `https://host:47110` |
-| agent exits with `PERMISSION_DENIED ... node_revoked` | this node was revoked | the node id is gone for good; to bring the laptop back: `meshforge-agent identity reset --yes`, then `meshforge-agent join` with a new code (a new node) |
+| agent exits (code 4) logging `agent.revoked` with `node_revoked: ...` (no traceback, V0.8) | this node was revoked | the node id is gone for good; to bring the laptop back: `meshforge-agent identity reset --yes`, then `meshforge-agent join` with a new code (a new node) |
 | agent exits with `PERMISSION_DENIED ... cert_revoked` | its certificate was replaced by a newer enrolment of the same node (or the node was revoked) | re-join that laptop with `meshforge-agent join --force <code>`; if the node was revoked, as above |
 | `join` refused `node_revoked` | no code, not even `--replace`, brings a revoked node id back | `meshforge-agent identity reset --yes`, then join with a new code |
 | peers log `agent.peer.client_refused reason=peer_cert_revoked` | a revoked (or re-keyed) laptop still tries to fetch | expected; stop or re-join that laptop |

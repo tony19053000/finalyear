@@ -8,6 +8,9 @@ Two of them end the process:
 * :class:`AgentContractError` - the controller told us our own Hello is
   unacceptable (unsupported protocol version, malformed Hello). Retrying will not
   help; exit ``CONFIG_ERROR``.
+* :class:`NodeRevokedError` (an ``AgentContractError``) - an admin revoked this
+  node (V0.7 D138). Same exit code, but an expected stop: ``run_agent`` logs it
+  as ``agent.revoked`` with no traceback (V0.8 G5).
 
 Everything else on the stream is transient and handled by the reconnect loop
 (:mod:`meshforge.agent.session.policy`).
@@ -17,7 +20,12 @@ from __future__ import annotations
 
 from meshforge.common.errors import ExitCode, FailureType, MeshForgeError
 
-__all__ = ["AgentContractError", "AgentSessionError", "SupersededError"]
+__all__ = [
+    "AgentContractError",
+    "AgentSessionError",
+    "NodeRevokedError",
+    "SupersededError",
+]
 
 
 class AgentSessionError(MeshForgeError):
@@ -45,3 +53,18 @@ class AgentContractError(AgentSessionError):
 
     default_failure_type = FailureType.CONFIG_ERROR
     exit_code = ExitCode.CONFIG_ERROR
+
+
+class NodeRevokedError(AgentContractError):
+    """An admin revoked this node: the controller cut its stream for good.
+
+    The message is the controller's own detail, which says how to come back
+    (``meshforge-agent identity reset --yes`` + a new join code)."""
+
+    def __init__(self, node_id: str, detail: str) -> None:
+        super().__init__(
+            detail.strip()
+            or "node_revoked: this node was revoked from the fabric; it can come "
+            "back only under a new identity",
+            details={"node_id": node_id, "reason": "node_revoked"},
+        )

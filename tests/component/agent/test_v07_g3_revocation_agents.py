@@ -33,6 +33,7 @@ from mf_fabric import client_ssl_context, fabric_ca
 from mf_jobs_harness import HARNESS_NODE_ID, token_of
 from pydantic import SecretStr
 
+from meshforge.agent.session.errors import NodeRevokedError
 from meshforge.agent.session.state import AgentState
 from meshforge.cli.client import ControllerClient
 from meshforge.cli.transfer import upload_tree
@@ -152,6 +153,9 @@ async def test_revoking_a_busy_node_moves_its_job_and_closes_the_peer_plane(
             error = a.task.exception()
             assert error is not None and "node_revoked" in str(error)
             assert "identity reset" in str(error)
+            # V0.8 G5 (D195): a typed, expected stop (run_agent logs it
+            # `agent.revoked` with no traceback).
+            assert isinstance(error, NodeRevokedError), type(error)
 
             # The node-loss path: LOST on A, retried and done on B.
             job = await wait_job(http, job_id, timeout_s=60)

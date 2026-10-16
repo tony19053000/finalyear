@@ -17,7 +17,8 @@ within 10 s (D27; criterion 3 alone would allow 15 s).
     UNAVAILABLE / DEADLINE_EXCEEDED / CANCELLED / UNKNOWN / INTERNAL / ... -> RECONNECT
     INVALID_ARGUMENT                      -> FATAL_CONFIG (our own Hello is malformed)
     FAILED_PRECONDITION                   -> RECONNECT (Hello too slow: transient)
-    PERMISSION_DENIED                     -> FATAL_CONFIG (node revoked; V0.7 pairing)
+    PERMISSION_DENIED "node_revoked: ..."  -> STOP_REVOKED (V0.7 D138; a clean stop, V0.8 G5)
+    PERMISSION_DENIED other               -> FATAL_CONFIG (cert superseded, ...)
 
 **HelloAck{accepted=false} -> action** (:func:`hello_reject_action`)::
 
@@ -46,6 +47,7 @@ from meshforge.common.proto.meshforge.v1 import agent_pb2
 
 __all__ = [
     "MAX_STALE_EPOCH_RETRIES",
+    "NODE_REVOKED_REASON",
     "SUPERSEDED_DETAIL",
     "Backoff",
     "BackoffPolicy",
@@ -58,6 +60,12 @@ __all__ = [
 SUPERSEDED_DETAIL: Final = "superseded"
 """``ABORTED`` detail the controller sends when a newer epoch replaced the stream."""
 
+NODE_REVOKED_REASON: Final = "node_revoked"
+"""First word of the ``PERMISSION_DENIED`` detail of a stream cut because an
+admin revoked this node (controller ``session/admission.py`` ``REVOKED_DETAIL``,
+V0.7 G3 D138). The agent stops for good, like any FATAL_CONFIG, but it is an
+operator's decision, not a fault: logged without a traceback (V0.8 G5)."""
+
 MAX_STALE_EPOCH_RETRIES: Final = 3
 """Immediate epoch bump + retry attempts per cycle before falling back to BACKOFF."""
 
@@ -69,6 +77,7 @@ _FATAL_CODES: Final[frozenset[grpc.StatusCode]] = frozenset(
 class StreamEndAction(StrEnum):
     RECONNECT = "reconnect"
     STOP_SUPERSEDED = "stop_superseded"
+    STOP_REVOKED = "stop_revoked"
     FATAL_CONFIG = "fatal_config"
 
 
@@ -90,6 +99,10 @@ def stream_end_action(
         if (details or "").strip() == SUPERSEDED_DETAIL:
             return StreamEndAction.STOP_SUPERSEDED
         return StreamEndAction.RECONNECT
+    if code is grpc.StatusCode.PERMISSION_DENIED and (details or "").strip().startswith(
+        NODE_REVOKED_REASON
+    ):
+        return StreamEndAction.STOP_REVOKED
     if code in _FATAL_CODES:
         return StreamEndAction.FATAL_CONFIG
     return StreamEndAction.RECONNECT

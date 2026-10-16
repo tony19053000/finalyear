@@ -108,6 +108,7 @@ from meshforge.agent.policy import (
 )
 from meshforge.agent.resources import ResourceMonitor, ResourceSampler
 from meshforge.agent.session.client import AgentSessionClient
+from meshforge.agent.session.errors import NodeRevokedError
 from meshforge.agent.session.hello import basic_hardware
 from meshforge.agent.session.renewal import CertRenewer
 from meshforge.agent.session.state import AgentState
@@ -791,6 +792,17 @@ def run_agent(settings: AgentSettings) -> int:
     """Blocking entry used by ``meshforge-agent run``; returns the exit code."""
     try:
         asyncio.run(serve(settings))
+    except NodeRevokedError as exc:
+        # An admin revoked this node (V0.7 D138): an expected, final stop - the
+        # message says how to come back. No traceback (V0.8 G5, D195).
+        log.error(  # noqa: TRY400 - deliberately no traceback: not a fault
+            "agent.revoked",
+            error=str(exc),
+            failure_type=exc.failure_type.value,
+            exit_code=int(exc.exit_code),
+            node_id=exc.details.get("node_id"),
+        )
+        return int(exc.exit_code)
     except MeshForgeError as exc:
         log.exception(
             "agent.exited_with_error",
