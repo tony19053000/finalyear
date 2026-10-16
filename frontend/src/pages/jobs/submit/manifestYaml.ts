@@ -245,6 +245,10 @@ function splitLinesOf(text: string): Line[] {
     const no = index + 1;
     const indentMatch = /^[ \t]*/.exec(source)?.[0] ?? "";
     const content = source.slice(indentMatch.length);
+    // PyYAML refuses a blank line holding a tab once content has started (T-17).
+    if (content === "" && indentMatch.includes("\t") && lines.length > 0) {
+      throw new ManifestYamlError("a tab is only allowed inside quotes or a comment", no);
+    }
     if (content === "" || content.startsWith("#")) return;
     if (indentMatch.includes("\t")) throw new ManifestYamlError("tabs cannot indent YAML", no);
     const clean = stripComment(content, no);

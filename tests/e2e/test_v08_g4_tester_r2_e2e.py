@@ -62,22 +62,15 @@ def _project(root: Path) -> Path:
     return project
 
 
-_T18 = pytest.mark.xfail(
-    strict=True,
-    reason="T-18: a number input with unparseable text reports value '' (validity.badInput); "
-    "the page treats that as 'no priority' and submits without telling the user",
-)
-
-
 @pytest.mark.parametrize(
     "typed",
     [
-        "+5",  # Chromium parses it as 5 (skipped as not a bad-input case)
-        "5.",  # parsed as 5 (skipped)
-        pytest.param("5e", marks=_T18),
-        pytest.param("-", marks=_T18),
-        pytest.param("1e400", marks=_T18),
-        pytest.param("--5", marks=_T18),
+        "+5",  # valid: submitted as 5
+        "5.",  # not a whole-number text: blocked
+        "5e",
+        "-",
+        "1e400",
+        "--5",
     ],
 )
 def test_unparseable_priority_text_never_silently_becomes_the_default_v08_g4_tester_r2(
@@ -107,10 +100,8 @@ def test_unparseable_priority_text_never_silently_becomes_the_default_v08_g4_tes
     field.press_sequentially(typed)
     shown = field.evaluate("el => ({v: el.value, bad: el.validity.badInput})")
     button = page.get_by_role("button", name="Upload and submit")
-    if shown["bad"] is False:
-        pytest.skip(
-            f"Chromium parsed {typed!r} as {shown['v']!r}: not a bad-input case"
-        )
+    # D197: the field is type=text now, so the page sees exactly what the user typed.
+    assert shown["bad"] is False and shown["v"] == typed
     blocked = button.is_disabled() or field.get_attribute("aria-invalid") == "true"
     if not blocked:
         button.click()

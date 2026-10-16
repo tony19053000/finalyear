@@ -348,10 +348,8 @@ export function SubmitJobPage() {
               </label>
               <input
                 id={ids.priority}
-                type="number"
-                min={-10}
-                max={10}
-                step={1}
+                type="text"
+                inputMode="numeric"
                 className={`${FIELD} w-24`}
                 value={priority}
                 disabled={busy}

@@ -109,11 +109,11 @@ describe("fresh YAML differential (seed 9090909, ~14.9k token-soup / unicode-inj
     expect(lenient.slice(0, 15), `${String(lenient.length)} accepted where CLI rejects`).toEqual([]);
     expect(crash.slice(0, 15), `${String(crash.length)} crashes`).toEqual([]);
     expect(accepted).toBeGreaterThan(300);
-    expect(tabLine.length).toBeGreaterThan(0); // the T-17 class is present in this corpus
+    expect(tabLine.slice(0, 15), "T-17 tab-only lines accepted").toEqual([]); // fixed by the Lead (D197)
   }, 120_000);
 
-  // T-17 (minor, pinned): PyYAML rejects a line made only of a TAB; the reader accepts it.
-  it.fails("T-17 refuses a tab-only line after the content like the CLI does", () => {
+  // T-17 (fixed, D197): PyYAML rejects a line made only of a TAB; so does the reader.
+  it("T-17 refuses a tab-only line after the content like the CLI does", () => {
     for (const text of ["a: 1\n\t", "- 1\n\t\n", "a: 1\n\t\nb: 2\n"]) {
       expect(run(text).refused, JSON.stringify(text)).toBe(true);
     }
