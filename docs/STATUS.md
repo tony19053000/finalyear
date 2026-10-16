@@ -2,14 +2,14 @@
 
 > Concise current state. Long-term plan: [`DEVELOPMENT_ROADMAP.md`](DEVELOPMENT_ROADMAP.md). Update at the end of every work session.
 
-**Last updated:** 2026-10-16 (V0.8 G2 + G6 closed; G3 + G4 running in parallel)
+**Last updated:** 2026-10-16 (V0.8 G3 + G4 closed, D200; G5 next)
 
 ## Progress
 
 Generated from the roadmap checkboxes by `uv run python scripts/status_bars.py` — **re-run it and replace this block whenever checkboxes change.** Deferred versions (V0.11, V0.12, V0.13, V0.16) and deferred tasks are not counted. A task is only █ when it is `[x]` (tester + reviewer + evidence); written-but-unreviewed code is ▒.
 
 ```
-TOTAL   █████████▒▒░░░░░░░░░  46%  72/156 done, 16 in progress
+TOTAL   ██████████▒▒░░░░░░░░  48%  76/156 done, 15 in progress
 
 V0.1    █████████████████▒▒▒  83%  10/12  Foundations & engineering system
 V0.2    ██▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░░   9%   1/11  Lab setup & feasibility validation
@@ -18,7 +18,7 @@ V0.4    ███████████████▒▒▒▒░  76%  13/17
 V0.5    ██████████████████░░  90%  10/11  Data plane & environments
 V0.6    ███████████████████░  92%  13/14  Scheduling & reliability — Mode 1 complete
 V0.7    ██████████████████░░  91%  11/12  Security & pairing
-V0.8    ██████▒▒░░░░░░░░░░░░  30%   3/10  Dashboard & CLI v1
+V0.8    ██████████████░░░░░░  70%   7/10  Dashboard & CLI v1
 V0.9    ░░░░░░░░░░░░░░░░░░░░   0%   0/10  Benchmark & telemetry system v1
 V0.10   ░░░░░░░░░░░░░░░░░░░░   0%   0/10  Mode 3 Task Splitting
 V0.14   ░░░░░░░░░░░░░░░░░░░░   0%   0/8   Unified planner v2
@@ -29,7 +29,7 @@ V1.0    ░░░░░░░░░░░░░░░░░░░░   0%   0/8 
 █ done `[x]` · ▒ in progress or waiting on a 🧑 lab step `[~]` · ░ not started
 
 ## Current Version
-**V0.8 — Dashboard & CLI v1** · started 2026-10-15 · brief `docs/briefs/V0.8-dashboard-cli.md` (D169–D180, approved) · ADR-0017 · groups G1–G7 sequential · **G1 CLOSED (D186); G2 + G6 CLOSED 2026-10-16 (D192)** — 0.8.1, 0.8.2, 0.8.8 `[x]`; G3 (Overview+Nodes, brief §5c) and G4 (Jobs, §5d) implementers running in parallel worktrees; 0.8.7 `[~]`
+**V0.8 — Dashboard & CLI v1** · started 2026-10-15 · brief `docs/briefs/V0.8-dashboard-cli.md` (D169–D180, approved) · ADR-0017 · groups G1–G7 sequential · **G1 CLOSED (D186); G2 + G6 CLOSED (D192); G3 + G4 CLOSED 2026-10-16 (D195, D198, D200)** — 0.8.1–0.8.5, 0.8.7, 0.8.8 `[x]`; next G5 Settings (brief §5e, D199), then G7 e2e/perf, then 🧑 0.8.10
 **V0.7 — Security & pairing** · started 2026-10-07 · brief `docs/briefs/V0.7-security-pairing.md` (D144–D162) · **G1–G5 CLOSED** (0.7.1–0.7.9 `[x]`) · **G6 CLOSED** (0.7.10 `[x]`, 2026-10-14) · **G7 CLOSED** (0.7.11 `[x]`, 2026-10-15, D168) · agent-side complete · closes on 🧑 0.7.12 lab
 **V0.6 — Scheduling & reliability** · started 2026-10-05 · brief `docs/briefs/V0.6-scheduling-reliability.md` · **G1 CLOSED** (0.6.9, 0.6.10, 0.6.14 `[x]`) · G1–G4 CLOSED agent-side · closes on 🧑 0.6.13 lab
 **V0.4 — Remote execution core** · started 2026-09-28 · **G1–G5 closed** (0.4.1, 0.4.3–0.4.7, 0.4.9, 0.4.10, 0.4.11–0.4.14, 0.4.16 `[x]`; 0.4.2 `[~]` Windows CI digest; 0.4.8 `[~]` real CUDA run; 0.4.17 `[~]`) · closes on 🧑 0.4.15 lab run
@@ -44,6 +44,8 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 > V0.10. 129 tasks vs 140–180 capacity → **~1.5 tasks/session**. Needs the other three team members' approval.
 
 ## Current Task
+
+- **2026-10-16: V0.8 G3 + G4 CLOSED (D195–D200).** G3 tester r1 PASS + fix r1 (T-1..T-4), reviewer APPROVE, merged `2f1fc0c`. G4 tester r1 FAIL (T-6/T-7 tree-id parity, T-8 Retry-After) → fix r1 → tester r2 PASS → Lead fixes T-17/T-18 → reviewer APPROVE → merged `dcb72a6` with Lead integration fixes (sign-out gate against 401s from reads in flight, D198). Gate: whole component 2220 passed / 15 skipped / 1 failed — pre-existing intermittent V0.5 test (Known Bugs). 0.8.3, 0.8.4, 0.8.5, 0.8.7 `[x]`. **Next: G5 implementer (brief §5e).**
 
 - **2026-10-16: V0.8 G2 + G6 CLOSED (D191, D192).** G2 tester r2 PASS, reviewer APPROVE, merged `96620ee`; G6 reviewer APPROVE, merged `d2ac586`. Combined gate: whole component 2177 passed / 21 skipped / 1 load flake (V0.6 disk-full test, 3/3 green standalone). Team re-enabled parallel agents → G3 + G4 implementers running. Open coverage (D191): Firefox (🧑 0.8.10), restart on changed port. Next: per group tester → reviewer → merge (G3 before G4; Lead wires `applyJobEvent`) → whole component once.
 
@@ -154,6 +156,7 @@ Reviewer non-blocking follow-ups (carry into G2/G3): (1) `mint` should carry `pe
 - Hardware of laptops 2–4 unknown; AI-agent access to Windows laptops undecided; Ethernet switch not purchased
 
 ## Known Bugs
+- `tests/component/agent/test_v05_g4_tester_fetch_real_peers.py::test_peer_with_rotted_blob_on_disk_is_detected_per_chunk` intermittent (4/5 standalone; `corrupt_chunks` 0 when part of the blob came from the controller) - V0.5 fetcher/test source choice; needs its own small fix task (D200).
 - ⚠️ **Cluster flake (V0.7 G3, 3 full-run hits):** `test_fabric_outputs_logs::test_criterion_1` — `compute run -f` exit 6 TimeoutError on wss follow open (`cli/follow.py` open_timeout); passes in isolation. Must fix before V0.7 closes (D156).
 - ⚠️ **Load-flaky (2026-10-05):** `test_v05_g5_tester_e2e::test_gc_on_both_sides_never_breaks_ten_concurrent_jobs` (in-process agent lease expires under the GC hammer → LOST; passes alone 3/3; check whether the D123 dispatch lock adds latency). Also `test_session_server.py::test_second_hello_on_open_stream_is_protocol_error`, `test_session_server_tester.py::test_heartbeat_just_under_suspect_threshold_never_flaps`.
 - ✅ **Load-flaky tests fixed 2026-10-01 (stabilisation lane, `97f347e` `35c5274` `861d712`):** slow-follower double count was a real LogHub bug; in-process exec tests now use a tolerant liveness profile only where the lease is not under test; twenty-nodes, faultproxy close race (FIN vs RST) fixed; 5 consecutive passes at load ~35. Unit 5232 / component agent+ctl 483 / cluster 53, exit 0.
@@ -188,7 +191,7 @@ Reviewer non-blocking follow-ups (carry into G2/G3): (1) `mint` should carry `pe
 - Windows: not yet run (first real CI run will cover unit + fresh-clone on windows-latest)
 
 ## Next Recommended Task
-**V0.8 (dashboard & CLI v1):** Lead writes the V0.8 brief, item 0 = D168 non-blocking list. V0.4–V0.7 are complete agent-side; each closes on its 🧑 lab run (0.4.15, 0.5.11, 0.6.13, 0.7.12).
+**V0.8 G5 — Settings & fabric** (brief §5e, D199): implementer in a worktree → tester r1 → reviewer → merge → whole component once → close 0.8.6; then G7 brief (0.8.9 e2e + perf). Small side task: fix the intermittent V0.5 rotted-peer test (Known Bugs). V0.4–V0.7 are complete agent-side; each closes on its 🧑 lab run (0.4.15, 0.5.11, 0.6.13, 0.7.12).
 
 **2026-10-05 (later): V0.6 started.** Brief `docs/briefs/V0.6-scheduling-reliability.md` (D102–D119, ADR-0015 Proposed). **G1 implementer RUNNING** (0.6.9, 0.6.10, 0.6.14 + dispatcher/gc_index splits + D59); progress `docs/briefs/progress/V0.6-G1.md`. Then G1 tester → reviewer → G2. 🧑 0.5.11 lab still closes V0.5; 🧑 team: review ADR-0015 before G3.
 
