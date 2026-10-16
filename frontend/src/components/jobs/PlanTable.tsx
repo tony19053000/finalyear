@@ -40,7 +40,7 @@ function CandidateRows({ decision }: { decision: DecisionOut }) {
     return a.node_id.localeCompare(b.node_id);
   });
   return (
-    <div className="overflow-x-auto">
+    <div className="overflow-x-auto" tabIndex={0} role="region" aria-label={`Candidates of attempt ${String(decision.attempt_no)} (scrolls sideways)`}>
       <table className="w-full border-collapse text-sm">
         <caption className="sr-only">
           Candidates of decision {decision.id} (attempt {decision.attempt_no})
@@ -64,7 +64,7 @@ function CandidateRows({ decision }: { decision: DecisionOut }) {
             return (
               <tr
                 key={`${c.node_id}-${c.mode}`}
-                className={cn("border-b border-border last:border-b-0", chosen && "bg-accent-soft")}
+                className={cn("border-b border-border last:border-b-0", chosen && "font-medium")}
               >
                 <td className="h-9 px-3 font-mono text-xs tabular-nums">{c.rank ?? "—"}</td>
                 <td className="h-9 px-3 font-mono text-xs whitespace-nowrap">

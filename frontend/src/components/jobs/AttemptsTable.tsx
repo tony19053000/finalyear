@@ -28,7 +28,7 @@ export function AttemptsTable({ attempts }: { attempts: readonly AttemptSummary[
   const ordered = [...attempts].sort((a, b) => b.fencing_token - a.fencing_token);
   return (
     <div className="flex flex-col gap-4">
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto" tabIndex={0} role="region" aria-label="Attempts table (scrolls sideways)">
         <table className="w-full border-collapse text-sm">
           <caption className="sr-only">Attempts, newest first</caption>
           <thead>
@@ -79,7 +79,7 @@ export function AttemptsTable({ attempts }: { attempts: readonly AttemptSummary[
         </table>
       </div>
       {ordered.some((a) => (a.transfers ?? []).length > 0) && (
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto" tabIndex={0} role="region" aria-label="Staging transfers table (scrolls sideways)">
           <table className="w-full border-collapse text-sm">
             <caption className="mb-1 text-left text-xs font-semibold text-fg">Staging transfers (per tree and source)</caption>
             <thead>
