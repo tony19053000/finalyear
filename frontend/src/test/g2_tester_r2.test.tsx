@@ -64,7 +64,7 @@ function rig() {
         return json(200, { logged_out: true });
       }
       if (state.mode === "expired") return E401();
-      if (key === "GET /v1/session") return json(200, SESSION);
+      if (key === "GET /v1/session") return json(200, { session: SESSION });
       if (key === "GET /v1/nodes") return json(200, { nodes: [] });
       return json(404, { error: { code: "nf", message: key } });
     }),
@@ -155,7 +155,7 @@ describe("T2: controller restarts under a signed-in shell", () => {
       const s = { down: true };
       vi.stubGlobal("fetch", vi.fn((url: string) => {
         if (s.down) return Promise.reject(new TypeError("Failed to fetch"));
-        if (url === "/v1/session") return Promise.resolve(json(200, SESSION));
+        if (url === "/v1/session") return Promise.resolve(json(200, { session: SESSION }));
         return Promise.resolve(json(200, { nodes: [] }));
       }));
       render(<App initialPath="/" queryClient={new QueryClient({ defaultOptions: { queries: { retry: false } } })} socketFactory={() => new Sock("x")} />);

@@ -7,14 +7,15 @@ import { queryKeys } from "./queryKeys";
 
 /**
  * The browser session: `data` is the session, `null` when not logged in
- * (a 401 is an answer here, not an error). Other failures are errors.
+ * (the controller answers `{session: null}`; a 401 from an older controller
+ * means the same). Other failures are errors.
  */
 export function useSession() {
   return useQuery<SessionOut | null>({
     queryKey: queryKeys.session,
     queryFn: async ({ signal }) => {
       try {
-        return await getSession(signal);
+        return (await getSession(signal)).session ?? null;
       } catch (err) {
         if (err instanceof ApiError && err.status === 401) return null;
         throw err;

@@ -431,6 +431,9 @@ async def test_open_routes_are_exactly_healthz_login_blobs_and_docs(
         # test_v08_g1_browser_session.py).
         ("post", "/v1/session"),
         ("delete", "/v1/session"),
+        # V0.8 G3 (D191 b): "am I signed in" - 200 {session: null} when not
+        # (test_v08_g3_session_probe.py); it never returns anyone else's data.
+        ("get", "/v1/session"),
     }
     node, job = str(new_node_id()), str(new_job_id())
     digest = "0" * 64

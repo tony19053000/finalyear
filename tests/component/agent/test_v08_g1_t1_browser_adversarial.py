@@ -183,7 +183,8 @@ async def test_csrf_values_do_not_cross_sessions_or_users(
         assert r.status_code == 403, "another session's CSRF value was accepted"
     # Everyone is still logged in.
     for sess in (a_sess, b_sess, a2_sess):
-        assert (await anon.get("/v1/session", headers=_cookie(sess))).status_code == 200
+        me = await anon.get("/v1/session", headers=_cookie(sess))
+        assert me.status_code == 200 and me.json()["session"] is not None
 
 
 async def test_a_logged_out_sessions_csrf_value_is_dead_for_the_next_session(
@@ -443,12 +444,15 @@ async def test_a_session_is_visible_and_revocable_only_by_its_owner_and_admins(
     assert a_id not in {t["id"] for t in listed.json()["tokens"]}
     revoke = await anon.delete(f"/v1/auth/tokens/{a_id}", headers=bearer(bob_api))
     assert revoke.status_code in (403, 404)
-    assert (await anon.get("/v1/session", headers=_cookie(a_sess))).status_code == 200
+    me = await anon.get("/v1/session", headers=_cookie(a_sess))
+    assert me.status_code == 200 and me.json()["session"] is not None
     admin_api = await login(anon, "admin", ADMIN_PW)
     assert (
         await anon.delete(f"/v1/auth/tokens/{a_id}", headers=bearer(admin_api))
     ).status_code == 200
-    assert (await anon.get("/v1/session", headers=_cookie(a_sess))).status_code == 401
+    gone = await anon.get("/v1/session", headers=_cookie(a_sess))  # D191 b
+    assert gone.status_code == 200 and gone.json() == {"session": None}
+    assert (await anon.get("/v1/nodes", headers=_cookie(a_sess))).status_code == 401
 
 
 async def test_use_slides_the_idle_window_but_never_the_absolute_one(

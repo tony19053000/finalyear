@@ -40,6 +40,18 @@ export class NetworkError extends Error {
   override readonly name = "NetworkError";
 }
 
+/**
+ * A mutation was not sent: the readable `mf_csrf` cookie is gone (cleared,
+ * expired, blocked), so the controller would refuse it (403 csrf). Only a new
+ * sign-in sets it again (D191 c).
+ */
+export class CsrfMissingError extends Error {
+  override readonly name = "CsrfMissingError";
+  constructor() {
+    super("This browser lost the dashboard's security cookie (mf_csrf), so the change was not sent. Sign in again.");
+  }
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }

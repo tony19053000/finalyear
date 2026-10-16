@@ -107,7 +107,7 @@ describe("login", () => {
   it("no session -> login page; wrong password -> message; right one -> back where the user was", async () => {
     let loggedIn = false;
     const ctl = fakeController({
-      "GET /v1/session": () => (loggedIn ? json(200, SESSION) : unauthorized()),
+      "GET /v1/session": () => json(200, { session: loggedIn ? SESSION : null }),
       "POST /v1/session": (init) => {
         const body = JSON.parse(init.body as string) as { name: string; password: string };
         if (body.password !== "right") return unauthorized();
@@ -156,7 +156,7 @@ describe("login", () => {
 describe("shell", () => {
   function signedIn(extra: Record<string, Handler> = {}) {
     return fakeController({
-      "GET /v1/session": () => json(200, SESSION),
+      "GET /v1/session": () => json(200, { session: SESSION }),
       "GET /v1/nodes": () => json(200, { count: 1, nodes: [node("n1", "online")] }),
       "GET /v1/auth/whoami": () => json(200, { user: SESSION.user, legacy: false, token_id: "tok_1", token_expires_at: null }),
       ...extra,
@@ -223,7 +223,7 @@ describe("shell", () => {
     document.cookie = "mf_csrf=csrf-value; path=/";
     let live = true;
     const ctl = signedIn({
-      "GET /v1/session": () => (live ? json(200, SESSION) : unauthorized()),
+      "GET /v1/session": () => json(200, { session: live ? SESSION : null }),
       "DELETE /v1/session": () => {
         live = false;
         return json(200, { logged_out: true });
@@ -240,7 +240,7 @@ describe("shell", () => {
     let live = true;
     const holder: { app?: ReturnType<typeof renderApp> } = {};
     signedIn({
-      "GET /v1/session": () => (live ? json(200, SESSION) : unauthorized()),
+      "GET /v1/session": () => json(200, { session: live ? SESSION : null }),
       "DELETE /v1/session": async () => {
         live = false;
         const response = json(200, { logged_out: true });
@@ -287,7 +287,7 @@ describe("controller restart (T-2)", () => {
     const fetchMock = vi.fn((input: string) => {
       if (down) return Promise.reject(new TypeError("Failed to fetch"));
       const path = input.split("?")[0];
-      if (path === "/v1/session") return Promise.resolve(json(200, SESSION));
+      if (path === "/v1/session") return Promise.resolve(json(200, { session: SESSION }));
       if (path === "/v1/nodes") return Promise.resolve(json(200, { count: 1, nodes: [node("n1", "online")] }));
       return Promise.resolve(json(404, { error: { code: "not_found", message: input } }));
     });
@@ -337,7 +337,7 @@ describe("controller restart (T-2)", () => {
 describe("theme", () => {
   it("toggles data-theme and persists only the theme", async () => {
     fakeController({
-      "GET /v1/session": () => json(200, SESSION),
+      "GET /v1/session": () => json(200, { session: SESSION }),
       "GET /v1/nodes": () => json(200, { count: 0, nodes: [] }),
     });
     renderApp("/");

@@ -8,6 +8,7 @@ import type { components } from "./schema";
 
 type Schemas = components["schemas"];
 export type SessionOut = Schemas["SessionOut"];
+export type SessionState = Schemas["SessionState"];
 export type LogoutOut = Schemas["LogoutOut"];
 export type WhoAmI = Schemas["WhoAmI"];
 export type NodeList = Schemas["NodeList"];
@@ -19,17 +20,22 @@ export function openSession(name: string, password: string): Promise<SessionOut>
     method: "POST",
     json: { name, password },
     skipUnauthorizedHandler: true,
+    csrfOptional: true,
   });
 }
 
-/** `GET /v1/session` - the cookie's session; 401 = not logged in. */
-export function getSession(signal?: AbortSignal): Promise<SessionOut> {
-  return apiRequest<SessionOut>("/v1/session", { signal, skipUnauthorizedHandler: true });
+/** `GET /v1/session` - the cookie's session; `{session: null}` = not signed in (D191 b). */
+export function getSession(signal?: AbortSignal): Promise<SessionState> {
+  return apiRequest<SessionState>("/v1/session", { signal, skipUnauthorizedHandler: true });
 }
 
 /** `DELETE /v1/session` - revoke server-side and clear both cookies. */
 export function closeSession(): Promise<LogoutOut> {
-  return apiRequest<LogoutOut>("/v1/session", { method: "DELETE", skipUnauthorizedHandler: true });
+  return apiRequest<LogoutOut>("/v1/session", {
+    method: "DELETE",
+    skipUnauthorizedHandler: true,
+    csrfOptional: true,
+  });
 }
 
 /** `GET /v1/auth/whoami`. */

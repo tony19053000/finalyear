@@ -2940,6 +2940,27 @@
         "title": "SessionOut",
         "type": "object"
       },
+      "SessionState": {
+        "additionalProperties": false,
+        "description": "``GET /v1/session``: the browser's session, or ``null`` when signed out.",
+        "properties": {
+          "session": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SessionOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "session"
+        ],
+        "title": "SessionState",
+        "type": "object"
+      },
       "SessionSummary": {
         "additionalProperties": false,
         "properties": {
@@ -8154,7 +8175,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SessionOut"
+                  "$ref": "#/components/schemas/SessionState"
                 }
               }
             },
@@ -8241,7 +8262,7 @@
             "description": "A dependency (the database) is unavailable; retry (`network_error`)"
           }
         },
-        "summary": "The current dashboard session",
+        "summary": "The current dashboard session (null when signed out)",
         "tags": [
           "session"
         ]

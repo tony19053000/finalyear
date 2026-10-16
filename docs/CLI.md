@@ -161,3 +161,7 @@ Restart the shell afterwards. Per shell:
   running scripts is disabled, allow your own profile once: `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.
 
 Completion runs `compute` itself with no network access, so it works with the controller down.
+
+If installing fails - a file it must write is not writable, or PowerShell is missing or does not print a profile
+path - `compute` prints one what / why / what-to-do line and **exits 4** (`CONFIG_ERROR`, §4), whatever the
+shell. Re-running the install never adds a second line to `~/.bashrc`, whatever encoding the file is in.

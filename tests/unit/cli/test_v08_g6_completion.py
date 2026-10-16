@@ -245,6 +245,70 @@ def test_powershell_missing_is_one_line_not_a_traceback(
         completion.install_powershell(  # noqa: S604 - a shell name, not shell=True
             prog_name="compute", complete_var="_COMPUTE_COMPLETE", shell="pwsh"
         )
-    assert exited.value.code == 1
+    assert exited.value.code == 4  # V0.8 G3 item 0 (D191 d): like every install failure
     err = capsys.readouterr().err
     assert err.startswith("compute: cannot ask pwsh") and err.count("\n") == 1
+
+
+def test_powershell_printing_no_profile_path_exits_4(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """V0.8 G3 item 0 (D191 d): "profile not found" is an install failure."""
+
+    def blank(_argv: list[str], **_kwargs: Any) -> Any:
+        return subprocess.CompletedProcess(_argv, 0, stdout=b"  \r\n", stderr=b"")
+
+    monkeypatch.setattr(completion.subprocess, "run", blank)
+    with pytest.raises(SystemExit) as exited:
+        completion.install_powershell(  # noqa: S604 - a shell name, not shell=True
+            prog_name="compute", complete_var="_COMPUTE_COMPLETE", shell="pwsh"
+        )
+    assert exited.value.code == 4
+    err = capsys.readouterr().err
+    assert "did not print a profile path" in err and err.count("\n") == 1
+    assert "--show-completion" in err  # what to do instead
+
+
+def _install_bash_into(home: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+    return completion.install_bash(  # noqa: S604 - a shell name, not shell=True
+        prog_name="compute", complete_var="_COMPUTE_COMPLETE", shell="bash"
+    )
+
+
+def test_bash_install_tolerates_a_bashrc_that_is_not_utf8(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """V0.8 G3 item 0 (D191 e): Latin-1 bytes in ``~/.bashrc`` neither break
+    the check nor are rewritten, and a re-run adds no second line."""
+    home = tmp_path / "home"
+    home.mkdir()
+    rc = home / ".bashrc"
+    original = b"# caf\xe9 cr\xe8me\nexport PS1='\xff$ '"  # Latin-1, no final newline
+    rc.write_bytes(original)
+    _install_bash_into(home, monkeypatch)
+    first = rc.read_bytes()
+    assert first.startswith(original + b"\n")  # completed, never rewritten
+    _install_bash_into(home, monkeypatch)
+    assert rc.read_bytes() == first  # byte-identical on a re-run
+    assert first.count(b"compute.sh") == 1
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX byte file names")
+def test_bash_install_with_a_non_utf8_home_path_adds_one_line(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A home folder whose name is not UTF-8 (surrogate-escaped by Python):
+    the ``source`` line is written in the file system's bytes and found again."""
+    try:
+        home = Path(os.fsdecode(bytes(tmp_path) + b"/h\xe9me"))
+        home.mkdir()
+    except (OSError, UnicodeError):  # pragma: no cover - a file system that refuses it
+        pytest.skip("this file system refuses non-UTF-8 names")
+    for _ in range(3):
+        script = _install_bash_into(home, monkeypatch)
+    raw = (home / ".bashrc").read_bytes()
+    assert raw.count(b"source ") == 1
+    assert os.fsencode(str(script)) in raw
+    assert script.is_file()
