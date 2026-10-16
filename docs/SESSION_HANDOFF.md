@@ -264,6 +264,8 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
+**2026-10-17 (resumed) — RUNNING: G7 implementer resumed in worktree `.claude/worktrees/agent-a67711c51fc0582d6` (verify WIP 32adf39, then §5g items 2-6; progress docs/briefs/progress/V0.8-G7.md there). If died: relaunch there, resume from the progress file; then tester r1 → reviewer → merge → rebuild frontend → whole component once alone → close 0.8.9 → 🧑 0.8.10.**
+
 **2026-10-17 (session end — team asked to stop) — NOTHING RUNNING. G5 CLOSED (D206), 0.8.6 `[x]`. G7 implementer STOPPED mid-work in worktree `.claude/worktrees/agent-a67711c51fc0582d6` (branch `worktree-agent-a67711c51fc0582d6`): item 0 (D204 + D206) committed `c607519`; item 1 fixture consolidation (tests/e2e conftest + edits to existing e2e files, pyproject, tests/_support/mf_dashboard.py) committed as WIP `32adf39` - UNVERIFIED, may not pass; perf script not started. Next: relaunch a G7 implementer IN THAT WORKTREE with §5g, told to verify/finish the WIP first (run tests/e2e), then items 2-6; write progress docs/briefs/progress/V0.8-G7.md; then tester r1 → reviewer → merge → rebuild frontend → whole component once alone → close 0.8.9 → 🧑 0.8.10 checklist.**
 
 **2026-10-16 (late) — G5, stabilisation and D202 lanes ALL MERGED (D204, D205). RUNNING: whole `-m component` ONCE on main, ALONE (log in session scratchpad). If died: rerun `uv run python scripts/pytest_exit_guard.py -m component -q` alone; green → close 0.8.6 + STATUS Known Bugs D200/D156 + status bar → launch G7 (§5g, item 0 = D204).**
