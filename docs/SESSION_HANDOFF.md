@@ -8,7 +8,7 @@
 >
 > ```
 > Read docs/SESSION_HANDOFF.md (§0e first, then §1 and §2), then docs/STATUS.md, then
-> docs/briefs/V0.7-security-pairing.md. RULE: run ONE subagent at a time (team, re-imposed 2026-10-01).
+> docs/briefs/V0.7-security-pairing.md. RULE: run ONE subagent at a time (team, re-imposed 2026-10-01; parallel wave 2026-10-16 ended same day).
 > V0.7 G1-G5 CLOSED; G6 (0.7.10) CLOSED 2026-10-14 (D165).
 > G7 (0.7.11) CLOSED 2026-10-15 (D168). V0.8 brief APPROVED; G1 running (brief §5a).
 > Check git log and docs/briefs/progress/ first to see which round last finished.
@@ -264,6 +264,8 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 - Commits: keep using `git commit -- <paths>` even with one agent — the Lead also commits docs.
 
 ## 1. Where the project is
+
+**2026-10-16 (back to one-at-a-time) — team reverted the parallel wave: ONE subagent at a time, fast mode off. Running now: G2 tester r2 only. G6 reviewer was stopped before reporting — relaunch it AFTER G2 tester r2 finishes. Order: G2 tester r2 → G2 reviewer → merge G2 → G6 reviewer → merge G6 → whole component once per group.**
 
 **2026-10-16 (usage limit) — G6: fix r2 DONE `67ea9b3`/`93399f0` (T-6..T-10; Lead accepts tester-test change returncode (0,1)→(0,4) per D190). NEXT for G6: reviewer (D190: no tester r3) on branch worktree-agent-ae510e92b7567c0fd → merge → whole component once. G2: fix r1 `a147867` done; tester r2 was RUNNING in worktree agent-af40f… — check for "## Tester r2" in progress/V0.8-G2.md; then reviewer → merge (G2 before G6) → whole component once.**
 
