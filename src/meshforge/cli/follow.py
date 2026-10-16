@@ -150,13 +150,25 @@ async def _follow(
     from websockets.asyncio.client import connect
 
     headers = {"Authorization": auth_header} if auth_header else {}
-    async with connect(
-        url,
-        additional_headers=headers,
-        open_timeout=open_timeout_s,
-        max_size=_MAX_FRAME,
-        ssl=ssl_context,
-    ) as ws:
+    try:
+        ws = await connect(
+            url,
+            additional_headers=headers,
+            open_timeout=open_timeout_s,
+            max_size=_MAX_FRAME,
+            ssl=ssl_context,
+        )
+    except TimeoutError:
+        # Only the open is bounded (TCP + TLS + the HTTP upgrade, which the
+        # controller answers after one auth read); once open the stream may
+        # stay quiet for as long as the job runs.
+        raise ControllerError(
+            f"the log stream did not open within {open_timeout_s:g}s - the "
+            "controller may be overloaded or the network slow; retry, or raise "
+            "[cli] timeout_s",
+            failure_type=FailureType.TIMEOUT,
+        ) from None
+    async with ws:
         async for raw in ws:
             frame = _frame(raw)
             if frame.get("end") is True:

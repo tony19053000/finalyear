@@ -627,14 +627,24 @@ async def test_peer_with_a_blob_deleted_behind_the_index_is_excluded_for_that_bl
 async def test_peer_with_rotted_blob_on_disk_is_detected_per_chunk(
     tmp_path: Path, world: tuple[BuiltTree, bytes, Holder]
 ) -> None:
-    """Criterion 4 with the real server: bit rot in the holder's CAS file."""
+    """Criterion 4 with the real server: bit rot in the holder's CAS file.
+
+    Every chunk of the holder's file has one flipped bit (at a different offset
+    per chunk). Rotting only a few chunks made the test a coin toss (D200): the
+    sources share one work-stealing queue, so which source takes a given chunk
+    is a scheduling race - the controller took the rotted chunk 2 on every run
+    and chunk 9 on ~1 run in 6, and then the peer never sent a rotted byte and
+    ``corrupt_chunks == 0`` was the correct answer. With every chunk rotted the
+    first chunk the peer serves - whichever it is - must be caught.
+    """
     built, big, ctl = world
+    per_source = 2
     a = await _holder(tmp_path, "a-cas", built)
     path = a.blob_path(_big_digest(built))
     path.chmod(0o600)
     rotted = bytearray(big)
-    for chunk in (2, 9):
-        rotted[chunk * CS + 5] ^= 0x40
+    for chunk in range(CHUNKS):
+        rotted[chunk * CS + 5 + 97 * chunk] ^= 0x40
     path.write_bytes(bytes(rotted))
     cas = _fresh_cas(tmp_path)
     try:
@@ -643,13 +653,21 @@ async def test_peer_with_rotted_blob_on_disk_is_detected_per_chunk(
             [a.source(), ctl.source(peer=False)],
             built,
             tuning=FetchTuning(
-                per_source=2, endgame_after_s=600.0, slow_min_units=1000
+                per_source=per_source, endgame_after_s=600.0, slow_min_units=1000
             ),
         )
         assert cas.store.path_for(_big_digest(built)).read_bytes() == big
         _assert_cas_clean(cas, built)
-        assert fetcher.stats.corrupt_chunks >= 1
-        assert fetcher.stats.sources[a.node_id].dropped is not None
+        # The peer really served rotted chunk bytes (manifest + >= 1 range) ...
+        assert a.server.stats.served >= 2, a.server.stats
+        # ... each was caught at chunk granularity, and the peer was dropped at
+        # once: at most its in-flight requests (one per worker) came back bad.
+        assert 1 <= fetcher.stats.corrupt_chunks <= per_source
+        peer = fetcher.stats.sources[a.node_id]
+        assert peer.dropped == FailureType.INTEGRITY_ERROR.value
+        assert peer.units == 0  # not one rotted chunk was accepted
+        assert a.server.stats.served <= 1 + per_source
+        assert fetcher.stats.sources["controller"].units == CHUNKS
     finally:
         await a.server.close()
 
