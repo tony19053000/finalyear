@@ -2,14 +2,14 @@
 
 > Concise current state. Long-term plan: [`DEVELOPMENT_ROADMAP.md`](DEVELOPMENT_ROADMAP.md). Update at the end of every work session.
 
-**Last updated:** 2026-10-16 (V0.8 G1 closed)
+**Last updated:** 2026-10-16 (V0.8 G2 + G6 closed; G3 + G4 running in parallel)
 
 ## Progress
 
 Generated from the roadmap checkboxes by `uv run python scripts/status_bars.py` — **re-run it and replace this block whenever checkboxes change.** Deferred versions (V0.11, V0.12, V0.13, V0.16) and deferred tasks are not counted. A task is only █ when it is `[x]` (tester + reviewer + evidence); written-but-unreviewed code is ▒.
 
 ```
-TOTAL   █████████▒▒░░░░░░░░░  44%  69/156 done, 17 in progress
+TOTAL   █████████▒▒░░░░░░░░░  46%  72/156 done, 16 in progress
 
 V0.1    █████████████████▒▒▒  83%  10/12  Foundations & engineering system
 V0.2    ██▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░░   9%   1/11  Lab setup & feasibility validation
@@ -18,7 +18,7 @@ V0.4    ███████████████▒▒▒▒░  76%  13/17
 V0.5    ██████████████████░░  90%  10/11  Data plane & environments
 V0.6    ███████████████████░  92%  13/14  Scheduling & reliability — Mode 1 complete
 V0.7    ██████████████████░░  91%  11/12  Security & pairing
-V0.8    ▒▒▒▒░░░░░░░░░░░░░░░░   0%   0/10  Dashboard & CLI v1
+V0.8    ██████▒▒░░░░░░░░░░░░  30%   3/10  Dashboard & CLI v1
 V0.9    ░░░░░░░░░░░░░░░░░░░░   0%   0/10  Benchmark & telemetry system v1
 V0.10   ░░░░░░░░░░░░░░░░░░░░   0%   0/10  Mode 3 Task Splitting
 V0.14   ░░░░░░░░░░░░░░░░░░░░   0%   0/8   Unified planner v2
@@ -27,11 +27,9 @@ V0.17   ░░░░░░░░░░░░░░░░░░░░   0%   0/8 
 V1.0    ░░░░░░░░░░░░░░░░░░░░   0%   0/8   Release hardening & final evaluation
 ```
 █ done `[x]` · ▒ in progress or waiting on a 🧑 lab step `[~]` · ░ not started
-█ done `[x]` · ▒ in progress or waiting on a 🧑 lab step `[~]` · ░ not started
-█ done `[x]` · ▒ in progress or waiting on a 🧑 lab step `[~]` · ░ not started
 
 ## Current Version
-**V0.8 — Dashboard & CLI v1** · started 2026-10-15 · brief `docs/briefs/V0.8-dashboard-cli.md` (D169–D180, approved) · ADR-0017 · groups G1–G7 sequential · **G1 CLOSED 2026-10-16 (D186)**; G2 item 0 merged; G2 frontend + G6 CLI built in parallel worktrees, under test (0.8.2, 0.8.7 `[~]`)
+**V0.8 — Dashboard & CLI v1** · started 2026-10-15 · brief `docs/briefs/V0.8-dashboard-cli.md` (D169–D180, approved) · ADR-0017 · groups G1–G7 sequential · **G1 CLOSED (D186); G2 + G6 CLOSED 2026-10-16 (D192)** — 0.8.1, 0.8.2, 0.8.8 `[x]`; G3 (Overview+Nodes, brief §5c) and G4 (Jobs, §5d) implementers running in parallel worktrees; 0.8.7 `[~]`
 **V0.7 — Security & pairing** · started 2026-10-07 · brief `docs/briefs/V0.7-security-pairing.md` (D144–D162) · **G1–G5 CLOSED** (0.7.1–0.7.9 `[x]`) · **G6 CLOSED** (0.7.10 `[x]`, 2026-10-14) · **G7 CLOSED** (0.7.11 `[x]`, 2026-10-15, D168) · agent-side complete · closes on 🧑 0.7.12 lab
 **V0.6 — Scheduling & reliability** · started 2026-10-05 · brief `docs/briefs/V0.6-scheduling-reliability.md` · **G1 CLOSED** (0.6.9, 0.6.10, 0.6.14 `[x]`) · G1–G4 CLOSED agent-side · closes on 🧑 0.6.13 lab
 **V0.4 — Remote execution core** · started 2026-09-28 · **G1–G5 closed** (0.4.1, 0.4.3–0.4.7, 0.4.9, 0.4.10, 0.4.11–0.4.14, 0.4.16 `[x]`; 0.4.2 `[~]` Windows CI digest; 0.4.8 `[~]` real CUDA run; 0.4.17 `[~]`) · closes on 🧑 0.4.15 lab run
@@ -46,6 +44,8 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 > V0.10. 129 tasks vs 140–180 capacity → **~1.5 tasks/session**. Needs the other three team members' approval.
 
 ## Current Task
+
+- **2026-10-16: V0.8 G2 + G6 CLOSED (D191, D192).** G2 tester r2 PASS, reviewer APPROVE, merged `96620ee`; G6 reviewer APPROVE, merged `d2ac586`. Combined gate: whole component 2177 passed / 21 skipped / 1 load flake (V0.6 disk-full test, 3/3 green standalone). Team re-enabled parallel agents → G3 + G4 implementers running. Open coverage (D191): Firefox (🧑 0.8.10), restart on changed port. Next: per group tester → reviewer → merge (G3 before G4; Lead wires `applyJobEvent`) → whole component once.
 
 - **2026-10-16: V0.8 G1 CLOSED** — gate whole component 2144 passed exit 0, `-m security` 1806 passed exit 0 (D186). G2 item 0 approved + merged (D185). G2 frontend (branch `worktree-agent-af40f9465633ac195`) tester r1 running; G6 CLI implementer running (parallel wave, team request).
 - **2026-10-15: V0.8 STARTED** — brief approved by the team (all §7 recommendations), ADR-0017 Accepted. G1 implementer running (brief §5a). Next: tester r1 → reviewer → whole component once → close G1.

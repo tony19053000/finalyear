@@ -438,14 +438,14 @@ A version is **complete** only when all apply:
 **Brief:** `docs/briefs/V0.8-dashboard-cli.md` (approved 2026-10-15, D169–D180, ADR-0017). **G1 item 0 = D168** (V0.7 non-blocking N1, N2, N3, T-12).
 
 **Tasks**
-- [ ] **0.8.1** Design system: dark default, neutral grays, one accent, typography scale, status colours, spacing tokens (per brief §24)
-- [~] **0.8.2** App shell, auth, routing, API client (generated from OpenAPI) — backend part (browser session, SPA serving, OpenAPI models) in G1, frontend part in G2 (D169–D171)
+- [x] **0.8.1** Design system: dark default, neutral grays, one accent, typography scale, status colours, spacing tokens (per brief §24) — G2 CLOSED 2026-10-16 (D192)
+- [x] **0.8.2** App shell, auth, routing, API client (generated from OpenAPI) — backend part (browser session, SPA serving, OpenAPI models) in G1, frontend part in G2 (D169–D171) — G1+G2 CLOSED 2026-10-16 (D186, D192)
 - [ ] **0.8.3** Overview page (fabric health, nodes online, active jobs, utilization)
 - [ ] **0.8.4** Nodes list + node detail (capabilities, live metrics, network links, caches, owner settings)
 - [ ] **0.8.5** Jobs list + job detail (plan explanation table, timeline, terminal-style logs, artifacts, attempts)
 - [ ] **0.8.6** Settings (fabric, invite/join code + QR, revoke, policies)
 - [~] **0.8.7** Live updates via WebSocket (≤ 2 s latency) — event bus + `/v1/events/ws` in G1 (D172), UI wiring in G3
-- [ ] **0.8.8** CLI polish: consistent output, `--json`, shell completion, helpful errors
+- [x] **0.8.8** CLI polish: consistent output, `--json`, shell completion, helpful errors — G6 CLOSED 2026-10-16 (D192)
 - [ ] **0.8.9** Playwright e2e suite against a cluster-harness fabric
 - [ ] **0.8.10** 🧑 Visual review against brief §24 checklist
 
