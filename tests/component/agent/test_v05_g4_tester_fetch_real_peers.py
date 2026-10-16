@@ -648,14 +648,26 @@ async def test_peer_with_rotted_blob_on_disk_is_detected_per_chunk(
     path.write_bytes(bytes(rotted))
     cas = _fresh_cas(tmp_path)
     try:
-        fetcher = await _run(
-            cas,
-            [a.source(), ctl.source(peer=False)],
-            built,
-            tuning=FetchTuning(
-                per_source=per_source, endgame_after_s=600.0, slow_min_units=1000
-            ),
-        )
+        # D202: fail fast with a clear message. A peer that is not dropped keeps
+        # serving rotted chunks that are re-queued forever (end-game is pushed
+        # out to 600 s), which would otherwise surface only as the 120 s
+        # pytest-timeout with no hint of the cause.
+        try:
+            fetcher = await asyncio.wait_for(
+                _run(
+                    cas,
+                    [a.source(), ctl.source(peer=False)],
+                    built,
+                    tuning=FetchTuning(
+                        per_source=per_source,
+                        endgame_after_s=600.0,
+                        slow_min_units=1000,
+                    ),
+                ),
+                timeout=30.0,
+            )
+        except TimeoutError:
+            raise AssertionError("peer not dropped after a corrupt chunk") from None
         assert cas.store.path_for(_big_digest(built)).read_bytes() == big
         _assert_cas_clean(cas, built)
         # The peer really served rotted chunk bytes (manifest + >= 1 range) ...
