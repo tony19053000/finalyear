@@ -281,6 +281,10 @@ class StatusOutcome:
     retry: RetryVerdict | None = None
     """V0.6 G3 (D110): set when the attempt's end decided the job's fate -
     ``retry`` = the job is QUEUED again (same transaction), else why not."""
+    alert: Mapping[str, str] | None = None
+    """``WRONG_NODE`` only (V0.8 G3, D180): the committed audit row's ``id``
+    and what it names (``job_id``, ``placed_node_id``) - the live ``alert``
+    event carries them, so the dashboard merges it with ``GET /v1/alerts``."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -562,7 +566,7 @@ class ExecutionStore(DecisionReads):
             if row.node_id != node_id:
                 # D168 N3: the refusal is audited in this transaction (the
                 # attempt row itself is untouched); it feeds D180 alerts.
-                await audit(
+                row_audit = await audit(
                     db,
                     AuditAction.ATTEMPT_WRONG_NODE,
                     actor=f"node:{node_id}",
@@ -574,7 +578,15 @@ class ExecutionStore(DecisionReads):
                         "reported": report.state.value,
                     },
                 )
-                return StatusOutcome(StatusKind.WRONG_NODE)
+                await db.flush()  # the row's id, for the live alert (D180)
+                return StatusOutcome(
+                    StatusKind.WRONG_NODE,
+                    alert={
+                        "id": str(row_audit.id),
+                        "job_id": str(row.job_id),
+                        "placed_node_id": str(row.node_id),
+                    },
+                )
             if int(row.fencing_token) != report.fencing_token:
                 return StatusOutcome(StatusKind.FENCED, attempt=attempt_record(row))
             try:

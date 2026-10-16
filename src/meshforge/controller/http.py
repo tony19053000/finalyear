@@ -28,12 +28,14 @@ from pydantic import BaseModel
 from starlette.types import ASGIApp
 
 from meshforge import __version__
+from meshforge.controller.alerts import AlertLog
 from meshforge.controller.api import (
     FABRIC_STATE_KEY,
     FabricView,
     install_error_handlers,
     router,
 )
+from meshforge.controller.api.alert_routes import ALERTS_STATE_KEY, alert_router
 from meshforge.controller.api.auth import AUTH_STATE_KEY, ApiAuth, guard_requests
 from meshforge.controller.api.auth_routes import (
     AUTH_API_STATE_KEY,
@@ -120,6 +122,7 @@ def create_http_app(
     users: AuthApi | None = None,
     secrets: SecretStore | None = None,
     events: EventBus | None = None,
+    alerts: AlertLog | None = None,
     web_dist: Path | None = DEFAULT_DIST,
 ) -> FastAPI:
     """Build the controller's HTTP app. ``clock`` must be the loop's monotonic clock.
@@ -213,6 +216,9 @@ def create_http_app(
     if events is not None:
         setattr(app.state, EVENTS_STATE_KEY, events)
         app.include_router(event_router)  # V0.8 G1 live events (D172)
+    if alerts is not None:
+        setattr(app.state, ALERTS_STATE_KEY, alerts)
+        app.include_router(alert_router)  # V0.8 G3 alerts list (D180)
     return app
 
 
@@ -240,6 +246,7 @@ def openapi_document() -> dict[str, Any]:
         users=inert(),
         secrets=inert(),
         events=inert(),
+        alerts=inert(),
         web_dist=None,
     )
     return app.openapi()

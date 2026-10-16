@@ -196,18 +196,19 @@ async def audit(
     invite_id: str | None = None,
     source: str | None = None,
     details: Mapping[str, Any] | None = None,
-) -> None:
-    """Add one ``audit_event`` row to ``db``'s transaction (no token, no code)."""
-    db.add(
-        AuditEvent(
-            action=action.value,
-            actor=actor[:MAX_ACTOR_CHARS],
-            node_id=node_id,
-            invite_id=invite_id,
-            source=source[:128] if source else None,
-            details=dict(details or {}),
-        )
+) -> AuditEvent:
+    """Add one ``audit_event`` row to ``db``'s transaction (no token, no code)
+    and return it (its ``id`` is set once the session flushes)."""
+    event = AuditEvent(
+        action=action.value,
+        actor=actor[:MAX_ACTOR_CHARS],
+        node_id=node_id,
+        invite_id=invite_id,
+        source=source[:128] if source else None,
+        details=dict(details or {}),
     )
+    db.add(event)
+    return event
 
 
 async def redeem(
