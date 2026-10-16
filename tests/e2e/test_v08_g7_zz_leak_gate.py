@@ -1,17 +1,21 @@
 """V0.8 G7 (checklist 25): no credential reaches the browser beyond the
 HttpOnly session cookie - one gate over the whole e2e run.
 
-This file is named to run LAST in ``tests/e2e``. The session-wide
-``leak_watch`` (tests/e2e/conftest.py, tests/_support/mf_leaks.py) has by
-then recorded, for every page every earlier e2e test opened: each console
-message, each URL requested or visited (WebSockets too) and the storage the
-page kept (localStorage, sessionStorage, IndexedDB, script-readable
-cookies); it learnt every password, API token, join code and secret value
-from the traffic. This test adds one more flow that makes each kind of
-credential in the browser (sign in, API token, invite code, secret), visits
-every page, signs out - and then asserts that no recorded place holds a
-known credential or a credential shape, and that the built bundle holds none
-either. Run alone it judges its own flow; in the full run, all of them.
+The session-wide ``leak_watch`` (tests/e2e/conftest.py,
+tests/_support/mf_leaks.py) records, for every page every e2e test opens:
+each console message, each URL requested or visited (WebSockets too), each
+storage write as it happens and the storage the page kept (localStorage,
+sessionStorage, IndexedDB, Cache Storage, history state, script-readable
+cookies); it learns every password, API token, join code and secret value
+from the traffic. Its verdict does not depend on this file (fix round 1, T-1):
+the fixture's session teardown and ``pytest_sessionfinish`` fail the run on any
+finding, whichever tests ran, in whatever order. This test adds one flow that
+makes each kind of credential in the browser (sign in, API token, invite code,
+secret), visits every page, signs out - and asserts that no place recorded so
+far holds a known credential or a credential shape, and that the built bundle
+holds none either (the bundle grep needs the dist, so it lives here). The
+``zz`` in the name only makes it judge (and print) most of the run's evidence
+when the whole tier runs in file order.
 """
 
 from __future__ import annotations

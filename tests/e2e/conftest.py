@@ -29,15 +29,21 @@ V0.8 G7 (one shared layer):
   ``disarm`` (each with its reason). The shared helpers (sign-in, axe, Tab
   navigation, job API) are in ``tests/_support/mf_e2e.py``.
 * ``leak_watch`` (one per session, checklist 25): every page from
-  ``new_page`` reports its console, the URLs it requested and visited, and at
-  the end of each test its storage (web storage, IndexedDB, script-readable
-  cookies); credentials are learnt from the traffic
-  (``tests/_support/mf_leaks.py``). ``test_v08_g7_zz_leak_gate.py`` runs last
-  and asserts that no credential reached any of those places.
+  ``new_page`` (and every popup / tab its context opens) reports its console,
+  the URLs it requested and visited, each storage write as it happens, and at
+  the end of each test its storage (web storage, IndexedDB, Cache Storage,
+  history state, script-readable cookies); credentials are learnt from the
+  traffic (``tests/_support/mf_leaks.py``). The verdict does not depend on
+  test order or on which tests run (fix round 1, T-1): at the end of the
+  session the fixture's teardown fails on any finding, and
+  ``pytest_sessionfinish`` makes the exit status non-zero as well.
+  ``test_v08_g7_zz_leak_gate.py`` adds a flow that makes every kind of
+  credential, and greps the built bundle.
 """
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Generator, Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final
@@ -64,6 +70,40 @@ DEFAULT_AGENTS: Final = 2
 PAGE_TIMEOUT_MS: Final = 20_000
 
 _CALL_PASSED: Final = pytest.StashKey[bool]()
+_LEAK_WATCH: Final = pytest.StashKey["LeakWatch"]()
+#: Findings listed in a failure message (the rest are counted).
+_MAX_LISTED: Final = 50
+
+
+def _leak_report(findings: list[str]) -> str:
+    listed = "\n  ".join(findings[:_MAX_LISTED])
+    more = len(findings) - _MAX_LISTED
+    tail = f"\n  ... and {more} more" if more > 0 else ""
+    return (
+        f"credentials reached the browser ({len(findings)} places):\n  {listed}{tail}"
+    )
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_sessionfinish(session: pytest.Session) -> None:
+    """Fail the run when the session's leak watch holds a finding (T-1),
+    whichever tests ran and in whatever order - also when the fixture
+    teardown's error was somehow not counted."""
+    watch = session.config.stash.get(_LEAK_WATCH, None)
+    if watch is None:
+        return
+    findings = watch.findings()
+    if not findings:
+        return
+    reporter = session.config.pluginmanager.get_plugin("terminalreporter")
+    message = _leak_report(findings)
+    if reporter is not None:
+        reporter.write_sep("=", "credential leak gate", red=True)
+        reporter.write_line(message, red=True)
+    else:
+        sys.stderr.write(message + "\n")
+    if session.exitstatus == pytest.ExitCode.OK:
+        session.exitstatus = pytest.ExitCode.TESTS_FAILED
 
 
 @pytest.hookimpl(wrapper=True, tryfirst=True)
@@ -143,11 +183,17 @@ def fabric_options() -> dict[str, Any]:
 
 
 @pytest.fixture(scope="session")
-def leak_watch() -> LeakWatch:
-    """Where credentials could leak, across the whole e2e run (checklist 25)."""
+def leak_watch(request: pytest.FixtureRequest) -> Iterator[LeakWatch]:
+    """Where credentials could leak, across the whole e2e run (checklist 25).
+    Its teardown - after the last test of the session that used a page -
+    fails on any finding, so every subset and order of tests is judged (T-1)."""
     from mf_leaks import LeakWatch
 
-    return LeakWatch()
+    watch = LeakWatch()
+    request.config.stash[_LEAK_WATCH] = watch
+    yield watch
+    findings = watch.findings()
+    assert not findings, _leak_report(findings)
 
 
 @pytest.fixture
@@ -230,6 +276,7 @@ def new_page(
     yield make
     for watch in watches:
         leak_watch.snapshot(watch.page, test)
+    leak_watch.snapshot_followed()
     if not request.node.stash.get(_CALL_PASSED, False):
         return
     problems = [problem for watch in watches for problem in watch.final_problems()]
