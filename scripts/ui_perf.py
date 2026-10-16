@@ -64,8 +64,10 @@ if TYPE_CHECKING:
 #: * Live updates (criterion 2: "<= 2 s"): p50, p95 AND the slowest event, for
 #:   heartbeat samples and job.state changes (G7 tester r1 T-8, Lead ruling
 #:   D207) - a p95 alone ignores the slowest 5 %, so a few events tens of
-#:   seconds late would pass. A job.state change the page never showed is a
-#:   failure too (``job_state_missed``), not a sample left out.
+#:   seconds late would pass. Every job.state change is a sample: one the page
+#:   never showed itself counts with the time until it showed a LATER state of
+#:   the job (``job_state_superseded``); one with no later state shown either
+#:   is a failure (``job_state_missed``) - never a sample left out.
 #: * The list numbers are "responsive" limits chosen by G7 (criterion 2 gives
 #:   no number): a user-visible ceiling, not a regression guard - measured
 #:   values are 10-30x below them on the dev laptop (progress file, item 4).
@@ -531,6 +533,52 @@ def _parse_at(value: str) -> float:
     return datetime.fromisoformat(value).timestamp() * 1000.0
 
 
+@dataclasses.dataclass
+class JobStateSamples:
+    """job.state -> DOM latency samples (G7 fix round 1, T-8). Every change
+    is a sample: one the page showed is timed to when it showed it; one it
+    never showed itself is timed to when it showed a LATER state of the job
+    (``superseded`` - e.g. ``submitted`` and ``planning`` happen inside the
+    submit call, so the list's first view of a job is ``queued``); one with no
+    later state shown either is ``missed`` - a failure, never left out."""
+
+    lags: list[float] = dataclasses.field(default_factory=list)
+    terminal_lags: list[float] = dataclasses.field(default_factory=list)
+    missed: list[str] = dataclasses.field(default_factory=list)
+    superseded: int = 0
+    missed_terminal: int = 0
+
+    def add(
+        self,
+        job_id: str,
+        transitions: Sequence[dict[str, Any]],
+        shown: dict[str, float],
+    ) -> None:
+        """``transitions`` as the API lists them (oldest first); ``shown`` maps
+        a state to when the page first showed it (epoch ms)."""
+        for index, transition in enumerate(transitions):
+            state = transition["to_state"]
+            at = _parse_at(transition["at"])
+            if state in shown:
+                lag = shown[state] - at
+                self.lags.append(lag)
+                if state in TERMINAL:
+                    self.terminal_lags.append(lag)
+                continue
+            later = [
+                shown[t["to_state"]]
+                for t in transitions[index + 1 :]
+                if t["to_state"] in shown and shown[t["to_state"]] >= at
+            ]
+            if later:
+                self.superseded += 1
+                self.lags.append(min(later) - at)
+                continue
+            self.missed.append(f"{job_id}:{state}")
+            if state in TERMINAL:
+                self.missed_terminal += 1
+
+
 def measure_events(
     jobs_page: Page,
     node_page: Page,
@@ -600,34 +648,19 @@ def measure_events(
     _wait_terminal(api, ids, timeout_s)
     jobs_page.wait_for_timeout(3000)  # let the last events land in the page
     seen: dict[str, dict[str, float]] = jobs_page.evaluate("window.__mfSeen")
-    lags: list[float] = []
-    terminal_lags: list[float] = []
-    missed: list[str] = []
-    missed_terminal = 0
+    states = JobStateSamples()
     for job_id in ids:
-        job = api.job(job_id)
-        shown = seen.get(job_id, {})
-        for transition in job["transitions"]:
-            state = transition["to_state"]
-            if state in shown:
-                lag = shown[state] - _parse_at(transition["at"])
-                lags.append(lag)
-                if state in TERMINAL:
-                    terminal_lags.append(lag)
-                continue
-            # Never shown: a failure, not a sample left out (T-8).
-            missed.append(f"{job_id}:{state}")
-            if state in TERMINAL:
-                missed_terminal += 1
+        states.add(job_id, api.job(job_id)["transitions"], seen.get(job_id, {}))
     heartbeat = [float(x) for x in node_page.evaluate("window.__mfLag")]
     return {
         "stream_jobs": len(ids),
         "stream_errors": stream.errors,
-        "job_state_latency": summary(lags),
-        "job_terminal_latency": summary(terminal_lags),
-        "job_terminal_missed": missed_terminal,
-        "job_state_missed": len(missed),
-        "job_state_missed_examples": missed[:10],
+        "job_state_latency": summary(states.lags),
+        "job_terminal_latency": summary(states.terminal_lags),
+        "job_terminal_missed": states.missed_terminal,
+        "job_state_superseded": states.superseded,
+        "job_state_missed": len(states.missed),
+        "job_state_missed_examples": states.missed[:10],
         "heartbeat_latency": summary(heartbeat),
     }
 

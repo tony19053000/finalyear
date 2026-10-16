@@ -84,3 +84,72 @@ def test_every_live_threshold_is_two_seconds() -> None:
         for s in ("p50", "p95", "max")
     }
     assert set(live.values()) == {2000.0}
+
+
+T0 = "2026-10-17T10:00:00+00:00"  # epoch ms below are relative to this
+
+
+def _ms(offset_ms: float) -> float:
+    return PERF._parse_at(T0) + offset_ms  # type: ignore[no-any-return]
+
+
+def _transitions(*states: tuple[str, float]) -> list[dict[str, Any]]:
+    from datetime import datetime, timedelta
+
+    base = datetime.fromisoformat(T0)
+    return [
+        {"to_state": s, "at": (base + timedelta(milliseconds=ms)).isoformat()}
+        for s, ms in states
+    ]
+
+
+def test_a_shown_state_is_timed_to_when_it_was_shown() -> None:
+    samples = PERF.JobStateSamples()
+    samples.add(
+        "j",
+        _transitions(("queued", 0), ("succeeded", 100)),
+        {"queued": _ms(20), "succeeded": _ms(130)},
+    )
+    assert [round(x) for x in samples.lags] == [20, 30]
+    assert [round(x) for x in samples.terminal_lags] == [30]
+    assert samples.superseded == 0 and samples.missed == []
+
+
+def test_a_state_never_shown_is_timed_to_the_next_shown_state() -> None:
+    samples = PERF.JobStateSamples()
+    samples.add(
+        "j",
+        _transitions(("submitted", 0), ("planning", 5), ("queued", 10)),
+        {"queued": _ms(40)},
+    )
+    assert [round(x) for x in samples.lags] == [40, 35, 30]
+    assert samples.superseded == 2 and samples.missed == []
+
+
+def test_a_late_superseding_state_is_a_slow_sample_not_hidden() -> None:
+    samples = PERF.JobStateSamples()
+    samples.add(
+        "j", _transitions(("queued", 0), ("running", 10)), {"running": _ms(30_000)}
+    )
+    assert max(samples.lags) >= 30_000
+    r = _results(samples.lags * 20, [150.0] * 20)
+    assert any(p.startswith("job_state_latency_max") for p in PERF.check(r))
+
+
+def test_no_later_state_shown_is_missed_and_terminal_counted() -> None:
+    samples = PERF.JobStateSamples()
+    samples.add("j", _transitions(("queued", 0), ("succeeded", 10)), {"queued": _ms(5)})
+    assert samples.missed == ["j:succeeded"]
+    assert samples.missed_terminal == 1
+
+
+def test_a_state_shown_before_the_change_does_not_count_as_its_display() -> None:
+    """`queued` shown at +5 ms (the first time) is not the display of a
+    `queued` change at +100 ms after a retry - only a later state can be."""
+    samples = PERF.JobStateSamples()
+    samples.add(
+        "j",
+        _transitions(("queued", 0), ("preparing", 50), ("running", 100)),
+        {"queued": _ms(5)},
+    )
+    assert samples.missed == ["j:preparing", "j:running"]
