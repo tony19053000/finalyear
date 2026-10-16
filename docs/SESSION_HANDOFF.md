@@ -266,7 +266,7 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 ## 1. Where the project is
 
 **2026-10-16 (session end, team asked to stop) — NOTHING RUNNING. ONE subagent at a time, fast mode off.**
-- **G2** (frontend, branch `worktree-agent-af40f9465633ac195`, worktree `.claude/worktrees/agent-af40f9465633ac195`): fix r1 `a147867` done (D189). Tester r2 was STOPPED mid-run; its uncommitted file `frontend/src/test/g2_tester_r2.test.tsx` may be in that worktree. Next: relaunch tester r2 there (scope: D189 delta — T-1/T-2/T-3 + extra fixes; see progress/V0.8-G2.md) → reviewer → merge into main.
+- **G2** (frontend, branch `worktree-agent-af40f9465633ac195`, worktree `.claude/worktrees/agent-af40f9465633ac195`): fix r1 `a147867` done (D189). Tester r2 STOPPED mid-run: vitest part committed `7dff96f`; uncommitted drafts `tests/e2e/test_v08_g2_tester_r2.py` and `tests/unit/controller/test_v08_g2_tester_r2_send_first.py` are in that worktree. Next: relaunch tester r2 there (scope: D189 delta — T-1/T-2/T-3 + extra fixes; see progress/V0.8-G2.md) → reviewer → merge into main.
 - **G6** (CLI, branch `worktree-agent-ae510e92b7567c0fd`): fix r2 `67ea9b3`/`93399f0` done (D190; Lead accepted test change returncode (0,1)→(0,4)). Next: reviewer (no tester r3; reviewer checks removed xfails unweakened) → merge into main AFTER G2.
 - Then: whole `-m component` once per group (G2, G6) → close → update roadmap/STATUS bar (0.8.1, 0.8.2, 0.8.8) → write G3 brief (Overview + Nodes; include `GET /v1/session` 200 `{session:null}` from D189).
 - 🧑 pending: Windows PowerShell completion check (D187, in 0.8.10 checklist).
