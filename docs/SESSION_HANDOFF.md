@@ -265,6 +265,8 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
+**2026-10-16 (usage limit) — G6: fix r2 DONE `67ea9b3`/`93399f0` (T-6..T-10; Lead accepts tester-test change returncode (0,1)→(0,4) per D190). NEXT for G6: reviewer (D190: no tester r3) on branch worktree-agent-ae510e92b7567c0fd → merge → whole component once. G2: fix r1 `a147867` done; tester r2 was RUNNING in worktree agent-af40f… — check for "## Tester r2" in progress/V0.8-G2.md; then reviewer → merge (G2 before G6) → whole component once.**
+
 **2026-10-16 (testers resumed) — usage limit stopped both testers; resumed. G2 tester r1 in worktree agent-af40f… (branch worktree-agent-af40f9465633ac195); G6 tester r1 in worktree agent-ae510e… (branch worktree-agent-ae510e92b7567c0fd), D187 exit-code ruling. If died: uncommitted tester files are in those worktrees; relaunch testers there. Then reviewer per branch → merge → whole component once per group.**
 
 **2026-10-16 (G1 CLOSED) — gate green (D186); G2 item 0 merged. Running: G2 frontend tester r1 (worktree agent-af40f…), G6 CLI implementer (worktree). Next: G2 reviewer → merge G2; G6 tester → reviewer → merge; then whole component once per group.**
