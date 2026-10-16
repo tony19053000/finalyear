@@ -79,12 +79,19 @@ function SetSecretForm({
   const readFile = async (file: File | undefined) => {
     if (file === undefined) return;
     if (file.size > SECRET_MAX_BYTES) {
+      // T-5: never keep a previously chosen value behind a refusal - Store must not send the old file.
+      setValue("");
+      setFileBytes(null);
       setFileNote(`${file.name} is larger than ${String(SECRET_MAX_BYTES / 1024)} KiB.`);
       return;
     }
     const read = new Uint8Array(await file.arrayBuffer());
     setValue("");
     setFileBytes(read);
+    if (read.length === 0) {
+      setFileNote(`${file.name} is empty - a secret needs at least ${String(SECRET_MIN_BYTES)} bytes.`);
+      return;
+    }
     setFileNote(`Value read from ${file.name} (${String(read.length)} bytes, sent exactly as in the file).`);
   };
 
