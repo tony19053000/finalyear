@@ -507,6 +507,32 @@ describe("Secrets", () => {
     expect(new TextDecoder().decode(puts[0]?.init.body as Uint8Array)).toBe("TYPED-VALUE");
   });
 
+  it("a file the browser cannot read is reported, the older value is dropped (G7 tester r1 T-9)", async () => {
+    const fake = fakeController(routes(USER_SESSION, { "GET /v1/secrets": () => json(200, { count: 0, secrets: [] }) }));
+    renderApp("/settings/secrets");
+    await userEvent.click(await screen.findByRole("button", { name: "Set a secret" }));
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.type(within(dialog).getByRole("textbox", { name: "Name" }), "BROKEN");
+    const picker = within(dialog).getByLabelText(/read the value from a file/);
+    await userEvent.upload(picker, new File(["GOOD-VALUE"], "good.bin"));
+    expect(await within(dialog).findByText(/Value read from good\.bin/)).toBeTruthy();
+    const broken = new File(["whatever"], "broken.bin");
+    Object.defineProperty(broken, "arrayBuffer", {
+      value: () => Promise.reject(new DOMException("read failed", "NotReadableError")),
+    });
+    // A rejection nobody handles would fail this vitest run on its own.
+    await userEvent.upload(picker, broken);
+    const alert = await within(dialog).findByRole("alert");
+    expect(alert.textContent).toMatch(/Could not read broken\.bin/);
+    expect(within(dialog).queryByText(/good\.bin/)).toBeNull();
+    expect(within(dialog).getByRole<HTMLButtonElement>("button", { name: "Store secret" }).disabled).toBe(true);
+    // typing clears the alert and makes the form usable again
+    await userEvent.type(within(dialog).getByLabelText("Value"), "TYPED-VALUE");
+    expect(within(dialog).queryByRole("alert")).toBeNull();
+    expect(within(dialog).getByRole<HTMLButtonElement>("button", { name: "Store secret" }).disabled).toBe(false);
+    expect(fake.calls.filter((c) => c.key.startsWith("PUT")).length).toBe(0);
+  });
+
   it("an empty file says why Store is disabled (D204)", async () => {
     fakeController(routes(USER_SESSION, { "GET /v1/secrets": () => json(200, { count: 0, secrets: [] }) }));
     renderApp("/settings/secrets");

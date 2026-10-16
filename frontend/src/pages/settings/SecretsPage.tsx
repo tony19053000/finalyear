@@ -59,6 +59,8 @@ function SetSecretForm({
   const [rawName, setRawName] = useState("");
   const [value, setValue] = useState("");
   const [fileNote, setFileNote] = useState<string | null>(null);
+  // A file the browser could not read (moved, deleted, no permission): shown as an alert.
+  const [fileError, setFileError] = useState<string | null>(null);
   // A file's value is kept as its exact bytes (T-1): never decoded as text.
   const [fileBytes, setFileBytes] = useState<Uint8Array<ArrayBuffer> | null>(null);
   const save = useAction(putSecret);
@@ -83,6 +85,7 @@ function SetSecretForm({
   const readFile = async (file: File | undefined) => {
     if (file === undefined) return;
     const mine = ++readSeq.current;
+    setFileError(null);
     if (file.size > SECRET_MAX_BYTES) {
       // T-5: never keep a previously chosen value behind a refusal - Store must not send the old file.
       setValue("");
@@ -90,7 +93,20 @@ function SetSecretForm({
       setFileNote(`${file.name} is larger than ${String(SECRET_MAX_BYTES / 1024)} KiB.`);
       return;
     }
-    const read = new Uint8Array(await file.arrayBuffer());
+    let read: Uint8Array<ArrayBuffer>;
+    try {
+      read = new Uint8Array(await file.arrayBuffer());
+    } catch {
+      // G7 tester r1 T-9: a rejected read is reported, never an unhandled rejection.
+      if (mine !== readSeq.current) return; // a newer choice won anyway
+      setValue(""); // as T-5: no older value is kept behind the failure
+      setFileBytes(null);
+      setFileNote(null);
+      setFileError(
+        `Could not read ${file.name}: the browser cannot open it (moved, deleted or not permitted). Choose it again or type the value.`,
+      );
+      return;
+    }
     if (mine !== readSeq.current) return; // a newer choice won
     setValue("");
     setFileBytes(read);
@@ -109,6 +125,7 @@ function SetSecretForm({
     setValue(""); // write-only: gone from the page once sent
     setFileBytes(null);
     setFileNote(null);
+    setFileError(null);
     const stored = await save.run(name, sent);
     if (stored === undefined) return;
     void client.invalidateQueries({ queryKey: queryKeys.secrets });
@@ -163,6 +180,7 @@ function SetSecretForm({
               readSeq.current += 1; // typing also beats a file read still in flight
               setFileBytes(null); // typing replaces a value read from a file
               setFileNote(null);
+              setFileError(null);
             }}
           />
         )}
@@ -180,6 +198,11 @@ function SetSecretForm({
           />
         )}
       </Field>
+      {fileError !== null && (
+        <p role="alert" className="text-sm text-status-failed">
+          {fileError}
+        </p>
+      )}
       {replacing && (
         <p role="status" className="text-sm text-status-busy">
           {name} already exists: its value will be replaced.

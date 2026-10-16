@@ -434,11 +434,6 @@ def test_slow_file_read_after_a_newer_file_and_after_typing_is_dropped(
     )  # the slow read ends after the send: nothing refills a form
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-9: a file the browser cannot read (arrayBuffer rejects) is an "
-    "unhandled promise rejection and the form says nothing",
-)
 @pytest.mark.parametrize("fabric_options", [{"agents": 1}])
 def test_an_unreadable_file_is_reported_not_an_unhandled_rejection(
     fabric: Fabric, new_page: NewPage, tmp_path: Path
