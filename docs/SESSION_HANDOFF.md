@@ -265,7 +265,7 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
-**2026-10-16 (resumed) — G2 tester r2 PASS `90b4b27`; G2 reviewer running.**
+**2026-10-16 (resumed) — G2 tester r2 PASS `90b4b27`, reviewer APPROVE, merged `96620ee`. G6 reviewer APPROVE, merged `d2ac586`. D191 records non-blocking → G3 item 0. RUNNING: whole `-m component` once on merged main (covers G2+G6; log in session scratchpad). If the session died: re-run `uv run python scripts/pytest_exit_guard.py -m component -q` on main; green → close G2/G6 (roadmap 0.8.1/0.8.2/0.8.8 per brief §3, STATUS bar) → write G3 brief.**
 
 **2026-10-16 (session end, team asked to stop) — NOTHING RUNNING. ONE subagent at a time, fast mode off.**
 - **G2** (frontend, branch `worktree-agent-af40f9465633ac195`, worktree `.claude/worktrees/agent-af40f9465633ac195`): fix r1 `a147867` done (D189). Tester r2 STOPPED mid-run: vitest part committed `7dff96f`; uncommitted drafts `tests/e2e/test_v08_g2_tester_r2.py` and `tests/unit/controller/test_v08_g2_tester_r2_send_first.py` are in that worktree. Next: relaunch tester r2 there (scope: D189 delta — T-1/T-2/T-3 + extra fixes; see progress/V0.8-G2.md) → reviewer → merge into main.
