@@ -7,9 +7,10 @@
 > **Cold-start prompt** (paste this as the first message on the new account):
 >
 > ```
-> Read docs/SESSION_HANDOFF.md §1, then docs/STATUS.md, then docs/briefs/V0.8-dashboard-cli.md (§5e, D195-D199).
-> Parallel agents allowed. Continue V0.8: run whole `-m component` once on main (G3+G4 merged) → if green close
-> 0.8.3/0.8.4/0.8.5/0.8.7 + status bar → G5 implementer (brief §5e, worktree) → tester → reviewer → merge → G7 brief.
+> Read docs/SESSION_HANDOFF.md §1, then docs/STATUS.md, then docs/briefs/V0.8-dashboard-cli.md (§5e, D195-D200).
+> Parallel agents allowed. Continue V0.8 G5: check the G5 implementer worktree + its progress file
+> (docs/briefs/progress/V0.8-G5.md) → finish/resume it → tester r1 → reviewer → merge → whole component once
+> → close 0.8.6 + status bar → G7 brief.
 > ```
 >
 > Order of truth: `PROJECT_BRIEF → ARCHITECTURE → ROADMAP → STATUS → this file`. If this file
