@@ -14,6 +14,12 @@ warm-up and the self-check are measured separately and never included. It is a
 monotonic duration measured where the work runs, never a difference of
 wall-clock timestamps.
 
+``compute_ns`` covers the kernel's **whole** timed loop - all ``repeats`` (or
+``batches``, or ``steps``) iterations, not one of them (D225).
+``compute_iterations`` says how many there were (:data:`ITERATION_PARAM`; 1 for
+a family whose timed work is one pass, ``cpu.sha256``), so one iteration takes
+``compute_ns / compute_iterations``.
+
 ``results/workload.json`` (``schema_version`` 1)::
 
     {
@@ -24,8 +30,9 @@ wall-clock timestamps.
         "status": "ok" | "check_failed" | "unavailable" | "bad_params",
         "reason": null | "...",
         "device": "cpu",
-        "compute_ns": 123,
+        "compute_ns": 123,  # the whole timed loop, all iterations
         "compute_ms": 0.000123,
+        "compute_iterations": 22,  # one iteration = compute_ns / this
         "prepare_ms": ...,
         "warmup_ms": ...,
         "check_ms": ...,
@@ -63,6 +70,7 @@ __all__ = [
     "EXIT_BAD_PARAMS",
     "EXIT_CHECK_FAILED",
     "EXIT_UNAVAILABLE",
+    "ITERATION_PARAM",
     "KERNEL_MODULES",
     "MAX_SEED",
     "PARAMS_FILE",
@@ -72,6 +80,7 @@ __all__ = [
     "RESULT_SCHEMA_VERSION",
     "check_params",
     "check_seed",
+    "compute_iterations",
     "execute",
     "main",
 ]
@@ -111,6 +120,27 @@ DEFAULT_DEVICE: Final[dict[str, str]] = {
     "ml": "cuda",
 }
 """Kernel module -> the device a job always uses."""
+
+ITERATION_PARAM: Final[dict[str, str | None]] = {
+    "cpu.matmul": "repeats",
+    "cpu.primes": "repeats",
+    "cpu.sort": "repeats",
+    "cpu.zlib": "repeats",
+    "cpu.sha256": None,
+    "cpu.integrate": "repeats",
+    "memory.copy": "repeats",
+    "memory.groupby": "repeats",
+    "gpu.matmul": "repeats",
+    "gpu.conv2d": "repeats",
+    "gpu.elementwise": "repeats",
+    "gpu.resize": "repeats",
+    "ml.cnn_infer": "batches",
+    "ml.cnn_train": "steps",
+    "ml.transformer_infer": "batches",
+}
+"""Family -> the parameter counting the iterations of its timed loop (None: the
+timed work is one pass and ``compute_iterations`` is 1). ``compute_ns`` covers
+all of them."""
 
 
 MAX_SEED: Final = 2**32 - 1
@@ -199,6 +229,24 @@ def check_params(family: str, params: Mapping[str, Any]) -> None:
             raise KernelParamsError(f"{name}: must be a multiple of {multiple}")
 
 
+def compute_iterations(family: str, params: Mapping[str, Any]) -> int | None:
+    """How many iterations ``compute_ns`` covers (:data:`ITERATION_PARAM`).
+
+    None when the loop parameter is absent or not a positive integer - a real
+    kernel refuses such params itself (``int_param``) before anything is timed,
+    so in a written ``workload.json`` of a run that computed it is never None.
+    """
+    if family not in ITERATION_PARAM:
+        return None
+    name = ITERATION_PARAM[family]
+    if name is None:
+        return 1
+    value = params.get(name)
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        return None
+    return value
+
+
 def _ms(ns: int) -> float:
     return round(ns / 1e6, 6)
 
@@ -251,6 +299,7 @@ def execute(
         raise KernelParamsError(f"unknown workload family {family!r}")
     check_seed(seed)
     check_params(family, params)
+    iterations = compute_iterations(family, params)
     module = importlib.import_module(f".{module_name}", __package__)
     kernel = module.KERNELS[family]
     used = device or DEFAULT_DEVICE[module_name]
@@ -278,6 +327,7 @@ def execute(
         "device": used,
         "compute_ns": compute_ns,
         "compute_ms": _ms(compute_ns),
+        "compute_iterations": iterations,
         "prepare_ms": _ms(prepared - started),
         "warmup_ms": _ms(warmed - prepared),
         "check_ms": _ms(check_ns),
@@ -303,6 +353,7 @@ def _not_run(
         "device": None,
         "compute_ns": None,
         "compute_ms": None,
+        "compute_iterations": None,
         "verified": False,
         "libraries": libraries(),
         "platform": _platform(),

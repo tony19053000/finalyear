@@ -262,6 +262,16 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
+**2026-10-18 (G1 tester r1 DONE `80b053f`, FAIL: T-1..T-6; T-2/T-3/T-4 major) — RUNNING: G1 fix round 1 in the G1 worktree (all T-1..T-6 + merge main + D228 `compute_iterations`). If died: relaunch fix r1 there (look for "## Fix round 1" in progress/V0.9-G1.md); then tester r2 delta → reviewer → merge → frontend build → whole component once alone → close 0.9.1.**
+
+**2026-10-18 ACCOUNT SWITCH — COLD START HERE.** Main = `ce3bd35`+ (G0, G2, G2 follow-ups merged; 0.9.2 `[x]`). **In flight: G1 (0.9.1)** on branch `worktree-agent-ac0f79cc9fb73d5ae`, worktree `.claude/worktrees/agent-ac0f79cc9fb73d5ae`, implementer commits `b4267f3`..`bccc568` (rulings D227). G1 **tester r1 was STOPPED mid-run** (by the Lead, for the account switch); its 8 partial test files are committed as `wip(V0.9-G1): tester r1 partial tests - UNVERIFIED` (it was fixing xfail markers). Nothing is running. Steps: (1) relaunch tester r1 in that worktree: finish/verify the wip files (run them, fix markers, report defects) with the same scope (brief §5b + D227 'Try to break' list: sweep misses, silent skip of unbuildable record, failure classes, JSONB leaks, hostile workload.json, clock window, export determinism, migration 0021, T-14, old-agent compat). (2) G1 fix round: fix tester defects AND merge main into the G1 branch and satisfy the **D228 G1 merge requirement** (`compute_iterations`). (3) G1 reviewer → merge → `cd frontend && npm run build` → whole `-m component` ONCE alone → close 0.9.1 `[x]` + status bar + STATUS. (4) Write G3 brief (§5d; item 0 = D225 items 2,4 + D228 list) and start G3. User prefs: parallel agents ON for non-conflicting work; **fast mode OFF**.
+
+**2026-10-18 (G2 follow-ups MERGED `218aa05`, D228) — RUNNING: G1 tester r1 only. G1 MUST merge main and handle `compute_iterations` (D228) in its next fix round, before its reviewer. Then: G1 reviewer → merge → rebuild frontend → whole component once alone → close 0.9.1 → write G3 brief (item 0 = D225 2,4 + D228 list).**
+
+**2026-10-18 (G1 implementer DONE `b4267f3`..`bccc568`, D227 rulings) — RUNNING: G1 tester r1 ∥ G2 follow-ups fix (T1 seeded rows, T2 StrictInt). Next: G1 reviewer; follow-ups reviewer → merge both → whole component once.**
+
+**2026-10-18 (G2 follow-ups DONE `677813f`, worktree-agent-a7f238eacb3095e0f) — RUNNING: its tester ∥ G1 implementer (resumed after limit). New load flake: test_multi_source_fetch.py::test_peer_killed_mid_transfer_controller_resumes_verified_chunks (5/5 alone) → Known Bugs with the endgame one.**
+
 **2026-10-17 (G0+G2 CLOSED; component 2367/0 exit 0; 0.9.2 `[x]`) — RUNNING in parallel: G1 implementer (brief §5b, item 0 = D226) + G2 follow-up implementer (D225 items 1, 3, 5; bench package only). G3 item 0 keeps D225 items 2 (🧑 Windows run) and 4. Next per lane: tester → reviewer → merge; whole component once after both.**
 
 **2026-10-17 (G0 MERGED, D226; post-merge lint/mypy/e2e-collect green, frontend rebuilt) — RUNNING: whole `-m component` ONCE alone on main (log scratchpad v09_g0g2_component.log). If died: rerun `uv run python scripts/pytest_exit_guard.py -m component -q -rs` alone. Green → 0.9.2 `[x]`, G0 closed, status bar, STATUS → launch G1 implementer (brief §5b, item 0 = D226). 🧑 0.8.10 perf step E3 now unblocked.**
