@@ -67,6 +67,7 @@ __all__ = [
     "MAX_SEED",
     "PARAMS_FILE",
     "PARAM_LIMITS",
+    "PARAM_MINIMA",
     "RESULT_FILE",
     "RESULT_SCHEMA_VERSION",
     "check_params",
@@ -156,6 +157,10 @@ the family's, because the 5 s - 3 min window is the library's rule and tiny runs
 are how the kernels are tested. A damaged ``workload_params.json`` therefore ends
 as ``bad_params`` (exit 2), never as a traceback or a huge allocation."""
 
+PARAM_MINIMA: Final[dict[tuple[str, str], int]] = {("cpu.primes", "limit"): 2}
+"""Job-side minima above 1 (tester r2 D3): a sieve below 2 has no primes to
+check. Every minimum is <= the family model's (a unit test holds that)."""
+
 _MULTIPLE_OF: Final[dict[tuple[str, str], int]] = {
     ("ml.transformer_infer", "width"): 64
 }
@@ -186,8 +191,9 @@ def check_params(family: str, params: Mapping[str, Any]) -> None:
             continue
         if isinstance(value, bool) or not isinstance(value, int):
             raise KernelParamsError(f"{name}: expected an integer, got {value!r}")
-        if not 1 <= value <= limit:
-            raise KernelParamsError(f"{name}: must be 1..{limit}, got {value}")
+        low = PARAM_MINIMA.get((family, name), 1)
+        if not low <= value <= limit:
+            raise KernelParamsError(f"{name}: must be {low}..{limit}, got {value}")
         multiple = _MULTIPLE_OF.get((family, name), 1)
         if value % multiple:
             raise KernelParamsError(f"{name}: must be a multiple of {multiple}")

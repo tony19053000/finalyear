@@ -313,7 +313,7 @@ def test_window_constants_match_the_brief() -> None:
 def test_job_side_limits_equal_the_family_models(family: Family[Any]) -> None:
     """Tester r1 D6: the job refuses what the library refuses (maxima, choices);
     its minimum is 1 because tiny runs test the kernels."""
-    from meshforge.bench.workloads.kernels.runner import PARAM_LIMITS
+    from meshforge.bench.workloads.kernels.runner import PARAM_LIMITS, PARAM_MINIMA
 
     limits = PARAM_LIMITS[family.name]
     schema = family.params_model.model_json_schema()["properties"]
@@ -324,6 +324,8 @@ def test_job_side_limits_equal_the_family_models(family: Family[Any]) -> None:
         else:
             assert spec["maximum"] == limits[name], name
             assert spec["minimum"] >= 1, name
+            # Tester r2 D3: a job-side minimum above 1 never exceeds the model's.
+            assert PARAM_MINIMA.get((family.name, name), 1) <= spec["minimum"], name
 
 
 @pytest.mark.parametrize("family", FAMILIES, ids=IDS)

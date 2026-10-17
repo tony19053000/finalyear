@@ -190,21 +190,36 @@ def _refuse_busy(dest: Path) -> None:
 
 
 def _publish(staging: Path, dest: Path) -> None:
-    """Rename ``staging`` to ``dest``; ``dest`` may be absent or an empty folder."""
+    """Rename ``staging`` to ``dest``; ``dest`` may be absent or an empty folder.
+
+    POSIX renames onto an empty folder atomically. Windows refuses to rename onto
+    an existing folder, so the caller's empty ``dest`` is first renamed *aside*
+    (never deleted) and put back if the final rename fails - a failed build never
+    loses the folder the caller made (tester r2 D7).
+    """
     with contextlib.suppress(OSError):
-        os.rename(staging, dest)  # POSIX: replaces an empty folder atomically
+        os.rename(staging, dest)
     if not staging.exists():
         return
-    # Windows cannot rename onto an existing folder: remove an empty one first.
+    busy = MaterialiseError(
+        f"{dest} already exists and is not an empty folder",
+        details={"path": str(dest)},
+    )
+    if not dest.is_dir() or any(dest.iterdir()):
+        raise busy
+    aside = dest.with_name(f".{dest.name}.aside-{os.getpid()}-{id(staging):x}")
     try:
-        if dest.is_dir() and not any(dest.iterdir()):
-            dest.rmdir()
+        os.rename(dest, aside)
+    except OSError:
+        raise busy from None
+    try:
         os.rename(staging, dest)
     except OSError:
-        raise MaterialiseError(
-            f"{dest} already exists and is not an empty folder",
-            details={"path": str(dest)},
-        ) from None
+        with contextlib.suppress(OSError):
+            os.rename(aside, dest)  # restore the caller's empty folder
+        raise busy from None
+    with contextlib.suppress(OSError):
+        aside.rmdir()
 
 
 def build_job(

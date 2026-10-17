@@ -59,7 +59,7 @@ the same node and library build (BLAS and GPUs round differently).
 
 | Family | Work (library) | Parameters (default = smallest) | Self-check | Exact |
 |---|---|---|---|---|
-| `cpu.matmul` | n x n matrix multiply (numpy/BLAS, all cores) | `n` 256-4096 (2048), `repeats` 1-500 (22), `dtype` float64/float32 | row-wise Freivalds, 3 vectors, in float64: every row within 2 eps of its rounding bound (one wrong element fails) | no |
+| `cpu.matmul` | n x n matrix multiply (numpy/BLAS, all cores) | `n` 256-4096 (2048), `repeats` 1-500 (22), `dtype` float64/float32 | row-wise Freivalds, 3 vectors, in float64: every row within `k eps (\|A\|(\|B\|\|x\|))_i / sqrt(n)` (k = 4 float32, 8 float64; see below) | no |
 | `cpu.primes` | sieve of Eratosthenes (pure Python, 1 core) | `limit` 1e7-4e8 (1e8), `repeats` 1-100 (4) | whole table vs an independent odd-only sieve, + 64 trial divisions, + pi(x) for 1e7 / 1e8 | yes |
 | `cpu.sort` | sort random int64 (numpy, 1 core) | `n` 1e6-5e7 (1e7), `repeats` 1-500 (18) | equals the input sorted by a different algorithm (stable sort): a permutation check | yes |
 | `cpu.zlib` | compress word-like synthetic text (stdlib, 1 core) | `size_mb` 8-256 (64), `level` 1/6/9 (6), `repeats` 1-100 (2) | decompresses to the input | yes |
@@ -67,8 +67,8 @@ the same node and library build (BLAS and GPUs round differently).
 | `cpu.integrate` | composite Simpson of `exp(-ax) cos(bx)` (numpy, chunked) | `points_m` 10-4000 (70), `repeats` 1-50 (1) | analytic integral, rel. error <= 1e-8 | no |
 | `memory.copy` | `numpy.copyto` int64 array into another | `size_mb` 64-1024 (1024), `repeats` 1-5000 (60) | destination equals source; the destination is poisoned after the warm-up, so only the timed loop can make it so | yes |
 | `memory.groupby` | sort-based group-by: count/sum/max per key (numpy, pandas-free) | `rows_m` 1-40 (10), `groups` 10-1e6 (1e4), `repeats` 1-100 (4) | every group's key, count, sum and max vs a scatter recompute (`bincount`, `maximum.at`) | yes |
-| `gpu.matmul` | n x n matmul (torch, CUDA) | `n` 1024-12288 (4096), `repeats` 1-5000 (200), `dtype` float32/float16 | Freivalds in float32 | no |
-| `gpu.conv2d` | 3x3 convolution, padding 1 (cuDNN) | `batch` 1-256 (32), `channels` 16-512 (128), `size` 16-256 (64), `repeats` (300) | 16 sampled outputs recomputed in float64 on the CPU | no |
+| `gpu.matmul` | n x n matmul (torch, CUDA) | `n` 1024-12288 (4096), `repeats` 1-5000 (200), `dtype` float32/float16 | the same row-wise float64 Freivalds as `cpu.matmul` (shared helper; k = 4 float32, 8 float16) | no |
+| `gpu.conv2d` | 3x3 convolution, padding 1 (cuDNN) | `batch` 1-256 (32), `channels` 16-512 (128), `size` 16-256 (64), `repeats` (300) | the whole output recomputed in float64 on the device; each element within 2e-3 of `conv(\|x\|, \|w\|)` (allows cuDNN TF32) | no |
 | `gpu.elementwise` | `sin`, then `ops` fused `x + c*y` steps (bandwidth-bound) | `elements_m` 16-256 (64), `ops` 1-64 (16), `repeats` (60) | the whole output recomputed in float64 on the device, in chunks | no |
 | `gpu.resize` | bilinear resize of RGB images | `batch` 1-256 (64), `size` 64-1024 (256), `out_size` 32-2048 (512), `repeats` (1100) | every image resized again in float64 on the device; a wrong shape fails the check | no |
 | `ml.cnn_infer` | small CNN (conv-BN-ReLU blocks) inference | `batch` 1-512 (64), `width` 16-256 (64), `depth` 2-12 (6), `image` 32/64, `batches` (1000) | finite logits; last batch rerun equal | no |
@@ -89,7 +89,8 @@ The first CUDA lab run recalibrates them (`tests/component/bench/` runs the GPU 
 ### What a benchmark job folder holds
 
 `build_job(family, params, seed, dest)` writes a normal job folder that `compute run` accepts (atomically:
-it is built in a private sibling folder and renamed into place):
+it is built in a private sibling folder and renamed into place; on Windows, which cannot rename onto a folder,
+the caller's empty folder is renamed aside and restored if the final rename fails):
 
 ```
 compute.yaml              manifest: entrypoint [python, run_workload.py] (argv, never a shell),
@@ -124,8 +125,24 @@ The run's only output (`schema_version` 1):
 
 The job side re-checks what it reads (a hand-edited `workload_params.json` must not crash or allocate
 without bound): seed `0..2**32-1`, no unknown keys, each integer `1..` the family's maximum, choices as listed
-(`runner.PARAM_LIMITS`, held equal to the family models by a unit test). The minimum is 1, not the family's: the
+(`runner.PARAM_LIMITS`, held equal to the family models by a unit test; `cpu.primes` `limit` starts at 2,
+`runner.PARAM_MINIMA`). The minimum is 1, not the family's: the
 5 s - 3 min window is the library's rule, and tiny runs are how the kernels are tested.
+
+**Check rules (every kernel).** (1) Shape and dtype are checked first: a wrong-shaped or garbage output is a
+failed check, never an exception. (2) A NaN or inf anywhere in a float output fails, and every worst-error
+reduction uses `worse()`, which keeps NaN (Python's `max(worst, nan)` silently drops it). (3) The whole output is
+verified, independently of the timed path. `tests/unit/bench/test_v09_g2_check_rules.py` holds every family to
+all three.
+
+**Matmul tolerance (measured).** Row `i` of `C x - A (B x)` must stay within
+`k * eps(dtype) * (|A| (|B| |x|))_i / sqrt(n)`. On Laptop 1 (numpy/OpenBLAS and torch-CPU, n = 1..4096, 20 seeds x
+3 vectors up to 1024) the worst honest product used 1.43 units in float32, 3.44 in float64 (the float64 reference
+rounds as much as the product) and 0.51 in float16; the ratio falls with n (float32: 0.35 at n = 4096), so the
+GPU corner n = 12288 extrapolates lower. k = 4 (float32) / 8 (float64, float16) leaves >= 2.3x headroom; one
+float32 element off by 1e-2 at n = 384 scores 22 units (5.5x over). Rows are converted to float64 1024 at a time,
+so even a 12288 x 12288 GPU product needs no float64 copy. Recalibrate on the first CUDA run (cuBLAS may round
+differently from OpenBLAS).
 
 **Self-checks are what the dataset trusts.** Labels (G5) use `verified`, so every check must fail on wrong
 output, not only on gross corruption; the mutation tests in `tests/unit/bench/` and
