@@ -262,6 +262,8 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
+**2026-10-17 (G0 MERGED, D226; post-merge lint/mypy/e2e-collect green, frontend rebuilt) — RUNNING: whole `-m component` ONCE alone on main (log scratchpad v09_g0g2_component.log). If died: rerun `uv run python scripts/pytest_exit_guard.py -m component -q -rs` alone. Green → 0.9.2 `[x]`, G0 closed, status bar, STATUS → launch G1 implementer (brief §5b, item 0 = D226). 🧑 0.8.10 perf step E3 now unblocked.**
+
 **2026-10-17 (G2 MERGED `8010dcb`, D225; unit on main 12757 exit 0) — RUNNING: G0 fix r2 only. Next: G0 reviewer → merge → rebuild frontend → whole `-m component` ONCE alone (covers G0+G2) → close G0 + 0.9.2 `[x]` + status bar → write G1 brief (item 0 none; G3 item 0 = D225 list).**
 
 **2026-10-17 (G2 fix r2 DONE `f92ccb1`,`271b039`: shared _support check rules in all 15 kernels) — RUNNING: G2 reviewer (no tester r3) ∥ G0 fix r2. Freivalds n=12288 headroom + cuBLAS rounding + float64 check cost → confirm on first CUDA run.**
