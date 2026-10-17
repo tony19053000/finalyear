@@ -141,7 +141,8 @@ def test_smallest_matmul_benchmark_job_through_the_fabric(
     actual = decisions[-1]["actual"]
     assert actual["attempt_id"] == attempt["attempt_id"], (actual, attempt)
     phases = actual["phases_ms"]
-    assert len(phases) == 5, phases
+    # V0.9 G1: six phases - the sixth, compute, is the workload's own time.
+    assert len(phases) == 6 and phases["compute"] is not None, phases
     run_ms = max(v for v in phases.values() if v is not None)
     # The workload's own compute time fits inside the attempt's longest phase.
     assert result.compute_ms is not None and result.compute_ms <= run_ms, phases
