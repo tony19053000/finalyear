@@ -109,11 +109,6 @@ async def test_an_ascii_secret_echoed_into_the_workload_report_is_dropped(
     assert value.encode() not in export and value not in db
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT-3: JSON-escaped secret (non-ASCII / quote) survives the agent's "
-    "redaction of params_json",
-)
 @pytest.mark.parametrize(
     "value", ["pässword-é-secret-123456", 'q"uote\\back-slash-9876']
 )

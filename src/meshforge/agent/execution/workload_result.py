@@ -15,7 +15,21 @@ The file is written by the workload, so it is **untrusted input**:
 * at most :data:`MAX_RESULT_BYTES` read; anything else (not JSON, not an object,
   wrong types) means "no report", never an error for the attempt;
 * every field bounded (:data:`MAX_FAMILY_CHARS`, :data:`MAX_PARAMS_JSON_CHARS`,
-  a known status, ``compute_ns`` within 8 days).
+  a known status, ``compute_ns`` within 8 days, ``compute_iterations`` a strict
+  integer in ``1..``:data:`MAX_COMPUTE_ITERATIONS`); a field of the wrong type
+  is dropped, never an exception;
+* ``params`` must be storable: a key or string anywhere in it with a NUL or a
+  lone surrogate (PostgreSQL JSONB refuses both) drops the whole ``params``.
+
+``compute_ns`` is the kernel's **whole** timed loop; ``compute_iterations`` says
+how many iterations it covers (D225/D228; one iteration = ``compute_ns /
+compute_iterations``). It is null when nothing was computed.
+
+**Secrets (RE-I6).** A field in which the attempt's secret matcher finds one of
+the job's secret values is dropped. ``params`` is matched on its **decoded**
+content - every key and every string value, as the workload wrote it - and on its
+canonical JSON text (numbers): matching only the JSON text would miss a secret
+that JSON escapes (non-ASCII, ``"``, ``\\``).
 
 Any job may write such a file; for a non-benchmark job it is simply absent.
 """
@@ -41,6 +55,7 @@ from meshforge.common.secret_redaction import (
 )
 
 __all__ = [
+    "MAX_COMPUTE_ITERATIONS",
     "MAX_PARAMS_JSON_CHARS",
     "MAX_RESULT_BYTES",
     "RESULT_PATH",
@@ -53,6 +68,10 @@ MAX_RESULT_BYTES: Final = 256 * 1024
 MAX_FAMILY_CHARS: Final = 64
 MAX_PARAMS_JSON_CHARS: Final = 4096
 MAX_COMPUTE_NS: Final = 8 * 24 * 3600 * 10**9
+MAX_COMPUTE_ITERATIONS: Final = 100_000
+"""The largest loop parameter of any benchmark family (``ml.*`` ``batches``;
+``meshforge.bench`` ``PARAM_LIMITS`` - a unit test holds them together: the agent
+does not import the bench package)."""
 STATUSES: Final = frozenset({"ok", "check_failed", "unavailable", "bad_params"})
 _NAME: Final = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}$")
 _NOFOLLOW: Final = getattr(os, "O_NOFOLLOW", 0)
@@ -70,6 +89,8 @@ class WorkloadReport:
     device: str
     compute_ns: int | None
     result_schema_version: int
+    compute_iterations: int | None = None
+    """Iterations ``compute_ns`` covers; None = not run / not reported."""
 
     def to_proto(self) -> agent_pb2.WorkloadReport:
         msg = agent_pb2.WorkloadReport(
@@ -81,6 +102,8 @@ class WorkloadReport:
         )
         if self.seed is not None:
             msg.seed = self.seed
+        if self.compute_iterations is not None:
+            msg.compute_iterations = self.compute_iterations
         return msg
 
 
@@ -104,26 +127,66 @@ def read_workload_result(
         return None
     if not isinstance(document, dict):
         return None
-    report = _report(document)
+    try:
+        report = _report(document)
+    except (TypeError, ValueError, RecursionError):  # pragma: no cover - defensive
+        return None  # a shape the field checks did not foresee: no report
     if report is None or matcher is None or not matcher:
         return report
-    return _without_secrets(report, matcher)
+    return _without_secrets(report, document.get("params"), matcher)
 
 
-def _without_secrets(report: WorkloadReport, matcher: SecretMatcher) -> WorkloadReport:
-    def clean(value: str) -> str:
-        data = value.encode("utf-8")
+def _without_secrets(
+    report: WorkloadReport, params: object, matcher: SecretMatcher
+) -> WorkloadReport:
+    """``report`` minus every field that carries a secret (module docstring)."""
+
+    def leaks(value: str) -> bool:
+        data = value.encode("utf-8", "surrogatepass")
         try:
-            return value if redact_bytes(data, matcher) == data else ""
+            return redact_bytes(data, matcher) != data
         except RedactionStallError:
-            return ""  # fail closed: the field is dropped
+            return True  # fail closed: the field is dropped
 
+    params_json = report.params_json
+    if params_json and (
+        leaks(params_json) or any(leaks(text) for text in _strings(params))
+    ):
+        params_json = ""
     return dataclasses.replace(
         report,
-        family=clean(report.family),
-        params_json=clean(report.params_json),
-        device=clean(report.device),
+        family="" if leaks(report.family) else report.family,
+        params_json=params_json,
+        device="" if leaks(report.device) else report.device,
     )
+
+
+def _strings(value: object) -> list[str]:
+    """Every key and string value in a parsed JSON value (iterative: no
+    recursion limit), as decoded text."""
+    found: list[str] = []
+    stack = [value]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, str):
+            found.append(item)
+        elif isinstance(item, dict):
+            found.extend(k for k in item if isinstance(k, str))
+            stack.extend(item.values())
+        elif isinstance(item, list):
+            stack.extend(item)
+    return found
+
+
+def _storable(text: str) -> bool:
+    """No NUL and no lone surrogate (PostgreSQL text/JSONB refuse both)."""
+    if "\x00" in text:
+        return False
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
 
 
 def _read_bounded(workdir: Path) -> bytes | None:
@@ -194,29 +257,41 @@ def _report(document: dict[str, Any]) -> WorkloadReport | None:
     status = document.get("status")
     if not isinstance(family, str) or not _NAME.match(family):
         family = ""
-    if status not in STATUSES:
+    # isinstance first: ``in`` on a frozenset hashes, and a list/dict is unhashable
+    if not isinstance(status, str) or status not in STATUSES:
         return None
-    params = document.get("params")
-    params_json = ""
-    if isinstance(params, dict):
-        try:
-            text = json.dumps(
-                params, sort_keys=True, separators=(",", ":"), allow_nan=False
-            )
-        except (TypeError, ValueError):
-            text = ""
-        params_json = text if len(text) <= MAX_PARAMS_JSON_CHARS else ""
     device = document.get("device")
     version = _bounded_int(document.get("schema_version"), 1, 2**31 - 1)
+    compute_ns = _compute_ns(document.get("compute_ns"))
+    iterations = _bounded_int(
+        document.get("compute_iterations"), 1, MAX_COMPUTE_ITERATIONS
+    )
     return WorkloadReport(
         family=family,
-        params_json=params_json,
+        params_json=_params_json(document.get("params")),
         seed=_bounded_int(document.get("seed"), 0, _MAX_SEED),
-        status=str(status),
+        status=status,
         device=device if isinstance(device, str) and _NAME.match(device) else "",
-        compute_ns=_compute_ns(document.get("compute_ns")),
+        compute_ns=compute_ns,
         result_schema_version=0 if version is None else version,
+        compute_iterations=None if compute_ns is None else iterations,
     )
+
+
+def _params_json(params: object) -> str:
+    """Canonical JSON of ``params``, or "" (absent, not an object, not
+    storable, too large)."""
+    if not isinstance(params, dict):
+        return ""
+    if not all(_storable(text) for text in _strings(params)):
+        return ""
+    try:
+        text = json.dumps(
+            params, sort_keys=True, separators=(",", ":"), allow_nan=False
+        )
+    except (TypeError, ValueError, RecursionError):
+        return ""
+    return text if len(text) <= MAX_PARAMS_JSON_CHARS else ""
 
 
 def _bounded_int(value: object, low: int, high: int) -> int | None:

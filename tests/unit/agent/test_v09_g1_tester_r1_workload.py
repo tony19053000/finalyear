@@ -54,11 +54,6 @@ def test_a_non_string_status_is_no_report_not_an_exception(
     assert read_workload_result(tmp_path) is None
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT-4: an unhashable status (list/dict) raises TypeError out of "
-    "read_workload_result (status not in frozenset)",
-)
 @pytest.mark.parametrize("status", [["ok"], {"a": 1}], ids=["list", "dict"])
 def test_defect_4_an_unhashable_status_is_no_report_not_an_exception(
     tmp_path: Path, status: Any
@@ -249,11 +244,6 @@ def test_a_secret_split_across_two_fields_is_a_documented_residual() -> None:
 
 
 @pytest.mark.security
-@pytest.mark.xfail(
-    strict=True,
-    reason='DEFECT-3: params_json is JSON-escaped (\\uXXXX, \\", \\\\) before the '
-    "matcher runs; secrets with non-ASCII / quote / backslash leak",
-)
 @pytest.mark.parametrize(
     "secret",
     ["pässword-xyz-123", 'ab"cd\\ef-ghijk', "emoji-😀-secret-1", "日本語のパスワード"],
