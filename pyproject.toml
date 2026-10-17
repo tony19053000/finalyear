@@ -56,6 +56,10 @@ controller = [
     # so no sync driver (psycopg) is needed.
     "alembic>=1.20",
     "zeroconf>=0.151",
+    # V0.9 G1 (D211/D223, approved): the telemetry dataset is a Parquet export.
+    # Byte-identical exports (D222) hold for one pyarrow version: the file names
+    # its writer (created_by), so a lock bump is a dataset-format change.
+    "pyarrow>=26",
 ]
 agent = [
     "psutil>=7.2",
@@ -405,9 +409,11 @@ ignore_errors = true
 
 # Third-party modules without type information. torch is only present with
 # `--extra gpu`; docker comes in via testcontainers; asyncpg ships no stubs; yaml
-# (PyYAML, via pre-commit) is only read by tests and has no stubs installed.
+# (PyYAML, via pre-commit) is only read by tests and has no stubs installed;
+# pyarrow (V0.9 G1 telemetry export) ships no py.typed.
 [[tool.mypy.overrides]]
 module = [
     "docker", "docker.*", "torch", "torch.*", "asyncpg", "asyncpg.*", "yaml",
+    "pyarrow", "pyarrow.*",
 ]
 ignore_missing_imports = true

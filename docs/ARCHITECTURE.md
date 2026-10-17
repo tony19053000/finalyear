@@ -816,6 +816,32 @@ Benchmarks run through **the same code paths as users** — so benchmark data re
 
 *V0.6 G4 (D108, D111) - what is recorded today for the estimator and V0.15:* per attempt the five phase timings (`attempt_phase`), per tree and source the transfer (`transfer_event`), and since migration 0014 the agent's `env_hash` and the `output_bytes` its upload grant stored; per node pair the network matrix (`network_link`: EWMA RTT and throughput from peer probes, `samples`, `measured_at`); per decision every candidate's predicted terms with their `source` (`plan_decision`), joined to the actual phases through `attempt_id`. Probe traffic is itself bounded telemetry (≤ 48 MiB/min fabric-wide by default) and the controller -> node links reuse transfer history at no traffic cost.
 
+*V0.9 G1 (D211–D213, ADR-0018) - telemetry schema v1 (`docs/TELEMETRY.md` has every column):*
+
+- **Record = `run_record`** (migration 0021), one row per terminal attempt of every job, built by a pure function
+  (`controller/telemetry/record.py`) from persisted rows and written by a **reconciler sweep**
+  (`telemetry/recorder.py`: terminal attempts with no record, `ON CONFLICT DO NOTHING`, every 2 s and on any
+  attempt change). Chosen over "in the terminal transaction" because attempts end in many places (agent report,
+  node loss, restart recovery, backstops, cancel, retry fencing): a sweep by state cannot miss one, survives a
+  crash, and a telemetry bug never rolls back a job transition. Untrusted workload values are bounded or nulled by
+  the builder; a record PostgreSQL still refuses is isolated (savepoint, then row by row), skipped until restart and
+  raised as a `telemetry_record_skipped` alert, so one bad record never jams the sweep. "At start" values are copied into the start
+  snapshot's `telemetry` block at dispatch (queue depth, warm/cold per tree, the network row to the node, clock).
+- **Dataset = Parquet** (`telemetry/export.py`, pyarrow): `GET /v1/telemetry/export` (admin) and
+  `compute telemetry export`. Same records → same bytes (stable sort, fixed columns, pinned writer, no export-time
+  value). `telemetry/schema.py` declares the columns and a frozen fingerprint per `SCHEMA_VERSION`; a test fails
+  when model, export or docs drift, or the columns change without a version bump.
+- **Times:** every duration is monotonic where the work ran - a sixth phase `compute` is the workload's own kernel
+  time (`results/workload.json`, read by the agent once after exit, bounded, no symlinks, fields holding a job
+  secret dropped); `compute_ns` is the whole timed loop and `compute_iterations` its iteration count (D228). The controller keeps a **per-node clock offset** (agent − controller ± bound) from Ping/Pong
+  exchanges: wall time at the Ping, the Pong envelope's `sent_at`, receive = Ping wall + monotonic RTT, over a
+  recent window (32 exchanges / 300 s) widened by the agent's clock resolution; shown on node detail, stored on the
+  session row and in each record, alert `clock_uncertain` when the bound exceeds 250 ms or the window is
+  inconsistent. No new code subtracts timestamps from two hosts.
+- **Failure class** on every record: `ok`, `workload`, `infrastructure`, `condition_failed`, `unavailable`.
+- The agent's live-log redaction runs in one worker thread per attempt (D224), so benchmark load cannot stall its
+  event loop (heartbeats, pongs, reports).
+
 ---
 
 ## 18. ML subsystem

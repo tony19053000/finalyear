@@ -9,6 +9,7 @@ echoes the value) and counts it. :func:`parse_status` returns the typed
 
 from __future__ import annotations
 
+import json
 import math
 import re
 from typing import Any, Final
@@ -25,6 +26,7 @@ from meshforge.common.states import AttemptState
 from meshforge.controller.jobs.execution_store import StatusReport, TransferRow
 from meshforge.controller.jobs.progress import (
     AGENT_REPORTABLE,
+    MAX_PHASE_NS,
     MAX_PHASE_S,
     AgentPhases,
 )
@@ -73,7 +75,115 @@ def _phases(status: agent_pb2.AttemptStatus) -> AgentPhases | str | None:
         if not (math.isfinite(value) and 0 <= value <= MAX_PHASE_S):
             return f"AttemptStatus.phases.{name} must be a finite number in [0, {MAX_PHASE_S:g}]"
         values[name] = value
-    return AgentPhases(**values)
+    compute_ns: int | None = None
+    if p.HasField("compute_ns"):
+        if p.compute_ns > MAX_PHASE_NS:
+            return f"AttemptStatus.phases.compute_ns is over {MAX_PHASE_NS}"
+        compute_ns = int(p.compute_ns)
+    return AgentPhases(**values, compute_ns=compute_ns)
+
+
+MAX_WORKLOAD_FAMILY_CHARS: Final = 64
+MAX_WORKLOAD_PARAMS_CHARS: Final = 4096
+WORKLOAD_STATUSES: Final = frozenset(
+    {"ok", "check_failed", "unavailable", "bad_params"}
+)
+_WORKLOAD_NAME: Final = re.compile(r"[a-z0-9][a-z0-9_.-]{0,63}")
+MAX_WORKLOAD_ITERATIONS: Final = 100_000
+"""Bound on ``WorkloadReport.compute_iterations`` (D228): the largest loop
+parameter of any benchmark family (the agent reader holds the same bound)."""
+
+
+def _workload(
+    status: agent_pb2.AttemptStatus, state: AttemptState, phases: AgentPhases | None
+) -> dict[str, Any] | str | None:
+    """V0.9 G1 (D212): the benchmark's own report -> the ``attempt.workload``
+    document (terminal reports only; bounded; refused, never cleaned)."""
+    if not status.HasField("workload"):
+        return None
+    if state not in (AttemptState.DONE, AttemptState.FAILED):
+        return "AttemptStatus.workload is set on a non-terminal report"
+    w = status.workload
+    for name, value in (("family", w.family), ("device", w.device)):
+        if value and not _WORKLOAD_NAME.fullmatch(value):
+            return f"AttemptStatus.workload.{name} is not a short lowercase name"
+    if w.status not in WORKLOAD_STATUSES:
+        return "AttemptStatus.workload.status is not a known status"
+    params: dict[str, Any] | None = None
+    if w.params_json:
+        if len(w.params_json) > MAX_WORKLOAD_PARAMS_CHARS:
+            return (
+                "AttemptStatus.workload.params_json is over "
+                f"{MAX_WORKLOAD_PARAMS_CHARS} characters"
+            )
+        try:
+            parsed = json.loads(
+                w.params_json, parse_constant=_no_constant, parse_float=_finite_float
+            )
+        except (ValueError, RecursionError):
+            return "AttemptStatus.workload.params_json is not JSON"
+        if not isinstance(parsed, dict):
+            return "AttemptStatus.workload.params_json is not a JSON object"
+        if not _storable_json(parsed):
+            return "AttemptStatus.workload.params_json has a NUL or a lone surrogate"
+        params = parsed
+    compute_ns = None if phases is None else phases.compute_ns
+    iterations: int | None = None
+    if w.HasField("compute_iterations"):
+        iterations = int(w.compute_iterations)
+        if not 1 <= iterations <= MAX_WORKLOAD_ITERATIONS:
+            return (
+                "AttemptStatus.workload.compute_iterations must be in "
+                f"[1, {MAX_WORKLOAD_ITERATIONS}]"
+            )
+        if compute_ns is None:
+            return "AttemptStatus.workload.compute_iterations is set without compute_ns"
+    return {
+        "family": w.family or None,
+        "params": params,
+        "seed": int(w.seed) if w.HasField("seed") else None,
+        "status": w.status,
+        "device": w.device or None,
+        "result_schema_version": int(w.result_schema_version) or None,
+        "compute_ns": compute_ns,
+        "compute_iterations": iterations,
+    }
+
+
+def _storable_json(value: object) -> bool:
+    """No key or string in ``value`` has a NUL or a lone surrogate (PostgreSQL
+    JSONB refuses both: storing one would fail the attempt's terminal write)."""
+    stack = [value]
+    while stack:
+        item = stack.pop()
+        texts: list[object] = []
+        if isinstance(item, str):
+            texts.append(item)
+        elif isinstance(item, dict):
+            texts.extend(item)
+            stack.extend(item.values())
+        elif isinstance(item, list):
+            stack.extend(item)
+        for text in texts:
+            if not isinstance(text, str) or "\x00" in text:
+                return False
+            try:
+                text.encode("utf-8")
+            except UnicodeEncodeError:
+                return False
+    return True
+
+
+def _no_constant(name: str) -> Any:
+    raise ValueError(f"{name} is not JSON")
+
+
+def _finite_float(text: str) -> float:
+    """Refuse literals like ``1e400`` that overflow to inf (PostgreSQL JSONB rejects them)."""
+    value = float(text)
+    if not math.isfinite(value):
+        raise ValueError(f"{text} is not a finite number")
+    return value
 
 
 MAX_LOG_REPORT_BYTES: Final = 1 << 40
@@ -161,6 +271,9 @@ def parse_status(status: agent_pb2.AttemptStatus) -> StatusReport | str:
     phases = _phases(status)
     if isinstance(phases, str):
         return phases
+    workload = _workload(status, state, phases)
+    if isinstance(workload, str):
+        return workload
     logs = _final_logs(status)
     if isinstance(logs, str):
         return logs
@@ -184,6 +297,7 @@ def parse_status(status: agent_pb2.AttemptStatus) -> StatusReport | str:
         transfers=transfers,
         env_hash=status.env_hash or None,
         retryable=retryable,
+        workload=workload,
     )
 
 

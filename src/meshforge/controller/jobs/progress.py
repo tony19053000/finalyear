@@ -20,10 +20,13 @@ controller sent (D69), so the job becomes ``CANCELLED``. ``LOST`` fails the job
 store turns it into a retry or a job failure in the same transaction
 (:func:`~.execution_store._fail_or_retry`, :mod:`.retry`).
 
-**Phases (D68).** :func:`phase_rows` always yields all five
+**Phases (D68).** :func:`phase_rows` always yields all six
 :class:`~meshforge.common.states.AttemptPhase` rows. ``queue`` is the
-controller's own ``QUEUED -> PREPARING`` interval from the job history; the
-other four are the agent's monotonic durations. A phase with no measurement is
+controller's own ``QUEUED -> PREPARING`` interval from the job history (one
+host's clock: the controller's, never an agent's); ``stage``/``env``/``run``/
+``collect`` are the agent's monotonic durations; ``compute`` (V0.9 G1) is the
+workload's own monotonic kernel time inside ``run`` (benchmarks only, else
+skipped). A phase with no measurement is
 ``skipped`` with ``duration_ms = 0`` - never a missing row, never an invented
 number. ``started_at`` of the agent phases is derived: anchored at the StartAttempt
 ack (else the attempt's creation) and advanced by the preceding durations.
@@ -128,6 +131,7 @@ def job_event_for(
 
 MAX_PHASE_S: Final = 8 * 24 * 3600.0
 """A phase longer than the longest job limit plus a day is not a measurement."""
+MAX_PHASE_NS: Final = int(MAX_PHASE_S) * 10**9
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,6 +142,8 @@ class AgentPhases:
     env_s: float | None = None
     run_s: float | None = None
     collect_s: float | None = None
+    compute_ns: int | None = None
+    """V0.9 G1: the workload's own kernel time (benchmarks), nanoseconds."""
 
     def __post_init__(self) -> None:
         for name in ("stage_s", "env_s", "run_s", "collect_s"):
@@ -148,6 +154,8 @@ class AgentPhases:
                 raise ValueError(
                     f"{name} must be a finite number in [0, {MAX_PHASE_S:g}]"
                 )
+        if self.compute_ns is not None and not 0 <= self.compute_ns <= MAX_PHASE_NS:
+            raise ValueError(f"compute_ns must be in [0, {MAX_PHASE_NS}]")
 
 
 @dataclass(frozen=True, slots=True)
@@ -168,7 +176,7 @@ def phase_rows(
     anchor: dt.datetime,
     agent: AgentPhases | None,
 ) -> list[PhaseRow]:
-    """All five phase rows of one attempt (see module docstring).
+    """All six phase rows (V0.9 G1: + ``compute``) of one attempt (see module docstring).
 
     ``history`` is the job's ``(from, to, at)`` list in order; ``anchor`` the
     StartAttempt ack time (else the attempt's creation). ``agent`` None = the
@@ -194,15 +202,31 @@ def phase_rows(
         rows.append(PhaseRow(AttemptPhase.QUEUE, anchor, 0, skipped=True))
     known = agent or AgentPhases()
     at = anchor
+    run_at = anchor
     for phase, seconds in (
         (AttemptPhase.STAGE, known.stage_s),
         (AttemptPhase.ENV, known.env_s),
         (AttemptPhase.RUN, known.run_s),
         (AttemptPhase.COLLECT, known.collect_s),
     ):
+        if phase is AttemptPhase.RUN:
+            run_at = at
         if seconds is None:
             rows.append(PhaseRow(phase, at, 0, skipped=True))
             continue
         rows.append(PhaseRow(phase, at, _ms(seconds), skipped=False))
         at = at + dt.timedelta(seconds=seconds)
+    # V0.9 G1: compute lies inside run (started_at = run's); the row keeps ms,
+    # the run record keeps the exact nanoseconds.
+    if known.compute_ns is None:
+        rows.append(PhaseRow(AttemptPhase.COMPUTE, run_at, 0, skipped=True))
+    else:
+        rows.append(
+            PhaseRow(
+                AttemptPhase.COMPUTE,
+                run_at,
+                max(0, round(known.compute_ns / 1_000_000)),
+                skipped=False,
+            )
+        )
     return rows

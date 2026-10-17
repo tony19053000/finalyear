@@ -159,6 +159,8 @@ def test_cli_only_is_the_exception() -> None:
         "fabric join",
         "node gc",
         "node prepare",
+        # V0.9 G1: the Parquet dataset download; G6's Benchmarks page adds it.
+        "telemetry export",
     ]
 
 

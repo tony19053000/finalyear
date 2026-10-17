@@ -21,19 +21,34 @@
 
 from __future__ import annotations
 
-import dataclasses
 import datetime as dt
-from collections.abc import Collection, Mapping
+from collections.abc import Collection, Mapping, Sequence
 from typing import Any, Final
 
+from meshforge.common.clock_offset import ClockOffset, round_up
 from meshforge.common.manifest import Manifest
 from meshforge.common.owner_policy import OwnerPolicy
 from meshforge.common.proto.meshforge.v1 import agent_pb2
 from meshforge.controller.jobs.store import AttemptRecord, JobRecord
 from meshforge.controller.planner.inputs import gpu_indices_of, gpu_vram_of
+from meshforge.controller.planner.types import (
+    ControllerLinkStat,
+    LinkStat,
+    NodeSnapshot,
+    TreeNeed,
+)
 from meshforge.controller.resources import LiveSample
 
-__all__ = ["SNAPSHOT_VERSION", "choose_gpus", "execution_spec", "start_snapshot"]
+__all__ = [
+    "SNAPSHOT_SAMPLE_EXCLUDED",
+    "SNAPSHOT_SAMPLE_FIELDS",
+    "SNAPSHOT_VERSION",
+    "TELEMETRY_VERSION",
+    "choose_gpus",
+    "execution_spec",
+    "start_snapshot",
+    "start_telemetry",
+]
 
 SNAPSHOT_VERSION: Final = 1
 _GIB: Final = 1024**3
@@ -60,18 +75,57 @@ def choose_gpus(
     return (max(candidates)[2],)
 
 
+#: The :class:`LiveSample` fields the start snapshot copies (V0.9 G1, D226
+#: item 0.1): an explicit ALLOWLIST, never ``dataclasses.asdict``, so a field
+#: added to ``LiveSample`` later (G0's ``received_wall`` datetime, f6fe6f9) stays
+#: out of this JSON column until someone decides how to serialise it.
+SNAPSHOT_SAMPLE_FIELDS: Final = (
+    "session_epoch",
+    "sequence",
+    "observed_at",
+    "cpu_percent",
+    "ram_used_bytes",
+    "ram_total_bytes",
+    "gpus",
+    "disks",
+)
+#: Left out on purpose: ``received_at`` is the controller's monotonic clock
+#: (meaningless outside this process; ``age_s`` replaces it), ``received_wall``
+#: is the live event's ``recv_at`` (a datetime; ``age_s`` already says how old
+#: the sample is). A unit test fails when ``LiveSample`` gains a field that is
+#: in neither tuple.
+SNAPSHOT_SAMPLE_EXCLUDED: Final = ("received_at", "received_wall")
+
+
 def _sample(sample: LiveSample | None, now: float) -> dict[str, Any] | None:
     if sample is None:
         return None
-    data = dataclasses.asdict(sample)
-    data["observed_at"] = sample.observed_at.isoformat()
-    data["age_s"] = round(max(0.0, now - sample.received_at), 3)
-    del data["received_at"]  # monotonic: meaningless outside this process
-    # The controller's wall-clock arrival time (V0.9 G0, the live event's
-    # recv_at) is not part of the start snapshot: age_s already says how old
-    # the sample is, and a datetime is not JSON (the snapshot is a JSON column).
-    del data["received_wall"]
-    return data
+    return {
+        "session_epoch": int(sample.session_epoch),
+        "sequence": int(sample.sequence),
+        "observed_at": sample.observed_at.isoformat(),
+        "cpu_percent": float(sample.cpu_percent),
+        "ram_used_bytes": int(sample.ram_used_bytes),
+        "ram_total_bytes": int(sample.ram_total_bytes),
+        "gpus": [
+            {
+                "index": int(gpu.index),
+                "util_percent": float(gpu.util_percent),
+                "vram_used_bytes": int(gpu.vram_used_bytes),
+                "vram_total_bytes": int(gpu.vram_total_bytes),
+            }
+            for gpu in sample.gpus
+        ],
+        "disks": [
+            {
+                "mount": str(disk.mount),
+                "free_bytes": int(disk.free_bytes),
+                "total_bytes": int(disk.total_bytes),
+            }
+            for disk in sample.disks
+        ],
+        "age_s": round(max(0.0, now - sample.received_at), 3),
+    }
 
 
 def start_snapshot(
@@ -86,6 +140,7 @@ def start_snapshot(
     gpu_indices: tuple[int, ...],
     owner_name: str | None = None,
     policy: OwnerPolicy | None = None,
+    telemetry: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """The JSON start snapshot (see module docstring). V0.7 G5 (D142):
     ``owner_name`` is the job owner's user name the ``StartAttempt`` carries
@@ -104,6 +159,66 @@ def start_snapshot(
         "resources": _sample(sample, monotonic_now),
         "scores": None if hardware_scores is None else dict(hardware_scores),
         "gpu_indices": list(gpu_indices),
+        "telemetry": None if telemetry is None else dict(telemetry),
+    }
+
+
+TELEMETRY_VERSION: Final = 1
+
+
+def start_telemetry(
+    *,
+    node: NodeSnapshot | None,
+    trees: Sequence[TreeNeed],
+    submitter_node_id: str | None,
+    node_id: str,
+    links: Mapping[tuple[str, str], LinkStat],
+    controller_links: Mapping[str, ControllerLinkStat],
+    clock: ClockOffset | None,
+) -> dict[str, Any]:
+    """V0.9 G1 (D212): what the run record needs to know **at start** and the
+    tables will have forgotten by the end - the node's queue depth, which of
+    the job's trees it held whole (warm/cold), the network row to it (the
+    submitter -> node peer link, else the controller -> node history) and its
+    clock offset. Plain JSON (numbers rounded, no datetimes)."""
+    cached = frozenset() if node is None else node.cached
+    network: dict[str, Any] | None = None
+    peer = (
+        links.get((node_id, submitter_node_id))
+        if submitter_node_id and submitter_node_id != node_id
+        else None
+    )
+    if peer is not None:
+        network = {
+            "source": "peer",
+            "rtt_ms": round(peer.rtt_ms, 3),
+            "bw_bytes_s": round(peer.bw_bytes_s, 1),
+            "samples": int(peer.samples),
+        }
+    elif (ctl := controller_links.get(node_id)) is not None:
+        network = {
+            "source": "controller",
+            "rtt_ms": None,
+            "bw_bytes_s": round(ctl.bw_bytes_s, 1),
+            "samples": int(ctl.samples),
+        }
+    return {
+        "version": TELEMETRY_VERSION,
+        "node_live_attempts": None if node is None else int(node.live_attempts),
+        "cache": [
+            {"tree_id": t.key, "bytes": int(t.size), "warm": t.key in cached}
+            for t in trees
+            if t.key
+        ],
+        "network": network,
+        "clock": None
+        if clock is None
+        else {
+            "clock_offset_ms": round(clock.offset_ms, 3),
+            "clock_offset_bound_ms": round_up(clock.bound_ms, 3),
+            "consistent": clock.consistent,
+            "exchanges": clock.exchanges,
+        },
     }
 
 

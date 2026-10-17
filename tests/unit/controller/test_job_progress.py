@@ -19,6 +19,7 @@ from meshforge.controller.jobs.progress import (
     AGENT_REPORTABLE,
     MAX_PHASE_S,
     AgentPhases,
+    PhaseRow,
     StaleReportError,
     attempt_path,
     job_event_for,
@@ -91,13 +92,25 @@ HISTORY = [
 ]
 
 
+def by_phase(rows: list[PhaseRow]) -> dict[AttemptPhase, PhaseRow]:
+    return {r.phase: r for r in rows}
+
+
 def test_all_five_phases_measured() -> None:
     rows = phase_rows(
         history=HISTORY,
         anchor=T0 + dt.timedelta(seconds=2),
-        agent=AgentPhases(stage_s=0.5, env_s=1.0, run_s=3.0, collect_s=0.25),
+        agent=AgentPhases(
+            stage_s=0.5, env_s=1.0, run_s=3.0, collect_s=0.25, compute_ns=2_500_400_000
+        ),
     )
     assert [r.phase for r in rows] == list(AttemptPhase)
+    # V0.9 G1: compute lies inside run (same start), ms rounded.
+    assert by_phase(rows)[AttemptPhase.COMPUTE].duration_ms == 2500
+    assert (
+        by_phase(rows)[AttemptPhase.COMPUTE].started_at
+        == by_phase(rows)[AttemptPhase.RUN].started_at
+    )
     by = {r.phase: r for r in rows}
     assert by[AttemptPhase.QUEUE].duration_ms == 1995
     assert by[AttemptPhase.RUN].duration_ms == 3000
@@ -111,15 +124,20 @@ def test_a_phase_that_never_ran_is_skipped_not_missing_not_invented() -> None:
         anchor=T0,
         agent=AgentPhases(stage_s=0.5, env_s=None, run_s=None, collect_s=None),
     )
-    assert len(rows) == 5
+    assert len(rows) == 6  # V0.9 G1: + compute
     by = {r.phase: r for r in rows}
-    for phase in (AttemptPhase.ENV, AttemptPhase.RUN, AttemptPhase.COLLECT):
+    for phase in (
+        AttemptPhase.ENV,
+        AttemptPhase.RUN,
+        AttemptPhase.COLLECT,
+        AttemptPhase.COMPUTE,
+    ):
         assert by[phase].skipped and by[phase].duration_ms == 0
 
 
 def test_controller_ended_attempt_has_only_the_queue_phase_measured() -> None:
     rows = phase_rows(history=HISTORY, anchor=T0, agent=None)
-    assert [r.skipped for r in rows] == [False, True, True, True, True]
+    assert [r.skipped for r in rows] == [False, True, True, True, True, True]
 
 
 def test_no_queue_interval_in_history_is_skipped() -> None:

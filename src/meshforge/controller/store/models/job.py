@@ -296,6 +296,13 @@ class Attempt(TimestampMixin, Base):
     output_bytes: Mapped[int | None] = mapped_column(UInt64, nullable=True)
     """V0.6 G4 (D108, migration 0014): bytes the attempt uploaded under its
     grant (outputs + final logs), on DONE - the estimator's ``out_bytes``."""
+    workload: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB(none_as_null=True), nullable=True
+    )
+    """V0.9 G1 (D212, migration 0021): a benchmark's own report from the
+    terminal status (``results/workload.json``: family, params, seed, status,
+    device, compute_ns, compute_iterations); NULL for every other job. Bounded by
+    the report parser."""
 
 
 class AttemptPhaseRow(Base):

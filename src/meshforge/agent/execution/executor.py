@@ -94,6 +94,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import dataclasses
+import functools
 import os
 import re
 import stat
@@ -130,6 +131,7 @@ from meshforge.agent.execution.fetch import (
     token_ok,
     tree_sources,
 )
+from meshforge.agent.execution.live_redaction import LiveRedaction
 from meshforge.agent.execution.logs import AttemptLogs, Chunk, file_sha256
 from meshforge.agent.execution.offer import ExecutionSetup
 from meshforge.agent.execution.outputs import Collected, OutputError, collect_outputs
@@ -153,6 +155,10 @@ from meshforge.agent.execution.secret_files import (
 )
 from meshforge.agent.execution.uploader import UploadProgress, upload_parts
 from meshforge.agent.execution.workdir_cap import UNMEASURABLE, WorkdirCap, stop_watch
+from meshforge.agent.execution.workload_result import (
+    WorkloadReport,
+    read_workload_result,
+)
 from meshforge.agent.gc.leases import AttemptLeases, LeaseError
 from meshforge.agent.http_tls import AgentHttpTls
 from meshforge.agent.policy import LivePolicy
@@ -170,7 +176,7 @@ from meshforge.common.manifest import check_mount
 from meshforge.common.proto.meshforge.v1 import agent_pb2, common_pb2
 from meshforge.common.proto_codec import attempt_state_to_proto, failure_type_to_proto
 from meshforge.common.redaction_notice import FailClosedNotice
-from meshforge.common.secret_redaction import ACTIVE, SecretMatcher, StreamRedactor
+from meshforge.common.secret_redaction import ACTIVE, SecretMatcher
 from meshforge.common.states import AttemptState
 
 if TYPE_CHECKING:
@@ -259,6 +265,8 @@ class _Attempt:
     release_requested: bool = False
     workdir: Path | None = None
     phases: dict[str, float] = field(default_factory=dict)
+    workload: WorkloadReport | None = None
+    """V0.9 G1: the benchmark's ``results/workload.json``, read after it exited."""
     fetch_token: str = ""
     """The current fetch token (StartAttempt's, or a RefreshFetchToken's). A
     secret: never logged."""
@@ -1428,11 +1436,14 @@ class Executor:
         matcher = attempt.matcher
         if matcher is None and attempt.secrets:  # never run unredacted
             matcher = await asyncio.to_thread(SecretMatcher, attempt.secrets)
-        redactors = (
-            {s: StreamRedactor(matcher) for s in Stream}
+        # V0.9 G1 (D224): the matching runs in one worker thread per attempt,
+        # never on the event loop (live_redaction.py: order, bound, T-14).
+        live = (
+            LiveRedaction(matcher, tuple(Stream), name=f"redact-{attempt.attempt_id}")
             if matcher is not None
             else None
         )
+        redactors = None if live is None else live.redactors
 
         notices = {s: FailClosedNotice() for s in Stream}
 
@@ -1455,8 +1466,8 @@ class Executor:
             return FailClosedNotice.line()
 
         async def on_output(stream: Stream, data: bytes) -> None:
-            if redactors is not None:
-                data = redactors[Stream(stream)].feed(data)
+            if live is not None:
+                data = await live.feed(Stream(stream), data)
                 data += failed_closed(Stream(stream), data)
                 if not data:
                     return
@@ -1468,10 +1479,13 @@ class Executor:
             if not pending:
                 wake.set()
 
-        def drain() -> None:
-            """The redactors' held tails, at the end of the run."""
-            for stream, redactor in (redactors or {}).items():
-                rest = redactor.flush()
+        async def drain() -> None:
+            """The redactors' held tails, at the end of the run (after every
+            feed: the worker runs them in order)."""
+            if live is None:
+                return
+            for stream in live.redactors:
+                rest = await live.flush(stream)
                 rest += failed_closed(stream, rest)
                 if not rest:
                     continue
@@ -1492,6 +1506,8 @@ class Executor:
         finally:
             flusher.cancel()
             await asyncio.gather(flusher, return_exceptions=True)
+            if live is not None:
+                live.close()  # every feed/flush was awaited to its end (T-14)
 
     async def _flush_logs(
         self, attempt: _Attempt, logs: AttemptLogs, wake: asyncio.Event
@@ -1563,7 +1579,7 @@ class Executor:
         observer: _Observer,
         on_output: Callable[[Stream, bytes], Awaitable[None]],
         stderr_tail: OutputTail | None = None,
-        drain: Callable[[], None] | None = None,
+        drain: Callable[[], Awaitable[None]] | None = None,
     ) -> None:
         cap_watch = await self._output_cap(attempt)
         run: asyncio.Task[RunResult] = asyncio.ensure_future(
@@ -1590,7 +1606,7 @@ class Executor:
         finally:
             await stop_watch(cap)
             if drain is not None:
-                drain()
+                await drain()
         if stderr_tail is not None:
             result = refine_result(result, stderr_tail.data)  # D116
         attempt.env_hash = result.env_hash or attempt.env_hash
@@ -1608,6 +1624,14 @@ class Executor:
                 attempt, exit_code=result.exit_code, signal=result.signal
             )
             return
+        if observer.run_started is not None and attempt.workdir is not None:
+            # V0.9 G1 (D213): a benchmark's own monotonic kernel time and
+            # identity (results/workload.json; bounded, untrusted, no symlinks).
+            attempt.workload = await asyncio.to_thread(
+                functools.partial(
+                    read_workload_result, attempt.workdir, matcher=attempt.matcher
+                )
+            )
         if result.ok:
             await self._send(attempt, AttemptState.UPLOADING)
         final_logs = await self._final_logs(attempt, plan, logs)
@@ -1864,6 +1888,10 @@ class Executor:
         if terminal:
             for name, value in attempt.phases.items():
                 setattr(status.phases, name, max(0.0, value))
+            if attempt.workload is not None:
+                if attempt.workload.compute_ns is not None:
+                    status.phases.compute_ns = attempt.workload.compute_ns
+                status.workload.CopyFrom(attempt.workload.to_proto())
             # V0.5 G5 (D93): what staging each tree cost (project, then inputs).
             status.transfers.extend(
                 stage.to_proto() for stage in attempt.stages[: 1 + MAX_INPUTS]

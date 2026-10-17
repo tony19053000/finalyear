@@ -59,6 +59,7 @@ from meshforge.controller.api.auth_routes import AuthApi
 from meshforge.controller.api.fabric_routes import InviteApi
 from meshforge.controller.api.job_routes import JobApi
 from meshforge.controller.api.network_routes import NetworkApi
+from meshforge.controller.api.telemetry_routes import TelemetryExport
 from meshforge.controller.auth.live_streams import LiveStreams
 from meshforge.controller.auth.login import LoginService, login_policy
 from meshforge.controller.auth.passwords import PasswordHasher
@@ -129,6 +130,7 @@ from meshforge.controller.settings import LOOPBACK_PLAIN_HOSTS, ControllerSettin
 from meshforge.controller.snapshots import SnapshotFlusher
 from meshforge.controller.store.engine import check_connection, create_engine
 from meshforge.controller.store.migrate import upgrade_to_head
+from meshforge.controller.telemetry.recorder import RunRecorder
 from meshforge.controller.upload_grants import UploadGrants
 from meshforge.controller.web.host_guard import LoopbackHostGuard
 
@@ -186,6 +188,8 @@ class ControllerRuntime:
         self.resources: ResourceTracker | None = None
         self.flusher: SnapshotFlusher | None = None
         self._engine: AsyncEngine | None = None
+        self.recorder: RunRecorder | None = None
+        """V0.9 G1: the run-record sweep (:mod:`.telemetry.recorder`)."""
         self._grpc_server: grpc.aio.Server | None = None
         self._enroll_listener: EnrollListener | None = None
         self._http_server: _NoSignalUvicorn | None = None
@@ -432,6 +436,8 @@ class ControllerRuntime:
             command_resend_tries=cfg.command_resend_tries,
         )
         self.manager = manager
+        # V0.9 G1 (D213): an untrustworthy node clock is an operator alert.
+        manager.heartbeats.on_clock_alert = self._publish_alert
         # D101: cache reports -> the location index (before any stream).
         manager.dispatch.register("cache_report", self.cache_index.on_message)
         # V0.5 G5 (0.5.8): `compute node prepare` progress reports.
@@ -512,6 +518,13 @@ class ControllerRuntime:
             ),
         )
         self._dispatcher_task = self._spawn(self.dispatcher.run(), "dispatcher")
+        # V0.9 G1 (D211/D212): a run record for every terminal attempt.
+        self.recorder = RunRecorder(
+            engine,
+            interval_s=cfg.telemetry.record_interval_s,
+            batch=cfg.telemetry.record_batch,
+        )
+        self._spawn(self.recorder.run(), "telemetry-recorder")
         # V0.5 G5 (D92): the pinned named inputs go to every agent after its
         # Reconcile (chained behind the dispatcher's hook) and on every change.
         self.pins = PinBroadcaster(self.inputs, manager)
@@ -659,6 +672,9 @@ class ControllerRuntime:
             secrets=self.secrets,
             events=self.events,
             alerts=AlertLog(engine),
+            telemetry=TelemetryExport(
+                engine, max_rows=self.settings.controller.telemetry.export_max_rows
+            ),
         )
         http_config = uvicorn.Config(
             http_app,
@@ -847,6 +863,8 @@ class ControllerRuntime:
 
     def _publish_changes(self, notes: list[changes.Change]) -> None:
         """Committed job/attempt changes -> bus events (D172; owner-scoped)."""
+        if self.recorder is not None and any(n.kind != "job" for n in notes):
+            self.recorder.nudge()  # an attempt changed: maybe it just ended
         if self.events is None:
             return
         for note in notes:

@@ -12,6 +12,7 @@ hand-built view with no gRPC server and no database.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -41,6 +42,10 @@ class FabricView:
     """The controller's **monotonic** clock (``loop.time``), never a wall clock."""
     cache: CacheLocationStore | None = None
     """V0.5 D101: the cache location index (node detail counts); None = absent."""
+    wall_clock: Callable[[], float] = time.time
+    """The controller's **wall** clock in epoch seconds - only ``GET /v1/clock``
+    answers it (V0.9 G1, D226 item 0.4: injected here, not a module variable,
+    so a test or a second app in one process can give it its own source)."""
 
 
 def get_fabric(request: Request) -> FabricView:

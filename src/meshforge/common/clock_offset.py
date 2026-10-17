@@ -21,15 +21,37 @@ per-node clock offset), measure the offset first:
 
 A remote timestamp ``r`` then corresponds to local time ``r - offset``.
 Everything is in milliseconds. Pure functions: no I/O, no clock reads.
+
+**Feed it a recent window only** (V0.9 G1, D213/D226): over a long series the
+minimum-RTT exchange may be minutes old, and a clock that drifted since then
+would hide behind that one tight, stale bound (newer, wider intervals still
+overlap it). A continuous consumer - the controller's per-node offset from
+heartbeats - keeps a :class:`ClockWindow` (the last N exchanges, none older
+than T on the local clock) and estimates from it alone.
+
+**Stamp resolution.** A clock that truncates (a browser's ``Date.now()``: whole
+ms; Windows ``time.time()`` on Python 3.12: ~15.6 ms) stamps up to one tick
+early. ``resolution_ms`` is the local tick, ``remote_resolution_ms`` the
+remote one; both widen the bound. ``0`` (the default) assumes a stamp far finer
+than the round trip - true for a Linux controller's ``time.time()`` (µs)
+answering ``/v1/clock``; an agent reports its own resolution instead.
 """
 
 from __future__ import annotations
 
 import math
+from collections import deque
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-__all__ = ["ClockExchange", "ClockOffset", "ClockOffsetError", "estimate_offset"]
+__all__ = [
+    "ClockExchange",
+    "ClockOffset",
+    "ClockOffsetError",
+    "ClockWindow",
+    "estimate_offset",
+    "round_up",
+]
 
 
 class ClockOffsetError(ValueError):
@@ -77,19 +99,35 @@ class ClockOffset:
         return remote_ms - self.offset_ms
 
     def as_dict(self) -> dict[str, float | int | bool]:
-        """Rounded to 0.001 ms; a reader that judges the bound must judge THIS
-        value (the one it reports), never a differently rounded copy."""
+        """Rounded to 0.001 ms - the bound **up** (D226: a reported bound is
+        never tighter than the measured one). A reader that judges the bound
+        must judge THIS value (the one it reports), never a differently
+        rounded copy."""
         return {
             "clock_offset_ms": round(self.offset_ms, 3),
-            "clock_offset_bound_ms": round(self.bound_ms, 3),
+            "clock_offset_bound_ms": round_up(self.bound_ms, 3),
             "rtt_ms": round(self.rtt_ms, 3),
             "exchanges": self.exchanges,
             "consistent": self.consistent,
         }
 
 
+def round_up(value: float, digits: int) -> float:
+    """``value`` rounded to ``digits`` decimals, never below it (a non-finite
+    value is returned unchanged)."""
+    if not math.isfinite(value):
+        return value
+    shown = round(value, digits)
+    if shown >= value:
+        return shown
+    return round(shown + 10.0**-digits, digits)
+
+
 def estimate_offset(
-    exchanges: Iterable[ClockExchange], *, resolution_ms: float = 0.0
+    exchanges: Iterable[ClockExchange],
+    *,
+    resolution_ms: float = 0.0,
+    remote_resolution_ms: float = 0.0,
 ) -> ClockOffset:
     """The minimum-round-trip estimate of ``exchanges``.
 
@@ -97,15 +135,18 @@ def estimate_offset(
     ``Date.now()`` counts whole milliseconds): each local stamp is up to one
     tick EARLY, so the true offset lies in ``(remote - received - tick,
     remote - sent]`` - its centre is the midpoint estimate minus half a tick,
-    its half-width ``(rtt + tick) / 2``. The remote stamp's own resolution is
-    assumed much finer (the controller answers in microseconds).
+    its half-width ``(rtt + tick) / 2``. ``remote_resolution_ms`` is the same
+    for the remote stamp (up to one remote tick early): it moves the centre up
+    by half that tick and widens the half-width by half of it. Both default to
+    0 = a stamp much finer than the round trip (see the module docstring).
 
     Raises :class:`ClockOffsetError` when there is none, or when any exchange
     is not finite or went backwards (``received < sent``: the local clock
     stepped mid-exchange - the measurement itself is unusable, never clamped).
     """
-    if not (math.isfinite(resolution_ms) and resolution_ms >= 0):
-        raise ClockOffsetError("the clock resolution must be a finite value >= 0")
+    for tick in (resolution_ms, remote_resolution_ms):
+        if not (math.isfinite(tick) and tick >= 0):
+            raise ClockOffsetError("a clock resolution must be a finite value >= 0")
     seen = list(exchanges)
     if not seen:
         raise ClockOffsetError("no clock exchange to estimate an offset from")
@@ -121,7 +162,7 @@ def estimate_offset(
     # offset lies in ALL of them. Disjoint intervals mean the clocks did not
     # hold still (a step, an NTP slew, a stamp taken elsewhere): never report
     # the tight min-RTT bound then - widen it to cover every interval.
-    intervals = [_interval(e, resolution_ms) for e in seen]
+    intervals = [_interval(e, resolution_ms, remote_resolution_ms) for e in seen]
     best = min(range(len(seen)), key=lambda i: (seen[i].rtt_ms, i))
     lowest = max(lo for lo, _ in intervals)
     highest = min(hi for _, hi in intervals)
@@ -148,9 +189,49 @@ def estimate_offset(
 _AGREE_EPS_MS = 1e-6
 
 
-def _interval(exchange: ClockExchange, resolution_ms: float) -> tuple[float, float]:
+def _interval(
+    exchange: ClockExchange, resolution_ms: float, remote_resolution_ms: float
+) -> tuple[float, float]:
     """Where the true offset must lie given this one exchange (see
-    :func:`estimate_offset` for the truncation tick)."""
-    centre = exchange.offset_ms - resolution_ms / 2.0
-    half = (exchange.rtt_ms + resolution_ms) / 2.0
+    :func:`estimate_offset` for the truncation ticks)."""
+    centre = exchange.offset_ms + (remote_resolution_ms - resolution_ms) / 2.0
+    half = (exchange.rtt_ms + resolution_ms + remote_resolution_ms) / 2.0
     return centre - half, centre + half
+
+
+class ClockWindow:
+    """The recent exchanges one estimate may use (D213/D226): at most
+    ``max_count``, none whose ``received_ms`` is more than ``max_age_ms``
+    older than the newest one's. Ages are judged on the exchanges' own LOCAL
+    stamps (no clock read here). A local clock that went back (a new exchange
+    received before the newest kept one) clears the window: the old exchanges
+    are no longer on the same timeline. One owner; not thread-safe."""
+
+    __slots__ = ("_items", "max_age_ms", "max_count")
+
+    def __init__(self, *, max_count: int, max_age_ms: float) -> None:
+        if max_count < 1:
+            raise ValueError("max_count must be >= 1")
+        if not (math.isfinite(max_age_ms) and max_age_ms > 0):
+            raise ValueError("max_age_ms must be a finite value > 0")
+        self.max_count = max_count
+        self.max_age_ms = max_age_ms
+        self._items: deque[ClockExchange] = deque(maxlen=max_count)
+
+    def add(self, exchange: ClockExchange) -> None:
+        """Keep ``exchange`` and drop what the window no longer allows."""
+        if self._items and exchange.received_ms < self._items[-1].received_ms:
+            self._items.clear()
+        self._items.append(exchange)
+        horizon = exchange.received_ms - self.max_age_ms
+        while self._items and self._items[0].received_ms < horizon:
+            self._items.popleft()
+
+    def clear(self) -> None:
+        self._items.clear()
+
+    def exchanges(self) -> tuple[ClockExchange, ...]:
+        return tuple(self._items)
+
+    def __len__(self) -> int:
+        return len(self._items)

@@ -1783,6 +1783,50 @@
         "title": "NodeCertificate",
         "type": "object"
       },
+      "NodeClock": {
+        "additionalProperties": false,
+        "description": "A node's clock offset (V0.9 G1, D213): the true offset lies within\n``clock_offset_ms`` \u00b1 ``bound_ms``.",
+        "properties": {
+          "bound_ms": {
+            "description": "Rounded up: never tighter than measured.",
+            "title": "Bound Ms",
+            "type": "number"
+          },
+          "clock_offset_ms": {
+            "title": "Clock Offset Ms",
+            "type": "number"
+          },
+          "consistent": {
+            "description": "False: the window's exchanges contradict each other (a clock stepped).",
+            "title": "Consistent",
+            "type": "boolean"
+          },
+          "exchanges": {
+            "title": "Exchanges",
+            "type": "integer"
+          },
+          "live": {
+            "description": "From the live session, or the last session's stored value.",
+            "title": "Live",
+            "type": "boolean"
+          },
+          "uncertain": {
+            "description": "Bound over 250 ms or inconsistent (an alert is raised).",
+            "title": "Uncertain",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "clock_offset_ms",
+          "bound_ms",
+          "consistent",
+          "exchanges",
+          "uncertain",
+          "live"
+        ],
+        "title": "NodeClock",
+        "type": "object"
+      },
       "NodeDetail": {
         "additionalProperties": false,
         "description": "``GET /v1/nodes/{node_id}``: the summary plus what only one node needs.",
@@ -1817,6 +1861,17 @@
               }
             ],
             "description": "V0.7 G2: the certificate issued at the node's latest enrolment (`meshforge-agent join`); null = never enrolled. Not enforced on the session port before V0.7 G3."
+          },
+          "clock": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NodeClock"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "V0.9 G1 (D213): the node's wall clock minus the controller's, from Ping/Pong round trips over a recent window (live session, else the most recent session's last estimate); null = never measured."
           },
           "connected": {
             "title": "Connected",
@@ -5167,7 +5222,7 @@
     },
     "/v1/clock": {
       "get": {
-        "description": "V0.9 G0 (D213): the controller's ``time.time()`` when it answers, so a\nclient can estimate the offset between its clock and the controller's from\nround trips (``meshforge.common.clock_offset``: offset \u00b1 RTT/2) before it\ncompares a controller timestamp (an event's ``recv_at``, a transition's\n``at``) with its own clock. Authenticated like every route; reads nothing.\n``Cache-Control: no-store``: a cached answer would silently ruin the\nestimate (fix round 1, DEFECT-6).",
+        "description": "V0.9 G0 (D213): the controller's ``time.time()`` when it answers, so a\nclient can estimate the offset between its clock and the controller's from\nround trips (``meshforge.common.clock_offset``: offset \u00b1 RTT/2) before it\ncompares a controller timestamp (an event's ``recv_at``, a transition's\n``at``) with its own clock. Authenticated like every route; reads nothing.\n``Cache-Control: no-store``: a cached answer would silently ruin the\nestimate (fix round 1, DEFECT-6). The time source is the app's\n``FabricView.wall_clock`` (V0.9 G1, D226 item 0.4).",
         "operationId": "get_clock_v1_clock_get",
         "responses": {
           "200": {
@@ -8844,6 +8899,144 @@
         "summary": "Recent sessions",
         "tags": [
           "fabric"
+        ]
+      }
+    },
+    "/v1/telemetry/export": {
+      "get": {
+        "operationId": "export_telemetry_v1_telemetry_export_get",
+        "parameters": [
+          {
+            "description": "Only this campaign's records.",
+            "in": "query",
+            "name": "campaign",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only this campaign's records.",
+              "title": "Campaign"
+            }
+          },
+          {
+            "description": "Only attempts created at or after this time (ISO 8601).",
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only attempts created at or after this time (ISO 8601).",
+              "title": "Since"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {},
+              "application/vnd.apache.parquet": {}
+            },
+            "description": "The Parquet file (telemetry schema v1, docs/TELEMETRY.md)"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid input (`invalid_input`)"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No, or no longer a valid, credential (`unauthorized`)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not allowed: admin only, CSRF, foreign origin (`unauthorized`)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found - also another user's object (`not_found`)"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict (`conflict`, `no_feasible_plan`)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid parameters (`invalid_input`)"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Rate limited; see Retry-After (`resource_busy`)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A dependency (the database) is unavailable; retry (`network_error`)"
+          }
+        },
+        "summary": "The telemetry dataset (run records) as one Parquet file - admin only",
+        "tags": [
+          "telemetry"
         ]
       }
     }

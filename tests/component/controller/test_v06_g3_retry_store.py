@@ -510,7 +510,7 @@ async def test_the_failed_attempt_keeps_its_own_queue_phase(
     )
     for ended in (attempt, lost_job):
         phases = {p.phase: p for p in await store.phases(ended.id)}
-        assert set(phases) == {"queue", "stage", "env", "run", "collect"}
+        assert set(phases) == {"queue", "stage", "env", "run", "collect", "compute"}
         assert phases["queue"].skipped is False, phases["queue"]
     # the retry was dispatched by the second job's tick (backoff 0)
     retried = [

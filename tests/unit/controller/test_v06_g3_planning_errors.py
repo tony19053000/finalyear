@@ -36,6 +36,7 @@ class _Manager:
                 session_id="s",
                 policy=None,  # V0.7 G5: no advertised owner policy
                 policy_slots=None,
+                clock=SimpleNamespace(latest=None),  # V0.9 G1: no exchange yet
             )
         }
 

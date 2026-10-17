@@ -84,6 +84,16 @@ class AuditAction(StrEnum):
     node (THREAT_MODEL CG-E2); refused, nothing applied. ``node_id`` = the
     reporting node, ``details`` = attempt id, the attempt's node, the state
     reported. The dashboard's ``alert`` events are fed from the same refusal."""
+    # --- V0.9 G1 (migration 0021) ------------------------------------------
+    CLOCK_UNCERTAIN = "clock_uncertain"
+    """D213: a node's clock offset became untrustworthy (bound over 250 ms or
+    inconsistent exchanges) - one row per episode per session. ``details`` =
+    session id, offset, bound, consistent, reasons (numbers and words only)."""
+    TELEMETRY_RECORD_SKIPPED = "telemetry_record_skipped"
+    """D212 (fix r1, T-5): the run-record sweep skipped an attempt - its record
+    could not be built (a bug) or PostgreSQL refused it - so the dataset lacks
+    that run until a controller restart retries it. ``details`` = attempt id,
+    job id, reason (``unbuildable`` / ``refused``), error type."""
 
 
 def _in_list(values: type[StrEnum]) -> str:

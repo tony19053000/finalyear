@@ -22,6 +22,7 @@ codes and shell completion. Unit tests keep it in step with the code (`tests/uni
 | `compute data ls` / `compute data show NAME` | named inputs (datasets, models) | yes |
 | `compute fabric invites` | join-code invites (codes are never shown again) | yes |
 | `compute bench workloads` | the benchmark workload families and their parameters (local: no controller call) | yes |
+| `compute telemetry export -o FILE [--campaign ID] [--since TIME]` | the telemetry dataset (run records) as one Parquet file, admin only; never overwrites FILE ([TELEMETRY.md](TELEMETRY.md)) | yes |
 | `compute logs JOB_ID [-f] [--stream S]` | the job's own output, byte for byte | no - it is the workload's bytes |
 | `compute run [PATH] [--node ID / --local] [-f] ...` | submit a project (prints the job id) | no - stdout is the job id |
 | `compute cancel JOB_ID` | cancel a job | no |
@@ -84,6 +85,7 @@ Guaranteed fields per command (`a[].b` = field `b` of every item of list `a`; `a
 | `compute fabric invites --revoke ID` | `POST /v1/fabric/invites/{invite_id}/revoke` | `id`, `state`, `revoked_at` |
 | `compute fabric invite` | `POST /v1/fabric/invites` | `code`, `invite_id`, `address`, `ca_pin`, `expires_at` |
 | `compute node revoke NODE_ID` | `POST /v1/nodes/{node_id}/revoke` | `node_id`, `state`, `already_revoked`, `session_killed` |
+| `compute telemetry export` | built by the CLI | `file`, `bytes`, `rows` (the file itself comes from `GET /v1/telemetry/export`) |
 | `compute bench workloads` | built by the CLI | `families`, `count`, `runtime_window_s`, `reference_hw`, `families[].name`, `families[].kind`, `families[].description`, `families[].env_base`, `families[].gpu`, `families[].size_params`, `families[].params_schema`, `families[].smallest`, `families[].smallest_hint_s` |
 
 `compute status --json`: `controller_url` (the address used), `reachable` (`false` only when the controller

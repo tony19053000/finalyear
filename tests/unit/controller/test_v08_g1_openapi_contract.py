@@ -20,6 +20,7 @@ pytestmark = pytest.mark.unit
 BINARY = {
     ("get", "/v1/blobs/{sha256}"),
     ("get", "/v1/jobs/{job_id}/logs"),
+    ("get", "/v1/telemetry/export"),  # V0.9 G1: a Parquet file
 }
 """Routes whose success body is bytes (declared as application/octet-stream)."""
 NO_BODY = {("head", "/v1/blobs/{sha256}")}

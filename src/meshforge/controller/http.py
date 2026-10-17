@@ -19,6 +19,7 @@ reach and an operator's browser should not be asked to fetch.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -66,6 +67,11 @@ from meshforge.controller.api.revocation_routes import (
 )
 from meshforge.controller.api.secret_routes import SECRETS_STATE_KEY, secret_router
 from meshforge.controller.api.session_routes import session_router
+from meshforge.controller.api.telemetry_routes import (
+    TELEMETRY_STATE_KEY,
+    TelemetryExport,
+    telemetry_router,
+)
 from meshforge.controller.blobs import BlobStore
 from meshforge.controller.cache_index import CacheLocationStore
 from meshforge.controller.events.bus import EventBus
@@ -123,9 +129,12 @@ def create_http_app(
     secrets: SecretStore | None = None,
     events: EventBus | None = None,
     alerts: AlertLog | None = None,
+    telemetry: TelemetryExport | None = None,
     web_dist: Path | None = DEFAULT_DIST,
+    wall_clock: Callable[[], float] = time.time,
 ) -> FastAPI:
-    """Build the controller's HTTP app. ``clock`` must be the loop's monotonic clock.
+    """Build the controller's HTTP app. ``clock`` must be the loop's monotonic clock;
+    ``wall_clock`` (epoch seconds) is what ``GET /v1/clock`` answers.
 
     ``auth`` holds what credentials are checked against (V0.7 G4: the user
     directory, the legacy switch, agents' blob credentials). Without it every
@@ -156,6 +165,7 @@ def create_http_app(
             resources=resources,
             clock=clock,
             cache=cache,
+            wall_clock=wall_clock,
         ),
     )
     install_error_handlers(app)
@@ -219,6 +229,9 @@ def create_http_app(
     if alerts is not None:
         setattr(app.state, ALERTS_STATE_KEY, alerts)
         app.include_router(alert_router)  # V0.8 G3 alerts list (D180)
+    if telemetry is not None:
+        setattr(app.state, TELEMETRY_STATE_KEY, telemetry)
+        app.include_router(telemetry_router)  # V0.9 G1 dataset export (D211)
     return app
 
 
@@ -247,6 +260,7 @@ def openapi_document() -> dict[str, Any]:
         secrets=inert(),
         events=inert(),
         alerts=inert(),
+        telemetry=inert(),
         web_dist=None,
     )
     return app.openapi()

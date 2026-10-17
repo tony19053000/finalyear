@@ -206,6 +206,25 @@ class CacheCount(ApiModel):
     bytes: int
 
 
+class NodeClock(ApiModel):
+    """A node's clock offset (V0.9 G1, D213): the true offset lies within
+    ``clock_offset_ms`` ± ``bound_ms``."""
+
+    clock_offset_ms: float
+    bound_ms: float = Field(description="Rounded up: never tighter than measured.")
+    consistent: bool = Field(
+        description="False: the window's exchanges contradict each other "
+        "(a clock stepped)."
+    )
+    exchanges: int
+    uncertain: bool = Field(
+        description="Bound over 250 ms or inconsistent (an alert is raised)."
+    )
+    live: bool = Field(
+        description="From the live session, or the last session's stored value."
+    )
+
+
 class NodeDetail(NodeSummary):
     """``GET /v1/nodes/{node_id}``: the summary plus what only one node needs."""
 
@@ -248,6 +267,14 @@ class NodeDetail(NodeSummary):
             "offline, or an agent from before V0.7 G5). ``not_enforced`` lists "
             "the owner caps no runtime limit enforces on that node "
             "(``<field>:<why>``); ``allowed_users`` is shown as a count only."
+        ),
+    )
+    clock: NodeClock | None = Field(
+        default=None,
+        description=(
+            "V0.9 G1 (D213): the node's wall clock minus the controller's, from "
+            "Ping/Pong round trips over a recent window (live session, else the "
+            "most recent session's last estimate); null = never measured."
         ),
     )
 
