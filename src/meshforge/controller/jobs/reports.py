@@ -89,6 +89,9 @@ WORKLOAD_STATUSES: Final = frozenset(
     {"ok", "check_failed", "unavailable", "bad_params"}
 )
 _WORKLOAD_NAME: Final = re.compile(r"[a-z0-9][a-z0-9_.-]{0,63}")
+MAX_WORKLOAD_ITERATIONS: Final = 100_000
+"""Bound on ``WorkloadReport.compute_iterations`` (D228): the largest loop
+parameter of any benchmark family (the agent reader holds the same bound)."""
 
 
 def _workload(
@@ -119,7 +122,20 @@ def _workload(
             return "AttemptStatus.workload.params_json is not JSON"
         if not isinstance(parsed, dict):
             return "AttemptStatus.workload.params_json is not a JSON object"
+        if not _storable_json(parsed):
+            return "AttemptStatus.workload.params_json has a NUL or a lone surrogate"
         params = parsed
+    compute_ns = None if phases is None else phases.compute_ns
+    iterations: int | None = None
+    if w.HasField("compute_iterations"):
+        iterations = int(w.compute_iterations)
+        if not 1 <= iterations <= MAX_WORKLOAD_ITERATIONS:
+            return (
+                "AttemptStatus.workload.compute_iterations must be in "
+                f"[1, {MAX_WORKLOAD_ITERATIONS}]"
+            )
+        if compute_ns is None:
+            return "AttemptStatus.workload.compute_iterations is set without compute_ns"
     return {
         "family": w.family or None,
         "params": params,
@@ -127,8 +143,33 @@ def _workload(
         "status": w.status,
         "device": w.device or None,
         "result_schema_version": int(w.result_schema_version) or None,
-        "compute_ns": None if phases is None else phases.compute_ns,
+        "compute_ns": compute_ns,
+        "compute_iterations": iterations,
     }
+
+
+def _storable_json(value: object) -> bool:
+    """No key or string in ``value`` has a NUL or a lone surrogate (PostgreSQL
+    JSONB refuses both: storing one would fail the attempt's terminal write)."""
+    stack = [value]
+    while stack:
+        item = stack.pop()
+        texts: list[object] = []
+        if isinstance(item, str):
+            texts.append(item)
+        elif isinstance(item, dict):
+            texts.extend(item)
+            stack.extend(item.values())
+        elif isinstance(item, list):
+            stack.extend(item)
+        for text in texts:
+            if not isinstance(text, str) or "\x00" in text:
+                return False
+            try:
+                text.encode("utf-8")
+            except UnicodeEncodeError:
+                return False
+    return True
 
 
 def _no_constant(name: str) -> Any:

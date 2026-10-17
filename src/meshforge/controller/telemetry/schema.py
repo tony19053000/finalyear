@@ -178,7 +178,17 @@ COLUMNS: Final[tuple[Column, ...]] = (
     _c("stage_ms", _I, "Agent: fetch + verify + unpack; null = skipped."),
     _c("env_ms", _I, "Agent: environment build/resolve; null = skipped."),
     _c("run_ms", _I, "Agent: workload start to exit; null = skipped."),
-    _c("compute_ns", _I, "The workload's own kernel time (benchmarks); null = none."),
+    _c(
+        "compute_ns",
+        _I,
+        "The workload's own kernel time, its whole timed loop (benchmarks); "
+        "null = none.",
+    ),
+    _c(
+        "compute_iterations",
+        _I,
+        "Iterations compute_ns covers (one = compute_ns / this); null = not run.",
+    ),
     _c("collect_ms", _I, "Agent: exit to terminal report; null = skipped."),
     _c("total_ms", _I, "Sum of the measured phases above (compute excluded)."),
     # --- bytes ------------------------------------------------------------
@@ -218,6 +228,6 @@ def fingerprint(columns: tuple[Column, ...] = COLUMNS) -> str:
 
 
 SCHEMA_FINGERPRINTS: Final[dict[int, str]] = {
-    1: "1945e5a1b410d605dedffd3a8c8267845ac358d2c38d5d7183ca2504cea17194",
+    1: "69e443de70cbb8bbd25fb04662510910c649b812ad16000ede6d092948df723a",
 }
 """Published versions -> their column fingerprint. Never edit a published entry."""

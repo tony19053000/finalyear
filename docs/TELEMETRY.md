@@ -30,6 +30,11 @@ reads the current state of those tables.
   clock), `stage/env/run/collect_ms` on the agent, `compute_ns` by the workload itself
   (`time.perf_counter_ns()` around the kernel only, written to `results/workload.json`). `compute_ns` lies
   inside `run_ms` and is not part of `total_ms`.
+- `compute_ns` covers the kernel's **whole** timed loop (all `repeats` / `batches` / `steps`, D225/D228);
+  `compute_iterations` says how many iterations that is (1 for a one-pass family such as `cpu.sha256`), so
+  one iteration takes `compute_ns / compute_iterations`. The agent accepts it only as a strict integer in
+  `1..100000` (the largest loop parameter of any family) and only when `compute_ns` is present; otherwise it
+  is null.
 - Timestamps (`attempt_created_at`, `attempt_ended_at`, `recorded_at`) are the controller's clock and serve
   ordering only. No column is a difference of two hosts' clocks.
 - `clock_offset_ms ± clock_offset_bound_ms` is the node's wall clock minus the controller's, estimated from
@@ -58,7 +63,18 @@ format change).
 
 The export is admin-only: it names every user's jobs and nodes. It holds no secret value: no column copies job
 secrets, and the agent drops any `results/workload.json` field in which it finds one of the job's secret values
-(THREAT_MODEL RE-I6).
+(THREAT_MODEL RE-I6). `params` is matched on its decoded content (every key and string value, so a secret
+with non-ASCII characters, `"` or `\` is found too) as well as its JSON text. A secret split across two fields
+is not detected (residual, RE-I6).
+
+## Untrusted workload values
+
+`results/workload.json` is written by the workload. The agent bounds every field and drops `params` that hold
+a NUL or a lone surrogate (PostgreSQL refuses both); the controller refuses such a report, and the record
+builder bounds the flat columns (`p_dtype`, `workload_family`, ... to 64 characters - a longer value is null,
+never truncated) and scrubs every text value. A record PostgreSQL still refuses is skipped alone (the rest of
+the sweep is written), counted, logged and raised as a `telemetry_record_skipped` alert (`GET /v1/alerts`); it
+is retried after a controller restart.
 
 ## Columns — schema version 1
 
@@ -123,7 +139,8 @@ Types: `text`, `int64`, `float64`, `bool`, `json` (JSONB / canonical JSON text i
 | `stage_ms` | int64 | yes | Agent: fetch + verify + unpack; null = skipped. |
 | `env_ms` | int64 | yes | Agent: environment build/resolve; null = skipped. |
 | `run_ms` | int64 | yes | Agent: workload start to exit; null = skipped. |
-| `compute_ns` | int64 | yes | The workload's own kernel time (benchmarks); null = none. |
+| `compute_ns` | int64 | yes | The workload's own kernel time, its whole timed loop (benchmarks); null = none. |
+| `compute_iterations` | int64 | yes | Iterations compute_ns covers (one = compute_ns / this); null = not run. |
 | `collect_ms` | int64 | yes | Agent: exit to terminal report; null = skipped. |
 | `total_ms` | int64 | yes | Sum of the measured phases above (compute excluded). |
 | `bytes_in` | int64 | yes | Bytes the node fetched to stage the attempt. |

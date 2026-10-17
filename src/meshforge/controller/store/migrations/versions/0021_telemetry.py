@@ -6,8 +6,9 @@ tests fails on drift).
 * ``node_session`` gains the node's clock offset over the session
   (``clock_offset_ms``, ``clock_offset_bound_ms``, ``clock_consistent``,
   ``clock_exchanges``, ``clock_measured_at``; all NULL until the first Pong);
-* ``audit_event.action`` gains ``clock_uncertain`` (an operator alert; the 0020
-  list is frozen there; the CHECK is dropped and recreated, the 0016 pattern);
+* ``audit_event.action`` gains ``clock_uncertain`` and
+  ``telemetry_record_skipped`` (operator alerts; the 0020 list is frozen there;
+  the CHECK is dropped and recreated, the 0016 pattern);
 * ``attempt.workload`` (JSONB): a benchmark's own report from its terminal
   status;
 * ``run_record``: telemetry schema v1 (``controller/telemetry/schema.py``), one
@@ -57,7 +58,11 @@ ACTIONS_0020: tuple[str, ...] = (
     "secret_deleted",
     "attempt_wrong_node",
 )
-ACTIONS_0021: tuple[str, ...] = (*ACTIONS_0020, "clock_uncertain")
+ACTIONS_0021: tuple[str, ...] = (
+    *ACTIONS_0020,
+    "clock_uncertain",
+    "telemetry_record_skipped",
+)
 
 _ACTION_CHECK = "action"
 
@@ -151,6 +156,7 @@ def _create_run_record() -> None:
         col("net_samples", big()),
         *(col(f"{p}_ms", big()) for p in ("queue", "stage", "env", "run")),
         col("compute_ns", big()),
+        col("compute_iterations", big()),
         col("collect_ms", big()),
         col("total_ms", big()),
         col("bytes_in", big()),
@@ -214,7 +220,12 @@ def downgrade() -> None:
     op.drop_index("ix_run_record_campaign", table_name="run_record")
     op.drop_table("run_record")
     op.drop_column("attempt", "workload")
-    op.execute(sa.text("DELETE FROM audit_event WHERE action IN ('clock_uncertain')"))
+    op.execute(
+        sa.text(
+            "DELETE FROM audit_event WHERE action IN "
+            "('clock_uncertain', 'telemetry_record_skipped')"
+        )
+    )
     op.drop_constraint(_ACTION_CHECK, "audit_event", type_="check")
     op.create_check_constraint(
         _ACTION_CHECK, "audit_event", f"action IN ({_listed(ACTIONS_0020)})"

@@ -139,6 +139,7 @@ class RunRecord(Base):
     env_ms: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     run_ms: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     compute_ns: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    compute_iterations: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     collect_ms: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     total_ms: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     # bytes

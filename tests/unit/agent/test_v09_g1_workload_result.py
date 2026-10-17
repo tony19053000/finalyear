@@ -162,6 +162,7 @@ def test_the_controller_accepts_a_valid_report() -> None:
         "device": "cpu",
         "result_schema_version": 1,
         "compute_ns": 42,
+        "compute_iterations": None,
     }
 
 

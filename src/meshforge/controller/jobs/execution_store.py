@@ -257,7 +257,8 @@ class StatusReport:
     retryable``); None = not sent -> the failure type's default (§13)."""
     workload: Mapping[str, Any] | None = None
     """V0.9 G1 (D212): a benchmark's own report (family, params, seed, status,
-    device, compute_ns), terminal reports only -> ``attempt.workload``."""
+    device, compute_ns, compute_iterations), terminal reports only ->
+    ``attempt.workload``."""
 
 
 class StatusKind(StrEnum):

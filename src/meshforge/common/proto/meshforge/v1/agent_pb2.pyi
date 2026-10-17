@@ -1593,6 +1593,7 @@ class WorkloadReport(_message.Message):
     STATUS_FIELD_NUMBER: _builtins.int
     DEVICE_FIELD_NUMBER: _builtins.int
     RESULT_SCHEMA_VERSION_FIELD_NUMBER: _builtins.int
+    COMPUTE_ITERATIONS_FIELD_NUMBER: _builtins.int
     family: _builtins.str
     """Family name, e.g. "cpu.matmul" (<= 64 chars, [a-z0-9_.-]); "" = unreadable."""
     params_json: _builtins.str
@@ -1606,6 +1607,11 @@ class WorkloadReport(_message.Message):
     """"cpu" | "cuda" | "" (not run)."""
     result_schema_version: _builtins.int
     """results/workload.json schema_version (0 = absent)."""
+    compute_iterations: _builtins.int
+    """How many iterations compute_ns covers (D225/D228: compute_ns is the whole
+    timed loop; one iteration = compute_ns / compute_iterations). Unset = not
+    run or not reported. 1..100000 (the largest loop parameter of a family).
+    """
     def __init__(
         self,
         *,
@@ -1615,13 +1621,19 @@ class WorkloadReport(_message.Message):
         status: _builtins.str = ...,
         device: _builtins.str = ...,
         result_schema_version: _builtins.int = ...,
+        compute_iterations: _builtins.int | None = ...,
     ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _typing.Literal["_seed", b"_seed", "seed", b"seed"]  # noqa: Y015
+    _HasFieldArgType: _TypeAlias = _typing.Literal["_compute_iterations", b"_compute_iterations", "_seed", b"_seed", "compute_iterations", b"compute_iterations", "seed", b"seed"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["_seed", b"_seed", "device", b"device", "family", b"family", "params_json", b"params_json", "result_schema_version", b"result_schema_version", "seed", b"seed", "status", b"status"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["_compute_iterations", b"_compute_iterations", "_seed", b"_seed", "compute_iterations", b"compute_iterations", "device", b"device", "family", b"family", "params_json", b"params_json", "result_schema_version", b"result_schema_version", "seed", b"seed", "status", b"status"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    _WhichOneofReturnType__compute_iterations: _TypeAlias = _typing.Literal["compute_iterations"]  # noqa: Y015
+    _WhichOneofArgType__compute_iterations: _TypeAlias = _typing.Literal["_compute_iterations", b"_compute_iterations"]  # noqa: Y015
     _WhichOneofReturnType__seed: _TypeAlias = _typing.Literal["seed"]  # noqa: Y015
     _WhichOneofArgType__seed: _TypeAlias = _typing.Literal["_seed", b"_seed"]  # noqa: Y015
+    @_typing.overload
+    def WhichOneof(self, oneof_group: _WhichOneofArgType__compute_iterations) -> _WhichOneofReturnType__compute_iterations | None: ...
+    @_typing.overload
     def WhichOneof(self, oneof_group: _WhichOneofArgType__seed) -> _WhichOneofReturnType__seed | None: ...
 
 Global___WorkloadReport: _TypeAlias = WorkloadReport  # noqa: Y015

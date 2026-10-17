@@ -301,7 +301,8 @@ class Attempt(TimestampMixin, Base):
     )
     """V0.9 G1 (D212, migration 0021): a benchmark's own report from the
     terminal status (``results/workload.json``: family, params, seed, status,
-    device, compute_ns); NULL for every other job. Bounded by the report parser."""
+    device, compute_ns, compute_iterations); NULL for every other job. Bounded by
+    the report parser."""
 
 
 class AttemptPhaseRow(Base):

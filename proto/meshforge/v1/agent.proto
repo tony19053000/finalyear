@@ -604,6 +604,10 @@ message WorkloadReport {
   string device = 5;
   // results/workload.json schema_version (0 = absent).
   uint32 result_schema_version = 6;
+  // How many iterations compute_ns covers (D225/D228: compute_ns is the whole
+  // timed loop; one iteration = compute_ns / compute_iterations). Unset = not
+  // run or not reported. 1..100000 (the largest loop parameter of a family).
+  optional uint32 compute_iterations = 7;
 }
 
 // Live log bytes (D71): best-effort, never buffered or replayed, never acked.
