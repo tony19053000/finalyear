@@ -64,11 +64,17 @@ KERNEL_PACKAGE: Final = "bench_kernels"
 
 ENTRYPOINT: Final = ("python", "run_workload.py")
 
+# Bumps in lockstep with uv.lock (a unit test fails while the two differ). A bump
+# changes requirements.txt, so every numpy family's job tree - and its bundle
+# digest - changes: that is a **dataset-version event** (D225). Runs before and
+# after measured different numpy builds; record the bump where G5's dataset
+# versioning records library changes, never mix the two silently.
 NUMPY_REQUIREMENT: Final = "numpy==2.5.3"
 """The numpy every CPU benchmark job installs: pinned (a dataset must not mix
 numpy builds silently) and equal to ``uv.lock`` (a unit test holds the two
 together). Envs are cached by hash (V0.5 D86), so it is downloaded once per
-node, not per run."""
+node, not per run. Changing it changes the job tree digests (see the comment
+above)."""
 
 JOB_TIMEOUT: Final = "15m"
 """A run is 5 s - 3 min on the mid laptop; 15 min leaves room for a laptop 3x

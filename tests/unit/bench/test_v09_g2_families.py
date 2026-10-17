@@ -244,6 +244,7 @@ def _result(**overrides: Any) -> WorkloadResult:
         "status": "ok",
         "compute_ns": 3_000_000_000,
         "compute_ms": 3000.0,
+        "compute_iterations": 18,
         "checksum": "sha256:" + "0" * 64,
         "checksum_exact": True,
         "verified": True,
@@ -268,6 +269,8 @@ def test_verify_accepts_a_good_result() -> None:
         ({"compute_ns": None}, "compute time"),
         ({"checksum": None}, "checksum"),
         ({"params": {"n": 1}}, "n:"),
+        ({"compute_iterations": None}, "compute_iterations"),
+        ({"compute_iterations": 1}, "compute_iterations 1, expected 18"),
     ],
 )
 def test_verify_names_what_is_wrong(overrides: dict[str, Any], problem: str) -> None:
