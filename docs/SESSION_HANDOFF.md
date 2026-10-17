@@ -262,6 +262,8 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
+**2026-10-17 (G2 implementer DONE, worktree-agent-abef81c72ced9ce24 `0145a80`) — RUNNING: G2 tester r1 (same worktree) ∥ G0 implementer. Lead rulings: compute.yaml (not meshforge.yaml) OK; `bench workloads` CLI-only parity entry OK; G3 decides if controller may import bench. GPU/ML families unverified on CUDA → 🧑 later: `uv run pytest tests/component/bench -q -rs` on a CUDA laptop + `meshforge-agent hardware score --json` per laptop.**
+
 **2026-10-17 (V0.9 APPROVED, ADR-0018) — RUNNING (parallel, user OK 2026-10-17): G0 implementer (brief §5a) + G2 implementer (brief §5c), separate worktrees. If died: relaunch from brief §5a; then tester → reviewer → whole component once → close G0 → write G1/G2 briefs (parallel allowed).**
 
 **2026-10-17 (V0.9 brief DRAFTED, Lead) — NOTHING RUNNING. `docs/briefs/V0.9-benchmark-telemetry.md` (D211–D224, Q1–Q5) waits for team approval. On approval: ADR-0018 → G0 item 0 (D210 list, clock skew first, before 🧑 0.8.10 perf step).**
