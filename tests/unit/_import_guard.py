@@ -37,7 +37,8 @@ ALLOWED_DEPS: dict[str, frozenset[str]] = {
     "agent": frozenset({"common"}),
     "gpu_service": frozenset({"common"}),
     "sdk": frozenset({"common"}),
-    "cli": frozenset({"common", "sdk"}),
+    "cli": frozenset({"common", "sdk", "bench"}),
+    "bench": frozenset({"common"}),
 }
 
 HINT = (
