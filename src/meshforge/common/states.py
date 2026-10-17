@@ -65,6 +65,10 @@ class AttemptPhase(StrEnum):
     ENV = "env"
     RUN = "run"
     COLLECT = "collect"
+    COMPUTE = "compute"
+    """V0.9 G1 (D213): the workload's own kernel time, measured by the workload
+    with a monotonic clock (benchmarks' ``results/workload.json``); it lies
+    INSIDE ``run``, so it is never added to the other phases."""
 
 
 JOB_TERMINAL_STATES: Final = frozenset(

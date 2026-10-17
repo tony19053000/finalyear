@@ -13,7 +13,7 @@ G2 D112, :mod:`.plan`), ``network_link`` (V0.6 G4 D111, :mod:`.network`),
 ``join_token``, ``audit_event`` (V0.7 G2 D135/D136, :mod:`.enrollment`),
 ``revoked_cert`` (V0.7 G3 D138, :mod:`.revocation`), ``app_user``,
 ``api_token`` (V0.7 G4 D141, :mod:`.auth`), ``secret`` (V0.7 G6 D144,
-:mod:`.secret`).
+:mod:`.secret`), ``run_record`` (V0.9 G1 D212, :mod:`.telemetry`).
 """
 
 from meshforge.controller.store.base import Base
@@ -37,6 +37,7 @@ from meshforge.controller.store.models.plan import PlanDecision
 from meshforge.controller.store.models.resource import ResourceSnapshot
 from meshforge.controller.store.models.revocation import RevokedCert
 from meshforge.controller.store.models.secret import Secret
+from meshforge.controller.store.models.telemetry import RunRecord
 
 __all__ = [
     "ApiToken",
@@ -58,6 +59,7 @@ __all__ = [
     "PlanDecision",
     "ResourceSnapshot",
     "RevokedCert",
+    "RunRecord",
     "Secret",
     "SessionEndReason",
     "TransferEvent",

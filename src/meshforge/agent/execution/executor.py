@@ -153,6 +153,10 @@ from meshforge.agent.execution.secret_files import (
 )
 from meshforge.agent.execution.uploader import UploadProgress, upload_parts
 from meshforge.agent.execution.workdir_cap import UNMEASURABLE, WorkdirCap, stop_watch
+from meshforge.agent.execution.workload_result import (
+    WorkloadReport,
+    read_workload_result,
+)
 from meshforge.agent.gc.leases import AttemptLeases, LeaseError
 from meshforge.agent.http_tls import AgentHttpTls
 from meshforge.agent.policy import LivePolicy
@@ -259,6 +263,8 @@ class _Attempt:
     release_requested: bool = False
     workdir: Path | None = None
     phases: dict[str, float] = field(default_factory=dict)
+    workload: WorkloadReport | None = None
+    """V0.9 G1: the benchmark's ``results/workload.json``, read after it exited."""
     fetch_token: str = ""
     """The current fetch token (StartAttempt's, or a RefreshFetchToken's). A
     secret: never logged."""
@@ -1608,6 +1614,12 @@ class Executor:
                 attempt, exit_code=result.exit_code, signal=result.signal
             )
             return
+        if observer.run_started is not None and attempt.workdir is not None:
+            # V0.9 G1 (D213): a benchmark's own monotonic kernel time and
+            # identity (results/workload.json; bounded, untrusted, no symlinks).
+            attempt.workload = await asyncio.to_thread(
+                read_workload_result, attempt.workdir
+            )
         if result.ok:
             await self._send(attempt, AttemptState.UPLOADING)
         final_logs = await self._final_logs(attempt, plan, logs)
@@ -1864,6 +1876,10 @@ class Executor:
         if terminal:
             for name, value in attempt.phases.items():
                 setattr(status.phases, name, max(0.0, value))
+            if attempt.workload is not None:
+                if attempt.workload.compute_ns is not None:
+                    status.phases.compute_ns = attempt.workload.compute_ns
+                status.workload.CopyFrom(attempt.workload.to_proto())
             # V0.5 G5 (D93): what staging each tree cost (project, then inputs).
             status.transfers.extend(
                 stage.to_proto() for stage in attempt.stages[: 1 + MAX_INPUTS]

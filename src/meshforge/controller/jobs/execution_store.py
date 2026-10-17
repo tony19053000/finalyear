@@ -24,7 +24,7 @@ the loser sees the winner's state:
   over it;
 * :meth:`ExecutionStore.apply_status` - an agent report: fenced on the attempt's
   token, idempotent on its state, the job moved with it, and - when the attempt
-  ends - all five phase rows written in the same transaction (D68);
+  ends - all six phase rows written in the same transaction (D68);
 * :meth:`ExecutionStore.end_attempt` - the controller ends an attempt itself
   (``LOST`` when its node left, ``FAILED`` by the timeout backstop);
 * **retries (V0.6 G3, D110, ADR-0015):** whenever ``apply_status`` or
@@ -255,6 +255,9 @@ class StatusReport:
     retryable: bool | None = None
     """V0.6 G3 (D110): the failure's own ``retryable`` flag (``Failure.
     retryable``); None = not sent -> the failure type's default (§13)."""
+    workload: Mapping[str, Any] | None = None
+    """V0.9 G1 (D212): a benchmark's own report (family, params, seed, status,
+    device, compute_ns), terminal reports only -> ``attempt.workload``."""
 
 
 class StatusKind(StrEnum):
@@ -1006,6 +1009,12 @@ async def _move_attempt(
         row.logs = {k: dict(v) for k, v in report.logs.items()}
     if target in ATTEMPT_TERMINAL_STATES and report.env_hash and row.env_hash is None:
         row.env_hash = report.env_hash
+    if (
+        target in ATTEMPT_TERMINAL_STATES
+        and report.workload is not None
+        and row.workload is None
+    ):
+        row.workload = dict(report.workload)
     if target is AttemptState.DONE:
         row.output_digest = report.output_digest
         row.missing_outputs = list(report.missing_outputs) or None
@@ -1075,7 +1084,7 @@ async def _write_transfers(
 async def _write_phases(
     db: AsyncSession, row: Attempt, agent: AgentPhases | None
 ) -> None:
-    """All five rows, in the terminal transaction (D68). A phase already stored
+    """All six rows, in the terminal transaction (D68). A phase already stored
     (a replay racing an earlier write) is left as it is."""
     await db.flush()  # clock_timestamp() values of the row above are needed below
     await db.refresh(row, ["created_at", "start_acked_at"])
