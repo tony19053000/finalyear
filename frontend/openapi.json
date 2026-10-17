@@ -8948,9 +8948,10 @@
         "responses": {
           "200": {
             "content": {
+              "application/octet-stream": {},
               "application/vnd.apache.parquet": {}
             },
-            "description": "Successful Response"
+            "description": "The Parquet file (telemetry schema v1, docs/TELEMETRY.md)"
           },
           "400": {
             "content": {

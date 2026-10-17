@@ -74,7 +74,12 @@ async def _chunks(data: bytes) -> AsyncIterator[bytes]:
     "/telemetry/export",
     response_class=StreamingResponse,
     summary="The telemetry dataset (run records) as one Parquet file - admin only",
-    responses={200: {"content": {PARQUET_MEDIA_TYPE: {}}}},
+    responses={
+        200: {
+            "content": {PARQUET_MEDIA_TYPE: {}, "application/octet-stream": {}},
+            "description": "The Parquet file (telemetry schema v1, docs/TELEMETRY.md)",
+        }
+    },
 )
 async def export_telemetry(
     admin: AdminUser,

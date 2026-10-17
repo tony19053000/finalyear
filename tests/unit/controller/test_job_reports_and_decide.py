@@ -204,7 +204,12 @@ def _planner(manager: FakeManager, clock: Clock) -> DispatchPlanner:
 
 def _live(state: NodeState) -> SimpleNamespace:
     return SimpleNamespace(
-        state=state, rtt_ewma_ms=None, session_id="s", policy=None, policy_slots=None
+        state=state,
+        rtt_ewma_ms=None,
+        session_id="s",
+        policy=None,
+        policy_slots=None,
+        clock=SimpleNamespace(latest=None),  # V0.9 G1: no clock exchange yet
     )
 
 

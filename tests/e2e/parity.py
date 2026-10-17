@@ -225,6 +225,11 @@ COMPUTE: Final[dict[str, Entry]] = {
         "controller call). The Benchmarks page (0.9.9, G6) is where campaigns are "
         "shown; G6 decides whether it lists the families too and moves this entry."
     ),
+    "telemetry export": CliOnly(
+        "V0.9 G1: downloads the run-record dataset as a Parquet file for analysis "
+        "tools (admin). The Benchmarks page (0.9.9, G6) adds the browser download "
+        "(D221) and moves this entry to a UI mapping then."
+    ),
 }
 
 #: ``meshforge-controller user ...`` (D176 "users (admin)").
