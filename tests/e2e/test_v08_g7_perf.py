@@ -137,12 +137,12 @@ def test_dashboard_stays_responsive_at_4x100_history_and_10k_jobs(
         assert events["job_state_latency"]["n"] >= 20, (name, events)
         assert events["heartbeat_latency"]["n"] >= 10, (name, events)
         # V0.9 G0 (D213): live latency is timed on the controller's clock with
-        # a measured browser offset; on one host it must be tightly bounded.
+        # a measured browser offset; on one host it must be tightly bounded and
+        # the true offset (0: one clock) inside it (+0.1: the report rounds).
         clock = events["clock"]
         assert clock["clock_offset_bound_ms"] <= ui_perf.MAX_CLOCK_BOUND_MS, clock
-        assert abs(clock["clock_offset_ms"]) <= clock["clock_offset_bound_ms"] + 1, (
-            clock
-        )
+        bound = clock["clock_offset_bound_ms"] + 0.1
+        assert abs(clock["clock_offset_ms"]) <= bound, clock
         assert events["heartbeat_frames_unreadable"] == 0, (name, events)
     assert phases["10k"]["list"]["rows_loaded"] >= 1000
     problems = {name: ui_perf.check(phase) for name, phase in phases.items()}

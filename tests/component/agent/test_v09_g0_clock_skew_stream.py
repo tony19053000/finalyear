@@ -109,7 +109,7 @@ async def test_clock_answers_the_controller_wall_clock_and_needs_a_user(
             exchanges.append(ClockExchange(sent, body["server_time"] * 1000, received))
     clock = estimate_offset(exchanges)
     # One host, one clock: the estimate is ~0 and certainly inside its bound.
-    assert abs(clock.offset_ms) <= clock.bound_ms + 1.0, clock
+    assert abs(clock.offset_ms) <= clock.bound_ms + 0.01, clock
     assert clock.bound_ms < 50.0, clock
 
 

@@ -77,13 +77,24 @@ class ClockOffset:
         }
 
 
-def estimate_offset(exchanges: Iterable[ClockExchange]) -> ClockOffset:
+def estimate_offset(
+    exchanges: Iterable[ClockExchange], *, resolution_ms: float = 0.0
+) -> ClockOffset:
     """The minimum-round-trip estimate of ``exchanges``.
+
+    ``resolution_ms`` is the local clock's tick when it truncates (a browser's
+    ``Date.now()`` counts whole milliseconds): each local stamp is up to one
+    tick EARLY, so the true offset lies in ``(remote - received - tick,
+    remote - sent]`` - its centre is the midpoint estimate minus half a tick,
+    its half-width ``(rtt + tick) / 2``. The remote stamp's own resolution is
+    assumed much finer (the controller answers in microseconds).
 
     Raises :class:`ClockOffsetError` when there is none, or when any exchange
     is not finite or went backwards (``received < sent``: the local clock
     stepped mid-exchange - the measurement itself is unusable, never clamped).
     """
+    if not (math.isfinite(resolution_ms) and resolution_ms >= 0):
+        raise ClockOffsetError("the clock resolution must be a finite value >= 0")
     seen = list(exchanges)
     if not seen:
         raise ClockOffsetError("no clock exchange to estimate an offset from")
@@ -97,8 +108,8 @@ def estimate_offset(exchanges: Iterable[ClockExchange]) -> ClockOffset:
             )
     best = min(seen, key=lambda e: e.rtt_ms)
     return ClockOffset(
-        offset_ms=best.offset_ms,
-        bound_ms=best.rtt_ms / 2.0,
+        offset_ms=best.offset_ms - resolution_ms / 2.0,
+        bound_ms=(best.rtt_ms + resolution_ms) / 2.0,
         rtt_ms=best.rtt_ms,
         exchanges=len(seen),
     )

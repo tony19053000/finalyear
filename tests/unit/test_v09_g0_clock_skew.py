@@ -109,6 +109,43 @@ def test_unusable_exchanges_are_refused_never_clamped(
         estimate_offset(exchanges)
 
 
+@pytest.mark.parametrize("resolution", [-1.0, math.nan, math.inf])
+def test_a_bad_resolution_is_refused(resolution: float) -> None:
+    with pytest.raises(ClockOffsetError):
+        estimate_offset([ClockExchange(0.0, 1.0, 2.0)], resolution_ms=resolution)
+
+
+def test_whole_millisecond_stamps_keep_the_true_offset_inside_the_bound() -> None:
+    """``Date.now()`` truncates: with ``resolution_ms=1`` the true offset is
+    inside the bound for any sub-millisecond timing (seeded sweep, both path
+    asymmetries); without it, it can fall outside (what the -m perf run saw:
+    offset 1.1 ms, bound 1.0 ms on ONE host)."""
+    import random
+
+    rng = random.Random(20261017)  # noqa: S311 - a seeded test sweep, not crypto
+    outside_without = 0
+    for _ in range(5_000):
+        skew = rng.uniform(-5_000.0, 5_000.0)  # remote - local, true
+        sent = rng.uniform(0.0, 10_000.0)
+        out, back = rng.uniform(0.0, 3.0), rng.uniform(0.0, 3.0)
+        stamped = ClockExchange(
+            math.floor(sent),
+            sent + out + skew,  # the remote stamps at arrival, microsecond-exact
+            math.floor(sent + out + back),
+        )
+        with_tick = estimate_offset([stamped], resolution_ms=1.0)
+        assert abs(with_tick.offset_ms - skew) <= with_tick.bound_ms + 1e-9
+        plain = estimate_offset([stamped])
+        outside_without += abs(plain.offset_ms - skew) > plain.bound_ms + 1e-9
+    assert outside_without > 0  # the tick matters
+
+
+def test_the_resolution_shifts_the_estimate_by_half_a_tick() -> None:
+    clock = estimate_offset([ClockExchange(100.0, 101.0, 102.0)], resolution_ms=1.0)
+    assert clock.offset_ms == pytest.approx(-0.5)
+    assert clock.bound_ms == pytest.approx(1.5)
+
+
 # ---------------------------------------------------------------- heartbeats
 
 

@@ -19,12 +19,15 @@ if TYPE_CHECKING:
     from playwright.sync_api import Page
 
 
-#: The browser<->controller offset must be known within this (ms, = RTT/2 of
-#: the best ping) for the live-latency numbers to count: above it the run is
+#: The browser<->controller offset must be known within this (ms; the bound is
+#: (RTT + 1 ms tick) / 2 of the best ping) for the live-latency numbers to
+#: count: above it the run is
 #: ``skew_uncertain`` - re-run with the browser nearer the controller (wired,
 #: or on its host) rather than pass or fail on an unknown clock.
 MAX_CLOCK_BOUND_MS: Final = 50.0
 CLOCK_PINGS: Final = 16
+#: ``Date.now()`` truncates to whole milliseconds (the bound widens by it).
+DATE_NOW_TICK_MS: Final = 1.0
 #: ``n`` round trips to ``GET /v1/clock`` from the page (the page's cookie, its
 #: ``Date.now()`` - the clock the DOM probes stamp with), sequential.
 CLOCK_PING: Final = """
@@ -47,8 +50,11 @@ def measure_clock(page: Page, pings: int = CLOCK_PINGS) -> ClockOffset:
     on the controller's origin), estimated from ``pings`` round trips."""
     rows = page.evaluate(CLOCK_PING, pings)
     return estimate_offset(
-        ClockExchange(float(sent), float(remote), float(received))
-        for sent, remote, received in rows
+        (
+            ClockExchange(float(sent), float(remote), float(received))
+            for sent, remote, received in rows
+        ),
+        resolution_ms=DATE_NOW_TICK_MS,
     )
 
 
