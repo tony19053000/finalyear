@@ -181,3 +181,48 @@ async def test_every_real_attempt_gets_one_complete_record_and_exports_reproduci
     assert table.num_rows == len(jobs)
     params = [p for p in table.column("workload_params").to_pylist() if p]
     assert json.loads(params[0]) == {"n": 200000}
+
+    # REST: admin export, twice -> the same bytes as the pure function's
+    rest = [await http.get("/v1/telemetry/export") for _ in range(2)]
+    for answer in rest:
+        assert answer.status_code == 200, answer.text
+        assert answer.headers["content-type"] == "application/vnd.apache.parquet"
+        assert answer.headers["x-meshforge-telemetry-rows"] == str(len(jobs))
+        assert answer.headers["cache-control"] == "no-store"
+    assert rest[0].content == rest[1].content == first
+    none = await http.get("/v1/telemetry/export", params={"campaign": "camp_none"})
+    assert none.status_code == 200
+    assert pq.read_table(io.BytesIO(none.content)).num_rows == 0
+    bad = await http.get("/v1/telemetry/export", params={"campaign": "a b"})
+    assert bad.status_code == 400
+    naive = await http.get(
+        "/v1/telemetry/export", params={"since": "2026-10-17T00:00:00"}
+    )
+    assert naive.status_code == 400
+    future = await http.get(
+        "/v1/telemetry/export", params={"since": "2999-01-01T00:00:00Z"}
+    )
+    assert pq.read_table(io.BytesIO(future.content)).num_rows == 0
+
+
+@pytest.mark.security
+async def test_the_export_is_admin_only(
+    runtime: ControllerRuntime, pg_settings: Any
+) -> None:
+    """THREAT_MODEL RE-I6: no user but an admin gets the dataset."""
+    from mf_users import create_user, login
+
+    engine = create_engine(pg_settings)
+    try:
+        await create_user(engine, "carol", "carol-password-1")
+    finally:
+        await engine.dispose()
+    base = f"https://127.0.0.1:{runtime.http_port}"
+    async with httpx.AsyncClient(base_url=base, timeout=10) as anon:
+        assert (await anon.get("/v1/telemetry/export")).status_code == 401
+        token = await login(anon, "carol", "carol-password-1")
+        refused = await anon.get(
+            "/v1/telemetry/export", headers={"authorization": f"Bearer {token}"}
+        )
+    assert refused.status_code == 403
+    assert b"PAR1" not in refused.content

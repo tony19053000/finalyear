@@ -186,6 +186,32 @@ class ControllerClient:
         except httpx.HTTPError as exc:
             raise self._transport_error(exc, path) from exc
 
+    def export_telemetry(
+        self, dest: Path, *, campaign: str | None = None, since: str | None = None
+    ) -> tuple[int, int | None]:
+        """V0.9 G1: stream ``GET /v1/telemetry/export`` into ``dest`` (created,
+        never overwritten); ``(bytes, rows)``."""
+        path = "/v1/telemetry/export"
+        params = {
+            k: v for k, v in (("campaign", campaign), ("since", since)) if v is not None
+        }
+        try:
+            with self._client.stream(
+                "GET", path, params=params, timeout=_TRANSFER_TIMEOUT_S
+            ) as response:
+                if response.status_code >= httpx.codes.BAD_REQUEST:
+                    response.read()
+                    raise self._envelope_error(response, _json_or_none(response), path)
+                rows = response.headers.get("x-meshforge-telemetry-rows")
+                size = 0
+                with dest.open("xb") as out:
+                    for chunk in response.iter_bytes(1024 * 1024):
+                        out.write(chunk)
+                        size += len(chunk)
+                return size, int(rows) if rows and rows.isdigit() else None
+        except httpx.HTTPError as exc:
+            raise self._transport_error(exc, path) from exc
+
     def submit_job(
         self, body: Mapping[str, Any], *, idempotency_key: str
     ) -> Mapping[str, Any]:

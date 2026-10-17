@@ -59,6 +59,7 @@ from meshforge.controller.api.auth_routes import AuthApi
 from meshforge.controller.api.fabric_routes import InviteApi
 from meshforge.controller.api.job_routes import JobApi
 from meshforge.controller.api.network_routes import NetworkApi
+from meshforge.controller.api.telemetry_routes import TelemetryExport
 from meshforge.controller.auth.live_streams import LiveStreams
 from meshforge.controller.auth.login import LoginService, login_policy
 from meshforge.controller.auth.passwords import PasswordHasher
@@ -671,6 +672,9 @@ class ControllerRuntime:
             secrets=self.secrets,
             events=self.events,
             alerts=AlertLog(engine),
+            telemetry=TelemetryExport(
+                engine, max_rows=self.settings.controller.telemetry.export_max_rows
+            ),
         )
         http_config = uvicorn.Config(
             http_app,

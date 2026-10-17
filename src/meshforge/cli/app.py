@@ -317,3 +317,8 @@ app.add_typer(fabric_app)
 from meshforge.cli.bench_commands import bench_app  # noqa: E402
 
 app.add_typer(bench_app)
+
+# V0.9 G1: `compute telemetry export` (the Parquet dataset, D211/D222).
+from meshforge.cli.telemetry_commands import telemetry_app  # noqa: E402
+
+app.add_typer(telemetry_app)
