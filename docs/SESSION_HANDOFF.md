@@ -264,6 +264,8 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
+**2026-10-17 (G7 MERGED `334da94`, D210) — frontend rebuilt. RUNNING: whole `-m component` ONCE on main, alone (log in session scratchpad g7_component.log). If died: rerun `uv run python scripts/pytest_exit_guard.py -m component -q -rs` alone; green (0 skips in tests/e2e except perf) → close 0.8.9 + status bar + STATUS → 🧑 0.8.10 checklist `lab/checklists/V0.8-visual.md` (fix D210 item 1 clock skew before its lab perf step).**
+
 **2026-10-17 (fix r2 done `930cbc8`,`c65535a`,`ac165dc`; Lead pin-flake fix `10356ca`) — RUNNING: G7 reviewer over 261cd72..HEAD in the worktree. If died: relaunch reviewer; then merge → rebuild frontend → whole component once alone (0 e2e skips except perf) → close 0.8.9 → 🧑 0.8.10. Note: wheel unit test needs network (fails, not skips, on DNS outage) — tech debt.**
 
 **2026-10-17 (tester r2 PASS, D209) — RUNNING: G7 fix round 2 (T-7h, T-2d, T-2c, T-7c) in the worktree. If died: relaunch per D209 (look for "## Fix round 2"); then reviewer (no tester r3) → merge → rebuild frontend → whole component once alone (0 e2e skips except perf) → close 0.8.9 → 🧑 0.8.10.**
