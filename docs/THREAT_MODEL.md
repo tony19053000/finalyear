@@ -268,6 +268,24 @@ Columns: **ID** · **S/T/R/I/D/E** · **threat** · **today (V0.6)** · **V0.7 m
 | DB-S6 | S | **DNS rebinding** against the plain loopback listener (Q1): a page on `http://evil.example:<port>` rebinds its name to `127.0.0.1` and talks to the loopback port as a same-origin page of `evil.example` (its own cookie jar, its own Origin) | n/a | the `loopback_plain` server is wrapped in `LoopbackHostGuard`: every HTTP request and WebSocket handshake whose single `Host` is not `localhost`, `127.0.0.1` or `[::1]` (case-insensitive; no port or exactly the listener's port) is refused before the app - 400 `invalid_input` with the security headers, WebSocket closed 1008 before accept; a missing, repeated or non-ASCII `Host` is refused too; the value is never logged or echoed. The TLS port needs no guard: a rebound name fails the certificate check | V0.8 G1 (D182 O-1) | `tests/component/agent/test_v08_g1_loopback_plain.py::test_loopback_plain_refuses_a_rebound_host_name`, `tests/unit/controller/test_v08_g1_loopback_host_guard.py::test_a_rebound_name_gets_the_error_envelope_with_security_headers`, `::test_missing_repeated_or_foreign_host_fails_closed_for_http_and_ws` | mitigated |
 | DB-T2 | T | the dashboard's origin runs injected script (XSS from a job name, a log line) or is framed (clickjacking), or the SPA serves a file from outside its build folder | n/a | CSP `default-src 'self'` with no inline/eval script and `frame-ancestors 'none'`, `nosniff`, `X-Frame-Options: DENY` on every response; static files resolved strictly inside `web/dist` (no `..`, hidden files, symlinks out, NUL, backslash); the SPA never answers under `/v1` or `/healthz`; the session cookie is `HttpOnly`, so even an XSS cannot read it (DB-S1) | V0.8 G1 | `tests/unit/controller/test_v08_g1_spa.py::test_security_headers_on_spa_and_api_responses`, `::test_files_outside_dist_and_hidden_files_are_never_served` | mitigated; **accepted**: rendering untrusted text safely is the frontend's job (React escaping, G2 review checklist) |
 
+**Note — the dashboard leak gate's lower bound (V0.8 G7; recorded V0.9 G0, D210 item 2).** The e2e
+leak gate (`tests/_support/mf_leaks.py`, run over every e2e page by `tests/e2e/test_v08_g7_zz_leak_gate.py`;
+V0.8 checklist item 25: no credential in the browser beyond the HttpOnly cookie) searches the pages,
+storage, console and network for two kinds of needle. **Credential shapes** (`mfat_…`, `mfbs_…`,
+`mf1-…`) are searched at any length, always. **Known values** (the passwords, tokens and job-secret
+values a test used, with their escaped/base64 forms and the lines of a multi-line value) are searched
+only from `MIN_KNOWN_CHARS = 8` characters up: a shorter needle such as a 4-byte test secret `abcd`
+matches ordinary page text, so the gate would fail on noise and its findings would stop meaning
+anything. What this leaves out, and why that is acceptable: passwords are already ≥ 8 characters
+(`auth/passwords.py` `MIN_PASSWORD_CHARS = 8`) and every token has a shape, so for them the bound
+loses nothing; a job secret may be 4–7 bytes (`common/secret_names.py` `MIN_SECRET_BYTES = 4`) and
+such a value, if the dashboard ever showed it, would **not** be caught by this gate by value (only
+the product's design covers it: secret values are write-only - `GET /v1/secrets` answers names and
+timestamps, never a value - so the dashboard never receives one). The gate itself is proven to catch
+a real leak with a value above the bound (`tests/e2e/test_v08_g7_tester_r2_order.py`).
+The bound is a property of the test oracle, not of the product's redaction (LF-I4, WS-I3 are
+unaffected: they match exact values of any allowed length).
+
 ## 6. Cross-cutting rules (V0.7 brief §4 items 19–22)
 
 - **Fail closed** — every auth check rejects missing/unknown/expired/malformed input, one test per branch; no "warn and continue" in a security path.
