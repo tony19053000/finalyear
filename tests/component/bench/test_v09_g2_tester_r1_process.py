@@ -140,7 +140,8 @@ def _build_in_process(tmp: Path, **env: str) -> dict[str, Any]:
     code = f"import sys; sys.argv = ['x', {str(dest)!r}]\n" + _BUILD_ALL
     done = _py(code, cwd=sub, env=_env(**env))
     assert done.returncode == 0, done.stderr
-    return json.loads(done.stdout)
+    loaded: Any = json.loads(done.stdout)
+    return loaded  # type: ignore[no-any-return]
 
 
 def test_job_folders_and_bundles_are_identical_across_processes_and_environments(
@@ -198,7 +199,8 @@ def _run_all(
         env=_env(**env),
     )
     assert done.returncode == 0, done.stderr
-    return json.loads(done.stdout)
+    loaded: Any = json.loads(done.stdout)
+    return loaded  # type: ignore[no-any-return]
 
 
 def test_numpy_family_checksums_repeat_across_processes_hashseeds_cwd_and_threads(
@@ -416,7 +418,8 @@ def _entry(
 
 
 def _doc(job: Path) -> dict[str, Any]:
-    return json.loads((job / "results" / "workload.json").read_text())
+    doc: dict[str, Any] = json.loads((job / "results" / "workload.json").read_text())
+    return doc
 
 
 def test_exit_0_for_a_verified_run(tmp_path: Path) -> None:
@@ -506,9 +509,6 @@ def test_exit_2_and_a_bad_params_document_for_a_damaged_request(
     assert "Traceback" not in done.stderr, label
 
 
-@pytest.mark.xfail(
-    reason="TR1-D6: the job side range-checks nothing: a negative seed / dimension is an uncaught traceback (exit 1, no workload.json)",
-)
 @pytest.mark.parametrize(
     "request_doc",
     [
@@ -812,9 +812,6 @@ def test_torch_checks_catch_gross_corruption() -> None:
 
 
 @needs_torch
-@pytest.mark.xfail(
-    reason="TR1-D8: gpu.elementwise verifies only the first 4096 elements; later corruption passes",
-)
 def test_elementwise_check_sees_corruption_beyond_the_first_4096_elements() -> None:
     def late(_s: Any, o: Any) -> Any:
         o = o.clone()
@@ -827,9 +824,6 @@ def test_elementwise_check_sees_corruption_beyond_the_first_4096_elements() -> N
 
 
 @needs_torch
-@pytest.mark.xfail(
-    reason="TR1-D8: gpu.resize verifies only image 0 of the batch; corruption of the other images passes",
-)
 def test_resize_check_sees_corruption_of_images_after_the_first() -> None:
     def late(_s: Any, o: Any) -> Any:
         o = o.clone()
@@ -841,10 +835,6 @@ def test_resize_check_sees_corruption_of_images_after_the_first() -> None:
 
 
 @needs_torch
-@pytest.mark.xfail(
-    reason="TR1-D9: a wrong-shaped resize output makes check() raise (job exit 1) instead of check_failed (exit 4)",
-    raises=RuntimeError,
-)
 def test_resize_check_reports_a_wrong_shape_as_a_failed_check_not_an_exception() -> (
     None
 ):

@@ -63,20 +63,37 @@ def _matmul_compute(state: Any) -> Any:
 
 
 def _matmul_check(state: Any, c: Any) -> Check:
-    """Freivalds: ``C x == A (B x)`` for a random ``x`` (O(n^2), not O(n^3))."""
+    """Row-wise Freivalds with three random vectors, in float64.
+
+    For every row ``i`` and vector ``x``: ``|(C x)_i - (A (B x))_i|`` must stay
+    within ``2 eps(dtype) (|A| (|B| |x|))_i`` - the rounding a correct product of
+    this dtype can show in that row, so one wrong element (whose effect is about
+    ``sqrt(n)`` times larger than the honest error) fails the row (tester r1 D3).
+    O(n^2) per vector, never O(n^3).
+    """
     np = state["np"]
-    x = np.random.default_rng(state["seed"] + 1).standard_normal(
-        c.shape[0], dtype=state["dtype"]
-    )
-    lhs = c @ x
-    rhs = state["a"] @ (state["b"] @ x)
-    error = float(np.linalg.norm(lhs - rhs) / max(float(np.linalg.norm(rhs)), 1e-30))
-    tolerance = 1e-9 if state["dtype"] == "float64" else 1e-3
+    n = state["a"].shape[0]
+    if c.shape != (n, n):
+        return Check(
+            False, digest(b"shape"), False, f"result shape {c.shape} != {(n, n)}"
+        )
+    a = state["a"].astype(np.float64)
+    b = state["b"].astype(np.float64)
+    c64 = c.astype(np.float64)
+    eps = float(np.finfo(state["dtype"]).eps)
+    rng = np.random.default_rng(state["seed"] + 1)
+    worst = 0.0
+    for _ in range(3):
+        x = rng.standard_normal(n)
+        error = np.abs(c64 @ x - a @ (b @ x))
+        bound = 2.0 * eps * (np.abs(a) @ (np.abs(b) @ np.abs(x))) + 1e-300
+        worst = max(worst, float(np.max(error / bound)))
+    ok = bool(np.isfinite(c64).all()) and worst <= 1.0
     return Check(
-        ok=error <= tolerance,
+        ok=ok,
         checksum=digest(c.tobytes()),
         exact=False,
-        detail=f"freivalds relative error {error:.3e} (tolerance {tolerance:g})",
+        detail=f"row-wise freivalds: worst error {worst:.3f} of the rounding bound",
     )
 
 
@@ -124,9 +141,30 @@ def _is_prime(n: int) -> bool:
     return all(n % d for d in range(3, math.isqrt(n) + 1, 2))
 
 
+def _odd_sieve(limit: int) -> bytearray:
+    """An independent sieve over odd numbers only: entry ``k`` is ``2k + 1``."""
+    size = (limit + 1) // 2
+    odd = bytearray(b"\x01") * size
+    odd[0] = 0  # 1 is not prime
+    for i in range(3, math.isqrt(limit) + 1, 2):
+        if odd[i // 2]:
+            start = i * i // 2
+            odd[start::i] = bytes(len(range(start, size, i)))
+    return odd
+
+
 def _primes_check(state: Any, sieve: bytearray) -> Check:
-    """64 seeded positions against trial division; pi(x) where it is known."""
+    """The whole table against an independent odd-only sieve (tester r1 D4), plus
+    64 seeded positions by trial division and pi(x) where it is a known constant.
+    Costs about half of one sieve (recorded in ``check_ms``)."""
     limit = state["limit"]
+    if len(sieve) != limit + 1:
+        return Check(False, digest(b"length"), True, f"table length {len(sieve)}")
+    odd_equal = sieve[1::2] == _odd_sieve(limit)
+    evens = sieve[0::2]
+    evens_ok = evens.count(1) == (1 if limit >= 2 else 0) and (
+        limit < 2 or sieve[2] == 1
+    )
     rng = random.Random(state["seed"])  # noqa: S311 - seeded synthetic data
     wrong = [
         n
@@ -135,12 +173,13 @@ def _primes_check(state: Any, sieve: bytearray) -> Check:
     ]
     count = sieve.count(1)
     known = _PRIME_COUNTS.get(limit)
-    ok = not wrong and (known is None or known == count)
+    ok = odd_equal and evens_ok and not wrong and (known is None or known == count)
     return Check(
         ok=ok,
         checksum=digest(str(count).encode(), hashlib.sha256(sieve).digest()),
         exact=True,
-        detail=f"{count} primes <= {limit}; sampled mismatches {wrong[:5]}"
+        detail=f"{count} primes <= {limit}; independent odd sieve equal {odd_equal}, "
+        f"evens {evens_ok}; sampled mismatches {wrong[:5]}"
         + ("" if known is None else f"; pi({limit}) = {known}"),
     )
 
@@ -168,14 +207,18 @@ def _sort_compute(state: Any) -> Any:
 
 
 def _sort_check(state: Any, out: Any) -> Check:
+    """The output must equal the input sorted by a different algorithm (numpy's
+    stable sort, not the default introsort): a permutation check, so a tamper
+    that keeps the order and the sum still fails (tester r1 D5)."""
     np = state["np"]
-    ordered = bool(np.all(out[1:] >= out[:-1]))
-    same_sum = int(out.sum()) == int(state["values"].sum())
+    reference = np.sort(state["values"], kind="stable")
+    same = out.shape == reference.shape and bool(np.array_equal(out, reference))
+    ordered = out.size < 2 or bool(np.all(out[1:] >= out[:-1]))
     return Check(
-        ok=ordered and same_sum and out.shape == state["values"].shape,
+        ok=same and ordered,
         checksum=digest(out.tobytes()),
         exact=True,
-        detail=f"non-decreasing {ordered}, sum preserved {same_sum}",
+        detail=f"equals an independent stable sort {same}, non-decreasing {ordered}",
     )
 
 

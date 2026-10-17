@@ -31,9 +31,18 @@ def _copy_prepare(params: Mapping[str, Any], seed: int, _device: str) -> Any:
     }
 
 
+_POISON = -1
+"""Written over the destination after the warm-up. The source holds only values
+``0 .. 2**62``, so a destination still holding it was never copied by the timed
+loop (tester r1 D2)."""
+
+
 def _copy_warmup(state: Any) -> None:
-    # One full copy: every destination page is touched (page faults) before timing.
+    # One full copy: every destination page is touched (page faults) before
+    # timing; then the destination is poisoned so only the timed loop can make
+    # it equal to the source.
     state["np"].copyto(state["dst"], state["src"])
+    state["dst"].fill(_POISON)
 
 
 def _copy_compute(state: Any) -> Any:
@@ -96,20 +105,41 @@ def _groupby_compute(state: Any) -> Any:
 
 
 def _groupby_check(state: Any, out: tuple[Any, Any, Any, Any]) -> Check:
+    """Every group's key, count, sum and max against an independent scatter
+    recompute on the unsorted input (``bincount`` with and without weights,
+    ``maximum.at``) - not just totals (tester r1 D1). About one pass over the
+    rows plus a scatter; recorded in ``check_ms``."""
     np = state["np"]
-    uniq, counts, sums, _maxs = out
-    expected = np.bincount(state["keys"], minlength=state["groups"])
-    counts_ok = bool(np.array_equal(expected[uniq], counts)) and int(
-        counts.sum()
-    ) == int(state["keys"].size)
-    total = float(state["values"].sum())
-    sum_error = abs(float(sums.sum()) - total)
-    sums_ok = sum_error <= 1e-6 * max(1.0, float(np.abs(state["values"]).sum()))
+    keys, values, groups = state["keys"], state["values"], state["groups"]
+    uniq, counts, sums, maxs = out
+    counts_ref = np.bincount(keys, minlength=groups)
+    present = np.flatnonzero(counts_ref)
+    sums_ref = np.bincount(keys, weights=values, minlength=groups)[present]
+    maxs_ref = np.full(groups, -np.inf)
+    np.maximum.at(maxs_ref, keys, values)
+    maxs_ref = maxs_ref[present]
+    shapes = all(
+        getattr(a, "shape", None) == present.shape for a in (uniq, counts, sums, maxs)
+    )
+    keys_ok = shapes and bool(np.array_equal(uniq, present))
+    counts_ok = keys_ok and bool(np.array_equal(counts, counts_ref[present]))
+    # Sums are float: the two summation orders differ by rounding only.
+    scale = np.bincount(keys, weights=np.abs(values), minlength=groups)[present]
+    sums_ok = keys_ok and bool(
+        np.all(
+            np.abs(sums - sums_ref)
+            <= 1e-12 * scale * max(1.0, np.log2(len(keys))) + 1e-300
+        )
+    )
+    maxs_ok = keys_ok and bool(np.array_equal(maxs, maxs_ref))  # max is exact
     return Check(
-        ok=counts_ok and sums_ok,
-        checksum=digest(uniq.tobytes(), counts.tobytes()),
+        ok=counts_ok and sums_ok and maxs_ok,
+        checksum=digest(uniq.tobytes(), counts.tobytes())
+        if shapes
+        else digest(b"shape"),
         exact=True,
-        detail=f"counts match bincount {counts_ok}, sum error {sum_error:.3e}",
+        detail=f"per group vs scatter recompute: keys {keys_ok}, counts {counts_ok}, "
+        f"sums {sums_ok}, max {maxs_ok}",
     )
 
 

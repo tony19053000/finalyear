@@ -1,4 +1,3 @@
-# ruff: noqa: E501  (long xfail reasons / parametrize ids are clearer on one line)
 """V0.9 G2 tester round 1: do the self-checks and the timing tell the truth?
 
 * mutation tests: corrupt a kernel's *output* in a realistic way and require the
@@ -49,7 +48,8 @@ def _run(
     if kernel.warmup:
         kernel.warmup(state)
     out = kernel.compute(state)
-    return kernel.check(state, mutate(state, out))
+    check: Check = kernel.check(state, mutate(state, out))
+    return check
 
 
 def _identity(_state: Any, out: Any) -> Any:
@@ -114,9 +114,6 @@ def test_matmul_float32_catches_a_zeroed_row_and_a_transposed_result() -> None:
     assert not _run(cpu, "cpu.matmul", params, lambda _s, c: c * 1.01).ok
 
 
-@pytest.mark.xfail(
-    reason="TR1-D3: float32 Freivalds tolerance (1e-3, norm-relative) misses an isolated wrong element",
-)
 def test_matmul_float32_catches_one_zeroed_element() -> None:
     def one(_s: Any, c: Any) -> Any:
         c = c.copy()
@@ -142,9 +139,6 @@ def test_sort_catches_unsorted_dropped_duplicated_and_changed_values() -> None:
     assert not _run(cpu, "cpu.sort", params, lambda _s, o: o[:-1]).ok
 
 
-@pytest.mark.xfail(
-    reason="TR1-D5: sort check = order + sum; a sum-preserving tamper of two values passes",
-)
 def test_sort_catches_a_sum_preserving_tamper() -> None:
     def tamper(_s: Any, o: Any) -> Any:
         o = o.copy()
@@ -192,9 +186,6 @@ def test_primes_catches_a_flipped_prime_at_the_known_limit() -> None:
     assert not _run(cpu, "cpu.primes", params, flip).ok
 
 
-@pytest.mark.xfail(
-    reason="TR1-D4: away from limits with a known pi(x), 64 sampled positions miss one flipped entry",
-)
 def test_primes_catches_a_flipped_prime_at_an_arbitrary_limit() -> None:
     params = {"limit": 10_000_019, "repeats": 1}
 
@@ -218,9 +209,6 @@ def test_copy_catches_a_corrupted_destination() -> None:
     assert not _run(memory, "memory.copy", {"size_mb": 2, "repeats": 1}, corrupt).ok
 
 
-@pytest.mark.xfail(
-    reason="TR1-D2: memory.copy warm-up already fills dst, so a compute that copies nothing passes the check",
-)
 def test_copy_check_detects_that_the_timed_loop_copied_nothing() -> None:
     kernel = memory.KERNELS["memory.copy"]
     state = kernel.prepare({"size_mb": 2, "repeats": 1}, 1, "cpu")
@@ -250,9 +238,6 @@ def test_groupby_catches_wrong_counts_and_a_wrong_total() -> None:
     assert not _run(memory, "memory.groupby", params, total).ok
 
 
-@pytest.mark.xfail(
-    reason="TR1-D1: groupby never checks the per-group max, nor which group a sum belongs to",
-)
 @pytest.mark.parametrize("what", ["max_zeroed", "sums_swapped"])
 def test_groupby_catches_wrong_max_and_swapped_group_sums(what: str) -> None:
     def mutate(_s: Any, out: Any) -> Any:
@@ -462,7 +447,10 @@ def _write_request(workdir: Path, doc: Any) -> None:
 
 
 def _result(workdir: Path) -> dict[str, Any]:
-    return json.loads((workdir / runner.RESULT_FILE).read_text(encoding="utf-8"))
+    doc: dict[str, Any] = json.loads(
+        (workdir / runner.RESULT_FILE).read_text(encoding="utf-8")
+    )
+    return doc
 
 
 def test_main_exit_codes_and_result_files(

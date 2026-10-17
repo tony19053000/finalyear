@@ -1,4 +1,3 @@
-# ruff: noqa: E501  (long xfail reasons / parametrize ids are clearer on one line)
 """V0.9 G2 tester round 1: adversarial contract tests for the workload library.
 
 Derived from the brief (docs/briefs/V0.9-benchmark-telemetry.md section 5c, D214),

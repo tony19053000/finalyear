@@ -59,18 +59,18 @@ the same node and library build (BLAS and GPUs round differently).
 
 | Family | Work (library) | Parameters (default = smallest) | Self-check | Exact |
 |---|---|---|---|---|
-| `cpu.matmul` | n x n matrix multiply (numpy/BLAS, all cores) | `n` 256-4096 (2048), `repeats` 1-500 (22), `dtype` float64/float32 | Freivalds `C x = A (B x)` | no |
-| `cpu.primes` | sieve of Eratosthenes (pure Python, 1 core) | `limit` 1e7-4e8 (1e8), `repeats` 1-100 (4) | 64 seeded positions by trial division; pi(x) for 1e6...1e9 | yes |
-| `cpu.sort` | sort random int64 (numpy, 1 core) | `n` 1e6-5e7 (1e7), `repeats` 1-500 (18) | non-decreasing, sum preserved | yes |
+| `cpu.matmul` | n x n matrix multiply (numpy/BLAS, all cores) | `n` 256-4096 (2048), `repeats` 1-500 (22), `dtype` float64/float32 | row-wise Freivalds, 3 vectors, in float64: every row within 2 eps of its rounding bound (one wrong element fails) | no |
+| `cpu.primes` | sieve of Eratosthenes (pure Python, 1 core) | `limit` 1e7-4e8 (1e8), `repeats` 1-100 (4) | whole table vs an independent odd-only sieve, + 64 trial divisions, + pi(x) for 1e7 / 1e8 | yes |
+| `cpu.sort` | sort random int64 (numpy, 1 core) | `n` 1e6-5e7 (1e7), `repeats` 1-500 (18) | equals the input sorted by a different algorithm (stable sort): a permutation check | yes |
 | `cpu.zlib` | compress word-like synthetic text (stdlib, 1 core) | `size_mb` 8-256 (64), `level` 1/6/9 (6), `repeats` 1-100 (2) | decompresses to the input | yes |
 | `cpu.sha256` | sha256 of a byte stream in chunks (hashlib, 1 core) | `size_mb` 1024-400000 (8192), `chunk_kb` 4/64/1024 (64) | re-chunked digest equal (costs as much as the run) | yes |
 | `cpu.integrate` | composite Simpson of `exp(-ax) cos(bx)` (numpy, chunked) | `points_m` 10-4000 (70), `repeats` 1-50 (1) | analytic integral, rel. error <= 1e-8 | no |
-| `memory.copy` | `numpy.copyto` int64 array into another | `size_mb` 64-1024 (1024), `repeats` 1-5000 (60) | destination equals source | yes |
-| `memory.groupby` | sort-based group-by: count/sum/max per key (numpy, pandas-free) | `rows_m` 1-40 (10), `groups` 10-1e6 (1e4), `repeats` 1-100 (4) | counts equal `bincount`, sums add up | yes |
+| `memory.copy` | `numpy.copyto` int64 array into another | `size_mb` 64-1024 (1024), `repeats` 1-5000 (60) | destination equals source; the destination is poisoned after the warm-up, so only the timed loop can make it so | yes |
+| `memory.groupby` | sort-based group-by: count/sum/max per key (numpy, pandas-free) | `rows_m` 1-40 (10), `groups` 10-1e6 (1e4), `repeats` 1-100 (4) | every group's key, count, sum and max vs a scatter recompute (`bincount`, `maximum.at`) | yes |
 | `gpu.matmul` | n x n matmul (torch, CUDA) | `n` 1024-12288 (4096), `repeats` 1-5000 (200), `dtype` float32/float16 | Freivalds in float32 | no |
 | `gpu.conv2d` | 3x3 convolution, padding 1 (cuDNN) | `batch` 1-256 (32), `channels` 16-512 (128), `size` 16-256 (64), `repeats` (300) | 16 sampled outputs recomputed in float64 on the CPU | no |
-| `gpu.elementwise` | `sin`, then `ops` fused `x + c*y` steps (bandwidth-bound) | `elements_m` 16-256 (64), `ops` 1-64 (16), `repeats` (60) | first 4096 elements vs float64 CPU | no |
-| `gpu.resize` | bilinear resize of RGB images | `batch` 1-256 (64), `size` 64-1024 (256), `out_size` 32-2048 (512), `repeats` (1100) | image 0 resized again on the CPU | no |
+| `gpu.elementwise` | `sin`, then `ops` fused `x + c*y` steps (bandwidth-bound) | `elements_m` 16-256 (64), `ops` 1-64 (16), `repeats` (60) | the whole output recomputed in float64 on the device, in chunks | no |
+| `gpu.resize` | bilinear resize of RGB images | `batch` 1-256 (64), `size` 64-1024 (256), `out_size` 32-2048 (512), `repeats` (1100) | every image resized again in float64 on the device; a wrong shape fails the check | no |
 | `ml.cnn_infer` | small CNN (conv-BN-ReLU blocks) inference | `batch` 1-512 (64), `width` 16-256 (64), `depth` 2-12 (6), `image` 32/64, `batches` (1000) | finite logits; last batch rerun equal | no |
 | `ml.cnn_train` | the same CNN, SGD steps on learnable synthetic labels | `batch` 8-512 (64), `width`, `depth`, `image`, `steps` 20-50000 (400) | finite losses; last quarter < first quarter | no |
 | `ml.transformer_infer` | transformer encoder on random tokens | `batch` 1-256 (16), `seq_len` 16-2048 (256), `width` (d_model, x64) 64-1024 (256), `depth` 1-24 (4), `batches` (300) | finite; last batch rerun equal | no |
@@ -88,7 +88,8 @@ The first CUDA lab run recalibrates them (`tests/component/bench/` runs the GPU 
 
 ### What a benchmark job folder holds
 
-`build_job(family, params, seed, dest)` writes a normal job folder that `compute run` accepts:
+`build_job(family, params, seed, dest)` writes a normal job folder that `compute run` accepts (atomically:
+it is built in a private sibling folder and renamed into place):
 
 ```
 compute.yaml              manifest: entrypoint [python, run_workload.py] (argv, never a shell),
@@ -120,6 +121,17 @@ The run's only output (`schema_version` 1):
 | `checksum`, `checksum_exact` | `sha256:...` of the output; whether it should match across nodes |
 | `verified`, `check_detail` | the self-check's outcome and numbers (e.g. the Freivalds error) |
 | `device`, `libraries`, `platform` | `cpu`/`cuda`; python, numpy, torch, CUDA, GPU name, zlib versions; OS, machine, CPU count |
+
+The job side re-checks what it reads (a hand-edited `workload_params.json` must not crash or allocate
+without bound): seed `0..2**32-1`, no unknown keys, each integer `1..` the family's maximum, choices as listed
+(`runner.PARAM_LIMITS`, held equal to the family models by a unit test). The minimum is 1, not the family's: the
+5 s - 3 min window is the library's rule, and tiny runs are how the kernels are tested.
+
+**Self-checks are what the dataset trusts.** Labels (G5) use `verified`, so every check must fail on wrong
+output, not only on gross corruption; the mutation tests in `tests/unit/bench/` and
+`tests/component/bench/` corrupt outputs realistically and require the check to notice. Check cost is reported
+in `check_ms` (at the smallest sizes on Laptop 1: under 1 s, except `cpu.sha256` whose re-hash costs as much as
+the run).
 
 Exit codes: **0** ok, **2** bad parameters, **3** unavailable on this node, **4** self-check failed. A crash
 (a bug) is a normal job failure with its traceback in the job log.

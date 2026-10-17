@@ -197,16 +197,32 @@ def _elementwise_compute(state: Any) -> Any:
     return y
 
 
+_CHECK_CHUNK = 1 << 22
+"""Elements (or images x pixels) recomputed per step of a full-output check."""
+
+
 def _elementwise_check(state: Any, y: Any) -> Check:
-    torch = state["torch"]
-    head = state["x"][:4096].detach().cpu().double()
-    expected = _chain(torch, head, state["ops"])
-    error = float((expected - y[:4096].detach().cpu().double()).abs().max())
+    """The **whole** output recomputed in float64 on the same device, in chunks
+    (tester r1 D8: not only a prefix). Bandwidth-bound like the run itself;
+    recorded in ``check_ms``."""
+    torch, x, ops = state["torch"], state["x"], state["ops"]
+    if tuple(y.shape) != tuple(x.shape):
+        return Check(False, floats_digest([]), False, f"output shape {tuple(y.shape)}")
+    worst = 0.0
+    for start in range(0, x.numel(), _CHECK_CHUNK):
+        part = slice(start, start + _CHECK_CHUNK)
+        expected = _chain(torch, x[part].double(), ops)
+        error = (y[part].double() - expected).abs() / (1.0 + expected.abs())
+        worst = max(worst, float(error.max()))
+    if worst != worst:  # NaN in the output
+        worst = float("inf")
+    tolerance = 1e-5 * (ops + 2)
     return Check(
-        ok=error <= 1e-4,
+        ok=worst <= tolerance,
         checksum=floats_digest([round(float(y.double().sum()), 3)]),
         exact=False,
-        detail=f"max error on the first 4096 elements vs float64 CPU {error:.3e}",
+        detail=f"whole output vs float64 recompute: worst relative error {worst:.3e} "
+        f"(tolerance {tolerance:.1e})",
     )
 
 
@@ -249,15 +265,29 @@ def _resize_compute(state: Any) -> Any:
 
 
 def _resize_check(state: Any, y: Any) -> Check:
-    """Image 0 resized again on the CPU must match."""
-    expected = _resize(state, state["x"][:1].detach().cpu())
-    error = float((expected - y[:1].detach().cpu()).abs().max())
-    shape_ok = tuple(y.shape[-2:]) == (state["out_size"], state["out_size"])
+    """Every image resized again in float64 on the same device, a few images at a
+    time (tester r1 D8: not only image 0). A wrong shape is a failed check, not an
+    exception (D9)."""
+    x = state["x"]
+    want = (x.shape[0], x.shape[1], state["out_size"], state["out_size"])
+    if tuple(y.shape) != want:
+        return Check(
+            False, floats_digest([]), False, f"output shape {tuple(y.shape)} != {want}"
+        )
+    per_image = 3 * (x.shape[2] ** 2 + state["out_size"] ** 2)
+    step = max(1, _CHECK_CHUNK // per_image)
+    worst = 0.0
+    for start in range(0, x.shape[0], step):
+        part = slice(start, start + step)
+        expected = _resize(state, x[part].double())
+        worst = max(worst, float((y[part].double() - expected).abs().max()))
+    if worst != worst:
+        worst = float("inf")
     return Check(
-        ok=shape_ok and error <= 1e-4,
+        ok=worst <= 1e-5,
         checksum=_sums_digest(y, (2, 3)),
         exact=False,
-        detail=f"image 0 max error vs CPU {error:.3e}, shape {tuple(y.shape)}",
+        detail=f"all {x.shape[0]} images vs float64 recompute: max error {worst:.3e}",
     )
 
 

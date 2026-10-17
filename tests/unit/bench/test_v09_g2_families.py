@@ -307,3 +307,38 @@ def test_the_library_imports_and_lists_without_numpy_or_torch() -> None:
 def test_window_constants_match_the_brief() -> None:
     assert (MIN_RUNTIME_S, MAX_RUNTIME_S) == (5.0, 180.0)
     assert math.isfinite(MID_LAPTOP.per_second("gpu_fp32_tflops"))
+
+
+@pytest.mark.parametrize("family", FAMILIES, ids=IDS)
+def test_job_side_limits_equal_the_family_models(family: Family[Any]) -> None:
+    """Tester r1 D6: the job refuses what the library refuses (maxima, choices);
+    its minimum is 1 because tiny runs test the kernels."""
+    from meshforge.bench.workloads.kernels.runner import PARAM_LIMITS
+
+    limits = PARAM_LIMITS[family.name]
+    schema = family.params_model.model_json_schema()["properties"]
+    assert set(limits) == set(schema)
+    for name, spec in schema.items():
+        if "enum" in spec:
+            assert tuple(spec["enum"]) == limits[name], name
+        else:
+            assert spec["maximum"] == limits[name], name
+            assert spec["minimum"] >= 1, name
+
+
+@pytest.mark.parametrize("family", FAMILIES, ids=IDS)
+def test_the_job_side_refuses_zero_and_above_the_maximum(family: Family[Any]) -> None:
+    from meshforge.bench.workloads.kernels._support import KernelParamsError
+    from meshforge.bench.workloads.kernels.runner import PARAM_LIMITS, execute
+
+    base = family.params_dict(family.smallest_params())
+    for name, limit in PARAM_LIMITS[family.name].items():
+        bad_values = [0, -1, limit + 1] if isinstance(limit, int) else ["nope"]
+        for bad in bad_values:
+            with pytest.raises(KernelParamsError, match=name):
+                execute(family.name, {**base, name: bad}, 1)
+    with pytest.raises(KernelParamsError, match="unknown parameter"):
+        execute(family.name, {**base, "extra": 1}, 1)
+    for seed in (-1, 2**32, True, 1.5):
+        with pytest.raises(KernelParamsError, match="seed"):
+            execute(family.name, base, seed)  # type: ignore[arg-type]
