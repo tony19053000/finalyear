@@ -11,7 +11,7 @@
 //
 //   node scripts/check-dist.mjs [DIST_DIR]
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join, relative } from "node:path";
+import { basename, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const dist =
@@ -59,14 +59,18 @@ const MAX_CHUNK_BYTES = 350 * 1000;
  * builders (`createTableTag`) that write `<table style="` / `<td style="`.
  * The dashboard never calls them - components/QrCode.tsx draws its own SVG
  * path from `isDark()` - so these exact two literals are ignored, and only in
- * a chunk that holds that library. Any other `style="` still fails, and the
- * e2e CSP watch would catch the builders if they ever ran.
+ * the library's OWN chunk (V0.8 G7, D204: vite.config.ts `manualChunks` names it
+ * `assets/qrcode-generator-<hash>.js`) that also holds the builder. Any other
+ * `style="` - in app code or in any other chunk - still fails, and the e2e CSP
+ * watch would catch the builders if they ever ran.
  */
 const QR_LIBRARY_MARKER = "createTableTag";
+const QR_LIBRARY_CHUNK = /^qrcode-generator-[\w-]+\.js$/;
 const QR_LIBRARY_DEAD_LITERALS = ["`<table style=\"`", "`<td style=\"`", "'<table style=\"'", "'<td style=\"'"];
 
 function withoutKnownDeadCode(file, text) {
-  if (!/\.(js|mjs)$/.test(file) || !text.includes(QR_LIBRARY_MARKER)) return text;
+  const name = basename(file);
+  if (!QR_LIBRARY_CHUNK.test(name) || !text.includes(QR_LIBRARY_MARKER)) return text;
   let out = text;
   for (const literal of QR_LIBRARY_DEAD_LITERALS) out = out.split(literal).join("");
   return out;

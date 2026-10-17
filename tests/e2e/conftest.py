@@ -9,19 +9,44 @@ the built SPA, driven by real Chromium through pytest-playwright.
   the header's node count has a real source. Torn down with the harness's
   invariant check (no tracebacks, no forbidden events).
 * The SPA: the controller serves ``src/meshforge/controller/web/dist`` - the
-  output of ``cd frontend && npm run build``. Not built -> skip with that
+  output of ``cd frontend && npm run build``. Not built, or built from other
+  frontend sources than the ones on disk (stale, D206) -> skip with that
   command as the reason (as are a missing Playwright Chromium and a missing
   ``frontend/node_modules`` for axe-core).
 * Browser trust: Chromium accepts exactly this controller's TLS key
   (``--ignore-certificate-errors-spki-list``, pinned after the harness
   verified the certificate against the fabric CA) - not any certificate.
+
+V0.8 G7 (one shared layer):
+
+* ``fabric`` runs **2 real agents** by default (``fabric_options`` may say
+  ``agents``: 1 for a test about exactly one laptop).
+* ``new_page`` is the one way a test opens a page. When the test passed, it
+  checks EVERY page it opened (``PageWatch.final_problems``): no console error,
+  no uncaught error, no CSP violation, and axe-core clean on the page's final
+  state - so the guard cannot be forgotten per test. A test states what it
+  expects with ``watch.allow`` / ``allow_matching`` / ``skip_final_axe`` /
+  ``disarm`` (each with its reason). The shared helpers (sign-in, axe, Tab
+  navigation, job API) are in ``tests/_support/mf_e2e.py``.
+* ``leak_watch`` (one per session, checklist 25): every page from
+  ``new_page`` (and every popup / tab its context opens) reports its console,
+  the URLs it requested and visited, each storage write as it happens, and at
+  the end of each test its storage (web storage, IndexedDB, Cache Storage,
+  history state, script-readable cookies); credentials are learnt from the
+  traffic (``tests/_support/mf_leaks.py``). The verdict does not depend on
+  test order or on which tests run (fix round 1, T-1): at the end of the
+  session the fixture's teardown fails on any finding, and
+  ``pytest_sessionfinish`` makes the exit status non-zero as well.
+  ``test_v08_g7_zz_leak_gate.py`` adds a flow that makes every kind of
+  credential, and greps the built bundle.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+import sys
+from collections.abc import Generator, Iterator
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final
 
 import pytest
 from mf_postgres import pg_settings, postgres_server  # noqa: F401
@@ -32,19 +57,73 @@ pytest.importorskip(
 
 if TYPE_CHECKING:
     from mf_cluster import Fabric
-    from playwright.sync_api import Browser, BrowserType, Playwright
+    from mf_dashboard import PageWatch
+    from mf_e2e import NewPage
+    from mf_leaks import LeakWatch
+    from playwright.sync_api import Browser, BrowserType, Page, Playwright
 
     from meshforge.controller.store.settings import DatabaseSettings
+
+#: Agents the shared fabric runs unless a test's ``fabric_options`` says.
+DEFAULT_AGENTS: Final = 2
+#: Default Playwright timeout of a page from ``new_page`` (ms).
+PAGE_TIMEOUT_MS: Final = 20_000
+
+_CALL_PASSED: Final = pytest.StashKey[bool]()
+_LEAK_WATCH: Final = pytest.StashKey["LeakWatch"]()
+#: Findings listed in a failure message (the rest are counted).
+_MAX_LISTED: Final = 50
+
+
+def _leak_report(findings: list[str]) -> str:
+    listed = "\n  ".join(findings[:_MAX_LISTED])
+    more = len(findings) - _MAX_LISTED
+    tail = f"\n  ... and {more} more" if more > 0 else ""
+    return (
+        f"credentials reached the browser ({len(findings)} places):\n  {listed}{tail}"
+    )
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_sessionfinish(session: pytest.Session) -> None:
+    """Fail the run when the session's leak watch holds a finding (T-1),
+    whichever tests ran and in whatever order - also when the fixture
+    teardown's error was somehow not counted."""
+    watch = session.config.stash.get(_LEAK_WATCH, None)
+    if watch is None:
+        return
+    findings = watch.findings()
+    if not findings:
+        return
+    reporter = session.config.pluginmanager.get_plugin("terminalreporter")
+    message = _leak_report(findings)
+    if reporter is not None:
+        reporter.write_sep("=", "credential leak gate", red=True)
+        reporter.write_line(message, red=True)
+    else:
+        sys.stderr.write(message + "\n")
+    if session.exitstatus == pytest.ExitCode.OK:
+        session.exitstatus = pytest.ExitCode.TESTS_FAILED
+
+
+@pytest.hookimpl(wrapper=True, tryfirst=True)
+def pytest_runtest_makereport(
+    item: pytest.Item, call: pytest.CallInfo[None]
+) -> Generator[None, pytest.TestReport, pytest.TestReport]:
+    """Remember whether the test body passed: the end-of-test page guard only
+    judges a passing test (a failed one already reported its own problem)."""
+    report: pytest.TestReport = yield
+    if report.when == "call":
+        item.stash[_CALL_PASSED] = report.passed
+    return report
 
 
 @pytest.fixture(scope="session")
 def dashboard_dist() -> Path:
-    from mf_dashboard import AXE_JS, DIST
+    from mf_dashboard import AXE_JS, DIST, require_fresh_dist
 
-    if not (DIST / "index.html").is_file():
-        pytest.skip(
-            "the dashboard is not built - run `cd frontend && npm ci && npm run build`"
-        )
+    # Not built, or built from other sources than these (V0.8 G7, D206).
+    require_fresh_dist(DIST)
     if not AXE_JS.is_file():
         pytest.skip(
             "frontend/node_modules is missing (axe-core) - run `cd frontend && npm ci`"
@@ -98,8 +177,23 @@ def fabric_options() -> dict[str, Any]:
     restart needs ``record_links=True``: the REST port then sits behind a
     stable proxy address, as a real controller keeps its configured port (the
     harness otherwise restarts it on a new ephemeral port, which no browser
-    page could follow). ``agents`` (default 1) sets how many real agents run."""
+    page could follow). ``agents`` (default :data:`DEFAULT_AGENTS`) sets how
+    many real agents run."""
     return {}
+
+
+@pytest.fixture(scope="session")
+def leak_watch(request: pytest.FixtureRequest) -> Iterator[LeakWatch]:
+    """Where credentials could leak, across the whole e2e run (checklist 25).
+    Its teardown - after the last test of the session that used a page -
+    fails on any finding, so every subset and order of tests is judged (T-1)."""
+    from mf_leaks import LeakWatch
+
+    watch = LeakWatch()
+    request.config.stash[_LEAK_WATCH] = watch
+    yield watch
+    findings = watch.findings()
+    assert not findings, _leak_report(findings)
 
 
 @pytest.fixture
@@ -108,18 +202,22 @@ def fabric(
     tmp_path: Path,
     dashboard_dist: Path,
     fabric_options: dict[str, Any],
+    leak_watch: LeakWatch,
 ) -> Iterator[Fabric]:
     pytest.importorskip("psutil", reason="the cluster harness needs the agent extra")
     pytest.importorskip(
         "sqlalchemy", reason="the controller needs the controller extra"
     )
-    from mf_cluster import Fabric
+    from mf_cluster import ADMIN_USER, NORMAL_USER, Fabric
 
     options = dict(fabric_options)
-    agents = int(options.pop("agents", 1))  # V0.8 G3: pages with >= 2 nodes
+    agents = int(options.pop("agents", DEFAULT_AGENTS))
     made = Fabric(pg_settings, tmp_path / "fabric", agents=agents, **options)
     try:
         made.start()
+        for user in (ADMIN_USER, NORMAL_USER):
+            leak_watch.add_known(made.password(user))
+            leak_watch.add_known(made.api_token(user))
         yield made
         made.check_invariants()
     finally:
@@ -144,3 +242,42 @@ def dashboard_browser(
         yield browser
     finally:
         browser.close()
+
+
+@pytest.fixture
+def new_page(
+    dashboard_browser: Browser,
+    request: pytest.FixtureRequest,
+    leak_watch: LeakWatch,
+) -> Iterator[NewPage]:
+    """``new_page(init=None, timeout_ms=..., **context) -> (page, watch)``: a
+    page in a fresh browser context (reduced motion: axe measures colours at
+    rest), watched from its first document. At the end of a passing test every
+    page made here must be clean (console, uncaught errors, CSP, axe on the
+    final state); the test fails at teardown otherwise, listing each problem."""
+    from mf_dashboard import PageWatch
+
+    watches: list[PageWatch] = []
+
+    def make(
+        *, init: str | None = None, timeout_ms: int = PAGE_TIMEOUT_MS, **context: Any
+    ) -> tuple[Page, PageWatch]:
+        context.setdefault("reduced_motion", "reduce")
+        page = dashboard_browser.new_context(**context).new_page()
+        page.set_default_timeout(timeout_ms)
+        if init:
+            page.add_init_script(init)
+        watch = PageWatch.attach(page)
+        watches.append(watch)
+        leak_watch.attach(page, test)
+        return page, watch
+
+    test = request.node.nodeid
+    yield make
+    for watch in watches:
+        leak_watch.snapshot(watch.page, test)
+    leak_watch.snapshot_followed()
+    if not request.node.stash.get(_CALL_PASSED, False):
+        return
+    problems = [problem for watch in watches for problem in watch.final_problems()]
+    assert not problems, "the end-of-test page guard found:\n  " + "\n  ".join(problems)

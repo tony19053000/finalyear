@@ -42,13 +42,25 @@ const JobDetailPage = lazy(() => PAGE_LOADERS.jobDetail().then((m) => ({ default
 const SubmitJobPage = lazy(() => PAGE_LOADERS.submit().then((m) => ({ default: m.SubmitJobPage })));
 const SettingsRoutes = lazy(() => PAGE_LOADERS.settings().then((m) => ({ default: m.SettingsRoutes })));
 
-/** Load every page chunk once the shell is up (errors are left to the boundary). */
-function PreloadPages() {
+/**
+ * Load every page chunk once the shell is up (errors are left to the boundary).
+ * A failed preload is one console warning (D204, V0.8 G7; never `console.debug`:
+ * the G2 tester bans log/debug/info in sources): it is not an
+ * error - the page's own load retries when it is opened - but it is visible to
+ * whoever debugs a "page could not be loaded".
+ */
+export function PreloadPages({
+  loaders = PAGE_LOADERS,
+}: {
+  loaders?: Readonly<Record<string, () => Promise<unknown>>>;
+}) {
   useEffect(() => {
-    for (const load of Object.values(PAGE_LOADERS)) {
-      load().catch(() => undefined); // offline now: the page's own load retries later
+    for (const [page, load] of Object.entries(loaders)) {
+      load().catch((err: unknown) => {
+        console.warn("page preload failed; it loads again when opened", page, err instanceof Error ? err.message : String(err));
+      });
     }
-  }, []);
+  }, [loaders]);
   return null;
 }
 

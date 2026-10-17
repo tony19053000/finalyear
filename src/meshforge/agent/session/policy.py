@@ -87,6 +87,14 @@ class HelloRejectAction(StrEnum):
     FATAL_CONFIG = "fatal_config"
 
 
+def _reason_word(details: str | None) -> str:
+    """The detail's reason word: the text before the first ``:`` (or all of it).
+
+    Matched exactly (V0.8 G7, D204): a prefix test would also take e.g.
+    ``node_revoked_pending: ...`` for a revocation."""
+    return (details or "").strip().split(":", 1)[0].strip()
+
+
 def stream_end_action(
     code: grpc.StatusCode | None, details: str | None
 ) -> StreamEndAction:
@@ -99,7 +107,7 @@ def stream_end_action(
         if (details or "").strip() == SUPERSEDED_DETAIL:
             return StreamEndAction.STOP_SUPERSEDED
         return StreamEndAction.RECONNECT
-    if code is grpc.StatusCode.PERMISSION_DENIED and (details or "").strip().startswith(
+    if code is grpc.StatusCode.PERMISSION_DENIED and _reason_word(details) == (
         NODE_REVOKED_REASON
     ):
         return StreamEndAction.STOP_REVOKED

@@ -23,18 +23,24 @@ pytest.importorskip("psutil", reason="the cluster harness needs the agent extra"
 pytest.importorskip("sqlalchemy", reason="the controller needs the controller extra")
 
 from mf_cluster import ADMIN_USER, NORMAL_USER
-from mf_dashboard import PageWatch, axe_violations
-from playwright.sync_api import Browser, Page, expect
-from pydantic import SecretStr
+from mf_e2e import (
+    EXEC_OPTIONS,
+    TOKEN_PASSWORD_REFUSED_401,
+    sign_in,
+    tab_to,
+    user_client,
+)
+from playwright.sync_api import expect
 from qr_decode import decode_matrix, matrix_from_svg_path
 
-from meshforge.cli.client import ControllerClient
 from meshforge.cli.transfer import upload_tree
 from meshforge.common import join_code
 from meshforge.common.tree import build_tree
 
 if TYPE_CHECKING:
     from mf_cluster import Fabric
+    from mf_e2e import NewPage
+    from playwright.sync_api import Page
 
 pytestmark = [
     pytest.mark.e2e,
@@ -43,57 +49,7 @@ pytestmark = [
     pytest.mark.skipif(sys.platform.startswith("win"), reason="POSIX agent runtime"),
 ]
 
-EXEC_OPTIONS = {
-    "agent_execution": {"enabled": True, "allow_unsandboxed": True, "grace_s": 1.0},
-    "controller_jobs": {"dispatch_interval_s": 0.1},
-    "agent_env": {"DOCKER_HOST": "unix:///nonexistent/meshforge-test.sock"},
-}
-LOGIN_REFUSED_401 = ("status of 401", "/v1/auth/login")
-
-
-def _page(browser: Browser) -> tuple[Page, PageWatch]:
-    made = browser.new_context(reduced_motion="reduce")
-    page = made.new_page()
-    page.set_default_timeout(20_000)
-    return page, PageWatch.attach(page)
-
-
-def _sign_in(page: Page, fabric: Fabric, user: str = ADMIN_USER) -> None:
-    page.goto(fabric.http_base + "/")
-    page.get_by_label("User name").fill(user)
-    page.get_by_label("Password").fill(fabric.password(user))
-    page.get_by_role("button", name="Sign in").click()
-    expect(page.get_by_role("heading", level=1, name="Overview")).to_be_visible()
-    expect(page.get_by_test_id("stream-status")).to_have_attribute(
-        "data-status", "live"
-    )
-
-
-def _no_axe(page: Page, where: str) -> None:
-    assert axe_violations(page) == [], f"axe violations on {where}"
-
-
-def _client(fabric: Fabric, user: str) -> ControllerClient:
-    return ControllerClient(
-        fabric.http_base,
-        timeout_s=30,
-        token=SecretStr(fabric.api_token(user)),
-        ssl_context=fabric.ssl_context,
-    )
-
-
-def _tab_to(page: Page, name: str, limit: int = 120) -> None:
-    """Move focus with Tab only until the focused control's accessible name
-    (aria-label or text) is ``name``."""
-    for _ in range(limit):
-        label = page.evaluate(
-            "(document.activeElement?.getAttribute('aria-label') "
-            "|| document.activeElement?.textContent || '').trim()"
-        )
-        if label == name:
-            return
-        page.keyboard.press("Tab")
-    pytest.fail(f"Tab never reached {name!r}")
+LOGIN_REFUSED_401 = TOKEN_PASSWORD_REFUSED_401
 
 
 def _mutations(page: Page) -> list[str]:
@@ -109,13 +65,15 @@ def _mutations(page: Page) -> list[str]:
     return seen
 
 
-def _push_dataset(fabric: Fabric, tmp_path: Path, name: str, files: int = 2) -> dict:
+def _push_dataset(
+    fabric: Fabric, tmp_path: Path, name: str, files: int = 2
+) -> dict[str, Any]:
     root = tmp_path / f"ds-{name}"
     root.mkdir()
     for i in range(files):
         (root / f"f{i}.txt").write_text(f"payload {i}\n")
     built = build_tree(root)
-    client = _client(fabric, ADMIN_USER)
+    client = user_client(fabric, ADMIN_USER)
     try:
         upload_tree(client, built)
         return dict(client.push_input(name, str(built.tree.tree_id), pinned=False))
@@ -128,10 +86,10 @@ def _push_dataset(fabric: Fabric, tmp_path: Path, name: str, files: int = 2) -> 
 
 @pytest.mark.parametrize("fabric_options", [{"agents": 1}])
 def test_invite_qr_decodes_to_a_code_the_real_parser_accepts_for_this_controller(
-    fabric: Fabric, dashboard_browser: Browser
+    fabric: Fabric, new_page: NewPage
 ) -> None:
-    page, watch = _page(dashboard_browser)
-    _sign_in(page, fabric)
+    page, watch = new_page()
+    sign_in(page, fabric)
     page.goto(fabric.http_base + "/settings/invites")
     posts: list[str] = []
     page.on(
@@ -202,12 +160,12 @@ def test_invite_qr_decodes_to_a_code_the_real_parser_accepts_for_this_controller
 
 @pytest.mark.parametrize("fabric_options", [{"agents": 1}])
 def test_revoked_token_is_401_everywhere_and_closes_its_live_stream(
-    fabric: Fabric, dashboard_browser: Browser
+    fabric: Fabric, new_page: NewPage
 ) -> None:
     from websockets.sync.client import connect
 
-    page, watch = _page(dashboard_browser)
-    _sign_in(page, fabric)
+    page, watch = new_page()
+    sign_in(page, fabric)
     page.goto(fabric.http_base + "/settings/tokens")
     page.get_by_role("button", name="Create API token").click()
     dialog = page.get_by_role("dialog")
@@ -227,6 +185,7 @@ def test_revoked_token_is_401_everywhere_and_closes_its_live_stream(
     bearer = {"authorization": f"Bearer {token}"}
     ws_url = fabric.http_base.replace("https://", "wss://") + "/v1/events/ws"
     paths = ["/v1/auth/whoami", "/v1/nodes", "/v1/jobs", "/v1/secrets", "/v1/data"]
+    assert fabric.ssl_context is not None
     with httpx.Client(verify=fabric.ssl_context, timeout=10) as http:
         for p in paths:
             assert http.get(fabric.http_base + p, headers=bearer).status_code == 200, p
@@ -276,10 +235,18 @@ def test_revoked_token_is_401_everywhere_and_closes_its_live_stream(
 
 @pytest.mark.parametrize("fabric_options", [{"agents": 1}])
 def test_revoking_own_session_signs_the_browser_out_for_real(
-    fabric: Fabric, dashboard_browser: Browser
+    fabric: Fabric, new_page: NewPage
 ) -> None:
-    page, watch = _page(dashboard_browser)
-    _sign_in(page, fabric, NORMAL_USER)
+    page, watch = new_page()
+    # Revoking the session this page runs on: the reads in flight at that
+    # moment are refused (401) before the page shows the sign-in form. The
+    # watch judges each console line as it arrives, so say it up front.
+    # Which reads are in flight at that moment is timing: each may not happen.
+    for path in ("/v1/auth/whoami", "/v1/auth/tokens", "/v1/nodes", "/v1/overview"):
+        watch.allow(
+            "status of 401", path, "a read in flight at revocation", may_not_occur=True
+        )
+    sign_in(page, fabric, NORMAL_USER)
     # a second tab of the same session
     other = page.context.new_page()
     other.goto(fabric.http_base + "/")
@@ -299,16 +266,13 @@ def test_revoking_own_session_signs_the_browser_out_for_real(
     expect(other.get_by_label("User name")).to_be_visible(timeout=20_000)
     # And the cookie really is dead server-side.
     cookies = {c["name"]: c["value"] for c in page.context.cookies()}
+    assert fabric.ssl_context is not None
     r = httpx.get(
         fabric.http_base + "/v1/auth/whoami",
         cookies={k: v for k, v in cookies.items() if k.startswith("mf_")},
         verify=fabric.ssl_context,
     )
     assert r.status_code == 401
-    watch.allow("status of 401", "/v1/auth/whoami")
-    watch.allow("status of 401", "/v1/auth/tokens")
-    watch.allow("status of 401", "/v1/nodes")
-    watch.allow("status of 401", "/v1/overview")
     assert not watch.page_errors, watch.page_errors
 
 
@@ -317,11 +281,11 @@ def test_revoking_own_session_signs_the_browser_out_for_real(
 
 @pytest.mark.parametrize("fabric_options", [{"agents": 1}])
 def test_no_mutation_is_sent_without_the_csrf_cookie(
-    fabric: Fabric, dashboard_browser: Browser, tmp_path: Path
+    fabric: Fabric, new_page: NewPage, tmp_path: Path
 ) -> None:
     ref = str(_push_dataset(fabric, tmp_path, "csrf-data")["ref"])
-    page, watch = _page(dashboard_browser)
-    _sign_in(page, fabric)
+    page, watch = new_page()
+    sign_in(page, fabric)
     sent = _mutations(page)
     names = {c["name"] for c in page.context.cookies()}
     assert "mf_csrf" in names, names
@@ -381,15 +345,15 @@ def test_no_mutation_is_sent_without_the_csrf_cookie(
 
 @pytest.mark.parametrize("fabric_options", [EXEC_OPTIONS])
 def test_secret_read_from_a_file_reaches_the_job_byte_for_byte(
-    fabric: Fabric, dashboard_browser: Browser, tmp_path: Path
+    fabric: Fabric, new_page: NewPage, tmp_path: Path
 ) -> None:
     """Brief: secret set 'value write-only'; the UI offers 'read from a file
     (keys, certificates, ...)'. The stored bytes must equal the file bytes."""
     payload = b"\xef\xbb\xbfBOM-start\r\nline2\x00nul\xff\xfe\x80tail\n"
     secret_file = tmp_path / "blob.bin"
     secret_file.write_bytes(payload)
-    page, _watch = _page(dashboard_browser)
-    _sign_in(page, fabric, NORMAL_USER)
+    page, _watch = new_page()
+    sign_in(page, fabric, NORMAL_USER)
     page.goto(fabric.http_base + "/settings/secrets")
     page.get_by_role("button", name="Set a secret").click()
     d = page.get_by_role("dialog")
@@ -409,7 +373,7 @@ def test_secret_read_from_a_file_reaches_the_job_byte_for_byte(
         "print('sha=' + hashlib.sha256(v).hexdigest(), flush=True)\n"
     )
     built = build_tree(root)
-    client = _client(fabric, NORMAL_USER)
+    client = user_client(fabric, NORMAL_USER)
     try:
         upload_tree(client, built)
     finally:
@@ -450,10 +414,10 @@ def test_secret_read_from_a_file_reaches_the_job_byte_for_byte(
 
 @pytest.mark.parametrize("fabric_options", [{"agents": 1}])
 def test_secret_value_is_in_no_response_header_log_or_bundle(
-    fabric: Fabric, dashboard_browser: Browser
+    fabric: Fabric, new_page: NewPage
 ) -> None:
     value = "Zq9-tester-r1-" + "x" * 40
-    page, watch = _page(dashboard_browser)
+    page, watch = new_page()
     seen: list[str] = []
     consoles: list[str] = []
     page.on("console", lambda m: consoles.append(m.text))
@@ -465,7 +429,7 @@ def test_secret_value_is_in_no_response_header_log_or_bundle(
             seen.append(json.dumps(dict(r.headers)))
 
     page.on("response", grab)
-    _sign_in(page, fabric, NORMAL_USER)
+    sign_in(page, fabric, NORMAL_USER)
     page.goto(fabric.http_base + "/settings/secrets")
     page.get_by_role("button", name="Set a secret").click()
     d = page.get_by_role("dialog")
@@ -503,12 +467,12 @@ def test_secret_value_is_in_no_response_header_log_or_bundle(
 
 @pytest.mark.parametrize("fabric_options", [{"agents": 1}])
 def test_data_values_match_the_endpoint_and_keyboard_only_pin_delete(
-    fabric: Fabric, dashboard_browser: Browser, tmp_path: Path
+    fabric: Fabric, new_page: NewPage, tmp_path: Path
 ) -> None:
     pushed = _push_dataset(fabric, tmp_path, "kb-data-1.v2", files=3)
     ref = str(pushed["ref"])
-    page, watch = _page(dashboard_browser)
-    _sign_in(page, fabric)
+    page, watch = new_page()
+    sign_in(page, fabric)
     page.goto(fabric.http_base + "/settings/data")
     api = fabric.call("GET", "/v1/data").json()["inputs"]
     row = page.get_by_role("row").filter(has_text=ref)
@@ -517,7 +481,7 @@ def test_data_values_match_the_endpoint_and_keyboard_only_pin_delete(
     expect(row).to_contain_text("not pinned")
 
     # keyboard only: pin
-    _tab_to(page, f"Pin {ref}")
+    tab_to(page, f"Pin {ref}")
     page.keyboard.press("Enter")
     expect(row.get_by_role("button", name=f"Unpin {ref}")).to_be_visible()
     assert [
@@ -526,12 +490,12 @@ def test_data_values_match_the_endpoint_and_keyboard_only_pin_delete(
         if i["ref"] == ref
     ] == [True]
     # keyboard only: unpin
-    _tab_to(page, f"Unpin {ref}")
+    tab_to(page, f"Unpin {ref}")
     page.keyboard.press("Enter")
     expect(row.get_by_role("button", name=f"Pin {ref}")).to_be_visible()
 
     # delete: Cancel keeps it (Escape), confirm removes
-    _tab_to(page, f"Delete {ref}")
+    tab_to(page, f"Delete {ref}")
     page.keyboard.press("Enter")
     dlg = page.get_by_role("dialog")
     expect(dlg).to_be_visible()
@@ -552,10 +516,10 @@ def test_data_values_match_the_endpoint_and_keyboard_only_pin_delete(
 
 @pytest.mark.parametrize("fabric_options", [{"agents": 1}])
 def test_users_never_see_other_users_or_admin_data(
-    fabric: Fabric, dashboard_browser: Browser
+    fabric: Fabric, new_page: NewPage
 ) -> None:
     # admin makes a secret + token; alice must not see them anywhere
-    admin_client = _client(fabric, ADMIN_USER)
+    admin_client = user_client(fabric, ADMIN_USER)
     try:
         admin_client.put_secret("ADMIN_ONLY_SECRET", b"adminvalue123")
     finally:
@@ -584,11 +548,11 @@ def test_users_never_see_other_users_or_admin_data(
     )
     assert r.status_code == 403
 
-    page, watch = _page(dashboard_browser)
+    page, watch = new_page()
     bodies: list[str] = []
     page.on("response", lambda r: bodies.append(r.url) if "/v1/" in r.url else None)
     texts: list[str] = []
-    _sign_in(page, fabric, NORMAL_USER)
+    sign_in(page, fabric, NORMAL_USER)
     for path in ("", "/tokens", "/secrets", "/data", "/invites", "/users"):
         page.goto(fabric.http_base + "/settings" + path)
         expect(page.get_by_role("heading", level=1, name="Settings")).to_be_visible()
@@ -607,7 +571,7 @@ def test_users_never_see_other_users_or_admin_data(
 
 @pytest.mark.parametrize("fabric_options", [{"agents": 1}])
 def test_displayed_tokens_invites_and_controller_card_match_the_endpoints(
-    fabric: Fabric, dashboard_browser: Browser
+    fabric: Fabric, new_page: NewPage
 ) -> None:
     # two invites (one revoked) + a second token
     ids = [
@@ -617,8 +581,8 @@ def test_displayed_tokens_invites_and_controller_card_match_the_endpoints(
         for _ in range(2)
     ]
     assert fabric.call("POST", f"/v1/fabric/invites/{ids[0]}/revoke").status_code == 200
-    page, watch = _page(dashboard_browser)
-    _sign_in(page, fabric)
+    page, watch = new_page()
+    sign_in(page, fabric)
     page.goto(fabric.http_base + "/settings/invites")
     api = {
         i["id"]: i for i in fabric.call("GET", "/v1/fabric/invites").json()["invites"]
@@ -640,6 +604,7 @@ def test_displayed_tokens_invites_and_controller_card_match_the_endpoints(
     )
     page.goto(fabric.http_base + "/settings")
     health = fabric.get("/healthz")
+    assert health is not None
     card = page.get_by_test_id("controller-card")
     expect(card).to_contain_text(str(health["status"]))
     who = fabric.call("GET", "/v1/auth/whoami").json()
@@ -676,16 +641,16 @@ def test_revoked_agent_that_was_paused_exits_4_without_traceback_on_reconnect(
 
 @pytest.mark.parametrize("fabric_options", [{"agents": 1}])
 def test_every_settings_action_has_a_keyboard_only_path(
-    fabric: Fabric, dashboard_browser: Browser
+    fabric: Fabric, new_page: NewPage
 ) -> None:
-    page, watch = _page(dashboard_browser)
-    _sign_in(page, fabric)
+    page, watch = new_page()
+    sign_in(page, fabric)
     kb = page.keyboard
 
     # --- secret: open, type name+value, submit with Enter, delete with Enter
     page.goto(fabric.http_base + "/settings/secrets")
     expect(page.get_by_text("No secrets yet.")).to_be_visible()
-    _tab_to(page, "Set a secret")
+    tab_to(page, "Set a secret")
     kb.press("Enter")
     expect(page.get_by_role("dialog")).to_be_visible()
     # focus is already inside the dialog, on the first field
@@ -695,7 +660,7 @@ def test_every_settings_action_has_a_keyboard_only_path(
     kb.press("Enter")
     expect(page.get_by_text("Secret KB_SECRET stored", exact=True)).to_be_visible()
     expect(page.get_by_role("dialog")).to_be_hidden()
-    _tab_to(page, "Delete secret KB_SECRET")
+    tab_to(page, "Delete secret KB_SECRET")
     kb.press("Enter")
     expect(
         page.get_by_role("dialog").get_by_role("button", name="Cancel")
@@ -706,17 +671,17 @@ def test_every_settings_action_has_a_keyboard_only_path(
 
     # --- invite: create with Enter, close with Escape, then revoke by keyboard
     page.goto(fabric.http_base + "/settings/invites")
-    _tab_to(page, "Create invite")
+    tab_to(page, "Create invite")
     kb.press("Enter")
     dlg = page.get_by_role("dialog")
     expect(dlg).to_be_visible()
-    _tab_to(page, "Create invite")  # the submit inside the dialog
+    tab_to(page, "Create invite")  # the submit inside the dialog
     kb.press("Enter")
     expect(dlg.get_by_test_id("issued-invite")).to_be_visible()
     kb.press("Escape")
     expect(dlg).to_be_hidden()
     invite_id = fabric.call("GET", "/v1/fabric/invites").json()["invites"][0]["id"]
-    _tab_to(page, f"Revoke invite {invite_id}")
+    tab_to(page, f"Revoke invite {invite_id}")
     kb.press("Enter")
     expect(
         page.get_by_role("dialog").get_by_role("button", name="Cancel")
@@ -733,7 +698,7 @@ def test_every_settings_action_has_a_keyboard_only_path(
 
     # --- token create: name + password by keyboard, Enter submits, Escape closes
     page.goto(fabric.http_base + "/settings/tokens")
-    _tab_to(page, "Create API token")
+    tab_to(page, "Create API token")
     kb.press("Enter")
     expect(page.get_by_role("dialog")).to_be_visible()
     kb.press("Control+A")

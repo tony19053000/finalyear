@@ -59,10 +59,16 @@ function SetSecretForm({
   const [rawName, setRawName] = useState("");
   const [value, setValue] = useState("");
   const [fileNote, setFileNote] = useState<string | null>(null);
+  // A file the browser could not read (moved, deleted, no permission): shown as an alert.
+  const [fileError, setFileError] = useState<string | null>(null);
   // A file's value is kept as its exact bytes (T-1): never decoded as text.
   const [fileBytes, setFileBytes] = useState<Uint8Array<ArrayBuffer> | null>(null);
   const save = useAction(putSecret);
   const first = useRef<HTMLInputElement>(null);
+  // D204 (V0.8 G7): every file choice, keystroke and send takes a new read
+  // number; a file read that finishes after a newer choice is dropped, so a slow
+  // read can never overwrite what the user chose last.
+  const readSeq = useRef(0);
   const name = normaliseSecretName(rawName);
   const bytes = fileBytes !== null ? fileBytes.length : utf8Length(value);
   const problem = valueProblem(bytes);
@@ -78,6 +84,8 @@ function SetSecretForm({
 
   const readFile = async (file: File | undefined) => {
     if (file === undefined) return;
+    const mine = ++readSeq.current;
+    setFileError(null);
     if (file.size > SECRET_MAX_BYTES) {
       // T-5: never keep a previously chosen value behind a refusal - Store must not send the old file.
       setValue("");
@@ -85,7 +93,21 @@ function SetSecretForm({
       setFileNote(`${file.name} is larger than ${String(SECRET_MAX_BYTES / 1024)} KiB.`);
       return;
     }
-    const read = new Uint8Array(await file.arrayBuffer());
+    let read: Uint8Array<ArrayBuffer>;
+    try {
+      read = new Uint8Array(await file.arrayBuffer());
+    } catch {
+      // G7 tester r1 T-9: a rejected read is reported, never an unhandled rejection.
+      if (mine !== readSeq.current) return; // a newer choice won anyway
+      setValue(""); // as T-5: no older value is kept behind the failure
+      setFileBytes(null);
+      setFileNote(null);
+      setFileError(
+        `Could not read ${file.name}: the browser cannot open it (moved, deleted or not permitted). Choose it again or type the value.`,
+      );
+      return;
+    }
+    if (mine !== readSeq.current) return; // a newer choice won
     setValue("");
     setFileBytes(read);
     if (read.length === 0) {
@@ -99,9 +121,11 @@ function SetSecretForm({
     event.preventDefault();
     if (!ready) return;
     const sent = fileBytes ?? value;
+    readSeq.current += 1; // a read still in flight must not refill the form
     setValue(""); // write-only: gone from the page once sent
     setFileBytes(null);
     setFileNote(null);
+    setFileError(null);
     const stored = await save.run(name, sent);
     if (stored === undefined) return;
     void client.invalidateQueries({ queryKey: queryKeys.secrets });
@@ -153,8 +177,10 @@ function SetSecretForm({
             aria-invalid={problem !== null}
             onChange={(e) => {
               setValue(e.target.value);
+              readSeq.current += 1; // typing also beats a file read still in flight
               setFileBytes(null); // typing replaces a value read from a file
               setFileNote(null);
+              setFileError(null);
             }}
           />
         )}
@@ -172,6 +198,11 @@ function SetSecretForm({
           />
         )}
       </Field>
+      {fileError !== null && (
+        <p role="alert" className="text-sm text-status-failed">
+          {fileError}
+        </p>
+      )}
       {replacing && (
         <p role="status" className="text-sm text-status-busy">
           {name} already exists: its value will be replaced.

@@ -14,11 +14,15 @@ pytest.importorskip("psutil")
 pytest.importorskip("sqlalchemy")
 
 from mf_cluster import ADMIN_USER
-from mf_dashboard import DIST, PageWatch
-from playwright.sync_api import Browser, Page, Request, expect
+from mf_dashboard import DIST
+from mf_e2e import OUTAGE_NOISE, sign_in
+from playwright.sync_api import Request, expect
 
 if TYPE_CHECKING:
     from mf_cluster import Fabric
+    from mf_dashboard import PageWatch
+    from mf_e2e import NewPage
+    from playwright.sync_api import Page
 
 pytestmark = [pytest.mark.e2e, pytest.mark.timeout(300), pytest.mark.docker]
 
@@ -27,40 +31,23 @@ pytestmark = [pytest.mark.e2e, pytest.mark.timeout(300), pytest.mark.docker]
 SKIP_NAV = ["Overview", "Nodes", "Jobs", "Settings"]
 
 
-def _page(browser: Browser, init: str | None = None) -> tuple[Page, PageWatch]:
-    context = browser.new_context(reduced_motion="reduce")
-    page = context.new_page()
-    page.set_default_timeout(15_000)
-    if init:
-        page.add_init_script(init)
-    return page, PageWatch.attach(page)
-
-
-def _login(page: Page, fabric: Fabric, user: str = ADMIN_USER) -> None:
-    page.get_by_label("User name").fill(user)
-    page.get_by_label("Password").fill(fabric.password(user))
-    page.get_by_role("button", name="Sign in").click()
-    expect(page.get_by_test_id("current-user")).to_be_visible()
-
-
 def _signed_in(
-    fabric: Fabric, browser: Browser, path: str = "/", init: str | None = None
+    fabric: Fabric, new_page: NewPage, init: str | None = None
 ) -> tuple[Page, PageWatch]:
-    page, watch = _page(browser, init)
-    page.goto(fabric.http_base + path)
-    _login(page, fabric)
+    """A shared-layer page (V0.8 G7) with the admin signed in."""
+    page, watch = new_page(init=init)
+    sign_in(page, fabric)
     return page, watch
 
 
 def test_csrf_header_on_every_mutation_and_no_secret_on_the_wire(
-    fabric: Fabric, dashboard_browser: Browser
+    fabric: Fabric, new_page: NewPage
 ) -> None:
-    page, watch = _page(dashboard_browser)
+    page, watch = new_page()
     seen: list[Request] = []
     page.on("request", lambda r: seen.append(r))
-    page.goto(fabric.http_base + "/")
     password = fabric.password(ADMIN_USER)
-    _login(page, fabric)
+    sign_in(page, fabric)
     page.get_by_role("link", name="Settings", exact=True).click()
     expect(page.get_by_test_id("account-card")).to_be_visible()
     csrf = next(c["value"] for c in page.context.cookies() if c["name"] == "mf_csrf")
@@ -94,11 +81,13 @@ def test_csrf_header_on_every_mutation_and_no_secret_on_the_wire(
 
 
 def test_session_death_goes_to_login_without_leaking_path_and_returns_after_relogin(
-    fabric: Fabric, dashboard_browser: Browser
+    fabric: Fabric, new_page: NewPage
 ) -> None:
-    page, watch = _signed_in(fabric, dashboard_browser)
-    watch.allow("status of 401", "/v1/auth/whoami")
-    watch.allow("status of 401", "/v1/nodes")
+    page, watch = _signed_in(fabric, new_page)
+    watch.allow("status of 401", "/v1/auth/whoami", "the dead session's re-check")
+    watch.allow(
+        "status of 401", "/v1/nodes", "a nodes read in flight", may_not_occur=True
+    )
     page.get_by_role("link", name="Nodes", exact=True).click()
     expect(page.get_by_role("heading", level=1, name="Nodes")).to_be_visible()
     page.context.clear_cookies(
@@ -121,15 +110,15 @@ def test_session_death_goes_to_login_without_leaking_path_and_returns_after_relo
         not in (page.locator("body").inner_text() or "").replace("User name", "")
         or True
     )
-    _login(page, fabric)
+    sign_in(page, fabric, path=None)
     expect(page.get_by_role("heading", level=1, name="Settings")).to_be_visible()
     watch.assert_clean()
 
 
 def test_no_inline_style_or_csp_violation_on_any_page_or_theme(
-    fabric: Fabric, dashboard_browser: Browser
+    fabric: Fabric, new_page: NewPage
 ) -> None:
-    page, watch = _signed_in(fabric, dashboard_browser)
+    page, watch = _signed_in(fabric, new_page)
     for path in ("/", "/nodes", "/jobs", "/settings", "/does/not/exist"):
         page.goto(fabric.http_base + path)
         expect(page.get_by_test_id("stream-status")).to_have_attribute(
@@ -157,20 +146,20 @@ def test_no_inline_style_or_csp_violation_on_any_page_or_theme(
     watch.assert_clean()
 
 
-def test_console_gate_cannot_be_bypassed(
-    fabric: Fabric, dashboard_browser: Browser
-) -> None:
+def test_console_gate_cannot_be_bypassed(fabric: Fabric, new_page: NewPage) -> None:
     """Negative controls: the gate must see an app console error, an inline
     <style> CSP violation, an inline-style CSP violation, an uncaught error,
     and a 401 on any URL other than GET/POST /v1/session."""
     # 1) another console error
-    page, watch = _signed_in(fabric, dashboard_browser)
+    page, watch = _signed_in(fabric, new_page)
+    watch.disarm("negative control: an app console error")
     page.evaluate("console.error('boom from app')")
     with pytest.raises(AssertionError, match="console errors"):
         watch.assert_clean()
 
     # 2) an injected <style> is a CSP violation the listener records
-    page, watch = _signed_in(fabric, dashboard_browser)
+    page, watch = _signed_in(fabric, new_page)
+    watch.disarm("negative control: an injected <style>")
     page.evaluate(
         "const s = document.createElement('style'); s.textContent='body{color:red}'; document.head.appendChild(s)"  # noqa: E501 - tester r1 test data / T-id name
     )
@@ -180,21 +169,24 @@ def test_console_gate_cannot_be_bypassed(
         watch.assert_clean()
 
     # 3) inline style attribute via setAttribute
-    page, watch = _signed_in(fabric, dashboard_browser)
+    page, watch = _signed_in(fabric, new_page)
+    watch.disarm("negative control: an inline style attribute")
     page.evaluate("document.body.setAttribute('style','color:red')")
     page.wait_for_timeout(300)
     with pytest.raises(AssertionError):
         watch.assert_clean()
 
     # 4) an uncaught exception
-    page, watch = _signed_in(fabric, dashboard_browser)
+    page, watch = _signed_in(fabric, new_page)
+    watch.disarm("negative control: an uncaught exception")
     page.evaluate("setTimeout(() => { throw new Error('late uncaught') }, 0)")
     page.wait_for_timeout(300)
     with pytest.raises(AssertionError, match="uncaught"):
         watch.assert_clean()
 
     # 5) the allowance covers /v1/session only: a 401 on /v1/nodes is an error
-    page, watch = _signed_in(fabric, dashboard_browser)
+    page, watch = _signed_in(fabric, new_page)
+    watch.disarm("negative control: a 401 on /v1/nodes")
     page.context.clear_cookies(name="mf_session")
     page.evaluate("fetch('/v1/nodes', {credentials: 'same-origin'})")
     page.wait_for_timeout(500)
@@ -202,7 +194,7 @@ def test_console_gate_cannot_be_bypassed(
         watch.assert_clean()
 
     # 6) logged out probing logs nothing at all now (D191 b: 200 {session: null})
-    page, watch = _page(dashboard_browser)
+    page, watch = new_page()
     page.goto(fabric.http_base + "/")
     expect(page.get_by_role("heading", name="Sign in")).to_be_visible()
     assert len(watch.console_errors) == 0
@@ -210,11 +202,11 @@ def test_console_gate_cannot_be_bypassed(
 
 
 def test_a_signed_out_first_visit_logs_no_console_noise(
-    fabric: Fabric, dashboard_browser: Browser
+    fabric: Fabric, new_page: NewPage
 ) -> None:
     """Deviation 5, closed in V0.8 G3 (D191 b): with NO allowance at all, a
     first visit logs nothing - the probe is 200 {session: null}, not a 401."""
-    page, watch = _page(dashboard_browser)
+    page, watch = new_page()
     page.goto(fabric.http_base + "/jobs")
     expect(page.get_by_role("heading", name="Sign in")).to_be_visible()
     assert watch.console_errors == [], watch.console_errors
@@ -224,9 +216,9 @@ def test_a_signed_out_first_visit_logs_no_console_noise(
 
 
 def test_keyboard_only_navigation_of_the_whole_shell(
-    fabric: Fabric, dashboard_browser: Browser
+    fabric: Fabric, new_page: NewPage
 ) -> None:
-    page, watch = _signed_in(fabric, dashboard_browser)
+    page, watch = _signed_in(fabric, new_page)
     # let the first event-stream handshake finish (T-3 covers aborting it)
     expect(page.get_by_test_id("stream-status")).to_have_attribute(
         "data-status", "live"
@@ -314,14 +306,14 @@ def test_keyboard_only_navigation_of_the_whole_shell(
 
 
 def test_theme_survives_throwing_local_storage_in_a_real_browser(
-    fabric: Fabric, dashboard_browser: Browser
+    fabric: Fabric, new_page: NewPage
 ) -> None:
     hostile = """
     Object.defineProperty(window, 'localStorage', {
       get() { throw new DOMException('denied', 'SecurityError'); }
     });
     """
-    page, watch = _signed_in(fabric, dashboard_browser, init=hostile)
+    page, watch = _signed_in(fabric, new_page, init=hostile)
     expect(page.locator("html")).to_have_attribute("data-theme", "dark")
     page.get_by_role("button", name="Switch to light theme").click()
     expect(page.locator("html")).to_have_attribute("data-theme", "light")
@@ -335,24 +327,21 @@ def test_theme_survives_throwing_local_storage_in_a_real_browser(
     watch.assert_clean()
 
 
-def test_setitem_throwing_quota_is_swallowed(
-    fabric: Fabric, dashboard_browser: Browser
-) -> None:
+def test_setitem_throwing_quota_is_swallowed(fabric: Fabric, new_page: NewPage) -> None:
     hostile = """
     Storage.prototype.setItem = function () { throw new DOMException('full', 'QuotaExceededError'); };
     """  # noqa: E501 - tester r1 test data / T-id name
-    page, watch = _signed_in(fabric, dashboard_browser, init=hostile)
+    page, watch = _signed_in(fabric, new_page, init=hostile)
     page.get_by_role("button", name="Switch to light theme").click()
     expect(page.locator("html")).to_have_attribute("data-theme", "light")
     watch.assert_clean()
 
 
 def test_stored_light_theme_applies_on_load_and_garbage_falls_back(
-    fabric: Fabric, dashboard_browser: Browser
+    fabric: Fabric, new_page: NewPage
 ) -> None:
-    page, watch = _page(
-        dashboard_browser,
-        "if (!sessionStorage.getItem('seed')) { localStorage.setItem('mf-theme','light'); sessionStorage.setItem('seed','1') }",  # noqa: E501 - tester r1 test data / T-id name
+    page, watch = new_page(
+        init="if (!sessionStorage.getItem('seed')) { localStorage.setItem('mf-theme','light'); sessionStorage.setItem('seed','1') }",  # noqa: E501 - tester r1 test data / T-id name
     )
     page.goto(fabric.http_base + "/")
     expect(page.locator("html")).to_have_attribute("data-theme", "light")
@@ -363,9 +352,9 @@ def test_stored_light_theme_applies_on_load_and_garbage_falls_back(
 
 
 def test_nothing_secret_in_any_script_reachable_place_and_bundle(
-    fabric: Fabric, dashboard_browser: Browser
+    fabric: Fabric, new_page: NewPage
 ) -> None:
-    page, watch = _signed_in(fabric, dashboard_browser)
+    page, watch = _signed_in(fabric, new_page)
     password = fabric.password(ADMIN_USER)
     session_cookie = next(
         c["value"] for c in page.context.cookies() if c["name"] == "mf_session"
@@ -409,11 +398,15 @@ def test_nothing_secret_in_any_script_reachable_place_and_bundle(
 # (fix round 1: without it no page could follow the restart at all).
 @pytest.mark.parametrize("fabric_options", [{"record_links": True}])
 def test_T2_event_stream_recovers_when_the_controller_restarts(  # noqa: N802 - tester r1 test data / T-id name
-    fabric: Fabric, dashboard_browser: Browser
+    fabric: Fabric, new_page: NewPage
 ) -> None:
     """Controller killed and restarted (new bus epoch): the page shows the
     outage, reconnects by itself, resyncs, and the session cookie still works."""
-    page, watch = _signed_in(fabric, dashboard_browser)
+    page, watch = _signed_in(fabric, new_page)
+    # The outage's network errors are expected here (the end-of-test guard).
+    watch.allow_matching(
+        OUTAGE_NOISE, "the outage's refused connections", may_not_occur=True
+    )
     status = page.get_by_test_id("stream-status")
     expect(status).to_have_attribute("data-status", "live")
     # Fix round 1: keep the controller down long enough that the page's
@@ -430,20 +423,21 @@ def test_T2_event_stream_recovers_when_the_controller_restarts(  # noqa: N802 - 
     expect(page.get_by_test_id("fabric-status")).to_contain_text("node")
     assert page.url.rstrip("/").endswith(("", "/")), page.url
     # the outage's network errors are expected here; nothing else is
-    unexpected = [
-        e
-        for e in watch.console_errors
-        if not re.search(r"ERR_|WebSocket connection|Failed to load resource", e)
-    ]
+    unexpected = [e for e in watch.console_errors if not re.search(OUTAGE_NOISE, e)]
     assert unexpected == [], unexpected
     assert watch.page_errors == [] and watch.csp_violations() == []
 
 
 def test_T3_aborting_the_event_stream_handshake_leaves_no_controller_traceback(  # noqa: N802 - tester r1 test data / T-id name
-    fabric: Fabric, dashboard_browser: Browser
+    fabric: Fabric, new_page: NewPage
 ) -> None:
     for _ in range(3):
-        page, _watch = _signed_in(fabric, dashboard_browser)
+        page, watch = _signed_in(fabric, new_page)
+        # Closing mid-handshake may log the aborted socket; the controller
+        # side is what this test judges.
+        watch.allow_matching(
+            OUTAGE_NOISE, "the socket closed mid-handshake", may_not_occur=True
+        )
         page.goto(fabric.http_base + "/nodes")  # immediately, mid-handshake
         page.close()
     fabric.check_invariants()

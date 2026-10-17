@@ -15,6 +15,8 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
 
+/** File-name prefix of the qrcode-generator chunk (scripts/check-dist.mjs). */
+const QR_CHUNK = "qrcode-generator";
 const controller = process.env.MESHFORGE_DEV_CONTROLLER ?? "https://127.0.0.1:47110";
 const outDir = fileURLToPath(
   new URL("../src/meshforge/controller/web/dist", import.meta.url),
@@ -30,6 +32,16 @@ export default defineConfig({
     assetsInlineLimit: 0,
     sourcemap: false,
     target: "es2022",
+    rollupOptions: {
+      output: {
+        // D204 (V0.8 G7): qrcode-generator gets a chunk of its own, so the one
+        // CSP exception scripts/check-dist.mjs grants it (dead `<table style=`
+        // builders) applies to that file name only, never to app code.
+        manualChunks(id) {
+          return id.includes("/node_modules/qrcode-generator/") ? QR_CHUNK : undefined;
+        },
+      },
+    },
   },
   server: {
     proxy: {

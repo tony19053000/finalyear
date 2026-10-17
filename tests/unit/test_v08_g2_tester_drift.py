@@ -129,7 +129,7 @@ def watch() -> Any:
 
     page = SimpleNamespace(evaluate=lambda _js: [])
     w = PageWatch(page)  # type: ignore[arg-type]
-    w.allow("status of 401", "/v1/session")
+    w.allow("status of 401", "/v1/session", "the boot probe's 401 (drift test)")
     return w
 
 
@@ -168,7 +168,7 @@ def test_gate_still_fails_on_page_errors_and_csp_even_with_the_allowance() -> No
     from mf_dashboard import PageWatch
 
     w = PageWatch(page)  # type: ignore[arg-type]
-    w.allow("status of 401", "/v1/session")
+    w.allow("status of 401", "/v1/session", "the boot probe's 401 (drift test)")
     with pytest.raises(AssertionError, match="CSP"):
         w.assert_clean()
     w2 = PageWatch(SimpleNamespace(evaluate=lambda _js: []))  # type: ignore[arg-type]
