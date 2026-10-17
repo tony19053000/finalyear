@@ -35,12 +35,15 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
+from meshforge.common.clock_offset import ClockOffset, round_up
 from meshforge.common.errors import FailureType, MeshForgeError
 from meshforge.common.logging import get_logger
+from meshforge.controller.enrollment.invites import audit
 from meshforge.controller.liveness import NodeState
 from meshforge.controller.resources import SnapshotRow
 from meshforge.controller.store.base import UInt64
 from meshforge.controller.store.engine import create_session_factory
+from meshforge.controller.store.models.enrollment import AuditAction
 from meshforge.controller.store.models.node import Node, NodeSession, SessionEndReason
 from meshforge.controller.store.models.resource import ResourceSnapshot
 
@@ -174,6 +177,12 @@ class SessionRecord:
     protocol_version: int
     last_rtt_ms: float | None
     rtt_ewma_ms: float | None
+    clock_offset_ms: float | None = None
+    """V0.9 G1 (D213): agent wall clock minus controller wall clock (ms)."""
+    clock_offset_bound_ms: float | None = None
+    clock_consistent: bool | None = None
+    clock_exchanges: int | None = None
+    clock_measured_at: dt.datetime | None = None
 
     @property
     def is_open(self) -> bool:
@@ -281,6 +290,11 @@ def _session_record(row: NodeSession) -> SessionRecord:
         protocol_version=row.protocol_version,
         last_rtt_ms=row.last_rtt_ms,
         rtt_ewma_ms=row.rtt_ewma_ms,
+        clock_offset_ms=row.clock_offset_ms,
+        clock_offset_bound_ms=row.clock_offset_bound_ms,
+        clock_consistent=row.clock_consistent,
+        clock_exchanges=row.clock_exchanges,
+        clock_measured_at=row.clock_measured_at,
     )
 
 
@@ -731,15 +745,58 @@ class Registry:
 
     @_typed
     async def record_rtt(
-        self, session_id: str, *, last_ms: float, ewma_ms: float
+        self,
+        session_id: str,
+        *,
+        last_ms: float,
+        ewma_ms: float,
+        clock: ClockOffset | None = None,
     ) -> None:
-        """Store the latest RTT sample and its EWMA on the session row."""
+        """Store the latest RTT sample and its EWMA on the session row, and
+        the node's clock-offset estimate from the same Pong (V0.9 G1, D213)."""
+        values: dict[str, Any] = {"last_rtt_ms": last_ms, "rtt_ewma_ms": ewma_ms}
+        if clock is not None:
+            values.update(
+                clock_offset_ms=clock.offset_ms,
+                clock_offset_bound_ms=clock.bound_ms,
+                clock_consistent=clock.consistent,
+                clock_exchanges=clock.exchanges,
+                clock_measured_at=func.clock_timestamp(),
+            )
         async with self._sessions() as db, db.begin():
             await db.execute(
                 update(NodeSession)
                 .where(NodeSession.session_id == session_id)
-                .values(last_rtt_ms=last_ms, rtt_ewma_ms=ewma_ms)
+                .values(**values)
             )
+
+    @_typed
+    async def record_clock_alert(
+        self,
+        node_id: str,
+        *,
+        offset_ms: float,
+        bound_ms: float,
+        consistent: bool,
+        reasons: Sequence[str],
+    ) -> int:
+        """One ``clock_uncertain`` audit row (an operator alert, D180/D213);
+        its id, which the live ``alert`` event carries."""
+        async with self._sessions() as db, db.begin():
+            row = await audit(
+                db,
+                AuditAction.CLOCK_UNCERTAIN,
+                actor="controller",
+                node_id=node_id,
+                details={
+                    "offset_ms": round(offset_ms, 3),
+                    "bound_ms": round_up(bound_ms, 3),
+                    "consistent": consistent,
+                    "reasons": list(reasons),
+                },
+            )
+            await db.flush()
+            return int(row.id)
 
     @_typed
     async def get_session(self, session_id: str) -> SessionRecord | None:

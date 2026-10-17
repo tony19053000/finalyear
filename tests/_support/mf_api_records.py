@@ -18,6 +18,7 @@ from meshforge.common.ids import new_node_id, new_session_id
 from meshforge.controller.liveness import NodeState
 from meshforge.controller.registry import NodeRecord, SessionRecord, SnapshotRecord
 from meshforge.controller.resources import LiveRing, LiveSample
+from meshforge.controller.session.clocks import NodeClock
 from meshforge.controller.session.manager import LiveSession
 
 __all__ = [
@@ -56,6 +57,7 @@ class _FakeLiveSession:
         self.rtt_ewma_ms = rtt_ewma_ms
         self.policy = None  # V0.7 G5: no advertised owner policy
         self.policy_refused = None
+        self.clock = NodeClock()  # V0.9 G1 (D213): no exchange yet
 
 
 def live_session(**kwargs: Any) -> LiveSession:

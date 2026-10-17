@@ -519,6 +519,9 @@ message AttemptStatus {
   // Terminal statuses only. An env_error with a hash makes the controller
   // remember (node, env) as known-bad for [controller.jobs] env_bad_ttl_s.
   string env_hash = 16;
+  // V0.9 G1 (D212): a benchmark's own report (results/workload.json); absent
+  // for any other job. Terminal statuses only.
+  WorkloadReport workload = 17;
 }
 
 // What staging one tree cost (V0.5 G5, D93). Agent-measured, monotonic clock.
@@ -579,6 +582,28 @@ message PhaseTimings {
   optional double run_s = 3;
   // Workload exit to the terminal report (output packing/upload from G5 on).
   optional double collect_s = 4;
+  // V0.9 G1 (D213): the workload's own kernel time in nanoseconds, measured by
+  // the workload with a monotonic clock and read by the agent from its
+  // results/workload.json (benchmark jobs). Absent for every other job.
+  optional uint64 compute_ns = 5;
+}
+
+// V0.9 G1 (D212): what a benchmark job said about itself in
+// results/workload.json, read once by the agent after the workload exited
+// (bounded, untrusted: the workload wrote it). Terminal statuses only.
+message WorkloadReport {
+  // Family name, e.g. "cpu.matmul" (<= 64 chars, [a-z0-9_.-]); "" = unreadable.
+  string family = 1;
+  // The parameters as canonical JSON (sorted keys, compact; <= 4096 chars);
+  // "" = absent or too large.
+  string params_json = 2;
+  optional uint64 seed = 3;
+  // "ok" | "check_failed" | "unavailable" | "bad_params".
+  string status = 4;
+  // "cpu" | "cuda" | "" (not run).
+  string device = 5;
+  // results/workload.json schema_version (0 = absent).
+  uint32 result_schema_version = 6;
 }
 
 // Live log bytes (D71): best-effort, never buffered or replayed, never acked.
@@ -934,6 +959,18 @@ message Ping {
 }
 
 // Agent -> controller. Echoes Ping.ping_id.
+//
+// Clock offset (V0.9 G1, D213): a Ping/Pong is also one NTP-style exchange.
+// The controller notes its wall clock at the Ping, the Pong's envelope
+// `sent_at` is the agent's wall clock when it answered, and the controller's
+// receive time is the Ping's wall time plus the monotonic RTT - so the
+// controller estimates (agent clock - controller clock) +- RTT/2 from a recent
+// window of exchanges. Older agents send no resolution (0 = unknown; the
+// controller then assumes a coarse tick and widens the bound).
 message Pong {
   string ping_id = 1;
+  // Resolution of the agent's wall clock (the one that stamps `sent_at`), in
+  // microseconds, from time.get_clock_info("time"); 0 = not reported.
+  // Windows on Python 3.12 ticks in ~15.6 ms steps, so the bound must cover it.
+  uint32 clock_resolution_us = 2;
 }

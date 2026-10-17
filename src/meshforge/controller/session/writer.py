@@ -82,6 +82,9 @@ class WriteKind(StrEnum):
     """A cache-report write (V0.5 D101) - never dropped from the queue: a dropped
     page would leave the node's location index wrong. A write that fails marks
     the node's index stale until its next snapshot (:mod:`..cache_index`)."""
+    ALERT = "alert"
+    """An operator alert's audit row (V0.9 G1: ``clock_uncertain``) - never
+    dropped; at most one per uncertainty episode, so it cannot fill the queue."""
     END = "end"
     """``close_session`` - never dropped; the chain ends after it."""
     CLOSE = "close"

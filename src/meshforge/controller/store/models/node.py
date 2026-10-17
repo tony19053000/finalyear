@@ -25,7 +25,9 @@ from typing import Any, Final
 
 from sqlalchemy import (
     REAL,
+    Boolean,
     CheckConstraint,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -270,3 +272,13 @@ class NodeSession(TimestampMixin, Base):
     protocol_version: Mapped[int] = mapped_column(Integer, nullable=False)
     last_rtt_ms: Mapped[float | None] = mapped_column(REAL, nullable=True)
     rtt_ewma_ms: Mapped[float | None] = mapped_column(REAL, nullable=True)
+    # V0.9 G1 (D213, migration 0021): the node's clock offset over this
+    # session (agent wall clock minus controller wall clock, from Ping/Pong
+    # exchanges - controller/session/clocks.py). Double precision: an offset of
+    # hours must keep sub-millisecond digits. All NULL until the first Pong.
+    clock_offset_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    clock_offset_bound_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    clock_consistent: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    clock_exchanges: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    clock_measured_at: Mapped[dt.datetime | None] = mapped_column(nullable=True)
+    """The controller's wall clock when the estimate was written."""

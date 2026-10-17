@@ -29,7 +29,11 @@ from meshforge.controller.store.models.enrollment import AuditAction, AuditEvent
 __all__ = ["ALERT_KINDS", "AlertLog", "AlertLogError", "AlertRecord", "alert_kind"]
 
 ALERT_KINDS: Final = MappingProxyType(
-    {AuditAction.ATTEMPT_WRONG_NODE.value: "wrong_node"}
+    {
+        AuditAction.ATTEMPT_WRONG_NODE.value: "wrong_node",
+        # V0.9 G1 (D213): a node's clock offset is untrustworthy.
+        AuditAction.CLOCK_UNCERTAIN.value: "clock_uncertain",
+    }
 )
 """``audit_event.action`` -> the alert ``kind`` (the same word the live event uses).
 

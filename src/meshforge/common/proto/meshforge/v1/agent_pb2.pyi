@@ -1289,6 +1289,7 @@ class AttemptStatus(_message.Message):
     STDERR_LOG_FIELD_NUMBER: _builtins.int
     TRANSFERS_FIELD_NUMBER: _builtins.int
     ENV_HASH_FIELD_NUMBER: _builtins.int
+    WORKLOAD_FIELD_NUMBER: _builtins.int
     job_id: _builtins.str
     attempt_id: _builtins.str
     fencing_token: _builtins.int
@@ -1344,6 +1345,12 @@ class AttemptStatus(_message.Message):
         1 + 16 entries; the controller persists them as transfer_event rows.
         """
 
+    @_builtins.property
+    def workload(self) -> Global___WorkloadReport:
+        """V0.9 G1 (D212): a benchmark's own report (results/workload.json); absent
+        for any other job. Terminal statuses only.
+        """
+
     def __init__(
         self,
         *,
@@ -1363,10 +1370,11 @@ class AttemptStatus(_message.Message):
         stderr_log: Global___FinalLog | None = ...,
         transfers: _abc.Iterable[Global___TransferSummary] | None = ...,
         env_hash: _builtins.str = ...,
+        workload: Global___WorkloadReport | None = ...,
     ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _typing.Literal["_exit_code", b"_exit_code", "_signal", b"_signal", "exit_code", b"exit_code", "failure", b"failure", "observed_at", b"observed_at", "phases", b"phases", "signal", b"signal", "stderr_log", b"stderr_log", "stdout_log", b"stdout_log"]  # noqa: Y015
+    _HasFieldArgType: _TypeAlias = _typing.Literal["_exit_code", b"_exit_code", "_signal", b"_signal", "exit_code", b"exit_code", "failure", b"failure", "observed_at", b"observed_at", "phases", b"phases", "signal", b"signal", "stderr_log", b"stderr_log", "stdout_log", b"stdout_log", "workload", b"workload"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["_exit_code", b"_exit_code", "_signal", b"_signal", "attempt_id", b"attempt_id", "env_hash", b"env_hash", "exit_code", b"exit_code", "failure", b"failure", "fencing_token", b"fencing_token", "job_id", b"job_id", "missing_outputs", b"missing_outputs", "observed_at", b"observed_at", "output_digest", b"output_digest", "phases", b"phases", "runtime", b"runtime", "signal", b"signal", "state", b"state", "stderr_log", b"stderr_log", "stdout_log", b"stdout_log", "transfers", b"transfers"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["_exit_code", b"_exit_code", "_signal", b"_signal", "attempt_id", b"attempt_id", "env_hash", b"env_hash", "exit_code", b"exit_code", "failure", b"failure", "fencing_token", b"fencing_token", "job_id", b"job_id", "missing_outputs", b"missing_outputs", "observed_at", b"observed_at", "output_digest", b"output_digest", "phases", b"phases", "runtime", b"runtime", "signal", b"signal", "state", b"state", "stderr_log", b"stderr_log", "stdout_log", b"stdout_log", "transfers", b"transfers", "workload", b"workload"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     _WhichOneofReturnType__exit_code: _TypeAlias = _typing.Literal["exit_code"]  # noqa: Y015
     _WhichOneofArgType__exit_code: _TypeAlias = _typing.Literal["_exit_code", b"_exit_code"]  # noqa: Y015
@@ -1520,6 +1528,7 @@ class PhaseTimings(_message.Message):
     ENV_S_FIELD_NUMBER: _builtins.int
     RUN_S_FIELD_NUMBER: _builtins.int
     COLLECT_S_FIELD_NUMBER: _builtins.int
+    COMPUTE_NS_FIELD_NUMBER: _builtins.int
     stage_s: _builtins.float
     """Bundle fetch + digest check + unpack."""
     env_s: _builtins.float
@@ -1528,6 +1537,11 @@ class PhaseTimings(_message.Message):
     """Workload start to exit."""
     collect_s: _builtins.float
     """Workload exit to the terminal report (output packing/upload from G5 on)."""
+    compute_ns: _builtins.int
+    """V0.9 G1 (D213): the workload's own kernel time in nanoseconds, measured by
+    the workload with a monotonic clock and read by the agent from its
+    results/workload.json (benchmark jobs). Absent for every other job.
+    """
     def __init__(
         self,
         *,
@@ -1535,13 +1549,16 @@ class PhaseTimings(_message.Message):
         env_s: _builtins.float | None = ...,
         run_s: _builtins.float | None = ...,
         collect_s: _builtins.float | None = ...,
+        compute_ns: _builtins.int | None = ...,
     ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _typing.Literal["_collect_s", b"_collect_s", "_env_s", b"_env_s", "_run_s", b"_run_s", "_stage_s", b"_stage_s", "collect_s", b"collect_s", "env_s", b"env_s", "run_s", b"run_s", "stage_s", b"stage_s"]  # noqa: Y015
+    _HasFieldArgType: _TypeAlias = _typing.Literal["_collect_s", b"_collect_s", "_compute_ns", b"_compute_ns", "_env_s", b"_env_s", "_run_s", b"_run_s", "_stage_s", b"_stage_s", "collect_s", b"collect_s", "compute_ns", b"compute_ns", "env_s", b"env_s", "run_s", b"run_s", "stage_s", b"stage_s"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["_collect_s", b"_collect_s", "_env_s", b"_env_s", "_run_s", b"_run_s", "_stage_s", b"_stage_s", "collect_s", b"collect_s", "env_s", b"env_s", "run_s", b"run_s", "stage_s", b"stage_s"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["_collect_s", b"_collect_s", "_compute_ns", b"_compute_ns", "_env_s", b"_env_s", "_run_s", b"_run_s", "_stage_s", b"_stage_s", "collect_s", b"collect_s", "compute_ns", b"compute_ns", "env_s", b"env_s", "run_s", b"run_s", "stage_s", b"stage_s"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     _WhichOneofReturnType__collect_s: _TypeAlias = _typing.Literal["collect_s"]  # noqa: Y015
     _WhichOneofArgType__collect_s: _TypeAlias = _typing.Literal["_collect_s", b"_collect_s"]  # noqa: Y015
+    _WhichOneofReturnType__compute_ns: _TypeAlias = _typing.Literal["compute_ns"]  # noqa: Y015
+    _WhichOneofArgType__compute_ns: _TypeAlias = _typing.Literal["_compute_ns", b"_compute_ns"]  # noqa: Y015
     _WhichOneofReturnType__env_s: _TypeAlias = _typing.Literal["env_s"]  # noqa: Y015
     _WhichOneofArgType__env_s: _TypeAlias = _typing.Literal["_env_s", b"_env_s"]  # noqa: Y015
     _WhichOneofReturnType__run_s: _TypeAlias = _typing.Literal["run_s"]  # noqa: Y015
@@ -1551,6 +1568,8 @@ class PhaseTimings(_message.Message):
     @_typing.overload
     def WhichOneof(self, oneof_group: _WhichOneofArgType__collect_s) -> _WhichOneofReturnType__collect_s | None: ...
     @_typing.overload
+    def WhichOneof(self, oneof_group: _WhichOneofArgType__compute_ns) -> _WhichOneofReturnType__compute_ns | None: ...
+    @_typing.overload
     def WhichOneof(self, oneof_group: _WhichOneofArgType__env_s) -> _WhichOneofReturnType__env_s | None: ...
     @_typing.overload
     def WhichOneof(self, oneof_group: _WhichOneofArgType__run_s) -> _WhichOneofReturnType__run_s | None: ...
@@ -1558,6 +1577,54 @@ class PhaseTimings(_message.Message):
     def WhichOneof(self, oneof_group: _WhichOneofArgType__stage_s) -> _WhichOneofReturnType__stage_s | None: ...
 
 Global___PhaseTimings: _TypeAlias = PhaseTimings  # noqa: Y015
+
+@_typing.final
+class WorkloadReport(_message.Message):
+    """V0.9 G1 (D212): what a benchmark job said about itself in
+    results/workload.json, read once by the agent after the workload exited
+    (bounded, untrusted: the workload wrote it). Terminal statuses only.
+    """
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    FAMILY_FIELD_NUMBER: _builtins.int
+    PARAMS_JSON_FIELD_NUMBER: _builtins.int
+    SEED_FIELD_NUMBER: _builtins.int
+    STATUS_FIELD_NUMBER: _builtins.int
+    DEVICE_FIELD_NUMBER: _builtins.int
+    RESULT_SCHEMA_VERSION_FIELD_NUMBER: _builtins.int
+    family: _builtins.str
+    """Family name, e.g. "cpu.matmul" (<= 64 chars, [a-z0-9_.-]); "" = unreadable."""
+    params_json: _builtins.str
+    """The parameters as canonical JSON (sorted keys, compact; <= 4096 chars);
+    "" = absent or too large.
+    """
+    seed: _builtins.int
+    status: _builtins.str
+    """"ok" | "check_failed" | "unavailable" | "bad_params"."""
+    device: _builtins.str
+    """"cpu" | "cuda" | "" (not run)."""
+    result_schema_version: _builtins.int
+    """results/workload.json schema_version (0 = absent)."""
+    def __init__(
+        self,
+        *,
+        family: _builtins.str = ...,
+        params_json: _builtins.str = ...,
+        seed: _builtins.int | None = ...,
+        status: _builtins.str = ...,
+        device: _builtins.str = ...,
+        result_schema_version: _builtins.int = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["_seed", b"_seed", "seed", b"seed"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["_seed", b"_seed", "device", b"device", "family", b"family", "params_json", b"params_json", "result_schema_version", b"result_schema_version", "seed", b"seed", "status", b"status"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    _WhichOneofReturnType__seed: _TypeAlias = _typing.Literal["seed"]  # noqa: Y015
+    _WhichOneofArgType__seed: _TypeAlias = _typing.Literal["_seed", b"_seed"]  # noqa: Y015
+    def WhichOneof(self, oneof_group: _WhichOneofArgType__seed) -> _WhichOneofReturnType__seed | None: ...
+
+Global___WorkloadReport: _TypeAlias = WorkloadReport  # noqa: Y015
 
 @_typing.final
 class LogChunk(_message.Message):
@@ -2507,20 +2574,36 @@ Global___Ping: _TypeAlias = Ping  # noqa: Y015
 
 @_typing.final
 class Pong(_message.Message):
-    """Agent -> controller. Echoes Ping.ping_id."""
+    """Agent -> controller. Echoes Ping.ping_id.
+
+    Clock offset (V0.9 G1, D213): a Ping/Pong is also one NTP-style exchange.
+    The controller notes its wall clock at the Ping, the Pong's envelope
+    `sent_at` is the agent's wall clock when it answered, and the controller's
+    receive time is the Ping's wall time plus the monotonic RTT - so the
+    controller estimates (agent clock - controller clock) +- RTT/2 from a recent
+    window of exchanges. Older agents send no resolution (0 = unknown; the
+    controller then assumes a coarse tick and widens the bound).
+    """
 
     DESCRIPTOR: _descriptor.Descriptor
 
     PING_ID_FIELD_NUMBER: _builtins.int
+    CLOCK_RESOLUTION_US_FIELD_NUMBER: _builtins.int
     ping_id: _builtins.str
+    clock_resolution_us: _builtins.int
+    """Resolution of the agent's wall clock (the one that stamps `sent_at`), in
+    microseconds, from time.get_clock_info("time"); 0 = not reported.
+    Windows on Python 3.12 ticks in ~15.6 ms steps, so the bound must cover it.
+    """
     def __init__(
         self,
         *,
         ping_id: _builtins.str = ...,
+        clock_resolution_us: _builtins.int = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["ping_id", b"ping_id"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["clock_resolution_us", b"clock_resolution_us", "ping_id", b"ping_id"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 

@@ -93,6 +93,8 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import math
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -132,6 +134,17 @@ from meshforge.common.proto.meshforge.v1 import agent_pb2, agent_pb2_grpc
 __all__ = ["AgentSessionClient", "SessionStats", "StreamEnd", "grpc_channel_options"]
 
 log = get_logger(__name__)
+
+
+def wall_clock_resolution_us() -> int:
+    """The resolution of the clock that stamps ``sent_at`` (``time.time``),
+    in whole microseconds (at least 1), for ``Pong.clock_resolution_us``
+    (V0.9 G1, D213): the controller widens its clock-offset bound by it."""
+    resolution_s = time.get_clock_info("time").resolution
+    return max(1, min(2**32 - 1, math.ceil(resolution_s * 1_000_000)))
+
+
+_WALL_RESOLUTION_US: Final = wall_clock_resolution_us()
 
 _COMMAND_DEDUPE_WINDOW: Final = 10_000
 _CLOSE_GRACE_S: Final = 2.0
@@ -1009,9 +1022,16 @@ class AgentSessionClient:
             )
             return
         if which == "ping":
-            # Before anything else: RTT is measured on this reply.
+            # Before anything else: RTT is measured on this reply, and the
+            # envelope's sent_at is this node's clock in the controller's
+            # clock-offset exchange (D213) - so it is stamped right here.
             await self._write(
-                agent_pb2.AgentMessage(pong=agent_pb2.Pong(ping_id=msg.ping.ping_id))
+                agent_pb2.AgentMessage(
+                    pong=agent_pb2.Pong(
+                        ping_id=msg.ping.ping_id,
+                        clock_resolution_us=_WALL_RESOLUTION_US,
+                    )
+                )
             )
             self.stats.pings_answered += 1
             return

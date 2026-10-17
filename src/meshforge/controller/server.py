@@ -432,6 +432,8 @@ class ControllerRuntime:
             command_resend_tries=cfg.command_resend_tries,
         )
         self.manager = manager
+        # V0.9 G1 (D213): an untrustworthy node clock is an operator alert.
+        manager.heartbeats.on_clock_alert = self._publish_alert
         # D101: cache reports -> the location index (before any stream).
         manager.dispatch.register("cache_report", self.cache_index.on_message)
         # V0.5 G5 (0.5.8): `compute node prepare` progress reports.

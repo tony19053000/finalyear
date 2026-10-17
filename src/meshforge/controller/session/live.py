@@ -22,6 +22,7 @@ from meshforge.common.owner_policy import OwnerPolicy
 from meshforge.common.proto.meshforge.v1 import agent_pb2
 from meshforge.controller.liveness import LeaseTracker, LivenessEvent, NodeState
 from meshforge.controller.registry import SessionEndReason
+from meshforge.controller.session.clocks import NodeClock
 from meshforge.controller.session.writer import WriteChain
 
 __all__ = [
@@ -196,6 +197,11 @@ class LiveSession:
     """Score sets (Hello or report) dropped by D38 validation; each is logged."""
     # RTT (roadmap 0.3.10) - monotonic clock only
     outstanding_ping: tuple[str, float] | None = None
+    outstanding_ping_wall_ms: float | None = None
+    """The controller's WALL clock (epoch ms) when the outstanding Ping was
+    queued: the ``sent`` of its clock-offset exchange (V0.9 G1, D213)."""
+    clock: NodeClock = field(default_factory=NodeClock)
+    """This node's clock offset from Ping/Pong exchanges (:mod:`.clocks`)."""
     last_rtt_ms: float | None = None
     rtt_ewma_ms: float | None = None
     pings_sent: int = 0
@@ -238,6 +244,10 @@ class LiveSession:
             "last_rtt_ms": None
             if self.last_rtt_ms is None
             else round(self.last_rtt_ms, 3),
+            "clock_offset_ms": None
+            if self.clock.latest is None
+            else round(self.clock.latest.offset_ms, 3),
+            "clock_exchanges_rejected": self.clock.exchanges_rejected,
             "pending_writes": self.writer.pending,
             "writes_failed": self.writer.failed,
             "writes_dropped": self.writer.dropped,

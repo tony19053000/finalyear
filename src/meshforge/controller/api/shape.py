@@ -13,11 +13,13 @@ from collections.abc import Mapping
 from typing import Any, TypedDict
 
 from meshforge.common.capabilities import HARDWARE_SCORES_CAPABILITY
+from meshforge.common.clock_offset import ClockOffset, round_up
 from meshforge.controller.api.models import (
     CacheCount,
     DiskUsage,
     GpuUsage,
     NodeCertificate,
+    NodeClock,
     NodeDetail,
     NodeScores,
     NodeSummary,
@@ -32,6 +34,7 @@ from meshforge.controller.planner.inputs import bound_to
 from meshforge.controller.registry import NodeRecord, SessionRecord, SnapshotRecord
 from meshforge.controller.resources import LiveSample
 from meshforge.controller.scores import UNITS
+from meshforge.controller.session.clocks import uncertain_reasons
 from meshforge.controller.session.manager import LiveSession
 
 __all__ = [
@@ -219,6 +222,44 @@ def node_detail(
         },
         hardware=dict(node.hardware),
         owner_policy=owner_policy_view(live),
+        clock=node_clock(live, session),
+    )
+
+
+def node_clock(
+    live: LiveSession | None, session: SessionRecord | None
+) -> NodeClock | None:
+    """V0.9 G1 (D213): the live session's estimate, else the stored one."""
+    if live is not None and live.clock.latest is not None:
+        latest = live.clock.latest
+        return NodeClock(
+            clock_offset_ms=round(latest.offset_ms, 3),
+            bound_ms=round_up(latest.bound_ms, 3),
+            consistent=latest.consistent,
+            exchanges=latest.exchanges,
+            uncertain=bool(uncertain_reasons(latest)),
+            live=True,
+        )
+    if (
+        session is None
+        or session.clock_offset_ms is None
+        or session.clock_offset_bound_ms is None
+    ):
+        return None
+    stored = ClockOffset(
+        offset_ms=session.clock_offset_ms,
+        bound_ms=session.clock_offset_bound_ms,
+        rtt_ms=0.0,
+        exchanges=session.clock_exchanges or 0,
+        consistent=session.clock_consistent is not False,
+    )
+    return NodeClock(
+        clock_offset_ms=round(stored.offset_ms, 3),
+        bound_ms=round_up(stored.bound_ms, 3),
+        consistent=stored.consistent,
+        exchanges=stored.exchanges,
+        uncertain=bool(uncertain_reasons(stored)),
+        live=False,
     )
 
 

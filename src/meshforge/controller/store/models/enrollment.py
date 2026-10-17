@@ -84,6 +84,11 @@ class AuditAction(StrEnum):
     node (THREAT_MODEL CG-E2); refused, nothing applied. ``node_id`` = the
     reporting node, ``details`` = attempt id, the attempt's node, the state
     reported. The dashboard's ``alert`` events are fed from the same refusal."""
+    # --- V0.9 G1 (migration 0021) ------------------------------------------
+    CLOCK_UNCERTAIN = "clock_uncertain"
+    """D213: a node's clock offset became untrustworthy (bound over 250 ms or
+    inconsistent exchanges) - one row per episode per session. ``details`` =
+    session id, offset, bound, consistent, reasons (numbers and words only)."""
 
 
 def _in_list(values: type[StrEnum]) -> str:
