@@ -27,11 +27,6 @@ _spec.loader.exec_module(SKEL)
         "error: Connection refused by the pre-commit hook script (exit 1)",
     ],
 )
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT-R2: bare 'timed out' / 'connection refused' skip the wheel "
-    "test for a build-backend or hook failure that has nothing to do with the index",
-)
 def test_a_build_hook_timeout_is_not_an_unreachable_index(stderr: str) -> None:
     assert not SKEL.network_failure(stderr)
 

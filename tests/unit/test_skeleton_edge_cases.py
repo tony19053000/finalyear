@@ -158,22 +158,46 @@ NETWORK_FAILURE_MARKERS = (
     "temporary failure in name resolution",
     "no such host is known",  # Windows
     "nodename nor servname",  # macOS
-    "client error (connect)",
-    "network is unreachable",
-    # fix round 1 (DEFECT-7): a firewall or a down index is not DNS
-    "timed out",  # "operation timed out", "connection timed out"
+    "client error (connect)",  # uv's HTTP client could not connect
+    "the network was disabled",  # the --offline retry: not in the cache
+)
+#: Network words that a build backend or a hook can also print ("build hook
+#: timed out", "connection refused by the pre-commit hook"): offline ONLY
+#: together with :data:`INDEX_CONTEXT` (fix rounds 1-2, DEFECT-7 / DEFECT-R2).
+AMBIGUOUS_NETWORK_MARKERS = (
+    "timed out",
     "connection refused",
     "no route to host",
+    "network is unreachable",
     "unreachable network",  # Windows: os error 10051
     "unreachable host",  # Windows: os error 10065
-    "the network was disabled",  # the --offline retry: not in the cache
+)
+#: How uv says the failure was a request to the package index: its HTTP
+#: error chain, a URL, or a socket-level OS error number.
+INDEX_CONTEXT = (
+    "error sending request",
+    "request failed",
+    "failed to fetch",
+    "http://",
+    "https://",
+    "/simple/",
+    *(
+        f"(os error {code})"
+        for code in (101, 110, 111, 113, 10051, 10060, 10061, 10065)
+    ),
 )
 
 
 def network_failure(stderr: str) -> bool:
-    """Did ``uv build`` fail only because the index is unreachable?"""
+    """Did ``uv build`` fail only because the package index is unreachable?
+    An unambiguous resolver/connect shape, or an ambiguous network word inside
+    uv's index-request context - never a bare "timed out" from a hook."""
     text = stderr.lower()
-    return any(marker in text for marker in NETWORK_FAILURE_MARKERS)
+    if any(marker in text for marker in NETWORK_FAILURE_MARKERS):
+        return True
+    return any(m in text for m in AMBIGUOUS_NETWORK_MARKERS) and any(
+        c in text for c in INDEX_CONTEXT
+    )
 
 
 def build_wheel(out_dir: Path, env: dict[str, str] | None = None) -> Path:
