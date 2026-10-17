@@ -2,11 +2,12 @@
 failure class, the record builder, the Parquet export determinism and the
 workload report validation.
 
-Tests named ``test_DEFECT_*`` are strict xfails: each documents a defect found
+Tests named ``test_defect_*`` are strict xfails: each documents a defect found
 by the tester (see the tester report); when the implementer fixes it the xfail
 turns into an XPASS failure, which is the signal to remove the marker.
 """
 
+# ruff: noqa: E501
 from __future__ import annotations
 
 import datetime as dt
@@ -16,7 +17,6 @@ import os
 import subprocess
 import sys
 import textwrap
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -156,7 +156,9 @@ def test_resolution_mapping_unknown_is_16ms_and_hostile_values_are_clamped() -> 
     assert resolution_ms(2**63) == MAX_RESOLUTION_MS
 
 
-def test_an_old_agent_without_resolution_gets_a_wider_bound_than_a_precise_one() -> None:
+def test_an_old_agent_without_resolution_gets_a_wider_bound_than_a_precise_one() -> (
+    None
+):
     old, precise = NodeClock(), NodeClock()
     _feed(old, 6, res_ms=resolution_ms(0))
     _feed(precise, 6, res_ms=resolution_ms(1))
@@ -175,8 +177,10 @@ def test_a_drift_of_the_agent_clock_inside_the_bound_is_not_hidden() -> None:
     assert (not clock.latest.consistent) or clock.latest.bound_ms >= 19.0
 
 
-@pytest.mark.xfail(strict=True, reason="DEFECT-1: bound uses the latest exchange's resolution only")
-def test_DEFECT_1_alternating_reported_resolution_flaps_the_alert_every_ping() -> None:
+@pytest.mark.xfail(
+    strict=True, reason="DEFECT-1: bound uses the latest exchange's resolution only"
+)
+def test_defect_1_alternating_reported_resolution_flaps_the_alert_every_ping() -> None:
     """The bound uses only the *latest* exchange's resolution, so an agent (or
     any clock whose resolution report varies) toggles the node between
     uncertain/certain on every Ping: one audit_event row + one live alert per
@@ -197,7 +201,13 @@ def test_DEFECT_1_alternating_reported_resolution_flaps_the_alert_every_ping() -
     [
         ("done", None, 0, None, FailureClass.OK),
         ("done", None, 0, {"status": "ok"}, FailureClass.OK),
-        ("failed", "user_error", 3, {"status": "unavailable"}, FailureClass.UNAVAILABLE),
+        (
+            "failed",
+            "user_error",
+            3,
+            {"status": "unavailable"},
+            FailureClass.UNAVAILABLE,
+        ),
         ("failed", "user_error", 3, {"status": "ok"}, FailureClass.UNAVAILABLE),
         ("failed", "user_error", 4, {"status": "check_failed"}, FailureClass.WORKLOAD),
         ("failed", "user_error", 4, {"status": "ok"}, FailureClass.WORKLOAD),
@@ -275,9 +285,13 @@ def _strings(value: Any) -> list[str]:
     return []
 
 
-@pytest.mark.xfail(strict=True, reason="DEFECT-2: untrusted params reach VARCHAR(64)/JSONB unsanitised")
-@pytest.mark.parametrize("bad", HOSTILE, ids=["200chars", "nul", "surrogate", "65", "nul-only"])
-def test_DEFECT_2_hostile_workload_params_must_fit_postgres_columns(bad: str) -> None:
+@pytest.mark.xfail(
+    strict=True, reason="DEFECT-2: untrusted params reach VARCHAR(64)/JSONB unsanitised"
+)
+@pytest.mark.parametrize(
+    "bad", HOSTILE, ids=["200chars", "nul", "surrogate", "65", "nul-only"]
+)
+def test_defect_2_hostile_workload_params_must_fit_postgres_columns(bad: str) -> None:
     """A workload (it is untrusted) chooses ``params``; ``p_dtype`` becomes a
     ``VARCHAR(64)`` column and the JSON goes into JSONB (no NUL, no lone
     surrogate). A value that Postgres refuses makes the *whole sweep batch*
@@ -300,7 +314,13 @@ def test_DEFECT_2_hostile_workload_params_must_fit_postgres_columns(bad: str) ->
     for name, value in record.items():
         if isinstance(value, str) and name in lengths:
             assert len(value) <= lengths[name], name
-        for text in _strings(value) if name in JSON_KINDS else [value] if isinstance(value, str) else []:
+        for text in (
+            _strings(value)
+            if name in JSON_KINDS
+            else [value]
+            if isinstance(value, str)
+            else []
+        ):
             assert "\x00" not in text, name
             text.encode("utf-8")  # a lone surrogate cannot be stored
 
@@ -417,11 +437,15 @@ def _digest(env_extra: dict[str, str], *args: str) -> str:
     return out.stdout.strip()
 
 
-def test_export_bytes_do_not_depend_on_process_tz_locale_hashseed_or_input_order() -> None:
+def test_export_bytes_do_not_depend_on_process_tz_locale_hashseed_or_input_order() -> (
+    None
+):
     runs = {
         _digest({"TZ": "UTC", "LC_ALL": "C", "PYTHONHASHSEED": "0"}),
         _digest({"TZ": "Asia/Kolkata", "LC_ALL": "C.UTF-8", "PYTHONHASHSEED": "1"}),
-        _digest({"TZ": "America/St_Johns", "LANG": "tr_TR.UTF-8", "PYTHONHASHSEED": "12345"}),
+        _digest(
+            {"TZ": "America/St_Johns", "LANG": "tr_TR.UTF-8", "PYTHONHASHSEED": "12345"}
+        ),
         _digest({"TZ": "Pacific/Kiritimati", "PYTHONHASHSEED": "random"}, "reverse"),
         _digest({"TZ": "Pacific/Auckland", "PYTHONHASHSEED": "random"}, "reverse"),
     }

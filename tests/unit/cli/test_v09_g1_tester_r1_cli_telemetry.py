@@ -1,6 +1,6 @@
 """V0.9 G1 tester round 1: ``compute telemetry export`` never overwrites and
 never leaves a half file - including when the filesystem or the network
-misbehaves.  ``test_DEFECT_*`` are strict xfails (see the tester report)."""
+misbehaves.  ``test_defect_*`` are strict xfails (see the tester report)."""
 
 from __future__ import annotations
 
@@ -84,7 +84,7 @@ def test_unicode_and_spaces_in_the_output_path(
     assert out.read_bytes() == BODY
 
 
-def test_DEFECT_6_a_file_created_during_the_request_is_not_deleted_by_the_cleanup(
+def test_defect_6_a_file_created_during_the_request_is_not_deleted_by_the_cleanup(
     runner: CliRunner, controller: TransportFactory, tmp_path: Path
 ) -> None:
     """Check-then-create race: the existence check passes, someone else creates
@@ -102,11 +102,11 @@ def test_DEFECT_6_a_file_created_during_the_request_is_not_deleted_by_the_cleanu
     assert out.exists() and out.read_bytes() == b"someone else's data"
 
 
-test_DEFECT_6_a_file_created_during_the_request_is_not_deleted_by_the_cleanup = (
+test_defect_6_a_file_created_during_the_request_is_not_deleted_by_the_cleanup = (
     pytest.mark.xfail(
         strict=True,
         reason="DEFECT-6: cleanup unlinks a pre-existing file after FileExistsError",
-    )(test_DEFECT_6_a_file_created_during_the_request_is_not_deleted_by_the_cleanup)
+    )(test_defect_6_a_file_created_during_the_request_is_not_deleted_by_the_cleanup)
 )
 
 
@@ -115,7 +115,7 @@ test_DEFECT_6_a_file_created_during_the_request_is_not_deleted_by_the_cleanup = 
     strict=True,
     reason="DEFECT-6: a dangling symlink passes exists() and is then unlinked",
 )
-def test_DEFECT_6_a_dangling_symlink_as_output_is_left_alone(
+def test_defect_6_a_dangling_symlink_as_output_is_left_alone(
     runner: CliRunner, controller: TransportFactory, tmp_path: Path
 ) -> None:
     controller(lambda _r: httpx.Response(200, content=BODY))

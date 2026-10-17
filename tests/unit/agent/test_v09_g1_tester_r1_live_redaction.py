@@ -34,7 +34,9 @@ class _Slow(StreamRedactor):
 
 def _live() -> LiveRedaction[S]:
     _Slow.log = []
-    return LiveRedaction(SecretMatcher({"K": b"hunter2-secret"}), tuple(S), redactor=_Slow)
+    return LiveRedaction(
+        SecretMatcher({"K": b"hunter2-secret"}), tuple(S), redactor=_Slow
+    )
 
 
 async def test_a_cancel_waits_for_the_chunk_in_the_thread_even_when_repeated() -> None:

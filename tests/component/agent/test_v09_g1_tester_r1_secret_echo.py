@@ -11,6 +11,10 @@ from pathlib import Path
 
 import httpx
 import pytest
+
+pytest.importorskip("sqlalchemy", reason="needs the controller extra")
+pytest.importorskip("pyarrow", reason="needs the controller extra")
+
 from mf_exec_harness import ExecAgent, submit, wait_job
 from sqlalchemy import text
 from test_v07_g6_tester_r1_jobs import (  # noqa: F401
@@ -110,8 +114,10 @@ async def test_an_ascii_secret_echoed_into_the_workload_report_is_dropped(
     reason="DEFECT-3: JSON-escaped secret (non-ASCII / quote) survives the agent's "
     "redaction of params_json",
 )
-@pytest.mark.parametrize("value", ["pässword-é-secret-123456", 'q"uote\\back-slash-9876'])
-async def test_DEFECT_3_a_non_ascii_secret_echoed_into_the_report_must_not_reach_the_dataset(
+@pytest.mark.parametrize(
+    "value", ["pässword-é-secret-123456", 'q"uote\\back-slash-9876']
+)
+async def test_defect_3_a_non_ascii_secret_echoed_into_the_report_must_not_reach_the_dataset(
     alice: httpx.AsyncClient,
     grpc_target: str,
     runtime: ControllerRuntime,
@@ -124,5 +130,7 @@ async def test_DEFECT_3_a_non_ascii_secret_echoed_into_the_report_must_not_reach
 
     escaped = json.dumps(value)[1:-1]
     for needle in (value, escaped):
-        assert needle.encode() not in export, f"secret in the Parquet export: {needle!r}"
+        assert needle.encode() not in export, (
+            f"secret in the Parquet export: {needle!r}"
+        )
         assert needle not in db, f"secret in the database: {needle!r}"

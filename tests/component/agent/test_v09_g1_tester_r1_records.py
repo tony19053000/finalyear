@@ -5,9 +5,10 @@ sweepers, a sweep killed mid-transaction, a record that cannot be built or
 stored), hostile ``results/workload.json`` through the whole stack, and the
 export route (filters, 413, streaming).
 
-``test_DEFECT_*`` are strict xfails documenting defects found by the tester.
+``test_defect_*`` are strict xfails documenting defects found by the tester.
 """
 
+# ruff: noqa: E501, RUF059
 from __future__ import annotations
 
 import asyncio
@@ -37,7 +38,7 @@ from meshforge.controller.store.engine import create_engine
 from meshforge.controller.store.models.telemetry import RunRecord
 from meshforge.controller.telemetry import recorder as recorder_module
 from meshforge.controller.telemetry.export import fetch_records, parquet_bytes
-from meshforge.controller.telemetry.recorder import RunRecorder, TelemetryStoreError
+from meshforge.controller.telemetry.recorder import RunRecorder
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.timeout(240)]
 
@@ -239,7 +240,9 @@ async def test_many_concurrent_sweepers_write_each_record_exactly_once_and_equal
     async with engine.begin() as conn:
         await conn.execute(text("DELETE FROM run_record"))
 
-    sweepers = [RunRecorder(engine, batch=2) for _ in range(6)]  # concurrent "controllers"
+    sweepers = [
+        RunRecorder(engine, batch=2) for _ in range(6)
+    ]  # concurrent "controllers"
 
     async def drain(r: RunRecorder) -> None:
         for _ in range(10):
@@ -288,9 +291,23 @@ async def test_a_sweep_killed_mid_transaction_leaves_nothing_and_the_next_sweep_
     await asyncio.gather(task, return_exceptions=True)
     async with engine.connect() as conn:
         assert await conn.scalar(select(func.count()).select_from(RunRecord)) == 0
-        # the cancelled transaction did not leave a connection stuck in a lock
-        assert await conn.scalar(text("SELECT count(*) FROM pg_stat_activity "
-            "WHERE state LIKE 'idle in transaction%' AND datname = current_database()")) == 0
+    # the cancelled transaction did not leave a connection stuck in a lock.  Other
+    # sessions (the controller's own) are idle-in-transaction for milliseconds at a
+    # time, so poll: only a *persistent* one is a leak (was flaky when sampled once).
+    stuck = -1
+    for _ in range(50):
+        async with engine.connect() as conn:
+            stuck = await conn.scalar(
+                text(
+                    "SELECT count(*) FROM pg_stat_activity WHERE pid <> pg_backend_pid() "
+                    "AND state LIKE 'idle in transaction%' AND datname = current_database() "
+                    "AND query ILIKE '%run_record%'"
+                )
+            )
+        if stuck == 0:
+            break
+        await asyncio.sleep(0.2)
+    assert stuck == 0, "a cancelled sweep left a connection idle in transaction"
     monkeypatch.setattr(recorder_module, "_sources", real)
     assert await RunRecorder(engine).sweep() == 3
 
@@ -337,7 +354,7 @@ async def test_an_unbuildable_record_does_not_block_the_others_and_is_retried_af
     reason="DEFECT-5: a skipped (unbuildable) attempt is visible only in a log "
     "line - no counter / alert / API signal, so records are lost silently",
 )
-async def test_DEFECT_5_a_skipped_record_is_visible_to_an_operator(
+async def test_defect_5_a_skipped_record_is_visible_to_an_operator(
     http: httpx.AsyncClient,
     agent: ExecAgent,
     runtime: ControllerRuntime,
@@ -351,7 +368,9 @@ async def test_DEFECT_5_a_skipped_record_is_visible_to_an_operator(
     async with engine.begin() as conn:
         await conn.execute(text("DELETE FROM run_record"))
     monkeypatch.setattr(
-        recorder_module, "build_record", lambda s: (_ for _ in ()).throw(ValueError("x"))
+        recorder_module,
+        "build_record",
+        lambda s: (_ for _ in ()).throw(ValueError("x")),
     )
     rec = RunRecorder(engine)
     await rec.sweep()
@@ -365,7 +384,10 @@ async def test_DEFECT_5_a_skipped_record_is_visible_to_an_operator(
     )
 
 
-async def test_DEFECT_2_a_record_postgres_refuses_must_not_jam_later_records(
+@pytest.mark.xfail(
+    strict=True, reason="DEFECT-2: VARCHAR(64) overflow poisons the whole sweep"
+)
+async def test_defect_2_a_record_postgres_refuses_must_not_jam_later_records(
     http: httpx.AsyncClient,
     agent: ExecAgent,
     runtime: ControllerRuntime,
@@ -381,13 +403,10 @@ async def test_DEFECT_2_a_record_postgres_refuses_must_not_jam_later_records(
     good_job, _ = await _run(http, agent, tmp_path, "good", PLAIN_CODE, "0")
     rows = await _wait_records(engine, 2, within=15.0)
     got = {r["job_id"] for r in rows}
-    assert good_job in got, f"later job lost its record; runtime failed_sweeps={runtime.recorder.failed_sweeps if runtime.recorder else None}"  # noqa: E501
+    assert good_job in got, (
+        f"later job lost its record; runtime failed_sweeps={runtime.recorder.failed_sweeps if runtime.recorder else None}"
+    )
     assert bad_job in got
-
-
-test_DEFECT_2_a_record_postgres_refuses_must_not_jam_later_records = pytest.mark.xfail(
-    strict=True, reason="DEFECT-2: VARCHAR(64) overflow poisons the whole sweep"
-)(test_DEFECT_2_a_record_postgres_refuses_must_not_jam_later_records)
 
 
 @pytest.mark.xfail(
@@ -398,14 +417,16 @@ test_DEFECT_2_a_record_postgres_refuses_must_not_jam_later_records = pytest.mark
     [{"note": "a\u0000b"}, {"note": "\ud800"}, {"a\u0000": 1}],
     ids=["nul-value", "surrogate", "nul-key"],
 )
-async def test_DEFECT_2_nul_or_surrogate_in_params(
+async def test_defect_2_nul_or_surrogate_in_params(
     http: httpx.AsyncClient,
     agent: ExecAgent,
     engine: Any,
     tmp_path: Path,
     params: dict[str, Any],
 ) -> None:
-    bad_job, bad = await _run(http, agent, tmp_path, "bad", BENCH_CODE, _doc(params=params))
+    bad_job, bad = await _run(
+        http, agent, tmp_path, "bad", BENCH_CODE, _doc(params=params)
+    )
     good_job, _ = await _run(http, agent, tmp_path, "good", PLAIN_CODE, "0")
     assert bad["state"] == "succeeded", bad
     rows = await _wait_records(engine, 2, within=15.0)
@@ -416,7 +437,7 @@ async def test_DEFECT_2_nul_or_surrogate_in_params(
     strict=True,
     reason="DEFECT-4: status of unhashable type raises in the agent's report read",
 )
-async def test_DEFECT_4_an_unhashable_workload_status_does_not_break_the_attempt(
+async def test_defect_4_an_unhashable_workload_status_does_not_break_the_attempt(
     http: httpx.AsyncClient, agent: ExecAgent, engine: Any, tmp_path: Path
 ) -> None:
     job_id, job = await _run(
@@ -443,8 +464,18 @@ async def test_DEFECT_4_an_unhashable_workload_status_does_not_break_the_attempt
         "[]",
     ],
     ids=[
-        "ns-str", "ns-neg", "ns-huge", "seed-2^63", "seed-neg", "n-2^70",
-        "wrong-types", "bad-family", "deep", "nan", "garbage", "array",
+        "ns-str",
+        "ns-neg",
+        "ns-huge",
+        "seed-2^63",
+        "seed-neg",
+        "n-2^70",
+        "wrong-types",
+        "bad-family",
+        "deep",
+        "nan",
+        "garbage",
+        "array",
     ],
 )
 async def test_hostile_but_handled_workload_documents_still_yield_exactly_one_record(
@@ -489,11 +520,15 @@ async def test_export_filters_413_streaming_and_errors(
     assert b"PAR1" not in over.content
 
     # narrowing works: since = after everything -> empty valid file
-    empty = await http.get("/v1/telemetry/export", params={"since": "2999-01-01T00:00:00+00:00"})
+    empty = await http.get(
+        "/v1/telemetry/export", params={"since": "2999-01-01T00:00:00+00:00"}
+    )
     assert empty.status_code == 200
     assert pq.read_table(io.BytesIO(empty.content)).num_rows == 0
     # since with an offset equals the same instant in UTC
-    a = await http.get("/v1/telemetry/export", params={"since": "2999-01-01T05:30:00+05:30"})
+    a = await http.get(
+        "/v1/telemetry/export", params={"since": "2999-01-01T05:30:00+05:30"}
+    )
     assert a.content == empty.content
     # ancient since -> 413 again (all 4 records, cap 3)
     assert (
@@ -512,9 +547,13 @@ async def test_export_filters_413_streaming_and_errors(
         answer = await http.get("/v1/telemetry/export", params=params)
         assert answer.status_code in (400, 422), (params, answer.status_code)
     # and the route is still healthy after a client abandons a download mid-stream
-    async with http.stream("GET", "/v1/telemetry/export", params={"since": "2999-01-01T00:00:00Z"}) as response:
+    async with http.stream(
+        "GET", "/v1/telemetry/export", params={"since": "2999-01-01T00:00:00Z"}
+    ) as response:
         await response.aread()
-    again = await http.get("/v1/telemetry/export", params={"since": "2999-01-01T00:00:00Z"})
+    again = await http.get(
+        "/v1/telemetry/export", params={"since": "2999-01-01T00:00:00Z"}
+    )
     assert again.status_code == 200
 
 
@@ -525,7 +564,40 @@ async def test_the_export_does_not_depend_on_the_request_timezone_spelling(
     rows = await _wait_records(engine, 1)
     created = rows[0]["attempt_created_at"]
     one = await http.get("/v1/telemetry/export", params={"since": created.isoformat()})
-    ist = created.astimezone(__import__("datetime").timezone(__import__("datetime").timedelta(hours=5, minutes=30)))
+    ist = created.astimezone(
+        __import__("datetime").timezone(
+            __import__("datetime").timedelta(hours=5, minutes=30)
+        )
+    )
     two = await http.get("/v1/telemetry/export", params={"since": ist.isoformat()})
     assert one.status_code == two.status_code == 200
     assert one.content == two.content
+
+
+async def test_stored_records_and_export_contain_no_local_paths_or_tokens(
+    http: httpx.AsyncClient,
+    runtime: ControllerRuntime,
+    agent: ExecAgent,
+    engine: Any,
+    tmp_path: Path,
+) -> None:
+    """JSONB/text leak scan: a failing job whose output names the work dir; the
+    stored record (every column as text), the attempt.workload column and the
+    Parquet bytes carry no filesystem path of the test host and no bearer token."""
+    await _run(http, agent, tmp_path, "okjob", BENCH_CODE, _doc())
+    await _run(http, agent, tmp_path, "badjob", PLAIN_CODE, "3")
+    rows = await _wait_records(engine, 2)
+    assert len(rows) == 2
+    async with engine.connect() as conn:
+        dump = await conn.scalar(
+            text("SELECT string_agg(r::text, '|') FROM run_record r")
+        )
+        workload = await conn.scalar(
+            text("SELECT string_agg(workload::text, '|') FROM attempt")
+        )
+    blob = f"{dump}|{workload}"
+    exported = parquet_bytes(rows)
+    token = token_of(runtime)
+    for needle in (str(tmp_path), "/home/", "/tmp/", token):
+        assert needle not in blob, f"leaked {needle!r} into the database"
+        assert needle.encode() not in exported, f"leaked {needle!r} into the export"

@@ -1,6 +1,6 @@
 """V0.9 G1 tester round 1: results/workload.json is hostile input.
 
-``test_DEFECT_*`` are strict xfails documenting defects (see the tester report).
+``test_defect_*`` are strict xfails documenting defects (see the tester report).
 """
 
 from __future__ import annotations
@@ -60,7 +60,7 @@ def test_a_non_string_status_is_no_report_not_an_exception(
     "read_workload_result (status not in frozenset)",
 )
 @pytest.mark.parametrize("status", [["ok"], {"a": 1}], ids=["list", "dict"])
-def test_DEFECT_4_an_unhashable_status_is_no_report_not_an_exception(
+def test_defect_4_an_unhashable_status_is_no_report_not_an_exception(
     tmp_path: Path, status: Any
 ) -> None:
     _put(tmp_path, {**GOOD, "status": status})
@@ -74,7 +74,18 @@ def test_DEFECT_4_an_unhashable_status_is_no_report_not_an_exception(
 @pytest.mark.parametrize(
     "value",
     [[1], {"x": 1}, -1, 2**200, 1e300, float("nan"), True, "x" * 100_000, None, ""],
-    ids=["list", "dict", "neg", "huge", "1e300", "nan", "bool", "long", "null", "empty"],
+    ids=[
+        "list",
+        "dict",
+        "neg",
+        "huge",
+        "1e300",
+        "nan",
+        "bool",
+        "long",
+        "null",
+        "empty",
+    ],
 )
 def test_wrong_typed_fields_never_raise_and_never_pass_through_unbounded(
     tmp_path: Path, field: str, value: Any
@@ -196,7 +207,9 @@ def _echo(tmp_path: Path, secret: str, where: str) -> str:
     elif where == "nested":
         doc["params"] = {"a": [{"b": f"prefix-{secret}-suffix"}]}
     _put(tmp_path, doc)
-    report = read_workload_result(tmp_path, matcher=SecretMatcher({"S": secret.encode()}))
+    report = read_workload_result(
+        tmp_path, matcher=SecretMatcher({"S": secret.encode()})
+    )
     assert report is not None
     return report.params_json
 
@@ -238,7 +251,7 @@ def test_a_secret_split_across_two_fields_is_a_documented_residual() -> None:
 @pytest.mark.security
 @pytest.mark.xfail(
     strict=True,
-    reason="DEFECT-3: params_json is JSON-escaped (\\uXXXX, \\\", \\\\) before the "
+    reason='DEFECT-3: params_json is JSON-escaped (\\uXXXX, \\", \\\\) before the '
     "matcher runs; secrets with non-ASCII / quote / backslash leak",
 )
 @pytest.mark.parametrize(
@@ -247,7 +260,7 @@ def test_a_secret_split_across_two_fields_is_a_documented_residual() -> None:
     ids=["latin1", "quote-backslash", "emoji", "cjk"],
 )
 @pytest.mark.parametrize("where", ["value", "key"])
-def test_DEFECT_3_a_secret_with_json_escaped_characters_must_be_dropped(
+def test_defect_3_a_secret_with_json_escaped_characters_must_be_dropped(
     tmp_path: Path, secret: str, where: str
 ) -> None:
     out = _echo(tmp_path, secret, where)

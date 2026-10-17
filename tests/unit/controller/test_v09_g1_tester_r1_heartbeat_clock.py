@@ -103,7 +103,9 @@ async def test_a_bad_link_alerts_once_per_episode_and_again_after_recovery() -> 
 
 
 @pytest.mark.asyncio
-async def test_an_old_agent_without_resolution_is_not_reported_tighter_than_its_tick() -> None:
+async def test_an_old_agent_without_resolution_is_not_reported_tighter_than_its_tick() -> (
+    None
+):
     registry, clocks = _Registry(), _Clocks()
     rec, live = _recorder(registry, clocks), _live()
     for _ in range(5):
