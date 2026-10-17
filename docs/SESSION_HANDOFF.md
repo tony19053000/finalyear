@@ -262,6 +262,8 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
+**2026-10-17 (V0.9 brief DRAFTED, Lead) — NOTHING RUNNING. `docs/briefs/V0.9-benchmark-telemetry.md` (D211–D224, Q1–Q5) waits for team approval. On approval: ADR-0018 → G0 item 0 (D210 list, clock skew first, before 🧑 0.8.10 perf step).**
+
 **2026-10-17 (G7 CLOSED, D210) — NOTHING RUNNING. 0.8.9 `[x]`; gate 2269 passed / 0 failed. V0.8 agent-side complete; closes on 🧑 0.8.10 (`lab/checklists/V0.8-visual.md`). Next agent work: V0.9 brief (item 0 = D210 list; do D210 item 1 clock skew early - the 0.8.10 lab perf step needs it).**
 
 **2026-10-17 (G7 MERGED `334da94`, D210) — frontend rebuilt. RUNNING: whole `-m component` ONCE on main, alone (log in session scratchpad g7_component.log). If died: rerun `uv run python scripts/pytest_exit_guard.py -m component -q -rs` alone; green (0 skips in tests/e2e except perf) → close 0.8.9 + status bar + STATUS → 🧑 0.8.10 checklist `lab/checklists/V0.8-visual.md` (fix D210 item 1 clock skew before its lab perf step).**
