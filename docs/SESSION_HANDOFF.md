@@ -262,6 +262,8 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
+**2026-10-17 (G0 implementer DONE `d407a0b`..`f39cd25`, worktree-agent-ac278509a6415d46b; new GET /v1/clock, recv_at, shared common/clock_offset.py; perf e2e pass) — RUNNING: G0 tester r1 ∥ G2 fix r1. Follow-up noted: dispatcher retries non-transient StatementError forever (poison handling) → tech debt.**
+
 **2026-10-17 (G2 tester r1 PASS-with-defects `dd15266`, D1–D9 self-check/validation gaps) — RUNNING: G2 fix r1 (all D1–D9; Lead: labels trust `verified`) ∥ G0 implementer. Next: tester r2 delta → reviewer → merge.**
 
 **2026-10-17 (G2 implementer DONE, worktree-agent-abef81c72ced9ce24 `0145a80`) — RUNNING: G2 tester r1 (same worktree) ∥ G0 implementer. Lead rulings: compute.yaml (not meshforge.yaml) OK; `bench workloads` CLI-only parity entry OK; G3 decides if controller may import bench. GPU/ML families unverified on CUDA → 🧑 later: `uv run pytest tests/component/bench -q -rs` on a CUDA laptop + `meshforge-agent hardware score --json` per laptop.**
