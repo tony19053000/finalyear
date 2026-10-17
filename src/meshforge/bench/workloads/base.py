@@ -209,9 +209,10 @@ class WorkloadResult(BaseModel):
     device: str | None = None
     compute_ns: int | None = Field(default=None, ge=0)
     compute_ms: float | None = Field(default=None, ge=0)
-    compute_iterations: int | None = Field(default=None, ge=1)
+    compute_iterations: int | None = Field(default=None, ge=1, strict=True)
     """Iterations ``compute_ns`` covers (the whole timed loop): one iteration is
-    ``compute_ns / compute_iterations``."""
+    ``compute_ns / compute_iterations``. Strict (D225 tester T2): a JSON
+    ``true``, ``3.0`` or ``"3"`` is refused - the runner only writes integers."""
     prepare_ms: float | None = None
     warmup_ms: float | None = None
     check_ms: float | None = None

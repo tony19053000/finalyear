@@ -156,8 +156,13 @@ CPU** - a separate object built by the same seeded initialisation, never a copy 
 
 - inference: the timed model's weights and buffers must equal the rebuild bit for bit, and rows of the last
   batch are recomputed in **float64**: the whole batch when it fits a 1e11-FLOP budget (about 1 s; the default
-  CNN batch fits), otherwise evenly spaced rows, always the first and last (worst case, the largest transformer:
-  2 rows, ~3e12 FLOPs, tens of seconds on a laptop CPU - still inside the 15 min job timeout);
+  CNN batch fits), otherwise evenly spaced rows - always the first and last - **plus 2 rows drawn by a generator
+  seeded with the run's seed** (`SAMPLED_ROWS`; never the first or last). Worst case, the largest transformer:
+  4 rows, ~6.6e12 FLOPs, about a minute on a laptop CPU - still inside the 15 min job timeout.
+  **Limit, stated plainly:** when sampling, only the sampled rows **of the last batch** are compared with float64.
+  A fault confined to rows a run did not sample, or to an earlier batch of the timed loop, passes that run (the
+  exact weight check and the full-batch rerun still apply). One run is reproducible (same seed, same rows);
+  across a campaign's seeds the random rows reach every row of the batch;
 - training: the first timed step's loss is recomputed in float64 on the rebuild (the whole first batch, since
   batch-norm couples it; under 1 s at the default size, an estimated ~30 s at the largest window-valid batch).
 

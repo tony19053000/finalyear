@@ -64,17 +64,13 @@ def test_wrong_types_are_refused_by_the_model(bad: Any) -> None:
         WorkloadResult.model_validate(_doc(compute_iterations=bad))
 
 
-@pytest.mark.parametrize("coerced", [3.0, "3"])
-def test_lax_coercions_of_the_right_value_still_verify(coerced: Any) -> None:
-    """Documents pydantic's lax mode: 3.0 / "3" become 3 (harmless, equal value)."""
-    assert _verdict(_doc(compute_iterations=coerced)).ok
+@pytest.mark.parametrize("coerced", [3.0, "3", True])
+def test_lax_coercions_are_refused_by_the_model(coerced: Any) -> None:
+    """T2 fixed: the field is strict - 3.0 / "3" / true are not integers."""
+    with pytest.raises(Exception, match="compute_iterations"):
+        WorkloadResult.model_validate(_doc(compute_iterations=coerced))
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="D225 tester defect T2 (minor): WorkloadResult.compute_iterations is a lax "
-    "pydantic int, so JSON true is accepted as 1 (the runner never writes it)",
-)
 def test_true_is_not_silently_accepted_as_one_iteration() -> None:
     """compute_iterations: true must not pass as 1 for a run with repeats=1."""
     fam = get_family("cpu.zlib")

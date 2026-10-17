@@ -16,9 +16,9 @@ initialisation, never a copy of the timed model - and recomputes in float64
 
 * inference: the timed model's weights and buffers must equal the seeded build
   bit for bit, the whole last batch rerun must equal the output, and rows of the
-  last batch (all of them when that fits :data:`REFERENCE_FLOPS`, see
-  :func:`reference_rows`) must agree with the float64 recompute within
-  :func:`ml_tolerance`;
+  last batch (all of them when that fits :data:`REFERENCE_FLOPS`; else evenly
+  spaced plus seeded random rows, see :func:`reference_rows`) must agree with
+  the float64 recompute within :func:`ml_tolerance`;
 * training: the first timed step's loss must agree with a float64 recompute of
   that step on the seeded build (the whole first batch - batch-norm statistics
   couple its rows), and the losses must go down.
@@ -31,6 +31,7 @@ the CPU.
 from __future__ import annotations
 
 import math
+import random
 from collections.abc import Callable, Mapping
 from typing import Any
 
@@ -49,6 +50,7 @@ __all__ = [
     "KERNELS",
     "ML_FACTOR",
     "REFERENCE_FLOPS",
+    "SAMPLED_ROWS",
     "cnn_layout",
     "float32_eps",
     "ml_tolerance",
@@ -78,7 +80,12 @@ measured on CUDA yet** (first CUDA lab run, D225 open item)."""
 REFERENCE_FLOPS = 1e11
 """Float64 FLOP budget of the inference reference: about 1 s on a laptop CPU.
 The whole last batch is recomputed when it fits; otherwise evenly spaced rows,
-always the first and the last, at least two (:func:`reference_rows`)."""
+always the first and the last, at least two, plus :data:`SAMPLED_ROWS` seeded
+random ones (:func:`reference_rows`)."""
+
+SAMPLED_ROWS = 2
+"""Rows of the last batch drawn at random (seeded by the run seed, never the
+first / last) on top of the evenly spaced ones when the budget forces sampling."""
 
 
 def cnn_layout(width: int, depth: int, image: int) -> list[tuple[int, int, int]]:
@@ -129,14 +136,25 @@ def ml_tolerance(eps: float, layers: int, scale: float) -> float:
     return ML_FACTOR * eps * math.sqrt(max(layers, 1)) * scale
 
 
-def reference_rows(batch: int, row_flops: float) -> list[int]:
-    """Rows of the last batch recomputed in float64: all of them when they fit
-    :data:`REFERENCE_FLOPS`, else evenly spaced ones (first and last always)."""
+def reference_rows(batch: int, row_flops: float, seed: int = 0) -> list[int]:
+    """Rows of the last batch recomputed in float64.
+
+    All of them when they fit :data:`REFERENCE_FLOPS`. Otherwise (D225 tester
+    T1) evenly spaced rows - first and last always, at least two - **plus**
+    :data:`SAMPLED_ROWS` more drawn from the remaining rows by a generator
+    seeded with the run's ``seed``: a fault confined to fixed middle rows cannot
+    hide from every run of a campaign, while one run stays reproducible.
+    """
     fits = int(REFERENCE_FLOPS // max(row_flops, 1.0))
     count = min(batch, max(2, fits))
     if count >= batch:
         return list(range(batch))
-    return sorted({round(i * (batch - 1) / (count - 1)) for i in range(count)})
+    spread = {round(i * (batch - 1) / (count - 1)) for i in range(count)}
+    rest = [row for row in range(batch) if row not in spread]
+    # Reproducible row choice, not a security boundary: a seeded PRNG is right.
+    rng = random.Random(seed)  # noqa: S311
+    picked = rng.sample(rest, min(SAMPLED_ROWS, len(rest)))
+    return sorted(spread.union(picked))
 
 
 def _seeded_model(state: Mapping[str, Any]) -> Any:
@@ -185,7 +203,7 @@ def _inference_reference(state: Any, out: Any) -> tuple[float, int] | Check:
         )
     reference = reference.double().eval()
     x = state["xs"][(state["batches"] - 1) % POOL]
-    rows = reference_rows(int(x.shape[0]), state["row_flops"])
+    rows = reference_rows(int(x.shape[0]), state["row_flops"], state["seed"])
     picked = x[rows].cpu()
     if picked.is_floating_point():
         picked = picked.double()

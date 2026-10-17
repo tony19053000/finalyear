@@ -286,7 +286,7 @@ def test_sampled_rows_catch_an_edge_row_fault_when_budget_is_exceeded(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     ml = _ml()
-    monkeypatch.setattr(ml, "REFERENCE_FLOPS", 1.0)  # force first+last only
+    monkeypatch.setattr(ml, "REFERENCE_FLOPS", 1.0)  # first+last (+2 seeded, T1)
     params = {**CNN, "batch": 8}
 
     def tamper(state: Any) -> None:
@@ -298,32 +298,49 @@ def test_sampled_rows_catch_an_edge_row_fault_when_budget_is_exceeded(
         state["model"].register_forward_hook(hook)
 
     check = _run("ml.cnn_infer", params, tamper=tamper)
-    assert not check.ok and "on 2 row(s)" in check.detail
+    assert not check.ok and "on 4 row(s)" in check.detail
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="D225 tester defect T1 (minor, by design): when the 1e11-FLOP budget is "
-    "exceeded only evenly spaced rows are recomputed, so a fault confined to "
-    "unsampled middle rows is verified",
-)
-def test_fault_only_in_unsampled_middle_rows_is_caught(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize("seed", [0, 1, 2, 5, 11])
+def test_fault_only_in_a_seeded_middle_row_is_caught(
+    seed: int, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """T1 fixed: when sampling, seeded random rows are added to first + last.
+
+    The faulty row is taken from the same selector the check uses (a middle row
+    the run's seed samples), so the test is deterministic; the next test makes
+    the campaign-level claim that every middle row is reached by some seed.
+    """
     ml = _ml()
-    monkeypatch.setattr(ml, "REFERENCE_FLOPS", 1.0)
+    monkeypatch.setattr(ml, "REFERENCE_FLOPS", 1.0)  # first + last + seeded rows
     params = {**CNN, "batch": 8}
+    middle = [r for r in ml.reference_rows(8, 1e30, seed) if r not in (0, 7)]
+    assert len(middle) == ml.SAMPLED_ROWS
 
     def tamper(state: Any) -> None:
         def hook(_m: Any, _i: Any, out: Any) -> Any:
             out = out.clone()
-            out[3] += 0.01
+            out[middle[0]] += 0.01
             return out
 
         state["model"].register_forward_hook(hook)
 
-    check = _run("ml.cnn_infer", params, tamper=tamper)
+    check = _run("ml.cnn_infer", params, seed=seed, tamper=tamper)
     assert not check.ok, check.detail
+    assert "on 4 row(s)" in check.detail
+
+
+def test_every_middle_row_is_sampled_by_some_seed_of_a_campaign() -> None:
+    """A fault confined to fixed middle rows cannot hide from a whole campaign:
+    across seeds the sampled rows cover the batch; one seed is reproducible."""
+    ml = _ml()
+    for batch in (8, 64, 512):
+        covered: set[int] = set()
+        for seed in range(40 * batch):
+            covered.update(ml.reference_rows(batch, 1e30, seed))
+        assert covered == set(range(batch)), batch
+    assert ml.reference_rows(512, 1e30, 9) == ml.reference_rows(512, 1e30, 9)
+    assert len({tuple(ml.reference_rows(512, 1e30, s)) for s in range(20)}) > 1
 
 
 def test_fault_only_in_an_earlier_batch_than_the_last_is_not_seen() -> None:
@@ -348,7 +365,9 @@ def test_real_window_extremes_sample_few_rows() -> None:
     cnn = sum(2.0 * 9 * a * b * r**2 for a, b, r in ml.cnn_layout(256, 12, 64))
     trf = 24 * (24.0 * 2048 * 1024 * 1024 + 4.0 * 2048 * 2048 * 1024)
     assert len(ml.reference_rows(512, cnn)) >= 2
-    assert ml.reference_rows(256, trf) == [0, 255]
+    trf_rows = ml.reference_rows(256, trf)
+    assert trf_rows[0] == 0 and trf_rows[-1] == 255
+    assert len(trf_rows) == 2 + ml.SAMPLED_ROWS  # first, last + seeded (T1)
     for batch, flops in [(512, cnn), (256, trf), (2, 1e30), (1, 1e30)]:
         rows = ml.reference_rows(batch, flops)
         assert rows == sorted(set(rows)) and rows[0] == 0 and rows[-1] == batch - 1
@@ -364,7 +383,8 @@ def test_reference_rows_invariants(
     rows = ml.reference_rows(batch, ml.REFERENCE_FLOPS / budget_rows)
     assert rows == sorted(set(rows))
     assert rows[0] == 0 and rows[-1] == batch - 1
-    assert len(rows) == min(batch, max(2, budget_rows)) or batch == 1
+    # T1: sampling adds SAMPLED_ROWS seeded rows on top of the evenly spaced ones.
+    assert len(rows) == min(batch, max(2, budget_rows) + ml.SAMPLED_ROWS)
     assert all(0 <= r < batch for r in rows)
 
 
@@ -372,5 +392,5 @@ def test_reference_rows_degenerate_inputs() -> None:
     ml = _ml()
     assert ml.reference_rows(1, 0.0) == [0]
     assert ml.reference_rows(3, 0.0) == [0, 1, 2]
-    assert ml.reference_rows(3, float("inf")) == [0, 2]
+    assert ml.reference_rows(3, float("inf")) == [0, 1, 2]  # 1 is the seeded row
     assert ml.reference_rows(2, float("inf")) == [0, 1]

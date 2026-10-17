@@ -174,17 +174,21 @@ def test_reference_rows_whole_batch_when_cheap_else_spread() -> None:
     ml = _ml()
     assert ml.reference_rows(5, 1.0) == [0, 1, 2, 3, 4]
     assert ml.reference_rows(1, 1e15) == [0]
-    assert ml.reference_rows(512, 1e15) == [0, 511]  # at least first and last
-    rows = ml.reference_rows(512, ml.REFERENCE_FLOPS / 5)
-    assert rows[0] == 0 and rows[-1] == 511 and len(rows) == 5
+    # Sampling: first + last always, plus SAMPLED_ROWS seeded rows (tester T1).
+    rows = ml.reference_rows(512, 1e15, 3)
+    assert rows[0] == 0 and rows[-1] == 511 and len(rows) == 2 + ml.SAMPLED_ROWS
+    rows = ml.reference_rows(512, ml.REFERENCE_FLOPS / 5, 3)
+    assert rows[0] == 0 and rows[-1] == 511 and len(rows) == 5 + ml.SAMPLED_ROWS
     assert rows == sorted(set(rows))
+    assert rows == ml.reference_rows(512, ml.REFERENCE_FLOPS / 5, 3)  # reproducible
 
 
 def test_reference_cost_stays_within_the_budget_for_the_largest_models() -> None:
     ml = _ml()
-    # Largest transformer row: about 1.6e12 FLOPs; only first + last are redone.
+    # Largest transformer row: about 1.6e12 FLOPs; first + last + 2 seeded rows.
     per_row = 24 * (24.0 * 2048 * 1024 * 1024 + 4.0 * 2048 * 2048 * 1024)
-    assert ml.reference_rows(256, per_row) == [0, 255]
+    rows = ml.reference_rows(256, per_row, 1)
+    assert len(rows) == 4 and rows[0] == 0 and rows[-1] == 255
     # Default CNN: the whole last batch fits the budget.
     cnn = sum(2.0 * 9 * a * b * r**2 for a, b, r in ml.cnn_layout(64, 6, 32))
     assert len(ml.reference_rows(64, cnn)) == 64
