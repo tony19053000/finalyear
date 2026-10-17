@@ -2,14 +2,14 @@
 
 > Concise current state. Long-term plan: [`DEVELOPMENT_ROADMAP.md`](DEVELOPMENT_ROADMAP.md). Update at the end of every work session.
 
-**Last updated:** 2026-10-17 (V0.8 G5 CLOSED, D206; G7 next)
+**Last updated:** 2026-10-17 (V0.8 G7 CLOSED, D210; 0.8.9 `[x]`; next 🧑 0.8.10)
 
 ## Progress
 
 Generated from the roadmap checkboxes by `uv run python scripts/status_bars.py` — **re-run it and replace this block whenever checkboxes change.** Deferred versions (V0.11, V0.12, V0.13, V0.16) and deferred tasks are not counted. A task is only █ when it is `[x]` (tester + reviewer + evidence); written-but-unreviewed code is ▒.
 
 ```
-TOTAL   ██████████▒▒░░░░░░░░  49%  77/156 done, 15 in progress
+TOTAL   ██████████▒▒░░░░░░░░  50%  78/156 done, 15 in progress
 
 V0.1    █████████████████▒▒▒  83%  10/12  Foundations & engineering system
 V0.2    ██▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░░   9%   1/11  Lab setup & feasibility validation
@@ -18,7 +18,7 @@ V0.4    ███████████████▒▒▒▒░  76%  13/17
 V0.5    ██████████████████░░  90%  10/11  Data plane & environments
 V0.6    ███████████████████░  92%  13/14  Scheduling & reliability — Mode 1 complete
 V0.7    ██████████████████░░  91%  11/12  Security & pairing
-V0.8    ████████████████░░░░  80%   8/10  Dashboard & CLI v1
+V0.8    ██████████████████░░  90%   9/10  Dashboard & CLI v1
 V0.9    ░░░░░░░░░░░░░░░░░░░░   0%   0/10  Benchmark & telemetry system v1
 V0.10   ░░░░░░░░░░░░░░░░░░░░   0%   0/10  Mode 3 Task Splitting
 V0.14   ░░░░░░░░░░░░░░░░░░░░   0%   0/8   Unified planner v2
@@ -27,10 +27,9 @@ V0.17   ░░░░░░░░░░░░░░░░░░░░   0%   0/8 
 V1.0    ░░░░░░░░░░░░░░░░░░░░   0%   0/8   Release hardening & final evaluation
 ```
 █ done `[x]` · ▒ in progress or waiting on a 🧑 lab step `[~]` · ░ not started
-█ done `[x]` · ▒ in progress or waiting on a 🧑 lab step `[~]` · ░ not started
 
 ## Current Version
-**V0.8 — Dashboard & CLI v1** · started 2026-10-15 · brief `docs/briefs/V0.8-dashboard-cli.md` (D169–D180, approved) · ADR-0017 · groups G1–G7 sequential · **G1–G6 CLOSED** (G5 2026-10-17, D206) — 0.8.1–0.8.8 `[x]`; next **G7 e2e/perf (brief §5g, item 0 = D204)**, then 🧑 0.8.10
+**V0.8 — Dashboard & CLI v1** · started 2026-10-15 · brief `docs/briefs/V0.8-dashboard-cli.md` (D169–D180, approved) · ADR-0017 · groups G1–G7 sequential · **G1–G7 CLOSED** (G7 2026-10-17, D210) — 0.8.1–0.8.9 `[x]`; agent-side complete; closes on 🧑 0.8.10 (`lab/checklists/V0.8-visual.md`)
 **V0.7 — Security & pairing** · started 2026-10-07 · brief `docs/briefs/V0.7-security-pairing.md` (D144–D162) · **G1–G5 CLOSED** (0.7.1–0.7.9 `[x]`) · **G6 CLOSED** (0.7.10 `[x]`, 2026-10-14) · **G7 CLOSED** (0.7.11 `[x]`, 2026-10-15, D168) · agent-side complete · closes on 🧑 0.7.12 lab
 **V0.6 — Scheduling & reliability** · started 2026-10-05 · brief `docs/briefs/V0.6-scheduling-reliability.md` · **G1 CLOSED** (0.6.9, 0.6.10, 0.6.14 `[x]`) · G1–G4 CLOSED agent-side · closes on 🧑 0.6.13 lab
 **V0.4 — Remote execution core** · started 2026-09-28 · **G1–G5 closed** (0.4.1, 0.4.3–0.4.7, 0.4.9, 0.4.10, 0.4.11–0.4.14, 0.4.16 `[x]`; 0.4.2 `[~]` Windows CI digest; 0.4.8 `[~]` real CUDA run; 0.4.17 `[~]`) · closes on 🧑 0.4.15 lab run
@@ -45,6 +44,8 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 > V0.10. 129 tasks vs 140–180 capacity → **~1.5 tasks/session**. Needs the other three team members' approval.
 
 ## Current Task
+
+- **2026-10-17: V0.8 G7 CLOSED (D207–D210).** Tester r1/r2 PASS (gate weaknesses fixed in 2 rounds), reviewer APPROVE, merged `334da94`. Gate on main alone after frontend rebuild: whole `-m component` 2269 passed / 15 skipped / 0 failed, exit 0 (81 min). Perf criterion 2 met on one laptop (heartbeat p95 252 ms, job.state p95 ≤ 101 ms). 0.8.9 `[x]`. **V0.8 agent-side complete; closes on 🧑 0.8.10.** Next agent work: V0.9 brief.
 
 - **2026-10-17: V0.8 G5 CLOSED (D206) + stabilisation and D202 lanes merged (D202, D205).** Gate on main `22c6d9b`, run alone: whole `-m component` 2243 passed / 18 skipped / 3 failed (99 min) → 2 were a stale pre-G5 `controller/web/dist` build in the main checkout (rebuilt: green), 1 `test_g5_terminal_resend` load flake (3/3 standalone). 0.8.6 `[x]`. Known Bugs D200 + D156 closed. **Next: G7 implementer (brief §5g).**
 
@@ -159,6 +160,7 @@ Reviewer non-blocking follow-ups (carry into G2/G3): (1) `mint` should carry `pe
 - Hardware of laptops 2–4 unknown; AI-agent access to Windows laptops undecided; Ethernet switch not purchased
 
 ## Known Bugs
+- ⚠️ `test_skeleton_edge_cases::test_wheel_contains_py_typed...` needs pypi.org (`uv build`); fails instead of skipping offline (D210).
 - ✅ D200 rotted-peer test fixed 2026-10-17 (test assumption; D202/D205).
 - ✅ D156 follow-open flake: root cause fixed in V0.7 G4; honest typed timeout added 2026-10-16 (D202).
 - ⚠️ **Load-flaky (2026-10-17 gate):** `test_g5_terminal_resend::test_a_dropped_final_report_is_resent_and_the_job_succeeds` (3/3 standalone). Also: G5 dist-chunk tests read the git-ignored `controller/web/dist` - a stale build fails them; rebuild (`cd frontend && npm run build`) before the gate (D206).
@@ -173,6 +175,7 @@ Reviewer non-blocking follow-ups (carry into G2/G3): (1) `mint` should carry `pe
 - Fixed this session: secret leak + O(n²) in log scrubber; duplicate IDs after fork; plain-`uv sync` test collection crash; CRLF-dependent codegen output.
 
 ## Technical Debt
+- **V0.8 G7 (D210):** `ui_perf.py` heartbeat lag ignores cross-machine clock skew (fix before the 0.8.10 lab perf step); SecretsPage file input not reset (same file can't be re-picked); `ui_perf.py` 840 lines; T-8b retry revisits; kept leak-gate limits T-2b/T-6b/T-6c/T-7d-g (strict xfails); MIN_KNOWN_CHARS=8 → THREAT_MODEL note.
 - **V0.6 G2:** estimator v0 is a stub until G4 (env/output terms assumed, default bw, env key = request key); `submitter_node_id` spoofable by any token holder (V0.7); CLI-seeded CAS files may have wrong owner under a service-user agent; `disk_short` uses largest free disk (optimistic); agent CAS byte counter unaware of seeded bytes until restart.
 - **V0.5 G2:** the V0.4 per-job `setup_argv` install path is kept only for the runtime-contract tests — remove once every runtime has an env builder; env_hash/env_cache reach the controller in wave 2 G4.
 - **G5 follow-ups:** T2-1 and `_swap_in` FIXED (`5f13163`); D-1 + reviewer items fixed (`5a1937f`, `ce0c760`) — DONE; UPLOADING backstop done in V0.5 G3. Also: 35 Docker sandbox component tests skip unless `python:3.12-slim@sha256:f77ac9…` is pulled locally.
@@ -195,7 +198,9 @@ Reviewer non-blocking follow-ups (carry into G2/G3): (1) `mint` should carry `pe
 - Windows: not yet run (first real CI run will cover unit + fresh-clone on windows-latest)
 
 ## Next Recommended Task
-**V0.8 G5 — Settings & fabric** (brief §5e, D199): implementer in a worktree → tester r1 → reviewer → merge → whole component once → close 0.8.6; then G7 brief (0.8.9 e2e + perf). Small side task: fix the intermittent V0.5 rotted-peer test (Known Bugs). V0.4–V0.7 are complete agent-side; each closes on its 🧑 lab run (0.4.15, 0.5.11, 0.6.13, 0.7.12).
+**🧑 0.8.10** — team runs `lab/checklists/V0.8-visual.md` (steps A–H; fix D210 item 1 clock skew before step E perf). **Agent:** write the V0.9 brief (benchmark & telemetry v1); item 0 = D210 non-blocking list.
+
+_Older:_ **V0.8 G5 — Settings & fabric** (brief §5e, D199): implementer in a worktree → tester r1 → reviewer → merge → whole component once → close 0.8.6; then G7 brief (0.8.9 e2e + perf). Small side task: fix the intermittent V0.5 rotted-peer test (Known Bugs). V0.4–V0.7 are complete agent-side; each closes on its 🧑 lab run (0.4.15, 0.5.11, 0.6.13, 0.7.12).
 
 **2026-10-05 (later): V0.6 started.** Brief `docs/briefs/V0.6-scheduling-reliability.md` (D102–D119, ADR-0015 Proposed). **G1 implementer RUNNING** (0.6.9, 0.6.10, 0.6.14 + dispatcher/gc_index splits + D59); progress `docs/briefs/progress/V0.6-G1.md`. Then G1 tester → reviewer → G2. 🧑 0.5.11 lab still closes V0.5; 🧑 team: review ADR-0015 before G3.
 

@@ -7,10 +7,8 @@
 > **Cold-start prompt** (paste this as the first message on the new account):
 >
 > ```
-> Read docs/SESSION_HANDOFF.md §1, then docs/STATUS.md, then docs/briefs/V0.8-dashboard-cli.md (§5g, D201-D206).
-> Parallel agents allowed for independent work. Continue V0.8 G7: resume the implementer in worktree
-> .claude/worktrees/agent-a67711c51fc0582d6 (brief §5g; item 0 done c607519, fixture consolidation WIP 32adf39 unverified)
-> → tester r1 → reviewer → merge → rebuild frontend → whole component once alone → close 0.8.9 → 🧑 0.8.10.
+> Read docs/SESSION_HANDOFF.md §1, then docs/STATUS.md, then the V0.9 section of docs/DEVELOPMENT_ROADMAP.md and docs/briefs/V0.8-dashboard-cli.md D210.
+> V0.8 is agent-side complete (🧑 0.8.10 open). Write the V0.9 brief (benchmark & telemetry v1), item 0 = D210 non-blocking list (clock skew first), and stop for team approval.
 > ```
 >
 > Order of truth: `PROJECT_BRIEF → ARCHITECTURE → ROADMAP → STATUS → this file`. If this file
@@ -263,6 +261,8 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 - Commits: keep using `git commit -- <paths>` even with one agent — the Lead also commits docs.
 
 ## 1. Where the project is
+
+**2026-10-17 (G7 CLOSED, D210) — NOTHING RUNNING. 0.8.9 `[x]`; gate 2269 passed / 0 failed. V0.8 agent-side complete; closes on 🧑 0.8.10 (`lab/checklists/V0.8-visual.md`). Next agent work: V0.9 brief (item 0 = D210 list; do D210 item 1 clock skew early - the 0.8.10 lab perf step needs it).**
 
 **2026-10-17 (G7 MERGED `334da94`, D210) — frontend rebuilt. RUNNING: whole `-m component` ONCE on main, alone (log in session scratchpad g7_component.log). If died: rerun `uv run python scripts/pytest_exit_guard.py -m component -q -rs` alone; green (0 skips in tests/e2e except perf) → close 0.8.9 + status bar + STATUS → 🧑 0.8.10 checklist `lab/checklists/V0.8-visual.md` (fix D210 item 1 clock skew before its lab perf step).**
 

@@ -446,7 +446,7 @@ A version is **complete** only when all apply:
 - [x] **0.8.6** Settings (fabric, invite/join code + QR, revoke, policies) — G5 CLOSED 2026-10-17 (D203, D204, D206); Users page = CLI command list until a `/v1/users` API exists
 - [x] **0.8.7** Live updates via WebSocket (≤ 2 s latency) — event bus + `/v1/events/ws` in G1 (D172), UI wiring in G3; measured node kill → page 18–261 ms, heartbeat p95 ≤ 237 ms (G3 hand-off) — CLOSED 2026-10-16 (D200); load-scale latency is G7
 - [x] **0.8.8** CLI polish: consistent output, `--json`, shell completion, helpful errors — G6 CLOSED 2026-10-16 (D192)
-- [ ] **0.8.9** Playwright e2e suite against a cluster-harness fabric
+- [x] **0.8.9** Playwright e2e suite against a cluster-harness fabric — G7 merged `334da94` (D207–D210): e2e 105+ passed ×2, parity, leak gate, perf criterion 2 (p50/p95/max ≤ 2 s; heartbeat p95 252 ms, job.state p95 ≤ 101 ms, one laptop); whole `-m component` on main 2269 passed / 0 failed (2026-10-17)
 - [ ] **0.8.10** 🧑 Visual review against brief §24 checklist
 
 **Success criteria**
