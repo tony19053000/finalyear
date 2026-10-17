@@ -104,7 +104,14 @@ def test_pin_ca_pin_must_be_full_128_bits_not_a_prefix() -> None:
     ca = pki.create_ca(new_fabric_id())
     server = pki.issue_server_cert(ca, hosts=["h"]).cert
     pin = pki.short_fingerprint(ca.cert)
-    for bad in (pin[:16], pin[:-1], "", pin.upper()[:-2] + ("01" if pin.endswith("00") else "00"), "0" * 32, "x" * 32):
+    for bad in (
+        pin[:16],
+        pin[:-1],
+        "",
+        pin.upper()[:-2] + ("01" if pin.endswith("00") else "00"),
+        "0" * 32,
+        "x" * 32,
+    ):
         with pytest.raises((JoinError, ValueError)):
             enrollment.pin_ca([server, ca.cert], bad)
 
