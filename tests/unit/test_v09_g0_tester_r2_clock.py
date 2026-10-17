@@ -305,11 +305,6 @@ def test_nan_lag_after_an_impossible_negative_one_is_still_caught() -> None:
     assert PERF.phase_clock(_clock(), _clock(), [-900.0, math.nan])["uncertain"]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT-R3 (minor): min() over lags is order-dependent with a NaN "
-    "first, so a NaN lag hides an impossible negative one",
-)
 def test_nan_lag_does_not_hide_an_impossible_negative_one() -> None:
     assert PERF.phase_clock(_clock(), _clock(), [math.nan, -900.0])["uncertain"]
 
@@ -324,11 +319,6 @@ def _loads_strict(text: str) -> Any:
     return json.loads(text, parse_constant=refuse)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT-R1: a failed measurement makes clock_offset_bound_ms math.inf "
-    "and json.dumps (cli.py) writes the non-standard token Infinity",
-)
 def test_failed_measurement_block_is_standard_json() -> None:
     block = PERF.phase_clock("ping failed", _clock(), [1.0])
     _loads_strict(json.dumps({"phases": {"a": {"events": {"clock": block}}}}))

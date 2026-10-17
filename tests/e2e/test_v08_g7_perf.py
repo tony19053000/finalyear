@@ -122,7 +122,14 @@ def test_dashboard_stays_responsive_at_4x100_history_and_10k_jobs(
         "phases": phases,
         "verdict": ui_perf.verdict(phases),
     }
-    (tmp_path / "ui-perf.json").write_text(json.dumps(report, indent=2), "utf-8")
+    (tmp_path / "ui-perf.json").write_text(
+        json.dumps(report, indent=2, allow_nan=False), "utf-8"
+    )
+    # fix round 2 (DEFECT-R1): the file is strict JSON - no Infinity/NaN token.
+    json.loads(
+        (tmp_path / "ui-perf.json").read_text("utf-8"),
+        parse_constant=lambda token: pytest.fail(f"non-standard JSON {token}"),
+    )
     print("\n" + ui_perf.table(phases))  # noqa: T201 - the measured numbers (-s)
     print(json.dumps({"machine": report["machine"], "seeds": seeds}, indent=2))  # noqa: T201
     print(f"full results: {tmp_path / 'ui-perf.json'}")  # noqa: T201

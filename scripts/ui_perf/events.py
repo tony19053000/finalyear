@@ -271,7 +271,7 @@ def measure_events(
             before,
             after,
             [*heartbeat.lags, *states.lags],
-            dropped=dropped + dropped_after,
+            dropped=(dropped, dropped_after),
         ),
         "stream_jobs": len(ids),
         "stream_errors": stream.errors,

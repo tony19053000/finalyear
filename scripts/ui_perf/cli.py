@@ -127,12 +127,21 @@ def main(argv: Sequence[str] | None = None) -> int:
     }
     problems = [p for phase in phases.values() for p in check(phase)]
     print(table(phases))
-    print(json.dumps({"machine": result["machine"], "seeds": seeds}, indent=2))
+    print(
+        json.dumps(
+            {"machine": result["machine"], "seeds": seeds}, indent=2, allow_nan=False
+        )
+    )
     for name, phase in phases.items():
         if "events" in phase:
-            print(f"clock ({name}):", json.dumps(phase["events"]["clock"]))
+            print(
+                f"clock ({name}):",
+                json.dumps(phase["events"]["clock"], allow_nan=False),
+            )
     if args.out:
-        args.out.write_text(json.dumps(result, indent=2), encoding="utf-8")
+        args.out.write_text(
+            json.dumps(result, indent=2, allow_nan=False), encoding="utf-8"
+        )
     for problem in problems:
         print("THRESHOLD BROKEN:", problem)
     if outcome == "skew_uncertain":

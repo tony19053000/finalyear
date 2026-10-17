@@ -38,6 +38,9 @@ if TYPE_CHECKING:
 #: unknown clock.
 MAX_CLOCK_BOUND_MS: Final = 50.0
 CLOCK_PINGS: Final = 16
+#: More than this share of one measurement's pings dropped makes the phase
+#: uncertain (Lead, fix round 2): the usable rest may be a biased sample.
+MAX_DROPPED_SHARE: Final = 0.25
 #: ``Date.now()`` truncates to whole milliseconds (the bound widens by it).
 DATE_NOW_TICK_MS: Final = 1.0
 #: ``n`` round trips to ``GET /v1/clock`` from the page (the page's cookie, its
@@ -97,19 +100,30 @@ def measure_clock(page: Page, pings: int = CLOCK_PINGS) -> ClockOffset:
     return ping_clock(page, pings)[0]
 
 
-def bound_uncertain(bound_ms: float) -> bool:
-    """THE rule for a (reported) bound: not finite or over the limit. The
-    report's flag and the verdict both call this on the same number."""
-    return not math.isfinite(bound_ms) or bound_ms > MAX_CLOCK_BOUND_MS
+def bound_uncertain(bound_ms: float | None) -> bool:
+    """THE rule for a (reported) bound: missing, not finite or over the
+    limit. The report's flag and the verdict both call this on the same
+    number."""
+    return (
+        bound_ms is None or not math.isfinite(bound_ms) or bound_ms > MAX_CLOCK_BOUND_MS
+    )
+
+
+def _json_number(value: Any) -> Any:
+    """A non-finite float as ``None``: the report is strict JSON (no
+    ``Infinity``/``NaN`` tokens, fix round 2 DEFECT-R1)."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    return value
 
 
 def clock_report(clock: ClockOffset) -> dict[str, Any]:
     """One measurement as the results carry it (with the verdict's limit)."""
-    shown = clock.as_dict()
+    shown = {k: _json_number(v) for k, v in clock.as_dict().items()}
     return {
         **shown,
         "max_bound_ms": MAX_CLOCK_BOUND_MS,
-        "uncertain": bound_uncertain(float(shown["clock_offset_bound_ms"]))
+        "uncertain": bound_uncertain(shown["clock_offset_bound_ms"])
         or not clock.consistent,
     }
 
@@ -119,12 +133,18 @@ def phase_clock(
     after: ClockOffset | str,
     lags_ms: Sequence[float],
     *,
-    dropped: int = 0,
+    dropped: int | Sequence[int] = 0,
+    pings: int = CLOCK_PINGS,
 ) -> dict[str, Any]:
     """The ``clock`` block of an events phase: both measurements (an ``str``
     is the error of a failed one), the reasons it is uncertain (empty = it
     is not), and the top-level fields the verdict and the lab read - the
-    offset used (``before``) and the WORSE bound of the two."""
+    offset used (``before``) and the WORSE bound of the two (``None`` when a
+    measurement failed: the report never holds ``Infinity``).
+
+    ``dropped``: pings dropped per measurement ``(before, after)``, or one
+    total over both; more than :data:`MAX_DROPPED_SHARE` of a measurement's
+    ``pings`` dropped is a reason (the survivors may be a biased sample)."""
     reasons: list[str] = []
     reports: dict[str, dict[str, Any]] = {}
     for name, clock in (("before", before), ("after", after)):
@@ -135,29 +155,42 @@ def phase_clock(
         reports[name] = clock_report(clock)
         if not clock.consistent:
             reasons.append(f"{name}: pings disagree (a clock moved while pinging)")
-        bound = float(reports[name]["clock_offset_bound_ms"])
+        bound = reports[name]["clock_offset_bound_ms"]
         if bound_uncertain(bound):
             reasons.append(f"{name}: bound {bound} ms > {MAX_CLOCK_BOUND_MS} ms")
-    bounds = [
-        float(r["clock_offset_bound_ms"]) for r in reports.values() if "error" not in r
-    ]
-    worst = max(bounds) if len(bounds) == 2 else math.inf
+    per = [dropped] if isinstance(dropped, int) else list(dropped)
+    allowed = MAX_DROPPED_SHARE * pings * (2 if isinstance(dropped, int) else 1)
+    reasons.extend(
+        f"{count} clock pings dropped (> {MAX_DROPPED_SHARE:.0%} of {pings})"
+        for count in per
+        if count > allowed
+    )
+    bounds = [r["clock_offset_bound_ms"] for r in reports.values() if "error" not in r]
+    worst: float | None = None
+    if len(bounds) == 2 and all(b is not None for b in bounds):
+        worst = float(max(bounds))
     if isinstance(before, ClockOffset) and isinstance(after, ClockOffset):
         moved = abs(after.offset_ms - before.offset_ms)
-        if moved > before.bound_ms + after.bound_ms:
+        if not moved <= before.bound_ms + after.bound_ms:  # NaN-safe
             reasons.append(
                 f"offset moved {moved:.1f} ms during the phase "
                 f"(> {before.bound_ms + after.bound_ms:.1f} ms combined bound)"
             )
-    floor = min(lags_ms, default=0.0)
-    if lags_ms and floor < -worst:
-        reasons.append(f"a latency of {floor:.1f} ms is below -bound ({-worst} ms)")
+    finite = [lag for lag in lags_ms if math.isfinite(lag)]
+    if len(finite) != len(lags_ms):
+        # fix round 2 (DEFECT-R3): a NaN must never hide a negative lag; a
+        # non-finite lag itself means the timing broke.
+        reasons.append(f"{len(lags_ms) - len(finite)} latencies are not finite")
+    if finite and worst is not None and min(finite) < -worst:
+        reasons.append(
+            f"a latency of {min(finite):.1f} ms is below -bound ({-worst} ms)"
+        )
     used = reports["before"]
     return {
         "clock_offset_ms": used.get("clock_offset_ms"),
         "clock_offset_bound_ms": worst,
         "max_bound_ms": MAX_CLOCK_BOUND_MS,
-        "pings_dropped": dropped,
+        "pings_dropped": sum(per),
         "before": reports["before"],
         "after": reports["after"],
         "reasons": reasons,

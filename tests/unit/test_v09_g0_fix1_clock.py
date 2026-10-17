@@ -149,3 +149,49 @@ def test_verdict_follows_the_phase_clock() -> None:
 def test_no_samples_with_a_good_clock_is_a_fail() -> None:
     good = PERF.phase_clock(_clock(), _clock(), [])
     assert PERF.verdict({"a": _phase(good, [])}) == "fail"
+
+
+# ------------------------------------------------ fix round 2 (tester r2)
+
+
+def _strict(block: dict[str, Any]) -> Any:
+    def refuse(token: str) -> Any:
+        raise ValueError(token)
+
+    return json.loads(json.dumps(block, allow_nan=False), parse_constant=refuse)
+
+
+def test_a_failed_measurement_reports_a_null_bound_never_infinity() -> None:
+    for before, after in (("ping failed", _clock()), (_clock(), "ping failed")):
+        block = PERF.phase_clock(before, after, [1.0])
+        assert block["clock_offset_bound_ms"] is None and block["uncertain"]
+        assert _strict(block)["clock_offset_bound_ms"] is None
+        assert PERF.verdict({"a": _phase(block, [1.0])}) == "skew_uncertain"
+
+
+def test_a_non_finite_measurement_value_is_null_in_the_report() -> None:
+    report = PERF.clock_report(ClockOffset(0.0, math.inf, math.inf, 3))
+    assert report["clock_offset_bound_ms"] is None and report["uncertain"]
+    _strict(report)
+
+
+@pytest.mark.parametrize("bad", [math.nan, math.inf, -math.inf])
+def test_a_non_finite_lag_is_a_reason_and_never_hides_a_negative_one(
+    bad: float,
+) -> None:
+    only_bad = PERF.phase_clock(_clock(), _clock(), [bad, 100.0])
+    assert only_bad["uncertain"] and "not finite" in only_bad["reasons"][0]
+    hidden = PERF.phase_clock(_clock(), _clock(), [bad, -900.0])
+    assert any("below -bound" in r for r in hidden["reasons"])
+
+
+def test_more_than_a_quarter_of_one_measurements_pings_dropped_is_uncertain() -> None:
+    assert not PERF.phase_clock(_clock(), _clock(), [1.0], dropped=(4, 4))["uncertain"]
+    block = PERF.phase_clock(_clock(), _clock(), [1.0], dropped=(0, 5))
+    assert block["uncertain"] and "5 clock pings dropped" in block["reasons"][0]
+    assert block["pings_dropped"] == 5
+
+
+def test_a_dropped_total_is_judged_over_both_measurements() -> None:
+    assert not PERF.phase_clock(_clock(), _clock(), [1.0], dropped=8)["uncertain"]
+    assert PERF.phase_clock(_clock(), _clock(), [1.0], dropped=9)["uncertain"]
