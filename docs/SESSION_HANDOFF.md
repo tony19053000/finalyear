@@ -262,6 +262,8 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
+**2026-10-18 (G1 tester r2 PASS `95ac123`; Lead fixed T2-1 non-finite floats) — RUNNING: G1 reviewer over b4267f3..HEAD in the G1 worktree. If died: relaunch reviewer; then merge → frontend build → whole component once alone → close 0.9.1.**
+
 **2026-10-18 (G1 fix r1 DONE `2d8c74e`..`3288218`, D229 rulings; unit 13764 exit 0) — RUNNING: G1 tester r2 delta in the G1 worktree. If died: relaunch tester r2 (look for "## Tester r2" in progress/V0.9-G1.md); then reviewer → merge → frontend build → whole component once alone → close 0.9.1.**
 
 **2026-10-18 (G1 tester r1 DONE `80b053f`, FAIL: T-1..T-6; T-2/T-3/T-4 major) — RUNNING: G1 fix round 1 in the G1 worktree (all T-1..T-6 + merge main + D228 `compute_iterations`). If died: relaunch fix r1 there (look for "## Fix round 1" in progress/V0.9-G1.md); then tester r2 delta → reviewer → merge → frontend build → whole component once alone → close 0.9.1.**
