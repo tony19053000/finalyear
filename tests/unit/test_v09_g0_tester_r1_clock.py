@@ -11,6 +11,7 @@ import datetime as dt
 import json
 import math
 import random
+from collections.abc import Callable
 from types import ModuleType
 from typing import Any
 
@@ -94,12 +95,6 @@ def test_one_bad_exchange_among_good_ones_is_not_silently_dropped() -> None:
         estimate_offset([good, stepped])
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT-1: exchanges that disagree by far more than their bounds "
-    "(a clock step between pings) are not detected; the min-RTT one wins "
-    "and the run reports a tight, wrong offset",
-)
 def test_a_clock_step_between_pings_is_not_reported_as_a_tight_offset() -> None:
     before = [ClockExchange(t, t + 1.0, t + 2.0) for t in (0.0, 10.0, 20.0)]
     # the browser/controller clock stepped by 5 s after the third ping
@@ -113,11 +108,11 @@ def test_a_clock_step_between_pings_is_not_reported_as_a_tight_offset() -> None:
 
 
 class _Page:
-    def __init__(self, rows: list[list[float]]) -> None:
+    def __init__(self, rows: list[list[Any]]) -> None:
         self.rows = rows
         self.asked: list[Any] = []
 
-    def evaluate(self, script: str, arg: Any = None) -> list[list[float]]:
+    def evaluate(self, script: str, arg: Any = None) -> list[list[Any]]:
         self.asked.append((script, arg))
         return self.rows
 
@@ -178,12 +173,6 @@ def test_bound_exactly_at_the_limit_is_certain_and_just_over_is_not() -> None:
     assert PERF.verdict({"a": _phase(50.1)}) == "skew_uncertain"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT-5 (minor): verdict() reads the bound ROUNDED to 0.1 ms from "
-    "the report while the report's `uncertain` flag uses the exact bound: a "
-    "bound of 50.04 ms is flagged uncertain: true yet the verdict is pass",
-)
 def test_the_flag_and_the_verdict_agree_just_over_the_limit() -> None:
     phase = _phase(50.04)
     flag = phase["events"]["clock"]["uncertain"]
@@ -224,12 +213,6 @@ def test_a_failed_list_limit_and_a_loose_clock_is_a_fail_exit_1() -> None:
     assert PERF.EXIT_CODES[PERF.verdict({"a": bad})] == 1
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT-2: a run in which no heartbeat/job.state could be timed "
-    "(every change unmatched, n=0) crashes check()/verdict() with KeyError "
-    "instead of returning a verdict",
-)
 def test_a_phase_where_nothing_could_be_timed_gets_a_verdict_not_a_traceback() -> None:
     phase = _phase(1.0)
     phase["events"]["heartbeat_latency"] = PERF.summary([])  # {"n": 0}
@@ -237,6 +220,15 @@ def test_a_phase_where_nothing_could_be_timed_gets_a_verdict_not_a_traceback() -
 
 
 # --------------------------------------------------- frames / unmatched / revisit
+
+
+def _iso_at(base_ms: float) -> Callable[[float], str]:
+    """ISO time of ``base_ms + ms`` (typed stand-in for the original lambdas)."""
+
+    def at(ms: float) -> str:
+        return dt.datetime.fromtimestamp((base_ms + ms) / 1000, dt.UTC).isoformat()
+
+    return at
 
 
 def _frame(data: Any, type_: str = "node.metrics") -> str:
@@ -291,12 +283,6 @@ def test_recv_at_null_counts_unreadable() -> None:
     assert f.unreadable == 1 and f.received == {}
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT-3: JSON NaN/Infinity in recv_at (json.loads accepts them) "
-    "is stored as a time; the NaN latency then compares False against every "
-    "limit and the run passes",
-)
 @pytest.mark.parametrize("bad", ["NaN", "Infinity", "-Infinity"])
 def test_non_finite_recv_at_is_unreadable_not_a_latency(bad: str) -> None:
     f = _frames()
@@ -322,13 +308,6 @@ def test_heartbeat_lag_is_negative_when_the_page_precedes_the_clock_bound() -> N
     assert got.lags == [-1000.0]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT-4: a lag far below -bound (the page 'showed' a sample before "
-    "the controller received it: clock stepped after the offset was measured) "
-    "is a silent pass; the offset is measured once, before a multi-minute phase "
-    "and never re-checked",
-)
 def test_impossible_negative_lags_make_the_phase_uncertain() -> None:
     phase = _phase(1.0)
     phase["events"]["heartbeat_latency"] = PERF.summary([-5000.0] * 10)
@@ -338,7 +317,7 @@ def test_impossible_negative_lags_make_the_phase_uncertain() -> None:
 def test_job_state_clock_jump_mid_run_shifts_every_sample_equally() -> None:
     # transitions on a controller clock 1 h ahead; mapped through the offset
     clock = _clock(3.6e6, 1.0)
-    at = lambda ms: dt.datetime.fromtimestamp((1.76e12 + ms) / 1000, dt.UTC).isoformat()  # noqa: E731
+    at = _iso_at(1.76e12)
     s = PERF.JobStateSamples()
     s.add(
         "job_1",
@@ -353,7 +332,7 @@ def test_job_state_clock_jump_mid_run_shifts_every_sample_equally() -> None:
 
 
 def test_retry_does_not_pollute_latency_and_first_visits_still_count() -> None:
-    at = lambda ms: dt.datetime.fromtimestamp(ms / 1000, dt.UTC).isoformat()  # noqa: E731
+    at = _iso_at(0.0)
     s = PERF.JobStateSamples()
     s.add(
         "job_r",
@@ -371,7 +350,7 @@ def test_retry_does_not_pollute_latency_and_first_visits_still_count() -> None:
 
 
 def test_a_retry_after_a_stall_cannot_make_a_late_terminal_pass() -> None:
-    at = lambda ms: dt.datetime.fromtimestamp(ms / 1000, dt.UTC).isoformat()  # noqa: E731
+    at = _iso_at(0.0)
     s = PERF.JobStateSamples()
     s.add(
         "job_r",
@@ -388,7 +367,7 @@ def test_a_retry_after_a_stall_cannot_make_a_late_terminal_pass() -> None:
 
 
 def test_job_with_no_transitions_or_unshown_everything_is_missed_not_crash() -> None:
-    at = lambda ms: dt.datetime.fromtimestamp(ms / 1000, dt.UTC).isoformat()  # noqa: E731
+    at = _iso_at(0.0)
     s = PERF.JobStateSamples()
     s.add("job_e", [], {})
     s.add("job_m", [{"to_state": "queued", "at": at(0)}], {})

@@ -141,8 +141,12 @@ def test_dashboard_stays_responsive_at_4x100_history_and_10k_jobs(
         # the true offset (0: one clock) inside it (+0.1: the report rounds).
         clock = events["clock"]
         assert clock["clock_offset_bound_ms"] <= ui_perf.MAX_CLOCK_BOUND_MS, clock
-        bound = clock["clock_offset_bound_ms"] + 0.1
+        bound = clock["clock_offset_bound_ms"] + 0.001  # the report rounds
         assert abs(clock["clock_offset_ms"]) <= bound, clock
+        # fix round 1 (DEFECT-4): measured before AND after, both consistent,
+        # no move beyond the combined bound, no latency below -bound
+        assert clock["reasons"] == [] and clock["uncertain"] is False, clock
+        assert "error" not in clock["before"] and "error" not in clock["after"], clock
         assert events["heartbeat_frames_unreadable"] == 0, (name, events)
     assert phases["10k"]["list"]["rows_loaded"] >= 1000
     problems = {name: ui_perf.check(phase) for name, phase in phases.items()}

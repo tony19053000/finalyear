@@ -89,6 +89,7 @@ def test_remote_to_local_conversion() -> None:
         "clock_offset_bound_ms": 1.0,
         "rtt_ms": 2.0,
         "exchanges": 1,
+        "consistent": True,
     }
 
 

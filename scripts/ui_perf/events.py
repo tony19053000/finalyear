@@ -7,14 +7,15 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import math
 import time
 from collections.abc import Sequence
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from meshforge.common.clock_offset import ClockOffset
+from meshforge.common.clock_offset import ClockOffset, ClockOffsetError
 
-from .clocks import clock_report, measure_clock
+from .clocks import phase_clock, ping_clock
 from .report import summary
 from .scenarios import TERMINAL, Api, JobStream, wait_terminal
 
@@ -84,10 +85,16 @@ class MetricsFrames:
             data = frame["data"]
             if data.get("node_id") != self.node_id:
                 return
-            if data.get("recv_at") is None:
+            recv_at = data.get("recv_at")
+            # bool is an int; NaN/Infinity parse as floats (DEFECT-3): none is a time.
+            if (
+                isinstance(recv_at, bool)
+                or not isinstance(recv_at, int | float)
+                or not math.isfinite(recv_at)
+            ):
                 self.unreadable += 1
                 return
-            self.received[str(data["observed_at"])] = float(data["recv_at"])
+            self.received[str(data["observed_at"])] = float(recv_at)
         except (ValueError, KeyError, TypeError, AttributeError):
             self.unreadable += 1
 
@@ -164,6 +171,19 @@ class JobStateSamples:
                 self.missed_terminal += 1
 
 
+#: Used to time samples when the start measurement failed (the phase is then
+#: uncertain whatever the numbers say).
+_NO_OFFSET = ClockOffset(offset_ms=0.0, bound_ms=math.inf, rtt_ms=math.inf, exchanges=0)
+
+
+def _measure(page: Page) -> tuple[ClockOffset | str, int]:
+    """One offset measurement, or its error text (never a traceback)."""
+    try:
+        return ping_clock(page)
+    except ClockOffsetError as exc:
+        return str(exc), 0
+
+
 def measure_events(
     jobs_page: Page,
     node_page: Page,
@@ -178,8 +198,11 @@ def measure_events(
     timeout_s: float = 240.0,
 ) -> dict[str, Any]:
     """Event -> DOM latency while a steady job stream runs (skew-safe: see
-    the module docstring)."""
-    clock = measure_clock(node_page)
+    the module docstring). The clock offset is measured before AND after
+    (:func:`.clocks.phase_clock`); a failed start measurement times the
+    samples on offset 0, and the phase is reported uncertain."""
+    before, dropped = _measure(node_page)
+    clock = before if isinstance(before, ClockOffset) else _NO_OFFSET
     jobs_page.goto(base + "/jobs")
     jobs_page.locator("table").first.wait_for()
     jobs_page.evaluate(
@@ -242,8 +265,14 @@ def measure_events(
     heartbeat = HeartbeatSamples.build(
         node_page.evaluate("window.__mfLag"), frames.received, clock
     )
+    after, dropped_after = _measure(node_page)
     return {
-        "clock": clock_report(clock),
+        "clock": phase_clock(
+            before,
+            after,
+            [*heartbeat.lags, *states.lags],
+            dropped=dropped + dropped_after,
+        ),
         "stream_jobs": len(ids),
         "stream_errors": stream.errors,
         "job_state_latency": summary(states.lags),

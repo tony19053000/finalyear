@@ -11,7 +11,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Final
 
-from .clocks import MAX_CLOCK_BOUND_MS
+from .clocks import bound_uncertain
 
 #: Criterion 2 and the D174 headroom, as asserted by the -m perf test.
 #:
@@ -97,6 +97,11 @@ def check(results: dict[str, Any]) -> list[str]:
         events = results["events"]
         for event in ("heartbeat", "job_state"):
             latency = events[f"{event}_latency"]
+            if latency.get("n") == 0:
+                # Fix round 1 (DEFECT-2): nothing could be timed is a failure
+                # the verdict names - never a KeyError, never a pass.
+                problems.append(f"{event}_latency: no samples (n=0)")
+                continue
             for stat in ("p50", "p95", "max"):
                 got[f"{event}_latency_{stat}"] = latency[stat]
         if events["job_state_missed"]:
@@ -112,13 +117,28 @@ def check(results: dict[str, Any]) -> list[str]:
 
 
 def skew_uncertain(results: dict[str, Any]) -> bool:
-    """Were live latencies measured on a clock offset not known within
-    :data:`MAX_CLOCK_BOUND_MS`? (No offset measured at all counts as unknown.)"""
+    """Were the live latencies measured on a clock offset that cannot be
+    trusted? No offset at all; a phase the measurement marked ``uncertain``
+    (:func:`.clocks.phase_clock`); a reported bound that fails
+    :func:`.clocks.bound_uncertain` (the same rule on the same number as the
+    report's flag); or a latency below ``-bound`` (shown before it happened)."""
     events = results.get("events")
     if events is None:
         return False
     clock = events.get("clock")
-    return clock is None or float(clock["clock_offset_bound_ms"]) > MAX_CLOCK_BOUND_MS
+    if clock is None or clock.get("uncertain") or clock.get("consistent") is False:
+        return True
+    try:
+        bound = float(clock["clock_offset_bound_ms"])
+    except (KeyError, TypeError, ValueError):
+        return True
+    if bound_uncertain(bound):
+        return True
+    for event in ("heartbeat", "job_state"):
+        latency = events.get(f"{event}_latency") or {}
+        if latency.get("n") and float(latency["min"]) < -bound:
+            return True
+    return False
 
 
 def verdict(phases: dict[str, dict[str, Any]]) -> str:

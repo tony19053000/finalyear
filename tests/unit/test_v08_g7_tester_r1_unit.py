@@ -724,8 +724,8 @@ def test_missing_latency_samples_fail_loudly_not_silently() -> None:
     perf = _ui_perf()
     broken = _results()
     broken["events"]["job_state_latency"] = perf.summary([])  # {"n": 0}
-    with pytest.raises(KeyError):
-        perf.check(broken)
+    # V0.9 G0 fix round 1 (DEFECT-2): loud = a named problem, not a KeyError.
+    assert perf.check(broken) == ["job_state_latency: no samples (n=0)"]
 
 
 def test_without_the_events_phase_latency_is_not_checked() -> None:

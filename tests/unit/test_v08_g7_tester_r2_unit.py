@@ -541,9 +541,10 @@ def test_t8_a_successor_shown_before_the_state_happened_does_not_count() -> None
 
 
 def test_t8_empty_samples_raise_not_pass() -> None:
+    # V0.9 G0 fix round 1 (DEFECT-2, Lead ruling): no samples is a named
+    # failure from check() (and a `fail` verdict), no longer a KeyError.
     r = _results(PERF.JobStateSamples())
-    with pytest.raises(KeyError):
-        PERF.check(r)
+    assert any("no samples" in p for p in PERF.check(r))
 
 
 def test_t8b_a_revisited_state_shown_30_s_late_fails() -> None:

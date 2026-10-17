@@ -50,8 +50,11 @@ from .clocks import (
     CLOCK_PING,
     CLOCK_PINGS,
     MAX_CLOCK_BOUND_MS,
+    bound_uncertain,
     clock_report,
     measure_clock,
+    phase_clock,
+    ping_clock,
 )
 from .events import HeartbeatSamples, JobStateSamples, MetricsFrames, measure_events
 from .events import _parse_at as _parse_at  # the V0.8 G7 tests use it
@@ -113,6 +116,7 @@ __all__ = [
     "JobStream",
     "MetricsFrames",
     "Seeded",
+    "bound_uncertain",
     "check",
     "chromium",
     "clock_report",
@@ -122,6 +126,8 @@ __all__ = [
     "measure_events",
     "measure_list",
     "new_page",
+    "phase_clock",
+    "ping_clock",
     "run",
     "seed_bulk",
     "seed_history",
