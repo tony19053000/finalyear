@@ -415,21 +415,15 @@ def test_bad_seeds_are_refused_in_job_files(seed: Any) -> None:
         job_files("cpu.sort", {}, seed)
 
 
-_RUN_SEED_DEFECT = pytest.mark.xfail(
-    reason="TR1-D6: Family.run range-checks the seed only; job_files also refuses bool/float/None/str",
-    raises=(AssertionError, TypeError, RuntimeError),
-)
-
-
 @pytest.mark.parametrize(
     "seed",
     [
         -1,
         2**32,
-        pytest.param(True, marks=_RUN_SEED_DEFECT),
-        pytest.param(1.5, marks=_RUN_SEED_DEFECT),
-        pytest.param(None, marks=_RUN_SEED_DEFECT),
-        pytest.param("7", marks=_RUN_SEED_DEFECT),
+        True,
+        1.5,
+        None,
+        "7",
     ],
 )
 def test_run_refuses_bad_seeds_before_executing_anything(
@@ -625,10 +619,6 @@ def test_concurrent_builds_of_the_same_request_agree(tmp_path: Path) -> None:
     assert len(set(digests)) == 1 and len(digests) == 8
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason="TR1-D7: build_job is not atomic; a racing builder can read a half-written compute.yaml (ManifestError)",
-)
 def test_concurrent_builds_into_one_destination_never_corrupt_it(
     tmp_path: Path,
 ) -> None:

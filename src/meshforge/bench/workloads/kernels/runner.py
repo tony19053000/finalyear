@@ -64,9 +64,13 @@ __all__ = [
     "EXIT_CHECK_FAILED",
     "EXIT_UNAVAILABLE",
     "KERNEL_MODULES",
+    "MAX_SEED",
     "PARAMS_FILE",
+    "PARAM_LIMITS",
     "RESULT_FILE",
     "RESULT_SCHEMA_VERSION",
+    "check_params",
+    "check_seed",
     "execute",
     "main",
 ]
@@ -106,6 +110,87 @@ DEFAULT_DEVICE: Final[dict[str, str]] = {
     "ml": "cuda",
 }
 """Kernel module -> the device a job always uses."""
+
+
+MAX_SEED: Final = 2**32 - 1
+
+PARAM_LIMITS: Final[dict[str, dict[str, Any]]] = {
+    "cpu.matmul": {"n": 4096, "repeats": 500, "dtype": ("float64", "float32")},
+    "cpu.primes": {"limit": 400_000_000, "repeats": 100},
+    "cpu.sort": {"n": 50_000_000, "repeats": 500},
+    "cpu.zlib": {"size_mb": 256, "level": (1, 6, 9), "repeats": 100},
+    "cpu.sha256": {"size_mb": 400_000, "chunk_kb": (4, 64, 1024)},
+    "cpu.integrate": {"points_m": 4000, "repeats": 50},
+    "memory.copy": {"size_mb": 1024, "repeats": 5000},
+    "memory.groupby": {"rows_m": 40, "groups": 1_000_000, "repeats": 100},
+    "gpu.matmul": {"n": 12288, "repeats": 5000, "dtype": ("float32", "float16")},
+    "gpu.conv2d": {"batch": 256, "channels": 512, "size": 256, "repeats": 5000},
+    "gpu.elementwise": {"elements_m": 256, "ops": 64, "repeats": 5000},
+    "gpu.resize": {"batch": 256, "size": 1024, "out_size": 2048, "repeats": 5000},
+    "ml.cnn_infer": {
+        "batch": 512,
+        "width": 256,
+        "depth": 12,
+        "image": (32, 64),
+        "batches": 100_000,
+    },
+    "ml.cnn_train": {
+        "batch": 512,
+        "width": 256,
+        "depth": 12,
+        "image": (32, 64),
+        "steps": 50_000,
+    },
+    "ml.transformer_infer": {
+        "batch": 256,
+        "seq_len": 2048,
+        "width": 1024,
+        "depth": 24,
+        "batches": 100_000,
+    },
+}
+"""Job-side parameter limits (D6 of tester r1): an integer limit means
+``1 <= value <= limit``, a tuple lists the allowed values. The **maxima and choices
+equal the family models'** (a unit test holds them together); the minimum is 1, not
+the family's, because the 5 s - 3 min window is the library's rule and tiny runs
+are how the kernels are tested. A damaged ``workload_params.json`` therefore ends
+as ``bad_params`` (exit 2), never as a traceback or a huge allocation."""
+
+_MULTIPLE_OF: Final[dict[tuple[str, str], int]] = {
+    ("ml.transformer_infer", "width"): 64
+}
+
+
+def check_seed(seed: object) -> int:
+    """``seed`` as an int in ``0..MAX_SEED`` (bool, float, str, None refused)."""
+    if isinstance(seed, bool) or not isinstance(seed, int) or not 0 <= seed <= MAX_SEED:
+        raise KernelParamsError(f"seed: must be an integer 0..{MAX_SEED}, got {seed!r}")
+    return seed
+
+
+def check_params(family: str, params: Mapping[str, Any]) -> None:
+    """Refuse unknown keys and values outside :data:`PARAM_LIMITS` (keys that are
+    absent are reported by the kernel itself when it reads them)."""
+    limits = PARAM_LIMITS.get(family)
+    if limits is None:
+        raise KernelParamsError(f"unknown workload family {family!r}")
+    for name, value in params.items():
+        if name not in limits:
+            raise KernelParamsError(f"{name}: unknown parameter for {family}")
+        limit = limits[name]
+        if isinstance(limit, tuple):
+            if isinstance(value, bool) or value not in limit:
+                raise KernelParamsError(
+                    f"{name}: expected one of {list(limit)}, got {value!r}"
+                )
+            continue
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise KernelParamsError(f"{name}: expected an integer, got {value!r}")
+        if not 1 <= value <= limit:
+            raise KernelParamsError(f"{name}: must be 1..{limit}, got {value}")
+        multiple = _MULTIPLE_OF.get((family, name), 1)
+        if value % multiple:
+            raise KernelParamsError(f"{name}: must be a multiple of {multiple}")
 
 
 def _ms(ns: int) -> float:
@@ -158,6 +243,8 @@ def execute(
     module_name = KERNEL_MODULES.get(family)
     if module_name is None:
         raise KernelParamsError(f"unknown workload family {family!r}")
+    check_seed(seed)
+    check_params(family, params)
     module = importlib.import_module(f".{module_name}", __package__)
     kernel = module.KERNELS[family]
     used = device or DEFAULT_DEVICE[module_name]
@@ -230,9 +317,7 @@ def _read_request(workdir: Path) -> tuple[str, dict[str, Any], int]:
     family, params, seed = raw.get("family"), raw.get("params"), raw.get("seed")
     if not isinstance(family, str) or not isinstance(params, dict):
         raise KernelParamsError(f"{PARAMS_FILE} needs 'family' and 'params'")
-    if isinstance(seed, bool) or not isinstance(seed, int):
-        raise KernelParamsError(f"{PARAMS_FILE}: 'seed' must be an integer")
-    return family, params, seed
+    return family, params, check_seed(seed)
 
 
 def main(workdir: Path | None = None) -> int:

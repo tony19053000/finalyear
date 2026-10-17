@@ -26,8 +26,12 @@ The folder holds no MeshForge import: the job environment has none.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
+import os
+import shutil
+import tempfile
 from collections.abc import Mapping
 from dataclasses import dataclass
 from importlib import resources
@@ -40,7 +44,7 @@ from meshforge.common.errors import FailureType, MeshForgeError
 from meshforge.common.manifest import MANIFEST_FILE_NAME, Manifest, load_manifest
 
 from . import kernels
-from .base import MAX_SEED, Family, Params, ParamsError, get_family, round_up_gb
+from .base import Family, Params, get_family, round_up_gb
 from .kernels._support import canonical_json
 from .kernels.runner import KERNEL_MODULES, PARAMS_FILE, RESULT_FILE
 
@@ -139,8 +143,7 @@ def job_files(
     window, seed out of range) and :class:`~.base.UnknownFamilyError`.
     """
     fam = get_family(family) if isinstance(family, str) else family
-    if isinstance(seed, bool) or not isinstance(seed, int) or not 0 <= seed <= MAX_SEED:
-        raise ParamsError(fam.name, [f"seed: must be an integer 0..{MAX_SEED}"])
+    fam.check_seed(seed)
     checked = fam.parse_params(params)
     request = {"family": fam.name, "params": fam.params_dict(checked), "seed": seed}
     request_json = canonical_json(request)
@@ -178,29 +181,62 @@ def _content_digest(files: Mapping[str, bytes]) -> str:
     return "sha256:" + hasher.hexdigest()
 
 
+def _refuse_busy(dest: Path) -> None:
+    if dest.exists() and (not dest.is_dir() or any(dest.iterdir())):
+        raise MaterialiseError(
+            f"{dest} already exists and is not an empty folder",
+            details={"path": str(dest)},
+        )
+
+
+def _publish(staging: Path, dest: Path) -> None:
+    """Rename ``staging`` to ``dest``; ``dest`` may be absent or an empty folder."""
+    with contextlib.suppress(OSError):
+        os.rename(staging, dest)  # POSIX: replaces an empty folder atomically
+    if not staging.exists():
+        return
+    # Windows cannot rename onto an existing folder: remove an empty one first.
+    try:
+        if dest.is_dir() and not any(dest.iterdir()):
+            dest.rmdir()
+        os.rename(staging, dest)
+    except OSError:
+        raise MaterialiseError(
+            f"{dest} already exists and is not an empty folder",
+            details={"path": str(dest)},
+        ) from None
+
+
 def build_job(
     family: str | Family[Any],
     params: Params | Mapping[str, Any],
     seed: int,
     dest: Path,
 ) -> BuiltJob:
-    """Write the job folder for one run into ``dest`` (new, or an empty folder).
+    """Write the job folder for one run into ``dest`` (new, or an empty folder),
+    atomically: ``dest`` holds either nothing new or the complete folder.
 
     The written manifest is read back with the fabric's own loader
     (:func:`~meshforge.common.manifest.load_manifest`), so a folder this returns
     is one ``compute run`` accepts.
     """
     files = job_files(family, params, seed)
-    if dest.exists() and (not dest.is_dir() or any(dest.iterdir())):
-        raise MaterialiseError(
-            f"{dest} already exists and is not an empty folder",
-            details={"path": str(dest)},
-        )
-    for name, data in files.items():
-        target = dest.joinpath(*name.split("/"))
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(data)
-    manifest = load_manifest(dest)
+    _refuse_busy(dest)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    # Atomic (tester r1 D7): the folder is written and validated in a private
+    # sibling, then renamed into place in one step - nobody (a racing builder, a
+    # `compute run` started too early) ever sees a half-written folder.
+    staging = Path(tempfile.mkdtemp(prefix=f".{dest.name}.building-", dir=dest.parent))
+    try:
+        for name, data in files.items():
+            target = staging.joinpath(*name.split("/"))
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
+        manifest = load_manifest(staging)
+        _publish(staging, dest)
+    finally:
+        if staging.exists():
+            shutil.rmtree(staging, ignore_errors=True)
     request: dict[str, Any] = json.loads(files[PARAMS_FILE])
     return BuiltJob(
         path=dest,

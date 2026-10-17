@@ -40,7 +40,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from meshforge.common.errors import FailureType, MeshForgeError
 
 from .kernels._support import Unavailable
-from .kernels.runner import RESULT_SCHEMA_VERSION, execute
+from .kernels.runner import MAX_SEED, RESULT_SCHEMA_VERSION, execute
 
 __all__ = [
     "CALIBRATION_HW",
@@ -64,7 +64,6 @@ __all__ = [
 
 MIN_RUNTIME_S: Final = 5.0
 MAX_RUNTIME_S: Final = 180.0
-MAX_SEED: Final = 2**32 - 1
 
 
 class Kind(StrEnum):
@@ -309,6 +308,17 @@ class Family[P: Params](ABC):
             )
         return params
 
+    def check_seed(self, seed: object) -> int:
+        """``seed`` as an int in ``0..MAX_SEED``; bool, float, str and None are
+        refused (:class:`ParamsError`) - the same rule as the job side."""
+        if (
+            isinstance(seed, bool)
+            or not isinstance(seed, int)
+            or not 0 <= seed <= MAX_SEED
+        ):
+            raise ParamsError(self.name, [f"seed: must be an integer 0..{MAX_SEED}"])
+        return seed
+
     def smallest_params(self) -> P:
         """The model's defaults: by convention the smallest valid run (about
         :data:`MIN_RUNTIME_S` on the mid laptop; the component test runs it)."""
@@ -332,8 +342,7 @@ class Family[P: Params](ABC):
         ``device`` overrides the family's device (``"cpu"`` lets a test run a GPU
         kernel without CUDA); jobs never set it. Raises :class:`Unavailable`.
         """
-        if not 0 <= seed <= MAX_SEED:
-            raise ParamsError(self.name, [f"seed: must be 0..{MAX_SEED}"])
+        self.check_seed(seed)
         document = execute(self.name, self.params_dict(params), seed, device=device)
         return WorkloadResult.model_validate(document)
 
