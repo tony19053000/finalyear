@@ -156,6 +156,7 @@ async def test_every_v1_route_is_enumerated_and_none_is_a_write_verb(
         "/v1/nodes/{node_id}/resources",
         "/v1/nodes/{node_id}/metrics",  # V0.8 G1 (D173): GET-only live metrics
         "/v1/sessions",
+        "/v1/clock",  # V0.9 G0 (D213): GET-only controller wall clock
         "/v1/openapi.json",  # GET-only schema endpoint; not a fabric resource route
     }, app_routes
 
@@ -169,6 +170,7 @@ async def test_every_v1_route_is_enumerated_and_none_is_a_write_verb(
         f"/v1/nodes/{NODE_A}/resources",
         f"/v1/nodes/{NODE_A}/metrics",
         "/v1/sessions",
+        "/v1/clock",
     ],
 )
 @pytest.mark.parametrize("verb", ["post", "put", "patch", "delete"])

@@ -3,13 +3,12 @@ p95 and the slowest event, and a job.state change never shown fails."""
 
 from __future__ import annotations
 
-import importlib.util
-import sys
 from pathlib import Path
 from types import ModuleType
 from typing import Any
 
 import pytest
+from mf_ui_perf import load_ui_perf
 
 pytestmark = pytest.mark.unit
 
@@ -17,14 +16,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def _ui_perf() -> ModuleType:
-    spec = importlib.util.spec_from_file_location(
-        "ui_perf_fix_r1", ROOT / "scripts" / "ui_perf.py"
-    )
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
+    return load_ui_perf("ui_perf_fix_r1")
 
 
 PERF = _ui_perf()

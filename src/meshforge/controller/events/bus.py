@@ -6,7 +6,9 @@ One process-wide stream of typed events the dashboard follows over
 * ``node.status`` ``{node_id, state, connected}`` - a node's liveness or
   session changed;
 * ``node.metrics`` ``{node_id, cpu_percent, ram_used_bytes, ram_total_bytes,
-  gpus, observed_at}`` - at most once a second per node;
+  gpus, observed_at, recv_at}`` - at most once a second per node
+  (``observed_at`` is the agent's clock, ``recv_at`` the controller's at
+  arrival: time latency from ``recv_at``, V0.9 G0);
 * ``job.state`` ``{job_id, state}`` and ``attempt.state`` ``{attempt_id,
   job_id, node_id, state}`` - after the database transaction that made the
   change committed (:mod:`.changes`);

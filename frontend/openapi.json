@@ -1681,6 +1681,17 @@
           "ram_used_bytes": {
             "title": "Ram Used Bytes",
             "type": "integer"
+          },
+          "recv_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recv At"
           }
         },
         "required": [
@@ -2954,6 +2965,21 @@
           "created"
         ],
         "title": "SecretStored",
+        "type": "object"
+      },
+      "ServerClock": {
+        "additionalProperties": false,
+        "description": "``GET /v1/clock``: the controller's wall clock, for an NTP-style offset.",
+        "properties": {
+          "server_time": {
+            "title": "Server Time",
+            "type": "number"
+          }
+        },
+        "required": [
+          "server_time"
+        ],
+        "title": "ServerClock",
         "type": "object"
       },
       "SessionList": {
@@ -5136,6 +5162,108 @@
         "summary": "Upload one verified part of a large blob (resumable)",
         "tags": [
           "blobs"
+        ]
+      }
+    },
+    "/v1/clock": {
+      "get": {
+        "description": "V0.9 G0 (D213): the controller's ``time.time()`` when it answers, so a\nclient can estimate the offset between its clock and the controller's from\nround trips (``meshforge.common.clock_offset``: offset \u00b1 RTT/2) before it\ncompares a controller timestamp (an event's ``recv_at``, a transition's\n``at``) with its own clock. Authenticated like every route; reads nothing.\n``Cache-Control: no-store``: a cached answer would silently ruin the\nestimate (fix round 1, DEFECT-6).",
+        "operationId": "get_clock_v1_clock_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerClock"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid input (`invalid_input`)"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No, or no longer a valid, credential (`unauthorized`)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not allowed: admin only, CSRF, foreign origin (`unauthorized`)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found - also another user's object (`not_found`)"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict (`conflict`, `no_feasible_plan`)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid parameters (`invalid_input`)"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Rate limited; see Retry-After (`resource_busy`)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A dependency (the database) is unavailable; retry (`network_error`)"
+          }
+        },
+        "summary": "The controller's wall clock (for an NTP-style offset estimate)",
+        "tags": [
+          "fabric"
         ]
       }
     },

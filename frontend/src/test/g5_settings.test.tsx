@@ -533,6 +533,36 @@ describe("Secrets", () => {
     expect(fake.calls.filter((c) => c.key.startsWith("PUT")).length).toBe(0);
   });
 
+  it("the file input is reset after each choice, so the same file can be chosen again (V0.9 G0, D210)", async () => {
+    const fake = fakeController(
+      routes(USER_SESSION, {
+        "GET /v1/secrets": () => json(200, { count: 0, secrets: [] }),
+        "PUT /v1/secrets/AGAIN": () => json(200, { name: "AGAIN", created: true }),
+      }),
+    );
+    renderApp("/settings/secrets");
+    await userEvent.click(await screen.findByRole("button", { name: "Set a secret" }));
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.type(within(dialog).getByRole("textbox", { name: "Name" }), "AGAIN");
+    const picker = within(dialog).getByLabelText<HTMLInputElement>(/read the value from a file/);
+    const same = new File(["SAME-FILE-VALUE"], "same.bin");
+    await userEvent.upload(picker, same);
+    expect(await within(dialog).findByText(/Value read from same\.bin/)).toBeTruthy();
+    // A browser fires `change` only when the file list changes: an input still
+    // holding same.bin would ignore choosing it again. It must be empty now.
+    expect(picker.value).toBe("");
+    expect(picker.files?.length ?? 0).toBe(0);
+    await userEvent.type(within(dialog).getByLabelText("Value"), "TYPED-OVER-IT");
+    expect(within(dialog).queryByText(/same\.bin/)).toBeNull();
+    await userEvent.upload(picker, same);
+    expect(await within(dialog).findByText(/Value read from same\.bin/)).toBeTruthy();
+    expect(picker.value).toBe("");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Store secret" }));
+    expect(await screen.findByText("Secret AGAIN stored")).toBeTruthy();
+    const put = fake.calls.find((c) => c.key === "PUT /v1/secrets/AGAIN");
+    expect(new TextDecoder().decode(put?.init.body as Uint8Array)).toBe("SAME-FILE-VALUE");
+  });
+
   it("an empty file says why Store is disabled (D204)", async () => {
     fakeController(routes(USER_SESSION, { "GET /v1/secrets": () => json(200, { count: 0, secrets: [] }) }));
     renderApp("/settings/secrets");

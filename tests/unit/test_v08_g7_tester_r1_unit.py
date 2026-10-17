@@ -16,12 +16,10 @@ state the property that should hold and flip to a failure when it is fixed.
 from __future__ import annotations
 
 import ast
-import importlib.util
 import json
 import re
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -37,6 +35,7 @@ from mf_dashboard import (
     sources_digest,
 )
 from mf_leaks import LeakWatch
+from mf_ui_perf import load_ui_perf
 from test_v08_g7_cli_ui_parity import PARITY
 from test_v08_g7_cli_ui_parity import (
     _check as parity_check,
@@ -661,14 +660,7 @@ def test_learn_ignores_failed_responses_and_records_unreadable_bodies() -> None:
 
 
 def _ui_perf() -> ModuleType:
-    spec = importlib.util.spec_from_file_location(
-        "ui_perf_tr1", ROOT / "scripts" / "ui_perf.py"
-    )
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
+    return load_ui_perf("ui_perf_tr1")
 
 
 def _results(**override: float) -> dict[str, Any]:
@@ -732,8 +724,8 @@ def test_missing_latency_samples_fail_loudly_not_silently() -> None:
     perf = _ui_perf()
     broken = _results()
     broken["events"]["job_state_latency"] = perf.summary([])  # {"n": 0}
-    with pytest.raises(KeyError):
-        perf.check(broken)
+    # V0.9 G0 fix round 1 (DEFECT-2): loud = a named problem, not a KeyError.
+    assert perf.check(broken) == ["job_state_latency: no samples (n=0)"]
 
 
 def test_without_the_events_phase_latency_is_not_checked() -> None:

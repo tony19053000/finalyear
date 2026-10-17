@@ -9,7 +9,8 @@ changed:
 * ``node.status`` ``{node_id, state, connected}`` when a node's state or its
   "has a live stream" flag differs from the last tick (a node whose session is
   gone entirely is published once as ``connected: false``);
-* ``node.metrics`` - the newest live resource sample of each connected node,
+* ``node.metrics`` - the newest live resource sample (with ``recv_at``, the
+  controller's wall clock when it arrived) of each connected node,
   when it is new and at least ``metrics_interval_s`` (1 s) after the last one
   published for that node (agents report every 2 s; the cap is a guard).
 
@@ -47,9 +48,14 @@ class _Status:
 
 def metrics_frame(node_id: str, sample: LiveSample) -> dict[str, object]:
     """The ``node.metrics`` payload (also one point of ``GET .../metrics``)."""
+    received = sample.received_wall
     return {
         "node_id": node_id,
         "observed_at": sample.observed_at.isoformat(),
+        # The controller's wall clock at arrival (epoch seconds, like the bus
+        # event's ``at``): latency is timed from here, never from the agent's
+        # ``observed_at`` (V0.9 G0, D213 - cross-host clocks are skewed).
+        "recv_at": None if received is None else round(received.timestamp(), 3),
         "cpu_percent": round(sample.cpu_percent, 2),
         "ram_used_bytes": sample.ram_used_bytes,
         "ram_total_bytes": sample.ram_total_bytes,

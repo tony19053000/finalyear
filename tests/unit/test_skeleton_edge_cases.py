@@ -148,25 +148,95 @@ def test_ascii_env_does_not_crash_with_encode_error() -> None:
 # --- wheel packaging ---------------------------------------------------------
 
 
+#: How ``uv build`` says it could not reach the package index (V0.9 G0, D210
+#: item 6): it needs the build backend (hatchling) from the index unless the
+#: uv cache already has it. Lower-cased substrings of its stderr.
+NETWORK_FAILURE_MARKERS = (
+    "dns error",
+    "failed to lookup address",
+    "name or service not known",
+    "temporary failure in name resolution",
+    "no such host is known",  # Windows
+    "nodename nor servname",  # macOS
+    "client error (connect)",  # uv's HTTP client could not connect
+    "the network was disabled",  # the --offline retry: not in the cache
+)
+#: Network words that a build backend or a hook can also print ("build hook
+#: timed out", "connection refused by the pre-commit hook"): offline ONLY
+#: together with :data:`INDEX_CONTEXT` (fix rounds 1-2, DEFECT-7 / DEFECT-R2).
+AMBIGUOUS_NETWORK_MARKERS = (
+    "timed out",
+    "connection refused",
+    "no route to host",
+    "network is unreachable",
+    "unreachable network",  # Windows: os error 10051
+    "unreachable host",  # Windows: os error 10065
+)
+#: How uv says the failure was a request to the package index: its HTTP
+#: error chain, a URL, or a socket-level OS error number.
+INDEX_CONTEXT = (
+    "error sending request",
+    "request failed",
+    "failed to fetch",
+    "http://",
+    "https://",
+    "/simple/",
+    *(
+        f"(os error {code})"
+        for code in (101, 110, 111, 113, 10051, 10060, 10061, 10065)
+    ),
+)
+
+
+def network_failure(stderr: str) -> bool:
+    """Did ``uv build`` fail only because the package index is unreachable?
+    An unambiguous resolver/connect shape, or an ambiguous network word inside
+    uv's index-request context - never a bare "timed out" from a hook."""
+    text = stderr.lower()
+    if any(marker in text for marker in NETWORK_FAILURE_MARKERS):
+        return True
+    return any(m in text for m in AMBIGUOUS_NETWORK_MARKERS) and any(
+        c in text for c in INDEX_CONTEXT
+    )
+
+
+def build_wheel(out_dir: Path, env: dict[str, str] | None = None) -> Path:
+    """``uv build --wheel`` into ``out_dir``; offline (the index unreachable
+    and the uv cache without the build backend) is a **skip with the reason**,
+    never a failure - any other build error still fails."""
+
+    def build(*extra: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["uv", "build", "--wheel", *extra, "--out-dir", str(out_dir)],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=180,
+            check=False,
+            env=env,
+        )
+
+    result = build()
+    if result.returncode != 0 and network_failure(result.stderr):
+        result = build("--offline")  # the uv cache may hold the build backend
+        if result.returncode != 0 and network_failure(result.stderr):
+            pytest.skip(
+                "offline: `uv build` cannot reach the package index for its build "
+                "backend (DNS/connect failure) and the uv cache has no copy"
+            )
+    assert result.returncode == 0, result.stderr
+    wheels = list(out_dir.glob("meshforge-*.whl"))
+    assert len(wheels) == 1, wheels
+    return wheels[0]
+
+
 def test_wheel_contains_py_typed_all_subpackages_and_entry_points(
     tmp_path: Path,
 ) -> None:
     """`uv build` output is what actually ships; verify py.typed marker, every
-    subpackage's __init__.py, and the three console_scripts are present."""
-    out_dir = tmp_path / "dist"
-    result = subprocess.run(
-        ["uv", "build", "--wheel", "--out-dir", str(out_dir)],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-        timeout=180,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr
-
-    wheels = list(out_dir.glob("meshforge-*.whl"))
-    assert len(wheels) == 1, wheels
-    wheel_path = wheels[0]
+    subpackage's __init__.py, and the three console_scripts are present.
+    Skipped (with the reason) when the machine is offline."""
+    wheel_path = build_wheel(tmp_path / "dist")
 
     with zipfile.ZipFile(wheel_path) as zf:
         names = zf.namelist()
@@ -188,6 +258,49 @@ def test_wheel_contains_py_typed_all_subpackages_and_entry_points(
         ("meshforge-agent", "meshforge.agent.main:main"),
     ):
         assert f"{script} = {module_target}" in entry_points_text
+
+
+@pytest.mark.parametrize(
+    "stderr",
+    [
+        "Caused by: dns error\nfailed to lookup address information: "
+        "Temporary failure in name resolution",
+        "error sending request for url\n  client error (Connect)",
+        "hint: Packages were unavailable because the network was disabled.",
+        "No such host is known. (os error 11001)",
+    ],
+)
+def test_network_failures_are_recognised(stderr: str) -> None:
+    assert network_failure(stderr)
+
+
+@pytest.mark.parametrize(
+    "stderr",
+    [
+        "",
+        "error: Failed to parse `pyproject.toml`",
+        "ValueError: Unable to determine which files to ship inside the wheel",
+    ],
+)
+def test_other_build_errors_are_not_mistaken_for_offline(stderr: str) -> None:
+    assert not network_failure(stderr)
+
+
+def test_an_unreachable_index_without_a_cache_skips_never_fails(
+    tmp_path: Path,
+) -> None:
+    """A real ``uv build`` against an index whose name never resolves
+    (``.invalid``, RFC 6761) and no cache: a skip with the reason, not a fail."""
+    env = {
+        **os.environ,
+        "UV_DEFAULT_INDEX": "https://pypi.offline-test.invalid/simple",
+        "UV_INDEX_URL": "https://pypi.offline-test.invalid/simple",
+        "UV_NO_CACHE": "1",
+        "UV_HTTP_RETRIES": "0",
+    }
+    env.pop("UV_OFFLINE", None)
+    with pytest.raises(pytest.skip.Exception, match="offline"):
+        build_wheel(tmp_path / "dist", env=env)
 
 
 def test_version_string_matches_pyproject_scheme() -> None:

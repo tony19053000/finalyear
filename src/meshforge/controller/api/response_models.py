@@ -47,6 +47,7 @@ __all__ = [
     "SecretList",
     "SecretOut",
     "SecretStored",
+    "ServerClock",
     "TokenList",
     "TokenOut",
     "TokenRevoked",
@@ -316,6 +317,16 @@ class MetricPoint(ApiModel):
     ram_used_bytes: int
     ram_total_bytes: int
     gpus: list[GpuPoint]
+    recv_at: float | None = None
+    """The controller's wall clock (epoch seconds) when the sample arrived -
+    for ordering and timing live updates on one clock (V0.9 G0, D213)."""
+
+
+class ServerClock(ApiModel):
+    """``GET /v1/clock``: the controller's wall clock, for an NTP-style offset."""
+
+    server_time: float
+    """Epoch seconds (``time.time()``, microsecond resolution) when answering."""
 
 
 class NodeMetrics(ApiModel):

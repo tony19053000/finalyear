@@ -14,13 +14,11 @@ id: they flip to FAILED the day the weakness is fixed (then drop the marker).
 from __future__ import annotations
 
 import base64
-import importlib.util
 import json
 import os
 import re
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -30,6 +28,7 @@ import pytest
 from mf_dashboard import NOISE_CANARIES, PageWatch, sources_digest
 from mf_e2e import OUTAGE_NOISE
 from mf_leaks import LeakWatch, needles
+from mf_ui_perf import load_ui_perf
 from test_v08_g7_cli_ui_parity import PARITY
 from test_v08_g7_cli_ui_parity import (
     _check as parity_check,
@@ -428,14 +427,7 @@ def test_t2c_a_tiny_url_suffix_is_refused(suffix: str) -> None:
 
 
 def _perf() -> ModuleType:
-    spec = importlib.util.spec_from_file_location(
-        "ui_perf_tester_r2", ROOT / "scripts" / "ui_perf.py"
-    )
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
+    return load_ui_perf("ui_perf_tester_r2")
 
 
 PERF = _perf()
@@ -549,18 +541,15 @@ def test_t8_a_successor_shown_before_the_state_happened_does_not_count() -> None
 
 
 def test_t8_empty_samples_raise_not_pass() -> None:
+    # V0.9 G0 fix round 1 (DEFECT-2, Lead ruling): no samples is a named
+    # failure from check() (and a `fail` verdict), no longer a KeyError.
     r = _results(PERF.JobStateSamples())
-    with pytest.raises(KeyError):
-        PERF.check(r)
+    assert any("no samples" in p for p in PERF.check(r))
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-8b (minor): a state REVISITED later (retry: running -> queued -> "
-    "running) is timed to the FIRST time the page showed that state, so the "
-    "second `running` gets a negative latency and a 30 s stall passes",
-)
 def test_t8b_a_revisited_state_shown_30_s_late_fails() -> None:
+    # Fixed in V0.9 G0 (D210 item 5): a retry's re-entries are excluded from
+    # the latency samples and counted separately (strict xfail removed).
     s = PERF.JobStateSamples()
     s.add(
         "j",
