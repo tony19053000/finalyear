@@ -468,6 +468,8 @@ A version is **complete** only when all apply:
 **Dependencies:** pandas/pyarrow, numpy; Linux `tc netem` for shaping.
 **Prerequisites:** V0.6.
 
+**Brief:** `docs/briefs/V0.9-benchmark-telemetry.md` (approved 2026-10-17, D211–D224, ADR-0018). **G0 item 0 = D210** (clock skew first, before 🧑 0.8.10 perf step). G1 ∥ G2 allowed (Q4).
+
 **Tasks**
 - [ ] **0.9.1** Finalize telemetry schema (attempt summary, phase timings, start snapshots, network matrix, cache state) + Parquet export
 - [ ] **0.9.2** Workload library (parametrized): CPU (matmul, primes, sort, compression, hashing, numerical), memory (arrays, dataframes, copies), GPU (matmul, conv, tensor ops, image processing), ML (CNN inference/training, transformer inference; batch/model/sequence sweeps)
@@ -837,6 +839,7 @@ A version is **complete** only when all apply:
 
 | Date | Change | Reason |
 |---|---|---|
+| **2026-10-17** | **V0.9 planned and approved** (`docs/briefs/V0.9-benchmark-telemetry.md`, D211–D224, groups G0–G7, ADR-0018). Item 0 = D210 list; Parquet export from Postgres run records; forced runs via planner pinning; `tc netem` via narrow sudoers rule; pandas dev-only; G1 ∥ G2; 0.9.10 may span two nights (≥ 1,000 runs in one unattended stretch). | Team: "go with your recommendations". |
 | **2026-10-15** | **V0.8 planned and approved** (`docs/briefs/V0.8-dashboard-cli.md`, D169–D180, groups G1–G7, ADR-0017). 0.8.2 split into backend (G1) + frontend (G2); V0.7 D168 leftovers are V0.8 G1 item 0; browser submit is in V0.8 scope (criterion 1). | Team: "go with your suggestions". |
 | **2026-10-07** | **V0.7 planned and approved** (`docs/briefs/V0.7-security-pairing.md`, D133–D146, groups G1–G7). **ADR-0016 (Accepted)** supersedes ADR-0014: fabric CA + code pairing, mTLS everywhere, per-user API tokens, owner policy on the agent, job secrets. **New task 0.7.12 🧑 lab run.** Team answers: CA installed in browsers (V0.8), CA rotation → V0.17, Windows subprocess stays unsandboxed opt-in, fabric token deleted in V0.8, no QR dependency now. | Criteria 1 and 3 need real machines; choices keep zero new dependencies. | V0.7, V0.8, V0.17 |
 | **2026-10-05** | **V0.6 planned** (`docs/briefs/V0.6-scheduling-reliability.md`, D102–D119): 4 sequential groups (G1 reliability floor 0.6.9/0.6.10/0.6.14 + dispatcher/gc_index splits + D59; G2 planner core; G3 retries/recovery/chaos; G4 network matrix + estimator). **`cost_model` policy added to 0.6.3's list and made the default** (needed for criterion 4). **Local seeding (D109):** `compute run` puts the tree into the submitting laptop's agent CAS. **ADR-0015 (Proposed):** at-least-once execution, exactly-once commit; criterion 1 counts duplicate commits and duplicates under kills, partition overlaps reported separately. | Pure planner keeps Mode 3/ML reuse; honest retry semantics. | V0.6 |

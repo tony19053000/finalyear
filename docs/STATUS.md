@@ -2,7 +2,7 @@
 
 > Concise current state. Long-term plan: [`DEVELOPMENT_ROADMAP.md`](DEVELOPMENT_ROADMAP.md). Update at the end of every work session.
 
-**Last updated:** 2026-10-17 (V0.8 G7 CLOSED, D210; 0.8.9 `[x]`; next 🧑 0.8.10)
+**Last updated:** 2026-10-17
 
 ## Progress
 
@@ -29,6 +29,7 @@ V1.0    ░░░░░░░░░░░░░░░░░░░░   0%   0/8 
 █ done `[x]` · ▒ in progress or waiting on a 🧑 lab step `[~]` · ░ not started
 
 ## Current Version
+**V0.9 — Benchmark & telemetry v1** · started 2026-10-17 · brief `docs/briefs/V0.9-benchmark-telemetry.md` (D211–D224, approved) · ADR-0018 · G0 (D210 list) running
 **V0.8 — Dashboard & CLI v1** · started 2026-10-15 · brief `docs/briefs/V0.8-dashboard-cli.md` (D169–D180, approved) · ADR-0017 · groups G1–G7 sequential · **G1–G7 CLOSED** (G7 2026-10-17, D210) — 0.8.1–0.8.9 `[x]`; agent-side complete; closes on 🧑 0.8.10 (`lab/checklists/V0.8-visual.md`)
 **V0.7 — Security & pairing** · started 2026-10-07 · brief `docs/briefs/V0.7-security-pairing.md` (D144–D162) · **G1–G5 CLOSED** (0.7.1–0.7.9 `[x]`) · **G6 CLOSED** (0.7.10 `[x]`, 2026-10-14) · **G7 CLOSED** (0.7.11 `[x]`, 2026-10-15, D168) · agent-side complete · closes on 🧑 0.7.12 lab
 **V0.6 — Scheduling & reliability** · started 2026-10-05 · brief `docs/briefs/V0.6-scheduling-reliability.md` · **G1 CLOSED** (0.6.9, 0.6.10, 0.6.14 `[x]`) · G1–G4 CLOSED agent-side · closes on 🧑 0.6.13 lab
@@ -44,6 +45,8 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 > V0.10. 129 tasks vs 140–180 capacity → **~1.5 tasks/session**. Needs the other three team members' approval.
 
 ## Current Task
+
+- **2026-10-17: V0.9 APPROVED** (all Q1–Q5 = Lead recommendations), ADR-0018 Accepted. G0 implementer running (brief §5a, clock skew first). Next: G0 tester → reviewer → close; then G1 ∥ G2 briefs.
 
 - **2026-10-17: V0.8 G7 CLOSED (D207–D210).** Tester r1/r2 PASS (gate weaknesses fixed in 2 rounds), reviewer APPROVE, merged `334da94`. Gate on main alone after frontend rebuild: whole `-m component` 2269 passed / 15 skipped / 0 failed, exit 0 (81 min). Perf criterion 2 met on one laptop (heartbeat p95 252 ms, job.state p95 ≤ 101 ms). 0.8.9 `[x]`. **V0.8 agent-side complete; closes on 🧑 0.8.10.** Next agent work: V0.9 brief.
 

@@ -262,6 +262,8 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
+**2026-10-17 (V0.9 APPROVED, ADR-0018) — RUNNING: G0 implementer (brief §5a, D210 list) in a worktree. If died: relaunch from brief §5a; then tester → reviewer → whole component once → close G0 → write G1/G2 briefs (parallel allowed).**
+
 **2026-10-17 (V0.9 brief DRAFTED, Lead) — NOTHING RUNNING. `docs/briefs/V0.9-benchmark-telemetry.md` (D211–D224, Q1–Q5) waits for team approval. On approval: ADR-0018 → G0 item 0 (D210 list, clock skew first, before 🧑 0.8.10 perf step).**
 
 **2026-10-17 (G7 CLOSED, D210) — NOTHING RUNNING. 0.8.9 `[x]`; gate 2269 passed / 0 failed. V0.8 agent-side complete; closes on 🧑 0.8.10 (`lab/checklists/V0.8-visual.md`). Next agent work: V0.9 brief (item 0 = D210 list; do D210 item 1 clock skew early - the 0.8.10 lab perf step needs it).**
