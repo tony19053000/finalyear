@@ -197,3 +197,77 @@ async def test_a_database_outage_is_not_mistaken_for_a_refused_record(
     assert rec.skipped == 0 and not rec.skipped_attempts
     monkeypatch.setattr(recorder_module, "_insert_rows", real)
     assert await rec.sweep() == 1
+
+
+async def test_a_skip_in_a_sweep_that_rolls_back_is_not_kept_without_its_alert(
+    http: httpx.AsyncClient,
+    agent: ExecAgent,
+    runtime: ControllerRuntime,
+    engine: Any,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A refused row is skipped, then the same sweep loses the database: the
+    transaction (and the skip's alert row) rolls back, so the skip must not
+    stick - the next sweep skips it again *with* its alert."""
+    ids = []
+    for i in range(2):
+        project = tmp_path / f"p{i}"
+        project.mkdir()
+        (project / "main.py").write_text(CODE)
+        job_id = await submit(
+            http,
+            project,
+            agent.node_id,
+            {"name": f"p{i}", "entrypoint": ["python", "main.py"]},
+        )
+        await wait_job(http, job_id, timeout_s=40)
+        ids.append(job_id)
+    await _wait_records(engine, 2)
+    assert runtime.recorder is not None
+
+    async def never() -> int:
+        return 0
+
+    runtime.recorder.sweep = never  # type: ignore[method-assign]
+    await asyncio.sleep(0.5)
+    async with engine.begin() as conn:
+        await conn.execute(text("DELETE FROM run_record"))
+        await conn.execute(
+            text("DELETE FROM audit_event WHERE action = 'telemetry_record_skipped'")
+        )
+
+    victim = ids[0]  # first in sweep order: skipped before the outage hits
+    real_build = recorder_module.build_record
+
+    def poisoned(source: Any) -> dict[str, Any]:
+        record = real_build(source)
+        if source.job_id == victim:
+            record["p_dtype"] = "d" * 100  # VARCHAR(64): SQLSTATE 22001
+        return record
+
+    from sqlalchemy.exc import OperationalError
+
+    real_insert = recorder_module._insert_rows
+    down = True
+
+    async def flaky(db: Any, records: Any) -> int:
+        if down and len(records) == 1 and records[0]["job_id"] != victim:
+            raise OperationalError("INSERT", {}, ConnectionResetError("gone"))
+        return await real_insert(db, records)
+
+    monkeypatch.setattr(recorder_module, "build_record", poisoned)
+    monkeypatch.setattr(recorder_module, "_insert_rows", flaky)
+    rec = RunRecorder(engine)
+    with pytest.raises(recorder_module.TelemetryStoreError):
+        await rec.sweep()
+    assert rec.skipped == 0 and not rec.skipped_attempts
+    alerts = await AlertLog(engine).list(limit=10)
+    assert not [a for a in alerts if a.kind == "telemetry_record_skipped"]
+
+    down = False
+    assert await rec.sweep() == 1
+    assert rec.skipped == 1 and len(rec.skipped_attempts) == 1
+    alerts = await AlertLog(engine).list(limit=10)
+    skipped = [a for a in alerts if a.kind == "telemetry_record_skipped"]
+    assert len(skipped) == 1 and skipped[0].details["job_id"] == victim

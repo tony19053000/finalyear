@@ -115,6 +115,8 @@ class RunRecorder:
         self.skipped = 0
         """Attempts skipped since start (unbuildable or refused by PostgreSQL)."""
         self._skip: set[str] = set()
+        self._pending_skips: list[str] = []
+        """Skips of the running sweep, applied when its transaction commits."""
 
     @property
     def skipped_attempts(self) -> frozenset[str]:
@@ -124,18 +126,18 @@ class RunRecorder:
     async def _skipped(
         self, db: AsyncSession, source: _Skip, *, reason: str, error_type: str
     ) -> None:
-        """Skip ``source`` until restart: count it, log it and add the
-        ``telemetry_record_skipped`` alert row to ``db``'s transaction."""
-        if len(self._skip) < _MAX_UNBUILDABLE:
-            self._skip.add(source.attempt_id)
-        self.skipped += 1
+        """Skip ``source`` until restart: log it and add the
+        ``telemetry_record_skipped`` alert row to ``db``'s transaction. It is
+        counted and excluded from later sweeps only once that transaction
+        commits (:meth:`sweep`): if it rolls back, the alert row is gone too,
+        so the attempt is tried - and alerted - again by the next sweep."""
+        self._pending_skips.append(source.attempt_id)
         log.error(
             "controller.telemetry.record_skipped",
             attempt_id=source.attempt_id,
             job_id=source.job_id,
             reason=reason,
             error_type=error_type,
-            skipped=self.skipped,
         )
         await audit(
             db,
@@ -206,6 +208,7 @@ class RunRecorder:
     async def sweep(self) -> int:
         """Write the records of up to ``batch`` terminal attempts that have none;
         the number written. Raises :class:`TelemetryStoreError`."""
+        self._pending_skips = []
         try:
             async with self._sessions() as db, db.begin():
                 attempts = list(
@@ -230,6 +233,11 @@ class RunRecorder:
                 "the database refused the telemetry sweep",
                 details={"cause": type(exc).__name__},
             ) from exc
+        for attempt_id in self._pending_skips:  # committed with their alert rows
+            if len(self._skip) < _MAX_UNBUILDABLE:
+                self._skip.add(attempt_id)
+            self.skipped += 1
+        self._pending_skips = []
         self.written += count
         if count:
             log.info("controller.telemetry.records_written", count=count)
