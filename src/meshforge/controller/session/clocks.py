@@ -19,7 +19,10 @@ The estimate uses only a recent :class:`~meshforge.common.clock_offset.ClockWind
 an old minimum-RTT exchange cannot hide drift (D226). The agent reports its
 wall clock's resolution (``Pong.clock_resolution_us``); an agent that does not
 is assumed to tick in :data:`UNKNOWN_RESOLUTION_MS` steps (Windows on Python
-3.12), so its bound is honest rather than tight.
+3.12), so its bound is honest rather than tight. The bound uses the **coarsest**
+resolution reported over the window, not only the latest one: every exchange in
+the window feeds the estimate, so each one's tick limits it - and a resolution
+that alternates between reports cannot flap the alert on every Ping.
 
 A node's clock is **uncertain** when the bound exceeds :data:`ALERT_BOUND_MS`
 or the window's exchanges contradict each other (``consistent=False``), once at
@@ -33,6 +36,7 @@ Pure state; no I/O, no clock reads (the caller passes the times).
 from __future__ import annotations
 
 import math
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Final
 
@@ -100,6 +104,9 @@ class NodeClock:
             max_count=WINDOW_EXCHANGES, max_age_ms=WINDOW_AGE_S * 1000.0
         )
     )
+    resolutions: deque[float] = field(default_factory=deque)
+    """The agent's reported resolution of each exchange still in ``window``
+    (same order; the window keeps a suffix of what was added)."""
     latest: ClockOffset | None = None
     uncertain: bool = False
     exchanges_rejected: int = 0
@@ -124,11 +131,14 @@ class NodeClock:
             self.exchanges_rejected += 1
             return None
         self.window.add(exchange)
+        self.resolutions.append(agent_resolution_ms)
+        while len(self.resolutions) > len(self.window):
+            self.resolutions.popleft()
         try:
             clock = estimate_offset(
                 self.window.exchanges(),
                 resolution_ms=local_resolution_ms,
-                remote_resolution_ms=agent_resolution_ms,
+                remote_resolution_ms=max(self.resolutions),
             )
         except ClockOffsetError:
             self.exchanges_rejected += 1

@@ -331,3 +331,29 @@ def _live_without_loop() -> LiveSession:
         next_ping_at=0.0,
         writer=WriteChain(node_id=node_id, session_id=session_id),
     )
+
+
+def test_the_bound_uses_the_coarsest_resolution_in_the_window_until_it_leaves() -> None:
+    """T-1 (fix r1): one coarse report widens the bound while its exchange is
+    in the window, and stops doing so once the window has moved past it."""
+    clock = NodeClock()
+    wall_ms = WALL0 * 1000.0
+
+    def feed(i: int, res_ms: float) -> None:
+        clock.observe(
+            sent_wall_ms=wall_ms + i * 6000.0,
+            rtt_ms=2.0,
+            agent_ms=wall_ms + i * 6000.0 + 1.0,
+            agent_resolution_ms=res_ms,
+        )
+
+    feed(0, 600.0)
+    for i in range(1, 8):
+        feed(i, 0.001)
+    assert clock.latest is not None and clock.latest.bound_ms >= 300.0
+    assert clock.uncertain
+    for i in range(8, 8 + 40):  # > 32 exchanges later the coarse one is gone
+        feed(i, 0.001)
+    assert len(clock.resolutions) == len(clock.window) == 32
+    assert clock.latest.bound_ms < 10.0
+    assert not clock.uncertain

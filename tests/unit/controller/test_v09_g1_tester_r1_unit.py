@@ -177,9 +177,6 @@ def test_a_drift_of_the_agent_clock_inside_the_bound_is_not_hidden() -> None:
     assert (not clock.latest.consistent) or clock.latest.bound_ms >= 19.0
 
 
-@pytest.mark.xfail(
-    strict=True, reason="DEFECT-1: bound uses the latest exchange's resolution only"
-)
 def test_defect_1_alternating_reported_resolution_flaps_the_alert_every_ping() -> None:
     """The bound uses only the *latest* exchange's resolution, so an agent (or
     any clock whose resolution report varies) toggles the node between
