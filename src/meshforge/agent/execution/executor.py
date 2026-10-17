@@ -94,6 +94,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import dataclasses
+import functools
 import os
 import re
 import stat
@@ -1618,7 +1619,9 @@ class Executor:
             # V0.9 G1 (D213): a benchmark's own monotonic kernel time and
             # identity (results/workload.json; bounded, untrusted, no symlinks).
             attempt.workload = await asyncio.to_thread(
-                read_workload_result, attempt.workdir
+                functools.partial(
+                    read_workload_result, attempt.workdir, matcher=attempt.matcher
+                )
             )
         if result.ok:
             await self._send(attempt, AttemptState.UPLOADING)

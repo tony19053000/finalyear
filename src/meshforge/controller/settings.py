@@ -1301,6 +1301,33 @@ class EventsSettings(SectionModel):
     )
 
 
+class TelemetrySettings(SectionModel):
+    """``[controller.telemetry]`` - run records and the dataset export (V0.9 G1,
+    D211/D212). A record is written for every terminal attempt by a sweep."""
+
+    record_interval_s: float = Field(
+        default=2.0,
+        ge=0.1,
+        le=60.0,
+        description=(
+            "How often terminal attempts without a run record are looked for "
+            "(an attempt change also wakes the sweep)."
+        ),
+    )
+    record_batch: int = Field(
+        default=200,
+        ge=1,
+        le=5_000,
+        description="Records written per sweep transaction (a backlog sweeps again).",
+    )
+    export_max_rows: int = Field(
+        default=1_000_000,
+        ge=1,
+        le=10_000_000,
+        description="Most run records one Parquet export may hold.",
+    )
+
+
 class ControllerSection(SectionModel):
     """``[controller]`` section."""
 
@@ -1427,6 +1454,7 @@ class ControllerSection(SectionModel):
     auth: AuthSettings = Field(default_factory=AuthSettings)
     events: EventsSettings = Field(default_factory=EventsSettings)
     http: HttpSettings = Field(default_factory=HttpSettings)
+    telemetry: TelemetrySettings = Field(default_factory=TelemetrySettings)
 
     @field_validator("grpc_bind", "http_bind")
     @classmethod

@@ -200,3 +200,29 @@ def test_a_compute_time_over_the_bound_is_refused() -> None:
     status = _status()
     status.phases.compute_ns = MAX_PHASE_NS + 1
     assert isinstance(parse_status(status), str)
+
+
+@pytest.mark.security
+@pytest.mark.parametrize(
+    "leak",
+    [
+        "s3cr3t-value-123",  # plain
+        "czNjcjN0LXZhbHVlLTEyMw==",  # base64, a form the log redaction knows
+    ],
+)
+def test_a_secret_written_into_the_result_never_leaves_the_node(
+    tmp_path: Path, leak: str
+) -> None:
+    """THREAT_MODEL RE-I6: a workload that writes its own secret value into
+    results/workload.json (params) cannot smuggle it into the run record and
+    the admin's dataset export - the field is dropped, the rest is kept."""
+    from meshforge.common.secret_redaction import SecretMatcher
+
+    _write(tmp_path, dict(DOC, params={"n": 4, "note": leak}))
+    matcher = SecretMatcher({"API_KEY": b"s3cr3t-value-123"})
+    report = read_workload_result(tmp_path, matcher=matcher)
+    assert report is not None
+    assert report.params_json == "" and report.compute_ns == DOC["compute_ns"]
+    assert leak not in repr(report) and leak not in str(report.to_proto())
+    clean = read_workload_result(tmp_path, matcher=SecretMatcher({"X": b"other-v4lue"}))
+    assert clean is not None and leak in clean.params_json

@@ -23,6 +23,7 @@ Any job may write such a file; for a non-benchmark job it is simply absent.
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 import json
 import math
 import os
@@ -33,6 +34,11 @@ from pathlib import Path
 from typing import Any, Final
 
 from meshforge.common.proto.meshforge.v1 import agent_pb2
+from meshforge.common.secret_redaction import (
+    RedactionStallError,
+    SecretMatcher,
+    redact_bytes,
+)
 
 __all__ = [
     "MAX_PARAMS_JSON_CHARS",
@@ -78,9 +84,17 @@ class WorkloadReport:
         return msg
 
 
-def read_workload_result(workdir: Path) -> WorkloadReport | None:
+def read_workload_result(
+    workdir: Path, *, matcher: SecretMatcher | None = None
+) -> WorkloadReport | None:
     """The report in ``workdir/results/workload.json``, or None (absent,
-    unreadable, malformed). Blocking: call it in a thread."""
+    unreadable, malformed). Blocking: call it in a thread.
+
+    ``matcher`` is the attempt's secret matcher (V0.7 G6): a text field in
+    which it finds one of the job's secret values (in any encoded form the
+    log redaction knows) is **dropped** - the report reaches the controller,
+    the run record and the admin's dataset export, so a workload must not be
+    able to smuggle its secrets out through it."""
     raw = _read_bounded(workdir)
     if raw is None:
         return None
@@ -90,7 +104,26 @@ def read_workload_result(workdir: Path) -> WorkloadReport | None:
         return None
     if not isinstance(document, dict):
         return None
-    return _report(document)
+    report = _report(document)
+    if report is None or matcher is None or not matcher:
+        return report
+    return _without_secrets(report, matcher)
+
+
+def _without_secrets(report: WorkloadReport, matcher: SecretMatcher) -> WorkloadReport:
+    def clean(value: str) -> str:
+        data = value.encode("utf-8")
+        try:
+            return value if redact_bytes(data, matcher) == data else ""
+        except RedactionStallError:
+            return ""  # fail closed: the field is dropped
+
+    return dataclasses.replace(
+        report,
+        family=clean(report.family),
+        params_json=clean(report.params_json),
+        device=clean(report.device),
+    )
 
 
 def _read_bounded(workdir: Path) -> bytes | None:

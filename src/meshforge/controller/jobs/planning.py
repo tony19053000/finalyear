@@ -58,7 +58,11 @@ from meshforge.controller.jobs.execution_store import (
     Wait,
 )
 from meshforge.controller.jobs.queue_reads import FabricRows, NodeRow
-from meshforge.controller.jobs.spec import choose_gpus, start_snapshot
+from meshforge.controller.jobs.spec import (
+    choose_gpus,
+    start_snapshot,
+    start_telemetry,
+)
 from meshforge.controller.jobs.store import JobRecord
 from meshforge.controller.liveness import NodeState
 from meshforge.controller.planner import (
@@ -315,7 +319,9 @@ class DispatchPlanner:
         decision = plan(plan_job, snapshot, self.policy_of(job), self._wall())
         record = decision_record(decision)
         if decision.chosen is not None:
-            return self._dispatch(job, manifest, decision, fabric, record)
+            return self._dispatch(
+                job, manifest, decision, fabric, record, trees=trees, cluster=snapshot
+            )
         if pinned is not None:
             return self._pinned_refused(decision, record)
         if decision.all_static_rejections:
@@ -382,6 +388,9 @@ class DispatchPlanner:
         decision: Decision,
         fabric: FabricRows,
         record: DecisionRecord,
+        *,
+        trees: tuple[TreeNeed, ...] = (),
+        cluster: ClusterSnapshot | None = None,
     ) -> Dispatch | Wait:
         chosen = decision.chosen
         if chosen is None or chosen.slot is None:  # pragma: no cover - caller checked
@@ -410,6 +419,15 @@ class DispatchPlanner:
             if job.owner_user_id is None
             else fabric.owner_names.get(job.owner_user_id),
             policy=None if live is None or live.policy is None else live.policy,
+            telemetry=start_telemetry(
+                node=None if cluster is None else cluster.node(chosen.node_id),
+                trees=trees,
+                submitter_node_id=job.scheduling.submitter_node_id,
+                node_id=chosen.node_id,
+                links=fabric.links,
+                controller_links=fabric.controller_links,
+                clock=None if live is None else live.clock.latest,
+            ),
         )
         if decision.policy == "round_robin":
             self.round_robin_after = chosen.node_id
