@@ -33,7 +33,7 @@ Remote GPU test can be ``component`` + ``gpu`` and a Mode 4 test ``cluster`` + `
   caches; e.g. the fresh-clone ``uv sync`` test). Combines with any tier, so
   ``pytest -m component --run-slow`` runs component tests including slow ones.
 * ``perf`` — UI performance measurements with thresholds (V0.8 G7,
-  ``scripts/ui_perf.py``): minutes of seeding (4 nodes x 100 jobs, 10 000
+  ``scripts/ui_perf/``): minutes of seeding (4 nodes x 100 jobs, 10 000
   jobs). Skipped unless ``--run-perf`` is given or the ``-m`` expression
   selects it (``pytest -m perf``) - a bare run never pays for it.
 * ``security`` — never skipped by itself: it says the test **proves a row of

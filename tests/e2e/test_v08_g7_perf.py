@@ -5,7 +5,7 @@ clock with a measured browser offset (V0.9 G0, D213: skew-safe).
 
 ``pytest -m perf`` (skipped by default: it runs 400 real jobs and seeds
 10 000 more - several minutes). The measuring itself is
-``scripts/ui_perf.py`` (also runnable against a real fabric); this test runs
+``scripts/ui_perf/`` (package) (also runnable against a real fabric); this test runs
 it on a cluster-harness fabric with 4 real agents and asserts
 ``ui_perf.THRESHOLDS_MS``. The numbers are printed (``-s``) and written to
 ``<tmp>/ui-perf.json``; record them with the machine's specs.
@@ -14,7 +14,6 @@ it on a cluster-harness fabric with 4 real agents and asserts
 from __future__ import annotations
 
 import dataclasses
-import importlib.util
 import json
 import sys
 from pathlib import Path
@@ -22,6 +21,7 @@ from types import ModuleType
 from typing import TYPE_CHECKING, Any
 
 import pytest
+from mf_ui_perf import load_ui_perf
 
 pytest.importorskip(
     "playwright", reason="needs the dev dependency group (pytest-playwright)"
@@ -45,19 +45,13 @@ pytestmark = [
     pytest.mark.skipif(sys.platform.startswith("win"), reason="POSIX agent runtime"),
 ]
 
-SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "ui_perf.py"
 NODES = 4
 HISTORY_PER_NODE = 100
 BULK = 10_000
 
 
 def _ui_perf() -> ModuleType:
-    spec = importlib.util.spec_from_file_location("ui_perf", SCRIPT)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
+    return load_ui_perf("ui_perf")
 
 
 @pytest.mark.parametrize(

@@ -14,9 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
-import importlib.util
 import json
-import sys
 import time
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -26,6 +24,7 @@ from typing import Any
 import httpx
 import pytest
 import pytest_asyncio
+from mf_ui_perf import load_ui_perf
 
 pytest.importorskip("sqlalchemy", reason="needs the controller extra")
 
@@ -55,14 +54,7 @@ AGENT_SKEW = dt.timedelta(seconds=5)
 
 
 def _ui_perf() -> ModuleType:
-    spec = importlib.util.spec_from_file_location(
-        "ui_perf_v09_g0_component", ROOT / "scripts" / "ui_perf.py"
-    )
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
+    return load_ui_perf("ui_perf_v09_g0_component")
 
 
 @pytest.fixture

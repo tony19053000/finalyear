@@ -14,15 +14,14 @@ are skew-safe.
 from __future__ import annotations
 
 import datetime as dt
-import importlib.util
 import json
 import math
-import sys
 from pathlib import Path
 from types import ModuleType
 from typing import Any
 
 import pytest
+from mf_ui_perf import load_ui_perf
 
 from meshforge.common.clock_offset import (
     ClockExchange,
@@ -37,14 +36,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def _ui_perf() -> ModuleType:
-    spec = importlib.util.spec_from_file_location(
-        "ui_perf_v09_g0", ROOT / "scripts" / "ui_perf.py"
-    )
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
+    return load_ui_perf("ui_perf_v09_g0")
 
 
 PERF = _ui_perf()
