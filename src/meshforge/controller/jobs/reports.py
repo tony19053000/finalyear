@@ -117,7 +117,9 @@ def _workload(
                 f"{MAX_WORKLOAD_PARAMS_CHARS} characters"
             )
         try:
-            parsed = json.loads(w.params_json, parse_constant=_no_constant)
+            parsed = json.loads(
+                w.params_json, parse_constant=_no_constant, parse_float=_finite_float
+            )
         except (ValueError, RecursionError):
             return "AttemptStatus.workload.params_json is not JSON"
         if not isinstance(parsed, dict):
@@ -174,6 +176,14 @@ def _storable_json(value: object) -> bool:
 
 def _no_constant(name: str) -> Any:
     raise ValueError(f"{name} is not JSON")
+
+
+def _finite_float(text: str) -> float:
+    """Refuse literals like ``1e400`` that overflow to inf (PostgreSQL JSONB rejects them)."""
+    value = float(text)
+    if not math.isfinite(value):
+        raise ValueError(f"{text} is not a finite number")
+    return value
 
 
 MAX_LOG_REPORT_BYTES: Final = 1 << 40

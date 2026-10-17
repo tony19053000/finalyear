@@ -173,12 +173,6 @@ def _source(workload: Mapping[str, Any] | None) -> Any:
 @pytest.mark.parametrize(
     "params_json", ['{"a":1e400}', '{"a":-1e999}', '{"a":[1e999]}']
 )
-@pytest.mark.xfail(
-    strict=True,
-    reason="T2-1: the controller accepts +-Infinity in params_json (1e400 is not a "
-    "'constant' to json.loads); JSONB refuses 'Infinity', so the attempt's terminal "
-    "write would fail",
-)
 def test_defect_t2_1_infinite_numbers_in_params_are_refused(params_json: str) -> None:
     report = agent_pb2.WorkloadReport(
         family="cpu.x", status="ok", params_json=params_json
