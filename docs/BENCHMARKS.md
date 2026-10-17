@@ -71,9 +71,9 @@ the same node and library build (BLAS and GPUs round differently).
 | `gpu.conv2d` | 3x3 convolution, padding 1 (cuDNN) | `batch` 1-256 (32), `channels` 16-512 (128), `size` 16-256 (64), `repeats` (300) | the whole output recomputed in float64 on the device; each element within 2e-3 of `conv(\|x\|, \|w\|)` (allows cuDNN TF32) | no |
 | `gpu.elementwise` | `sin`, then `ops` fused `x + c*y` steps (bandwidth-bound) | `elements_m` 16-256 (64), `ops` 1-64 (16), `repeats` (60) | the whole output recomputed in float64 on the device, in chunks | no |
 | `gpu.resize` | bilinear resize of RGB images | `batch` 1-256 (64), `size` 64-1024 (256), `out_size` 32-2048 (512), `repeats` (1100) | every image resized again in float64 on the device; a wrong shape fails the check | no |
-| `ml.cnn_infer` | small CNN (conv-BN-ReLU blocks) inference | `batch` 1-512 (64), `width` 16-256 (64), `depth` 2-12 (6), `image` 32/64, `batches` (1000) | finite logits; last batch rerun equal | no |
-| `ml.cnn_train` | the same CNN, SGD steps on learnable synthetic labels | `batch` 8-512 (64), `width`, `depth`, `image`, `steps` 20-50000 (400) | finite losses; last quarter < first quarter | no |
-| `ml.transformer_infer` | transformer encoder on random tokens | `batch` 1-256 (16), `seq_len` 16-2048 (256), `width` (d_model, x64) 64-1024 (256), `depth` 1-24 (4), `batches` (300) | finite; last batch rerun equal | no |
+| `ml.cnn_infer` | small CNN (conv-BN-ReLU blocks) inference | `batch` 1-512 (64), `width` 16-256 (64), `depth` 2-12 (6), `image` 32/64, `batches` (1000) | finite logits; weights equal a seeded CPU rebuild; last batch rerun equal; **float64 CPU reference** of the last batch (see below) | no |
+| `ml.cnn_train` | the same CNN, SGD steps on learnable synthetic labels | `batch` 8-512 (64), `width`, `depth`, `image`, `steps` 20-50000 (400) | finite losses; first loss equals a **float64 CPU recompute** on the seeded rebuild; last quarter < first quarter | no |
+| `ml.transformer_infer` | transformer encoder on random tokens | `batch` 1-256 (16), `seq_len` 16-2048 (256), `width` (d_model, x64) 64-1024 (256), `depth` 1-24 (4), `batches` (300) | finite; weights equal the seeded rebuild; last batch rerun equal; **float64 CPU reference** | no |
 
 GPU and ML families **require CUDA** (`env.base: cuda-pytorch`, `resources.gpu: required`). On a node without
 CUDA (or without torch) the job exits **3** with `status: "unavailable"` and the reason - a typed outcome, not a
@@ -98,7 +98,7 @@ compute.yaml              manifest: entrypoint [python, run_workload.py] (argv, 
                           limits (timeout 15m, network none)
 run_workload.py           3 lines: bench_kernels.runner.main()
 workload_params.json      {"family", "params", "seed"}, canonical JSON
-requirements.txt          numpy==2.5.3 (pinned to uv.lock), only for families that use numpy
+requirements.txt          numpy==2.5.3 (pinned to uv.lock, bumped in lockstep), only for families that use numpy
 bench_kernels/            __init__, _support, runner + the family's kernel module (stdlib + numpy/torch only)
 ```
 
@@ -107,6 +107,11 @@ standard library, numpy and torch (a unit test parses every copied file to hold 
 `(family, params, seed)` gives a **byte-identical folder** (same bundle digest - the blob store keeps one copy
 and a resubmit uploads nothing): fixed file set, sorted JSON, LF line endings, no timestamps. numpy is installed
 by the node's environment cache once per node, not per run.
+
+The digest is a function of the MeshForge version: changing a kernel file (`bench_kernels/*`) or
+`NUMPY_REQUIREMENT` changes every affected job tree. A `NUMPY_REQUIREMENT` bump (always together with `uv.lock`;
+a unit test holds them equal) is a **dataset-version event**: runs before and after measured different numpy
+builds, so the bump is recorded with the dataset's library versions and the two are never mixed silently.
 
 ### `results/workload.json`
 
@@ -117,7 +122,8 @@ The run's only output (`schema_version` 1):
 | `family`, `params`, `seed` | what ran |
 | `status` | `ok`, `check_failed`, `unavailable` (no CUDA/torch/numpy here), `bad_params` |
 | `reason` | why it is not `ok` |
-| `compute_ns`, `compute_ms` | `time.perf_counter_ns()` around the kernel's compute **only** - data generation, warm-up and the self-check are excluded (D213: a monotonic duration measured where the work runs) |
+| `compute_ns`, `compute_ms` | `time.perf_counter_ns()` around the kernel's compute **only** - data generation, warm-up and the self-check are excluded (D213: a monotonic duration measured where the work runs). It covers the **whole timed loop**: all `repeats` (`batches` for inference, `steps` for training) iterations, not one |
+| `compute_iterations` | how many iterations `compute_ns` covers (`runner.ITERATION_PARAM`; 1 for `cpu.sha256`, whose timed work is one pass). One iteration = `compute_ns / compute_iterations` (G5 labels use this). `null` when nothing was computed; `verify()` requires it to match the params |
 | `prepare_ms`, `warmup_ms`, `check_ms` | the excluded parts, measured separately |
 | `checksum`, `checksum_exact` | `sha256:...` of the output; whether it should match across nodes |
 | `verified`, `check_detail` | the self-check's outcome and numbers (e.g. the Freivalds error) |
@@ -143,6 +149,34 @@ GPU corner n = 12288 extrapolates lower. k = 4 (float32) / 8 (float64, float16) 
 float32 element off by 1e-2 at n = 384 scores 22 units (5.5x over). Rows are converted to float64 1024 at a time,
 so even a 12288 x 12288 GPU product needs no float64 copy. Recalibrate on the first CUDA run (cuBLAS may round
 differently from OpenBLAS).
+
+**ML reference (D225, measured).** A rerun only proves an ML output is *repeatable*; a consistently wrong kernel
+(a bad cuDNN algorithm, a changed weight) repeats too. So the ML checks rebuild the model from the seed **on the
+CPU** - a separate object built by the same seeded initialisation, never a copy of the timed model - and:
+
+- inference: the timed model's weights and buffers must equal the rebuild bit for bit, and rows of the last
+  batch are recomputed in **float64**: the whole batch when it fits a 1e11-FLOP budget (about 1 s; the default
+  CNN batch fits), otherwise evenly spaced rows - always the first and last - **plus 2 rows drawn by a generator
+  seeded with the run's seed** (`SAMPLED_ROWS`; never the first or last). Worst case, the largest transformer:
+  4 rows, ~6.6e12 FLOPs, about a minute on a laptop CPU - still inside the 15 min job timeout.
+  **Limit, stated plainly:** when sampling, only the sampled rows **of the last batch** are compared with float64.
+  A fault confined to rows a run did not sample, or to an earlier batch of the timed loop, passes that run (the
+  exact weight check and the full-batch rerun still apply). One run is reproducible (same seed, same rows);
+  across a campaign's seeds the random rows reach every row of the batch;
+- training: the first timed step's loss is recomputed in float64 on the rebuild (the whole first batch, since
+  batch-norm couples it; under 1 s at the default size, an estimated ~30 s at the largest window-valid batch).
+
+Each element must be within `16 * eps * sqrt(layers) * max|reference row|` (loss: scale `max(|loss|, 1)`), where
+`eps` is float32's 2^-24 on the CPU and on CUDA **TF32's 2^-11** when cuDNN convolutions or cuBLAS matmuls may
+use TF32 (cuDNN's default; bfloat16 2^-8 under `set_float32_matmul_precision("medium")`). On Laptop 1 (torch 2.14
+CPU, 4 shapes per family up to width 128-512 / depth 12, 20 seeds each) the worst honest run used 1.05 units
+(cnn_infer), 2.85 (transformer_infer) and 1.42 (cnn_train first loss), so factor 16 leaves >= 5.6x headroom. An
+output scaled by 1.0001 with equal weights and an equal rerun (a forward hook - what a wrong device kernel looks
+like), one weight changed by 1e-3, and a changed batch-norm buffer all fail. The reference uses the timed run's
+inputs (a CUDA generator cannot be replayed on the CPU). **Not yet measured on CUDA**: the TF32 unit makes the
+CUDA tolerance 8192x looser (about 3 % of the row maximum for a depth-12 CNN); the first CUDA lab run calibrates
+it. A loss is one scalar, so in training a tiny change that train-mode batch-norm absorbs (e.g. 1e-3 on one conv
+weight) can stay under the tolerance; the decreasing-loss property still applies.
 
 **Self-checks are what the dataset trusts.** Labels (G5) use `verified`, so every check must fail on wrong
 output, not only on gross corruption; the mutation tests in `tests/unit/bench/` and

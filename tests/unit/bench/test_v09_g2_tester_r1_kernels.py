@@ -393,6 +393,8 @@ def test_verify_rejects_each_kind_of_bad_result(
     family = get_family("cpu.sort")
     good = _doc_with(monkeypatch)
     good["params"] = family.params_dict({})
+    # D225: the document must say how many iterations its compute_ns covers.
+    good["compute_iterations"] = good["params"]["repeats"]
     assert family.verify(WorkloadResult.model_validate(good)).ok
 
     def bad(**override: Any) -> WorkloadResult:
@@ -409,6 +411,8 @@ def test_verify_rejects_each_kind_of_bad_result(
         "no checksum": bad(checksum=None),
         "weak checksum": bad(checksum="md5:abc"),
         "unavailable": bad(status="unavailable", verified=False, reason="no cuda"),
+        "no iterations": bad(compute_iterations=None),
+        "wrong iterations": bad(compute_iterations=1),
     }
     for label, result in cases.items():
         assert not family.verify(result).ok, label

@@ -40,7 +40,12 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from meshforge.common.errors import FailureType, MeshForgeError
 
 from .kernels._support import Unavailable
-from .kernels.runner import MAX_SEED, RESULT_SCHEMA_VERSION, execute
+from .kernels.runner import (
+    MAX_SEED,
+    RESULT_SCHEMA_VERSION,
+    compute_iterations,
+    execute,
+)
 
 __all__ = [
     "CALIBRATION_HW",
@@ -204,6 +209,10 @@ class WorkloadResult(BaseModel):
     device: str | None = None
     compute_ns: int | None = Field(default=None, ge=0)
     compute_ms: float | None = Field(default=None, ge=0)
+    compute_iterations: int | None = Field(default=None, ge=1, strict=True)
+    """Iterations ``compute_ns`` covers (the whole timed loop): one iteration is
+    ``compute_ns / compute_iterations``. Strict (D225 tester T2): a JSON
+    ``true``, ``3.0`` or ``"3"`` is refused - the runner only writes integers."""
     prepare_ms: float | None = None
     warmup_ms: float | None = None
     check_ms: float | None = None
@@ -363,6 +372,13 @@ class Family[P: Params](ABC):
             problems.append(f"status {result.status}: {result.reason or ''}".strip())
         if not result.compute_ns:
             problems.append("no compute time")
+        loop_count = compute_iterations(self.name, result.params)
+        if result.compute_iterations is None or (
+            loop_count is not None and result.compute_iterations != loop_count
+        ):
+            problems.append(
+                f"compute_iterations {result.compute_iterations}, expected {loop_count}"
+            )
         if not (result.checksum or "").startswith("sha256:"):
             problems.append("no checksum")
         return Verdict(ok=not problems, problems=tuple(problems))
