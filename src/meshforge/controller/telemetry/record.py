@@ -20,6 +20,14 @@ benchmark (a workload report is present) that exited 3 or reported
 (stopped, no measurement), everything else (node lost, fenced, transfer, env,
 disk, internal ...) -> ``infrastructure``. Every record has a class (checklist
 29).
+
+**Untrusted values.** The workload report (and the job manifest) carry values a
+user chose. Every text column is bounded to its column width
+(:data:`SHORT_TEXT_CHARS`) - a longer value is null, never truncated into a
+different value - and no text or JSON value with a NUL or a lone surrogate
+(PostgreSQL refuses both), or JSON nested deeper than :data:`MAX_JSON_DEPTH`, is
+kept: it is null. So a hostile report cannot make PostgreSQL refuse the record
+(the recorder still isolates a refused record, :mod:`.recorder`).
 """
 
 from __future__ import annotations
@@ -44,6 +52,8 @@ __all__ = [
     "BENCH_EXIT_CHECK_FAILED",
     "BENCH_EXIT_UNAVAILABLE",
     "FLAT_PARAMS",
+    "MAX_JSON_DEPTH",
+    "SHORT_TEXT_CHARS",
     "WORKLOAD_FAILURES",
     "PhaseValue",
     "RecordSource",
@@ -80,6 +90,10 @@ FLAT_PARAMS: Final = (
 """Known parameters copied into their own columns (the JSON keeps them all)."""
 
 _INT64_MAX: Final = 2**63 - 1
+SHORT_TEXT_CHARS: Final = 64
+"""Width of the record's short text columns (``VARCHAR(64)`` in migration 0021)."""
+MAX_JSON_DEPTH: Final = 32
+"""Deepest JSON value a record keeps (benchmark params are flat)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -184,7 +198,7 @@ def build_record(source: RecordSource) -> dict[str, Any]:
         "planner_estimate_s": _estimate_for(source.decision_candidates, source.node_id),
         **_workload(workload),
         **_manifest(source.manifest),
-        "runtime": source.runtime or None,
+        "runtime": _short(source.runtime),
         **_start(snapshot, telemetry),
         **_phases(source.phases, workload),
         **_bytes(source.transfers, source.output_bytes),
@@ -202,7 +216,7 @@ def build_record(source: RecordSource) -> dict[str, Any]:
     extra = set(record) - set(COLUMN_NAMES)
     if missing or extra:  # pragma: no cover - the schema test holds this
         raise AssertionError(f"record columns drifted: {missing=} {extra=}")
-    return record
+    return {name: _storable_or_none(value) for name, value in record.items()}
 
 
 # ------------------------------------------------------------------ helpers
@@ -229,12 +243,58 @@ def _text(value: object) -> str | None:
     return value if isinstance(value, str) and value else None
 
 
+def _short(value: object) -> str | None:
+    """A non-empty string that fits a short column, else None (never cut)."""
+    text = _text(value)
+    return text if text is not None and len(text) <= SHORT_TEXT_CHARS else None
+
+
+def _storable_text(text: str) -> bool:
+    if "\x00" in text:
+        return False
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError:  # a lone surrogate
+        return False
+    return True
+
+
+def _storable(value: object) -> bool:
+    """``value`` (text or JSON) can be stored in PostgreSQL text/JSONB as is:
+    no key or string with a NUL or a lone surrogate, no key that is not a
+    string, at most :data:`MAX_JSON_DEPTH` deep. Iterative."""
+    stack: list[tuple[object, int]] = [(value, 0)]
+    while stack:
+        item, depth = stack.pop()
+        if isinstance(item, str):
+            if not _storable_text(item):
+                return False
+        elif isinstance(item, Mapping | list | tuple):
+            if depth >= MAX_JSON_DEPTH:
+                return False
+            if isinstance(item, Mapping):
+                for key in item:
+                    if not isinstance(key, str) or not _storable_text(key):
+                        return False
+                children = list(item.values())
+            else:
+                children = list(item)
+            stack.extend((child, depth + 1) for child in children)
+    return True
+
+
+def _storable_or_none(value: object) -> object:
+    if isinstance(value, str | Mapping | list | tuple) and not _storable(value):
+        return None
+    return value
+
+
 def _campaign(campaign: Mapping[str, Any] | None) -> dict[str, Any]:
     data = campaign or {}
     return {
-        "campaign_id": _text(data.get("campaign_id")),
-        "group_id": _text(data.get("group_id")),
-        "config_id": _text(data.get("config_id")),
+        "campaign_id": _short(data.get("campaign_id")),
+        "group_id": _short(data.get("group_id")),
+        "config_id": _short(data.get("config_id")),
         "repetition": _int(data.get("repetition")),
     }
 
@@ -246,13 +306,13 @@ def _workload(workload: Mapping[str, Any] | None) -> dict[str, Any]:
     flat: dict[str, Any] = {}
     for column, key, kind in FLAT_PARAMS:
         value = None if params is None else params.get(key)
-        flat[column] = _int(value) if kind is int else _text(value)
+        flat[column] = _int(value) if kind is int else _short(value)
     return {
-        "workload_family": _text(data.get("family")),
+        "workload_family": _short(data.get("family")),
         "workload_params": params,
         "workload_seed": _int(data.get("seed")),
-        "workload_status": _text(data.get("status")),
-        "workload_device": _text(data.get("device")),
+        "workload_status": _short(data.get("status")),
+        "workload_device": _short(data.get("device")),
         **flat,
     }
 
@@ -261,8 +321,8 @@ def _manifest(manifest: Mapping[str, Any]) -> dict[str, Any]:
     env = _mapping(manifest.get("env"))
     resources = _mapping(manifest.get("resources"))
     return {
-        "env_base": _text(env.get("base")),
-        "gpu_request": _text(resources.get("gpu")),
+        "env_base": _short(env.get("base")),
+        "gpu_request": _short(resources.get("gpu")),
     }
 
 
@@ -282,7 +342,7 @@ def _start(snapshot: Mapping[str, Any], telemetry: Mapping[str, Any]) -> dict[st
     warm = None if trees is None else sum(1 for t in trees if t.get("warm") is True)
     network = _mapping(telemetry.get("network"))
     return {
-        "node_state": _text(node.get("state")),
+        "node_state": _short(node.get("state")),
         "node_rtt_ms": _float(node.get("rtt_ms")),
         "node_cpu_percent": _float(resources.get("cpu_percent")),
         "node_ram_free_bytes": None
@@ -310,7 +370,7 @@ def _start(snapshot: Mapping[str, Any], telemetry: Mapping[str, Any]) -> dict[st
             }
             for t in trees
         ],
-        "net_source": _text(network.get("source")),
+        "net_source": _short(network.get("source")),
         "net_rtt_ms": _float(network.get("rtt_ms")),
         "net_bw_bytes_s": _float(network.get("bw_bytes_s")),
         "net_samples": _int(network.get("samples")),
@@ -358,6 +418,13 @@ def _phases(
     out["total_ms"] = total if measured else None
     compute = None if workload is None else _int(workload.get("compute_ns"))
     out["compute_ns"] = compute if compute is None or compute >= 0 else None
+    iterations = None if workload is None else _int(workload.get("compute_iterations"))
+    # D228: the number of iterations compute_ns covers; null when nothing ran
+    out["compute_iterations"] = (
+        iterations
+        if out["compute_ns"] is not None and iterations is not None and iterations >= 1
+        else None
+    )
     return out
 
 

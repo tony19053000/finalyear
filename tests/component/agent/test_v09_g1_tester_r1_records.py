@@ -349,11 +349,6 @@ async def test_an_unbuildable_record_does_not_block_the_others_and_is_retried_af
     assert await RunRecorder(engine).sweep() == 1  # restart -> recovered
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT-5: a skipped (unbuildable) attempt is visible only in a log "
-    "line - no counter / alert / API signal, so records are lost silently",
-)
 async def test_defect_5_a_skipped_record_is_visible_to_an_operator(
     http: httpx.AsyncClient,
     agent: ExecAgent,
@@ -384,9 +379,6 @@ async def test_defect_5_a_skipped_record_is_visible_to_an_operator(
     )
 
 
-@pytest.mark.xfail(
-    strict=True, reason="DEFECT-2: VARCHAR(64) overflow poisons the whole sweep"
-)
 async def test_defect_2_a_record_postgres_refuses_must_not_jam_later_records(
     http: httpx.AsyncClient,
     agent: ExecAgent,
@@ -409,9 +401,6 @@ async def test_defect_2_a_record_postgres_refuses_must_not_jam_later_records(
     assert bad_job in got
 
 
-@pytest.mark.xfail(
-    strict=True, reason="DEFECT-2: NUL / lone surrogate in params poison the sweep"
-)
 @pytest.mark.parametrize(
     "params",
     [{"note": "a\u0000b"}, {"note": "\ud800"}, {"a\u0000": 1}],
@@ -433,10 +422,6 @@ async def test_defect_2_nul_or_surrogate_in_params(
     assert {r["job_id"] for r in rows} == {bad_job, good_job}
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT-4: status of unhashable type raises in the agent's report read",
-)
 async def test_defect_4_an_unhashable_workload_status_does_not_break_the_attempt(
     http: httpx.AsyncClient, agent: ExecAgent, engine: Any, tmp_path: Path
 ) -> None:

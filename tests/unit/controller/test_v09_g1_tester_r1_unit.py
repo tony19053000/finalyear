@@ -282,9 +282,6 @@ def _strings(value: Any) -> list[str]:
     return []
 
 
-@pytest.mark.xfail(
-    strict=True, reason="DEFECT-2: untrusted params reach VARCHAR(64)/JSONB unsanitised"
-)
 @pytest.mark.parametrize(
     "bad", HOSTILE, ids=["200chars", "nul", "surrogate", "65", "nul-only"]
 )

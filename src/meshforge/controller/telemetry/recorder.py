@@ -22,6 +22,18 @@ twice, and a written record is never changed). The cost is a delay of at most
 ``[controller.telemetry] record_interval_s`` (2 s), or less when
 :meth:`RunRecorder.nudge` is called after a terminal report.
 
+**One bad record never jams the sweep.** The batch INSERT runs in a savepoint;
+if PostgreSQL refuses it for its *data* (SQLSTATE class 22 data exception or 23
+constraint violation - the builder already bounds and scrubs untrusted values,
+so this is a last line), the batch is retried row by row, each in its own
+savepoint, and only the refused rows are dropped. A record that cannot be built
+(a bug) or that PostgreSQL refuses is **skipped** until the controller
+restarts, and made visible: counted (:attr:`RunRecorder.skipped`, ids in
+:attr:`RunRecorder.skipped_attempts`), logged, and recorded as a
+``telemetry_record_skipped`` audit row - an operator alert (``GET /v1/alerts``)
+written in the sweep's own transaction. Any other database error (connection
+lost, ...) fails the sweep as before and the next one retries everything.
+
 The "at start" values are in the attempt's start snapshot, written at dispatch
 (``jobs/spec.py``) - the sweep never reads the *current* node, cache or network
 state for them.
@@ -33,18 +45,21 @@ import asyncio
 import contextlib
 from collections import defaultdict
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from typing import Any, Final
 
 from sqlalchemy import exists, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import DBAPIError, SQLAlchemyError, StatementError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from meshforge.common.errors import ExitCode, FailureType, MeshForgeError
 from meshforge.common.logging import get_logger
 from meshforge.common.states import ATTEMPT_TERMINAL_STATES
+from meshforge.controller.enrollment.invites import audit
 from meshforge.controller.store.engine import create_session_factory
 from meshforge.controller.store.models.data import TransferEvent
+from meshforge.controller.store.models.enrollment import AuditAction
 from meshforge.controller.store.models.job import Attempt, AttemptPhaseRow, Job
 from meshforge.controller.store.models.plan import PlanDecision
 from meshforge.controller.store.models.telemetry import RunRecord
@@ -62,6 +77,9 @@ log = get_logger(__name__)
 DEFAULT_BATCH: Final = 200
 _MAX_UNBUILDABLE: Final = 1_000
 _TERMINAL: Final = tuple(sorted(s.value for s in ATTEMPT_TERMINAL_STATES))
+_REFUSED_SQLSTATE_CLASSES: Final = ("22", "23")
+"""PostgreSQL refused the row for its data (data exception, constraint): the
+row is at fault, not the database - isolate it."""
 
 
 class TelemetryStoreError(MeshForgeError):
@@ -94,26 +112,92 @@ class RunRecorder:
         self._wake = asyncio.Event()
         self.written = 0
         self.failed_sweeps = 0
-        self._unbuildable: set[str] = set()
+        self.skipped = 0
+        """Attempts skipped since start (unbuildable or refused by PostgreSQL)."""
+        self._skip: set[str] = set()
 
-    def _build(self, sources: Sequence[RecordSource]) -> list[dict[str, Any]]:
+    @property
+    def skipped_attempts(self) -> frozenset[str]:
+        """Ids of the attempts skipped until restart (at most 1000 kept)."""
+        return frozenset(self._skip)
+
+    async def _skipped(
+        self, db: AsyncSession, source: _Skip, *, reason: str, error_type: str
+    ) -> None:
+        """Skip ``source`` until restart: count it, log it and add the
+        ``telemetry_record_skipped`` alert row to ``db``'s transaction."""
+        if len(self._skip) < _MAX_UNBUILDABLE:
+            self._skip.add(source.attempt_id)
+        self.skipped += 1
+        log.error(
+            "controller.telemetry.record_skipped",
+            attempt_id=source.attempt_id,
+            job_id=source.job_id,
+            reason=reason,
+            error_type=error_type,
+            skipped=self.skipped,
+        )
+        await audit(
+            db,
+            AuditAction.TELEMETRY_RECORD_SKIPPED,
+            actor="controller",
+            details={
+                "attempt_id": source.attempt_id,
+                "job_id": source.job_id,
+                "reason": reason,
+                "error_type": error_type,
+            },
+        )
+
+    async def _build(
+        self, db: AsyncSession, sources: Sequence[RecordSource]
+    ) -> list[dict[str, Any]]:
         """Records of ``sources``; one that cannot be built (a bug, never a
-        normal outcome) is logged once and skipped until the controller
-        restarts, so it cannot block the sweep for every later attempt."""
+        normal outcome) is skipped until the controller restarts, so it cannot
+        block the sweep for every later attempt."""
         records: list[dict[str, Any]] = []
         for source in sources:
             try:
                 records.append(build_record(source))
             except Exception as exc:
-                if len(self._unbuildable) < _MAX_UNBUILDABLE:
-                    self._unbuildable.add(source.attempt_id)
                 log.exception(
                     "controller.telemetry.record_unbuildable",
                     attempt_id=source.attempt_id,
                     job_id=source.job_id,
                     error_type=type(exc).__name__,
                 )
+                await self._skipped(
+                    db,
+                    _Skip(source.attempt_id, source.job_id),
+                    reason="unbuildable",
+                    error_type=type(exc).__name__,
+                )
         return records
+
+    async def _insert(self, db: AsyncSession, records: list[dict[str, Any]]) -> int:
+        """Insert ``records``; one PostgreSQL refuses is skipped alone (see
+        the module docstring). The number inserted."""
+        try:
+            async with db.begin_nested():
+                return await _insert_rows(db, records)
+        except StatementError as exc:
+            if not _refused(exc):
+                raise
+        count = 0
+        for record in records:
+            try:
+                async with db.begin_nested():
+                    count += await _insert_rows(db, [record])
+            except StatementError as exc:
+                if not _refused(exc):
+                    raise
+                await self._skipped(
+                    db,
+                    _Skip(str(record["attempt_id"]), str(record["job_id"])),
+                    reason="refused",
+                    error_type=_error_type(exc),
+                )
+        return count
 
     def nudge(self) -> None:
         """Sweep soon (an attempt just became terminal)."""
@@ -130,7 +214,7 @@ class RunRecorder:
                         .where(
                             Attempt.state.in_(_TERMINAL),
                             ~exists().where(RunRecord.attempt_id == Attempt.id),
-                            Attempt.id.not_in(sorted(self._unbuildable)),
+                            Attempt.id.not_in(sorted(self._skip)),
                         )
                         .order_by(Attempt.created_at, Attempt.id)
                         .limit(self._batch)
@@ -139,16 +223,8 @@ class RunRecorder:
                 if not attempts:
                     return 0
                 rows = await _sources(db, attempts, self._campaign_of)
-                records = self._build(rows)
-                if not records:
-                    return 0
-                inserted = await db.scalars(
-                    pg_insert(RunRecord)
-                    .values(records)
-                    .on_conflict_do_nothing(index_elements=["attempt_id"])
-                    .returning(RunRecord.attempt_id)
-                )
-                count = len(list(inserted))
+                records = await self._build(db, rows)
+                count = await self._insert(db, records) if records else 0
         except SQLAlchemyError as exc:
             raise TelemetryStoreError(
                 "the database refused the telemetry sweep",
@@ -186,6 +262,45 @@ class RunRecorder:
             self._wake.clear()
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(self._wake.wait(), self._interval_s)
+
+
+@dataclass(frozen=True, slots=True)
+class _Skip:
+    attempt_id: str
+    job_id: str
+
+
+async def _insert_rows(db: AsyncSession, records: list[dict[str, Any]]) -> int:
+    inserted = await db.scalars(
+        pg_insert(RunRecord)
+        .values(records)
+        .on_conflict_do_nothing(index_elements=["attempt_id"])
+        .returning(RunRecord.attempt_id)
+    )
+    return len(list(inserted))
+
+
+def _sqlstate(exc: StatementError) -> str | None:
+    state = getattr(exc.orig, "sqlstate", None) or getattr(exc.orig, "pgcode", None)
+    return state if isinstance(state, str) else None
+
+
+def _refused(exc: StatementError) -> bool:
+    """PostgreSQL refused the row for its data - not a lost connection or
+    another database failure. A :class:`StatementError` that is not a DBAPI
+    error is a value the driver could not even bind: the row's fault too."""
+    if not isinstance(exc, DBAPIError):
+        return True
+    if exc.connection_invalidated:
+        return False
+    state = _sqlstate(exc)
+    return state is not None and state[:2] in _REFUSED_SQLSTATE_CLASSES
+
+
+def _error_type(exc: StatementError) -> str:
+    state = _sqlstate(exc)
+    name = type(exc.orig).__name__ if exc.orig is not None else type(exc).__name__
+    return f"{name} ({state})" if state else name
 
 
 async def _sources(

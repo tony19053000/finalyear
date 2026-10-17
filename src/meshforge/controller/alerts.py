@@ -33,6 +33,8 @@ ALERT_KINDS: Final = MappingProxyType(
         AuditAction.ATTEMPT_WRONG_NODE.value: "wrong_node",
         # V0.9 G1 (D213): a node's clock offset is untrustworthy.
         AuditAction.CLOCK_UNCERTAIN.value: "clock_uncertain",
+        # V0.9 G1 (T-5): a run record was skipped (the dataset lacks a run).
+        AuditAction.TELEMETRY_RECORD_SKIPPED.value: "telemetry_record_skipped",
     }
 )
 """``audit_event.action`` -> the alert ``kind`` (the same word the live event uses).
