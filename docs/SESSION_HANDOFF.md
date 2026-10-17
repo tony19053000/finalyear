@@ -262,6 +262,8 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
+**2026-10-17 (G2 fix r1 DONE `9032dc9`,`57c2c56`, all D1–D9 closed) — RUNNING: G2 tester r2 delta ∥ G0 fix r1. Known load flake seen: tests/unit/agent/test_multi_source_fetch.py::test_endgame_duplicates_the_last_chunk_held_by_a_slow_source (5/5 alone) → add to Known Bugs.**
+
 **2026-10-17 (G0 tester r1 PASS + 7 defects `bb518a2`; 3 major: clock step undetected, n=0 phase crash, no re-measure after phase) — RUNNING: G0 fix r1 (all 7 + drop single backwards ping) ∥ G2 fix r1. Next per group: tester r2 delta → reviewer → merge → whole component once.**
 
 **2026-10-17 (G0 implementer DONE `d407a0b`..`f39cd25`, worktree-agent-ac278509a6415d46b; new GET /v1/clock, recv_at, shared common/clock_offset.py; perf e2e pass) — RUNNING: G0 tester r1 ∥ G2 fix r1. Follow-up noted: dispatcher retries non-transient StatementError forever (poison handling) → tech debt.**
