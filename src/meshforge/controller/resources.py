@@ -175,6 +175,12 @@ class LiveSample:
     ram_total_bytes: int = 0
     gpus: tuple[GpuSample, ...] = ()
     disks: tuple[DiskSample, ...] = ()
+    received_wall: dt.datetime | None = None
+    """The controller's **wall** clock when the sample arrived (V0.9 G0, D213):
+    the ``recv_at`` of the ``node.metrics`` event, so a reader can time the
+    event from its arrival at the controller on ONE clock (the controller's)
+    instead of subtracting the agent's ``observed_at`` from its own clock (which
+    adds the skew between the hosts). Ordering and that latency measure only."""
 
 
 def live_sample(
@@ -189,15 +195,17 @@ def live_sample(
     An agent that sent no ``observed_at`` gets the controller's receive time, so the
     sample still lands in a sensible bucket instead of 1970.
     """
+    arrived = (wall_clock or _utcnow)()
     if update.HasField("observed_at"):
         observed = update.observed_at.ToDatetime(tzinfo=dt.UTC)
     else:
-        observed = (wall_clock or _utcnow)()
+        observed = arrived
     return LiveSample(
         session_epoch=session_epoch,
         sequence=update.sequence,
         observed_at=observed,
         received_at=received_at,
+        received_wall=arrived,
         cpu_percent=update.cpu_percent,
         ram_used_bytes=update.ram_used_bytes,
         ram_total_bytes=update.ram_total_bytes,

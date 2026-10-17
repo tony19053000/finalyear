@@ -12,9 +12,15 @@ real Chromium through the dashboard, measuring what a user feels:
   and frame gaps), a filter change, opening a job's page.
 * **events** - event latency with a steady job stream running: a heartbeat
   sample and every ``job.state`` change, from the controller's timestamp to the
-  moment the page shows it (p50/p95). Controller and browser must share a
-  clock for this number: run the browser on the controller's host (the e2e
-  harness does) - on a LAN fabric, skew between the hosts is added to it.
+  moment the page shows it (p50/p95/max). Skew-safe (V0.9 G0, D213): only
+  CONTROLLER timestamps are used - a heartbeat is timed from its arrival at the
+  controller (the ``node.metrics`` event's ``recv_at``), never from the agent's
+  own ``observed_at`` - and they are put on the browser's clock with the
+  browser<->controller offset measured by round trips to ``GET /v1/clock``
+  just before (offset +- RTT/2, :mod:`meshforge.common.clock_offset`). The
+  offset and its bound are in the results; a bound over
+  :data:`MAX_CLOCK_BOUND_MS` makes the run ``skew_uncertain`` (exit 3), never a
+  pass.
 
 The e2e test ``tests/e2e/test_v08_g7_perf.py`` (``pytest -m perf``) runs all
 of it on a cluster-harness fabric (4 real agents) and asserts the thresholds
@@ -28,6 +34,8 @@ below. Standalone against a running fabric (the 4-laptop lab run, 0.8.10)::
 through the API), ``MF_PASSWORD`` the admin's password (the browser signs in).
 Needs the dev dependency group (Playwright) and ``uv run playwright install
 chromium``. Seeding is real work for the fabric: 100 runs per node.
+Exit code: 0 every limit met, 1 a limit broken, 3 ``skew_uncertain`` (the
+clock offset could not be bounded within :data:`MAX_CLOCK_BOUND_MS`).
 """
 
 from __future__ import annotations
@@ -55,6 +63,8 @@ from typing import TYPE_CHECKING, Any, Final
 from urllib.parse import urlsplit
 
 import httpx
+
+from meshforge.common.clock_offset import ClockExchange, ClockOffset, estimate_offset
 
 if TYPE_CHECKING:
     from playwright.sync_api import Browser, Page
@@ -85,6 +95,15 @@ THRESHOLDS_MS: Final[dict[str, float]] = {
         for stat in ("p50", "p95", "max")
     },
 }
+#: The browser<->controller offset must be known within this (ms, = RTT/2 of
+#: the best ping) for the live-latency numbers to count: above it the run is
+#: ``skew_uncertain`` - re-run with the browser nearer the controller (wired,
+#: or on its host) rather than pass or fail on an unknown clock.
+MAX_CLOCK_BOUND_MS: Final = 50.0
+CLOCK_PINGS: Final = 16
+EXIT_PASS: Final = 0
+EXIT_FAIL: Final = 1
+EXIT_SKEW_UNCERTAIN: Final = 3
 TERMINAL: Final = frozenset({"succeeded", "failed", "cancelled"})
 #: Cancelled jobs added to the run history so a state filter has two
 #: non-empty answers to switch between (succeeded <-> cancelled).
@@ -357,6 +376,42 @@ ROWS: Final = (
 )
 
 
+#: ``n`` round trips to ``GET /v1/clock`` from the page (the page's cookie, its
+#: ``Date.now()`` - the clock the DOM probes stamp with), sequential.
+CLOCK_PING: Final = """
+async (n) => {
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const sent = Date.now();
+    const r = await fetch("/v1/clock", {cache: "no-store", credentials: "same-origin"});
+    if (!r.ok) throw new Error("GET /v1/clock -> " + r.status);
+    const body = await r.json();
+    out.push([sent, body.server_time * 1000, Date.now()]);
+  }
+  return out;
+}
+"""
+
+
+def measure_clock(page: Page, pings: int = CLOCK_PINGS) -> ClockOffset:
+    """The controller's clock minus the page's (the signed-in ``page`` must be
+    on the controller's origin), estimated from ``pings`` round trips."""
+    rows = page.evaluate(CLOCK_PING, pings)
+    return estimate_offset(
+        ClockExchange(float(sent), float(remote), float(received))
+        for sent, remote, received in rows
+    )
+
+
+def clock_report(clock: ClockOffset) -> dict[str, Any]:
+    """The offset as the results carry it (with the verdict's limit)."""
+    return {
+        **clock.as_dict(),
+        "max_bound_ms": MAX_CLOCK_BOUND_MS,
+        "uncertain": clock.bound_ms > MAX_CLOCK_BOUND_MS,
+    }
+
+
 def sign_in(page: Page, base: str, user: str, password: str) -> None:
     from playwright.sync_api import expect
 
@@ -534,6 +589,72 @@ def _parse_at(value: str) -> float:
 
 
 @dataclasses.dataclass
+class HeartbeatSamples:
+    """Heartbeat -> DOM latency, timed from the sample's ARRIVAL at the
+    controller (V0.9 G0, D213). The page's "latest sample" changes are joined,
+    by the sample's ``observed_at`` (an identifier here, never a time), to the
+    ``node.metrics`` frames the page received; each frame's ``recv_at`` (the
+    controller's clock) is put on the browser's clock with ``clock``. The
+    agent's clock takes no part, so an agent whose clock is off by seconds
+    gives the same numbers. A change with no frame (shown from a REST refetch,
+    or the frame not seen) cannot be timed: counted in ``unmatched``."""
+
+    lags: list[float] = dataclasses.field(default_factory=list)
+    unmatched: int = 0
+
+    @classmethod
+    def build(
+        cls,
+        shown: Sequence[dict[str, Any]],
+        received: dict[str, float],
+        clock: ClockOffset,
+    ) -> HeartbeatSamples:
+        """``shown``: ``{"at": observed_at, "shown": browser epoch ms}`` per
+        change of the page's latest sample (the first, already there when
+        watching began, excluded by the caller); ``received``: observed_at ->
+        ``recv_at`` (controller epoch seconds) of the node's frames."""
+        out = cls()
+        for change in shown:
+            recv_at = received.get(str(change["at"]))
+            if recv_at is None:
+                out.unmatched += 1
+                continue
+            arrived = clock.to_local_ms(float(recv_at) * 1000.0)
+            out.lags.append(float(change["shown"]) - arrived)
+        return out
+
+
+class MetricsFrames:
+    """``node.metrics`` frames one page receives for one node: observed_at ->
+    recv_at. Attach BEFORE the page opens its event socket (``page.goto``)."""
+
+    def __init__(self, page: Page, node_id: str) -> None:
+        self.node_id = node_id
+        self.received: dict[str, float] = {}
+        self.unreadable = 0
+        page.on("websocket", self._socket)
+
+    def _socket(self, ws: Any) -> None:
+        if "/v1/events/ws" in ws.url:
+            ws.on("framereceived", self.frame)
+
+    def frame(self, payload: str | bytes) -> None:
+        try:
+            frame = json.loads(payload)
+            if not isinstance(frame, dict) or frame.get("type") != "node.metrics":
+                return
+            data = frame["data"]
+            if data.get("node_id") != self.node_id:
+                return
+            if data.get("recv_at") is None:
+                self.unreadable += 1
+                return
+            self.received[str(data["observed_at"])] = float(data["recv_at"])
+        except (ValueError, KeyError, TypeError, AttributeError):
+            self.unreadable += 1
+
+
+@dataclasses.dataclass
 class JobStateSamples:
     """job.state -> DOM latency samples (G7 fix round 1, T-8). Every change
     is a sample: one the page showed is timed to when it showed it; one it
@@ -553,12 +674,17 @@ class JobStateSamples:
         job_id: str,
         transitions: Sequence[dict[str, Any]],
         shown: dict[str, float],
+        clock: ClockOffset | None = None,
     ) -> None:
-        """``transitions`` as the API lists them (oldest first); ``shown`` maps
-        a state to when the page first showed it (epoch ms)."""
+        """``transitions`` as the API lists them (oldest first, ``at`` on the
+        controller's clock); ``shown`` maps a state to when the page first
+        showed it (the browser's epoch ms); ``clock`` = controller minus
+        browser (``None``: the same clock, as on one host)."""
         for index, transition in enumerate(transitions):
             state = transition["to_state"]
             at = _parse_at(transition["at"])
+            if clock is not None:
+                at = clock.to_local_ms(at)
             if state in shown:
                 lag = shown[state] - at
                 self.lags.append(lag)
@@ -592,7 +718,9 @@ def measure_events(
     interval_s: float = 1.0,
     timeout_s: float = 240.0,
 ) -> dict[str, Any]:
-    """Event -> DOM latency while a steady job stream runs."""
+    """Event -> DOM latency while a steady job stream runs (skew-safe: see
+    the module docstring)."""
+    clock = measure_clock(node_page)
     jobs_page.goto(base + "/jobs")
     jobs_page.locator("table").first.wait_for()
     jobs_page.evaluate(
@@ -613,6 +741,7 @@ def measure_events(
             {subtree: true, childList: true, characterData: true, attributes: true});
         }"""
     )
+    frames = MetricsFrames(node_page, node_id)
     node_page.goto(f"{base}/nodes/{node_id}")
     node_page.get_by_test_id("latest-sample").wait_for()
     node_page.evaluate(
@@ -624,7 +753,7 @@ def measure_events(
             const t = card.querySelector('[data-testid="latest-sample"]');
             const at = t && t.getAttribute("datetime");
             if (at && at !== last) {
-              if (last !== null) window.__mfLag.push(Date.now() - Date.parse(at));
+              if (last !== null) window.__mfLag.push({at, shown: Date.now()});
               last = at;
             }
           };
@@ -650,9 +779,12 @@ def measure_events(
     seen: dict[str, dict[str, float]] = jobs_page.evaluate("window.__mfSeen")
     states = JobStateSamples()
     for job_id in ids:
-        states.add(job_id, api.job(job_id)["transitions"], seen.get(job_id, {}))
-    heartbeat = [float(x) for x in node_page.evaluate("window.__mfLag")]
+        states.add(job_id, api.job(job_id)["transitions"], seen.get(job_id, {}), clock)
+    heartbeat = HeartbeatSamples.build(
+        node_page.evaluate("window.__mfLag"), frames.received, clock
+    )
     return {
+        "clock": clock_report(clock),
         "stream_jobs": len(ids),
         "stream_errors": stream.errors,
         "job_state_latency": summary(states.lags),
@@ -661,7 +793,9 @@ def measure_events(
         "job_state_superseded": states.superseded,
         "job_state_missed": len(states.missed),
         "job_state_missed_examples": states.missed[:10],
-        "heartbeat_latency": summary(heartbeat),
+        "heartbeat_latency": summary(heartbeat.lags),
+        "heartbeat_unmatched": heartbeat.unmatched,
+        "heartbeat_frames_unreadable": frames.unreadable,
     }
 
 
@@ -691,6 +825,37 @@ def check(results: dict[str, Any]) -> list[str]:
         for name, value in got.items()
         if value > THRESHOLDS_MS[name]
     ] + problems
+
+
+def skew_uncertain(results: dict[str, Any]) -> bool:
+    """Were live latencies measured on a clock offset not known within
+    :data:`MAX_CLOCK_BOUND_MS`? (No offset measured at all counts as unknown.)"""
+    events = results.get("events")
+    if events is None:
+        return False
+    clock = events.get("clock")
+    return clock is None or float(clock["clock_offset_bound_ms"]) > MAX_CLOCK_BOUND_MS
+
+
+def verdict(phases: dict[str, dict[str, Any]]) -> str:
+    """``pass``, ``fail`` or ``skew_uncertain`` for a whole run.
+
+    A broken list limit (no clock involved) fails whatever the clock. With an
+    uncertain clock offset in any phase, the live-latency numbers are neither
+    a pass nor a fail: ``skew_uncertain``. Otherwise any broken limit fails.
+    """
+    if any(check({"list": phase["list"]}) for phase in phases.values()):
+        return "fail"
+    if any(skew_uncertain(phase) for phase in phases.values()):
+        return "skew_uncertain"
+    return "fail" if any(check(phase) for phase in phases.values()) else "pass"
+
+
+EXIT_CODES: Final = {
+    "pass": EXIT_PASS,
+    "fail": EXIT_FAIL,
+    "skew_uncertain": EXIT_SKEW_UNCERTAIN,
+}
 
 
 @contextlib.contextmanager
@@ -825,15 +990,32 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )  # fmt: skip
     finally:
         api.close()
-    result = {"machine": machine(), "seeds": seeds, "phases": phases}
+    outcome = verdict(phases)
+    result = {
+        "machine": machine(),
+        "seeds": seeds,
+        "phases": phases,
+        "verdict": outcome,
+    }
     problems = [p for phase in phases.values() for p in check(phase)]
     print(table(phases))
     print(json.dumps({"machine": result["machine"], "seeds": seeds}, indent=2))
+    for name, phase in phases.items():
+        if "events" in phase:
+            print(f"clock ({name}):", json.dumps(phase["events"]["clock"]))
     if args.out:
         args.out.write_text(json.dumps(result, indent=2), encoding="utf-8")
     for problem in problems:
         print("THRESHOLD BROKEN:", problem)
-    return 1 if problems else 0
+    if outcome == "skew_uncertain":
+        print(
+            "SKEW UNCERTAIN: the browser<->controller clock offset is not known "
+            f"within {MAX_CLOCK_BOUND_MS} ms; the live-latency numbers neither "
+            "pass nor fail - re-run with the browser on a wired link or on the "
+            "controller's host"
+        )
+    print("VERDICT:", outcome)
+    return EXIT_CODES[outcome]
 
 
 if __name__ == "__main__":

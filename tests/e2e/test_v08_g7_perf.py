@@ -1,6 +1,7 @@
 """V0.8 G7 criterion 2: the dashboard stays responsive with 4 nodes x 100 jobs
 of history, and still at 10 000 jobs (D174); live updates reach the page in
-<= 2 s (p95) while a steady job stream runs.
+<= 2 s (p95) while a steady job stream runs - timed on the controller's
+clock with a measured browser offset (V0.9 G0, D213: skew-safe).
 
 ``pytest -m perf`` (skipped by default: it runs 400 real jobs and seeds
 10 000 more - several minutes). The measuring itself is
@@ -121,7 +122,12 @@ def test_dashboard_stays_responsive_at_4x100_history_and_10k_jobs(
     finally:
         api.close()
 
-    report = {"machine": ui_perf.machine(), "seeds": seeds, "phases": phases}
+    report = {
+        "machine": ui_perf.machine(),
+        "seeds": seeds,
+        "phases": phases,
+        "verdict": ui_perf.verdict(phases),
+    }
     (tmp_path / "ui-perf.json").write_text(json.dumps(report, indent=2), "utf-8")
     print("\n" + ui_perf.table(phases))  # noqa: T201 - the measured numbers (-s)
     print(json.dumps({"machine": report["machine"], "seeds": seeds}, indent=2))  # noqa: T201
@@ -136,6 +142,15 @@ def test_dashboard_stays_responsive_at_4x100_history_and_10k_jobs(
         assert events["job_terminal_missed"] == 0, (name, events)
         assert events["job_state_latency"]["n"] >= 20, (name, events)
         assert events["heartbeat_latency"]["n"] >= 10, (name, events)
+        # V0.9 G0 (D213): live latency is timed on the controller's clock with
+        # a measured browser offset; on one host it must be tightly bounded.
+        clock = events["clock"]
+        assert clock["clock_offset_bound_ms"] <= ui_perf.MAX_CLOCK_BOUND_MS, clock
+        assert abs(clock["clock_offset_ms"]) <= clock["clock_offset_bound_ms"] + 1, (
+            clock
+        )
+        assert events["heartbeat_frames_unreadable"] == 0, (name, events)
     assert phases["10k"]["list"]["rows_loaded"] >= 1000
     problems = {name: ui_perf.check(phase) for name, phase in phases.items()}
     assert not any(problems.values()), problems
+    assert report["verdict"] == "pass", report["verdict"]

@@ -18,6 +18,8 @@ await they do not need.
 from __future__ import annotations
 
 import datetime as dt
+import time
+from collections.abc import Callable
 from typing import Annotated, Final
 
 from fastapi import APIRouter, Depends, Path, Query
@@ -38,6 +40,7 @@ from meshforge.controller.api.response_models import (
     MIN_METRICS_WINDOW_S,
     MetricPoint,
     NodeMetrics,
+    ServerClock,
 )
 from meshforge.controller.api.shape import (
     node_detail,
@@ -242,6 +245,24 @@ async def get_node_metrics(
     return NodeMetrics(
         node_id=checked, window_s=window, samples=points, count=len(points)
     )
+
+
+wall_clock: Callable[[], float] = time.time
+"""``GET /v1/clock``'s time source (a module attribute so a test can skew it)."""
+
+
+@router.get(
+    "/clock",
+    response_model=ServerClock,
+    summary="The controller's wall clock (for an NTP-style offset estimate)",
+)
+async def get_clock() -> ServerClock:
+    """V0.9 G0 (D213): the controller's ``time.time()`` when it answers, so a
+    client can estimate the offset between its clock and the controller's from
+    round trips (``meshforge.common.clock_offset``: offset ± RTT/2) before it
+    compares a controller timestamp (an event's ``recv_at``, a transition's
+    ``at``) with its own clock. Authenticated like every route; reads nothing."""
+    return ServerClock(server_time=round(wall_clock(), 6))
 
 
 @router.get("/sessions", response_model=SessionList, summary="Recent sessions")
