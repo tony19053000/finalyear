@@ -472,7 +472,7 @@ A version is **complete** only when all apply:
 
 **Tasks**
 - [ ] **0.9.1** Finalize telemetry schema (attempt summary, phase timings, start snapshots, network matrix, cache state) + Parquet export
-- [~] **0.9.2** Workload library — G2 merged `8010dcb` (D225), reviewer APPROVE; waits on the combined whole-component gate after G0 merges · (parametrized): CPU (matmul, primes, sort, compression, hashing, numerical), memory (arrays, dataframes, copies), GPU (matmul, conv, tensor ops, image processing), ML (CNN inference/training, transformer inference; batch/model/sequence sweeps)
+- [x] **0.9.2** Workload library — G2 merged `8010dcb` (D225), tester r1/r2 + 2 fix rounds, reviewer APPROVE; whole `-m component` on main (G0+G2) 2367 passed / 22 skipped / 0 failed, exit 0 (84 min, 2026-10-17); GPU/ML families pending first CUDA run · (parametrized): CPU (matmul, primes, sort, compression, hashing, numerical), memory (arrays, dataframes, copies), GPU (matmul, conv, tensor ops, image processing), ML (CNN inference/training, transformer inference; batch/model/sequence sweeps)
 - [ ] **0.9.3** Campaign spec (YAML) + samplers (random, Latin hypercube) over params × conditions × strategies × nodes
 - [ ] **0.9.4** Forced-strategy execution via planner override, tagged `benchmark`, randomized order, repetitions
 - [ ] **0.9.5** Condition controllers: CPU/GPU load generators, cache warm/cold, queue pressure, network shaping (Linux), Wi-Fi vs Ethernet sessions, node-unavailable scenarios
