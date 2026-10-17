@@ -19,6 +19,7 @@ reach and an operator's browser should not be asked to fetch.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -124,8 +125,10 @@ def create_http_app(
     events: EventBus | None = None,
     alerts: AlertLog | None = None,
     web_dist: Path | None = DEFAULT_DIST,
+    wall_clock: Callable[[], float] = time.time,
 ) -> FastAPI:
-    """Build the controller's HTTP app. ``clock`` must be the loop's monotonic clock.
+    """Build the controller's HTTP app. ``clock`` must be the loop's monotonic clock;
+    ``wall_clock`` (epoch seconds) is what ``GET /v1/clock`` answers.
 
     ``auth`` holds what credentials are checked against (V0.7 G4: the user
     directory, the legacy switch, agents' blob credentials). Without it every
@@ -156,6 +159,7 @@ def create_http_app(
             resources=resources,
             clock=clock,
             cache=cache,
+            wall_clock=wall_clock,
         ),
     )
     install_error_handlers(app)

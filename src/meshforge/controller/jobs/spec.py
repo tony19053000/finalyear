@@ -21,7 +21,6 @@
 
 from __future__ import annotations
 
-import dataclasses
 import datetime as dt
 from collections.abc import Collection, Mapping
 from typing import Any, Final
@@ -33,7 +32,14 @@ from meshforge.controller.jobs.store import AttemptRecord, JobRecord
 from meshforge.controller.planner.inputs import gpu_indices_of, gpu_vram_of
 from meshforge.controller.resources import LiveSample
 
-__all__ = ["SNAPSHOT_VERSION", "choose_gpus", "execution_spec", "start_snapshot"]
+__all__ = [
+    "SNAPSHOT_SAMPLE_EXCLUDED",
+    "SNAPSHOT_SAMPLE_FIELDS",
+    "SNAPSHOT_VERSION",
+    "choose_gpus",
+    "execution_spec",
+    "start_snapshot",
+]
 
 SNAPSHOT_VERSION: Final = 1
 _GIB: Final = 1024**3
@@ -60,18 +66,57 @@ def choose_gpus(
     return (max(candidates)[2],)
 
 
+#: The :class:`LiveSample` fields the start snapshot copies (V0.9 G1, D226
+#: item 0.1): an explicit ALLOWLIST, never ``dataclasses.asdict``, so a field
+#: added to ``LiveSample`` later (G0's ``received_wall`` datetime, f6fe6f9) stays
+#: out of this JSON column until someone decides how to serialise it.
+SNAPSHOT_SAMPLE_FIELDS: Final = (
+    "session_epoch",
+    "sequence",
+    "observed_at",
+    "cpu_percent",
+    "ram_used_bytes",
+    "ram_total_bytes",
+    "gpus",
+    "disks",
+)
+#: Left out on purpose: ``received_at`` is the controller's monotonic clock
+#: (meaningless outside this process; ``age_s`` replaces it), ``received_wall``
+#: is the live event's ``recv_at`` (a datetime; ``age_s`` already says how old
+#: the sample is). A unit test fails when ``LiveSample`` gains a field that is
+#: in neither tuple.
+SNAPSHOT_SAMPLE_EXCLUDED: Final = ("received_at", "received_wall")
+
+
 def _sample(sample: LiveSample | None, now: float) -> dict[str, Any] | None:
     if sample is None:
         return None
-    data = dataclasses.asdict(sample)
-    data["observed_at"] = sample.observed_at.isoformat()
-    data["age_s"] = round(max(0.0, now - sample.received_at), 3)
-    del data["received_at"]  # monotonic: meaningless outside this process
-    # The controller's wall-clock arrival time (V0.9 G0, the live event's
-    # recv_at) is not part of the start snapshot: age_s already says how old
-    # the sample is, and a datetime is not JSON (the snapshot is a JSON column).
-    del data["received_wall"]
-    return data
+    return {
+        "session_epoch": int(sample.session_epoch),
+        "sequence": int(sample.sequence),
+        "observed_at": sample.observed_at.isoformat(),
+        "cpu_percent": float(sample.cpu_percent),
+        "ram_used_bytes": int(sample.ram_used_bytes),
+        "ram_total_bytes": int(sample.ram_total_bytes),
+        "gpus": [
+            {
+                "index": int(gpu.index),
+                "util_percent": float(gpu.util_percent),
+                "vram_used_bytes": int(gpu.vram_used_bytes),
+                "vram_total_bytes": int(gpu.vram_total_bytes),
+            }
+            for gpu in sample.gpus
+        ],
+        "disks": [
+            {
+                "mount": str(disk.mount),
+                "free_bytes": int(disk.free_bytes),
+                "total_bytes": int(disk.total_bytes),
+            }
+            for disk in sample.disks
+        ],
+        "age_s": round(max(0.0, now - sample.received_at), 3),
+    }
 
 
 def start_snapshot(

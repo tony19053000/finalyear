@@ -6,6 +6,8 @@ from __future__ import annotations
 import dataclasses
 import datetime as dt
 import json
+import time
+from collections.abc import Callable
 from typing import cast
 
 import pytest
@@ -16,7 +18,6 @@ import httpx
 from mf_users import ADMIN_TOKEN, StaticUsers, bearer, static_auth
 
 from meshforge.common.proto.meshforge.v1 import agent_pb2
-from meshforge.controller.api import routes
 from meshforge.controller.events.watcher import metrics_frame
 from meshforge.controller.http import create_http_app
 from meshforge.controller.resources import ResourceTracker, live_sample
@@ -50,19 +51,26 @@ class _R:
         return []
 
 
-def _app(users: StaticUsers | None = None):  # type: ignore[no-untyped-def]
+def _app(  # type: ignore[no-untyped-def]
+    users: StaticUsers | None = None, wall_clock: Callable[[], float] = time.time
+):
     return create_http_app(
         cast("SessionManager", _M()),
         auth=static_auth(users),
         registry=cast("object", _R()),  # type: ignore[arg-type]
         resources=cast("ResourceTracker", _T()),
         clock=lambda: 1_000.0,
+        wall_clock=wall_clock,
     )
 
 
-def _client(headers: dict[str, str] | None = None, users: StaticUsers | None = None):  # type: ignore[no-untyped-def]
+def _client(  # type: ignore[no-untyped-def]
+    headers: dict[str, str] | None = None,
+    users: StaticUsers | None = None,
+    wall_clock: Callable[[], float] = time.time,
+):
     return httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=_app(users)),
+        transport=httpx.ASGITransport(app=_app(users, wall_clock)),
         base_url="http://api.test",
         headers=headers or {},
     )
@@ -135,10 +143,10 @@ async def test_clock_shape_and_get_needs_no_csrf_header() -> None:
 
 
 @pytest.mark.asyncio
-async def test_clock_is_stamped_per_request_not_cached(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+async def test_clock_is_stamped_per_request_not_cached() -> None:
     ticks = iter([1000.0, 1001.5, 1003.25])
-    monkeypatch.setattr(routes, "wall_clock", lambda: next(ticks))
-    async with _client(bearer(ADMIN_TOKEN)) as c:
+    # V0.9 G1 (D226 item 0.4): the source is injected into the app.
+    async with _client(bearer(ADMIN_TOKEN), wall_clock=lambda: next(ticks)) as c:
         got = [(await c.get("/v1/clock")).json()["server_time"] for _ in range(3)]
     assert got == [1000.0, 1001.5, 1003.25]
 
@@ -164,9 +172,8 @@ async def test_clock_mutating_verbs_are_refused(method: str) -> None:
 
 
 @pytest.mark.asyncio
-async def test_a_nan_clock_source_is_not_served_as_a_time(monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    monkeypatch.setattr(routes, "wall_clock", lambda: float("nan"))
-    async with _client(bearer(ADMIN_TOKEN)) as c:
+async def test_a_nan_clock_source_is_not_served_as_a_time() -> None:
+    async with _client(bearer(ADMIN_TOKEN), wall_clock=lambda: float("nan")) as c:
         try:
             r = await c.get("/v1/clock")
         except Exception:  # noqa: BLE001 - the ASGI transport re-raises a handler crash
@@ -235,7 +242,9 @@ def test_the_only_asdict_consumers_of_live_sample_drop_the_datetime() -> None:
         if "dataclasses.asdict(sample" in p.read_text(encoding="utf-8")
         or "asdict(sample" in p.read_text(encoding="utf-8")
     ]
-    assert users == ["controller/jobs/spec.py"], users
+    # V0.9 G1 item 0.1 (D226): the start snapshot now copies an explicit
+    # field allowlist, so no writer serialises a LiveSample by asdict at all.
+    assert users == [], users
 
 
 def test_received_wall_is_confined_to_the_live_event_path() -> None:
