@@ -353,3 +353,33 @@ def test_a_sample_without_observed_at_arrives_and_is_observed_at_the_same_moment
         wall_clock=lambda: now,
     )
     assert sample.observed_at == sample.received_wall == now
+
+
+def test_the_attempt_start_snapshot_of_a_real_sample_is_json() -> None:
+    """Regression (found by the -m perf e2e run): the start snapshot is a JSON
+    column; ``received_wall`` (a datetime) must not leak into it, or every
+    dispatch fails with StatementError and no job ever starts."""
+    pytest.importorskip("sqlalchemy", reason="needs the controller extra")
+    from meshforge.common.proto.meshforge.v1 import agent_pb2
+    from meshforge.controller.jobs.spec import start_snapshot
+    from meshforge.controller.resources import live_sample
+
+    now = dt.datetime(2026, 10, 17, 12, 0, tzinfo=dt.UTC)
+    update = agent_pb2.ResourceUpdate(sequence=1, cpu_percent=5.0)
+    update.observed_at.FromDatetime(now)
+    sample = live_sample(
+        update, session_epoch=1, received_at=10.0, wall_clock=lambda: now
+    )
+    snapshot = start_snapshot(
+        hardware={},
+        hardware_scores=None,
+        node_state="online",
+        rtt_ms=1.0,
+        sample=sample,
+        monotonic_now=12.0,
+        wall_now=now,
+        gpu_indices=(),
+    )
+    json.dumps(snapshot)  # raises TypeError on a datetime
+    assert "received_wall" not in snapshot["resources"]
+    assert snapshot["resources"]["age_s"] == 2.0

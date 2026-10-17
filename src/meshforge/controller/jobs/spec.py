@@ -67,6 +67,10 @@ def _sample(sample: LiveSample | None, now: float) -> dict[str, Any] | None:
     data["observed_at"] = sample.observed_at.isoformat()
     data["age_s"] = round(max(0.0, now - sample.received_at), 3)
     del data["received_at"]  # monotonic: meaningless outside this process
+    # The controller's wall-clock arrival time (V0.9 G0, the live event's
+    # recv_at) is not part of the start snapshot: age_s already says how old
+    # the sample is, and a datetime is not JSON (the snapshot is a JSON column).
+    del data["received_wall"]
     return data
 
 
