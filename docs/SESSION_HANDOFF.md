@@ -262,6 +262,8 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
+**2026-10-18 (G2 follow-ups MERGED `218aa05`, D228) — RUNNING: G1 tester r1 only. G1 MUST merge main and handle `compute_iterations` (D228) in its next fix round, before its reviewer. Then: G1 reviewer → merge → rebuild frontend → whole component once alone → close 0.9.1 → write G3 brief (item 0 = D225 2,4 + D228 list).**
+
 **2026-10-18 (G1 implementer DONE `b4267f3`..`bccc568`, D227 rulings) — RUNNING: G1 tester r1 ∥ G2 follow-ups fix (T1 seeded rows, T2 StrictInt). Next: G1 reviewer; follow-ups reviewer → merge both → whole component once.**
 
 **2026-10-18 (G2 follow-ups DONE `677813f`, worktree-agent-a7f238eacb3095e0f) — RUNNING: its tester ∥ G1 implementer (resumed after limit). New load flake: test_multi_source_fetch.py::test_peer_killed_mid_transfer_controller_resumes_verified_chunks (5/5 alone) → Known Bugs with the endgame one.**
