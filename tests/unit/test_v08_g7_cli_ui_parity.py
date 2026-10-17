@@ -151,7 +151,15 @@ def test_cli_only_is_the_exception() -> None:
     cli_only = sorted(
         c for c, e in PARITY.COMPUTE.items() if isinstance(e, PARITY.CliOnly)
     )
-    assert cli_only == ["data push", "fabric join", "node gc", "node prepare"]
+    # V0.9 G2 adds `bench workloads` (local library listing, not a Mode 1
+    # operation); the Benchmarks page (G6) may move it to InUi.
+    assert cli_only == [
+        "bench workloads",
+        "data push",
+        "fabric join",
+        "node gc",
+        "node prepare",
+    ]
 
 
 def test_the_check_catches_a_new_command() -> None:

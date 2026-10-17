@@ -206,6 +206,7 @@ forbidden_modules = [
     "meshforge.gpu_service",
     "meshforge.sdk",
     "meshforge.cli",
+    "meshforge.bench",
 ]
 
 [[tool.importlinter.contracts]]
@@ -218,6 +219,7 @@ forbidden_modules = [
     "meshforge.gpu_service",
     "meshforge.sdk",
     "meshforge.cli",
+    "meshforge.bench",
 ]
 
 [[tool.importlinter.contracts]]
@@ -230,6 +232,7 @@ forbidden_modules = [
     "meshforge.gpu_service",
     "meshforge.sdk",
     "meshforge.cli",
+    "meshforge.bench",
 ]
 
 [[tool.importlinter.contracts]]
@@ -242,6 +245,7 @@ forbidden_modules = [
     "meshforge.agent",
     "meshforge.sdk",
     "meshforge.cli",
+    "meshforge.bench",
 ]
 
 [[tool.importlinter.contracts]]
@@ -254,17 +258,35 @@ forbidden_modules = [
     "meshforge.agent",
     "meshforge.gpu_service",
     "meshforge.cli",
+    "meshforge.bench",
 ]
 
 [[tool.importlinter.contracts]]
 id = "cli-imports-common-and-sdk-only"
-name = "cli imports only common and sdk"
+name = "cli imports only common, sdk and bench"
 type = "forbidden"
 source_modules = ["meshforge.cli"]
 forbidden_modules = [
     "meshforge.controller",
     "meshforge.agent",
     "meshforge.gpu_service",
+]
+
+# V0.9 G2 (D214): the benchmark workload library. It imports only common; the CLI
+# may import it (`compute bench workloads` lists families locally). Everything
+# else forbids it for now - G3 decides whether the controller-side campaign
+# runner (D219) imports it, and changes this contract then.
+[[tool.importlinter.contracts]]
+id = "bench-imports-common-only"
+name = "bench imports only common"
+type = "forbidden"
+source_modules = ["meshforge.bench"]
+forbidden_modules = [
+    "meshforge.controller",
+    "meshforge.agent",
+    "meshforge.gpu_service",
+    "meshforge.sdk",
+    "meshforge.cli",
 ]
 
 # ---------------------------------------------------------------------------

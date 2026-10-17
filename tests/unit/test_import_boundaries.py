@@ -89,8 +89,13 @@ VIOLATIONS = [
     ("gpu_service", "meshforge.agent", "gpu_service imports only common"),
     ("sdk", "meshforge.controller", "sdk imports only common"),
     ("sdk", "meshforge.cli", "sdk imports only common"),
-    ("cli", "meshforge.controller", "cli imports only common and sdk"),
-    ("cli", "meshforge.gpu_service", "cli imports only common and sdk"),
+    ("cli", "meshforge.controller", "cli imports only common, sdk and bench"),
+    ("cli", "meshforge.gpu_service", "cli imports only common, sdk and bench"),
+    # V0.9 G2: the benchmark library sees only common, and nothing but cli sees it.
+    ("bench", "meshforge.controller", "bench imports only common"),
+    ("bench", "meshforge.cli", "bench imports only common"),
+    ("controller", "meshforge.bench", "controller imports only common"),
+    ("agent", "meshforge.bench", "agent imports only common"),
 ]
 
 
@@ -130,7 +135,7 @@ def test_indirect_forbidden_import_is_detected(tmp_path: Path) -> None:
 
     output = result.stdout + result.stderr
     assert result.returncode != 0, output
-    assert "cli imports only common and sdk" in output
+    assert "cli imports only common, sdk and bench" in output
 
 
 def test_tree_is_fully_declared_in_contracts() -> None:

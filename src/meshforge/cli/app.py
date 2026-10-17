@@ -312,3 +312,8 @@ app.add_typer(data_app)
 app.add_typer(node_app)
 # V0.7 G2: `compute fabric invite|invites|join` (join codes, D135/D151).
 app.add_typer(fabric_app)
+
+# V0.9 G2: `compute bench workloads` (the benchmark workload library, D214).
+from meshforge.cli.bench_commands import bench_app  # noqa: E402
+
+app.add_typer(bench_app)

@@ -219,6 +219,12 @@ COMPUTE: Final[dict[str, Entry]] = {
             f"{G2_SHELL}::test_login_shell_and_logout",
         ),
     ),
+    # ------------------------------------------------------------ benchmarks (V0.9)
+    "bench workloads": CliOnly(
+        "V0.9 G2: lists the benchmark workload library on this laptop (no "
+        "controller call). The Benchmarks page (0.9.9, G6) is where campaigns are "
+        "shown; G6 decides whether it lists the families too and moves this entry."
+    ),
 }
 
 #: ``meshforge-controller user ...`` (D176 "users (admin)").

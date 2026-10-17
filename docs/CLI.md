@@ -21,6 +21,7 @@ codes and shell completion. Unit tests keep it in step with the code (`tests/uni
 | `compute secret list` | your secrets' names (never values) | yes |
 | `compute data ls` / `compute data show NAME` | named inputs (datasets, models) | yes |
 | `compute fabric invites` | join-code invites (codes are never shown again) | yes |
+| `compute bench workloads` | the benchmark workload families and their parameters (local: no controller call) | yes |
 | `compute logs JOB_ID [-f] [--stream S]` | the job's own output, byte for byte | no - it is the workload's bytes |
 | `compute run [PATH] [--node ID / --local] [-f] ...` | submit a project (prints the job id) | no - stdout is the job id |
 | `compute cancel JOB_ID` | cancel a job | no |
@@ -55,7 +56,8 @@ Every read command (and the write commands marked "yes" above) takes `--json`. T
 1. **One line** on stdout, compact separators, **keys sorted** - safe for `jq`, `grep` and line-based tools.
 2. The document is the controller's REST answer for that call (the field list and types are in its OpenAPI
    description, `GET /v1/openapi.json`), plus a top-level **`schema_version`** (currently **1**).
-   `compute status --json` is the one document the CLI builds itself (fields below).
+   `compute status --json` and `compute bench workloads --json` are the documents the CLI builds itself
+   (fields below).
 3. **Stability:** fields are only ever *added* within one `schema_version`. Removing, renaming or changing the
    type of a field listed below raises `schema_version`. A script should ignore fields it does not know.
 4. **Errors are not JSON:** a failing command prints nothing on stdout, one `compute: ...` line on stderr, and
@@ -82,6 +84,7 @@ Guaranteed fields per command (`a[].b` = field `b` of every item of list `a`; `a
 | `compute fabric invites --revoke ID` | `POST /v1/fabric/invites/{invite_id}/revoke` | `id`, `state`, `revoked_at` |
 | `compute fabric invite` | `POST /v1/fabric/invites` | `code`, `invite_id`, `address`, `ca_pin`, `expires_at` |
 | `compute node revoke NODE_ID` | `POST /v1/nodes/{node_id}/revoke` | `node_id`, `state`, `already_revoked`, `session_killed` |
+| `compute bench workloads` | built by the CLI | `families`, `count`, `runtime_window_s`, `reference_hw`, `families[].name`, `families[].kind`, `families[].description`, `families[].env_base`, `families[].gpu`, `families[].size_params`, `families[].params_schema`, `families[].smallest`, `families[].smallest_hint_s` |
 
 `compute status --json`: `controller_url` (the address used), `reachable` (`false` only when the controller
 could not be reached at all - exit 6), `detail` (the error line, else `null`), `live_sessions` (from
