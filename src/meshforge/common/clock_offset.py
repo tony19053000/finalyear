@@ -13,7 +13,11 @@ per-node clock offset), measure the offset first:
   whatever the path asymmetry (the remote stamped *somewhere* inside the round
   trip) - the **bound**;
 * of several exchanges the one with the shortest round trip has the tightest
-  bound, so it is the estimate (NTP's minimum-delay filter).
+  bound, so it is the estimate (NTP's minimum-delay filter) - **if the
+  exchanges agree**: each one confines the true offset to an interval, and a
+  clock that held still lies in all of them. If they do not overlap (a clock
+  stepped between pings), the result is marked ``consistent=False`` and its
+  bound widened to cover every interval: a step never yields a tight bound.
 
 A remote timestamp ``r`` then corresponds to local time ``r - offset``.
 Everything is in milliseconds. Pure functions: no I/O, no clock reads.
@@ -63,17 +67,24 @@ class ClockOffset:
     rtt_ms: float
     exchanges: int
     """How many round trips were considered (the shortest one won)."""
+    consistent: bool = True
+    """``False``: the exchanges contradict each other (their intervals do not
+    overlap - a clock moved between pings); the bound then covers all of them
+    instead of the shortest round trip's."""
 
     def to_local_ms(self, remote_ms: float) -> float:
         """A remote timestamp on the local clock."""
         return remote_ms - self.offset_ms
 
-    def as_dict(self) -> dict[str, float | int]:
+    def as_dict(self) -> dict[str, float | int | bool]:
+        """Rounded to 0.001 ms; a reader that judges the bound must judge THIS
+        value (the one it reports), never a differently rounded copy."""
         return {
-            "clock_offset_ms": round(self.offset_ms, 1),
-            "clock_offset_bound_ms": round(self.bound_ms, 1),
-            "rtt_ms": round(self.rtt_ms, 1),
+            "clock_offset_ms": round(self.offset_ms, 3),
+            "clock_offset_bound_ms": round(self.bound_ms, 3),
+            "rtt_ms": round(self.rtt_ms, 3),
             "exchanges": self.exchanges,
+            "consistent": self.consistent,
         }
 
 
@@ -106,10 +117,40 @@ def estimate_offset(
             raise ClockOffsetError(
                 "a clock exchange went backwards (the local clock stepped)"
             )
-    best = min(seen, key=lambda e: e.rtt_ms)
+    # Each exchange alone pins the true offset to an interval; a constant
+    # offset lies in ALL of them. Disjoint intervals mean the clocks did not
+    # hold still (a step, an NTP slew, a stamp taken elsewhere): never report
+    # the tight min-RTT bound then - widen it to cover every interval.
+    intervals = [_interval(e, resolution_ms) for e in seen]
+    best = min(range(len(seen)), key=lambda i: (seen[i].rtt_ms, i))
+    lowest = max(lo for lo, _ in intervals)
+    highest = min(hi for _, hi in intervals)
+    if lowest <= highest + _AGREE_EPS_MS:
+        lo, hi = intervals[best]
+        return ClockOffset(
+            offset_ms=(lo + hi) / 2.0,
+            bound_ms=(hi - lo) / 2.0,
+            rtt_ms=seen[best].rtt_ms,
+            exchanges=len(seen),
+        )
+    lo = min(lo for lo, _ in intervals)
+    hi = max(hi for _, hi in intervals)
     return ClockOffset(
-        offset_ms=best.offset_ms - resolution_ms / 2.0,
-        bound_ms=(best.rtt_ms + resolution_ms) / 2.0,
-        rtt_ms=best.rtt_ms,
+        offset_ms=(lo + hi) / 2.0,
+        bound_ms=(hi - lo) / 2.0,
+        rtt_ms=seen[best].rtt_ms,
         exchanges=len(seen),
+        consistent=False,
     )
+
+
+#: Float slack when intersecting intervals (ms): far below any clock tick.
+_AGREE_EPS_MS = 1e-6
+
+
+def _interval(exchange: ClockExchange, resolution_ms: float) -> tuple[float, float]:
+    """Where the true offset must lie given this one exchange (see
+    :func:`estimate_offset` for the truncation tick)."""
+    centre = exchange.offset_ms - resolution_ms / 2.0
+    half = (exchange.rtt_ms + resolution_ms) / 2.0
+    return centre - half, centre + half
