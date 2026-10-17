@@ -5167,7 +5167,7 @@
     },
     "/v1/clock": {
       "get": {
-        "description": "V0.9 G0 (D213): the controller's ``time.time()`` when it answers, so a\nclient can estimate the offset between its clock and the controller's from\nround trips (``meshforge.common.clock_offset``: offset \u00b1 RTT/2) before it\ncompares a controller timestamp (an event's ``recv_at``, a transition's\n``at``) with its own clock. Authenticated like every route; reads nothing.",
+        "description": "V0.9 G0 (D213): the controller's ``time.time()`` when it answers, so a\nclient can estimate the offset between its clock and the controller's from\nround trips (``meshforge.common.clock_offset``: offset \u00b1 RTT/2) before it\ncompares a controller timestamp (an event's ``recv_at``, a transition's\n``at``) with its own clock. Authenticated like every route; reads nothing.\n``Cache-Control: no-store``: a cached answer would silently ruin the\nestimate (fix round 1, DEFECT-6).",
         "operationId": "get_clock_v1_clock_get",
         "responses": {
           "200": {

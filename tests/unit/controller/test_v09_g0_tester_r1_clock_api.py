@@ -151,8 +151,8 @@ async def test_clock_response_is_not_cacheable_by_a_shared_cache() -> None:
     async with _client(bearer(ADMIN_TOKEN)) as c:
         r = await c.get("/v1/clock")
     cc = r.headers.get("cache-control", "").lower()
-    if "no-store" not in cc and "no-cache" not in cc:
-        pytest.xfail("DEFECT-6 (minor): /v1/clock sends no Cache-Control: no-store")
+    # DEFECT-6 fixed in G0 fix round 1 (dynamic xfail removed).
+    assert "no-store" in cc, cc
 
 
 @pytest.mark.asyncio

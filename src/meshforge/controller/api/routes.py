@@ -22,7 +22,7 @@ import time
 from collections.abc import Callable
 from typing import Annotated, Final
 
-from fastapi import APIRouter, Depends, Path, Query
+from fastapi import APIRouter, Depends, Path, Query, Response
 
 from meshforge.common.errors import InvalidIdError
 from meshforge.common.ids import validate_node_id
@@ -256,12 +256,15 @@ wall_clock: Callable[[], float] = time.time
     response_model=ServerClock,
     summary="The controller's wall clock (for an NTP-style offset estimate)",
 )
-async def get_clock() -> ServerClock:
+async def get_clock(response: Response) -> ServerClock:
     """V0.9 G0 (D213): the controller's ``time.time()`` when it answers, so a
     client can estimate the offset between its clock and the controller's from
     round trips (``meshforge.common.clock_offset``: offset ± RTT/2) before it
     compares a controller timestamp (an event's ``recv_at``, a transition's
-    ``at``) with its own clock. Authenticated like every route; reads nothing."""
+    ``at``) with its own clock. Authenticated like every route; reads nothing.
+    ``Cache-Control: no-store``: a cached answer would silently ruin the
+    estimate (fix round 1, DEFECT-6)."""
+    response.headers["Cache-Control"] = "no-store"
     return ServerClock(server_time=round(wall_clock(), 6))
 
 
