@@ -262,6 +262,8 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
+**2026-10-17 (G2 fix r2 DONE `f92ccb1`,`271b039`: shared _support check rules in all 15 kernels) — RUNNING: G2 reviewer (no tester r3) ∥ G0 fix r2. Freivalds n=12288 headroom + cuBLAS rounding + float64 check cost → confirm on first CUDA run.**
+
 **2026-10-17 (G0 tester r2 FAIL minor `f5efa34`: Infinity in JSON, broad offline markers, NaN lag) — RUNNING: G0 fix r2 (+ >25% dropped pings → uncertain) ∥ G2 fix r2. Next G0: reviewer (no tester r3) → merge → whole component once.**
 
 **2026-10-17 (G0 fix r1 DONE `0537ac9`..`9a26433`, all 7 + ping dropping; perf e2e pass) — RUNNING: G0 tester r2 delta ∥ G2 fix r2. Open question for tester: `inf` bound serialised as JSON `Infinity`.**
