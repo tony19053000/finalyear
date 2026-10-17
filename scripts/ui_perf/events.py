@@ -99,13 +99,22 @@ class JobStateSamples:
     never showed itself is timed to when it showed a LATER state of the job
     (``superseded`` - e.g. ``submitted`` and ``planning`` happen inside the
     submit call, so the list's first view of a job is ``queued``); one with no
-    later state shown either is ``missed`` - a failure, never left out."""
+    later state shown either is ``missed`` - a failure, never left out.
+
+    **Retries are not samples** (V0.9 G0, T-8b): the page probe keeps the
+    FIRST time it showed each state, so a state a job enters again (a retry:
+    ``running -> queued -> running``) cannot be timed - against the first
+    display it gets a negative or meaningless latency, and a stall in the
+    retry would pass. Such re-entries are counted in ``revisited`` (their jobs
+    in ``retried_jobs``) and left out of every latency number."""
 
     lags: list[float] = dataclasses.field(default_factory=list)
     terminal_lags: list[float] = dataclasses.field(default_factory=list)
     missed: list[str] = dataclasses.field(default_factory=list)
     superseded: int = 0
     missed_terminal: int = 0
+    revisited: int = 0
+    retried_jobs: int = 0
 
     def add(
         self,
@@ -118,7 +127,17 @@ class JobStateSamples:
         controller's clock); ``shown`` maps a state to when the page first
         showed it (the browser's epoch ms); ``clock`` = controller minus
         browser (``None``: the same clock, as on one host)."""
+        entered: set[str] = set()
+        first_visit: list[bool] = []
+        for transition in transitions:
+            first_visit.append(transition["to_state"] not in entered)
+            entered.add(transition["to_state"])
+        revisits = first_visit.count(False)
+        self.revisited += revisits
+        self.retried_jobs += 1 if revisits else 0
         for index, transition in enumerate(transitions):
+            if not first_visit[index]:
+                continue  # a retry's re-entry: counted above, never a sample
             state = transition["to_state"]
             at = _parse_at(transition["at"])
             if clock is not None:
@@ -131,8 +150,10 @@ class JobStateSamples:
                 continue
             later = [
                 shown[t["to_state"]]
-                for t in transitions[index + 1 :]
-                if t["to_state"] in shown and shown[t["to_state"]] >= at
+                for i, t in enumerate(transitions[index + 1 :], start=index + 1)
+                if first_visit[i]
+                and t["to_state"] in shown
+                and shown[t["to_state"]] >= at
             ]
             if later:
                 self.superseded += 1
@@ -229,6 +250,8 @@ def measure_events(
         "job_terminal_latency": summary(states.terminal_lags),
         "job_terminal_missed": states.missed_terminal,
         "job_state_superseded": states.superseded,
+        "job_state_revisited": states.revisited,
+        "job_state_retried_jobs": states.retried_jobs,
         "job_state_missed": len(states.missed),
         "job_state_missed_examples": states.missed[:10],
         "heartbeat_latency": summary(heartbeat.lags),

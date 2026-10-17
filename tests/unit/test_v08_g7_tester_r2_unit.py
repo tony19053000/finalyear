@@ -546,13 +546,9 @@ def test_t8_empty_samples_raise_not_pass() -> None:
         PERF.check(r)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="T-8b (minor): a state REVISITED later (retry: running -> queued -> "
-    "running) is timed to the FIRST time the page showed that state, so the "
-    "second `running` gets a negative latency and a 30 s stall passes",
-)
 def test_t8b_a_revisited_state_shown_30_s_late_fails() -> None:
+    # Fixed in V0.9 G0 (D210 item 5): a retry's re-entries are excluded from
+    # the latency samples and counted separately (strict xfail removed).
     s = PERF.JobStateSamples()
     s.add(
         "j",
