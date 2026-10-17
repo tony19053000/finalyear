@@ -160,6 +160,12 @@ NETWORK_FAILURE_MARKERS = (
     "nodename nor servname",  # macOS
     "client error (connect)",
     "network is unreachable",
+    # fix round 1 (DEFECT-7): a firewall or a down index is not DNS
+    "timed out",  # "operation timed out", "connection timed out"
+    "connection refused",
+    "no route to host",
+    "unreachable network",  # Windows: os error 10051
+    "unreachable host",  # Windows: os error 10065
     "the network was disabled",  # the --offline retry: not in the cache
 )
 

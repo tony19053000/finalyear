@@ -53,12 +53,8 @@ def test_classification_is_case_insensitive() -> None:
     ],
 )
 def test_other_common_unreachable_index_shapes_are_recognised(stderr: str) -> None:
-    if not SKEL.network_failure(stderr):
-        pytest.xfail(
-            "DEFECT-7 (minor): timeout / refused / no-route index failures are "
-            "not recognised as offline, so they FAIL the wheel test instead of "
-            "skipping (a firewall that drops packets gives a timeout, not DNS)"
-        )
+    # DEFECT-7 fixed in G0 fix round 1 (dynamic xfail removed).
+    assert SKEL.network_failure(stderr)
 
 
 def test_build_wheel_runs_offline_retry_only_after_a_network_failure(
