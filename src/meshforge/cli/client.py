@@ -20,7 +20,9 @@ process exit code (``UNAVAILABLE`` for unreachable/timed out, D18).
 
 from __future__ import annotations
 
+import contextlib
 import json
+import os
 import ssl
 from collections.abc import Iterator, Mapping
 from pathlib import Path
@@ -203,11 +205,7 @@ class ControllerClient:
                     response.read()
                     raise self._envelope_error(response, _json_or_none(response), path)
                 rows = response.headers.get("x-meshforge-telemetry-rows")
-                size = 0
-                with dest.open("xb") as out:
-                    for chunk in response.iter_bytes(1024 * 1024):
-                        out.write(chunk)
-                        size += len(chunk)
+                size = _download_new_file(response, dest)
                 return size, int(rows) if rows and rows.isdigit() else None
         except httpx.HTTPError as exc:
             raise self._transport_error(exc, path) from exc
@@ -548,3 +546,35 @@ def _failure_type(code: str) -> FailureType:
         return FailureType(code)
     except ValueError:
         return FailureType.INTERNAL_ERROR
+
+
+_CREATE_NEW: Final = (
+    os.O_WRONLY
+    | os.O_CREAT
+    | os.O_EXCL
+    | getattr(os, "O_NOFOLLOW", 0)
+    | getattr(os, "O_BINARY", 0)
+)
+
+
+def _download_new_file(response: httpx.Response, dest: Path) -> int:
+    """Stream ``response`` into ``dest``, which this call **creates**
+    (``O_CREAT | O_EXCL``: an existing file - or a symlink, even a dangling
+    one - raises :class:`FileExistsError` and is never touched). On any failure
+    after the create (network, disk, Ctrl-C) the half-written file is removed -
+    only if ``dest`` is still the file this call created. The byte count."""
+    fd = os.open(dest, _CREATE_NEW, 0o644)
+    mine = os.fstat(fd)
+    size = 0
+    try:
+        with os.fdopen(fd, "wb") as out:
+            for chunk in response.iter_bytes(1024 * 1024):
+                out.write(chunk)
+                size += len(chunk)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            now = os.lstat(dest)
+            if (now.st_dev, now.st_ino) == (mine.st_dev, mine.st_ino):
+                dest.unlink()  # never leave a half-written dataset behind
+        raise
+    return size

@@ -102,19 +102,7 @@ def test_defect_6_a_file_created_during_the_request_is_not_deleted_by_the_cleanu
     assert out.exists() and out.read_bytes() == b"someone else's data"
 
 
-test_defect_6_a_file_created_during_the_request_is_not_deleted_by_the_cleanup = (
-    pytest.mark.xfail(
-        strict=True,
-        reason="DEFECT-6: cleanup unlinks a pre-existing file after FileExistsError",
-    )(test_defect_6_a_file_created_during_the_request_is_not_deleted_by_the_cleanup)
-)
-
-
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX symlinks")
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT-6: a dangling symlink passes exists() and is then unlinked",
-)
 def test_defect_6_a_dangling_symlink_as_output_is_left_alone(
     runner: CliRunner, controller: TransportFactory, tmp_path: Path
 ) -> None:

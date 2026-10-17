@@ -10,8 +10,8 @@ the same bytes (D222), so two exports of a finished campaign compare equal.
 
 from __future__ import annotations
 
-import contextlib
 import datetime as dt
+import os
 from pathlib import Path
 from typing import Annotated
 
@@ -65,18 +65,23 @@ def export(
 ) -> None:
     """Download the run records as one Parquet file (admin only)."""
     when = _since(since)
-    if output.exists():
+    if os.path.lexists(output):  # a dangling symlink too: never followed
         cli._die(f"{output} exists; choose a new file", CliExit.USAGE_ERROR)
     settings = cli._settings()
     with cli._client(settings) as client:
+        # The client creates the file (O_EXCL, no-follow) and removes only a
+        # half file it created itself - never one that appeared meanwhile.
         try:
             size, rows = cli._fetch(
                 lambda: client.export_telemetry(output, campaign=campaign, since=when)
             )
-        except BaseException:
-            with contextlib.suppress(OSError):
-                output.unlink()  # never leave a half-written dataset behind
-            raise
+        except FileExistsError:
+            cli._die(f"{output} exists; choose a new file", CliExit.USAGE_ERROR)
+        except OSError as exc:
+            cli._die(
+                f"cannot write {output}: {exc.strerror or type(exc).__name__}",
+                CliExit.FAILURE,
+            )
     if json_output:
         cli._echo_json(
             {"file": str(output), "bytes": size, "rows": rows, "schema_version": 1}
