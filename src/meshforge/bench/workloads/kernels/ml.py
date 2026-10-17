@@ -10,6 +10,7 @@ In a job they always run on CUDA (``device="cpu"`` is for testing the kernels).
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from typing import Any
 
@@ -19,7 +20,9 @@ from ._support import (
     floats_digest,
     int_param,
     require_torch,
+    shape_guard,
     synchronize,
+    worse,
 )
 
 __all__ = ["KERNELS", "cnn_layout"]
@@ -118,22 +121,31 @@ def _infer_compute(state: Any) -> Any:
     return _infer_loop(state, state["batches"])
 
 
-def _infer_check(state: Any, out: Any) -> Check:
-    """Finite logits of the right shape; the last batch run again gives the same."""
+def _rerun_check(state: Any, out: Any, shape: tuple[int, ...], digits: int) -> Check:
+    """Shared by both inference checks: shape/dtype guard first, every value
+    finite, and the last batch run again gives the same output (rules in
+    :mod:`._support`)."""
     torch = state["torch"]
+    guard = shape_guard(out, shape, torch.float32)
+    if guard is not None:
+        return guard
+    if not bool(torch.isfinite(out).all()):
+        return Check(False, floats_digest([]), False, "non-finite values in the output")
     with torch.inference_mode():
         again = state["model"](state["xs"][(state["batches"] - 1) % POOL])
-    finite = bool(torch.isfinite(out).all())
-    error = float((again - out).abs().max())
-    shape_ok = tuple(out.shape) == (state["xs"][0].shape[0], CLASSES)
+    error = worse(0.0, float((again - out).abs().max()))
+    reduced = out.double().sum(dim=tuple(range(out.dim() - 1))).tolist()[:64]
     return Check(
-        ok=finite and shape_ok and error <= 1e-3,
-        checksum=floats_digest(
-            [round(float(v), 4) for v in out.double().sum(0).tolist()]
-        ),
+        ok=error <= 1e-3,
+        checksum=floats_digest([round(float(v), digits) for v in reduced]),
         exact=False,
-        detail=f"finite {finite}, shape {tuple(out.shape)}, rerun max diff {error:.3e}",
+        detail=f"finite, shape {tuple(out.shape)}, rerun max diff {error:.3e}",
     )
+
+
+def _infer_check(state: Any, out: Any) -> Check:
+    """Finite logits of the right shape; the last batch run again gives the same."""
+    return _rerun_check(state, out, (state["xs"][0].shape[0], CLASSES), 4)
 
 
 def _train_step(state: Any, index: int) -> Any:
@@ -169,14 +181,20 @@ def _train_compute(state: Any) -> Any:
 
 
 def _train_check(state: Any, losses: Any) -> Check:
-    """Finite losses that went down: mean of the last quarter < first quarter."""
+    """One finite loss per step, and they went down: mean of the last quarter <
+    first quarter. Shape/dtype first."""
+    torch = state["torch"]
+    guard = shape_guard(losses, (state["steps"],), torch.float32)
+    if guard is not None:
+        return guard
     values = [float(v) for v in losses.double().cpu().tolist()]
+    if not all(math.isfinite(v) for v in values):
+        return Check(False, floats_digest([]), False, "non-finite losses")
     quarter = max(1, len(values) // 4)
     first = sum(values[:quarter]) / quarter
     last = sum(values[-quarter:]) / quarter
-    finite = all(v == v and abs(v) != float("inf") for v in values)
     return Check(
-        ok=finite and last < first,
+        ok=last < first,
         checksum=floats_digest([round(v, 4) for v in values]),
         exact=False,
         detail=f"loss {first:.4f} -> {last:.4f} over {len(values)} steps",
@@ -223,21 +241,8 @@ def _transformer_prepare(params: Mapping[str, Any], seed: int, device: str) -> A
 
 
 def _transformer_check(state: Any, out: Any) -> Check:
-    torch = state["torch"]
-    with torch.inference_mode():
-        again = state["model"](state["xs"][(state["batches"] - 1) % POOL])
-    finite = bool(torch.isfinite(out).all())
-    error = float((again - out).abs().max())
     batch, seq_len = state["xs"][0].shape
-    shape_ok = tuple(out.shape) == (batch, seq_len, state["width"])
-    return Check(
-        ok=finite and shape_ok and error <= 1e-3,
-        checksum=floats_digest(
-            [round(float(v), 3) for v in out.double().sum(dim=(0, 1)).tolist()[:64]]
-        ),
-        exact=False,
-        detail=f"finite {finite}, shape {tuple(out.shape)}, rerun max diff {error:.3e}",
-    )
+    return _rerun_check(state, out, (batch, seq_len, state["width"]), 3)
 
 
 KERNELS: dict[str, Kernel] = {

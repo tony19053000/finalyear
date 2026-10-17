@@ -14,16 +14,24 @@ from collections.abc import Mapping
 from typing import Any
 
 from ._support import (
+    FREIVALDS_FACTOR,
     Check,
     Kernel,
     choice_param,
     floats_digest,
     int_param,
     require_torch,
+    rows_freivalds,
+    shape_guard,
     synchronize,
+    worse,
 )
 
 __all__ = ["KERNELS"]
+
+
+_CHECK_CHUNK = 1 << 22
+"""Elements (or images x pixels) recomputed per step of a full-output check."""
 
 
 def _setup(params: Mapping[str, Any], seed: int, device: str) -> dict[str, Any]:
@@ -79,22 +87,44 @@ def _matmul_compute(state: Any) -> Any:
     return c
 
 
+def _nonfinite(torch: Any, out: Any) -> Check | None:
+    """A failed check when ``out`` holds NaN or inf (tester r2 D2)."""
+    if not bool(torch.isfinite(out).all()):
+        return Check(False, floats_digest([]), False, "non-finite values in the output")
+    return None
+
+
 def _matmul_check(state: Any, c: Any) -> Check:
-    """Freivalds in float32: ``C x`` vs ``A (B x)``."""
-    torch = state["torch"]
-    x = torch.randn(state["n"], 1, generator=state["gen"], device=state["device"])
-    a, b = state["a"].float(), state["b"].float()
-    lhs = c.float() @ x
-    rhs = a @ (b @ x)
-    error = float(
-        torch.linalg.norm(lhs - rhs) / torch.linalg.norm(rhs).clamp_min(1e-30)
+    """The same row-wise float64 Freivalds as ``cpu.matmul``
+    (:func:`~._support.rows_freivalds`, tester r2 D6): three vectors, every row
+    within its rounding tolerance, rows converted to float64 1024 at a time on
+    the device. Shape/dtype first; NaN/inf fails."""
+    torch, n = state["torch"], state["n"]
+    guard = shape_guard(c, (n, n), _dtype(state, state["dtype_name"])) or _nonfinite(
+        torch, c
     )
-    tolerance = 2e-3 if state["dtype_name"] == "float32" else 5e-2
+    if guard is not None:
+        return guard
+    gen = torch.Generator(device=state["device"])
+    gen.manual_seed(int(state["gen"].initial_seed()) + 1)
+    vectors = [
+        torch.randn(n, generator=gen, device=state["device"], dtype=torch.float64)
+        for _ in range(3)
+    ]
+    worst = rows_freivalds(
+        state["a"],
+        state["b"],
+        c,
+        vectors,
+        float(torch.finfo(c.dtype).eps),
+        lambda rows: rows.double(),
+        FREIVALDS_FACTOR[state["dtype_name"]],
+    )
     return Check(
-        ok=error <= tolerance,
+        ok=worst <= 1.0,
         checksum=_sums_digest(c, (0,)),
         exact=False,
-        detail=f"freivalds relative error {error:.3e} (tolerance {tolerance:g})",
+        detail=f"row-wise freivalds: worst row {worst:.3f} of its tolerance",
     )
 
 
@@ -135,27 +165,32 @@ def _conv_compute(state: Any) -> Any:
 
 
 def _conv_check(state: Any, y: Any) -> Check:
-    """16 seeded output elements recomputed in float64 on the CPU."""
-    torch = state["torch"]
-    x = torch.nn.functional.pad(state["x"], (1, 1, 1, 1)).detach().cpu().double()
-    w = state["w"].detach().cpu().double()
-    out = y.detach().cpu().double()
-    batch, channels, size, _ = state["x"].shape
-    picks = torch.randint(
-        0, 2**31 - 1, (16, 4), generator=torch.Generator().manual_seed(7)
-    )
+    """The **whole** output recomputed in float64 on the device, a few images at
+    a time (tester r2 D5). Each element must be within 2e-3 of
+    ``conv(|x|, |w|)`` at that position - the size of the terms it sums - which
+    allows cuDNN's TF32 rounding on a GPU but fails one wrong element. Shape and
+    dtype first; NaN/inf fails."""
+    torch, x, w = state["torch"], state["x"], state["w"]
+    guard = shape_guard(y, tuple(x.shape), x.dtype) or _nonfinite(torch, y)
+    if guard is not None:
+        return guard
+    conv = torch.nn.functional.conv2d
+    w64, w_abs = w.double(), w.double().abs()
+    per_image = max(1, x[0].numel())
+    step = max(1, _CHECK_CHUNK // per_image)
     worst = 0.0
-    for row in picks.tolist():
-        b, o, i, j = row[0] % batch, row[1] % channels, row[2] % size, row[3] % size
-        patch = x[b, :, i : i + 3, j : j + 3]
-        manual = float((patch * w[o]).sum())
-        scale = float((patch.abs() * w[o].abs()).sum()) or 1.0
-        worst = max(worst, abs(manual - float(out[b, o, i, j])) / scale)
+    for start in range(0, x.shape[0], step):
+        part = slice(start, start + step)
+        x64 = x[part].double()
+        expected = conv(x64, w64, padding=1)
+        scale = conv(x64.abs(), w_abs, padding=1) + 1e-30
+        error = (y[part].double() - expected).abs() / scale
+        worst = worse(worst, float(error.max()))
     return Check(
-        ok=worst <= 1e-2,
+        ok=worst <= 2e-3,
         checksum=_sums_digest(y, (0, 2, 3)),
         exact=False,
-        detail=f"worst sampled relative error {worst:.3e}",
+        detail=f"whole output vs float64 recompute: worst error {worst:.3e} of the term size",
     )
 
 
@@ -197,25 +232,20 @@ def _elementwise_compute(state: Any) -> Any:
     return y
 
 
-_CHECK_CHUNK = 1 << 22
-"""Elements (or images x pixels) recomputed per step of a full-output check."""
-
-
 def _elementwise_check(state: Any, y: Any) -> Check:
     """The **whole** output recomputed in float64 on the same device, in chunks
     (tester r1 D8: not only a prefix). Bandwidth-bound like the run itself;
     recorded in ``check_ms``."""
     torch, x, ops = state["torch"], state["x"], state["ops"]
-    if tuple(y.shape) != tuple(x.shape):
-        return Check(False, floats_digest([]), False, f"output shape {tuple(y.shape)}")
+    guard = shape_guard(y, tuple(x.shape), x.dtype) or _nonfinite(torch, y)
+    if guard is not None:
+        return guard
     worst = 0.0
     for start in range(0, x.numel(), _CHECK_CHUNK):
         part = slice(start, start + _CHECK_CHUNK)
         expected = _chain(torch, x[part].double(), ops)
         error = (y[part].double() - expected).abs() / (1.0 + expected.abs())
-        worst = max(worst, float(error.max()))
-    if worst != worst:  # NaN in the output
-        worst = float("inf")
+        worst = worse(worst, float(error.max()))
     tolerance = 1e-5 * (ops + 2)
     return Check(
         ok=worst <= tolerance,
@@ -270,19 +300,16 @@ def _resize_check(state: Any, y: Any) -> Check:
     exception (D9)."""
     x = state["x"]
     want = (x.shape[0], x.shape[1], state["out_size"], state["out_size"])
-    if tuple(y.shape) != want:
-        return Check(
-            False, floats_digest([]), False, f"output shape {tuple(y.shape)} != {want}"
-        )
+    guard = shape_guard(y, want, x.dtype) or _nonfinite(state["torch"], y)
+    if guard is not None:
+        return guard
     per_image = 3 * (x.shape[2] ** 2 + state["out_size"] ** 2)
     step = max(1, _CHECK_CHUNK // per_image)
     worst = 0.0
     for start in range(0, x.shape[0], step):
         part = slice(start, start + step)
         expected = _resize(state, x[part].double())
-        worst = max(worst, float((y[part].double() - expected).abs().max()))
-    if worst != worst:
-        worst = float("inf")
+        worst = worse(worst, float((y[part].double() - expected).abs().max()))
     return Check(
         ok=worst <= 1e-5,
         checksum=_sums_digest(y, (2, 3)),

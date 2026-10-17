@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from ._support import Check, Kernel, digest, int_param, require_numpy
+from ._support import Check, Kernel, digest, int_param, require_numpy, shape_guard
 
 __all__ = ["KERNELS"]
 
@@ -54,6 +54,9 @@ def _copy_compute(state: Any) -> Any:
 
 def _copy_check(state: Any, dst: Any) -> Check:
     np = state["np"]
+    guard = shape_guard(dst, state["src"].shape, state["src"].dtype)
+    if guard is not None:
+        return guard
     equal = bool(np.array_equal(dst, state["src"]))
     return Check(
         ok=equal,
@@ -104,14 +107,23 @@ def _groupby_compute(state: Any) -> Any:
     return out
 
 
-def _groupby_check(state: Any, out: tuple[Any, Any, Any, Any]) -> Check:
+def _groupby_check(state: Any, out: Any) -> Check:
     """Every group's key, count, sum and max against an independent scatter
     recompute on the unsorted input (``bincount`` with and without weights,
     ``maximum.at``) - not just totals (tester r1 D1). About one pass over the
     rows plus a scatter; recorded in ``check_ms``."""
     np = state["np"]
     keys, values, groups = state["keys"], state["values"], state["groups"]
+    if not isinstance(out, tuple) or len(out) != 4:
+        return Check(
+            False, digest(b"arity"), True, "output is not (keys, counts, sums, max)"
+        )
     uniq, counts, sums, maxs = out
+    finite = all(
+        bool(np.isfinite(a).all()) for a in (sums, maxs) if hasattr(a, "dtype")
+    )
+    if not finite:
+        return Check(False, digest(b"non-finite"), True, "non-finite sums or max")
     counts_ref = np.bincount(keys, minlength=groups)
     present = np.flatnonzero(counts_ref)
     sums_ref = np.bincount(keys, weights=values, minlength=groups)[present]

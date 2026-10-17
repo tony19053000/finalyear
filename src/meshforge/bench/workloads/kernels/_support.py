@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import struct
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -45,7 +46,10 @@ __all__ = [
     "int_param",
     "require_numpy",
     "require_torch",
+    "rows_freivalds",
+    "shape_guard",
     "synchronize",
+    "worse",
 ]
 
 
@@ -161,3 +165,106 @@ def synchronize(torch: ModuleType, device: str) -> None:
     """Wait for queued GPU work, so a timer around it measures the work itself."""
     if device == "cuda":
         torch.cuda.synchronize()
+
+
+# ------------------------------------------------------------- check helpers
+#
+# Every self-check follows the same three rules (tester r1/r2; the dataset's
+# labels trust ``verified``):
+#   1. shape/dtype guard first - a wrong-shaped output is ``ok=False``, never an
+#      exception (:func:`shape_guard`);
+#   2. a non-finite value anywhere fails (callers check isfinite, and every
+#      worst-error reduction goes through :func:`worse`, which keeps NaN/inf -
+#      Python's ``max(worst, nan)`` silently drops a NaN);
+#   3. the whole output is verified, independently of the timed code path.
+
+
+def worse(current: float, new: float) -> float:
+    """The larger error, where NaN counts as infinitely bad."""
+    if new != new or current != current:  # NaN
+        return math.inf
+    return max(current, new)
+
+
+def shape_guard(out: Any, shape: tuple[int, ...], dtype: Any) -> Check | None:
+    """A failed :class:`Check` when ``out`` is not an array of ``shape`` and
+    ``dtype``; None when it is (works for numpy arrays and torch tensors)."""
+    got_shape = getattr(out, "shape", None)
+    got_dtype = getattr(out, "dtype", None)
+    if got_shape is None or tuple(got_shape) != tuple(shape) or got_dtype != dtype:
+        return Check(
+            ok=False,
+            checksum=digest(b"wrong-shape"),
+            exact=False,
+            detail=f"output shape {None if got_shape is None else tuple(got_shape)} "
+            f"dtype {got_dtype}, expected {tuple(shape)} {dtype}",
+        )
+    return None
+
+
+FREIVALDS_FACTOR: dict[str, float] = {"float16": 8.0, "float32": 4.0, "float64": 8.0}
+"""Per-row tolerance of :func:`rows_freivalds` per dtype, in units of
+``eps(dtype) * (|A| (|B| |x|))_i / sqrt(n)`` (tester r2 D1).
+
+Measured on Laptop 1 (2026-10-17; numpy/OpenBLAS and torch-CPU, n = 1 .. 4096,
+20 seeds x 3 vectors up to n = 1024, 3 seeds above): the worst honest product
+used 1.43 units in float32, 3.44 in float64 (the float64 reference's own
+rounding is the same size as the product's) and 0.51 in float16 (fp32
+accumulation). The worst cases are small n: the ratio *falls* with n (rounding
+grows like sqrt(n), the scale like n; float32 0.35 at n = 4096), so n = 12288
+extrapolates below that. Factors 4 / 8 / 8 leave >= 2.3x headroom everywhere. At
+n = 384 one float32 element off by 1e-2 measures 22 units at factor 1 (5.5x the
+tolerance); the r1 bound (2 eps |A||B||x|, no sqrt(n)) was ~10x looser there."""
+
+_ROWS = 1024
+"""Rows converted to float64 at a time (bounded extra memory, also on a GPU)."""
+
+
+def rows_freivalds(
+    a: Any,
+    b: Any,
+    c: Any,
+    vectors: Sequence[Any],
+    eps: float,
+    to64: Callable[[Any], Any],
+    factor: float,
+) -> float:
+    """Worst row-wise Freivalds error of ``C = A B`` over ``vectors`` (float64),
+    in units of the tolerance (``<= 1`` passes; NaN/inf -> ``inf``).
+
+    For every row ``i`` and vector ``x``: ``|(C x)_i - (A (B x))_i|`` against
+    ``factor * eps * (|A| (|B| |x|))_i / sqrt(n)`` (:data:`FREIVALDS_FACTOR`). ``to64`` turns a
+    row slice into float64 (``astype`` for numpy, ``.double()`` for torch); rows
+    are converted :data:`_ROWS` at a time, so a 12288 x 12288 matrix never needs
+    a float64 copy. O(n^2) per vector.
+    """
+    n = a.shape[0]
+    scale = factor * eps / math.sqrt(max(n, 1))
+    worst = 0.0
+    for x in vectors:
+        x_abs = abs(x)
+        parts_bx = []
+        parts_babs = []
+        for start in range(0, n, _ROWS):
+            rows = to64(b[start : start + _ROWS])
+            parts_bx.append(rows @ x)
+            parts_babs.append(abs(rows) @ x_abs)
+        bx = _concat(parts_bx)
+        babs = _concat(parts_babs)
+        for start in range(0, n, _ROWS):
+            a_rows = to64(a[start : start + _ROWS])
+            error = abs(to64(c[start : start + _ROWS]) @ x - a_rows @ bx)
+            bound = abs(a_rows) @ babs * scale + 1e-300
+            worst = worse(worst, float((error / bound).max()))
+    return worst
+
+
+def _concat(parts: list[Any]) -> Any:
+    first = parts[0]
+    if hasattr(first, "new_empty"):  # torch
+        import torch
+
+        return torch.cat(parts)
+    import numpy
+
+    return numpy.concatenate(parts)

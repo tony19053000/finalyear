@@ -15,6 +15,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from ._support import (
+    FREIVALDS_FACTOR,
     Check,
     Kernel,
     KernelParamsError,
@@ -23,6 +24,8 @@ from ._support import (
     floats_digest,
     int_param,
     require_numpy,
+    rows_freivalds,
+    shape_guard,
 )
 
 __all__ = ["KERNELS"]
@@ -63,37 +66,35 @@ def _matmul_compute(state: Any) -> Any:
 
 
 def _matmul_check(state: Any, c: Any) -> Check:
-    """Row-wise Freivalds with three random vectors, in float64.
-
-    For every row ``i`` and vector ``x``: ``|(C x)_i - (A (B x))_i|`` must stay
-    within ``2 eps(dtype) (|A| (|B| |x|))_i`` - the rounding a correct product of
-    this dtype can show in that row, so one wrong element (whose effect is about
-    ``sqrt(n)`` times larger than the honest error) fails the row (tester r1 D3).
-    O(n^2) per vector, never O(n^3).
-    """
+    """Row-wise Freivalds with three random vectors in float64
+    (:func:`~._support.rows_freivalds`, shared with ``gpu.matmul``): every row
+    within its rounding tolerance, so one wrong element fails. Shape and dtype
+    first; any NaN/inf fails. O(n^2) per vector."""
     np = state["np"]
     n = state["a"].shape[0]
-    if c.shape != (n, n):
+    guard = shape_guard(c, (n, n), np.dtype(state["dtype"]))
+    if guard is not None:
+        return guard
+    if not bool(np.isfinite(c).all()):
         return Check(
-            False, digest(b"shape"), False, f"result shape {c.shape} != {(n, n)}"
+            False, digest(c.tobytes()), False, "non-finite values in the product"
         )
-    a = state["a"].astype(np.float64)
-    b = state["b"].astype(np.float64)
-    c64 = c.astype(np.float64)
-    eps = float(np.finfo(state["dtype"]).eps)
     rng = np.random.default_rng(state["seed"] + 1)
-    worst = 0.0
-    for _ in range(3):
-        x = rng.standard_normal(n)
-        error = np.abs(c64 @ x - a @ (b @ x))
-        bound = 2.0 * eps * (np.abs(a) @ (np.abs(b) @ np.abs(x))) + 1e-300
-        worst = max(worst, float(np.max(error / bound)))
-    ok = bool(np.isfinite(c64).all()) and worst <= 1.0
+    vectors = [rng.standard_normal(n) for _ in range(3)]
+    worst = rows_freivalds(
+        state["a"],
+        state["b"],
+        c,
+        vectors,
+        float(np.finfo(state["dtype"]).eps),
+        lambda rows: rows.astype(np.float64),
+        FREIVALDS_FACTOR[state["dtype"]],
+    )
     return Check(
-        ok=ok,
+        ok=worst <= 1.0,
         checksum=digest(c.tobytes()),
         exact=False,
-        detail=f"row-wise freivalds: worst error {worst:.3f} of the rounding bound",
+        detail=f"row-wise freivalds: worst row {worst:.3f} of its tolerance",
     )
 
 
@@ -153,13 +154,15 @@ def _odd_sieve(limit: int) -> bytearray:
     return odd
 
 
-def _primes_check(state: Any, sieve: bytearray) -> Check:
+def _primes_check(state: Any, sieve: Any) -> Check:
     """The whole table against an independent odd-only sieve (tester r1 D4), plus
     64 seeded positions by trial division and pi(x) where it is a known constant.
     Costs about half of one sieve (recorded in ``check_ms``)."""
     limit = state["limit"]
-    if len(sieve) != limit + 1:
-        return Check(False, digest(b"length"), True, f"table length {len(sieve)}")
+    if not isinstance(sieve, bytearray | bytes) or len(sieve) != limit + 1:
+        return Check(False, digest(b"length"), True, "the table is not limit + 1 bytes")
+    if any(v not in (0, 1) for v in set(sieve)):
+        return Check(False, digest(b"values"), True, "table entries other than 0/1")
     odd_equal = sieve[1::2] == _odd_sieve(limit)
     evens = sieve[0::2]
     evens_ok = evens.count(1) == (1 if limit >= 2 else 0) and (
@@ -168,7 +171,7 @@ def _primes_check(state: Any, sieve: bytearray) -> Check:
     rng = random.Random(state["seed"])  # noqa: S311 - seeded synthetic data
     wrong = [
         n
-        for n in (rng.randint(2, limit) for _ in range(64))
+        for n in (rng.randint(2, limit) for _ in range(64 if limit >= 2 else 0))
         if bool(sieve[n]) != _is_prime(n)
     ]
     count = sieve.count(1)
@@ -211,6 +214,9 @@ def _sort_check(state: Any, out: Any) -> Check:
     stable sort, not the default introsort): a permutation check, so a tamper
     that keeps the order and the sum still fails (tester r1 D5)."""
     np = state["np"]
+    guard = shape_guard(out, state["values"].shape, state["values"].dtype)
+    if guard is not None:
+        return guard
     reference = np.sort(state["values"], kind="stable")
     same = out.shape == reference.shape and bool(np.array_equal(out, reference))
     ordered = out.size < 2 or bool(np.all(out[1:] >= out[:-1]))
@@ -262,7 +268,10 @@ def _zlib_compute(state: Any) -> Any:
     return out
 
 
-def _zlib_check(state: Any, out: bytes) -> Check:
+def _zlib_check(state: Any, out: Any) -> Check:
+    if not isinstance(out, bytes):
+        return Check(False, digest(b"type"), True, f"output is {type(out).__name__}")
+    # A truncated / corrupt stream raises zlib.error: the job fails loudly.
     restored = zlib.decompress(out) == state["data"]
     ratio = len(state["data"]) / max(len(out), 1)
     return Check(
@@ -304,8 +313,10 @@ def _sha256_compute(state: Any) -> Any:
     return _sha256_stream(state["block"], state["size_mb"], state["chunk"])
 
 
-def _sha256_check(state: Any, out: str) -> Check:
+def _sha256_check(state: Any, out: Any) -> Check:
     """The same stream hashed in whole 1 MiB updates must give the same digest."""
+    if not isinstance(out, str) or len(out) != 64:
+        return Check(False, digest(b"type"), True, "output is not a sha256 hex digest")
     other = _sha256_stream(state["block"], state["size_mb"], MIB)
     vector = hashlib.sha256(b"abc").hexdigest().startswith("ba7816bf")
     return Check(
@@ -368,6 +379,8 @@ def _integrate_check(state: Any, value: float) -> Check:
     exact = (a + math.exp(-a * t) * (b * math.sin(b * t) - a * math.cos(b * t))) / (
         a * a + b * b
     )
+    if not isinstance(value, float) or not math.isfinite(value):
+        return Check(False, floats_digest([]), False, f"not a finite float: {value!r}")
     error = abs(value - exact) / abs(exact)
     return Check(
         ok=error <= 1e-8,
