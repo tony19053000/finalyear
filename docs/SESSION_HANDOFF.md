@@ -262,6 +262,8 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
+**2026-10-18 (G3 lane B hand-off `f8aaa0e`, D234) — RUNNING: lane A tester r1 ∥ lane B tester r1 (each in its worktree). Lane B fix r1 must fix bench priority aging (D234). If died: relaunch the tester (look for "## Tester r1" in progress/V0.9-G3A.md / G3B.md).**
+
 **2026-10-18 (G3 lane A hand-off `ba2eb27`, D233) — RUNNING: lane A tester r1 (its worktree) ∥ lane B implementer exit gates. If died: relaunch tester r1 (look for "## Tester r1" in progress/V0.9-G3A.md).**
 
 **2026-10-18 (G3 both lanes code-complete; weekly limit stopped them at exit gates; resumed) — lane A `45d75b8`..`d431405` worktree agent-adfae0f9309e69f76; lane B `27d7876`..`5bbcbb2` worktree agent-a20b980080f80c643. Both RUNNING exit gates + hand-off. If died: relaunch implementer in that worktree for exit gates only; then tester → reviewer per lane.**
