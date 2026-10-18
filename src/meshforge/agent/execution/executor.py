@@ -109,6 +109,8 @@ from typing import TYPE_CHECKING, Any, Final, Protocol
 from meshforge.agent.cas import AgentCas
 from meshforge.agent.cas.fetcher import BlobSource, FetchTuning
 from meshforge.agent.cas.sources import TokenLookup
+from meshforge.agent.conditions.base import ConditionFailedError
+from meshforge.agent.conditions.runner import ActiveCondition, ConditionRunner
 from meshforge.agent.envs.fsutil import (
     make_read_only,
     remove_tree,
@@ -322,6 +324,9 @@ class _Attempt:
     emptied when it ends. Never logged, never persisted."""
     matcher: SecretMatcher | None = None
     """D162 (T-8): the attempt's one compiled log matcher (both streams)."""
+    condition: ActiveCondition | None = None
+    """V0.9 G4 (D217): the benchmark condition applied for this attempt;
+    reverted (and reported) when its terminal status is sent."""
 
     @property
     def ended(self) -> bool:
@@ -364,6 +369,7 @@ class Executor:
         http_tls: AgentHttpTls | None = None,
         policy: LivePolicy | None = None,
         cpu_threads: int | None = None,
+        conditions: ConditionRunner | None = None,
     ) -> None:
         """``http_tls`` (mtls mode, V0.7 G3): every blob fetch and upload is
         HTTPS with this laptop's node certificate; ``None`` = plain HTTP
@@ -371,7 +377,11 @@ class Executor:
         ``policy`` (V0.7 G5, D142): the owner's live policy; every attempt is
         re-checked against its value at the attempt's start (``None`` = not
         wired, unit tests of other rules). ``cpu_threads`` = this node's, for
-        ``max_cpu_percent``."""
+        ``max_cpu_percent``. ``conditions`` (V0.9 G4): the benchmark-condition
+        runner (None = one that offers nothing: every condition is refused)."""
+        self.conditions = conditions or ConditionRunner(
+            settings.agent.conditions, data_dir=settings.data_dir, kinds=()
+        )
         self._policy = policy
         self._cpu_threads = cpu_threads or None
         self._http_tls = http_tls
@@ -423,7 +433,16 @@ class Executor:
 
     async def start(self) -> None:
         """Once at agent start: work root 0o700, stale leftovers removed, Docker
-        orphans with this node's label swept (D63-6, D67)."""
+        orphans with this node's label swept (D63-6, D67), benchmark conditions
+        a crashed process left applied undone (V0.9 G4)."""
+        try:
+            await self.conditions.sweep()
+        except Exception as exc:  # noqa: BLE001 - logged; burners also self-exit
+            log.warning(
+                "agent.conditions.sweep_failed",
+                node_id=self._node_id,
+                cause=type(exc).__name__,
+            )
         await asyncio.to_thread(self._prepare_work_root)
         docker = self._setup.docker
         if docker is not None:
@@ -478,6 +497,7 @@ class Executor:
     async def close(self) -> None:
         """Final teardown (agent exit): stop, then cancel anything left."""
         await self.shutdown()
+        await self.conditions.close()  # anything a stuck attempt still holds
         leftovers = [
             a.task for a in self._attempts.values() if a.task and not a.task.done()
         ]
@@ -997,6 +1017,7 @@ class Executor:
             BundleError,
             LeaseError,
             SecretFilesError,
+            ConditionFailedError,
         ) as exc:
             await self._send(
                 attempt,
@@ -1077,10 +1098,23 @@ class Executor:
             msg.secrets, plan.manifest.secrets, allowed=self._secrets_allowed
         )
         attempt.runtime = plan.runtime
+        if msg.HasField("condition"):
+            # V0.9 G4 (D217): applied + verified before anything is staged;
+            # reverted when the terminal status is sent (every path)
+            attempt.condition = self.conditions.prepare(
+                attempt.attempt_id,
+                msg.condition.spec,
+                timeout_s=float(msg.spec.timeout_s),
+                gpu_indices=list(msg.spec.gpu_indices),
+                tree_ids=[msg.spec.tree_id, *(i.tree_id for i in msg.spec.inputs)],
+            )
+            await self._step(attempt, attempt.condition.apply())
         await self._send(attempt, AttemptState.STAGING)
         stage_started = self._clock()
         await self._stage(attempt, plan, workdir, msg.spec)
         attempt.phases["stage_s"] = self._clock() - stage_started
+        if attempt.condition is not None:
+            attempt.condition.after_stage(attempt.stages)
         writing: asyncio.Future[Path] | None = None
         write = SecretWrite(self.vault, attempt.attempt_id)
         try:
@@ -1897,6 +1931,9 @@ class Executor:
                 stage.to_proto() for stage in attempt.stages[: 1 + MAX_INPUTS]
             )
             status.env_hash = attempt.env_hash  # D116 (empty = none computed)
+            if attempt.condition is not None:
+                # V0.9 G4: revert first, then report what held (D217)
+                status.condition.CopyFrom(await attempt.condition.finish())
         attempt.state = state
         if terminal:
             attempt.terminal_status = status

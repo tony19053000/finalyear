@@ -522,6 +522,25 @@ message AttemptStatus {
   // V0.9 G1 (D212): a benchmark's own report (results/workload.json); absent
   // for any other job. Terminal statuses only.
   WorkloadReport workload = 17;
+  // V0.9 G4 (D217): what the agent did with StartAttempt.condition (terminal
+  // statuses only; absent when the attempt had none).
+  ConditionReport condition = 18;
+}
+
+// The outcome of a benchmark condition on the agent (V0.9 G4).
+message ConditionReport {
+  // The canonical condition string it applied (echoes BenchCondition.spec).
+  string spec = 1;
+  // Applied and verified (measured values within the condition's bound).
+  bool verified = 2;
+  // What was measured, a JSON object (<= 2048 characters), e.g.
+  // {"cores":2,"load_cores":1.97,"window_s":2.0}. "" = nothing measured.
+  string measured_json = 3;
+  // Why it could not be applied or verified; "" when verified.
+  string reason = 4;
+  // The condition was reverted cleanly at the attempt's end (false: the
+  // revert failed and the marker keeps it for the next start's sweep).
+  bool reverted = 5;
 }
 
 // What staging one tree cost (V0.5 G5, D93). Agent-measured, monotonic clock.
@@ -648,6 +667,22 @@ message StartAttempt {
   // the attempt's private secret files only; never logged, never persisted,
   // wiped when the attempt ends.
   repeated JobSecret secrets = 5;
+  // V0.9 G4 (D217/D241): the benchmark condition of this attempt; absent for
+  // every other job (and for conditions the controller applies itself, e.g.
+  // queue). The agent applies it BEFORE staging, verifies it (an unverified
+  // condition fails the attempt config_error "condition_failed:..." - nothing
+  // runs, the run is never labelled), and reverts it when the attempt ends,
+  // on every path (done, failure, cancel, agent stop; a persisted marker is
+  // swept at the next agent start after a crash). The agent re-validates the
+  // string and refuses a kind it did not advertise.
+  BenchCondition condition = 6;
+}
+
+// One benchmark condition (V0.9 G4). ``spec`` is the canonical condition
+// string of common/bench_conditions.py ("cpu_load:2", "cache:cold",
+// "netem:delay=50ms,loss=1%"), <= 64 characters.
+message BenchCondition {
+  string spec = 1;
 }
 
 // One secret value for one attempt (V0.7 G6). ``name`` follows
