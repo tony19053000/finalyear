@@ -16,6 +16,15 @@ records give the same bytes -
 
 A test writes the same records twice and compares the bytes, and reads the file
 back and compares it with the records.
+
+**Memory (G3 item 0.7, D230.1).** The export is **buffered in memory**, not
+streamed from the database: :func:`fetch_records` loads every matching record
+(~2.5 KB each as dicts, more as ORM rows), and :func:`parquet_bytes` returns the
+finished file as bytes (the API sends a ``Content-Length``). Arrow data is built
+**one row group at a time** (:func:`write_records`, a ``ParquetWriter``), so the
+Arrow copy never holds more than :data:`ROW_GROUP_SIZE` rows. The cap
+(:data:`MAX_EXPORT_ROWS`, ``[controller.telemetry] export_max_rows``) keeps the
+worst case to a few hundred MB; narrow a bigger export by campaign / since.
 """
 
 from __future__ import annotations
@@ -45,6 +54,7 @@ from meshforge.controller.telemetry.schema import (
 
 __all__ = [
     "MAX_EXPORT_ROWS",
+    "ROW_GROUP_SIZE",
     "WRITER_OPTIONS",
     "arrow_schema",
     "fetch_records",
@@ -52,10 +62,13 @@ __all__ = [
     "records_table",
     "sort_key",
     "write_parquet",
+    "write_records",
 ]
 
-MAX_EXPORT_ROWS: Final = 1_000_000
-"""One export holds at most this many records (a campaign is thousands)."""
+MAX_EXPORT_ROWS: Final = 100_000
+"""Default cap of one export (``[controller.telemetry] export_max_rows``): a
+campaign is thousands of records, and the export is buffered in memory (module
+docstring) - ~0.25 GB of record dicts at the cap."""
 
 WRITER_OPTIONS: Final[dict[str, Any]] = {
     "version": "2.6",
@@ -68,6 +81,8 @@ WRITER_OPTIONS: Final[dict[str, Any]] = {
 }
 """Pinned Parquet writer options (D222): changing one changes the bytes."""
 ROW_GROUP_SIZE: Final = 65_536
+"""Rows per Parquet row group (pinned, D222): the file's layout, and the most
+rows :func:`write_records` holds as Arrow data at once."""
 
 _ARROW_TYPES: Final[dict[Kind, pa.DataType]] = {
     Kind.TEXT: pa.string(),
@@ -105,13 +120,18 @@ def sort_key(record: Mapping[str, Any]) -> tuple[Any, ...]:
 
 
 def records_table(records: Iterable[Mapping[str, Any]]) -> pa.Table:
-    """The records as an Arrow table (see the module docstring). Pure."""
-    rows = sorted(records, key=sort_key)
+    """The records as one Arrow table, in export order (see the module
+    docstring). Pure."""
+    return _rows_table(sorted(records, key=sort_key), arrow_schema())
+
+
+def _rows_table(rows: Sequence[Mapping[str, Any]], schema: pa.Schema) -> pa.Table:
+    """``rows`` (already in export order) as an Arrow table."""
     columns = [
         pa.array([_cell(c, r) for r in rows], type=_ARROW_TYPES[c.kind])
         for c in COLUMNS
     ]
-    return pa.Table.from_arrays(columns, schema=arrow_schema())
+    return pa.Table.from_arrays(columns, schema=schema)
 
 
 def _cell(column: Column, record: Mapping[str, Any]) -> Any:
@@ -130,14 +150,32 @@ def _cell(column: Column, record: Mapping[str, Any]) -> Any:
 
 
 def write_parquet(table: pa.Table, sink: IO[bytes]) -> None:
-    """Write ``table`` with the pinned options (:data:`WRITER_OPTIONS`)."""
+    """Write a ready ``table`` with the pinned options (:data:`WRITER_OPTIONS`).
+    Same bytes as :func:`write_records` of the same rows."""
     pq.write_table(table, sink, row_group_size=ROW_GROUP_SIZE, **WRITER_OPTIONS)
 
 
+def write_records(records: Iterable[Mapping[str, Any]], sink: IO[bytes]) -> int:
+    """Write the export of ``records`` to ``sink`` one row group at a time
+    (:data:`ROW_GROUP_SIZE` rows of Arrow data at most), with the pinned options;
+    returns the row count. The bytes equal :func:`write_parquet` of
+    :func:`records_table` - the row groups are the same."""
+    rows = sorted(records, key=sort_key)
+    schema = arrow_schema()
+    with pq.ParquetWriter(sink, schema, **WRITER_OPTIONS) as writer:
+        if not rows:
+            writer.write_table(_rows_table([], schema), row_group_size=ROW_GROUP_SIZE)
+        for start in range(0, len(rows), ROW_GROUP_SIZE):
+            group = _rows_table(rows[start : start + ROW_GROUP_SIZE], schema)
+            writer.write_table(group, row_group_size=ROW_GROUP_SIZE)
+    return len(rows)
+
+
 def parquet_bytes(records: Iterable[Mapping[str, Any]]) -> bytes:
-    """The whole export in memory (records -> table -> Parquet)."""
+    """The whole export as bytes, buffered in memory (module docstring);
+    written by :func:`write_records`."""
     buffer = io.BytesIO()
-    write_parquet(records_table(records), buffer)
+    write_records(records, buffer)
     return buffer.getvalue()
 
 

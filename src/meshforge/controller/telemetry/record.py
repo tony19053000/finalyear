@@ -39,6 +39,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Final
 
+from meshforge.bench.workloads import UnknownFamilyError, get_family
 from meshforge.common.errors import FailureType
 from meshforge.common.states import AttemptState
 from meshforge.controller.planner.inputs import scores_of
@@ -299,10 +300,23 @@ def _campaign(campaign: Mapping[str, Any] | None) -> dict[str, Any]:
     }
 
 
+def _known_params(family: object, params: object) -> dict[str, Any] | None:
+    """The reported params restricted to the keys of the family's own params
+    model (tester r1 TR1-A2, D236): a key the family does not define - an
+    agent bug, or a value smuggled into the report - is never stored. An
+    unknown family keeps none (None)."""
+    if not isinstance(params, Mapping) or not isinstance(family, str):
+        return None
+    try:
+        fields = get_family(family).params_model.model_fields
+    except UnknownFamilyError:
+        return None
+    return {k: v for k, v in params.items() if isinstance(k, str) and k in fields}
+
+
 def _workload(workload: Mapping[str, Any] | None) -> dict[str, Any]:
     data = workload or {}
-    params = data.get("params")
-    params = dict(params) if isinstance(params, Mapping) else None
+    params = _known_params(data.get("family"), data.get("params"))
     flat: dict[str, Any] = {}
     for column, key, kind in FLAT_PARAMS:
         value = None if params is None else params.get(key)

@@ -217,8 +217,26 @@ def test_the_record_nulls_values_postgres_would_refuse_instead_of_cutting() -> N
     assert record["workload_family"] is None and record["p_dtype"] is None
     assert record["workload_device"] == "cpu"
     assert record["workload_params"] is None  # deeper than MAX_JSON_DEPTH
+    # G3 fix r1 (TR1-A2, D236): params are kept only for a known family (its
+    # model's keys), so the depth and exact-width cases name one
     record = build_record(
-        _source({"status": "ok", "params": {"dtype": "d" * 64, "n": 4}})
+        _source(
+            {
+                "family": "cpu.matmul",
+                "status": "ok",
+                "params": {"dtype": json.loads("[" * 40 + "]" * 40), "n": 4},
+            }
+        )
+    )
+    assert record["workload_params"] is None  # deeper than MAX_JSON_DEPTH
+    record = build_record(
+        _source(
+            {
+                "family": "cpu.matmul",
+                "status": "ok",
+                "params": {"dtype": "d" * 64, "n": 4},
+            }
+        )
     )
     assert record["p_dtype"] == "d" * 64 and record["p_n"] == 4
     assert record["workload_params"] == {"dtype": "d" * 64, "n": 4}

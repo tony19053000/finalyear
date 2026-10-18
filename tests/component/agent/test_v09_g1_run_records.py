@@ -48,7 +48,7 @@ total = sum(i * i for i in range(200_000))
 compute_ns = time.perf_counter_ns() - begin
 status = sys.argv[1]
 with open("results/workload.json", "w") as fh:
-    json.dump({"schema_version": 1, "family": "cpu.sumsq", "params": {"n": 200000},
+    json.dump({"schema_version": 1, "family": "cpu.matmul", "params": {"n": 200000},
                "seed": 3, "status": status, "device": "cpu",
                "compute_ns": compute_ns, "verified": status == "ok"}, fh)
 print("total", total, flush=True)
@@ -153,7 +153,7 @@ async def test_every_real_attempt_gets_one_complete_record_and_exports_reproduci
     assert (ok["failure_class"], ok["attempt_state"]) == ("ok", "done")
     assert ok["workload_family"] is None and ok["compute_ns"] is None
     assert (fails["failure_class"], fails["failure_type"]) == ("workload", "user_error")
-    assert bench["failure_class"] == "ok" and bench["workload_family"] == "cpu.sumsq"
+    assert bench["failure_class"] == "ok" and bench["workload_family"] == "cpu.matmul"
     assert bench["p_n"] == 200000 and bench["workload_seed"] == 3
     assert bench["compute_ns"] is not None and bench["compute_ns"] > 0
     assert bench["compute_ns"] <= bench["run_ms"] * 1_000_000  # compute inside run

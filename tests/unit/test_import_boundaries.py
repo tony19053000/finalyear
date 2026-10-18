@@ -91,10 +91,10 @@ VIOLATIONS = [
     ("sdk", "meshforge.cli", "sdk imports only common"),
     ("cli", "meshforge.controller", "cli imports only common, sdk and bench"),
     ("cli", "meshforge.gpu_service", "cli imports only common, sdk and bench"),
-    # V0.9 G2: the benchmark library sees only common, and nothing but cli sees it.
+    # V0.9 G2: the benchmark library sees only common; cli and (D232, G3) the
+    # controller may import it, the agent may not.
     ("bench", "meshforge.controller", "bench imports only common"),
     ("bench", "meshforge.cli", "bench imports only common"),
-    ("controller", "meshforge.bench", "controller imports only common"),
     ("agent", "meshforge.bench", "agent imports only common"),
 ]
 
@@ -205,7 +205,7 @@ def test_guard_flags_contract_not_forbidding_new_sibling(tmp_path: Path) -> None
 
     assert not any("meshforge.planner exists" in p for p in problems), problems
     assert any(
-        "contract for meshforge.controller permits ['common', 'planner']" in p
+        "contract for meshforge.controller permits ['bench', 'common', 'planner']" in p
         for p in problems
     ), problems
 

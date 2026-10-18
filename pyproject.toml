@@ -215,7 +215,9 @@ forbidden_modules = [
 
 [[tool.importlinter.contracts]]
 id = "controller-imports-common-only"
-name = "controller imports only common"
+# V0.9 G3 (D232): the controller may import the benchmark library (record
+# builder, campaign submission); bench never imports the controller.
+name = "controller imports only common and bench"
 type = "forbidden"
 source_modules = ["meshforge.controller"]
 forbidden_modules = [
@@ -223,7 +225,6 @@ forbidden_modules = [
     "meshforge.gpu_service",
     "meshforge.sdk",
     "meshforge.cli",
-    "meshforge.bench",
 ]
 
 [[tool.importlinter.contracts]]

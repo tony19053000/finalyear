@@ -59,6 +59,13 @@ custom metadata is the schema version), Parquet writer options pinned (format 2.
 statistics on, 65 536-row groups) and one pyarrow version (pinned by `uv.lock`; a pyarrow bump is a dataset
 format change).
 
+**Memory.** An export is **buffered in memory**, not streamed: the matching records are loaded (~2.5 KB each)
+and the finished file is returned whole (the API sends its `Content-Length`). The Arrow data is built one row
+group at a time (`write_records`, a `ParquetWriter`), so it never holds more than 65 536 rows; the bytes are the
+same as writing one table (a unit test exports across row-group boundaries and compares). The cap,
+`[controller.telemetry] export_max_rows` (default **100 000**, was 1 000 000 in G1), keeps the worst case to a
+few hundred MB; a bigger export is refused with 413 - narrow it by `--campaign` / `--since`.
+
 ## Privacy and secrets
 
 The export is admin-only: it names every user's jobs and nodes. It holds no secret value: no column copies job
@@ -72,9 +79,16 @@ is not detected (residual, RE-I6).
 `results/workload.json` is written by the workload. The agent bounds every field and drops `params` that hold
 a NUL or a lone surrogate (PostgreSQL refuses both); the controller refuses such a report, and the record
 builder bounds the flat columns (`p_dtype`, `workload_family`, ... to 64 characters - a longer value is null,
-never truncated) and scrubs every text value. A record PostgreSQL still refuses is skipped alone (the rest of
+never truncated) and scrubs every text value. `workload_params` keeps **only the keys the family's own params model
+defines** (`meshforge.bench.workloads`); any other key the report carries is dropped, and a family the controller
+does not know keeps no params at all (null) - so a value smuggled into the report under a new key never reaches
+the dataset, whatever the agent let through. A record PostgreSQL still refuses is skipped alone (the rest of
 the sweep is written), counted, logged and raised as a `telemetry_record_skipped` alert (`GET /v1/alerts`); it
-is retried after a controller restart.
+is retried after a controller restart. At most 1 000 skipped attempts are excluded by id; past that cap the controller raises
+**one** more alert (reason `skip_cap_reached`) and then only counts and logs further skips, and the sweep scans
+forward from a watermark so skipped attempts can never hold back newer ones (an older attempt that ends late, or
+a skipped one, is looked at again once a forward pass has reached the end, at most once a minute). An attempt whose job row vanished mid-sweep is
+skipped the same way (`error_type` `job_missing`) instead of failing the sweep.
 
 ## Columns — schema version 1
 
@@ -162,3 +176,10 @@ Types: `text`, `int64`, `float64`, `bool`, `json` (JSONB / canonical JSON text i
 Bump `SCHEMA_VERSION`, add the new column fingerprint to `SCHEMA_FINGERPRINTS` (never edit a published one),
 write the migration, update this table. Later versions add workload families and strategies (V0.10+), not
 new schemas, unless a column truly must change.
+
+**Two version numbers, one rule.** The telemetry schema version (this table) and the benchmark **result**
+version (`schema_version` inside `results/workload.json`, `runner.RESULT_SCHEMA_VERSION`, docs/BENCHMARKS.md)
+are separate. Both were frozen at 1 when G1 started recording; from then on **any shape change bumps its
+version** - no in-place edits, because a recorded dataset may already hold the old shape (D228). The agent
+forwards the result version it read (`result_schema_version` in the attempt's workload report); a result
+change that alters a column here bumps both.

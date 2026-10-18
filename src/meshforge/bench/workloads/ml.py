@@ -14,7 +14,7 @@ from typing import Literal
 from pydantic import Field, field_validator
 
 from .base import Family, Kind, Metric, Params, register, round_up_gb
-from .kernels.ml import cnn_layout
+from .kernels.ml import TRAIN_REFERENCE_ELEMENTS, cnn_layout
 
 __all__ = ["CnnInferFamily", "CnnTrainFamily", "TransformerInferFamily"]
 
@@ -106,6 +106,18 @@ class CnnTrainFamily(_MlFamily[CnnTrainParams]):
         return _cnn_vram(
             params.width, params.depth, params.image, params.batch, train=True
         )
+
+    def combination_problems(self, params: CnnTrainParams) -> list[str]:
+        # The float64 first-loss check needs the whole first batch at once
+        # (batch norm), so its memory follows the first activation (G3 0.3).
+        values = params.batch * params.width * params.image**2
+        if values <= TRAIN_REFERENCE_ELEMENTS:
+            return []
+        return [
+            f"batch x width x image^2 is {values:,}; the float64 first-loss check "
+            f"holds the whole first batch, so at most {TRAIN_REFERENCE_ELEMENTS:,} "
+            "(512 MB of check memory) - lower batch, width or image"
+        ]
 
 
 class TransformerParams(Params):
