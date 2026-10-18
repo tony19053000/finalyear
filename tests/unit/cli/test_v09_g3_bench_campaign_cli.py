@@ -75,6 +75,20 @@ def test_plan_spec_errors_are_usage_errors(runner: CliRunner, tmp_path: Path) ->
     assert bad_node.exit_code == CliExit.USAGE_ERROR
 
 
+@pytest.mark.parametrize("value", [".nan", "[.inf]"])
+def test_fix1_d2_plan_with_a_non_finite_param_is_a_usage_error(
+    runner: CliRunner, tmp_path: Path, value: str
+) -> None:
+    bad = tmp_path / "nan.yaml"
+    bad.write_text(
+        "name: x\nseed: 1\nbudget: {max_runs: 9}\non_invalid: drop\n"
+        f"families: [{{family: cpu.sort, params: {{n: {value}}}}}]\n"
+    )
+    result = runner.invoke(cli_app.app, ["bench", "plan", str(bad), "--node", A])
+    assert result.exit_code == CliExit.USAGE_ERROR, result.output
+    assert "not a finite number" in result.stderr
+
+
 def test_plan_asks_the_controller_for_nodes_and_skips_revoked(
     runner: CliRunner, controller: TransportFactory
 ) -> None:

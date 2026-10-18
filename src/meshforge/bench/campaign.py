@@ -219,12 +219,25 @@ class FamilySweep(BaseModel):
     family: StrictStr
     params: dict[StrictStr, ParamValue] = Field(default_factory=dict)
 
+    @model_validator(mode="after")
+    def _finite(self) -> FamilySweep:
+        """D-2 (fix r1): NaN / infinity is never a parameter value (YAML
+        ``.nan`` / ``.inf``): JSON cannot carry it and no family accepts it."""
+        for name, value in self.params.items():
+            values = value if isinstance(value, list) else [value]
+            for item in values:
+                if isinstance(item, float) and not math.isfinite(item):
+                    raise ValueError(f"params.{name}: {item!r} is not a finite number")
+        return self
+
 
 class Budget(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     max_runs: Annotated[int, Field(ge=1, le=HARD_MAX_RUNS, strict=True)]
-    max_hours: Annotated[float, Field(gt=0, le=24 * 30)] | None = None
+    max_hours: Annotated[float, Field(gt=0, le=24 * 30, allow_inf_nan=False)] | None = (
+        None
+    )
 
 
 class CampaignSpec(BaseModel):
@@ -457,7 +470,21 @@ class _Group:
 
 
 def _digest(prefix: str, value: object) -> str:
-    return prefix + hashlib.sha256(_canonical(value).encode()).hexdigest()[:_ID_HEX]
+    try:
+        text = _canonical(value)
+    except (ValueError, TypeError):  # NaN/inf or a non-JSON value: the spec's fault
+        raise CampaignSpecError(
+            [f"{_describe(value)}: not a JSON value (NaN, infinity?)"]
+        ) from None
+    return prefix + hashlib.sha256(text.encode()).hexdigest()[:_ID_HEX]
+
+
+def _describe(value: object) -> str:
+    """A point for an error message - never raises (NaN / inf allowed here)."""
+    try:
+        return json.dumps(value, sort_keys=True, separators=(",", ":"), default=repr)
+    except (ValueError, TypeError, RecursionError):  # pragma: no cover - defensive
+        return repr(value)
 
 
 def _grid_values(value: ParamValue) -> list[Any]:
@@ -536,7 +563,7 @@ def _groups(
             try:
                 params = family.params_dict(family.parse_params(point))
             except ParamsError as exc:
-                where = f"families[{index}] {family.name} {_canonical(point)}"
+                where = f"families[{index}] {family.name} {_describe(point)}"
                 if spec.on_invalid == "error":
                     raise CampaignSpecError(
                         [f"{where}: {p}" for p in exc.problems]

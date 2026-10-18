@@ -356,6 +356,35 @@ def test_sampler_enum_values() -> None:
     assert math.isclose(Range(min=0, max=1).at(1.0), 1.0)
 
 
+@pytest.mark.parametrize("on_invalid", ["error", "drop"])
+@pytest.mark.parametrize(
+    "params",
+    [{"n": float("nan")}, {"n": [float("inf")]}, {"n": [10_000_000, float("-inf")]}],
+)
+def test_fix1_d2_non_finite_params_are_spec_errors(
+    params: dict[str, Any], on_invalid: str
+) -> None:
+    with pytest.raises(CampaignSpecError) as caught:
+        expand(
+            spec(
+                families=[{"family": "cpu.sort", "params": params}],
+                on_invalid=on_invalid,
+            ),
+            NODES,
+        )
+    assert any("not a finite number" in p for p in caught.value.problems)
+
+
+def test_fix1_d2_nan_hours_and_yaml_nan() -> None:
+    with pytest.raises(CampaignSpecError):
+        spec(budget={"max_runs": 10, "max_hours": float("nan")})
+    with pytest.raises(CampaignSpecError):
+        load_spec(
+            "name: t\nseed: 1\nbudget: {max_runs: 5}\n"
+            "families: [{family: cpu.sort, params: {n: .nan}}]\n"
+        )
+
+
 @pytest.mark.security
 def test_a_spec_names_registered_families_only_never_code() -> None:
     """THREAT_MODEL RE-E3: a campaign is job submission at scale, so its spec can
