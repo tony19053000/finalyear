@@ -6,7 +6,7 @@
 
 ## Progress
 ```
-TOTAL   ██████████▒▒░░░░░░░░  51%  80/156 done, 17 in progress
+TOTAL   ███████████▒▒░░░░░░░  52%  82/156 done, 15 in progress
 
 V0.1    █████████████████▒▒▒  83%  10/12  Foundations & engineering system
 V0.2    ██▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░░   9%   1/11  Lab setup & feasibility validation
@@ -16,7 +16,7 @@ V0.5    ██████████████████░░  90%  10/11
 V0.6    ███████████████████░  92%  13/14  Scheduling & reliability — Mode 1 complete
 V0.7    ██████████████████░░  91%  11/12  Security & pairing
 V0.8    ██████████████████░░  90%   9/10  Dashboard & CLI v1
-V0.9    ████▒▒▒▒░░░░░░░░░░░░  20%   2/10  Benchmark & telemetry system v1
+V0.9    ████████░░░░░░░░░░░░  40%   4/10  Benchmark & telemetry system v1
 V0.10   ░░░░░░░░░░░░░░░░░░░░   0%   0/10  Mode 3 Task Splitting
 V0.14   ░░░░░░░░░░░░░░░░░░░░   0%   0/8   Unified planner v2
 V0.15   ░░░░░░░░░░░░░░░░░░░░   0%   0/10  ML planner
@@ -24,9 +24,10 @@ V0.17   ░░░░░░░░░░░░░░░░░░░░   0%   0/8 
 V1.0    ░░░░░░░░░░░░░░░░░░░░   0%   0/8   Release hardening & final evaluation
 ```
 █ done `[x]` · ▒ in progress or waiting on a 🧑 lab step `[~]` · ░ not started
+█ done `[x]` · ▒ in progress or waiting on a 🧑 lab step `[~]` · ░ not started
 
 ## Current Version
-**V0.9 — Benchmark & telemetry v1** · started 2026-10-17 · brief `docs/briefs/V0.9-benchmark-telemetry.md` (D211–D224, approved) · ADR-0018 · **G0, G1, G2 CLOSED** (D226, D231, D225; 0.9.1 + 0.9.2 `[x]`) · **G3 MERGED** (D240; whole component gate pending → close 0.9.3/0.9.4)
+**V0.9 — Benchmark & telemetry v1** · started 2026-10-17 · brief `docs/briefs/V0.9-benchmark-telemetry.md` (D211–D224, approved) · ADR-0018 · **G0, G1, G2 CLOSED** (D226, D231, D225; 0.9.1 + 0.9.2 `[x]`) · **G3 CLOSED** (D242; 0.9.3 + 0.9.4 `[x]`) · **G4 started** (brief §5e, D241)
 **V0.8 — Dashboard & CLI v1** · started 2026-10-15 · brief `docs/briefs/V0.8-dashboard-cli.md` (D169–D180, approved) · ADR-0017 · groups G1–G7 sequential · **G1–G7 CLOSED** (G7 2026-10-17, D210) — 0.8.1–0.8.9 `[x]`; agent-side complete; closes on 🧑 0.8.10 (`lab/checklists/V0.8-visual.md`)
 **V0.7 — Security & pairing** · started 2026-10-07 · brief `docs/briefs/V0.7-security-pairing.md` (D144–D162) · **G1–G5 CLOSED** (0.7.1–0.7.9 `[x]`) · **G6 CLOSED** (0.7.10 `[x]`, 2026-10-14) · **G7 CLOSED** (0.7.11 `[x]`, 2026-10-15, D168) · agent-side complete · closes on 🧑 0.7.12 lab
 **V0.6 — Scheduling & reliability** · started 2026-10-05 · brief `docs/briefs/V0.6-scheduling-reliability.md` · **G1 CLOSED** (0.6.9, 0.6.10, 0.6.14 `[x]`) · G1–G4 CLOSED agent-side · closes on 🧑 0.6.13 lab
@@ -42,6 +43,8 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 > V0.10. 129 tasks vs 140–180 capacity → **~1.5 tasks/session**. Needs the other three team members' approval.
 
 ## Current Task
+
+- **2026-10-18: V0.9 G3 CLOSED (D242).** Whole `-m component` alone on main: 2494 passed / 22 skipped / 1 failed (90 min); the failure (`test_non_data_sqlstates_are_never_skipped[40001]`, node suspect at setup under load) green 3/3 standalone + file 12/12. 0.9.3, 0.9.4 `[x]`. G4 brief §5e + D241 written. **Next: G4 lanes A (item 0) ∥ B (conditions).**
 
 - **2026-10-18: V0.9 G1 CLOSED (D227–D231).** Telemetry run records (reconciler sweep), Parquet export, clock exchange. Tester r1 FAIL (T-1..T-6) → fix r1 → tester r2 PASS (T2-1 fixed by Lead) → reviewer APPROVE → merged `10f1f8c`. Gate alone: 2400 passed / 16 failed → 14 stale V0.6 test fakes fixed (`912d0f7`), 2 known load flakes green standalone. 0.9.1 `[x]`. Setup note: run `uv sync --all-extras` (new dep pyarrow). **Next: write G3 brief (§5d; item 0 = D225 2,4 + D228 + D229/D230 follow-ups) → G3.**
 
