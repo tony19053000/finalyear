@@ -143,7 +143,12 @@ class DispatchPlanner:
         cache_live: Callable[[str, str], bool] | None = None,
         link_stale_after_s: float = 3600.0,
         min_bw_bytes_s: float = 1024.0,
+        node_paused: Callable[[str], bool] | None = None,
     ) -> None:
+        self._node_paused = node_paused
+        """V0.9 G4 (D217): an ONLINE node paused by an ``unavailable:T``
+        benchmark condition is planned as DRAINING (a live rejection: nothing
+        new starts there, a pinned job waits, the shadow plan avoids it)."""
         self._manager = manager
         self._settings = settings
         self._planner = planner
@@ -178,6 +183,12 @@ class DispatchPlanner:
             state = live.state.value
         elif self._manager.get_lingering(row.node_id) is not None:
             state = NodeState.SUSPECT.value
+        if (
+            state == NodeState.ONLINE.value
+            and self._node_paused is not None
+            and self._node_paused(row.node_id)
+        ):
+            state = NodeState.DRAINING.value
         sample = (
             None if self._resources is None else self._resources.latest(row.node_id)
         )

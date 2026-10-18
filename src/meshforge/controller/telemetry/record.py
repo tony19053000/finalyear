@@ -43,6 +43,11 @@ from meshforge.bench.workloads import UnknownFamilyError, get_family
 from meshforge.common.errors import FailureType
 from meshforge.common.states import AttemptState
 from meshforge.controller.planner.inputs import scores_of
+from meshforge.controller.telemetry.conditions import (
+    CONDITION_COLUMNS,
+    ConditionOutcome,
+    condition_outcome,
+)
 from meshforge.controller.telemetry.schema import (
     COLUMN_NAMES,
     SCHEMA_VERSION,
@@ -143,7 +148,7 @@ class RecordSource:
     transfers: Sequence[TransferRow] = ()
     campaign: Mapping[str, Any] | None = None
     """Campaign identity (V0.9 G3 fills it): campaign_id, group_id, config_id,
-    repetition."""
+    repetition; V0.9 G4 adds condition, session_label, condition_facts."""
 
 
 def failure_class(
@@ -183,6 +188,9 @@ def build_record(source: RecordSource) -> dict[str, Any]:
     telemetry = _mapping(snapshot.get("telemetry"))
     pinned = bool(source.placement.get("node_id"))
     workload = source.workload
+    condition = condition_outcome(
+        campaign=source.campaign, workload=workload, state=source.state
+    )
     record: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "attempt_id": source.attempt_id,
@@ -210,13 +218,15 @@ def build_record(source: RecordSource) -> dict[str, Any]:
         "attempt_state": source.state,
         "exit_code": source.exit_code,
         "failure_type": source.failure_type,
-        "failure_class": failure_class(
-            source.state, source.failure_type, source.exit_code, workload
-        ).value,
+        "failure_class": _class(source, workload, condition).value,
         **_clock(telemetry),
         "attempt_created_at": source.created_at,
         "attempt_ended_at": source.ended_at,
     }
+    if _HAS_CONDITION_COLUMNS:
+        # V0.9 G4 (D217/D241): the columns of lane A's schema v2 bump
+        record["condition"] = condition.condition
+        record["condition_measured"] = condition.measured
     missing = set(COLUMN_NAMES) - set(record) - {"recorded_at"}
     extra = set(record) - set(COLUMN_NAMES)
     if missing or extra:  # pragma: no cover - the schema test holds this
@@ -225,6 +235,22 @@ def build_record(source: RecordSource) -> dict[str, Any]:
 
 
 # ------------------------------------------------------------------ helpers
+
+
+_HAS_CONDITION_COLUMNS: Final = set(CONDITION_COLUMNS) <= set(COLUMN_NAMES)
+"""V0.9 G4: filled once the telemetry schema has the condition columns."""
+
+
+def _class(
+    source: RecordSource,
+    workload: Mapping[str, Any] | None,
+    condition: ConditionOutcome,
+) -> FailureClass:
+    """:func:`failure_class`, except that an unverified benchmark condition
+    makes the record ``condition_failed`` (D217: never labelled)."""
+    if condition.failed:
+        return FailureClass.CONDITION_FAILED
+    return failure_class(source.state, source.failure_type, source.exit_code, workload)
 
 
 def _mapping(value: object) -> Mapping[str, Any]:

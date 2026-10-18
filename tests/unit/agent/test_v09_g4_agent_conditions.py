@@ -198,7 +198,7 @@ async def test_netem_apply_verify_revert_with_fixed_arguments() -> None:
 async def test_netem_rtt_not_grown_is_a_failed_condition_still_reverted() -> None:
     tc = FakeTc()
     ctl = _netem("netem:delay=100ms", tc, rtts=[1.0, 2.0])
-    with pytest.raises(ConditionFailedError, match="RTT grew 1.0 ms"):
+    with pytest.raises(ConditionFailedError, match=r"RTT grew 1\.0 ms"):
         await ctl.apply()
     assert "eth9" in tc.qdisc  # applied: the caller's finish() reverts it
     assert await ctl.revert() is True and "eth9" not in tc.qdisc

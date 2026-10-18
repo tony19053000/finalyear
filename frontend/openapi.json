@@ -991,6 +991,22 @@
             },
             "title": "Nodes",
             "type": "array"
+          },
+          "session_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Label"
+          },
+          "unsupported": {
+            "default": 0,
+            "title": "Unsupported",
+            "type": "integer"
           }
         },
         "required": [

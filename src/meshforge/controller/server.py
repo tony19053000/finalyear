@@ -65,7 +65,12 @@ from meshforge.controller.auth.live_streams import LiveStreams
 from meshforge.controller.auth.login import LoginService, login_policy
 from meshforge.controller.auth.passwords import PasswordHasher
 from meshforge.controller.auth.users import UserStore
-from meshforge.controller.bench.store import BenchStore, campaign_identities
+from meshforge.controller.bench.conditions import (
+    BenchConditions,
+    NodePauses,
+    bench_identities,
+)
+from meshforge.controller.bench.store import BenchStore
 from meshforge.controller.bench.submit import BenchSubmitter
 from meshforge.controller.blobs import BlobStore, FetchTokens
 from meshforge.controller.cache_index import CacheIndex, CacheLocationStore
@@ -487,6 +492,10 @@ class ControllerRuntime:
             clock=loop.time,
             max_entries=cfg.jobs.known_bad_envs_max,
         )
+        # V0.9 G4 (D217): benchmark conditions - the agent's kind rides in
+        # StartAttempt; an ``unavailable:T`` run pauses its origin here.
+        self.bench_conditions = BenchConditions(engine)
+        self.node_pauses = NodePauses(loop.time)
         self.dispatcher = Dispatcher(
             self.jobs,
             manager,
@@ -514,6 +523,8 @@ class ControllerRuntime:
             planner=cfg.planner,
             network=cfg.network,
             cache_live=self.cache_index.is_live,
+            bench_condition=self.bench_conditions.agent_condition,
+            node_paused=self.node_pauses.paused,
             on_integrity_failure=(
                 functools.partial(
                     self.scrubber.suspect_tree_soon, why="attempt_integrity_error"
@@ -528,8 +539,9 @@ class ControllerRuntime:
             engine,
             interval_s=cfg.telemetry.record_interval_s,
             batch=cfg.telemetry.record_batch,
-            # V0.9 G3 (D232): benchmark identity = the bench_run.job_id link
-            campaign_of=campaign_identities,
+            # V0.9 G3 (D232): benchmark identity = the bench_run.job_id link;
+            # G4: + the run's condition, session label, controller-side facts
+            campaign_of=bench_identities,
         )
         # V0.9 G3 (D215/D216): campaigns + forced runs (no background loop
         # until G5; `POST .../submit?count=k` drives them).
@@ -542,6 +554,7 @@ class ControllerRuntime:
             manager=manager,
             engine=engine,
             wake=self.dispatcher.wake,
+            pauses=self.node_pauses,
         )
         self._spawn(self.recorder.run(), "telemetry-recorder")
         # V0.5 G5 (D92): the pinned named inputs go to every agent after its

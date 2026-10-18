@@ -37,7 +37,7 @@ import contextlib
 import importlib.util
 import json
 import sys
-from collections.abc import Callable, Collection, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
 from pathlib import Path
 from typing import Any, Final
 
@@ -56,6 +56,8 @@ from meshforge.agent.conditions.netem import (
     TcError,
     TcRunner,
     delete_netem,
+    egress_interface,
+    median_rtt_ms,
 )
 from meshforge.agent.settings import ConditionSettings
 from meshforge.common.bench_conditions import (
@@ -275,7 +277,13 @@ class ConditionRunner:
         gpu_util: UtilReader = lambda _index: None,
         controller: Callable[[], tuple[str, int] | None] = lambda: None,
         tc: TcRunner | None = None,
+        egress: Callable[[str, int], str | None] = egress_interface,
+        rtt: Callable[[str, int], Awaitable[float | None]] = median_rtt_ms,
     ) -> None:
+        """``tc`` / ``egress`` / ``rtt``: how netem runs ``tc``, finds the
+        interface toward the controller and measures RTT (tests inject them)."""
+        self._egress = egress
+        self._rtt = rtt
         self._settings = settings
         self.kinds = frozenset(kinds)
         self.marker = ConditionMarker(data_dir / CONDITIONS_DIR)
@@ -359,6 +367,8 @@ class ConditionRunner:
                 tc=self._tc,
                 interface=self._settings.netem_interface,
                 controller=self._controller,
+                egress=self._egress,
+                rtt=self._rtt,
             )
         elif isinstance(condition, CacheCondition) and self._store is not None:
             controller = CacheController(

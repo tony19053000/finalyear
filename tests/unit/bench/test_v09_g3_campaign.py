@@ -281,7 +281,10 @@ def test_max_runs_is_capped() -> None:
 @pytest.mark.parametrize(
     ("changes", "needle"),
     [
-        ({"conditions": ["cpu_burn"]}, "unknown condition 'cpu_burn'"),  # G4: cpu_load exists
+        (
+            {"conditions": ["cpu_burn"]},
+            "unknown condition 'cpu_burn'",
+        ),  # G4: cpu_load exists
         ({"families": [{"family": "cpu.nope"}]}, "unknown workload family"),
         (
             {"families": [{"family": "cpu.sort", "params": {"m": 1}}]},

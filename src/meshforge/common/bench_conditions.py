@@ -252,6 +252,21 @@ def _int_arg(name: str, arg: str) -> int:
     return int(arg)
 
 
+def _cache(arg: str) -> CacheCondition:
+    if arg == "cold":
+        return CacheCondition(mode="cold")
+    if arg == "warm":
+        return CacheCondition(mode="warm")
+    raise ConditionError("cache: the argument is cold or warm")
+
+
+def _seconds(arg: str) -> int:
+    match = _DURATION_RE.fullmatch(arg)
+    if match is None:
+        raise ConditionError(f"unavailable: {arg!r} is not <n>s or <n>m")
+    return int(match["n"]) * (60 if match["unit"] == "m" else 1)
+
+
 def _netem(arg: str) -> Netem:
     values: dict[str, float] = {}
     for part in arg.split(","):
@@ -328,16 +343,10 @@ def parse_condition(text: object) -> Condition:
         if kind is ConditionKind.QUEUE:
             return QueueCondition(jobs=_int_arg(name, arg))
         if kind is ConditionKind.CACHE:
-            if arg not in ("cold", "warm"):
-                raise ConditionError("cache: the argument is cold or warm")
-            return CacheCondition(mode=arg)  # type: ignore[arg-type]
+            return _cache(arg)
         if kind is ConditionKind.NETEM:
             return _netem(arg)
-        match = _DURATION_RE.fullmatch(arg)
-        if match is None:
-            raise ConditionError(f"unavailable: {arg!r} is not <n>s or <n>m")
-        seconds = int(match["n"]) * (60 if match["unit"] == "m" else 1)
-        return Unavailable(seconds=seconds)
+        return Unavailable(seconds=_seconds(arg))
     except ConditionError:
         raise
     except ValueError as exc:
