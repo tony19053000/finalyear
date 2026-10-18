@@ -262,6 +262,8 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
+**2026-10-18 (G3 both lanes MERGED `d838c43`,`b82006e`, D240) — RUNNING: frontend build then whole `-m component` ONCE alone on main (log scratchpad v09_g3_component.log). If died: rerun `uv run python scripts/pytest_exit_guard.py -m component -q -rs` alone; green → 0.9.3/0.9.4 `[x]` + status bar + STATUS → write G4 brief (§5e; item 0 = D233 + D239 + D240 lists).**
+
 **2026-10-18 (G3 lane A tester r2 PASS `8a23643`) — RUNNING: lane A reviewer. Next: merge A → merge B → frontend build → whole component once alone → close 0.9.3/0.9.4.**
 
 **2026-10-18 (G3 lane B reviewer APPROVE, D239) — RUNNING: lane A tester r2 only. Next: lane A reviewer → merge A → merge B (keep B's async campaign_of + decision_shadow; re-run lint-imports, import-boundary + recorder tests) → frontend build → whole `-m component` once alone → close 0.9.3/0.9.4.**
