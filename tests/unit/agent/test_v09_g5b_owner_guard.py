@@ -157,6 +157,7 @@ def test_logind_without_a_graphical_session_or_hint_is_unknown() -> None:
     assert _logind({}, now_us=1e9).idle_s() is None
 
 
+@pytest.mark.security
 def test_logind_refuses_odd_session_ids_and_reads_only_hint_properties() -> None:
     fake = FakeLoginctl({"2; rm -rf": {"Type": "x11", "Active": "yes"}})
     reader = LogindIdle(fake, monotonic_us=lambda: 1e9)

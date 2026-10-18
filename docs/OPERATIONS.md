@@ -948,7 +948,71 @@ setup_allowance_s = 900     # load processes end by themselves at time limit + 3
 
 The agent itself still runs unelevated; `netem` is the only condition that needs root, through that single
 opt-in rule. Leftovers of a crashed agent (load processes, a netem qdisc) are undone at its next start from
-`<data dir>/conditions/active.json` (logged `agent.conditions.swept`).
+`<data dir>/conditions/active.json` (logged `agent.conditions.swept`). A netem is deleted only when its
+parameters match what the entry recorded (`netem_expect`, V0.9 G5): a netem someone else installed with
+other parameters is left alone (`agent.conditions.netem_not_ours`).
+
+### 0d3. Running a campaign unattended (V0.9 G5, D219/D246)
+
+`compute bench start <camp_id>` hands a created campaign to the controller's **campaign runner** (a
+supervised task inside the controller; nothing else to run). It then submits the runs itself, a few at a
+time, until every run ended - across controller restarts (all its state is in PostgreSQL; after a
+`kill -9` the next process continues, and no run is submitted twice):
+
+```
+compute bench start <camp_id> [--per-node 1] [--cooldown 5] [--retries 2]
+compute bench status <camp_id>      # counts, done %, ETA, infrastructure failure rate
+compute bench pause <camp_id>       # stop submitting; running jobs finish
+compute bench resume <camp_id>
+compute bench cancel <camp_id>      # cancel its benchmark jobs, skip the open runs
+```
+
+* **Throttle:** at most `--per-node` benchmark jobs at once per node (all campaigns together), and
+  `--cooldown` seconds after a node's run ends before its next one. Each tick (`[controller.bench] tick_s`,
+  2 s) submits at most `max_submit_per_tick` (4) runs and examines at most `max_examine_per_tick` (32).
+* **Retries:** an infrastructure failure (node lost, transfer error, timeout, env build...) puts the run back
+  in the queue up to `--retries` times; a workload failure, an unverified condition, a cancel are final.
+  A requeued run gets a new job (`bench:<run_id>:<n>`); `status` counts the retries.
+* **Budget:** past the spec's `budget.max_hours` (from `start`) nothing more is submitted; the open runs are
+  `skipped` and the campaign ends `done` / `budget`.
+* **User jobs come first:** a node with a user's job running (or queued for it) gets no benchmark; benchmark
+  jobs are the lowest priority and never age (D237). G3's manual `compute bench submit` is refused
+  (`409 campaign_running`) once a campaign is started.
+* `/healthz` says `degraded` (`bench-runner`) when the runner failed 5 ticks in a row; it logs
+  `controller.bench.runner_crashed` and retries with back-off.
+
+```toml
+[controller.bench]
+runner = true               # off = only manual `compute bench submit`
+tick_s = 2.0
+max_submit_per_tick = 4
+max_examine_per_tick = 32
+```
+
+**What the laptop owner sees and controls (the owner guard).** A benchmark never runs while the owner is
+using their laptop:
+
+```toml
+[agent.bench]
+activity = true             # watch for owner activity (off = only the manual switch)
+idle_threshold_s = 300      # input within the last 5 min = the owner is active (0 = ignore idle time)
+foreground_cpu_percent = 30 # or: programs that are not the fabric's use > 30 % CPU ...
+sustain_s = 10              # ... for 10 s
+clear_after_s = 60          # activity clears only after 60 s quiet
+poll_s = 2
+```
+
+* `meshforge-agent bench pause` (= `meshforge-agent policy set pause_benchmarks=true`) pauses benchmark
+  jobs on this laptop; `meshforge-agent bench resume` lets them run again. User jobs are not affected.
+* While paused or active: the controller dispatches no benchmark job here; a running one is **stopped**
+  (its load generators and network shaping are reverted first) and ends `owner_preempted` - the campaign
+  requeues it, it does not count as a failure.
+* Input idle time comes from Windows (`GetLastInputInfo`) or Linux logind (`loginctl`; needs a desktop that
+  sets the idle hint - GNOME, KDE). Without one the agent logs `agent.bench.idle_source_unknown` and only the
+  CPU rule applies. Only idle time and per-process CPU are read - never keystrokes, window titles or what a
+  program shows - and only the bit ("owner active", reason `idle` / `cpu`) leaves the laptop.
+* On Windows with Docker Desktop, the WSL VM's CPU (`vmmem`) is ignored while this agent runs a job (that
+  CPU is the job); the idle-time rule still sees the owner.
 
 ### 0e. Caches, GC and named inputs (V0.5 G5, D91-D93)
 

@@ -75,6 +75,7 @@ def _bench(msg: agent_pb2.ControllerMessage) -> agent_pb2.ControllerMessage:
     return msg
 
 
+@pytest.mark.security
 @pytest.mark.asyncio
 async def test_preempt_reverts_conditions_first_then_stops_only_the_bench_attempt(
     tmp_path: Path,

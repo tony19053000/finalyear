@@ -419,6 +419,7 @@ async def _wait(predicate: Any, within: float = 30.0) -> None:
         await asyncio.sleep(0.1)
 
 
+@pytest.mark.security
 async def test_owner_activity_preempts_requeues_and_never_touches_a_user_job(
     http: httpx.AsyncClient,
     runtime: ControllerRuntime,
@@ -525,6 +526,7 @@ async def test_pause_switch_holds_bench_jobs_while_a_user_job_runs(
         await a.stop()
 
 
+@pytest.mark.security
 async def test_no_bench_submission_to_a_node_with_a_user_job(
     http: httpx.AsyncClient,
     runtime: ControllerRuntime,
