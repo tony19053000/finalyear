@@ -16,7 +16,7 @@ import pytest
 
 pytest.importorskip("psutil", reason="needs the agent extra")
 
-import psutil  # noqa: E402
+import psutil
 
 from meshforge.agent.conditions.base import ConditionFailedError
 from meshforge.agent.conditions.burn import main as burn_main
