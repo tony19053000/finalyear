@@ -187,7 +187,12 @@ async def test_netem_apply_verify_revert_with_fixed_arguments() -> None:
     assert ctl.measured["rtt_added_ms"] == 60.0
     assert ctl.measured["interface"] == "eth9"
     assert "netem" in ctl.measured["qdisc"]
-    assert ctl.marker_entry() == {"netem": "eth9", "netem_installed": True}
+    assert ctl.marker_entry() == {
+        "netem": "eth9",
+        "netem_installed": True,
+        # G5 item 0.3: the expected params, matched before any delete
+        "netem_expect": {"delay_ms": 50.0, "loss_pct": 1.0, "rate_mbit": None},
+    }
     assert await ctl.revert() is True
     assert tc.calls[-1] == ("qdisc", "del", "dev", "eth9", "root")
     assert "eth9" not in tc.qdisc
@@ -261,7 +266,7 @@ async def test_netem_failed_delete_keeps_the_marker() -> None:
 
 @pytest.mark.asyncio
 async def test_delete_netem_with_nothing_there_is_fine() -> None:
-    assert await delete_netem(FakeTc(), "eth9") is None
+    assert await delete_netem(FakeTc(), "eth9", expect=None) is None
 
 
 def test_interface_name_rules() -> None:
@@ -407,7 +412,12 @@ async def test_runner_netem_end_to_end_and_marker(tmp_path: Path) -> None:
     active.controller._egress = lambda _h, _p: "eth9"
     await active.apply()
     assert runner.marker.load() == {
-        "att_1": {"spec": "netem:loss=1%", "netem": "eth9", "netem_installed": True}
+        "att_1": {
+            "spec": "netem:loss=1%",
+            "netem": "eth9",
+            "netem_installed": True,
+            "netem_expect": {"delay_ms": 0.0, "loss_pct": 1.0, "rate_mbit": None},
+        }
     }
     report = await active.finish()
     assert report.verified and report.reverted

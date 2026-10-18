@@ -61,6 +61,7 @@ from meshforge.agent.conditions.netem import (
     delete_netem,
     egress_interface,
     median_rtt_ms,
+    valid_expect,
 )
 from meshforge.agent.settings import ConditionSettings
 from meshforge.common.bench_conditions import (
@@ -230,6 +231,14 @@ class ActiveCondition:
             task = self._apply_task
             if task is not None and not task.done() and not task.cancelling():
                 task.cancel()  # once: a second cancel would cut its cleanup
+                # G5 item 0.1 (D245 N2): say so - the report alone reads
+                # like any other unverified condition
+                log.warning(
+                    "agent.conditions.stopped_while_applying",
+                    attempt_id=self.attempt_id,
+                    kind=self.kind,
+                    reason=(self.broken or "stopped")[:200],
+                )
             self._finishing = asyncio.ensure_future(self._finish())
         return await asyncio.shield(self._finishing)
 
@@ -480,14 +489,32 @@ class ConditionRunner:
 
         A netem is deleted only when the entry says it was installed
         (``netem_installed``, written right before ``tc replace``) and only
-        if ``tc qdisc show`` lists a netem root there (:func:`delete_netem`)."""
+        if ``tc qdisc show`` lists a netem root there (:func:`delete_netem`)
+        **with the entry's expected parameters** (``netem_expect``, G5 item
+        0.3); an entry without them is a G4 agent's (any root netem, logged)."""
         pids = entry.get("pids") or []
         killed = await asyncio.to_thread(_kill_burners, pids)
         iface = entry.get("netem")
         netem_ok = True
         installed = entry.get("netem_installed") is True
+        expect = entry.get("netem_expect")
         if isinstance(iface, str) and iface and installed:
-            cause = await delete_netem(self._tc, iface)
+            cause: str | None = None
+            if expect is None:  # a G4 agent's entry (before expected params)
+                log.warning(
+                    "agent.conditions.sweep_netem_legacy_entry",
+                    attempt_id=attempt_id[:64],
+                    interface=iface[:32],
+                )
+                cause = await delete_netem(self._tc, iface, expect=None)
+            elif valid_expect(expect):
+                cause = await delete_netem(self._tc, iface, expect=expect)
+            else:  # never guessed: a malformed expectation deletes nothing
+                log.error(
+                    "agent.conditions.sweep_netem_unverifiable",
+                    attempt_id=attempt_id[:64],
+                    interface=iface[:32],
+                )
             netem_ok = cause is None
             if cause is not None:
                 log.error(

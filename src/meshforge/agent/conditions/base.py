@@ -17,6 +17,8 @@ while the attempt ran (a load process died) - the report is then
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 from collections.abc import Mapping, Sequence
 from typing import Any, ClassVar
 
@@ -27,6 +29,7 @@ __all__ = [
     "ConditionController",
     "ConditionFailedError",
     "StageFacts",
+    "kill_and_reap",
 ]
 
 CONDITION_FAILED = "condition_failed"
@@ -87,3 +90,36 @@ class ConditionController:
     async def revert(self) -> bool:
         """Undo the change (idempotent). False = it could not."""
         return True
+
+
+async def kill_and_reap(
+    proc: asyncio.subprocess.Process, *, timeout_s: float | None = None
+) -> bool:
+    """Kill ``proc`` and wait until it is reaped (G5 item 0.2, D245 N3): the
+    one helper every condition controller that starts a child (``tc``, the
+    burners) uses, so a stopped child can never act after its caller moved on.
+
+    A cancellation that arrives while waiting is **held** until the child is
+    reaped (a second cancel cannot skip the wait) and then re-raised. With
+    ``timeout_s`` the wait gives up after that long (a child stuck in the
+    kernel) and returns False; True = the child is gone and reaped."""
+    with contextlib.suppress(ProcessLookupError):
+        proc.kill()
+    reaped = asyncio.ensure_future(proc.wait())
+    cancelled = False
+    loop = asyncio.get_running_loop()
+    deadline = None if timeout_s is None else loop.time() + timeout_s
+    while not reaped.done():
+        remaining = None if deadline is None else deadline - loop.time()
+        if remaining is not None and remaining <= 0:
+            break
+        try:
+            await asyncio.wait({reaped}, timeout=remaining)
+        except asyncio.CancelledError:
+            cancelled = True
+    if cancelled:
+        raise asyncio.CancelledError
+    if not reaped.done():
+        reaped.cancel()
+        return False
+    return True
