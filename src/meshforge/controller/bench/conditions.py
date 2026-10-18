@@ -98,7 +98,12 @@ def pre_job_role(key: str | None) -> tuple[str, str] | None:
     if not key or not key.startswith(KEY_PREFIX):
         return None
     parts = key.removeprefix(KEY_PREFIX).split(":")
-    if len(parts) == 3 and parts[1] == FILLER_TAG and parts[2].isdecimal():
+    if (
+        len(parts) == 3
+        and parts[1] == FILLER_TAG
+        and parts[2].isascii()
+        and parts[2].isdecimal()
+    ):
         role = FILLER_TAG
     elif len(parts) == 2 and parts[1] == WARMUP_TAG:
         role = WARMUP_TAG

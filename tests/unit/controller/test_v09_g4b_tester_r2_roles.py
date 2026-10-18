@@ -71,12 +71,6 @@ def test_returned_run_id_is_the_exact_run_id() -> None:
     assert pre_job_role(warmup_key(RUN)) == ("warmup", RUN)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="TESTER R2 minor: str.isdecimal() accepts non-ASCII decimal digits "
-    "(e.g. Arabic-indic), so a lookalike filler index is tagged; harmless "
-    "(needs a valid run id) but not exact",
-)
 def test_non_ascii_decimal_digit_index_is_not_a_filler() -> None:
     assert pre_job_role(f"bench:{RUN}:filler:{chr(0x661)}") is None
 
