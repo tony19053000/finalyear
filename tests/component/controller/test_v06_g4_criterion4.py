@@ -29,7 +29,8 @@ import dataclasses
 import datetime as dt
 import json
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -67,6 +68,8 @@ class Live:
     rtt_ewma_ms: float | None = 1.0
     policy: Any = None  # V0.7 G5: no advertised owner policy
     policy_slots: Any = None
+    # V0.9 G1: the planner reads the session's clock-offset estimate
+    clock: Any = field(default_factory=lambda: SimpleNamespace(latest=None))
 
 
 class Manager:

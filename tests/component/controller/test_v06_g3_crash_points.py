@@ -220,4 +220,4 @@ async def test_death_between_done_and_succeeded_leaves_the_attempt_uploading(
         "SELECT count(*) FROM attempt_phase WHERE attempt_id = :a",
         a=attempt.id,
     )
-    assert phases[0][0] == 5
+    assert phases[0][0] == 6  # V0.9 G1 (D227): compute is the 6th phase
