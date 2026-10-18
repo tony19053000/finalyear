@@ -476,6 +476,8 @@ def _toml_value(value: Any) -> str:
         return repr(value)
     if isinstance(value, str):
         return json.dumps(value)  # a JSON string is a valid TOML basic string
+    if isinstance(value, list | tuple):  # V0.9 G4: e.g. [agent.conditions] tc_command
+        return "[" + ", ".join(_toml_value(v) for v in value) + "]"
     raise TypeError(f"unsupported TOML value: {value!r}")
 
 
