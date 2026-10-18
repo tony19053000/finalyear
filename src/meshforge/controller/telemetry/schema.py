@@ -126,8 +126,8 @@ COLUMNS: Final[tuple[Column, ...]] = (
     _c(
         "planner_node_id",
         _T,
-        "Node the planner chose (auto) or would have chosen unpinned (pinned, "
-        "D215 shadow plan); null = none feasible / older decision.",
+        "Node the planner chose (auto) or prefers unpinned (pinned: D215/D235 "
+        "shadow plan, slot occupancy ignored); null = none feasible / older.",
     ),
     _c("planner_estimate_s", _F, "The planner's estimate for the node used (s)."),
     # --- workload ---------------------------------------------------------

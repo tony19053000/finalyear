@@ -247,9 +247,12 @@ Each run becomes an **ordinary job** (D215): its folder from the workload librar
 (`mode: local` on the origin, `offload` elsewhere), `submitter_node_id` = the origin, at the **lowest priority**
 (-10: a user's job queued later is dispatched first; benchmarks never pre-empt), owned by the campaign's creator.
 The planner still plans it - and, because it is pinned, also plans the same request **unpinned** as a
-side-effect-free shadow: the node it *would* have chosen is stored on the decision (`compute explain`,
+side-effect-free shadow: the node it **prefers** is stored on the decision (`compute explain`,
 `shadow_chosen_node_id`) and becomes the run record's `planner_node_id`, so every record of a forced run also
-says what the planner would have done (the V0.14 regret metric). The run record carries `campaign_id`,
+says what the planner would have picked (the V0.14 regret metric). The shadow **ignores slot occupancy** (every
+slot and GPU of a node counts as free - otherwise, with the other laptops busy running the campaign, the label
+would collapse onto the forced node) but keeps everything else: feasibility (capabilities, hardware, owner
+policy, a slot kind the node has at all), health (state, live session) and the job's retry exclusions (D235). The run record carries `campaign_id`,
 `group_id`, `config_id` and `repetition` from the `bench_run.job_id` link.
 
 `submit` is idempotent per run (the job's Idempotency-Key is `bench:<run_id>`). A run whose node is offline, has

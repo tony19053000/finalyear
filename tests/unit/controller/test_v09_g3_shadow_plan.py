@@ -4,6 +4,7 @@ request unpinned - and the run record's ``planner_node_id`` comes from it."""
 
 from __future__ import annotations
 
+import dataclasses
 import datetime as dt
 from types import SimpleNamespace
 from typing import Any
@@ -18,6 +19,7 @@ from meshforge.controller.jobs.planning import DispatchPlanner
 from meshforge.controller.jobs.queue_reads import FabricRows, NodeRow
 from meshforge.controller.jobs.store import JobRecord, JobScheduling
 from meshforge.controller.liveness import NodeState
+from meshforge.controller.planner import PastFailure
 from meshforge.controller.settings import JobApiSettings, PlannerSettings
 from meshforge.controller.telemetry.record import RecordSource, build_record
 
@@ -167,3 +169,43 @@ def test_record_planner_node_id_comes_from_the_shadow_for_pinned_jobs() -> None:
     assert pinned["placement_mode"] == "pinned"
     auto = build_record(RecordSource(**base, placement={}, decision_shadow=None))
     assert auto["planner_node_id"] == B
+
+
+# ---------------------------------------------------- fix r1 (D-3, D235)
+
+
+def test_fix1_d3_a_busy_preferred_node_is_still_the_preference() -> None:
+    fabric = _fabric()
+    fabric.used[A] = [2, 0]  # every CPU slot of A taken right now
+    decision = _planner().decide(_job(B), fabric)
+    assert isinstance(decision, Dispatch) and decision.record is not None
+    assert decision.record.shadow_chosen_node_id == A
+
+
+def test_fix1_d3_health_is_kept_an_unhealthy_preferred_node_is_not_chosen() -> None:
+    planner = _planner()
+    planner._manager.live.pop(A)  # type: ignore[attr-defined]  # A has no session
+    decision = planner.decide(_job(B), _fabric())
+    assert isinstance(decision, Dispatch) and decision.record is not None
+    assert decision.record.shadow_chosen_node_id == B
+
+
+def test_fix1_d3_feasibility_is_kept_a_node_without_cpu_slots_is_not_chosen() -> None:
+    fabric = _fabric()
+    fabric.nodes[A] = dataclasses.replace(fabric.nodes[A], cpu_slots=0)
+    decision = _planner().decide(_job(B), fabric)
+    assert isinstance(decision, Dispatch) and decision.record is not None
+    assert decision.record.shadow_chosen_node_id == B
+
+
+def test_fix1_d3_retry_exclusions_are_kept() -> None:
+    fabric = _fabric()
+    job = dataclasses.replace(_job(B), attempt_epoch=1)
+    fabric.past_failures[job.id] = (
+        PastFailure(
+            node_id=A, failure_type="node_lost", ended_at=dt.datetime.now(dt.UTC)
+        ),
+    )
+    decision = _planner().decide(job, fabric)
+    assert isinstance(decision, Dispatch) and decision.record is not None
+    assert decision.record.shadow_chosen_node_id == B  # A failed it: excluded

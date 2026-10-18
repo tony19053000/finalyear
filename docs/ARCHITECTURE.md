@@ -857,7 +857,8 @@ Benchmarks run through **the same code paths as users** — so benchmark data re
   `JobStore.create_queued_job` - the jobs API's own path, no HTTP self-call, no planner bypass; lowest priority,
   Idempotency-Key `bench:<run_id>`. API `/v1/bench/campaigns[/{id}[/runs|/submit]]`, admin only.
 - **Would-have-chosen** (`jobs/planning.py`): a pinned job that dispatches is also planned unpinned on the same
-  snapshot (pure; no reservation, round-robin pointer untouched, a failure never blocks the dispatch); the
+  snapshot with slot occupancy ignored but feasibility, health and retry exclusions kept - the planner's
+  *preference* (D235; pure; no reservation, round-robin pointer untouched, a failure never blocks the dispatch); the
   choice is `plan_decision.shadow_chosen_node_id` and the run record's `planner_node_id`. The recorder reads the
   campaign identity of a sweep's jobs in one batched query inside its own transaction.
 

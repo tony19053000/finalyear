@@ -40,7 +40,7 @@ from __future__ import annotations
 import dataclasses
 import datetime as dt
 from collections import OrderedDict
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Final
 
 from pydantic import ValidationError
@@ -70,6 +70,7 @@ from meshforge.controller.planner import (
     Decision,
     History,
     NodeSnapshot,
+    PastFailure,
     PlannerConfig,
     PlanRequest,
     RejectCode,
@@ -95,6 +96,24 @@ _ERRORS_LOGGED_MAX: Final = 1024
 _GPU_GONE: Final = frozenset(
     {RejectCode.NO_GPU, RejectCode.NO_GPU_RUNTIME, RejectCode.NO_GPU_SLOTS}
 )
+
+
+def _idle(snapshot: ClusterSnapshot) -> ClusterSnapshot:
+    """``snapshot`` with no slot, GPU or attempt in use on any node (the shadow
+    plan's view, D235)."""
+    return dataclasses.replace(
+        snapshot,
+        nodes=tuple(
+            dataclasses.replace(
+                n,
+                used_cpu_slots=0,
+                used_gpu_slots=0,
+                live_attempts=0,
+                busy_gpus=frozenset(),
+            )
+            for n in snapshot.nodes
+        ),
+    )
 
 
 def decision_record(decision: Decision) -> DecisionRecord:
@@ -320,7 +339,7 @@ class DispatchPlanner:
         decision = plan(plan_job, snapshot, self.policy_of(job), self._wall())
         record = decision_record(decision)
         if decision.chosen is not None and pinned is not None:
-            record = self._with_shadow(record, plan_job, snapshot, job)
+            record = self._with_shadow(record, plan_job, snapshot, job, past)
         if decision.chosen is not None:
             return self._dispatch(
                 job, manifest, decision, fabric, record, trees=trees, cluster=snapshot
@@ -341,20 +360,35 @@ class DispatchPlanner:
         plan_job: PlanRequest,
         snapshot: ClusterSnapshot,
         job: JobRecord,
+        past: Sequence[PastFailure] = (),
     ) -> DecisionRecord:
-        """V0.9 G3 (D215): what the planner **would** choose for this pinned
-        job unpinned - the same request and snapshot, the pin removed. Pure
-        (no reservation, no round-robin pointer moved, no row of its own);
-        it only adds the would-have-chosen node and its estimate to the
-        dispatched decision, which the run record reads as ``planner_node_id``.
-        A failure here never blocks the pinned dispatch."""
+        """V0.9 G3 (D215, fix r1 D235): the node the planner **prefers** for
+        this pinned job - the same request unpinned, on the same snapshot with
+        **slot occupancy ignored**: every slot (and GPU) of a node is treated
+        as free, so a node that is busy right now still wins if it is the
+        better place. Everything else is kept: feasibility (capabilities,
+        hardware, owner policy, a slot *kind* the node has at all), health
+        (state, live session) and the job's retry exclusions (D110, with the
+        soft lift rule of ``plan``). So ``planner_node_id`` is a *preference*
+        label, not "what would have run this second" (docs/TELEMETRY.md).
+
+        Pure (no reservation, no round-robin pointer moved, no row of its own);
+        it only adds the node and its estimate to the dispatched decision. A
+        failure here never blocks the pinned dispatch."""
         try:
-            shadow = plan(
-                dataclasses.replace(plan_job, pinned_node_id=None, excluded={}),
-                snapshot,
-                self.policy_of(job),
-                self._wall(),
+            request = dataclasses.replace(
+                plan_job,
+                pinned_node_id=None,
+                excluded=exclusions(
+                    past,
+                    snapshot.nodes,
+                    now=self._wall(),
+                    exclude_s=self._planner.retry_exclude_s,
+                )
+                if past
+                else {},
             )
+            shadow = plan(request, _idle(snapshot), self.policy_of(job), self._wall())
         except Exception as exc:  # the shadow is telemetry, never a condition
             log.exception(
                 "controller.jobs.shadow_plan_failed",
