@@ -6,7 +6,7 @@
 
 ## Progress
 ```
-TOTAL   ██████████▒▒░░░░░░░░  51%  80/156 done, 15 in progress
+TOTAL   ██████████▒▒░░░░░░░░  51%  80/156 done, 17 in progress
 
 V0.1    █████████████████▒▒▒  83%  10/12  Foundations & engineering system
 V0.2    ██▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░░   9%   1/11  Lab setup & feasibility validation
@@ -16,7 +16,7 @@ V0.5    ██████████████████░░  90%  10/11
 V0.6    ███████████████████░  92%  13/14  Scheduling & reliability — Mode 1 complete
 V0.7    ██████████████████░░  91%  11/12  Security & pairing
 V0.8    ██████████████████░░  90%   9/10  Dashboard & CLI v1
-V0.9    ████░░░░░░░░░░░░░░░░  20%   2/10  Benchmark & telemetry system v1
+V0.9    ████▒▒▒▒░░░░░░░░░░░░  20%   2/10  Benchmark & telemetry system v1
 V0.10   ░░░░░░░░░░░░░░░░░░░░   0%   0/10  Mode 3 Task Splitting
 V0.14   ░░░░░░░░░░░░░░░░░░░░   0%   0/8   Unified planner v2
 V0.15   ░░░░░░░░░░░░░░░░░░░░   0%   0/10  ML planner
@@ -151,6 +151,8 @@ Reviewer non-blocking follow-ups (carry into G2/G3): (1) `mint` should carry `pe
 - Team accepted ARCHITECTURE v1 and ADRs 0001–0010 (2026-09-15)
 
 ## In Progress
+
+- **V0.9 G3** (0.9.3, 0.9.4 `[~]`, brief §5d, D232): lane A item 0 ∥ lane B campaigns + forced runs, separate worktrees.
 - 🧑 **G7 Windows check** (not blocking 0.3.4): on a Windows laptop, `git pull`, `uv sync --extra agent`, then `uv run meshforge-agent hardware score` (expect exit 0), the same in two terminals at once (second exits **7**), and Ctrl-C mid-run (Task Manager: no leftover `python`). Paste outputs + exit codes.
 - 🧑 **0.3.13 Windows logoff check** — the one thing keeping 0.3.13 `[~]`. Procedure in `docs/OPERATIONS.md` §3: register the task, `schtasks /run`, confirm `CONN yes` in `compute nodes` from the controller laptop, log off, wait 30 s, re-run `compute nodes`, paste both tables plus `schtasks /query /tn MeshForgeAgent /v /fo LIST`. The docs say "unverified" on purpose — do not let anyone replace that with a guess.
 - 🧑 0.3.2 Windows verification: `uv run pytest tests/unit/agent -q` on any Windows laptop after `git pull` + `uv sync` (exercises `icacls` and `msvcrt.locking`); paste the summary line

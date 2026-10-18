@@ -262,6 +262,8 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
+**2026-10-18 (G3 brief §5d written, D232) — RUNNING in parallel: G3 lane A (item 0) + lane B (campaigns + forced runs, migration 0022), separate worktrees; progress docs/briefs/progress/V0.9-G3A.md / V0.9-G3B.md there. If died: relaunch per §5d from the progress file; per lane tester → reviewer; merge A then B → whole `-m component` once alone → close 0.9.3/0.9.4.**
+
 **2026-10-18 (G1 CLOSED, D231; 0.9.1 `[x]`) — NOTHING RUNNING. Next: write G3 brief (§5d; item 0 = D225 2,4 + D228 + D229/D230 follow-ups) → G3 implementer. Main checkout needs `uv sync --all-extras` (pyarrow).**
 
 **2026-10-18 (G1 MERGED `10f1f8c`, D230) — RUNNING: frontend build then whole `-m component` ONCE alone on main (log scratchpad v09_g1_component.log). If died: rerun `uv run python scripts/pytest_exit_guard.py -m component -q -rs` alone; green → 0.9.1 `[x]` + status bar + STATUS → write G3 brief (§5d; item 0 = D225 2,4 + D228 + D229/D230 follow-ups).**
