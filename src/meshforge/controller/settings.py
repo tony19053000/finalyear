@@ -1321,10 +1321,13 @@ class TelemetrySettings(SectionModel):
         description="Records written per sweep transaction (a backlog sweeps again).",
     )
     export_max_rows: int = Field(
-        default=1_000_000,
+        default=100_000,
         ge=1,
         le=10_000_000,
-        description="Most run records one Parquet export may hold.",
+        description=(
+            "Most run records one Parquet export may hold. The export is "
+            "buffered in memory (~2.5 KB per record plus the file)."
+        ),
     )
 
 

@@ -59,6 +59,13 @@ custom metadata is the schema version), Parquet writer options pinned (format 2.
 statistics on, 65 536-row groups) and one pyarrow version (pinned by `uv.lock`; a pyarrow bump is a dataset
 format change).
 
+**Memory.** An export is **buffered in memory**, not streamed: the matching records are loaded (~2.5 KB each)
+and the finished file is returned whole (the API sends its `Content-Length`). The Arrow data is built one row
+group at a time (`write_records`, a `ParquetWriter`), so it never holds more than 65 536 rows; the bytes are the
+same as writing one table (a unit test exports across row-group boundaries and compares). The cap,
+`[controller.telemetry] export_max_rows` (default **100 000**, was 1 000 000 in G1), keeps the worst case to a
+few hundred MB; a bigger export is refused with 413 - narrow it by `--campaign` / `--since`.
+
 ## Privacy and secrets
 
 The export is admin-only: it names every user's jobs and nodes. It holds no secret value: no column copies job
