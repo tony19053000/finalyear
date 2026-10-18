@@ -25,6 +25,7 @@ from sqlalchemy import (
     BigInteger,
     CheckConstraint,
     DateTime,
+    Float,
     ForeignKey,
     Identity,
     Index,
@@ -95,3 +96,11 @@ class PlanDecision(Base):
     """SHA-256 of the sorted ``(node_id, reject_code)`` set: a waiting job's
     decision is written again only when this changes (D104)."""
     candidates: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False)
+    shadow_chosen_node_id: Mapped[str | None] = mapped_column(
+        String(ID_MAX_LENGTH), nullable=True
+    )
+    """V0.9 G3 (D215, migration 0022): for a **pinned** job, the node the planner
+    would have chosen for the same request unpinned, on the same snapshot (a
+    side-effect-free shadow plan); None = not pinned, or no node feasible."""
+    shadow_estimate_s: Mapped[float | None] = mapped_column(Float, nullable=True)
+    """The shadow choice's estimated total seconds."""

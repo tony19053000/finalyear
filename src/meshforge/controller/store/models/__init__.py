@@ -13,11 +13,13 @@ G2 D112, :mod:`.plan`), ``network_link`` (V0.6 G4 D111, :mod:`.network`),
 ``join_token``, ``audit_event`` (V0.7 G2 D135/D136, :mod:`.enrollment`),
 ``revoked_cert`` (V0.7 G3 D138, :mod:`.revocation`), ``app_user``,
 ``api_token`` (V0.7 G4 D141, :mod:`.auth`), ``secret`` (V0.7 G6 D144,
-:mod:`.secret`), ``run_record`` (V0.9 G1 D212, :mod:`.telemetry`).
+:mod:`.secret`), ``run_record`` (V0.9 G1 D212, :mod:`.telemetry`),
+``bench_campaign``, ``bench_run`` (V0.9 G3 D216, :mod:`.bench`).
 """
 
 from meshforge.controller.store.base import Base
 from meshforge.controller.store.models.auth import ApiToken, AppUser, UserRole
+from meshforge.controller.store.models.bench import BenchCampaign, BenchRun
 from meshforge.controller.store.models.cache import CacheLocation
 from meshforge.controller.store.models.data import JobInput, NamedInput, TransferEvent
 from meshforge.controller.store.models.enrollment import (
@@ -47,6 +49,8 @@ __all__ = [
     "AuditAction",
     "AuditEvent",
     "Base",
+    "BenchCampaign",
+    "BenchRun",
     "CacheLocation",
     "Job",
     "JobInput",
