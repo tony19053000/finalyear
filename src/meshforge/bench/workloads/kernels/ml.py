@@ -21,7 +21,10 @@ initialisation, never a copy of the timed model - and recomputes in float64
   the float64 recompute within :func:`ml_tolerance`;
 * training: the first timed step's loss must agree with a float64 recompute of
   that step on the seeded build (the whole first batch - batch-norm statistics
-  couple its rows), and the losses must go down.
+  couple its rows), and the losses must go down. The recompute runs layer by
+  layer with the convolutions in row chunks (:func:`_train_reference_forward`),
+  so its memory is about two float64 activations, and the family refuses a
+  first batch above :data:`TRAIN_REFERENCE_ELEMENTS` (G3 item 0.3, D228).
 
 The reference uses the timed run's inputs (generated in ``prepare``, not timed):
 a CUDA generator's numbers differ from a CPU one's, so they cannot be redrawn on
@@ -49,8 +52,10 @@ from ._support import (
 __all__ = [
     "KERNELS",
     "ML_FACTOR",
+    "REFERENCE_CHUNK_BYTES",
     "REFERENCE_FLOPS",
     "SAMPLED_ROWS",
+    "TRAIN_REFERENCE_ELEMENTS",
     "cnn_layout",
     "float32_eps",
     "ml_tolerance",
@@ -81,11 +86,42 @@ REFERENCE_FLOPS = 1e11
 """Float64 FLOP budget of the inference reference: about 1 s on a laptop CPU.
 The whole last batch is recomputed when it fits; otherwise evenly spaced rows,
 always the first and the last, at least two, plus :data:`SAMPLED_ROWS` seeded
-random ones (:func:`reference_rows`)."""
+random ones (:func:`reference_rows`).
+
+**The row floor overrides this budget** (D228.2): those >= 4 rows are
+recomputed however expensive one row is, so at the corners ``check_ms`` can be
+minutes - the largest window-valid transformer (batch 4, seq_len 2048, width
+1024, depth 24) is 4 rows = ~6.6e12 FLOPs, 51 s on Laptop 1 (~2 min on the mid
+laptop) and ~4.9 GB of host RAM (docs/BENCHMARKS.md, "ML reference")."""
 
 SAMPLED_ROWS = 2
 """Rows of the last batch drawn at random (seeded by the run seed, never the
 first / last) on top of the evenly spaced ones when the budget forces sampling."""
+
+
+TRAIN_REFERENCE_ELEMENTS = 2**24
+"""Largest first-batch activation (``batch * width * image**2`` values, layer 0)
+``ml.cnn_train`` accepts, so its float64 first-loss reference stays under
+**512 MB** (G3 item 0.3, D228.1).
+
+Why a cap and not only chunking: batch norm in train mode normalises with the
+statistics of the *whole* batch, so a layer's output for one row needs every
+row's conv output first. Chunking rows therefore cannot drop below one full
+float64 activation per layer in and one out; the only way under it is to
+recompute the layer prefix per chunk (up to ``depth + 1`` forward passes,
+~2.6e13 float64 FLOPs = 5-11 min of check at the old corner - longer than
+the job may take). The old corner (batch 512, width 256, image 64) was
+4 GiB per float64 activation, ~44 GiB peak with the plain forward (the CPU
+float64 conv's im2col buffer is 9x the input). With the layer-wise forward the
+peak is ~2 activations + one chunk: at this cap 2 x 128 MiB + <= 80 MiB, measured
+~0.3-0.4 GiB (docs/BENCHMARKS.md). The cap also keeps the timed run's training
+memory near 1 GB of VRAM, inside every laptop GPU."""
+
+REFERENCE_CHUNK_BYTES = 64 * 2**20
+"""Target size of one conv chunk's temporaries in the training reference
+(im2col buffer + chunk output, float64). At least one row per chunk, so a
+single row above it (9 x 256 channels x 64 x 64 x 8 B = 72 MiB at most) still
+runs."""
 
 
 def cnn_layout(width: int, depth: int, image: int) -> list[tuple[int, int, int]]:
@@ -369,13 +405,46 @@ def _train_compute(state: Any) -> Any:
     return stacked
 
 
+def _conv_in_chunks(torch: Any, conv: Any, x: Any) -> Any:
+    """``conv(x)`` computed a chunk of rows at a time into one output tensor
+    (rows of a convolution are independent; only the temporaries shrink)."""
+    batch, c_in, height, width = (int(v) for v in x.shape)
+    c_out = int(conv.out_channels)
+    per_row = (9 * c_in + c_out) * height * width * 8
+    rows = max(1, REFERENCE_CHUNK_BYTES // per_row)
+    if rows >= batch:
+        return conv(x)
+    out = torch.empty((batch, c_out, height, width), dtype=x.dtype)
+    for start in range(0, batch, rows):
+        out[start : start + rows] = conv(x[start : start + rows])
+    return out
+
+
+def _train_reference_forward(torch: Any, model: Any, x: Any) -> Any:
+    """``model(x)`` for the float64 CNN, layer by layer: convolutions in row
+    chunks, ReLU in place, batch norm (train mode, whole-batch statistics) and
+    the rest as the module computes them. Only the current input and output
+    activation are alive at any time."""
+    nn = torch.nn
+    for module in model:
+        if isinstance(module, nn.Conv2d):
+            x = _conv_in_chunks(torch, module, x)
+        elif isinstance(module, nn.ReLU):
+            x = x.relu_()
+        else:
+            x = module(x)
+    return x
+
+
 def _first_loss_reference(state: Any) -> float:
     """The first timed step's loss recomputed in float64 on the seeded build
-    (train mode, whole first batch)."""
+    (train mode, whole first batch, :func:`_train_reference_forward`)."""
     torch = state["torch"]
     reference = _seeded_model(state).double().train()
     with torch.no_grad():
-        logits = reference(state["xs"][0].cpu().double())
+        logits = _train_reference_forward(
+            torch, reference, state["xs"][0].cpu().double()
+        )
         loss = torch.nn.functional.cross_entropy(logits, state["ys"][0].cpu())
     return float(loss)
 

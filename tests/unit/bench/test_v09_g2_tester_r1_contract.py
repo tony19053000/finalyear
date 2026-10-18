@@ -271,9 +271,20 @@ def test_the_window_edges_are_exact_for_every_size_parameter(family: Any) -> Non
                 family.parse_params(outside)
         if last < high:
             outside = {**defaults, field: (last + 1) * step}
-            assert family.expected_runtime_s(outside) > MAX_RUNTIME_S, outside
-            with pytest.raises(ParamsError, match="reference mid laptop"):
-                family.parse_params(outside)
+            rules = family.combination_problems(family._model(outside))
+            if rules:
+                # G3 item 0.3: a combination rule (ml.cnn_train's float64
+                # reference memory cap) can be the upper edge before the window
+                with pytest.raises(ParamsError) as refused:
+                    family.parse_params(outside)
+                assert all(rule in str(refused.value) for rule in rules), outside
+                assert not family.combination_problems(
+                    family._model({**defaults, field: last * step})
+                )
+            else:
+                assert family.expected_runtime_s(outside) > MAX_RUNTIME_S, outside
+                with pytest.raises(ParamsError, match="reference mid laptop"):
+                    family.parse_params(outside)
 
 
 @pytest.mark.parametrize("family", FAMILIES, ids=IDS)

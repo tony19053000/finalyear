@@ -37,7 +37,9 @@ Each family has:
 reference mid laptop. Per-field bounds cannot say that alone (`n` and `repeats` trade off), so the library refuses
 any combination whose hint is outside the window, with the hint in the error:
 `cpu.sort: invalid parameters: expected about 0.3 s on the reference mid laptop; a benchmark run must take 5-180 s
-(change n, repeats)`.
+(change n, repeats)`. A family may add **combination rules** the per-field bounds cannot say
+(`Family.combination_problems`; one error lists them together with the window). v1 has one: `ml.cnn_train`
+refuses `batch x width x image^2 > 2^24` so its float64 check fits 512 MB (see "ML reference" below).
 
 **Hints.** The hint follows one hardware score (the `meshforge-agent hardware score` metrics): multi-core FLOP/s
 for BLAS matmul, single-thread FLOP/s for one-core Python/numpy kernels (used as a proxy for per-core speed),
@@ -72,7 +74,7 @@ the same node and library build (BLAS and GPUs round differently).
 | `gpu.elementwise` | `sin`, then `ops` fused `x + c*y` steps (bandwidth-bound) | `elements_m` 16-256 (64), `ops` 1-64 (16), `repeats` (60) | the whole output recomputed in float64 on the device, in chunks | no |
 | `gpu.resize` | bilinear resize of RGB images | `batch` 1-256 (64), `size` 64-1024 (256), `out_size` 32-2048 (512), `repeats` (1100) | every image resized again in float64 on the device; a wrong shape fails the check | no |
 | `ml.cnn_infer` | small CNN (conv-BN-ReLU blocks) inference | `batch` 1-512 (64), `width` 16-256 (64), `depth` 2-12 (6), `image` 32/64, `batches` (1000) | finite logits; weights equal a seeded CPU rebuild; last batch rerun equal; **float64 CPU reference** of the last batch (see below) | no |
-| `ml.cnn_train` | the same CNN, SGD steps on learnable synthetic labels | `batch` 8-512 (64), `width`, `depth`, `image`, `steps` 20-50000 (400) | finite losses; first loss equals a **float64 CPU recompute** on the seeded rebuild; last quarter < first quarter | no |
+| `ml.cnn_train` | the same CNN, SGD steps on learnable synthetic labels | `batch` 8-512 (64), `width`, `depth`, `image`, `steps` 20-50000 (400); `batch x width x image^2 <= 2^24` | finite losses; first loss equals a **float64 CPU recompute** on the seeded rebuild; last quarter < first quarter | no |
 | `ml.transformer_infer` | transformer encoder on random tokens | `batch` 1-256 (16), `seq_len` 16-2048 (256), `width` (d_model, x64) 64-1024 (256), `depth` 1-24 (4), `batches` (300) | finite; weights equal the seeded rebuild; last batch rerun equal; **float64 CPU reference** | no |
 
 GPU and ML families **require CUDA** (`env.base: cuda-pytorch`, `resources.gpu: required`). On a node without
@@ -115,7 +117,16 @@ builds, so the bump is recorded with the dataset's library versions and the two 
 
 ### `results/workload.json`
 
-The run's only output (`schema_version` 1):
+The run's only output (`schema_version` 1, `runner.RESULT_SCHEMA_VERSION`).
+
+**Versioning rule (D228).** Version 1 was frozen when G1 started recording runs. From then on **any change to
+the shape of `workload.json`** - a field added, removed, renamed, retyped, or a meaning changed (e.g. what
+`compute_ns` covers) - **bumps `schema_version`**, and the agent's reader (`agent/execution/workload_result.py`)
+and the run-record builder (`controller/telemetry/record.py`) learn the new version in the same change. The
+agent forwards the version it read (`result_schema_version` in the attempt's stored workload report), so every
+attempt says which result shape it came from. If the change alters a run-record column, the **telemetry schema
+version** bumps too (`docs/TELEMETRY.md`) - a dataset never mixes two meanings of one column silently.
+
 
 | Field | Meaning |
 |---|---|
@@ -157,14 +168,33 @@ CPU** - a separate object built by the same seeded initialisation, never a copy 
 - inference: the timed model's weights and buffers must equal the rebuild bit for bit, and rows of the last
   batch are recomputed in **float64**: the whole batch when it fits a 1e11-FLOP budget (about 1 s; the default
   CNN batch fits), otherwise evenly spaced rows - always the first and last - **plus 2 rows drawn by a generator
-  seeded with the run's seed** (`SAMPLED_ROWS`; never the first or last). Worst case, the largest transformer:
-  4 rows, ~6.6e12 FLOPs, about a minute on a laptop CPU - still inside the 15 min job timeout.
+  seeded with the run's seed** (`SAMPLED_ROWS`; never the first or last).
+  **The row floor overrides the budget.** At least 2 spread rows + 2 sampled rows are always recomputed, however
+  expensive one row is, so at the corners the reference is far above 1e11 FLOPs and `check_ms` can be **minutes**
+  (`REFERENCE_FLOPS` says the same next to the constant). Measured on Laptop 1 (2026-10-18, torch 2.14 CPU): the
+  largest window-valid transformer (`batch` 4, `seq_len` 2048, `width` 1024, `depth` 24) recomputes 4 rows =
+  ~6.6e12 float64 FLOPs in **51 s** (about 2 min on the mid laptop) - inside the 15 min job timeout, but it
+  also peaked at **~4.9 GB** of host RAM (the float64 attention matrices), more than the 2 GB the ML families
+  declare (`ram_gb`; follow-up). The worst `cnn_infer` reference (`batch` 64, `width` 256, `depth` 12, `image`
+  64) is 14 rows, ~1.1e11 FLOPs, about a second. G5's labels use `compute_ns`, never `check_ms`, so a slow
+  check costs campaign time, not label quality;
   **Limit, stated plainly:** when sampling, only the sampled rows **of the last batch** are compared with float64.
   A fault confined to rows a run did not sample, or to an earlier batch of the timed loop, passes that run (the
   exact weight check and the full-batch rerun still apply). One run is reproducible (same seed, same rows);
   across a campaign's seeds the random rows reach every row of the batch;
 - training: the first timed step's loss is recomputed in float64 on the rebuild (the whole first batch, since
-  batch-norm couples it; under 1 s at the default size, an estimated ~30 s at the largest window-valid batch).
+  train-mode batch norm normalises with whole-batch statistics). It runs **layer by layer** with the
+  convolutions in row chunks of ~64 MiB of temporaries (`REFERENCE_CHUNK_BYTES`), so only the current input and
+  output activation are alive: about 2 float64 activations + one chunk. Chunking cannot go below that without
+  recomputing every layer prefix per chunk (up to `depth + 1` forward passes, minutes of check), so the family
+  also **caps the first activation**: `batch x width x image^2 <= 2^24` (`TRAIN_REFERENCE_ELEMENTS`, 128 MiB
+  per float64 activation). Measured on Laptop 1 (2026-10-18, peak RSS growth during the reference): the old
+  whole-batch forward needed ~11 activations (the CPU float64 conv's im2col buffer is 9x its input) - 356 MiB at
+  the default size, 1.4 GiB at `batch` 64 `width` 256, and ~44 GiB at the old corner (`batch` 512, `width` 256,
+  `image` 64); the layer-wise forward peaks at **119 MiB** at the default size and **323-387 MiB** at every
+  corner of the cap (`tests/component/bench/test_v09_g3a_train_reference_memory.py` holds it under 512 MB), in
+  0.5-1.4 s. The cap keeps 605 of the 914 model shapes (`batch`/`width`/`depth`/`image`) that have a
+  window-valid `steps`; the refused ones would also need several GB of VRAM to train, beyond most laptop GPUs.
 
 Each element must be within `16 * eps * sqrt(layers) * max|reference row|` (loss: scale `max(|loss|, 1)`), where
 `eps` is float32's 2^-24 on the CPU and on CUDA **TF32's 2^-11** when cuDNN convolutions or cuBLAS matmuls may

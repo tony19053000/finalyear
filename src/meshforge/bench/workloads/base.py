@@ -302,19 +302,29 @@ class Family[P: Params](ABC):
             ]
             raise ParamsError(self.name, problems) from None
 
+    def combination_problems(self, params: P) -> list[str]:
+        """Rules across several fields that the per-field bounds cannot say
+        (``"field: why"`` lines; none by default). Checked by
+        :meth:`parse_params` together with the window (one error lists both),
+        not by ``_model``: the hint of any in-bounds combination stays
+        computable."""
+        del params
+        return []
+
     def parse_params(self, raw: P | Mapping[str, Any]) -> P:
-        """Validated params inside the 5 s - 3 min window (else :class:`ParamsError`)."""
+        """Validated params inside the 5 s - 3 min window and every
+        :meth:`combination_problems` rule (else :class:`ParamsError`)."""
         params = self._model(raw)
+        problems = list(self.combination_problems(params))
         hint = self.expected_runtime_s(params, MID_LAPTOP)
         if not MIN_RUNTIME_S <= hint <= MAX_RUNTIME_S:
-            raise ParamsError(
-                self.name,
-                [
-                    f"expected about {hint:.1f} s on the reference mid laptop; "
-                    f"a benchmark run must take {MIN_RUNTIME_S:g}-{MAX_RUNTIME_S:g} s "
-                    f"(change {', '.join(self.size_params)})"
-                ],
+            problems.append(
+                f"expected about {hint:.1f} s on the reference mid laptop; "
+                f"a benchmark run must take {MIN_RUNTIME_S:g}-{MAX_RUNTIME_S:g} s "
+                f"(change {', '.join(self.size_params)})"
             )
+        if problems:
+            raise ParamsError(self.name, problems)
         return params
 
     def check_seed(self, seed: object) -> int:

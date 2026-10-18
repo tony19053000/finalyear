@@ -162,3 +162,10 @@ Types: `text`, `int64`, `float64`, `bool`, `json` (JSONB / canonical JSON text i
 Bump `SCHEMA_VERSION`, add the new column fingerprint to `SCHEMA_FINGERPRINTS` (never edit a published one),
 write the migration, update this table. Later versions add workload families and strategies (V0.10+), not
 new schemas, unless a column truly must change.
+
+**Two version numbers, one rule.** The telemetry schema version (this table) and the benchmark **result**
+version (`schema_version` inside `results/workload.json`, `runner.RESULT_SCHEMA_VERSION`, docs/BENCHMARKS.md)
+are separate. Both were frozen at 1 when G1 started recording; from then on **any shape change bumps its
+version** - no in-place edits, because a recorded dataset may already hold the old shape (D228). The agent
+forwards the result version it read (`result_schema_version` in the attempt's workload report); a result
+change that alters a column here bumps both.
