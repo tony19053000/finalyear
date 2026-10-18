@@ -495,7 +495,9 @@ async def test_export_filters_413_streaming_and_errors(
     full = await http.get("/v1/telemetry/export")
     assert full.status_code == 200, full.text
     assert pq.read_table(io.BytesIO(full.content)).num_rows == 3
-    assert int(full.headers["content-length"]) == len(full.content)
+    # G4 item 0.4 (D233.4): streamed chunked, no Content-Length
+    assert "content-length" not in full.headers
+    assert full.headers.get("transfer-encoding") == "chunked"
 
     # one more record -> over export_max_rows=3 -> 413 with a useful message
     await _run(http, agent, tmp_path, "e3", PLAIN_CODE, "0")

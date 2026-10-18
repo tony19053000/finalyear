@@ -28,6 +28,19 @@ different value - and no text or JSON value with a NUL or a lone surrogate
 (PostgreSQL refuses both), or JSON nested deeper than :data:`MAX_JSON_DEPTH`, is
 kept: it is null. So a hostile report cannot make PostgreSQL refuse the record
 (the recorder still isolates a refused record, :mod:`.recorder`).
+
+**Params** (G4 item 0.9, D240): ``workload_params`` keeps only the keys of the
+family's own params model (D236) whose value is a **scalar** (text, integer,
+float, bool, null); a list or an object is dropped, and a non-finite float
+(NaN, +-inf - JSONB and the canonical export JSON refuse both) becomes null.
+``condition_measured`` (v2) is a JSON object whose non-finite floats become null
+the same way.
+
+**Schema v2** (G4, D233.3/D241): ``result_schema_version`` is the result
+version the agent read from ``results/workload.json`` (>= 1, else null);
+``condition`` / ``condition_measured`` come from the run's campaign identity
+(:attr:`RecordSource.condition`, filled by the recorder's campaign lookup) -
+``condition`` is bounded to :data:`CONDITION_CHARS` like every text column.
 """
 
 from __future__ import annotations
@@ -52,6 +65,7 @@ from meshforge.controller.telemetry.schema import (
 __all__ = [
     "BENCH_EXIT_CHECK_FAILED",
     "BENCH_EXIT_UNAVAILABLE",
+    "CONDITION_CHARS",
     "FLAT_PARAMS",
     "MAX_JSON_DEPTH",
     "SHORT_TEXT_CHARS",
@@ -95,6 +109,9 @@ SHORT_TEXT_CHARS: Final = 64
 """Width of the record's short text columns (``VARCHAR(64)`` in migration 0021)."""
 MAX_JSON_DEPTH: Final = 32
 """Deepest JSON value a record keeps (benchmark params are flat)."""
+CONDITION_CHARS: Final = 128
+"""Width of ``condition`` (``VARCHAR(128)`` in migration 0023): a canonical
+condition string such as ``netem:delay=50ms,loss=1%``."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,6 +161,10 @@ class RecordSource:
     campaign: Mapping[str, Any] | None = None
     """Campaign identity (V0.9 G3 fills it): campaign_id, group_id, config_id,
     repetition."""
+    condition: str | None = None
+    """V0.9 G4 (D241): the run's condition, canonical ``name[:arg]``."""
+    condition_measured: Mapping[str, Any] | None = None
+    """V0.9 G4 (D217): what was measured applying / verifying it."""
 
 
 def failure_class(
@@ -204,6 +225,10 @@ def build_record(source: RecordSource) -> dict[str, Any]:
         **_workload(workload),
         **_manifest(source.manifest),
         "runtime": _short(source.runtime),
+        "condition": _bounded(source.condition, CONDITION_CHARS),
+        "condition_measured": _finite_json(source.condition_measured)
+        if isinstance(source.condition_measured, Mapping)
+        else None,
         **_start(snapshot, telemetry),
         **_phases(source.phases, workload),
         **_bytes(source.transfers, source.output_bytes),
@@ -250,8 +275,38 @@ def _text(value: object) -> str | None:
 
 def _short(value: object) -> str | None:
     """A non-empty string that fits a short column, else None (never cut)."""
+    return _bounded(value, SHORT_TEXT_CHARS)
+
+
+def _bounded(value: object, chars: int) -> str | None:
+    """A non-empty string of at most ``chars`` characters, else None."""
     text = _text(value)
-    return text if text is not None and len(text) <= SHORT_TEXT_CHARS else None
+    return text if text is not None and len(text) <= chars else None
+
+
+def _scalar(value: object) -> tuple[bool, object]:
+    """``(keep, value)`` for one params value: scalars are kept (a non-finite
+    float as None), lists / objects / anything else are not."""
+    if value is None or isinstance(value, str | bool | int):
+        return True, value
+    if isinstance(value, float):
+        return True, value if math.isfinite(value) else None
+    return False, None
+
+
+def _finite_json(value: object, depth: int = 0) -> object:
+    """``value`` with every non-finite float replaced by None (lists and
+    objects copied; anything deeper than :data:`MAX_JSON_DEPTH` is left for
+    :func:`_storable` to refuse)."""
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if depth >= MAX_JSON_DEPTH:
+        return value
+    if isinstance(value, Mapping):
+        return {k: _finite_json(v, depth + 1) for k, v in value.items()}
+    if isinstance(value, list | tuple):
+        return [_finite_json(v, depth + 1) for v in value]
+    return value
 
 
 def _storable_text(text: str) -> bool:
@@ -307,15 +362,23 @@ def _campaign(campaign: Mapping[str, Any] | None) -> dict[str, Any]:
 def _known_params(family: object, params: object) -> dict[str, Any] | None:
     """The reported params restricted to the keys of the family's own params
     model (tester r1 TR1-A2, D236): a key the family does not define - an
-    agent bug, or a value smuggled into the report - is never stored. An
-    unknown family keeps none (None)."""
+    agent bug, or a value smuggled into the report - is never stored. Only
+    scalar values are kept, a non-finite float as None (D240, module
+    docstring). An unknown family keeps none (None)."""
     if not isinstance(params, Mapping) or not isinstance(family, str):
         return None
     try:
         fields = get_family(family).params_model.model_fields
     except UnknownFamilyError:
         return None
-    return {k: v for k, v in params.items() if isinstance(k, str) and k in fields}
+    kept: dict[str, Any] = {}
+    for key, value in params.items():
+        if not isinstance(key, str) or key not in fields:
+            continue
+        keep, scalar = _scalar(value)
+        if keep:
+            kept[key] = scalar
+    return kept
 
 
 def _workload(workload: Mapping[str, Any] | None) -> dict[str, Any]:
@@ -331,8 +394,14 @@ def _workload(workload: Mapping[str, Any] | None) -> dict[str, Any]:
         "workload_seed": _int(data.get("seed")),
         "workload_status": _short(data.get("status")),
         "workload_device": _short(data.get("device")),
+        "result_schema_version": _result_version(data.get("result_schema_version")),
         **flat,
     }
+
+
+def _result_version(value: object) -> int | None:
+    version = _int(value)
+    return version if version is not None and version >= 1 else None
 
 
 def _manifest(manifest: Mapping[str, Any]) -> dict[str, Any]:

@@ -303,7 +303,9 @@ async def test_offline_node_defers_and_impossible_runs_are_skipped(
                 f"/v1/bench/campaigns/{campaign_id}/submit", params={"count": 2}
             )
         ).json()
-        assert [o["outcome"] for o in body["outcomes"]] == ["deferred"] * 2, body
+        # G4 item 0.5 (D239.1): an offline node defers node-wide - tried once,
+        # its other runs passed over (not listed) for the rest of the call
+        assert [o["outcome"] for o in body["outcomes"]] == ["deferred"], body
         assert body["counts"]["planned"] == 3  # still planned: tried again next time
 
         # the library refuses a run's params (e.g. a library upgrade): skipped, with why

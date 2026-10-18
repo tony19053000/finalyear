@@ -1,12 +1,12 @@
 # Telemetry — run records and the dataset (V0.9, ADR-0018)
 
 The planner learns from recorded runs (V0.14 planner v2, V0.15 ML planner). This page is the human copy of
-**telemetry schema version 1** — the code is `src/meshforge/controller/telemetry/schema.py`, and a unit test
+**telemetry schema version 2** (v1 + three columns, V0.9 G4) — the code is `src/meshforge/controller/telemetry/schema.py`, and a unit test
 fails if this table, the `run_record` table, the export and the declaration drift apart.
 
 ## Two layers (D211)
 
-- **Record** — PostgreSQL table `run_record` (migration 0021): one row per **terminal** attempt (`done`,
+- **Record** — PostgreSQL table `run_record` (migration 0021; v2 columns 0023): one row per **terminal** attempt (`done`,
   `failed`, `lost`, `fenced`) of **every** job, benchmark or not. Written once, never updated.
 - **Dataset** — a Parquet file built from records by a pure function (`telemetry/export.py`):
   `compute telemetry export [--campaign ID] [--since TIME] -o FILE.parquet` or
@@ -59,12 +59,16 @@ custom metadata is the schema version), Parquet writer options pinned (format 2.
 statistics on, 65 536-row groups) and one pyarrow version (pinned by `uv.lock`; a pyarrow bump is a dataset
 format change).
 
-**Memory.** An export is **buffered in memory**, not streamed: the matching records are loaded (~2.5 KB each)
-and the finished file is returned whole (the API sends its `Content-Length`). The Arrow data is built one row
-group at a time (`write_records`, a `ParquetWriter`), so it never holds more than 65 536 rows; the bytes are the
-same as writing one table (a unit test exports across row-group boundaries and compares). The cap,
-`[controller.telemetry] export_max_rows` (default **100 000**, was 1 000 000 in G1), keeps the worst case to a
-few hundred MB; a bigger export is refused with 413 - narrow it by `--campaign` / `--since`.
+**Memory.** The matching records are **loaded** (~2.5 KB each), then the file is **streamed** (V0.9 G4
+item 0.4): `iter_parquet` builds Arrow data and encodes Parquet one row group (65 536 rows) at a time and the
+API sends each row group's bytes as soon as they are ready, chunked - **no `Content-Length`**, and neither the
+whole Arrow table nor the whole file is ever held. The pieces joined are the same bytes as writing one table
+(unit tests export across row-group boundaries and compare). The export order is an in-place sort of the
+loaded list (no copy). The cap, `[controller.telemetry] export_max_rows` (default **100 000**, was 1 000 000
+in G1), keeps the loaded records to a few hundred MB; a bigger export is refused with 413 - narrow it by
+`--campaign` / `--since`. The size cap and a database failure are answered before the 200; a failure while
+encoding afterwards aborts the response, so the client gets a truncated body (no Parquet footer), never a
+file that looks complete.
 
 ## Privacy and secrets
 
@@ -81,7 +85,9 @@ a NUL or a lone surrogate (PostgreSQL refuses both); the controller refuses such
 builder bounds the flat columns (`p_dtype`, `workload_family`, ... to 64 characters - a longer value is null,
 never truncated) and scrubs every text value. `workload_params` keeps **only the keys the family's own params model
 defines** (`meshforge.bench.workloads`); any other key the report carries is dropped, and a family the controller
-does not know keeps no params at all (null) - so a value smuggled into the report under a new key never reaches
+does not know keeps no params at all (null). Only **scalar** values are kept (text, number, bool, null) - a list
+or object value is dropped - and a non-finite float (NaN, ±inf) becomes null (V0.9 G4 item 0.9; JSONB and the
+canonical export JSON refuse them) - so a value smuggled into the report under a new key never reaches
 the dataset, whatever the agent let through. A record PostgreSQL still refuses is skipped alone (the rest of
 the sweep is written), counted, logged and raised as a `telemetry_record_skipped` alert (`GET /v1/alerts`); it
 is retried after a controller restart. At most 1 000 skipped attempts are excluded by id; past that cap the controller raises
@@ -90,7 +96,24 @@ forward from a watermark so skipped attempts can never hold back newer ones (an 
 a skipped one, is looked at again once a forward pass has reached the end, at most once a minute). An attempt whose job row vanished mid-sweep is
 skipped the same way (`error_type` `job_missing`) instead of failing the sweep.
 
-## Columns — schema version 1
+## Versions
+
+| version | what changed | migration |
+|---|---|---|
+| 1 | first published shape (V0.9 G1) | 0021 |
+| 2 | adds `result_schema_version`, `condition`, `condition_measured` (V0.9 G4, D233.3/D241) | 0023 |
+
+A row keeps the version it was written under: v1 rows (written before 0023) have `schema_version` 1 and null
+in the three v2 columns; the file metadata names the version the export was written with (2). Read each
+row by its own `schema_version`.
+
+**Conditions (v2).** `condition` is the run's benchmark condition as its canonical string (`none`,
+`cpu_load:2`, `queue:4`, `netem:delay=50ms,loss=1%` ..., at most 128 characters; one condition per run, D241)
+and `condition_measured` what was measured when it was applied and verified (JSON object; non-finite floats
+become null). Both are null for a job that is not a benchmark. The values come from the campaign identity
+the recorder looks up per job (keys `condition` / `condition_measured`, filled by V0.9 G4 lane B).
+
+## Columns — schema version 2
 
 Types: `text`, `int64`, `float64`, `bool`, `json` (JSONB / canonical JSON text in Parquet), `timestamp`
 (UTC, µs). "null" = the value was not measured or does not apply — never an invented 0.
@@ -111,13 +134,14 @@ Types: `text`, `int64`, `float64`, `bool`, `json` (JSONB / canonical JSON text i
 | `strategy` | text | no | local = ran on the submitter's node; mode1 = elsewhere. |
 | `placement_mode` | text | no | pinned (forced node) or auto (planner chose). |
 | `policy` | text | yes | Placement policy the planner used. |
-| `planner_node_id` | text | yes | Auto jobs: the node the planner chose. Pinned jobs (V0.9 G3 shadow plan, D215/D235, `plan_decision.shadow_chosen_node_id`): the node the planner **prefers** - the same request unpinned with slot occupancy ignored (every slot of a healthy node counted free) but feasibility, health and retry exclusions kept; a *preference* label, not "what would have run that second". Null = no node feasible, or a decision from before G3. |
+| `planner_node_id` | text | yes | Auto jobs: the node the planner chose. Pinned jobs (V0.9 G3 shadow plan, D215/D235, `plan_decision.shadow_chosen_node_id`): the node the planner **prefers** - the same request unpinned with slot occupancy ignored (every slot of a healthy node counted free) but feasibility, health and retry exclusions kept; a *preference* label, not "what would have run that second". Only benchmark (campaign) jobs get the shadow plan (G4 item 0.8): a user's pinned job has null. Null also = no node feasible, or a decision from before G3. |
 | `planner_estimate_s` | float64 | yes | The planner's estimate for the node used (s). |
 | `workload_family` | text | yes | Benchmark family (results/workload.json); null = not a benchmark. |
 | `workload_params` | json | yes | Benchmark parameters as the workload reported them. |
 | `workload_seed` | int64 | yes | Benchmark seed. |
 | `workload_status` | text | yes | ok / check_failed / unavailable / bad_params. |
 | `workload_device` | text | yes | cpu / cuda as the workload reported it. |
+| `result_schema_version` | int64 | yes | schema_version of the workload's results/workload.json (v2). |
 | `p_n` | int64 | yes | Flattened parameter n. |
 | `p_repeats` | int64 | yes | Flattened parameter repeats (compute_ns covers all repeats). |
 | `p_size_mb` | int64 | yes | Flattened parameter size_mb. |
@@ -130,6 +154,8 @@ Types: `text`, `int64`, `float64`, `bool`, `json` (JSONB / canonical JSON text i
 | `env_base` | text | yes | Manifest env.base (python-cpu / cuda-pytorch). |
 | `gpu_request` | text | yes | Manifest resources.gpu (none / preferred / required). |
 | `runtime` | text | yes | docker / venv / subprocess as the agent reported it. |
+| `condition` | text | yes | The run's benchmark condition, canonical name[:arg] (none = baseline); null = not a benchmark / older. |
+| `condition_measured` | json | yes | What was measured when the condition was applied and verified. |
 | `node_state` | text | yes | Node liveness state at dispatch. |
 | `node_rtt_ms` | float64 | yes | Controller <-> node RTT EWMA at dispatch (ms). |
 | `node_cpu_percent` | float64 | yes | Node CPU utilisation at dispatch (%). |

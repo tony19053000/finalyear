@@ -6,12 +6,17 @@ field that contains one, and no other column can hold one; THREAT_MODEL RE-I6).
 
 Query: ``campaign`` (one campaign's records) and ``since`` (records of attempts
 created at or after this ISO-8601 time, with an offset). The body is the
-Parquet file of :mod:`meshforge.controller.telemetry.export`, built **whole in
-memory** off the event loop (the response carries its ``Content-Length``) and
-then sent in 256 KiB slices - not streamed from the database; the same query
-over the same records gives the same bytes (D222). More records than ``[controller.telemetry]
-export_max_rows`` -> 413 ``invalid_input`` (narrow the query). Database down ->
-503 ``network_error`` (``Retry-After``).
+Parquet file of :mod:`meshforge.controller.telemetry.export`, **streamed**
+(G4 item 0.4, D233.4): the matching records are loaded first (so the size cap
+and a database failure are still answered with a status), then each row group
+is encoded off the event loop and sent as it is ready, in slices of at most
+256 KiB - chunked, **no** ``Content-Length``; the whole file is never in
+memory. The same query over the same records gives the same bytes (D222).
+More records than ``[controller.telemetry] export_max_rows`` -> 413
+``invalid_input`` (narrow the query). Database down -> 503 ``network_error``
+(``Retry-After``). A failure while encoding (after the 200 is sent) aborts the
+response: the client gets a truncated body (no Parquet footer), never a file
+that looks complete.
 """
 
 from __future__ import annotations
@@ -19,7 +24,7 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 import re
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from dataclasses import dataclass
 from typing import Annotated, Final
 
@@ -66,9 +71,41 @@ def get_export(request: Request) -> TelemetryExport:
     return found
 
 
-async def _chunks(data: bytes) -> AsyncIterator[bytes]:
-    for start in range(0, len(data), CHUNK_BYTES):
-        yield data[start : start + CHUNK_BYTES]
+async def _stream(
+    pieces: Iterator[bytes],
+    *,
+    rows: int,
+    campaign: str | None,
+    user_id: str | None,
+) -> AsyncIterator[bytes]:
+    """Each row group's bytes as it is encoded (in a worker thread), cut into
+    :data:`CHUNK_BYTES` slices; logs the export once it is complete."""
+    sent = 0
+    try:
+        while True:
+            piece = await asyncio.to_thread(next, pieces, None)
+            if piece is None:
+                break
+            for start in range(0, len(piece), CHUNK_BYTES):
+                yield piece[start : start + CHUNK_BYTES]
+            sent += len(piece)
+    except Exception as exc:
+        log.exception(
+            "controller.telemetry.export_aborted",
+            rows=rows,
+            bytes_sent=sent,
+            campaign_id=campaign,
+            user_id=user_id,
+            error_type=type(exc).__name__,
+        )
+        raise
+    log.info(
+        "controller.telemetry.exported",
+        rows=rows,
+        bytes=sent,
+        campaign_id=campaign,
+        user_id=user_id,
+    )
 
 
 @telemetry_router.get(
@@ -93,7 +130,7 @@ async def export_telemetry(
         Query(description="Only attempts created at or after this time (ISO 8601)."),
     ] = None,
 ) -> StreamingResponse:
-    from meshforge.controller.telemetry.export import fetch_records, parquet_bytes
+    from meshforge.controller.telemetry.export import fetch_records, iter_parquet
     from meshforge.controller.telemetry.recorder import TelemetryStoreError
 
     if campaign is not None and not _CAMPAIGN.fullmatch(campaign):
@@ -120,22 +157,19 @@ async def export_telemetry(
             "(campaign / since)",
             http_status=413,
         )
-    data = await asyncio.to_thread(parquet_bytes, records)
-    log.info(
-        "controller.telemetry.exported",
-        rows=len(records),
-        bytes=len(data),
-        campaign_id=campaign,
-        user_id=admin.user_id,
-    )
     name = f"meshforge-telemetry{'-' + campaign if campaign else ''}.parquet"
+    rows = len(records)
     return StreamingResponse(
-        _chunks(data),
+        _stream(
+            iter_parquet(records, sort_in_place=True),
+            rows=rows,
+            campaign=campaign,
+            user_id=admin.user_id,
+        ),
         media_type=PARQUET_MEDIA_TYPE,
         headers={
             "Content-Disposition": f'attachment; filename="{name}"',
-            "Content-Length": str(len(data)),
             "Cache-Control": "no-store",
-            "X-MeshForge-Telemetry-Rows": str(len(records)),
+            "X-MeshForge-Telemetry-Rows": str(rows),
         },
     )
