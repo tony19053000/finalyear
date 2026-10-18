@@ -8,7 +8,7 @@
 >
 > ```
 > Read docs/SESSION_HANDOFF.md §1, then docs/STATUS.md, then the V0.9 section of docs/DEVELOPMENT_ROADMAP.md and docs/briefs/V0.9-benchmark-telemetry.md §5 + D241–D245.
-> V0.9 G4 CLOSED (0.9.5 [x], D245), NOTHING RUNNING, main clean. Next: write the G5 brief (0.9.6 labels + 0.9.7 unattended runner; item 0 = D245 follow-ups; labels must drop bench_role rows per D244; runner: small submit budgets, owner pause → ConditionRunner.stop_all), then implementer → tester → reviewer. Parallel agents OK; no fast mode.
+> V0.9 G4 CLOSED (0.9.5 [x], D245), NOTHING RUNNING, main clean. Next: write the G5 brief (0.9.6 labels + 0.9.7 unattended runner; item 0 = D245 follow-ups; labels must drop bench_role rows per D244; runner: small submit budgets, owner pause → ConditionRunner.stop_all), then implementer → tester → reviewer. Parallel agents OK; fast mode ON (user 2026-10-19).
 > ```
 >
 > Order of truth: `PROJECT_BRIEF → ARCHITECTURE → ROADMAP → STATUS → this file`. If this file
@@ -261,6 +261,8 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 - Commits: keep using `git commit -- <paths>` even with one agent — the Lead also commits docs.
 
 ## 1. Where the project is
+
+**2026-10-19 (G5 brief §5f + D246 written) — RUNNING in parallel, FAST MODE ON (user 2026-10-19): G5 lane A (labels, 0.9.6) ∥ lane B (item 0 D245 + runner + owner guard, 0.9.7, migration 0024), separate worktrees; progress docs/briefs/progress/V0.9-G5A.md / G5B.md there. If died: relaunch per §5f from the progress file; per lane tester → reviewer; merge A then B → whole `-m component` once alone → close 0.9.6/0.9.7 → G5c brief (0.9.8).**
 
 **2026-10-18 (session end — team asked to stop) — NOTHING RUNNING. G4 lane A implementer DONE `c30b2fb..fd97c54` (worktree agent-a1db552858a2b544b; unit 14135 exit 0, targeted component green, cluster determinism 2/2; deviations 1–6 + follow-ups in progress/V0.9-G4A.md: OpenAPI v1 text, truncated-stream check). Lane B `448a169..857d703` (worktree agent-af4d3c4fd85bcfa0d) code + docs + cluster test committed; exit gates NOT run, no hand-off. Next: lane A tester r1 ∥ lane B implementer exit gates.**
 
