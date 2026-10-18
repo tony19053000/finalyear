@@ -314,6 +314,9 @@ app.add_typer(node_app)
 app.add_typer(fabric_app)
 
 # V0.9 G2: `compute bench workloads` (the benchmark workload library, D214).
+# V0.9 G3: `compute bench plan|create|campaigns|runs|submit` (campaigns, D216);
+# importing the module registers its commands on bench_app.
+import meshforge.cli.bench_campaign_commands  # noqa: E402, F401
 from meshforge.cli.bench_commands import bench_app  # noqa: E402
 
 app.add_typer(bench_app)

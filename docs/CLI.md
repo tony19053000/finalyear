@@ -22,6 +22,11 @@ codes and shell completion. Unit tests keep it in step with the code (`tests/uni
 | `compute data ls` / `compute data show NAME` | named inputs (datasets, models) | yes |
 | `compute fabric invites` | join-code invites (codes are never shown again) | yes |
 | `compute bench workloads` | the benchmark workload families and their parameters (local: no controller call) | yes |
+| `compute bench plan SPEC [--node ID] [--show N]` | expand a campaign spec ([BENCHMARKS.md](BENCHMARKS.md)) against the live nodes (or the `--node` ids, offline): run count, estimated hours, first runs - runs and stores nothing | yes |
+| `compute bench create SPEC` | store a campaign on the controller, admin only (prints its `camp_...` id) | yes |
+| `compute bench campaigns [CAMPAIGN_ID]` | benchmark campaigns with run counts per state, or one with its spec (admin) | yes |
+| `compute bench runs CAMPAIGN_ID [--state S]` | a campaign's runs in execution order (admin) | yes |
+| `compute bench submit CAMPAIGN_ID [-n K] [--wait [--timeout S]]` | submit the next K planned runs as pinned lowest-priority jobs (admin; idempotent per run); `--wait` exits 126 if one failed | yes |
 | `compute telemetry export -o FILE [--campaign ID] [--since TIME]` | the telemetry dataset (run records) as one Parquet file, admin only; never overwrites FILE ([TELEMETRY.md](TELEMETRY.md)) | yes |
 | `compute logs JOB_ID [-f] [--stream S]` | the job's own output, byte for byte | no - it is the workload's bytes |
 | `compute run [PATH] [--node ID / --local] [-f] ...` | submit a project (prints the job id) | no - stdout is the job id |
@@ -87,6 +92,12 @@ Guaranteed fields per command (`a[].b` = field `b` of every item of list `a`; `a
 | `compute node revoke NODE_ID` | `POST /v1/nodes/{node_id}/revoke` | `node_id`, `state`, `already_revoked`, `session_killed` |
 | `compute telemetry export` | built by the CLI | `file`, `bytes`, `rows` (the file itself comes from `GET /v1/telemetry/export`) |
 | `compute bench workloads` | built by the CLI | `families`, `count`, `runtime_window_s`, `reference_hw`, `families[].name`, `families[].kind`, `families[].description`, `families[].env_base`, `families[].gpu`, `families[].size_params`, `families[].params_schema`, `families[].smallest`, `families[].smallest_hint_s` |
+| `compute bench plan SPEC` | built by the CLI | `name`, `spec_digest`, `runs`, `groups`, `configs`, `repetitions`, `dropped`, `duplicates`, `estimated_hours`, `nodes`, `first`, `first[].seq`, `first[].group_id`, `first[].config_id`, `first[].repetition`, `first[].family`, `first[].params`, `first[].seed`, `first[].strategy`, `first[].node_id`, `first[].origin_node_id` |
+| `compute bench create SPEC` | `POST /v1/bench/campaigns` | `campaign_id`, `name`, `state`, `run_count`, `counts`, `summary`, `spec_digest` |
+| `compute bench campaigns` | `GET /v1/bench/campaigns` | `campaigns`, `count`, `campaigns[].campaign_id`, `campaigns[].name`, `campaigns[].state`, `campaigns[].run_count`, `campaigns[].counts` |
+| `compute bench campaigns CAMPAIGN_ID` | `GET /v1/bench/campaigns/{campaign_id}` | `campaign_id`, `name`, `state`, `run_count`, `counts`, `summary`, `spec` |
+| `compute bench runs CAMPAIGN_ID` | built by the CLI | `campaign_id`, `runs`, `count`, `runs[].run_id`, `runs[].seq`, `runs[].state`, `runs[].strategy`, `runs[].node_id`, `runs[].job_id` (every page of GET /v1/bench/campaigns/{campaign_id}/runs) |
+| `compute bench submit CAMPAIGN_ID` | `POST /v1/bench/campaigns/{campaign_id}/submit` | `campaign_id`, `outcomes`, `outcomes[].run_id`, `outcomes[].outcome`, `outcomes[].job_id`, `submitted`, `deferred`, `skipped`, `counts` (with --wait also ended: run id -> final state) |
 
 `compute status --json`: `controller_url` (the address used), `reachable` (`false` only when the controller
 could not be reached at all - exit 6), `detail` (the error line, else `null`), `live_sessions` (from

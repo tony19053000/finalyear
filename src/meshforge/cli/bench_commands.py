@@ -7,8 +7,9 @@ prints the same as one document (``families[].params_schema`` is the family's
 JSON Schema) plus ``schema_version`` (docs/CLI.md section 3).
 
 Local only: nothing is sent to the controller, and nothing is run - the hint is
-the family's cost model, not a measurement. Later V0.9 groups add
-``compute bench plan|run|report`` to the same ``bench`` group.
+the family's cost model, not a measurement. V0.9 G3 adds the campaign commands
+(``plan``, ``create``, ``campaigns``, ``runs``, ``submit``) to the same
+``bench`` group: :mod:`meshforge.cli.bench_campaign_commands`.
 """
 
 from __future__ import annotations

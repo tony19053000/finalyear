@@ -225,6 +225,27 @@ COMPUTE: Final[dict[str, Entry]] = {
         "controller call). The Benchmarks page (0.9.9, G6) is where campaigns are "
         "shown; G6 decides whether it lists the families too and moves this entry."
     ),
+    # V0.9 G3 campaigns (D216). The Benchmarks page (0.9.9, G6) shows and drives
+    # campaigns (D221) and moves these entries to UI mappings then.
+    "bench plan": CliOnly(
+        "V0.9 G3: expands a campaign spec file on this laptop before anything is "
+        "stored - a preview of a YAML file the operator is editing locally."
+    ),
+    "bench create": CliOnly(
+        "V0.9 G3: stores a campaign from a local spec file (admin); the "
+        "Benchmarks page (G6, D221) adds the browser form."
+    ),
+    "bench campaigns": CliOnly(
+        "V0.9 G3: lists campaigns (admin); the Benchmarks page (G6, D221) is "
+        "their UI."
+    ),
+    "bench runs": CliOnly(
+        "V0.9 G3: a campaign's run list (admin); G6's campaign detail shows it."
+    ),
+    "bench submit": CliOnly(
+        "V0.9 G3: the only campaign driver until G5's runner (D232); G6's "
+        "pause/resume controls replace it in the UI."
+    ),
     "telemetry export": CliOnly(
         "V0.9 G1: downloads the run-record dataset as a Parquet file for analysis "
         "tools (admin). The Benchmarks page (0.9.9, G6) adds the browser download "

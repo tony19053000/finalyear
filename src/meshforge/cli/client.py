@@ -210,6 +210,39 @@ class ControllerClient:
         except httpx.HTTPError as exc:
             raise self._transport_error(exc, path) from exc
 
+    # V0.9 G3 benchmark campaigns (D216, admin)
+    def bench_create(self, spec: str) -> Mapping[str, Any]:
+        """``POST /v1/bench/campaigns`` with the spec's YAML text."""
+        return self._request("POST", "/v1/bench/campaigns", json_body={"spec": spec})
+
+    def bench_campaigns(self, *, limit: int = 100) -> Mapping[str, Any]:
+        return self._get("/v1/bench/campaigns", params={"limit": str(limit)})
+
+    def bench_campaign(self, campaign_id: str) -> Mapping[str, Any]:
+        return self._get(f"/v1/bench/campaigns/{campaign_id}")
+
+    def bench_runs(
+        self,
+        campaign_id: str,
+        *,
+        state: str | None = None,
+        after: int = 0,
+        limit: int = 1000,
+    ) -> Mapping[str, Any]:
+        params = {"after": str(after), "limit": str(limit)}
+        if state:
+            params["state"] = state
+        return self._get(f"/v1/bench/campaigns/{campaign_id}/runs", params=params)
+
+    def bench_submit(self, campaign_id: str, count: int) -> Mapping[str, Any]:
+        """``POST /v1/bench/campaigns/{id}/submit?count=k``."""
+        return self._request(
+            "POST",
+            f"/v1/bench/campaigns/{campaign_id}/submit",
+            params={"count": str(count)},
+            timeout=_TRANSFER_TIMEOUT_S,
+        )
+
     def submit_job(
         self, body: Mapping[str, Any], *, idempotency_key: str
     ) -> Mapping[str, Any]:

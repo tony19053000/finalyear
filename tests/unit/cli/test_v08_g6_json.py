@@ -34,17 +34,22 @@ CLI_MD = REPO / "docs" / "CLI.md"
 NODE = "node_01J0000000000000000000BBBB"
 JOB = "job_01J0000000000000000000CCCC"
 INVITE = "inv_01J0000000000000000000AAAA"
+CAMPAIGN = "camp_01J0000000000000000000DDDD"  # V0.9 G3
+SPEC = str(REPO / "examples" / "bench" / "cpu-baseline.yaml")
 _PLACEHOLDERS = {
     "NODE_ID": NODE,
     "JOB_ID": JOB,
     "NAME": "ds",
     "ID": INVITE,
+    "CAMPAIGN_ID": CAMPAIGN,
+    "SPEC": SPEC,
 }
 _PATH_PARAMS = {
     "{node_id}": NODE,
     "{job_id}": JOB,
     "{name}": "ds",
     "{invite_id}": INVITE,
+    "{campaign_id}": CAMPAIGN,
 }
 _ROW = re.compile(r"^\| `compute ([^`]+)` \| ([^|]+) \| (.+) \|$")
 

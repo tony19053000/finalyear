@@ -1,0 +1,38 @@
+# A MeshForge benchmark campaign spec (V0.9, docs/BENCHMARKS.md "Campaign spec").
+#
+#   compute bench plan examples/bench/cpu-baseline.yaml      # what would run, and the cost
+#   compute bench create examples/bench/cpu-baseline.yaml    # store it (admin); prints camp_...
+#   compute bench submit camp_... -n 10 --wait               # run the next 10
+#
+# The expansion is deterministic: the same spec, seed and nodes give the same
+# run list, in the same order.
+
+version: 1                  # spec format version
+name: cpu-baseline          # a-z 0-9 . _ - (up to 64)
+seed: 20261018              # drives the parameter sampling, the run order and the workload seeds
+
+families:
+  # Each entry is a registered workload family (`compute bench workloads` lists
+  # them) and how its parameters vary. A parameter not named keeps the family's
+  # default (the smallest valid run).
+  - family: cpu.matmul
+    params:
+      n: [1024, 2048]                                      # a list: these values
+      repeats: {min: 24, max: 96, int: true, steps: 3}     # a range: 3 grid points
+      dtype: float64                                       # one value
+  - family: cpu.primes                                     # defaults only
+  - family: memory.copy
+
+conditions: [none]          # load / cache / network conditions arrive in V0.9 G4
+
+strategies: [local, mode1]  # local = on the origin itself; mode1 = on every other node
+nodes: all                  # or a list of node ids / host names
+# origin: laptop-a          # the submitting laptop; omit = every node is the origin in turn
+
+repetitions: 3              # >= 3, so the noise of each configuration can be judged
+sampler: grid               # grid | random | lhs (random/lhs need `samples: N`)
+on_invalid: drop            # a point outside a family's 5 s - 3 min window: error (default) | drop (counted)
+
+budget:
+  max_runs: 500             # more runs than this is an error, never a silent cut
+  max_hours: 6              # estimated on the reference mid laptop (+15 s per run)
