@@ -8,7 +8,7 @@
 >
 > ```
 > Read docs/SESSION_HANDOFF.md §1, then docs/STATUS.md, then the V0.9 section of docs/DEVELOPMENT_ROADMAP.md and docs/briefs/V0.9-benchmark-telemetry.md §5e + D241–D242.
-> G4 in flight, two worktrees, NOTHING RUNNING. Lane A (item 0, schema v2) DONE: branch worktree-agent-a1db552858a2b544b, c30b2fb..fd97c54, gates green → start lane A tester r1. Lane B (conditions, 0.9.5) code+docs committed (worktree-agent-af4d3c4fd85bcfa0d, 448a169..857d703), stopped BEFORE exit gates → relaunch implementer there for exit gates + hand-off only. Then per lane tester → reviewer; merge A then B (B fills condition/condition_measured via campaign_identities) → whole `-m component` once alone → close 0.9.5. Parallel agents OK; no fast mode.
+> G4 in flight, two worktrees. 2026-10-18: lane A tester r1 + lane B exit-gate implementer LAUNCHED (if session died, check branch logs for their commits). Lane A (item 0, schema v2) DONE: branch worktree-agent-a1db552858a2b544b, c30b2fb..fd97c54, gates green → start lane A tester r1. Lane B (conditions, 0.9.5) code+docs committed (worktree-agent-af4d3c4fd85bcfa0d, 448a169..857d703), stopped BEFORE exit gates → relaunch implementer there for exit gates + hand-off only. Then per lane tester → reviewer; merge A then B (B fills condition/condition_measured via campaign_identities) → whole `-m component` once alone → close 0.9.5. Parallel agents OK; no fast mode.
 > ```
 >
 > Order of truth: `PROJECT_BRIEF → ARCHITECTURE → ROADMAP → STATUS → this file`. If this file
