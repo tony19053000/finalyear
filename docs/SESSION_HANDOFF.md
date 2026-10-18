@@ -262,6 +262,8 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
+**2026-10-18 (G1 CLOSED, D231; 0.9.1 `[x]`) — NOTHING RUNNING. Next: write G3 brief (§5d; item 0 = D225 2,4 + D228 + D229/D230 follow-ups) → G3 implementer. Main checkout needs `uv sync --all-extras` (pyarrow).**
+
 **2026-10-18 (G1 MERGED `10f1f8c`, D230) — RUNNING: frontend build then whole `-m component` ONCE alone on main (log scratchpad v09_g1_component.log). If died: rerun `uv run python scripts/pytest_exit_guard.py -m component -q -rs` alone; green → 0.9.1 `[x]` + status bar + STATUS → write G3 brief (§5d; item 0 = D225 2,4 + D228 + D229/D230 follow-ups).**
 
 **2026-10-18 (G1 tester r2 PASS `95ac123`; Lead fixed T2-1 non-finite floats) — RUNNING: G1 reviewer over b4267f3..HEAD in the G1 worktree. If died: relaunch reviewer; then merge → frontend build → whole component once alone → close 0.9.1.**

@@ -471,7 +471,7 @@ A version is **complete** only when all apply:
 **Brief:** `docs/briefs/V0.9-benchmark-telemetry.md` (approved 2026-10-17, D211–D224, ADR-0018). **G0 item 0 = D210** (clock skew first, before 🧑 0.8.10 perf step). G1 ∥ G2 allowed (Q4).
 
 **Tasks**
-- [ ] **0.9.1** Finalize telemetry schema (attempt summary, phase timings, start snapshots, network matrix, cache state) + Parquet export
+- [x] **0.9.1** Finalize telemetry schema (attempt summary, phase timings, start snapshots, network matrix, cache state) + Parquet export — *evidence: G1 merged `10f1f8c` (D227–D231); tester r1 (T-1..T-6) + r2 (T2-1) closed, reviewer APPROVE; unit 13799 exit 0; whole `-m component` alone 2400 passed / 16 failed → 14 stale V0.6 test fakes fixed (`Live.clock`, 6th phase), re-run green; 2 known load flakes green standalone*
 - [x] **0.9.2** Workload library — G2 merged `8010dcb` (D225), tester r1/r2 + 2 fix rounds, reviewer APPROVE; whole `-m component` on main (G0+G2) 2367 passed / 22 skipped / 0 failed, exit 0 (84 min, 2026-10-17); GPU/ML families pending first CUDA run · (parametrized): CPU (matmul, primes, sort, compression, hashing, numerical), memory (arrays, dataframes, copies), GPU (matmul, conv, tensor ops, image processing), ML (CNN inference/training, transformer inference; batch/model/sequence sweeps)
 - [ ] **0.9.3** Campaign spec (YAML) + samplers (random, Latin hypercube) over params × conditions × strategies × nodes
 - [ ] **0.9.4** Forced-strategy execution via planner override, tagged `benchmark`, randomized order, repetitions

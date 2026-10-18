@@ -2,14 +2,11 @@
 
 > Concise current state. Long-term plan: [`DEVELOPMENT_ROADMAP.md`](DEVELOPMENT_ROADMAP.md). Update at the end of every work session.
 
-**Last updated:** 2026-10-17
+**Last updated:** 2026-10-18
 
 ## Progress
-
-Generated from the roadmap checkboxes by `uv run python scripts/status_bars.py` — **re-run it and replace this block whenever checkboxes change.** Deferred versions (V0.11, V0.12, V0.13, V0.16) and deferred tasks are not counted. A task is only █ when it is `[x]` (tester + reviewer + evidence); written-but-unreviewed code is ▒.
-
 ```
-TOTAL   ██████████▒▒░░░░░░░░  50%  79/156 done, 15 in progress
+TOTAL   ██████████▒▒░░░░░░░░  51%  80/156 done, 15 in progress
 
 V0.1    █████████████████▒▒▒  83%  10/12  Foundations & engineering system
 V0.2    ██▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░░   9%   1/11  Lab setup & feasibility validation
@@ -19,7 +16,7 @@ V0.5    ██████████████████░░  90%  10/11
 V0.6    ███████████████████░  92%  13/14  Scheduling & reliability — Mode 1 complete
 V0.7    ██████████████████░░  91%  11/12  Security & pairing
 V0.8    ██████████████████░░  90%   9/10  Dashboard & CLI v1
-V0.9    ██░░░░░░░░░░░░░░░░░░  10%   1/10  Benchmark & telemetry system v1
+V0.9    ████░░░░░░░░░░░░░░░░  20%   2/10  Benchmark & telemetry system v1
 V0.10   ░░░░░░░░░░░░░░░░░░░░   0%   0/10  Mode 3 Task Splitting
 V0.14   ░░░░░░░░░░░░░░░░░░░░   0%   0/8   Unified planner v2
 V0.15   ░░░░░░░░░░░░░░░░░░░░   0%   0/10  ML planner
@@ -27,11 +24,9 @@ V0.17   ░░░░░░░░░░░░░░░░░░░░   0%   0/8 
 V1.0    ░░░░░░░░░░░░░░░░░░░░   0%   0/8   Release hardening & final evaluation
 ```
 █ done `[x]` · ▒ in progress or waiting on a 🧑 lab step `[~]` · ░ not started
-█ done `[x]` · ▒ in progress or waiting on a 🧑 lab step `[~]` · ░ not started
-█ done `[x]` · ▒ in progress or waiting on a 🧑 lab step `[~]` · ░ not started
 
 ## Current Version
-**V0.9 — Benchmark & telemetry v1** · started 2026-10-17 · brief `docs/briefs/V0.9-benchmark-telemetry.md` (D211–D224, approved) · ADR-0018 · **G0 CLOSED (D226), G2 CLOSED (D225, 0.9.2 `[x]`)** · G1 + G2 follow-ups running in parallel
+**V0.9 — Benchmark & telemetry v1** · started 2026-10-17 · brief `docs/briefs/V0.9-benchmark-telemetry.md` (D211–D224, approved) · ADR-0018 · **G0, G1, G2 CLOSED** (D226, D231, D225; 0.9.1 + 0.9.2 `[x]`) · next: G3 brief (§5d)
 **V0.8 — Dashboard & CLI v1** · started 2026-10-15 · brief `docs/briefs/V0.8-dashboard-cli.md` (D169–D180, approved) · ADR-0017 · groups G1–G7 sequential · **G1–G7 CLOSED** (G7 2026-10-17, D210) — 0.8.1–0.8.9 `[x]`; agent-side complete; closes on 🧑 0.8.10 (`lab/checklists/V0.8-visual.md`)
 **V0.7 — Security & pairing** · started 2026-10-07 · brief `docs/briefs/V0.7-security-pairing.md` (D144–D162) · **G1–G5 CLOSED** (0.7.1–0.7.9 `[x]`) · **G6 CLOSED** (0.7.10 `[x]`, 2026-10-14) · **G7 CLOSED** (0.7.11 `[x]`, 2026-10-15, D168) · agent-side complete · closes on 🧑 0.7.12 lab
 **V0.6 — Scheduling & reliability** · started 2026-10-05 · brief `docs/briefs/V0.6-scheduling-reliability.md` · **G1 CLOSED** (0.6.9, 0.6.10, 0.6.14 `[x]`) · G1–G4 CLOSED agent-side · closes on 🧑 0.6.13 lab
@@ -47,6 +42,8 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 > V0.10. 129 tasks vs 140–180 capacity → **~1.5 tasks/session**. Needs the other three team members' approval.
 
 ## Current Task
+
+- **2026-10-18: V0.9 G1 CLOSED (D227–D231).** Telemetry run records (reconciler sweep), Parquet export, clock exchange. Tester r1 FAIL (T-1..T-6) → fix r1 → tester r2 PASS (T2-1 fixed by Lead) → reviewer APPROVE → merged `10f1f8c`. Gate alone: 2400 passed / 16 failed → 14 stale V0.6 test fakes fixed (`912d0f7`), 2 known load flakes green standalone. 0.9.1 `[x]`. Setup note: run `uv sync --all-extras` (new dep pyarrow). **Next: write G3 brief (§5d; item 0 = D225 2,4 + D228 + D229/D230 follow-ups) → G3.**
 
 - **2026-10-17: V0.9 G0 + G2 CLOSED (D225, D226).** Whole `-m component` on main alone: 2367 passed / 22 skipped / 0 failed, exit 0 (84 min). 0.9.2 `[x]`. 🧑 0.8.10 perf step E3 unblocked. Next: G1 (brief §5b) ∥ G2 follow-ups (D225 items 1, 3, 5).
 
@@ -205,7 +202,9 @@ Reviewer non-blocking follow-ups (carry into G2/G3): (1) `mint` should carry `pe
 - Windows: not yet run (first real CI run will cover unit + fresh-clone on windows-latest)
 
 ## Next Recommended Task
-**🧑 0.8.10** — team runs `lab/checklists/V0.8-visual.md` (steps A–H; fix D210 item 1 clock skew before step E perf). **Agent:** write the V0.9 brief (benchmark & telemetry v1); item 0 = D210 non-blocking list.
+**V0.9 G3** — write the G3 brief (§5d; item 0 = D225 items 2, 4 + D228 non-blocking list + D229/D230 follow-ups), then implementer → tester → reviewer. 🧑 0.8.10 still open.
+
+_Older:_ **🧑 0.8.10** — team runs `lab/checklists/V0.8-visual.md` (steps A–H; fix D210 item 1 clock skew before step E perf). **Agent:** write the V0.9 brief (benchmark & telemetry v1); item 0 = D210 non-blocking list.
 
 _Older:_ **V0.8 G5 — Settings & fabric** (brief §5e, D199): implementer in a worktree → tester r1 → reviewer → merge → whole component once → close 0.8.6; then G7 brief (0.8.9 e2e + perf). Small side task: fix the intermittent V0.5 rotted-peer test (Known Bugs). V0.4–V0.7 are complete agent-side; each closes on its 🧑 lab run (0.4.15, 0.5.11, 0.6.13, 0.7.12).
 
