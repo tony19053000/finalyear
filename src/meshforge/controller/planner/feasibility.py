@@ -9,7 +9,8 @@ runtime a base needs, recent env failures and free disk.
   the job's base, owner slot settings that allow the job's kind at all, not
   revoked. A job that every known node rejects statically can never run: it is
   refused at submit (``409 no_feasible_plan``) or failed in the queue (D104).
-* :func:`live_rejection` - the **moment**: ONLINE with a live session, not
+* :func:`live_rejection` - the **moment**: ONLINE with a live session, for a
+  benchmark job the node's owner guard off (V0.9 G5, :func:`bench_guard`), not
   excluded for this retry (V0.6 G3, D110), the environment not known-bad here
   (D116), a free slot of a kind the job can use, under the node cap, enough
   free disk for what it would fetch.
@@ -44,6 +45,7 @@ from meshforge.controller.planner.types import (
 
 __all__ = [
     "EXEC_VENV_CAPABILITY",
+    "bench_guard",
     "choose_slot",
     "live_rejection",
     "missing_bytes",
@@ -179,6 +181,20 @@ def policy_rejection(request: PlanRequest, node: NodeSnapshot) -> Rejection | No
     return Rejection(RejectCode(refused.code.value), refused.text)
 
 
+def bench_guard(node: NodeSnapshot) -> Rejection | None:
+    """V0.9 G5 (D219/D246): why ``node`` takes no **benchmark** job now - its
+    owner paused benchmarks (policy ``pause_benchmarks``) or is using it (the
+    heartbeat's ``owner_active``); None = it may. A live rejection: the job
+    waits. Never asked for a user job."""
+    if node.policy is not None and node.policy.pause_benchmarks:
+        refusal = owner_policy.BENCH_PAUSED_REFUSAL
+    elif node.owner_active:
+        refusal = owner_policy.OWNER_ACTIVE_REFUSAL
+    else:
+        return None
+    return Rejection(RejectCode(refusal.code.value), refusal.text)
+
+
 def _gpu_free(request: PlanRequest, node: NodeSnapshot) -> bool:
     """A GPU slot is free and a GPU no live attempt holds can take the job
     (its VRAM is enough, or not reported - the static rule's reading)."""
@@ -241,6 +257,10 @@ def live_rejection(
         return Rejection(
             RejectCode.NO_SESSION, "the node has no live session with this controller"
         )
+    if request.benchmark:
+        guarded = bench_guard(node)
+        if guarded is not None:
+            return guarded
     excluded = request.excluded.get(node.node_id)
     if excluded is not None and request.pinned_node_id is None:
         return Rejection(

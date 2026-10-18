@@ -43,7 +43,7 @@ from meshforge.controller.jobs.execution_store import (
 from meshforge.controller.jobs.logs import LogHub
 from meshforge.controller.jobs.peers import PeerSources
 from meshforge.controller.jobs.planning import DispatchPlanner
-from meshforge.controller.jobs.queue_reads import NetworkReads
+from meshforge.controller.jobs.queue_reads import NetworkReads, is_benchmark_key
 from meshforge.controller.jobs.retry import RetryReason
 from meshforge.controller.jobs.spec import execution_spec
 from meshforge.controller.jobs.store import AttemptRecord, JobRecord
@@ -389,6 +389,8 @@ class DispatchSteps:
         if condition is not None:
             # V0.9 G4 (D217): the agent applies + verifies it before staging
             start.condition.spec = condition
+        # V0.9 G5 (D246): the agent's owner guard stops only benchmark jobs
+        start.benchmark = is_benchmark_key(job.idempotency_key)
         message_id = self._manager.send_command(
             attempt.node_id,
             "start_attempt",

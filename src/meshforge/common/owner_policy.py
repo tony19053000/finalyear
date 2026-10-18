@@ -24,6 +24,14 @@ Fields (all optional limits: ``None`` = no owner limit):
 * ``allowed_users`` - user names whose jobs this node runs; empty = everyone. A
   job without a known owner (the legacy fabric token) never matches a non-empty
   list (fail closed).
+* ``pause_benchmarks`` (V0.9 G5, D219/D246) - the owner paused **benchmark**
+  jobs (campaign runs, fillers, warm-ups); user jobs are not affected. Default
+  false, so an agent from before G5 keeps running benchmarks. Unlike the other
+  fields it is a *moment*, not a limit: the planner treats it as a live
+  rejection (the bench job waits, it is never failed ``no_feasible_plan``),
+  and the agent stops a running benchmark attempt when it is set
+  (``owner_preempted``). Only :class:`JobAsk` with ``benchmark=True`` is
+  refused by it.
 
 Validation (:func:`validate`) is strict and total: a policy from the network or a
 file is either valid as a whole or refused - never trusted partially.
@@ -41,11 +49,13 @@ from meshforge.common.errors import FailureType, MeshForgeError
 from meshforge.common.proto.meshforge.v1 import agent_pb2
 
 __all__ = [
+    "BENCH_PAUSED_REFUSAL",
     "DENY_ALL",
     "MAX_ALLOWED_USERS",
     "MAX_NOT_ENFORCED",
     "MAX_POLICY_BYTES",
     "OPEN_POLICY",
+    "OWNER_ACTIVE_REFUSAL",
     "USER_NAME_RE",
     "JobAsk",
     "OwnerPolicy",
@@ -84,6 +94,9 @@ class PolicyCode(StrEnum):
     VRAM = "policy_vram"
     UNSANDBOXED = "policy_unsandboxed"
     NETWORK = "policy_network"
+    BENCH_PAUSED = "policy_bench_paused"
+    """V0.9 G5: a benchmark job while the owner paused benchmarks (or, on the
+    controller, while the node reports its owner active)."""
 
 
 class PolicyError(MeshForgeError):
@@ -114,6 +127,8 @@ class OwnerPolicy:
     OS/runtime (D142 item 5: say it, never claim it)."""
     revision: int = 0
     """Agent-local counter, +1 per live change (for logs; 0 = from Hello)."""
+    pause_benchmarks: bool = False
+    """V0.9 G5: benchmark jobs are paused on this node (module docstring)."""
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -127,6 +142,7 @@ class OwnerPolicy:
             "allowed_users": list(self.allowed_users),
             "not_enforced": list(self.not_enforced),
             "revision": self.revision,
+            "pause_benchmarks": self.pause_benchmarks,
         }
 
 
@@ -163,6 +179,7 @@ def validate(policy: OwnerPolicy) -> OwnerPolicy:
         policy.accept_gpu_sessions,
         policy.allow_unsandboxed,
         policy.allow_network,
+        policy.pause_benchmarks,
     ):
         if not isinstance(flag, bool):
             raise PolicyError("a yes/no field is not a boolean")
@@ -199,6 +216,7 @@ def to_proto(policy: OwnerPolicy) -> agent_pb2.OwnerPolicy:
         allowed_users=list(policy.allowed_users),
         not_enforced=list(policy.not_enforced),
         revision=policy.revision,
+        pause_benchmarks=policy.pause_benchmarks,
     )
     if policy.max_ram_bytes is not None:
         msg.max_ram_bytes = policy.max_ram_bytes
@@ -232,6 +250,7 @@ def from_proto(msg: agent_pb2.OwnerPolicy) -> OwnerPolicy:
             allowed_users=tuple(msg.allowed_users),
             not_enforced=tuple(msg.not_enforced),
             revision=int(msg.revision),
+            pause_benchmarks=msg.pause_benchmarks,
         )
     )
 
@@ -251,6 +270,10 @@ class JobAsk:
     sandboxed_runtime: bool = True
     """False = this node could run the job only on an unsandboxed runtime."""
     node_cpu_threads: int | None = None
+    benchmark: bool = False
+    """V0.9 G5: the job is a benchmark job (only those ``pause_benchmarks``
+    refuses). The planner's *static* check leaves it False (a pause is a
+    moment: :mod:`meshforge.controller.planner.feasibility` checks it live)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -261,6 +284,14 @@ class PolicyRefusal:
 
 
 _GIB: Final = 1024**3
+BENCH_PAUSED_REFUSAL: Final = PolicyRefusal(
+    PolicyCode.BENCH_PAUSED,
+    "the node's owner paused benchmark jobs (meshforge-agent bench pause)",
+)
+OWNER_ACTIVE_REFUSAL: Final = PolicyRefusal(
+    PolicyCode.BENCH_PAUSED,
+    "the node's owner is using it now; benchmark jobs wait ([agent.bench])",
+)
 
 
 def allowed_cpus(policy: OwnerPolicy, cpu_threads: int | None) -> float | None:
@@ -273,12 +304,15 @@ def allowed_cpus(policy: OwnerPolicy, cpu_threads: int | None) -> float | None:
 
 def refusal(policy: OwnerPolicy, ask: JobAsk) -> PolicyRefusal | None:
     """The first reason ``policy`` refuses ``ask`` (None = allowed). Order:
-    accepting, user, sandbox, network, VRAM, RAM, CPU."""
+    accepting, benchmarks paused (benchmark jobs only), user, sandbox, network,
+    VRAM, RAM, CPU."""
     if not policy.accept_jobs:
         return PolicyRefusal(
             PolicyCode.NOT_ACCEPTING,
             "the node's owner does not accept jobs now ([agent.policy] accept_jobs)",
         )
+    if ask.benchmark and policy.pause_benchmarks:
+        return PolicyRefusal(BENCH_PAUSED_REFUSAL.code, BENCH_PAUSED_REFUSAL.text)
     if policy.allowed_users and (
         ask.owner_name is None or ask.owner_name not in policy.allowed_users
     ):
