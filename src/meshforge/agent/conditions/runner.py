@@ -27,7 +27,10 @@ while the job runs (a load process died) is reported ``verified = false``
 marker lists; :meth:`ConditionRunner.close` (agent exit) reverts everything
 still active; :meth:`ConditionRunner.stop_all` is the hook G5's owner
 ``pause benchmarks`` switch calls - it stops every load at once and marks the
-conditions broken.
+conditions broken. **No revert under a running apply:** ``finish`` cancels an
+in-flight :meth:`ActiveCondition.apply` and waits until it has ended (a
+cancelled ``tc`` is killed and reaped first), so neither a qdisc nor a burner
+can appear after the revert; ``apply`` refuses once finishing began.
 """
 
 from __future__ import annotations
@@ -121,6 +124,7 @@ class ActiveCondition:
         """Set when the condition could not be applied / verified."""
         self.broken: str | None = None
         self._applied = False
+        self._apply_task: asyncio.Task[None] | None = None
         self._report: agent_pb2.ConditionReport | None = None
         self._finishing: asyncio.Future[agent_pb2.ConditionReport] | None = None
 
@@ -129,8 +133,10 @@ class ActiveCondition:
         return self.spec.partition(":")[0]
 
     def remember(self) -> None:
-        """Write this condition's marker entry (sync, a small file)."""
-        if self.controller is not None:
+        """Write this condition's marker entry (sync, a small file - on the
+        loop on purpose: a write can then never land after :meth:`finish`
+        removed the entry). A no-op once finishing began."""
+        if self.controller is not None and self._finishing is None:
             self._runner.marker.put(
                 self.attempt_id,
                 {"spec": self.spec, **self.controller.marker_entry()},
@@ -138,15 +144,46 @@ class ActiveCondition:
 
     async def apply(self) -> None:
         """Apply and verify. Raises :class:`ConditionFailedError` (what was
-        made is reverted by :meth:`finish`)."""
+        made is reverted by :meth:`finish`).
+
+        The work runs in its own task so :meth:`finish` (``stop_all`` / agent
+        exit) can cancel it and **wait until it has ended** before reverting:
+        nothing is applied after the revert. Refused once finishing began."""
         if self.failure is not None:
             raise self.failure
         if self.controller is None:  # pragma: no cover - prepare sets one of them
             raise ConditionFailedError(self.kind, "no controller")
-        self._applied = True
-        await asyncio.to_thread(self.remember)  # before any change
+        if self._finishing is not None:
+            self.failure = ConditionFailedError(
+                self.kind, f"stopped before it was applied ({self.broken or 'stopped'})"
+            )
+            raise self.failure
+        if self._apply_task is not None:  # pragma: no cover - the executor applies once
+            raise ConditionFailedError(self.kind, "applied twice")
+        task = asyncio.ensure_future(self._apply(self.controller))
+        self._apply_task = task
         try:
-            await self.controller.apply()
+            await asyncio.wait({task})
+        except asyncio.CancelledError:  # our caller was cancelled: so is the apply
+            if not task.cancelling():
+                task.cancel()  # finish() waits for it before reverting
+            raise
+        if task.cancelled():  # finish() stopped it
+            raise self._stopped_while_applying()
+        task.result()  # ConditionFailedError (self.failure already set)
+
+    def _stopped_while_applying(self) -> ConditionFailedError:
+        if self.failure is None:
+            self.failure = ConditionFailedError(
+                self.kind, f"stopped while applying ({self.broken or 'stopped'})"
+            )
+        return self.failure
+
+    async def _apply(self, controller: ConditionController) -> None:
+        self._applied = True
+        self.remember()  # before any change
+        try:
+            await controller.apply()
         except ConditionFailedError as exc:
             self.failure = exc
             raise
@@ -161,12 +198,12 @@ class ActiveCondition:
             )
             raise self.failure from exc
         finally:
-            await asyncio.to_thread(self.remember)  # now with pids / interface
+            self.remember()  # now with pids / interface (no-op once finishing)
         log.info(
             "agent.conditions.applied",
             attempt_id=self.attempt_id,
             condition=self.spec,
-            measured=self.controller.measured,
+            measured=controller.measured,
         )
 
     def after_stage(self, stages: Sequence[Any]) -> None:
@@ -185,15 +222,28 @@ class ActiveCondition:
 
     async def finish(self) -> agent_pb2.ConditionReport:
         """Revert (idempotent; concurrent callers share one revert) and the
-        report for the terminal status."""
+        report for the terminal status. An apply still running is cancelled
+        here, synchronously, and awaited before the revert."""
         if self._report is not None:
             return self._report
         if self._finishing is None:
+            task = self._apply_task
+            if task is not None and not task.done() and not task.cancelling():
+                task.cancel()  # once: a second cancel would cut its cleanup
             self._finishing = asyncio.ensure_future(self._finish())
         return await asyncio.shield(self._finishing)
 
     async def _finish(self) -> agent_pb2.ConditionReport:
         controller = self.controller
+        task = self._apply_task
+        if task is not None and not task.done():
+            # never revert under a running apply (a tc replace / a burner
+            # start would land after the revert); its errors are its own
+            await asyncio.wait({task})
+        if task is not None and task.cancelled():
+            self._stopped_while_applying()  # never reported verified
+        elif task is not None:
+            task.exception()  # retrieved (apply() re-raises it to the executor)
         reverted = True
         if controller is not None and self._applied:
             if self.failure is None and self.broken is None:
@@ -369,14 +419,20 @@ class ConditionRunner:
                 controller=self._controller,
                 egress=self._egress,
                 rtt=self._rtt,
+                on_change=on_change,
             )
         elif isinstance(condition, CacheCondition) and self._store is not None:
-            controller = CacheController(
-                condition.mode,
-                store=self._store,
-                index=self._index(),
-                tree_ids=tree_ids,
-            )
+            try:
+                controller = CacheController(
+                    condition.mode,
+                    store=self._store,
+                    index=self._index(),
+                    tree_ids=tree_ids,
+                )
+            except (ValueError, ConditionError) as exc:  # a malformed tree id
+                return self._refused(
+                    attempt_id, spec, kind, f"bad tree id ({type(exc).__name__})"
+                )
         else:  # a controller-side kind, or cache without a CAS
             return self._refused(
                 attempt_id,
@@ -409,30 +465,47 @@ class ConditionRunner:
         entries = await asyncio.to_thread(self.marker.load)
         undone = 0
         for attempt_id, entry in entries.items():
-            pids = entry.get("pids") or []
-            killed = await asyncio.to_thread(_kill_burners, pids)
-            iface = entry.get("netem")
-            netem_ok = True
-            if isinstance(iface, str) and iface:
-                cause = await delete_netem(self._tc, iface)
-                netem_ok = cause is None
-                if cause is not None:
-                    log.error(
-                        "agent.conditions.sweep_netem_failed",
-                        interface=iface,
-                        cause=cause,
-                    )
-            log.warning(
-                "agent.conditions.swept",
-                attempt_id=attempt_id,
-                condition=str(entry.get("spec", ""))[:64],
-                killed=killed,
-                netem=iface if isinstance(iface, str) else None,
-            )
-            if netem_ok:
-                undone += 1
-                await asyncio.to_thread(self.marker.remove, attempt_id)
+            try:
+                undone += await self._sweep_one(attempt_id, entry)
+            except Exception:  # one bad entry never stops the rest
+                log.exception(
+                    "agent.conditions.sweep_entry_failed", attempt_id=attempt_id[:64]
+                )
+                with contextlib.suppress(Exception):
+                    await asyncio.to_thread(self.marker.remove, attempt_id)
         return undone
+
+    async def _sweep_one(self, attempt_id: str, entry: Mapping[str, Any]) -> int:
+        """Undo one marker entry; 1 = undone (entry removed), 0 = kept.
+
+        A netem is deleted only when the entry says it was installed
+        (``netem_installed``, written right before ``tc replace``) and only
+        if ``tc qdisc show`` lists a netem root there (:func:`delete_netem`)."""
+        pids = entry.get("pids") or []
+        killed = await asyncio.to_thread(_kill_burners, pids)
+        iface = entry.get("netem")
+        netem_ok = True
+        installed = entry.get("netem_installed") is True
+        if isinstance(iface, str) and iface and installed:
+            cause = await delete_netem(self._tc, iface)
+            netem_ok = cause is None
+            if cause is not None:
+                log.error(
+                    "agent.conditions.sweep_netem_failed",
+                    interface=iface,
+                    cause=cause,
+                )
+        log.warning(
+            "agent.conditions.swept",
+            attempt_id=attempt_id,
+            condition=str(entry.get("spec", ""))[:64],
+            killed=killed,
+            netem=iface if isinstance(iface, str) else None,
+        )
+        if netem_ok:
+            await asyncio.to_thread(self.marker.remove, attempt_id)
+            return 1
+        return 0
 
     async def stop_all(self, reason: str) -> int:
         """Revert every active condition now (G5 owner ``pause benchmarks``
@@ -460,9 +533,15 @@ def _kill_burners(pids: object) -> int:
         if not (isinstance(item, list) and len(item) == 2):
             continue
         pid, created = item
-        if not isinstance(pid, int) or not isinstance(created, int | float):
+        if (
+            isinstance(pid, bool)
+            or not isinstance(pid, int)
+            or pid <= 0
+            or isinstance(created, bool)
+            or not isinstance(created, int | float)
+        ):
             continue
-        with contextlib.suppress(psutil.Error):
+        with contextlib.suppress(psutil.Error, ValueError, OverflowError):
             proc = psutil.Process(pid)
             if abs(proc.create_time() - float(created)) > 1.0:
                 continue

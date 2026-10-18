@@ -325,7 +325,15 @@ async def test_sweep_survives_hostile_marker_entries(tmp_path: Path) -> None:
     tc = FakeTc()
     tc.qdisc["eth9"] = "qdisc netem 8001: root delay 50ms"
     marker = ConditionMarker(tmp_path / "conditions")
-    marker.put("att_a", {"spec": "x" * 9999, "netem": "eth9", "pids": "not a list"})
+    marker.put(
+        "att_a",
+        {
+            "spec": "x" * 9999,
+            "netem": "eth9",
+            "netem_installed": True,  # V0.9 G4B fix 1: only installed ones
+            "pids": "not a list",
+        },
+    )
     marker.put("att_b", {"pids": [[1], "x", [None, None], [2**70, 1.0], [0, 0]]})
     marker.put("att_c", {"netem": ["eth9"], "pids": [[os.getpid(), 1.0]]})
     marker.put("att_d", {"netem": 5})
@@ -334,12 +342,6 @@ async def test_sweep_survives_hostile_marker_entries(tmp_path: Path) -> None:
     assert "eth9" not in tc.qdisc
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=ValueError,
-    reason="DEFECT TR1-B2 (minor): a negative pid in the marker makes psutil raise "
-    "ValueError (not psutil.Error) so sweep() - run at agent start - crashes",
-)
 @pytest.mark.asyncio
 async def test_sweep_survives_a_negative_pid_in_the_marker(tmp_path: Path) -> None:
     tc = FakeTc()
@@ -364,12 +366,14 @@ def test_sweep_never_kills_a_process_that_only_shares_a_recorded_pid() -> None:
 async def test_sweep_twice_is_idempotent(tmp_path: Path) -> None:
     tc = FakeTc()
     tc.qdisc["eth9"] = "qdisc netem 8001: root delay 50ms"
-    ConditionMarker(tmp_path / "conditions").put("att_1", {"netem": "eth9"})
+    ConditionMarker(tmp_path / "conditions").put(
+        "att_1", {"netem": "eth9", "netem_installed": True}
+    )
     runner = _runner(tmp_path, set(), tc)
     assert await runner.sweep() == 1
     assert await runner.sweep() == 0
     ConditionMarker(tmp_path / "conditions").put(
-        "att_2", {"netem": "eth9"}
+        "att_2", {"netem": "eth9", "netem_installed": True}
     )  # already gone
     assert await runner.sweep() == 1  # "nothing to delete" counts as undone
     assert runner.marker.load() == {}

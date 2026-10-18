@@ -187,7 +187,7 @@ async def test_netem_apply_verify_revert_with_fixed_arguments() -> None:
     assert ctl.measured["rtt_added_ms"] == 60.0
     assert ctl.measured["interface"] == "eth9"
     assert "netem" in ctl.measured["qdisc"]
-    assert ctl.marker_entry() == {"netem": "eth9"}
+    assert ctl.marker_entry() == {"netem": "eth9", "netem_installed": True}
     assert await ctl.revert() is True
     assert tc.calls[-1] == ("qdisc", "del", "dev", "eth9", "root")
     assert "eth9" not in tc.qdisc
@@ -406,7 +406,9 @@ async def test_runner_netem_end_to_end_and_marker(tmp_path: Path) -> None:
     assert isinstance(active.controller, NetemController)
     active.controller._egress = lambda _h, _p: "eth9"
     await active.apply()
-    assert runner.marker.load() == {"att_1": {"spec": "netem:loss=1%", "netem": "eth9"}}
+    assert runner.marker.load() == {
+        "att_1": {"spec": "netem:loss=1%", "netem": "eth9", "netem_installed": True}
+    }
     report = await active.finish()
     assert report.verified and report.reverted
     assert json.loads(report.measured_json)["interface"] == "eth9"
@@ -420,7 +422,12 @@ async def test_sweep_undoes_a_crashed_runs_netem(tmp_path: Path) -> None:
     tc.qdisc["eth9"] = "qdisc netem 8001: root delay 50ms"
     ConditionMarker(tmp_path / "conditions").put(
         "att_dead",
-        {"spec": "netem:delay=50ms", "netem": "eth9", "pids": [[999999, 1.0]]},
+        {
+            "spec": "netem:delay=50ms",
+            "netem": "eth9",
+            "netem_installed": True,
+            "pids": [[999999, 1.0]],
+        },
     )
     runner = _runner(tmp_path, set(), tc=tc)
     assert await runner.sweep() == 1
@@ -431,7 +438,9 @@ async def test_sweep_undoes_a_crashed_runs_netem(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_sweep_keeps_the_marker_when_the_delete_fails(tmp_path: Path) -> None:
     tc = FakeTc(fail={"del", "show"})
-    ConditionMarker(tmp_path / "conditions").put("att_dead", {"netem": "eth9"})
+    ConditionMarker(tmp_path / "conditions").put(
+        "att_dead", {"netem": "eth9", "netem_installed": True}
+    )
     runner = _runner(tmp_path, set(), tc=tc)
     assert await runner.sweep() == 0
     assert set(runner.marker.load()) == {"att_dead"}

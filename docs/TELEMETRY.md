@@ -110,7 +110,7 @@ row by its own `schema_version`.
 **Conditions (v2).** `condition` is the run's benchmark condition as its canonical string (`none`,
 `cpu_load:2`, `queue:4`, `netem:delay=50ms,loss=1%` ..., at most 128 characters; one condition per run, D241)
 and `condition_measured` what was measured when it was applied and verified (JSON object). Both are null for
-a job that is not a campaign run (an ordinary job, a queue filler, a cache warm-up). One writer fills both:
+a job that is not a campaign run (an ordinary job; a queue filler / cache warm-up is tagged, below). One writer fills both:
 `controller/telemetry/conditions.py` `condition_outcome`, from the campaign identity the recorder looks up
 per job (`condition`, `session_label`, controller-side `condition_facts`) and the agent's `ConditionReport`.
 A stored condition that is blank or not a canonical `name[:arg]` (it does not round-trip through the
@@ -131,6 +131,10 @@ the record itself is always kept.
 | `controller` | controller-side conditions with facts | `queue`: `fillers`, `fillers_ahead`. `cache:warm`: `warmup_state`. `unavailable`: `paused_node_id`, `seconds`, `dispatched_after_s`, `pause_lost`. |
 
 `none` runs carry only `verified` (`true`), `reason` (null) and `session_label`.
+
+A campaign's **queue filler** / **cache warm-up** job (no campaign identity) has `condition` null and
+`condition_measured = {"bench_role": "filler" | "warmup", "run_id": "<bench run>"}` (and none of the keys above).
+Labels and planner-training queries must exclude rows where `condition_measured->>'bench_role'` is set.
 
 ## Columns — schema version 2
 

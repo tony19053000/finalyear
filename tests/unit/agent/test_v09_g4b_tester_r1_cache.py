@@ -130,13 +130,6 @@ async def test_cold_with_a_corrupt_manifest_still_drops_the_manifest(
     assert ctl.measured["mode"] == "cold"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=ValueError,
-    reason="DEFECT TR1-B4 (minor): CacheController.__init__ calls Digest.parse on "
-    "the controller-sent tree ids, so ConditionRunner.prepare raises ValueError "
-    "although it documents 'never raises' (controller ids are valid in practice)",
-)
 @pytest.mark.parametrize("bad", ["garbage", "sha256:zz", "sha256:" + "0" * 63, "\x00"])
 def test_runner_prepare_with_a_malformed_tree_id_never_raises(
     tmp_path: Path, bad: str

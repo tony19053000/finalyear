@@ -12,6 +12,9 @@ agent's condition report (``attempt.workload["condition"]``) - into
   before/after, blobs evicted / hit), ``controller`` (fillers ahead of the
   run, the warm-up's state, when the run started after the pause),
   ``reverted`` and ``session_label``;
+* a queue **filler** / cache **warm-up** job (identity ``bench_role``, no
+  campaign) - ``condition`` null, ``condition_measured`` =
+  ``{"bench_role", "run_id"}`` (:data:`BENCH_ROLES`), never failed;
 * ``failed`` - the condition did not hold although it should have been
   measured: the record's failure class becomes ``condition_failed`` (never
   ``ok``: an unverified condition is never labelled, D217).
@@ -45,7 +48,13 @@ from meshforge.common.bench_conditions import (
 )
 from meshforge.common.states import AttemptState
 
-__all__ = ["ConditionOutcome", "condition_outcome"]
+__all__ = ["BENCH_ROLES", "ConditionOutcome", "condition_outcome"]
+
+BENCH_ROLES: Final = frozenset({"filler", "warmup"})
+"""System-made background jobs of a campaign run (``queue:K`` fillers, the
+``cache:warm`` warm-up): no campaign identity, never labels, never planner
+training rows - their record's ``condition_measured`` is
+``{"bench_role": ..., "run_id": ...}`` so a filter can drop them."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,6 +85,16 @@ def condition_outcome(
     """See the module docstring."""
     identity = _mapping(campaign)
     text = identity.get("condition")
+    role = identity.get("bench_role")
+    if not isinstance(text, str) and isinstance(role, str) and role in BENCH_ROLES:
+        run_id = identity.get("run_id")
+        return ConditionOutcome(
+            None,
+            {
+                "bench_role": role,
+                "run_id": run_id[:64] if isinstance(run_id, str) else None,
+            },
+        )
     if not isinstance(text, str):
         return _NOT_A_RUN
     try:
@@ -118,29 +137,37 @@ def condition_outcome(
             measured["reverted"] = report.get("reverted") is True
     elif isinstance(condition, QueueCondition):
         ahead = facts.get("fillers_ahead")
-        verified = isinstance(ahead, int) and ahead >= condition.jobs
+        counted = isinstance(ahead, int) and not isinstance(ahead, bool)
+        verified = counted and isinstance(ahead, int) and ahead >= condition.jobs
         if not verified:
             reason = (
                 f"{ahead} filler job(s) were ahead of the run, {condition.jobs} asked"
-                if isinstance(ahead, int)
+                if counted
                 else "the filler jobs were not found"
             )
         failed = done and not verified
     elif isinstance(condition, Unavailable):
         after = facts.get("dispatched_after_s")
         lost = facts.get("pause_lost") is True
+        numeric = isinstance(after, int | float) and not isinstance(after, bool)
         verified = (
-            isinstance(after, int | float) and after < condition.seconds and not lost
+            numeric
+            and isinstance(after, int | float)
+            and after < condition.seconds
+            and not lost
         )
         if lost:
             reason = "the controller restarted during the pause (it lives in memory)"
         elif not verified:
-            reason = (
-                "the run was not dispatched"
-                if after is None
-                else f"dispatched {after:g} s after the pause began "
-                f"(it lasted {condition.seconds} s)"
-            )
+            if after is None:
+                reason = "the run was not dispatched"
+            elif numeric:  # never format a stored value that is not a number
+                reason = (
+                    f"dispatched {after:g} s after the pause began "
+                    f"(it lasted {condition.seconds} s)"
+                )
+            else:
+                reason = "the run's dispatch time is not valid"
         failed = done and not verified
     else:  # none
         verified = True

@@ -11,7 +11,10 @@ it lists (:meth:`~.runner.ConditionRunner.sweep`):
   creation time** still exists and is one of our burners (its command line
   holds :data:`BURNER_MODULE`) - a pid reused by another program is never
   touched;
-* a netem qdisc is deleted from the recorded interface.
+* a netem qdisc is deleted from the recorded interface only when the entry
+  says ``netem_installed`` (written right before ``tc replace``) and
+  ``tc qdisc show`` lists a netem root there - never a foreign netem the
+  pre-check refused, never a non-netem root qdisc.
 
 The file is small (one entry per running attempt with a condition), owned by
 the agent, never holds a secret. An unreadable / corrupt file is moved aside

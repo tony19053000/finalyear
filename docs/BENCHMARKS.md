@@ -331,7 +331,16 @@ applied or verified fails the run before it is measured, and its record's failur
 | `unavailable:Ts` (1..300 s; `mode1` only) | the run's **origin** is paused for T s right before the mode1 run is submitted: the planner treats it as `draining` (nothing new starts there; the shadow plan avoids it) | the run was dispatched within the pause (`dispatched_after_s < T`) | controller |
 
 Fillers and warm-ups are ordinary jobs at the lowest priority (their `bench:` key keeps them out of priority
-aging like every benchmark job); they have no `bench_run` link, so they are never campaign records.
+aging like every benchmark job); they have no `bench_run` link, so they are never campaign records. Their own run
+records are **tagged**: `condition` null, `condition_measured = {"bench_role": "filler" | "warmup", "run_id": ...}`
+- label and planner-training queries must drop rows with `condition_measured->>'bench_role'` set (system-made
+background load, not user demand).
+
+**What is verified, exactly.** `netem`: the shaped qdisc line from `tc qdisc show` is the only check for `loss`
+and `rate` (no packet-loss or throughput probe); the RTT probe (median TCP-connect time to the controller) only
+proves the **egress** delay - netem shapes what leaves this interface, so the probe's SYN is delayed, the reply
+is not. `gpu_load`: the load runs on the attempt's first GPU (`gpu_indices[0]`), device 0 when the attempt has
+none, and NVML utilisation is read for that same index.
 
 **Support by OS.** The agent advertises what it can do in one capability tag (`bench-conditions:cache,cpu_load,
 gpu_load,netem`); the controller checks it at **create** (an error listing node x condition, or `on_unsupported:
@@ -347,7 +356,10 @@ skip`), and the agent re-checks every condition it receives (refused typed if no
 **Always reverted.** The agent reverts the condition right before it sends the attempt's final status - on
 success, failure, cancel and agent stop - and writes what it changed (load pids with their start times, the
 shaped interface) to `<data dir>/conditions/active.json` **before** changing it; the next agent start undoes
-whatever a crashed process left (a pid is killed only if it is still that burner). Load processes are bounded
+whatever a crashed process left (a pid is killed only if it is still that burner; a netem is deleted only if the
+entry says `netem_installed` - written right before `tc replace` - and `tc qdisc show` still lists a netem root
+there: a foreign netem or a non-netem root qdisc is never touched). A revert never runs under a running apply:
+`stop_all` cancels the apply and waits for it (a cancelled `tc` is killed and reaped) before it reverts. Load processes are bounded
 twice more: each ends by itself at the attempt's time limit + 30 s + `setup_allowance_s`, and within about a
 second of its agent dying. G5's owner `pause benchmarks` switch stops every running load through the same hook
 (`ConditionRunner.stop_all`).

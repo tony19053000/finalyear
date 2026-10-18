@@ -141,20 +141,12 @@ def test_queue_with_too_few_or_odd_fillers_ahead_is_unverified(ahead: Any) -> No
     assert out.failed is True
 
 
-_FMT_BUG = pytest.mark.xfail(
-    strict=True,
-    raises=(ValueError, TypeError),
-    reason="DEFECT TR1-B1 (minor): condition_outcome formats a non-numeric "
-    "dispatched_after_s with :g and raises; build_record then fails the record",
-)
-
-
 @pytest.mark.parametrize(
     "after",
     [
-        pytest.param("2", marks=_FMT_BUG),
+        "2",
         None,
-        pytest.param([], marks=_FMT_BUG),
+        [],
         math.nan,
         math.inf,
     ],

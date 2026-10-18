@@ -129,12 +129,6 @@ async def test_close_while_applying_leaves_no_process(tmp_path: Path) -> None:
     await _gone()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT TR1-B3 (minor): ActiveCondition.apply()'s finally re-writes the "
-    "marker after a concurrent finish() (stop_all/close) removed it, leaving a stale "
-    "entry (for netem the next start would delete an unrelated qdisc on that interface)",
-)
 @pytest.mark.asyncio
 async def test_close_while_applying_leaves_no_marker_entry(tmp_path: Path) -> None:
     runner = _runner(tmp_path)

@@ -292,6 +292,30 @@ async def test_every_condition_end_to_end_on_one_node(
         assert len(records) == 15
         assert {r["job_id"] for r in records} == set(job_ids)
         assert {r["failure_class"] for r in records} == {"ok"}
+        # fix round 1: their own records are tagged (training filters drop them)
+        extra_ids = {j.id: j.idempotency_key.split(":") for j in extra}
+        async with sessions() as db:
+            tags = await bench_identities(db, list(extra_ids))
+        assert {k: v["bench_role"] for k, v in tags.items()} == {
+            k: parts[2] for k, parts in extra_ids.items()
+        }
+        assert all(tags[k]["run_id"] == parts[1] for k, parts in extra_ids.items())
+        deadline = time.monotonic() + 30
+        while True:
+            tagged = [
+                r for r in await fetch_records(engine) if r["job_id"] in extra_ids
+            ]
+            if len(tagged) >= len(extra_ids) or time.monotonic() > deadline:
+                break
+            await asyncio.sleep(0.2)
+        assert {r["job_id"] for r in tagged} == set(extra_ids)
+        for row in tagged:
+            parts = extra_ids[row["job_id"]]
+            assert row["campaign_id"] is None and row["condition"] is None
+            assert row["condition_measured"] == {
+                "bench_role": parts[2],
+                "run_id": parts[1],
+            }
     finally:
         await a.stop()
 

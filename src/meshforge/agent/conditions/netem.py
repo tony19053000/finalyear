@@ -105,6 +105,16 @@ class TcRunner:
                 proc.kill()
             await proc.wait()
             raise TcError(f"tc timed out after {self._timeout_s:g} s") from None
+        except asyncio.CancelledError:
+            # stopped (finish() cancels a running apply): the tc process must
+            # be gone before the caller reverts, else its change lands after
+            with contextlib.suppress(ProcessLookupError):
+                proc.kill()
+            reaped = asyncio.ensure_future(proc.wait())
+            while not reaped.done():  # a second cancel must not skip this
+                with contextlib.suppress(asyncio.CancelledError):
+                    await asyncio.shield(reaped)
+            raise
         if proc.returncode != 0:
             first = err.decode("utf-8", "replace").strip().splitlines()[:1]
             raise TcError(f"tc exited {proc.returncode}: {(first or [''])[0][:200]}")
@@ -205,7 +215,10 @@ class NetemController(ConditionController):
         controller: Callable[[], tuple[str, int] | None],
         egress: Callable[[str, int], str | None] = egress_interface,
         rtt: Callable[[str, int], Any] = median_rtt_ms,
+        on_change: Callable[[], None] = lambda: None,
     ) -> None:
+        """``on_change``: rewrite the marker entry now (sync) - called right
+        before ``tc replace`` so the entry carries ``netem_installed``."""
         super().__init__()
         self.netem = netem
         self._tc = tc
@@ -213,10 +226,17 @@ class NetemController(ConditionController):
         self._controller = controller
         self._egress = egress
         self._rtt = rtt
+        self._on_change = on_change
         self._applied = False
 
     def marker_entry(self) -> Mapping[str, Any]:
-        return {"netem": self.interface}
+        # ``netem_installed`` only once ``tc replace`` may have run: the sweep
+        # deletes nothing for an entry without it (a refused pre-check, a
+        # foreign netem, a crash before the replace)
+        entry: dict[str, Any] = {"netem": self.interface}
+        if self._applied:
+            entry["netem_installed"] = True
+        return entry
 
     async def apply(self) -> None:
         iface = self.interface
@@ -246,6 +266,7 @@ class NetemController(ConditionController):
         before = await self._rtt(host, port) if self.netem.delay_ms else None
         try:
             self._applied = True  # from here on a revert is needed
+            self._on_change()  # marker: netem_installed, before the change
             await self._tc.replace(iface, self.netem)
             line = _netem_line(await self._tc.show(iface))
         except TcError as exc:
@@ -291,8 +312,21 @@ class NetemController(ConditionController):
 
 
 async def delete_netem(tc: TcRunner, iface: str) -> str | None:
-    """Delete the root qdisc of ``iface``; None = no netem is left there
-    (also when there was nothing to delete), else why it could not."""
+    """Delete the root qdisc of ``iface`` **only if it is a netem**; None = no
+    netem is left there (also when there was nothing to delete), else why it
+    could not. ``tc qdisc show`` runs first: a non-netem root qdisc (the
+    system's default, someone's fq / htb) is never deleted.
+
+    Callers delete only a netem the agent itself installed (the controller's
+    ``_applied`` / the marker's ``netem_installed``); a foreign netem is
+    refused by :meth:`NetemController.apply`'s pre-check before anything is
+    recorded as installed, so it is never reached here."""
+    try:
+        before = _netem_line(await tc.show(iface))
+    except TcError as exc:
+        return f"tc qdisc show failed: {str(exc)[:200]}"
+    if before is None:
+        return None  # nothing of ours to delete
     try:
         await tc.delete(iface)
     except TcError as exc:

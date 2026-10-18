@@ -506,6 +506,7 @@ async def test_netem_with_a_fake_tc_applied_and_reverted(tmp_path: Path) -> None
             "1%",
         ],
         ["qdisc", "show", "dev", "eth9"],
+        ["qdisc", "show", "dev", "eth9"],  # fix r1: delete only a netem root
         ["qdisc", "del", "dev", "eth9", "root"],
     ]
     await executor.close()
@@ -597,6 +598,7 @@ async def test_agent_restart_sweeps_what_a_crashed_process_left(tmp_path: Path) 
                     [bystander.pid, created - 100.0],  # wrong creation time
                 ],
                 "netem": "eth9",
+                "netem_installed": True,  # fix r1: only an installed netem
             },
         )
         runtime, reports = GatedRuntime(), Reports()

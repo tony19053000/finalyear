@@ -58,6 +58,7 @@ __all__ = [
     "NodePauses",
     "bench_identities",
     "filler_key",
+    "pre_job_role",
     "run_id_of_key",
     "warmup_key",
 ]
@@ -89,6 +90,48 @@ def run_id_of_key(key: str | None) -> str | None:
     except InvalidIdError:
         return None
     return rest
+
+
+def pre_job_role(key: str | None) -> tuple[str, str] | None:
+    """``(role, run_id)`` of a filler (``bench:<run_id>:filler:<i>``) or a
+    warm-up (``bench:<run_id>:warmup``) key; None for any other key."""
+    if not key or not key.startswith(KEY_PREFIX):
+        return None
+    parts = key.removeprefix(KEY_PREFIX).split(":")
+    if len(parts) == 3 and parts[1] == FILLER_TAG and parts[2].isdecimal():
+        role = FILLER_TAG
+    elif len(parts) == 2 and parts[1] == WARMUP_TAG:
+        role = WARMUP_TAG
+    else:
+        return None
+    try:
+        parse_id(parts[0], IdKind.BENCH_RUN)
+    except InvalidIdError:
+        return None
+    return role, parts[0]
+
+
+async def _pre_job_identities(
+    db: AsyncSession, job_ids: Collection[str]
+) -> dict[str, dict[str, Any]]:
+    """``job_id -> {bench_role, run_id}`` for the fillers / warm-ups among
+    ``job_ids`` (fix round 1): their records carry the tag in
+    ``condition_measured`` so label / training filters can drop them - they
+    are system-made background jobs, not user demand nor campaign runs."""
+    if not job_ids:
+        return {}
+    rows = await db.execute(
+        select(Job.id, Job.idempotency_key).where(
+            Job.id.in_(sorted(job_ids)),
+            Job.idempotency_key.like(f"{KEY_PREFIX}%:%"),
+        )
+    )
+    out: dict[str, dict[str, Any]] = {}
+    for job_id, key in rows:
+        role = pre_job_role(key)
+        if role is not None:
+            out[str(job_id)] = {"bench_role": role[0], "run_id": role[1]}
+    return out
 
 
 class NodePauses:
@@ -153,8 +196,10 @@ async def bench_identities(
     pause (in memory) that a restart may have ended early is reported
     ``pause_lost``."""
     identities = await campaign_identities(db, job_ids)
+    others = [j for j in job_ids if j not in identities]
+    pre_jobs = await _pre_job_identities(db, others)
     if not identities:
-        return identities
+        return pre_jobs
     run_ids = {str(i["run_id"]): job for job, i in identities.items()}
     rows = await db.execute(
         select(
@@ -185,7 +230,7 @@ async def bench_identities(
         facts = {}
     for job_id, value in facts.items():
         identities[job_id]["condition_facts"] = value
-    return identities
+    return {**identities, **pre_jobs}
 
 
 async def _facts(
