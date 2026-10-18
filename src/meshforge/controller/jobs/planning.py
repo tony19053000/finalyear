@@ -57,7 +57,11 @@ from meshforge.controller.jobs.execution_store import (
     DispatchFailure,
     Wait,
 )
-from meshforge.controller.jobs.queue_reads import FabricRows, NodeRow
+from meshforge.controller.jobs.queue_reads import (
+    FabricRows,
+    NodeRow,
+    is_benchmark_key,
+)
 from meshforge.controller.jobs.spec import (
     choose_gpus,
     start_snapshot,
@@ -349,7 +353,13 @@ class DispatchPlanner:
             )
         decision = plan(plan_job, snapshot, self.policy_of(job), self._wall())
         record = decision_record(decision)
-        if decision.chosen is not None and pinned is not None:
+        if (
+            decision.chosen is not None
+            and pinned is not None
+            and is_benchmark_key(job.idempotency_key)
+        ):
+            # D215 + G4 item 0.8 (D239.4): only a campaign's forced run needs the
+            # would-have-chosen label; a user's pinned job skips the extra plan
             record = self._with_shadow(record, plan_job, snapshot, job, past)
         if decision.chosen is not None:
             return self._dispatch(
@@ -374,13 +384,15 @@ class DispatchPlanner:
         past: Sequence[PastFailure] = (),
     ) -> DecisionRecord:
         """V0.9 G3 (D215, fix r1 D235): the node the planner **prefers** for
-        this pinned job - the same request unpinned, on the same snapshot with
-        **slot occupancy ignored**: every slot (and GPU) of a node is treated
-        as free, so a node that is busy right now still wins if it is the
-        better place. Everything else is kept: feasibility (capabilities,
-        hardware, owner policy, a slot *kind* the node has at all), health
-        (state, live session) and the job's retry exclusions (D110, with the
-        soft lift rule of ``plan``). So ``planner_node_id`` is a *preference*
+        this pinned **benchmark** job (G4 item 0.8: a user's pinned job has
+        no shadow - its record's ``planner_node_id`` is null) - the same
+        request unpinned, on the same snapshot with **slot occupancy
+        ignored**: every slot (and GPU) of a node is treated as free, so a
+        node that is busy right now still wins if it is the better place.
+        Everything else is kept: feasibility (capabilities, hardware, owner
+        policy, a slot *kind* the node has at all), health (state, live
+        session) and the job's retry exclusions (D110, with the soft lift rule
+        of ``plan``). So ``planner_node_id`` is a *preference*
         label, not "what would have run this second" (docs/TELEMETRY.md).
 
         Pure (no reservation, no round-robin pointer moved, no row of its own);

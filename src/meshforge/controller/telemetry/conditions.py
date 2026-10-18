@@ -24,8 +24,11 @@ an agent condition has no report at all. An attempt that failed for its own
 reason (node lost, workload error) keeps that class - the condition is then
 only marked unverified in ``condition_measured``.
 
-The two columns arrive with lane A's telemetry schema v2 (migration 0023);
-:data:`CONDITION_COLUMNS` are filled only once the schema has them.
+The two columns are telemetry schema v2's (migration 0023);
+:func:`meshforge.controller.telemetry.record.build_record` is the only caller and
+bounds / sanitises both (non-finite floats in the agent's ``measured`` -> null).
+A stored condition that does not parse yields a null ``condition`` and a failed
+outcome.
 """
 
 from __future__ import annotations
@@ -42,9 +45,7 @@ from meshforge.common.bench_conditions import (
 )
 from meshforge.common.states import AttemptState
 
-__all__ = ["CONDITION_COLUMNS", "ConditionOutcome", "condition_outcome"]
-
-CONDITION_COLUMNS: Final = ("condition", "condition_measured")
+__all__ = ["ConditionOutcome", "condition_outcome"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,7 +82,7 @@ def condition_outcome(
         condition = parse_condition(text)
     except ConditionError:
         return ConditionOutcome(
-            text if len(text) <= 64 else None,
+            None,  # never store text that is not a canonical condition
             {
                 "verified": False,
                 "reason": "the stored condition is not valid",

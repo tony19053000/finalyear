@@ -28,6 +28,23 @@ different value - and no text or JSON value with a NUL or a lone surrogate
 (PostgreSQL refuses both), or JSON nested deeper than :data:`MAX_JSON_DEPTH`, is
 kept: it is null. So a hostile report cannot make PostgreSQL refuse the record
 (the recorder still isolates a refused record, :mod:`.recorder`).
+
+**Params** (G4 item 0.9, D240): ``workload_params`` keeps only the keys of the
+family's own params model (D236) whose value is a **scalar** (text, integer,
+float, bool, null); a list or an object is dropped, and a non-finite float
+(NaN, +-inf - JSONB and the canonical export JSON refuse both) becomes null.
+``condition_measured`` (v2) is a JSON object whose non-finite floats become null
+the same way.
+
+**Schema v2** (G4, D233.3/D241): ``result_schema_version`` is the result
+version the agent read from ``results/workload.json`` (>= 1, else null);
+``condition`` / ``condition_measured`` have one writer,
+:func:`~.conditions.condition_outcome` (the run's campaign identity plus the
+agent's condition report). ``condition`` is kept only when it is a canonical
+``name[:arg]`` (:func:`meshforge.common.bench_conditions.parse_condition`
+round-trips it) within :data:`CONDITION_CHARS`, else null; ``condition_measured``
+goes through the same non-finite-float and storability guards as every JSON
+column, so a NaN the agent reported is null, never a refused row.
 """
 
 from __future__ import annotations
@@ -40,11 +57,11 @@ from dataclasses import dataclass, field
 from typing import Any, Final
 
 from meshforge.bench.workloads import UnknownFamilyError, get_family
+from meshforge.common.bench_conditions import ConditionError, parse_condition
 from meshforge.common.errors import FailureType
 from meshforge.common.states import AttemptState
 from meshforge.controller.planner.inputs import scores_of
 from meshforge.controller.telemetry.conditions import (
-    CONDITION_COLUMNS,
     ConditionOutcome,
     condition_outcome,
 )
@@ -57,6 +74,7 @@ from meshforge.controller.telemetry.schema import (
 __all__ = [
     "BENCH_EXIT_CHECK_FAILED",
     "BENCH_EXIT_UNAVAILABLE",
+    "CONDITION_CHARS",
     "FLAT_PARAMS",
     "MAX_JSON_DEPTH",
     "SHORT_TEXT_CHARS",
@@ -100,6 +118,9 @@ SHORT_TEXT_CHARS: Final = 64
 """Width of the record's short text columns (``VARCHAR(64)`` in migration 0021)."""
 MAX_JSON_DEPTH: Final = 32
 """Deepest JSON value a record keeps (benchmark params are flat)."""
+CONDITION_CHARS: Final = 128
+"""Width of ``condition`` (``VARCHAR(128)`` in migration 0023): a canonical
+condition string such as ``netem:delay=50ms,loss=1%``."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -212,6 +233,11 @@ def build_record(source: RecordSource) -> dict[str, Any]:
         **_workload(workload),
         **_manifest(source.manifest),
         "runtime": _short(source.runtime),
+        # V0.9 G4 (D217/D241): one writer, condition_outcome; A's guards
+        "condition": _canonical_condition(condition.condition),
+        "condition_measured": None
+        if condition.measured is None
+        else _finite_json(condition.measured),
         **_start(snapshot, telemetry),
         **_phases(source.phases, workload),
         **_bytes(source.transfers, source.output_bytes),
@@ -223,10 +249,6 @@ def build_record(source: RecordSource) -> dict[str, Any]:
         "attempt_created_at": source.created_at,
         "attempt_ended_at": source.ended_at,
     }
-    if _HAS_CONDITION_COLUMNS:
-        # V0.9 G4 (D217/D241): the columns of lane A's schema v2 bump
-        record["condition"] = condition.condition
-        record["condition_measured"] = condition.measured
     missing = set(COLUMN_NAMES) - set(record) - {"recorded_at"}
     extra = set(record) - set(COLUMN_NAMES)
     if missing or extra:  # pragma: no cover - the schema test holds this
@@ -237,8 +259,17 @@ def build_record(source: RecordSource) -> dict[str, Any]:
 # ------------------------------------------------------------------ helpers
 
 
-_HAS_CONDITION_COLUMNS: Final = set(CONDITION_COLUMNS) <= set(COLUMN_NAMES)
-"""V0.9 G4: filled once the telemetry schema has the condition columns."""
+def _canonical_condition(value: object) -> str | None:
+    """``value`` when it is a canonical ``name[:arg]`` condition that fits
+    :data:`CONDITION_CHARS`, else None (blank, unparsable or non-canonical
+    text is never stored as a condition)."""
+    text = _bounded(value, CONDITION_CHARS)
+    if text is None:
+        return None
+    try:
+        return text if parse_condition(text).canonical() == text else None
+    except ConditionError:
+        return None
 
 
 def _class(
@@ -276,8 +307,38 @@ def _text(value: object) -> str | None:
 
 def _short(value: object) -> str | None:
     """A non-empty string that fits a short column, else None (never cut)."""
+    return _bounded(value, SHORT_TEXT_CHARS)
+
+
+def _bounded(value: object, chars: int) -> str | None:
+    """A non-empty string of at most ``chars`` characters, else None."""
     text = _text(value)
-    return text if text is not None and len(text) <= SHORT_TEXT_CHARS else None
+    return text if text is not None and len(text) <= chars else None
+
+
+def _scalar(value: object) -> tuple[bool, object]:
+    """``(keep, value)`` for one params value: scalars are kept (a non-finite
+    float as None), lists / objects / anything else are not."""
+    if value is None or isinstance(value, str | bool | int):
+        return True, value
+    if isinstance(value, float):
+        return True, value if math.isfinite(value) else None
+    return False, None
+
+
+def _finite_json(value: object, depth: int = 0) -> object:
+    """``value`` with every non-finite float replaced by None (lists and
+    objects copied; anything deeper than :data:`MAX_JSON_DEPTH` is left for
+    :func:`_storable` to refuse)."""
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if depth >= MAX_JSON_DEPTH:
+        return value
+    if isinstance(value, Mapping):
+        return {k: _finite_json(v, depth + 1) for k, v in value.items()}
+    if isinstance(value, list | tuple):
+        return [_finite_json(v, depth + 1) for v in value]
+    return value
 
 
 def _storable_text(text: str) -> bool:
@@ -333,15 +394,23 @@ def _campaign(campaign: Mapping[str, Any] | None) -> dict[str, Any]:
 def _known_params(family: object, params: object) -> dict[str, Any] | None:
     """The reported params restricted to the keys of the family's own params
     model (tester r1 TR1-A2, D236): a key the family does not define - an
-    agent bug, or a value smuggled into the report - is never stored. An
-    unknown family keeps none (None)."""
+    agent bug, or a value smuggled into the report - is never stored. Only
+    scalar values are kept, a non-finite float as None (D240, module
+    docstring). An unknown family keeps none (None)."""
     if not isinstance(params, Mapping) or not isinstance(family, str):
         return None
     try:
         fields = get_family(family).params_model.model_fields
     except UnknownFamilyError:
         return None
-    return {k: v for k, v in params.items() if isinstance(k, str) and k in fields}
+    kept: dict[str, Any] = {}
+    for key, value in params.items():
+        if not isinstance(key, str) or key not in fields:
+            continue
+        keep, scalar = _scalar(value)
+        if keep:
+            kept[key] = scalar
+    return kept
 
 
 def _workload(workload: Mapping[str, Any] | None) -> dict[str, Any]:
@@ -357,8 +426,14 @@ def _workload(workload: Mapping[str, Any] | None) -> dict[str, Any]:
         "workload_seed": _int(data.get("seed")),
         "workload_status": _short(data.get("status")),
         "workload_device": _short(data.get("device")),
+        "result_schema_version": _result_version(data.get("result_schema_version")),
         **flat,
     }
+
+
+def _result_version(value: object) -> int | None:
+    version = _int(value)
+    return version if version is not None and version >= 1 else None
 
 
 def _manifest(manifest: Mapping[str, Any]) -> dict[str, Any]:

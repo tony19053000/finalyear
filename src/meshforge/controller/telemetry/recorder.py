@@ -113,10 +113,19 @@ _TERMINAL: Final = tuple(sorted(s.value for s in ATTEMPT_TERMINAL_STATES))
 type CampaignLookup = Callable[
     [AsyncSession, Collection[str]], Awaitable[Mapping[str, Mapping[str, Any]]]
 ]
-"""``(db, job_ids) -> {job_id: {campaign_id, group_id, config_id, repetition}}``."""
+"""``(db, job_ids) -> {job_id: {campaign_id, group_id, config_id, repetition,
+...}}``; the optional V0.9 G4 keys ``condition`` (canonical string),
+``session_label`` and ``condition_facts`` feed
+:func:`~.conditions.condition_outcome`, the v2 condition columns' one writer."""
 _REFUSED_SQLSTATE_CLASSES: Final = ("22", "23")
 """PostgreSQL refused the row for its data (data exception, constraint): the
 row is at fault, not the database - isolate it."""
+
+
+def _monotonic() -> float:
+    """The default rescan clock (looked up per call, so a test that patches
+    this module's ``time`` still moves it)."""
+    return time.monotonic()
 
 
 class TelemetryStoreError(MeshForgeError):
@@ -136,6 +145,7 @@ class RunRecorder:
         interval_s: float = 2.0,
         batch: int = DEFAULT_BATCH,
         campaign_of: CampaignLookup | None = None,
+        clock: Callable[[], float] | None = None,
     ) -> None:
         if interval_s <= 0 or batch < 1:
             raise ValueError("interval_s must be > 0 and batch >= 1")
@@ -145,6 +155,13 @@ class RunRecorder:
         self._interval_s = interval_s
         self._batch = batch
         self._campaign_of = campaign_of
+        self._clock: Callable[[], float] = clock if clock is not None else _monotonic
+        """Monotonic seconds for the past-cap rescan period (G4 item 0.11:
+        injectable, so a test never waits :data:`PAST_CAP_RESCAN_S`)."""
+        self.last_examined = 0
+        """Attempts the last sweep examined (written + skipped + already
+        written by another controller); :meth:`run` sweeps again at once when
+        it was a full batch (G4 item 0.10)."""
         """V0.9 G3 hook: the batch's job ids -> campaign identity, read in the
         sweep's own transaction (a job absent from the answer is not a
         benchmark); wired to ``controller.bench.store.campaign_identities``."""
@@ -323,7 +340,7 @@ class RunRecorder:
         """The watermark this sweep scans after (None = from the oldest)."""
         if not self.past_cap:
             return None
-        now = time.monotonic()
+        now = self._clock()
         if self._pass_done and now >= self._rescan_at:
             self._rescan_at = now + PAST_CAP_RESCAN_S
             self._pass_done = False
@@ -336,6 +353,7 @@ class RunRecorder:
         self._pending_skips = []
         self._pending_cap_alert = False
         self._pending_past_cap = 0
+        self.last_examined = 0
         after = self._scan_from()
         count = 0
         try:
@@ -370,6 +388,7 @@ class RunRecorder:
                 details={"cause": type(exc).__name__},
             ) from exc
         self._committed(attempts)
+        self.last_examined = len(attempts)
         self.written += count
         if count:
             log.info("controller.telemetry.records_written", count=count)
@@ -383,7 +402,7 @@ class RunRecorder:
                 self._skip.add(attempt_id)
             elif not self.past_cap:
                 self.past_cap = True
-                self._rescan_at = time.monotonic() + PAST_CAP_RESCAN_S
+                self._rescan_at = self._clock() + PAST_CAP_RESCAN_S
             self.skipped += 1
         if self._pending_cap_alert:
             self._cap_alerted = True
@@ -402,7 +421,11 @@ class RunRecorder:
 
     async def run(self) -> None:
         """Sweep until cancelled: at once, then every ``interval_s`` or on a
-        nudge; a full batch sweeps again at once (a backlog drains quickly)."""
+        nudge; a sweep that **examined** a full batch sweeps again at once (a
+        backlog drains quickly - also when the batch was all skips, e.g. a
+        past-cap forward pass, G4 item 0.10, D240). Each such sweep moves
+        forward (skips are excluded by id or passed by the watermark), so the
+        repeat ends when a sweep sees fewer than ``batch`` attempts."""
         while True:
             try:
                 written = await self.sweep()
@@ -422,7 +445,7 @@ class RunRecorder:
                     failures=self.failed_sweeps,
                 )
                 written = 0
-            if written >= self._batch:
+            if written >= self._batch or self.last_examined >= self._batch:
                 continue
             self._wake.clear()
             with contextlib.suppress(TimeoutError):
@@ -509,6 +532,7 @@ async def _sources(
             sources.append(_Skip(attempt.id, attempt.job_id))
             continue
         decision = decisions.get(attempt.id)
+        identity = campaigns.get(attempt.job_id)
         sources.append(
             RecordSource(
                 attempt_id=attempt.id,
@@ -539,7 +563,7 @@ async def _sources(
                 decision_shadow=None
                 if decision is None
                 else decision.shadow_chosen_node_id,
-                campaign=campaigns.get(attempt.job_id),
+                campaign=identity,
             )
         )
     return sources

@@ -77,7 +77,12 @@ from meshforge.common.manifest import (
 )
 from meshforge.common.tree import Tree, TreeEntry, TreeError, canonical_bytes
 from meshforge.controller.bench.conditions import NodePauses, filler_key, warmup_key
-from meshforge.controller.bench.store import BenchStore, CampaignRecord, RunRow
+from meshforge.controller.bench.store import (
+    BENCH_KEY_PREFIX,
+    BenchStore,
+    CampaignRecord,
+    RunRow,
+)
 from meshforge.controller.blobs import BlobError, BlobStore
 from meshforge.controller.jobs.env_health import env_key
 from meshforge.controller.jobs.placement import PlacementError, check_placement
@@ -88,6 +93,7 @@ from meshforge.controller.jobs.store import (
     JobStore,
 )
 from meshforge.controller.planner.inputs import workload_fingerprint
+from meshforge.controller.planner.types import RejectCode
 from meshforge.controller.registry import Registry
 from meshforge.controller.session.manager import SessionManager
 from meshforge.controller.store.engine import create_session_factory
@@ -103,10 +109,26 @@ __all__ = [
 
 log = get_logger(__name__)
 
-IDEMPOTENCY_PREFIX: Final = "bench:"
+IDEMPOTENCY_PREFIX: Final = BENCH_KEY_PREFIX
 _TRANSIENT_CODES_PREFIX: Final = "policy_"
 """Owner-policy refusals change when the owner changes their policy: deferred,
 not skipped (G5's owner guard builds on this)."""
+
+NODE_WIDE_DEFERRALS: Final = frozenset(
+    {
+        "",
+        RejectCode.POLICY_NOT_ACCEPTING.value,
+        RejectCode.POLICY_USER_NOT_ALLOWED.value,
+    }
+)
+"""Deferral reject codes that hold for every run on the node ("" = the node is
+not online / has no live session): :meth:`BenchSubmitter.submit_next` passes
+the node over for the rest of the call."""
+MAX_EXAMINED: Final = 2_000
+"""Most planned runs one :meth:`BenchSubmitter.submit_next` call examines
+(each costs a job-folder build and a placement check): bounds one request
+when most runs defer per run or are skipped."""
+_PAGE: Final = 200
 
 type Outcome = Literal["submitted", "deferred", "skipped", "already"]
 
@@ -124,6 +146,9 @@ class RunOutcome:
     outcome: Outcome
     job_id: str | None = None
     detail: str | None = None
+    node_wide: bool = False
+    """``deferred`` for a reason of the node, not of this run
+    (:data:`NODE_WIDE_DEFERRALS`): its other runs would defer too."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -236,15 +261,52 @@ class BenchSubmitter:
     async def submit_next(
         self, campaign: CampaignRecord, count: int
     ) -> list[RunOutcome]:
-        """Submit the next ``count`` planned runs in ``seq`` order. Raises
-        :class:`BenchSubmitError` (nothing after the failing run is tried)."""
-        planned = await self._store.runs(campaign.id, state="planned", limit=count)
+        """Submit up to ``count`` planned runs, in ``seq`` order. Raises
+        :class:`BenchSubmitError` (nothing after the failing run is tried).
+
+        **No head-of-line stall** (G4 item 0.5, D239.1): a *deferred* run does
+        not use up ``count`` - the call keeps paging through the planned runs
+        until ``count`` are submitted or the runs are exhausted. A node that
+        deferred a run for a **node-wide** reason (offline, no live session,
+        its owner accepts no jobs / not from this campaign's owner:
+        :data:`NODE_WIDE_DEFERRALS`) is passed over for the rest of the call,
+        in SQL - its later runs are neither tried nor listed, so a busy node
+        holding the head of a 100 000-run campaign costs one try. A deferral
+        that depends on the job (an owner RAM / CPU limit...) is per run. At
+        most :data:`MAX_EXAMINED` runs are examined per call; skipped and
+        ``already`` runs are listed but do not count as submitted."""
         owner_name = await self._owner_name(campaign.created_by)
-        outcomes = [
-            await self.submit_run(campaign, run, owner_name=owner_name)
-            for run in planned
-        ]
-        if self._wake is not None and any(o.outcome == "submitted" for o in outcomes):
+        outcomes: list[RunOutcome] = []
+        passed_over: set[str] = set()
+        after_seq = 0
+        examined = submitted = 0
+        while submitted < count and examined < MAX_EXAMINED:
+            limit = min(_PAGE, MAX_EXAMINED - examined)
+            page = await self._store.runs(
+                campaign.id,
+                state="planned",
+                after_seq=after_seq,
+                limit=limit,
+                exclude_nodes=sorted(passed_over),
+            )
+            if not page:
+                break
+            for run in page:
+                after_seq = run.seq
+                if run.node_id in passed_over:
+                    continue  # deferred earlier on this page
+                examined += 1
+                outcome = await self.submit_run(campaign, run, owner_name=owner_name)
+                outcomes.append(outcome)
+                if outcome.outcome == "submitted":
+                    submitted += 1
+                    if submitted >= count:
+                        break
+                elif outcome.outcome == "deferred" and outcome.node_wide:
+                    passed_over.add(run.node_id)
+            if len(page) < limit:
+                break
+        if self._wake is not None and submitted:
             self._wake()
         return outcomes
 
@@ -388,18 +450,26 @@ class BenchSubmitter:
             raise TreeError("the benchmark tree did not round-trip the blob store")
 
     async def _refused(self, run: RunRow, exc: PlacementError) -> RunOutcome:
-        code = str(exc.details.get("reject_code") or "")
+        refusal = str(exc.details.get("reject_code") or "")
         if exc.failure_type is FailureType.NOT_FOUND:
             return await self._skip(run, "the node no longer exists")
-        if not code or code.startswith(_TRANSIENT_CODES_PREFIX):
+        if not refusal or refusal.startswith(_TRANSIENT_CODES_PREFIX):
             log.info(
                 "controller.bench.run_deferred",
                 run_id=run.id,
                 node_id=run.node_id,
                 reason=exc.message,
             )
-            return RunOutcome(run.id, run.seq, "deferred", detail=exc.message)
-        return await self._skip(run, f"the node cannot run it: {exc.message} ({code})")
+            return RunOutcome(
+                run.id,
+                run.seq,
+                "deferred",
+                detail=exc.message,
+                node_wide=refusal in NODE_WIDE_DEFERRALS,
+            )
+        return await self._skip(
+            run, f"the node cannot run it: {exc.message} ({refusal})"
+        )
 
     async def _skip(self, run: RunRow, detail: str) -> RunOutcome:
         moved = await self._store.mark_skipped(run.id, detail)

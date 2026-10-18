@@ -2,8 +2,8 @@
 
 The agent's ``ConditionReport`` parse, the record's condition outcome and
 failure class, the filler / warm-up keys and the node pauses. The two record
-columns (``condition``, ``condition_measured``) come with lane A's schema v2;
-until then a test stub adds them to the column list to prove the fill.
+columns (``condition``, ``condition_measured``) are schema v2's (lane A);
+``condition_outcome`` is their one writer, through lane A's sanitisers.
 """
 
 from __future__ import annotations
@@ -312,27 +312,84 @@ def test_record_class_is_condition_failed_when_the_condition_did_not_hold() -> N
     assert plain["failure_class"] == FailureClass.OK.value
 
 
-def test_record_fills_the_v2_condition_columns_once_the_schema_has_them(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Stub of lane A's schema v2 (migration 0023): the columns exist ->
-    build_record fills them; before the merge they are absent."""
-    assert (
-        "condition" not in build_record(_source())
-        or record_module._HAS_CONDITION_COLUMNS
-    )
-    monkeypatch.setattr(
-        record_module,
-        "COLUMN_NAMES",
-        (*record_module.COLUMN_NAMES, "condition", "condition_measured"),
-    )
-    monkeypatch.setattr(record_module, "_HAS_CONDITION_COLUMNS", True)
+def test_record_fills_the_v2_condition_columns() -> None:
+    """Schema v2 (migration 0023) has the columns; condition_outcome is their
+    one writer (RecordSource has no condition fields of its own)."""
+    assert {"condition", "condition_measured"} <= set(record_module.COLUMN_NAMES)
+    assert not hasattr(RecordSource, "condition")
+    assert not hasattr(RecordSource, "condition_measured")
     record = build_record(_source())
     assert record["condition"] == "cpu_load:1"
     assert record["condition_measured"]["verified"] is True
     assert record["condition_measured"]["agent"] == {"load_cores": 1.0}
+    assert record["condition_measured"]["session_label"] == "wifi"
     plain = build_record(_source(campaign=None, workload=None))
     assert plain["condition"] is None and plain["condition_measured"] is None
+
+
+def test_non_finite_agent_measurements_are_stored_as_null() -> None:
+    """A NaN / inf inside the agent's reported ``measured`` dict passes
+    through lane A's ``_finite_json``: the record is kept, those values null,
+    and the JSON is storable (JSONB / canonical export refuse NaN)."""
+    report = _report(
+        "cpu_load:1",
+        load_cores=float("nan"),
+        peak=float("inf"),
+        samples=[1.0, float("-inf")],
+        nested={"x": float("nan"), "ok": 2.5},
+    )
+    record = build_record(_source(workload={**_source().workload, **report}))
+    assert record["condition"] == "cpu_load:1"
+    measured = record["condition_measured"]
+    assert measured["agent"] == {
+        "load_cores": None,
+        "peak": None,
+        "samples": [1.0, None],
+        "nested": {"x": None, "ok": 2.5},
+    }
+    assert measured["verified"] is True
+    json.dumps(record["condition_measured"], allow_nan=False)
+    assert record["failure_class"] == FailureClass.OK.value
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "",
+        " ",
+        "bogus:1",
+        "cpu_load:x",
+        "CPU_LOAD:1",
+        "cpu_load:1 ",
+        "a\x00b",
+        "netem:" + "x" * 200,
+    ],
+)
+def test_blank_or_non_canonical_condition_is_stored_null(text: str) -> None:
+    """Reviewer follow-up (lane A): a stored campaign condition that is blank
+    or not a canonical ``name[:arg]`` never reaches the ``condition`` column;
+    the run is condition_failed (an unverifiable condition is never ok)."""
+    record = build_record(_source(campaign=_identity(text), workload=None))
+    assert record["condition"] is None
+    assert record["failure_class"] == FailureClass.CONDITION_FAILED.value
+    assert record["condition_measured"]["verified"] is False
+    assert record["condition_measured"]["session_label"] == "wifi"
+
+
+def test_canonical_guard_rejects_parsable_but_non_canonical_text() -> None:
+    """The record-path guard itself: text must round-trip through the grammar."""
+    guard = record_module._canonical_condition
+    assert guard("cpu_load:1") == "cpu_load:1"
+    assert guard("none") == "none"
+    assert guard("netem:delay=50ms,loss=1%") == "netem:delay=50ms,loss=1%"
+    for bad in [None, 7, "", "nope", "x" * 129, "a\x00b"]:
+        assert guard(bad) is None
+    for parsable in ["netem:loss=1%,delay=50ms", "unavailable:5", "queue:02"]:
+        assert parse_condition(parsable).canonical() != parsable
+        assert guard(parsable) is None
+    # the outcome canonicalises a parsable campaign condition before the guard
+    record = build_record(_source(campaign=_identity("queue:02", fillers_ahead=2)))
+    assert record["condition"] == "queue:2"
 
 
 # ------------------------------------------------------------ keys + pauses

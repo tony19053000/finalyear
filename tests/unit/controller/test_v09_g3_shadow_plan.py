@@ -64,7 +64,10 @@ def _planner(policy: str = "cost_model") -> DispatchPlanner:
     )
 
 
-def _job(node_id: str | None) -> JobRecord:
+def _job(node_id: str | None, *, bench: bool = True) -> JobRecord:
+    """A queued job; pinned to ``node_id`` when given. ``bench``: a campaign's
+    forced run (its ``bench:<run_id>`` key) - since G4 item 0.8 only those get
+    a shadow plan."""
     now = dt.datetime.now(dt.UTC)
     return JobRecord(
         id=str(new_job_id()),
@@ -76,7 +79,7 @@ def _job(node_id: str | None) -> JobRecord:
         placement={"mode": "offload", "node_id": node_id}
         if node_id
         else {"mode": "auto"},
-        idempotency_key=None,
+        idempotency_key=f"bench:brun_{node_id}" if bench and node_id else None,
         request_hash="h" * 64,
         attempt_epoch=0,
         failure_type=None,

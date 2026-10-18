@@ -273,9 +273,13 @@ def test_conditions_campaign_on_two_nodes_with_a_forced_failure(
             assert measured["agent"]["blobs_hit"] == 0
         if condition == "queue:2":
             assert measured["controller"]["fillers_ahead"] == 2
-        if "condition" in COLUMN_NAMES:  # lane A's schema v2 merged
-            assert record["condition"] == condition
-            assert json.loads(record["condition_measured"])["verified"] is True
+        # schema v2 columns, written by the one writer (condition_outcome)
+        assert {"condition", "condition_measured"} <= set(COLUMN_NAMES)
+        assert record["condition"] == condition
+        stored = json.loads(record["condition_measured"])
+        assert stored["verified"] is True
+        assert stored["session_label"] == "harness-loopback"
+        assert stored == json.loads(json.dumps(measured))  # same as the outcome
 
     # ---------------------------------------------------- forced failure
     failing = _create_and_run(
@@ -292,6 +296,9 @@ def test_conditions_campaign_on_two_nodes_with_a_forced_failure(
     failed_records = pq.read_table(io.BytesIO(_export(fabric, failing, 3))).to_pylist()
     assert {r["failure_class"] for r in failed_records} == {"condition_failed"}
     assert {r["failure_type"] for r in failed_records} == {"config_error"}
+    for record in failed_records:
+        assert record["condition"] == "netem:loss=1%"
+        assert json.loads(record["condition_measured"])["verified"] is False
     forced = asyncio.run(_outcomes(pg_settings, [r["job_id"] for r in failed_runs]))
     forced.pop("__fillers__")
     for outcome in forced.values():

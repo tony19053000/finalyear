@@ -9,6 +9,9 @@
   ``submitted -> done | failed`` when the linked job is terminal
   (:meth:`~BenchStore.sync`, one ``UPDATE ... FROM job``; G3 runs it lazily on
   every campaign read and submit - there is no background loop until G5).
+  ``sync`` also links a ``planned`` run whose job was committed but never
+  linked (a crash in between, G4 item 0.6) and stamps ``ended_at`` with the
+  job's final transition time (G4 item 0.7).
   A campaign is ``done`` once no run is ``planned`` or ``submitted``.
 * :func:`campaign_identities` is the run-record recorder's lookup (D212):
   ``job_id -> {campaign_id, group_id, config_id, repetition, run_id}`` for a
@@ -48,7 +51,7 @@ from meshforge.controller.store.models.bench import (
     BenchCampaign,
     BenchRun,
 )
-from meshforge.controller.store.models.job import Job
+from meshforge.controller.store.models.job import Job, JobTransition
 
 __all__ = [
     "MAX_LIST",
@@ -62,6 +65,9 @@ __all__ = [
 log = get_logger(__name__)
 
 MAX_LIST: Final = 1_000
+BENCH_KEY_PREFIX: Final = "bench:"
+"""The Idempotency-Key prefix of a forced run's job (``bench:<run_id>``);
+:data:`.submit.IDEMPOTENCY_PREFIX` is this value."""
 _INSERT_CHUNK: Final = 1_000
 _TERMINAL: Final = tuple(sorted(s.value for s in JOB_TERMINAL_STATES))
 _OPEN_RUN_STATES: Final = ("planned", "submitted")
@@ -331,8 +337,10 @@ class BenchStore:
         state: str | None = None,
         after_seq: int = 0,
         limit: int = 100,
+        exclude_nodes: Collection[str] = (),
     ) -> list[RunRow]:
-        """Runs in ``seq`` order, after ``after_seq`` (keyset paging)."""
+        """Runs in ``seq`` order, after ``after_seq`` (keyset paging), except
+        those on ``exclude_nodes`` (the submitter's passed-over nodes)."""
         limit = max(1, min(limit, MAX_LIST))
         query = (
             select(BenchRun)
@@ -342,6 +350,8 @@ class BenchStore:
         )
         if state is not None:
             query = query.where(BenchRun.state == state)
+        if exclude_nodes:
+            query = query.where(BenchRun.node_id.not_in(sorted(exclude_nodes)))
         async with self._sessions() as db:
             return [_run(r) for r in await db.scalars(query)]
 
@@ -382,9 +392,22 @@ class BenchStore:
 
     @_typed
     async def sync(self, campaign_id: str | None = None) -> int:
-        """Move ``submitted`` runs whose job ended to ``done`` (job succeeded) or
-        ``failed``; close campaigns with no open run. The runs moved."""
+        """Link ``planned`` runs whose job exists (:meth:`_link_orphans`), move
+        ``submitted`` runs whose job ended to ``done`` (job succeeded) or
+        ``failed`` - ``ended_at`` = the job's **final transition** time from its
+        history (G4 item 0.7, D239.3; ``Job.updated_at`` also moves when a
+        terminal job is touched later, e.g. a late cancel request), else
+        ``updated_at`` for a job with no history row - and close campaigns
+        with no open run. The runs moved to ``done`` / ``failed``."""
         async with self._sessions() as db, db.begin():
+            await self._link_orphans(db, campaign_id)
+            final_at = (
+                select(JobTransition.at)
+                .where(JobTransition.job_id == Job.id)
+                .order_by(JobTransition.seq.desc())
+                .limit(1)
+                .scalar_subquery()
+            )
             moved = await db.execute(
                 update(BenchRun)
                 .where(
@@ -413,7 +436,7 @@ class BenchStore:
                             MAX_RUN_DETAIL_CHARS,
                         ),
                     ),
-                    ended_at=Job.updated_at,
+                    ended_at=func.coalesce(final_at, Job.updated_at),
                 )
                 .execution_options(synchronize_session=False)
             )
@@ -443,5 +466,42 @@ class BenchStore:
         if count:
             log.info(
                 "controller.bench.runs_ended", count=count, campaign_id=campaign_id
+            )
+        return count
+
+    async def _link_orphans(self, db: AsyncSession, campaign_id: str | None) -> int:
+        """G4 item 0.6 (D239.2): a crash between the job's commit and the run's
+        ``planned -> submitted`` link leaves a ``planned`` run whose job exists
+        under its ``bench:<run_id>`` Idempotency-Key; link it (``submitted_at``
+        = the job's ``created_at``) so the run is not left planned - or tried
+        again - and its job counts. Only a job that **is** that run's is linked:
+        same key, owned by the campaign's creator, pinned to the run's node
+        and submitted from its origin (a user cannot plant a job on a run). One
+        ``UPDATE ... FROM job`` (the key is unique-indexed)."""
+        linked = await db.execute(
+            update(BenchRun)
+            .where(
+                BenchRun.state == "planned",
+                BenchRun.job_id.is_(None),
+                Job.idempotency_key == func.concat(BENCH_KEY_PREFIX, BenchRun.id),
+                BenchCampaign.id == BenchRun.campaign_id,
+                Job.owner_user_id.is_not_distinct_from(BenchCampaign.created_by),
+                Job.submitter_node_id == BenchRun.origin_node_id,
+                Job.placement["node_id"].astext == BenchRun.node_id,
+                *(
+                    ()
+                    if campaign_id is None
+                    else (BenchRun.campaign_id == campaign_id,)
+                ),
+            )
+            .values(state="submitted", job_id=Job.id, submitted_at=Job.created_at)
+            .execution_options(synchronize_session=False)
+        )
+        count = int(getattr(linked, "rowcount", 0) or 0)
+        if count:
+            log.warning(
+                "controller.bench.orphan_jobs_linked",
+                count=count,
+                campaign_id=campaign_id,
             )
         return count

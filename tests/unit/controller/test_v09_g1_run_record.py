@@ -110,7 +110,7 @@ def _source(**overrides: Any) -> RecordSource:
 
 def test_a_bench_record_carries_every_d212_field() -> None:
     r = build_record(_source())
-    assert r["schema_version"] == 1 and r["failure_class"] == "ok"
+    assert r["schema_version"] == 2 and r["failure_class"] == "ok"  # v2 since G4
     assert r["strategy"] == "mode1" and r["placement_mode"] == "pinned"
     assert r["planner_node_id"] is None  # pinned: the planner did not choose
     assert r["planner_estimate_s"] == 2.5
