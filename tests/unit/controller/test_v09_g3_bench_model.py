@@ -17,3 +17,10 @@ def test_store_strategies_match_the_bench_enum_and_the_record() -> None:
 
 def test_run_states() -> None:
     assert RUN_STATES == ("planned", "submitted", "done", "failed", "skipped")
+
+
+def test_queue_reads_bench_prefix_copy_matches_the_submitter() -> None:
+    from meshforge.controller.bench.submit import IDEMPOTENCY_PREFIX
+    from meshforge.controller.jobs.queue_reads import BENCH_IDEMPOTENCY_PREFIX
+
+    assert BENCH_IDEMPOTENCY_PREFIX == IDEMPOTENCY_PREFIX

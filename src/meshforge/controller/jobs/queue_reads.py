@@ -5,7 +5,8 @@ D104-D106, D108, D112).
 priority first, then the time the job entered the queue. Effective priority =
 ``LEAST(10, priority + floor(waited / priority_aging_s))`` - waiting raises a
 job by one level per aging period up to the top level, so even a ``-10`` job
-reaches the front eventually (ties go to the longer wait). Jobs whose retry
+reaches the front eventually (ties go to the longer wait) - **except benchmark
+jobs** (V0.9 G3, D235), which never age and so never pass a user job. Jobs whose retry
 ``not_before`` is still ahead are skipped. ``FOR UPDATE SKIP LOCKED`` as since
 V0.4: two dispatchers never take one job.
 
@@ -48,7 +49,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any, Final
 
-from sqlalchemy import DateTime, Float, and_, cast, func, literal, or_, select
+from sqlalchemy import DateTime, Float, and_, case, cast, func, literal, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from meshforge.common.manifest import MAX_PRIORITY
@@ -63,6 +64,7 @@ from meshforge.controller.planner.types import (
     LinkStat,
 )
 from meshforge.controller.store.models.auth import AppUser
+from meshforge.controller.store.models.bench import BenchRun
 from meshforge.controller.store.models.cache import CacheLocation
 from meshforge.controller.store.models.data import JobInput, NamedInput
 from meshforge.controller.store.models.job import Attempt, AttemptPhaseRow, Job
@@ -179,12 +181,36 @@ def _now(now: dt.datetime) -> Any:
     return literal(now, DateTime(timezone=True))
 
 
+BENCH_IDEMPOTENCY_PREFIX: Final = "bench:"
+"""Literal copy of ``controller.bench.submit.IDEMPOTENCY_PREFIX`` (a unit test
+holds them equal; this module must not import the bench package)."""
+
+
+def _is_benchmark() -> Any:
+    """V0.9 G3 fix r1 (D235): the job is a campaign's forced run - linked from
+    ``bench_run.job_id``, or carrying the ``bench:<run_id>`` Idempotency-Key the
+    submitter sets in the job's own INSERT (so the short window before the link
+    commits, or a crash inside it, is covered too)."""
+    linked = select(BenchRun.id).where(BenchRun.job_id == Job.id).exists()
+    keyed = and_(
+        Job.idempotency_key.is_not(None),
+        func.left(Job.idempotency_key, len(BENCH_IDEMPOTENCY_PREFIX))
+        == BENCH_IDEMPOTENCY_PREFIX,
+    )
+    return or_(linked, keyed)
+
+
 def _effective_priority(now: dt.datetime, aging_s: float) -> Any:
+    """See the module docstring. **Benchmark jobs never age** (D215/D235): they
+    keep their submitted (lowest) priority however long they wait, so a fresh
+    user job is always dispatched before them - the fabric has no pre-emption,
+    so "never ahead of user jobs" must hold in the queue order itself."""
     waited = func.date_part(
         "epoch", _now(now) - func.coalesce(Job.queued_at, Job.created_at)
     )
     aged = func.floor(cast(waited, Float) / aging_s)
-    return func.least(MAX_PRIORITY, Job.priority + func.greatest(aged, 0))
+    lift = case((_is_benchmark(), 0), else_=func.greatest(aged, 0))
+    return func.least(MAX_PRIORITY, Job.priority + lift)
 
 
 async def queued_jobs(
