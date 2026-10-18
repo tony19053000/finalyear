@@ -39,7 +39,9 @@ def _windows_rename(
     def rename(src: Any, dst: Any) -> None:
         seen.append((Path(src).name, Path(dst).name))
         if Path(dst).exists():
-            raise FileExistsError(183, "Cannot create a file when that file already exists")
+            raise FileExistsError(
+                183, "Cannot create a file when that file already exists"
+            )
         if fail_final and Path(src).name.startswith(".j.building-") and len(seen) > 1:
             raise PermissionError(5, "Access is denied")
         real(src, dst)

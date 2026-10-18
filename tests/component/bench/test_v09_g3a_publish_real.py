@@ -31,9 +31,9 @@ def test_build_onto_an_existing_empty_folder_with_the_host_rename(
     dest.mkdir()
     job = build_job(FAM, get_family(FAM).smallest_params(), 1, dest)
     load_manifest(dest)
-    assert {p.relative_to(dest).as_posix() for p in dest.rglob("*") if p.is_file()} == set(
-        job.files
-    )
+    assert {
+        p.relative_to(dest).as_posix() for p in dest.rglob("*") if p.is_file()
+    } == set(job.files)
     # no staging folder and no aside folder left next to it
     assert [p.name for p in tmp_path.iterdir()] == ["j"], sys.platform
 
