@@ -842,6 +842,25 @@ Benchmarks run through **the same code paths as users** — so benchmark data re
 - The agent's live-log redaction runs in one worker thread per attempt (D224), so benchmark load cannot stall its
   event loop (heartbeats, pongs, reports).
 
+*V0.9 G3 (D215, D216, D232) - campaigns and forced runs (`docs/BENCHMARKS.md` "Campaign spec", "Forced runs"):*
+
+- **Package boundary:** `meshforge.bench` (workload library + `bench/campaign.py`, the spec and its pure,
+  deterministic expansion) imports only `common`; the controller and the CLI import it, never the reverse
+  (import-linter). `compute bench plan` expands on the laptop; the controller expands again at create.
+- **State in PostgreSQL** (migration 0022): `bench_campaign` (spec + digest, seed, state, summary) and `bench_run`
+  (one row per planned run, `seq` order, state `planned|submitted|done|failed|skipped`, `job_id` unique). The
+  benchmark identity of a job **is** the `bench_run.job_id` link - no column on `job`. `controller/bench/store.py`
+  is its one writer; run states advance by compare-and-set and lazily from job states on every campaign read
+  (no background loop until G5's runner).
+- **Forced submission** (`controller/bench/submit.py`): the run's job folder as an in-memory tree (same tree id
+  as `compute run` on the folder), blobs into the blob store under its GC guard, the pinned placement check, and
+  `JobStore.create_queued_job` - the jobs API's own path, no HTTP self-call, no planner bypass; lowest priority,
+  Idempotency-Key `bench:<run_id>`. API `/v1/bench/campaigns[/{id}[/runs|/submit]]`, admin only.
+- **Would-have-chosen** (`jobs/planning.py`): a pinned job that dispatches is also planned unpinned on the same
+  snapshot (pure; no reservation, round-robin pointer untouched, a failure never blocks the dispatch); the
+  choice is `plan_decision.shadow_chosen_node_id` and the run record's `planner_node_id`. The recorder reads the
+  campaign identity of a sweep's jobs in one batched query inside its own transaction.
+
 ---
 
 ## 18. ML subsystem
@@ -907,7 +926,7 @@ Schema is managed with SQLAlchemy 2.0 + Alembic migrations. Large logs and outpu
 - **Peer blob HTTP** (agent, V0.5 G4, D97/D98; default port 47120, off until `[agent.peer] bind`): `GET`/`HEAD /v1/blobs/{sha256 hex}` with `Authorization: Bearer <peer token>` and an optional single `Range` - nothing else (§14). **Requester binding (enforced since V0.7 G3):** a peer token names its requester (`req`); over mutual TLS the holder serves it only when `req` equals the client certificate's node id (else `403 wrong_requester`; probes `probe_wrong_requester`), so a captured token is useless to any other node. Tokens live <= 60 s (V0.7 G3; before: 10 min). Before V0.7 the binding was advisory (bearer token, any LAN host); `insecure-dev` (loopback only, plain HTTP) still has no identity to bind to.
 - `GpuService` (on GPU nodes) — `OpenSession`, `PutTensor(stream)`, `LoadModule`, `Call`, `GetTensor(stream)`, `Free`, `TrainStep`, `AllReduce*`, `CloseSession`.
 
-**REST (external, versioned `/v1`)** — `nodes`, `jobs` (POST with `Idempotency-Key`), `jobs/{id}` `/plan` `/logs` (WebSocket) `/cancel` `/outputs`, `blobs` (has/upload), `accelerator-requests` (SDK placement), `benchmarks`, `telemetry/export`, `fabric` (create/invite/join/revoke), `auth`.
+**REST (external, versioned `/v1`)** — `nodes`, `jobs` (POST with `Idempotency-Key`), `jobs/{id}` `/plan` `/logs` (WebSocket) `/cancel` `/outputs`, `blobs` (has/upload), `accelerator-requests` (SDK placement), `bench/campaigns` (V0.9 G3), `telemetry/export`, `fabric` (create/invite/join/revoke), `auth`.
 
 *Shipped in V0.3 (roadmap 0.3.12), read-only and unauthenticated (see `docs/OPERATIONS.md` §0):*
 `GET /healthz` · `GET /v1/nodes?limit=` · `GET /v1/nodes/{node_id}` (V0.5 G4 adds `peer_endpoint` and `cache: {kind: {count, bytes}}`) · `GET /v1/nodes/{node_id}/resources?since=&until=&limit=&live_limit=` · `GET /v1/sessions?node_id=&limit=`.

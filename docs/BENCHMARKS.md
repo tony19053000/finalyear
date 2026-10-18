@@ -196,3 +196,64 @@ Exit codes: **0** ok, **2** bad parameters, **3** unavailable on this node, **4*
    (measure it: `calibrated(units_per_second_on_laptop_1, metric)`), `ram_gb`/`vram_gb`; `register(...)`.
 3. Tests: `tests/unit/bench/` (tiny-size kernel run, a wrong output fails its check) - the registry, monotonic,
    window, materialise and CLI tests pick the new family up by themselves.
+
+## Campaign spec
+
+A **campaign** measures families x parameters x conditions x strategies x nodes, every configuration repeated
+(at least 3 times) so its noise can be judged. It is a YAML file; the annotated example is
+[`examples/bench/cpu-baseline.yaml`](../examples/bench/cpu-baseline.yaml).
+
+```bash
+compute bench plan examples/bench/cpu-baseline.yaml       # expand against the live nodes: count, hours, first runs
+compute bench plan spec.yaml --node node_01... --node ...  # the same offline, for named node ids
+compute bench create spec.yaml                             # store it (admin): prints camp_...
+compute bench campaigns [camp_...]                         # list (runs per state) / one with its spec
+compute bench submit camp_... -n 10 [--wait]               # submit the next 10 planned runs
+compute bench runs camp_... [--state failed]               # the runs, in execution order
+compute telemetry export --campaign camp_... -o c.parquet  # its run records (TELEMETRY.md)
+```
+
+| Key | Meaning |
+|---|---|
+| `version` | spec format, `1` |
+| `name` | 1-64 of `a-z 0-9 . _ -` |
+| `seed` | drives parameter sampling, the run order and each group's workload seed |
+| `families[]` | `{family, params}`; a param is one value, a list of values, or a range `{min, max, log?, int?, steps?}`; unnamed params keep the family default |
+| `conditions` | v1: only `none` (G4 adds load, cache, network, ...); an unknown name is an error naming it |
+| `strategies` | `local` (run on the origin itself) and/or `mode1` (run on every other node, submitted from the origin) |
+| `nodes` | `all` (enrolled, not revoked) or a list of node ids / host names |
+| `origin` | the submitting laptop; omitted = every node is the origin in turn (local on itself, mode1 on each other node) |
+| `repetitions` | 3..100 |
+| `sampler` | `grid` (cross product; a range needs `steps`), `random` or `lhs` (both need `samples: N`) |
+| `on_invalid` | a point outside a family's limits (its model or the 5 s - 3 min window): `error` (default) or `drop` (dropped **and counted**) |
+| `budget` | `max_runs` (required, <= 100000) and `max_hours` (optional): exceeding either is an error with the count, never a silent cut |
+
+**Expansion** (`meshforge.bench.campaign.expand`, pure): parameter points per family -> **groups** (family +
+params + conditions; `group_id` = `grp_` + digest) -> **configurations** (group x strategy x node x origin;
+`config_id` = `cfg_` + digest) -> runs. Order: `repetitions` rounds, each visiting **every** configuration once
+in an order shuffled by (seed, round), so drift over a night spreads over all configurations. The same spec,
+seed and node ids give the same run list byte for byte, on any machine: every random draw comes from a SHA-256
+counter stream, not Python's `random`, and LHS is our own (each non-fixed parameter's range cut into `samples`
+strata, every stratum used once). The hour estimate is each family's `expected_runtime_s` on the reference mid
+laptop + 15 s per run (staging, env, collect).
+
+The controller expands the spec **once**, at `create`, against the nodes enrolled then, and stores every run
+(`bench_campaign`, `bench_run`; migration 0022). Runs move `planned -> submitted -> done | failed`, or `planned ->
+skipped` with a reason; a campaign is `done` when no run is planned or submitted.
+
+## Forced runs
+
+Each run becomes an **ordinary job** (D215): its folder from the workload library, pinned to the run's node
+(`mode: local` on the origin, `offload` elsewhere), `submitter_node_id` = the origin, at the **lowest priority**
+(-10: a user's job queued later is dispatched first; benchmarks never pre-empt), owned by the campaign's creator.
+The planner still plans it - and, because it is pinned, also plans the same request **unpinned** as a
+side-effect-free shadow: the node it *would* have chosen is stored on the decision (`compute explain`,
+`shadow_chosen_node_id`) and becomes the run record's `planner_node_id`, so every record of a forced run also
+says what the planner would have done (the V0.14 regret metric). The run record carries `campaign_id`,
+`group_id`, `config_id` and `repetition` from the `bench_run.job_id` link.
+
+`submit` is idempotent per run (the job's Idempotency-Key is `bench:<run_id>`). A run whose node is offline, has
+no session or whose owner currently refuses jobs is **deferred** (stays planned; the next submit tries it again);
+one that can never run as planned (node deleted, cannot give the job what it needs - e.g. a GPU family on a
+CPU-only node -, parameters the library now refuses) is **skipped** with the reason. Until V0.9 G5's resumable
+runner, `submit` is the only driver: nothing runs in the background.

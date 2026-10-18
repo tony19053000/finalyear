@@ -354,3 +354,25 @@ def test_load_spec_refusals() -> None:
 def test_sampler_enum_values() -> None:
     assert {s.value for s in Sampler} == {"grid", "random", "lhs"}
     assert math.isclose(Range(min=0, max=1).at(1.0), 1.0)
+
+
+@pytest.mark.security
+def test_a_spec_names_registered_families_only_never_code() -> None:
+    """THREAT_MODEL RE-E3: a campaign is job submission at scale, so its spec can
+    only name registered families with bounded, validated parameters - no
+    entrypoint, file, image or code field exists, and the run count is capped."""
+    for smuggled in (
+        {"entrypoint": ["sh", "-c", "id"]},
+        {"code": "import os"},
+        {"image": "evil:latest"},
+    ):
+        with pytest.raises(CampaignSpecError):
+            spec(**smuggled)
+        with pytest.raises(CampaignSpecError):
+            spec(families=[{"family": "cpu.sort", **smuggled}])
+    with pytest.raises(CampaignSpecError):
+        spec(families=[{"family": "../../etc/passwd"}])
+    with pytest.raises(CampaignSpecError):  # outside the family's own model
+        expand(spec(families=[{"family": "cpu.sort", "params": {"n": 10**12}}]), NODES)
+    with pytest.raises(CampaignSpecError):
+        spec(budget={"max_runs": HARD_MAX_RUNS + 1})

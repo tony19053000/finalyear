@@ -97,7 +97,7 @@ Types: `text`, `int64`, `float64`, `bool`, `json` (JSONB / canonical JSON text i
 | `strategy` | text | no | local = ran on the submitter's node; mode1 = elsewhere. |
 | `placement_mode` | text | no | pinned (forced node) or auto (planner chose). |
 | `policy` | text | yes | Placement policy the planner used. |
-| `planner_node_id` | text | yes | Node the planner chose (auto jobs; null when pinned — G3 adds the would-have-chosen node). |
+| `planner_node_id` | text | yes | Node the planner chose (auto) or would have chosen unpinned (pinned: the V0.9 G3 shadow plan, D215, `plan_decision.shadow_chosen_node_id`); null = none feasible, or a decision from before G3. |
 | `planner_estimate_s` | float64 | yes | The planner's estimate for the node used (s). |
 | `workload_family` | text | yes | Benchmark family (results/workload.json); null = not a benchmark. |
 | `workload_params` | json | yes | Benchmark parameters as the workload reported them. |
