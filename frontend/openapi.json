@@ -702,6 +702,94 @@
         "title": "CandidateOut",
         "type": "object"
       },
+      "ConfigLabelOut": {
+        "additionalProperties": false,
+        "properties": {
+          "bytes": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MetricStats"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "compute_per_iter_ns": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MetricStats"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "config_id": {
+            "title": "Config Id",
+            "type": "string"
+          },
+          "node_id": {
+            "title": "Node Id",
+            "type": "string"
+          },
+          "origin_node_id": {
+            "title": "Origin Node Id",
+            "type": "string"
+          },
+          "planner_node_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Planner Node Id"
+          },
+          "repetitions": {
+            "title": "Repetitions",
+            "type": "integer"
+          },
+          "state": {
+            "enum": [
+              "measured",
+              "unsupported"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "strategy": {
+            "title": "Strategy",
+            "type": "string"
+          },
+          "total_ms": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MetricStats"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "config_id",
+          "strategy",
+          "node_id",
+          "origin_node_id",
+          "state",
+          "repetitions",
+          "planner_node_id",
+          "total_ms",
+          "compute_per_iter_ns",
+          "bytes"
+        ],
+        "title": "ConfigLabelOut",
+        "type": "object"
+      },
       "ControllerLinkOut": {
         "additionalProperties": false,
         "properties": {
@@ -1172,6 +1260,147 @@
           "vram_total_bytes"
         ],
         "title": "GpuUsage",
+        "type": "object"
+      },
+      "GroupLabelOut": {
+        "additionalProperties": false,
+        "properties": {
+          "best_config_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Config Id"
+          },
+          "best_node_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Node Id"
+          },
+          "best_strategy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Strategy"
+          },
+          "condition": {
+            "title": "Condition",
+            "type": "string"
+          },
+          "configs": {
+            "items": {
+              "$ref": "#/components/schemas/ConfigLabelOut"
+            },
+            "title": "Configs",
+            "type": "array"
+          },
+          "family": {
+            "title": "Family",
+            "type": "string"
+          },
+          "group_id": {
+            "title": "Group Id",
+            "type": "string"
+          },
+          "label": {
+            "enum": [
+              "best",
+              "tie",
+              "insufficient",
+              "pending"
+            ],
+            "title": "Label",
+            "type": "string"
+          },
+          "margin_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Margin Pct"
+          },
+          "params": {
+            "additionalProperties": true,
+            "title": "Params",
+            "type": "object"
+          },
+          "planner_agrees": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Planner Agrees"
+          },
+          "planner_node_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Planner Node Id"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "tied_config_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tied Config Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "group_id",
+          "family",
+          "condition",
+          "params",
+          "label",
+          "best_config_id",
+          "best_strategy",
+          "best_node_id",
+          "margin_pct",
+          "tied_config_ids",
+          "planner_node_id",
+          "planner_agrees",
+          "reason",
+          "configs"
+        ],
+        "title": "GroupLabelOut",
         "type": "object"
       },
       "Health": {
@@ -1840,6 +2069,74 @@
         "title": "JobSummary",
         "type": "object"
       },
+      "LabelCounts": {
+        "additionalProperties": false,
+        "properties": {
+          "best": {
+            "default": 0,
+            "title": "Best",
+            "type": "integer"
+          },
+          "insufficient": {
+            "default": 0,
+            "title": "Insufficient",
+            "type": "integer"
+          },
+          "pending": {
+            "default": 0,
+            "title": "Pending",
+            "type": "integer"
+          },
+          "tie": {
+            "default": 0,
+            "title": "Tie",
+            "type": "integer"
+          }
+        },
+        "title": "LabelCounts",
+        "type": "object"
+      },
+      "LabelsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign_id": {
+            "title": "Campaign Id",
+            "type": "string"
+          },
+          "campaign_state": {
+            "title": "Campaign State",
+            "type": "string"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/LabelCounts"
+          },
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/GroupLabelOut"
+            },
+            "title": "Groups",
+            "type": "array"
+          },
+          "labels_version": {
+            "title": "Labels Version",
+            "type": "integer"
+          },
+          "rows": {
+            "title": "Rows",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "campaign_id",
+          "labels_version",
+          "campaign_state",
+          "rows",
+          "counts",
+          "groups"
+        ],
+        "title": "LabelsOut",
+        "type": "object"
+      },
       "LinkOut": {
         "additionalProperties": false,
         "properties": {
@@ -2002,6 +2299,75 @@
           "gpus"
         ],
         "title": "MetricPoint",
+        "type": "object"
+      },
+      "MetricStats": {
+        "additionalProperties": false,
+        "description": "One cost of one configuration over its repetitions (meshforge.bench.stats).",
+        "properties": {
+          "ci_coverage": {
+            "title": "Ci Coverage",
+            "type": "number"
+          },
+          "ci_high": {
+            "title": "Ci High",
+            "type": "number"
+          },
+          "ci_low": {
+            "title": "Ci Low",
+            "type": "number"
+          },
+          "cv": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cv"
+          },
+          "mean": {
+            "title": "Mean",
+            "type": "number"
+          },
+          "median": {
+            "title": "Median",
+            "type": "number"
+          },
+          "n": {
+            "title": "N",
+            "type": "integer"
+          },
+          "outliers": {
+            "title": "Outliers",
+            "type": "integer"
+          },
+          "std": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Std"
+          }
+        },
+        "required": [
+          "n",
+          "median",
+          "mean",
+          "std",
+          "cv",
+          "ci_low",
+          "ci_high",
+          "ci_coverage",
+          "outliers"
+        ],
+        "title": "MetricStats",
         "type": "object"
       },
       "NetworkOut": {
@@ -5320,6 +5686,137 @@
           }
         },
         "summary": "One benchmark campaign with its spec and run counts (admin)",
+        "tags": [
+          "bench"
+        ]
+      }
+    },
+    "/v1/bench/campaigns/{campaign_id}/labels": {
+      "get": {
+        "description": "Labels from the campaign's run records (docs/TELEMETRY.md \"Labels\"):\nthe one row filter (ok, self-check ok, no ``bench_role``), the latest\nattempt per (config, repetition), then the median-CI rule. Nothing is\nstored; the same records give the same answer (and the same Parquet\nbytes, D222). More label rows than ``[controller.telemetry]\nexport_max_rows`` -> 413.",
+        "operationId": "campaign_labels_v1_bench_campaigns__campaign_id__labels_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "maxLength": 40,
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "json (default) or parquet.",
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "json",
+              "description": "json (default) or parquet.",
+              "enum": [
+                "json",
+                "parquet"
+              ],
+              "title": "Format",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LabelsOut"
+                }
+              },
+              "application/vnd.apache.parquet": {}
+            },
+            "description": "JSON (default) or, with format=parquet, the labels table (labels_version 1, docs/TELEMETRY.md 'Labels')"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid input (`invalid_input`)"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No, or no longer a valid, credential (`unauthorized`)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not allowed: admin only, CSRF, foreign origin (`unauthorized`)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found - also another user's object (`not_found`)"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict (`conflict`, `no_feasible_plan`)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid parameters (`invalid_input`)"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Rate limited; see Retry-After (`resource_busy`)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A dependency (the database) is unavailable; retry (`network_error`)"
+          }
+        },
+        "summary": "Per-group labels: best configuration, tie, insufficient or pending (admin)",
         "tags": [
           "bench"
         ]

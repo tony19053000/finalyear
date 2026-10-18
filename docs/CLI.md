@@ -26,6 +26,7 @@ codes and shell completion. Unit tests keep it in step with the code (`tests/uni
 | `compute bench create SPEC` | store a campaign on the controller, admin only (prints its `camp_...` id) | yes |
 | `compute bench campaigns [CAMPAIGN_ID]` | benchmark campaigns with run counts per state, or one with its spec (admin) | yes |
 | `compute bench runs CAMPAIGN_ID [--state S]` | a campaign's runs in execution order (admin) | yes |
+| `compute bench labels CAMPAIGN_ID [-o FILE]` | per-group labels of a campaign: best configuration, `tie`, `insufficient` or `pending`, with the margin ([TELEMETRY.md](TELEMETRY.md) "Labels"; admin); `-o` downloads them as Parquet, never overwriting FILE | yes |
 | `compute bench submit CAMPAIGN_ID [-n K] [--wait [--timeout S]]` | submit the next K planned runs as pinned lowest-priority jobs (admin; idempotent per run); `--wait` exits 126 if one failed | yes |
 | `compute telemetry export -o FILE [--campaign ID] [--since TIME]` | the telemetry dataset (run records) as one Parquet file, admin only; never overwrites FILE ([TELEMETRY.md](TELEMETRY.md)) | yes |
 | `compute logs JOB_ID [-f] [--stream S]` | the job's own output, byte for byte | no - it is the workload's bytes |
@@ -97,6 +98,7 @@ Guaranteed fields per command (`a[].b` = field `b` of every item of list `a`; `a
 | `compute bench campaigns` | `GET /v1/bench/campaigns` | `campaigns`, `count`, `campaigns[].campaign_id`, `campaigns[].name`, `campaigns[].state`, `campaigns[].run_count`, `campaigns[].counts` |
 | `compute bench campaigns CAMPAIGN_ID` | `GET /v1/bench/campaigns/{campaign_id}` | `campaign_id`, `name`, `state`, `run_count`, `counts`, `summary`, `spec` |
 | `compute bench runs CAMPAIGN_ID` | built by the CLI | `campaign_id`, `runs`, `count`, `runs[].run_id`, `runs[].seq`, `runs[].state`, `runs[].strategy`, `runs[].node_id`, `runs[].job_id` (every page of GET /v1/bench/campaigns/{campaign_id}/runs) |
+| `compute bench labels CAMPAIGN_ID` | `GET /v1/bench/campaigns/{campaign_id}/labels` | `campaign_id`, `labels_version`, `campaign_state`, `rows`, `counts`, `groups`, `groups[].group_id`, `groups[].family`, `groups[].condition`, `groups[].label`, `groups[].best_config_id`, `groups[].best_strategy`, `groups[].best_node_id`, `groups[].margin_pct`, `groups[].tied_config_ids`, `groups[].planner_agrees`, `groups[].reason`, `groups[].configs[].config_id`, `groups[].configs[].total_ms` (with -o: file, bytes, rows, labels_version) |
 | `compute bench submit CAMPAIGN_ID` | `POST /v1/bench/campaigns/{campaign_id}/submit` | `campaign_id`, `outcomes`, `outcomes[].run_id`, `outcomes[].outcome`, `outcomes[].job_id`, `submitted`, `deferred`, `skipped`, `counts` (with --wait also ended: run id -> final state) |
 
 `compute status --json`: `controller_url` (the address used), `reachable` (`false` only when the controller
