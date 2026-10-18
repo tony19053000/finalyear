@@ -230,7 +230,7 @@ class DispatchPlanner:
             busy_gpus=fabric.busy_gpus(row.node_id),
             cached_envs=envs,
             policy=None if live is None else live.policy,
-            owner_active=live is not None and live.owner_active,
+            owner_active=bool(getattr(live, "owner_active", False)),
         )
 
     def snapshot(self, fabric: FabricRows) -> ClusterSnapshot:

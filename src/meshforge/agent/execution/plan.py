@@ -303,7 +303,9 @@ def plan_attempt(
     else:
         runtime = _runtime(spec.runtime, offer, gpu_need, manifest.env.base)
     if policy is not None:
-        _check_policy(policy, manifest, spec, runtime, cpu_threads)
+        _check_policy(
+            policy, manifest, spec, runtime, cpu_threads, benchmark=msg.benchmark
+        )
     if not runtime.gpu_capable:
         gpus = ()  # "preferred" on a runtime without GPU pass-through: run on CPU
     image_by_base = (
@@ -401,6 +403,13 @@ def _token_shape(text: str) -> bool:
 
 
 def _policy_denied(refusal: owner_policy.PolicyRefusal) -> PlanError:
+    if refusal.code is owner_policy.PolicyCode.BENCH_PAUSED:
+        # V0.9 G5 (D246): the owner guard - the campaign requeues the run
+        return PlanError(
+            f"owner_preempted:{refusal.code.value}: {refusal.text}",
+            failure_type=FailureType.OWNER_PREEMPTED,
+            details={"reason": f"policy_denied:{refusal.code.value}"},
+        )
     return PlanError(
         f"policy_denied:{refusal.code.value}: {refusal.text}",
         failure_type=FailureType.UNAUTHORIZED,
@@ -437,6 +446,8 @@ def _check_policy(
     spec: agent_pb2.ExecutionSpec,
     runtime: RuntimeAvailability,
     cpu_threads: int | None,
+    *,
+    benchmark: bool = False,
 ) -> None:
     owner = spec.owner_name or None
     if owner is not None and owner_policy.USER_NAME_RE.fullmatch(owner) is None:
@@ -457,6 +468,7 @@ def _check_policy(
             network=manifest.limits.wants_network,
             sandboxed_runtime=runtime.sandboxed,
             node_cpu_threads=cpu_threads,
+            benchmark=benchmark,
         ),
     )
     if refused is not None:

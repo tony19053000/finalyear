@@ -390,7 +390,7 @@ class DispatchSteps:
             # V0.9 G4 (D217): the agent applies + verifies it before staging
             start.condition.spec = condition
         # V0.9 G5 (D246): the agent's owner guard stops only benchmark jobs
-        start.benchmark = is_benchmark_key(job.idempotency_key)
+        start.benchmark = is_benchmark_key(getattr(job, "idempotency_key", None))
         message_id = self._manager.send_command(
             attempt.node_id,
             "start_attempt",

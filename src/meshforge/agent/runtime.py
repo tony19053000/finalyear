@@ -98,6 +98,12 @@ from meshforge.agent.identity import (
     NodeIdentity,
     load_or_create,
 )
+from meshforge.agent.owner_activity import (
+    CpuSampler,
+    OwnerActivity,
+    default_idle_reader,
+)
+from meshforge.agent.owner_guard import OwnerGuard
 from meshforge.agent.peer import PeerAuthorizer, PeerBlobServer
 from meshforge.agent.peer.probe import ProbeService
 from meshforge.agent.peer.server import PeerServerTls, peer_server_tls
@@ -445,10 +451,23 @@ async def serve(
         gpu_util=nvml_util_reader(),
         controller=lambda: controller_endpoint(client.controller_target),
     )
+    # V0.9 G5 (D219/D246): the owner guard of benchmark jobs - the manual
+    # pause switch (policy) and owner activity (idle time + non-fabric CPU)
+    activity = (
+        OwnerActivity(
+            settings.agent.bench,
+            idle=default_idle_reader(),
+            cpu=CpuSampler(attempts_running=lambda: bool(executor.held())),
+        )
+        if settings.agent.bench.activity and execution.enabled
+        else None
+    )
+    bench_guard = OwnerGuard(policy=live_policy, activity=activity)
     executor = Executor(
         settings,
         execution,
         conditions=conditions,
+        owner_guard=bench_guard.blocked,
         cas=cas,
         node_id=node_id,
         report=client.send_report,
@@ -462,6 +481,14 @@ async def serve(
         cpu_threads=hardware.cpu_threads or hardware.cpu_cores or None,
     )
     wire_executor(client, executor)
+    bench_guard.preempt = executor.preempt_benchmarks
+    client.owner_heartbeat = bench_guard.heartbeat_fields
+    activity_task: asyncio.Task[None] | None = None
+    if activity is not None:
+        activity.on_change = bench_guard.on_activity
+        activity_task = asyncio.create_task(
+            activity.run(), name=f"agent-owner-activity:{node_id}"
+        )
     # 0.5.8 controller part: `compute node prepare` (only where jobs may run).
     preparer = (
         PrepareService(settings, execution, client.send_report, node_id=node_id)
@@ -483,7 +510,7 @@ async def serve(
     else:
         await conditions.sweep()  # a crashed run's leftovers (V0.9 G4)
     renew_task = start_renewer(settings, client, http_tls=http_tls, peer=peer)
-    policy_task = start_policy_watch(settings, client, live_policy)
+    policy_task = start_policy_watch(settings, client, live_policy, guard=bench_guard)
     install_signal_handlers(client.request_stop)
     log.info(
         "agent.started",
@@ -518,6 +545,7 @@ async def serve(
             await cache.close()
         await stop_task(renew_task)
         await stop_task(policy_task)
+        await stop_task(activity_task)
         # Cancelling the scoring task kills its benchmark child tree (runner).
         await stop_task(scores_task)
         if monitor is not None and monitor_task is not None:
@@ -556,12 +584,20 @@ def build_live_policy(
 
 
 def start_policy_watch(
-    settings: AgentSettings, client: AgentSessionClient, live: LivePolicy
+    settings: AgentSettings,
+    client: AgentSessionClient,
+    live: LivePolicy,
+    *,
+    guard: OwnerGuard | None = None,
 ) -> asyncio.Task[None]:
     """Watch the live policy file; each effective change goes to the
-    controller as a ``PolicyUpdate`` report (buffered, replayed, acked)."""
+    controller as a ``PolicyUpdate`` report (buffered, replayed, acked).
+    V0.9 G5: ``guard`` re-evaluates first (``bench pause`` stops running
+    benchmark attempts before the controller hears of it)."""
 
     async def push(state: PolicyState) -> None:
+        if guard is not None:
+            await guard.refresh()
         update = agent_pb2.PolicyUpdate(policy=owner_policy.to_proto(state.policy))
         if state.policy.accept_jobs:
             update.max_cpu_jobs, update.max_gpu_jobs = state.cpu_slots, state.gpu_slots

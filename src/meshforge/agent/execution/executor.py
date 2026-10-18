@@ -197,6 +197,8 @@ OUTPUT_LIMIT: Final = "output_limit"
 """Stop reason and failure reason of a job past ``max_written_bytes`` (D143)."""
 DISK_FLOOR: Final = "disk_floor"
 DISK_UNKNOWN: Final = "disk_unknown"
+OWNER_PREEMPTED: Final = "owner_preempted"
+"""V0.9 G5 (D246): stop reason of a benchmark attempt the owner guard stopped."""
 """Stop reason of a job whose workdir disk fell below the free floor (fix r2)."""
 _NOFOLLOW: Final = getattr(os, "O_NOFOLLOW", 0)
 _STAGE_RETRYABLE: Final = frozenset(
@@ -327,6 +329,10 @@ class _Attempt:
     condition: ActiveCondition | None = None
     """V0.9 G4 (D217): the benchmark condition applied for this attempt;
     reverted (and reported) when its terminal status is sent."""
+    benchmark: bool = False
+    """V0.9 G5 (D246): ``StartAttempt.benchmark`` - only these are stopped by
+    the owner guard (:meth:`Executor.preempt_benchmarks`)."""
+    preempt_reason: str = ""
 
     @property
     def ended(self) -> bool:
@@ -370,9 +376,13 @@ class Executor:
         policy: LivePolicy | None = None,
         cpu_threads: int | None = None,
         conditions: ConditionRunner | None = None,
+        owner_guard: Callable[[], str | None] | None = None,
     ) -> None:
-        """``http_tls`` (mtls mode, V0.7 G3): every blob fetch and upload is
-        HTTPS with this laptop's node certificate; ``None`` = plain HTTP
+        """``owner_guard`` (V0.9 G5): why benchmark jobs may not run here now
+        (None = they may); a benchmark StartAttempt is refused
+        ``owner_preempted`` while it says so. ``http_tls`` (mtls mode, V0.7
+        G3): every blob fetch and upload is HTTPS with this laptop's node
+        certificate; ``None`` = plain HTTP
         (``insecure-dev``, and unit tests that inject ``fetch``/``upload``).
         ``policy`` (V0.7 G5, D142): the owner's live policy; every attempt is
         re-checked against its value at the attempt's start (``None`` = not
@@ -383,6 +393,7 @@ class Executor:
             settings.agent.conditions, data_dir=settings.data_dir, kinds=()
         )
         self._policy = policy
+        self._owner_guard = owner_guard
         self._cpu_threads = cpu_threads or None
         self._http_tls = http_tls
         self._scheme = "https" if http_tls is not None else "http"
@@ -665,7 +676,12 @@ class Executor:
             if existing is not None and existing.token == token and not existing.ended:
                 self._adopt_resent(existing, msg.spec)
             return
-        attempt = _Attempt(job_id=job_id, attempt_id=attempt_id, token=token)
+        attempt = _Attempt(
+            job_id=job_id,
+            attempt_id=attempt_id,
+            token=token,
+            benchmark=bool(msg.benchmark),
+        )
         self._attempts[attempt_id] = attempt
         running = sum(1 for a in self._attempts.values() if not a.ended)
         if self._closing:
@@ -968,6 +984,37 @@ class Executor:
         with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(attempt.grant_changed.wait(), wait_s)
 
+    async def preempt_benchmarks(self, reason: str) -> int:
+        """V0.9 G5 (D219/D246): the owner paused benchmarks or is using the
+        laptop - stop every running **benchmark** attempt (user jobs are never
+        touched). Order matters: every benchmark condition is reverted first
+        (``ConditionRunner.stop_all("owner_pause")`` - load generators and
+        shaping go at once), then the attempts are cancelled; each ends
+        ``FAILED(owner_preempted)`` and the campaign runner requeues its run.
+        The attempts' stop reason is set before the revert, so an apply cut
+        short by it is reported as the pre-emption, not as a failed
+        condition. The attempts stopped."""
+        running = [
+            a
+            for a in self._attempts.values()
+            if a.benchmark and not a.ended and a.stop_reason is None
+        ]
+        for attempt in running:
+            attempt.stop_reason = OWNER_PREEMPTED  # no cancel yet
+            attempt.preempt_reason = reason[:64]
+        if running or self.conditions.active:
+            await self.conditions.stop_all("owner_pause")
+        for attempt in running:
+            self._stop(attempt, OWNER_PREEMPTED)
+            log.warning(
+                "agent.execution.owner_preempted",
+                node_id=self._node_id,
+                job_id=attempt.job_id,
+                attempt_id=attempt.attempt_id,
+                reason=attempt.preempt_reason,
+            )
+        return len(running)
+
     def _stop(self, attempt: _Attempt, reason: str) -> None:
         if attempt.stop_reason is None:
             attempt.stop_reason = reason
@@ -1019,6 +1066,10 @@ class Executor:
             SecretFilesError,
             ConditionFailedError,
         ) as exc:
+            if isinstance(exc, ConditionFailedError) and attempt.stop_reason:
+                # stop_all ended the apply of an attempt being stopped (G5)
+                await self._stopped(attempt, exit_code=None, signal=None)
+                return
             await self._send(
                 attempt,
                 AttemptState.FAILED,
@@ -1084,6 +1135,16 @@ class Executor:
     async def _run(self, attempt: _Attempt, msg: agent_pb2.StartAttempt) -> None:
         workdir = self.work_root / attempt.attempt_id
         attempt.workdir = workdir
+        guarded = (
+            self._owner_guard() if attempt.benchmark and self._owner_guard else None
+        )
+        if guarded is not None:
+            # V0.9 G5 (D246): never start a benchmark while the owner guard is on
+            raise PlanError(
+                f"{OWNER_PREEMPTED}: {guarded}",
+                failure_type=FailureType.OWNER_PREEMPTED,
+                details={"reason": OWNER_PREEMPTED},
+            )
         plan = plan_attempt(
             msg,
             settings=self._cfg,
@@ -1845,6 +1906,12 @@ class Executor:
                 "disk of this node's workdirs (below the "
                 f"{self.cas.store.free_disk_floor_bytes}-byte free-disk floor); "
                 "stopped",
+                False,
+            )
+        elif attempt.stop_reason == OWNER_PREEMPTED:
+            failure = (
+                FailureType.OWNER_PREEMPTED,
+                f"{OWNER_PREEMPTED}: {attempt.preempt_reason or 'owner'}",
                 False,
             )
         elif attempt.stop_reason == DISK_UNKNOWN:

@@ -252,15 +252,15 @@ def parse_netem_line(line: str) -> dict[str, float | None] | None:
     """The delay / loss / rate of a ``tc qdisc show`` netem line (None = not
     a netem line, or one this agent never installs: with a jitter or a
     correlation, which our ``tc_args`` never set)."""
-    tokens = line.split()
-    if "netem" not in tokens:
+    words = line.split()
+    if "netem" not in words:
         return None
     out: dict[str, float | None] = {"delay_ms": 0.0, "loss_pct": 0.0, "rate_mbit": None}
-    i = tokens.index("netem") + 1
-    while i < len(tokens):
-        key = tokens[i]
-        value = tokens[i + 1] if i + 1 < len(tokens) else ""
-        after = tokens[i + 2] if i + 2 < len(tokens) else ""
+    i = words.index("netem") + 1
+    while i < len(words):
+        key = words[i]
+        value = words[i + 1] if i + 1 < len(words) else ""
+        after = words[i + 2] if i + 2 < len(words) else ""
         if key == "delay":
             delay = _ms(value)
             if delay is None or _ms(after) is not None:
