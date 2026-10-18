@@ -43,6 +43,7 @@ from meshforge.controller.api.auth_routes import (
     AuthApi,
     auth_router,
 )
+from meshforge.controller.api.bench_control_routes import bench_control_router
 from meshforge.controller.api.bench_routes import (
     BENCH_STATE_KEY,
     BenchApi,
@@ -192,11 +193,17 @@ def create_http_app(
         ``"degraded"`` (still 200) names a supervised background loop that keeps
         failing (V0.7 G5, D159 N4: the stream auth re-check)."""
         live_streams = getattr(app.state, AUTH_STATE_KEY).live_streams
+        degraded: list[str] = []
         if live_streams is not None and live_streams.degraded:
+            degraded.append("stream-auth-recheck")
+        # V0.9 G5 (D246): the campaign runner crashed 5 ticks in a row
+        if bench is not None and bench.runner is not None and bench.runner.degraded:
+            degraded.append("bench-runner")
+        if degraded:
             return {
                 "status": "degraded",
                 "sessions": len(manager),
-                "degraded": ["stream-auth-recheck"],
+                "degraded": degraded,
             }
         return {"status": "ok", "sessions": len(manager)}
 
@@ -241,6 +248,7 @@ def create_http_app(
     if bench is not None:
         setattr(app.state, BENCH_STATE_KEY, bench)
         app.include_router(bench_router)  # V0.9 G3 benchmark campaigns (D216)
+        app.include_router(bench_control_router)  # V0.9 G5 runner controls
     return app
 
 

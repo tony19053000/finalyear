@@ -13,7 +13,9 @@ One process-wide stream of typed events the dashboard follows over
   job_id, node_id, state}`` - after the database transaction that made the
   change committed (:mod:`.changes`);
 * ``alert`` ``{kind, ...}`` - a security refusal an operator should see
-  (D180; the ``audit_event`` row stays the source of truth).
+  (D180; the ``audit_event`` row stays the source of truth);
+* ``campaign.progress`` ``{campaign_id, state, counts, done_percent, eta_s,
+  ...}`` - a runner-owned benchmark campaign moved (V0.9 G5; admins only).
 
 **Order and resume.** Every event gets the next ``seq`` (1, 2, ...) of this
 bus; the bus also has an ``epoch`` (random per controller process). The last
@@ -77,6 +79,9 @@ class EventType(StrEnum):
     JOB_STATE = "job.state"
     ATTEMPT_STATE = "attempt.state"
     ALERT = "alert"
+    CAMPAIGN_PROGRESS = "campaign.progress"
+    """V0.9 G5 (D246): a runner-owned campaign's counts / ETA (admins only;
+    at most once a second per campaign)."""
 
 
 class Audience(StrEnum):

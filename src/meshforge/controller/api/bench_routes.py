@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Annotated, Any, Final, Literal
 
@@ -52,6 +52,8 @@ from meshforge.common.logging import get_logger
 from meshforge.controller.api.auth import AdminUser
 from meshforge.controller.api.errors import ApiError
 from meshforge.controller.api.models import ApiModel, Utc
+from meshforge.controller.bench.control import CampaignControl
+from meshforge.controller.bench.runner import BenchRunner
 from meshforge.controller.bench.store import (
     MAX_LIST,
     BenchStore,
@@ -88,6 +90,10 @@ class BenchApi:
     store: BenchStore
     submitter: BenchSubmitter
     registry: Registry
+    # V0.9 G5 (D246): campaign controls + the runner (bench_control_routes)
+    control: CampaignControl | None = None
+    runner: BenchRunner | None = None
+    cancel_job: Callable[[str], Awaitable[object]] | None = None
 
 
 def get_bench(request: Request) -> BenchApi:
@@ -134,7 +140,7 @@ class ExpansionSummary(ApiModel):
 class CampaignOut(ApiModel):
     campaign_id: str
     name: str
-    state: Literal["active", "done", "cancelled"]
+    state: Literal["active", "paused", "done", "cancelled"]
     seed: int
     spec_digest: str
     run_count: int
@@ -421,6 +427,13 @@ async def submit_runs(
     if record.state != "active":
         raise ApiError(
             FailureType.CONFLICT, f"the campaign is {record.state}; nothing to submit"
+        )
+    if record.runner_owned:  # V0.9 G5: started - the runner submits
+        raise ApiError(
+            FailureType.CONFLICT,
+            "the campaign was started; the runner submits its runs "
+            "(pause it to stop submissions)",
+            extra={"reason": "campaign_running"},
         )
     started = time.monotonic()
     try:

@@ -1331,6 +1331,37 @@ class TelemetrySettings(SectionModel):
     )
 
 
+class BenchSettings(SectionModel):
+    """``[controller.bench]`` - the unattended campaign runner (V0.9 G5,
+    D219/D246; docs/OPERATIONS.md "Running a campaign unattended")."""
+
+    runner: bool = Field(
+        default=True,
+        description="Run started campaigns in the background (off = manual submit only).",
+    )
+    tick_s: float = Field(
+        default=2.0,
+        ge=0.05,
+        le=300.0,
+        description="How often the runner settles finished runs and submits new ones.",
+    )
+    max_submit_per_tick: int = Field(
+        default=4,
+        ge=1,
+        le=64,
+        description=(
+            "Most runs one tick submits (all campaigns together): small budgets "
+            "keep a tick short however large the campaign."
+        ),
+    )
+    max_examine_per_tick: int = Field(
+        default=32,
+        ge=1,
+        le=2_000,
+        description="Most planned runs one tick examines (deferred / skipped ones count).",
+    )
+
+
 class ControllerSection(SectionModel):
     """``[controller]`` section."""
 
@@ -1458,6 +1489,7 @@ class ControllerSection(SectionModel):
     events: EventsSettings = Field(default_factory=EventsSettings)
     http: HttpSettings = Field(default_factory=HttpSettings)
     telemetry: TelemetrySettings = Field(default_factory=TelemetrySettings)
+    bench: BenchSettings = Field(default_factory=BenchSettings)
 
     @field_validator("grpc_bind", "http_bind")
     @classmethod

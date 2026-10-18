@@ -33,6 +33,15 @@ a crash (or a racing submit) between the job's commit and the run's
 ``planned -> submitted`` link finds the same job again and links it - never a
 second job for one run.
 
+**Generations (V0.9 G5).** A run the campaign runner requeued (infra retry,
+owner pre-emption) is submitted again under ``bench:<run_id>:<generation>``
+(:func:`~.keys.run_key`): a new job per generation, never a second job for one
+generation. Its fillers / warm-up get this generation's keys too.
+
+**Owner guard (V0.9 G5, D246).** A node whose owner paused benchmarks or is
+using it (``pause_benchmarks`` / the heartbeat's ``owner_active``) defers the
+run node-wide - nothing is created there.
+
 **Outcomes** (:class:`RunOutcome`): ``submitted`` (a job, linked);
 ``deferred`` (the node is offline / has no session / its owner's policy refuses
 jobs now: the run stays ``planned`` and the next submit tries it again);
@@ -45,7 +54,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Mapping
 from dataclasses import dataclass
 from typing import Final, Literal
 
@@ -75,8 +84,10 @@ from meshforge.common.manifest import (
     ManifestError,
     parse_manifest_data,
 )
+from meshforge.common.owner_policy import BENCH_PAUSED_REFUSAL, OWNER_ACTIVE_REFUSAL
 from meshforge.common.tree import Tree, TreeEntry, TreeError, canonical_bytes
 from meshforge.controller.bench.conditions import NodePauses, filler_key, warmup_key
+from meshforge.controller.bench.keys import run_key
 from meshforge.controller.bench.store import (
     BENCH_KEY_PREFIX,
     BenchStore,
@@ -105,6 +116,7 @@ __all__ = [
     "BenchSubmitter",
     "RunOutcome",
     "bench_tree",
+    "owner_guarded",
 ]
 
 log = get_logger(__name__)
@@ -119,6 +131,7 @@ NODE_WIDE_DEFERRALS: Final = frozenset(
         "",
         RejectCode.POLICY_NOT_ACCEPTING.value,
         RejectCode.POLICY_USER_NOT_ALLOWED.value,
+        RejectCode.BENCH_PAUSED.value,
     }
 )
 """Deferral reject codes that hold for every run on the node ("" = the node is
@@ -187,16 +200,40 @@ def bench_tree(family: str, params: dict[str, object], seed: int) -> BuiltTree:
     return BuiltTree(tree=tree, manifest_bytes=body, blobs=blobs, manifest=manifest)
 
 
+def owner_guarded(live: object) -> str | None:
+    """V0.9 G5 (D246): the live session says benchmarks may not run there."""
+    if live is None:
+        return None
+    policy = getattr(live, "policy", None)
+    if policy is not None and getattr(policy, "pause_benchmarks", False):
+        return BENCH_PAUSED_REFUSAL.text
+    if getattr(live, "owner_active", False):
+        return OWNER_ACTIVE_REFUSAL.text
+    return None
+
+
+def _guard_deferral(run: RunRow, text: str) -> RunOutcome:
+    log.info(
+        "controller.bench.run_deferred",
+        run_id=run.id,
+        node_id=run.node_id,
+        reason=text,
+    )
+    return RunOutcome(run.id, run.seq, "deferred", detail=text, node_wide=True)
+
+
 async def _once(data: bytes) -> AsyncIterator[bytes]:
     yield data
 
 
-def _pre_jobs(run_id: str, condition: Condition) -> list[str]:
-    """Keys of the jobs a controller-side condition queues before the run."""
+def _pre_jobs(run_id: str, condition: Condition, generation: int = 0) -> list[str]:
+    """Keys of the jobs a controller-side condition queues before the run
+    (this generation's: a requeued run gets new fillers / a new warm-up)."""
     if isinstance(condition, QueueCondition):
-        return [filler_key(run_id, i) for i in range(1, condition.jobs + 1)]
+        first = generation * condition.jobs + 1
+        return [filler_key(run_id, i) for i in range(first, first + condition.jobs)]
     if isinstance(condition, CacheCondition) and condition.mode == "warm":
-        return [warmup_key(run_id)]
+        return [warmup_key(run_id, generation)]
     return []
 
 
@@ -259,7 +296,12 @@ class BenchSubmitter:
         return None if name is None else str(name)
 
     async def submit_next(
-        self, campaign: CampaignRecord, count: int
+        self,
+        campaign: CampaignRecord,
+        count: int,
+        *,
+        node_budget: Mapping[str, int] | None = None,
+        max_examined: int = MAX_EXAMINED,
     ) -> list[RunOutcome]:
         """Submit up to ``count`` planned runs, in ``seq`` order. Raises
         :class:`BenchSubmitError` (nothing after the failing run is tried).
@@ -274,20 +316,41 @@ class BenchSubmitter:
         holding the head of a 100 000-run campaign costs one try. A deferral
         that depends on the job (an owner RAM / CPU limit...) is per run. At
         most :data:`MAX_EXAMINED` runs are examined per call; skipped and
-        ``already`` runs are listed but do not count as submitted."""
+        ``already`` runs are listed but do not count as submitted.
+
+        V0.9 G5 (the runner): ``node_budget`` = how many runs each node may
+        get in this call - a node not in it (or at 0) is passed over in SQL;
+        ``max_examined`` lowers the examine bound (the runner's small
+        per-tick budget, D245 N4)."""
         owner_name = await self._owner_name(campaign.created_by)
         outcomes: list[RunOutcome] = []
+        budget = None if node_budget is None else dict(node_budget)
         passed_over: set[str] = set()
+        excluded: list[str] = []
+        if budget is not None:
+            # a node outside the budget is never paged: the SQL needs its id
+            excluded = sorted(n for n, k in budget.items() if k <= 0)
+            passed_over.update(excluded)
+        max_examined = max(1, min(max_examined, MAX_EXAMINED))
         after_seq = 0
         examined = submitted = 0
-        while submitted < count and examined < MAX_EXAMINED:
-            limit = min(_PAGE, MAX_EXAMINED - examined)
+        while submitted < count and examined < max_examined:
+            if budget is not None and not any(
+                k > 0 for n, k in budget.items() if n not in passed_over
+            ):
+                break
+            limit = min(_PAGE, max_examined - examined)
             page = await self._store.runs(
                 campaign.id,
                 state="planned",
                 after_seq=after_seq,
                 limit=limit,
                 exclude_nodes=sorted(passed_over),
+                only_nodes=None
+                if budget is None
+                else sorted(
+                    n for n, k in budget.items() if k > 0 and n not in passed_over
+                ),
             )
             if not page:
                 break
@@ -295,15 +358,23 @@ class BenchSubmitter:
                 after_seq = run.seq
                 if run.node_id in passed_over:
                     continue  # deferred earlier on this page
+                if budget is not None and budget.get(run.node_id, 0) <= 0:
+                    continue  # not a node of this call
                 examined += 1
                 outcome = await self.submit_run(campaign, run, owner_name=owner_name)
                 outcomes.append(outcome)
                 if outcome.outcome == "submitted":
                     submitted += 1
-                    if submitted >= count:
+                    if budget is not None:
+                        budget[run.node_id] -= 1
+                        if budget[run.node_id] <= 0:
+                            passed_over.add(run.node_id)
+                    if submitted >= count or examined >= max_examined:
                         break
                 elif outcome.outcome == "deferred" and outcome.node_wide:
                     passed_over.add(run.node_id)
+                if examined >= max_examined:
+                    break
             if len(page) < limit:
                 break
         if self._wake is not None and submitted:
@@ -330,6 +401,9 @@ class BenchSubmitter:
                 await self._store_tree(built)
                 node = await self._registry.get_node(run.node_id)
                 live = self._manager.get(run.node_id)
+                guarded = owner_guarded(live)
+                if guarded is not None:
+                    return _guard_deferral(run, guarded)
                 try:
                     check_placement(
                         built.manifest,
@@ -342,7 +416,7 @@ class BenchSubmitter:
                     return await self._refused(run, exc)
                 # V0.9 G4 (D217): the controller's own conditions come first -
                 # fillers / a warm-up queued ahead of the run, the origin paused
-                for key in _pre_jobs(run.id, condition):
+                for key in _pre_jobs(run.id, condition, run.generation):
                     await self._create(
                         campaign, run, built, key=key, placement=placement
                     )
@@ -356,7 +430,7 @@ class BenchSubmitter:
                     campaign,
                     run,
                     built,
-                    key=IDEMPOTENCY_PREFIX + run.id,
+                    key=run_key(run.id, run.generation),
                     placement=placement,
                 )
         except IdempotencyConflictError:
@@ -374,7 +448,9 @@ class BenchSubmitter:
                     "the database is unavailable", details={"run_id": run.id}
                 ) from exc
             raise
-        linked = await self._store.mark_submitted(run.id, job.id)
+        linked = await self._store.mark_submitted(
+            run.id, job.id, generation=run.generation
+        )
         log.info(
             "controller.bench.run_submitted",
             campaign_id=campaign.id,
@@ -385,6 +461,7 @@ class BenchSubmitter:
             strategy=run.strategy,
             replay=not created,
             linked=linked,
+            generation=run.generation,
         )
         if not linked:
             return RunOutcome(run.id, run.seq, "already", job_id=job.id)
