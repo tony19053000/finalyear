@@ -84,17 +84,18 @@ VIOLATIONS = [
     ("agent", "meshforge.controller", "controller and agent never import each other"),
     ("common", "meshforge.sdk", "common imports no other meshforge subpackage"),
     ("common", "meshforge.controller", "common imports no other meshforge subpackage"),
-    ("controller", "meshforge.cli", "controller imports only common"),
+    ("controller", "meshforge.cli", "controller imports only common and bench"),
     ("agent", "meshforge.gpu_service", "agent imports only common"),
     ("gpu_service", "meshforge.agent", "gpu_service imports only common"),
     ("sdk", "meshforge.controller", "sdk imports only common"),
     ("sdk", "meshforge.cli", "sdk imports only common"),
     ("cli", "meshforge.controller", "cli imports only common, sdk and bench"),
     ("cli", "meshforge.gpu_service", "cli imports only common, sdk and bench"),
-    # V0.9 G2: the benchmark library sees only common, and nothing but cli sees it.
+    # V0.9 G2/G3: the benchmark library sees only common; cli and (G3, D232)
+    # controller may import it, agent may not.
     ("bench", "meshforge.controller", "bench imports only common"),
     ("bench", "meshforge.cli", "bench imports only common"),
-    ("controller", "meshforge.bench", "controller imports only common"),
+    ("bench", "meshforge.agent", "bench imports only common"),
     ("agent", "meshforge.bench", "agent imports only common"),
 ]
 
@@ -205,7 +206,7 @@ def test_guard_flags_contract_not_forbidding_new_sibling(tmp_path: Path) -> None
 
     assert not any("meshforge.planner exists" in p for p in problems), problems
     assert any(
-        "contract for meshforge.controller permits ['common', 'planner']" in p
+        "contract for meshforge.controller permits ['bench', 'common', 'planner']" in p
         for p in problems
     ), problems
 
