@@ -81,7 +81,11 @@ a NUL or a lone surrogate (PostgreSQL refuses both); the controller refuses such
 builder bounds the flat columns (`p_dtype`, `workload_family`, ... to 64 characters - a longer value is null,
 never truncated) and scrubs every text value. A record PostgreSQL still refuses is skipped alone (the rest of
 the sweep is written), counted, logged and raised as a `telemetry_record_skipped` alert (`GET /v1/alerts`); it
-is retried after a controller restart.
+is retried after a controller restart. At most 1 000 skipped attempts are excluded by id; past that cap the controller raises
+**one** more alert (reason `skip_cap_reached`) and then only counts and logs further skips, and the sweep scans
+forward from a watermark so skipped attempts can never hold back newer ones (an older attempt that ends late, or
+a skipped one, is looked at again on a full rescan once a minute). An attempt whose job row vanished mid-sweep is
+skipped the same way (`error_type` `job_missing`) instead of failing the sweep.
 
 ## Columns — schema version 1
 
