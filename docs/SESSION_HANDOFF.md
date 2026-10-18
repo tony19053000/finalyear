@@ -262,6 +262,8 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
+**2026-10-18 (G3 lane B reviewer APPROVE, D239) — RUNNING: lane A tester r2 only. Next: lane A reviewer → merge A → merge B (keep B's async campaign_of + decision_shadow; re-run lint-imports, import-boundary + recorder tests) → frontend build → whole `-m component` once alone → close 0.9.3/0.9.4.**
+
 **2026-10-18 (G3 lane B tester r2 PASS `c94852a`,`f32f56a`) — RUNNING: lane B reviewer ∥ lane A tester r2. If died: relaunch reviewer over 3384076..HEAD in lane B worktree. Merge A first, then B.**
 
 **2026-10-18 (G3 lane A fix r1 DONE `aab2015`, D238) — RUNNING: lane A tester r2 ∥ lane B tester r2 (resumed after limit). Then reviewer per lane; merge A then B (conflicts: recorder.py, import-boundary files) → whole component once alone.**
