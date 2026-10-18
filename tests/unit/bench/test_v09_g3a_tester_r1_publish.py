@@ -127,9 +127,6 @@ def test_threads_building_into_one_empty_folder_exactly_one_wins(
     assert [p for p in tmp_path.iterdir() if ".building-" in p.name] == []
 
 
-@pytest.mark.xfail(
-    strict=True, reason="TR1-A1: aside folder left behind after a lost race"
-)
 def test_defect_windows_race_leaves_an_empty_aside_folder(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

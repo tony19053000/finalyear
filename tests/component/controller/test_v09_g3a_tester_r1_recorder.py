@@ -34,11 +34,6 @@ from meshforge.controller.telemetry.recorder import RunRecorder
 pytestmark = [pytest.mark.asyncio, pytest.mark.timeout(180)]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="TR1-A3: a slow forward scan is reset by the periodic rescan before it "
-    "reaches the newest attempts",
-)
 async def test_defect_a_scan_longer_than_the_rescan_period_starves_newer_attempts(
     engine: Any,
     node_id: str,

@@ -35,12 +35,13 @@ pytestmark = [
     pytest.mark.skipif(sys.platform == "win32", reason="POSIX"),
 ]
 
+# G3 fix r1 (TR1-A2): a registered family + its own key, so the agent-side drop is what is tested
 CODE = """\
 import json, os
 os.makedirs("results", exist_ok=True)
 v = os.environ["ENV_KEY"]
-json.dump({"schema_version": 1, "family": "cpu.x", "status": "ok",
-           "params": {"note": v, "n": 3}, "seed": 1, "device": "cpu",
+json.dump({"schema_version": 1, "family": "cpu.matmul", "status": "ok",
+           "params": {"dtype": v, "n": 3}, "seed": 1, "device": "cpu",
            "compute_ns": 10}, open("results/workload.json", "w"))
 """
 

@@ -1207,7 +1207,7 @@ config:
 | `[controller.telemetry] record_interval_s` | 2.0 s | 0.1 - 60 | delay from an attempt ending to its record (a terminal report also wakes the sweep) |
 | `[controller.telemetry] record_batch` | 200 | 1 - 5 000 | rows per sweep transaction |
 | `[controller.telemetry] export_max_rows` | 100 000 | 1 - 10 000 000 | records in one export; more -> `413`, narrow it with `--campaign` / `--since`. The export is buffered in memory: about 2.5 KB per record plus the file (~0.25 GB at the default) |
-| skipped records excluded by id (code: `MAX_SKIPPED_IDS`) | 1 000 | fixed | records the sweep could not build or PostgreSQL refused, each raised as a `telemetry_record_skipped` alert and retried after a restart; past 1 000, **one** `skip_cap_reached` alert, then only log lines, and the sweep re-checks them once a minute (`PAST_CAP_RESCAN_S`) |
+| skipped records excluded by id (code: `MAX_SKIPPED_IDS`) | 1 000 | fixed | records the sweep could not build or PostgreSQL refused, each raised as a `telemetry_record_skipped` alert and retried after a restart; past 1 000, **one** `skip_cap_reached` alert, then only log lines, and the sweep scans forward to the newest and only then starts again from the oldest, at most once a minute (`PAST_CAP_RESCAN_S`) |
 | Parquet row group (code: `ROW_GROUP_SIZE`) | 65 536 rows | fixed | the file layout; the export builds Arrow data one row group at a time |
 | clock-offset window (`session/clocks.py`) | last 32 Ping/Pong exchanges, at most 300 s old | fixed | the node clock offset stored with each record; a bound above 250 ms raises a `clock_uncertain` alert |
 | `compute_iterations` from a workload (agent) | 1 - 100 000 | fixed | a benchmark's iteration count; anything else is stored as null |

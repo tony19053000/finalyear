@@ -42,6 +42,7 @@ from typing import Any, ClassVar, Final
 import yaml
 
 from meshforge.common.errors import FailureType, MeshForgeError
+from meshforge.common.logging import get_logger
 from meshforge.common.manifest import MANIFEST_FILE_NAME, Manifest, load_manifest
 
 from . import kernels
@@ -59,6 +60,8 @@ __all__ = [
     "build_job",
     "job_files",
 ]
+
+log = get_logger(__name__)
 
 KERNEL_PACKAGE: Final = "bench_kernels"
 """The kernels' package name inside a job folder."""
@@ -205,6 +208,11 @@ def _publish(staging: Path, dest: Path) -> None:
     loses the folder the caller made (tester r2 D7). The aside name carries a
     ``uuid4`` (D225): pid + ``id()`` could repeat across processes or after a
     crash left an old aside behind, and a clashing rename would refuse the build.
+
+    If another builder fills ``dest`` between our aside step and our final
+    rename, the restore fails (``dest`` exists): we lost the race, the caller's
+    folder is now the winner's, and the aside is our own empty folder - removed,
+    never left behind (tester r1 TR1-A1).
     """
     with contextlib.suppress(OSError):
         os.rename(staging, dest)
@@ -224,11 +232,29 @@ def _publish(staging: Path, dest: Path) -> None:
     try:
         os.rename(staging, dest)
     except OSError:
-        with contextlib.suppress(OSError):
+        try:
             os.rename(aside, dest)  # restore the caller's empty folder
+        except OSError:
+            _drop_aside(aside, dest)
         raise busy from None
     with contextlib.suppress(OSError):
         aside.rmdir()
+
+
+def _drop_aside(aside: Path, dest: Path) -> None:
+    """Remove our empty aside folder after a lost race (``rmdir`` only: it
+    refuses a non-empty folder, so nothing can be lost)."""
+    try:
+        aside.rmdir()
+    except OSError as exc:
+        log.warning(
+            "bench.materialise.aside_left",
+            path=str(aside),
+            dest=str(dest),
+            error_type=type(exc).__name__,
+        )
+        return
+    log.info("bench.materialise.aside_removed", path=str(aside), dest=str(dest))
 
 
 def build_job(

@@ -45,10 +45,13 @@ never reach a newer attempt. Instead, past the cap:
   line per sweep), never alerted again until restart;
 * the sweep scans **forward from a watermark** (the ``(created_at, id)`` of the
   last attempt it examined), so newer attempts are reached however many skipped
-  ones sit before them. Every :data:`PAST_CAP_RESCAN_S` the watermark resets and
-  the sweep starts from the oldest again - an older attempt that turned terminal
-  late (a long job) is recorded within that time, and the skipped ones are
-  retried (and skipped again) once per rescan, not every sweep.
+  ones sit before them. The watermark resets to the oldest attempt only once a
+  forward pass has **reached the end** (a sweep returned fewer than ``batch``
+  rows) **and** :data:`PAST_CAP_RESCAN_S` has passed since the last reset - never
+  on the timer alone, so a pass longer than the period still gets to the newest
+  attempts (tester r1 TR1-A3, D236). An older attempt that turned terminal late
+  (a long job) is recorded on the next full pass, and the skipped ones are
+  retried (and skipped again) once per pass, not every sweep.
 
 The "at start" values are in the attempt's start snapshot, written at dispatch
 (``jobs/spec.py``) - the sweep never reads the *current* node, cache or network
@@ -103,7 +106,8 @@ MAX_SKIPPED_IDS: Final = 1_000
 """Skipped attempt ids excluded by id until restart (module docstring: past it,
 the sweep scans from a watermark)."""
 PAST_CAP_RESCAN_S: Final = 60.0
-"""Past the cap: how often the watermark resets to the oldest attempt."""
+"""Past the cap: the shortest time between two resets of the watermark to the
+oldest attempt; a reset also needs the forward pass to have reached the end."""
 _TERMINAL: Final = tuple(sorted(s.value for s in ATTEMPT_TERMINAL_STATES))
 _REFUSED_SQLSTATE_CLASSES: Final = ("22", "23")
 """PostgreSQL refused the row for its data (data exception, constraint): the
@@ -151,6 +155,8 @@ class RunRecorder:
         watermark (module docstring)."""
         self._watermark: tuple[dt.datetime, str] | None = None
         self._rescan_at = 0.0
+        self._pass_done = False
+        """Past the cap: the forward pass since the last reset reached the end."""
         self._cap_alerted = False
         self._pending_cap_alert = False
         self._pending_past_cap = 0
@@ -311,8 +317,9 @@ class RunRecorder:
         if not self.past_cap:
             return None
         now = time.monotonic()
-        if now >= self._rescan_at:
+        if self._pass_done and now >= self._rescan_at:
             self._rescan_at = now + PAST_CAP_RESCAN_S
+            self._pass_done = False
             self._watermark = None
         return self._watermark
 
@@ -383,6 +390,8 @@ class RunRecorder:
         if self.past_cap and attempts:
             last = attempts[-1]
             self._watermark = (last.created_at, last.id)
+        if self.past_cap and len(attempts) < self._batch:
+            self._pass_done = True  # this pass saw the end: a rescan may start
 
     async def run(self) -> None:
         """Sweep until cancelled: at once, then every ``interval_s`` or on a

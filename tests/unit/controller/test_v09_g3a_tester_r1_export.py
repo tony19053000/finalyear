@@ -187,9 +187,5 @@ def test_a_secret_planted_in_manifest_placement_snapshot_never_reaches_the_file(
     _assert_clean(_planted({}))
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="TR1-A2: workload_params keeps unknown keys the agent reported",
-)
 def test_defect_unknown_keys_in_reported_workload_params_are_stored() -> None:
     _assert_clean(_planted({"token": SENTINEL}))

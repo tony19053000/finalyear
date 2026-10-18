@@ -56,7 +56,8 @@ SLEEP_CODE = "import time\nprint('up', flush=True)\ntime.sleep(300)\n"
 def _doc(**over: Any) -> str:
     doc: dict[str, Any] = {
         "schema_version": 1,
-        "family": "cpu.sumsq",
+        # a registered family (G3 fix r1, TR1-A2): only its keys are kept
+        "family": "cpu.matmul",
         "params": {"n": 10},
         "seed": 3,
         "status": "ok",
@@ -403,7 +404,7 @@ async def test_defect_2_a_record_postgres_refuses_must_not_jam_later_records(
 
 @pytest.mark.parametrize(
     "params",
-    [{"note": "a\u0000b"}, {"note": "\ud800"}, {"a\u0000": 1}],
+    [{"dtype": "a\u0000b"}, {"dtype": "\ud800"}, {"a\u0000": 1}],
     ids=["nul-value", "surrogate", "nul-key"],
 )
 async def test_defect_2_nul_or_surrogate_in_params(
@@ -443,8 +444,8 @@ async def test_defect_4_an_unhashable_workload_status_does_not_break_the_attempt
         _doc(params={"n": 2**70}),
         _doc(params={"n": 1.5, "repeats": True, "dtype": 5}),
         _doc(family="Not A Name"),
-        _doc(params={"deep": json.loads("[" * 300 + "]" * 300)}),
-        '{"status": "ok", "params": {"x": NaN}}',
+        _doc(params={"dtype": json.loads("[" * 300 + "]" * 300)}),
+        '{"status": "ok", "family": "cpu.matmul", "params": {"n": NaN}}',
         "not json at all",
         "[]",
     ],

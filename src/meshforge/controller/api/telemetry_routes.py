@@ -6,9 +6,10 @@ field that contains one, and no other column can hold one; THREAT_MODEL RE-I6).
 
 Query: ``campaign`` (one campaign's records) and ``since`` (records of attempts
 created at or after this ISO-8601 time, with an offset). The body is the
-Parquet file of :mod:`meshforge.controller.telemetry.export`, built off the
-event loop and streamed in chunks; the same query over the same records gives
-the same bytes (D222). More records than ``[controller.telemetry]
+Parquet file of :mod:`meshforge.controller.telemetry.export`, built **whole in
+memory** off the event loop (the response carries its ``Content-Length``) and
+then sent in 256 KiB slices - not streamed from the database; the same query
+over the same records gives the same bytes (D222). More records than ``[controller.telemetry]
 export_max_rows`` -> 413 ``invalid_input`` (narrow the query). Database down ->
 503 ``network_error`` (``Retry-After``).
 """
