@@ -232,3 +232,72 @@ are separate. Both were frozen at 1 when G1 started recording; from then on **an
 version** - no in-place edits, because a recorded dataset may already hold the old shape (D228). The agent
 forwards the result version it read (`result_schema_version` in the attempt's workload report); a result
 change that alters a column here bumps both.
+
+## Labels (V0.9 G5, roadmap 0.9.6, D218/D246)
+
+A **label** says, for one **group** of a campaign (same workload family + parameters + condition,
+`group_id`), which **configuration** (strategy + node + origin, `config_id`) was cheapest - **only when the
+measurements can tell**. A noisy "best" would teach the ML planner (V0.15) noise, so a close call is a `tie`,
+never a coin flip. Labels are **derived on demand** from the run records: no table, no migration, nothing
+stored; the same records give the same labels and the same Parquet bytes (D222).
+
+`GET /v1/bench/campaigns/{id}/labels[?format=json|parquet]` (admin) and
+`compute bench labels CAMPAIGN_ID [-o FILE.parquet] [--json]`. Code: `controller/telemetry/labels.py` (the pure
+rule), `labels_store.py` (the row filter, campaign reads), `labels_export.py` (Parquet), `bench/stats.py`
+(statistics).
+
+**The row filter** (`labels_store.label_rows` / `label_filter` - the one filter, also for planner training
+later). A record counts only if: `campaign_id` is the campaign; `failure_class = 'ok'`; `workload_status = 'ok'`
+(the self-check passed - a wrong answer computed fast is not fast); `condition_measured->>'bench_role'` is
+**null** (D244: queue fillers and cache warm-ups are scaffolding for another run and never count); and
+`condition_measured->>'verified'` is not `false`. Workload failures, infrastructure failures,
+`condition_failed` and `unavailable` runs are therefore all excluded. Repetitions are the distinct
+`repetition` values: when a (config, repetition) has several ok records (a retried run, D234) only the
+**latest** attempt is kept (created last, then highest attempt number, then highest attempt id).
+
+**Costs per configuration**, each with n, median, mean, sample std, CV (null when n < 2 or mean = 0), the
+median's CI and the MAD outlier count (|x - median| > 3.5 x 1.4826 x MAD; MAD = 0 -> none):
+
+| metric | from the record |
+|---|---|
+| `total_ms` | `total_ms` (sum of measured phases; the label is decided on this) |
+| `compute_per_iter_ns` | `compute_ns / compute_iterations` - one kernel iteration (null when either is null) |
+| `bytes` | `bytes_in + bytes_out` (null when either is null) |
+
+**The median's confidence interval** is distribution-free (no normality assumption - timings are skewed, and
+3-10 repetitions cannot show a shape): the number of values below the true median is Binomial(n, 1/2), so the
+interval from the k-th smallest to the k-th largest value covers it with probability 1 - 2 P(B <= k - 1).
+n <= 5: [min, max] (coverage 0 %, 50 %, 75 %, 87.5 %, 93.75 % for n = 1..5). n >= 6: the **tightest** such
+interval (largest k) whose coverage is still >= 90 %. The achieved coverage is reported, never assumed.
+
+**The label** (the first rule that applies):
+
+| label | when |
+|---|---|
+| `pending` | a run of the group is `planned` / `submitted`, or ended but its record is not written yet |
+| `insufficient` | a configuration has fewer than 3 measured repetitions (a planned configuration with no record has 0), or no configuration can run the group |
+| `best` | the lowest-median configuration's CI upper bound is **strictly below every other configuration's CI lower bound**. `margin_pct` = how much higher the runner-up's median is, in % of the best's. A group with one configuration is `best` with `margin_pct` null. |
+| `tie` | otherwise; `tied_config_ids` = the lowest-median configuration and every configuration whose CI reaches into its CI |
+
+Why `tie` instead of "lowest median wins": with 3-5 repetitions two configurations within each other's noise
+swap places from one night to the next; labelling either as best would be noise the planner learns.
+
+A configuration whose runs were all stored `skipped` as **unsupported** (`on_unsupported: skip`: the node
+cannot apply the condition) is reported with `state: unsupported` and left out of the comparison; any other
+skip (node gone, cancelled) leaves a planned configuration without data -> `insufficient`.
+
+**Planner signal** (D237: a preference, not "what would have run that second"): each configuration carries the
+most frequent `planner_node_id` of its kept records (ties -> the smallest id), the group the most frequent
+over all of them, and `planner_agrees` = (best node == that preference) for a `best` label - the regret
+signal for V0.14.
+
+**Parquet (`labels_version` 1).** One row per (group, configuration), sorted by (`group_id`, `config_id`): the
+group's columns (`labels_version`, `campaign_id`, `group_id`, `family`, `condition`, `params` (json), `label`,
+`best_config_id`, `best_strategy`, `best_node_id`, `margin_pct`, `tied_config_ids` (json list),
+`group_planner_node_id`, `planner_agrees`, `reason`), then the configuration's (`config_id`, `strategy`,
+`node_id`, `origin_node_id`, `config_state`, `repetitions`, `planner_node_id`, `is_best`, `in_tie`) and its
+costs (`<metric>_n`, `_median`, `_mean`, `_std`, `_cv`, `_ci_low`, `_ci_high`, `_ci_coverage`, `_outliers`
+per metric above). Same writer options and determinism rules as the record export; the only custom file
+metadata is `meshforge.labels.version`. The columns are pinned by a fingerprint
+(`labels_export.LABEL_FINGERPRINTS`); a shape change bumps `labels_version`. Streamed like the record export
+(chunked, no `Content-Length`); more matching records than `[controller.telemetry] export_max_rows` -> 413.

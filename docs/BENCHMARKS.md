@@ -309,6 +309,11 @@ node, submitted from its origin; G4 item 0.6). A run's `ended_at` is its job's f
 0.7). Until V0.9 G5's resumable
 runner, `submit` is the only driver: nothing runs in the background.
 
+**Labels (V0.9 G5).** Which configuration of each group was cheapest - or `tie` / `insufficient` / `pending`
+when the measurements cannot tell - is derived from the run records on demand:
+`compute bench labels CAMPAIGN_ID [-o FILE.parquet]` (admin). The row filter, the median-CI rule and the
+Parquet columns are in [TELEMETRY.md](TELEMETRY.md) "Labels".
+
 ## Conditions
 
 A **condition** is the state a run is measured under (V0.9 G4, D217/D241). The spec lists conditions as a sweep
