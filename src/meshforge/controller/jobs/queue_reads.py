@@ -78,6 +78,7 @@ __all__ = [
     "FabricRows",
     "NetworkReads",
     "NodeRow",
+    "is_benchmark_key",
     "queued_jobs",
     "read_fabric",
 ]
@@ -184,6 +185,15 @@ def _now(now: dt.datetime) -> Any:
 BENCH_IDEMPOTENCY_PREFIX: Final = "bench:"
 """Literal copy of ``controller.bench.submit.IDEMPOTENCY_PREFIX`` (a unit test
 holds them equal; this module must not import the bench package)."""
+
+
+def is_benchmark_key(idempotency_key: str | None) -> bool:
+    """The Python side of :func:`_is_benchmark`'s key rule: the job carries the
+    ``bench:<run_id>`` Idempotency-Key the campaign submitter sets in the job's
+    own INSERT (so it holds before the run link commits). Pure."""
+    return idempotency_key is not None and idempotency_key.startswith(
+        BENCH_IDEMPOTENCY_PREFIX
+    )
 
 
 def _is_benchmark() -> Any:
