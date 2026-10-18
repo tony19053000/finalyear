@@ -23,7 +23,7 @@ families:
   - family: cpu.primes                                     # defaults only
   - family: memory.copy
 
-conditions: [none]          # load / cache / network conditions arrive in V0.9 G4
+conditions: [none]          # a sweep axis, one per run: e.g. [none, "cpu_load:2", "cache:cold"] (BENCHMARKS.md "Conditions")
 
 strategies: [local, mode1]  # local = on the origin itself; mode1 = on every other node
 nodes: all                  # or a list of node ids / host names

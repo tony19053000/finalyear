@@ -39,7 +39,7 @@ import ipaddress
 import signal
 import socket
 from collections.abc import Coroutine, Iterator
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from types import TracebackType
 from typing import Any
 
@@ -541,7 +541,9 @@ class ControllerRuntime:
             batch=cfg.telemetry.record_batch,
             # V0.9 G3 (D232): benchmark identity = the bench_run.job_id link;
             # G4: + the run's condition, session label, controller-side facts
-            campaign_of=bench_identities,
+            campaign_of=functools.partial(
+                bench_identities, started_at=datetime.now(UTC)
+            ),
         )
         # V0.9 G3 (D215/D216): campaigns + forced runs (no background loop
         # until G5; `POST .../submit?count=k` drives them).

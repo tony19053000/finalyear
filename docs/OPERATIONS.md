@@ -931,6 +931,25 @@ failed. Running it again only reports `hit`. The controller remembers the newest
 256 requests in memory; after a controller restart `compute node prepare` reports
 the request unknown, but the work on the node is done and the next run says `hit`.
 
+### 0d2. Benchmark conditions on an agent (V0.9 G4, D217)
+
+A benchmark run may ask the agent to load the CPU/GPU, empty its cache for the job, or shape its network
+first (`docs/BENCHMARKS.md` "Conditions"). The agent applies, verifies and reverts each one itself:
+
+```toml
+[agent.conditions]
+enabled = true              # off = advertise none (campaigns needing one on this node are refused/skipped)
+netem = false               # Linux only; needs the one sudoers rule in lab/netem/README.md
+netem_interface = ""        # e.g. "wlp2s0": the interface toward the controller (never lo)
+tc_command = ["sudo", "-n", "/usr/sbin/tc"]
+verify_window_s = 2.0       # how long a load is measured before it counts as applied
+setup_allowance_s = 900     # load processes end by themselves at time limit + 30 s + this
+```
+
+The agent itself still runs unelevated; `netem` is the only condition that needs root, through that single
+opt-in rule. Leftovers of a crashed agent (load processes, a netem qdisc) are undone at its next start from
+`<data dir>/conditions/active.json` (logged `agent.conditions.swept`).
+
 ### 0e. Caches, GC and named inputs (V0.5 G5, D91-D93)
 
 **Every laptop's caches are bounded.** An agent keeps the blobs it fetched

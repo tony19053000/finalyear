@@ -118,6 +118,7 @@ def test_canonical_form(text: str, canonical: str) -> None:
         ("unavailable:1h", "not <n>s"),
     ],
 )
+@pytest.mark.security
 def test_bad_conditions_name_the_problem(text: str, needle: str) -> None:
     with pytest.raises(ConditionError) as caught:
         parse_condition(text)

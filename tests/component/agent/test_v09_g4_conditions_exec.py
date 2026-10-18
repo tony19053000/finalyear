@@ -563,6 +563,7 @@ async def test_netem_rtt_not_grown_fails_and_still_reverts(tmp_path: Path) -> No
 
 
 @pytest.mark.asyncio
+@pytest.mark.security
 async def test_agent_restart_sweeps_what_a_crashed_process_left(tmp_path: Path) -> None:
     """A previous agent process died with a burner running and netem applied:
     the marker lists both; the next start kills that burner (same pid and
@@ -624,6 +625,7 @@ async def test_agent_restart_sweeps_what_a_crashed_process_left(tmp_path: Path) 
                 proc.wait()
 
 
+@pytest.mark.security
 def test_a_burner_ends_by_itself_when_its_agent_dies() -> None:
     """Belt and braces for the sweep: a burner whose parent is gone exits
     within about a second (its own parent poll)."""

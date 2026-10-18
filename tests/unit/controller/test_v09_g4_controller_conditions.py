@@ -206,6 +206,14 @@ def _report(spec: str, verified: bool = True, **measured: Any) -> dict[str, Any]
             True,
             False,
         ),
+        # a controller restart during the pause (it lives in memory)
+        (
+            _identity("unavailable:30s", dispatched_after_s=2.5, pause_lost=True),
+            None,
+            "done",
+            False,
+            True,
+        ),
         (
             _identity("unavailable:30s", dispatched_after_s=31.0),
             None,

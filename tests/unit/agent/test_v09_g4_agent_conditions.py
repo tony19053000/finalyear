@@ -163,6 +163,7 @@ def test_burner_ends_at_its_deadline_and_when_the_parent_is_gone(
 
 
 @pytest.mark.asyncio
+@pytest.mark.security
 async def test_netem_apply_verify_revert_with_fixed_arguments() -> None:
     tc = FakeTc()
     ctl = _netem("netem:delay=50ms,loss=1%", tc)
@@ -214,6 +215,7 @@ async def test_netem_loss_only_is_verified_by_the_qdisc_alone() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.security
 async def test_netem_refuses_the_wrong_interface_and_touches_nothing() -> None:
     tc = FakeTc()
     ctl = _netem("netem:delay=5ms", tc, egress="wlan0")
@@ -225,6 +227,7 @@ async def test_netem_refuses_the_wrong_interface_and_touches_nothing() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("iface", ["lo", "lo:1", "-x", "a" * 16, "eth 0", "eth0;rm"])
+@pytest.mark.security
 async def test_netem_refuses_loopback_and_odd_names(iface: str) -> None:
     tc = FakeTc()
     ctl = _netem("netem:delay=5ms", tc, egress=iface, iface=iface)
@@ -372,6 +375,7 @@ def _runner(tmp_path: Path, kinds: set[ConditionKind], **extra: Any) -> Conditio
         ("rm -rf /", "unknown condition"),
     ],
 )
+@pytest.mark.security
 async def test_runner_refuses_what_it_did_not_advertise(
     tmp_path: Path, spec: str, needle: str
 ) -> None:

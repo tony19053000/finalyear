@@ -127,8 +127,13 @@ def condition_outcome(
         failed = done and not verified
     elif isinstance(condition, Unavailable):
         after = facts.get("dispatched_after_s")
-        verified = isinstance(after, int | float) and after < condition.seconds
-        if not verified:
+        lost = facts.get("pause_lost") is True
+        verified = (
+            isinstance(after, int | float) and after < condition.seconds and not lost
+        )
+        if lost:
+            reason = "the controller restarted during the pause (it lives in memory)"
+        elif not verified:
             reason = (
                 "the run was not dispatched"
                 if after is None

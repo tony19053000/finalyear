@@ -141,11 +141,17 @@ class BenchConditions:
 
 
 async def bench_identities(
-    db: AsyncSession, job_ids: Collection[str]
+    db: AsyncSession,
+    job_ids: Collection[str],
+    *,
+    started_at: dt.datetime | None = None,
 ) -> dict[str, dict[str, Any]]:
     """The recorder's campaign hook: :func:`~.store.campaign_identities` plus,
     per run job, its ``condition`` (canonical), the campaign's
-    ``session_label`` and the controller-side ``condition_facts``."""
+    ``session_label`` and the controller-side ``condition_facts``.
+    ``started_at`` = when this controller process started (wall clock): a
+    pause (in memory) that a restart may have ended early is reported
+    ``pause_lost``."""
     identities = await campaign_identities(db, job_ids)
     if not identities:
         return identities
@@ -168,7 +174,7 @@ async def bench_identities(
         identity["session_label"] = label if isinstance(label, str) else None
         identity["origin_node_id"] = origin
     try:
-        facts = await _facts(db, identities)
+        facts = await _facts(db, identities, started_at)
     except SQLAlchemyError:
         raise  # the sweep fails and is retried (recorder rule)
     except Exception:
@@ -183,7 +189,9 @@ async def bench_identities(
 
 
 async def _facts(
-    db: AsyncSession, identities: Mapping[str, Mapping[str, Any]]
+    db: AsyncSession,
+    identities: Mapping[str, Mapping[str, Any]],
+    started_at: dt.datetime | None,
 ) -> dict[str, dict[str, Any]]:
     wanted: dict[str, Any] = {}
     for job_id, identity in identities.items():
@@ -230,6 +238,11 @@ async def _facts(
                 "dispatched_after_s": None
                 if first is None
                 else round((first - queued_at).total_seconds(), 3),
+                # this process started after the pause began and before the
+                # run was dispatched: the in-memory pause may be gone
+                "pause_lost": started_at is not None
+                and first is not None
+                and queued_at < started_at < first,
             }
     return out
 
