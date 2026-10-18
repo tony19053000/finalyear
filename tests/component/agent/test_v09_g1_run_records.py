@@ -139,7 +139,7 @@ async def test_every_real_attempt_gets_one_complete_record_and_exports_reproduci
     bench, unavailable = by_job[jobs["bench_ok"]], by_job[jobs["bench_unavailable"]]
 
     for record in rows:
-        assert record["schema_version"] == 1
+        assert record["schema_version"] == 2
         assert record["node_id"] == agent.node_id
         assert record["placement_mode"] == "pinned" and record["strategy"] == "mode1"
         assert record["run_ms"] is not None and record["queue_ms"] is not None

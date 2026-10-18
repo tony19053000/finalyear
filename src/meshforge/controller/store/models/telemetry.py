@@ -1,4 +1,6 @@
-"""``run_record``: telemetry schema v1 (V0.9 G1, D211/D212, ADR-0018; migration 0021).
+"""``run_record``: telemetry schema v2 (V0.9 G1, D211/D212, ADR-0018; migration 0021;
+v2 columns ``result_schema_version``, ``condition``, ``condition_measured``:
+V0.9 G4, migration 0023).
 
 One row per **terminal** attempt - every job, benchmark or not (real usage is
 data too). Columns are declared in :mod:`meshforge.controller.telemetry.schema`
@@ -35,6 +37,10 @@ __all__ = ["RunRecord"]
 
 _SHORT: Final = 64
 """Short words (states, classes, families, policies)."""
+_CONDITION: Final = 128
+"""A benchmark condition's canonical string (``netem:delay=50ms,loss=1%``);
+literal copy of ``telemetry.record.CONDITION_CHARS`` (a unit test holds them
+equal)."""
 
 
 def _in(values: tuple[str, ...]) -> str:
@@ -97,6 +103,7 @@ class RunRecord(Base):
     workload_seed: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     workload_status: Mapped[str | None] = mapped_column(String(_SHORT), nullable=True)
     workload_device: Mapped[str | None] = mapped_column(String(_SHORT), nullable=True)
+    result_schema_version: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     p_n: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     p_repeats: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     p_size_mb: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
@@ -109,6 +116,11 @@ class RunRecord(Base):
     env_base: Mapped[str | None] = mapped_column(String(_SHORT), nullable=True)
     gpu_request: Mapped[str | None] = mapped_column(String(_SHORT), nullable=True)
     runtime: Mapped[str | None] = mapped_column(String(_SHORT), nullable=True)
+    # benchmark condition (v2)
+    condition: Mapped[str | None] = mapped_column(String(_CONDITION), nullable=True)
+    condition_measured: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB(none_as_null=True), nullable=True
+    )
     # start snapshot
     node_state: Mapped[str | None] = mapped_column(String(_SHORT), nullable=True)
     node_rtt_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
