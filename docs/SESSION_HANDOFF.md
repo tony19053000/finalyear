@@ -262,6 +262,8 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
+**2026-10-18 (G3 lane A fix r1 DONE `aab2015`, D238) — RUNNING: lane A tester r2 ∥ lane B tester r2 (resumed after limit). Then reviewer per lane; merge A then B (conflicts: recorder.py, import-boundary files) → whole component once alone.**
+
 **2026-10-18 (G3 lane B fix r1 DONE, D237) — RUNNING: lane B tester r2 delta ∥ lane A fix r1 (D236). If died: relaunch the missing one (look for "## Tester r2" in progress/V0.9-G3B.md, "## Fix round 1" in V0.9-G3A.md).**
 
 **2026-10-18 (G3 lane A tester r1 FAIL TR1-A1..A3, D236) — RUNNING: lane A fix r1 ∥ lane B fix r1 (D235). If died: relaunch each fix r1 in its worktree (look for "## Fix round 1"); then tester r2 delta → reviewer per lane; merge A then B.**
