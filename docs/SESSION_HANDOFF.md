@@ -7,8 +7,8 @@
 > **Cold-start prompt** (paste this as the first message on the new account):
 >
 > ```
-> Read docs/SESSION_HANDOFF.md §1, then docs/STATUS.md, then the V0.9 section of docs/DEVELOPMENT_ROADMAP.md and docs/briefs/V0.8-dashboard-cli.md D210.
-> V0.8 is agent-side complete (🧑 0.8.10 open). Write the V0.9 brief (benchmark & telemetry v1), item 0 = D210 non-blocking list (clock skew first), and stop for team approval.
+> Read docs/SESSION_HANDOFF.md §1, then docs/STATUS.md, then the V0.9 section of docs/DEVELOPMENT_ROADMAP.md and docs/briefs/V0.9-benchmark-telemetry.md §5d + D232–D240.
+> G3 is merged on main (both lanes, D240). Run the whole `-m component` gate ONCE alone; green → close 0.9.3/0.9.4 + status bar + STATUS → write the G4 brief (§5e; item 0 = D233 + D239 + D240 lists) and start G4. Parallel agents OK; no fast mode.
 > ```
 >
 > Order of truth: `PROJECT_BRIEF → ARCHITECTURE → ROADMAP → STATUS → this file`. If this file
@@ -261,6 +261,8 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 - Commits: keep using `git commit -- <paths>` even with one agent — the Lead also commits docs.
 
 ## 1. Where the project is
+
+**2026-10-18 (session end — team asked to stop) — NOTHING RUNNING. G3 lanes A+B MERGED on main (`d838c43`, `b82006e`, D240); frontend rebuilt; ruff/mypy/lint-imports clean; 4455 targeted tests green. The whole `-m component` gate was STOPPED unfinished (no result). Next: `uv sync --all-extras`, then `uv run python scripts/pytest_exit_guard.py -m component -q -rs` ALONE; green → 0.9.3/0.9.4 `[x]` (evidence D232–D240) + status bar + STATUS → G4 brief (§5e, item 0 = D233 + D239 + D240). 🧑 pending: Windows P1 in lab/checklists/V0.9-campaign.md.**
 
 **2026-10-18 (G3 both lanes MERGED `d838c43`,`b82006e`, D240) — RUNNING: frontend build then whole `-m component` ONCE alone on main (log scratchpad v09_g3_component.log). If died: rerun `uv run python scripts/pytest_exit_guard.py -m component -q -rs` alone; green → 0.9.3/0.9.4 `[x]` + status bar + STATUS → write G4 brief (§5e; item 0 = D233 + D239 + D240 lists).**
 
