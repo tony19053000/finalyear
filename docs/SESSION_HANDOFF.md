@@ -262,6 +262,8 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
+**2026-10-18 (G3 lane A tester r1 FAIL TR1-A1..A3, D236) — RUNNING: lane A fix r1 ∥ lane B fix r1 (D235). If died: relaunch each fix r1 in its worktree (look for "## Fix round 1"); then tester r2 delta → reviewer per lane; merge A then B.**
+
 **2026-10-18 (G3 lane B tester r1 FAIL D-1..D-3, D235) — RUNNING: lane B fix r1 ∥ lane A tester r1. If died: relaunch fix r1 in the lane B worktree per D235 (look for "## Fix round 1"); then tester r2 delta → reviewer.**
 
 **2026-10-18 (G3 lane B hand-off `f8aaa0e`, D234) — RUNNING: lane A tester r1 ∥ lane B tester r1 (each in its worktree). Lane B fix r1 must fix bench priority aging (D234). If died: relaunch the tester (look for "## Tester r1" in progress/V0.9-G3A.md / G3B.md).**
