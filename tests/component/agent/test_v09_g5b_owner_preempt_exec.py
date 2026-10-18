@@ -38,7 +38,10 @@ from meshforge.agent.owner_guard import OwnerGuard
 from meshforge.common.bench_conditions import ConditionKind
 from meshforge.common.owner_policy import OPEN_POLICY, OwnerPolicy
 from meshforge.common.proto.meshforge.v1 import agent_pb2
-from meshforge.common.proto_codec import attempt_state_from_proto, failure_type_from_proto
+from meshforge.common.proto_codec import (
+    attempt_state_from_proto,
+    failure_type_from_proto,
+)
 
 pytestmark = [pytest.mark.component, pytest.mark.timeout(120)]
 
@@ -118,7 +121,9 @@ async def test_preempt_reverts_conditions_first_then_stops_only_the_bench_attemp
         await asyncio.sleep(0.05)
     final = _final(reports, bench.start_attempt.attempt_id)
     assert _state(final) == "failed"
-    assert failure_type_from_proto(final.failure.failure_type).value == "owner_preempted"
+    assert (
+        failure_type_from_proto(final.failure.failure_type).value == "owner_preempted"
+    )
     assert final.condition.reverted is True and final.condition.verified is False
     # the user job is still running, then finishes normally
     assert _state(_final(reports, user.start_attempt.attempt_id)) == "running"
@@ -142,7 +147,9 @@ async def test_bench_start_is_refused_while_guarded_and_a_user_start_runs(
     await _settle(executor)
     final = _final(reports, bench.start_attempt.attempt_id)
     assert _state(final) == "failed"
-    assert failure_type_from_proto(final.failure.failure_type).value == "owner_preempted"
+    assert (
+        failure_type_from_proto(final.failure.failure_type).value == "owner_preempted"
+    )
     assert runtime.calls == 0
     user = _start(digest, None)
     executor.handle(user)
@@ -174,7 +181,9 @@ async def test_policy_pause_refuses_a_bench_start_as_owner_preempted(
     executor.handle(bench)
     await _settle(executor)
     final = _final(reports, bench.start_attempt.attempt_id)
-    assert failure_type_from_proto(final.failure.failure_type).value == "owner_preempted"
+    assert (
+        failure_type_from_proto(final.failure.failure_type).value == "owner_preempted"
+    )
     assert "policy_bench_paused" in final.failure.message
     user = _start(digest, None)
     executor.handle(user)
