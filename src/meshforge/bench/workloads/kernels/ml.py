@@ -165,10 +165,11 @@ def float32_eps(torch: Any, device: str, *, conv: bool) -> float:
     return 2.0**-24
 
 
-def ml_tolerance(eps: float, layers: int, scale: float) -> float:
+def ml_tolerance(eps: float, layers: int, scale: Any) -> Any:
     """Allowed ``|timed - float64 reference|``: ``ML_FACTOR * eps *
     sqrt(layers) * scale`` (rounding grows about like the square root of the
-    number of layers it passes through)."""
+    number of layers it passes through). ``scale`` is a float (training loss)
+    or a per-row tensor (inference); the result has the same type."""
     return ML_FACTOR * eps * math.sqrt(max(layers, 1)) * scale
 
 
@@ -248,7 +249,9 @@ def _inference_reference(state: Any, out: Any) -> tuple[float, int] | Check:
     got = out[rows].detach().cpu().double().flatten(1)
     scale = expected.abs().amax(dim=1, keepdim=True)
     eps = float32_eps(torch, state["device"], conv=state["conv"])
-    bound = ML_FACTOR * eps * math.sqrt(max(state["layers"], 1)) * scale + 1e-300
+    # one tolerance rule for inference and training (D228.4); ``scale`` is a
+    # per-row tensor here, the formula is elementwise
+    bound = ml_tolerance(eps, state["layers"], scale) + 1e-300
     return worse(0.0, float(((got - expected).abs() / bound).max())), len(rows)
 
 
