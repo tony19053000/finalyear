@@ -1,0 +1,353 @@
+"""Forced benchmark runs: one planned run -> one ordinary job (V0.9 G3, roadmap 0.9.4, D215).
+
+A benchmark run is **an ordinary job** (ARCHITECTURE §17): it is planned,
+staged, executed and recorded by exactly the paths a user's job takes. What
+makes it "forced" is only how it is submitted:
+
+* **pinned** to the run's node (``placement.node_id``), ``mode`` ``local``
+  when the node is the origin and ``offload`` otherwise, with
+  ``submitter_node_id`` = the origin - so the run record's ``strategy`` is
+  ``local`` / ``mode1`` by the same rule as for any job;
+* at the **lowest priority** (:data:`~meshforge.common.manifest.MIN_PRIORITY`):
+  a user's job queued later is dispatched first (D215; benchmark jobs never
+  pre-empt - the fabric has no pre-emption - and never jump the queue);
+* owned by the campaign's creator (D141: they see, cancel and download it).
+
+The planner still runs at dispatch (D215: no bypass) and, because the job is
+pinned, also plans it unpinned as a shadow - the record's ``planner_node_id``
+(:mod:`meshforge.controller.jobs.planning`).
+
+**Same internal path as ``POST /v1/jobs``** (no HTTP self-call): the job folder
+of :func:`meshforge.bench.workloads.materialise.job_files` is turned into a
+tree manifest in memory (the same canonical form ``compute run`` builds from a
+folder, :func:`~meshforge.common.tree.canonical_bytes`) and its blobs are put
+in the blob store; under the store's GC guard the tree is checked like a
+submitted one (:func:`~meshforge.controller.api.job_routes.check_tree` rules),
+the pinned placement is checked (:func:`~meshforge.controller.jobs.placement.
+check_placement`), and :meth:`~meshforge.controller.jobs.store.JobStore.
+create_queued_job` writes the job. The same ``(family, params, seed)`` gives
+byte-identical files (G2), so the blobs are stored once per group.
+
+**Idempotent per run.** The job's ``Idempotency-Key`` is ``bench:<run_id>``:
+a crash (or a racing submit) between the job's commit and the run's
+``planned -> submitted`` link finds the same job again and links it - never a
+second job for one run.
+
+**Outcomes** (:class:`RunOutcome`): ``submitted`` (a job, linked);
+``deferred`` (the node is offline / has no session / its owner's policy refuses
+jobs now: the run stays ``planned`` and the next submit tries it again);
+``skipped`` (the run can never run as planned: node deleted, cannot give the
+job what it needs, the library refuses the params - the run becomes
+``skipped`` with the reason); ``already`` (another submit moved it first).
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from collections.abc import AsyncIterator, Callable
+from dataclasses import dataclass
+from typing import Final, Literal
+
+import yaml
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncEngine
+
+from meshforge.bench.workloads import ParamsError, UnknownFamilyError
+from meshforge.bench.workloads.materialise import job_files
+from meshforge.common.cas import DEFAULT_CHUNK_SIZE
+from meshforge.common.errors import FailureType, MeshForgeError
+from meshforge.common.hashing import Digest
+from meshforge.common.ids import new_job_id
+from meshforge.common.logging import get_logger
+from meshforge.common.manifest import (
+    MANIFEST_FILE_NAME,
+    MIN_PRIORITY,
+    Manifest,
+    ManifestError,
+    parse_manifest_data,
+)
+from meshforge.common.tree import Tree, TreeEntry, TreeError, canonical_bytes
+from meshforge.controller.bench.store import BenchStore, CampaignRecord, RunRow
+from meshforge.controller.blobs import BlobError, BlobStore
+from meshforge.controller.jobs.env_health import env_key
+from meshforge.controller.jobs.placement import PlacementError, check_placement
+from meshforge.controller.jobs.store import (
+    IdempotencyConflictError,
+    JobScheduling,
+    JobStore,
+)
+from meshforge.controller.planner.inputs import workload_fingerprint
+from meshforge.controller.registry import Registry
+from meshforge.controller.session.manager import SessionManager
+from meshforge.controller.store.engine import create_session_factory
+from meshforge.controller.store.models.auth import AppUser
+
+__all__ = [
+    "IDEMPOTENCY_PREFIX",
+    "BenchSubmitError",
+    "BenchSubmitter",
+    "RunOutcome",
+    "bench_tree",
+]
+
+log = get_logger(__name__)
+
+IDEMPOTENCY_PREFIX: Final = "bench:"
+_TRANSIENT_CODES_PREFIX: Final = "policy_"
+"""Owner-policy refusals change when the owner changes their policy: deferred,
+not skipped (G5's owner guard builds on this)."""
+
+type Outcome = Literal["submitted", "deferred", "skipped", "already"]
+
+
+class BenchSubmitError(MeshForgeError):
+    """A submit could not proceed (a store or blob failure; retryable)."""
+
+    default_failure_type = FailureType.NETWORK_ERROR
+
+
+@dataclass(frozen=True, slots=True)
+class RunOutcome:
+    run_id: str
+    seq: int
+    outcome: Outcome
+    job_id: str | None = None
+    detail: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class BuiltTree:
+    tree: Tree
+    manifest_bytes: bytes
+    blobs: dict[str, bytes]
+    """hex digest -> bytes (each file's content)."""
+    manifest: Manifest
+
+
+def bench_tree(family: str, params: dict[str, object], seed: int) -> BuiltTree:
+    """The run's job folder as a tree, in memory (no disk). Raises
+    :class:`~meshforge.bench.workloads.ParamsError` /
+    :class:`~meshforge.bench.workloads.UnknownFamilyError` /
+    :class:`~meshforge.common.manifest.ManifestError`."""
+    files = job_files(family, params, int(seed))
+    entries: list[TreeEntry] = []
+    blobs: dict[str, bytes] = {}
+    for path, data in files.items():
+        if len(data) > DEFAULT_CHUNK_SIZE:  # pragma: no cover - kernels are KBs
+            raise TreeError("a benchmark file is larger than one chunk", path=path)
+        sha = hashlib.sha256(data).hexdigest()
+        blobs[sha] = data
+        entries.append(TreeEntry(path, "file", sha256=sha, size=len(data)))
+    ordered = tuple(sorted(entries, key=lambda e: e.path.encode("utf-8")))
+    body = canonical_bytes(DEFAULT_CHUNK_SIZE, ordered)
+    tree = Tree(
+        chunk_size=DEFAULT_CHUNK_SIZE,
+        entries=ordered,
+        tree_id=Digest(hashlib.sha256(body).hexdigest()),
+        manifest_bytes=len(body),
+    )
+    raw = yaml.safe_load(files[MANIFEST_FILE_NAME])
+    manifest = parse_manifest_data(raw)
+    return BuiltTree(tree=tree, manifest_bytes=body, blobs=blobs, manifest=manifest)
+
+
+async def _once(data: bytes) -> AsyncIterator[bytes]:
+    yield data
+
+
+def _request_hash(
+    run: RunRow, manifest: dict[str, object], tree_id: str, placement: dict[str, str]
+) -> str:
+    canonical = json.dumps(
+        {
+            "bench_run": run.id,
+            "manifest": manifest,
+            "tree_id": tree_id,
+            "placement": placement,
+            "submitter": run.origin_node_id,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+class BenchSubmitter:
+    """Submits a campaign's planned runs (see module docstring)."""
+
+    def __init__(
+        self,
+        *,
+        store: BenchStore,
+        jobs: JobStore,
+        blobs: BlobStore,
+        registry: Registry,
+        manager: SessionManager,
+        engine: AsyncEngine,
+        wake: Callable[[], None] | None = None,
+    ) -> None:
+        self._store = store
+        self._jobs = jobs
+        self._blobs = blobs
+        self._registry = registry
+        self._manager = manager
+        self._sessions = create_session_factory(engine)
+        self._wake = wake
+
+    async def _owner_name(self, user_id: str | None) -> str | None:
+        if user_id is None:
+            return None
+        async with self._sessions() as db:
+            name = await db.scalar(select(AppUser.name).where(AppUser.id == user_id))
+        return None if name is None else str(name)
+
+    async def submit_next(
+        self, campaign: CampaignRecord, count: int
+    ) -> list[RunOutcome]:
+        """Submit the next ``count`` planned runs in ``seq`` order. Raises
+        :class:`BenchSubmitError` (nothing after the failing run is tried)."""
+        planned = await self._store.runs(campaign.id, state="planned", limit=count)
+        owner_name = await self._owner_name(campaign.created_by)
+        outcomes = [
+            await self.submit_run(campaign, run, owner_name=owner_name)
+            for run in planned
+        ]
+        if self._wake is not None and any(o.outcome == "submitted" for o in outcomes):
+            self._wake()
+        return outcomes
+
+    async def submit_run(
+        self, campaign: CampaignRecord, run: RunRow, *, owner_name: str | None
+    ) -> RunOutcome:
+        try:
+            built = bench_tree(run.family, dict(run.params), run.seed)
+        except (ParamsError, UnknownFamilyError, ManifestError, TreeError) as exc:
+            return await self._skip(run, f"the workload library refuses it: {exc}")
+        placement = {
+            "mode": "local" if run.node_id == run.origin_node_id else "offload",
+            "node_id": run.node_id,
+        }
+        canonical = built.manifest.canonical_dict()
+        tree_id = str(built.tree.tree_id)
+        try:
+            async with self._blobs.gc_guard.shared():
+                await self._store_tree(built)
+                node = await self._registry.get_node(run.node_id)
+                live = self._manager.get(run.node_id)
+                try:
+                    check_placement(
+                        built.manifest,
+                        node,
+                        connected=live is not None,
+                        policy=None if live is None else live.policy,
+                        owner_name=owner_name,
+                    )
+                except PlacementError as exc:
+                    return await self._refused(run, exc)
+                job, created = await self._jobs.create_queued_job(
+                    job_id=str(new_job_id()),
+                    name=built.manifest.name,
+                    manifest=canonical,
+                    bundle_digest=None,
+                    placement=placement,
+                    request_hash=_request_hash(run, canonical, tree_id, placement),
+                    idempotency_key=IDEMPOTENCY_PREFIX + run.id,
+                    tree_id=tree_id,
+                    scheduling=JobScheduling(
+                        priority=MIN_PRIORITY,
+                        policy=built.manifest.policy,
+                        max_attempts=built.manifest.retry.max_attempts,
+                        retry_backoff_s=built.manifest.retry.backoff_s,
+                        on_lost_retry=built.manifest.retry.on_lost,
+                        submitter_node_id=run.origin_node_id,
+                        submitter_seeded=False,
+                        input_bytes=built.tree.total_bytes,
+                        fingerprint=workload_fingerprint(
+                            built.manifest,
+                            project=tree_id,
+                            env_key=env_key(
+                                canonical, tree_id=tree_id, bundle_digest=None
+                            ),
+                        ),
+                    ),
+                    owner_user_id=campaign.created_by,
+                )
+        except IdempotencyConflictError:
+            # Only a request for another run (or a hand-made one) can hold this
+            # run's key: never link a job that is not this run's.
+            return await self._skip(run, "its idempotency key is held by another job")
+        except (BlobError, TreeError) as exc:
+            raise BenchSubmitError(
+                f"storing the benchmark job failed: {exc}",
+                details={"run_id": run.id, "cause": type(exc).__name__},
+            ) from exc
+        except MeshForgeError as exc:
+            if exc.failure_type is FailureType.NETWORK_ERROR:
+                raise BenchSubmitError(
+                    "the database is unavailable", details={"run_id": run.id}
+                ) from exc
+            raise
+        linked = await self._store.mark_submitted(run.id, job.id)
+        log.info(
+            "controller.bench.run_submitted",
+            campaign_id=campaign.id,
+            run_id=run.id,
+            seq=run.seq,
+            job_id=job.id,
+            node_id=run.node_id,
+            strategy=run.strategy,
+            replay=not created,
+            linked=linked,
+        )
+        if not linked:
+            return RunOutcome(run.id, run.seq, "already", job_id=job.id)
+        return RunOutcome(run.id, run.seq, "submitted", job_id=job.id)
+
+    async def _store_tree(self, built: BuiltTree) -> None:
+        for hex_digest in [
+            d.hex for d in self._blobs.missing(Digest(h) for h in built.blobs)
+        ]:
+            data = built.blobs[hex_digest]
+            await self._blobs.put(
+                Digest(hex_digest), _once(data), declared_size=len(data)
+            )
+        tree_digest = built.tree.tree_id
+        if self._blobs.size(tree_digest) is None:
+            await self._blobs.put(
+                tree_digest,
+                _once(built.manifest_bytes),
+                declared_size=len(built.manifest_bytes),
+            )
+        stored = await self._blobs.tree(tree_digest)  # parsed like a submitted tree
+        if stored is None or stored.tree_id != tree_digest:  # pragma: no cover
+            raise TreeError("the benchmark tree did not round-trip the blob store")
+
+    async def _refused(self, run: RunRow, exc: PlacementError) -> RunOutcome:
+        code = str(exc.details.get("reject_code") or "")
+        if exc.failure_type is FailureType.NOT_FOUND:
+            return await self._skip(run, "the node no longer exists")
+        if not code or code.startswith(_TRANSIENT_CODES_PREFIX):
+            log.info(
+                "controller.bench.run_deferred",
+                run_id=run.id,
+                node_id=run.node_id,
+                reason=exc.message,
+            )
+            return RunOutcome(run.id, run.seq, "deferred", detail=exc.message)
+        return await self._skip(run, f"the node cannot run it: {exc.message} ({code})")
+
+    async def _skip(self, run: RunRow, detail: str) -> RunOutcome:
+        moved = await self._store.mark_skipped(run.id, detail)
+        log.warning(
+            "controller.bench.run_skipped",
+            campaign_id=run.campaign_id,
+            run_id=run.id,
+            node_id=run.node_id,
+            detail=detail[:200],
+        )
+        return RunOutcome(
+            run.id, run.seq, "skipped" if moved else "already", detail=detail
+        )

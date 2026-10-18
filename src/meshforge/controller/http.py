@@ -43,6 +43,11 @@ from meshforge.controller.api.auth_routes import (
     AuthApi,
     auth_router,
 )
+from meshforge.controller.api.bench_routes import (
+    BENCH_STATE_KEY,
+    BenchApi,
+    bench_router,
+)
 from meshforge.controller.api.blob_routes import BLOBS_STATE_KEY, blob_router
 from meshforge.controller.api.data_routes import data_router
 from meshforge.controller.api.decision_routes import decision_router
@@ -130,6 +135,7 @@ def create_http_app(
     events: EventBus | None = None,
     alerts: AlertLog | None = None,
     telemetry: TelemetryExport | None = None,
+    bench: BenchApi | None = None,
     web_dist: Path | None = DEFAULT_DIST,
     wall_clock: Callable[[], float] = time.time,
 ) -> FastAPI:
@@ -232,6 +238,9 @@ def create_http_app(
     if telemetry is not None:
         setattr(app.state, TELEMETRY_STATE_KEY, telemetry)
         app.include_router(telemetry_router)  # V0.9 G1 dataset export (D211)
+    if bench is not None:
+        setattr(app.state, BENCH_STATE_KEY, bench)
+        app.include_router(bench_router)  # V0.9 G3 benchmark campaigns (D216)
     return app
 
 
@@ -261,6 +270,7 @@ def openapi_document() -> dict[str, Any]:
         events=inert(),
         alerts=inert(),
         telemetry=inert(),
+        bench=inert(),
         web_dist=None,
     )
     return app.openapi()

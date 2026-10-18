@@ -56,6 +56,7 @@ from meshforge.common.proto.meshforge.v1 import agent_pb2, agent_pb2_grpc
 from meshforge.controller.alerts import AlertLog
 from meshforge.controller.api.auth import ApiAuth
 from meshforge.controller.api.auth_routes import AuthApi
+from meshforge.controller.api.bench_routes import BenchApi
 from meshforge.controller.api.fabric_routes import InviteApi
 from meshforge.controller.api.job_routes import JobApi
 from meshforge.controller.api.network_routes import NetworkApi
@@ -64,6 +65,8 @@ from meshforge.controller.auth.live_streams import LiveStreams
 from meshforge.controller.auth.login import LoginService, login_policy
 from meshforge.controller.auth.passwords import PasswordHasher
 from meshforge.controller.auth.users import UserStore
+from meshforge.controller.bench.store import BenchStore, campaign_identities
+from meshforge.controller.bench.submit import BenchSubmitter
 from meshforge.controller.blobs import BlobStore, FetchTokens
 from meshforge.controller.cache_index import CacheIndex, CacheLocationStore
 from meshforge.controller.discovery import ServiceAdvertiser
@@ -189,6 +192,8 @@ class ControllerRuntime:
         self.flusher: SnapshotFlusher | None = None
         self._engine: AsyncEngine | None = None
         self.recorder: RunRecorder | None = None
+        self.bench: BenchStore | None = None
+        self.bench_submitter: BenchSubmitter | None = None
         """V0.9 G1: the run-record sweep (:mod:`.telemetry.recorder`)."""
         self._grpc_server: grpc.aio.Server | None = None
         self._enroll_listener: EnrollListener | None = None
@@ -523,6 +528,20 @@ class ControllerRuntime:
             engine,
             interval_s=cfg.telemetry.record_interval_s,
             batch=cfg.telemetry.record_batch,
+            # V0.9 G3 (D232): benchmark identity = the bench_run.job_id link
+            campaign_of=campaign_identities,
+        )
+        # V0.9 G3 (D215/D216): campaigns + forced runs (no background loop
+        # until G5; `POST .../submit?count=k` drives them).
+        self.bench = BenchStore(engine)
+        self.bench_submitter = BenchSubmitter(
+            store=self.bench,
+            jobs=self.jobs,
+            blobs=blobs,
+            registry=registry,
+            manager=manager,
+            engine=engine,
+            wake=self.dispatcher.wake,
         )
         self._spawn(self.recorder.run(), "telemetry-recorder")
         # V0.5 G5 (D92): the pinned named inputs go to every agent after its
@@ -659,6 +678,7 @@ class ControllerRuntime:
                 prepare=self.prepare,
                 secrets=self.secrets,
                 max_job_secret_bytes=cfg.jobs.max_job_secret_bytes,
+                bench=self.bench,
             ),
             network=NetworkApi(store=network_store, prober=network),
             invites=InviteApi(
@@ -674,6 +694,9 @@ class ControllerRuntime:
             alerts=AlertLog(engine),
             telemetry=TelemetryExport(
                 engine, max_rows=self.settings.controller.telemetry.export_max_rows
+            ),
+            bench=BenchApi(
+                store=self.bench, submitter=self.bench_submitter, registry=registry
             ),
         )
         http_config = uvicorn.Config(

@@ -19,6 +19,7 @@ from meshforge.controller.api.models import ApiModel, Utc
 
 __all__ = [
     "AttemptSummary",
+    "BenchmarkRef",
     "JobCancelled",
     "JobCreated",
     "JobDetail",
@@ -181,6 +182,13 @@ class AttemptSummary(ApiModel):
     """What staging cost per tree and source (V0.5 G5); empty until it ended."""
 
 
+class BenchmarkRef(ApiModel):
+    """V0.9 G3 (D215/D232): the campaign run this job is (``bench_run.job_id``)."""
+
+    campaign_id: str
+    run_id: str
+
+
 class JobSummary(ApiModel):
     job_id: str
     name: str
@@ -198,6 +206,8 @@ class JobSummary(ApiModel):
     """D106 (manifest ``priority``)."""
     submitter_node_id: str | None = None
     """D103: the submitting laptop's node (its Local candidate), if named."""
+    benchmark: BenchmarkRef | None = None
+    """V0.9 G3: set when the job is a benchmark campaign's forced run."""
 
 
 class JobDetail(JobSummary):

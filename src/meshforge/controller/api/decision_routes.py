@@ -87,6 +87,10 @@ class DecisionOut(ApiModel):
     snapshot_digest: str
     candidates: tuple[CandidateOut, ...]
     actual: ActualOut | None = None
+    shadow_chosen_node_id: str | None = None
+    """V0.9 G3 (D215): for a pinned job, the node the planner would have chosen
+    unpinned on the same snapshot; null = not pinned / none feasible."""
+    shadow_estimate_s: float | None = None
 
 
 class DecisionList(ApiModel):
@@ -116,6 +120,8 @@ def _out(record: DecisionRecordOut) -> DecisionOut:
             failure_type=actual.failure_type,
             phases_ms=dict(actual.phases_ms),
         ),
+        shadow_chosen_node_id=record.shadow_chosen_node_id,
+        shadow_estimate_s=record.shadow_estimate_s,
     )
 
 

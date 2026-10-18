@@ -71,6 +71,7 @@ from meshforge.controller.planner import (
     History,
     NodeSnapshot,
     PlannerConfig,
+    PlanRequest,
     RejectCode,
     TreeNeed,
     exclusions,
@@ -318,6 +319,8 @@ class DispatchPlanner:
             )
         decision = plan(plan_job, snapshot, self.policy_of(job), self._wall())
         record = decision_record(decision)
+        if decision.chosen is not None and pinned is not None:
+            record = self._with_shadow(record, plan_job, snapshot, job)
         if decision.chosen is not None:
             return self._dispatch(
                 job, manifest, decision, fabric, record, trees=trees, cluster=snapshot
@@ -331,6 +334,44 @@ class DispatchPlanner:
                 record,
             )
         return Wait(record)
+
+    def _with_shadow(
+        self,
+        record: DecisionRecord,
+        plan_job: PlanRequest,
+        snapshot: ClusterSnapshot,
+        job: JobRecord,
+    ) -> DecisionRecord:
+        """V0.9 G3 (D215): what the planner **would** choose for this pinned
+        job unpinned - the same request and snapshot, the pin removed. Pure
+        (no reservation, no round-robin pointer moved, no row of its own);
+        it only adds the would-have-chosen node and its estimate to the
+        dispatched decision, which the run record reads as ``planner_node_id``.
+        A failure here never blocks the pinned dispatch."""
+        try:
+            shadow = plan(
+                dataclasses.replace(plan_job, pinned_node_id=None, excluded={}),
+                snapshot,
+                self.policy_of(job),
+                self._wall(),
+            )
+        except Exception as exc:  # the shadow is telemetry, never a condition
+            log.exception(
+                "controller.jobs.shadow_plan_failed",
+                job_id=job.id,
+                error_type=type(exc).__name__,
+            )
+            return record
+        chosen = shadow.chosen
+        if chosen is None:
+            return record
+        return dataclasses.replace(
+            record,
+            shadow_chosen_node_id=chosen.node_id,
+            shadow_estimate_s=None
+            if chosen.estimate is None
+            else round(chosen.estimate.total_s, 6),
+        )
 
     def _pinned_gone(
         self, job: JobRecord, node_id: str, fabric: FabricRows

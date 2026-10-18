@@ -178,6 +178,9 @@ class DecisionRecord:
     reason_key: str
     candidates: Sequence[Mapping[str, Any]]
     chosen_node_id: str | None = None
+    shadow_chosen_node_id: str | None = None
+    """V0.9 G3 (D215): a pinned job's would-have-chosen node (shadow plan)."""
+    shadow_estimate_s: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -845,6 +848,8 @@ async def _record_decision(
                     outcome=outcome,
                     policy=record.policy,
                     chosen_node_id=record.chosen_node_id,
+                    shadow_chosen_node_id=record.shadow_chosen_node_id,
+                    shadow_estimate_s=record.shadow_estimate_s,
                     snapshot_digest=record.snapshot_digest,
                     reason_key=record.reason_key,
                     candidates=[dict(c) for c in record.candidates][
