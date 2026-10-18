@@ -76,7 +76,11 @@ def test_the_default_cap_is_lower_and_the_same_in_settings() -> None:
     assert TelemetrySettings().export_max_rows == export.MAX_EXPORT_ROWS
 
 
-def test_the_docstrings_say_buffered() -> None:
-    assert export.__doc__ is not None and "buffered in memory" in export.__doc__
+def test_the_docstrings_say_what_is_held() -> None:
+    """G4 item 0.4 (D233.4) made the file streamed (the records are still
+    loaded); the docstrings say exactly that."""
+    assert export.__doc__ is not None
+    assert "the **file is streamed**" in export.__doc__
+    assert "are **loaded**" in export.__doc__
     assert export.parquet_bytes.__doc__ is not None
-    assert "buffered in memory" in export.parquet_bytes.__doc__
+    assert "in memory" in export.parquet_bytes.__doc__

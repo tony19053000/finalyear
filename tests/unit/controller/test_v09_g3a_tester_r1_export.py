@@ -128,7 +128,8 @@ async def test_the_cap_is_inclusive_and_cap_plus_one_is_413(
     assert seen == [11]  # asks for cap + 1 to know it overflowed
     if status == 200:
         assert reply.headers["X-MeshForge-Telemetry-Rows"] == str(in_db)
-        assert int(reply.headers["Content-Length"]) == len(reply.content)
+        # G4 item 0.4 (D233.4): streamed, chunked - no Content-Length any more
+        assert "content-length" not in reply.headers
         assert pq.read_metadata(io.BytesIO(reply.content)).num_rows == in_db
         assert reply.content == export.parquet_bytes(_many(in_db))
     else:

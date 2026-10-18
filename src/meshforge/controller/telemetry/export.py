@@ -17,21 +17,25 @@ records give the same bytes -
 A test writes the same records twice and compares the bytes, and reads the file
 back and compares it with the records.
 
-**Memory (G3 item 0.7, D230.1).** The export is **buffered in memory**, not
-streamed from the database: :func:`fetch_records` loads every matching record
-(~2.5 KB each as dicts, more as ORM rows), and :func:`parquet_bytes` returns the
-finished file as bytes (the API sends a ``Content-Length``). Arrow data is built
-**one row group at a time** (:func:`write_records`, a ``ParquetWriter``), so the
-Arrow copy never holds more than :data:`ROW_GROUP_SIZE` rows. The cap
-(:data:`MAX_EXPORT_ROWS`, ``[controller.telemetry] export_max_rows``) keeps the
-worst case to a few hundred MB; narrow a bigger export by campaign / since.
+**Memory (G3 item 0.7, D230.1; G4 items 0.4/0.12, D233.4/D240).** The records
+are **loaded** from the database (:func:`fetch_records`: every matching record,
+~2.5 KB each as dicts, more as ORM rows, at most :data:`MAX_EXPORT_ROWS` /
+``[controller.telemetry] export_max_rows``), but the **file is streamed**:
+:func:`iter_parquet` builds Arrow data and encodes Parquet **one row group at a
+time** and yields each row group's bytes as soon as it is written (the footer
+last), so neither the whole Arrow table nor the whole file is ever held - only
+one row group (:data:`ROW_GROUP_SIZE` rows) and its encoded bytes. The API
+streams those bytes chunked (no ``Content-Length``). The export order is a
+sort of the loaded records: :func:`iter_parquet` sorts a list **in place**
+when asked (``sort_in_place=True``, the route's own list) instead of copying it;
+otherwise it sorts a copy of the references (8 bytes per row, the dicts are
+shared). :func:`parquet_bytes` (tests, scripts) still returns the whole file.
 """
 
 from __future__ import annotations
 
 import datetime as dt
-import io
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from typing import IO, Any, Final
 
 import pyarrow as pa
@@ -58,6 +62,7 @@ __all__ = [
     "WRITER_OPTIONS",
     "arrow_schema",
     "fetch_records",
+    "iter_parquet",
     "parquet_bytes",
     "records_table",
     "sort_key",
@@ -67,8 +72,8 @@ __all__ = [
 
 MAX_EXPORT_ROWS: Final = 100_000
 """Default cap of one export (``[controller.telemetry] export_max_rows``): a
-campaign is thousands of records, and the export is buffered in memory (module
-docstring) - ~0.25 GB of record dicts at the cap."""
+campaign is thousands of records, and the records are loaded before the file is
+streamed (module docstring) - ~0.25 GB of record dicts at the cap."""
 
 WRITER_OPTIONS: Final[dict[str, Any]] = {
     "version": "2.6",
@@ -155,28 +160,98 @@ def write_parquet(table: pa.Table, sink: IO[bytes]) -> None:
     pq.write_table(table, sink, row_group_size=ROW_GROUP_SIZE, **WRITER_OPTIONS)
 
 
-def write_records(records: Iterable[Mapping[str, Any]], sink: IO[bytes]) -> int:
-    """Write the export of ``records`` to ``sink`` one row group at a time
-    (:data:`ROW_GROUP_SIZE` rows of Arrow data at most), with the pinned options;
-    returns the row count. The bytes equal :func:`write_parquet` of
-    :func:`records_table` - the row groups are the same."""
-    rows = sorted(records, key=sort_key)
+class _Chunks:
+    """A write-only binary sink that hands out what was written so far
+    (:meth:`take`); ``tell`` counts every byte ever written (pyarrow asks)."""
+
+    def __init__(self) -> None:
+        self._parts: list[bytes] = []
+        self._written = 0
+        self.closed = False
+
+    def write(self, data: bytes | bytearray | memoryview) -> int:
+        chunk = bytes(data)
+        self._parts.append(chunk)
+        self._written += len(chunk)
+        return len(chunk)
+
+    def tell(self) -> int:
+        return self._written
+
+    def flush(self) -> None:
+        return None
+
+    def close(self) -> None:
+        self.closed = True
+
+    def writable(self) -> bool:
+        return True
+
+    def seekable(self) -> bool:
+        return False
+
+    def readable(self) -> bool:
+        return False
+
+    def take(self) -> bytes:
+        data = b"".join(self._parts)
+        self._parts.clear()
+        return data
+
+
+def _ordered(
+    records: Iterable[Mapping[str, Any]], *, in_place: bool
+) -> Sequence[Mapping[str, Any]]:
+    if in_place and isinstance(records, list):
+        records.sort(key=sort_key)
+        return records
+    return sorted(records, key=sort_key)
+
+
+def iter_parquet(
+    records: Iterable[Mapping[str, Any]], *, sort_in_place: bool = False
+) -> Iterator[bytes]:
+    """The export of ``records`` as consecutive pieces of one Parquet file:
+    one piece per row group as soon as it is encoded, the footer last (module
+    docstring). Joined, the pieces equal :func:`write_parquet` of
+    :func:`records_table` - the row groups and options are the same.
+    ``sort_in_place`` sorts a ``list`` argument in place (it is reordered)
+    instead of sorting a copy."""
+    rows = _ordered(records, in_place=sort_in_place)
     schema = arrow_schema()
-    with pq.ParquetWriter(sink, schema, **WRITER_OPTIONS) as writer:
+    sink = _Chunks()
+    writer = pq.ParquetWriter(sink, schema, **WRITER_OPTIONS)
+    try:
         if not rows:
             writer.write_table(_rows_table([], schema), row_group_size=ROW_GROUP_SIZE)
         for start in range(0, len(rows), ROW_GROUP_SIZE):
             group = _rows_table(rows[start : start + ROW_GROUP_SIZE], schema)
             writer.write_table(group, row_group_size=ROW_GROUP_SIZE)
+            del group
+            piece = sink.take()
+            if piece:
+                yield piece
+    finally:
+        writer.close()
+    tail = sink.take()
+    if tail:
+        yield tail
+
+
+def write_records(records: Iterable[Mapping[str, Any]], sink: IO[bytes]) -> int:
+    """Write the export of ``records`` to ``sink`` (:func:`iter_parquet`, one
+    row group of Arrow data at a time) with the pinned options; returns the row
+    count. The bytes equal :func:`write_parquet` of :func:`records_table`."""
+    rows = list(records)
+    for piece in iter_parquet(rows, sort_in_place=True):
+        sink.write(piece)
     return len(rows)
 
 
 def parquet_bytes(records: Iterable[Mapping[str, Any]]) -> bytes:
-    """The whole export as bytes, buffered in memory (module docstring);
-    written by :func:`write_records`."""
-    buffer = io.BytesIO()
-    write_records(records, buffer)
-    return buffer.getvalue()
+    """The whole export as bytes, in memory (tests, scripts; the API streams
+    :func:`iter_parquet`)."""
+    return b"".join(iter_parquet(records))
 
 
 async def fetch_records(
