@@ -173,9 +173,14 @@ CPU** - a separate object built by the same seeded initialisation, never a copy 
   expensive one row is, so at the corners the reference is far above 1e11 FLOPs and `check_ms` can be **minutes**
   (`REFERENCE_FLOPS` says the same next to the constant). Measured on Laptop 1 (2026-10-18, torch 2.14 CPU): the
   largest window-valid transformer (`batch` 4, `seq_len` 2048, `width` 1024, `depth` 24) recomputes 4 rows =
-  ~6.6e12 float64 FLOPs in **51 s** (about 2 min on the mid laptop) - inside the 15 min job timeout, but it
-  also peaked at **~4.9 GB** of host RAM (the float64 attention matrices), more than the 2 GB the ML families
-  declare (`ram_gb`; follow-up). The worst `cnn_infer` reference (`batch` 64, `width` 256, `depth` 12, `image`
+  ~6.6e12 float64 FLOPs in **51 s** (about 2 min on the mid laptop) - inside the 15 min job timeout. Its
+  memory was **~4.9 GB** of host RAM (a whole float64 model plus 4 rows of 16 x 2048 x 2048 attention scores),
+  more than the 2 GB the ML families declare (`ram_gb`); since V0.9 G4 item 0.1 (D233.1) the transformer
+  reference rebuilds the embedding plus **one** seeded layer (`nn.TransformerEncoder` deep-copies one layer, so
+  every layer starts equal to it; each timed layer is compared with it bit for bit), applies it `depth` times
+  by hand in float64 **one row at a time** with attention and feed-forward in 16 MiB chunks, and peaks at
+  **~0.33 GB** at that corner (measured on Laptop 1, 2026-10-18, `VmHWM`; component test
+  `tests/component/bench/test_v09_g4a_transformer_reference_memory.py`, limit 512 MB). The worst `cnn_infer` reference (`batch` 64, `width` 256, `depth` 12, `image`
   64) is 14 rows, ~1.1e11 FLOPs, about a second. G5's labels use `compute_ns`, never `check_ms`, so a slow
   check costs campaign time, not label quality;
   **Limit, stated plainly:** when sampling, only the sampled rows **of the last batch** are compared with float64.
@@ -276,7 +281,8 @@ skipped` with a reason; a campaign is `done` when no run is planned or submitted
 Each run becomes an **ordinary job** (D215): its folder from the workload library, pinned to the run's node
 (`mode: local` on the origin, `offload` elsewhere), `submitter_node_id` = the origin, at the **lowest priority**
 (-10: a user's job queued later is dispatched first; benchmarks never pre-empt), owned by the campaign's creator.
-The planner still plans it - and, because it is pinned, also plans the same request **unpinned** as a
+The planner still plans it - and, because it is a pinned **benchmark** job (its `bench:<run_id>` key; since
+V0.9 G4 item 0.8 a user's pinned job gets no shadow), also plans the same request **unpinned** as a
 side-effect-free shadow: the node it **prefers** is stored on the decision (`compute explain`,
 `shadow_chosen_node_id`) and becomes the run record's `planner_node_id`, so every record of a forced run also
 says what the planner would have picked (the V0.14 regret metric). The shadow **ignores slot occupancy** (every
@@ -288,5 +294,14 @@ policy, a slot kind the node has at all), health (state, live session) and the j
 `submit` is idempotent per run (the job's Idempotency-Key is `bench:<run_id>`). A run whose node is offline, has
 no session or whose owner currently refuses jobs is **deferred** (stays planned; the next submit tries it again);
 one that can never run as planned (node deleted, cannot give the job what it needs - e.g. a GPU family on a
-CPU-only node -, parameters the library now refuses) is **skipped** with the reason. Until V0.9 G5's resumable
+CPU-only node -, parameters the library now refuses) is **skipped** with the reason. `submit?count=k` submits
+up to k runs: a **deferred run does not use up k** - the call keeps paging through the planned runs (at most
+2 000 examined per call) until k are submitted or none are left (V0.9 G4 item 0.5). A node that defers for a
+node-wide reason (offline, no session, its owner accepts no jobs or not this campaign's owner) is tried once
+and its other runs are passed over for the rest of the call (not listed); a deferral that depends on the run
+(an owner RAM / CPU / VRAM limit ...) is per run. A crash between a job's commit and its run's link cannot
+leave the run planned: every campaign read or submit (`sync`) links a planned run to the job holding its
+`bench:<run_id>` key - only if that job is the run's own (owned by the campaign's creator, pinned to the run's
+node, submitted from its origin; G4 item 0.6). A run's `ended_at` is its job's final transition time (G4 item
+0.7). Until V0.9 G5's resumable
 runner, `submit` is the only driver: nothing runs in the background.

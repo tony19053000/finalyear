@@ -195,6 +195,13 @@ _MULTIPLE_OF: Final[dict[tuple[str, str], int]] = {
     ("ml.transformer_infer", "width"): 64
 }
 
+CNN_TRAIN_FIRST_BATCH_MAX: Final = 2**24
+"""Job-side copy of the library's ``ml.cnn_train`` rule (G4 item 0.2, D233.2):
+``batch * width * image**2`` at most this - the float64 first-loss check holds
+the whole first batch. Equals :data:`.ml.TRAIN_REFERENCE_ELEMENTS` (a unit
+test holds them equal; this module cannot import ``ml`` - a CPU family's job
+folder does not carry it)."""
+
 
 def check_seed(seed: object) -> int:
     """``seed`` as an int in ``0..MAX_SEED`` (bool, float, str, None refused)."""
@@ -227,6 +234,29 @@ def check_params(family: str, params: Mapping[str, Any]) -> None:
         multiple = _MULTIPLE_OF.get((family, name), 1)
         if value % multiple:
             raise KernelParamsError(f"{name}: must be a multiple of {multiple}")
+    _check_combination(family, params)
+
+
+def _check_combination(family: str, params: Mapping[str, Any]) -> None:
+    """Rules across several params the library also applies
+    (``Family.combination_problems``), so a hand-edited job folder cannot run
+    a corner the library refuses. Absent params are the kernel's to report."""
+    if family != "ml.cnn_train":
+        return
+    values: list[int] = []
+    for key in ("batch", "width", "image"):
+        value = params.get(key)
+        if isinstance(value, bool) or not isinstance(value, int):
+            return
+        values.append(value)
+    batch, width, image = values
+    first = batch * width * image**2
+    if first > CNN_TRAIN_FIRST_BATCH_MAX:
+        raise KernelParamsError(
+            f"batch x width x image^2 is {first:,}; at most "
+            f"{CNN_TRAIN_FIRST_BATCH_MAX:,} (the float64 first-loss check holds "
+            "the whole first batch) - lower batch, width or image"
+        )
 
 
 def compute_iterations(family: str, params: Mapping[str, Any]) -> int | None:

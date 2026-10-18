@@ -29,6 +29,17 @@ initialisation, never a copy of the timed model - and recomputes in float64
 The reference uses the timed run's inputs (generated in ``prepare``, not timed):
 a CUDA generator's numbers differ from a CPU one's, so they cannot be redrawn on
 the CPU.
+
+**Transformer reference memory (G4 item 0.1, D233.1).** ``nn.TransformerEncoder``
+deep-copies its one seeded layer ``depth`` times, so every layer starts with the
+same weights: the seeded rebuild is the embedding plus **one** layer
+(:func:`_transformer_parts`), compared bit for bit with each of the timed model's
+layers, and the float64 recompute applies that layer ``depth`` times
+(:func:`_transformer_reference_forward`) - by hand, one row at a time, attention
+and feed-forward in chunks of :data:`TRANSFORMER_CHUNK_BYTES`. Peak memory is one float64
+layer plus one row's activations, ~0.3 GB at the largest accepted corner
+(width 1024, seq_len 2048; it was ~4.9 GB with a whole float64 model and 4 rows
+of 16 x 2048 x 2048 attention scores at once).
 """
 
 from __future__ import annotations
@@ -56,6 +67,7 @@ __all__ = [
     "REFERENCE_FLOPS",
     "SAMPLED_ROWS",
     "TRAIN_REFERENCE_ELEMENTS",
+    "TRANSFORMER_CHUNK_BYTES",
     "cnn_layout",
     "float32_eps",
     "ml_tolerance",
@@ -92,7 +104,8 @@ random ones (:func:`reference_rows`).
 recomputed however expensive one row is, so at the corners ``check_ms`` can be
 minutes - the largest window-valid transformer (batch 4, seq_len 2048, width
 1024, depth 24) is 4 rows = ~6.6e12 FLOPs, 51 s on Laptop 1 (~2 min on the mid
-laptop) and ~4.9 GB of host RAM (docs/BENCHMARKS.md, "ML reference")."""
+laptop); since G4 item 0.1 its memory peak is ~0.33 GB (one row at a time,
+module docstring; it was ~4.9 GB - docs/BENCHMARKS.md, "ML reference")."""
 
 SAMPLED_ROWS = 2
 """Rows of the last batch drawn at random (seeded by the run seed, never the
@@ -122,6 +135,11 @@ REFERENCE_CHUNK_BYTES = 64 * 2**20
 (im2col buffer + chunk output, float64). At least one row per chunk, so a
 single row above it (9 x 256 channels x 64 x 64 x 8 B = 72 MiB at most) still
 runs."""
+
+
+TRANSFORMER_CHUNK_BYTES = 16 * 2**20
+"""Largest temporary of the transformer float64 reference (one attention score
+chunk, one feed-forward hidden chunk; G4 item 0.1)."""
 
 
 def cnn_layout(width: int, depth: int, image: int) -> list[tuple[int, int, int]]:
@@ -229,16 +247,17 @@ def _inference_reference(state: Any, out: Any) -> tuple[float, int] | Check:
     """Float64 recompute of rows of the last batch; ``(worst units, rows)`` or a
     failed :class:`Check` when the timed model is not the seeded one."""
     torch = state["torch"]
-    reference = _seeded_model(state)
-    mismatch = _weights_mismatch(state["model"], reference)
-    if mismatch is not None:
+    reference_of: Callable[[Any, Any], Any | str] = state.get(
+        "reference", _whole_model_reference
+    )
+    reference = reference_of(state, state["model"])
+    if isinstance(reference, str):
         return Check(
             ok=False,
             checksum=floats_digest([]),
             exact=False,
-            detail=f"timed model differs from the seeded build at {mismatch}",
+            detail=f"timed model differs from the seeded build at {reference}",
         )
-    reference = reference.double().eval()
     x = state["xs"][(state["batches"] - 1) % POOL]
     rows = reference_rows(int(x.shape[0]), state["row_flops"], state["seed"])
     picked = x[rows].cpu()
@@ -253,6 +272,16 @@ def _inference_reference(state: Any, out: Any) -> tuple[float, int] | Check:
     # per-row tensor here, the formula is elementwise
     bound = ml_tolerance(eps, state["layers"], scale) + 1e-300
     return worse(0.0, float(((got - expected).abs() / bound).max())), len(rows)
+
+
+def _whole_model_reference(state: Any, timed: Any) -> Any:
+    """The seeded build as one float64 module (the CNN), or the name of the
+    first parameter where ``timed`` differs from it."""
+    reference = _seeded_model(state)
+    mismatch = _weights_mismatch(timed, reference)
+    if mismatch is not None:
+        return mismatch
+    return reference.double().eval()
 
 
 # --------------------------------------------------------------------- cnn
@@ -487,15 +516,152 @@ def transformer_heads(width: int) -> int:
     return max(1, width // 64)
 
 
-def _build_transformer(torch: Any, width: int, depth: int) -> Any:
+def _transformer_parts(torch: Any, width: int) -> tuple[Any, Any]:
+    """The seeded parts, in initialisation order: the embedding, then the one
+    encoder layer ``nn.TransformerEncoder`` deep-copies ``depth`` times (the
+    copies draw no random numbers, so every layer starts equal to it)."""
     nn = torch.nn
+    embedding = nn.Embedding(VOCAB, width)
     layer = nn.TransformerEncoderLayer(
         width, transformer_heads(width), 4 * width, dropout=0.0, batch_first=True
     )
+    return embedding, layer
+
+
+def _build_transformer(torch: Any, width: int, depth: int) -> Any:
+    nn = torch.nn
+    embedding, layer = _transformer_parts(torch, width)
     return nn.Sequential(
-        nn.Embedding(VOCAB, width),
+        embedding,
         nn.TransformerEncoder(layer, depth, enable_nested_tensor=False),
     )
+
+
+_LAYER_PREFIX = "1.layers."
+
+
+def _transformer_mismatch(
+    timed: Any, embedding: Any, layer: Any, depth: int
+) -> str | None:
+    """The first parameter / buffer of the timed transformer that is not
+    bit-identical to the seeded embedding / layer (None when all are). One
+    tensor is copied to the CPU at a time."""
+    own = {f"0.{k}": v for k, v in embedding.state_dict().items()}
+    per_layer = dict(layer.state_dict())
+    expected = list(own) + [
+        f"{_LAYER_PREFIX}{i}.{k}" for i in range(depth) for k in per_layer
+    ]
+    mine: dict[str, Any] = dict(timed.state_dict())
+    if list(mine) != expected:
+        return "the parameter names"
+    for name, value in mine.items():
+        # "1.layers.<i>.<key>" -> the one seeded layer's "<key>"
+        other = own.get(name)
+        if other is None:
+            other = per_layer[name[len(_LAYER_PREFIX) :].split(".", 1)[1]]
+        got = value.detach().cpu()
+        if got.shape != other.shape or got.dtype != other.dtype:
+            return str(name)
+        if not bool((got == other).all()):
+            return str(name)
+    return None
+
+
+def _chunk_rows(per_row_bytes: int, n: int) -> int:
+    """Rows per chunk so one chunk's temporary stays within
+    :data:`TRANSFORMER_CHUNK_BYTES` (at least one row)."""
+    return max(1, min(n, TRANSFORMER_CHUNK_BYTES // max(per_row_bytes, 1)))
+
+
+def _encoder_layer_f64(torch: Any, layer: Any, x: Any, heads: int) -> Any:
+    """One post-norm ``nn.TransformerEncoderLayer`` (ReLU, no dropout, no mask)
+    on one row ``x`` (``seq_len x width``, float64), by hand from its weights.
+    Attention runs in query chunks (scores ``heads x chunk x seq_len``, softmax
+    in place) and the feed-forward in row chunks, so no temporary exceeds
+    :data:`TRANSFORMER_CHUNK_BYTES`."""
+    functional = torch.nn.functional
+    n, width = (int(v) for v in x.shape)
+    head_dim = width // heads
+    attention = layer.self_attn
+    qkv = functional.linear(x, attention.in_proj_weight, attention.in_proj_bias)
+    q, k, v = (
+        part.reshape(n, heads, head_dim).transpose(0, 1).contiguous()
+        for part in qkv.split(width, dim=1)
+    )
+    del qkv
+    q.mul_(1.0 / math.sqrt(head_dim))
+    keys = k.transpose(1, 2)
+    mixed = torch.empty((n, heads, head_dim), dtype=x.dtype)
+    step = _chunk_rows(heads * n * 8, n)
+    for start in range(0, n, step):
+        scores = torch.bmm(q[:, start : start + step], keys)
+        scores.sub_(scores.amax(dim=-1, keepdim=True)).exp_()
+        scores.div_(scores.sum(dim=-1, keepdim=True))
+        mixed[start : start + step] = torch.bmm(scores, v).transpose(0, 1)
+        del scores
+    del q, k, v, keys
+    attended = functional.linear(
+        mixed.reshape(n, width), attention.out_proj.weight, attention.out_proj.bias
+    )
+    del mixed
+    norm1, norm2 = layer.norm1, layer.norm2
+    x = functional.layer_norm(
+        attended.add_(x), (width,), norm1.weight, norm1.bias, norm1.eps
+    )
+    out = torch.empty_like(x)
+    step = _chunk_rows(int(layer.linear1.out_features) * 8, n)
+    for start in range(0, n, step):
+        part = x[start : start + step]
+        hidden = functional.linear(part, layer.linear1.weight, layer.linear1.bias)
+        fed = functional.linear(
+            hidden.relu_(), layer.linear2.weight, layer.linear2.bias
+        )
+        out[start : start + step] = functional.layer_norm(
+            fed.add_(part), (width,), norm2.weight, norm2.bias, norm2.eps
+        )
+        del hidden, fed
+    return out
+
+
+def _transformer_reference_forward(
+    torch: Any, embedding: Any, layer: Any, depth: int, tokens: Any
+) -> Any:
+    """``model(tokens)`` in float64 for the seeded transformer: the float64
+    ``embedding`` and ``layer`` (applied ``depth`` times), **one row at a
+    time** (rows of an encoder without a mask are independent). ``tokens`` is
+    ``rows x seq_len`` (CPU, int64); returns ``rows x seq_len x width``."""
+    heads = transformer_heads(int(embedding.weight.shape[1]))
+    out = torch.empty(
+        (int(tokens.shape[0]), int(tokens.shape[1]), int(embedding.weight.shape[1])),
+        dtype=torch.float64,
+    )
+    with torch.no_grad():
+        for row in range(int(tokens.shape[0])):
+            x = embedding.weight[tokens[row]]
+            for _ in range(depth):
+                x = _encoder_layer_f64(torch, layer, x, heads)
+            out[row] = x
+    return out
+
+
+def _transformer_reference(state: Any, timed: Any) -> Any:
+    """The seeded transformer's float64 reference as a callable
+    (``tokens -> output``), or the name of the first parameter where
+    ``timed`` differs from the seed (module docstring)."""
+    torch = state["torch"]
+    with torch.random.fork_rng(devices=[]):
+        torch.default_generator.manual_seed(state["seed"])
+        embedding, layer = _transformer_parts(torch, state["width"])
+    depth = state["depth"]
+    mismatch = _transformer_mismatch(timed, embedding, layer, depth)
+    if mismatch is not None:
+        return mismatch
+    embedding, layer = embedding.double().eval(), layer.double().eval()
+
+    def forward(tokens: Any) -> Any:
+        return _transformer_reference_forward(torch, embedding, layer, depth, tokens)
+
+    return forward
 
 
 def _transformer_prepare(params: Mapping[str, Any], seed: int, device: str) -> Any:
@@ -520,8 +686,10 @@ def _transformer_prepare(params: Mapping[str, Any], seed: int, device: str) -> A
         "xs": tokens,
         "batches": int_param(params, "batches"),
         "width": width,
+        "depth": depth,
         "seed": seed,
         "build": lambda: _build_transformer(torch, width, depth),
+        "reference": _transformer_reference,
         "layers": 2 * depth,
         "conv": False,
         "row_flops": per_layer * depth,
