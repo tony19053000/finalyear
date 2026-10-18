@@ -53,6 +53,9 @@ class DecisionRecordOut:
     reason_key: str
     candidates: Sequence[Mapping[str, Any]]
     actual: ActualOutcome | None = None
+    shadow_chosen_node_id: str | None = None
+    """V0.9 G3 (D215): a pinned job's would-have-chosen node."""
+    shadow_estimate_s: float | None = None
 
 
 class DecisionReads(JobStore):
@@ -114,6 +117,8 @@ class DecisionReads(JobStore):
                     reason_key=r.reason_key,
                     candidates=list(r.candidates),
                     actual=None if r.attempt_id is None else actual.get(r.attempt_id),
+                    shadow_chosen_node_id=r.shadow_chosen_node_id,
+                    shadow_estimate_s=r.shadow_estimate_s,
                 )
                 for r in rows
             ]

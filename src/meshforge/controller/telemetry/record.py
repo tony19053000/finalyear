@@ -137,6 +137,9 @@ class RecordSource:
     decision_policy: str | None = None
     decision_chosen: str | None = None
     decision_candidates: Sequence[Mapping[str, Any]] = ()
+    decision_shadow: str | None = None
+    """V0.9 G3 (D215): for a pinned job, the node the planner's unpinned
+    shadow plan chose (``plan_decision.shadow_chosen_node_id``)."""
     transfers: Sequence[TransferRow] = ()
     campaign: Mapping[str, Any] | None = None
     """Campaign identity (V0.9 G3 fills it): campaign_id, group_id, config_id,
@@ -195,7 +198,8 @@ def build_record(source: RecordSource) -> dict[str, Any]:
         else "mode1",
         "placement_mode": "pinned" if pinned else "auto",
         "policy": source.decision_policy or source.job_policy,
-        "planner_node_id": None if pinned else source.decision_chosen,
+        # D215: what the planner chose (auto) or would have chosen (pinned)
+        "planner_node_id": source.decision_shadow if pinned else source.decision_chosen,
         "planner_estimate_s": _estimate_for(source.decision_candidates, source.node_id),
         **_workload(workload),
         **_manifest(source.manifest),

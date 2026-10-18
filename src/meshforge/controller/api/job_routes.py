@@ -62,8 +62,8 @@ import hashlib
 import hmac
 import json
 import re
-from collections.abc import Sequence
-from typing import Annotated, Any, Final, Literal
+from collections.abc import Collection, Mapping, Sequence
+from typing import Annotated, Any, Final, Literal, Protocol
 
 from fastapi import APIRouter, Depends, Path, Query, Request, Response, status
 from pydantic import ValidationError
@@ -89,6 +89,7 @@ from meshforge.controller.api.context import FabricView, get_fabric
 from meshforge.controller.api.errors import ApiError
 from meshforge.controller.api.job_models import (
     AttemptSummary,
+    BenchmarkRef,
     FinalLogSummary,
     InputOut,
     JobCancelled,
@@ -162,6 +163,14 @@ _JOB_ID_MAX: Final = 40
 _MISSING_SHOWN: Final = 20
 
 
+class BenchLinks(Protocol):
+    """``controller.bench.store.BenchStore``'s job -> campaign-run lookup."""
+
+    async def run_by_job(
+        self, job_ids: Collection[str]
+    ) -> Mapping[str, Mapping[str, Any]]: ...
+
+
 class JobApi:
     """What the job routes need; put on ``app.state`` by ``create_http_app``."""
 
@@ -178,8 +187,12 @@ class JobApi:
         prepare: PrepareTracker | None = None,
         secrets: SecretStore | None = None,
         max_job_secret_bytes: int | None = None,
+        bench: BenchLinks | None = None,
     ) -> None:
         self.store = store
+        self.bench = bench
+        """V0.9 G3: the campaign-run link of benchmark jobs (``benchmark``
+        field); None = the field is always null."""
         self.max_job_secret_bytes = max_job_secret_bytes
         """``[controller.jobs] max_job_secret_bytes`` (D162); None = no cap
         (tests that mount the routes alone)."""
@@ -301,7 +314,20 @@ def _parse_submission(body: bytes) -> JobSubmission:
         raise ApiError.invalid(f"invalid job request: {where}") from None
 
 
-def _summary_fields(job: JobRecord) -> dict[str, Any]:
+async def _benchmarks(jobs: JobApi, job_ids: Sequence[str]) -> dict[str, BenchmarkRef]:
+    """``job_id -> BenchmarkRef`` for the benchmark jobs among ``job_ids``."""
+    if jobs.bench is None or not job_ids:
+        return {}
+    found = await jobs.bench.run_by_job(job_ids)
+    return {
+        job_id: BenchmarkRef(campaign_id=str(v["campaign_id"]), run_id=str(v["run_id"]))
+        for job_id, v in found.items()
+    }
+
+
+def _summary_fields(
+    job: JobRecord, benchmark: BenchmarkRef | None = None
+) -> dict[str, Any]:
     return {
         "job_id": job.id,
         "name": job.name,
@@ -315,6 +341,7 @@ def _summary_fields(job: JobRecord) -> dict[str, Any]:
         "updated_at": job.updated_at,
         "priority": job.scheduling.priority,
         "submitter_node_id": job.scheduling.submitter_node_id,
+        "benchmark": benchmark,
     }
 
 
@@ -340,7 +367,10 @@ def _attempt(record: AttemptRecord) -> AttemptSummary:
 
 
 async def _detail(
-    store: JobStore, job: JobRecord, inputs: NamedInputStore | None = None
+    store: JobStore,
+    job: JobRecord,
+    inputs: NamedInputStore | None = None,
+    benchmark: BenchmarkRef | None = None,
 ) -> JobDetail:
     transitions = await store.transitions(job.id)
     attempts = await store.list_attempts(job.id)
@@ -360,7 +390,7 @@ async def _detail(
         )
     used = [] if inputs is None else await inputs.job_inputs(job.id)
     return JobDetail(
-        **_summary_fields(job),
+        **_summary_fields(job, benchmark),
         manifest=dict(job.manifest),
         transitions=tuple(
             TransitionOut(
@@ -780,7 +810,8 @@ async def list_jobs(
         after=after,
     )
     page, more = records[:limit], len(records) > limit
-    summaries = tuple(JobSummary(**_summary_fields(j)) for j in page)
+    marks = await _benchmarks(jobs, [j.id for j in page])
+    summaries = tuple(JobSummary(**_summary_fields(j, marks.get(j.id))) for j in page)
     last = page[-1] if page and more else None
     return JobList(
         jobs=summaries,
@@ -802,7 +833,8 @@ async def get_job(
     job = await jobs.store.get_job(checked)
     if job is None or not user.may_see_job(job.owner_user_id):
         raise ApiError.not_found("job")
-    return await _detail(jobs.store, job, jobs.inputs)
+    marks = await _benchmarks(jobs, [job.id])
+    return await _detail(jobs.store, job, jobs.inputs, marks.get(job.id))
 
 
 @job_router.post(

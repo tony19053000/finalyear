@@ -126,6 +126,8 @@ def test_base_metadata_uses_convention_and_registers_every_model() -> None:
         "api_token",  # V0.7 G4 (0018)
         "secret",  # V0.7 G6 (0019)
         "run_record",  # V0.9 G1 (0021)
+        "bench_campaign",  # V0.9 G3 (0022)
+        "bench_run",  # V0.9 G3 (0022)
     }
 
 

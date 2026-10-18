@@ -84,17 +84,18 @@ VIOLATIONS = [
     ("agent", "meshforge.controller", "controller and agent never import each other"),
     ("common", "meshforge.sdk", "common imports no other meshforge subpackage"),
     ("common", "meshforge.controller", "common imports no other meshforge subpackage"),
-    ("controller", "meshforge.cli", "controller imports only common"),
+    ("controller", "meshforge.cli", "controller imports only common and bench"),
     ("agent", "meshforge.gpu_service", "agent imports only common"),
     ("gpu_service", "meshforge.agent", "gpu_service imports only common"),
     ("sdk", "meshforge.controller", "sdk imports only common"),
     ("sdk", "meshforge.cli", "sdk imports only common"),
     ("cli", "meshforge.controller", "cli imports only common, sdk and bench"),
     ("cli", "meshforge.gpu_service", "cli imports only common, sdk and bench"),
-    # V0.9 G2: the benchmark library sees only common; cli and (D232, G3) the
-    # controller may import it, the agent may not.
+    # V0.9 G2/G3: the benchmark library sees only common; cli and (G3, D232)
+    # controller may import it, agent may not.
     ("bench", "meshforge.controller", "bench imports only common"),
     ("bench", "meshforge.cli", "bench imports only common"),
+    ("bench", "meshforge.agent", "bench imports only common"),
     ("agent", "meshforge.bench", "agent imports only common"),
 ]
 

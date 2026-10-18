@@ -154,6 +154,12 @@ def test_cli_only_is_the_exception() -> None:
     # V0.9 G2 adds `bench workloads` (local library listing, not a Mode 1
     # operation); the Benchmarks page (G6) may move it to InUi.
     assert cli_only == [
+        # V0.9 G3: campaigns - CLI-only until the Benchmarks page (G6, D221).
+        "bench campaigns",
+        "bench create",
+        "bench plan",
+        "bench runs",
+        "bench submit",
         "bench workloads",
         "data push",
         "fabric join",

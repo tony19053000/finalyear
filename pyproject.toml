@@ -220,6 +220,8 @@ id = "controller-imports-common-only"
 name = "controller imports only common and bench"
 type = "forbidden"
 source_modules = ["meshforge.controller"]
+# V0.9 G3 (D232): the controller imports meshforge.bench (campaign expansion,
+# job materialisation for forced benchmark runs); bench never imports it back.
 forbidden_modules = [
     "meshforge.agent",
     "meshforge.gpu_service",
@@ -277,10 +279,10 @@ forbidden_modules = [
     "meshforge.gpu_service",
 ]
 
-# V0.9 G2 (D214): the benchmark workload library. It imports only common; the CLI
-# may import it (`compute bench workloads` lists families locally). Everything
-# else forbids it for now - G3 decides whether the controller-side campaign
-# runner (D219) imports it, and changes this contract then.
+# V0.9 G2 (D214): the benchmark workload library. It imports only common - never
+# controller or agent (G3, D232) - so the CLI (`compute bench workloads|plan`) and
+# the controller (campaigns, forced runs) can both import it. agent,
+# gpu_service, sdk and common forbid it.
 [[tool.importlinter.contracts]]
 id = "bench-imports-common-only"
 name = "bench imports only common"

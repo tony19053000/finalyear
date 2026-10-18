@@ -257,6 +257,26 @@
         "title": "AttemptSummary",
         "type": "object"
       },
+      "BenchmarkRef": {
+        "additionalProperties": false,
+        "description": "V0.9 G3 (D215/D232): the campaign run this job is (``bench_run.job_id``).",
+        "properties": {
+          "campaign_id": {
+            "title": "Campaign Id",
+            "type": "string"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign_id",
+          "run_id"
+        ],
+        "title": "BenchmarkRef",
+        "type": "object"
+      },
       "BlobCompleted": {
         "additionalProperties": false,
         "properties": {
@@ -406,6 +426,184 @@
           "bytes"
         ],
         "title": "CacheCount",
+        "type": "object"
+      },
+      "CampaignCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "spec": {
+            "description": "The campaign spec (YAML text; docs/BENCHMARKS.md).",
+            "maxLength": 262144,
+            "minLength": 1,
+            "title": "Spec",
+            "type": "string"
+          }
+        },
+        "required": [
+          "spec"
+        ],
+        "title": "CampaignCreate",
+        "type": "object"
+      },
+      "CampaignDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign_id": {
+            "title": "Campaign Id",
+            "type": "string"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/RunCounts"
+          },
+          "created_at": {
+            "$ref": "#/components/schemas/Utc"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "run_count": {
+            "title": "Run Count",
+            "type": "integer"
+          },
+          "seed": {
+            "title": "Seed",
+            "type": "integer"
+          },
+          "spec": {
+            "title": "Spec",
+            "type": "string"
+          },
+          "spec_digest": {
+            "title": "Spec Digest",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "active",
+              "done",
+              "cancelled"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/ExpansionSummary"
+          }
+        },
+        "required": [
+          "campaign_id",
+          "name",
+          "state",
+          "seed",
+          "spec_digest",
+          "run_count",
+          "counts",
+          "summary",
+          "created_at",
+          "spec"
+        ],
+        "title": "CampaignDetail",
+        "type": "object"
+      },
+      "CampaignList": {
+        "additionalProperties": false,
+        "properties": {
+          "campaigns": {
+            "items": {
+              "$ref": "#/components/schemas/CampaignOut"
+            },
+            "title": "Campaigns",
+            "type": "array"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "campaigns",
+          "count"
+        ],
+        "title": "CampaignList",
+        "type": "object"
+      },
+      "CampaignOut": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign_id": {
+            "title": "Campaign Id",
+            "type": "string"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/RunCounts"
+          },
+          "created_at": {
+            "$ref": "#/components/schemas/Utc"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "run_count": {
+            "title": "Run Count",
+            "type": "integer"
+          },
+          "seed": {
+            "title": "Seed",
+            "type": "integer"
+          },
+          "spec_digest": {
+            "title": "Spec Digest",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "active",
+              "done",
+              "cancelled"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/ExpansionSummary"
+          }
+        },
+        "required": [
+          "campaign_id",
+          "name",
+          "state",
+          "seed",
+          "spec_digest",
+          "run_count",
+          "counts",
+          "summary",
+          "created_at"
+        ],
+        "title": "CampaignOut",
         "type": "object"
       },
       "CandidateOut": {
@@ -635,6 +833,28 @@
             "title": "Policy",
             "type": "string"
           },
+          "shadow_chosen_node_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shadow Chosen Node Id"
+          },
+          "shadow_estimate_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shadow Estimate S"
+          },
           "snapshot_digest": {
             "title": "Snapshot Digest",
             "type": "string"
@@ -740,6 +960,48 @@
           "terms"
         ],
         "title": "EstimateOut",
+        "type": "object"
+      },
+      "ExpansionSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "configs": {
+            "title": "Configs",
+            "type": "integer"
+          },
+          "dropped": {
+            "title": "Dropped",
+            "type": "integer"
+          },
+          "duplicates": {
+            "title": "Duplicates",
+            "type": "integer"
+          },
+          "estimated_hours": {
+            "title": "Estimated Hours",
+            "type": "number"
+          },
+          "groups": {
+            "title": "Groups",
+            "type": "integer"
+          },
+          "nodes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Nodes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "groups",
+          "configs",
+          "dropped",
+          "duplicates",
+          "estimated_hours",
+          "nodes"
+        ],
+        "title": "ExpansionSummary",
         "type": "object"
       },
       "FailureOut": {
@@ -1284,6 +1546,16 @@
             "title": "Attempts",
             "type": "array"
           },
+          "benchmark": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BenchmarkRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "bundle_digest": {
             "anyOf": [
               {
@@ -1451,6 +1723,16 @@
       "JobSummary": {
         "additionalProperties": false,
         "properties": {
+          "benchmark": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BenchmarkRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "bundle_digest": {
             "anyOf": [
               {
@@ -2738,6 +3020,207 @@
         "title": "ResourceSnapshot",
         "type": "object"
       },
+      "RunCounts": {
+        "additionalProperties": false,
+        "properties": {
+          "done": {
+            "default": 0,
+            "title": "Done",
+            "type": "integer"
+          },
+          "failed": {
+            "default": 0,
+            "title": "Failed",
+            "type": "integer"
+          },
+          "planned": {
+            "default": 0,
+            "title": "Planned",
+            "type": "integer"
+          },
+          "skipped": {
+            "default": 0,
+            "title": "Skipped",
+            "type": "integer"
+          },
+          "submitted": {
+            "default": 0,
+            "title": "Submitted",
+            "type": "integer"
+          }
+        },
+        "title": "RunCounts",
+        "type": "object"
+      },
+      "RunList": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign_id": {
+            "title": "Campaign Id",
+            "type": "string"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "next_after": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next After"
+          },
+          "runs": {
+            "items": {
+              "$ref": "#/components/schemas/RunOut"
+            },
+            "title": "Runs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "campaign_id",
+          "runs",
+          "count"
+        ],
+        "title": "RunList",
+        "type": "object"
+      },
+      "RunOut": {
+        "additionalProperties": false,
+        "properties": {
+          "conditions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Conditions",
+            "type": "array"
+          },
+          "config_id": {
+            "title": "Config Id",
+            "type": "string"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Utc"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "family": {
+            "title": "Family",
+            "type": "string"
+          },
+          "group_id": {
+            "title": "Group Id",
+            "type": "string"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "node_id": {
+            "title": "Node Id",
+            "type": "string"
+          },
+          "origin_node_id": {
+            "title": "Origin Node Id",
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": true,
+            "title": "Params",
+            "type": "object"
+          },
+          "repetition": {
+            "title": "Repetition",
+            "type": "integer"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "seed": {
+            "title": "Seed",
+            "type": "integer"
+          },
+          "seq": {
+            "title": "Seq",
+            "type": "integer"
+          },
+          "state": {
+            "enum": [
+              "planned",
+              "submitted",
+              "done",
+              "failed",
+              "skipped"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "strategy": {
+            "enum": [
+              "local",
+              "mode1"
+            ],
+            "title": "Strategy",
+            "type": "string"
+          },
+          "submitted_at": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Utc"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "run_id",
+          "seq",
+          "group_id",
+          "config_id",
+          "repetition",
+          "family",
+          "params",
+          "seed",
+          "conditions",
+          "strategy",
+          "node_id",
+          "origin_node_id",
+          "state"
+        ],
+        "title": "RunOut",
+        "type": "object"
+      },
       "ScoreConditions": {
         "additionalProperties": false,
         "description": "How the run was measured (D36): recorded, never used to refuse.",
@@ -3235,6 +3718,99 @@
           "role"
         ],
         "title": "SessionUser",
+        "type": "object"
+      },
+      "SubmitOutcome": {
+        "additionalProperties": false,
+        "properties": {
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "outcome": {
+            "enum": [
+              "submitted",
+              "deferred",
+              "skipped",
+              "already"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "seq": {
+            "title": "Seq",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "run_id",
+          "seq",
+          "outcome"
+        ],
+        "title": "SubmitOutcome",
+        "type": "object"
+      },
+      "SubmitResult": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign_id": {
+            "title": "Campaign Id",
+            "type": "string"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/RunCounts"
+          },
+          "deferred": {
+            "title": "Deferred",
+            "type": "integer"
+          },
+          "outcomes": {
+            "items": {
+              "$ref": "#/components/schemas/SubmitOutcome"
+            },
+            "title": "Outcomes",
+            "type": "array"
+          },
+          "skipped": {
+            "title": "Skipped",
+            "type": "integer"
+          },
+          "submitted": {
+            "title": "Submitted",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "campaign_id",
+          "outcomes",
+          "submitted",
+          "deferred",
+          "skipped",
+          "counts"
+        ],
+        "title": "SubmitResult",
         "type": "object"
       },
       "TermOut": {
@@ -4393,6 +4969,629 @@
         "summary": "The calling user and token",
         "tags": [
           "auth"
+        ]
+      }
+    },
+    "/v1/bench/campaigns": {
+      "get": {
+        "operationId": "list_campaigns_v1_bench_campaigns_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 1000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid input (`invalid_input`)"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No, or no longer a valid, credential (`unauthorized`)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not allowed: admin only, CSRF, foreign origin (`unauthorized`)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found - also another user's object (`not_found`)"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict (`conflict`, `no_feasible_plan`)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid parameters (`invalid_input`)"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Rate limited; see Retry-After (`resource_busy`)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A dependency (the database) is unavailable; retry (`network_error`)"
+          }
+        },
+        "summary": "Benchmark campaigns, newest first (admin)",
+        "tags": [
+          "bench"
+        ]
+      },
+      "post": {
+        "operationId": "create_campaign_v1_bench_campaigns_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CampaignCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid input (`invalid_input`)"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No, or no longer a valid, credential (`unauthorized`)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not allowed: admin only, CSRF, foreign origin (`unauthorized`)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found - also another user's object (`not_found`)"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict (`conflict`, `no_feasible_plan`)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid parameters (`invalid_input`)"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Rate limited; see Retry-After (`resource_busy`)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A dependency (the database) is unavailable; retry (`network_error`)"
+          }
+        },
+        "summary": "Create a benchmark campaign from a spec (admin): validate + expand once",
+        "tags": [
+          "bench"
+        ]
+      }
+    },
+    "/v1/bench/campaigns/{campaign_id}": {
+      "get": {
+        "operationId": "get_campaign_v1_bench_campaigns__campaign_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "maxLength": 40,
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid input (`invalid_input`)"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No, or no longer a valid, credential (`unauthorized`)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not allowed: admin only, CSRF, foreign origin (`unauthorized`)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found - also another user's object (`not_found`)"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict (`conflict`, `no_feasible_plan`)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid parameters (`invalid_input`)"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Rate limited; see Retry-After (`resource_busy`)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A dependency (the database) is unavailable; retry (`network_error`)"
+          }
+        },
+        "summary": "One benchmark campaign with its spec and run counts (admin)",
+        "tags": [
+          "bench"
+        ]
+      }
+    },
+    "/v1/bench/campaigns/{campaign_id}/runs": {
+      "get": {
+        "operationId": "list_runs_v1_bench_campaigns__campaign_id__runs_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "maxLength": 40,
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "planned",
+                    "submitted",
+                    "done",
+                    "failed",
+                    "skipped"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "State"
+            }
+          },
+          {
+            "description": "The last seq already seen.",
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "description": "The last seq already seen.",
+              "minimum": 0,
+              "title": "After",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 1000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid input (`invalid_input`)"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No, or no longer a valid, credential (`unauthorized`)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not allowed: admin only, CSRF, foreign origin (`unauthorized`)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found - also another user's object (`not_found`)"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict (`conflict`, `no_feasible_plan`)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid parameters (`invalid_input`)"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Rate limited; see Retry-After (`resource_busy`)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A dependency (the database) is unavailable; retry (`network_error`)"
+          }
+        },
+        "summary": "A campaign's runs in execution order (admin; keyset paging by seq)",
+        "tags": [
+          "bench"
+        ]
+      }
+    },
+    "/v1/bench/campaigns/{campaign_id}/submit": {
+      "post": {
+        "operationId": "submit_runs_v1_bench_campaigns__campaign_id__submit_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "maxLength": 40,
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "count",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Count",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubmitResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid input (`invalid_input`)"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No, or no longer a valid, credential (`unauthorized`)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not allowed: admin only, CSRF, foreign origin (`unauthorized`)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found - also another user's object (`not_found`)"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict (`conflict`, `no_feasible_plan`)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid parameters (`invalid_input`)"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Rate limited; see Retry-After (`resource_busy`)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A dependency (the database) is unavailable; retry (`network_error`)"
+          }
+        },
+        "summary": "Submit the next k planned runs as pinned lowest-priority jobs (admin)",
+        "tags": [
+          "bench"
         ]
       }
     },

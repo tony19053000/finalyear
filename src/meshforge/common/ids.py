@@ -63,6 +63,8 @@ __all__ = [
     "id_timestamp",
     "new_api_token_id",
     "new_attempt_id",
+    "new_bench_run_id",
+    "new_campaign_id",
     "new_chunk_id",
     "new_command_id",
     "new_fabric_id",
@@ -109,6 +111,10 @@ class IdKind(StrEnum):
     API_TOKEN = "tok"  # noqa: S105 - an id prefix, not a secret
     """One API token row (V0.7 D141, ``api_token``). The id names the row and is
     not secret; the token itself is 256 random bits stored only as a hash."""
+    CAMPAIGN = "camp"
+    """One benchmark campaign (V0.9 G3 D216, ``bench_campaign``)."""
+    BENCH_RUN = "brun"
+    """One planned run of a campaign (V0.9 G3, ``bench_run``)."""
 
 
 JobId = NewType("JobId", str)
@@ -221,6 +227,14 @@ def new_user_id() -> UserId:
 
 def new_api_token_id() -> ApiTokenId:
     return ApiTokenId(new_id(IdKind.API_TOKEN))
+
+
+def new_campaign_id() -> str:
+    return new_id(IdKind.CAMPAIGN)
+
+
+def new_bench_run_id() -> str:
+    return new_id(IdKind.BENCH_RUN)
 
 
 def parse_id(value: object, kind: IdKind | None = None) -> tuple[IdKind, ULID]:

@@ -65,7 +65,7 @@ import contextlib
 import datetime as dt
 import time
 from collections import defaultdict
-from collections.abc import Callable, Sequence
+from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Final
 
@@ -95,6 +95,7 @@ __all__ = [
     "DEFAULT_BATCH",
     "MAX_SKIPPED_IDS",
     "PAST_CAP_RESCAN_S",
+    "CampaignLookup",
     "RunRecorder",
     "TelemetryStoreError",
 ]
@@ -109,6 +110,10 @@ PAST_CAP_RESCAN_S: Final = 60.0
 """Past the cap: the shortest time between two resets of the watermark to the
 oldest attempt; a reset also needs the forward pass to have reached the end."""
 _TERMINAL: Final = tuple(sorted(s.value for s in ATTEMPT_TERMINAL_STATES))
+type CampaignLookup = Callable[
+    [AsyncSession, Collection[str]], Awaitable[Mapping[str, Mapping[str, Any]]]
+]
+"""``(db, job_ids) -> {job_id: {campaign_id, group_id, config_id, repetition}}``."""
 _REFUSED_SQLSTATE_CLASSES: Final = ("22", "23")
 """PostgreSQL refused the row for its data (data exception, constraint): the
 row is at fault, not the database - isolate it."""
@@ -130,7 +135,7 @@ class RunRecorder:
         *,
         interval_s: float = 2.0,
         batch: int = DEFAULT_BATCH,
-        campaign_of: Callable[[str], dict[str, Any] | None] | None = None,
+        campaign_of: CampaignLookup | None = None,
     ) -> None:
         if interval_s <= 0 or batch < 1:
             raise ValueError("interval_s must be > 0 and batch >= 1")
@@ -140,7 +145,9 @@ class RunRecorder:
         self._interval_s = interval_s
         self._batch = batch
         self._campaign_of = campaign_of
-        """V0.9 G3 hook: job_id -> campaign identity (None = not a benchmark)."""
+        """V0.9 G3 hook: the batch's job ids -> campaign identity, read in the
+        sweep's own transaction (a job absent from the answer is not a
+        benchmark); wired to ``controller.bench.store.campaign_identities``."""
         self._wake = asyncio.Event()
         self.written = 0
         self.failed_sweeps = 0
@@ -464,7 +471,7 @@ def _error_type(exc: StatementError) -> str:
 async def _sources(
     db: AsyncSession,
     attempts: Sequence[Attempt],
-    campaign_of: Callable[[str], dict[str, Any] | None] | None,
+    campaign_of: CampaignLookup | None,
 ) -> list[RecordSource | _Skip]:
     """Everything :func:`build_record` needs for ``attempts``, in four reads.
 
@@ -494,6 +501,7 @@ async def _sources(
         select(TransferEvent).where(TransferEvent.attempt_id.in_(ids))
     ):
         transfers[event.attempt_id].append(TransferRow(event.source, int(event.bytes)))
+    campaigns = {} if campaign_of is None else await campaign_of(db, job_ids)
     sources: list[RecordSource | _Skip] = []
     for attempt in attempts:
         job = jobs.get(attempt.job_id)
@@ -528,7 +536,10 @@ async def _sources(
                 decision_chosen=None if decision is None else decision.chosen_node_id,
                 decision_candidates=() if decision is None else decision.candidates,
                 transfers=transfers.get(attempt.id, ()),
-                campaign=None if campaign_of is None else campaign_of(attempt.job_id),
+                decision_shadow=None
+                if decision is None
+                else decision.shadow_chosen_node_id,
+                campaign=campaigns.get(attempt.job_id),
             )
         )
     return sources
