@@ -262,6 +262,8 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
+**2026-10-18 (G3 CLOSED, D242; 0.9.3/0.9.4 `[x]`) — RUNNING in parallel: G4 lane A (item 0 + migration 0023 schema v2) ∥ lane B (conditions, 0.9.5), separate worktrees; progress docs/briefs/progress/V0.9-G4A.md / G4B.md there. If died: relaunch per §5e from the progress file; per lane tester → reviewer; merge A then B (wire `condition`/`condition_measured`) → whole `-m component` once alone → close 0.9.5.**
+
 **2026-10-18 (G4 brief §5e + D241 written `1e459cd`) — RUNNING: whole `-m component` ONCE alone on main (scratchpad gate.log). Nothing else running (gate alone). If died: rerun `uv run python scripts/pytest_exit_guard.py -m component -q -rs` alone; green → 0.9.3/0.9.4 `[x]` + status bar + STATUS → start G4 lanes A ∥ B per §5e.**
 
 **2026-10-18 (session end — team asked to stop) — NOTHING RUNNING. G3 lanes A+B MERGED on main (`d838c43`, `b82006e`, D240); frontend rebuilt; ruff/mypy/lint-imports clean; 4455 targeted tests green. The whole `-m component` gate was STOPPED unfinished (no result). Next: `uv sync --all-extras`, then `uv run python scripts/pytest_exit_guard.py -m component -q -rs` ALONE; green → 0.9.3/0.9.4 `[x]` (evidence D232–D240) + status bar + STATUS → G4 brief (§5e, item 0 = D233 + D239 + D240). 🧑 pending: Windows P1 in lab/checklists/V0.9-campaign.md.**
