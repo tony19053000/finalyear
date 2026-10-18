@@ -189,3 +189,71 @@ def test_a_secret_planted_in_manifest_placement_snapshot_never_reaches_the_file(
 
 def test_defect_unknown_keys_in_reported_workload_params_are_stored() -> None:
     _assert_clean(_planted({"token": SENTINEL}))
+
+
+# ------------------------------------------------------------- tester r2 (D236)
+
+
+def _wl(family: Any, params: Any) -> dict[str, Any]:
+    from meshforge.controller.telemetry.record import _workload
+
+    return _workload({"family": family, "params": params, "seed": 1})
+
+
+def test_r2_only_the_family_own_keys_are_kept() -> None:
+    out = _wl("cpu.matmul", {"n": 4, "token": SENTINEL, "size_mb": 9, "batch": 2})
+    assert out["workload_params"] == {"n": 4}  # size_mb/batch belong to other families
+    assert out["p_n"] == 4 and out["p_size_mb"] is None and out["p_batch"] is None
+    assert SENTINEL not in repr(out)
+
+
+@pytest.mark.parametrize(
+    "family",
+    [None, 5, ["cpu.matmul"], "", "cpu.nope", "CPU.MATMUL", "cpu.matmul\x00", {}],
+    ids=repr,
+)
+def test_r2_an_unknown_or_malformed_family_gives_null_params(family: Any) -> None:
+    out = _wl(family, {"n": 4, "token": SENTINEL})
+    assert out["workload_params"] is None
+    assert all(out[c] is None for c in out if c.startswith("p_"))
+    assert SENTINEL not in repr(out)
+
+
+@pytest.mark.parametrize("params", [None, [], "x", 5, [{"n": 1}]], ids=repr)
+def test_r2_params_that_are_not_an_object_give_null(params: Any) -> None:
+    assert _wl("cpu.matmul", params)["workload_params"] is None
+
+
+def test_r2_non_string_keys_are_dropped() -> None:
+    out = _wl("cpu.matmul", {1: "x", None: "y", ("n",): 3, "n": 7})
+    assert out["workload_params"] == {"n": 7}
+
+
+def test_r2_hostile_values_under_a_real_key_never_break_the_record() -> None:
+    import json
+
+    deep = json.loads("[" * 200 + "]" * 200)
+    for value in (
+        deep,
+        {"a": deep},
+        "x" * 100_000,
+        "a\x00b",
+        "\ud800",
+        2**70,
+        {"token": SENTINEL},
+    ):
+        out = _wl("cpu.matmul", {"dtype": value, "n": value})
+        assert out["p_dtype"] is None or isinstance(out["p_dtype"], str)
+        assert out["p_n"] is None or isinstance(out["p_n"], int)
+        if out["p_dtype"] is not None:
+            assert len(out["p_dtype"]) <= 64
+        _assert_clean_roundtrip(out)
+
+
+def _assert_clean_roundtrip(out: dict[str, Any]) -> None:
+    import json
+
+    params = out["workload_params"]
+    if params is not None:  # a kept document must be storable JSON text
+        json.dumps(params, allow_nan=False)
+        assert "\x00" not in json.dumps(params)

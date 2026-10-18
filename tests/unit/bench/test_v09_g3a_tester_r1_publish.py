@@ -146,3 +146,75 @@ def test_defect_windows_race_leaves_an_empty_aside_folder(
         mat.build_job(FAM, _p(), 1, tmp_path / "j")
     assert (tmp_path / "j" / "other-builder.txt").read_text() == "won"
     assert _leftovers(tmp_path) == []
+
+
+# ------------------------------------------------------------- tester r2 (D236)
+
+
+def test_r2_a_lost_race_removes_only_our_aside_and_keeps_the_winner_and_foreign_folders(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    foreign = tmp_path / ".j.aside-deadbeef"  # someone else's folder, same pattern
+    foreign.mkdir()
+    (foreign / "keep.txt").write_text("not ours")
+    other = tmp_path / ".other.aside-1"
+    other.mkdir()
+
+    def racer(src: Path, dst: Path) -> None:
+        if src.name == "j" and ".aside-" in dst.name:
+            (tmp_path / "j").mkdir()
+            (tmp_path / "j" / "w.txt").write_text("won")
+
+    _windows(monkeypatch, racer)
+    (tmp_path / "j").mkdir()
+    with pytest.raises(mat.MaterialiseError):
+        mat.build_job(FAM, _p(), 1, tmp_path / "j")
+    assert (tmp_path / "j" / "w.txt").read_text() == "won"
+    assert (foreign / "keep.txt").read_text() == "not ours"
+    assert other.is_dir()
+    assert sorted(p.name for p in tmp_path.iterdir()) == [
+        ".j.aside-deadbeef",
+        ".other.aside-1",
+        "j",
+    ]
+
+
+def test_r2_a_non_empty_aside_is_never_deleted_and_the_error_is_still_busy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """If the aside somehow holds data, rmdir refuses; nothing is lost and the
+    caller still sees the 'busy' MaterialiseError, not a stray OSError."""
+
+    def racer(src: Path, dst: Path) -> None:
+        if src.name == "j" and ".aside-" in dst.name:
+            (dst / "data.bin").write_bytes(b"x")  # data in our aside
+            (tmp_path / "j").mkdir()
+            (tmp_path / "j" / "w.txt").write_text("won")
+
+    _windows(monkeypatch, racer)
+    (tmp_path / "j").mkdir()
+    with pytest.raises(mat.MaterialiseError):
+        mat.build_job(FAM, _p(), 1, tmp_path / "j")
+    asides = [p for p in tmp_path.iterdir() if ".aside-" in p.name]
+    assert len(asides) == 1 and (asides[0] / "data.bin").read_bytes() == b"x"
+    assert [p for p in tmp_path.iterdir() if ".building-" in p.name] == []
+
+
+def test_r2_the_restorable_failure_still_restores_and_leaves_no_aside(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    real = os.rename
+
+    def rename(src: Any, dst: Any) -> None:
+        if Path(dst).exists():
+            raise FileExistsError(183, "exists")
+        if Path(dst) == tmp_path / "j" and Path(src).name.startswith(".j.building"):
+            raise PermissionError(13, "denied")  # the final rename fails
+        real(src, dst)
+
+    monkeypatch.setattr(os, "rename", rename)
+    (tmp_path / "j").mkdir()
+    with pytest.raises(mat.MaterialiseError):
+        mat.build_job(FAM, _p(), 1, tmp_path / "j")
+    assert (tmp_path / "j").is_dir() and list((tmp_path / "j").iterdir()) == []
+    assert _leftovers(tmp_path) == []
