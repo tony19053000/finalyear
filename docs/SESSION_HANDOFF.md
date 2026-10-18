@@ -7,8 +7,8 @@
 > **Cold-start prompt** (paste this as the first message on the new account):
 >
 > ```
-> Read docs/SESSION_HANDOFF.md §1, then docs/STATUS.md, then the V0.9 section of docs/DEVELOPMENT_ROADMAP.md and docs/briefs/V0.9-benchmark-telemetry.md §5d + D232–D240.
-> G3 is merged on main (both lanes, D240). Run the whole `-m component` gate ONCE alone; green → close 0.9.3/0.9.4 + status bar + STATUS → write the G4 brief (§5e; item 0 = D233 + D239 + D240 lists) and start G4. Parallel agents OK; no fast mode.
+> Read docs/SESSION_HANDOFF.md §1, then docs/STATUS.md, then the V0.9 section of docs/DEVELOPMENT_ROADMAP.md and docs/briefs/V0.9-benchmark-telemetry.md §5e + D241–D242.
+> G4 in flight, two worktrees, NOTHING RUNNING. Lane A (item 0, schema v2) DONE: branch worktree-agent-a1db552858a2b544b, c30b2fb..fd97c54, gates green → start lane A tester r1. Lane B (conditions, 0.9.5) code+docs committed (worktree-agent-af4d3c4fd85bcfa0d, 448a169..857d703), stopped BEFORE exit gates → relaunch implementer there for exit gates + hand-off only. Then per lane tester → reviewer; merge A then B (B fills condition/condition_measured via campaign_identities) → whole `-m component` once alone → close 0.9.5. Parallel agents OK; no fast mode.
 > ```
 >
 > Order of truth: `PROJECT_BRIEF → ARCHITECTURE → ROADMAP → STATUS → this file`. If this file
@@ -261,6 +261,8 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 - Commits: keep using `git commit -- <paths>` even with one agent — the Lead also commits docs.
 
 ## 1. Where the project is
+
+**2026-10-18 (session end — team asked to stop) — NOTHING RUNNING. G4 lane A implementer DONE `c30b2fb..fd97c54` (worktree agent-a1db552858a2b544b; unit 14135 exit 0, targeted component green, cluster determinism 2/2; deviations 1–6 + follow-ups in progress/V0.9-G4A.md: OpenAPI v1 text, truncated-stream check). Lane B `448a169..857d703` (worktree agent-af4d3c4fd85bcfa0d) code + docs + cluster test committed; exit gates NOT run, no hand-off. Next: lane A tester r1 ∥ lane B implementer exit gates.**
 
 **2026-10-18 (G3 CLOSED, D242; 0.9.3/0.9.4 `[x]`) — RUNNING in parallel: G4 lane A (item 0 + migration 0023 schema v2) ∥ lane B (conditions, 0.9.5), separate worktrees; progress docs/briefs/progress/V0.9-G4A.md / G4B.md there. If died: relaunch per §5e from the progress file; per lane tester → reviewer; merge A then B (wire `condition`/`condition_measured`) → whole `-m component` once alone → close 0.9.5.**
 
