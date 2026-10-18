@@ -47,7 +47,9 @@ def test_pre_job_role_reads_filler_and_warmup_keys() -> None:
         f"bench:{RUN}:filler",
         f"bench:{RUN}:filler:x",
         f"bench:{RUN}:filler:1:2",
-        f"bench:{RUN}:warmup:1",
+        # (V0.9 G5: ``bench:<run>:warmup:<g>`` is a requeued run's warm-up now)
+        f"bench:{RUN}:warmup:01",
+        f"bench:{RUN}:warmup:x",
         f"bench:{RUN}:other",
         "bench:not_a_run:filler:1",
         "bench:not_a_run:warmup",

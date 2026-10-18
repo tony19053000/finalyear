@@ -28,7 +28,9 @@ codes and shell completion. Unit tests keep it in step with the code (`tests/uni
 | `compute bench runs CAMPAIGN_ID [--state S]` | a campaign's runs in execution order (admin) | yes |
 | `compute bench submit CAMPAIGN_ID [-n K] [--wait [--timeout S]]` | submit the next K planned runs as pinned lowest-priority jobs (admin; idempotent per run); `--wait` exits 126 if one failed; refused once the campaign is started | yes |
 | `compute bench start CAMPAIGN_ID [--per-node N] [--cooldown S] [--retries R]` | hand the campaign to the controller's runner (V0.9 G5; admin; idempotent) | yes |
-| `compute bench pause\|resume\|cancel CAMPAIGN_ID` | stop / restart submissions; cancel its benchmark jobs and skip the open runs (admin) | yes |
+| `compute bench pause CAMPAIGN_ID` | stop submitting the campaign's runs; running jobs finish (admin) | yes |
+| `compute bench resume CAMPAIGN_ID` | resume a paused campaign (admin) | yes |
+| `compute bench cancel CAMPAIGN_ID` | cancel its benchmark jobs and skip the open runs (admin) | yes |
 | `compute bench status CAMPAIGN_ID` | counts, done %, ETA, infrastructure failure rate (owner pre-emptions excluded) | yes |
 | `compute telemetry export -o FILE [--campaign ID] [--since TIME]` | the telemetry dataset (run records) as one Parquet file, admin only; never overwrites FILE ([TELEMETRY.md](TELEMETRY.md)) | yes |
 | `compute logs JOB_ID [-f] [--stream S]` | the job's own output, byte for byte | no - it is the workload's bytes |
@@ -101,7 +103,10 @@ Guaranteed fields per command (`a[].b` = field `b` of every item of list `a`; `a
 | `compute bench campaigns CAMPAIGN_ID` | `GET /v1/bench/campaigns/{campaign_id}` | `campaign_id`, `name`, `state`, `run_count`, `counts`, `summary`, `spec` |
 | `compute bench runs CAMPAIGN_ID` | built by the CLI | `campaign_id`, `runs`, `count`, `runs[].run_id`, `runs[].seq`, `runs[].state`, `runs[].strategy`, `runs[].node_id`, `runs[].job_id` (every page of GET /v1/bench/campaigns/{campaign_id}/runs) |
 | `compute bench submit CAMPAIGN_ID` | `POST /v1/bench/campaigns/{campaign_id}/submit` | `campaign_id`, `outcomes`, `outcomes[].run_id`, `outcomes[].outcome`, `outcomes[].job_id`, `submitted`, `deferred`, `skipped`, `counts` (with --wait also ended: run id -> final state) |
-| `compute bench start\|pause\|resume\|cancel CAMPAIGN_ID` | `POST /v1/bench/campaigns/{campaign_id}/{verb}` | `campaign_id`, `state`, `runner_owned`, `started_at`, `finished_reason`, `max_concurrent_per_node`, `cooldown_s`, `max_infra_retries`, `counts`, `cancelled_jobs` |
+| `compute bench start CAMPAIGN_ID` | `POST /v1/bench/campaigns/{campaign_id}/start` | `campaign_id`, `state`, `runner_owned`, `started_at`, `finished_reason`, `max_concurrent_per_node`, `cooldown_s`, `max_infra_retries`, `counts`, `cancelled_jobs` |
+| `compute bench pause CAMPAIGN_ID` | `POST /v1/bench/campaigns/{campaign_id}/pause` | `campaign_id`, `state`, `runner_owned`, `started_at`, `finished_reason`, `max_concurrent_per_node`, `cooldown_s`, `max_infra_retries`, `counts`, `cancelled_jobs` |
+| `compute bench resume CAMPAIGN_ID` | `POST /v1/bench/campaigns/{campaign_id}/resume` | `campaign_id`, `state`, `runner_owned`, `started_at`, `finished_reason`, `max_concurrent_per_node`, `cooldown_s`, `max_infra_retries`, `counts`, `cancelled_jobs` |
+| `compute bench cancel CAMPAIGN_ID` | `POST /v1/bench/campaigns/{campaign_id}/cancel` | `campaign_id`, `state`, `runner_owned`, `started_at`, `finished_reason`, `max_concurrent_per_node`, `cooldown_s`, `max_infra_retries`, `counts`, `cancelled_jobs` |
 | `compute bench status CAMPAIGN_ID` | `GET /v1/bench/campaigns/{campaign_id}/status` | the fields above plus `done_percent`, `median_run_s`, `eta_s`, `infra_failure_rate`, `records`, `infra_failures`, `preempted`, `retries`, `runner_degraded` |
 
 `compute status --json`: `controller_url` (the address used), `reachable` (`false` only when the controller
