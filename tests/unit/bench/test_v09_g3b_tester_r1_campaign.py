@@ -359,3 +359,23 @@ def test_secrets_never_enter_expansion_or_digest() -> None:
     blob = runs_json(exp.runs) + spec_digest(parse_spec(raw))
     for needle in ("token", "password", "secret", "Bearer", "authorization"):
         assert needle.lower() not in blob.lower()
+
+
+@pytest.mark.parametrize("hours", [".nan", ".NaN", ".inf", "-.inf", ".Inf", "1e999"])
+@pytest.mark.parametrize("on_invalid", ["drop", "fail"])
+def test_r2_max_hours_and_params_non_finite_are_spec_errors(
+    hours: str, on_invalid: str
+) -> None:
+    from meshforge.bench.campaign import CampaignSpecError, expand, load_spec
+
+    for text in (
+        f"name: t\nseed: 1\nbudget: {{max_runs: 5, max_hours: {hours}}}\n"
+        "families: [{family: cpu.sort}]\n",
+        f"name: t\nseed: 1\nbudget: {{max_runs: 5}}\non_invalid: {on_invalid}\n"
+        f"families: [{{family: cpu.sort, params: {{n: [1, {hours}]}}}}]\n",
+        f"name: t\nseed: 1\nbudget: {{max_runs: 5}}\non_invalid: {on_invalid}\n"
+        f"families: [{{family: cpu.sort, params: {{n: {{min: 1, max: {hours}}}}}}}]\n",
+    ):
+        with pytest.raises(CampaignSpecError):
+            spec = load_spec(text)
+            expand(spec, NODES)

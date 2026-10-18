@@ -42,3 +42,33 @@ def test_shadow_does_not_mutate_the_fabric_rows() -> None:
     before = copy.deepcopy(rows(fabric))
     _planner().decide(_job(B), fabric)
     assert rows(fabric) == before
+
+
+def test_r2_idle_view_never_leaks_into_the_real_snapshot() -> None:
+    """The zeroed copy used by the shadow plan must not alter the snapshot the
+    real (pinned) plan and the dispatch use."""
+    from dataclasses import replace
+
+    from meshforge.controller.jobs import planning
+
+    fabric = _fabric()
+    fabric.used[A] = [2, 0]
+    planner = _planner()
+    decision = planner.decide(_job(B), fabric)
+    assert isinstance(decision, Dispatch)
+    snap = fabric.snapshot
+    assert snap is not None
+    node_a = next(n for n in snap.nodes if n.node_id == A)
+    assert node_a.used_cpu_slots == 2, "shadow's zeroed copy leaked into the snapshot"
+    idle = planning._idle(snap)
+    assert idle is not snap
+    assert next(n for n in snap.nodes if n.node_id == A).used_cpu_slots == 2
+    assert all(n.used_cpu_slots == 0 and n.live_attempts == 0 for n in idle.nodes)
+    assert replace(snap) == snap
+
+
+def test_r2_busy_forced_node_is_still_what_the_real_plan_uses() -> None:
+    fabric = _fabric()
+    fabric.used[B] = [2, 0]  # forced node full: real plan must not dispatch
+    decision = _planner().decide(_job(B), fabric)
+    assert not (isinstance(decision, Dispatch) and decision.node_id == B)

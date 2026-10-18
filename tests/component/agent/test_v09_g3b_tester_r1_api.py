@@ -217,3 +217,24 @@ async def test_nan_or_inf_param_with_a_real_node_is_a_400_never_a_500(
         assert resp.status_code == 400, (resp.status_code, resp.text[:300])
     finally:
         await a.stop()
+
+
+@pytest.mark.parametrize("hours", [".nan", ".inf", "-.inf"])
+async def test_r2_non_finite_max_hours_is_a_400_never_a_500(
+    http: httpx.AsyncClient,  # noqa: F811
+    runtime: ControllerRuntime,
+    grpc_target: str,
+    tmp_path: Path,
+    hours: str,
+) -> None:
+    a = await _agent(grpc_target, tmp_path / "a")
+    try:
+        spec = (
+            f"name: t\nseed: 1\nbudget: {{max_runs: 5, max_hours: {hours}}}\n"
+            "families:\n  - family: cpu.sort\n"
+            f"origin: {a.node_id}\nstrategies: [local]\n"
+        )
+        resp = await http.post("/v1/bench/campaigns", json={"spec": spec})
+        assert resp.status_code == 400, (resp.status_code, resp.text[:300])
+    finally:
+        await a.stop()
