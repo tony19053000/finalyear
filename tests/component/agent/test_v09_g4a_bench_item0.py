@@ -309,9 +309,12 @@ async def test_the_export_streams_several_row_groups_chunked_over_https(
                 node_id="node_a",
                 state="done",
                 created_at=t0 + dt.timedelta(seconds=i),
-                condition="none" if i % 2 else "cpu_load:1",
-                condition_measured={"i": i},
-                campaign={"campaign_id": "camp_s", "config_id": f"c{i % 3}"},
+                campaign={
+                    "campaign_id": "camp_s",
+                    "config_id": f"c{i % 3}",
+                    "condition": "none" if i % 2 else "queue:1",
+                    "condition_facts": {"fillers_ahead": 1, "i": i},
+                },
             )
         )
         for i in range(130)
@@ -331,7 +334,7 @@ async def test_the_export_streams_several_row_groups_chunked_over_https(
     assert meta.num_rows == 130 and meta.num_row_groups == 3
     assert data == export.parquet_bytes(await export.fetch_records(engine))
     table = pq.read_table(io.BytesIO(data))
-    assert set(table.column("condition").to_pylist()) == {"none", "cpu_load:1"}
+    assert set(table.column("condition").to_pylist()) == {"none", "queue:1"}
     async with engine.connect() as conn:
         stored = (
             await conn.execute(select(func.count()).select_from(RunRecord))

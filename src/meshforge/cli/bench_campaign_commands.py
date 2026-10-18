@@ -89,13 +89,32 @@ def _campaign_id(value: str) -> str:
 
 def _live_nodes(client: ControllerClient) -> list[NodeRef]:
     from meshforge.bench.campaign import NodeRef
+    from meshforge.common.bench_conditions import advertised_kinds
+
+    def threads(hardware: Mapping[str, Any]) -> int | None:
+        value = hardware.get("cpu_threads") or hardware.get("cpu_cores")
+        return value if isinstance(value, int) and value > 0 else None
 
     payload = cli._fetch(client.nodes)
-    return [
-        NodeRef(str(n["node_id"]), str(n.get("hostname") or "") or None)
-        for n in payload.get("nodes", [])
-        if isinstance(n, Mapping) and n.get("state") != "revoked"
-    ]
+    out: list[NodeRef] = []
+    for n in payload.get("nodes", []):
+        if not isinstance(n, Mapping) or n.get("state") == "revoked":
+            continue
+        hardware = n.get("hardware")
+        hw: Mapping[str, Any] = hardware if isinstance(hardware, Mapping) else {}
+        tags = hw.get("capabilities")
+        out.append(
+            NodeRef(
+                str(n["node_id"]),
+                str(n.get("hostname") or "") or None,
+                # V0.9 G4: the same support check the controller makes at create
+                conditions=advertised_kinds(
+                    [str(t) for t in tags] if isinstance(tags, list) else []
+                ),
+                threads=threads(hw),
+            )
+        )
+    return out
 
 
 def _short_params(params: Mapping[str, Any]) -> str:

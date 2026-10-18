@@ -114,8 +114,9 @@ type CampaignLookup = Callable[
     [AsyncSession, Collection[str]], Awaitable[Mapping[str, Mapping[str, Any]]]
 ]
 """``(db, job_ids) -> {job_id: {campaign_id, group_id, config_id, repetition,
-...}}``; the optional keys ``condition`` (canonical string) and
-``condition_measured`` (JSON object) fill the v2 condition columns (V0.9 G4)."""
+...}}``; the optional V0.9 G4 keys ``condition`` (canonical string),
+``session_label`` and ``condition_facts`` feed
+:func:`~.conditions.condition_outcome`, the v2 condition columns' one writer."""
 _REFUSED_SQLSTATE_CLASSES: Final = ("22", "23")
 """PostgreSQL refused the row for its data (data exception, constraint): the
 row is at fault, not the database - isolate it."""
@@ -563,10 +564,6 @@ async def _sources(
                 if decision is None
                 else decision.shadow_chosen_node_id,
                 campaign=identity,
-                condition=None if identity is None else identity.get("condition"),
-                condition_measured=None
-                if identity is None
-                else identity.get("condition_measured"),
             )
         )
     return sources

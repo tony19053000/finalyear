@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -158,6 +158,7 @@ class DispatchSteps:
     _peer_minted: dict[str, float]
     _secrets: SecretStore | None
     _insecure_secrets: bool
+    _bench_condition: Callable[[str | None], Awaitable[str | None]] | None
     stats: DispatcherStats
 
     if TYPE_CHECKING:  # the dispatcher's (never shadowed at run time)
@@ -331,6 +332,21 @@ class DispatchSteps:
         secrets = await self._job_secrets(job, attempt)
         if secrets is None:
             return  # ended before anything reached the node
+        condition: str | None = None
+        if self._bench_condition is not None:
+            try:
+                condition = await self._bench_condition(job.idempotency_key)
+            except Exception as exc:  # noqa: BLE001 - never send it without
+                # V0.9 G4: a run must not start without its condition (it
+                # would be labelled wrong): not sent now - the next Reconcile
+                # re-sends it, or the orphan sweep ends it (D65).
+                log.warning(
+                    "controller.jobs.condition_unknown",
+                    job_id=job.id,
+                    attempt_id=attempt.id,
+                    cause=type(exc).__name__,
+                )
+                return
         # D162 (T-8): one matcher per attempt, compiled off the event loop.
         matcher = await _matcher(secrets)
         peers = await self._peer_sources(job, attempt)
@@ -360,19 +376,23 @@ class DispatchSteps:
             spec.upload_token = grant.get_secret_value()
             spec.upload_max_bytes = self._settings.max_output_bytes
             spec.upload_max_blobs = self._settings.max_output_blobs
+        start = agent_pb2.StartAttempt(
+            job_id=job.id,
+            attempt_id=attempt.id,
+            fencing_token=attempt.fencing_token,
+            spec=spec,
+            secrets=[
+                agent_pb2.JobSecret(name=name, value=value)
+                for name, value in sorted(secrets.items())
+            ],
+        )
+        if condition is not None:
+            # V0.9 G4 (D217): the agent applies + verifies it before staging
+            start.condition.spec = condition
         message_id = self._manager.send_command(
             attempt.node_id,
             "start_attempt",
-            agent_pb2.StartAttempt(
-                job_id=job.id,
-                attempt_id=attempt.id,
-                fencing_token=attempt.fencing_token,
-                spec=spec,
-                secrets=[
-                    agent_pb2.JobSecret(name=name, value=value)
-                    for name, value in sorted(secrets.items())
-                ],
-            ),
+            start,
             attempt_id=attempt.id,
             fencing_token=attempt.fencing_token,
         )

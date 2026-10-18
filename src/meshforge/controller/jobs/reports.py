@@ -14,6 +14,7 @@ import math
 import re
 from typing import Any, Final
 
+from meshforge.common.bench_conditions import ConditionError, parse_condition
 from meshforge.common.errors import FailureType, InvalidIdError
 from meshforge.common.ids import validate_attempt_id, validate_job_id
 from meshforge.common.proto.meshforge.v1 import agent_pb2
@@ -150,6 +151,61 @@ def _workload(
     }
 
 
+MAX_CONDITION_MEASURED_CHARS: Final = 2048
+MAX_CONDITION_REASON_CHARS: Final = 512
+
+
+def _condition(
+    status: agent_pb2.AttemptStatus, state: AttemptState
+) -> dict[str, Any] | str | None:
+    """V0.9 G4 (D217): the agent's benchmark-condition report -> the
+    ``condition`` entry of the ``attempt.workload`` document (terminal
+    reports only; bounded; refused, never cleaned)."""
+    if not status.HasField("condition"):
+        return None
+    if state not in (AttemptState.DONE, AttemptState.FAILED):
+        return "AttemptStatus.condition is set on a non-terminal report"
+    c = status.condition
+    try:
+        canonical = parse_condition(c.spec).canonical()
+    except ConditionError:
+        return "AttemptStatus.condition.spec is not a condition"
+    if canonical != c.spec:
+        return "AttemptStatus.condition.spec is not canonical"
+    reason = _printable(
+        "AttemptStatus.condition.reason", c.reason, MAX_CONDITION_REASON_CHARS
+    )
+    if reason is not None:
+        return reason
+    measured: dict[str, Any] | None = None
+    if c.measured_json:
+        if len(c.measured_json) > MAX_CONDITION_MEASURED_CHARS:
+            return (
+                "AttemptStatus.condition.measured_json is over "
+                f"{MAX_CONDITION_MEASURED_CHARS} characters"
+            )
+        try:
+            parsed = json.loads(
+                c.measured_json, parse_constant=_no_constant, parse_float=_finite_float
+            )
+        except (ValueError, RecursionError):
+            return "AttemptStatus.condition.measured_json is not JSON"
+        if not isinstance(parsed, dict):
+            return "AttemptStatus.condition.measured_json is not a JSON object"
+        if not _storable_json(parsed):
+            return "AttemptStatus.condition.measured_json has a NUL or a lone surrogate"
+        measured = parsed
+    if c.verified and c.reason:
+        return "AttemptStatus.condition is verified with a reason"
+    return {
+        "spec": c.spec,
+        "verified": bool(c.verified),
+        "measured": measured,
+        "reason": c.reason or None,
+        "reverted": bool(c.reverted),
+    }
+
+
 def _storable_json(value: object) -> bool:
     """No key or string in ``value`` has a NUL or a lone surrogate (PostgreSQL
     JSONB refuses both: storing one would fail the attempt's terminal write)."""
@@ -274,6 +330,13 @@ def parse_status(status: agent_pb2.AttemptStatus) -> StatusReport | str:
     workload = _workload(status, state, phases)
     if isinstance(workload, str):
         return workload
+    condition = _condition(status, state)
+    if isinstance(condition, str):
+        return condition
+    if condition is not None:
+        # V0.9 G4: the agent's own condition report rides in the same
+        # document (a run whose condition failed has no workload report)
+        workload = {**(workload or {}), "condition": condition}
     logs = _final_logs(status)
     if isinstance(logs, str):
         return logs

@@ -1290,6 +1290,7 @@ class AttemptStatus(_message.Message):
     TRANSFERS_FIELD_NUMBER: _builtins.int
     ENV_HASH_FIELD_NUMBER: _builtins.int
     WORKLOAD_FIELD_NUMBER: _builtins.int
+    CONDITION_FIELD_NUMBER: _builtins.int
     job_id: _builtins.str
     attempt_id: _builtins.str
     fencing_token: _builtins.int
@@ -1351,6 +1352,12 @@ class AttemptStatus(_message.Message):
         for any other job. Terminal statuses only.
         """
 
+    @_builtins.property
+    def condition(self) -> Global___ConditionReport:
+        """V0.9 G4 (D217): what the agent did with StartAttempt.condition (terminal
+        statuses only; absent when the attempt had none).
+        """
+
     def __init__(
         self,
         *,
@@ -1371,10 +1378,11 @@ class AttemptStatus(_message.Message):
         transfers: _abc.Iterable[Global___TransferSummary] | None = ...,
         env_hash: _builtins.str = ...,
         workload: Global___WorkloadReport | None = ...,
+        condition: Global___ConditionReport | None = ...,
     ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _typing.Literal["_exit_code", b"_exit_code", "_signal", b"_signal", "exit_code", b"exit_code", "failure", b"failure", "observed_at", b"observed_at", "phases", b"phases", "signal", b"signal", "stderr_log", b"stderr_log", "stdout_log", b"stdout_log", "workload", b"workload"]  # noqa: Y015
+    _HasFieldArgType: _TypeAlias = _typing.Literal["_exit_code", b"_exit_code", "_signal", b"_signal", "condition", b"condition", "exit_code", b"exit_code", "failure", b"failure", "observed_at", b"observed_at", "phases", b"phases", "signal", b"signal", "stderr_log", b"stderr_log", "stdout_log", b"stdout_log", "workload", b"workload"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["_exit_code", b"_exit_code", "_signal", b"_signal", "attempt_id", b"attempt_id", "env_hash", b"env_hash", "exit_code", b"exit_code", "failure", b"failure", "fencing_token", b"fencing_token", "job_id", b"job_id", "missing_outputs", b"missing_outputs", "observed_at", b"observed_at", "output_digest", b"output_digest", "phases", b"phases", "runtime", b"runtime", "signal", b"signal", "state", b"state", "stderr_log", b"stderr_log", "stdout_log", b"stdout_log", "transfers", b"transfers", "workload", b"workload"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["_exit_code", b"_exit_code", "_signal", b"_signal", "attempt_id", b"attempt_id", "condition", b"condition", "env_hash", b"env_hash", "exit_code", b"exit_code", "failure", b"failure", "fencing_token", b"fencing_token", "job_id", b"job_id", "missing_outputs", b"missing_outputs", "observed_at", b"observed_at", "output_digest", b"output_digest", "phases", b"phases", "runtime", b"runtime", "signal", b"signal", "state", b"state", "stderr_log", b"stderr_log", "stdout_log", b"stdout_log", "transfers", b"transfers", "workload", b"workload"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     _WhichOneofReturnType__exit_code: _TypeAlias = _typing.Literal["exit_code"]  # noqa: Y015
     _WhichOneofArgType__exit_code: _TypeAlias = _typing.Literal["_exit_code", b"_exit_code"]  # noqa: Y015
@@ -1386,6 +1394,48 @@ class AttemptStatus(_message.Message):
     def WhichOneof(self, oneof_group: _WhichOneofArgType__signal) -> _WhichOneofReturnType__signal | None: ...
 
 Global___AttemptStatus: _TypeAlias = AttemptStatus  # noqa: Y015
+
+@_typing.final
+class ConditionReport(_message.Message):
+    """The outcome of a benchmark condition on the agent (V0.9 G4)."""
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    SPEC_FIELD_NUMBER: _builtins.int
+    VERIFIED_FIELD_NUMBER: _builtins.int
+    MEASURED_JSON_FIELD_NUMBER: _builtins.int
+    REASON_FIELD_NUMBER: _builtins.int
+    REVERTED_FIELD_NUMBER: _builtins.int
+    spec: _builtins.str
+    """The canonical condition string it applied (echoes BenchCondition.spec)."""
+    verified: _builtins.bool
+    """Applied and verified (measured values within the condition's bound)."""
+    measured_json: _builtins.str
+    """What was measured, a JSON object (<= 2048 characters), e.g.
+    {"cores":2,"load_cores":1.97,"window_s":2.0}. "" = nothing measured.
+    """
+    reason: _builtins.str
+    """Why it could not be applied or verified; "" when verified."""
+    reverted: _builtins.bool
+    """The condition was reverted cleanly at the attempt's end (false: the
+    revert failed and the marker keeps it for the next start's sweep).
+    """
+    def __init__(
+        self,
+        *,
+        spec: _builtins.str = ...,
+        verified: _builtins.bool = ...,
+        measured_json: _builtins.str = ...,
+        reason: _builtins.str = ...,
+        reverted: _builtins.bool = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["measured_json", b"measured_json", "reason", b"reason", "reverted", b"reverted", "spec", b"spec", "verified", b"verified"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___ConditionReport: _TypeAlias = ConditionReport  # noqa: Y015
 
 @_typing.final
 class TransferSummary(_message.Message):
@@ -1712,6 +1762,7 @@ class StartAttempt(_message.Message):
     FENCING_TOKEN_FIELD_NUMBER: _builtins.int
     SPEC_FIELD_NUMBER: _builtins.int
     SECRETS_FIELD_NUMBER: _builtins.int
+    CONDITION_FIELD_NUMBER: _builtins.int
     job_id: _builtins.str
     attempt_id: _builtins.str
     fencing_token: _builtins.int
@@ -1727,6 +1778,18 @@ class StartAttempt(_message.Message):
         wiped when the attempt ends.
         """
 
+    @_builtins.property
+    def condition(self) -> Global___BenchCondition:
+        """V0.9 G4 (D217/D241): the benchmark condition of this attempt; absent for
+        every other job (and for conditions the controller applies itself, e.g.
+        queue). The agent applies it BEFORE staging, verifies it (an unverified
+        condition fails the attempt config_error "condition_failed:..." - nothing
+        runs, the run is never labelled), and reverts it when the attempt ends,
+        on every path (done, failure, cancel, agent stop; a persisted marker is
+        swept at the next agent start after a crash). The agent re-validates the
+        string and refuses a kind it did not advertise.
+        """
+
     def __init__(
         self,
         *,
@@ -1735,14 +1798,39 @@ class StartAttempt(_message.Message):
         fencing_token: _builtins.int = ...,
         spec: Global___ExecutionSpec | None = ...,
         secrets: _abc.Iterable[Global___JobSecret] | None = ...,
+        condition: Global___BenchCondition | None = ...,
     ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _typing.Literal["spec", b"spec"]  # noqa: Y015
+    _HasFieldArgType: _TypeAlias = _typing.Literal["condition", b"condition", "spec", b"spec"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["attempt_id", b"attempt_id", "fencing_token", b"fencing_token", "job_id", b"job_id", "secrets", b"secrets", "spec", b"spec"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["attempt_id", b"attempt_id", "condition", b"condition", "fencing_token", b"fencing_token", "job_id", b"job_id", "secrets", b"secrets", "spec", b"spec"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___StartAttempt: _TypeAlias = StartAttempt  # noqa: Y015
+
+@_typing.final
+class BenchCondition(_message.Message):
+    """One benchmark condition (V0.9 G4). ``spec`` is the canonical condition
+    string of common/bench_conditions.py ("cpu_load:2", "cache:cold",
+    "netem:delay=50ms,loss=1%"), <= 64 characters.
+    """
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    SPEC_FIELD_NUMBER: _builtins.int
+    spec: _builtins.str
+    def __init__(
+        self,
+        *,
+        spec: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["spec", b"spec"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___BenchCondition: _TypeAlias = BenchCondition  # noqa: Y015
 
 @_typing.final
 class JobSecret(_message.Message):

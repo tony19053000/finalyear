@@ -93,7 +93,7 @@ from meshforge.common._gc_schema import (
     _TRIGGERS,
     _UNKNOWN_LEASED_TREES,
     _check_schema,
-    _held,  # noqa: F401 - re-exported: tests build the reference predicate
+    _held,  # also re-exported: tests build the reference predicate
     _is_corrupt,
     _protect,
     _quick_check,
@@ -518,6 +518,18 @@ class GcIndex:
         db.execute("DELETE FROM tree_member WHERE tree = ?", (tree,))
         db.execute("DELETE FROM tree_known WHERE tree = ?", (tree,))
         db.executemany(_REHOLD, members)
+
+    def protected_blobs(self, keys: Iterable[str]) -> set[str]:
+        """The blobs among ``keys`` a lease or pin protects right now (the
+        victim query's rule). Call inside :meth:`tx` to evict the others
+        atomically (V0.9 G4: ``cache:cold`` evicts one job's blobs)."""
+        held = _held(":key")
+        with self.tx() as db:
+            return {
+                key
+                for key in dict.fromkeys(keys)
+                if db.execute(f"SELECT {held}", {"key": key}).fetchone()[0]
+            }
 
     def leased(self, kind: str) -> set[str]:
         with self.tx() as db:

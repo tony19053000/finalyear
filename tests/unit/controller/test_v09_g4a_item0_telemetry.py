@@ -61,6 +61,25 @@ def _source(**overrides: Any) -> RecordSource:
     return RecordSource(**values)
 
 
+def _run(condition: Any, measured: Any = None) -> RecordSource:
+    """A campaign run with ``condition`` whose agent reported ``measured`` -
+    the one writer of the condition columns is ``condition_outcome``."""
+    return _source(
+        campaign={"campaign_id": "camp_1", "condition": condition},
+        workload={
+            "family": "cpu.matmul",
+            "status": "ok",
+            "params": {"n": 4},
+            "condition": {
+                "spec": condition,
+                "verified": True,
+                "measured": measured,
+                "reverted": True,
+            },
+        },
+    )
+
+
 def _bench(params: dict[str, Any], **workload: Any) -> RecordSource:
     return _source(
         workload={
@@ -105,43 +124,42 @@ def test_the_condition_width_matches_the_model() -> None:
 
 
 def test_builder_writes_v2_and_fills_the_condition_columns() -> None:
-    record = build_record(
-        _source(
-            condition="cpu_load:2",
-            condition_measured={"cpu_busy_cores": 1.93, "window_s": 2.0},
-        )
-    )
+    record = build_record(_run("cpu_load:2", {"cpu_busy_cores": 1.93, "window_s": 2.0}))
     assert record["schema_version"] == 2
     assert record["condition"] == "cpu_load:2"
-    assert record["condition_measured"] == {"cpu_busy_cores": 1.93, "window_s": 2.0}
+    assert record["condition_measured"]["agent"] == {
+        "cpu_busy_cores": 1.93,
+        "window_s": 2.0,
+    }
+    assert record["condition_measured"]["verified"] is True
     plain = build_record(_source())
     assert plain["condition"] is None and plain["condition_measured"] is None
     assert plain["result_schema_version"] is None
 
 
 def test_condition_values_are_bounded_never_cut() -> None:
-    fits = "netem:" + "d" * (CONDITION_CHARS - 6)
-    assert build_record(_source(condition=fits))["condition"] == fits
-    assert build_record(_source(condition=fits + "x"))["condition"] is None
-    assert build_record(_source(condition=""))["condition"] is None
-    assert build_record(_source(condition="a\x00b"))["condition"] is None
+    assert build_record(_run("netem:delay=50ms"))["condition"] == "netem:delay=50ms"
+    # too long / blank / NUL / not canonical name[:arg] -> null, never cut
+    for bad in ("netem:" + "d" * (CONDITION_CHARS - 5), "", "a\x00b", "netem:x"):
+        assert build_record(_run(bad))["condition"] is None
     for bad in (["cpu_busy_cores", 1.0], "text", 3):
-        record = build_record(_source(condition_measured=bad))  # type: ignore[arg-type]
-        assert record["condition_measured"] is None
+        measured = build_record(_run("cpu_load:2", bad))["condition_measured"]
+        assert "agent" not in measured
 
 
 def test_condition_measured_non_finite_floats_become_null() -> None:
     record = build_record(
-        _source(
-            condition_measured={
+        _run(
+            "netem:delay=50ms",
+            {
                 "rtt_ms": math.nan,
                 "bw": math.inf,
                 "nested": {"x": -math.inf, "ok": 1.5},
                 "list": [1.0, math.nan],
-            }
+            },
         )
     )
-    assert record["condition_measured"] == {
+    assert record["condition_measured"]["agent"] == {
         "rtt_ms": None,
         "bw": None,
         "nested": {"x": None, "ok": 1.5},
@@ -161,14 +179,20 @@ def test_result_schema_version_comes_from_the_workload_report(
     assert record["result_schema_version"] == stored
 
 
-def test_the_recorder_reads_condition_from_the_campaign_identity() -> None:
-    """The lane B seam: the campaign lookup's optional ``condition`` /
-    ``condition_measured`` keys reach the RecordSource (recorder._sources)."""
+def test_the_recorder_passes_the_campaign_identity_as_the_one_condition_source() -> (
+    None
+):
+    """After the G4 A x B merge: the campaign identity (condition,
+    session_label, condition_facts) is the only condition input of the record;
+    RecordSource has no condition fields of its own (one writer)."""
+    import dataclasses
     import inspect
 
     text = inspect.getsource(recorder_module._sources)
-    assert 'identity.get("condition")' in text
-    assert 'identity.get("condition_measured")' in text
+    assert "campaign=identity" in text
+    assert "condition" not in text
+    fields = {f.name for f in dataclasses.fields(RecordSource)}
+    assert not {"condition", "condition_measured"} & fields
 
 
 def _exportable(record: dict[str, Any], attempt_id: str) -> dict[str, Any]:

@@ -14,7 +14,9 @@ judged (D218). The spec is YAML (``docs/BENCHMARKS.md`` "Campaign spec",
           n: [1024, 2048]                      # a list: these values
           repeats: {min: 8, max: 32, int: true, steps: 3}   # a range
           dtype: float64                       # one value
-    conditions: [none]          # V0.9 G3 accepts only "none" (G4 adds the rest)
+    conditions: [none, cpu_load:2, cache:cold]   # a sweep axis: one per run
+    on_unsupported: error       # or skip: runs a node cannot do become skipped
+    session_label: wifi         # set by the human, copied to every record
     strategies: [local, mode1]
     nodes: all                  # or a list of node ids / names
     origin: laptop-a            # the submitter; default: every node in turn
@@ -42,10 +44,13 @@ because every random choice comes from a SHA-256 counter stream
    ``on_invalid: drop`` - then it is dropped and *counted*
    (:attr:`Expansion.dropped`), never silently. Duplicate points (two draws
    that round to the same values) are merged and counted too.
-2. *Groups* = (family, params, conditions): ``group_id`` = digest of those
-   (the label unit, D218). Each group's workload seed is derived from (spec
-   seed, group), so every strategy and repetition of a group runs on the same
-   synthetic data.
+2. *Groups* = (family, params, condition): ``group_id`` = digest of those
+   (the label unit, D218), with the condition in its canonical form
+   (:mod:`.conditions`; G4, D241: a run has **one** condition, the spec's
+   list is a sweep axis). Each point's workload seed is derived from (spec
+   seed, the point's ``none`` group), so every strategy, repetition **and
+   condition** of a point runs on the same synthetic data - and a spec with
+   only ``none`` expands exactly as before G4.
 3. *Configurations* = group x strategy x node x origin: ``local`` runs on the
    origin itself; ``mode1`` runs on every other selected node, submitted from
    the origin. Without ``origin`` every selected node is the origin in turn.
@@ -56,8 +61,14 @@ because every random choice comes from a SHA-256 counter stream
    biasing whichever ran last (D216).
 5. *Budget*: more runs than ``budget.max_runs``, or more estimated hours than
    ``budget.max_hours`` (the family's ``expected_runtime_s`` on the reference
-   mid laptop + :data:`RUN_OVERHEAD_S` per run), is an error **with the
-   count** - never a silent truncation.
+   mid laptop + :data:`RUN_OVERHEAD_S` per run + what the condition adds:
+   fillers, a warm-up run, a pause), is an error **with the count** - never a
+   silent truncation.
+6. *Support* (G4): a configuration whose node cannot do its condition
+   (:func:`.conditions.unsupported_reason`: the node's ``bench-conditions``
+   tag, its threads, ``unavailable`` only for ``mode1``) is an error listing
+   every node x condition, or - with ``on_unsupported: skip`` - a run with a
+   ``skip_reason`` that is stored ``skipped`` (counted, never silent).
 """
 
 from __future__ import annotations
@@ -87,6 +98,14 @@ from pydantic import (
 
 from meshforge.common.errors import FailureType, MeshForgeError
 
+from .conditions import (
+    Condition,
+    ConditionError,
+    ConditionKind,
+    extra_seconds,
+    parse_condition,
+    unsupported_reason,
+)
 from .workloads import MID_LAPTOP, ParamsError, UnknownFamilyError, get_family
 from .workloads.base import Family
 
@@ -95,6 +114,7 @@ __all__ = [
     "HARD_MAX_RUNS",
     "MAX_SPEC_BYTES",
     "RUN_OVERHEAD_S",
+    "SESSION_LABEL_RE",
     "SPEC_VERSION",
     "Budget",
     "CampaignSpec",
@@ -129,8 +149,11 @@ RUN_OVERHEAD_S: Final = 15.0
 """Per-run seconds added to the compute hint for the budget's hour estimate:
 queue + stage + env (cached after the first run on a node) + collect, measured
 at ~5-10 s on the harness (G2 cluster test); 15 s keeps the estimate honest."""
-CONDITIONS_V1: Final = ("none",)
-"""Condition names this version accepts (G4, D217, adds the rest)."""
+CONDITIONS_V1: Final = tuple(k.value for k in ConditionKind)
+"""Condition names this version accepts (G4, D217; ``name[:arg]``,
+:mod:`meshforge.common.bench_conditions`)."""
+SESSION_LABEL_RE: Final = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,31}")
+"""``session_label``: e.g. ``wifi``, ``ethernet``, ``lab-2026-10-18``."""
 _NAME_RE: Final = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}")
 _ID_HEX: Final = 24
 """Hex digits of a group/config id (96 bits): short enough to read, no
@@ -257,6 +280,11 @@ class CampaignSpec(BaseModel):
     )
     nodes: Literal["all"] | Annotated[list[StrictStr], Field(min_length=1)] = "all"
     origin: StrictStr | None = None
+    on_unsupported: Literal["error", "skip"] = "error"
+    """G4: a node x condition the node cannot do - an error, or skipped runs."""
+    session_label: StrictStr | None = None
+    """G4 (D241): Wi-Fi vs Ethernet etc. - a label the human sets for the
+    whole session, copied to every record; not a condition."""
     repetitions: Annotated[int, Field(ge=3, le=MAX_REPETITIONS, strict=True)] = 3
     sampler: Sampler = Sampler.GRID
     samples: Annotated[int, Field(ge=1, le=MAX_SAMPLES, strict=True)] | None = None
@@ -274,14 +302,21 @@ class CampaignSpec(BaseModel):
             problems.append("samples: only for the random and lhs samplers")
         if self.sampler is not Sampler.GRID and self.samples is None:
             problems.append(f"samples: required by the {self.sampler.value} sampler")
-        problems.extend(
-            f"conditions: unknown condition {name!r} (this version accepts "
-            f"only {', '.join(CONDITIONS_V1)}; G4 adds the rest)"
-            for name in self.conditions
-            if name not in CONDITIONS_V1
-        )
-        if len(set(self.conditions)) != len(self.conditions):
+        canonical: list[str] = []
+        for index, text in enumerate(self.conditions):
+            try:
+                canonical.append(parse_condition(text).canonical())
+            except ConditionError as exc:
+                problems.append(f"conditions[{index}]: {exc}")
+        if len(set(canonical)) != len(canonical):
             problems.append("conditions: listed twice")
+        if self.session_label is not None and not SESSION_LABEL_RE.fullmatch(
+            self.session_label
+        ):
+            problems.append(
+                "session_label: 1-32 of A-Z a-z 0-9 . _ - (starting with a "
+                "letter or digit)"
+            )
         if len(set(self.strategies)) != len(self.strategies):
             problems.append("strategies: listed twice")
         if isinstance(self.nodes, list) and len(set(self.nodes)) != len(self.nodes):
@@ -420,6 +455,11 @@ class NodeRef:
 
     node_id: str
     name: str | None = None
+    conditions: frozenset[ConditionKind] | None = None
+    """G4: the agent condition kinds the node advertises (``bench-conditions``
+    tag); None = unknown, not checked (an offline ``bench plan --node``)."""
+    threads: int | None = None
+    """CPU threads (bounds ``cpu_load:N``); None = unknown."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -435,6 +475,7 @@ class PlannedRun:
     seed: int
     """The workload's seed (same for every run of the group)."""
     conditions: tuple[str, ...]
+    """G4: exactly one canonical condition (``("none",)`` = the baseline)."""
     strategy: str
     node_id: str
     """Where the run is pinned."""
@@ -442,6 +483,14 @@ class PlannedRun:
     """The submitter (``local``: equal to ``node_id``)."""
     expected_s: float
     """Compute hint on the reference mid laptop (s), without overhead."""
+    skip_reason: str | None = None
+    """G4, ``on_unsupported: skip``: why the node cannot run this condition
+    (the run is stored ``skipped``); None = a normal run."""
+
+    @property
+    def condition(self) -> str:
+        """The run's one condition (canonical)."""
+        return self.conditions[0]
 
 
 @dataclass(frozen=True, slots=True)
@@ -458,6 +507,9 @@ class Expansion:
     estimated_hours: float = 0.0
     problems: tuple[str, ...] = field(default=())
     """Why points were dropped (first few)."""
+    unsupported: int = 0
+    """G4: runs stored ``skipped`` because their node cannot do the
+    condition (``on_unsupported: skip``)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -467,6 +519,7 @@ class _Group:
     params: dict[str, Any]
     seed: int
     expected_s: float
+    condition: Condition
 
 
 def _digest(prefix: str, value: object) -> str:
@@ -556,7 +609,9 @@ def _groups(
     seen: set[str] = set()
     dropped = duplicates = 0
     problems: list[str] = []
-    conditions = sorted(spec.conditions)
+    conditions = sorted(
+        {c.canonical(): c for c in map(parse_condition, spec.conditions)}.items()
+    )
     for index, sweep in enumerate(spec.families):
         family: Family[Any] = get_family(sweep.family)
         for point in _points(spec, index, sweep):
@@ -573,28 +628,37 @@ def _groups(
                 if len(problems) < 20:
                     problems.append(f"{where}: {'; '.join(exc.problems)}")
                 continue
-            identity = {
-                "family": family.name,
-                "params": params,
-                "conditions": conditions,
-            }
-            group_id = _digest("grp_", identity)
-            if group_id in seen:
+            # one seed per point, the same for every condition: derived from
+            # the point's ``none`` group (the pre-G4 identity, so a none-only
+            # spec keeps its ids and seeds)
+            baseline = _digest(
+                "grp_",
+                {"family": family.name, "params": params, "conditions": ["none"]},
+            )
+            if baseline in seen:
                 duplicates += 1
                 continue
-            seen.add(group_id)
+            seen.add(baseline)
             seed = int(
-                hashlib.sha256(f"{spec.seed}:{group_id}".encode()).hexdigest()[:16], 16
+                hashlib.sha256(f"{spec.seed}:{baseline}".encode()).hexdigest()[:16], 16
             ) % (2**32)
-            groups.append(
-                _Group(
-                    group_id=group_id,
-                    family=family.name,
-                    params=params,
-                    seed=family.check_seed(seed),
-                    expected_s=float(family.expected_runtime_s(params, MID_LAPTOP)),
+            expected = float(family.expected_runtime_s(params, MID_LAPTOP))
+            for text, condition in conditions:
+                identity = {
+                    "family": family.name,
+                    "params": params,
+                    "conditions": [text],
+                }
+                groups.append(
+                    _Group(
+                        group_id=_digest("grp_", identity),
+                        family=family.name,
+                        params=params,
+                        seed=family.check_seed(seed),
+                        expected_s=expected,
+                        condition=condition,
+                    )
                 )
-            )
     return groups, dropped, duplicates, problems
 
 
@@ -677,6 +741,7 @@ def expand(spec: CampaignSpec, nodes: Sequence[NodeRef]) -> Expansion:
         for t in triples
     ]
     configs.sort(key=lambda c: c[0])
+    skips = _support(spec, configs, {n.node_id: n for n in nodes})
     total = len(configs) * spec.repetitions
     if total == 0:
         raise CampaignSpecError(
@@ -694,7 +759,13 @@ def expand(spec: CampaignSpec, nodes: Sequence[NodeRef]) -> Expansion:
             ],
             runs=total,
         )
-    seconds = spec.repetitions * sum(c[1].expected_s + RUN_OVERHEAD_S for c in configs)
+    seconds = spec.repetitions * sum(
+        c[1].expected_s
+        + RUN_OVERHEAD_S
+        + extra_seconds(c[1].condition, c[1].expected_s + RUN_OVERHEAD_S)
+        for c in configs
+        if c[0] not in skips
+    )
     hours = seconds / 3600.0
     if spec.budget.max_hours is not None and hours > spec.budget.max_hours:
         raise CampaignSpecError(
@@ -705,7 +776,6 @@ def expand(spec: CampaignSpec, nodes: Sequence[NodeRef]) -> Expansion:
             runs=total,
             hours=round(hours, 2),
         )
-    conditions = tuple(sorted(spec.conditions))
     runs: list[PlannedRun] = []
     for repetition in range(1, spec.repetitions + 1):
         order = list(configs)
@@ -720,11 +790,12 @@ def expand(spec: CampaignSpec, nodes: Sequence[NodeRef]) -> Expansion:
                     family=group.family,
                     params=dict(group.params),
                     seed=group.seed,
-                    conditions=conditions,
+                    conditions=(group.condition.canonical(),),
                     strategy=strategy,
                     node_id=node,
                     origin_node_id=src,
                     expected_s=round(group.expected_s, 3),
+                    skip_reason=skips.get(config_id),
                 )
             )
     return Expansion(
@@ -735,12 +806,53 @@ def expand(spec: CampaignSpec, nodes: Sequence[NodeRef]) -> Expansion:
         duplicates=duplicates,
         estimated_hours=round(hours, 3),
         problems=tuple(problems),
+        unsupported=len(skips) * spec.repetitions,
     )
+
+
+def _support(
+    spec: CampaignSpec,
+    configs: Sequence[tuple[str, _Group, tuple[str, str, str]]],
+    nodes: Mapping[str, NodeRef],
+) -> dict[str, str]:
+    """``config_id -> reason`` of the configurations whose node cannot do
+    their condition (``on_unsupported: skip``); raises
+    :class:`CampaignSpecError` listing every node x condition otherwise."""
+    reasons: dict[str, str] = {}
+    listed: dict[tuple[str, str], str] = {}
+    for config_id, group, (strategy, node, _src) in configs:
+        ref = nodes.get(node)
+        reason = unsupported_reason(
+            group.condition,
+            strategy=strategy,
+            node_kinds=None if ref is None else ref.conditions,
+            node_threads=None if ref is None else ref.threads,
+        )
+        if reason is None:
+            continue
+        reasons[config_id] = reason
+        listed.setdefault((node, group.condition.canonical()), reason)
+    if reasons and spec.on_unsupported == "error":
+        raise CampaignSpecError(
+            [
+                f"node {node} x condition {condition}: {reason}"
+                for (node, condition), reason in sorted(listed.items())
+            ]
+            + ["(drop the condition or the node, or set on_unsupported: skip)"],
+            unsupported=[
+                {"node_id": node, "condition": condition}
+                for node, condition in sorted(listed)
+            ],
+        )
+    return reasons
 
 
 def run_dict(run: PlannedRun) -> dict[str, Any]:
     out = asdict(run)
     out["conditions"] = list(run.conditions)
+    if run.skip_reason is None:
+        # G4: absent for a normal run - the pre-G4 run JSON is unchanged
+        del out["skip_reason"]
     return out
 
 

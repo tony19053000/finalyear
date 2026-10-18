@@ -38,9 +38,13 @@ the same way.
 
 **Schema v2** (G4, D233.3/D241): ``result_schema_version`` is the result
 version the agent read from ``results/workload.json`` (>= 1, else null);
-``condition`` / ``condition_measured`` come from the run's campaign identity
-(:attr:`RecordSource.condition`, filled by the recorder's campaign lookup) -
-``condition`` is bounded to :data:`CONDITION_CHARS` like every text column.
+``condition`` / ``condition_measured`` have one writer,
+:func:`~.conditions.condition_outcome` (the run's campaign identity plus the
+agent's condition report). ``condition`` is kept only when it is a canonical
+``name[:arg]`` (:func:`meshforge.common.bench_conditions.parse_condition`
+round-trips it) within :data:`CONDITION_CHARS`, else null; ``condition_measured``
+goes through the same non-finite-float and storability guards as every JSON
+column, so a NaN the agent reported is null, never a refused row.
 """
 
 from __future__ import annotations
@@ -53,9 +57,14 @@ from dataclasses import dataclass, field
 from typing import Any, Final
 
 from meshforge.bench.workloads import UnknownFamilyError, get_family
+from meshforge.common.bench_conditions import ConditionError, parse_condition
 from meshforge.common.errors import FailureType
 from meshforge.common.states import AttemptState
 from meshforge.controller.planner.inputs import scores_of
+from meshforge.controller.telemetry.conditions import (
+    ConditionOutcome,
+    condition_outcome,
+)
 from meshforge.controller.telemetry.schema import (
     COLUMN_NAMES,
     SCHEMA_VERSION,
@@ -160,11 +169,7 @@ class RecordSource:
     transfers: Sequence[TransferRow] = ()
     campaign: Mapping[str, Any] | None = None
     """Campaign identity (V0.9 G3 fills it): campaign_id, group_id, config_id,
-    repetition."""
-    condition: str | None = None
-    """V0.9 G4 (D241): the run's condition, canonical ``name[:arg]``."""
-    condition_measured: Mapping[str, Any] | None = None
-    """V0.9 G4 (D217): what was measured applying / verifying it."""
+    repetition; V0.9 G4 adds condition, session_label, condition_facts."""
 
 
 def failure_class(
@@ -204,6 +209,9 @@ def build_record(source: RecordSource) -> dict[str, Any]:
     telemetry = _mapping(snapshot.get("telemetry"))
     pinned = bool(source.placement.get("node_id"))
     workload = source.workload
+    condition = condition_outcome(
+        campaign=source.campaign, workload=workload, state=source.state
+    )
     record: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "attempt_id": source.attempt_id,
@@ -225,19 +233,18 @@ def build_record(source: RecordSource) -> dict[str, Any]:
         **_workload(workload),
         **_manifest(source.manifest),
         "runtime": _short(source.runtime),
-        "condition": _bounded(source.condition, CONDITION_CHARS),
-        "condition_measured": _finite_json(source.condition_measured)
-        if isinstance(source.condition_measured, Mapping)
-        else None,
+        # V0.9 G4 (D217/D241): one writer, condition_outcome; A's guards
+        "condition": _canonical_condition(condition.condition),
+        "condition_measured": None
+        if condition.measured is None
+        else _finite_json(condition.measured),
         **_start(snapshot, telemetry),
         **_phases(source.phases, workload),
         **_bytes(source.transfers, source.output_bytes),
         "attempt_state": source.state,
         "exit_code": source.exit_code,
         "failure_type": source.failure_type,
-        "failure_class": failure_class(
-            source.state, source.failure_type, source.exit_code, workload
-        ).value,
+        "failure_class": _class(source, workload, condition).value,
         **_clock(telemetry),
         "attempt_created_at": source.created_at,
         "attempt_ended_at": source.ended_at,
@@ -250,6 +257,31 @@ def build_record(source: RecordSource) -> dict[str, Any]:
 
 
 # ------------------------------------------------------------------ helpers
+
+
+def _canonical_condition(value: object) -> str | None:
+    """``value`` when it is a canonical ``name[:arg]`` condition that fits
+    :data:`CONDITION_CHARS`, else None (blank, unparsable or non-canonical
+    text is never stored as a condition)."""
+    text = _bounded(value, CONDITION_CHARS)
+    if text is None:
+        return None
+    try:
+        return text if parse_condition(text).canonical() == text else None
+    except ConditionError:
+        return None
+
+
+def _class(
+    source: RecordSource,
+    workload: Mapping[str, Any] | None,
+    condition: ConditionOutcome,
+) -> FailureClass:
+    """:func:`failure_class`, except that an unverified benchmark condition
+    makes the record ``condition_failed`` (D217: never labelled)."""
+    if condition.failed:
+        return FailureClass.CONDITION_FAILED
+    return failure_class(source.state, source.failure_type, source.exit_code, workload)
 
 
 def _mapping(value: object) -> Mapping[str, Any]:

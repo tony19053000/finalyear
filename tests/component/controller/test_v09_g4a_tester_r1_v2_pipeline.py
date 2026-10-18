@@ -68,8 +68,9 @@ async def test_recorder_stores_condition_and_measured_for_good_values(
             "group_id": "g",
             "config_id": "c",
             "repetition": 1,
-            "condition": "netem:delay=50ms,loss=1%",
-            "condition_measured": {"rtt_ms": 52.5, "ok": True},
+            "condition": "queue:2",
+            "session_label": "lan",
+            "condition_facts": {"fillers_ahead": 2, "rtt_ms": 52.5},
         },
         made[1][0]: {
             "campaign_id": "camp_1",
@@ -84,9 +85,20 @@ async def test_recorder_stores_condition_and_measured_for_good_values(
     rows = await _rows(engine)
     first, second = rows[made[0][1]], rows[made[1][1]]
     assert first["schema_version"] == SCHEMA_VERSION == 2
-    assert first["condition"] == "netem:delay=50ms,loss=1%"
-    assert first["condition_measured"] == {"rtt_ms": 52.5, "ok": True}
-    assert second["condition"] == "none" and second["condition_measured"] is None
+    # after the G4 A x B merge condition_outcome is the columns' one writer
+    assert first["condition"] == "queue:2"
+    assert first["condition_measured"] == {
+        "verified": True,
+        "reason": None,
+        "controller": {"fillers_ahead": 2, "rtt_ms": 52.5},
+        "session_label": "lan",
+    }
+    assert second["condition"] == "none"
+    assert second["condition_measured"] == {
+        "verified": True,
+        "reason": None,
+        "session_label": None,
+    }
 
 
 async def test_hostile_condition_values_never_lose_or_block_the_record(
@@ -98,15 +110,19 @@ async def test_hostile_condition_values_never_lose_or_block_the_record(
         made[0][0]: {**base, "condition": LONG},
         made[1][0]: {
             **base,
-            "condition": "a\x00b",
-            "condition_measured": {"k": "v\x00"},
+            "condition": "none",
+            "condition_facts": {"k": "v\x00"},
         },
         made[2][0]: {
             **base,
-            "condition": "q:1",
-            "condition_measured": {"x": float("nan"), "y": [float("inf")]},
+            "condition": "queue:1",
+            "condition_facts": {
+                "fillers_ahead": 1,
+                "x": float("nan"),
+                "y": [float("inf")],
+            },
         },
-        made[3][0]: {**base, "condition": 7, "condition_measured": "not an object"},
+        made[3][0]: {**base, "condition": 7, "condition_facts": "not an object"},
         made[4][0]: {**base, "condition": "ok:1"},
     }
     recorder = RunRecorder(engine, campaign_of=_lookup(table))
@@ -114,12 +130,18 @@ async def test_hostile_condition_values_never_lose_or_block_the_record(
     assert await _recorded(engine) == {a for _, a in made}  # all five written
     rows = await _rows(engine)
     assert rows[made[0][1]]["condition"] is None
-    assert rows[made[1][1]]["condition"] is None
-    assert rows[made[1][1]]["condition_measured"] is None
-    assert rows[made[2][1]]["condition_measured"] == {"x": None, "y": [None]}
+    assert rows[made[1][1]]["condition"] == "none"
+    assert rows[made[1][1]]["condition_measured"] is None  # NUL: whole value null
+    assert rows[made[2][1]]["condition_measured"]["controller"] == {
+        "fillers_ahead": 1,
+        "x": None,
+        "y": [None],
+    }
     assert rows[made[3][1]]["condition"] is None
     assert rows[made[3][1]]["condition_measured"] is None
-    assert rows[made[4][1]]["condition"] == "ok:1"
+    # not a canonical name[:arg] condition: never stored (lane A reviewer)
+    assert rows[made[4][1]]["condition"] is None
+    assert rows[made[4][1]]["condition_measured"]["verified"] is False
     assert recorder.skipped == 0
 
 

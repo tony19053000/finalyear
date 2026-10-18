@@ -97,7 +97,7 @@ import contextlib
 import dataclasses
 import datetime as dt
 from collections import OrderedDict
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Final
 
@@ -199,8 +199,13 @@ class Dispatcher(RecoverySteps):
         secrets: SecretStore | None = None,
         insecure_secrets: bool = False,
         on_alert: Callable[[dict[str, str]], None] | None = None,
+        bench_condition: Callable[[str | None], Awaitable[str | None]] | None = None,
+        node_paused: Callable[[str], bool] | None = None,
     ) -> None:
         self._store = store
+        self._bench_condition = bench_condition
+        """V0.9 G4 (D217): a benchmark run job's agent condition, by its
+        Idempotency-Key (``controller.bench.conditions``); sent in StartAttempt."""
         self._on_alert = on_alert
         """V0.8 G1 (D180): security refusals for the operator (the event bus)."""
         self._secrets = secrets
@@ -261,6 +266,7 @@ class Dispatcher(RecoverySteps):
             cache_live=cache_live,
             link_stale_after_s=self._network_settings.stale_after_s,
             min_bw_bytes_s=self._network_settings.min_bw_bytes_s,
+            node_paused=node_paused,
         )
         """V0.6 G2 (D102): builds the tick's snapshot and decides per job."""
         manager.dispatch.register("attempt_status", self._on_status_message)

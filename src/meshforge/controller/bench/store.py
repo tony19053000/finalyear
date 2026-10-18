@@ -226,6 +226,7 @@ class BenchStore:
         expansion: Expansion,
         nodes: Sequence[str],
         created_by: str | None,
+        session_label: str | None = None,
     ) -> CampaignRecord:
         summary = {
             "groups": expansion.groups,
@@ -234,6 +235,9 @@ class BenchStore:
             "duplicates": expansion.duplicates,
             "estimated_hours": expansion.estimated_hours,
             "nodes": sorted(nodes),
+            # V0.9 G4 (D241): copied to every record of the campaign
+            "session_label": session_label,
+            "unsupported": expansion.unsupported,
         }
         async with self._sessions() as db, db.begin():
             db.add(
@@ -253,6 +257,7 @@ class BenchStore:
             rows: list[dict[str, Any]] = []
             for run in expansion.runs:
                 data = run_dict(run)
+                skipped = run.skip_reason is not None
                 rows.append(
                     {
                         "id": new_bench_run_id(),
@@ -268,13 +273,21 @@ class BenchStore:
                         "strategy": data["strategy"],
                         "node_id": data["node_id"],
                         "origin_node_id": data["origin_node_id"],
-                        "state": "planned",
+                        # V0.9 G4: on_unsupported: skip -> stored skipped
+                        "state": "skipped" if skipped else "planned",
+                        "detail": None
+                        if run.skip_reason is None
+                        else f"unsupported: {run.skip_reason}"[:MAX_RUN_DETAIL_CHARS],
+                        "ended_at": dt.datetime.now(dt.UTC) if skipped else None,
                     }
                 )
             for start in range(0, len(rows), _INSERT_CHUNK):
                 await db.execute(insert(BenchRun), rows[start : start + _INSERT_CHUNK])
             row = await db.get_one(BenchCampaign, campaign_id)
-            return _campaign(row, {"planned": len(rows)})
+            skipped_runs = sum(1 for r in rows if r["state"] == "skipped")
+            return _campaign(
+                row, {"planned": len(rows) - skipped_runs, "skipped": skipped_runs}
+            )
 
     async def _counts(
         self, db: AsyncSession, campaign_ids: Sequence[str]

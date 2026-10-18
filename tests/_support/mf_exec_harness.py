@@ -29,6 +29,7 @@ from mf_agent_harness import make_agent_settings
 
 from meshforge.agent.cache import CacheReporter
 from meshforge.agent.cas import AgentCas
+from meshforge.agent.conditions.runner import ConditionRunner, probe_kinds
 from meshforge.agent.envs.node_prepare import PrepareService
 from meshforge.agent.execution.docker_runtime import DockerConfig, DockerRuntime
 from meshforge.agent.execution.executor import Executor
@@ -43,6 +44,7 @@ from meshforge.agent.peer.probe import ProbeService
 from meshforge.agent.policy import LivePolicy
 from meshforge.agent.runtime import (
     build_live_policy,
+    controller_endpoint,
     controller_host,
     route_commands,
     start_cache,
@@ -56,6 +58,7 @@ from meshforge.agent.runtime import (
 from meshforge.agent.session.client import AgentSessionClient
 from meshforge.agent.session.hello import basic_hardware
 from meshforge.agent.session.state import AgentState
+from meshforge.common.bench_conditions import capability_tag
 from meshforge.common.bundle import pack_to_file
 
 __all__ = ["TERMINAL", "ExecAgent", "no_docker", "submit", "wait_job"]
@@ -137,6 +140,18 @@ class ExecAgent:
         )
         for index in range(fake_gpus):
             hardware.gpus.add(index=index, model="fake", vram_bytes=4 * 1024**3)
+        # V0.9 G4 (D217): the benchmark conditions, as in serve() (never
+        # gpu_load: the fake GPUs cannot be loaded)
+        condition_kinds = (
+            await probe_kinds(settings.agent.conditions, has_gpu=False)
+            if setup.enabled
+            else frozenset()
+        )
+        condition_tag = capability_tag(condition_kinds)
+        if condition_tag is not None:
+            hardware.capabilities[:] = clip_capabilities(
+                [*hardware.capabilities, condition_tag]
+            )
         client = AgentSessionClient(settings, identity, hardware=hardware)
         # V0.7 G5 (D142): the owner's live policy, wired as in serve().
         live_policy = build_live_policy(settings, gpu_count=fake_gpus)
@@ -150,9 +165,18 @@ class ExecAgent:
         cache = await start_cache(settings, cas, client)
         # V0.5 G5: GC as in serve() ([agent.gc] via agent_overrides={"gc": {...}}).
         gc = await start_gc(settings, cas, node_id=client.node_id, cache=cache)
+        conditions = ConditionRunner(
+            settings.agent.conditions,
+            data_dir=settings.data_dir,
+            kinds=condition_kinds,
+            store=cas.store,
+            index=lambda: None if gc is None else gc.index,
+            controller=lambda: controller_endpoint(client.controller_target),
+        )
         executor = Executor(
             settings,
             setup,
+            conditions=conditions,
             cas=cas,
             node_id=client.node_id,
             report=client.send_report,

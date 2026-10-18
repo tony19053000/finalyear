@@ -55,6 +55,14 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from meshforge.bench.workloads import ParamsError, UnknownFamilyError
 from meshforge.bench.workloads.materialise import job_files
+from meshforge.common.bench_conditions import (
+    CacheCondition,
+    Condition,
+    ConditionError,
+    QueueCondition,
+    Unavailable,
+    parse_condition,
+)
 from meshforge.common.cas import DEFAULT_CHUNK_SIZE
 from meshforge.common.errors import FailureType, MeshForgeError
 from meshforge.common.hashing import Digest
@@ -68,6 +76,7 @@ from meshforge.common.manifest import (
     parse_manifest_data,
 )
 from meshforge.common.tree import Tree, TreeEntry, TreeError, canonical_bytes
+from meshforge.controller.bench.conditions import NodePauses, filler_key, warmup_key
 from meshforge.controller.bench.store import (
     BENCH_KEY_PREFIX,
     BenchStore,
@@ -79,6 +88,7 @@ from meshforge.controller.jobs.env_health import env_key
 from meshforge.controller.jobs.placement import PlacementError, check_placement
 from meshforge.controller.jobs.store import (
     IdempotencyConflictError,
+    JobRecord,
     JobScheduling,
     JobStore,
 )
@@ -181,11 +191,27 @@ async def _once(data: bytes) -> AsyncIterator[bytes]:
     yield data
 
 
+def _pre_jobs(run_id: str, condition: Condition) -> list[str]:
+    """Keys of the jobs a controller-side condition queues before the run."""
+    if isinstance(condition, QueueCondition):
+        return [filler_key(run_id, i) for i in range(1, condition.jobs + 1)]
+    if isinstance(condition, CacheCondition) and condition.mode == "warm":
+        return [warmup_key(run_id)]
+    return []
+
+
 def _request_hash(
-    run: RunRow, manifest: dict[str, object], tree_id: str, placement: dict[str, str]
+    run: RunRow,
+    manifest: dict[str, object],
+    tree_id: str,
+    placement: dict[str, str],
+    *,
+    key: str,
 ) -> str:
+    extra = {} if key == IDEMPOTENCY_PREFIX + run.id else {"key": key}
     canonical = json.dumps(
         {
+            **extra,
             "bench_run": run.id,
             "manifest": manifest,
             "tree_id": tree_id,
@@ -213,7 +239,10 @@ class BenchSubmitter:
         manager: SessionManager,
         engine: AsyncEngine,
         wake: Callable[[], None] | None = None,
+        pauses: NodePauses | None = None,
     ) -> None:
+        self._pauses = pauses
+        """V0.9 G4: where ``unavailable:T`` pauses a run's origin."""
         self._store = store
         self._jobs = jobs
         self._blobs = blobs
@@ -288,12 +317,14 @@ class BenchSubmitter:
             built = bench_tree(run.family, dict(run.params), run.seed)
         except (ParamsError, UnknownFamilyError, ManifestError, TreeError) as exc:
             return await self._skip(run, f"the workload library refuses it: {exc}")
+        try:
+            condition = parse_condition(run.conditions[0] if run.conditions else "none")
+        except ConditionError as exc:  # pragma: no cover - stored from a parsed spec
+            return await self._skip(run, f"its condition is invalid: {exc}")
         placement = {
             "mode": "local" if run.node_id == run.origin_node_id else "offload",
             "node_id": run.node_id,
         }
-        canonical = built.manifest.canonical_dict()
-        tree_id = str(built.tree.tree_id)
         try:
             async with self._blobs.gc_guard.shared():
                 await self._store_tree(built)
@@ -309,33 +340,24 @@ class BenchSubmitter:
                     )
                 except PlacementError as exc:
                     return await self._refused(run, exc)
-                job, created = await self._jobs.create_queued_job(
-                    job_id=str(new_job_id()),
-                    name=built.manifest.name,
-                    manifest=canonical,
-                    bundle_digest=None,
+                # V0.9 G4 (D217): the controller's own conditions come first -
+                # fillers / a warm-up queued ahead of the run, the origin paused
+                for key in _pre_jobs(run.id, condition):
+                    await self._create(
+                        campaign, run, built, key=key, placement=placement
+                    )
+                if isinstance(condition, Unavailable):
+                    if self._pauses is None:
+                        return await self._skip(
+                            run, "this controller cannot pause nodes"
+                        )
+                    self._pauses.pause(run.origin_node_id, condition.seconds)
+                job, created = await self._create(
+                    campaign,
+                    run,
+                    built,
+                    key=IDEMPOTENCY_PREFIX + run.id,
                     placement=placement,
-                    request_hash=_request_hash(run, canonical, tree_id, placement),
-                    idempotency_key=IDEMPOTENCY_PREFIX + run.id,
-                    tree_id=tree_id,
-                    scheduling=JobScheduling(
-                        priority=MIN_PRIORITY,
-                        policy=built.manifest.policy,
-                        max_attempts=built.manifest.retry.max_attempts,
-                        retry_backoff_s=built.manifest.retry.backoff_s,
-                        on_lost_retry=built.manifest.retry.on_lost,
-                        submitter_node_id=run.origin_node_id,
-                        submitter_seeded=False,
-                        input_bytes=built.tree.total_bytes,
-                        fingerprint=workload_fingerprint(
-                            built.manifest,
-                            project=tree_id,
-                            env_key=env_key(
-                                canonical, tree_id=tree_id, bundle_digest=None
-                            ),
-                        ),
-                    ),
-                    owner_user_id=campaign.created_by,
                 )
         except IdempotencyConflictError:
             # Only a request for another run (or a hand-made one) can hold this
@@ -367,6 +389,46 @@ class BenchSubmitter:
         if not linked:
             return RunOutcome(run.id, run.seq, "already", job_id=job.id)
         return RunOutcome(run.id, run.seq, "submitted", job_id=job.id)
+
+    async def _create(
+        self,
+        campaign: CampaignRecord,
+        run: RunRow,
+        built: BuiltTree,
+        *,
+        key: str,
+        placement: dict[str, str],
+    ) -> tuple[JobRecord, bool]:
+        """One job of ``run``'s workload under ``key`` (the run job itself, a
+        filler or a warm-up - the same path, the same lowest priority)."""
+        canonical = built.manifest.canonical_dict()
+        tree_id = str(built.tree.tree_id)
+        return await self._jobs.create_queued_job(
+            job_id=str(new_job_id()),
+            name=built.manifest.name,
+            manifest=canonical,
+            bundle_digest=None,
+            placement=placement,
+            request_hash=_request_hash(run, canonical, tree_id, placement, key=key),
+            idempotency_key=key,
+            tree_id=tree_id,
+            scheduling=JobScheduling(
+                priority=MIN_PRIORITY,
+                policy=built.manifest.policy,
+                max_attempts=built.manifest.retry.max_attempts,
+                retry_backoff_s=built.manifest.retry.backoff_s,
+                on_lost_retry=built.manifest.retry.on_lost,
+                submitter_node_id=run.origin_node_id,
+                submitter_seeded=False,
+                input_bytes=built.tree.total_bytes,
+                fingerprint=workload_fingerprint(
+                    built.manifest,
+                    project=tree_id,
+                    env_key=env_key(canonical, tree_id=tree_id, bundle_digest=None),
+                ),
+            ),
+            owner_user_id=campaign.created_by,
+        )
 
     async def _store_tree(self, built: BuiltTree) -> None:
         for hex_digest in [

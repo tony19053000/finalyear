@@ -991,6 +991,22 @@
             },
             "title": "Nodes",
             "type": "array"
+          },
+          "session_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Label"
+          },
+          "unsupported": {
+            "default": 0,
+            "title": "Unsupported",
+            "type": "integer"
           }
         },
         "required": [
@@ -10150,7 +10166,7 @@
               "application/octet-stream": {},
               "application/vnd.apache.parquet": {}
             },
-            "description": "The Parquet file (telemetry schema v1, docs/TELEMETRY.md)"
+            "description": "The Parquet file (telemetry schema v2, docs/TELEMETRY.md)"
           },
           "400": {
             "content": {

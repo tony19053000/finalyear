@@ -70,6 +70,27 @@ def _wl(**kw: Any) -> dict[str, Any]:
     return {"family": "cpu.matmul", "status": "ok", "params": {"n": 4}, **kw}
 
 
+def _cond(
+    condition: Any,
+    measured: Any = None,
+    *,
+    facts: dict[str, Any] | None = None,
+    **workload: Any,
+) -> dict[str, Any]:
+    """RecordSource kwargs for a campaign run with ``condition`` whose agent
+    reported ``measured`` (after the G4 A x B merge the condition columns have
+    one writer, ``condition_outcome``: the campaign identity + the agent's
+    report; the agent's ``measured`` lands under ``condition_measured.agent``)."""
+    identity: dict[str, Any] = {"campaign_id": "camp_1", "condition": condition}
+    if facts is not None:
+        identity["condition_facts"] = facts
+    report = {"spec": condition, "verified": True, "measured": measured}
+    return {
+        "campaign": identity,
+        "workload": _wl(condition={**report, "reverted": True}, **workload),
+    }
+
+
 # ------------------------------------------------------------ schema v1 -> v2
 
 
@@ -109,10 +130,26 @@ def test_new_record_is_stamped_with_current_version() -> None:
 
 @pytest.mark.parametrize(
     "value",
-    [None, "", "x" * 129, "bad\x00nul", "lone\ud800surrogate", 5, 1.5, ["a"], {"a": 1}],
+    [
+        None,
+        "",
+        "x" * 129,
+        "bad\x00nul",
+        "lone\ud800surrogate",
+        5,
+        1.5,
+        ["a"],
+        {"a": 1},
+        # not a canonical name[:arg] condition (lane A reviewer follow-up)
+        "x" * 128,
+        "é" * 128,
+        "名" * 128,
+        " ",
+        "cpu_load",
+    ],
 )
 def test_condition_hostile_values_are_null(value: Any) -> None:
-    assert build_record(_src(condition=value))["condition"] is None
+    assert build_record(_src(**_cond(value)))["condition"] is None
 
 
 @pytest.mark.parametrize(
@@ -121,13 +158,12 @@ def test_condition_hostile_values_are_null(value: Any) -> None:
         "none",
         "cpu_load:2",
         "netem:delay=50ms,loss=1%",
-        "x" * 128,
-        "é" * 128,
-        "名" * 128,
+        "queue:4",
+        "cache:cold",
     ],
 )
 def test_condition_good_values_kept_verbatim(value: str) -> None:
-    assert build_record(_src(condition=value))["condition"] == value
+    assert build_record(_src(**_cond(value)))["condition"] == value
 
 
 @pytest.mark.parametrize(
@@ -155,8 +191,10 @@ def test_condition_measured_nonfinite_nested_become_null_and_json_roundtrips() -
         "b": [1.0, math.inf, {"c": -math.inf}],
         "d": {"e": 1.5, "f": True, "g": None},
     }
-    out = build_record(_src(condition="cpu_load:2", condition_measured=measured))
+    out = build_record(_src(**_cond("cpu_load:2", measured)))
     got = out["condition_measured"]
+    json.dumps(got, allow_nan=False)
+    got = got["agent"]
     assert got == {
         "a": None,
         "b": [1.0, None, {"c": None}],
@@ -168,7 +206,8 @@ def test_condition_measured_nonfinite_nested_become_null_and_json_roundtrips() -
 
 @pytest.mark.parametrize("value", ["text", 5, [1, 2], None, True])
 def test_condition_measured_non_object_is_null(value: Any) -> None:
-    assert build_record(_src(condition_measured=value))["condition_measured"] is None
+    got = build_record(_src(**_cond("cpu_load:2", value)))["condition_measured"]
+    assert "agent" not in got
 
 
 def test_condition_measured_hostile_keys_and_depth_are_null_not_raised() -> None:
@@ -182,15 +221,16 @@ def test_condition_measured_hostile_keys_and_depth_are_null_not_raised() -> None
         {1: "int key"},
         deep,
     ):
-        assert build_record(_src(condition_measured=bad))["condition_measured"] is None
+        got = build_record(_src(**_cond("cpu_load:2", bad)))["condition_measured"]
+        assert got is None
 
 
 def test_condition_measured_with_huge_flat_object_is_kept_or_null_never_raises() -> (
     None
 ):
     big = {f"k{i}": i for i in range(5000)}
-    got = build_record(_src(condition_measured=big))["condition_measured"]
-    assert got in (None, big)
+    got = build_record(_src(**_cond("cpu_load:2", big)))["condition_measured"]
+    assert got is None or got["agent"] == big
 
 
 # -------------------------------------------------------------- params (0.9)
@@ -241,13 +281,11 @@ def _records(count: int, *, v1_every: int = 0) -> list[dict[str, Any]]:
             _src(
                 attempt_id=f"att_{i:06d}",
                 job_id=f"job_{i}",
-                condition=None
-                if (v1_every and i % v1_every == 0)
-                else f"queue:{i % 5}",
-                condition_measured=None
-                if (v1_every and i % v1_every == 0)
-                else {"depth": float(i)},
-                workload=_wl(result_schema_version=1),
+                **_cond(
+                    f"queue:{i % 5 + 1}",
+                    facts={"fillers_ahead": i % 5 + 1, "depth": float(i)},
+                    result_schema_version=1,
+                ),
             )
         )
         if v1_every and i % v1_every == 0:  # what a pre-0023 row looks like
@@ -352,14 +390,18 @@ def test_mixed_version_export_is_readable_and_typed(tmp_path: Path) -> None:
         if version == 1:
             assert cond is None and meas is None
         else:
-            assert cond is not None and json.loads(meas)["depth"] >= 0.0
+            assert cond is not None
+            assert json.loads(meas)["controller"]["depth"] >= 0.0
 
 
 def test_exported_condition_measured_is_canonical_json() -> None:
-    rec = _build(_src(condition="x", condition_measured={"b": 1, "a": float("nan")}))
+    rec = _build(_src(**_cond("cpu_load:2", {"b": 1, "a": float("nan")})))
     table = export.records_table([rec])
     cell = table.column("condition_measured").to_pylist()[0]
-    assert cell == '{"a":null,"b":1}'
+    assert cell == (
+        '{"agent":{"a":null,"b":1},"reason":null,"reverted":true,'
+        '"session_label":null,"verified":true}'
+    )
 
 
 # ------------------------------------------- job side cnn_train cap (0.2) grid

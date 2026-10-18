@@ -35,7 +35,7 @@ shared). :func:`parquet_bytes` (tests, scripts) still returns the whole file.
 from __future__ import annotations
 
 import datetime as dt
-from collections.abc import Iterable, Iterator, Mapping, Sequence
+from collections.abc import Generator, Iterable, Mapping, Sequence
 from typing import IO, Any, Final
 
 import pyarrow as pa
@@ -210,7 +210,7 @@ def _ordered(
 
 def iter_parquet(
     records: Iterable[Mapping[str, Any]], *, sort_in_place: bool = False
-) -> Iterator[bytes]:
+) -> Generator[bytes, None, None]:
     """The export of ``records`` as consecutive pieces of one Parquet file:
     one piece per row group as soon as it is encoded, the footer last (module
     docstring). Joined, the pieces equal :func:`write_parquet` of

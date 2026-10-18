@@ -254,7 +254,9 @@ compute telemetry export --campaign camp_... -o c.parquet  # its run records (TE
 | `name` | 1-64 of `a-z 0-9 . _ -` |
 | `seed` | drives parameter sampling, the run order and each group's workload seed |
 | `families[]` | `{family, params}`; a param is one value, a list of values, or a range `{min, max, log?, int?, steps?}`; unnamed params keep the family default |
-| `conditions` | v1: only `none` (G4 adds load, cache, network, ...); an unknown name is an error naming it |
+| `conditions` | a **sweep axis**: each run has exactly one condition (`none` = the baseline); see [Conditions](#conditions). An unknown or malformed one is an error naming it |
+| `on_unsupported` | a node that cannot do a condition: `error` (default; the error lists every node x condition) or `skip` (those runs are stored `skipped` with the reason, and counted) |
+| `session_label` | set by the human for the whole session (e.g. `wifi`, `ethernet`); copied to every record (inside `condition_measured`, D243) - Wi-Fi vs Ethernet is a label, not a condition (D241) |
 | `strategies` | `local` (run on the origin itself) and/or `mode1` (run on every other node, submitted from the origin) |
 | `nodes` | `all` (enrolled, not revoked) or a list of node ids / host names |
 | `origin` | the submitting laptop; omitted = every node is the origin in turn (local on itself, mode1 on each other node) |
@@ -264,7 +266,8 @@ compute telemetry export --campaign camp_... -o c.parquet  # its run records (TE
 | `budget` | `max_runs` (required, <= 100000) and `max_hours` (optional): exceeding either is an error with the count, never a silent cut |
 
 **Expansion** (`meshforge.bench.campaign.expand`, pure): parameter points per family -> **groups** (family +
-params + conditions; `group_id` = `grp_` + digest) -> **configurations** (group x strategy x node x origin;
+params + the run's one condition in canonical form; `group_id` = `grp_` + digest; a spec with only `none` keeps
+its pre-G4 ids, and every condition of a point uses the same workload seed) -> **configurations** (group x strategy x node x origin;
 `config_id` = `cfg_` + digest) -> runs. Order: `repetitions` rounds, each visiting **every** configuration once
 in an order shuffled by (seed, round), so drift over a night spreads over all configurations. The same spec,
 seed and node ids give the same run list byte for byte, on any machine: every random draw comes from a SHA-256
@@ -305,3 +308,66 @@ leave the run planned: every campaign read or submit (`sync`) links a planned ru
 node, submitted from its origin; G4 item 0.6). A run's `ended_at` is its job's final transition time (G4 item
 0.7). Until V0.9 G5's resumable
 runner, `submit` is the only driver: nothing runs in the background.
+
+## Conditions
+
+A **condition** is the state a run is measured under (V0.9 G4, D217/D241). The spec lists conditions as a sweep
+axis - `conditions: [none, cpu_load:2, cache:cold]` gives every configuration once per condition - and a run has
+**exactly one** (never a stack). Each condition is **applied, verified and reverted**; a condition that cannot be
+applied or verified fails the run before it is measured, and its record's failure class is
+**`condition_failed`** - it is never labelled (D217). What was measured goes into the record's
+`condition_measured` (with `verified`, `reason`, the agent's and the controller's numbers and the campaign's
+`session_label`).
+
+| Condition | What happens | Verified by | Who |
+|---|---|---|---|
+| `none` | nothing (the baseline) | - | - |
+| `cpu_load:N` (1..256, <= the node's threads) | N busy-loop processes at the **lowest OS priority** (`nice 19` / idle class), children of the agent - outside the job's cgroup / Job Object | over 2 s their CPU time adds up to >= 0.8 x N cores (`load_cores`); a load process that dies while the job runs makes the record `condition_failed` | agent |
+| `gpu_load:P` (10..100 %) | a CUDA matmul loop on the attempt's GPU (else device 0), busy P % of every 100 ms | NVML utilisation within +-15 points of P (`gpu_util_percent`) | agent (CUDA + torch) |
+| `cache:cold` | every blob of the job's trees (project + named inputs) this node holds is evicted right before staging - **except** what another running attempt leases or a pinned named input protects (the GC index's own rule, in its transaction) | staging hit **no** blob (`blobs_hit = 0`) | agent |
+| `cache:warm` | the controller queues one unrecorded **warm-up** run of the same job on the node first (key `bench:<run>:warmup`) | staging fetched **nothing** (`blobs_fetched = 0`) | controller + agent |
+| `queue:K` (1..32) | the controller queues K **filler** jobs (the run's own workload, lowest priority, pinned to the node, keys `bench:<run>:filler:<i>`) ahead of the run | K fillers were still queued or running when the run was queued (`fillers_ahead`, from the job rows) | controller |
+| `netem:delay=Xms,loss=Y%,rate=Zmbit` (any non-empty subset; delay <= 500 ms, loss <= 20 %, rate >= 1 mbit) | `tc qdisc replace dev <iface> root netem ...` on the interface toward the controller, through one fixed command (`lab/netem/README.md`) | `tc qdisc show` lists it **and**, with a delay, the median TCP-connect time to the controller grows by >= half the delay (`rtt_before_ms` / `rtt_after_ms`) | agent (Linux, opt-in) |
+| `unavailable:Ts` (1..300 s; `mode1` only) | the run's **origin** is paused for T s right before the mode1 run is submitted: the planner treats it as `draining` (nothing new starts there; the shadow plan avoids it) | the run was dispatched within the pause (`dispatched_after_s < T`) | controller |
+
+Fillers and warm-ups are ordinary jobs at the lowest priority (their `bench:` key keeps them out of priority
+aging like every benchmark job); they have no `bench_run` link, so they are never campaign records. Their own run
+records are **tagged**: `condition` null, `condition_measured = {"bench_role": "filler" | "warmup", "run_id": ...}`
+- label and planner-training queries must drop rows with `condition_measured->>'bench_role'` set (system-made
+background load, not user demand).
+
+**What is verified, exactly.** `netem`: the shaped qdisc line from `tc qdisc show` is the only check for `loss`
+and `rate` (no packet-loss or throughput probe); the RTT probe (median TCP-connect time to the controller) only
+proves the **egress** delay - netem shapes what leaves this interface, so the probe's SYN is delayed, the reply
+is not. `gpu_load`: the load runs on the attempt's first GPU (`gpu_indices[0]`), device 0 when the attempt has
+none, and NVML utilisation is read for that same index.
+
+**Support by OS.** The agent advertises what it can do in one capability tag (`bench-conditions:cache,cpu_load,
+gpu_load,netem`); the controller checks it at **create** (an error listing node x condition, or `on_unsupported:
+skip`), and the agent re-checks every condition it receives (refused typed if not advertised or not canonical).
+
+| | Linux | Windows | needs |
+|---|---|---|---|
+| `cpu_load`, `cache` | yes | yes | `[agent.conditions] enabled` (default on) |
+| `gpu_load` | yes | yes | an NVIDIA GPU + `torch` installed |
+| `netem` | yes | **no** (reported unsupported) | `[agent.conditions] netem = true`, `netem_interface`, the sudoers rule |
+| `queue`, `unavailable` | yes | yes | nothing (controller-side) |
+
+**Always reverted.** The agent reverts the condition right before it sends the attempt's final status - on
+success, failure, cancel and agent stop - and writes what it changed (load pids with their start times, the
+shaped interface) to `<data dir>/conditions/active.json` **before** changing it; the next agent start undoes
+whatever a crashed process left (a pid is killed only if it is still that burner; a netem is deleted only if the
+entry says `netem_installed` - written right before `tc replace` - and `tc qdisc show` still lists a netem root
+there: a foreign netem or a non-netem root qdisc is never touched). A revert never runs under a running apply:
+`stop_all` cancels the apply and waits for it (a cancelled `tc` is killed and reaped) before it reverts. Load processes are bounded
+twice more: each ends by itself at the attempt's time limit + 30 s + `setup_allowance_s`, and within about a
+second of its agent dying. G5's owner `pause benchmarks` switch stops every running load through the same hook
+(`ConditionRunner.stop_all`).
+
+Limits (v1): `cache:cold` does not evict the job's **environment** (its hash is only known inside the env phase,
+and a rebuild may need a download the offline LAN does not have); `cache:warm` / `queue:K` assume the node runs
+one benchmark at a time (with more CPU slots the warm-up may run beside the run - then the agent sees fetched
+blobs and the run is `condition_failed`, never mislabelled); a pause lives in the controller's memory (a
+controller restart ends it early - the record sees that the controller started between the pause and the dispatch,
+`pause_lost`, and the run is `condition_failed`); netem shapes the whole egress of the interface, not only the
+controller's traffic.

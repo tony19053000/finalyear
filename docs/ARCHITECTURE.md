@@ -862,6 +862,24 @@ Benchmarks run through **the same code paths as users** — so benchmark data re
   choice is `plan_decision.shadow_chosen_node_id` and the run record's `planner_node_id`. The recorder reads the
   campaign identity of a sweep's jobs in one batched query inside its own transaction.
 
+*V0.9 G4 lane B (D217, D241) - conditions (`docs/BENCHMARKS.md` "Conditions"):*
+
+- **Grammar** `common/bench_conditions.py` (pure, shared by agent and campaign expansion): `name[:arg]` ->
+  typed bounded model, canonical string in `group_id`; one condition per run (the spec list is a sweep axis).
+  Support is checked at create from the agent's `bench-conditions:<kinds>` capability tag (error, or
+  `on_unsupported: skip`).
+- **Agent** `agent/conditions/` (`cpu_load`, `gpu_load`, `netem`, `cache`): `StartAttempt.condition` -> apply +
+  verify before staging, `after_stage` check (cache), revert right before the terminal status on every path;
+  `AttemptStatus.condition` (`ConditionReport`) is stored in `attempt.workload["condition"]`. A marker
+  (`<data dir>/conditions/active.json`) is written before every change and swept at agent start. Unverified ->
+  `config_error` `condition_failed:...`, not retried.
+- **Controller** `controller/bench/conditions.py`: the dispatcher adds the run's agent condition to
+  `StartAttempt` (lookup by its `bench:<run_id>` key); `queue:K` fillers / `cache:warm` warm-up queued ahead
+  under `bench:<run_id>:*` keys; `unavailable:T` pauses the origin in memory (the planner sees it DRAINING).
+  The recorder's campaign hook adds condition, session label and controller-side facts (derived from job rows);
+  `telemetry/conditions.py` turns them into `condition` / `condition_measured` (schema v2, lane A) and the
+  failure class `condition_failed` when a condition did not hold.
+
 ---
 
 ## 18. ML subsystem

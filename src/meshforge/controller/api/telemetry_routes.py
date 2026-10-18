@@ -24,7 +24,7 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 import re
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Generator
 from dataclasses import dataclass
 from typing import Annotated, Final
 
@@ -72,14 +72,19 @@ def get_export(request: Request) -> TelemetryExport:
 
 
 async def _stream(
-    pieces: Iterator[bytes],
+    pieces: Generator[bytes, None, None],
     *,
     rows: int,
     campaign: str | None,
     user_id: str | None,
 ) -> AsyncIterator[bytes]:
     """Each row group's bytes as it is encoded (in a worker thread), cut into
-    :data:`CHUNK_BYTES` slices; logs the export once it is complete."""
+    :data:`CHUNK_BYTES` slices; logs the export once it is complete.
+
+    A client that hangs up closes this generator (``GeneratorExit`` /
+    cancellation - not an ``Exception``, so not ``export_aborted``); the
+    ``finally`` then closes ``pieces`` at once, so its Parquet writer is shut
+    deterministically instead of whenever the garbage collector runs."""
     sent = 0
     try:
         while True:
@@ -99,6 +104,8 @@ async def _stream(
             error_type=type(exc).__name__,
         )
         raise
+    finally:
+        _close(pieces)
     log.info(
         "controller.telemetry.exported",
         rows=rows,
@@ -108,6 +115,16 @@ async def _stream(
     )
 
 
+def _close(pieces: Generator[bytes, None, None]) -> None:
+    try:
+        pieces.close()
+    except ValueError:
+        # cancelled while a worker thread is still inside next(pieces): the
+        # generator is executing and cannot be closed from here; it finishes
+        # its row group in that thread and is closed when it is collected
+        log.debug("controller.telemetry.export_close_deferred")
+
+
 @telemetry_router.get(
     "/telemetry/export",
     response_class=StreamingResponse,
@@ -115,7 +132,7 @@ async def _stream(
     responses={
         200: {
             "content": {PARQUET_MEDIA_TYPE: {}, "application/octet-stream": {}},
-            "description": "The Parquet file (telemetry schema v1, docs/TELEMETRY.md)",
+            "description": "The Parquet file (telemetry schema v2, docs/TELEMETRY.md)",
         }
     },
 )

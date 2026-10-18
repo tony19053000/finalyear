@@ -1296,6 +1296,93 @@ class CertSettings(SectionModel):
     )
 
 
+_IFACE_RE: Final = re.compile(r"[A-Za-z0-9][A-Za-z0-9._@:-]{0,14}")
+
+
+class ConditionSettings(SectionModel):
+    """``[agent.conditions]`` - benchmark conditions (V0.9 G4, D217).
+
+    A benchmark run may ask this node to put itself in a *condition* first:
+    background CPU load (``cpu_load``), a busy GPU (``gpu_load``, CUDA nodes),
+    a cold cache (``cache``) or shaped egress toward the controller
+    (``netem``, Linux, root through one sudoers rule - opt-in). The agent
+    applies it before the attempt stages, verifies it, and reverts it when
+    the attempt ends (a marker in ``<data dir>/conditions/`` undoes it after a
+    crash). What this node can do is advertised in its capabilities.
+    """
+
+    enabled: bool = Field(
+        default=True,
+        description=(
+            "Apply the benchmark conditions the controller asks for and "
+            "advertise them. Off = none is advertised, a campaign that needs "
+            "one on this node is refused (or its runs skipped)."
+        ),
+    )
+    netem: bool = Field(
+        default=False,
+        description=(
+            "Allow network shaping with tc netem on netem_interface (Linux; "
+            "needs the sudoers rule in lab/netem/README.md). Advertised only "
+            "when a dry run of tc_command succeeds at start."
+        ),
+    )
+    netem_interface: str = Field(
+        default="",
+        description=(
+            "The interface netem shapes - the one toward the controller and "
+            "the one named in the sudoers rule (e.g. wlp2s0). Never loopback."
+        ),
+    )
+    tc_command: list[str] = Field(
+        default_factory=lambda: ["sudo", "-n", "/usr/sbin/tc"],
+        min_length=1,
+        max_length=8,
+        description=(
+            "The command that runs tc (argument list, no shell). The default "
+            "uses sudo without a password prompt; tests use a fake tc."
+        ),
+    )
+    verify_window_s: float = Field(
+        default=2.0,
+        ge=0.2,
+        le=30.0,
+        description="How long a load condition is measured before it counts as applied.",
+    )
+    setup_allowance_s: float = Field(
+        default=900.0,
+        ge=0.0,
+        le=86_400.0,
+        description=(
+            "A load generator ends by itself at the attempt's time limit + 30 s "
+            "+ this (staging and env build come first); it is stopped as soon "
+            "as the attempt ends anyway."
+        ),
+    )
+
+    @field_validator("netem_interface")
+    @classmethod
+    def _iface(cls, value: str) -> str:
+        if value and (not _IFACE_RE.fullmatch(value) or value == "lo"):
+            raise ValueError(
+                "netem_interface must be a network interface name (not lo)"
+            )
+        return value
+
+    @field_validator("tc_command")
+    @classmethod
+    def _tc(cls, value: list[str]) -> list[str]:
+        if any(not part or "\x00" in part for part in value):
+            raise ValueError("tc_command entries must be non-empty")
+        return value
+
+    @model_validator(mode="after")
+    def _netem_needs_iface(self) -> ConditionSettings:
+        if self.netem and not self.netem_interface:
+            raise ValueError("netem = true needs netem_interface")
+        return self
+
+
 class DiscoverySettings(SectionModel):
     """``[agent.discovery]`` - mDNS lookup of the controller (roadmap 0.3.9).
 
@@ -1368,6 +1455,7 @@ class AgentSection(SectionModel):
     probe: ProbeSettings = Field(default_factory=ProbeSettings)
     gc: GcSettings = Field(default_factory=GcSettings)
     cert: CertSettings = Field(default_factory=CertSettings)
+    conditions: ConditionSettings = Field(default_factory=ConditionSettings)
     hello_timeout_s: float = Field(
         default=3.0,
         gt=0,

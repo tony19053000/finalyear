@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Annotated, Any, Final, Literal
 
@@ -44,6 +45,7 @@ from meshforge.bench.campaign import (
     load_spec,
     spec_digest,
 )
+from meshforge.common.bench_conditions import advertised_kinds
 from meshforge.common.errors import FailureType, InvalidIdError
 from meshforge.common.ids import IdKind, new_campaign_id, parse_id
 from meshforge.common.logging import get_logger
@@ -123,6 +125,10 @@ class ExpansionSummary(ApiModel):
     duplicates: int
     estimated_hours: float
     nodes: tuple[str, ...]
+    unsupported: int = 0
+    """V0.9 G4: runs stored skipped (``on_unsupported: skip``)."""
+    session_label: str | None = None
+    """V0.9 G4 (D241): the spec's session label (Wi-Fi vs Ethernet ...)."""
 
 
 class CampaignOut(ApiModel):
@@ -209,6 +215,8 @@ def _campaign_out(record: CampaignRecord) -> dict[str, Any]:
             duplicates=int(summary.get("duplicates", 0)),
             estimated_hours=float(summary.get("estimated_hours", 0.0)),
             nodes=tuple(summary.get("nodes", ())),
+            unsupported=int(summary.get("unsupported", 0) or 0),
+            session_label=summary.get("session_label"),
         ),
         "created_by": record.created_by,
         "created_at": record.created_at,
@@ -264,10 +272,27 @@ async def _synced(bench: BenchApi, campaign_id: str) -> CampaignRecord:
     return record
 
 
+def _threads(hardware: Mapping[str, Any]) -> int | None:
+    for key in ("cpu_threads", "cpu_cores"):
+        value = hardware.get(key)
+        if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+            return value
+    return None
+
+
 async def _nodes(registry: Registry) -> list[NodeRef]:
+    """The campaign's candidate nodes with what they can do (V0.9 G4: the
+    ``bench-conditions`` tag of their last Hello, their thread count)."""
     records = await registry.list_nodes(limit=MAX_NODES)
     return [
-        NodeRef(r.node_id, r.hostname or None)
+        NodeRef(
+            r.node_id,
+            r.hostname or None,
+            conditions=advertised_kinds(
+                [str(t) for t in r.hardware.get("capabilities") or []]
+            ),
+            threads=_threads(r.hardware),
+        )
         for r in records
         if r.state is not NodeState.REVOKED
     ]
@@ -303,6 +328,7 @@ async def create_campaign(
             expansion=expansion,
             nodes=[n.node_id for n in nodes],
             created_by=admin.user_id,
+            session_label=spec.session_label,
         )
     except BenchStoreError:
         raise _unavailable() from None

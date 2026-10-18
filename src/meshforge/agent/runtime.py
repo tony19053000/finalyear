@@ -74,6 +74,7 @@ from meshforge.agent.cache.images import (
     remove_env_image,
 )
 from meshforge.agent.cas import AgentCas
+from meshforge.agent.conditions.runner import ConditionRunner, probe_kinds
 from meshforge.agent.envs.node_prepare import PrepareService
 from meshforge.agent.execution.executor import Executor
 from meshforge.agent.execution.offer import build_execution
@@ -115,6 +116,7 @@ from meshforge.agent.session.state import AgentState
 from meshforge.agent.session.tls import JOIN_HINT, SessionTlsError
 from meshforge.agent.settings import AgentSettings, parse_controller_address
 from meshforge.common import owner_policy
+from meshforge.common.bench_conditions import capability_tag
 from meshforge.common.capabilities import HARDWARE_SCORES_CAPABILITY
 from meshforge.common.config import INSECURE_DEV_BANNER
 from meshforge.common.errors import ExitCode, MeshForgeError
@@ -156,6 +158,34 @@ def controller_host(target: str) -> str | None:
         return parse_controller_address(target)[0]
     except ValueError:
         return None
+
+
+def controller_endpoint(target: str) -> tuple[str, int] | None:
+    """``(host, port)`` of the controller the agent dialled (None if unknown)."""
+    if not target:
+        return None
+    try:
+        return parse_controller_address(target)
+    except ValueError:
+        return None
+
+
+def nvml_util_reader() -> Callable[[int], float | None]:
+    """GPU utilisation of NVML device ``index`` (percent), for ``gpu_load``'s
+    verification - its own NVML session, opened on first use (blocking: the
+    condition calls it in a thread)."""
+    session: NvmlSession | None = None
+
+    def read(index: int) -> float | None:
+        nonlocal session
+        if session is None:
+            session = NvmlSession()
+        for usage in session.usage():
+            if usage.index == index:
+                return usage.util_percent
+        return None
+
+    return read
 
 
 def stop_signals() -> tuple[signal.Signals, ...]:
@@ -369,6 +399,17 @@ async def serve(
         hardware.capabilities[:] = clip_capabilities(
             [*hardware.capabilities, *execution.offer.capabilities]
         )
+    # V0.9 G4 (D217): the benchmark conditions this node can apply, one tag.
+    condition_kinds = (
+        await probe_kinds(settings.agent.conditions, has_gpu=bool(hardware.gpus))
+        if execution.enabled
+        else frozenset()
+    )
+    condition_tag = capability_tag(condition_kinds)
+    if condition_tag is not None:
+        hardware.capabilities[:] = clip_capabilities(
+            [*hardware.capabilities, condition_tag]
+        )
     client = AgentSessionClient(
         settings,
         identity,
@@ -395,9 +436,19 @@ async def serve(
         docker=execution.docker is not None,
         cache=cache,
     )
+    conditions = ConditionRunner(
+        settings.agent.conditions,
+        data_dir=settings.data_dir,
+        kinds=condition_kinds,
+        store=cas.store,
+        index=lambda: None if gc is None else gc.index,
+        gpu_util=nvml_util_reader(),
+        controller=lambda: controller_endpoint(client.controller_target),
+    )
     executor = Executor(
         settings,
         execution,
+        conditions=conditions,
         cas=cas,
         node_id=node_id,
         report=client.send_report,
@@ -429,6 +480,8 @@ async def serve(
     )
     if execution.enabled:
         await executor.start()
+    else:
+        await conditions.sweep()  # a crashed run's leftovers (V0.9 G4)
     renew_task = start_renewer(settings, client, http_tls=http_tls, peer=peer)
     policy_task = start_policy_watch(settings, client, live_policy)
     install_signal_handlers(client.request_stop)

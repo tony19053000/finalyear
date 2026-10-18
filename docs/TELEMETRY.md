@@ -109,9 +109,32 @@ row by its own `schema_version`.
 
 **Conditions (v2).** `condition` is the run's benchmark condition as its canonical string (`none`,
 `cpu_load:2`, `queue:4`, `netem:delay=50ms,loss=1%` ..., at most 128 characters; one condition per run, D241)
-and `condition_measured` what was measured when it was applied and verified (JSON object; non-finite floats
-become null). Both are null for a job that is not a benchmark. The values come from the campaign identity
-the recorder looks up per job (keys `condition` / `condition_measured`, filled by V0.9 G4 lane B).
+and `condition_measured` what was measured when it was applied and verified (JSON object). Both are null for
+a job that is not a campaign run (an ordinary job; a queue filler / cache warm-up is tagged, below). One writer fills both:
+`controller/telemetry/conditions.py` `condition_outcome`, from the campaign identity the recorder looks up
+per job (`condition`, `session_label`, controller-side `condition_facts`) and the agent's `ConditionReport`.
+A stored condition that is blank or not a canonical `name[:arg]` (it does not round-trip through the
+grammar in `common/bench_conditions.py`) is stored as **null** and the run is `condition_failed`. In
+`condition_measured` a non-finite float (NaN, +-inf - also inside what the agent reported) becomes null;
+a value PostgreSQL would refuse (NUL, lone surrogate, nesting deeper than 32) makes the whole column null -
+the record itself is always kept.
+
+`condition_measured` keys (D243):
+
+| Key | Always? | Meaning |
+|---|---|---|
+| `verified` | yes | bool - the condition was applied and verified. `false` with `failure_class = condition_failed` when it should have held; `false` with another class when the attempt failed for its own reason first. |
+| `reason` | yes | text or null - why it is not verified (agent's or controller's reason). |
+| `session_label` | yes | the campaign's `session_label` (e.g. `wifi`, `ethernet`) or null. Kept here, not as a column (D243): filter with `condition_measured->>'session_label'`. |
+| `agent` | agent conditions with a report carrying measurements | what the agent measured. `cpu_load`: `cores`, `load_cores`, `window_s`. `gpu_load`: `percent`, `gpu_index`, `gpu_util_percent`, `samples`. `netem`: `interface`, `qdisc`, `rtt_before_ms`, `rtt_after_ms`, `rtt_added_ms` (delay only). `cache`: `mode`, `trees`, `blobs_hit`, `bytes_hit`, `blobs_fetched`, `bytes_fetched`, `manifest_hits`; `cache:cold` also `evicted_blobs`, `evicted_bytes`, `kept_blobs`. |
+| `reverted` | agent conditions with a matching report | bool - the agent undid the change after the run. |
+| `controller` | controller-side conditions with facts | `queue`: `fillers`, `fillers_ahead`. `cache:warm`: `warmup_state`. `unavailable`: `paused_node_id`, `seconds`, `dispatched_after_s`, `pause_lost`. |
+
+`none` runs carry only `verified` (`true`), `reason` (null) and `session_label`.
+
+A campaign's **queue filler** / **cache warm-up** job (no campaign identity) has `condition` null and
+`condition_measured = {"bench_role": "filler" | "warmup", "run_id": "<bench run>"}` (and none of the keys above).
+Labels and planner-training queries must exclude rows where `condition_measured->>'bench_role'` is set.
 
 ## Columns — schema version 2
 
