@@ -454,17 +454,15 @@ async def test_owner_activity_preempts_requeues_and_never_touches_a_user_job(
             return bool(live.owner_active)
 
         await _wait(seen)
-        for _ in range(10):  # 2 s of ticks while the owner is active
-            await runtime.bench_runner.tick()
+        user = await wait_job(http, user_job, timeout_s=60)
+        assert user["state"] == "succeeded"  # never touched (checklist 30)
+        for _ in range(10):  # 2 s of ticks while the owner is active (no user job)
+            report = await runtime.bench_runner.tick()
+            assert report.submitted == 0
             await asyncio.sleep(0.2)
         runs = await _runs(http, cid)
         assert not [r for r in runs if r["state"] == "submitted"]
-        requeued = next(
-            r for r in runs if r["job_id"] is None and r["state"] == "planned"
-        )
-        assert requeued is not None
-        user = await wait_job(http, user_job, timeout_s=60)
-        assert user["state"] == "succeeded"  # never touched (checklist 30)
+        assert [r for r in runs if r["job_id"] is None and r["state"] == "planned"]
 
         await a.set_owner_active(False)
 
