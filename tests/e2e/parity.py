@@ -236,8 +236,7 @@ COMPUTE: Final[dict[str, Entry]] = {
         "Benchmarks page (G6, D221) adds the browser form."
     ),
     "bench campaigns": CliOnly(
-        "V0.9 G3: lists campaigns (admin); the Benchmarks page (G6, D221) is "
-        "their UI."
+        "V0.9 G3: lists campaigns (admin); the Benchmarks page (G6, D221) is their UI."
     ),
     "bench runs": CliOnly(
         "V0.9 G3: a campaign's run list (admin); G6's campaign detail shows it."
