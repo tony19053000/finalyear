@@ -388,10 +388,10 @@ class BenchSubmitter:
             raise TreeError("the benchmark tree did not round-trip the blob store")
 
     async def _refused(self, run: RunRow, exc: PlacementError) -> RunOutcome:
-        code = str(exc.details.get("reject_code") or "")
+        refusal = str(exc.details.get("reject_code") or "")
         if exc.failure_type is FailureType.NOT_FOUND:
             return await self._skip(run, "the node no longer exists")
-        if not code or code.startswith(_TRANSIENT_CODES_PREFIX):
+        if not refusal or refusal.startswith(_TRANSIENT_CODES_PREFIX):
             log.info(
                 "controller.bench.run_deferred",
                 run_id=run.id,
@@ -403,9 +403,11 @@ class BenchSubmitter:
                 run.seq,
                 "deferred",
                 detail=exc.message,
-                node_wide=code in NODE_WIDE_DEFERRALS,
+                node_wide=refusal in NODE_WIDE_DEFERRALS,
             )
-        return await self._skip(run, f"the node cannot run it: {exc.message} ({code})")
+        return await self._skip(
+            run, f"the node cannot run it: {exc.message} ({refusal})"
+        )
 
     async def _skip(self, run: RunRow, detail: str) -> RunOutcome:
         moved = await self._store.mark_skipped(run.id, detail)

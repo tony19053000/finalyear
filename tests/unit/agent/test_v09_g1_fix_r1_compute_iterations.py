@@ -228,7 +228,9 @@ def test_the_record_nulls_values_postgres_would_refuse_instead_of_cutting() -> N
             }
         )
     )
-    assert record["workload_params"] is None  # deeper than MAX_JSON_DEPTH
+    # G4 item 0.9 (D240): a non-scalar value (here a too-deep list) is dropped,
+    # the scalar keys stay - never stored deeper than MAX_JSON_DEPTH either way
+    assert record["workload_params"] == {"n": 4}
     record = build_record(
         _source(
             {

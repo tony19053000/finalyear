@@ -548,11 +548,11 @@ def _transformer_mismatch(
     tensor is copied to the CPU at a time."""
     own = {f"0.{k}": v for k, v in embedding.state_dict().items()}
     per_layer = dict(layer.state_dict())
-    expected = list(own) + [
+    names = list(own) + [
         f"{_LAYER_PREFIX}{i}.{k}" for i in range(depth) for k in per_layer
     ]
     mine: dict[str, Any] = dict(timed.state_dict())
-    if list(mine) != expected:
+    if list(mine) != names:
         return "the parameter names"
     for name, value in mine.items():
         # "1.layers.<i>.<key>" -> the one seeded layer's "<key>"
