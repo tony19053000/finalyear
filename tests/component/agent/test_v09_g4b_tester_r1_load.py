@@ -12,8 +12,11 @@ import os
 import signal
 from pathlib import Path
 
-import psutil
 import pytest
+
+pytest.importorskip("psutil", reason="needs the agent extra")
+
+import psutil  # noqa: E402
 
 from meshforge.agent.conditions.base import ConditionFailedError
 from meshforge.agent.conditions.burn import main as burn_main
