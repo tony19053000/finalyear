@@ -1,7 +1,8 @@
 """V0.9 G3 lane B tester r1: adversarial campaign-spec / expansion tests derived
-# ruff: noqa: E501, PERF402
 from D216 (deterministic, stratified, interleaved, budgeted, validated)."""
 
+
+# ruff: noqa: E501, PERF402
 from __future__ import annotations
 
 import hashlib
