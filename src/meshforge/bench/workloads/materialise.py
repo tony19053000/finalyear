@@ -32,6 +32,7 @@ import json
 import os
 import shutil
 import tempfile
+import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
 from importlib import resources
@@ -201,7 +202,9 @@ def _publish(staging: Path, dest: Path) -> None:
     POSIX renames onto an empty folder atomically. Windows refuses to rename onto
     an existing folder, so the caller's empty ``dest`` is first renamed *aside*
     (never deleted) and put back if the final rename fails - a failed build never
-    loses the folder the caller made (tester r2 D7).
+    loses the folder the caller made (tester r2 D7). The aside name carries a
+    ``uuid4`` (D225): pid + ``id()`` could repeat across processes or after a
+    crash left an old aside behind, and a clashing rename would refuse the build.
     """
     with contextlib.suppress(OSError):
         os.rename(staging, dest)
@@ -213,7 +216,7 @@ def _publish(staging: Path, dest: Path) -> None:
     )
     if not dest.is_dir() or any(dest.iterdir()):
         raise busy
-    aside = dest.with_name(f".{dest.name}.aside-{os.getpid()}-{id(staging):x}")
+    aside = dest.with_name(f".{dest.name}.aside-{uuid.uuid4().hex}")
     try:
         os.rename(dest, aside)
     except OSError:
