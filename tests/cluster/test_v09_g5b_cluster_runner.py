@@ -16,8 +16,7 @@ campaign (2 families x local/mode1 x 8 repetitions, origin = node A) is
   stopped by the pause ends ``owner_preempted`` and its run is requeued (tries
   unchanged), excluded from the infra failure rate;
 * ``compute bench status`` adds up; two exports are byte-identical
-  (checklist 31). Labels determinism is lane A's route (checked after the
-  lanes merge).
+  (checklist 31), and so are two label exports (JSON and Parquet; fix r1).
 """
 
 from __future__ import annotations
@@ -294,6 +293,16 @@ def test_runner_survives_a_controller_sigkill_and_an_owner_pause(
         "GET", "/v1/telemetry/export", params={"campaign": cid}
     ).content
     assert first == second
+    # fix r1 (D249): labels determinism - two label exports byte-identical
+    path = f"/v1/bench/campaigns/{cid}/labels"
+    labels_json = fabric.call("GET", path)
+    assert labels_json.status_code == 200, labels_json.text
+    assert labels_json.json()["groups"], labels_json.text
+    one = fabric.call("GET", path, params={"format": "parquet"})
+    two = fabric.call("GET", path, params={"format": "parquet"})
+    assert one.status_code == two.status_code == 200, one.text
+    assert one.content and one.content == two.content
+    assert fabric.call("GET", path).content == labels_json.content
     print(  # noqa: T201
         f"campaign {cid}: {RUNS} runs in {took:.1f} s on 2 nodes across a controller "
         f"SIGKILL and a {PAUSE_S:g} s owner pause; {len(preempted)} attempt(s) "

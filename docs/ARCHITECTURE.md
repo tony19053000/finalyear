@@ -880,6 +880,35 @@ Benchmarks run through **the same code paths as users** — so benchmark data re
   `telemetry/conditions.py` turns them into `condition` / `condition_measured` (schema v2, lane A) and the
   failure class `condition_failed` when a condition did not hold.
 
+*V0.9 G5 lane B (D219, D246, D249, D250) - the unattended runner and the owner guard
+(`docs/OPERATIONS.md` 0d3):*
+
+- **Runner** `controller/bench/runner.py`: a supervised task inside the controller (no new service; crashes are
+  logged and backed off, `/healthz` `degraded` `bench-runner` after 5 in a row). A campaign is owned by it once
+  `compute bench start` set `started_at` (G3's manual submit is then `409 campaign_running`); `pause` / `resume`
+  / `cancel` are idempotent controls (`controller/bench/control.py`, migration 0024). Each tick: `BenchStore.sync()`
+  settles finished runs (`controller/bench/outcome.py`: `done`; workload / condition / cancel -> `failed`; an
+  infrastructure failure -> requeued with `tries + 1` up to `max_infra_retries`; `owner_preempted` -> requeued,
+  `tries` unchanged) and cancels **orphan** benchmark jobs (a job whose run is `skipped` or whose campaign is
+  `cancelled`, e.g. created by a submission racing a cancel); then every node with planned runs gets
+  `max_concurrent_per_node` minus its live benchmark jobs as free slots, except nodes in cool-down, owner-guarded,
+  or with a user job running / queued there; `submit_next` gets at most `max_submit_per_tick` (4) runs and
+  examines at most `max_examine_per_tick` (32), continuing next tick after a **cursor** when that cap was hit
+  (per-run deferrals at the head never stall a campaign). `budget.max_hours` (database time since `started_at`)
+  stops submissions. All state is in PostgreSQL: after a controller `kill -9` the next process continues.
+- **Generations:** a requeued run is submitted again under `bench:<run_id>:<generation>` (generation 0 keeps the
+  G3 key `bench:<run_id>`), so one generation is one job; a failed link stops the batch and cancels the job it
+  just created; earlier generations' jobs keep their run identity by key (their records keep the campaign).
+  `campaign.progress` events (admins, <= 1/s per campaign) carry counts, done %, ETA, infra failure rate.
+- **Owner guard (agent):** `agent/owner_activity.py` reads input idle time (Windows `GetLastInputInfo`, Linux
+  logind via `loginctl`; unknown -> CPU rule only) and non-fabric process CPU, with hysteresis;
+  `agent/owner_guard.py` combines it with the owner's `pause_benchmarks` policy switch
+  (`meshforge-agent bench pause|resume`). Guard on -> the heartbeat's `owner_active` bit / the policy tell the
+  controller (the planner's **live** rejection `policy_bench_paused` holds bench jobs only - a user job is never
+  refused), a benchmark `StartAttempt` (`StartAttempt.benchmark`) is refused `owner_preempted`, and a running one
+  is pre-empted: `ConditionRunner.stop_all("owner_pause")` first, then the cancel (`owner_preempted`, a
+  `FailureType`; record class stays `infrastructure`, excluded from the campaign's infra failure rate).
+
 ---
 
 ## 18. ML subsystem
