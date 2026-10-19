@@ -382,8 +382,12 @@ def prefix_sets(
     by the time the node alone would need (``start + items x per item``) - each
     set once, in that order; none when fewer lanes."""
     top = len(lanes) if max_nodes is None else min(max_nodes, len(lanes))
+
+    def by_rate(item: Lane) -> tuple[float, str]:
+        return (item.per_item_s, item.node_id)
+
     orders = (
-        sorted(lanes, key=lambda item: (item.per_item_s, item.node_id)),
+        sorted(lanes, key=by_rate),
         sorted(
             lanes,
             key=lambda item: (
@@ -397,7 +401,7 @@ def prefix_sets(
     seen: set[frozenset[str]] = set()
     for ordered in orders:
         for size in range(max(min_nodes, 2), top + 1):
-            group = tuple(ordered[:size])
+            group = tuple(sorted(ordered[:size], key=by_rate))  # fastest first
             key = frozenset(item.node_id for item in group)
             if key not in seen:
                 seen.add(key)
