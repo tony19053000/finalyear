@@ -7,8 +7,8 @@
 > **Cold-start prompt** (paste this as the first message on the new account):
 >
 > ```
-> Read docs/SESSION_HANDOFF.md §1, then docs/STATUS.md, then the V0.9 section of docs/DEVELOPMENT_ROADMAP.md and docs/briefs/V0.9-benchmark-telemetry.md §5f + D246–D252.
-> V0.9 G5: lane A (labels 0.9.6) MERGED on main (D248). Lane B (runner + owner guard 0.9.7) in worktree .claude/worktrees/agent-ad79c28d0eb42322f (branch worktree-agent-ad79c28d0eb42322f), reviewer r2 APPROVE conditional on tester r3 PASS (D252). Tester r3 was STOPPED; its partial tests are committed `3ea8915` as wip UNVERIFIED. NOTHING RUNNING. Next: relaunch tester r3 delta in that worktree (verify/finish the wip files; scope = the r3 prompt in §1) → PASS → merge lane B → `cd frontend && npm run build` → whole `-m component` ONCE alone → 0.9.6 + 0.9.7 [x] + status bar → G5c brief (0.9.8; item 0 = D248 N2/N5 + D252 1–6). Parallel agents OK; no fast mode.
+> Read docs/SESSION_HANDOFF.md §1, then docs/STATUS.md, then the V0.9 section of docs/DEVELOPMENT_ROADMAP.md and docs/briefs/V0.9-benchmark-telemetry.md §5g, §5h + D253–D256.
+> V0.9: 0.9.6 [x]; 0.9.7 [~] (cool-down race D255). NOTHING RUNNING. Two implementers were STOPPED near the end (code committed, exit gates + Hand-off NOT done): G5c (item 0.0–0.8 + 0.9.8 quality report) in worktree .claude/worktrees/agent-ab81e41b0984c91de (branch worktree-agent-ab81e41b0984c91de, last 75910b7, was writing progress); G6 Benchmarks page in .claude/worktrees/agent-adef2139487326494 (branch worktree-agent-adef2139487326494, wip adf14bd UNVERIFIED: was adding a UI cancel step to an e2e test). Next, in parallel: relaunch each implementer in its worktree for exit gates + progress Hand-off only (G5c: also the original cool-down test 20x) → tester → reviewer per lane → merge G5c then G6 (regenerate schema.d.ts, wire quality type) → frontend build → whole `-m component` ONCE alone → 0.9.7/0.9.8/0.9.9 [x] + status bar → G7 brief (§5i). Parallel agents OK; no fast mode.
 > ```
 >
 > Order of truth: `PROJECT_BRIEF → ARCHITECTURE → ROADMAP → STATUS → this file`. If this file
@@ -261,6 +261,8 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 - Commits: keep using `git commit -- <paths>` even with one agent — the Lead also commits docs.
 
 ## 1. Where the project is
+
+**2026-10-19 (session end — team asked to stop) — NOTHING RUNNING. G5c implementer stopped after all items + docs (`262e8f3`..`75910b7`, exit gates + Hand-off not run). G6 implementer stopped finishing e2e (`ba903db`..`d024f03` + wip `adf14bd` UNVERIFIED). Next: see cold-start prompt.**
 
 **2026-10-19 (G5 gate done, D255) — RUNNING in parallel (D256): G6 implementer (brief §5h, frontend; progress docs/briefs/progress/V0.9-G6.md in its worktree) ∥ G5c implementer (brief §5g, own agent worktree — newest in `git worktree list`; progress docs/briefs/progress/V0.9-G5c.md there; if died relaunch from it). 0.9.6 `[x]`. 0.9.7 `[~]`: runner cool-down missed under load (test_v09_g5b_runner.py:207, 0.034 s vs 1 s; green 3/3 alone) → treated as real race, G5c item 0.0. Next: launch G5c implementer (brief §5g) in a worktree → tester → reviewer → merge → whole component alone → 0.9.7 + 0.9.8 `[x]`.**
 
