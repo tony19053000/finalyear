@@ -9,6 +9,10 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
+import pytest
+
+pytest.importorskip("sqlalchemy", reason="needs the controller extra")
+
 from alembic import command
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
