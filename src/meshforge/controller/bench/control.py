@@ -22,7 +22,8 @@ elapsed times survive a restart and a wall-clock step.
 
 from __future__ import annotations
 
-from collections.abc import Collection, Mapping
+import contextlib
+from collections.abc import AsyncIterator, Collection, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Final
 
@@ -312,6 +313,20 @@ class CampaignControl:
                 .execution_options(synchronize_session=False)
             )
             return int(getattr(moved, "rowcount", 0) or 0)
+
+    @contextlib.asynccontextmanager
+    async def tick_lock(self, key: int) -> AsyncIterator[bool]:
+        """G5c item 0.5 (D252.1, D254): one runner tick at a time per
+        database. Yields whether this caller got PostgreSQL's
+        **transaction-scoped** advisory lock ``key``
+        (``pg_try_advisory_xact_lock``: never waits); the transaction - and so
+        the lock - is held until the block exits, and a crashed controller's
+        lock goes with its connection. A caller that did not get it must skip
+        its tick: two runners on one database would otherwise both see a
+        node's slot free and fill it twice."""
+        async with self._sessions() as db, db.begin():
+            got = await db.scalar(select(func.pg_try_advisory_xact_lock(key)))
+            yield bool(got)
 
     # ------------------------------------------------------------ runner reads
 

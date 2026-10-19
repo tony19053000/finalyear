@@ -587,6 +587,7 @@ class ControllerRuntime:
             sessions=manager,
             publish=campaign_progress,
             clock=loop.time,
+            exclusive=True,  # G5c item 0.5: one runner per database
         )
         if bench_cfg.runner:
             self._spawn(self.bench_runner.run(), "bench-runner")

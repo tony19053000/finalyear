@@ -984,6 +984,10 @@ compute bench cancel <camp_id>      # cancel its benchmark jobs, skip the open r
   After a tick that submitted its budget the scan starts at the head again, so such a head costs a capped
   walk every other tick (submission throughput about halves while it lasts). The cursor deliberately does not
   keep scanning past the cap within one tick: the cap is what keeps a tick short however large the campaign.
+* **One active runner per database.** Each tick takes a PostgreSQL advisory transaction lock; a second
+  controller pointed at the same database skips its ticks while the first one runs them (debug log
+  `controller.bench.tick_locked_out`), so two controllers never fill a node's slot twice. The lock goes with
+  the connection, so a killed controller never leaves it held.
 * `/healthz` says `degraded` (`bench-runner`) when the runner failed 5 ticks in a row; it logs
   `controller.bench.runner_crashed` and retries with back-off.
 

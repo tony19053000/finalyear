@@ -36,6 +36,13 @@ continues where the rows are: a run is submitted under
 the job's commit and the link is linked again, never duplicated), and
 in-flight jobs are reconciled by the existing job paths.
 
+**One runner per database** (G5c item 0.5, D252.1/D254): with ``exclusive``
+(the controller's runner) every tick runs under the PostgreSQL advisory
+transaction lock :data:`RUNNER_LOCK_KEY`
+(:meth:`~.control.CampaignControl.tick_lock`); a tick that does not get it -
+another controller on the same database is ticking - is skipped
+(``TickReport.locked_out``), so two runners never fill one node slot twice.
+
 **Supervised** like ``LiveStreams.run``: one crash in a tick is logged and
 backed off (``tick_s * 2^n``, at most :data:`MAX_BACKOFF_S`) and never kills the
 controller; after :data:`DEGRADED_AFTER` crashes in a row ``/healthz`` says
@@ -63,6 +70,7 @@ from meshforge.controller.bench.submit import BenchSubmitter, owner_guarded
 __all__ = [
     "DEGRADED_AFTER",
     "MAX_BACKOFF_S",
+    "RUNNER_LOCK_KEY",
     "BenchRunner",
     "RunnerSettings",
     "TickReport",
@@ -73,6 +81,9 @@ log = get_logger(__name__)
 DEGRADED_AFTER: Final = 5
 MAX_BACKOFF_S: Final = 60.0
 PROGRESS_EVERY_S: Final = 1.0
+RUNNER_LOCK_KEY: Final = 0x6D66_6265_6E63_6872
+"""The runner's PostgreSQL advisory lock key (``"mfbenchr"`` as a signed
+64-bit integer; G5c item 0.5) - one per database, never reused elsewhere."""
 
 
 class _Sessions(Protocol):
@@ -95,6 +106,8 @@ class TickReport:
     deferred: int = 0
     skipped: int = 0
     budget_stopped: list[str] = field(default_factory=list)
+    locked_out: bool = False
+    """Another runner on this database held the tick lock: nothing was done."""
     excluded: dict[str, str] = field(default_factory=dict)
     """node_id -> why it got nothing (cooldown, owner_guard, user_job, full)."""
 
@@ -113,7 +126,10 @@ class BenchRunner:
         publish: Callable[[Mapping[str, Any]], None] | None = None,
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+        exclusive: bool = False,
     ) -> None:
+        """``exclusive``: tick under :data:`RUNNER_LOCK_KEY` (module
+        docstring; the controller's runner sets it, unit fakes need not)."""
         self._store = store
         self._control = control
         self._submitter = submitter
@@ -122,6 +138,7 @@ class BenchRunner:
         self._publish = publish
         self._clock = clock
         self._sleep = sleep
+        self._exclusive = exclusive
         self._budgets: dict[str, float | None] = {}
         self._last_progress: dict[str, float] = {}
         self._cursors: dict[str, int] = {}
@@ -150,7 +167,17 @@ class BenchRunner:
         return self._budgets[campaign.id]
 
     async def tick(self) -> TickReport:
-        """One pass (module docstring)."""
+        """One pass (module docstring); with ``exclusive``, only while holding
+        the database's runner lock."""
+        if not self._exclusive:
+            return await self._tick()
+        async with self._control.tick_lock(RUNNER_LOCK_KEY) as got:
+            if not got:
+                log.debug("controller.bench.tick_locked_out")
+                return TickReport(locked_out=True)
+            return await self._tick()
+
+    async def _tick(self) -> TickReport:
         report = TickReport()
         await self._store.sync()
         campaigns = await self._control.runner_campaigns()
