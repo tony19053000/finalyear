@@ -28,7 +28,8 @@ pytestmark = [pytest.mark.e2e, pytest.mark.timeout(300), pytest.mark.docker]
 
 # V0.8 G3 (D191 b): the boot probe GET /v1/session is 200 {session: null}, so
 # no test here allows a /v1/session 401 any more.
-SKIP_NAV = ["Overview", "Nodes", "Jobs", "Settings"]
+# V0.9 G6: an admin (as here) also has Benchmarks (admin-only nav entry).
+SKIP_NAV = ["Overview", "Nodes", "Jobs", "Benchmarks", "Settings"]
 
 
 def _signed_in(
@@ -231,7 +232,7 @@ def test_keyboard_only_navigation_of_the_whole_shell(
     page.evaluate("document.activeElement.blur()")
 
     order: list[str] = []
-    for _ in range(7):
+    for _ in range(len(SKIP_NAV) + 3):
         page.keyboard.press("Tab")
         order.append(
             page.evaluate(
@@ -242,9 +243,9 @@ def test_keyboard_only_navigation_of_the_whole_shell(
             "(() => { const s = getComputedStyle(document.activeElement); return [s.outlineStyle, s.outlineWidth, s.boxShadow] })()"  # noqa: E501 - tester r1 test data / T-id name
         )
         assert outline[0] != "none" or outline[2] != "none", (order[-1], outline)
-    # skip link first, then the four sections in order, then header controls
+    # skip link first, then the sections in order, then header controls
     assert order[0] == "Skip to content", order
-    labels = list(order[1:5])
+    labels = list(order[1 : 1 + len(SKIP_NAV)])
     assert labels == SKIP_NAV, order
     assert any("theme" in o.lower() for o in order), order
     assert "Sign out" in order, order
