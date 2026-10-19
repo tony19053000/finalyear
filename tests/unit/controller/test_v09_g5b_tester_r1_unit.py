@@ -416,11 +416,6 @@ def test_controller_defaults_are_the_documented_ones() -> None:
 # ------------------------------------------------------------ owner guard
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT T1-1 (minor): OwnerGuard.refresh records the guard as on before "
-    "pre-empting; a preempt that raised is never retried",
-)
 @pytest.mark.asyncio
 async def test_a_failed_preemption_is_retried_on_the_next_evaluation() -> None:
     """Invariant: while the guard is on, a running benchmark attempt must be stopped.
@@ -622,16 +617,8 @@ def _expect(spec: str) -> dict[str, float | None]:
         ("qdisc netem 8001: root limit 1000 delay 50ms loss 0.0001%", False),
         ("qdisc netem 8001: root limit 1000 delay 50ms rate 1Mbit", False),
         ("qdisc netem 8001: root limit 1000 delay 50ms 5ms", False),  # jitter
-        pytest.param(
-            "qdisc netem 8001: root limit 1000 delay 50ms duplicate 1%",
-            False,
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="DEFECT T1-2 (minor): parse_netem_line skips words it does "
-                "not know (duplicate/reorder/corrupt/slot...), so a foreign netem "
-                "with the same delay plus those is deleted as ours",
-            ),
-        ),
+        # fix r1 T1-2 (was a strict xfail): an unknown word = not ours
+        ("qdisc netem 8001: root limit 1000 delay 50ms duplicate 1%", False),
         ("qdisc netem 8001: parent 1:1 limit 1000 delay 50ms", True),  # parsed line
     ],
 )

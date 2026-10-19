@@ -560,6 +560,9 @@ class ControllerRuntime:
             wake=self.dispatcher.wake,
             pauses=self.node_pauses,
         )
+        # V0.9 G5 fix r1 (D250 D-1): orphan benchmark jobs are cancelled
+        self.bench.cancel_job = self.dispatcher.cancel
+        self.bench_submitter.cancel_job = self.dispatcher.cancel
         self._spawn(self.recorder.run(), "telemetry-recorder")
         # V0.9 G5 (D219/D246): the unattended campaign runner (supervised)
         self.bench_control = CampaignControl(engine)

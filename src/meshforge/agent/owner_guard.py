@@ -71,12 +71,16 @@ class OwnerGuard:
         """Re-evaluate; on the guard turning on, pre-empt the running benchmark
         attempts. The attempts stopped."""
         now = self.blocked()
-        before, self._was = self._was, now
+        before = self._was
         if now is None or before is not None or self.preempt is None:
+            self._was = now
             if now != before:
                 log.info("agent.bench.guard", blocked=now)
             return 0
+        # fix r1 T1-1: remembered as "on" only once the pre-emption succeeded -
+        # one that raised is retried at the next evaluation
         stopped = await self.preempt(now)
+        self._was = now
         self.preempted += stopped
         log.info("agent.bench.guard", blocked=now, preempted=stopped)
         return stopped

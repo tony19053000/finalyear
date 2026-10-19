@@ -54,7 +54,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import AsyncIterator, Callable, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Final, Literal
 
@@ -162,6 +162,21 @@ class RunOutcome:
     node_wide: bool = False
     """``deferred`` for a reason of the node, not of this run
     (:data:`NODE_WIDE_DEFERRALS`): its other runs would defer too."""
+
+
+class SubmitOutcomes(list[RunOutcome]):
+    """The outcomes of one :meth:`BenchSubmitter.submit_next` call (a list),
+    plus where the next call should start (fix r1, D249)."""
+
+    def __init__(
+        self, outcomes: list[RunOutcome], *, cursor: int = 0, stale: bool = False
+    ) -> None:
+        super().__init__(outcomes)
+        self.cursor = cursor
+        """0 = the head; else the last ``seq`` examined when the examine cap
+        was hit before ``count`` runs were submitted."""
+        self.stale = stale
+        """A link failed: the batch stopped early (D250 D-1)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -287,6 +302,9 @@ class BenchSubmitter:
         self._manager = manager
         self._sessions = create_session_factory(engine)
         self._wake = wake
+        self.cancel_job: Callable[[str], Awaitable[object]] | None = None
+        """Fix r1 (D250): cancels a job created for a run that moved on
+        (the dispatcher's ``cancel``; set by the server)."""
 
     async def _owner_name(self, user_id: str | None) -> str | None:
         if user_id is None:
@@ -302,84 +320,107 @@ class BenchSubmitter:
         *,
         node_budget: Mapping[str, int] | None = None,
         max_examined: int = MAX_EXAMINED,
-    ) -> list[RunOutcome]:
-        """Submit up to ``count`` planned runs, in ``seq`` order. Raises
+        start_after: int = 0,
+    ) -> SubmitOutcomes:
+        """Submit up to ``count`` planned runs in ``seq`` order, starting after
+        ``start_after`` and wrapping around to the head once. Raises
         :class:`BenchSubmitError` (nothing after the failing run is tried).
 
         **No head-of-line stall** (G4 item 0.5, D239.1): a *deferred* run does
         not use up ``count`` - the call keeps paging through the planned runs
         until ``count`` are submitted or the runs are exhausted. A node that
         deferred a run for a **node-wide** reason (offline, no live session,
-        its owner accepts no jobs / not from this campaign's owner:
-        :data:`NODE_WIDE_DEFERRALS`) is passed over for the rest of the call,
-        in SQL - its later runs are neither tried nor listed, so a busy node
-        holding the head of a 100 000-run campaign costs one try. A deferral
-        that depends on the job (an owner RAM / CPU limit...) is per run. At
-        most :data:`MAX_EXAMINED` runs are examined per call; skipped and
+        its owner accepts no jobs / not from this campaign's owner / the owner
+        guard: :data:`NODE_WIDE_DEFERRALS`) is passed over for the rest of the
+        call, in SQL. A deferral that depends on the job (an owner RAM / CPU
+        limit...) is per run. At most ``max_examined`` (<=
+        :data:`MAX_EXAMINED`) runs are examined per call; skipped and
         ``already`` runs are listed but do not count as submitted.
 
         V0.9 G5 (the runner): ``node_budget`` = how many runs each node may
-        get in this call - a node not in it (or at 0) is passed over in SQL;
-        ``max_examined`` lowers the examine bound (the runner's small
-        per-tick budget, D245 N4)."""
+        get in this call - a node not in it (or at 0) is passed over in SQL.
+        ``start_after`` (fix r1, D249): the runner's cursor - a call that hit
+        the examine cap returns the last ``seq`` it examined
+        (:attr:`SubmitOutcomes.cursor`), so more per-run deferrals at the head
+        than the cap cannot stall the campaign tick after tick.
+
+        **A link that fails stops the batch** (fix r1, D250 D-1): the run moved
+        on under us (a cancel, another submit) - this page is stale, and the
+        job just created for it is cancelled unless the run is linked to it."""
         owner_name = await self._owner_name(campaign.created_by)
         outcomes: list[RunOutcome] = []
         budget = None if node_budget is None else dict(node_budget)
         passed_over: set[str] = set()
-        excluded: list[str] = []
         if budget is not None:
-            # a node outside the budget is never paged: the SQL needs its id
-            excluded = sorted(n for n, k in budget.items() if k <= 0)
-            passed_over.update(excluded)
+            passed_over.update(n for n, k in budget.items() if k <= 0)
         max_examined = max(1, min(max_examined, MAX_EXAMINED))
-        after_seq = 0
         examined = submitted = 0
-        while submitted < count and examined < max_examined:
-            if budget is not None and not any(
-                k > 0 for n, k in budget.items() if n not in passed_over
-            ):
-                break
-            limit = min(_PAGE, max_examined - examined)
-            page = await self._store.runs(
-                campaign.id,
-                state="planned",
-                after_seq=after_seq,
-                limit=limit,
-                exclude_nodes=sorted(passed_over),
-                only_nodes=None
-                if budget is None
-                else sorted(
-                    n for n, k in budget.items() if k > 0 and n not in passed_over
-                ),
-            )
-            if not page:
-                break
-            for run in page:
-                after_seq = run.seq
-                if run.node_id in passed_over:
-                    continue  # deferred earlier on this page
-                if budget is not None and budget.get(run.node_id, 0) <= 0:
-                    continue  # not a node of this call
-                examined += 1
-                outcome = await self.submit_run(campaign, run, owner_name=owner_name)
-                outcomes.append(outcome)
-                if outcome.outcome == "submitted":
-                    submitted += 1
-                    if budget is not None:
-                        budget[run.node_id] -= 1
-                        if budget[run.node_id] <= 0:
-                            passed_over.add(run.node_id)
-                    if submitted >= count or examined >= max_examined:
-                        break
-                elif outcome.outcome == "deferred" and outcome.node_wide:
-                    passed_over.add(run.node_id)
-                if examined >= max_examined:
+        last_seq = start_after
+        stale = False
+        # two passes: after the cursor to the end, then the head up to it
+        passes: list[tuple[int, int | None]] = [(start_after, None)]
+        if start_after > 0:
+            passes.append((0, start_after))
+        for after_seq, upto in passes:
+            done_pass = False
+            while not done_pass and submitted < count and examined < max_examined:
+                if budget is not None and not any(
+                    k > 0 for n, k in budget.items() if n not in passed_over
+                ):
                     break
-            if len(page) < limit:
+                limit = min(_PAGE, max_examined - examined)
+                page = await self._store.runs(
+                    campaign.id,
+                    state="planned",
+                    after_seq=after_seq,
+                    limit=limit,
+                    exclude_nodes=sorted(passed_over),
+                    only_nodes=None
+                    if budget is None
+                    else sorted(
+                        n for n, k in budget.items() if k > 0 and n not in passed_over
+                    ),
+                )
+                if not page:
+                    break
+                for run in page:
+                    if upto is not None and run.seq > upto:
+                        done_pass = True
+                        break
+                    after_seq = run.seq
+                    if run.node_id in passed_over:
+                        continue  # deferred earlier on this page
+                    if budget is not None and budget.get(run.node_id, 0) <= 0:
+                        continue  # not a node of this call
+                    examined += 1
+                    last_seq = run.seq
+                    outcome = await self.submit_run(
+                        campaign, run, owner_name=owner_name
+                    )
+                    outcomes.append(outcome)
+                    if outcome.outcome == "submitted":
+                        submitted += 1
+                        if budget is not None:
+                            budget[run.node_id] -= 1
+                            if budget[run.node_id] <= 0:
+                                passed_over.add(run.node_id)
+                        if submitted >= count:
+                            break
+                    elif outcome.outcome == "already" and outcome.job_id:
+                        stale = True  # the run moved on: the page is stale
+                        break
+                    elif outcome.outcome == "deferred" and outcome.node_wide:
+                        passed_over.add(run.node_id)
+                    if examined >= max_examined:
+                        break
+                if stale or len(page) < limit:
+                    break
+            if stale or submitted >= count or examined >= max_examined:
                 break
         if self._wake is not None and submitted:
             self._wake()
-        return outcomes
+        capped = examined >= max_examined and submitted < count and not stale
+        return SubmitOutcomes(outcomes, cursor=last_seq if capped else 0, stale=stale)
 
     async def submit_run(
         self, campaign: CampaignRecord, run: RunRow, *, owner_name: str | None
@@ -464,8 +505,30 @@ class BenchSubmitter:
             generation=run.generation,
         )
         if not linked:
+            if created:
+                await self._unlinked(run, job.id)
             return RunOutcome(run.id, run.seq, "already", job_id=job.id)
         return RunOutcome(run.id, run.seq, "submitted", job_id=job.id)
+
+    async def _unlinked(self, run: RunRow, job_id: str) -> None:
+        """Fix r1 (D250 D-1): this call created ``job_id`` but the run had moved
+        on (cancelled -> skipped, or linked elsewhere). Unless the run is linked
+        to that very job, it is an orphan: cancel it now (``sync()`` is the
+        backstop if this cancel fails)."""
+        linked_to = await self._store.linked_job(run.id)
+        if linked_to == job_id:
+            return
+        log.warning(
+            "controller.bench.orphan_job_cancelled",
+            run_id=run.id,
+            job_id=job_id,
+            linked_to=linked_to,
+        )
+        if self.cancel_job is not None:
+            try:
+                await self.cancel_job(job_id)
+            except Exception:  # the sync backstop retries it
+                log.exception("controller.bench.orphan_cancel_failed", job_id=job_id)
 
     async def _create(
         self,

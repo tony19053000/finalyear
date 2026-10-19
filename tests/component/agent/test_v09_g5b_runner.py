@@ -548,3 +548,69 @@ async def test_no_bench_submission_to_a_node_with_a_user_job(
         assert {r["state"] for r in runs} == {"done"}
     finally:
         await a.stop()
+
+
+# ------------------------------------------------------------ fix r1: orphan backstop (D250 D-1)
+
+
+async def test_sync_backstop_cancels_an_orphan_the_immediate_cancel_missed(
+    http: httpx.AsyncClient,
+    runtime: ControllerRuntime,
+    grpc_target: str,
+    tmp_path: Path,
+    engine: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A cancel lands while a tick creates a job; the submitter's immediate
+    cancel of that orphan is lost (here: a no-op) - the next ``sync()`` (any
+    campaign read, every tick) cancels it."""
+    a = await _agent(grpc_target, tmp_path / "a")
+    try:
+        cid = await _create(http, _spec(reps=3))
+        await _control(http, cid, "start", {"cooldown_s": 0})
+        jobs = runtime.bench_submitter._jobs
+        real = jobs.create_queued_job
+        entered, release = asyncio.Event(), asyncio.Event()
+
+        async def gated(*args: Any, **kwargs: Any) -> Any:
+            entered.set()
+            await release.wait()
+            return await real(*args, **kwargs)
+
+        async def lost(_job_id: str) -> None:
+            return None
+
+        monkeypatch.setattr(jobs, "create_queued_job", gated)
+        monkeypatch.setattr(runtime.bench_submitter, "cancel_job", lost)
+        tick = asyncio.create_task(runtime.bench_runner.tick())
+        await asyncio.wait_for(entered.wait(), 30)
+        assert (await _control(http, cid, "cancel"))["state"] == "cancelled"
+        release.set()
+        await tick
+        monkeypatch.setattr(jobs, "create_queued_job", real)
+        sessions = create_session_factory(engine)
+
+        async def bench_states() -> list[str]:
+            async with sessions() as db:
+                rows = await db.execute(
+                    text(
+                        "SELECT j.state FROM job j JOIN bench_run r ON "
+                        "split_part(substr(j.idempotency_key, 7), ':', 1) = r.id "
+                        "WHERE r.campaign_id = :c"
+                    ),
+                    {"c": cid},
+                )
+                return [str(r[0]) for r in rows]
+
+        assert await bench_states()  # the racing job exists ...
+        orphans = await runtime.bench.orphan_jobs(cid)
+        assert orphans  # ... and is an orphan (its run is skipped)
+        await _runs(http, cid)  # a read = a sync = the backstop
+
+        async def all_cancelled() -> bool:
+            return all(s == "cancelled" for s in await bench_states())
+
+        await _wait(all_cancelled, within=30)
+        assert await runtime.bench.orphan_jobs(cid) == []
+    finally:
+        await a.stop()

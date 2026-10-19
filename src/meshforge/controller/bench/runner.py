@@ -19,7 +19,10 @@ A supervised task inside the controller (no new service). Every
 3. :meth:`~.submit.BenchSubmitter.submit_next` with ``count`` = the free
    slots, **capped at** ``max_submit_per_tick`` for the whole tick (D245/N4:
    small budgets, never a 2 000-run examine per tick) and at most
-   ``max_examine_per_tick`` runs examined.
+   ``max_examine_per_tick`` runs examined. A tick that hit that cap leaves a
+   **cursor** (the last ``seq`` examined) and the next tick continues after
+   it, wrapping to the head (fix r1, D249): more per-run deferrals at the head
+   than the cap never stall the campaign.
 
 **Resumable.** All state is in PostgreSQL; the runner keeps only caches (the
 parsed budget). After a controller ``kill -9`` the next process's runner
@@ -116,6 +119,7 @@ class BenchRunner:
         self._sleep = sleep
         self._budgets: dict[str, float | None] = {}
         self._last_progress: dict[str, float] = {}
+        self._cursors: dict[str, int] = {}
         self._wake = asyncio.Event()
         self.crashes = 0
         self.ticks = 0
@@ -171,12 +175,18 @@ class BenchRunner:
             record = await self._store.get_campaign(campaign.id)
             if record is None or record.state != "active":
                 continue
+            cursor = self._cursors.get(campaign.id, 0)
             outcomes = await self._submitter.submit_next(
                 record,
                 count,
                 node_budget=budget,
                 max_examined=self.settings.max_examine_per_tick,
+                **({"start_after": cursor} if cursor else {}),
             )
+            # fix r1 (D249): a tick that hit the examine cap continues after
+            # the last run it examined - per-run deferrals at the head cannot
+            # stall the campaign; otherwise the next tick starts at the head
+            self._cursors[campaign.id] = int(getattr(outcomes, "cursor", 0))
             done = sum(1 for o in outcomes if o.outcome == "submitted")
             left -= done
             report.submitted += done

@@ -57,17 +57,26 @@ CampaignId = Annotated[str, Path(max_length=_ID_MAX)]
 
 class StartBody(ApiModel):
     max_concurrent_per_node: int | None = Field(
-        default=None, ge=1, le=64, description="Benchmark jobs at once per node."
+        default=None,
+        ge=1,
+        le=64,
+        strict=True,
+        description="Benchmark jobs at once per node.",
     )
     cooldown_s: float | None = Field(
         default=None,
         ge=0,
         le=86_400,
         allow_inf_nan=False,
+        strict=True,
         description="Pause on a node after each of its runs ends.",
     )
     max_infra_retries: int | None = Field(
-        default=None, ge=0, le=10, description="Retries of an infrastructure failure."
+        default=None,
+        ge=0,
+        le=10,
+        strict=True,
+        description="Retries of an infrastructure failure.",
     )
 
 

@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import datetime as dt
 import functools
+import time
 from collections.abc import (
     Awaitable,
     Callable,
@@ -43,7 +44,7 @@ from collections.abc import (
 from dataclasses import dataclass, field
 from typing import Any, Final
 
-from sqlalchemy import String, case, cast, func, insert, select, update
+from sqlalchemy import String, case, cast, func, insert, or_, select, update
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
@@ -80,6 +81,8 @@ BENCH_KEY_PREFIX: Final = "bench:"
 :data:`.submit.IDEMPOTENCY_PREFIX` is this value."""
 _INSERT_CHUNK: Final = 1_000
 _SETTLE_BATCH: Final = 500
+_ORPHAN_REASK_S: Final = 30.0
+_ORPHANS_REMEMBERED: Final = 10_000
 _TERMINAL: Final = tuple(sorted(s.value for s in JOB_TERMINAL_STATES))
 _OPEN_RUN_STATES: Final = ("planned", "submitted")
 RUN_STATE_NAMES: Final = ("planned", "submitted", "done", "failed", "skipped")
@@ -320,6 +323,10 @@ class BenchStore:
         self._sessions: async_sessionmaker[AsyncSession] = create_session_factory(
             engine
         )
+        self.cancel_job: Callable[[str], Awaitable[object]] | None = None
+        """Fix r1 (D250 D-1): the dispatcher's ``cancel`` - set by the server;
+        :meth:`sync` uses it to cancel orphan benchmark jobs (None = off)."""
+        self._orphans_asked: dict[str, float] = {}
 
     # ------------------------------------------------------------ campaigns
 
@@ -603,7 +610,78 @@ class BenchStore:
             log.info(
                 "controller.bench.runs_ended", count=count, campaign_id=campaign_id
             )
+        if self.cancel_job is not None:
+            await self._cancel_orphans(campaign_id)
         return count
+
+    async def orphan_jobs(self, campaign_id: str | None = None) -> list[str]:
+        """Fix r1 (D250 D-1) backstop: non-terminal benchmark jobs (any
+        generation, fillers, warm-ups) of a run that is ``skipped`` or of a
+        ``cancelled`` campaign - jobs a racing submission created after the
+        cancel. Only jobs owned by the campaign's creator (a user cannot make
+        the controller cancel a job by naming it ``bench:<run_id>``... nor have
+        their own job cancelled for it)."""
+        run_of_job = func.split_part(
+            func.substr(Job.idempotency_key, len(BENCH_KEY_PREFIX) + 1), ":", 1
+        )
+        async with self._sessions() as db:
+            return [
+                str(j)
+                for j in await db.scalars(
+                    select(Job.id)
+                    .join(BenchRun, BenchRun.id == run_of_job)
+                    .join(BenchCampaign, BenchCampaign.id == BenchRun.campaign_id)
+                    .where(
+                        Job.idempotency_key.like(f"{BENCH_KEY_PREFIX}%"),
+                        Job.state.not_in(_TERMINAL),
+                        Job.owner_user_id.is_not_distinct_from(
+                            BenchCampaign.created_by
+                        ),
+                        or_(
+                            BenchRun.state == "skipped",
+                            BenchCampaign.state == "cancelled",
+                        ),
+                        *(
+                            ()
+                            if campaign_id is None
+                            else (BenchRun.campaign_id == campaign_id,)
+                        ),
+                    )
+                    .order_by(Job.id)
+                    .limit(_SETTLE_BATCH)
+                )
+            ]
+
+    async def _cancel_orphans(self, campaign_id: str | None) -> None:
+        cancel = self.cancel_job
+        if cancel is None:
+            return
+        try:
+            orphans = await self.orphan_jobs(campaign_id)
+        except (SQLAlchemyError, OSError, TimeoutError):
+            log.warning("controller.bench.orphan_scan_failed", campaign_id=campaign_id)
+            return
+        now = time.monotonic()
+        for job_id in orphans:
+            asked = self._orphans_asked.get(job_id)
+            if asked is not None and now - asked < _ORPHAN_REASK_S:
+                continue  # its cancel is under way
+            self._orphans_asked[job_id] = now
+            log.warning("controller.bench.orphan_job_cancelled", job_id=job_id)
+            try:
+                await cancel(job_id)
+            except Exception:  # logged; asked again after _ORPHAN_REASK_S
+                log.exception("controller.bench.orphan_cancel_failed", job_id=job_id)
+        if len(self._orphans_asked) > _ORPHANS_REMEMBERED:
+            keep = sorted(self._orphans_asked.items(), key=lambda kv: kv[1])
+            self._orphans_asked = dict(keep[-_ORPHANS_REMEMBERED // 2 :])
+
+    @_typed
+    async def linked_job(self, run_id: str) -> str | None:
+        """The job ``run_id`` is linked to now (None = none)."""
+        async with self._sessions() as db:
+            job = await db.scalar(select(BenchRun.job_id).where(BenchRun.id == run_id))
+        return None if job is None else str(job)
 
     async def _settle_runner_runs(
         self, db: AsyncSession, campaign_id: str | None

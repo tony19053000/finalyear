@@ -295,6 +295,7 @@ class _Control:
 class _Record:
     id = "camp_x"
     state = "active"
+    created_by = None
 
 
 class _Store:
@@ -460,3 +461,123 @@ def test_status_lines() -> None:
     assert (
         "10.0 %" in lines[3] and "2 stopped by the owner guard, not counted" in lines[3]
     )
+
+
+# ------------------------------------------------------------ fix r1: cursor (D249)
+
+
+@dataclasses.dataclass
+class _Run:
+    id: str
+    seq: int
+    node_id: str = "n1"
+
+
+class _PagedStore:
+    def __init__(self, runs: list[_Run]) -> None:
+        self.rows = runs
+
+    async def runs(
+        self,
+        _cid: str,
+        *,
+        state: str,
+        after_seq: int,
+        limit: int,
+        exclude_nodes: Any = (),
+        only_nodes: Any = None,
+    ) -> list[_Run]:
+        out = [
+            r for r in self.rows if r.seq > after_seq and r.node_id not in exclude_nodes
+        ]
+        if only_nodes is not None:
+            out = [r for r in out if r.node_id in only_nodes]
+        return out[:limit]
+
+
+def _submitter(store: _PagedStore, defer_until: int) -> Any:
+    from meshforge.controller.bench.submit import BenchSubmitter, RunOutcome
+
+    class Fake(BenchSubmitter):
+        def __init__(self) -> None:
+            self._store = store  # type: ignore[assignment]
+            self._wake = None
+            self.cancel_job = None
+
+        async def _owner_name(self, _user: str | None) -> str | None:
+            return None
+
+        async def submit_run(self, _c: Any, run: Any, *, owner_name: Any) -> Any:
+            if run.seq <= defer_until:  # a per-run owner limit refuses it
+                return RunOutcome(run.id, run.seq, "deferred", detail="policy_ram")
+            store.rows = [r for r in store.rows if r.seq != run.seq]
+            return RunOutcome(run.id, run.seq, "submitted", job_id=f"job{run.seq}")
+
+    return Fake()
+
+
+@pytest.mark.asyncio
+async def test_more_per_run_deferrals_than_the_cap_no_longer_stall_the_runner() -> None:
+    store = _PagedStore([_Run(f"r{i}", i) for i in range(1, 51)])
+    sub = _submitter(store, defer_until=40)  # 40 head runs defer, the cap is 32
+    record = _Record()
+    first = await sub.submit_next(record, 4, max_examined=32)
+    assert [o.outcome for o in first] == ["deferred"] * 32
+    assert first.cursor == 32
+    second = await sub.submit_next(record, 4, max_examined=32, start_after=first.cursor)
+    assert [o.seq for o in second if o.outcome == "submitted"] == [41, 42, 43, 44]
+    assert second.cursor == 0  # count reached: the head again next time
+    # without the cursor every call re-examines the same 32 deferrals
+    again = await sub.submit_next(record, 4, max_examined=32)
+    assert not [o for o in again if o.outcome == "submitted"]
+
+
+@pytest.mark.asyncio
+async def test_the_cursor_wraps_to_the_head() -> None:
+    store = _PagedStore([_Run(f"r{i}", i) for i in range(1, 11)])
+    sub = _submitter(store, defer_until=0)
+    out = await sub.submit_next(_Record(), 3, max_examined=32, start_after=8)
+    assert [o.seq for o in out] == [9, 10, 1]  # after the cursor, then the head
+
+
+@pytest.mark.asyncio
+async def test_the_runner_carries_the_cursor_across_ticks() -> None:
+    from meshforge.controller.bench.submit import SubmitOutcomes
+
+    seen: list[int] = []
+
+    class Sub:
+        async def submit_next(self, _r: Any, count: int, **kw: Any) -> Any:
+            seen.append(int(kw.get("start_after", 0)))
+            return SubmitOutcomes([], cursor=32 if len(seen) == 1 else 0)
+
+    control = _Control()
+    control.nodes, control.load, control.since, control.busy = {"c"}, {}, {}, set()
+    runner = BenchRunner(
+        store=_Store(),  # type: ignore[arg-type]
+        control=control,  # type: ignore[arg-type]
+        submitter=Sub(),  # type: ignore[arg-type]
+        settings=RunnerSettings(),
+    )
+    for _ in range(3):
+        await runner.tick()
+    assert seen == [0, 32, 0]
+
+
+@pytest.mark.asyncio
+async def test_a_failed_link_stops_the_batch() -> None:
+    """D250 D-1: once a link fails the page is stale (a cancel landed) - no
+    further run of it is tried."""
+    from meshforge.controller.bench.submit import RunOutcome
+
+    store = _PagedStore([_Run(f"r{i}", i) for i in range(1, 11)])
+    sub = _submitter(store, defer_until=0)
+    tried: list[int] = []
+
+    async def already(_c: Any, run: Any, *, owner_name: Any) -> Any:
+        tried.append(run.seq)
+        return RunOutcome(run.id, run.seq, "already", job_id=f"job{run.seq}")
+
+    sub.submit_run = already
+    out = await sub.submit_next(_Record(), 4, max_examined=32)
+    assert tried == [1] and out.stale and out.cursor == 0

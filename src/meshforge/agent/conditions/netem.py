@@ -232,6 +232,9 @@ _REL_TOLERANCE: Final = 0.01
 """``tc`` prints times with 3 significant digits (``1.23ms``) and rates in
 whole units (``1500Kbit``): 1 % covers its rounding, not another netem."""
 _PARAM_KEYS: Final = ("delay_ms", "loss_pct", "rate_mbit")
+_VALUED_WORDS: Final = frozenset({"refcnt", "limit", "seed", "parent", "dev"})
+"""Words of a ``tc qdisc show`` line (with one value) that are not netem
+parameters of ours."""
 
 
 def expected_params(netem: Netem) -> dict[str, float | None]:
@@ -250,13 +253,14 @@ def _ms(token: str) -> float | None:
 
 def parse_netem_line(line: str) -> dict[str, float | None] | None:
     """The delay / loss / rate of a ``tc qdisc show`` netem line (None = not
-    a netem line, or one this agent never installs: with a jitter or a
-    correlation, which our ``tc_args`` never set)."""
+    a netem line, or one this agent never installs: with a jitter, a
+    correlation, or **any word it does not know** - duplicate, reorder,
+    corrupt, slot... - which our ``tc_args`` never set; fix r1 T1-2)."""
     words = line.split()
     if "netem" not in words:
         return None
     out: dict[str, float | None] = {"delay_ms": 0.0, "loss_pct": 0.0, "rate_mbit": None}
-    i = words.index("netem") + 1
+    i = first = words.index("netem") + 1
     while i < len(words):
         key = words[i]
         value = words[i + 1] if i + 1 < len(words) else ""
@@ -280,8 +284,12 @@ def parse_netem_line(line: str) -> dict[str, float | None] | None:
             bits = float(rate[1]) * _RATE_SCALE[rate[2]]
             out["rate_mbit"] = bits * (8.0 if rate[3] == "bps" else 1.0) / 1e6
             i += 2
+        elif key in _VALUED_WORDS and value:
+            i += 2  # refcnt / limit / seed / parent / dev: never parameters of ours
+        elif key == "root" or (i == first and key.endswith(":")):
+            i += 1  # the root flag / the qdisc handle
         else:
-            i += 1
+            return None  # duplicate / reorder / corrupt / slot / ...: not ours
     return out
 
 
