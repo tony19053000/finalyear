@@ -244,10 +244,28 @@ def item_rate(
         for node_id, (spi, kind, samples) in known.items()
         if node_id != node.node_id
     )
+    mine = hardware_score(node, slot)
     if not others:
         assumed = _per_item(snapshot.config.default_compute_s, split.items)
-        return Rate(assumed or MIN_SECONDS_PER_ITEM, TermSource.ASSUMED, {})
-    mine = hardware_score(node, slot)
+        assumed = assumed or MIN_SECONDS_PER_ITEM
+        # No history anywhere: the assumption is for the strongest node; a
+        # node with a lower hardware score is assumed proportionally slower
+        # (G3 review item 1 - otherwise a first run splits onto slow nodes).
+        best = max(
+            (
+                score
+                for other in snapshot.nodes
+                if (score := hardware_score(other, slot)) is not None
+            ),
+            default=None,
+        )
+        if mine is None or best is None:
+            return Rate(assumed, TermSource.ASSUMED, {})
+        return Rate(
+            max(MIN_SECONDS_PER_ITEM, bounded(assumed * best / mine)),
+            TermSource.ASSUMED,
+            {"scaled": True, "score_ratio": round(best / mine, 4)},
+        )
     scored = sorted(
         (spi * theirs, node_id, kind, samples, theirs)
         for spi, node_id, kind, samples in others

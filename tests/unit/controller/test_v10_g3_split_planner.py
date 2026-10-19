@@ -815,3 +815,22 @@ def test_split_info_from_a_manifest() -> None:
     assert (
         split_info(whole, item_count=0, item_bytes=None, project_tree=PROJECT) is None
     )
+
+
+def test_lead_fix_assumed_rate_scales_by_hardware_score() -> None:
+    """G3 review item 1: no history anywhere -> the assumed rate is for the
+    best-scored node; a node scoring half as much is assumed half as fast."""
+    scored = snap(
+        *(
+            NodeSnapshot(**{**_fields(n), "cpu_score": sc})
+            for n, sc in zip(trio().nodes, (100.0, 50.0, 25.0), strict=True)
+        )
+    )
+    req = request()
+    full = 3000 / PlannerConfig().default_compute_s
+    got = [item_rate(req, n, "cpu", scored) for n in scored.nodes]
+    assert all(r.source is TermSource.ASSUMED for r in got)
+    assert [r.items_s for r in got] == pytest.approx([full, full / 2, full / 4])
+    # without scores the old behaviour stays: every node the same assumption
+    plain = item_rate(req, trio().nodes[2], "cpu", trio())
+    assert plain.items_s == pytest.approx(full) and plain.detail == {}
