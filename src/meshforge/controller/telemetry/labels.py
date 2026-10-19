@@ -58,6 +58,12 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Final, Literal
 
+from meshforge.bench.records import (  # G5c: shared with the quality report
+    METRICS,
+    MIN_REPETITIONS,
+    latest_per_repetition,
+    metric_value,
+)
 from meshforge.bench.stats import Summary, summarize
 
 __all__ = [
@@ -77,10 +83,6 @@ __all__ = [
 
 LABELS_VERSION: Final = 1
 """Version of the labels' shape (JSON and Parquet); a fingerprint test holds it."""
-MIN_REPETITIONS: Final = 3
-"""Fewest measured repetitions a configuration needs before a group is labelled
-(D216: campaigns repeat >= 3 times)."""
-METRICS: Final = ("total_ms", "compute_per_iter_ns", "bytes")
 LABEL_KINDS: Final = ("best", "tie", "insufficient", "pending")
 UNSUPPORTED_DETAIL_PREFIX: Final = "unsupported: "
 """``bench_run.detail`` of a run stored skipped because its node cannot apply
@@ -166,62 +168,6 @@ class CampaignLabels:
     """Label rows used (after the filter and the latest-per-repetition rule)."""
     counts: Mapping[str, int] = field(default_factory=dict)
     """Groups per label kind (every kind listed)."""
-
-
-def metric_value(row: Mapping[str, Any], metric: str) -> float | int | None:
-    """One cost of one record (module docstring); None = not measured."""
-    if metric == "total_ms":
-        return _int(row.get("total_ms"))
-    if metric == "compute_per_iter_ns":
-        ns, iterations = (
-            _int(row.get("compute_ns")),
-            _int(row.get("compute_iterations")),
-        )
-        if ns is None or iterations is None or iterations <= 0:
-            return None
-        return ns / iterations
-    if metric == "bytes":
-        inn, out = _int(row.get("bytes_in")), _int(row.get("bytes_out"))
-        if inn is None or out is None:
-            return None
-        return inn + out
-    raise ValueError(f"unknown metric {metric}")
-
-
-def _int(value: object) -> int | None:
-    if isinstance(value, bool) or not isinstance(value, int):
-        return None
-    return value
-
-
-def _latest_key(row: Mapping[str, Any]) -> tuple[Any, ...]:
-    return (row["attempt_created_at"], row["attempt_no"], row["attempt_id"])
-
-
-def latest_per_repetition(
-    rows: Iterable[Mapping[str, Any]],
-) -> list[Mapping[str, Any]]:
-    """Keep one record per (group_id, config_id, repetition): the **latest**
-    attempt - created last, then highest attempt number, then highest attempt
-    id (deterministic whatever the input order). A config id already names its
-    group (it is a digest of it); the group in the key is belt and braces.
-    A retried run (D234) can leave several ``ok`` records; the latest is the
-    one the campaign kept. Rows
-    without a config or repetition are dropped. Sorted by (group_id,
-    config_id, repetition)."""
-    kept: dict[tuple[str, str, int], Mapping[str, Any]] = {}
-    for row in rows:
-        config, rep = row.get("config_id"), row.get("repetition")
-        if not isinstance(config, str) or not isinstance(rep, int):
-            continue
-        key = (str(row.get("group_id") or ""), config, rep)
-        current = kept.get(key)
-        if current is None or _latest_key(row) > _latest_key(current):
-            kept[key] = row
-    return sorted(
-        kept.values(),
-        key=lambda r: (str(r.get("group_id") or ""), r["config_id"], r["repetition"]),
-    )
 
 
 def _mode(values: Iterable[str | None]) -> str | None:
@@ -359,7 +305,13 @@ def build_labels(
 ) -> CampaignLabels:
     """Every group's label (module docstring). ``rows`` are label rows
     (already filtered); the latest-per-repetition rule is applied here too, so
-    a caller cannot forget it. Pure and deterministic."""
+    a caller cannot forget it. Pure and deterministic.
+
+    The inputs are **not shared mutable state** (D248 N5): ``runs`` and
+    ``rows`` are fresh per request (the route reads them for this call), only
+    read here, and every list built below (the per-group buckets, the sort)
+    is local - so running this in a worker thread (``asyncio.to_thread``)
+    races nothing."""
     kept = latest_per_repetition(rows)
     by_group_runs: dict[str, list[PlannedRunState]] = {}
     for run in runs:

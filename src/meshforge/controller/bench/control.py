@@ -14,21 +14,23 @@ Every control is idempotent (the same request twice = the same state);
 a control a finished campaign cannot take is :class:`CampaignStateError`
 (``conflict``).
 
-The runner's reads (:meth:`runner_campaigns`, :meth:`node_bench_load`,
-:meth:`seconds_since_last_end`, :meth:`user_busy_nodes`) and the status
+The runner's reads (:meth:`runner_campaigns`, :meth:`node_slots` = the
+node load and the last end in one snapshot, :meth:`user_busy_nodes`) and the status
 numbers (:meth:`status`) use the database's clock, never the controller's -
 elapsed times survive a restart and a wall-clock step.
 """
 
 from __future__ import annotations
 
-from collections.abc import Collection, Mapping
+import contextlib
+from collections.abc import AsyncIterator, Collection, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Final
 
-from sqlalchemy import Float, cast, func, or_, select, update
+from sqlalchemy import Float, cast, func, or_, select, union_all, update
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
+from meshforge.bench.quality import FailureCounts, infra_failure_rate
 from meshforge.common.errors import FailureType, MeshForgeError
 from meshforge.common.states import ATTEMPT_TERMINAL_STATES, JOB_TERMINAL_STATES
 from meshforge.controller.bench.keys import KEY_PREFIX
@@ -39,7 +41,7 @@ from meshforge.controller.store.models.bench import (
     BenchCampaign,
     BenchRun,
 )
-from meshforge.controller.store.models.job import Attempt, Job
+from meshforge.controller.store.models.job import Attempt, Job, JobTransition
 from meshforge.controller.store.models.telemetry import RunRecord
 
 __all__ = [
@@ -48,6 +50,7 @@ __all__ = [
     "CampaignStatus",
     "RunnerCampaign",
     "Throttle",
+    "record_failure_counts",
 ]
 
 _JOB_TERMINAL: Final = tuple(sorted(s.value for s in JOB_TERMINAL_STATES))
@@ -109,6 +112,109 @@ def _bench_key() -> Any:
 
 def _not_bench() -> Any:
     return or_(Job.idempotency_key.is_(None), ~Job.idempotency_key.like(_KEY_LIKE))
+
+
+async def _node_load(db: AsyncSession, node_ids: Collection[str]) -> dict[str, int]:
+    node = Job.placement["node_id"].astext
+    rows = await db.execute(
+        select(node, func.count())
+        .where(
+            _bench_key(),
+            Job.state.not_in(_JOB_TERMINAL),
+            node.in_(sorted(node_ids)),
+        )
+        .group_by(node)
+    )
+    return {str(n): int(c) for n, c in rows}
+
+
+COOLDOWN_LOOKBACK_MARGIN_S: Final = 60.0
+"""Ends older than the campaign's ``cooldown_s`` plus this margin cannot hold a
+node; :func:`_last_end` does not look further back (bounded read per tick)."""
+
+
+async def _lookback_s(db: AsyncSession, campaign_id: str) -> float:
+    cooldown = await db.scalar(
+        select(BenchCampaign.cooldown_s).where(BenchCampaign.id == campaign_id)
+    )
+    return float(cooldown or 0.0) + COOLDOWN_LOOKBACK_MARGIN_S
+
+
+async def _last_end(
+    db: AsyncSession, node_ids: Collection[str], lookback_s: float
+) -> dict[str, float]:
+    """Seconds (database clock) since the last **benchmark job of any
+    campaign** on each node reached terminal - G5c fix r1 (tester T-2): the
+    cool-down is per **node**, not per campaign (brief 5g 0.0: a node is never
+    submitted to < ``cooldown_s`` after *any* bench job on it ended). Two
+    sources, both across campaigns:
+
+    * ``bench_run.ended_at`` (not ``skipped``) - what ``sync`` stamped;
+    * every terminal job with a ``bench:`` key pinned to the node (run jobs of
+      every generation, queue fillers, cache warm-ups) at its final transition
+      time (``coalesce(last job_transition.at, job.updated_at)`` - exactly what
+      ``sync`` stamps) - G5c item 0.0 (D255): a job that ended after the
+      tick's ``sync`` counts before its run is settled.
+
+    Only ends within ``lookback_s`` are read (``job.updated_at`` /
+    ``ended_at`` window; ``updated_at`` is never before the final transition's
+    transaction start, the margin covers the rest): an older end cannot hold a
+    node, so absent = no end in the window."""
+    nodes = sorted(node_ids)
+    since = func.now() - func.make_interval(0, 0, 0, 0, 0, 0, lookback_s)
+    final_at = (
+        select(JobTransition.at)
+        .where(JobTransition.job_id == Job.id)
+        .order_by(JobTransition.seq.desc())
+        .limit(1)
+        .scalar_subquery()
+    )
+    pinned = Job.placement["node_id"].astext
+    ends = union_all(
+        select(BenchRun.node_id.label("node"), BenchRun.ended_at.label("at")).where(
+            BenchRun.node_id.in_(nodes),
+            BenchRun.ended_at >= since,
+            BenchRun.state != "skipped",
+        ),
+        select(
+            pinned.label("node"),
+            func.coalesce(final_at, Job.updated_at).label("at"),
+        ).where(
+            _bench_key(),
+            Job.state.in_(_JOB_TERMINAL),
+            pinned.in_(nodes),
+            Job.updated_at >= since,
+        ),
+    ).subquery()
+    rows = await db.execute(
+        select(
+            ends.c.node, func.extract("epoch", func.now() - func.max(ends.c.at))
+        ).group_by(ends.c.node)
+    )
+    return {str(n): float(s) for n, s in rows if s is not None}
+
+
+async def record_failure_counts(db: AsyncSession, campaign_id: str) -> FailureCounts:
+    """G5c (0.9.8, D254): the counts behind criterion 1's infrastructure
+    failure rate (:func:`meshforge.bench.quality.infra_failure_rate`) - **one**
+    query for ``compute bench status`` and the quality report. Over the
+    campaign's run records without a ``bench_role`` (fillers / warm-ups never
+    count, D244): all of them, infrastructure failures **except**
+    ``owner_preempted`` (D246), and the pre-emptions."""
+    not_role = RunRecord.condition_measured["bench_role"].astext.is_(None)
+    total, infra, preempted = (
+        await db.execute(
+            select(
+                func.count(),
+                func.count().filter(
+                    RunRecord.failure_class == "infrastructure",
+                    RunRecord.failure_type.is_distinct_from(OWNER_PREEMPTED),
+                ),
+                func.count().filter(RunRecord.failure_type == OWNER_PREEMPTED),
+            ).where(RunRecord.campaign_id == campaign_id, not_role)
+        )
+    ).one()
+    return FailureCounts(records=int(total), infra=int(infra), preempted=int(preempted))
 
 
 class CampaignControl:
@@ -254,6 +360,20 @@ class CampaignControl:
             )
             return int(getattr(moved, "rowcount", 0) or 0)
 
+    @contextlib.asynccontextmanager
+    async def tick_lock(self, key: int) -> AsyncIterator[bool]:
+        """G5c item 0.5 (D252.1, D254): one runner tick at a time per
+        database. Yields whether this caller got PostgreSQL's
+        **transaction-scoped** advisory lock ``key``
+        (``pg_try_advisory_xact_lock``: never waits); the transaction - and so
+        the lock - is held until the block exits, and a crashed controller's
+        lock goes with its connection. A caller that did not get it must skip
+        its tick: two runners on one database would otherwise both see a
+        node's slot free and fill it twice."""
+        async with self._sessions() as db, db.begin():
+            got = await db.scalar(select(func.pg_try_advisory_xact_lock(key)))
+            yield bool(got)
+
     # ------------------------------------------------------------ runner reads
 
     @_typed
@@ -312,42 +432,41 @@ class CampaignControl:
         to each node."""
         if not node_ids:
             return {}
-        node = Job.placement["node_id"].astext
         async with self._sessions() as db:
-            rows = await db.execute(
-                select(node, func.count())
-                .where(
-                    _bench_key(),
-                    Job.state.not_in(_JOB_TERMINAL),
-                    node.in_(sorted(node_ids)),
-                )
-                .group_by(node)
-            )
-            return {str(n): int(c) for n, c in rows}
+            return await _node_load(db, node_ids)
 
     @_typed
     async def seconds_since_last_end(
         self, campaign_id: str, node_ids: Collection[str]
     ) -> dict[str, float]:
-        """Database seconds since the campaign's last run on each node ended
-        (absent = none ended yet)."""
+        """Database seconds since the last benchmark job (**any** campaign)
+        on each node reached terminal; ``campaign_id`` only sets the window
+        (its ``cooldown_s``): absent = no end in it - see :func:`_last_end`."""
         if not node_ids:
             return {}
         async with self._sessions() as db:
-            rows = await db.execute(
-                select(
-                    BenchRun.node_id,
-                    func.extract("epoch", func.now() - func.max(BenchRun.ended_at)),
-                )
-                .where(
-                    BenchRun.campaign_id == campaign_id,
-                    BenchRun.node_id.in_(sorted(node_ids)),
-                    BenchRun.ended_at.is_not(None),
-                    BenchRun.state != "skipped",
-                )
-                .group_by(BenchRun.node_id)
+            return await _last_end(db, node_ids, await _lookback_s(db, campaign_id))
+
+    @_typed
+    async def node_slots(
+        self, campaign_id: str, node_ids: Collection[str]
+    ) -> tuple[dict[str, int], dict[str, float]]:
+        """G5c item 0.0 (D255): :meth:`node_bench_load` **and**
+        :meth:`seconds_since_last_end` read in **one** ``REPEATABLE READ``
+        snapshot, so a job that ends while the runner reads is seen either
+        still running (it fills the slot) or ended (cool-down) - never
+        neither. (Two ``READ COMMITTED`` statements could see the job
+        terminal in the load read and not yet ended in the cool-down read.)"""
+        if not node_ids:
+            return {}, {}
+        async with self._sessions() as db:
+            await db.connection(
+                execution_options={"isolation_level": "REPEATABLE READ"}
             )
-            return {str(n): float(s) for n, s in rows if s is not None}
+            load = await _node_load(db, node_ids)
+            since = await _last_end(db, node_ids, await _lookback_s(db, campaign_id))
+            await db.rollback()  # read-only
+        return load, since
 
     @_typed
     async def user_busy_nodes(self) -> set[str]:
@@ -401,19 +520,7 @@ class CampaignControl:
                     BenchRun.submitted_at.is_not(None),
                 )
             )
-            not_role = RunRecord.condition_measured["bench_role"].astext.is_(None)
-            total, infra, preempted = (
-                await db.execute(
-                    select(
-                        func.count(),
-                        func.count().filter(
-                            RunRecord.failure_class == "infrastructure",
-                            RunRecord.failure_type.is_distinct_from(OWNER_PREEMPTED),
-                        ),
-                        func.count().filter(RunRecord.failure_type == OWNER_PREEMPTED),
-                    ).where(RunRecord.campaign_id == campaign_id, not_role)
-                )
-            ).one()
+            failures = await record_failure_counts(db, campaign_id)
             retries = await db.scalar(
                 select(func.coalesce(func.sum(BenchRun.tries), 0)).where(
                     BenchRun.campaign_id == campaign_id
@@ -429,16 +536,15 @@ class CampaignControl:
         finished = all_runs - open_runs
         median_s = None if median is None else float(median)
         lanes = max(1, int(nodes_open or 0) * max(1, per_node))
-        counted = int(total) - int(preempted)
         return CampaignStatus(
             counts=dict(counts),
             done_percent=round(100.0 * finished / all_runs, 1) if all_runs else 0.0,
             median_run_s=None if median_s is None else round(median_s, 3),
             eta_s=None if median_s is None else round(open_runs * median_s / lanes, 1),
-            infra_failure_rate=None if counted <= 0 else round(int(infra) / counted, 4),
-            records=int(total),
-            infra_failures=int(infra),
-            preempted=int(preempted),
+            infra_failure_rate=infra_failure_rate(failures),
+            records=failures.records,
+            infra_failures=failures.infra,
+            preempted=failures.preempted,
             retries=int(retries or 0),
             nodes_open=int(nodes_open or 0),
         )

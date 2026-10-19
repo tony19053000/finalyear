@@ -57,9 +57,11 @@ from meshforge.controller.telemetry.schema import (
 )
 
 __all__ = [
+    "ARROW_TYPES",
     "MAX_EXPORT_ROWS",
     "ROW_GROUP_SIZE",
     "WRITER_OPTIONS",
+    "Chunks",
     "arrow_schema",
     "fetch_records",
     "iter_parquet",
@@ -89,7 +91,7 @@ ROW_GROUP_SIZE: Final = 65_536
 """Rows per Parquet row group (pinned, D222): the file's layout, and the most
 rows :func:`write_records` holds as Arrow data at once."""
 
-_ARROW_TYPES: Final[dict[Kind, pa.DataType]] = {
+ARROW_TYPES: Final[dict[Kind, pa.DataType]] = {  # public: labels_export reuses it
     Kind.TEXT: pa.string(),
     Kind.INT64: pa.int64(),
     Kind.FLOAT64: pa.float64(),
@@ -103,7 +105,7 @@ SCHEMA_METADATA_KEY: Final = b"meshforge.telemetry.schema_version"
 def arrow_schema() -> pa.Schema:
     """The export's Arrow schema, derived from :data:`~.schema.COLUMNS`."""
     fields = [
-        pa.field(c.name, _ARROW_TYPES[c.kind], nullable=c.nullable) for c in COLUMNS
+        pa.field(c.name, ARROW_TYPES[c.kind], nullable=c.nullable) for c in COLUMNS
     ]
     return pa.schema(
         fields, metadata={SCHEMA_METADATA_KEY: str(SCHEMA_VERSION).encode()}
@@ -133,8 +135,7 @@ def records_table(records: Iterable[Mapping[str, Any]]) -> pa.Table:
 def _rows_table(rows: Sequence[Mapping[str, Any]], schema: pa.Schema) -> pa.Table:
     """``rows`` (already in export order) as an Arrow table."""
     columns = [
-        pa.array([_cell(c, r) for r in rows], type=_ARROW_TYPES[c.kind])
-        for c in COLUMNS
+        pa.array([_cell(c, r) for r in rows], type=ARROW_TYPES[c.kind]) for c in COLUMNS
     ]
     return pa.Table.from_arrays(columns, schema=schema)
 
@@ -160,7 +161,7 @@ def write_parquet(table: pa.Table, sink: IO[bytes]) -> None:
     pq.write_table(table, sink, row_group_size=ROW_GROUP_SIZE, **WRITER_OPTIONS)
 
 
-class _Chunks:
+class Chunks:
     """A write-only binary sink that hands out what was written so far
     (:meth:`take`); ``tell`` counts every byte ever written (pyarrow asks)."""
 
@@ -219,7 +220,7 @@ def iter_parquet(
     instead of sorting a copy."""
     rows = _ordered(records, in_place=sort_in_place)
     schema = arrow_schema()
-    sink = _Chunks()
+    sink = Chunks()
     writer = pq.ParquetWriter(sink, schema, **WRITER_OPTIONS)
     try:
         if not rows:

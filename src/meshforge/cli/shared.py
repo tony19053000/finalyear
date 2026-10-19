@@ -186,3 +186,20 @@ def _checked_node_id(value: str | None) -> str | None:
             "NODE_ID is not a canonical node_<ULID>; run `compute nodes` to list them",
             CliExit.USAGE_ERROR,
         )
+
+
+def _checked_campaign_id(value: str) -> str:
+    """A CAMPAIGN_ID argument (a path segment, like NODE_ID) is validated here,
+    before any request is built (V0.9 G3; moved here in G5c, D248, so every
+    ``bench`` command module shares it without importing another)."""
+    from meshforge.common.errors import InvalidIdError
+    from meshforge.common.ids import IdKind, parse_id
+
+    try:
+        parse_id(value, IdKind.CAMPAIGN)
+    except InvalidIdError:
+        _die(
+            "CAMPAIGN_ID is not a canonical camp_<ULID>; run `compute bench campaigns`",
+            CliExit.USAGE_ERROR,
+        )
+    return value

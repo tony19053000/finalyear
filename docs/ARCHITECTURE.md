@@ -909,6 +909,21 @@ Benchmarks run through **the same code paths as users** — so benchmark data re
   is pre-empted: `ConditionRunner.stop_all("owner_pause")` first, then the cancel (`owner_preempted`, a
   `FailureType`; record class stays `infrastructure`, excluded from the campaign's infra failure rate).
 
+*V0.9 G5c (D220, D252-D255) - hardening and the data quality report:*
+
+- **Runner:** a node's free slots and its cool-down come from **one** `REPEATABLE READ` snapshot, and a run whose
+  job is already terminal counts as ended before `sync` settles it (D255: no re-submit inside `cooldown_s`); each
+  tick holds the PostgreSQL advisory transaction lock `RUNNER_LOCK_KEY` - a second controller on the same
+  database skips its ticks; the orphan backstop scans when an orphan can exist (a cancel, a skipped run, a failed
+  link) and otherwise every `orphan_scan_s`.
+- **Owner guard:** one evaluation at a time (`asyncio.Lock`); a hung condition revert is bounded by
+  `[agent.bench] preempt_revert_timeout_s`, after which the attempt is stopped anyway and the marker is left for
+  the start-up sweep.
+- **Quality report** `bench/quality.py` (pure) + `controller/telemetry/quality_store.py` (streamed read):
+  `GET /v1/bench/campaigns/{id}/quality`, `compute bench report`; reuses the labels' row filter, statistics and
+  latest-per-repetition rule (`bench/records.py`) and the status's infra-rate helper (docs/TELEMETRY.md
+  "Quality report").
+
 ---
 
 ## 18. ML subsystem

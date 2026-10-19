@@ -968,7 +968,9 @@ compute bench cancel <camp_id>      # cancel its benchmark jobs, skip the open r
 ```
 
 * **Throttle:** at most `--per-node` benchmark jobs at once per node (all campaigns together), and
-  `--cooldown` seconds after a node's run ends before its next one. Each tick (`[controller.bench] tick_s`,
+  `--cooldown` seconds after **any** benchmark job on a node (any campaign, fillers and warm-ups included)
+  reached its end before that campaign submits there again - the cool-down is per node, so a second campaign
+  cannot start right after another one's run on the same machine. Each tick (`[controller.bench] tick_s`,
   2 s) submits at most `max_submit_per_tick` (4) runs and examines at most `max_examine_per_tick` (32).
 * **Retries:** an infrastructure failure (node lost, transfer error, timeout, env build...) puts the run back
   in the queue up to `--retries` times; a workload failure, an unverified condition, a cancel are final.
@@ -984,6 +986,18 @@ compute bench cancel <camp_id>      # cancel its benchmark jobs, skip the open r
   After a tick that submitted its budget the scan starts at the head again, so such a head costs a capped
   walk every other tick (submission throughput about halves while it lasts). The cursor deliberately does not
   keep scanning past the cap within one tick: the cap is what keeps a tick short however large the campaign.
+* **Before using a campaign's data:** `compute bench report <camp_id> --strict` exits 1 unless criteria 1
+  (infrastructure failures < 2 %) and 3 (every configuration >= 3 repetitions with a CV) are met. Flagged
+  configurations (CV above `[controller.bench] quality_cv_threshold`, default 0.10; too few repetitions; a
+  required field missing) are listed first. **Limit:** the report is recomputed on every request over every
+  record of the campaign (streamed, not cached; 10 000 records take well under a second of statistics).
+* **One active runner per database.** Each tick takes a PostgreSQL advisory transaction lock; a second
+  controller pointed at the same database skips its ticks while the first one runs them (debug log
+  `controller.bench.tick_locked_out`), so two controllers never fill a node's slot twice. The lock goes with
+  the connection, so a killed controller never leaves it held.
+  The lock keeps one pooled connection in an open transaction for the whole tick: keep the database pool
+  at ≥ 2 connections and do not set PostgreSQL `idle_in_transaction_session_timeout` shorter than a tick
+  (if it fires, the tick fails and the runner retries with backoff - safe, but noisy).
 * `/healthz` says `degraded` (`bench-runner`) when the runner failed 5 ticks in a row; it logs
   `controller.bench.runner_crashed` and retries with back-off.
 
@@ -993,6 +1007,8 @@ runner = true               # off = only manual `compute bench submit`
 tick_s = 2.0
 max_submit_per_tick = 4
 max_examine_per_tick = 32
+orphan_scan_s = 30          # orphan-job backstop scan at most this often (a cancel triggers one at once)
+quality_cv_threshold = 0.10 # `compute bench report` flags a configuration above this CV
 ```
 
 **What the laptop owner sees and controls (the owner guard).** A benchmark never runs while the owner is
@@ -1006,13 +1022,17 @@ foreground_cpu_percent = 30 # or: programs that are not the fabric's use > 30 % 
 sustain_s = 10              # ... for 10 s
 clear_after_s = 60          # activity clears only after 60 s quiet
 poll_s = 2
+preempt_revert_timeout_s = 10  # longest wait for conditions to revert when a benchmark is stopped
 ```
 
 * `meshforge-agent bench pause` (= `meshforge-agent policy set pause_benchmarks=true`) pauses benchmark
   jobs on this laptop; `meshforge-agent bench resume` lets them run again. User jobs are not affected.
 * While paused or active: the controller dispatches no benchmark job here; a running one is **stopped**
   (its load generators and network shaping are reverted first) and ends `owner_preempted` - the campaign
-  requeues it, it does not count as a failure.
+  requeues it, it does not count as a failure. A revert that hangs (a `tc` that never returns) is waited
+  for at most `preempt_revert_timeout_s`: the agent logs `agent.bench.revert_timeout`, stops the benchmark
+  anyway (its report says `reverted = false`), keeps retrying the revert in the background and leaves the
+  condition marker, so the next agent start reverts it if it never finished.
 * Input idle time comes from Windows (`GetLastInputInfo`) or Linux logind (`loginctl`; needs a desktop that
   sets the idle hint - GNOME, KDE). Without one the agent logs `agent.bench.idle_source_unknown` and only the
   CPU rule applies. Only idle time and per-process CPU are read - never keystrokes, window titles or what a

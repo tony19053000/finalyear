@@ -329,6 +329,15 @@ class _Control:
     async def seconds_since_last_end(self, _c: str, _n: Any) -> dict[str, float]:
         return {}
 
+    async def node_slots(
+        self, cid: str, nodes: Any
+    ) -> tuple[dict[str, int], dict[str, float]]:
+        # G5c item 0.0: the runner reads both in one snapshot
+        return (
+            await self.node_bench_load(nodes),
+            await self.seconds_since_last_end(cid, nodes),
+        )
+
     async def stop_for_budget(self, _c: str, _d: str) -> int:
         return 0
 
@@ -358,6 +367,9 @@ class _Store:
 
     async def list_campaigns(self, limit: int = 50) -> list[Any]:
         return []
+
+    async def progress_campaigns(self, _also: Any = ()) -> list[Any]:
+        return []  # G5c item 0.6: the runner's progress read
 
 
 def _runner(camps: list[Any], sub: Any) -> BenchRunner:

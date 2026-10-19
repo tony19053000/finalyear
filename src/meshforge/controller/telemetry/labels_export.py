@@ -29,10 +29,10 @@ import pyarrow.parquet as pq
 
 from meshforge.bench.stats import Summary
 from meshforge.controller.telemetry.export import (
-    _ARROW_TYPES,
+    ARROW_TYPES,
     ROW_GROUP_SIZE,
     WRITER_OPTIONS,
-    _Chunks,
+    Chunks,
 )
 from meshforge.controller.telemetry.labels import (
     LABELS_VERSION,
@@ -136,7 +136,7 @@ LABEL_FINGERPRINTS: Final[dict[int, str]] = {
 def labels_arrow_schema() -> pa.Schema:
     return pa.schema(
         [
-            pa.field(c.name, _ARROW_TYPES[c.kind], nullable=c.nullable)
+            pa.field(c.name, ARROW_TYPES[c.kind], nullable=c.nullable)
             for c in LABEL_COLUMNS
         ],
         metadata={LABELS_METADATA_KEY: str(LABELS_VERSION).encode()},
@@ -216,7 +216,7 @@ def _cell(column: Column, row: Mapping[str, Any]) -> Any:
 def _table(rows: Sequence[Mapping[str, Any]], schema: pa.Schema) -> pa.Table:
     return pa.Table.from_arrays(
         [
-            pa.array([_cell(c, r) for r in rows], type=_ARROW_TYPES[c.kind])
+            pa.array([_cell(c, r) for r in rows], type=ARROW_TYPES[c.kind])
             for c in LABEL_COLUMNS
         ],
         schema=schema,
@@ -230,7 +230,7 @@ def iter_labels_parquet(
     consecutive pieces of one Parquet file: one per row group, the footer
     last - the record export's streaming pattern (:func:`.export.iter_parquet`)."""
     schema = labels_arrow_schema()
-    sink = _Chunks()
+    sink = Chunks()
     writer = pq.ParquetWriter(sink, schema, **WRITER_OPTIONS)
     try:
         if not rows:

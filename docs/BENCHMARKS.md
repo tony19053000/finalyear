@@ -314,6 +314,11 @@ when the measurements cannot tell - is derived from the run records on demand:
 `compute bench labels CAMPAIGN_ID [-o FILE.parquet]` (admin). The row filter, the median-CI rule and the
 Parquet columns are in [TELEMETRY.md](TELEMETRY.md) "Labels".
 
+**Quality report (V0.9 G5c).** Whether a campaign's records are fit to learn from - repetitions, CV, MAD
+outliers, missing fields per configuration, the infrastructure failure rate and the criterion verdicts -
+is `compute bench report CAMPAIGN_ID [--strict]` (admin); every number is defined in
+[TELEMETRY.md](TELEMETRY.md) "Quality report".
+
 ## Conditions
 
 A **condition** is the state a run is measured under (V0.9 G4, D217/D241). The spec lists conditions as a sweep

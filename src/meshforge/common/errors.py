@@ -103,7 +103,9 @@ class FailureType(StrEnum):
     """V0.9 G5 (D219/D246): a **benchmark** attempt was stopped (or refused at
     start) because the node's owner paused benchmarks or is using the laptop.
     Never a user job. Not retried by the job; the campaign runner requeues the
-    run without spending an infrastructure retry."""
+    run without spending an infrastructure retry. Sent only for attempts the
+    controller flagged ``StartAttempt.benchmark`` - so never to (or from) a
+    peer from before G5, which could not decode number 24 (G5c item 0.8)."""
 
 
 DEFAULT_RETRYABLE: Mapping[FailureType, bool] = {

@@ -12,8 +12,15 @@ A supervised task inside the controller (no new service). Every
    submitting (:meth:`~.control.CampaignControl.stop_for_budget`); otherwise
    each node that still has planned runs gets ``max_concurrent_per_node`` -
    its non-terminal benchmark jobs (any campaign) **free slots**, except a
-   node in **cool-down** (its last run of this campaign ended less than
-   ``cooldown_s`` ago), whose **owner guard** is on (paused / owner active),
+   node in **cool-down** (the last benchmark job on it - of **any** campaign,
+   fillers and warm-ups included - reached terminal less than this
+   campaign's ``cooldown_s`` ago: the cool-down is per node, G5c fix r1; a
+   job that is terminal counts as ended even before ``sync`` settles its
+   run, and load + last end come from one snapshot: G5c item 0.0, D255; with
+   ``max_concurrent_per_node > 1`` a sibling job that ends between this read
+   and the submit is not covered - there is no lock on job state - while
+   with the default 1 the running job fills the slot), whose **owner guard**
+   is on (paused / owner active),
    or that has a **user job** running or queued pinned there (checklist 30:
    a benchmark never competes with a user's job);
 3. :meth:`~.submit.BenchSubmitter.submit_next` with ``count`` = the free
@@ -30,6 +37,13 @@ continues where the rows are: a run is submitted under
 ``bench:<run_id>[:<generation>]`` (one job per generation - a crash between
 the job's commit and the link is linked again, never duplicated), and
 in-flight jobs are reconciled by the existing job paths.
+
+**One runner per database** (G5c item 0.5, D252.1/D254): with ``exclusive``
+(the controller's runner) every tick runs under the PostgreSQL advisory
+transaction lock :data:`RUNNER_LOCK_KEY`
+(:meth:`~.control.CampaignControl.tick_lock`); a tick that does not get it -
+another controller on the same database is ticking - is skipped
+(``TickReport.locked_out``), so two runners never fill one node slot twice.
 
 **Supervised** like ``LiveStreams.run``: one crash in a tick is logged and
 backed off (``tick_s * 2^n``, at most :data:`MAX_BACKOFF_S`) and never kills the
@@ -58,6 +72,7 @@ from meshforge.controller.bench.submit import BenchSubmitter, owner_guarded
 __all__ = [
     "DEGRADED_AFTER",
     "MAX_BACKOFF_S",
+    "RUNNER_LOCK_KEY",
     "BenchRunner",
     "RunnerSettings",
     "TickReport",
@@ -68,6 +83,9 @@ log = get_logger(__name__)
 DEGRADED_AFTER: Final = 5
 MAX_BACKOFF_S: Final = 60.0
 PROGRESS_EVERY_S: Final = 1.0
+RUNNER_LOCK_KEY: Final = 0x6D66_6265_6E63_6872
+"""The runner's PostgreSQL advisory lock key (``"mfbenchr"`` as a signed
+64-bit integer; G5c item 0.5) - one per database, never reused elsewhere."""
 
 
 class _Sessions(Protocol):
@@ -90,6 +108,8 @@ class TickReport:
     deferred: int = 0
     skipped: int = 0
     budget_stopped: list[str] = field(default_factory=list)
+    locked_out: bool = False
+    """Another runner on this database held the tick lock: nothing was done."""
     excluded: dict[str, str] = field(default_factory=dict)
     """node_id -> why it got nothing (cooldown, owner_guard, user_job, full)."""
 
@@ -108,7 +128,10 @@ class BenchRunner:
         publish: Callable[[Mapping[str, Any]], None] | None = None,
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+        exclusive: bool = False,
     ) -> None:
+        """``exclusive``: tick under :data:`RUNNER_LOCK_KEY` (module
+        docstring; the controller's runner sets it, unit fakes need not)."""
         self._store = store
         self._control = control
         self._submitter = submitter
@@ -117,6 +140,7 @@ class BenchRunner:
         self._publish = publish
         self._clock = clock
         self._sleep = sleep
+        self._exclusive = exclusive
         self._budgets: dict[str, float | None] = {}
         self._last_progress: dict[str, float] = {}
         self._cursors: dict[str, int] = {}
@@ -145,11 +169,22 @@ class BenchRunner:
         return self._budgets[campaign.id]
 
     async def tick(self) -> TickReport:
-        """One pass (module docstring)."""
+        """One pass (module docstring); with ``exclusive``, only while holding
+        the database's runner lock."""
+        if not self._exclusive:
+            return await self._tick()
+        async with self._control.tick_lock(RUNNER_LOCK_KEY) as got:
+            if not got:
+                log.debug("controller.bench.tick_locked_out")
+                return TickReport(locked_out=True)
+            return await self._tick()
+
+    async def _tick(self) -> TickReport:
         report = TickReport()
         await self._store.sync()
         campaigns = await self._control.runner_campaigns()
         report.campaigns = len(campaigns)
+        self._prune({c.id for c in campaigns})
         user_busy = await self._control.user_busy_nodes() if campaigns else set()
         left = self.settings.max_submit_per_tick
         for campaign in campaigns:
@@ -205,14 +240,24 @@ class BenchRunner:
             )
         return report
 
+    def _prune(self, active: set[str]) -> None:
+        """G5c item 0.6 (D252.2): the budget and cursor caches hold only the
+        campaigns the runner drives now (a paused / finished / deleted one is
+        dropped: after a resume its budget is parsed again and its scan starts
+        at the head) - the caches never grow with the campaign history."""
+        for cache in (self._budgets, self._cursors):
+            for gone in set(cache) - active:
+                del cache[gone]
+
     async def _node_budget(
         self, campaign: RunnerCampaign, user_busy: set[str], report: TickReport
     ) -> dict[str, int]:
         nodes = await self._control.planned_nodes(campaign.id)
         if not nodes:
             return {}
-        load = await self._control.node_bench_load(nodes)
-        since = await self._control.seconds_since_last_end(campaign.id, nodes)
+        # G5c item 0.0 (D255): load and last end from one snapshot, and a
+        # job that ended after this tick's sync counts as an end (cool-down)
+        load, since = await self._control.node_slots(campaign.id, nodes)
         budget: dict[str, int] = {}
         for node in sorted(nodes):
             if node in user_busy:
@@ -237,7 +282,12 @@ class BenchRunner:
         if self._publish is None:
             return
         now = self._clock()
-        for record in await self._store.list_campaigns(limit=50):
+        records = await self._store.progress_campaigns(set(self._last_progress))
+        # G5c item 0.6 (D252.2): forget campaigns that are gone
+        seen = {r.id for r in records}
+        for gone in set(self._last_progress) - seen:
+            del self._last_progress[gone]
+        for record in records:
             if record.started_at is None:
                 continue
             if record.state not in ("active", "paused") and (

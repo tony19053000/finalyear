@@ -27,6 +27,7 @@ __all__ = [
     "LabelsOut",
     "MetricStats",
     "labels_out",
+    "stats_out",
 ]
 
 
@@ -96,7 +97,9 @@ class LabelsOut(ApiModel):
     groups: tuple[GroupLabelOut, ...]
 
 
-def _stats(summary: Summary | None) -> MetricStats | None:
+def stats_out(summary: Summary | None) -> MetricStats | None:
+    """One :class:`~meshforge.bench.stats.Summary` as JSON (labels and the
+    quality report, G5c)."""
     if summary is None:
         return None
     return MetricStats(
@@ -113,7 +116,7 @@ def _stats(summary: Summary | None) -> MetricStats | None:
 
 
 def _config(config: ConfigCosts) -> ConfigLabelOut:
-    metrics = {m: _stats(config.metrics.get(m)) for m in METRICS}
+    metrics = {m: stats_out(config.metrics.get(m)) for m in METRICS}
     return ConfigLabelOut(
         config_id=config.config_id,
         strategy=config.strategy,

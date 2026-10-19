@@ -233,11 +233,7 @@ async def test_the_event_path_still_raises_during_backoff_and_counts_a_failure()
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(
-    strict=True,
-    reason="T3-1: poll-retry and event-path refresh can run two pre-emptions at once "
-    "(double stop_all, 'preempted' counted twice)",
-)
+# G5c item 0.2 (D253 T3-1): was a strict xfail; the OwnerGuard lock fixes it
 async def test_a_slow_preemption_racing_the_event_path_counts_once() -> None:
     """The activity loop (poll retry) and the policy watcher (refresh) run as
     two tasks; a slow pre-emption must not be run twice concurrently."""
@@ -268,3 +264,33 @@ async def test_a_slow_preemption_racing_the_event_path_counts_once() -> None:
     await asyncio.gather(a, b)
     assert peak == 1, "two pre-emptions ran at the same time"
     assert rig.guard.preempted == 1, "one turn-on counted twice"
+
+
+@pytest.mark.asyncio
+async def test_g5c_two_event_paths_racing_a_slow_first_preemption_run_it_once() -> None:
+    """G5c item 0.2: two ``refresh`` calls (policy watcher + activity event)
+    while the first pre-emption is still in flight: one ``preempt`` call."""
+    rig = Rig()
+    gate = asyncio.Event()
+    calls = 0
+
+    async def slow(_r: str) -> int:
+        nonlocal calls
+        calls += 1
+        await gate.wait()
+        return 2
+
+    rig.guard.preempt = slow
+    a = asyncio.create_task(rig.guard.refresh())
+    b = asyncio.create_task(rig.guard.refresh())
+    await asyncio.sleep(0.01)
+    gate.set()
+    assert sorted(await asyncio.gather(a, b)) == [0, 2]
+    assert calls == 1 and rig.guard.preempted == 2
+
+
+@pytest.mark.asyncio
+async def test_g5c_a_poll_with_nothing_pending_takes_no_lock() -> None:
+    rig = Rig()
+    async with rig.guard._lock:  # held: a poll that has nothing to do returns
+        await asyncio.wait_for(rig.act.on_poll(rig.act.state), 1)

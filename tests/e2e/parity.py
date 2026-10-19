@@ -245,6 +245,10 @@ COMPUTE: Final[dict[str, Entry]] = {
         "V0.9 G5: a campaign's per-group labels (admin) and their Parquet "
         "download; G6's campaign detail (D221) shows them."
     ),
+    "bench report": CliOnly(
+        "V0.9 G5c: a campaign's data quality report (admin, D220); G6's "
+        "campaign detail (D221) shows it."
+    ),
     "bench submit": CliOnly(
         "V0.9 G3: the only campaign driver until G5's runner (D232); G6's "
         "pause/resume controls replace it in the UI."
