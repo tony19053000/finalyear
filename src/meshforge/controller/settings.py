@@ -1360,6 +1360,16 @@ class BenchSettings(SectionModel):
         le=2_000,
         description="Most planned runs one tick examines (deferred / skipped ones count).",
     )
+    orphan_scan_s: float = Field(
+        default=30.0,
+        ge=0.0,
+        le=3_600.0,
+        description=(
+            "Longest gap between two scans for orphan benchmark jobs (a job "
+            "created for a run that was cancelled meanwhile); a cancel or a "
+            "skipped run triggers a scan at once. 0 = scan on every tick."
+        ),
+    )
 
 
 class ControllerSection(SectionModel):

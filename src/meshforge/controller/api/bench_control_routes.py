@@ -239,6 +239,7 @@ async def cancel_campaign(
         raise _unavailable() from None
     if jobs is None:
         raise ApiError.not_found("campaign")
+    bench.store.expect_orphans()  # G5c item 0.7: a racing submission's job
     cancelled = 0
     if bench.cancel_job is not None:
         for job_id in jobs:

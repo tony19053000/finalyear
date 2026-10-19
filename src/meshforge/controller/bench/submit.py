@@ -518,6 +518,7 @@ class BenchSubmitter:
         on (cancelled -> skipped, or linked elsewhere). Unless the run is linked
         to that very job, it is an orphan: cancel it now (``sync()`` is the
         backstop if this cancel fails)."""
+        self._store.expect_orphans()  # G5c item 0.7: the backstop looks now
         linked_to = await self._store.linked_job(run.id)
         if linked_to == job_id:
             return

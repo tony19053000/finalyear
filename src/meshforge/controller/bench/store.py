@@ -75,12 +75,14 @@ from meshforge.controller.store.models.bench import (
 from meshforge.controller.store.models.job import Job, JobTransition
 
 __all__ = [
+    "DEFAULT_ORPHAN_SCAN_S",
     "MAX_LIST",
     "BenchStore",
     "BenchStoreError",
     "CampaignRecord",
     "RunRow",
     "campaign_identities",
+    "runs_own_job",
 ]
 
 log = get_logger(__name__)
@@ -92,6 +94,7 @@ BENCH_KEY_PREFIX: Final = "bench:"
 _INSERT_CHUNK: Final = 1_000
 _SETTLE_BATCH: Final = 500
 _ORPHAN_REASK_S: Final = 30.0
+DEFAULT_ORPHAN_SCAN_S: Final = 30.0
 _ORPHANS_REMEMBERED: Final = 10_000
 _TERMINAL: Final = tuple(sorted(s.value for s in JOB_TERMINAL_STATES))
 _OPEN_RUN_STATES: Final = ("planned", "submitted")
@@ -326,6 +329,22 @@ async def _earlier_generations(
     return out
 
 
+def runs_own_job() -> list[ColumnElement[bool]]:
+    """G5c item 0.7 (D252.4): "this job **is** that run's" - the one predicate
+    :meth:`BenchStore._link_orphans` and :meth:`BenchStore.orphan_jobs` share
+    (``_earlier_generations`` applies the same three checks to rows in
+    Python): owned by the campaign's creator, submitted from the run's origin,
+    pinned to the run's node. A user cannot plant a job on a run (it would be
+    linked) nor have their own job cancelled as an orphan by naming it
+    ``bench:<run_id>``. Needs ``Job``, ``BenchRun`` and ``BenchCampaign`` in
+    the statement."""
+    return [
+        Job.owner_user_id.is_not_distinct_from(BenchCampaign.created_by),
+        Job.submitter_node_id == BenchRun.origin_node_id,
+        Job.placement["node_id"].astext == BenchRun.node_id,
+    ]
+
+
 class BenchStore:
     """Async repository for campaigns and their runs (see module docstring)."""
 
@@ -337,6 +356,13 @@ class BenchStore:
         """Fix r1 (D250 D-1): the dispatcher's ``cancel`` - set by the server;
         :meth:`sync` uses it to cancel orphan benchmark jobs (None = off)."""
         self._orphans_asked: dict[str, float] = {}
+        self.orphan_scan_s: float = DEFAULT_ORPHAN_SCAN_S
+        """G5c item 0.7: ``[controller.bench] orphan_scan_s`` (set by the
+        server) - see :meth:`expect_orphans`."""
+        self._scanned_at: float | None = None
+        self._scan_found = False
+        self._risk = 0
+        self._risk_scanned = 0
 
     # ------------------------------------------------------------ campaigns
 
@@ -540,6 +566,7 @@ class BenchStore:
 
     @_typed
     async def mark_skipped(self, run_id: str, detail: str) -> bool:
+        self.expect_orphans()  # a racing submission may still create its job
         async with self._sessions() as db, db.begin():
             done = await db.execute(
                 update(BenchRun)
@@ -667,9 +694,7 @@ class BenchStore:
                     .where(
                         Job.idempotency_key.like(f"{BENCH_KEY_PREFIX}%"),
                         Job.state.not_in(_TERMINAL),
-                        Job.owner_user_id.is_not_distinct_from(
-                            BenchCampaign.created_by
-                        ),
+                        *runs_own_job(),  # origin + pin too (G5c item 0.7)
                         or_(
                             BenchRun.state == "skipped",
                             BenchCampaign.state == "cancelled",
@@ -685,16 +710,44 @@ class BenchStore:
                 )
             ]
 
+    def expect_orphans(self) -> None:
+        """Something may just have made an orphan benchmark job (a campaign
+        cancelled, a run skipped, a submission whose link failed): the next
+        :meth:`sync` scans for them whatever the throttle."""
+        self._risk += 1
+
+    def _scan_due(self, now: float) -> bool:
+        """G5c item 0.7 (D252.4): the orphan scan is a join over the
+        non-terminal ``bench:%`` jobs, too heavy for every runner tick. It
+        runs when an orphan may exist - :meth:`expect_orphans` was called
+        since the last scan, or the last scan still found some (being
+        cancelled) - and otherwise at most every :attr:`orphan_scan_s`."""
+        if self._scanned_at is None or self._scan_found:
+            return True
+        if self._risk != self._risk_scanned:
+            return True
+        return now - self._scanned_at >= self.orphan_scan_s
+
     async def _cancel_orphans(self, campaign_id: str | None) -> None:
         cancel = self.cancel_job
         if cancel is None:
             return
+        now = time.monotonic()
+        if not self._scan_due(now):
+            return
+        risk = self._risk  # a flag raised during the scan triggers the next
         try:
             orphans = await self.orphan_jobs(campaign_id)
         except (SQLAlchemyError, OSError, TimeoutError):
             log.warning("controller.bench.orphan_scan_failed", campaign_id=campaign_id)
             return
-        now = time.monotonic()
+        if campaign_id is None:
+            self._scanned_at, self._risk_scanned = now, risk
+            self._scan_found = bool(orphans)
+        elif orphans:
+            # a campaign-scoped scan speaks for its campaign only: it can say
+            # "more to clean", never "all clean"
+            self._scan_found = True
         for job_id in orphans:
             asked = self._orphans_asked.get(job_id)
             if asked is not None and now - asked < _ORPHAN_REASK_S:
@@ -845,9 +898,7 @@ class BenchStore:
                     ),
                 ),
                 BenchCampaign.id == BenchRun.campaign_id,
-                Job.owner_user_id.is_not_distinct_from(BenchCampaign.created_by),
-                Job.submitter_node_id == BenchRun.origin_node_id,
-                Job.placement["node_id"].astext == BenchRun.node_id,
+                *runs_own_job(),
                 *(
                     ()
                     if campaign_id is None
