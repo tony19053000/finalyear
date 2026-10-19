@@ -26,7 +26,7 @@ V1.0    ░░░░░░░░░░░░░░░░░░░░   0%   0/8 
 █ done `[x]` · ▒ in progress or waiting on a 🧑 lab step `[~]` · ░ not started
 
 ## Current Version
-**V0.9 — Benchmark & telemetry v1** · started 2026-10-17 · brief `docs/briefs/V0.9-benchmark-telemetry.md` (D211–D224, approved) · ADR-0018 · **G0, G1, G2 CLOSED** (D226, D231, D225; 0.9.1 + 0.9.2 `[x]`) · **G3 CLOSED** (D242; 0.9.3 + 0.9.4 `[x]`) · **G4 CLOSED** (D241–D245; 0.9.5 `[x]`, 2026-10-19) · **G5, G5c, G6 CLOSED** (D246–D258; 0.9.6–0.9.9 `[x]`) · **G7 (harness campaign e2e, §5i) in progress** · closes on 🧑 0.9.10
+**V0.9 — Benchmark & telemetry v1** · started 2026-10-17 · brief `docs/briefs/V0.9-benchmark-telemetry.md` (D211–D224, approved) · ADR-0018 · **G0, G1, G2 CLOSED** (D226, D231, D225; 0.9.1 + 0.9.2 `[x]`) · **G3 CLOSED** (D242; 0.9.3 + 0.9.4 `[x]`) · **G4 CLOSED** (D241–D245; 0.9.5 `[x]`, 2026-10-19) · **G5, G5c, G6 CLOSED** (D246–D258; 0.9.6–0.9.9 `[x]`) · **G7 CLOSED** (`c35ff3d`) · **agent-side complete**; closes on 🧑 0.9.10 (checklist part O)
 **V0.8 — Dashboard & CLI v1** · started 2026-10-15 · brief `docs/briefs/V0.8-dashboard-cli.md` (D169–D180, approved) · ADR-0017 · groups G1–G7 sequential · **G1–G7 CLOSED** (G7 2026-10-17, D210) — 0.8.1–0.8.9 `[x]`; agent-side complete; closes on 🧑 0.8.10 (`lab/checklists/V0.8-visual.md`)
 **V0.7 — Security & pairing** · started 2026-10-07 · brief `docs/briefs/V0.7-security-pairing.md` (D144–D162) · **G1–G5 CLOSED** (0.7.1–0.7.9 `[x]`) · **G6 CLOSED** (0.7.10 `[x]`, 2026-10-14) · **G7 CLOSED** (0.7.11 `[x]`, 2026-10-15, D168) · agent-side complete · closes on 🧑 0.7.12 lab
 **V0.6 — Scheduling & reliability** · started 2026-10-05 · brief `docs/briefs/V0.6-scheduling-reliability.md` · **G1 CLOSED** (0.6.9, 0.6.10, 0.6.14 `[x]`) · G1–G4 CLOSED agent-side · closes on 🧑 0.6.13 lab
@@ -43,7 +43,7 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 
 ## Current Task
 
-- **2026-10-19 (session 3):** whole component alone: 2722 passed / 1 load flake (V0.5 cache-index, green 3/3 + file 10/10) → **0.9.7, 0.9.8, 0.9.9 `[x]`** (D258). G7 brief §5i written; G7 implementer next. Team: after V0.9 agent-side, go straight to V0.10.
+- **2026-10-19 (session 3):** whole component alone: 2722 passed / 1 load flake (V0.5 cache-index, green 3/3 + file 10/10) → **0.9.7, 0.9.8, 0.9.9 `[x]`** (D258). G7 merged `c35ff3d` (tester PASS, reviewer APPROVE) → **V0.9 agent-side complete**. V0.10 draft brief + ADR-0019 written; next V0.10 G1 ∥ G2. Team: after V0.9 agent-side, go straight to V0.10.
 
 - **2026-10-19 (session end 2):** G5c + G6 tester/reviewer done (D257), both MERGED (`0e63d6b`) + Quality tab integration `c5b77c2` (unit 15874, vitest 618, e2e 14). Whole `-m component` stopped unfinished. Next: whole component alone → close 0.9.7–0.9.9 → G7 brief.
 
