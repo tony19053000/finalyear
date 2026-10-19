@@ -323,7 +323,7 @@ batches of 1 000 with only the columns it needs. Each record is classified once:
 * passes the **labels' row filter** (above; evaluated in the same SQL as a column, never re-implemented): an
   ok measurement. After the same latest-attempt-per-repetition rule these are the statistics' input - exactly
   the labels' input, so the report's medians **are** the labels' medians.
-* anything else is a failure, counted by kind.
+* anything else lands in **exactly one** counted bucket (below), so no record vanishes from the report.
 
 **Per configuration** (within its group):
 
@@ -351,7 +351,20 @@ flagged, and left out of criterion 3 (as in the labels).
 `owner_preempted` and `infra_failure_rate` = infrastructure failures / (records - pre-emptions) - computed by
 **the same** query and helper as `compute bench status` (`control.record_failure_counts` +
 `bench.quality.infra_failure_rate`), so the two never disagree; `condition_failures` (`condition_failed`
-records by condition); `workload_failures` (by family). Verdicts:
+records by condition); `workload_failures` (by family). **Every record is in exactly one bucket** - the
+buckets sum to `records` (a unit property test and a real-Postgres test hold it):
+
+| bucket | records |
+|---|---|
+| `measured_records` | ok measurements the labels use (retries included; the statistics then keep the latest per repetition) |
+| `owner_preempted` | `failure_type = owner_preempted` (checked first, as in the status query) |
+| `infra_failures` | class `infrastructure`, other failure types |
+| `condition_failures` | class `condition_failed`, by condition |
+| `workload_failures` | class `workload`, by family |
+| `rejected_ok` | class `ok` but refused by the labels' filter, by reason: the `workload_status` when not `ok` (`check_failed`, `bad_params`, ...; `no_workload_status` when null), else `condition_unverified` (`condition_measured.verified = false`), else `other` - a filter clause the report does not name, which should never appear |
+| `other_failures` | any other class (`unavailable`: no CUDA, cancelled), by class |
+
+Verdicts:
 
 | verdict | true when |
 |---|---|

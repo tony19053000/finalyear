@@ -88,9 +88,14 @@ class QualitySummaryOut(ApiModel):
     """The campaign is still open: the verdicts are null."""
     runs_by_state: RunStateCounts
     records: int
-    """Run records (fillers and warm-ups excluded)."""
+    """Run records (fillers and warm-ups excluded). Every one is in exactly
+    one bucket: measured_records + infra_failures + owner_preempted + the
+    sums of condition_failures, workload_failures, rejected_ok and
+    other_failures = records."""
     bench_role_records: dict[str, int]
     """Filler / warm-up records, by role - never in any statistic."""
+    measured_records: int
+    """Ok measurements the labels use (retries included)."""
     infra_failures: int
     owner_preempted: int
     infra_failure_rate: float | None
@@ -99,6 +104,12 @@ class QualitySummaryOut(ApiModel):
     """condition_failed records by condition."""
     workload_failures: dict[str, int]
     """Workload failures by family."""
+    rejected_ok: dict[str, int]
+    """Records with failure class ok that the label filter refuses, by reason:
+    the workload_status when not ok (check_failed, ...; no_workload_status
+    when null), condition_unverified, or other."""
+    other_failures: dict[str, int]
+    """Records of any other failure class (unavailable), by class."""
     crit1_infra_ok: bool | None
     """Infrastructure failure rate below 2 %; null while pending."""
     crit3_reps_ok: bool | None
@@ -150,11 +161,14 @@ def _summary(summary: QualitySummary) -> QualitySummaryOut:
         runs_by_state=RunStateCounts(**summary.runs_by_state),
         records=summary.records,
         bench_role_records=dict(summary.bench_role_records),
+        measured_records=summary.measured_records,
         infra_failures=summary.infra_failures,
         owner_preempted=summary.owner_preempted,
         infra_failure_rate=summary.infra_failure_rate,
         condition_failures=dict(summary.condition_failures),
         workload_failures=dict(summary.workload_failures),
+        rejected_ok=dict(summary.rejected_ok),
+        other_failures=dict(summary.other_failures),
         crit1_infra_ok=summary.crit1_infra_ok,
         crit3_reps_ok=summary.crit3_reps_ok,
         configs=summary.configs,

@@ -18,8 +18,16 @@ see failures - but each record is classified once:
   column - never a second filter): an ``ok`` measurement. These, after
   :func:`~meshforge.bench.records.latest_per_repetition`, are the statistics'
   input - exactly what the labels use, so the medians agree;
-* every other record is a failure, counted by kind (``condition_failed`` by
-  condition, ``workload`` by family).
+* every other record lands in **exactly one** counted bucket (G5c fix r1,
+  tester T-3 - the buckets sum to ``records``): ``owner_preempted`` and
+  infrastructure failures (from :class:`FailureCounts`, the status query),
+  ``condition_failed`` by condition, ``workload`` by family, ``rejected_ok``
+  (class ``ok`` but the label filter refuses it) by reason - the
+  ``workload_status`` when not ``ok`` (``check_failed``, ...;
+  ``no_workload_status`` when null), else ``condition_unverified``
+  (``condition_measured.verified = false``), else ``other`` (a filter clause
+  this classification does not name - a test keeps it at zero) - and ``other_failures`` by class
+  (``unavailable``: no CUDA / cancelled).
 
 **Per configuration** (within its group): ``planned`` / ``done`` runs; ``n`` =
 distinct repetitions with an ok record; ``total_ms`` and
@@ -55,6 +63,7 @@ from meshforge.bench.records import (
     metric_value,
 )
 from meshforge.bench.stats import Summary, mad_outliers, summarize
+from meshforge.common.errors import FailureType
 
 __all__ = [
     "CRIT1_MAX_INFRA_FRACTION",
@@ -62,6 +71,9 @@ __all__ = [
     "DEFAULT_CV_THRESHOLD",
     "QUALITY_METRICS",
     "QUALITY_VERSION",
+    "REJECTED_NO_STATUS",
+    "REJECTED_OTHER",
+    "REJECTED_UNVERIFIED",
     "REQUIRED_FIELDS",
     "ROW_FIELDS",
     "RUN_STATES",
@@ -100,6 +112,10 @@ REQUIRED_FIELDS: Final = (
     "node_cpu_percent",
     "planner_node_id",
 )
+REJECTED_UNVERIFIED: Final = "condition_unverified"
+REJECTED_NO_STATUS: Final = "no_workload_status"
+REJECTED_OTHER: Final = "other"
+_OWNER_PREEMPTED: Final = FailureType.OWNER_PREEMPTED.value
 """The record fields the labels and V0.15 training need; the report counts
 their nulls per configuration over its ok records. Phase timings = ``queue_ms``
 + ``run_ms`` (every forced run queues and runs; ``stage_ms`` / ``env_ms`` /
@@ -121,10 +137,12 @@ ROW_FIELDS: Final = (
     "workload_family",
     "condition",
     "placement_mode",
+    "workload_status",
     *REQUIRED_FIELDS,
 )
 """Record columns a row passed to :meth:`QualityInput.add` must carry, plus
-``label_row`` (bool) and ``bench_role`` (str or None)."""
+``label_row`` (bool), ``bench_role`` (str or None) and ``condition_verified``
+(``condition_measured->>'verified'``: ``"false"`` / ``"true"`` / None)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -199,13 +217,21 @@ def _finite(value: float | int | None) -> float | int | None:
 class QualityInput:
     """The streamed side of the report: one :meth:`add` per run record, in
     any order. Keeps only the ok rows' fields and counters - never the
-    records themselves."""
+    records themselves. Every non-``bench_role`` record lands in exactly one
+    bucket (module docstring); infrastructure failures and pre-emptions are
+    tallied here too (``infra`` / ``preempted``) only so the invariant can be
+    checked - the summary takes them from :class:`FailureCounts`."""
 
     ok_rows: list[dict[str, Any]] = field(default_factory=list)
     roles: Counter[str] = field(default_factory=Counter)
     records: int = 0
+    measured: int = 0
+    infra: int = 0
+    preempted: int = 0
     condition_failures: Counter[str] = field(default_factory=Counter)
     workload_failures: Counter[str] = field(default_factory=Counter)
+    rejected_ok: Counter[str] = field(default_factory=Counter)
+    other_failures: Counter[str] = field(default_factory=Counter)
 
     def add(self, row: Mapping[str, Any]) -> None:
         role = row.get("bench_role")
@@ -213,13 +239,36 @@ class QualityInput:
             self.roles[str(role)] += 1
             return
         self.records += 1
-        failure_class = row.get("failure_class")
-        if failure_class == "condition_failed":
+        failure_class = str(row.get("failure_class"))
+        # the same order as control.record_failure_counts: the failure type
+        # owner_preempted first, whatever the class
+        if row.get("failure_type") == _OWNER_PREEMPTED:
+            self.preempted += 1
+        elif failure_class == "infrastructure":
+            self.infra += 1
+        elif failure_class == "condition_failed":
             self.condition_failures[str(row.get("condition") or "none")] += 1
         elif failure_class == "workload":
             self.workload_failures[str(row.get("workload_family") or "unknown")] += 1
-        if row.get("label_row"):
+        elif failure_class != "ok":
+            self.other_failures[failure_class] += 1
+        elif row.get("label_row"):
+            self.measured += 1
             self.ok_rows.append({name: row.get(name) for name in ROW_FIELDS})
+        else:
+            self.rejected_ok[_rejected_reason(row)] += 1
+
+
+def _rejected_reason(row: Mapping[str, Any]) -> str:
+    """Why the label filter refused a class-``ok`` record (module docstring)."""
+    status = row.get("workload_status")
+    if status is None:
+        return REJECTED_NO_STATUS
+    if status != "ok":
+        return str(status)
+    if str(row.get("condition_verified")).lower() == "false":
+        return REJECTED_UNVERIFIED
+    return REJECTED_OTHER  # the label filter grew a clause this does not name
 
 
 @dataclass(frozen=True, slots=True)
@@ -260,11 +309,32 @@ class QualitySummary:
     runs_by_state: Mapping[str, int]
     records: int
     bench_role_records: Mapping[str, int]
+    measured_records: int
+    """Ok measurements the labels use (before latest-per-repetition)."""
     infra_failures: int
     owner_preempted: int
     infra_failure_rate: float | None
     condition_failures: Mapping[str, int]
     workload_failures: Mapping[str, int]
+    rejected_ok: Mapping[str, int]
+    """Class ``ok`` records the label filter refuses, by reason."""
+    other_failures: Mapping[str, int]
+    """Records of any other class (``unavailable``), by class."""
+
+    @property
+    def accounted(self) -> int:
+        """The buckets' sum - equals ``records`` when the failure counts and
+        the streamed records come from one snapshot (they do)."""
+        return (
+            self.measured_records
+            + self.infra_failures
+            + self.owner_preempted
+            + sum(self.condition_failures.values())
+            + sum(self.workload_failures.values())
+            + sum(self.rejected_ok.values())
+            + sum(self.other_failures.values())
+        )
+
     crit1_infra_ok: bool | None
     crit3_reps_ok: bool | None
     configs: int
@@ -393,11 +463,14 @@ def build_quality(
         runs_by_state={s: run_states.get(s, 0) for s in RUN_STATES},
         records=failures.records,
         bench_role_records=dict(sorted(data.roles.items())),
+        measured_records=data.measured,
         infra_failures=failures.infra,
         owner_preempted=failures.preempted,
         infra_failure_rate=rate,
         condition_failures=dict(sorted(data.condition_failures.items())),
         workload_failures=dict(sorted(data.workload_failures.items())),
+        rejected_ok=dict(sorted(data.rejected_ok.items())),
+        other_failures=dict(sorted(data.other_failures.items())),
         crit1_infra_ok=None if pending else crit1_infra_ok(failures),
         crit3_reps_ok=None if pending else crit3,
         configs=len(configs),

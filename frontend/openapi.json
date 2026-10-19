@@ -3788,6 +3788,17 @@
             "title": "Infra Failures",
             "type": "integer"
           },
+          "measured_records": {
+            "title": "Measured Records",
+            "type": "integer"
+          },
+          "other_failures": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Other Failures",
+            "type": "object"
+          },
           "owner_preempted": {
             "title": "Owner Preempted",
             "type": "integer"
@@ -3799,6 +3810,13 @@
           "records": {
             "title": "Records",
             "type": "integer"
+          },
+          "rejected_ok": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Rejected Ok",
+            "type": "object"
           },
           "runs_by_state": {
             "$ref": "#/components/schemas/RunStateCounts"
@@ -3817,11 +3835,14 @@
           "runs_by_state",
           "records",
           "bench_role_records",
+          "measured_records",
           "infra_failures",
           "owner_preempted",
           "infra_failure_rate",
           "condition_failures",
           "workload_failures",
+          "rejected_ok",
+          "other_failures",
           "crit1_infra_ok",
           "crit3_reps_ok",
           "configs",

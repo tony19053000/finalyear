@@ -518,3 +518,116 @@ def test_the_threshold_setting_defaults_to_the_report_default() -> None:
     assert BenchSettings().quality_cv_threshold == DEFAULT_CV_THRESHOLD == 0.10
     with pytest.raises(ValueError, match="quality_cv_threshold"):
         BenchSettings(quality_cv_threshold=0)
+
+
+# ------------------------------------------------- every record in one bucket
+
+
+def _random_row(rng: random.Random, i: int) -> dict[str, Any]:
+    """A record of any class / status / verification; ``label_row`` mirrors
+    ``labels_store.label_filter`` (class ok, status ok, verified not false,
+    no bench_role)."""
+    failure_class = rng.choice(
+        [
+            "ok",
+            "ok",
+            "ok",
+            "workload",
+            "infrastructure",
+            "condition_failed",
+            "unavailable",
+        ]
+    )
+    failure_type = rng.choice([None, "node_lost", "cancelled"])
+    if failure_class == "infrastructure" and rng.random() < 0.5:
+        failure_type = "owner_preempted"  # always class infrastructure (D249)
+    status = rng.choice(["ok", "ok", "check_failed", "bad_params", None])
+    verified = rng.choice(["true", "false", None])
+    role = rng.choice([None] * 8 + ["filler", "warmup"])
+    row: dict[str, Any] = dict.fromkeys(ROW_FIELDS)
+    row.update(
+        attempt_id=f"att_{i:06d}",
+        attempt_no=1,
+        attempt_created_at=dt.datetime(2026, 1, 1, tzinfo=dt.UTC),
+        group_id="g",
+        config_id=rng.choice(["c1", "c2"]),
+        repetition=rng.randint(1, 3),
+        failure_class=failure_class,
+        failure_type=failure_type,
+        workload_family="cpu.sort",
+        condition="none",
+        placement_mode="pinned",
+        workload_status=status,
+        total_ms=rng.randint(1, 100),
+        bench_role=role,
+        condition_verified=verified,
+        label_row=(
+            role is None
+            and failure_class == "ok"
+            and status == "ok"
+            and verified != "false"
+        ),
+    )
+    return row
+
+
+def _sql_counts(rows: list[dict[str, Any]]) -> FailureCounts:
+    """``control.record_failure_counts`` over the same rows."""
+    counted = [r for r in rows if r["bench_role"] is None]
+    return FailureCounts(
+        records=len(counted),
+        infra=sum(
+            1
+            for r in counted
+            if r["failure_class"] == "infrastructure"
+            and r["failure_type"] != "owner_preempted"
+        ),
+        preempted=sum(1 for r in counted if r["failure_type"] == "owner_preempted"),
+    )
+
+
+@pytest.mark.parametrize("seed", range(25))
+def test_the_summary_buckets_sum_to_records(seed: int) -> None:
+    """G5c fix r1 (tester T-3): every non-``bench_role`` record is in exactly
+    one bucket - none vanishes, none is counted twice - and ``other`` (a label
+    filter clause the report does not name) never appears."""
+    rng = random.Random(seed)  # noqa: S311
+    rows = [_random_row(rng, i) for i in range(rng.randint(0, 300))]
+    data = QualityInput()
+    for row in rows:
+        data.add(row)
+    counts = _sql_counts(rows)
+    s = build_quality(
+        "camp", campaign_state="done", runs=[], data=data, failures=counts
+    ).summary
+    assert (data.infra, data.preempted, data.records) == (
+        counts.infra,
+        counts.preempted,
+        counts.records,
+    )
+    assert s.accounted == s.records == counts.records
+    assert s.measured_records == sum(1 for r in rows if r["label_row"])
+    assert "other" not in s.rejected_ok
+    assert sum(s.bench_role_records.values()) == len(rows) - counts.records
+
+
+def test_rejected_reasons() -> None:
+    def one(**kw: Any) -> dict[str, int]:
+        row = {
+            "failure_class": "ok",
+            "workload_status": "ok",
+            "condition_verified": "true",
+            "label_row": False,
+            **kw,
+        }
+        data = QualityInput()
+        data.add(row)
+        return dict(data.rejected_ok)
+
+    assert one(workload_status="check_failed") == {"check_failed": 1}
+    assert one(workload_status=None) == {"no_workload_status": 1}
+    assert one(condition_verified="false") == {"condition_unverified": 1}
+    assert one(condition_verified="false", workload_status="bad_params") == {
+        "bad_params": 1
+    }
+    assert one() == {"other": 1}  # refused for a reason the report cannot name

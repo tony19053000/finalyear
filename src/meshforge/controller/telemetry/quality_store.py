@@ -70,6 +70,7 @@ async def campaign_quality(
             *columns,
             and_(*label_filter(campaign_id)).label("label_row"),
             RunRecord.condition_measured["bench_role"].astext.label("bench_role"),
+            RunRecord.condition_measured["verified"].astext.label("condition_verified"),
         )
         .where(RunRecord.campaign_id == campaign_id)
         .order_by(RunRecord.attempt_id)

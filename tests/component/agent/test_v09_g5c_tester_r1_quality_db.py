@@ -65,12 +65,6 @@ async def test_report_agrees_with_labels_under_noise_and_retries(engine: Any) ->
     assert q.summary.bench_role_records == {"filler": 9, "warmup": 9}
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="tester r1 T-3: records the label filter rejects although "
-    "failure_class = 'ok' (self-check failed, condition not verified) are "
-    "counted in `records` but appear in no bucket and no config statistic",
-)
 async def test_every_record_is_accounted_for_in_the_summary(engine: Any) -> None:  # noqa: F811
     store = BenchStore(engine)
     cid, runs = await make_campaign(store)
@@ -90,7 +84,18 @@ async def test_every_record_is_accounted_for_in_the_summary(engine: Any) -> None
         + s.owner_preempted
         + sum(s.condition_failures.values())
         + sum(s.workload_failures.values())
+        # G5c fix r1 (T-3): the buckets the fix added for the records that
+        # used to vanish (class ok but refused by the label filter; any other
+        # class)
+        + sum(s.rejected_ok.values())
+        + sum(s.other_failures.values())
     )
+    assert s.measured_records == ok_rows
+    assert dict(s.rejected_ok) == {
+        "check_failed": len(runs),
+        "condition_unverified": len(runs),
+    }
+    assert accounted == s.accounted
     assert accounted == s.records, (
         "records the label filter rejects with failure_class 'ok' "
         "(check_failed / unverified condition) are in no bucket",

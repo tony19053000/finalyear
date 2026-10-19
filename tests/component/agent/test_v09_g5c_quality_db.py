@@ -161,6 +161,9 @@ async def test_every_number_of_a_seeded_campaign(engine: AsyncEngine) -> None:  
     assert s.infra_failure_rate == 0.1  # 1 / (11 - 1)
     assert s.condition_failures == {"cpu_load:1": 1}
     assert s.workload_failures == {}
+    # G5c fix r1 (T-3): every record in exactly one bucket
+    assert s.measured_records == 8 and s.rejected_ok == {} and s.other_failures == {}
+    assert s.accounted == s.records
     assert s.crit1_infra_ok is False and s.crit3_reps_ok is False
     assert (s.configs, s.flagged_configs, s.cv_threshold) == (3, 2, 0.10)
 
@@ -199,3 +202,75 @@ async def test_an_empty_campaign(engine: AsyncEngine) -> None:  # noqa: F811
     assert q.summary.records == 0 and q.summary.pending
     assert q.summary.runs_by_state["planned"] == 9
     assert all(c.n == 0 and c.reps_flag for c in q.configs) and len(q.configs) == 3
+
+
+async def test_every_kind_of_record_lands_in_exactly_one_bucket(
+    engine: AsyncEngine,  # noqa: F811
+) -> None:
+    """G5c fix r1 (tester T-3): class-``ok`` records the label filter refuses
+    (self-check failed, no workload status, condition not verified) and an
+    ``unavailable`` record are counted - by reason / class - and the buckets
+    sum to ``records``; ``other`` (a filter clause the report cannot name)
+    stays empty."""
+    cid, runs = await make_campaign(BenchStore(engine))
+    await finish(engine, runs, TOTALS)
+    run = by_node(runs)[NODE_A][0]
+    extra = [
+        record(
+            run, 1, job_id="job_rejcheck00001", at_s=20, workload_status="check_failed"
+        ),
+        record(
+            run, 1, job_id="job_rejbadprm0001", at_s=21, workload_status="bad_params"
+        ),
+        record(run, 1, job_id="job_rejnostat0001", at_s=22, workload_status=None),
+        record(
+            run,
+            1,
+            job_id="job_rejunver00001",
+            at_s=23,
+            condition_measured={"verified": False, "reason": "x"},
+        ),
+        record(
+            run,
+            1,
+            job_id="job_rejboth000001",
+            at_s=24,
+            workload_status="check_failed",
+            condition_measured={"verified": False, "reason": "x"},
+        ),
+        record(
+            run,
+            1,
+            job_id="job_unavail000001",
+            at_s=25,
+            attempt_state="failed",
+            failure_class="unavailable",
+            failure_type="cancelled",
+        ),
+        record(
+            run,
+            1,
+            job_id="job_wlfail0000001",
+            at_s=26,
+            attempt_state="failed",
+            failure_class="workload",
+            workload_status="check_failed",
+        ),
+    ]
+    await insert_records(engine, extra)
+    s = (await campaign_quality(engine, cid, campaign_state="done")).summary
+    assert s.rejected_ok == {
+        "bad_params": 1,
+        "check_failed": 2,  # the status wins over verified = false
+        "condition_unverified": 1,
+        "no_workload_status": 1,
+    }
+    assert s.other_failures == {"unavailable": 1}
+    assert sum(s.workload_failures.values()) == 1
+    assert s.measured_records == 8  # C's infrastructure failure is not measured
+    assert s.records == 9 + len(extra)
+    assert s.accounted == s.records
+    out = quality_out(await campaign_quality(engine, cid, campaign_state="done"))
+    assert out.summary.rejected_ok == dict(s.rejected_ok)
+    assert out.summary.other_failures == {"unavailable": 1}
+    assert out.summary.measured_records == 8

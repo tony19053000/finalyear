@@ -71,11 +71,14 @@ def summary_lines(doc: Mapping[str, Any]) -> list[str]:
         "runs: " + ", ".join(f"{k} {v}" for k, v in runs.items()),
         f"records: {s.get('records', 0)} "
         f"(fillers / warm-ups apart: {_counts(s.get('bench_role_records'))})",
+        f"measured (ok, used by the labels): {s.get('measured_records', 0)}",
         f"infrastructure failures: {_pct(s.get('infra_failure_rate'))} "
         f"({s.get('infra_failures', 0)}; {s.get('owner_preempted', 0)} stopped by "
         "the owner guard, not counted)",
         f"condition failures: {_counts(s.get('condition_failures'))}",
         f"workload failures: {_counts(s.get('workload_failures'))}",
+        f"ok but rejected by the label filter: {_counts(s.get('rejected_ok'))}",
+        f"other failures: {_counts(s.get('other_failures'))}",
         f"criterion 1 (infra failures < 2 %): {_verdict(s.get('crit1_infra_ok'))}",
         "criterion 3 (every config >= 3 repetitions with a CV): "
         + _verdict(s.get("crit3_reps_ok")),
