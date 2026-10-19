@@ -44,7 +44,17 @@ from collections.abc import (
 from dataclasses import dataclass, field
 from typing import Any, Final
 
-from sqlalchemy import String, case, cast, func, insert, or_, select, update
+from sqlalchemy import (
+    ColumnElement,
+    String,
+    case,
+    cast,
+    func,
+    insert,
+    or_,
+    select,
+    update,
+)
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
@@ -438,6 +448,29 @@ class BenchStore:
                     select(BenchCampaign)
                     .order_by(BenchCampaign.created_at.desc(), BenchCampaign.id.desc())
                     .limit(limit)
+                )
+            )
+            counts = await self._counts(db, [r.id for r in rows])
+            return [_campaign(r, counts[r.id]) for r in rows]
+
+    @_typed
+    async def progress_campaigns(
+        self, also: Collection[str] = ()
+    ) -> list[CampaignRecord]:
+        """G5c item 0.6 (D252.3): the campaigns the runner reports progress
+        for - **started** and ``active`` / ``paused``, plus ``also`` (ones it
+        reported before, for their one final event) - by id. Not a newest-50
+        page: an old running campaign is never missed, a long history never
+        read."""
+        clause: ColumnElement[bool] = BenchCampaign.state.in_(("active", "paused"))
+        if also:
+            clause = or_(clause, BenchCampaign.id.in_(sorted(also)))
+        async with self._sessions() as db:
+            rows = list(
+                await db.scalars(
+                    select(BenchCampaign)
+                    .where(BenchCampaign.started_at.is_not(None), clause)
+                    .order_by(BenchCampaign.id)
                 )
             )
             counts = await self._counts(db, [r.id for r in rows])

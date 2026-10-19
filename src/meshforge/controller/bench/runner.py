@@ -182,6 +182,7 @@ class BenchRunner:
         await self._store.sync()
         campaigns = await self._control.runner_campaigns()
         report.campaigns = len(campaigns)
+        self._prune({c.id for c in campaigns})
         user_busy = await self._control.user_busy_nodes() if campaigns else set()
         left = self.settings.max_submit_per_tick
         for campaign in campaigns:
@@ -237,6 +238,15 @@ class BenchRunner:
             )
         return report
 
+    def _prune(self, active: set[str]) -> None:
+        """G5c item 0.6 (D252.2): the budget and cursor caches hold only the
+        campaigns the runner drives now (a paused / finished / deleted one is
+        dropped: after a resume its budget is parsed again and its scan starts
+        at the head) - the caches never grow with the campaign history."""
+        for cache in (self._budgets, self._cursors):
+            for gone in set(cache) - active:
+                del cache[gone]
+
     async def _node_budget(
         self, campaign: RunnerCampaign, user_busy: set[str], report: TickReport
     ) -> dict[str, int]:
@@ -270,7 +280,12 @@ class BenchRunner:
         if self._publish is None:
             return
         now = self._clock()
-        for record in await self._store.list_campaigns(limit=50):
+        records = await self._store.progress_campaigns(set(self._last_progress))
+        # G5c item 0.6 (D252.2): forget campaigns that are gone
+        seen = {r.id for r in records}
+        for gone in set(self._last_progress) - seen:
+            del self._last_progress[gone]
+        for record in records:
             if record.started_at is None:
                 continue
             if record.state not in ("active", "paused") and (

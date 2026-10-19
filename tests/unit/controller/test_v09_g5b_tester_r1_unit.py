@@ -265,6 +265,10 @@ class Store:
     async def list_campaigns(self, limit: int = 50) -> list[Rec]:
         return self.records
 
+    async def progress_campaigns(self, _also: Any = ()) -> list[Rec]:
+        # G5c item 0.6: a superset is fine - the runner filters again
+        return self.records
+
 
 class Submitter:
     def __init__(self) -> None:

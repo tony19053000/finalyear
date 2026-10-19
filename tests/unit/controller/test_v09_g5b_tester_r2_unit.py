@@ -368,6 +368,9 @@ class _Store:
     async def list_campaigns(self, limit: int = 50) -> list[Any]:
         return []
 
+    async def progress_campaigns(self, _also: Any = ()) -> list[Any]:
+        return []  # G5c item 0.6: the runner's progress read
+
 
 def _runner(camps: list[Any], sub: Any) -> BenchRunner:
     return BenchRunner(
