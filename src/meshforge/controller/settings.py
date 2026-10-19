@@ -1403,6 +1403,35 @@ class SplitSettings(SectionModel):
             "makes more is refused at submit."
         ),
     )
+    # --- V0.10 G4 (D263/D267): lanes and chunk leases ----------------------
+    visibility_timeout_s: float = Field(
+        default=60.0,
+        ge=5.0,
+        le=86_400.0,
+        description=(
+            "A chunk lease expires this long after it was granted or last "
+            "renewed (the lane renews every third of it); an expired chunk goes "
+            "back to pending - a partitioned or hung lane cannot hold it."
+        ),
+    )
+    wait_retry_s: float = Field(
+        default=2.0,
+        gt=0.0,
+        le=60.0,
+        description=(
+            "NoWork(wait): how long an idle lane waits before asking again "
+            "while every remaining chunk is leased elsewhere."
+        ),
+    )
+    max_failed_nodes: int = Field(
+        default=2,
+        ge=1,
+        le=64,
+        description=(
+            "A chunk that failed on this many different nodes fails the job "
+            "(D267c); retry.max_attempts bounds the tries of one chunk too."
+        ),
+    )
 
 
 class ControllerSection(SectionModel):

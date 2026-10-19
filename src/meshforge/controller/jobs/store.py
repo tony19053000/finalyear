@@ -60,6 +60,7 @@ from meshforge.common.logging import get_logger
 from meshforge.common.states import (
     ATTEMPT_TERMINAL_STATES,
     AttemptPhase,
+    AttemptRole,
     AttemptState,
     JobState,
 )
@@ -191,6 +192,9 @@ class SplitRecord:
     item_bytes: int | None = None
     """Bytes the items stand for (glob files / lines records); None for
     strings and integers."""
+    parts_digest: str | None = None
+    """V0.10 G4 (migration 0027): the parts index, once every chunk is
+    committed (``controller.split.parts``)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -253,6 +257,8 @@ class AttemptRecord:
     missing_outputs: tuple[str, ...] = ()
     logs: Mapping[str, Any] | None = None
     """Final logs per stream (D71): ``{"stdout": {"digest", "bytes", "truncated"}}``."""
+    role: AttemptRole = AttemptRole.RUN
+    """V0.10 G4 (D259): ``run`` / ``lane`` / ``combine``."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -303,6 +309,7 @@ def job_record(row: Job) -> JobRecord:
             item_bytes=None
             if row.split_item_bytes is None
             else int(row.split_item_bytes),
+            parts_digest=row.split_parts_digest,
         ),
     )
 
@@ -326,6 +333,7 @@ def attempt_record(row: Attempt) -> AttemptRecord:
         runtime=row.runtime,
         missing_outputs=tuple(row.missing_outputs or ()),
         logs=dict(row.logs) if row.logs else None,
+        role=AttemptRole(row.role or AttemptRole.RUN.value),
     )
 
 

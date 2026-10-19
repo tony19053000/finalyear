@@ -202,6 +202,9 @@ class AgentMessage(_message.Message):
     GOODBYE_FIELD_NUMBER: _builtins.int
     PREPARE_ENV_STATUS_FIELD_NUMBER: _builtins.int
     POLICY_UPDATE_FIELD_NUMBER: _builtins.int
+    CHUNK_REQUEST_FIELD_NUMBER: _builtins.int
+    CHUNK_RESULT_FIELD_NUMBER: _builtins.int
+    LEASE_RENEW_FIELD_NUMBER: _builtins.int
     message_id: _builtins.str
     """Unique per message (ULID); echoed back in Ack.acked_message_id."""
     session_id: _builtins.str
@@ -261,6 +264,18 @@ class AgentMessage(_message.Message):
         The newest one wins; the next Hello carries the policy again.
         """
 
+    @_builtins.property
+    def chunk_request(self) -> Global___ChunkRequest:
+        """V0.10 G4 (D263): Mode 3 lanes. ChunkRequest and LeaseRenew are never
+        buffered, replayed or acked (a lost one is simply sent again);
+        ChunkResult is a report: buffered, replayed after a reconnect and acked
+        only once the controller stored it.
+        """
+
+    @_builtins.property
+    def chunk_result(self) -> Global___ChunkResult: ...
+    @_builtins.property
+    def lease_renew(self) -> Global___LeaseRenew: ...
     def __init__(
         self,
         *,
@@ -281,12 +296,15 @@ class AgentMessage(_message.Message):
         goodbye: Global___Goodbye | None = ...,
         prepare_env_status: Global___PrepareEnvStatus | None = ...,
         policy_update: Global___PolicyUpdate | None = ...,
+        chunk_request: Global___ChunkRequest | None = ...,
+        chunk_result: Global___ChunkResult | None = ...,
+        lease_renew: Global___LeaseRenew | None = ...,
     ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _typing.Literal["ack", b"ack", "attempt_status", b"attempt_status", "cache_report", b"cache_report", "goodbye", b"goodbye", "hardware_scores", b"hardware_scores", "heartbeat", b"heartbeat", "hello", b"hello", "log_chunk", b"log_chunk", "net_probe_result", b"net_probe_result", "payload", b"payload", "policy_update", b"policy_update", "pong", b"pong", "prepare_env_status", b"prepare_env_status", "reconcile", b"reconcile", "resource_update", b"resource_update", "sent_at", b"sent_at"]  # noqa: Y015
+    _HasFieldArgType: _TypeAlias = _typing.Literal["ack", b"ack", "attempt_status", b"attempt_status", "cache_report", b"cache_report", "chunk_request", b"chunk_request", "chunk_result", b"chunk_result", "goodbye", b"goodbye", "hardware_scores", b"hardware_scores", "heartbeat", b"heartbeat", "hello", b"hello", "lease_renew", b"lease_renew", "log_chunk", b"log_chunk", "net_probe_result", b"net_probe_result", "payload", b"payload", "policy_update", b"policy_update", "pong", b"pong", "prepare_env_status", b"prepare_env_status", "reconcile", b"reconcile", "resource_update", b"resource_update", "sent_at", b"sent_at"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["ack", b"ack", "attempt_status", b"attempt_status", "cache_report", b"cache_report", "goodbye", b"goodbye", "hardware_scores", b"hardware_scores", "heartbeat", b"heartbeat", "hello", b"hello", "log_chunk", b"log_chunk", "message_id", b"message_id", "net_probe_result", b"net_probe_result", "payload", b"payload", "policy_update", b"policy_update", "pong", b"pong", "prepare_env_status", b"prepare_env_status", "reconcile", b"reconcile", "resource_update", b"resource_update", "sent_at", b"sent_at", "session_id", b"session_id"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["ack", b"ack", "attempt_status", b"attempt_status", "cache_report", b"cache_report", "chunk_request", b"chunk_request", "chunk_result", b"chunk_result", "goodbye", b"goodbye", "hardware_scores", b"hardware_scores", "heartbeat", b"heartbeat", "hello", b"hello", "lease_renew", b"lease_renew", "log_chunk", b"log_chunk", "message_id", b"message_id", "net_probe_result", b"net_probe_result", "payload", b"payload", "policy_update", b"policy_update", "pong", b"pong", "prepare_env_status", b"prepare_env_status", "reconcile", b"reconcile", "resource_update", b"resource_update", "sent_at", b"sent_at", "session_id", b"session_id"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
-    _WhichOneofReturnType_payload: _TypeAlias = _typing.Literal["hello", "reconcile", "heartbeat", "resource_update", "cache_report", "net_probe_result", "attempt_status", "log_chunk", "ack", "pong", "hardware_scores", "goodbye", "prepare_env_status", "policy_update"]  # noqa: Y015
+    _WhichOneofReturnType_payload: _TypeAlias = _typing.Literal["hello", "reconcile", "heartbeat", "resource_update", "cache_report", "net_probe_result", "attempt_status", "log_chunk", "ack", "pong", "hardware_scores", "goodbye", "prepare_env_status", "policy_update", "chunk_request", "chunk_result", "lease_renew"]  # noqa: Y015
     _WhichOneofArgType_payload: _TypeAlias = _typing.Literal["payload", b"payload"]  # noqa: Y015
     def WhichOneof(self, oneof_group: _WhichOneofArgType_payload) -> _WhichOneofReturnType_payload | None: ...
 
@@ -313,6 +331,9 @@ class ControllerMessage(_message.Message):
     REFRESH_UPLOAD_GRANT_FIELD_NUMBER: _builtins.int
     REFRESH_PEER_TOKENS_FIELD_NUMBER: _builtins.int
     REVOCATION_UPDATE_FIELD_NUMBER: _builtins.int
+    CHUNK_GRANT_FIELD_NUMBER: _builtins.int
+    NO_WORK_FIELD_NUMBER: _builtins.int
+    CANCEL_CHUNK_FIELD_NUMBER: _builtins.int
     message_id: _builtins.str
     """Unique per message (ULID); the command ID the agent deduplicates on."""
     session_id: _builtins.str
@@ -371,6 +392,17 @@ class ControllerMessage(_message.Message):
         on a missing Ack (D113); every HelloAck carries the full set too.
         """
 
+    @_builtins.property
+    def chunk_grant(self) -> Global___ChunkGrant:
+        """V0.10 G4 (D263): the answers to a lane's ChunkRequest, and the stop of
+        one chunk (a superseded copy, a cancelled job). Commands: acked by the
+        agent, never re-sent by a timer (the lane asks again).
+        """
+
+    @_builtins.property
+    def no_work(self) -> Global___NoWork: ...
+    @_builtins.property
+    def cancel_chunk(self) -> Global___CancelChunk: ...
     def __init__(
         self,
         *,
@@ -389,12 +421,15 @@ class ControllerMessage(_message.Message):
         refresh_upload_grant: Global___RefreshUploadGrant | None = ...,
         refresh_peer_tokens: Global___RefreshPeerTokens | None = ...,
         revocation_update: Global___RevocationUpdate | None = ...,
+        chunk_grant: Global___ChunkGrant | None = ...,
+        no_work: Global___NoWork | None = ...,
+        cancel_chunk: Global___CancelChunk | None = ...,
     ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _typing.Literal["ack", b"ack", "cancel_attempt", b"cancel_attempt", "gc", b"gc", "hello_ack", b"hello_ack", "payload", b"payload", "ping", b"ping", "prepare_env", b"prepare_env", "probe_request", b"probe_request", "refresh_fetch_token", b"refresh_fetch_token", "refresh_peer_tokens", b"refresh_peer_tokens", "refresh_upload_grant", b"refresh_upload_grant", "revocation_update", b"revocation_update", "sent_at", b"sent_at", "start_attempt", b"start_attempt"]  # noqa: Y015
+    _HasFieldArgType: _TypeAlias = _typing.Literal["ack", b"ack", "cancel_attempt", b"cancel_attempt", "cancel_chunk", b"cancel_chunk", "chunk_grant", b"chunk_grant", "gc", b"gc", "hello_ack", b"hello_ack", "no_work", b"no_work", "payload", b"payload", "ping", b"ping", "prepare_env", b"prepare_env", "probe_request", b"probe_request", "refresh_fetch_token", b"refresh_fetch_token", "refresh_peer_tokens", b"refresh_peer_tokens", "refresh_upload_grant", b"refresh_upload_grant", "revocation_update", b"revocation_update", "sent_at", b"sent_at", "start_attempt", b"start_attempt"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["ack", b"ack", "cancel_attempt", b"cancel_attempt", "gc", b"gc", "hello_ack", b"hello_ack", "message_id", b"message_id", "payload", b"payload", "ping", b"ping", "prepare_env", b"prepare_env", "probe_request", b"probe_request", "refresh_fetch_token", b"refresh_fetch_token", "refresh_peer_tokens", b"refresh_peer_tokens", "refresh_upload_grant", b"refresh_upload_grant", "revocation_update", b"revocation_update", "sent_at", b"sent_at", "session_id", b"session_id", "start_attempt", b"start_attempt"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["ack", b"ack", "cancel_attempt", b"cancel_attempt", "cancel_chunk", b"cancel_chunk", "chunk_grant", b"chunk_grant", "gc", b"gc", "hello_ack", b"hello_ack", "message_id", b"message_id", "no_work", b"no_work", "payload", b"payload", "ping", b"ping", "prepare_env", b"prepare_env", "probe_request", b"probe_request", "refresh_fetch_token", b"refresh_fetch_token", "refresh_peer_tokens", b"refresh_peer_tokens", "refresh_upload_grant", b"refresh_upload_grant", "revocation_update", b"revocation_update", "sent_at", b"sent_at", "session_id", b"session_id", "start_attempt", b"start_attempt"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
-    _WhichOneofReturnType_payload: _TypeAlias = _typing.Literal["start_attempt", "cancel_attempt", "probe_request", "prepare_env", "gc", "ack", "hello_ack", "ping", "refresh_fetch_token", "refresh_upload_grant", "refresh_peer_tokens", "revocation_update"]  # noqa: Y015
+    _WhichOneofReturnType_payload: _TypeAlias = _typing.Literal["start_attempt", "cancel_attempt", "probe_request", "prepare_env", "gc", "ack", "hello_ack", "ping", "refresh_fetch_token", "refresh_upload_grant", "refresh_peer_tokens", "revocation_update", "chunk_grant", "no_work", "cancel_chunk"]  # noqa: Y015
     _WhichOneofArgType_payload: _TypeAlias = _typing.Literal["payload", b"payload"]  # noqa: Y015
     def WhichOneof(self, oneof_group: _WhichOneofArgType_payload) -> _WhichOneofReturnType_payload | None: ...
 
@@ -1790,6 +1825,7 @@ class StartAttempt(_message.Message):
     SECRETS_FIELD_NUMBER: _builtins.int
     CONDITION_FIELD_NUMBER: _builtins.int
     BENCHMARK_FIELD_NUMBER: _builtins.int
+    LANE_FIELD_NUMBER: _builtins.int
     job_id: _builtins.str
     attempt_id: _builtins.str
     fencing_token: _builtins.int
@@ -1823,6 +1859,15 @@ class StartAttempt(_message.Message):
         string and refuses a kind it did not advertise.
         """
 
+    @_builtins.property
+    def lane(self) -> Global___LaneSpec:
+        """V0.10 G4 (D259): present = this attempt is a LANE of a Mode 3 (split)
+        job. The agent stages the project and builds the env once, then pulls
+        chunks (ChunkRequest) and runs the entrypoint once per chunk. An agent
+        that does not know this field never gets a lane: the controller places
+        lanes only on nodes advertising the "exec-split" capability.
+        """
+
     def __init__(
         self,
         *,
@@ -1833,14 +1878,55 @@ class StartAttempt(_message.Message):
         secrets: _abc.Iterable[Global___JobSecret] | None = ...,
         condition: Global___BenchCondition | None = ...,
         benchmark: _builtins.bool = ...,
+        lane: Global___LaneSpec | None = ...,
     ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _typing.Literal["condition", b"condition", "spec", b"spec"]  # noqa: Y015
+    _HasFieldArgType: _TypeAlias = _typing.Literal["condition", b"condition", "lane", b"lane", "spec", b"spec"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["attempt_id", b"attempt_id", "benchmark", b"benchmark", "condition", b"condition", "fencing_token", b"fencing_token", "job_id", b"job_id", "secrets", b"secrets", "spec", b"spec"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["attempt_id", b"attempt_id", "benchmark", b"benchmark", "condition", b"condition", "fencing_token", b"fencing_token", "job_id", b"job_id", "lane", b"lane", "secrets", b"secrets", "spec", b"spec"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___StartAttempt: _TypeAlias = StartAttempt  # noqa: Y015
+
+@_typing.final
+class LaneSpec(_message.Message):
+    """A lane's chunk source (V0.10 G4, D259/D263/D264)."""
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    ITEMS_DIGEST_FIELD_NUMBER: _builtins.int
+    ITEM_COUNT_FIELD_NUMBER: _builtins.int
+    MAX_CHUNK_OUTPUT_BYTES_FIELD_NUMBER: _builtins.int
+    LEASE_TIMEOUT_S_FIELD_NUMBER: _builtins.int
+    items_digest: _builtins.str
+    """"sha256:<64 hex>" of the job's item list (the canonical JSON blob of
+    common/split_items.py, resolved once at submit). The attempt's fetch token
+    may read it; the agent verifies its digest before use.
+    """
+    item_count: _builtins.int
+    max_chunk_output_bytes: _builtins.int
+    """Bytes one chunk's packed output may have (split.max_chunk_output_bytes);
+    more fails the chunk output_error.
+    """
+    lease_timeout_s: _builtins.float
+    """The lease (visibility) timeout; the agent renews its live leases every
+    third of it (LeaseRenew).
+    """
+    def __init__(
+        self,
+        *,
+        items_digest: _builtins.str = ...,
+        item_count: _builtins.int = ...,
+        max_chunk_output_bytes: _builtins.int = ...,
+        lease_timeout_s: _builtins.float = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["item_count", b"item_count", "items_digest", b"items_digest", "lease_timeout_s", b"lease_timeout_s", "max_chunk_output_bytes", b"max_chunk_output_bytes"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___LaneSpec: _TypeAlias = LaneSpec  # noqa: Y015
 
 @_typing.final
 class BenchCondition(_message.Message):
@@ -2673,6 +2759,430 @@ class Ack(_message.Message):
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___Ack: _TypeAlias = Ack  # noqa: Y015
+
+@_typing.final
+class ChunkLeaseRef(_message.Message):
+    """---------------------------------------------------------------------------
+    Mode 3 lanes (V0.10 G4, D263, ADR-0019)
+    ---------------------------------------------------------------------------
+
+    A lane (an attempt with StartAttempt.lane) pulls chunks: ChunkRequest ->
+    ChunkGrant (or NoWork) -> runs the chunk -> ChunkResult. Every message names
+    the lane (attempt_id + fencing_token) and every chunk message its lease
+    (item_id + lease_seq, the work queue's fencing pair): a message whose lane
+    token or lease does not match is counted and logged by the controller and
+    never applied. A chunk result is committed at most once (the first
+    committed result of a chunk wins); a late one from an expired lease commits
+    only while the chunk is still not done (ADR-0015).
+
+    One lease a lane holds (work item id + its lease sequence number).
+    """
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    ITEM_ID_FIELD_NUMBER: _builtins.int
+    LEASE_SEQ_FIELD_NUMBER: _builtins.int
+    item_id: _builtins.int
+    lease_seq: _builtins.int
+    def __init__(
+        self,
+        *,
+        item_id: _builtins.int = ...,
+        lease_seq: _builtins.int = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["item_id", b"item_id", "lease_seq", b"lease_seq"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___ChunkLeaseRef: _TypeAlias = ChunkLeaseRef  # noqa: Y015
+
+@_typing.final
+class ChunkRequest(_message.Message):
+    """Agent -> controller: "give me up to `want` chunks". `held` lists the leases
+    the lane holds now: a live lease of this lane that is not listed was lost on
+    the way (a broken stream ate its grant) and is granted again first.
+    """
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    JOB_ID_FIELD_NUMBER: _builtins.int
+    ATTEMPT_ID_FIELD_NUMBER: _builtins.int
+    FENCING_TOKEN_FIELD_NUMBER: _builtins.int
+    WANT_FIELD_NUMBER: _builtins.int
+    HELD_FIELD_NUMBER: _builtins.int
+    job_id: _builtins.str
+    attempt_id: _builtins.str
+    fencing_token: _builtins.int
+    want: _builtins.int
+    @_builtins.property
+    def held(self) -> _containers.RepeatedCompositeFieldContainer[Global___ChunkLeaseRef]: ...
+    def __init__(
+        self,
+        *,
+        job_id: _builtins.str = ...,
+        attempt_id: _builtins.str = ...,
+        fencing_token: _builtins.int = ...,
+        want: _builtins.int = ...,
+        held: _abc.Iterable[Global___ChunkLeaseRef] | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["attempt_id", b"attempt_id", "fencing_token", b"fencing_token", "held", b"held", "job_id", b"job_id", "want", b"want"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___ChunkRequest: _TypeAlias = ChunkRequest  # noqa: Y015
+
+@_typing.final
+class GrantedChunk(_message.Message):
+    """One granted chunk: items [first_item, first_item + item_count) of the
+    job's item list.
+    """
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    CHUNK_INDEX_FIELD_NUMBER: _builtins.int
+    ITEM_ID_FIELD_NUMBER: _builtins.int
+    LEASE_SEQ_FIELD_NUMBER: _builtins.int
+    FIRST_ITEM_FIELD_NUMBER: _builtins.int
+    ITEM_COUNT_FIELD_NUMBER: _builtins.int
+    ITEMS_DIGEST_FIELD_NUMBER: _builtins.int
+    SPECULATIVE_FIELD_NUMBER: _builtins.int
+    chunk_index: _builtins.int
+    item_id: _builtins.int
+    lease_seq: _builtins.int
+    first_item: _builtins.int
+    item_count: _builtins.int
+    items_digest: _builtins.str
+    """"sha256:<64 hex>" of the canonical JSON array of this chunk's items (the
+    agent checks the slice it cut from the item list against it).
+    """
+    speculative: _builtins.bool
+    def __init__(
+        self,
+        *,
+        chunk_index: _builtins.int = ...,
+        item_id: _builtins.int = ...,
+        lease_seq: _builtins.int = ...,
+        first_item: _builtins.int = ...,
+        item_count: _builtins.int = ...,
+        items_digest: _builtins.str = ...,
+        speculative: _builtins.bool = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["chunk_index", b"chunk_index", "first_item", b"first_item", "item_count", b"item_count", "item_id", b"item_id", "items_digest", b"items_digest", "lease_seq", b"lease_seq", "speculative", b"speculative"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___GrantedChunk: _TypeAlias = GrantedChunk  # noqa: Y015
+
+@_typing.final
+class ChunkGrant(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    JOB_ID_FIELD_NUMBER: _builtins.int
+    ATTEMPT_ID_FIELD_NUMBER: _builtins.int
+    FENCING_TOKEN_FIELD_NUMBER: _builtins.int
+    CHUNKS_FIELD_NUMBER: _builtins.int
+    LEASE_TIMEOUT_S_FIELD_NUMBER: _builtins.int
+    job_id: _builtins.str
+    attempt_id: _builtins.str
+    fencing_token: _builtins.int
+    lease_timeout_s: _builtins.float
+    """Seconds until these leases expire unless renewed."""
+    @_builtins.property
+    def chunks(self) -> _containers.RepeatedCompositeFieldContainer[Global___GrantedChunk]: ...
+    def __init__(
+        self,
+        *,
+        job_id: _builtins.str = ...,
+        attempt_id: _builtins.str = ...,
+        fencing_token: _builtins.int = ...,
+        chunks: _abc.Iterable[Global___GrantedChunk] | None = ...,
+        lease_timeout_s: _builtins.float = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["attempt_id", b"attempt_id", "chunks", b"chunks", "fencing_token", b"fencing_token", "job_id", b"job_id", "lease_timeout_s", b"lease_timeout_s"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___ChunkGrant: _TypeAlias = ChunkGrant  # noqa: Y015
+
+@_typing.final
+class NoWork(_message.Message):
+    """Controller -> agent: nothing to grant now."""
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    class _Reason:
+        ValueType = _typing.NewType("ValueType", _builtins.int)
+        V: _TypeAlias = ValueType  # noqa: Y015
+
+    class _ReasonEnumTypeWrapper(_enum_type_wrapper._EnumTypeWrapper[NoWork._Reason.ValueType], _builtins.type):
+        DESCRIPTOR: _descriptor.EnumDescriptor
+        REASON_UNSPECIFIED: NoWork._Reason.ValueType  # 0
+        REASON_DRAINED: NoWork._Reason.ValueType  # 1
+        """Every chunk is done or held by others for good: the lane ends (DONE)."""
+        REASON_WAIT: NoWork._Reason.ValueType  # 2
+        """Chunks are still leased elsewhere and may come back: ask again after
+        retry_after_s.
+        """
+        REASON_STOP: NoWork._Reason.ValueType  # 3
+        """The lane must stop pulling (the job failed or was cancelled; the
+        CancelAttempt follows).
+        """
+
+    class Reason(_Reason, metaclass=_ReasonEnumTypeWrapper): ...
+    REASON_UNSPECIFIED: NoWork.Reason.ValueType  # 0
+    REASON_DRAINED: NoWork.Reason.ValueType  # 1
+    """Every chunk is done or held by others for good: the lane ends (DONE)."""
+    REASON_WAIT: NoWork.Reason.ValueType  # 2
+    """Chunks are still leased elsewhere and may come back: ask again after
+    retry_after_s.
+    """
+    REASON_STOP: NoWork.Reason.ValueType  # 3
+    """The lane must stop pulling (the job failed or was cancelled; the
+    CancelAttempt follows).
+    """
+
+    JOB_ID_FIELD_NUMBER: _builtins.int
+    ATTEMPT_ID_FIELD_NUMBER: _builtins.int
+    FENCING_TOKEN_FIELD_NUMBER: _builtins.int
+    REASON_FIELD_NUMBER: _builtins.int
+    RETRY_AFTER_S_FIELD_NUMBER: _builtins.int
+    job_id: _builtins.str
+    attempt_id: _builtins.str
+    fencing_token: _builtins.int
+    reason: Global___NoWork.Reason.ValueType
+    retry_after_s: _builtins.float
+    def __init__(
+        self,
+        *,
+        job_id: _builtins.str = ...,
+        attempt_id: _builtins.str = ...,
+        fencing_token: _builtins.int = ...,
+        reason: Global___NoWork.Reason.ValueType = ...,
+        retry_after_s: _builtins.float = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["attempt_id", b"attempt_id", "fencing_token", b"fencing_token", "job_id", b"job_id", "reason", b"reason", "retry_after_s", b"retry_after_s"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___NoWork: _TypeAlias = NoWork  # noqa: Y015
+
+@_typing.final
+class ChunkPhases(_message.Message):
+    """Durations of one chunk on the agent's monotonic clock (seconds)."""
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    STAGE_S_FIELD_NUMBER: _builtins.int
+    ENV_S_FIELD_NUMBER: _builtins.int
+    RUN_S_FIELD_NUMBER: _builtins.int
+    UPLOAD_S_FIELD_NUMBER: _builtins.int
+    stage_s: _builtins.float
+    env_s: _builtins.float
+    run_s: _builtins.float
+    upload_s: _builtins.float
+    def __init__(
+        self,
+        *,
+        stage_s: _builtins.float | None = ...,
+        env_s: _builtins.float | None = ...,
+        run_s: _builtins.float | None = ...,
+        upload_s: _builtins.float | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["_env_s", b"_env_s", "_run_s", b"_run_s", "_stage_s", b"_stage_s", "_upload_s", b"_upload_s", "env_s", b"env_s", "run_s", b"run_s", "stage_s", b"stage_s", "upload_s", b"upload_s"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["_env_s", b"_env_s", "_run_s", b"_run_s", "_stage_s", b"_stage_s", "_upload_s", b"_upload_s", "env_s", b"env_s", "run_s", b"run_s", "stage_s", b"stage_s", "upload_s", b"upload_s"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    _WhichOneofReturnType__env_s: _TypeAlias = _typing.Literal["env_s"]  # noqa: Y015
+    _WhichOneofArgType__env_s: _TypeAlias = _typing.Literal["_env_s", b"_env_s"]  # noqa: Y015
+    _WhichOneofReturnType__run_s: _TypeAlias = _typing.Literal["run_s"]  # noqa: Y015
+    _WhichOneofArgType__run_s: _TypeAlias = _typing.Literal["_run_s", b"_run_s"]  # noqa: Y015
+    _WhichOneofReturnType__stage_s: _TypeAlias = _typing.Literal["stage_s"]  # noqa: Y015
+    _WhichOneofArgType__stage_s: _TypeAlias = _typing.Literal["_stage_s", b"_stage_s"]  # noqa: Y015
+    _WhichOneofReturnType__upload_s: _TypeAlias = _typing.Literal["upload_s"]  # noqa: Y015
+    _WhichOneofArgType__upload_s: _TypeAlias = _typing.Literal["_upload_s", b"_upload_s"]  # noqa: Y015
+    @_typing.overload
+    def WhichOneof(self, oneof_group: _WhichOneofArgType__env_s) -> _WhichOneofReturnType__env_s | None: ...
+    @_typing.overload
+    def WhichOneof(self, oneof_group: _WhichOneofArgType__run_s) -> _WhichOneofReturnType__run_s | None: ...
+    @_typing.overload
+    def WhichOneof(self, oneof_group: _WhichOneofArgType__stage_s) -> _WhichOneofReturnType__stage_s | None: ...
+    @_typing.overload
+    def WhichOneof(self, oneof_group: _WhichOneofArgType__upload_s) -> _WhichOneofReturnType__upload_s | None: ...
+
+Global___ChunkPhases: _TypeAlias = ChunkPhases  # noqa: Y015
+
+@_typing.final
+class ChunkResult(_message.Message):
+    """Agent -> controller (a report: buffered, replayed, acked once stored)."""
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    class _Outcome:
+        ValueType = _typing.NewType("ValueType", _builtins.int)
+        V: _TypeAlias = ValueType  # noqa: Y015
+
+    class _OutcomeEnumTypeWrapper(_enum_type_wrapper._EnumTypeWrapper[ChunkResult._Outcome.ValueType], _builtins.type):
+        DESCRIPTOR: _descriptor.EnumDescriptor
+        OUTCOME_UNSPECIFIED: ChunkResult._Outcome.ValueType  # 0
+        OUTCOME_DONE: ChunkResult._Outcome.ValueType  # 1
+        """The chunk ran and its packed output was uploaded under the lane's grant."""
+        OUTCOME_FAILED: ChunkResult._Outcome.ValueType  # 2
+        """The chunk failed (failure says how; retryable = may succeed elsewhere)."""
+        OUTCOME_RELEASED: ChunkResult._Outcome.ValueType  # 3
+        """The lane gives the lease back without running it to the end (it is
+        stopping, the chunk was cancelled): not the chunk's fault.
+        """
+
+    class Outcome(_Outcome, metaclass=_OutcomeEnumTypeWrapper): ...
+    OUTCOME_UNSPECIFIED: ChunkResult.Outcome.ValueType  # 0
+    OUTCOME_DONE: ChunkResult.Outcome.ValueType  # 1
+    """The chunk ran and its packed output was uploaded under the lane's grant."""
+    OUTCOME_FAILED: ChunkResult.Outcome.ValueType  # 2
+    """The chunk failed (failure says how; retryable = may succeed elsewhere)."""
+    OUTCOME_RELEASED: ChunkResult.Outcome.ValueType  # 3
+    """The lane gives the lease back without running it to the end (it is
+    stopping, the chunk was cancelled): not the chunk's fault.
+    """
+
+    JOB_ID_FIELD_NUMBER: _builtins.int
+    ATTEMPT_ID_FIELD_NUMBER: _builtins.int
+    FENCING_TOKEN_FIELD_NUMBER: _builtins.int
+    CHUNK_INDEX_FIELD_NUMBER: _builtins.int
+    ITEM_ID_FIELD_NUMBER: _builtins.int
+    LEASE_SEQ_FIELD_NUMBER: _builtins.int
+    OUTCOME_FIELD_NUMBER: _builtins.int
+    RESULT_DIGEST_FIELD_NUMBER: _builtins.int
+    RESULT_BYTES_FIELD_NUMBER: _builtins.int
+    EXIT_CODE_FIELD_NUMBER: _builtins.int
+    FAILURE_FIELD_NUMBER: _builtins.int
+    PHASES_FIELD_NUMBER: _builtins.int
+    SIGNAL_FIELD_NUMBER: _builtins.int
+    job_id: _builtins.str
+    attempt_id: _builtins.str
+    fencing_token: _builtins.int
+    chunk_index: _builtins.int
+    item_id: _builtins.int
+    lease_seq: _builtins.int
+    outcome: Global___ChunkResult.Outcome.ValueType
+    result_digest: _builtins.str
+    """OUTCOME_DONE: "sha256:<64 hex>" of the chunk's packed {out} folder."""
+    result_bytes: _builtins.int
+    exit_code: _builtins.int
+    signal: _builtins.int
+    @_builtins.property
+    def failure(self) -> _common_pb2.Failure: ...
+    @_builtins.property
+    def phases(self) -> Global___ChunkPhases: ...
+    def __init__(
+        self,
+        *,
+        job_id: _builtins.str = ...,
+        attempt_id: _builtins.str = ...,
+        fencing_token: _builtins.int = ...,
+        chunk_index: _builtins.int = ...,
+        item_id: _builtins.int = ...,
+        lease_seq: _builtins.int = ...,
+        outcome: Global___ChunkResult.Outcome.ValueType = ...,
+        result_digest: _builtins.str = ...,
+        result_bytes: _builtins.int = ...,
+        exit_code: _builtins.int | None = ...,
+        failure: _common_pb2.Failure | None = ...,
+        phases: Global___ChunkPhases | None = ...,
+        signal: _builtins.int | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["_exit_code", b"_exit_code", "_signal", b"_signal", "exit_code", b"exit_code", "failure", b"failure", "phases", b"phases", "signal", b"signal"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["_exit_code", b"_exit_code", "_signal", b"_signal", "attempt_id", b"attempt_id", "chunk_index", b"chunk_index", "exit_code", b"exit_code", "failure", b"failure", "fencing_token", b"fencing_token", "item_id", b"item_id", "job_id", b"job_id", "lease_seq", b"lease_seq", "outcome", b"outcome", "phases", b"phases", "result_bytes", b"result_bytes", "result_digest", b"result_digest", "signal", b"signal"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    _WhichOneofReturnType__exit_code: _TypeAlias = _typing.Literal["exit_code"]  # noqa: Y015
+    _WhichOneofArgType__exit_code: _TypeAlias = _typing.Literal["_exit_code", b"_exit_code"]  # noqa: Y015
+    _WhichOneofReturnType__signal: _TypeAlias = _typing.Literal["signal"]  # noqa: Y015
+    _WhichOneofArgType__signal: _TypeAlias = _typing.Literal["_signal", b"_signal"]  # noqa: Y015
+    @_typing.overload
+    def WhichOneof(self, oneof_group: _WhichOneofArgType__exit_code) -> _WhichOneofReturnType__exit_code | None: ...
+    @_typing.overload
+    def WhichOneof(self, oneof_group: _WhichOneofArgType__signal) -> _WhichOneofReturnType__signal | None: ...
+
+Global___ChunkResult: _TypeAlias = ChunkResult  # noqa: Y015
+
+@_typing.final
+class LeaseRenew(_message.Message):
+    """Agent -> controller every lease_timeout_s / 3: extend these leases."""
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    JOB_ID_FIELD_NUMBER: _builtins.int
+    ATTEMPT_ID_FIELD_NUMBER: _builtins.int
+    FENCING_TOKEN_FIELD_NUMBER: _builtins.int
+    LEASES_FIELD_NUMBER: _builtins.int
+    job_id: _builtins.str
+    attempt_id: _builtins.str
+    fencing_token: _builtins.int
+    @_builtins.property
+    def leases(self) -> _containers.RepeatedCompositeFieldContainer[Global___ChunkLeaseRef]: ...
+    def __init__(
+        self,
+        *,
+        job_id: _builtins.str = ...,
+        attempt_id: _builtins.str = ...,
+        fencing_token: _builtins.int = ...,
+        leases: _abc.Iterable[Global___ChunkLeaseRef] | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["attempt_id", b"attempt_id", "fencing_token", b"fencing_token", "job_id", b"job_id", "leases", b"leases"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___LeaseRenew: _TypeAlias = LeaseRenew  # noqa: Y015
+
+@_typing.final
+class CancelChunk(_message.Message):
+    """Controller -> agent: stop this chunk (its copy lost, or the job ended); its
+    result will not be used.
+    """
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    JOB_ID_FIELD_NUMBER: _builtins.int
+    ATTEMPT_ID_FIELD_NUMBER: _builtins.int
+    FENCING_TOKEN_FIELD_NUMBER: _builtins.int
+    ITEM_ID_FIELD_NUMBER: _builtins.int
+    LEASE_SEQ_FIELD_NUMBER: _builtins.int
+    REASON_FIELD_NUMBER: _builtins.int
+    job_id: _builtins.str
+    attempt_id: _builtins.str
+    fencing_token: _builtins.int
+    item_id: _builtins.int
+    lease_seq: _builtins.int
+    reason: _builtins.str
+    def __init__(
+        self,
+        *,
+        job_id: _builtins.str = ...,
+        attempt_id: _builtins.str = ...,
+        fencing_token: _builtins.int = ...,
+        item_id: _builtins.int = ...,
+        lease_seq: _builtins.int = ...,
+        reason: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["attempt_id", b"attempt_id", "fencing_token", b"fencing_token", "item_id", b"item_id", "job_id", b"job_id", "lease_seq", b"lease_seq", "reason", b"reason"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___CancelChunk: _TypeAlias = CancelChunk  # noqa: Y015
 
 @_typing.final
 class Ping(_message.Message):

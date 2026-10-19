@@ -165,6 +165,9 @@ def test_envelopes_cover_architecture_payloads() -> None:
         "Goodbye",
         "PrepareEnvStatus",  # V0.5 G5
         "PolicyUpdate",  # V0.7 G5 (D142)
+        "ChunkRequest",  # V0.10 G4 (D263)
+        "ChunkResult",
+        "LeaseRenew",
     }
     assert members(agent_pb2.ControllerMessage.DESCRIPTOR) == {
         "StartAttempt",
@@ -179,6 +182,9 @@ def test_envelopes_cover_architecture_payloads() -> None:
         "RefreshUploadGrant",  # V0.6 D114
         "RefreshPeerTokens",  # V0.7 G3 D147
         "RevocationUpdate",  # V0.7 G3 D138
+        "ChunkGrant",  # V0.10 G4 (D263)
+        "NoWork",
+        "CancelChunk",
     }
 
 

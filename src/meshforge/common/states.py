@@ -21,6 +21,7 @@ __all__ = [
     "ATTEMPT_TERMINAL_STATES",
     "JOB_TERMINAL_STATES",
     "AttemptPhase",
+    "AttemptRole",
     "AttemptState",
     "JobState",
 ]
@@ -55,6 +56,17 @@ class AttemptState(StrEnum):
     """The node vanished; set by the controller, never reported by an agent."""
     FENCED = "fenced"
     """Superseded by a newer attempt epoch; late reports are rejected."""
+
+
+class AttemptRole(StrEnum):
+    """What an attempt does for its job (V0.10 G4, D259; ``attempt.role``)."""
+
+    RUN = "run"
+    """Runs the whole job (Mode 1 / Local; every attempt before V0.10)."""
+    LANE = "lane"
+    """One node's lane of a Mode 3 job: stages once, pulls and runs chunks."""
+    COMBINE = "combine"
+    """Combines a Mode 3 job's chunk results (V0.10 G5)."""
 
 
 class AttemptPhase(StrEnum):

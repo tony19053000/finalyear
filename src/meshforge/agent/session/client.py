@@ -161,6 +161,10 @@ _COMMAND_PAYLOADS: Final = frozenset(
         "gc",
         "prepare_env",
         "probe_request",
+        # V0.10 G4 (D263): a lane's chunk commands
+        "chunk_grant",
+        "no_work",
+        "cancel_chunk",
     }
 )
 GOODBYE_DETAIL: Final = "agent stop requested"

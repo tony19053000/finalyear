@@ -129,6 +129,8 @@ def test_defaults_are_explicit_in_the_canonical_form() -> None:
         "max_nodes": None,
         "speculative": True,
         "deterministic": True,
+        # V0.10 G4 (D261/D278): explicit, like every other split default
+        "max_chunk_output_bytes": 256 * 1024 * 1024,
     }
 
 

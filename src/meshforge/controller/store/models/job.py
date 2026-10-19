@@ -45,7 +45,12 @@ from meshforge.common.manifest import (
     MIN_PRIORITY,
     POLICIES,
 )
-from meshforge.common.states import AttemptState, JobState
+from meshforge.common.states import (
+    ATTEMPT_TERMINAL_STATES,
+    AttemptRole,
+    AttemptState,
+    JobState,
+)
 from meshforge.controller.store.base import (
     ID_MAX_LENGTH,
     Base,
@@ -129,6 +134,11 @@ class Job(TimestampMixin, Base):
             f"AND split_item_count >= 1 AND split_item_count <= {MAX_SPLIT_ITEMS} "
             "AND (split_item_bytes IS NULL OR split_item_bytes >= 0))",
             name="split_shape",
+        ),
+        CheckConstraint(
+            "split_parts_digest IS NULL OR (split IS NOT NULL "
+            "AND split_parts_digest ~ '^sha256:[0-9a-f]{64}$')",
+            name="split_parts_digest",
         ),
         UniqueConstraint("idempotency_key"),
         Index("ix_job_created_at", "created_at"),
@@ -235,6 +245,12 @@ class Job(TimestampMixin, Base):
     split_item_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     """Bytes the items stand for (glob files / lines records); NULL for list,
     list_file and range items."""
+    split_parts_digest: Mapped[str | None] = mapped_column(
+        String(DIGEST_LENGTH), nullable=True
+    )
+    """V0.10 G4 (migration 0027): the parts index - every chunk's committed
+    result digest in chunk order (canonical JSON CAS blob, ``controller.split.
+    parts``) - written in the transaction of the job's last chunk commit."""
 
 
 class JobTransition(Base):
@@ -278,8 +294,24 @@ class Attempt(TimestampMixin, Base):
             "env_hash IS NULL OR env_hash ~ '^[0-9a-f]{64}$'", name="env_hash"
         ),
         uint64_check("output_bytes", name="output_bytes"),
+        CheckConstraint(f"role IN ({sql_in_list(AttemptRole)})", name="role"),
         UniqueConstraint("job_id", "fencing_token"),
         Index("ix_attempt_node_id", "node_id"),
+        Index(
+            "ux_attempt_live_lane",
+            "job_id",
+            "node_id",
+            unique=True,
+            postgresql_where=text(
+                "role = 'lane' AND state IN ("
+                + ", ".join(
+                    f"'{s.value}'"
+                    for s in AttemptState
+                    if s not in ATTEMPT_TERMINAL_STATES
+                )
+                + ")"
+            ),
+        ),
     )
 
     id: Mapped[str] = id_column(primary_key=True)
@@ -325,6 +357,12 @@ class Attempt(TimestampMixin, Base):
     output_bytes: Mapped[int | None] = mapped_column(UInt64, nullable=True)
     """V0.6 G4 (D108, migration 0014): bytes the attempt uploaded under its
     grant (outputs + final logs), on DONE - the estimator's ``out_bytes``."""
+    role: Mapped[str] = mapped_column(
+        String(8), nullable=False, server_default=text("'run'")
+    )
+    """V0.10 G4 (D259, migration 0027): ``run`` / ``lane`` / ``combine``
+    (:class:`~meshforge.common.states.AttemptRole`); at most one live lane of a
+    job per node (``ux_attempt_live_lane``, D267f)."""
     workload: Mapped[dict[str, Any] | None] = mapped_column(
         JSONB(none_as_null=True), nullable=True
     )

@@ -58,8 +58,11 @@ __all__ = ["RESEND_ON_TIMEOUT", "STREAMED", "UNACKED", "CommandChannel"]
 
 log = get_logger(__name__)
 
-UNACKED: Final = frozenset({"ack", "pong", "goodbye", "log_chunk"})
-"""Agent payloads that get no Ack back (ADR-0002 Updates §4: never buffered)."""
+UNACKED: Final = frozenset(
+    {"ack", "pong", "goodbye", "log_chunk", "chunk_request", "lease_renew"}
+)
+"""Agent payloads that get no Ack back (ADR-0002 Updates §4: never buffered;
+V0.10 G4: a lane's ChunkRequest / LeaseRenew are simply sent again)."""
 RESEND_ON_TIMEOUT: Final = frozenset(
     {"gc", "prepare_env", "probe_request", "revocation_update"}
 )

@@ -40,6 +40,7 @@ V0.4 subset::
       min_nodes: 2                       # 2..64; max_nodes: absent = every suitable node
       speculative: true                  # tail copies of slow chunks (D266)
       deterministic: true                # copies of one chunk must give equal bytes (D269)
+      max_chunk_output_bytes: 268435456  # V0.10 G4: one chunk's packed {out} (default 256 MiB)
 
 Rules:
 
@@ -114,6 +115,7 @@ from meshforge.common.secret_names import (
 
 __all__ = [
     "DEFAULT_BACKOFF_S",
+    "DEFAULT_CHUNK_OUTPUT_BYTES",
     "DEFAULT_MAX_ATTEMPTS",
     "DEFAULT_TIMEOUT_S",
     "INFERRED_ENTRYPOINTS",
@@ -123,6 +125,7 @@ __all__ = [
     "MAX_ARG_CHARS",
     "MAX_ATTEMPTS",
     "MAX_BACKOFF_S",
+    "MAX_CHUNK_OUTPUT_BYTES",
     "MAX_CPUS",
     "MAX_INPUTS",
     "MAX_MANIFEST_BYTES",
@@ -237,6 +240,11 @@ MAX_SPLIT_LIST: Final = 10_000
 MAX_SPLIT_ITEM_CHARS: Final = 1024
 """Longest ``list`` / ``list_file`` item (characters)."""
 MAX_SPLIT_NODES: Final = 64
+DEFAULT_CHUNK_OUTPUT_BYTES: Final = 256 * 1024 * 1024
+"""``split.max_chunk_output_bytes`` when absent (V0.10 G4, D261/D278)."""
+MAX_CHUNK_OUTPUT_BYTES: Final = 64 * 1024**3
+"""Largest ``split.max_chunk_output_bytes`` (the controller's own per-attempt
+``max_output_bytes`` ceiling)."""
 MAX_SAFE_INT: Final = 2**53 - 1
 """``range`` bounds: integers a JSON reader in any language reads exactly."""
 SPLIT_ENTRYPOINT_PLACEHOLDERS: Final = ("{items_file}", "{chunk_index}", "{out}")
@@ -794,6 +802,16 @@ class SplitSpec(_Spec):
     """None = every suitable node."""
     speculative: bool = Field(default=True, strict=True)
     deterministic: bool = Field(default=True, strict=True)
+    max_chunk_output_bytes: int = Field(
+        default=DEFAULT_CHUNK_OUTPUT_BYTES,
+        ge=1024,
+        le=MAX_CHUNK_OUTPUT_BYTES,
+        strict=True,
+    )
+    """V0.10 G4 (D261/D278): bytes one chunk's packed ``{out}`` folder may
+    have; more fails that chunk ``output_error`` (not retried: it would be as
+    large elsewhere). The lane's upload grant grows by this much per chunk it
+    is granted."""
 
     @model_validator(mode="after")
     def _node_bounds(self) -> Self:

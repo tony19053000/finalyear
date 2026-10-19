@@ -108,6 +108,13 @@ message AgentMessage {
     // policy set`). A report: buffered, replayed after a reconnect and acked.
     // The newest one wins; the next Hello carries the policy again.
     PolicyUpdate policy_update = 23;
+    // V0.10 G4 (D263): Mode 3 lanes. ChunkRequest and LeaseRenew are never
+    // buffered, replayed or acked (a lost one is simply sent again);
+    // ChunkResult is a report: buffered, replayed after a reconnect and acked
+    // only once the controller stored it.
+    ChunkRequest chunk_request = 24;
+    ChunkResult chunk_result = 25;
+    LeaseRenew lease_renew = 26;
   }
 }
 
@@ -149,6 +156,12 @@ message ControllerMessage {
     // server refuses these client certificate serials from now on. Re-sent
     // on a missing Ack (D113); every HelloAck carries the full set too.
     RevocationUpdate revocation_update = 21;
+    // V0.10 G4 (D263): the answers to a lane's ChunkRequest, and the stop of
+    // one chunk (a superseded copy, a cancelled job). Commands: acked by the
+    // agent, never re-sent by a timer (the lane asks again).
+    ChunkGrant chunk_grant = 22;
+    NoWork no_work = 23;
+    CancelChunk cancel_chunk = 24;
   }
 }
 
@@ -696,6 +709,27 @@ message StartAttempt {
   // it runs - while the owner paused benchmarks or is using the laptop
   // (failure owner_preempted); it never stops a job without this flag.
   bool benchmark = 7;
+  // V0.10 G4 (D259): present = this attempt is a LANE of a Mode 3 (split)
+  // job. The agent stages the project and builds the env once, then pulls
+  // chunks (ChunkRequest) and runs the entrypoint once per chunk. An agent
+  // that does not know this field never gets a lane: the controller places
+  // lanes only on nodes advertising the "exec-split" capability.
+  LaneSpec lane = 8;
+}
+
+// A lane's chunk source (V0.10 G4, D259/D263/D264).
+message LaneSpec {
+  // "sha256:<64 hex>" of the job's item list (the canonical JSON blob of
+  // common/split_items.py, resolved once at submit). The attempt's fetch token
+  // may read it; the agent verifies its digest before use.
+  string items_digest = 1;
+  uint32 item_count = 2;
+  // Bytes one chunk's packed output may have (split.max_chunk_output_bytes);
+  // more fails the chunk output_error.
+  uint64 max_chunk_output_bytes = 3;
+  // The lease (visibility) timeout; the agent renews its live leases every
+  // third of it (LeaseRenew).
+  double lease_timeout_s = 4;
 }
 
 // One benchmark condition (V0.9 G4). ``spec`` is the canonical condition
@@ -1000,6 +1034,134 @@ message HelloAck {
 message Ack {
   // message_id of the envelope being acknowledged.
   string acked_message_id = 1;
+}
+
+// ---------------------------------------------------------------------------
+// Mode 3 lanes (V0.10 G4, D263, ADR-0019)
+// ---------------------------------------------------------------------------
+//
+// A lane (an attempt with StartAttempt.lane) pulls chunks: ChunkRequest ->
+// ChunkGrant (or NoWork) -> runs the chunk -> ChunkResult. Every message names
+// the lane (attempt_id + fencing_token) and every chunk message its lease
+// (item_id + lease_seq, the work queue's fencing pair): a message whose lane
+// token or lease does not match is counted and logged by the controller and
+// never applied. A chunk result is committed at most once (the first
+// committed result of a chunk wins); a late one from an expired lease commits
+// only while the chunk is still not done (ADR-0015).
+
+// One lease a lane holds (work item id + its lease sequence number).
+message ChunkLeaseRef {
+  uint64 item_id = 1;
+  uint64 lease_seq = 2;
+}
+
+// Agent -> controller: "give me up to `want` chunks". `held` lists the leases
+// the lane holds now: a live lease of this lane that is not listed was lost on
+// the way (a broken stream ate its grant) and is granted again first.
+message ChunkRequest {
+  string job_id = 1;
+  string attempt_id = 2;
+  uint64 fencing_token = 3;
+  uint32 want = 4;
+  repeated ChunkLeaseRef held = 5;
+}
+
+// One granted chunk: items [first_item, first_item + item_count) of the
+// job's item list.
+message GrantedChunk {
+  uint32 chunk_index = 1;
+  uint64 item_id = 2;
+  uint64 lease_seq = 3;
+  uint32 first_item = 4;
+  uint32 item_count = 5;
+  // "sha256:<64 hex>" of the canonical JSON array of this chunk's items (the
+  // agent checks the slice it cut from the item list against it).
+  string items_digest = 6;
+  bool speculative = 7;
+}
+
+message ChunkGrant {
+  string job_id = 1;
+  string attempt_id = 2;
+  uint64 fencing_token = 3;
+  repeated GrantedChunk chunks = 4;
+  // Seconds until these leases expire unless renewed.
+  double lease_timeout_s = 5;
+}
+
+// Controller -> agent: nothing to grant now.
+message NoWork {
+  string job_id = 1;
+  string attempt_id = 2;
+  uint64 fencing_token = 3;
+  enum Reason {
+    REASON_UNSPECIFIED = 0;
+    // Every chunk is done or held by others for good: the lane ends (DONE).
+    REASON_DRAINED = 1;
+    // Chunks are still leased elsewhere and may come back: ask again after
+    // retry_after_s.
+    REASON_WAIT = 2;
+    // The lane must stop pulling (the job failed or was cancelled; the
+    // CancelAttempt follows).
+    REASON_STOP = 3;
+  }
+  Reason reason = 4;
+  double retry_after_s = 5;
+}
+
+// Durations of one chunk on the agent's monotonic clock (seconds).
+message ChunkPhases {
+  optional double stage_s = 1;
+  optional double env_s = 2;
+  optional double run_s = 3;
+  optional double upload_s = 4;
+}
+
+// Agent -> controller (a report: buffered, replayed, acked once stored).
+message ChunkResult {
+  string job_id = 1;
+  string attempt_id = 2;
+  uint64 fencing_token = 3;
+  uint32 chunk_index = 4;
+  uint64 item_id = 5;
+  uint64 lease_seq = 6;
+  enum Outcome {
+    OUTCOME_UNSPECIFIED = 0;
+    // The chunk ran and its packed output was uploaded under the lane's grant.
+    OUTCOME_DONE = 1;
+    // The chunk failed (failure says how; retryable = may succeed elsewhere).
+    OUTCOME_FAILED = 2;
+    // The lane gives the lease back without running it to the end (it is
+    // stopping, the chunk was cancelled): not the chunk's fault.
+    OUTCOME_RELEASED = 3;
+  }
+  Outcome outcome = 7;
+  // OUTCOME_DONE: "sha256:<64 hex>" of the chunk's packed {out} folder.
+  string result_digest = 8;
+  uint64 result_bytes = 9;
+  optional int32 exit_code = 10;
+  Failure failure = 11;
+  ChunkPhases phases = 12;
+  optional int32 signal = 13;
+}
+
+// Agent -> controller every lease_timeout_s / 3: extend these leases.
+message LeaseRenew {
+  string job_id = 1;
+  string attempt_id = 2;
+  uint64 fencing_token = 3;
+  repeated ChunkLeaseRef leases = 4;
+}
+
+// Controller -> agent: stop this chunk (its copy lost, or the job ended); its
+// result will not be used.
+message CancelChunk {
+  string job_id = 1;
+  string attempt_id = 2;
+  uint64 fencing_token = 3;
+  uint64 item_id = 4;
+  uint64 lease_seq = 5;
+  string reason = 6;
 }
 
 // ---------------------------------------------------------------------------
