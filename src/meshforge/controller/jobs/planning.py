@@ -45,16 +45,19 @@ from typing import Final
 
 from pydantic import ValidationError
 
+from meshforge.common.capabilities import EXEC_SPLIT_CAPABILITY
 from meshforge.common.errors import FailureType, InvalidIdError
 from meshforge.common.ids import new_attempt_id
 from meshforge.common.logging import get_logger
-from meshforge.common.manifest import Manifest, ManifestError
+from meshforge.common.manifest import Manifest, ManifestError, SplitSpec
 from meshforge.controller.jobs.env_health import KnownBadEnvs, env_key
 from meshforge.controller.jobs.execution_store import (
     DecisionRecord,
     Dispatch,
     DispatchDecision,
     DispatchFailure,
+    DispatchLanes,
+    LaneStart,
     Wait,
 )
 from meshforge.controller.jobs.queue_reads import (
@@ -86,14 +89,27 @@ from meshforge.controller.planner.decision_json import candidates_json
 from meshforge.controller.planner.inputs import node_snapshot, plan_request
 from meshforge.controller.resources import ResourceTracker
 from meshforge.controller.session.manager import SessionManager
-from meshforge.controller.settings import JobApiSettings, PlannerSettings
+from meshforge.controller.settings import (
+    JobApiSettings,
+    PlannerSettings,
+    SplitSettings,
+)
+from meshforge.controller.split.placement import plan_lanes
+from meshforge.workqueue.core import QueuePolicy
 
-__all__ = ["SPLIT_NOT_SUPPORTED_YET", "DispatchPlanner", "decision_record"]
+__all__ = ["NO_SPLIT_SUPPORT", "DispatchPlanner", "decision_record"]
 
 log = get_logger(__name__)
 
-SPLIT_NOT_SUPPORTED_YET: Final = "not_supported_yet: split execution arrives in G4"
-"""V0.10 G1: the failure detail of a split job until lanes exist (G4)."""
+NO_SPLIT_SUPPORT: Final = (
+    "no_split_support: no node of the fabric runs Mode 3 lanes (exec-split); "
+    "update the agents to V0.10"
+)
+"""V0.10 G4: a split job no node can run as lanes is failed typed - it never
+runs whole on an older agent."""
+SPECULATIVE_MAX_FRAC: Final = 0.10
+"""D266 default share of a job's chunks that may get a speculative copy (G6
+uses it; 0 when ``split.speculative`` is false)."""
 _JOB_IS_BAD: Final = (ValidationError, ManifestError, InvalidIdError)
 """Errors that mean the stored job itself is unusable (reviewer N-1): only
 these fail the job; any other planning error leaves it queued."""
@@ -150,7 +166,10 @@ class DispatchPlanner:
         link_stale_after_s: float = 3600.0,
         min_bw_bytes_s: float = 1024.0,
         node_paused: Callable[[str], bool] | None = None,
+        split: SplitSettings | None = None,
     ) -> None:
+        self._split = split or SplitSettings()
+        """V0.10 G4: ``[controller.split]`` (chunk caps, lease timeout)."""
         self._node_paused = node_paused
         """V0.9 G4 (D217): an ONLINE node paused by an ``unavailable:T``
         benchmark condition is planned as DRAINING (a live rejection: nothing
@@ -318,17 +337,49 @@ class DispatchPlanner:
     def _decide(self, job: JobRecord, fabric: FabricRows) -> DispatchDecision:
         manifest = Manifest.model_validate(dict(job.manifest))
         if manifest.split is not None or job.split is not None:
-            # V0.10 G1: a split job is accepted and its items stored, but lanes
-            # arrive with G4 - refuse it typed rather than run it whole.
-            return DispatchFailure(
-                FailureType.NO_FEASIBLE_PLAN,
-                SPLIT_NOT_SUPPORTED_YET,
-            )
+            # V0.10 G4 (D259): a split job runs as lanes - never whole.
+            return self._decide_split(job, manifest, fabric)
         pinned = str(job.placement.get("node_id") or "") or None
         if pinned is not None:
             early = self._pinned_gone(job, pinned, fabric)
             if early is not None:
                 return early
+        trees, plan_job, snapshot, past = self._request(job, manifest, fabric, pinned)
+        decision = plan(plan_job, snapshot, self.policy_of(job), self._wall())
+        record = decision_record(decision)
+        if (
+            decision.chosen is not None
+            and pinned is not None
+            and is_benchmark_key(job.idempotency_key)
+        ):
+            # D215 + G4 item 0.8 (D239.4): only a campaign's forced run needs the
+            # would-have-chosen label; a user's pinned job skips the extra plan
+            record = self._with_shadow(record, plan_job, snapshot, job, past)
+        if decision.chosen is not None:
+            return self._dispatch(
+                job, manifest, decision, fabric, record, trees=trees, cluster=snapshot
+            )
+        if pinned is not None:
+            return self._pinned_refused(decision, record)
+        if decision.all_static_rejections:
+            return DispatchFailure(
+                FailureType.NO_FEASIBLE_PLAN,
+                "no node of the fabric can run this job (see compute explain)",
+                record,
+            )
+        return Wait(record)
+
+    def _request(
+        self,
+        job: JobRecord,
+        manifest: Manifest,
+        fabric: FabricRows,
+        pinned: str | None,
+    ) -> tuple[
+        tuple[TreeNeed, ...], PlanRequest, ClusterSnapshot, Sequence[PastFailure]
+    ]:
+        """The job's planner request and the tick's snapshot for it (one place
+        for Mode 1 and split jobs; V0.10 G4 extracted it from ``_decide``)."""
         key = env_key(
             job.manifest, tree_id=job.tree_id, bundle_digest=job.bundle_digest
         )
@@ -363,29 +414,157 @@ class DispatchPlanner:
                     exclude_s=self._planner.retry_exclude_s,
                 ),
             )
+        return trees, plan_job, snapshot, past
+
+    def _decide_split(
+        self, job: JobRecord, manifest: Manifest, fabric: FabricRows
+    ) -> DispatchDecision:
+        """V0.10 G4 (D259): the planner's ordinary decision, then the lanes of
+        :func:`~meshforge.controller.split.placement.plan_lanes` (the G3 seam)
+        - one lane per node, each with its own slot and start snapshot."""
+        spec = manifest.split
+        if spec is None or job.split is None or not job.tree_id:
+            # the job row and its manifest disagree: a stored-data fault
+            return DispatchFailure(
+                FailureType.INTERNAL_ERROR,
+                "the stored split job has no resolved items; submit it again",
+            )
+        pinned = str(job.placement.get("node_id") or "") or None
+        if pinned is not None:
+            early = self._pinned_gone(job, pinned, fabric)
+            if early is not None:
+                return early
+        trees, plan_job, snapshot, _past = self._request(job, manifest, fabric, pinned)
         decision = plan(plan_job, snapshot, self.policy_of(job), self._wall())
         record = decision_record(decision)
-        if (
-            decision.chosen is not None
-            and pinned is not None
-            and is_benchmark_key(job.idempotency_key)
-        ):
-            # D215 + G4 item 0.8 (D239.4): only a campaign's forced run needs the
-            # would-have-chosen label; a user's pinned job skips the extra plan
-            record = self._with_shadow(record, plan_job, snapshot, job, past)
-        if decision.chosen is not None:
-            return self._dispatch(
-                job, manifest, decision, fabric, record, trees=trees, cluster=snapshot
+        lanes = plan_lanes(
+            decision,
+            snapshot,
+            spec=spec,
+            item_count=job.split.item_count,
+            max_chunks=self._split.max_chunks,
+        )
+        if lanes is None:
+            if not any(
+                EXEC_SPLIT_CAPABILITY in n.capabilities for n in snapshot.nodes
+            ) and any(c.feasible for c in decision.candidates):
+                return DispatchFailure(
+                    FailureType.NO_FEASIBLE_PLAN, NO_SPLIT_SUPPORT, record
+                )
+            if pinned is not None:
+                return self._pinned_refused(decision, record)
+            if decision.all_static_rejections:
+                return DispatchFailure(
+                    FailureType.NO_FEASIBLE_PLAN,
+                    "no node of the fabric can run this job (see compute explain)",
+                    record,
+                )
+            return Wait(record)
+        starts: list[LaneStart] = []
+        for cand in lanes.lanes:
+            started = self._start(
+                job, manifest, cand.node_id, cand.slot or "cpu", fabric, trees, snapshot
             )
-        if pinned is not None:
-            return self._pinned_refused(decision, record)
-        if decision.all_static_rejections:
-            return DispatchFailure(
-                FailureType.NO_FEASIBLE_PLAN,
-                "no node of the fabric can run this job (see compute explain)",
-                record,
+            if started is not None:
+                starts.append(started)
+        if not starts:  # pragma: no cover - the planner checked the GPUs
+            return Wait(record)
+        log.info(
+            "controller.split.lanes_planned",
+            job_id=job.id,
+            lanes=len(starts),
+            chunk_items=lanes.chunk_items,
+            split=lanes.split,
+            reason=lanes.reason,
+        )
+        return DispatchLanes(
+            lanes=tuple(starts),
+            chunk_items=lanes.chunk_items,
+            queue_policy=self.queue_policy(job, spec),
+            record=dataclasses.replace(record, chosen_node_id=starts[0].node_id),
+        )
+
+    def queue_policy(self, job: JobRecord, spec: SplitSpec) -> QueuePolicy:
+        """D267: a chunk is tried at most ``retry.max_attempts`` times and fails
+        the job once it failed on ``max_failed_nodes`` different nodes; leases
+        expire after ``visibility_timeout_s`` unless renewed."""
+        return QueuePolicy(
+            visibility_timeout_s=self._split.visibility_timeout_s,
+            max_attempts=max(1, job.scheduling.max_attempts),
+            max_failed_sites=self._split.max_failed_nodes,
+            count_expiry=False,
+            speculative_max_frac=SPECULATIVE_MAX_FRAC if spec.speculative else 0.0,
+        )
+
+    def _start(
+        self,
+        job: JobRecord,
+        manifest: Manifest,
+        node_id: str,
+        slot: str,
+        fabric: FabricRows,
+        trees: tuple[TreeNeed, ...],
+        cluster: ClusterSnapshot,
+    ) -> LaneStart | None:
+        """One lane's attempt id, slot and start snapshot (like
+        :meth:`_dispatch` for a Mode 1 attempt)."""
+        row = fabric.nodes.get(node_id)
+        if row is None:
+            return None
+        gpus = (
+            choose_gpus(manifest, row.hardware, fabric.busy_gpus(node_id))
+            if slot == "gpu"
+            else ()
+        )
+        if slot == "gpu" and not gpus:
+            return None
+        return LaneStart(
+            attempt_id=str(new_attempt_id()),
+            node_id=node_id,
+            slot=slot,
+            start_snapshot=self._start_snapshot(
+                job, node_id, row, gpus, fabric, trees, cluster
+            ),
+        )
+
+    def _start_snapshot(
+        self,
+        job: JobRecord,
+        node_id: str,
+        row: NodeRow,
+        gpus: tuple[int, ...],
+        fabric: FabricRows,
+        trees: tuple[TreeNeed, ...],
+        cluster: ClusterSnapshot | None,
+    ) -> dict[str, object]:
+        live = self._manager.get(node_id)
+        return dict(
+            start_snapshot(
+                hardware=row.hardware,
+                hardware_scores=row.hardware_scores,
+                node_state=NodeState.ONLINE.value if live is None else live.state.value,
+                rtt_ms=None if live is None else live.rtt_ewma_ms,
+                sample=None
+                if self._resources is None
+                else self._resources.latest(node_id),
+                monotonic_now=self._clock(),
+                wall_now=self._wall(),
+                gpu_indices=gpus,
+                owner_name=None
+                if job.owner_user_id is None
+                else fabric.owner_names.get(job.owner_user_id),
+                policy=None if live is None or live.policy is None else live.policy,
+                telemetry=start_telemetry(
+                    node=None if cluster is None else cluster.node(node_id),
+                    trees=trees,
+                    submitter_node_id=job.scheduling.submitter_node_id,
+                    node_id=node_id,
+                    links=fabric.links,
+                    controller_links=fabric.controller_links,
+                    clock=None if live is None else live.clock.latest,
+                ),
             )
-        return Wait(record)
+        )
 
     def _with_shadow(
         self,
@@ -509,7 +688,6 @@ class DispatchPlanner:
         if chosen is None or chosen.slot is None:  # pragma: no cover - caller checked
             raise ValueError("dispatch without a chosen candidate")
         row = fabric.nodes[chosen.node_id]
-        live = self._manager.get(chosen.node_id)
         gpus = (
             choose_gpus(manifest, row.hardware, fabric.busy_gpus(chosen.node_id))
             if chosen.slot == "gpu"
@@ -517,30 +695,8 @@ class DispatchPlanner:
         )
         if chosen.slot == "gpu" and not gpus:  # pragma: no cover - planner checked
             return Wait(record)
-        snapshot = start_snapshot(
-            hardware=row.hardware,
-            hardware_scores=row.hardware_scores,
-            node_state=NodeState.ONLINE.value if live is None else live.state.value,
-            rtt_ms=None if live is None else live.rtt_ewma_ms,
-            sample=None
-            if self._resources is None
-            else self._resources.latest(chosen.node_id),
-            monotonic_now=self._clock(),
-            wall_now=self._wall(),
-            gpu_indices=gpus,
-            owner_name=None
-            if job.owner_user_id is None
-            else fabric.owner_names.get(job.owner_user_id),
-            policy=None if live is None or live.policy is None else live.policy,
-            telemetry=start_telemetry(
-                node=None if cluster is None else cluster.node(chosen.node_id),
-                trees=trees,
-                submitter_node_id=job.scheduling.submitter_node_id,
-                node_id=chosen.node_id,
-                links=fabric.links,
-                controller_links=fabric.controller_links,
-                clock=None if live is None else live.clock.latest,
-            ),
+        snapshot = self._start_snapshot(
+            job, chosen.node_id, row, gpus, fabric, trees, cluster
         )
         if decision.policy == "round_robin":
             self.round_robin_after = chosen.node_id

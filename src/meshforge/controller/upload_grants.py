@@ -360,6 +360,31 @@ class UploadGrants:
             return None
         return sum(self._grants[key].uploaded.values())
 
+    def uploaded_size(self, attempt_id: str, digest: Digest | str) -> int | None:
+        """V0.10 G4: the size this attempt's grant stored and verified for
+        ``digest`` (None = not under this grant)."""
+        key = self._by_attempt.get(attempt_id)
+        if key is None:
+            return None
+        text = digest.hex if isinstance(digest, Digest) else Digest.parse(digest).hex
+        return self._grants[key].uploaded.get(text)
+
+    def raise_quota(self, attempt_id: str, *, add_bytes: int, add_blobs: int) -> bool:
+        """V0.10 G4 (D261): a lane's grant grows by one chunk's output each time
+        it is granted a chunk (the "re-minted as it pulls" quota, without a new
+        token). False = the attempt holds no live grant here."""
+        if add_bytes < 0 or add_blobs < 0:
+            raise ValueError("a quota only grows")
+        key = self._by_attempt.get(attempt_id)
+        if key is None:
+            return False
+        grant = self._grants[key]
+        if grant.closed:
+            return False
+        grant.max_bytes += add_bytes
+        grant.max_blobs += add_blobs
+        return True
+
     def uploaded(self, attempt_id: str, digest: Digest | str) -> bool:
         """Did this attempt's grant store and verify ``digest``?"""
         key = self._by_attempt.get(attempt_id)

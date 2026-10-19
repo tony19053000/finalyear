@@ -528,6 +528,8 @@ class ControllerRuntime:
             cache_live=self.cache_index.is_live,
             bench_condition=self.bench_conditions.agent_condition,
             node_paused=self.node_pauses.paused,
+            blobs=self.blobs,
+            split=cfg.split,
             on_integrity_failure=(
                 functools.partial(
                     self.scrubber.suspect_tree_soon, why="attempt_integrity_error"
