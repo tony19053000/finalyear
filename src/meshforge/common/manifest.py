@@ -376,10 +376,10 @@ def _refuse_placeholders(
     argv: tuple[str, ...], placeholders: tuple[str, ...], where: str
 ) -> None:
     for item in argv:
-        for token in placeholders:
-            if token in item:
+        for name in placeholders:
+            if name in item:
                 raise ValueError(
-                    f"the placeholder {token} is only substituted in {where}"
+                    f"the placeholder {name} is only substituted in {where}"
                 )
 
 
