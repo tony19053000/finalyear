@@ -176,7 +176,7 @@ class BenchRunner:
             if record is None or record.state != "active":
                 continue
             cursor = self._cursors.get(campaign.id, 0)
-            outcomes = await self._submitter.submit_next(
+            batch = await self._submitter.submit_next(
                 record,
                 count,
                 node_budget=budget,
@@ -186,7 +186,8 @@ class BenchRunner:
             # fix r1 (D249): a tick that hit the examine cap continues after
             # the last run it examined - per-run deferrals at the head cannot
             # stall the campaign; otherwise the next tick starts at the head
-            self._cursors[campaign.id] = int(getattr(outcomes, "cursor", 0))
+            self._cursors[campaign.id] = batch.cursor
+            outcomes = batch.outcomes
             done = sum(1 for o in outcomes if o.outcome == "submitted")
             left -= done
             report.submitted += done

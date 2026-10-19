@@ -164,19 +164,20 @@ class RunOutcome:
     (:data:`NODE_WIDE_DEFERRALS`): its other runs would defer too."""
 
 
-class SubmitOutcomes(list[RunOutcome]):
-    """The outcomes of one :meth:`BenchSubmitter.submit_next` call (a list),
-    plus where the next call should start (fix r1, D249)."""
+@dataclass(frozen=True, slots=True)
+class SubmitBatch:
+    """What one :meth:`BenchSubmitter.submit_next` call did (fix r2, D251 N1)."""
 
-    def __init__(
-        self, outcomes: list[RunOutcome], *, cursor: int = 0, stale: bool = False
-    ) -> None:
-        super().__init__(outcomes)
-        self.cursor = cursor
-        """0 = the head; else the last ``seq`` examined when the examine cap
-        was hit before ``count`` runs were submitted."""
-        self.stale = stale
-        """A link failed: the batch stopped early (D250 D-1)."""
+    outcomes: tuple[RunOutcome, ...] = ()
+    cursor: int = 0
+    """Where the next call should start: 0 = the head; else the last ``seq``
+    examined when the examine cap was hit before ``count`` were submitted."""
+    stale: bool = False
+    """A link failed: the batch stopped early (D250 D-1)."""
+
+    @property
+    def submitted(self) -> int:
+        return sum(1 for o in self.outcomes if o.outcome == "submitted")
 
 
 @dataclass(frozen=True, slots=True)
@@ -321,7 +322,7 @@ class BenchSubmitter:
         node_budget: Mapping[str, int] | None = None,
         max_examined: int = MAX_EXAMINED,
         start_after: int = 0,
-    ) -> SubmitOutcomes:
+    ) -> SubmitBatch:
         """Submit up to ``count`` planned runs in ``seq`` order, starting after
         ``start_after`` and wrapping around to the head once. Raises
         :class:`BenchSubmitError` (nothing after the failing run is tried).
@@ -341,7 +342,7 @@ class BenchSubmitter:
         get in this call - a node not in it (or at 0) is passed over in SQL.
         ``start_after`` (fix r1, D249): the runner's cursor - a call that hit
         the examine cap returns the last ``seq`` it examined
-        (:attr:`SubmitOutcomes.cursor`), so more per-run deferrals at the head
+        (:attr:`SubmitBatch.cursor`), so more per-run deferrals at the head
         than the cap cannot stall the campaign tick after tick.
 
         **A link that fails stops the batch** (fix r1, D250 D-1): the run moved
@@ -420,7 +421,9 @@ class BenchSubmitter:
         if self._wake is not None and submitted:
             self._wake()
         capped = examined >= max_examined and submitted < count and not stale
-        return SubmitOutcomes(outcomes, cursor=last_seq if capped else 0, stale=stale)
+        return SubmitBatch(
+            tuple(outcomes), cursor=last_seq if capped else 0, stale=stale
+        )
 
     async def submit_run(
         self, campaign: CampaignRecord, run: RunRow, *, owner_name: str | None

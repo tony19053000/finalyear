@@ -83,6 +83,8 @@ class FakeActivity:
 
     def __init__(self) -> None:
         self.state = ActivityState(idle_source="unknown")
+        self.poll_s = 0.5
+        self.on_poll: Any = None
 
 
 class ExecAgent:

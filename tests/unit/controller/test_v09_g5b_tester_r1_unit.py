@@ -58,7 +58,7 @@ from meshforge.controller.bench.runner import (
     BenchRunner,
     RunnerSettings,
 )
-from meshforge.controller.bench.submit import _pre_jobs, owner_guarded
+from meshforge.controller.bench.submit import SubmitBatch, _pre_jobs, owner_guarded
 from meshforge.controller.settings import BenchSettings as ControllerBench
 
 pytestmark = pytest.mark.unit
@@ -263,9 +263,10 @@ class Submitter:
 
     async def submit_next(
         self, _rec: Any, count: int, *, node_budget: Any, max_examined: int
-    ) -> list[Out]:
+    ) -> SubmitBatch:
         self.counts.append(count)
-        return [Out() for _ in range(count)]
+        # fix r2 (D251 N1): the typed batch instead of a list
+        return SubmitBatch(tuple(Out() for _ in range(count)))  # type: ignore[arg-type]
 
 
 def _runner(

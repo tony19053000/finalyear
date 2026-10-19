@@ -554,7 +554,7 @@ async def submit_runs(
         )
     started = time.monotonic()
     try:
-        outcomes = await bench.submitter.submit_next(record, count)
+        outcomes = (await bench.submitter.submit_next(record, count)).outcomes
         after = await bench.store.get_campaign(record.id)
     except (BenchSubmitError, BenchStoreError):
         raise _unavailable() from None

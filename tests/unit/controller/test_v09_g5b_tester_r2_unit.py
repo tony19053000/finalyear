@@ -4,7 +4,7 @@
 * the owner guard's failed pre-emption wired through the real activity monitor
   (no storm; but is it retried at all?);
 * the submit cursor: wrap-around fairness (no run skipped for ever), reset,
-  per-campaign isolation, old callers of ``SubmitOutcomes``.
+  per-campaign isolation, the typed ``SubmitBatch`` (fix r2 N1 replaced the list subclass).
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ from meshforge.controller.bench.runner import BenchRunner, RunnerSettings
 from meshforge.controller.bench.submit import (
     BenchSubmitter,
     RunOutcome,
-    SubmitOutcomes,
+    SubmitBatch,
 )
 
 pytestmark = pytest.mark.unit
@@ -174,11 +174,6 @@ async def test_a_persistently_failing_preemption_does_not_storm() -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(
-    strict=True,
-    reason="T2-1: a pre-emption that raised on the flip is retried only at the "
-    "next flip / policy-file change, not at the next poll, while the owner stays active",
-)
 async def test_a_failed_preemption_is_retried_while_the_owner_stays_active() -> None:
     calls: list[str] = []
 
@@ -196,7 +191,7 @@ async def test_a_failed_preemption_is_retried_while_the_owner_stays_active() -> 
     assert len(calls) >= 2, "the running benchmark attempt keeps running"
 
 
-# ------------------------------------------------------------ cursor / SubmitOutcomes
+# ------------------------------------------------------------ cursor / SubmitBatch
 
 
 @dataclasses.dataclass
@@ -279,7 +274,7 @@ async def test_cursor_past_the_end_and_beyond_wraps_cleanly() -> None:
     sub = _sub(store, set())
     for cursor in (5, 6, 999):
         out = await sub.submit_next(_Rec(), 2, max_examined=32, start_after=cursor)
-        assert [o.seq for o in out if o.outcome == "submitted"], cursor
+        assert [o.seq for o in out.outcomes if o.outcome == "submitted"], cursor
         assert out.cursor == 0 and not out.stale
 
 
@@ -301,14 +296,18 @@ async def test_a_cursor_pass_never_examines_a_run_twice() -> None:
     assert sorted(sub.tried) == list(range(1, 11)) and len(sub.tried) == 10
 
 
-def test_submit_outcomes_is_a_plain_list_for_older_callers() -> None:
-    out = SubmitOutcomes([RunOutcome("r", 1, "submitted", job_id="j")])
-    assert isinstance(out, list) and len(out) == 1 and out[0].job_id == "j"
-    assert out == [RunOutcome("r", 1, "submitted", job_id="j")]
-    assert [o.outcome for o in out[:1]] == ["submitted"]
-    assert out.cursor == 0 and out.stale is False
-    assert json.dumps([o.outcome for o in out]) == '["submitted"]'
-    assert SubmitOutcomes([]) == []
+def test_submit_batch_is_a_typed_frozen_result() -> None:
+    """Fix r2 (D251 N1): was ``test_submit_outcomes_is_a_plain_list_for_older_callers``
+    - the list subclass is gone; the same facts hold on the typed batch."""
+    out = SubmitBatch((RunOutcome("r", 1, "submitted", job_id="j"),))
+    assert len(out.outcomes) == 1 and out.outcomes[0].job_id == "j"
+    assert out.outcomes == (RunOutcome("r", 1, "submitted", job_id="j"),)
+    assert [o.outcome for o in out.outcomes[:1]] == ["submitted"]
+    assert out.cursor == 0 and out.stale is False and out.submitted == 1
+    assert json.dumps([o.outcome for o in out.outcomes]) == '["submitted"]'
+    assert SubmitBatch().outcomes == ()
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        out.cursor = 5  # type: ignore[misc]
 
 
 class _Control:
@@ -371,7 +370,7 @@ def _runner(camps: list[Any], sub: Any) -> BenchRunner:
 
 
 @pytest.mark.asyncio
-async def test_the_cursor_is_per_campaign_and_an_old_list_submitter_works() -> None:
+async def test_the_cursor_is_per_campaign_and_a_default_batch_works() -> None:
     seen: list[tuple[str, int]] = []
     plan = {"camp_a": [32, 0], "camp_b": [0, 0]}
 
@@ -379,7 +378,7 @@ async def test_the_cursor_is_per_campaign_and_an_old_list_submitter_works() -> N
         async def submit_next(self, rec: Any, count: int, **kw: Any) -> Any:
             seen.append((rec.id, int(kw.get("start_after", 0))))
             nxt = plan[rec.id].pop(0) if plan[rec.id] else 0
-            return SubmitOutcomes([], cursor=nxt)
+            return SubmitBatch(cursor=nxt)
 
     runner = _runner([_Camp("camp_a"), _Camp("camp_b")], Sub())
     await runner.tick()
@@ -387,13 +386,14 @@ async def test_the_cursor_is_per_campaign_and_an_old_list_submitter_works() -> N
     # camp_a's cursor never leaks into camp_b
     assert seen == [("camp_a", 0), ("camp_b", 0), ("camp_a", 32), ("camp_b", 0)]
 
-    class Old:  # an older submitter returning a plain list
-        async def submit_next(self, rec: Any, count: int, **kw: Any) -> list[Any]:
-            return []
+    class Bare:  # fix r2 N1: a batch with only defaults (no cursor) works
+        async def submit_next(self, rec: Any, count: int, **kw: Any) -> SubmitBatch:
+            return SubmitBatch()
 
-    old = _runner([_Camp("camp_a")], Old())
-    await old.tick()
-    await old.tick()
+    bare = _runner([_Camp("camp_a")], Bare())
+    await bare.tick()
+    await bare.tick()
+    assert bare.crashes == 0 and bare._cursors["camp_a"] == 0
 
 
 @pytest.mark.asyncio
@@ -403,7 +403,7 @@ async def test_the_cursor_resets_when_the_campaign_leaves_and_returns() -> None:
     class Sub:
         async def submit_next(self, _r: Any, count: int, **kw: Any) -> Any:
             seen.append(int(kw.get("start_after", 0)))
-            return SubmitOutcomes([], cursor=0)  # not capped: the head next time
+            return SubmitBatch(cursor=0)  # not capped: the head next time
 
     camps = [_Camp("camp_a")]
     runner = _runner(camps, Sub())

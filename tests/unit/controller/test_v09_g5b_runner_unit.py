@@ -42,7 +42,7 @@ from meshforge.controller.bench.outcome import (
     settle,
 )
 from meshforge.controller.bench.runner import BenchRunner, RunnerSettings
-from meshforge.controller.bench.submit import _pre_jobs, owner_guarded
+from meshforge.controller.bench.submit import SubmitBatch, _pre_jobs, owner_guarded
 from meshforge.controller.jobs.queue_reads import is_benchmark_key
 from meshforge.controller.planner.feasibility import bench_guard, live_rejection
 from meshforge.controller.planner.types import (
@@ -321,7 +321,7 @@ class _Submitter:
         self, _record: Any, count: int, *, node_budget: Any, max_examined: int
     ) -> list[Any]:
         self.calls.append((count, dict(node_budget), max_examined))
-        return []
+        return SubmitBatch()
 
 
 @dataclasses.dataclass
@@ -522,14 +522,19 @@ async def test_more_per_run_deferrals_than_the_cap_no_longer_stall_the_runner() 
     sub = _submitter(store, defer_until=40)  # 40 head runs defer, the cap is 32
     record = _Record()
     first = await sub.submit_next(record, 4, max_examined=32)
-    assert [o.outcome for o in first] == ["deferred"] * 32
+    assert [o.outcome for o in first.outcomes] == ["deferred"] * 32
     assert first.cursor == 32
     second = await sub.submit_next(record, 4, max_examined=32, start_after=first.cursor)
-    assert [o.seq for o in second if o.outcome == "submitted"] == [41, 42, 43, 44]
+    assert [o.seq for o in second.outcomes if o.outcome == "submitted"] == [
+        41,
+        42,
+        43,
+        44,
+    ]
     assert second.cursor == 0  # count reached: the head again next time
     # without the cursor every call re-examines the same 32 deferrals
     again = await sub.submit_next(record, 4, max_examined=32)
-    assert not [o for o in again if o.outcome == "submitted"]
+    assert not [o for o in again.outcomes if o.outcome == "submitted"]
 
 
 @pytest.mark.asyncio
@@ -537,19 +542,21 @@ async def test_the_cursor_wraps_to_the_head() -> None:
     store = _PagedStore([_Run(f"r{i}", i) for i in range(1, 11)])
     sub = _submitter(store, defer_until=0)
     out = await sub.submit_next(_Record(), 3, max_examined=32, start_after=8)
-    assert [o.seq for o in out] == [9, 10, 1]  # after the cursor, then the head
+    assert [o.seq for o in out.outcomes] == [
+        9,
+        10,
+        1,
+    ]  # after the cursor, then the head
 
 
 @pytest.mark.asyncio
 async def test_the_runner_carries_the_cursor_across_ticks() -> None:
-    from meshforge.controller.bench.submit import SubmitOutcomes
-
     seen: list[int] = []
 
     class Sub:
         async def submit_next(self, _r: Any, count: int, **kw: Any) -> Any:
             seen.append(int(kw.get("start_after", 0)))
-            return SubmitOutcomes([], cursor=32 if len(seen) == 1 else 0)
+            return SubmitBatch(cursor=32 if len(seen) == 1 else 0)
 
     control = _Control()
     control.nodes, control.load, control.since, control.busy = {"c"}, {}, {}, set()

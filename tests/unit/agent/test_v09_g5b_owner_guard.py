@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import itertools
 import os
 from pathlib import Path
 from typing import Any
@@ -305,3 +306,84 @@ def test_bench_pause_and_resume_write_the_live_policy(data_dir: Path) -> None:
     assert result.exit_code == ExitCode.OK, result.output
     assert live.reload() is True
     assert live.policy.pause_benchmarks is False and guard.blocked() is None
+
+
+# ------------------------------------------------------------ fix r2 (D251 B1)
+
+
+@pytest.mark.asyncio
+async def test_a_failing_preemption_retries_on_polls_with_backoff_capped_at_30s() -> (
+    None
+):
+    import structlog
+
+    clock = [0.0]
+    idle = _Idle()
+    idle.value = 1.0  # the owner is active from the first sample
+    activity = OwnerActivity(
+        BenchSettings(poll_s=2.0, clear_after_s=3600.0),
+        idle=idle,
+        cpu=_Cpu(),  # type: ignore[arg-type]
+        clock=lambda: clock[0],
+    )
+    tries: list[float] = []
+
+    async def preempt(_reason: str) -> int:
+        tries.append(clock[0])
+        raise OSError("cannot stop")
+
+    guard = OwnerGuard(
+        policy=None, activity=activity, preempt=preempt, clock=lambda: clock[0]
+    )
+    activity.on_change = guard.on_activity
+    with structlog.testing.capture_logs() as logs:
+        with pytest.raises(OSError):
+            await activity.step()  # the flip
+        for _ in range(200):  # 400 s of polls, every 2 s
+            clock[0] += 2.0
+            await activity.step()
+    gaps = [round(b - a, 1) for a, b in itertools.pairwise(tries)]
+    assert gaps[:5] == [2.0, 4.0, 8.0, 16.0, 30.0]  # one poll, then doubling
+    assert all(g == 30.0 for g in gaps[4:])  # capped
+    failed = [e for e in logs if e["event"] == "agent.bench.preempt_failed"]
+    assert len(failed) == len(tries)  # one line per step, no storm
+
+
+@pytest.mark.asyncio
+async def test_a_recovered_preemption_is_not_repeated_and_resets_on_clear() -> None:
+    clock = [0.0]
+    idle = _Idle()
+    idle.value = 1.0
+    activity = OwnerActivity(
+        BenchSettings(poll_s=2.0, clear_after_s=10.0),
+        idle=idle,
+        cpu=_Cpu(),  # type: ignore[arg-type]
+        clock=lambda: clock[0],
+    )
+    calls: list[float] = []
+
+    async def preempt(_reason: str) -> int:
+        calls.append(clock[0])
+        if len(calls) == 1:
+            raise OSError("once")
+        return 1
+
+    guard = OwnerGuard(
+        policy=None, activity=activity, preempt=preempt, clock=lambda: clock[0]
+    )
+    activity.on_change = guard.on_activity
+    with pytest.raises(OSError):
+        await activity.step()
+    for _ in range(10):
+        clock[0] += 2.0
+        await activity.step()
+    assert len(calls) == 2 and guard.preempted == 1  # retried once, then done
+    idle.value = 9999.0
+    for _ in range(10):
+        clock[0] += 2.0
+        await activity.step()
+    assert guard.blocked() is None
+    idle.value = 1.0
+    clock[0] += 2.0
+    await activity.step()  # on again: a new pre-emption
+    assert len(calls) == 3

@@ -978,6 +978,12 @@ compute bench cancel <camp_id>      # cancel its benchmark jobs, skip the open r
 * **User jobs come first:** a node with a user's job running (or queued for it) gets no benchmark; benchmark
   jobs are the lowest priority and never age (D237). G3's manual `compute bench submit` is refused
   (`409 campaign_running`) once a campaign is started.
+* **Known limit (D251 N2):** a tick examines at most `max_examine_per_tick` planned runs. When more runs than
+  that at the head of a campaign are refused one by one (an owner RAM / CPU limit), the tick that hits the cap
+  remembers where it stopped and the next tick continues from there, wrapping to the head - no run starves.
+  After a tick that submitted its budget the scan starts at the head again, so such a head costs a capped
+  walk every other tick (submission throughput about halves while it lasts). The cursor deliberately does not
+  keep scanning past the cap within one tick: the cap is what keeps a tick short however large the campaign.
 * `/healthz` says `degraded` (`bench-runner`) when the runner failed 5 ticks in a row; it logs
   `controller.bench.runner_crashed` and retries with back-off.
 

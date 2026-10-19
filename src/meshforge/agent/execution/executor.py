@@ -333,6 +333,8 @@ class _Attempt:
     """V0.9 G5 (D246): ``StartAttempt.benchmark`` - only these are stopped by
     the owner guard (:meth:`Executor.preempt_benchmarks`)."""
     preempt_reason: str = ""
+    preempt_stopped: bool = False
+    """Its step was cancelled by :meth:`Executor.preempt_benchmarks` (fix r2)."""
 
     @property
     def ended(self) -> bool:
@@ -997,22 +999,32 @@ class Executor:
         running = [
             a
             for a in self._attempts.values()
-            if a.benchmark and not a.ended and a.stop_reason is None
+            if a.benchmark
+            and not a.ended
+            and (
+                a.stop_reason is None
+                # fix r2 (D251 B2): marked by a pre-emption that did not finish
+                or (a.stop_reason == OWNER_PREEMPTED and not a.preempt_stopped)
+            )
         ]
         for attempt in running:
             attempt.stop_reason = OWNER_PREEMPTED  # no cancel yet
             attempt.preempt_reason = reason[:64]
-        if running or self.conditions.active:
-            await self.conditions.stop_all("owner_pause")
-        for attempt in running:
-            self._stop(attempt, OWNER_PREEMPTED)
-            log.warning(
-                "agent.execution.owner_preempted",
-                node_id=self._node_id,
-                job_id=attempt.job_id,
-                attempt_id=attempt.attempt_id,
-                reason=attempt.preempt_reason,
-            )
+        try:
+            if running or self.conditions.active:
+                await self.conditions.stop_all("owner_pause")
+        finally:
+            # whatever stop_all did (raised, was cancelled), the attempts stop
+            for attempt in running:
+                self._stop(attempt, OWNER_PREEMPTED)
+                attempt.preempt_stopped = True
+                log.warning(
+                    "agent.execution.owner_preempted",
+                    node_id=self._node_id,
+                    job_id=attempt.job_id,
+                    attempt_id=attempt.attempt_id,
+                    reason=attempt.preempt_reason,
+                )
         return len(running)
 
     def _stop(self, attempt: _Attempt, reason: str) -> None:

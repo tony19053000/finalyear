@@ -193,3 +193,76 @@ async def test_policy_pause_refuses_a_bench_start_as_owner_preempted(
     await _settle(executor)
     assert _state(_final(reports, user.start_attempt.attempt_id)) == "done"
     await executor.close()
+
+
+# ------------------------------------------------------------ fix r2 (D251 B2)
+
+
+@pytest.mark.security
+@pytest.mark.asyncio
+async def test_a_raising_stop_all_still_stops_the_bench_attempt_and_a_retry_reverts(
+    tmp_path: Path,
+) -> None:
+    runtime, reports = TwoRuntimes(), Reports()
+    executor, digest = _executor(
+        tmp_path, runtime, reports, kinds={ConditionKind.CPU_LOAD}
+    )
+    await executor.start()
+    real_stop_all = executor.conditions.stop_all
+    calls: list[str] = []
+
+    async def flaky_stop_all(reason: str) -> int:
+        calls.append(reason)
+        if len(calls) == 1:
+            raise OSError("a revert hiccup")
+        return await real_stop_all(reason)
+
+    executor.conditions.stop_all = flaky_stop_all  # type: ignore[method-assign]
+    bench = _bench(_start(digest, "cpu_load:1"))
+    user = _start(digest, None)
+    executor.handle(bench)
+    executor.handle(user)
+    await asyncio.wait_for(runtime.two.wait(), 30)
+    with pytest.raises(OSError, match="hiccup"):
+        await executor.preempt_benchmarks("paused")
+    # the attempt was stopped anyway (finally) ...
+    for _ in range(200):
+        if _state(_final(reports, bench.start_attempt.attempt_id)) == "failed":
+            break
+        await asyncio.sleep(0.05)
+    final = _final(reports, bench.start_attempt.attempt_id)
+    assert (
+        failure_type_from_proto(final.failure.failure_type).value == "owner_preempted"
+    )
+    # ... and the guard's retry reverts what is left (nothing to stop twice)
+    assert await executor.preempt_benchmarks("paused") == 0
+    assert len(calls) <= 2
+    await _no_burners()
+    assert _state(_final(reports, user.start_attempt.attempt_id)) == "running"
+    runtime.release.set()
+    await _settle(executor)
+    assert _state(_final(reports, user.start_attempt.attempt_id)) == "done"
+    await executor.close()
+
+
+@pytest.mark.asyncio
+async def test_the_retry_picks_an_attempt_marked_but_never_stopped(
+    tmp_path: Path,
+) -> None:
+    runtime, reports = GatedRuntime(), Reports()
+    executor, digest = _executor(tmp_path, runtime, reports, kinds=set())
+    await executor.start()
+    bench = _bench(_start(digest, None))
+    executor.handle(bench)
+    await asyncio.wait_for(runtime.running.wait(), 30)
+    attempt = executor._attempts[bench.start_attempt.attempt_id]
+    # a pre-emption that was cut short after marking it (before its _stop)
+    attempt.stop_reason = "owner_preempted"
+    attempt.preempt_reason = "paused"
+    assert await executor.preempt_benchmarks("paused") == 1
+    await _settle(executor)
+    final = _final(reports, bench.start_attempt.attempt_id)
+    assert (
+        failure_type_from_proto(final.failure.failure_type).value == "owner_preempted"
+    )
+    await executor.close()

@@ -348,6 +348,9 @@ class OwnerActivity:
         self._clock = clock
         self._rule = ActivityRule(settings)
         self.on_change = on_change
+        self.on_poll: Callable[[ActivityState], Awaitable[None]] | None = None
+        """Called after every sample (the guard's pending-retry hook)."""
+        self.poll_s = settings.poll_s
         self.state = ActivityState(idle_source=self._idle.name)
 
     def _sample(self) -> tuple[float | None, float | None]:
@@ -376,6 +379,8 @@ class OwnerActivity:
             )
             if self.on_change is not None:
                 await self.on_change(self.state)
+        if self.on_poll is not None:  # fix r2 (D251 B1): retries ride on polls
+            await self.on_poll(self.state)
         return changed
 
     async def run(self) -> None:
