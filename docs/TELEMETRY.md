@@ -355,7 +355,7 @@ records by condition); `workload_failures` (by family). Verdicts:
 
 | verdict | true when |
 |---|---|
-| `crit1_infra_ok` | `infra_failure_rate` < 2 % (no records = not proven = false) |
+| `crit1_infra_ok` | the **exact** fraction infrastructure failures / (records - pre-emptions) < 1/50 (`bench.quality.infra_failure_fraction`; no records = not proven = false). The displayed `infra_failure_rate` is that fraction rounded to 4 places and is never used to decide: 1 999 / 100 000 shows as 0.02 and passes |
 | `crit3_reps_ok` | every measured configuration has `n >= 3` and a `total_ms` CV (no configuration = false) |
 
 While the campaign is open (`active` / `paused`) `pending` is true and both verdicts are null.

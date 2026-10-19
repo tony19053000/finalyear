@@ -325,11 +325,6 @@ def test_criterion_one_boundary_is_strictly_below_two_percent() -> None:
     assert q.summary.infra_failure_rate == 0.02 and q.summary.crit1_infra_ok is False
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="tester r1 T-1: crit1 is decided on the rate rounded to 4 places "
-    "(1.999 % -> 0.02 -> not < 0.02)",
-)
 def test_criterion_one_is_not_decided_on_a_rounded_rate() -> None:
     """1999 / 100000 = 1.999 % < 2 %: the criterion must hold. The rate is
     rounded to 4 places for display (0.02) - the verdict must not use it."""

@@ -34,8 +34,9 @@ threshold (``[controller.bench] quality_cv_threshold``, default 0.10);
 same** :func:`infra_failure_rate` over the same :class:`FailureCounts` as
 ``compute bench status`` (``owner_preempted`` excluded); pre-emptions;
 condition failures by condition; workload failures by family; and the
-criterion verdicts: ``crit1_infra_ok`` = rate < :data:`CRIT1_MAX_INFRA_RATE`
-(2 %), ``crit3_reps_ok`` = every measured configuration has ``n >= 3`` and a
+criterion verdicts: ``crit1_infra_ok`` = the **exact** rate (a fraction, never
+the rounded display value) < :data:`CRIT1_MAX_INFRA_FRACTION` (2 %),
+``crit3_reps_ok`` = every measured configuration has ``n >= 3`` and a
 ``total_ms`` CV. Both are ``None`` (``pending``) while the campaign is open.
 """
 
@@ -45,6 +46,7 @@ import math
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
+from fractions import Fraction
 from typing import Any, Final, Protocol
 
 from meshforge.bench.records import (
@@ -55,6 +57,7 @@ from meshforge.bench.records import (
 from meshforge.bench.stats import Summary, mad_outliers, summarize
 
 __all__ = [
+    "CRIT1_MAX_INFRA_FRACTION",
     "CRIT1_MAX_INFRA_RATE",
     "DEFAULT_CV_THRESHOLD",
     "QUALITY_METRICS",
@@ -69,13 +72,18 @@ __all__ = [
     "QualityInput",
     "QualitySummary",
     "build_quality",
+    "crit1_infra_ok",
+    "infra_failure_fraction",
     "infra_failure_rate",
 ]
 
 QUALITY_VERSION: Final = 1
 DEFAULT_CV_THRESHOLD: Final = 0.10
-CRIT1_MAX_INFRA_RATE: Final = 0.02
-"""Criterion 1: infrastructure failures below 2 % of the counted attempts."""
+CRIT1_MAX_INFRA_FRACTION: Final = Fraction(1, 50)
+"""Criterion 1: infrastructure failures below 2 % of the counted attempts -
+exact, the verdict compares fractions (G5c fix r1, tester T-1)."""
+CRIT1_MAX_INFRA_RATE: Final = float(CRIT1_MAX_INFRA_FRACTION)
+"""The same bound as a float, for display only."""
 QUALITY_METRICS: Final = ("total_ms", "compute_per_iter_ns")
 RUN_STATES: Final = ("planned", "submitted", "done", "failed", "skipped")
 _TERMINAL_CAMPAIGN: Final = frozenset({"done", "cancelled"})
@@ -129,14 +137,32 @@ class FailureCounts:
     preempted: int
 
 
-def infra_failure_rate(counts: FailureCounts) -> float | None:
-    """Criterion 1's rate: infrastructure failures / (records - pre-emptions),
-    rounded to 4 places; ``None`` with nothing counted. **The** helper - the
-    campaign status and the quality report both call it (D246)."""
+def infra_failure_fraction(counts: FailureCounts) -> Fraction | None:
+    """Criterion 1's rate, **exact**: infrastructure failures / (records -
+    pre-emptions); ``None`` with nothing counted. **The** helper - the
+    campaign status and the quality report both go through it (D246), the
+    displayed rate (:func:`infra_failure_rate`) and the verdict
+    (:func:`crit1_infra_ok`) alike."""
     counted = counts.records - counts.preempted
     if counted <= 0:
         return None
-    return round(counts.infra / counted, 4)
+    return Fraction(counts.infra, counted)
+
+
+def infra_failure_rate(counts: FailureCounts) -> float | None:
+    """:func:`infra_failure_fraction` rounded to 4 places - **for display
+    only** (status, report, events); never decide on it: 1999 / 100000 =
+    1.999 % shows as 0.02 yet meets criterion 1."""
+    exact = infra_failure_fraction(counts)
+    return None if exact is None else round(float(exact), 4)
+
+
+def crit1_infra_ok(counts: FailureCounts) -> bool:
+    """Criterion 1 on the exact fraction: rate <
+    :data:`CRIT1_MAX_INFRA_FRACTION`; False with nothing counted (no
+    evidence). ``pending`` is the caller's call."""
+    exact = infra_failure_fraction(counts)
+    return exact is not None and exact < CRIT1_MAX_INFRA_FRACTION
 
 
 class PlannedRun(Protocol):
@@ -372,9 +398,7 @@ def build_quality(
         infra_failure_rate=rate,
         condition_failures=dict(sorted(data.condition_failures.items())),
         workload_failures=dict(sorted(data.workload_failures.items())),
-        crit1_infra_ok=(
-            None if pending else (rate is not None and rate < CRIT1_MAX_INFRA_RATE)
-        ),
+        crit1_infra_ok=None if pending else crit1_infra_ok(failures),
         crit3_reps_ok=None if pending else crit3,
         configs=len(configs),
         flagged_configs=sum(1 for c in configs if c.flagged),

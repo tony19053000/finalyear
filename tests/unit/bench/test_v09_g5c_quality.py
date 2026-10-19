@@ -25,6 +25,8 @@ from meshforge.bench.quality import (
     FailureCounts,
     QualityInput,
     build_quality,
+    crit1_infra_ok,
+    infra_failure_fraction,
     infra_failure_rate,
 )
 from meshforge.bench.records import latest_per_repetition
@@ -167,6 +169,32 @@ def test_infra_rate_excludes_preemptions() -> None:
     assert infra_failure_rate(FailureCounts(records=3, infra=0, preempted=3)) is None
     assert infra_failure_rate(FailureCounts(records=0, infra=0, preempted=0)) is None
     assert infra_failure_rate(FailureCounts(records=3, infra=1, preempted=0)) == 0.3333
+
+
+@pytest.mark.parametrize(
+    ("records", "infra", "preempted", "ok"),
+    [
+        (100_000, 1_999, 0, True),  # 1.999 % - displayed 0.02, still < 2 %
+        (50, 1, 0, False),  # exactly 2 %
+        (100_000, 2_001, 0, False),  # 2.001 % - displayed 0.02
+        (55, 1, 5, False),  # 1 / 50 after pre-emptions
+        (56, 1, 5, True),  # 1 / 51
+        (0, 0, 0, False),  # nothing counted: no evidence
+        (4, 0, 4, False),
+    ],
+)
+def test_criterion_one_uses_the_exact_fraction_not_the_display_rate(
+    records: int, infra: int, preempted: int, ok: bool
+) -> None:
+    """G5c fix r1 (tester T-1): the verdict compares the exact fraction; the
+    rounded rate is display only, from the same helper."""
+    counts = FailureCounts(records=records, infra=infra, preempted=preempted)
+    assert crit1_infra_ok(counts) is ok
+    exact = infra_failure_fraction(counts)
+    shown = infra_failure_rate(counts)
+    assert (exact is None) is (shown is None)
+    if exact is not None:
+        assert shown == round(float(exact), 4)
 
 
 def test_status_uses_the_same_rate_helper() -> None:
