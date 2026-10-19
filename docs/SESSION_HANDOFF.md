@@ -262,7 +262,7 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
-**2026-10-19 (G5 gate done, D255) — NOTHING RUNNING. 0.9.6 `[x]`. 0.9.7 `[~]`: runner cool-down missed under load (test_v09_g5b_runner.py:207, 0.034 s vs 1 s; green 3/3 alone) → treated as real race, G5c item 0.0. Next: launch G5c implementer (brief §5g) in a worktree → tester → reviewer → merge → whole component alone → 0.9.7 + 0.9.8 `[x]`.**
+**2026-10-19 (G5 gate done, D255) — RUNNING: G5c implementer (brief §5g, own agent worktree — newest in `git worktree list`; progress docs/briefs/progress/V0.9-G5c.md there; if died relaunch from it). 0.9.6 `[x]`. 0.9.7 `[~]`: runner cool-down missed under load (test_v09_g5b_runner.py:207, 0.034 s vs 1 s; green 3/3 alone) → treated as real race, G5c item 0.0. Next: launch G5c implementer (brief §5g) in a worktree → tester → reviewer → merge → whole component alone → 0.9.7 + 0.9.8 `[x]`.**
 
 **2026-10-19 (G5 lane B tester r3 PASS `0e948d3`, MERGED into main, D253; frontend rebuilt) — RUNNING: whole `-m component` ONCE alone on main (scratchpad g5_component.log). If died: rerun `uv run python scripts/pytest_exit_guard.py -m component -q -rs` alone; green → 0.9.6 + 0.9.7 `[x]` + status bar + STATUS → G5c brief (0.9.8; item 0 = D248 N2/N5 + D252 1–6 + D253 T3-1/T3-2).**
 
