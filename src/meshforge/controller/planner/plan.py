@@ -11,6 +11,11 @@ ADR-0007:
 3. :func:`~.estimator.estimate` for every feasible candidate.
 4. :func:`~.policies.rank` by the policy; rank 1 is chosen.
 
+A **split job** (V0.10 G3, ``request.split``) shares stages 1-2; stages 3-4
+are :func:`~.split_plan.decide_split`: every feasible node as one lane
+("don't split") plus the Mode 3 node sets, the margin test, and
+:attr:`~.types.Decision.split` - what the dispatcher runs.
+
 The :class:`~.types.Decision` lists **every** candidate - chosen, ranked and
 rejected - which is what ``plan_decision`` stores and ``compute explain``
 prints. ``snapshot_digest`` names exactly what the planner saw;
@@ -34,6 +39,7 @@ from meshforge.controller.planner.feasibility import (
 )
 from meshforge.controller.planner.policies import Scored, rank
 from meshforge.controller.planner.retry_exclusion import LIFT_ORDER
+from meshforge.controller.planner.split_plan import decide_split
 from meshforge.controller.planner.types import (
     CandidateEval,
     ClusterSnapshot,
@@ -41,6 +47,7 @@ from meshforge.controller.planner.types import (
     Mode,
     NodeSnapshot,
     PlanRequest,
+    Slot,
 )
 
 __all__ = ["candidates", "plan", "snapshot_digest"]
@@ -80,8 +87,11 @@ def snapshot_digest(request: PlanRequest, snapshot: ClusterSnapshot) -> str:
 
 
 def _reason_key(evals: list[CandidateEval]) -> str:
+    # a Mode 3 set row is keyed by its mode, not its head node (V0.10 G3)
     parts = sorted(
-        f"{c.node_id}:{c.rejection.code.value if c.rejection else 'ok'}" for c in evals
+        f"{'split' if c.mode == 'split' else c.node_id}:"
+        f"{c.rejection.code.value if c.rejection else 'ok'}"
+        for c in evals
     )
     return hashlib.sha256("\n".join(parts).encode("ascii")).hexdigest()
 
@@ -157,6 +167,7 @@ def plan(
     request = _with_exclusion(request, snapshot)
     evals: list[CandidateEval] = []
     scored: list[Scored] = []
+    feasible: list[tuple[NodeSnapshot, bool, Slot]] = []
     for node, local in candidates(request, snapshot):
         mode: Mode = "local" if local else "offload"
         refused = rejection(
@@ -173,10 +184,27 @@ def plan(
         slot = choose_slot(request, node)
         if slot is None:  # pragma: no cover - live_rejection already said slots_full
             raise AssertionError("a feasible candidate without a slot")
+        if request.split is not None:
+            feasible.append((node, local, slot))
+            continue
         guess = estimate(request, node, slot, snapshot, local=local, now=now)
         scored.append(Scored(node=node, slot=slot, local=local, estimate=guess))
         evals.append(
             CandidateEval(node.node_id, mode, feasible=True, slot=slot, estimate=guess)
+        )
+    if request.split is not None:
+        rows, picked, split_plan = decide_split(
+            request, snapshot, policy, feasible, now=now
+        )
+        rows = [*rows, *evals]
+        rows.sort(key=lambda c: (c.rank is None, c.rank or 0, c.node_id))
+        return Decision(
+            policy=policy,
+            candidates=tuple(rows),
+            chosen=picked,
+            snapshot_digest=snapshot_digest(request, snapshot),
+            reason_key=_reason_key(rows),
+            split=split_plan,
         )
     ranking = {r.node_id: r for r in rank(policy, request, snapshot, scored)}
     final: list[CandidateEval] = []

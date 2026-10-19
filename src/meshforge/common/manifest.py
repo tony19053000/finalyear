@@ -232,7 +232,13 @@ INFERRED_ENTRYPOINTS: Final = ("main.py", "__main__.py")
 
 MAX_SPLIT_ITEMS: Final = 100_000
 """Hard ceiling on the items of one split job (D260); the controller's
-``[controller.split] max_items`` may only lower it."""
+``[controller.split] max_items`` may only lower it.
+
+Changing it needs a migration: the ``job`` table's CHECK constraint was
+created with this value frozen in migration 0026 (``MAX_SPLIT_ITEMS_0026``),
+while the ORM model's copy of the CHECK reads this constant live - raise it
+here alone and ``alembic check`` sees a drift, and the database still refuses
+the larger counts (D278)."""
 MAX_SPLIT_CHUNKS: Final = 10_000
 """Hard ceiling on the chunks of one split job (``[controller.split] max_chunks``)."""
 MAX_SPLIT_LIST: Final = 10_000

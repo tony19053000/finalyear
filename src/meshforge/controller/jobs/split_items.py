@@ -23,6 +23,7 @@ interprets item contents.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 from collections.abc import AsyncIterator, Mapping
 from typing import IO
 
@@ -77,6 +78,11 @@ async def resolve_split(
     def _open(sha256_hex: str) -> IO[bytes]:
         return blobs.open_path(Digest(sha256_hex)).open("rb")
 
+    # D278: the list's size is capped while it is resolved, never above what
+    # the blob store would keep (the check below stays the authority)
+    limits = dataclasses.replace(
+        limits, max_list_bytes=min(limits.max_list_bytes, blobs.max_blob_bytes)
+    )
     items = await asyncio.to_thread(resolve, spec, project, inputs, _open, limits)
     blob = items.blob()
     if len(blob) > blobs.max_blob_bytes:

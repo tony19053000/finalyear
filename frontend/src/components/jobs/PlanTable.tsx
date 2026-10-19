@@ -63,7 +63,7 @@ function CandidateRows({ decision }: { decision: DecisionOut }) {
             const chosen = c.node_id === decision.chosen_node_id && c.rank === 1;
             return (
               <tr
-                key={`${c.node_id}-${c.mode}`}
+                key={`${c.node_id}-${c.mode}-${(c.node_set ?? []).join("+")}`}
                 className={cn("border-b border-border last:border-b-0", chosen && "font-medium")}
               >
                 <td className="h-9 px-3 font-mono text-xs tabular-nums">{c.rank ?? "—"}</td>

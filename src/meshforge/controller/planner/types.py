@@ -30,7 +30,9 @@ __all__ = [
     "EstimateTerm",
     "GpuNeed",
     "History",
+    "LanePlan",
     "LinkStat",
+    "MarginTest",
     "Mode",
     "NodeSnapshot",
     "PlanRequest",
@@ -38,13 +40,18 @@ __all__ = [
     "RejectCode",
     "Rejection",
     "Slot",
+    "SplitConfig",
+    "SplitInfo",
+    "SplitPlan",
     "TermSource",
     "TreeNeed",
 ]
 
 type Slot = Literal["cpu", "gpu"]
 type GpuNeed = Literal["required", "preferred", "none"]
-type Mode = Literal["local", "offload"]
+type Mode = Literal["local", "offload", "split"]
+"""``local`` / ``offload`` = one node runs the job (for a split job: one lane,
+"don't split"); ``split`` = Mode 3 over a node set (V0.10 G3, D265)."""
 
 
 class RejectCode(StrEnum):
@@ -106,6 +113,14 @@ class RejectCode(StrEnum):
     GPU no larger than the one that ran out of VRAM). Auto jobs only; lifted
     by the D129 rule (:mod:`.retry_exclusion`) when no other node could ever
     run the job."""
+    # --- V0.10 G3 (D265): a Mode 3 *set* candidate, not a node ------------------
+    SPLIT_TOO_SMALL = "split_too_small"
+    """Fewer than ``2 x min_nodes`` items: the job runs unsplit (forced "don't
+    split"). Not in :data:`STATIC_CODES`: set rows never decide whether the
+    job can run at all (:attr:`Decision.all_static_rejections` reads node
+    rows only)."""
+    SPLIT_TOO_FEW_NODES = "split_too_few_nodes"
+    """Fewer than ``min_nodes`` nodes can take a lane right now."""
     BENCH_PAUSED = "policy_bench_paused"
     """V0.9 G5 (D219/D246): a **benchmark** job, and the node's owner paused
     benchmarks or is using the laptop (the heartbeat's ``owner_active``). Live
@@ -185,6 +200,42 @@ class History:
     env_hash_by_node: Mapping[str, str] = field(default_factory=dict)
     """node_id -> the env hash the fingerprint's latest attempt there reported
     (with :attr:`NodeSnapshot.cached_envs`: is the env still built there?)."""
+    item_rate_by_node: Mapping[str, float] = field(default_factory=dict)
+    """V0.10 G3 (D265): node_id -> steady items/s of this fingerprint's chunks
+    on that node (chunk history: median of committed chunks' ``items / run
+    seconds``); empty until chunk records exist (G8)."""
+    item_rate_samples_by_node: Mapping[str, int] = field(default_factory=dict)
+    chunk_overhead_s: float | None = None
+    """V0.10 G3 (D265): median per-chunk overhead of this fingerprint (process
+    start + chunk stage + result upload); None = never measured."""
+    chunk_overhead_samples: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class SplitInfo:
+    """A split job as the planner sees it (V0.10 G3, D265): the items resolved
+    at submit (G1) and the manifest's chunk and node bounds."""
+
+    items: int
+    """Items to run (all of them, or the remainder on a re-plan, D267e)."""
+    item_bytes: int | None = None
+    """Bytes the items stand for (glob files / ``lines`` records); None for
+    ``list`` / ``range`` items (no data of their own)."""
+    items_tree: str | None = None
+    """The tree (a key of :attr:`PlanRequest.trees`) the item bytes live in: a
+    lane stages that tree **minus** the items once and fetches each chunk's
+    items when it runs the chunk (D264). None = the items carry no bytes."""
+    chunk_items: int | None = None
+    """``split.chunk.items``; None = ``auto`` (the planner sizes chunks)."""
+    min_nodes: int = 2
+    max_nodes: int | None = None
+    """None = every suitable node."""
+
+    @property
+    def bytes_per_item(self) -> float:
+        if not self.item_bytes or self.item_bytes < 0 or self.items <= 0:
+            return 0.0
+        return self.item_bytes / self.items
 
 
 @dataclass(frozen=True, slots=True)
@@ -223,6 +274,8 @@ class PlanRequest:
     benchmark: bool = False
     """V0.9 G5 (D246): a benchmark job (``bench:`` identity, D237): refused
     live where the owner guard is on (:attr:`RejectCode.BENCH_PAUSED`)."""
+    split: SplitInfo | None = None
+    """V0.10 G3 (D265): a split job's items; None = the job runs whole."""
 
     @property
     def is_gpu_job(self) -> bool:
@@ -336,6 +389,31 @@ class EnvBuildStat:
 
 
 @dataclass(frozen=True, slots=True)
+class SplitConfig:
+    """``[controller.split]`` values the planner needs (V0.10 G3, D275)."""
+
+    split_margin: float = 0.10
+    """Split only when the best set is predicted at least this fraction faster
+    than the best single node (noise must not flip the decision)."""
+    target_chunk_s: float = 20.0
+    """Auto chunk size: about this many seconds on the fastest node of the set."""
+    max_overhead_frac: float = 0.05
+    """Auto chunk size is raised until the per-chunk overhead is at most this
+    fraction of a chunk's time on the fastest node ..."""
+    min_chunks_per_node: int = 4
+    """... and lowered until there are at least this many chunks per node
+    (tail balance; wins over the overhead rule)."""
+    max_chunks: int = 10_000
+    """``[controller.split] max_chunks``: auto chunking never makes more."""
+    chunk_overhead_s: float = 1.5
+    """Assumed per-chunk overhead (process start + chunk stage + upload) until
+    chunk history measures it."""
+    tail_frac: float = 0.5
+    """Expected tail of a set: this fraction of its longest chunk time (the
+    lanes do not finish together; pulling keeps it under one chunk)."""
+
+
+@dataclass(frozen=True, slots=True)
 class PlannerConfig:
     """``[controller.planner]`` values the pure planner needs."""
 
@@ -350,6 +428,8 @@ class PlannerConfig:
     min_bw_bytes_s: float = 1024.0
     """D131 (``[controller.network] min_bw_bytes_s``): no estimate divides by
     a bandwidth below this, so every estimate is finite."""
+    split: SplitConfig = field(default_factory=SplitConfig)
+    """V0.10 G3 (D275)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -391,6 +471,10 @@ class Estimate:
     env: EstimateTerm
     compute: EstimateTerm
     output: EstimateTerm
+    extra: Mapping[str, EstimateTerm] = field(default_factory=dict)
+    """V0.10 G3: the terms only a split job has (``items_fetch``,
+    ``chunk_overhead``, ``tail``, ``combine``), in that order; empty for a job
+    that runs whole."""
 
     @property
     def total_s(self) -> float:
@@ -400,6 +484,7 @@ class Estimate:
             + self.env.seconds
             + self.compute.seconds
             + self.output.seconds
+            + sum(term.seconds for term in self.extra.values())
         )
 
     def terms(self) -> dict[str, EstimateTerm]:
@@ -409,7 +494,70 @@ class Estimate:
             "env": self.env,
             "compute": self.compute,
             "output": self.output,
+            **self.extra,
         }
+
+
+@dataclass(frozen=True, slots=True)
+class LanePlan:
+    """One node of a split job's plan (V0.10 G3): a lane the dispatcher
+    creates (D259)."""
+
+    node_id: str
+    slot: Slot
+    local: bool
+    """The submitter's own node."""
+    rate_items_s: float
+    """Predicted items/s of compute alone (D265 ``r_n``)."""
+    rate_source: TermSource
+    start_s: float
+    """Predicted stage + env seconds before its first chunk runs."""
+    active: bool = True
+    """False = predicted to be ready only after the other lanes finish (it
+    would get no chunk); kept so the plan shows it."""
+
+
+@dataclass(frozen=True, slots=True)
+class MarginTest:
+    """D265: split only when ``set_s <= (1 - margin) x best_single_s``."""
+
+    set_s: float | None
+    """The set's prediction; None = no set was compared (``forced``)."""
+    best_single_s: float | None
+    """The best single node's prediction (Local or Mode 1, one lane)."""
+    best_single_node_id: str | None
+    margin: float
+    threshold_s: float | None
+    """``(1 - margin) x best_single_s``."""
+    passed: bool
+    """True = splitting is worth it."""
+    forced: str | None = None
+    """Why no set was compared: ``pinned``, ``split_too_small`` or
+    ``split_too_few_nodes``; None = the test ran."""
+
+
+@dataclass(frozen=True, slots=True)
+class SplitPlan:
+    """**What the dispatcher runs for a split job (the G3 -> G4 interface).**
+
+    Present on :attr:`Decision.split` whenever a split job's decision chose
+    something. ``split`` False = "don't split": one lane on
+    :attr:`Decision.chosen` (Local or Mode 1) - the same lane path (D269).
+    ``lanes`` are in rate order, fastest first, one per node (D267f); the
+    inactive ones (predicted to get no chunk) are not in it."""
+
+    split: bool
+    lanes: tuple[LanePlan, ...]
+    chunk_items: int
+    """Items per chunk (the last chunk may hold fewer)."""
+    chunks: int
+    predicted_makespan_s: float
+    """The chosen candidate's ``estimate.total_s``."""
+    margin: MarginTest
+
+    @property
+    def node_ids(self) -> tuple[str, ...]:
+        return tuple(lane.node_id for lane in self.lanes)
 
 
 @dataclass(frozen=True, slots=True)
@@ -425,6 +573,14 @@ class CandidateEval:
     """The policy's sort value (what ``rank`` was ordered by)."""
     rank: int | None = None
     """1 = chosen; None = not feasible."""
+    node_set: tuple[str, ...] = ()
+    """V0.10 G3, split jobs only: the lanes' nodes, fastest first (one node for
+    Local / Mode 1, the set for ``split``); ``node_id`` is the first."""
+    lanes: tuple[LanePlan, ...] = ()
+    chunk_items: int | None = None
+    chunks: int | None = None
+    margin: MarginTest | None = None
+    """``split`` candidates: this set against the best single node."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -434,11 +590,17 @@ class Decision:
     chosen: CandidateEval | None
     snapshot_digest: str
     reason_key: str
+    split: SplitPlan | None = None
+    """V0.10 G3: what to run for a split job (None = not a split job, or
+    nothing chosen)."""
 
     @property
     def all_static_rejections(self) -> bool:
-        """No candidate at all, or every one rejected for a static reason: the
-        job can never run on the nodes this snapshot knows (D104)."""
+        """No node candidate at all, or every one rejected for a static reason:
+        the job can never run on the nodes this snapshot knows (D104). Mode 3
+        set rows derive from the node rows and never decide it."""
         return all(
-            c.rejection is not None and c.rejection.static for c in self.candidates
+            c.rejection is not None and c.rejection.static
+            for c in self.candidates
+            if c.mode != "split"
         )

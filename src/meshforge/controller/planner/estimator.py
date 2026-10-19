@@ -80,7 +80,19 @@ from meshforge.controller.planner.types import (
     TreeNeed,
 )
 
-__all__ = ["MAX_TERM_S", "MAX_TRANSFER_ITEMS", "estimate", "weakest"]
+__all__ = [
+    "MAX_TERM_S",
+    "MAX_TRANSFER_ITEMS",
+    "bounded",
+    "controller_bandwidth",
+    "env_term",
+    "estimate",
+    "hardware_score",
+    "output_term",
+    "transfer_term",
+    "tree_bandwidth",
+    "weakest",
+]
 
 MAX_TERM_S: Final = 1e9
 """No term is predicted longer than this (~31 years): a bound, not a guess -
@@ -417,3 +429,64 @@ def estimate(
         compute=_compute(request, node, slot, snapshot),
         output=_output(request, node, snapshot),
     )
+
+
+# --------------------------------------- V0.10 G3: building blocks of the split
+# estimator (:mod:`.split`) - the same rules as the terms above, one at a time.
+
+
+def bounded(seconds: float) -> float:
+    """``seconds`` inside ``[0, MAX_TERM_S]`` (NaN and infinities too)."""
+    return _bounded(seconds)
+
+
+def hardware_score(node: NodeSnapshot | None, slot: Slot) -> float | None:
+    """The node's finite, positive hardware score for ``slot``, else None."""
+    return _score(node, slot)
+
+
+def transfer_term(
+    request: PlanRequest,
+    node: NodeSnapshot,
+    snapshot: ClusterSnapshot,
+    *,
+    local: bool,
+    now: dt.datetime | None,
+) -> EstimateTerm:
+    """The ``transfer`` term of :func:`estimate` alone."""
+    return _transfer(request, node, snapshot, local=local, now=now)
+
+
+def env_term(
+    request: PlanRequest, node: NodeSnapshot, snapshot: ClusterSnapshot
+) -> EstimateTerm:
+    """The ``env`` term of :func:`estimate` alone."""
+    return _env(request, node, snapshot)
+
+
+def output_term(
+    request: PlanRequest, node: NodeSnapshot, snapshot: ClusterSnapshot
+) -> EstimateTerm:
+    """The ``output`` term of :func:`estimate` alone."""
+    return _output(request, node, snapshot)
+
+
+def tree_bandwidth(
+    tree: TreeNeed,
+    node: NodeSnapshot,
+    snapshot: ClusterSnapshot,
+    *,
+    now: dt.datetime | None,
+) -> tuple[float, TermSource, dict[str, Any]]:
+    """The best known bandwidth into ``node`` for ``tree``: a fresh probe from
+    a holder, the controller's transfer history, else the default - the rule
+    of one ``transfer`` item, never below ``min_bw_bytes_s``."""
+    controller = _controller_source(node, snapshot, now)
+    return _tree_source(tree, node, snapshot, controller, now=now, stale=set())
+
+
+def controller_bandwidth(
+    node: NodeSnapshot, snapshot: ClusterSnapshot, now: dt.datetime | None
+) -> tuple[float, TermSource, dict[str, Any]]:
+    """Controller <-> ``node`` bandwidth: transfer history, else the default."""
+    return _controller_source(node, snapshot, now)
