@@ -267,32 +267,10 @@ def test_choose_chunk_items_invariants(lanes: int, per_item: float, items: int) 
     assert c.chunks <= 10_000
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT T1: balance rule sawtooth (minor)",
-)
-def test_more_items_never_reduces_chunks() -> None:
-    prev = 0
-    for items in [8, 16, 100, 1000, 5_000, 20_000, 100_000, 10**6]:
-        c = choose_chunk_items(
-            items, fastest_per_item_s=0.1, lanes=3, overhead_s=1.5, config=SplitConfig()
-        )
-        assert c.chunks >= prev, (items, c)
-        prev = c.chunks
-
-
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT T1: balance rule sawtooth (minor)",
-)
-def test_chunk_count_monotone_dense() -> None:
-    prev = 0
-    for items in range(1, 3000):
-        c = choose_chunk_items(
-            items, fastest_per_item_s=0.1, lanes=3, overhead_s=1.5, config=SplitConfig()
-        )
-        assert c.chunks >= prev - 0, (items, c, prev)
-        prev = c.chunks
+# T1 ruling (Lead, D280): the chunk COUNT is not monotone in items, by design.
+# Chunks hold whole items, and the binding rule is >= 4 chunks per lane
+# (test_chunks_floor_never_below_four_per_node_when_items_allow); any integer
+# size rule that keeps that floor must drop the count when the size steps up.
 
 
 # ------------------------------------------------------------- monotonicity
