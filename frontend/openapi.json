@@ -1015,6 +1015,123 @@
         "title": "ConfigLabelOut",
         "type": "object"
       },
+      "ConfigQualityOut": {
+        "additionalProperties": false,
+        "properties": {
+          "compute_per_iter_ns": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MetricStats"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "condition": {
+            "title": "Condition",
+            "type": "string"
+          },
+          "config_id": {
+            "title": "Config Id",
+            "type": "string"
+          },
+          "cv_flag": {
+            "title": "Cv Flag",
+            "type": "boolean"
+          },
+          "done": {
+            "title": "Done",
+            "type": "integer"
+          },
+          "family": {
+            "title": "Family",
+            "type": "string"
+          },
+          "flagged": {
+            "title": "Flagged",
+            "type": "boolean"
+          },
+          "group_id": {
+            "title": "Group Id",
+            "type": "string"
+          },
+          "missing": {
+            "$ref": "#/components/schemas/MissingFields"
+          },
+          "n": {
+            "title": "N",
+            "type": "integer"
+          },
+          "node_id": {
+            "title": "Node Id",
+            "type": "string"
+          },
+          "outlier_attempt_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Outlier Attempt Ids",
+            "type": "array"
+          },
+          "planned": {
+            "title": "Planned",
+            "type": "integer"
+          },
+          "records_checked": {
+            "title": "Records Checked",
+            "type": "integer"
+          },
+          "reps_flag": {
+            "title": "Reps Flag",
+            "type": "boolean"
+          },
+          "state": {
+            "enum": [
+              "measured",
+              "unsupported"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "strategy": {
+            "title": "Strategy",
+            "type": "string"
+          },
+          "total_ms": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MetricStats"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "group_id",
+          "config_id",
+          "family",
+          "condition",
+          "strategy",
+          "node_id",
+          "state",
+          "planned",
+          "done",
+          "n",
+          "total_ms",
+          "compute_per_iter_ns",
+          "outlier_attempt_ids",
+          "cv_flag",
+          "reps_flag",
+          "flagged",
+          "records_checked",
+          "missing"
+        ],
+        "title": "ConfigQualityOut",
+        "type": "object"
+      },
       "ControllerLinkOut": {
         "additionalProperties": false,
         "properties": {
@@ -2596,6 +2713,64 @@
         "title": "MetricStats",
         "type": "object"
       },
+      "MissingFields": {
+        "additionalProperties": false,
+        "description": "Per required field: ok records of the configuration with it null\n(``planner_node_id`` only where the run was unpinned).",
+        "properties": {
+          "bytes_in": {
+            "default": 0,
+            "title": "Bytes In",
+            "type": "integer"
+          },
+          "bytes_out": {
+            "default": 0,
+            "title": "Bytes Out",
+            "type": "integer"
+          },
+          "compute_iterations": {
+            "default": 0,
+            "title": "Compute Iterations",
+            "type": "integer"
+          },
+          "compute_ns": {
+            "default": 0,
+            "title": "Compute Ns",
+            "type": "integer"
+          },
+          "node_cpu_percent": {
+            "default": 0,
+            "title": "Node Cpu Percent",
+            "type": "integer"
+          },
+          "node_state": {
+            "default": 0,
+            "title": "Node State",
+            "type": "integer"
+          },
+          "planner_node_id": {
+            "default": 0,
+            "title": "Planner Node Id",
+            "type": "integer"
+          },
+          "queue_ms": {
+            "default": 0,
+            "title": "Queue Ms",
+            "type": "integer"
+          },
+          "run_ms": {
+            "default": 0,
+            "title": "Run Ms",
+            "type": "integer"
+          },
+          "total_ms": {
+            "default": 0,
+            "title": "Total Ms",
+            "type": "integer"
+          }
+        },
+        "title": "MissingFields",
+        "type": "object"
+      },
       "NetworkOut": {
         "additionalProperties": false,
         "properties": {
@@ -3512,6 +3687,150 @@
         "title": "PrepareStatus",
         "type": "object"
       },
+      "QualityOut": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign_id": {
+            "title": "Campaign Id",
+            "type": "string"
+          },
+          "configs": {
+            "items": {
+              "$ref": "#/components/schemas/ConfigQualityOut"
+            },
+            "title": "Configs",
+            "type": "array"
+          },
+          "quality_version": {
+            "title": "Quality Version",
+            "type": "integer"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/QualitySummaryOut"
+          }
+        },
+        "required": [
+          "campaign_id",
+          "quality_version",
+          "summary",
+          "configs"
+        ],
+        "title": "QualityOut",
+        "type": "object"
+      },
+      "QualitySummaryOut": {
+        "additionalProperties": false,
+        "properties": {
+          "bench_role_records": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Bench Role Records",
+            "type": "object"
+          },
+          "campaign_state": {
+            "title": "Campaign State",
+            "type": "string"
+          },
+          "condition_failures": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Condition Failures",
+            "type": "object"
+          },
+          "configs": {
+            "title": "Configs",
+            "type": "integer"
+          },
+          "crit1_infra_ok": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Crit1 Infra Ok"
+          },
+          "crit3_reps_ok": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Crit3 Reps Ok"
+          },
+          "cv_threshold": {
+            "title": "Cv Threshold",
+            "type": "number"
+          },
+          "flagged_configs": {
+            "title": "Flagged Configs",
+            "type": "integer"
+          },
+          "infra_failure_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Infra Failure Rate"
+          },
+          "infra_failures": {
+            "title": "Infra Failures",
+            "type": "integer"
+          },
+          "owner_preempted": {
+            "title": "Owner Preempted",
+            "type": "integer"
+          },
+          "pending": {
+            "title": "Pending",
+            "type": "boolean"
+          },
+          "records": {
+            "title": "Records",
+            "type": "integer"
+          },
+          "runs_by_state": {
+            "$ref": "#/components/schemas/RunStateCounts"
+          },
+          "workload_failures": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Workload Failures",
+            "type": "object"
+          }
+        },
+        "required": [
+          "campaign_state",
+          "pending",
+          "runs_by_state",
+          "records",
+          "bench_role_records",
+          "infra_failures",
+          "owner_preempted",
+          "infra_failure_rate",
+          "condition_failures",
+          "workload_failures",
+          "crit1_infra_ok",
+          "crit3_reps_ok",
+          "configs",
+          "flagged_configs",
+          "cv_threshold"
+        ],
+        "title": "QualitySummaryOut",
+        "type": "object"
+      },
       "ResourceSample": {
         "additionalProperties": false,
         "description": "One sample still in the controller's in-memory live ring.",
@@ -3827,6 +4146,38 @@
           "state"
         ],
         "title": "RunOut",
+        "type": "object"
+      },
+      "RunStateCounts": {
+        "additionalProperties": false,
+        "properties": {
+          "done": {
+            "default": 0,
+            "title": "Done",
+            "type": "integer"
+          },
+          "failed": {
+            "default": 0,
+            "title": "Failed",
+            "type": "integer"
+          },
+          "planned": {
+            "default": 0,
+            "title": "Planned",
+            "type": "integer"
+          },
+          "skipped": {
+            "default": 0,
+            "title": "Skipped",
+            "type": "integer"
+          },
+          "submitted": {
+            "default": 0,
+            "title": "Submitted",
+            "type": "integer"
+          }
+        },
+        "title": "RunStateCounts",
         "type": "object"
       },
       "ScoreConditions": {
@@ -6318,6 +6669,120 @@
           }
         },
         "summary": "Stop submitting a campaign's runs; running jobs finish (admin)",
+        "tags": [
+          "bench"
+        ]
+      }
+    },
+    "/v1/bench/campaigns/{campaign_id}/quality": {
+      "get": {
+        "description": "docs/TELEMETRY.md \"Quality report\": every run record of the campaign\n(failures too; fillers and warm-ups counted apart, never measured), the\nlabels' row filter for the statistics, the status's infrastructure\nfailure rate. Derived on demand, nothing stored; the same records give\nthe same document byte for byte.",
+        "operationId": "campaign_quality_report_v1_bench_campaigns__campaign_id__quality_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "maxLength": 40,
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QualityOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid input (`invalid_input`)"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No, or no longer a valid, credential (`unauthorized`)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not allowed: admin only, CSRF, foreign origin (`unauthorized`)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found - also another user's object (`not_found`)"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict (`conflict`, `no_feasible_plan`)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid parameters (`invalid_input`)"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Rate limited; see Retry-After (`resource_busy`)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A dependency (the database) is unavailable; retry (`network_error`)"
+          }
+        },
+        "summary": "Data quality report: repetitions, CV, outliers, missing fields, failure rates and the criterion verdicts (admin)",
         "tags": [
           "bench"
         ]

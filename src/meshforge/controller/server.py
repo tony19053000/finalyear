@@ -750,6 +750,7 @@ class ControllerRuntime:
                 control=self.bench_control,
                 runner=self.bench_runner,
                 cancel_job=self.dispatcher.cancel,
+                quality_cv_threshold=cfg.bench.quality_cv_threshold,
             ),
         )
         http_config = uvicorn.Config(

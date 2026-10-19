@@ -30,6 +30,7 @@ from typing import Any, Final
 from sqlalchemy import Float, cast, func, or_, select, union_all, update
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
+from meshforge.bench.quality import FailureCounts, infra_failure_rate
 from meshforge.common.errors import FailureType, MeshForgeError
 from meshforge.common.states import ATTEMPT_TERMINAL_STATES, JOB_TERMINAL_STATES
 from meshforge.controller.bench.keys import KEY_PREFIX
@@ -49,6 +50,7 @@ __all__ = [
     "CampaignStatus",
     "RunnerCampaign",
     "Throttle",
+    "record_failure_counts",
 ]
 
 _JOB_TERMINAL: Final = tuple(sorted(s.value for s in JOB_TERMINAL_STATES))
@@ -169,6 +171,29 @@ async def _last_end(
         ).group_by(ends.c.node)
     )
     return {str(n): float(s) for n, s in rows if s is not None}
+
+
+async def record_failure_counts(db: AsyncSession, campaign_id: str) -> FailureCounts:
+    """G5c (0.9.8, D254): the counts behind criterion 1's infrastructure
+    failure rate (:func:`meshforge.bench.quality.infra_failure_rate`) - **one**
+    query for ``compute bench status`` and the quality report. Over the
+    campaign's run records without a ``bench_role`` (fillers / warm-ups never
+    count, D244): all of them, infrastructure failures **except**
+    ``owner_preempted`` (D246), and the pre-emptions."""
+    not_role = RunRecord.condition_measured["bench_role"].astext.is_(None)
+    total, infra, preempted = (
+        await db.execute(
+            select(
+                func.count(),
+                func.count().filter(
+                    RunRecord.failure_class == "infrastructure",
+                    RunRecord.failure_type.is_distinct_from(OWNER_PREEMPTED),
+                ),
+                func.count().filter(RunRecord.failure_type == OWNER_PREEMPTED),
+            ).where(RunRecord.campaign_id == campaign_id, not_role)
+        )
+    ).one()
+    return FailureCounts(records=int(total), infra=int(infra), preempted=int(preempted))
 
 
 class CampaignControl:
@@ -473,19 +498,7 @@ class CampaignControl:
                     BenchRun.submitted_at.is_not(None),
                 )
             )
-            not_role = RunRecord.condition_measured["bench_role"].astext.is_(None)
-            total, infra, preempted = (
-                await db.execute(
-                    select(
-                        func.count(),
-                        func.count().filter(
-                            RunRecord.failure_class == "infrastructure",
-                            RunRecord.failure_type.is_distinct_from(OWNER_PREEMPTED),
-                        ),
-                        func.count().filter(RunRecord.failure_type == OWNER_PREEMPTED),
-                    ).where(RunRecord.campaign_id == campaign_id, not_role)
-                )
-            ).one()
+            failures = await record_failure_counts(db, campaign_id)
             retries = await db.scalar(
                 select(func.coalesce(func.sum(BenchRun.tries), 0)).where(
                     BenchRun.campaign_id == campaign_id
@@ -501,16 +514,15 @@ class CampaignControl:
         finished = all_runs - open_runs
         median_s = None if median is None else float(median)
         lanes = max(1, int(nodes_open or 0) * max(1, per_node))
-        counted = int(total) - int(preempted)
         return CampaignStatus(
             counts=dict(counts),
             done_percent=round(100.0 * finished / all_runs, 1) if all_runs else 0.0,
             median_run_s=None if median_s is None else round(median_s, 3),
             eta_s=None if median_s is None else round(open_runs * median_s / lanes, 1),
-            infra_failure_rate=None if counted <= 0 else round(int(infra) / counted, 4),
-            records=int(total),
-            infra_failures=int(infra),
-            preempted=int(preempted),
+            infra_failure_rate=infra_failure_rate(failures),
+            records=failures.records,
+            infra_failures=failures.infra,
+            preempted=failures.preempted,
             retries=int(retries or 0),
             nodes_open=int(nodes_open or 0),
         )

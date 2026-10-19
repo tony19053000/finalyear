@@ -239,6 +239,10 @@ class ControllerClient:
         """``GET /v1/bench/campaigns/{id}/labels`` (JSON)."""
         return self._get(f"/v1/bench/campaigns/{campaign_id}/labels")
 
+    def bench_quality(self, campaign_id: str) -> Mapping[str, Any]:
+        """``GET /v1/bench/campaigns/{id}/quality`` (V0.9 G5c)."""
+        return self._get(f"/v1/bench/campaigns/{campaign_id}/quality")
+
     def bench_labels_parquet(
         self, campaign_id: str, dest: Path
     ) -> tuple[int, int | None]:

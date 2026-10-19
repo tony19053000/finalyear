@@ -162,6 +162,7 @@ def test_cli_only_is_the_exception() -> None:
         "bench labels",  # V0.9 G5: labels (D218), until G6's campaign detail
         "bench pause",
         "bench plan",
+        "bench report",  # V0.9 G5c: the quality report (D220), until G6
         "bench resume",
         "bench runs",
         "bench start",

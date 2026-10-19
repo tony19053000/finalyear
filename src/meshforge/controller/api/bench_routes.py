@@ -46,12 +46,14 @@ from meshforge.bench.campaign import (
     load_spec,
     spec_digest,
 )
+from meshforge.bench.quality import DEFAULT_CV_THRESHOLD
 from meshforge.common.bench_conditions import advertised_kinds
 from meshforge.common.errors import FailureType, InvalidIdError
 from meshforge.common.ids import IdKind, new_campaign_id, parse_id
 from meshforge.common.logging import get_logger
 from meshforge.controller.api.auth import AdminUser
 from meshforge.controller.api.bench_label_models import LabelsOut, labels_out
+from meshforge.controller.api.bench_quality_models import QualityOut, quality_out
 from meshforge.controller.api.errors import ApiError
 from meshforge.controller.api.models import ApiModel, Utc
 from meshforge.controller.api.telemetry_routes import (
@@ -102,6 +104,8 @@ class BenchApi:
     control: CampaignControl | None = None
     runner: BenchRunner | None = None
     cancel_job: Callable[[str], Awaitable[object]] | None = None
+    # V0.9 G5c (0.9.8): [controller.bench] quality_cv_threshold
+    quality_cv_threshold: float = DEFAULT_CV_THRESHOLD
 
 
 def get_bench(request: Request) -> BenchApi:
@@ -498,6 +502,51 @@ async def _label_pieces(
             pieces.close()
         except ValueError:  # still running in the worker thread (a hang-up)
             log.debug("controller.bench.labels_export_close_deferred")
+
+
+# --- V0.9 G5c (0.9.8, D220): the data quality report ------------------------
+
+
+@bench_router.get(
+    "/campaigns/{campaign_id}/quality",
+    response_model=QualityOut,
+    summary="Data quality report: repetitions, CV, outliers, missing fields, "
+    "failure rates and the criterion verdicts (admin)",
+)
+async def campaign_quality_report(
+    admin: AdminUser,
+    bench: Bench,
+    export: Annotated[TelemetryExport, Depends(get_export)],
+    campaign_id: Annotated[str, Path(max_length=_ID_MAX)],
+) -> QualityOut:
+    """docs/TELEMETRY.md "Quality report": every run record of the campaign
+    (failures too; fillers and warm-ups counted apart, never measured), the
+    labels' row filter for the statistics, the status's infrastructure
+    failure rate. Derived on demand, nothing stored; the same records give
+    the same document byte for byte."""
+    from meshforge.controller.telemetry.quality_store import campaign_quality
+    from meshforge.controller.telemetry.recorder import TelemetryStoreError
+
+    record = await _synced(bench, _campaign_id(campaign_id))
+    try:
+        report = await campaign_quality(
+            export.engine,
+            record.id,
+            campaign_state=record.state,
+            cv_threshold=bench.quality_cv_threshold,
+        )
+    except TelemetryStoreError:
+        raise _unavailable() from None
+    log.info(
+        "controller.bench.quality",
+        campaign_id=record.id,
+        configs=report.summary.configs,
+        flagged=report.summary.flagged_configs,
+        records=report.summary.records,
+        pending=report.summary.pending,
+        user_id=admin.user_id,
+    )
+    return quality_out(report)
 
 
 @bench_router.get(
