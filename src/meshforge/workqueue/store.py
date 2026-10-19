@@ -41,6 +41,7 @@ follow-up work atomically with the last commit). Keep those transactions short.
 from __future__ import annotations
 
 import datetime as dt
+import math
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any, Final
@@ -52,6 +53,9 @@ from meshforge.common.errors import FailureType, MeshForgeError
 from meshforge.common.logging import get_logger
 from meshforge.workqueue import core
 from meshforge.workqueue.core import (
+    MAX_DIGEST_CHARS,
+    MAX_FAILURE_KIND_CHARS,
+    MAX_NAME_CHARS,
     AlreadyDone,
     Committed,
     CompleteOutcome,
@@ -205,9 +209,29 @@ _ITEM_COLUMNS: Final = (
 )
 
 
-def _aware(now: dt.datetime) -> dt.datetime:
+def _aware(
+    now: dt.datetime,
+    *,
+    names: Iterable[str] = (),
+    timeout_s: float | None = None,
+    digest: str | None = None,
+    kind: str | None = None,
+) -> dt.datetime:
+    """Validate the caller's arguments up front (``invalid_input``), before any
+    row is touched; the core re-checks them as a programming-error backstop."""
     if now.tzinfo is None or now.utcoffset() is None:
         raise WorkQueueError("now must be timezone-aware")
+    for name in names:
+        if not name or len(name) > MAX_NAME_CHARS:
+            raise WorkQueueError(f"holder/site must be 1..{MAX_NAME_CHARS} characters")
+    if timeout_s is not None and not (
+        math.isfinite(timeout_s) and 0 < timeout_s <= 86_400
+    ):
+        raise WorkQueueError("timeout_s must be in (0, 86400]")
+    if digest is not None and not 1 <= len(digest) <= MAX_DIGEST_CHARS:
+        raise WorkQueueError(f"digest must be 1..{MAX_DIGEST_CHARS} characters")
+    if kind is not None and not 1 <= len(kind) <= MAX_FAILURE_KIND_CHARS:
+        raise WorkQueueError(f"kind must be 1..{MAX_FAILURE_KIND_CHARS} characters")
     return now
 
 
@@ -592,7 +616,7 @@ async def lease_next(
     """Lease up to ``k`` pending items in ``idx`` order (items that have not
     failed at ``site`` first). ``[]`` when nothing is pending or the queue is
     closed. ``site`` defaults to ``holder``."""
-    _aware(now)
+    _aware(now, names=(holder, site or holder), timeout_s=timeout_s)
     site = holder if site is None else site
     if not 1 <= k <= MAX_LEASES_PER_PULL:
         raise WorkQueueError(f"k must be in [1, {MAX_LEASES_PER_PULL}]")
@@ -661,7 +685,7 @@ async def renew(
 ) -> list[RenewOutcome]:
     """Extend ``holder``'s live leases ``(item_id, seq)`` to ``now + timeout``.
     Outcomes are in the order of ``leases``."""
-    _aware(now)
+    _aware(now, names=(holder,), timeout_s=timeout_s)
     results: dict[tuple[int, int], RenewOutcome] = {}
     for item_id, seq in sorted(set(leases)):
         queue_id = await _queue_of(db, item_id)
@@ -700,7 +724,7 @@ async def release(
     """Release one live lease (its holder stops without a result, not the
     item's fault: a cancelled copy, a pre-empted worker). ``None`` = nothing
     live to release."""
-    _aware(now)
+    _aware(now, names=(holder,))
     queue_id = await _queue_of(db, item_id)
     if queue_id is None or await _lock_queue(db, queue_id, "key_share") is None:
         return None
@@ -716,7 +740,7 @@ async def release_holder(
     """Release every live lease of ``holder`` in every queue (the holder is gone:
     D267a - call it in the transaction that records the loss). Attempts are not
     counted; items with no other live lease go back to ``pending``."""
-    _aware(now)
+    _aware(now, names=(holder,))
     rows = (
         await db.execute(
             select(work_lease.c.item_id, work_item.c.queue_id)
@@ -758,7 +782,7 @@ async def complete(
 ) -> CompleteResult:
     """Commit a result for ``(item_id, seq)`` - idempotent, first commit wins
     (:func:`.core.complete`)."""
-    _aware(now)
+    _aware(now, names=(holder,), digest=digest)
     queue_id = await _queue_of(db, item_id)
     queue = (
         None if queue_id is None else await _lock_queue(db, queue_id, "no_key_update")
@@ -828,7 +852,7 @@ async def fail(
     """Record a failed execution of ``(item_id, seq)`` (:func:`.core.fail`). If the
     item fails for good, the queue becomes ``failed`` in the same transaction and
     every other live lease is released (D267c: no partial result)."""
-    _aware(now)
+    _aware(now, names=(holder,), kind=kind)
     queue_id = await _queue_of(db, item_id)
     queue = None if queue_id is None else await _lock_queue(db, queue_id, "update")
     if queue_id is None or queue is None:
@@ -992,7 +1016,7 @@ async def speculate(
     """Issue the speculative copy of ``item_id`` to ``holder`` at ``site``,
     re-checking every rule under the locks (D262/D266: no pending item left,
     budget, one live ordinary lease held elsewhere)."""
-    _aware(now)
+    _aware(now, names=(holder, site or holder), timeout_s=timeout_s)
     site = holder if site is None else site
     queue_id = await _queue_of(db, item_id)
     queue = (

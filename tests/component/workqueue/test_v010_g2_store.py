@@ -6,6 +6,7 @@ failure, cancel and restart safety. Nothing is mocked."""
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import pytest
@@ -15,6 +16,7 @@ pytest.importorskip("sqlalchemy", reason="needs the controller extra")
 from mf_workqueue import Db, at, digest, open_db
 from sqlalchemy import func, insert, select, text
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from meshforge.common.errors import FailureType
 from meshforge.controller.store.settings import DatabaseSettings
@@ -139,6 +141,25 @@ async def test_bad_arguments_of_operations(db: Db) -> None:
         with pytest.raises(store.WorkQueueError) as err:
             await store.lease_next(s, qid + 1, holder="h", now=at(0))
         assert err.value.failure_type is FailureType.NOT_FOUND
+    bad_calls: list[Callable[[AsyncSession], Awaitable[Any]]] = [
+        lambda s: store.lease_next(s, qid, holder="", now=at(0)),
+        lambda s: store.lease_next(s, qid, holder="h", site="x" * 65, now=at(0)),
+        lambda s: store.lease_next(s, qid, holder="h", now=at(0), timeout_s=0),
+        lambda s: store.renew(s, holder="h", leases=[(1, 1)], now=at(0), timeout_s=-1),
+        lambda s: store.complete(s, item_id=1, seq=1, holder="h", digest="", now=at(0)),
+        lambda s: store.fail(s, item_id=1, seq=1, holder="h", kind="k" * 33, now=at(0)),
+        lambda s: store.speculate(
+            s, item_id=1, holder="h", now=at(0), timeout_s=float("inf")
+        ),
+        lambda s: store.release_holder(s, "", now=at(0)),
+    ]
+    for call in bad_calls:
+        async with db.sessions() as s, s.begin():
+            with pytest.raises(store.WorkQueueError) as err:
+                await call(s)
+        assert err.value.failure_type is FailureType.INVALID_INPUT
+    c = await _counts(db, qid)
+    assert (c.pending, c.live_leases) == (1, 0)
 
 
 # --- leasing ----------------------------------------------------------------------
