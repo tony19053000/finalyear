@@ -262,6 +262,8 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
+**2026-10-19 (G5 lane B reviewer r1 REQUEST_CHANGES, partial, D251) — RUNNING: lane B fix r2 (B1 T2-1 retry, B2 executor try/finally, N1 SubmitBatch, N2 cursor, N4 THREAT_MODEL). Then tester r3 delta → reviewer r2 full (areas r1 skipped) → merge → whole component alone.**
+
 **2026-10-19 (G5 lane B tester r2 PASS `ecf1043`; new minor T2-1 strict xfail: failed pre-emption not retried while owner stays active — Lead: fix before merge) — RUNNING: lane B reviewer. Next: fix T2-1 (+ any reviewer items) → merge → whole `-m component` alone → 0.9.6 + 0.9.7 `[x]`.**
 
 **2026-10-19 (G5 lane B fix r1 DONE `f5698bb`,`695b4b3` merge main,`4cda313`; all gates exit 0) — RUNNING: lane B tester r2 delta. Then reviewer → merge → whole `-m component` alone → 0.9.6 + 0.9.7 `[x]`.**
