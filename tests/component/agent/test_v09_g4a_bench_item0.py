@@ -201,7 +201,7 @@ async def test_a_crash_between_job_and_link_is_linked_on_the_next_read(
         store = runtime.bench
         assert store is not None
 
-        async def crash(run_id: str, job_id: str) -> bool:
+        async def crash(run_id: str, job_id: str, **_kw: object) -> bool:
             raise BenchStoreError("injected crash after the job's commit")
 
         monkeypatch.setattr(store, "mark_submitted", crash)
