@@ -506,8 +506,8 @@ A version is **complete** only when all apply:
 **Prerequisites:** V0.6 (V0.9 recommended for benchmarks).
 
 **Tasks**
-- [ ] **0.10.1** `split:` manifest spec (over glob/list/range/dataset shards; chunk size; combine = concat / merge-csv / merge-json / script)
-- [ ] **0.10.2** **Shared work-queue module** (chunks, leases, visibility timeout, idempotent completion) — reused by Mode 4
+- [~] **0.10.1** `split:` manifest spec (over glob/list/range/dataset shards; chunk size; combine = concat / merge-csv / merge-json / script)
+- [~] **0.10.2** **Shared work-queue module** (chunks, leases, visibility timeout, idempotent completion) — reused by Mode 4
 - [ ] **0.10.3** Planner: Mode 3 candidates (node sets), rate estimates, chunk size, "don't split" comparison
 - [ ] **0.10.4** Per-node worker: one env prep, many chunks; chunk-level input staging (only needed files)
 - [ ] **0.10.5** Stragglers: speculative duplicates of tail chunks; first result wins, idempotent
