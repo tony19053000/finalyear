@@ -282,17 +282,17 @@ class ChunkStore:
             if isinstance(lane, FenceCause):
                 return lane
             attempt, job, queue = lane.attempt, lane.job, lane.queue
-            if (
-                AttemptState(attempt.state) in ATTEMPT_TERMINAL_STATES
-                or JobState(job.state) in JOB_TERMINAL_STATES
-                or job.cancel_requested_at is not None
-            ):
+            if AttemptState(attempt.state) in ATTEMPT_TERMINAL_STATES:
                 return NoWorkOut("stop")
             if queue is None:
                 return FenceCause.NO_QUEUE
             if queue.state is QueueState.DONE:
-                return NoWorkOut("drained")
-            if queue.state is not QueueState.OPEN:
+                return NoWorkOut("drained")  # every chunk committed: end DONE
+            if (
+                queue.state is not QueueState.OPEN
+                or JobState(job.state) in JOB_TERMINAL_STATES
+                or job.cancel_requested_at is not None
+            ):
                 return NoWorkOut("stop")
             if job.split_items_digest is None:  # pragma: no cover - CHECK
                 return FenceCause.NO_QUEUE
