@@ -197,9 +197,19 @@ OUTPUT_LIMIT: Final = "output_limit"
 """Stop reason and failure reason of a job past ``max_written_bytes`` (D143)."""
 DISK_FLOOR: Final = "disk_floor"
 DISK_UNKNOWN: Final = "disk_unknown"
-OWNER_PREEMPTED: Final = "owner_preempted"
-"""V0.9 G5 (D246): stop reason of a benchmark attempt the owner guard stopped."""
 """Stop reason of a job whose workdir disk fell below the free floor (fix r2)."""
+OWNER_PREEMPTED: Final = "owner_preempted"
+"""V0.9 G5 (D246): stop reason of a benchmark attempt the owner guard stopped.
+
+**Old peers (G5c item 0.8, D252.5).** ``FailureType.OWNER_PREEMPTED`` is proto
+number 24, which a controller from before G5 cannot decode (its strict
+``failure_type_from_proto`` refuses unknown numbers). It is safe because this
+agent reports it **only for an attempt whose StartAttempt had
+``benchmark = true``** - the refusal at start (``_owner_guard`` is asked only
+``if attempt.benchmark``) and the pre-emption (``preempt_benchmarks`` selects
+``a.benchmark``) - and only a G5 controller sets that field: to an old
+controller every attempt is a user attempt, never refused or stopped by the
+guard. The controller never sends a FailureType to an agent at all."""
 _NOFOLLOW: Final = getattr(os, "O_NOFOLLOW", 0)
 _STAGE_RETRYABLE: Final = frozenset(
     {FailureType.TRANSFER_ERROR, FailureType.TIMEOUT, FailureType.UNAUTHORIZED}
