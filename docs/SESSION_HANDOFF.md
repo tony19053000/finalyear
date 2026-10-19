@@ -262,6 +262,8 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
+**2026-10-19 (G5 lane B tester r1 FAIL D-1 major + T1-1/T1-2, D250) — RUNNING: lane B fix r1 (D250 + D249 musts incl. merge main) in worktree agent-ad79c28d0eb42322f. If died: relaunch fix r1 there (look for "## Fix round 1" in progress/V0.9-G5B.md); then tester r2 delta → reviewer → merge → whole component alone.**
+
 **2026-10-19 (G5 lane B implementer DONE `055121f`..`65b6167`, D249) — RUNNING: lane B tester r1 (worktree agent-ad79c28d0eb42322f). Next: lane B fix r1 (tester defects + D249 musts: merge main, labels in cluster test, deferral stall, ARCHITECTURE) → tester r2 delta → reviewer → merge → whole `-m component` alone → 0.9.6 + 0.9.7 `[x]`.**
 
 **2026-10-19 (G5 lane A MERGED, D248) — RUNNING: lane B implementer exit gates (worktree agent-ad79c28d0eb42322f, resumed after limit). Next: lane B tester r1 → reviewer (B merges main first; regenerate OpenAPI, D248 N6) → merge → whole `-m component` once alone → 0.9.6 + 0.9.7 `[x]` → G5c brief (0.9.8; item 0 = D248 N2/N5).**
