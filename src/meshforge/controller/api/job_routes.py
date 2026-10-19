@@ -30,6 +30,13 @@ for existing callers:
    and load ignored - a busy fabric makes the job wait, it does not refuse it);
    otherwise ``409 no_feasible_plan`` with ``error.rejections`` = every node's
    ``{node_id, reject_code, reject_text}``;
+4b. a ``split:`` job (V0.10 G1, D260) has its items resolved now, against the
+   stored trees (:mod:`~meshforge.controller.jobs.split_items`): 0 items, too
+   many items/chunks, a missing ``list_file``/``lines`` file -> ``400
+   invalid_input`` naming the YAML path; the item list is stored as a blob and
+   its digest/count go on the job row. Until V0.10 G4 the dispatcher refuses
+   to run a split job (``no_feasible_plan``, ``not_supported_yet``) - it never
+   runs whole by accident;
 5. only then is the job written: ``SUBMITTED -> PLANNING -> QUEUED``, each arrow
    recorded with its time (``PLANNING`` is a pass-through: the live planner runs
    at dispatch) - the row, its scheduling fields (priority, policy, retry,
@@ -82,6 +89,7 @@ from meshforge.common.manifest import (
     ManifestError,
     parse_manifest_data,
 )
+from meshforge.common.split_items import SplitLimits
 from meshforge.common.states import JOB_TERMINAL_STATES, JobState
 from meshforge.common.tree import Tree, TreeError
 from meshforge.controller.api.auth import CurrentUser
@@ -118,12 +126,14 @@ from meshforge.controller.jobs.placement import (
     check_placement,
 )
 from meshforge.controller.jobs.queue_reads import MAX_NODES as MAX_PLANNED_NODES
+from meshforge.controller.jobs.split_items import resolve_split
 from meshforge.controller.jobs.store import (
     AttemptRecord,
     IdempotencyConflictError,
     JobRecord,
     JobScheduling,
     JobStore,
+    SplitRecord,
 )
 from meshforge.controller.named_inputs import (
     NamedInputError,
@@ -188,8 +198,11 @@ class JobApi:
         secrets: SecretStore | None = None,
         max_job_secret_bytes: int | None = None,
         bench: BenchLinks | None = None,
+        split_limits: SplitLimits | None = None,
     ) -> None:
         self.store = store
+        self.split_limits = split_limits or SplitLimits()
+        """V0.10 G1 (D260/D275): ``[controller.split]`` item and chunk caps."""
         self.bench = bench
         """V0.9 G3: the campaign-run link of benchmark jobs (``benchmark``
         field); None = the field is always null."""
@@ -658,8 +671,11 @@ async def submit_job(
         if submission.tree_id is not None:
             project = await check_tree(jobs.blobs, Digest.parse(submission.tree_id))
         await _check_mounts(project, resolved)
+        input_trees: dict[str, Tree] = {}
         for item in resolved:
-            await check_tree(jobs.blobs, Digest.parse(item.tree_id))
+            input_trees[item.mount] = await check_tree(
+                jobs.blobs, Digest.parse(item.tree_id)
+            )
         if submission.tree_id is None:
             bundle_hex = (submission.bundle_digest or "").removeprefix("sha256:")
             if jobs.blobs.size(Digest(bundle_hex)) is None:
@@ -674,6 +690,20 @@ async def submit_job(
             node_id,
             None if user.user_id is None else user.name,
         )
+        split: SplitRecord | None = None
+        if manifest.split is not None:
+            # V0.10 G1 (D260): the items, resolved once, here; the list blob
+            # is written under the GC guard like every blob a job references.
+            try:
+                split, _ = await resolve_split(
+                    manifest,
+                    project=project,
+                    inputs=input_trees,
+                    blobs=jobs.blobs,
+                    limits=jobs.split_limits,
+                )
+            except ManifestError as exc:
+                raise ApiError.invalid(exc.message) from None
         project_key = submission.tree_id or submission.bundle_digest or ""
         bundle_hex = (submission.bundle_digest or "").removeprefix("sha256:")
         request_env = env_key(
@@ -713,6 +743,7 @@ async def submit_job(
                 ],
                 scheduling=scheduling,
                 owner_user_id=user.user_id,
+                split=split,
             )
         except IdempotencyConflictError:
             raise ApiError(
@@ -733,6 +764,7 @@ async def submit_job(
         tree_id=submission.tree_id,
         idempotency_key_set=key is not None,
         user_id=user.user_id,
+        split_items=None if split is None else split.item_count,
     )
     if jobs.dispatcher is not None:
         jobs.dispatcher.wake()

@@ -53,6 +53,7 @@ from meshforge.common.gc_index import GcIndexBusyError
 from meshforge.common.logging import get_logger
 from meshforge.common.netaddr import BindAddress, parse_bind
 from meshforge.common.proto.meshforge.v1 import agent_pb2, agent_pb2_grpc
+from meshforge.common.split_items import SplitLimits
 from meshforge.controller.alerts import AlertLog
 from meshforge.controller.api.auth import ApiAuth
 from meshforge.controller.api.auth_routes import AuthApi
@@ -727,6 +728,9 @@ class ControllerRuntime:
                 secrets=self.secrets,
                 max_job_secret_bytes=cfg.jobs.max_job_secret_bytes,
                 bench=self.bench,
+                split_limits=SplitLimits(
+                    max_items=cfg.split.max_items, max_chunks=cfg.split.max_chunks
+                ),
             ),
             network=NetworkApi(store=network_store, prober=network),
             invites=InviteApi(

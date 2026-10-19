@@ -88,6 +88,7 @@ __all__ = [
     "JobStore",
     "JobStoreError",
     "PhaseRecord",
+    "SplitRecord",
     "StaleFencingTokenError",
     "StaleStateError",
     "TransferRow",
@@ -173,6 +174,23 @@ class JobRecord:
     """V0.6 G2 (migration 0013): the planner's per-job inputs."""
     owner_user_id: str | None = None
     """V0.7 G4 (D141, migration 0018): who submitted it; None = admin-only."""
+    split: SplitRecord | None = None
+    """V0.10 G1 (D260, migration 0026): the items resolved at submit; None =
+    the job runs whole."""
+
+
+@dataclass(frozen=True, slots=True)
+class SplitRecord:
+    """A split job's resolved items (V0.10 G1, D260; migration 0026)."""
+
+    spec: Mapping[str, Any]
+    """The canonical ``split:`` spec (``SplitSpec`` as JSON)."""
+    items_digest: str
+    """``sha256:`` of the item-list blob (``meshforge.common.split_items``)."""
+    item_count: int
+    item_bytes: int | None = None
+    """Bytes the items stand for (glob files / lines records); None for
+    strings and integers."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -276,6 +294,16 @@ def job_record(row: Job) -> JobRecord:
             fingerprint=row.fingerprint,
         ),
         owner_user_id=row.owner_user_id,
+        split=None
+        if row.split is None or row.split_items_digest is None
+        else SplitRecord(
+            spec=dict(row.split),
+            items_digest=row.split_items_digest,
+            item_count=int(row.split_item_count or 0),
+            item_bytes=None
+            if row.split_item_bytes is None
+            else int(row.split_item_bytes),
+        ),
     )
 
 
@@ -379,6 +407,7 @@ class JobStore:
         inputs: Sequence[tuple[str, str, str, int, str]] = (),
         scheduling: JobScheduling | None = None,
         owner_user_id: str | None = None,
+        split: SplitRecord | None = None,
     ) -> tuple[JobRecord, bool]:
         """Insert a job; ``(record, created)``. See module docstring.
 
@@ -418,6 +447,10 @@ class JobStore:
             "input_bytes": plan.input_bytes,
             "fingerprint": plan.fingerprint,
             "owner_user_id": owner_user_id,
+            "split": None if split is None else dict(split.spec),
+            "split_items_digest": None if split is None else split.items_digest,
+            "split_item_count": None if split is None else split.item_count,
+            "split_item_bytes": None if split is None else split.item_bytes,
         }
         async with self._sessions() as db, db.begin():
             statement = pg_insert(Job).values(**values)
@@ -481,6 +514,7 @@ class JobStore:
         inputs: Sequence[tuple[str, str, str, int, str]] = (),
         scheduling: JobScheduling | None = None,
         owner_user_id: str | None = None,
+        split: SplitRecord | None = None,
     ) -> tuple[JobRecord, bool]:
         """Atomically submit a job (D50, V0.6 D104): ``SUBMITTED -> PLANNING ->
         QUEUED`` in one transaction (``PLANNING`` stays a recorded pass-through:
@@ -501,6 +535,7 @@ class JobStore:
             inputs=inputs,
             scheduling=scheduling,
             owner_user_id=owner_user_id,
+            split=split,
         )
 
     @typed_store_call

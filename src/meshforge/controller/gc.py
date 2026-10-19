@@ -3,11 +3,12 @@
 **GC.** The same LRU-under-quota pass as the agents (one shared index module,
 :mod:`meshforge.common.gc_index`, at ``<data dir>/controller/gc/gc.sqlite``), with the
 controller's own protection: before every pass the pins are recomputed from
-PostgreSQL - the tree, bundle, outputs and final logs of every **non-terminal**
-job, the input trees of those jobs, and every **pinned named input**. A tree
-pin protects its manifest and every member (members recorded from the stored
-manifest). Blobs used within ``min_age_s`` (an upload, a ``have`` answer, a
-download) are never evicted, which covers the window between a client's
+PostgreSQL - the tree, bundle, split item list (V0.10), outputs and final logs
+of every **non-terminal** job, the input trees of those jobs, and every
+**pinned named input**. A tree pin protects its manifest and every member
+(members recorded from the stored manifest). Blobs used within ``min_age_s``
+(an upload, a ``have`` answer, a download) are never evicted, which covers
+the window between a client's
 have/need and its submit. The pass holds :attr:`BlobStore.gc_guard`
 exclusively; a job submission (tree check -> job row) and a named-input push
 hold it shared, so a job can never be created on a blob a running pass is about
@@ -172,14 +173,16 @@ class ControllerGc:
         async with self._sessions() as db:
             live_jobs = select(Job.id).where(Job.state.not_in(_TERMINAL))
             rows = await db.execute(
-                select(Job.tree_id, Job.bundle_digest).where(
+                select(Job.tree_id, Job.bundle_digest, Job.split_items_digest).where(
                     Job.state.not_in(_TERMINAL)
                 )
             )
-            for tree_id, bundle in rows.all():
+            for tree_id, bundle, split_items in rows.all():
                 if (h := _hex(tree_id)) is not None:
                     out.trees.add(h)
                 if (h := _hex(bundle)) is not None:
+                    out.blobs.add(h)
+                if (h := _hex(split_items)) is not None:  # V0.10 G1 item list
                     out.blobs.add(h)
             inputs = await db.execute(
                 select(JobInput.tree_id).where(JobInput.job_id.in_(live_jobs))
