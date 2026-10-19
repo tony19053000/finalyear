@@ -8,7 +8,7 @@ labels (:mod:`meshforge.controller.telemetry.labels`) and by the quality report
 (0.9.8, G5c).
 
 * :func:`median`, :func:`mean`, :func:`sample_std` (``n - 1``), :func:`cv`
-  (``std / mean``; ``None`` when ``n < 2`` or ``mean == 0``);
+  (``std / |mean|``; ``None`` when ``n < 2`` or ``mean == 0``);
 * :func:`mad_outliers` - the values with ``|x - median| > 3.5 * 1.4826 * MAD``
   (MAD = median absolute deviation; ``MAD == 0`` -> none);
 * :func:`median_ci` - a **distribution-free** confidence interval of the median
@@ -103,7 +103,7 @@ def sample_std(values: Sequence[Number]) -> float | None:
 
 
 def cv(values: Sequence[Number]) -> float | None:
-    """Coefficient of variation ``std / mean``; ``None`` when ``n < 2`` or the
+    """Coefficient of variation ``std / |mean|``; ``None`` when ``n < 2`` or the
     mean is 0 (undefined, not infinite)."""
     xs = _sorted(values)
     if len(xs) < 2:

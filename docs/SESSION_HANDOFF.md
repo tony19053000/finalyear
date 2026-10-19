@@ -262,6 +262,8 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
+**2026-10-19 (G5 lane A MERGED, D248) — RUNNING: lane B implementer exit gates (worktree agent-ad79c28d0eb42322f, resumed after limit). Next: lane B tester r1 → reviewer (B merges main first; regenerate OpenAPI, D248 N6) → merge → whole `-m component` once alone → 0.9.6 + 0.9.7 `[x]` → G5c brief (0.9.8; item 0 = D248 N2/N5).**
+
 **2026-10-19 (G5 lane A tester r1 PASS `c5a87f9`, no src defects) — RUNNING: lane A reviewer (also re-runs `-m unit` there; tester skipped it after fixing its own test) ∥ lane B implementer. Next: merge A on APPROVE.**
 
 **2026-10-19 (G5 lane A implementer DONE `2fec020`..`ea70070`, D247) — RUNNING: lane A tester r1 (worktree agent-a3dfd12ff045729f1) ∥ lane B implementer (worktree agent-ad79c28d0eb42322f, resumed after limit). If died: relaunch tester r1 in lane A worktree (look for "## Tester r1" in progress/V0.9-G5A.md); resume lane B from its progress file.**

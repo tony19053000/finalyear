@@ -255,7 +255,7 @@ later). A record counts only if: `campaign_id` is the campaign; `failure_class =
 `repetition` values: when a (config, repetition) has several ok records (a retried run, D234) only the
 **latest** attempt is kept (created last, then highest attempt number, then highest attempt id).
 
-**Costs per configuration**, each with n, median, mean, sample std, CV (null when n < 2 or mean = 0), the
+**Costs per configuration**, each with n, median, mean, sample std, CV = std / |mean| (null when n < 2 or mean = 0), the
 median's CI and the MAD outlier count (|x - median| > 3.5 x 1.4826 x MAD; MAD = 0 -> none):
 
 | metric | from the record |
@@ -288,7 +288,7 @@ skip (node gone, cancelled) leaves a planned configuration without data -> `insu
 
 **Planner signal** (D237: a preference, not "what would have run that second"): each configuration carries the
 most frequent `planner_node_id` of its kept records (ties -> the smallest id), the group the most frequent
-over all of them, and `planner_agrees` = (best node == that preference) for a `best` label - the regret
+over all of them, and `planner_agrees` = (best node == that preference) for a `best` label (always true-ish for a single-config group: V0.15 should weight it accordingly) - the regret
 signal for V0.14.
 
 **Parquet (`labels_version` 1).** One row per (group, configuration), sorted by (`group_id`, `config_id`): the
@@ -300,4 +300,4 @@ costs (`<metric>_n`, `_median`, `_mean`, `_std`, `_cv`, `_ci_low`, `_ci_high`, `
 per metric above). Same writer options and determinism rules as the record export; the only custom file
 metadata is `meshforge.labels.version`. The columns are pinned by a fingerprint
 (`labels_export.LABEL_FINGERPRINTS`); a shape change bumps `labels_version`. Streamed like the record export
-(chunked, no `Content-Length`); more matching records than `[controller.telemetry] export_max_rows` -> 413.
+(chunked, no `Content-Length`); more matching records (retries included, counted before the latest-per-repetition rule) than `[controller.telemetry] export_max_rows` -> 413. The labels table (one row per config) is built in memory before streaming, bounded by the same cap.
