@@ -10,6 +10,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ADMIN_SESSION, USER_SESSION, event, fakeController, json, node, renderApp, type Handler } from "../../test/fakeFabric";
+import { qualityConfig, qualityMetric, qualityReport, qualitySummary } from "../../test/qualityFixture";
 
 beforeEach(() => {
   document.cookie = "mf_csrf=test-csrf";
@@ -448,27 +449,67 @@ describe("campaign detail", () => {
   it("quality: the report's verdicts and flagged configs first", async () => {
     detail({
       [`GET /v1/bench/campaigns/${A}/quality`]: () =>
-        json(200, {
-          campaign_id: A,
-          quality_version: 1,
-          cv_threshold: 0.1,
-          summary: { runs_by_state: { done: 3 }, infra_failure_rate: 0.0123, owner_preempted: 2, crit1_infra_ok: true, crit3_reps_ok: false, pending: true },
-          configs: [
-            { group_id: "grp_1", config_id: "cfg_ok", n: 3, total_ms: { median: 900, cv: 0.02, ci_low: 880, ci_high: 950 }, cv_flag: false, reps_flag: false },
-            { group_id: "grp_1", config_id: "cfg_bad", n: 2, total_ms: { median: 700, cv: 0.3, ci_low: 600, ci_high: 900 }, cv_flag: true, reps_flag: true, missing: { planner_node_id: 2 } },
-          ],
-        }),
+        json(
+          200,
+          qualityReport(A, {
+            summary: qualitySummary({ pending: true, campaign_state: "active", crit1_infra_ok: true, crit3_reps_ok: false, infra_failure_rate: 0.0123 }),
+            configs: [
+              qualityConfig("cfg_ok"),
+              qualityConfig("cfg_bad", {
+                n: 2,
+                total_ms: qualityMetric(700, { n: 2, cv: 0.3 }),
+                cv_flag: true,
+                reps_flag: true,
+                flagged: true,
+                missing: { ...qualityConfig("x").missing, planner_node_id: 2 },
+              }),
+              qualityConfig("cfg_unsup", { state: "unsupported", n: 0, done: 0, total_ms: null, compute_per_iter_ns: null, condition: "gpu_busy" }),
+            ],
+          }),
+        ),
     });
     renderApp(`/benchmarks/${A}?tab=quality`);
     expect((await screen.findByTestId("quality-crit1")).textContent).toBe("ok so far");
     expect(screen.getByTestId("quality-crit3").textContent).toBe("not met");
     expect(screen.getByTestId("quality-infra-rate").textContent).toBe("1.2 %");
+    expect(screen.getByTestId("quality-campaign-state").textContent).toBe("active");
     expect(screen.getByText("The campaign is still running: these numbers and verdicts are provisional.")).toBeTruthy();
     const table = screen.getByRole("table", { name: "Data quality per configuration, flagged first" });
     const rows = within(table).getAllByRole("row").slice(1);
     expect(within(rows[0] as HTMLElement).getByText("high CV")).toBeTruthy();
+    expect(within(rows[0] as HTMLElement).getByText("missing fields")).toBeTruthy();
     expect(within(rows[0] as HTMLElement).getByText("planner_node_id: 2")).toBeTruthy();
     expect(within(rows[1] as HTMLElement).getByText("2.0 %")).toBeTruthy(); // cv 0.02 of cfg_ok
+    expect(within(rows[2] as HTMLElement).getByText("unsupported")).toBeTruthy();
+    expect(within(rows[2] as HTMLElement).getByText("condition gpu_busy")).toBeTruthy();
+  });
+
+  it("quality: every record bucket is shown and they add up to `records`", async () => {
+    detail({ [`GET /v1/bench/campaigns/${A}/quality`]: () => json(200, qualityReport(A)) });
+    renderApp(`/benchmarks/${A}?tab=quality`);
+    expect((await screen.findByTestId("quality-records")).textContent).toBe("14");
+    const ids = ["measured", "infra", "preempted", "condition", "workload", "rejected", "other"];
+    const counts = ids.map((id) => Number(screen.getByTestId(`quality-bucket-${id}`).textContent));
+    expect(counts).toEqual([6, 1, 2, 1, 1, 2, 1]);
+    expect(counts.reduce((a, b) => a + b, 0)).toBe(14);
+    const buckets = screen.getByRole("table", { name: "Run records by bucket" });
+    expect(within(buckets).getByText("check_failed: 1, condition_unverified: 1")).toBeTruthy();
+    expect(within(buckets).getByText("unavailable: 1")).toBeTruthy();
+    expect(screen.getByTestId("quality-fillers").textContent).toContain("filler: 2, warmup: 1");
+    expect(screen.queryByRole("alert")).toBeNull(); // consistent: no warning
+  });
+
+  it("quality: buckets that do not add up are called out, never hidden", async () => {
+    detail({ [`GET /v1/bench/campaigns/${A}/quality`]: () => json(200, qualityReport(A, { summary: qualitySummary({ records: 15 }) })) });
+    renderApp(`/benchmarks/${A}?tab=quality`);
+    expect((await screen.findByRole("alert")).textContent).toContain("The buckets add up to 14, not 15");
+  });
+
+  it("quality: a v1 body that is not a QualityOut shows no numbers", async () => {
+    detail({ [`GET /v1/bench/campaigns/${A}/quality`]: () => json(200, { quality_version: 1, summary: { records: 3 }, configs: [] }) });
+    renderApp(`/benchmarks/${A}?tab=quality`);
+    expect(await screen.findByText("Quality report could not be read")).toBeTruthy();
+    expect(screen.queryByTestId("quality-records")).toBeNull();
   });
 
   it("download: a complete Parquet file is saved under <campaign>-records.parquet", async () => {

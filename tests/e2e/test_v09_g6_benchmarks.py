@@ -8,7 +8,8 @@ benchmark workload library), the built SPA, real Chromium. The shared
 1. A seeded campaign (``cpu.primes``, local + mode1 from node A, 3
    repetitions = 6 real runs) driven from the browser: list -> detail ->
    Start -> Pause -> Resume (each checked against the API) -> it completes
-   live -> labels visible and equal to the API's -> both downloads are
+   live -> labels visible and equal to the API's -> the Quality tab shows
+   G5c's report (every record bucket, summing to ``records``) -> both downloads are
    Parquet files byte-identical to the API's export (and their rows match).
 2. Controls reflect state and refusals are shown: a campaign cancelled behind
    the page's back refuses Start with 409 - the toast carries the server's
@@ -52,10 +53,6 @@ pytestmark = [
 ]
 
 RUNS = 6
-QUALITY_404 = (
-    "G5c's quality route may not be merged into this controller yet: the tab "
-    "then shows its 'not available' state (brief §5h)"
-)
 
 
 @pytest.fixture
@@ -221,22 +218,47 @@ def test_seeded_campaign_list_detail_pause_resume_labels_download(
     expect(page.get_by_test_id("strategy-chart").locator("svg").first).to_be_visible()
     assert_axe_clean(page, "the charts tab")
 
-    # Quality: the report, or the honest 'not available' state.
-    watch.allow(
-        "404",
-        f"/v1/bench/campaigns/{cid}/quality",
-        QUALITY_404,
-        may_not_occur=True,
-    )
+    # Quality: G5c's real report for this campaign - the page's numbers are
+    # the API's, and every record bucket is shown so they add up to `records`.
     page.get_by_role("tab", name="Quality").click()
     quality = fabric.call("GET", f"/v1/bench/campaigns/{cid}/quality")
-    if quality.status_code == 404:
-        expect(
-            page.get_by_text("Quality report not available on this controller yet")
-        ).to_be_visible()
-    else:
-        assert quality.status_code == 200, quality.text
-        expect(page.get_by_test_id("quality-crit1")).to_be_visible()
+    assert quality.status_code == 200, quality.text
+    report = quality.json()
+    summary = report["summary"]
+    assert report["quality_version"] == 1 and not summary["pending"], summary
+    assert summary["records"] >= RUNS and summary["measured_records"] >= RUNS
+    buckets = {
+        "measured": summary["measured_records"],
+        "infra": summary["infra_failures"],
+        "preempted": summary["owner_preempted"],
+        "condition": sum(summary["condition_failures"].values()),
+        "workload": sum(summary["workload_failures"].values()),
+        "rejected": sum(summary["rejected_ok"].values()),
+        "other": sum(summary["other_failures"].values()),
+    }
+    assert sum(buckets.values()) == summary["records"], summary
+    expect(page.get_by_test_id("quality-records")).to_have_text(str(summary["records"]))
+    for bucket, count in buckets.items():
+        expect(page.get_by_test_id(f"quality-bucket-{bucket}")).to_have_text(str(count))
+    expect(page.get_by_test_id("quality-campaign-state")).to_have_text(
+        summary["campaign_state"]
+    )
+    expect(page.get_by_test_id("quality-crit1")).to_have_text(
+        "met" if summary["crit1_infra_ok"] else "not met"
+    )
+    expect(page.get_by_test_id("quality-crit3")).to_have_text(
+        "met" if summary["crit3_reps_ok"] else "not met"
+    )
+    qtable = page.get_by_role(
+        "table", name="Data quality per configuration, flagged first"
+    )
+    expect(qtable.get_by_role("row")).to_have_count(len(report["configs"]) + 1)
+    for config in report["configs"]:
+        assert config["n"] == 3, config  # 3 real repetitions each
+    expect(
+        page.get_by_text("Quality report not available on this controller yet")
+    ).to_have_count(0)
+    assert_axe_clean(page, "the quality tab")
 
     # Download: the browser's files ARE the API's exports.
     page.get_by_role("tab", name="Download").click()

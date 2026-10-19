@@ -34,6 +34,7 @@ from meshforge.controller.api.bench_routes import (
     _campaign_id,
     _synced,
     _unavailable,
+    unknown_campaign,
 )
 from meshforge.controller.api.errors import ApiError
 from meshforge.controller.api.models import ApiModel, Utc
@@ -159,7 +160,7 @@ async def _apply(
     except BenchStoreError:
         raise _unavailable() from None
     if not found:
-        raise ApiError.not_found("campaign")
+        raise unknown_campaign()
     if bench.runner is not None:
         bench.runner.wake()
     return await _synced(bench, checked)
@@ -238,7 +239,7 @@ async def cancel_campaign(
     except BenchStoreError:
         raise _unavailable() from None
     if jobs is None:
-        raise ApiError.not_found("campaign")
+        raise unknown_campaign()
     bench.store.expect_orphans()  # G5c item 0.7: a racing submission's job
     cancelled = 0
     if bench.cancel_job is not None:

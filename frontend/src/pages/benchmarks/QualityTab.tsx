@@ -1,10 +1,13 @@
 /**
  * Quality (D220, G5c's report): the campaign summary with the criterion
  * verdicts, then every configuration - flagged ones (CV over the threshold,
- * fewer than 3 repetitions) first. Read through `qualityApi.ts`; a controller
- * without the route says so (never numbers it did not send).
+ * fewer than 3 repetitions, missing fields) first. Every record bucket of
+ * the summary is shown with its total, so a reader can check they add up.
+ * Read through `qualityApi.ts`; a controller without the route says so
+ * (never numbers it did not send).
  */
 import { useQuery } from "@tanstack/react-query";
+import type { ReactNode } from "react";
 
 import { Card } from "../../components/Card";
 import { EmptyState, ErrorState } from "../../components/States";
@@ -13,14 +16,22 @@ import { Table, type Column } from "../../components/Table";
 import { formatMs, shortId } from "../../lib/format";
 import { benchKeys } from "./benchKeys";
 import { formatFraction } from "./campaignView";
-import { flaggedFirst, getQuality, type QualityConfig, type QualityMetric, type QualityReport } from "./qualityApi";
+import {
+  flaggedFirst,
+  getQuality,
+  missingFields,
+  recordBuckets,
+  type QualityConfig,
+  type QualityMetric,
+  type QualityReport,
+} from "./qualityApi";
 
 function cv(metric: QualityMetric | null): string {
   return metric?.cv == null ? "—" : `${(metric.cv * 100).toFixed(1)} %`;
 }
 
 function ci(metric: QualityMetric | null, format: (v: number) => string): string {
-  if (metric?.ci_low == null || metric.ci_high == null) return "—";
+  if (metric === null) return "—";
   return `${format(metric.ci_low)} – ${format(metric.ci_high)}`;
 }
 
@@ -33,7 +44,7 @@ function verdict(value: boolean | null, pending: boolean) {
   return <Badge tone={value ? "ok" : "failed"}>{value ? (pending ? "ok so far" : "met") : "not met"}</Badge>;
 }
 
-function countList(counts: Record<string, number>): string {
+function countList(counts: Readonly<Record<string, number>>): string {
   const entries = Object.entries(counts).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
   return entries.length === 0 ? "none" : entries.map(([k, v]) => `${k}: ${String(v)}`).join(", ");
 }
@@ -55,12 +66,15 @@ const COLUMNS: Column<QualityConfig>[] = [
     header: "Runs",
     cell: (c) => (
       <span className="flex flex-col text-xs">
-        <span>{[c.family, c.strategy, c.node_id].filter((x) => x !== null).join(" · ") || "—"}</span>
-        <span className="text-fg-muted">{`${c.done ?? "—"} / ${c.planned ?? "—"} done`}</span>
+        <span>
+          {c.family} · {c.strategy} · <span title={c.node_id}>{shortId(c.node_id)}</span>
+        </span>
+        <span className="text-fg-muted">{`condition ${c.condition}`}</span>
+        <span className="text-fg-muted">{`${String(c.done)} / ${String(c.planned)} done · ${String(c.records_checked)} records`}</span>
       </span>
     ),
   },
-  { id: "n", header: "n", align: "right", mono: true, cell: (c) => c.n ?? "—" },
+  { id: "n", header: "n", align: "right", mono: true, cell: (c) => c.n },
   { id: "median", header: "Median total", align: "right", mono: true, cell: (c) => formatMs(c.total_ms?.median ?? null) },
   { id: "cv", header: "CV", align: "right", mono: true, cell: (c) => cv(c.total_ms) },
   { id: "ci", header: "CI (total)", mono: true, cell: (c) => ci(c.total_ms, formatMs) },
@@ -68,37 +82,92 @@ const COLUMNS: Column<QualityConfig>[] = [
     id: "iter",
     header: "Per iteration",
     mono: true,
-    cell: (c) => (c.compute_per_iter_ns?.median != null ? `${ns(c.compute_per_iter_ns.median)} (CV ${cv(c.compute_per_iter_ns)})` : "—"),
+    cell: (c) => (c.compute_per_iter_ns !== null ? `${ns(c.compute_per_iter_ns.median)} (CV ${cv(c.compute_per_iter_ns)})` : "—"),
   },
   {
     id: "outliers",
     header: "Outliers",
     align: "right",
     mono: true,
-    cell: (c) => <span title={c.outlier_attempt_ids.join(", ") || undefined}>{c.outliers ?? "—"}</span>,
+    cell: (c) => <span title={c.outlier_attempt_ids.join(", ") || undefined}>{c.outlier_attempt_ids.length}</span>,
   },
   {
     id: "flags",
     header: "Flags",
-    cell: (c) => (
-      <span className="flex flex-wrap gap-1">
-        {c.cv_flag && <Badge tone="degraded">high CV</Badge>}
-        {c.reps_flag && <Badge tone="failed">n &lt; 3</Badge>}
-        {!c.cv_flag && !c.reps_flag && <span className="text-xs text-fg-muted">—</span>}
-      </span>
-    ),
+    cell: (c) => {
+      const missing = Object.keys(missingFields(c)).length > 0;
+      return (
+        <span className="flex flex-wrap gap-1">
+          {c.state === "unsupported" && <Badge tone="neutral">unsupported</Badge>}
+          {c.cv_flag && <Badge tone="degraded">high CV</Badge>}
+          {c.reps_flag && <Badge tone="failed">n &lt; 3</Badge>}
+          {missing && <Badge tone="degraded">missing fields</Badge>}
+          {!c.flagged && c.state !== "unsupported" && <span className="text-xs text-fg-muted">—</span>}
+        </span>
+      );
+    },
   },
   {
     id: "missing",
     header: "Missing fields",
     className: "text-xs",
-    cell: (c) => countList(c.missing).replace(/^none$/, "—"),
+    cell: (c) => countList(missingFields(c)).replace(/^none$/, "—"),
   },
 ];
 
+function Term({ label, children, testId }: { label: string; children: ReactNode; testId?: string }) {
+  return (
+    <div>
+      <dt className="text-2xs font-medium tracking-wide text-fg-subtle uppercase">{label}</dt>
+      <dd data-testid={testId}>{children}</dd>
+    </div>
+  );
+}
+
+/** Every record bucket, their sum and `records`: the reader can check they add up. */
+function Records({ report }: { report: QualityReport }) {
+  const s = report.summary;
+  const buckets = recordBuckets(s);
+  const total = buckets.reduce((a, b) => a + b.count, 0);
+  return (
+    <Card title="Run records">
+      <table className="text-sm" aria-label="Run records by bucket">
+        <tbody>
+          {buckets.map((b) => (
+            <tr key={b.id}>
+              <th scope="row" className="pr-6 text-left font-normal">
+                {b.label}
+                {b.by !== undefined && b.count > 0 && <span className="block text-xs text-fg-muted">{countList(b.by)}</span>}
+              </th>
+              <td className="text-right align-top font-mono" data-testid={`quality-bucket-${b.id}`}>
+                {b.count}
+              </td>
+            </tr>
+          ))}
+          <tr className="border-t border-border">
+            <th scope="row" className="pr-6 text-left">
+              Records (fillers and warm-ups excluded)
+            </th>
+            <td className="text-right font-mono font-medium" data-testid="quality-records">
+              {s.records}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      {total !== s.records && (
+        <p role="alert" className="mt-2 text-sm text-status-failed">
+          {`The buckets add up to ${String(total)}, not ${String(s.records)}: this report is inconsistent.`}
+        </p>
+      )}
+      <p className="mt-2 text-xs text-fg-muted" data-testid="quality-fillers">
+        {`Fillers / warm-ups, never in any statistic: ${countList(s.bench_role_records)}`}
+      </p>
+    </Card>
+  );
+}
+
 function Report({ report }: { report: QualityReport }) {
   const s = report.summary;
-  const flagged = report.configs.filter((c) => c.cv_flag || c.reps_flag).length;
   return (
     <div className="flex flex-col gap-4">
       {s.pending && (
@@ -108,45 +177,26 @@ function Report({ report }: { report: QualityReport }) {
       )}
       <Card title="Summary">
         <dl className="grid grid-cols-[repeat(auto-fill,minmax(14rem,1fr))] gap-x-6 gap-y-3 text-sm">
-          <div>
-            <dt className="text-2xs font-medium tracking-wide text-fg-subtle uppercase">Criterion 1: infra failures &lt; 2 %</dt>
-            <dd data-testid="quality-crit1">{verdict(s.crit1_infra_ok, s.pending)}</dd>
-          </div>
-          <div>
-            <dt className="text-2xs font-medium tracking-wide text-fg-subtle uppercase">Criterion 3: every config n ≥ 3 with CV</dt>
-            <dd data-testid="quality-crit3">{verdict(s.crit3_reps_ok, s.pending)}</dd>
-          </div>
-          <div>
-            <dt className="text-2xs font-medium tracking-wide text-fg-subtle uppercase">Infra failure rate (owner pre-emptions excluded)</dt>
-            <dd data-testid="quality-infra-rate">{formatFraction(s.infra_failure_rate)}</dd>
-          </div>
-          <div>
-            <dt className="text-2xs font-medium tracking-wide text-fg-subtle uppercase">Stopped by owner</dt>
-            <dd>{s.owner_preempted ?? "—"}</dd>
-          </div>
-          <div>
-            <dt className="text-2xs font-medium tracking-wide text-fg-subtle uppercase">Runs by state</dt>
-            <dd>{countList(s.runs_by_state)}</dd>
-          </div>
-          <div>
-            <dt className="text-2xs font-medium tracking-wide text-fg-subtle uppercase">Condition failures</dt>
-            <dd>{countList(s.condition_failures)}</dd>
-          </div>
-          <div>
-            <dt className="text-2xs font-medium tracking-wide text-fg-subtle uppercase">Workload failures</dt>
-            <dd>{countList(s.workload_failures)}</dd>
-          </div>
-          <div>
-            <dt className="text-2xs font-medium tracking-wide text-fg-subtle uppercase">Fillers / warm-ups (not in any statistic)</dt>
-            <dd>{s.fillers ?? "—"}</dd>
-          </div>
-          <div>
-            <dt className="text-2xs font-medium tracking-wide text-fg-subtle uppercase">CV threshold</dt>
-            <dd>{report.cv_threshold === null ? "—" : `${(report.cv_threshold * 100).toFixed(0)} %`}</dd>
-          </div>
+          <Term label="Campaign state" testId="quality-campaign-state">
+            {s.campaign_state}
+          </Term>
+          <Term label="Criterion 1: infra failures < 2 %" testId="quality-crit1">
+            {verdict(s.crit1_infra_ok, s.pending)}
+          </Term>
+          <Term label="Criterion 3: every config n ≥ 3 with CV" testId="quality-crit3">
+            {verdict(s.crit3_reps_ok, s.pending)}
+          </Term>
+          <Term label="Infra failure rate (owner pre-emptions excluded)" testId="quality-infra-rate">
+            {formatFraction(s.infra_failure_rate)}
+          </Term>
+          <Term label="Runs by state" testId="quality-runs-by-state">
+            {countList(s.runs_by_state)}
+          </Term>
+          <Term label="CV threshold">{`${(s.cv_threshold * 100).toFixed(0)} %`}</Term>
         </dl>
       </Card>
-      <Card title={`Configurations (${String(report.configs.length)}, ${String(flagged)} flagged)`} flush>
+      <Records report={report} />
+      <Card title={`Configurations (${String(s.configs)}, ${String(s.flagged_configs)} flagged)`} flush>
         <Table
           caption="Data quality per configuration, flagged first"
           columns={COLUMNS}
@@ -180,6 +230,14 @@ export function QualityTab({ campaignId }: { campaignId: string }) {
       <EmptyState title="Quality report not available on this controller yet">
         This controller has no data quality report (<code className="font-mono">GET …/quality</code>, V0.9 roadmap
         0.9.8). Update the controller; the other tabs work without it.
+      </EmptyState>
+    );
+  }
+  if (result.kind === "invalid") {
+    return (
+      <EmptyState title="Quality report could not be read">
+        The controller sent a version 1 quality report that does not have the expected fields, so no number is
+        shown. Rebuild the dashboard from the same release as the controller.
       </EmptyState>
     );
   }

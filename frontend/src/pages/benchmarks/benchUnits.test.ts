@@ -1,19 +1,20 @@
 /**
  * V0.9 G6 pure pieces: chart data mapping (no re-statistics: every number is
  * the labels answer's), campaign controls per state, the spec budget reader,
- * formatting, the quality report parser (G5c §5g contract), the poll rule,
+ * formatting, the quality report parser (generated QualityOut), the poll rule,
  * the Parquet completeness check and the binary download client.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { apiDownload } from "../../api/client";
 import { ApiError } from "../../api/errors";
+import { qualityConfig, qualityMetric, qualityReport, qualitySummary } from "../../test/qualityFixture";
 import type { ConfigLabel, GroupLabel, LabelsOut, MetricStats } from "./benchApi";
 import { campaignVerbs, formatDonePercent, formatEta, formatFraction, formatMargin, labelTone, specBudget } from "./campaignView";
 import { familiesOf, familyCharts, formatParams, plottable, strategyChart, sweptParams, xParam } from "./chartData";
 import { isCompleteParquet, labelsFileName, recordsFileName } from "./download";
 import { MANUAL_POLL_MS, STREAM_DOWN_POLL_MS, pollInterval } from "./poll";
-import { flaggedFirst, getQuality, parseQuality } from "./qualityApi";
+import { UNKNOWN_CAMPAIGN_REASON, flaggedFirst, getQuality, missingFields, parseQuality, recordBuckets } from "./qualityApi";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -228,74 +229,35 @@ describe("campaign view helpers", () => {
 
 /* ------------------------------------------------------------ quality */
 
-const REPORT = {
-  campaign_id: "camp_1",
-  quality_version: 1,
-  cv_threshold: 0.1,
-  summary: {
-    runs_by_state: { done: 10, failed: 1 },
-    infra_failure_rate: 0.0091,
-    owner_preempted: 2,
-    condition_failures: { "cpu_load:2": 1 },
-    workload_failures: {},
-    fillers: 3,
-    crit1_infra_ok: true,
-    crit3_reps_ok: false,
-    pending: false,
-  },
-  configs: [
-    {
-      group_id: "grp_1",
-      config_id: "cfg_a",
-      planned: 3,
-      done: 3,
-      n: 3,
-      total_ms: { median: 900, cv: 0.02, ci_low: 880, ci_high: 950 },
-      compute_per_iter_ns: { median: 5.5, cv: 0.01, ci: [5, 6] },
-      outliers: 0,
-      outlier_attempt_ids: [],
-      cv_flag: false,
-      reps_flag: false,
-      missing: { bytes_in: 0 },
-    },
-    {
-      group_id: "grp_1",
-      config_id: "cfg_b",
-      planned: 3,
-      done: 2,
-      n: 2,
-      total_ms: { median: 700, cv: 0.3, ci_low: 600, ci_high: 900 },
-      outliers: 1,
-      outlier_attempt_ids: ["att_1", 7],
-      cv_flag: true,
-      reps_flag: true,
-      missing: { planner_node_id: 2 },
-    },
-    { config_id: "no group" },
-  ],
-};
+const REPORT = qualityReport("camp_1");
 
-describe("quality report (G5c §5g contract)", () => {
-  it("parses what is there, nothing more", () => {
-    const result = parseQuality(REPORT);
+describe("quality report (generated QualityOut)", () => {
+  it("a well-formed v1 body is the report, unchanged", () => {
+    const result = parseQuality(JSON.parse(JSON.stringify(REPORT)));
     if (result.kind !== "report") throw new Error(result.kind);
-    const r = result.report;
-    expect(r.cv_threshold).toBe(0.1);
-    expect(r.summary.crit1_infra_ok).toBe(true);
-    expect(r.summary.crit3_reps_ok).toBe(false);
-    expect(r.summary.condition_failures).toEqual({ "cpu_load:2": 1 });
-    expect(r.configs).toHaveLength(2); // the row without a group_id is dropped
-    expect(r.configs[0]?.compute_per_iter_ns).toEqual({ median: 5.5, cv: 0.01, ci_low: 5, ci_high: 6 });
-    expect(r.configs[0]?.missing).toEqual({}); // zero counts are not "missing"
-    expect(r.configs[1]?.outlier_attempt_ids).toEqual(["att_1"]);
-    expect(r.configs[1]?.compute_per_iter_ns).toBeNull();
-    expect(r.configs[0]?.family).toBeNull(); // not sent: never invented
+    expect(result.report).toEqual(REPORT);
   });
 
-  it("flagged configurations first", () => {
-    const result = parseQuality(REPORT);
-    if (result.kind !== "report") throw new Error(result.kind);
-    expect(flaggedFirst(result.report.configs).map((c) => c.config_id)).toEqual(["cfg_b", "cfg_a"]);
+  it("flagged configurations first (the server's `flagged`)", () => {
+    expect(flaggedFirst(REPORT.configs).map((c) => c.config_id)).toEqual(["cfg_b", "cfg_a"]);
+    // `flagged` also covers missing fields: no CV / repetition flag needed.
+    const onlyMissing = qualityConfig("cfg_m", { flagged: true });
+    expect(flaggedFirst([qualityConfig("cfg_x"), onlyMissing]).map((c) => c.config_id)).toEqual(["cfg_m", "cfg_x"]);
+  });
+
+  it("missing fields keep only the fields with nulls", () => {
+    const [clean, flagged] = REPORT.configs;
+    if (clean === undefined || flagged === undefined) throw new Error("fixture");
+    expect(missingFields(clean)).toEqual({});
+    expect(missingFields(flagged)).toEqual({ planner_node_id: 2 });
+  });
+
+  it("the record buckets add up to `records`", () => {
+    const buckets = recordBuckets(REPORT.summary);
+    expect(buckets.map((b) => b.id)).toEqual(["measured", "infra", "preempted", "condition", "workload", "rejected", "other"]);
+    expect(buckets.map((b) => b.count)).toEqual([6, 1, 2, 1, 1, 2, 1]);
+    expect(buckets.reduce((a, b) => a + b.count, 0)).toBe(REPORT.summary.records);
+    expect(buckets.find((b) => b.id === "rejected")?.by).toEqual({ check_failed: 1, condition_unverified: 1 });
   });
 
   it("another version or a non-object is unsupported", () => {
@@ -303,67 +265,45 @@ describe("quality report (G5c §5g contract)", () => {
     expect(parseQuality("x")).toEqual({ kind: "unsupported", version: undefined });
   });
 
-  it("a missing summary gives empty/null fields, not zeros", () => {
-    const result = parseQuality({ quality_version: 1 });
-    if (result.kind !== "report") throw new Error(result.kind);
-    expect(result.report.summary.infra_failure_rate).toBeNull();
-    expect(result.report.summary.crit1_infra_ok).toBeNull();
-    expect(result.report.configs).toEqual([]);
+  it("a v1 body that is not a QualityOut is invalid - no partial report, no zeros", () => {
+    expect(parseQuality({ quality_version: 1 })).toEqual({ kind: "invalid" });
+    const noMeasured: Record<string, unknown> = { ...REPORT.summary };
+    delete noMeasured.measured_records;
+    expect(parseQuality({ ...REPORT, summary: noMeasured })).toEqual({ kind: "invalid" });
+    expect(parseQuality({ ...REPORT, summary: { ...REPORT.summary, rejected_ok: { check_failed: "1" } } })).toEqual({ kind: "invalid" });
+    expect(parseQuality({ ...REPORT, summary: { ...REPORT.summary, records: -1 } })).toEqual({ kind: "invalid" });
+    expect(parseQuality({ ...REPORT, configs: [...REPORT.configs, { config_id: "no group" }] })).toEqual({ kind: "invalid" });
+    expect(parseQuality({ ...REPORT, configs: [qualityConfig("c", { state: "weird" as "measured" })] })).toEqual({ kind: "invalid" });
+    expect(parseQuality({ ...REPORT, configs: [{ ...qualityConfig("c"), total_ms: { median: 1 } }] })).toEqual({ kind: "invalid" });
   });
 
-  it("reads the shape G5c's endpoint sends (threshold in summary, fillers by role, outliers in the metric)", () => {
-    const result = parseQuality({
-      campaign_id: "camp_1",
-      quality_version: 1,
-      summary: {
-        campaign_state: "finished",
-        pending: false,
-        runs_by_state: { planned: 0, submitted: 0, done: 4, failed: 0, skipped: 0 },
-        bench_role_records: { filler: 2, warmup: 1 },
-        owner_preempted: 0,
-        infra_failure_rate: 0,
-        condition_failures: {},
-        workload_failures: {},
-        crit1_infra_ok: true,
-        crit3_reps_ok: true,
-        cv_threshold: 0.15,
-      },
-      configs: [
-        {
-          group_id: "grp_1",
-          config_id: "cfg_a",
-          total_ms: { n: 4, median: 900, mean: 910, std: 9, cv: 0.01, ci_low: 880, ci_high: 950, ci_coverage: 0.94, outliers: 1 },
-          compute_per_iter_ns: null,
-          outlier_attempt_ids: ["att_9"],
-          cv_flag: false,
-          reps_flag: false,
-          missing: { total_ms: 0, bytes_in: 0 },
-        },
-        { group_id: "grp_1", config_id: "cfg_b", total_ms: null, outlier_attempt_ids: [], cv_flag: false, reps_flag: true },
-      ],
+  it("nullable numbers stay null (pending verdicts, no rate, n < 2 CV)", () => {
+    const body = qualityReport("camp_1", {
+      summary: qualitySummary({ pending: true, campaign_state: "active", crit1_infra_ok: null, crit3_reps_ok: null, infra_failure_rate: null }),
+      configs: [qualityConfig("c", { total_ms: qualityMetric(5, { n: 1, cv: null, std: null }), compute_per_iter_ns: null })],
     });
+    const result = parseQuality(body);
     if (result.kind !== "report") throw new Error(result.kind);
-    expect(result.report.cv_threshold).toBe(0.15);
-    expect(result.report.summary.fillers).toBe(3);
-    expect(result.report.configs[0]?.outliers).toBe(1);
-    expect(result.report.configs[1]?.outliers).toBe(0); // from the (empty) id list, not invented
-    expect(result.report.configs[0]?.missing).toEqual({});
+    expect(result.report.summary.crit1_infra_ok).toBeNull();
+    expect(result.report.summary.infra_failure_rate).toBeNull();
+    expect(result.report.configs[0]?.total_ms?.cv).toBeNull();
   });
 
-  it("a 404 'no such campaign' is an error, not 'controller too old'", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(() => Promise.resolve(new Response(JSON.stringify({ error: { code: "not_found", message: "no such campaign" } }), { status: 404 }))),
-    );
+  const notFound = (error: Record<string, unknown>) =>
+    vi.fn(() => Promise.resolve(new Response(JSON.stringify({ error }), { status: 404 })));
+
+  it("a 404 with the unknown-campaign reason is an error, not 'controller too old'", async () => {
+    vi.stubGlobal("fetch", notFound({ code: "not_found", message: "no such campaign", reason: UNKNOWN_CAMPAIGN_REASON }));
     await expect(getQuality("camp_gone")).rejects.toBeInstanceOf(ApiError);
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(() => Promise.resolve(new Response(JSON.stringify({ error: { code: "not_found", message: "Not Found" } }), { status: 404 }))),
-    );
+    // The reason decides, not the text: a reworded message is still an error ...
+    vi.stubGlobal("fetch", notFound({ code: "not_found", message: "campaign not found", reason: UNKNOWN_CAMPAIGN_REASON }));
+    await expect(getQuality("camp_gone")).rejects.toBeInstanceOf(ApiError);
+    // ... and an unmatched route's envelope (no reason) is unavailable, whatever its text.
+    vi.stubGlobal("fetch", notFound({ code: "not_found", message: "no such campaign" }));
     await expect(getQuality("camp_1")).resolves.toEqual({ kind: "unavailable" });
   });
 
-  it("404 from the controller = unavailable; other errors throw", async () => {
+  it("404 without the reason = unavailable; other errors throw", async () => {
     vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(new Response('{"detail":"Not Found"}', { status: 404 }))));
     await expect(getQuality("camp_1")).resolves.toEqual({ kind: "unavailable" });
     vi.stubGlobal(

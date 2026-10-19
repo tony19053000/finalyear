@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError } from "../../api/errors";
 import { ADMIN_SESSION, USER_SESSION, event, fakeController, json, node, renderApp, type Handler } from "../../test/fakeFabric";
+import { qualityReport } from "../../test/qualityFixture";
 import { applyCampaignEvent } from "./applyCampaignEvent";
 import { benchKeys } from "./benchKeys";
 import { isCompleteParquet } from "./download";
@@ -254,21 +255,31 @@ describe("quality robustness", () => {
     expect(parseQuality(body).kind).toBe("unsupported");
   });
 
-  it("a v1 body with junk fields parses without throwing and invents no numbers", () => {
-    const r = parseQuality({ quality_version: 1, summary: { infra_failure_rate: "x", runs_by_state: { done: "NaN" } }, configs: [null, 3, { group_id: 1 }, { group_id: "g", config_id: "c", total_ms: "bad", n: Infinity }] });
-    expect(r.kind).toBe("report");
-    if (r.kind === "report") {
-      expect(r.report.summary.infra_failure_rate).toBeNull();
-      expect(r.report.configs).toHaveLength(1);
-      expect(r.report.configs[0]?.n).toBeNull();
+  it("a v1 body with junk fields never throws and shows no numbers (invalid, not a partial report)", () => {
+    const junk = { quality_version: 1, summary: { infra_failure_rate: "x", runs_by_state: { done: "NaN" } }, configs: [null, 3, { group_id: 1 }, { group_id: "g", config_id: "c", total_ms: "bad", n: Infinity }] };
+    expect(() => parseQuality(junk)).not.toThrow();
+    expect(parseQuality(junk).kind).toBe("invalid");
+    // One hostile value inside an otherwise real report spoils the whole report.
+    const real = qualityReport(A);
+    for (const hostile of [
+      { ...real, summary: { ...real.summary, measured_records: Number.NaN } },
+      { ...real, summary: { ...real.summary, other_failures: { unavailable: Infinity } } },
+      { ...real, summary: { ...real.summary, runs_by_state: { ...real.summary.runs_by_state, done: "6" } } },
+      { ...real, configs: [{ ...real.configs[0], n: 2.5 }] },
+      { ...real, configs: [{ ...real.configs[0], outlier_attempt_ids: ["att_1", 7] }] },
+      { ...real, configs: [{ ...real.configs[0], missing: { ...real.configs[0]?.missing, bytes_in: null } }] },
+      { ...real, configs: "x" },
+    ]) {
+      expect(() => parseQuality(hostile)).not.toThrow();
+      expect(parseQuality(hostile).kind).toBe("invalid");
     }
   });
 
-  it("404 'Not Found' (route missing) is unavailable; 404 'no such campaign' is an error; 500 is an error", async () => {
-    const mk = (status: number, message: string) => json(status, { error: { code: status === 404 ? "not_found" : "internal", message } });
+  it("404 envelope without a reason (route missing) is unavailable; 404 unknown_campaign is an error; 500 is an error", async () => {
+    const mk = (status: number, message: string, reason?: string) => json(status, { error: { code: status === 404 ? "not_found" : "internal", message, ...(reason ? { reason } : {}) } });
     fakeController({ [`GET /v1/bench/campaigns/${A}/quality`]: () => mk(404, "Not Found") });
     expect((await getQuality(A)).kind).toBe("unavailable");
-    fakeController({ [`GET /v1/bench/campaigns/${A}/quality`]: () => mk(404, "no such campaign") });
+    fakeController({ [`GET /v1/bench/campaigns/${A}/quality`]: () => mk(404, "no such campaign", "unknown_campaign") });
     await expect(getQuality(A)).rejects.toBeInstanceOf(ApiError);
     fakeController({ [`GET /v1/bench/campaigns/${A}/quality`]: () => mk(500, "boom") });
     await expect(getQuality(A)).rejects.toBeInstanceOf(ApiError);
@@ -294,7 +305,7 @@ describe("quality robustness", () => {
   it("quality 'no such campaign' 404 is shown as an error, not 'not available on this controller yet'", async () => {
     admin({
       [`GET /v1/bench/campaigns/${A}`]: () => json(200, { ...campaign(A, "active"), spec: "name: x\n" }),
-      [`GET /v1/bench/campaigns/${A}/quality`]: () => json(404, { error: { code: "not_found", message: "no such campaign" } }),
+      [`GET /v1/bench/campaigns/${A}/quality`]: () => json(404, { error: { code: "not_found", message: "no such campaign", reason: "unknown_campaign" } }),
     });
     renderApp(`/benchmarks/${A}?tab=quality`);
     await waitFor(() => { expect(screen.getAllByText(/no such campaign/i).length).toBeGreaterThan(0); });

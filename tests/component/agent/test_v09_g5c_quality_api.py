@@ -100,5 +100,18 @@ async def test_quality_errors_are_typed(
 ) -> None:
     missing = await _quality(http, "camp_01J0000000000000000000000A")
     assert missing.status_code == 404, missing.text
+    # The reason tells it from an unmatched route's 404 (the dashboard's
+    # "not available on this controller" state); both are `not_found`.
+    assert missing.json()["error"] == {
+        "code": "not_found",
+        "message": "no such campaign",
+        "reason": "unknown_campaign",
+    }
+    unrouted = await http.get(
+        "/v1/bench/campaigns/camp_01J0000000000000000000000A/nope"
+    )
+    assert unrouted.status_code == 404, unrouted.text
+    assert unrouted.json()["error"]["code"] == "not_found"
+    assert "reason" not in unrouted.json()["error"]
     bad = await _quality(http, "not-a-campaign")
     assert bad.status_code == 400 and bad.json()["error"]["code"] == "invalid_input"

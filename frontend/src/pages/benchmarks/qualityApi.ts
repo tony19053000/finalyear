@@ -1,89 +1,35 @@
 /**
  * The campaign data quality report (V0.9 G5c, roadmap 0.9.8, D220) as the
- * Benchmarks page reads it.
+ * Benchmarks page reads it: `GET /v1/bench/campaigns/{id}/quality`.
  *
- * `GET /v1/bench/campaigns/{id}/quality` is being built by G5c IN PARALLEL
- * with this page (D256), so its generated type is not in schema.d.ts yet. This
- * module is the ONE place that knows its shape: a local interface written from
- * the brief's §5g contract, and a parser that keeps only what the answer
- * really holds (a missing number stays `null` and is printed "—"; nothing is
- * filled in). The Lead swaps `QualityReport` for the generated type at merge.
+ * The shape is the generated `QualityOut` (schema.d.ts, from the controller's
+ * OpenAPI). The body is still checked at run time before the tab shows it:
+ * a v1 body that does not match `QualityOut` (a proxy page, a broken build)
+ * is `invalid` and the tab prints no number at all - it never fills a gap
+ * with a zero or shows a partial report whose totals would not add up.
  *
  * A controller without the route answers 404: `getQuality` returns
  * `{ kind: "unavailable" }` and the tab says so - never a crash, never numbers.
  */
 import { apiRequest } from "../../api/client";
 import { ApiError } from "../../api/errors";
+import type { components } from "../../api/schema";
 
-/** The report format this page understands (§5g: `quality_version = 1`). */
+/** The report format this page understands (`quality_version = 1`). */
 export const QUALITY_VERSION = 1;
 
-/** One cost of one configuration: median, CV and the median's CI (bench.stats `summarize`). */
-export interface QualityMetric {
-  median: number | null;
-  cv: number | null;
-  ci_low: number | null;
-  ci_high: number | null;
-}
-
-/** One configuration within its group (§5g item 2 + 3). */
-export interface QualityConfig {
-  group_id: string;
-  config_id: string;
-  family: string | null;
-  strategy: string | null;
-  node_id: string | null;
-  planned: number | null;
-  done: number | null;
-  /** Distinct repetitions with an ok record. */
-  n: number | null;
-  total_ms: QualityMetric | null;
-  compute_per_iter_ns: QualityMetric | null;
-  outliers: number | null;
-  outlier_attempt_ids: string[];
-  /** CV above `[controller.bench] quality_cv_threshold`. */
-  cv_flag: boolean;
-  /** n < 3 (criterion 3). */
-  reps_flag: boolean;
-  /** Null count per checked field, only fields with nulls kept. */
-  missing: Record<string, number>;
-}
-
-/** The campaign summary (§5g item 4). */
-export interface QualitySummary {
-  runs_by_state: Record<string, number>;
-  /** Infra failures / records, `owner_preempted` excluded (the same helper as `status`). */
-  infra_failure_rate: number | null;
-  owner_preempted: number | null;
-  /** `condition_failed` records by condition. */
-  condition_failures: Record<string, number>;
-  /** Workload failures by family. */
-  workload_failures: Record<string, number>;
-  /** Filler / warm-up records: counted, never in a statistic. */
-  fillers: number | null;
-  /** Criterion 1: infra failure rate < 2 %. Null = pending (campaign not terminal) or not reported. */
-  crit1_infra_ok: boolean | null;
-  /** Criterion 3: every config n >= 3 with a CV. */
-  crit3_reps_ok: boolean | null;
-  /** The campaign is not terminal yet: verdicts are provisional. */
-  pending: boolean;
-}
-
-export interface QualityReport {
-  campaign_id: string;
-  quality_version: number;
-  cv_threshold: number | null;
-  summary: QualitySummary;
-  /** Sorted by (group_id, config_id) as the server sends them. */
-  configs: QualityConfig[];
-}
+export type QualityReport = components["schemas"]["QualityOut"];
+export type QualitySummary = components["schemas"]["QualitySummaryOut"];
+export type QualityConfig = components["schemas"]["ConfigQualityOut"];
+export type QualityMetric = components["schemas"]["MetricStats"];
 
 export type QualityResult =
   | { kind: "report"; report: QualityReport }
   | { kind: "unavailable" }
-  | { kind: "unsupported"; version: unknown };
+  | { kind: "unsupported"; version: unknown }
+  | { kind: "invalid" };
 
-/* ------------------------------------------------------------ parsing */
+/* ------------------------------------------------------------ validation */
 
 type Obj = Record<string, unknown>;
 
@@ -91,136 +37,194 @@ function isObj(value: unknown): value is Obj {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function num(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
+function isNum(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
 }
 
-function str(value: unknown): string | null {
-  return typeof value === "string" ? value : null;
+/** A count: a finite, non-negative integer. */
+function isCount(value: unknown): value is number {
+  return isNum(value) && Number.isInteger(value) && value >= 0;
 }
 
-function bool(value: unknown): boolean | null {
-  return typeof value === "boolean" ? value : null;
+function isNumOrNull(value: unknown): value is number | null {
+  return value === null || isNum(value);
 }
 
-/** `{name: count}` with finite numeric counts only. */
-function counts(value: unknown): Record<string, number> {
-  const out: Record<string, number> = {};
-  if (!isObj(value)) return out;
-  for (const [key, raw] of Object.entries(value)) {
-    const n = num(raw);
-    if (n !== null) out[key] = n;
-  }
-  return out;
+function isStr(value: unknown): value is string {
+  return typeof value === "string";
 }
 
-/** Sum of a `{name: count}` object; null when it is not one. */
-function sumCounts(value: unknown): number | null {
-  if (!isObj(value)) return null;
-  return Object.values(counts(value)).reduce((a, b) => a + b, 0);
+function isBoolOrNull(value: unknown): value is boolean | null {
+  return value === null || typeof value === "boolean";
 }
 
-function metric(value: unknown): QualityMetric | null {
-  if (!isObj(value)) return null;
-  // The CI may come flat (ci_low/ci_high) or as a pair (`ci: [low, high]`).
-  const ci = Array.isArray(value.ci) ? (value.ci as unknown[]) : [];
-  return {
-    median: num(value.median),
-    cv: num(value.cv),
-    ci_low: num(value.ci_low) ?? num(ci[0]),
-    ci_high: num(value.ci_high) ?? num(ci[1]),
-  };
+/** `{name: count}` with every value a count. */
+function isCounts(value: unknown): value is Record<string, number> {
+  return isObj(value) && Object.values(value).every(isCount);
 }
 
-function config(value: unknown): QualityConfig | null {
-  if (!isObj(value)) return null;
-  const groupId = str(value.group_id);
-  const configId = str(value.config_id);
-  if (groupId === null || configId === null) return null;
-  const ids = Array.isArray(value.outlier_attempt_ids) ? (value.outlier_attempt_ids as unknown[]) : [];
-  const missing = Object.fromEntries(Object.entries(counts(value.missing)).filter(([, n]) => n > 0));
-  return {
-    group_id: groupId,
-    config_id: configId,
-    family: str(value.family),
-    strategy: str(value.strategy),
-    node_id: str(value.node_id),
-    planned: num(value.planned),
-    done: num(value.done),
-    n: num(value.n),
-    total_ms: metric(value.total_ms),
-    compute_per_iter_ns: metric(value.compute_per_iter_ns),
-    // G5c sends the count inside the metric (`total_ms.outliers`, bench.stats)
-    // plus the attempt ids; a flat count is read first if a controller sends one.
-    outliers:
-      num(value.outliers) ??
-      num(value.outlier_count) ??
-      (isObj(value.total_ms) ? num(value.total_ms.outliers) : null) ??
-      (Array.isArray(value.outlier_attempt_ids) ? ids.length : null),
-    outlier_attempt_ids: ids.filter((id): id is string => typeof id === "string"),
-    cv_flag: value.cv_flag === true,
-    reps_flag: value.reps_flag === true,
-    missing,
-  };
+function hasCounts(value: unknown, keys: readonly string[]): boolean {
+  return isObj(value) && keys.every((k) => isCount(value[k]));
 }
 
-function summary(value: unknown): QualitySummary {
-  const s = isObj(value) ? value : {};
-  return {
-    runs_by_state: counts(s.runs_by_state ?? s.runs),
-    infra_failure_rate: num(s.infra_failure_rate),
-    owner_preempted: num(s.owner_preempted),
-    condition_failures: counts(s.condition_failures),
-    workload_failures: counts(s.workload_failures),
-    // G5c sends filler / warm-up records by role (`bench_role_records`); the tab shows their total.
-    fillers: num(s.fillers) ?? sumCounts(s.bench_role_records),
-    crit1_infra_ok: bool(s.crit1_infra_ok),
-    crit3_reps_ok: bool(s.crit3_reps_ok),
-    pending: s.pending === true,
-  };
+const RUN_STATES = ["planned", "submitted", "done", "failed", "skipped"] as const;
+
+/** `MissingFields` (bench.quality.REQUIRED_FIELDS). */
+export const MISSING_FIELDS = [
+  "total_ms",
+  "compute_ns",
+  "compute_iterations",
+  "bytes_in",
+  "bytes_out",
+  "queue_ms",
+  "run_ms",
+  "node_state",
+  "node_cpu_percent",
+  "planner_node_id",
+] as const;
+
+function isMetric(value: unknown): value is QualityMetric {
+  return (
+    isObj(value) &&
+    isCount(value.n) &&
+    isNum(value.median) &&
+    isNum(value.mean) &&
+    isNumOrNull(value.std) &&
+    isNumOrNull(value.cv) &&
+    isNum(value.ci_low) &&
+    isNum(value.ci_high) &&
+    isNum(value.ci_coverage) &&
+    isCount(value.outliers)
+  );
 }
 
-/** The report from an answer body, or `unsupported` for another `quality_version`. */
+function isMetricOrNull(value: unknown): value is QualityMetric | null {
+  return value === null || isMetric(value);
+}
+
+function isConfig(value: unknown): value is QualityConfig {
+  return (
+    isObj(value) &&
+    isStr(value.group_id) &&
+    isStr(value.config_id) &&
+    isStr(value.family) &&
+    isStr(value.condition) &&
+    isStr(value.strategy) &&
+    isStr(value.node_id) &&
+    (value.state === "measured" || value.state === "unsupported") &&
+    isCount(value.planned) &&
+    isCount(value.done) &&
+    isCount(value.n) &&
+    isMetricOrNull(value.total_ms) &&
+    isMetricOrNull(value.compute_per_iter_ns) &&
+    Array.isArray(value.outlier_attempt_ids) &&
+    value.outlier_attempt_ids.every(isStr) &&
+    typeof value.cv_flag === "boolean" &&
+    typeof value.reps_flag === "boolean" &&
+    typeof value.flagged === "boolean" &&
+    isCount(value.records_checked) &&
+    hasCounts(value.missing, MISSING_FIELDS)
+  );
+}
+
+function isSummary(value: unknown): value is QualitySummary {
+  return (
+    isObj(value) &&
+    isStr(value.campaign_state) &&
+    typeof value.pending === "boolean" &&
+    hasCounts(value.runs_by_state, RUN_STATES) &&
+    isCount(value.records) &&
+    isCounts(value.bench_role_records) &&
+    isCount(value.measured_records) &&
+    isCount(value.infra_failures) &&
+    isCount(value.owner_preempted) &&
+    isNumOrNull(value.infra_failure_rate) &&
+    isCounts(value.condition_failures) &&
+    isCounts(value.workload_failures) &&
+    isCounts(value.rejected_ok) &&
+    isCounts(value.other_failures) &&
+    isBoolOrNull(value.crit1_infra_ok) &&
+    isBoolOrNull(value.crit3_reps_ok) &&
+    isCount(value.configs) &&
+    isCount(value.flagged_configs) &&
+    isNum(value.cv_threshold)
+  );
+}
+
+/**
+ * The report from an answer body: `unsupported` for another `quality_version`
+ * (or a body that is not an object), `invalid` for a v1 body that is not a
+ * `QualityOut`. Never throws.
+ */
 export function parseQuality(body: unknown): QualityResult {
   if (!isObj(body) || body.quality_version !== QUALITY_VERSION) {
     return { kind: "unsupported", version: isObj(body) ? body.quality_version : undefined };
   }
-  const raw = Array.isArray(body.configs) ? (body.configs as unknown[]) : [];
-  const configs = raw.map(config).filter((c): c is QualityConfig => c !== null);
+  if (!isStr(body.campaign_id) || !isSummary(body.summary) || !Array.isArray(body.configs) || !body.configs.every(isConfig)) {
+    return { kind: "invalid" };
+  }
   return {
     kind: "report",
-    report: {
-      campaign_id: str(body.campaign_id) ?? "",
-      quality_version: QUALITY_VERSION,
-      // G5c puts the threshold in the summary; a top-level one is read first.
-      cv_threshold: num(body.cv_threshold) ?? (isObj(body.summary) ? num(body.summary.cv_threshold) : null),
-      summary: summary(body.summary),
-      configs,
-    },
+    report: { campaign_id: body.campaign_id, quality_version: QUALITY_VERSION, summary: body.summary, configs: body.configs },
   };
 }
 
-/** Flagged configurations first (CV or repetitions), then the server's order. */
-export function flaggedFirst(configs: readonly QualityConfig[]): QualityConfig[] {
-  const flagged = configs.filter((c) => c.cv_flag || c.reps_flag);
-  const clean = configs.filter((c) => !c.cv_flag && !c.reps_flag);
-  return [...flagged, ...clean];
+/* ------------------------------------------------------------ derived */
+
+function sum(counts: Readonly<Record<string, number>>): number {
+  return Object.values(counts).reduce((a, b) => a + b, 0);
 }
 
-/** The controller's 404 for an unknown campaign (`ApiError.not_found("campaign")`). */
-const NO_SUCH_CAMPAIGN = "no such campaign";
+/**
+ * The summary's buckets in reading order. Every run record is in exactly one
+ * (docs/TELEMETRY.md "Quality report"), so they add up to `summary.records`;
+ * the tab prints the sum next to `records` and says so when they differ.
+ */
+export function recordBuckets(s: QualitySummary): { id: string; label: string; count: number; by?: Record<string, number> }[] {
+  return [
+    { id: "measured", label: "Measured (used by the statistics)", count: s.measured_records },
+    { id: "infra", label: "Infrastructure failures", count: s.infra_failures },
+    { id: "preempted", label: "Stopped by owner", count: s.owner_preempted },
+    { id: "condition", label: "Condition failures", count: sum(s.condition_failures), by: s.condition_failures },
+    { id: "workload", label: "Workload failures", count: sum(s.workload_failures), by: s.workload_failures },
+    { id: "rejected", label: "Ok but rejected by the label filter", count: sum(s.rejected_ok), by: s.rejected_ok },
+    { id: "other", label: "Other failures", count: sum(s.other_failures), by: s.other_failures },
+  ];
+}
+
+/** Flagged configurations first (`flagged`: CV, repetitions or missing fields), then the server's order. */
+export function flaggedFirst(configs: readonly QualityConfig[]): QualityConfig[] {
+  return [...configs.filter((c) => c.flagged), ...configs.filter((c) => !c.flagged)];
+}
+
+/** Required fields with at least one null, `{field: count}`. */
+export function missingFields(config: QualityConfig): Record<string, number> {
+  return Object.fromEntries(MISSING_FIELDS.map((f) => [f, config.missing[f]] as const).filter(([, n]) => n > 0));
+}
+
+/* ------------------------------------------------------------ request */
 
 /**
- * `GET .../quality`; a controller without the route (404 on an unmatched path)
- * is `unavailable`. A 404 "no such campaign" from a controller that HAS the
- * route is a real error (the campaign is gone), not "update the controller".
+ * The machine `reason` the controller puts on its 404 for an unknown campaign
+ * (bench_routes `_synced`). A controller that HAS the quality route sends it;
+ * an unmatched route's 404 (a controller older than the route) is the plain
+ * `not_found` envelope without a reason, or a non-envelope body behind a
+ * proxy (`http_404`). The `code` alone cannot tell the two apart (both are
+ * `not_found`), and matching message text would break on a reworded message.
+ */
+export const UNKNOWN_CAMPAIGN_REASON = "unknown_campaign";
+
+/**
+ * `GET .../quality`. A 404 without the unknown-campaign reason is
+ * `unavailable` (the controller has no such route); a 404 WITH it is a real
+ * error (the campaign is gone), as is any other failure.
  */
 export async function getQuality(campaignId: string, signal?: AbortSignal): Promise<QualityResult> {
   try {
     const body = await apiRequest<unknown>(`/v1/bench/campaigns/${encodeURIComponent(campaignId)}/quality`, { signal });
     return parseQuality(body);
   } catch (err) {
-    if (err instanceof ApiError && err.status === 404 && err.message !== NO_SUCH_CAMPAIGN) return { kind: "unavailable" };
+    if (err instanceof ApiError && err.status === 404 && err.reason !== UNKNOWN_CAMPAIGN_REASON) return { kind: "unavailable" };
     throw err;
   }
 }

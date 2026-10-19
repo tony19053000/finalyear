@@ -311,7 +311,9 @@ give the same JSON, byte for byte (configurations sorted by `group_id`, `config_
 
 `GET /v1/bench/campaigns/{id}/quality` (admin) and `compute bench report CAMPAIGN_ID [--json] [--strict]`
 (summary first, then configurations - flagged ones first; exit 0, `--strict` exits 1 unless both criteria are
-met, a campaign still running counting as not met). Code: `bench/quality.py` (the pure report),
+met, a campaign still running counting as not met). An unknown campaign is `404 not_found` with
+`error.reason = unknown_campaign` (every bench campaign route): the reason - not the message text - is how the
+dashboard tells it from an unmatched route's 404 (an older controller without this route; no `reason`). Code: `bench/quality.py` (the pure report),
 `controller/telemetry/quality_store.py` (the streamed read).
 
 **What it reads.** Every run record of the campaign - unlike the labels it must see failures - streamed in

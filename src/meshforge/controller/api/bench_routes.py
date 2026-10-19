@@ -79,8 +79,10 @@ from meshforge.controller.registry import Registry
 __all__ = [
     "BENCH_STATE_KEY",
     "MAX_SUBMIT",
+    "UNKNOWN_CAMPAIGN_REASON",
     "BenchApi",
     "bench_router",
+    "unknown_campaign",
 ]
 
 log = get_logger(__name__)
@@ -277,6 +279,21 @@ def _campaign_id(value: str) -> str:
     return value
 
 
+UNKNOWN_CAMPAIGN_REASON: Final = "unknown_campaign"
+"""``error.reason`` of a 404 for a campaign id the controller does not know."""
+
+
+def unknown_campaign() -> ApiError:
+    """404 for an unknown campaign. The machine ``reason`` lets a client tell
+    it from an unmatched route (both are ``not_found``): the dashboard's
+    Quality tab says "not available on this controller" only for the latter."""
+    return ApiError(
+        FailureType.NOT_FOUND,
+        "no such campaign",
+        extra={"reason": UNKNOWN_CAMPAIGN_REASON},
+    )
+
+
 def _unavailable() -> ApiError:
     return ApiError(
         FailureType.NETWORK_ERROR,
@@ -292,7 +309,7 @@ async def _synced(bench: BenchApi, campaign_id: str) -> CampaignRecord:
     except BenchStoreError:
         raise _unavailable() from None
     if record is None:
-        raise ApiError.not_found("campaign")
+        raise unknown_campaign()
     return record
 
 
