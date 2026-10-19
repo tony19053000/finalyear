@@ -19,6 +19,7 @@ touched by any of it.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import time
 from collections.abc import Awaitable, Callable
@@ -46,7 +47,14 @@ class OwnerGuard:
     the guard stays on: at the next activity poll, then after 2, 4, 8 ... poll
     intervals (by the clock), at most :data:`MAX_RETRY_S` apart - one warning per
     failed step, never a storm. A pre-emption that succeeded is not repeated
-    until the guard turned off and on again."""
+    until the guard turned off and on again.
+
+    **One evaluation at a time (G5c item 0.2, D253 T3-1).** The activity loop
+    (:meth:`on_poll` retries, :meth:`on_activity`) and the policy watcher
+    (:meth:`refresh`) are two tasks; one :class:`asyncio.Lock` serialises
+    every evaluate + pre-empt, so a slow pre-emption is never run twice at
+    once (no double ``stop_all``, ``preempted`` counted once): the second
+    caller waits, then re-evaluates and finds it done."""
 
     def __init__(
         self,
@@ -72,6 +80,7 @@ class OwnerGuard:
         self._failures = 0
         self._retry_at: float | None = None
         self.preempted = 0
+        self._lock = asyncio.Lock()
         if activity is not None:
             activity.on_poll = self.on_poll  # retries ride on every poll
 
@@ -95,6 +104,11 @@ class OwnerGuard:
         """Re-evaluate (an input changed); on the guard turning on, pre-empt the
         running benchmark attempts. Raises what the pre-emption raised (it is
         retried by :meth:`on_poll`). The attempts stopped."""
+        async with self._lock:
+            return await self._refresh()
+
+    async def _refresh(self) -> int:
+        """:meth:`refresh` under the lock."""
         now = self.blocked()
         if now is None or self.preempt is None:
             if now != self._was or self._pending is not None:
@@ -135,15 +149,18 @@ class OwnerGuard:
         """Every activity poll: retry a pending pre-emption when it is due
         (never raises - the failure is logged by :meth:`_preempt`)."""
         if self._pending is None or self.preempt is None:
-            return
-        now = self.blocked()
-        if now is None:
-            await self.refresh()
-            return
-        if self._retry_at is not None and self._clock() < self._retry_at:
-            return
-        with contextlib.suppress(Exception):
-            await self._preempt(now)
+            return  # the common case: no lock taken
+        async with self._lock:
+            if self._pending is None:  # the other path finished it meanwhile
+                return
+            now = self.blocked()
+            if now is None:
+                await self._refresh()
+                return
+            if self._retry_at is not None and self._clock() < self._retry_at:
+                return
+            with contextlib.suppress(Exception):
+                await self._preempt(now)
 
     async def on_activity(self, _state: ActivityState) -> None:
         await self.refresh()
