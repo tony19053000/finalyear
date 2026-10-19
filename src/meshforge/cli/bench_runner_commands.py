@@ -23,7 +23,7 @@ import typer
 
 from meshforge.cli import render
 from meshforge.cli import shared as cli
-from meshforge.cli.bench_campaign_commands import RUN_STATES, _campaign_id
+from meshforge.cli.bench_campaign_commands import RUN_STATES
 from meshforge.cli.bench_commands import bench_app
 
 __all__ = ["status_lines"]
@@ -72,7 +72,7 @@ def _control(
     body: Mapping[str, Any] | None,
     json_output: bool,
 ) -> None:
-    checked = _campaign_id(campaign_id)
+    checked = cli._checked_campaign_id(campaign_id)
     settings = cli._settings()
     with cli._client(settings) as client:
         result = cli._fetch(lambda: client.bench_control(checked, verb, body))
@@ -161,7 +161,7 @@ def status(
     json_output: cli.JsonOption = False,
 ) -> None:
     """Progress of a campaign: counts, done %, ETA, infra failure rate (admin)."""
-    checked = _campaign_id(campaign_id)
+    checked = cli._checked_campaign_id(campaign_id)
     settings = cli._settings()
     with cli._client(settings) as client:
         doc = cli._fetch(lambda: client.bench_status(checked))

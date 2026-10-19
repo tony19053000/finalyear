@@ -72,21 +72,6 @@ def _read_spec(path: Path) -> str:
         )
 
 
-def _campaign_id(value: str) -> str:
-    """Validated before any request is built (a path segment, like NODE_ID)."""
-    from meshforge.common.errors import InvalidIdError
-    from meshforge.common.ids import IdKind, parse_id
-
-    try:
-        parse_id(value, IdKind.CAMPAIGN)
-    except InvalidIdError:
-        cli._die(
-            "CAMPAIGN_ID is not a canonical camp_<ULID>; run `compute bench campaigns`",
-            CliExit.USAGE_ERROR,
-        )
-    return value
-
-
 def _live_nodes(client: ControllerClient) -> list[NodeRef]:
     from meshforge.bench.campaign import NodeRef
     from meshforge.common.bench_conditions import advertised_kinds
@@ -259,7 +244,7 @@ def campaigns(
     json_output: cli.JsonOption = False,
 ) -> None:
     """List benchmark campaigns, or show one (admin)."""
-    checked = None if campaign_id is None else _campaign_id(campaign_id)
+    checked = None if campaign_id is None else cli._checked_campaign_id(campaign_id)
     settings = cli._settings()
     with cli._client(settings) as client:
         if checked is not None:
@@ -313,7 +298,7 @@ def runs(
     json_output: cli.JsonOption = False,
 ) -> None:
     """A campaign's runs in execution order (admin)."""
-    checked = _campaign_id(campaign_id)
+    checked = cli._checked_campaign_id(campaign_id)
     if state is not None and state not in RUN_STATES:
         cli._die(
             "--state: planned, submitted, done, failed or skipped", CliExit.USAGE_ERROR
@@ -386,7 +371,7 @@ def submit(
 ) -> None:
     """Submit the campaign's next K planned runs as pinned lowest-priority jobs
     (admin; idempotent per run)."""
-    checked = _campaign_id(campaign_id)
+    checked = cli._checked_campaign_id(campaign_id)
     settings = cli._settings()
     with cli._client(settings) as client:
         result = cli._fetch(lambda: client.bench_submit(checked, count))

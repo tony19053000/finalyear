@@ -23,7 +23,6 @@ import typer
 
 from meshforge.cli import render
 from meshforge.cli import shared as cli
-from meshforge.cli.bench_campaign_commands import _campaign_id
 from meshforge.cli.bench_commands import bench_app
 from meshforge.cli.exits import CliExit
 
@@ -98,7 +97,7 @@ def labels(
 ) -> None:
     """Per-group labels of a campaign: best configuration, tie, insufficient or
     pending (admin)."""
-    checked = _campaign_id(campaign_id)
+    checked = cli._checked_campaign_id(campaign_id)
     if output is not None:
         _download(checked, output, json_output)
         return

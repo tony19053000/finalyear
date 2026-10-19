@@ -359,7 +359,13 @@ def build_labels(
 ) -> CampaignLabels:
     """Every group's label (module docstring). ``rows`` are label rows
     (already filtered); the latest-per-repetition rule is applied here too, so
-    a caller cannot forget it. Pure and deterministic."""
+    a caller cannot forget it. Pure and deterministic.
+
+    The inputs are **not shared mutable state** (D248 N5): ``runs`` and
+    ``rows`` are fresh per request (the route reads them for this call), only
+    read here, and every list built below (the per-group buckets, the sort)
+    is local - so running this in a worker thread (``asyncio.to_thread``)
+    races nothing."""
     kept = latest_per_repetition(rows)
     by_group_runs: dict[str, list[PlannedRunState]] = {}
     for run in runs:
