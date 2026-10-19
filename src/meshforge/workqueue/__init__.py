@@ -1,9 +1,10 @@
 """Shared leased work queue (ADR-0006, ADR-0019; V0.10 D262, roadmap 0.10.2).
 
-One generic, mode-agnostic component: Mode 3 (task splitting) puts its chunks
-in it, Mode 4 (combined-GPU inference, V0.12) will put its batches in it. A
-queue is owned by an opaque ``(kind, owner_id)`` pair; nothing here knows what
-an item *means* - its payload is opaque JSON.
+One generic component shared by every execution mode that divides work into
+pieces pulled by several workers (ADR-0006). A queue is owned by an opaque
+``(kind, owner_id)`` pair; nothing here knows what an item *means* - its
+payload is opaque JSON - and nothing here knows any caller (a unit test scans
+this package for caller vocabulary).
 
 Modules:
 

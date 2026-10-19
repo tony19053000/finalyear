@@ -1,9 +1,9 @@
 """PostgreSQL operations of the work queue (V0.10 D262; tables in :mod:`.tables`).
 
 Every function takes an :class:`~sqlalchemy.ext.asyncio.AsyncSession` inside a
-transaction the **caller** owns and commits: a lane's LOST transition and the
-release of its leases, or a chunk's commit and its telemetry row, are one
-transaction (V0.10 checklist 35/36). Nothing here commits, rolls back or
+transaction the **caller** owns and commits: the loss of a worker and the
+release of its leases, or an item's commit and the caller's own bookkeeping
+rows, are one transaction (V0.10 checklist 35/36). Nothing here commits, rolls back or
 retries; database errors propagate unchanged to the caller's transaction
 handling. Only bad arguments raise :class:`WorkQueueError`.
 
@@ -30,8 +30,8 @@ Order is always **queue row, then item rows in ascending id**:
 
 Completions of one queue therefore serialise on the queue row for the length of
 the caller's transaction; that is what lets the last commit see
-``done_count = item_count`` in its own transaction (D268: combine is created
-with the last commit). Keep those transactions short.
+``done_count = item_count`` in its own transaction (so a caller can start its
+follow-up work atomically with the last commit). Keep those transactions short.
 """
 
 from __future__ import annotations
@@ -75,7 +75,7 @@ from meshforge.workqueue.tables import (
 )
 
 __all__ = [
-    "MAX_LEASE_BATCH",
+    "MAX_LEASES_PER_PULL",
     "MAX_QUEUE_ITEMS",
     "CompleteResult",
     "ExpireResult",
@@ -103,8 +103,8 @@ __all__ = [
 log = get_logger(__name__)
 
 MAX_QUEUE_ITEMS: Final = 100_000
-MAX_LEASE_BATCH: Final = 64
-_INSERT_BATCH: Final = 5_000
+MAX_LEASES_PER_PULL: Final = 64
+_ROWS_PER_INSERT: Final = 5_000
 
 
 class WorkQueueError(MeshForgeError):
@@ -479,7 +479,7 @@ async def create_queue(
             .returning(work_queue)
         )
     ).one()
-    for start in range(0, len(payloads), _INSERT_BATCH):
+    for start in range(0, len(payloads), _ROWS_PER_INSERT):
         await db.execute(
             insert(work_item),
             [
@@ -490,7 +490,7 @@ async def create_queue(
                     "state": ItemState.PENDING.value,
                 }
                 for offset, payload in enumerate(
-                    payloads[start : start + _INSERT_BATCH]
+                    payloads[start : start + _ROWS_PER_INSERT]
                 )
             ],
         )
@@ -590,8 +590,8 @@ async def lease_next(
     closed. ``site`` defaults to ``holder``."""
     _aware(now)
     site = holder if site is None else site
-    if not 1 <= k <= MAX_LEASE_BATCH:
-        raise WorkQueueError(f"k must be in [1, {MAX_LEASE_BATCH}]")
+    if not 1 <= k <= MAX_LEASES_PER_PULL:
+        raise WorkQueueError(f"k must be in [1, {MAX_LEASES_PER_PULL}]")
     queue = await _lock_queue(db, queue_id, "key_share")
     if queue is None:
         raise WorkQueueError("no such queue", failure_type=FailureType.NOT_FOUND)

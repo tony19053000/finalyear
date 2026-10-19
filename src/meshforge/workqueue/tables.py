@@ -5,8 +5,8 @@ controller's ``Base.metadata``; a unit test holds the two equal) so this
 package imports nothing from the controller; Alembic's ``env.py`` compares both
 metadata objects with the database (``alembic check`` fails on drift).
 
-* ``work_queue`` - one per owner ``(kind, owner_id)`` (opaque: a Mode 3 job,
-  a Mode 4 inference session, ...). Carries the policy
+* ``work_queue`` - one per owner ``(kind, owner_id)`` (both opaque to this
+  package). Carries the policy
   (:class:`~.core.QueuePolicy`) and counters kept in step under the queue row
   lock: ``item_count``, ``done_count`` (the last commit sees ``done_count =
   item_count`` in its own transaction) and ``speculated_count``.

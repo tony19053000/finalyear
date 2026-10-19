@@ -13,7 +13,7 @@ Vocabulary
   ``done`` (a result is committed; final) or ``failed`` (attempts exhausted or
   a non-retryable failure; final).
 * **Lease** - permission for one *holder* (an opaque worker identity, e.g. a
-  lane attempt) at one *site* (an opaque placement, e.g. a node) to work on an
+  worker attempt) at one *site* (an opaque placement, e.g. a machine) to work on an
   item until ``deadline``. Each lease of an item gets the next **lease
   sequence number** ``seq`` (1, 2, ...); ``(item, seq)`` names the lease and
   fences every message about it. Lease states: ``live`` -> ``completed`` (its
@@ -166,7 +166,7 @@ class QueuePolicy:
     max_attempts: int = 3
     max_failed_sites: int | None = None
     """Fail the item once it failed at this many distinct sites (``None`` = off);
-    Mode 3 uses 2 (D267c: the same item failing on two nodes)."""
+    e.g. 2 = "the same item failed on two different machines" (D267c)."""
     count_expiry: bool = False
     speculative_max_frac: float = 0.10
     """At most ``ceil(frac * items)`` items ever get a speculative copy."""
