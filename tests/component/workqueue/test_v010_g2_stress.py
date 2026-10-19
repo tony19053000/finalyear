@@ -87,7 +87,7 @@ async def _puller(
                 continue
             if roll < 0.010:  # retryable failure
                 async with db.sessions() as s, s.begin():
-                    out = await store.fail(
+                    failed = await store.fail(
                         s,
                         item_id=g.item_id,
                         seq=g.seq,
@@ -95,8 +95,8 @@ async def _puller(
                         kind="oom",
                         now=clock.now(),
                     )
-                assert not isinstance(out.outcome, ItemFailed)
-                if isinstance(out.outcome, Retried):
+                assert not isinstance(failed.outcome, ItemFailed)
+                if isinstance(failed.outcome, Retried):
                     tally.failed += 1
                 continue
             if roll < 0.016:  # slower than the visibility timeout: a late result
