@@ -561,8 +561,9 @@ async def test_concurrent_identical_and_opposing_controls(
         assert {r.status_code for r in mixed} == {200}, [r.text for r in mixed]
         state = (await http.get(f"/v1/bench/campaigns/{cid}/status")).json()["state"]
         assert state in ("active", "paused")
-        await _first_submitted(runtime, http, cid)  # something is in flight (resumes)
+        # r2: the racing pause/resume may end paused (nothing would ever submit)
         await _ok(http, cid, "resume")
+        await _first_submitted(runtime, http, cid)  # something is in flight
         racers = await asyncio.gather(*(_verb(http, cid, "cancel") for _ in range(6)))
         assert {r.status_code for r in racers} == {200}, [r.text for r in racers]
         states = {r.json()["state"] for r in racers}
