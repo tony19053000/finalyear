@@ -508,10 +508,10 @@ A version is **complete** only when all apply:
 **Tasks**
 - [x] **0.10.1** `split:` manifest spec (over glob/list/range/dataset shards; chunk size; combine = concat / merge-csv / merge-json / script) — evidence: D277/D278/D279 (V0.10 brief); tester PASS + reviewer APPROVE; gate on main 2026-10-20: unit 16226 passed, component 2832 passed / 3 failed → 1 stale V0.5-era test (expected split refused) fixed, 2 load flakes green 3/3 standalone
 - [x] **0.10.2** **Shared work-queue module** (chunks, leases, visibility timeout, idempotent completion) — reused by Mode 4 — evidence: D277/D278/D279 (V0.10 brief); tester PASS + reviewer APPROVE; gate on main 2026-10-20: unit 16226 passed, component 2832 passed / 3 failed → 1 stale V0.5-era test (expected split refused) fixed, 2 load flakes green 3/3 standalone
-- [ ] **0.10.3** Planner: Mode 3 candidates (node sets), rate estimates, chunk size, "don't split" comparison
-- [ ] **0.10.4** Per-node worker: one env prep, many chunks; chunk-level input staging (only needed files)
+- [~] **0.10.3** Planner: Mode 3 candidates (node sets), rate estimates, chunk size, "don't split" comparison
+- [~] **0.10.4** Per-node worker: one env prep, many chunks; chunk-level input staging (only needed files)
 - [ ] **0.10.5** Stragglers: speculative duplicates of tail chunks; first result wins, idempotent
-- [ ] **0.10.6** Lost node → chunk leases expire → re-queued
+- [~] **0.10.6** Lost node → chunk leases expire → re-queued
 - [ ] **0.10.7** Ordered, deterministic combine step
 - [ ] **0.10.8** Progress per chunk/node (CLI progress bar, dashboard page)
 - [ ] **0.10.9** Mode 3 benchmark families
