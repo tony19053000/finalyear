@@ -30,11 +30,12 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Generator, Mapping
 from dataclasses import dataclass
 from typing import Annotated, Any, Final, Literal
 
 from fastapi import APIRouter, Depends, Path, Query, Request, status
+from fastapi.responses import StreamingResponse
 from pydantic import Field
 
 from meshforge.bench.campaign import (
@@ -50,8 +51,15 @@ from meshforge.common.errors import FailureType, InvalidIdError
 from meshforge.common.ids import IdKind, new_campaign_id, parse_id
 from meshforge.common.logging import get_logger
 from meshforge.controller.api.auth import AdminUser
+from meshforge.controller.api.bench_label_models import LabelsOut, labels_out
 from meshforge.controller.api.errors import ApiError
 from meshforge.controller.api.models import ApiModel, Utc
+from meshforge.controller.api.telemetry_routes import (
+    CHUNK_BYTES,
+    PARQUET_MEDIA_TYPE,
+    TelemetryExport,
+    get_export,
+)
 from meshforge.controller.bench.control import CampaignControl
 from meshforge.controller.bench.runner import BenchRunner
 from meshforge.controller.bench.store import (
@@ -381,6 +389,115 @@ async def get_campaign(
 ) -> CampaignDetail:
     record = await _synced(bench, _campaign_id(campaign_id))
     return CampaignDetail(**_campaign_out(record), spec=record.spec_yaml)
+
+
+# --- V0.9 G5 (0.9.6, D218/D246): labels, derived on demand -------------------
+
+
+@bench_router.get(
+    "/campaigns/{campaign_id}/labels",
+    response_model=LabelsOut,
+    summary="Per-group labels: best configuration, tie, insufficient or pending (admin)",
+    responses={
+        200: {
+            "content": {PARQUET_MEDIA_TYPE: {}},
+            "description": "JSON (default) or, with format=parquet, the labels "
+            "table (labels_version 1, docs/TELEMETRY.md 'Labels')",
+        }
+    },
+)
+async def campaign_labels(
+    admin: AdminUser,
+    bench: Bench,
+    export: Annotated[TelemetryExport, Depends(get_export)],
+    campaign_id: Annotated[str, Path(max_length=_ID_MAX)],
+    format: Annotated[  # noqa: A002 - the query parameter's public name
+        Literal["json", "parquet"], Query(description="json (default) or parquet.")
+    ] = "json",
+) -> Any:
+    """Labels from the campaign's run records (docs/TELEMETRY.md "Labels"):
+    the one row filter (ok, self-check ok, no ``bench_role``), the latest
+    attempt per (config, repetition), then the median-CI rule. Nothing is
+    stored; the same records give the same answer (and the same Parquet
+    bytes, D222). More label rows than ``[controller.telemetry]
+    export_max_rows`` -> 413."""
+    from meshforge.controller.telemetry.labels import build_labels
+    from meshforge.controller.telemetry.labels_store import (
+        LabelRowsLimitError,
+        label_rows,
+        planned_runs,
+    )
+    from meshforge.controller.telemetry.recorder import TelemetryStoreError
+
+    record = await _synced(bench, _campaign_id(campaign_id))
+    try:
+        runs = await planned_runs(export.engine, record.id)
+        rows = await label_rows(export.engine, record.id, limit=export.max_rows)
+    except LabelRowsLimitError:
+        raise ApiError(
+            FailureType.INVALID_INPUT,
+            f"more than {export.max_rows} records match; the campaign is too "
+            "large to label in one request",
+            http_status=413,
+        ) from None
+    except TelemetryStoreError:
+        raise _unavailable() from None
+    labels = await asyncio.to_thread(build_labels, record.id, runs, rows)
+    log.info(
+        "controller.bench.labels",
+        campaign_id=record.id,
+        groups=len(labels.groups),
+        rows=labels.rows,
+        format=format,
+        user_id=admin.user_id,
+        **labels.counts,
+    )
+    if format == "json":
+        return labels_out(labels, campaign_state=record.state)
+    from meshforge.controller.telemetry.labels_export import (
+        iter_labels_parquet,
+        labels_table_rows,
+    )
+
+    table = labels_table_rows(labels)
+    return StreamingResponse(
+        _label_pieces(iter_labels_parquet(table), campaign_id=record.id),
+        media_type=PARQUET_MEDIA_TYPE,
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="meshforge-labels-{record.id}.parquet"'
+            ),
+            "Cache-Control": "no-store",
+            "X-MeshForge-Label-Rows": str(len(table)),
+        },
+    )
+
+
+async def _label_pieces(
+    pieces: Generator[bytes, None, None], *, campaign_id: str
+) -> AsyncIterator[bytes]:
+    """Each row group of the labels file as it is encoded (worker thread), in
+    :data:`CHUNK_BYTES` slices - the record export's pattern (no
+    ``Content-Length``; an encoding failure truncates the body: no footer)."""
+    try:
+        while True:
+            piece = await asyncio.to_thread(next, pieces, None)
+            if piece is None:
+                break
+            for start in range(0, len(piece), CHUNK_BYTES):
+                yield piece[start : start + CHUNK_BYTES]
+    except Exception as exc:
+        log.exception(
+            "controller.bench.labels_export_aborted",
+            campaign_id=campaign_id,
+            error_type=type(exc).__name__,
+        )
+        raise
+    finally:
+        try:
+            pieces.close()
+        except ValueError:  # still running in the worker thread (a hang-up)
+            log.debug("controller.bench.labels_export_close_deferred")
 
 
 @bench_router.get(

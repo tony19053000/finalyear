@@ -234,6 +234,30 @@ class ControllerClient:
             params["state"] = state
         return self._get(f"/v1/bench/campaigns/{campaign_id}/runs", params=params)
 
+    # V0.9 G5 labels (D218)
+    def bench_labels(self, campaign_id: str) -> Mapping[str, Any]:
+        """``GET /v1/bench/campaigns/{id}/labels`` (JSON)."""
+        return self._get(f"/v1/bench/campaigns/{campaign_id}/labels")
+
+    def bench_labels_parquet(
+        self, campaign_id: str, dest: Path
+    ) -> tuple[int, int | None]:
+        """Stream ``GET /v1/bench/campaigns/{id}/labels?format=parquet`` into
+        ``dest`` (created, never overwritten); ``(bytes, rows)``."""
+        path = f"/v1/bench/campaigns/{campaign_id}/labels"
+        try:
+            with self._client.stream(
+                "GET", path, params={"format": "parquet"}, timeout=_TRANSFER_TIMEOUT_S
+            ) as response:
+                if response.status_code >= httpx.codes.BAD_REQUEST:
+                    response.read()
+                    raise self._envelope_error(response, _json_or_none(response), path)
+                rows = response.headers.get("x-meshforge-label-rows")
+                size = _download_new_file(response, dest)
+                return size, int(rows) if rows and rows.isdigit() else None
+        except httpx.HTTPError as exc:
+            raise self._transport_error(exc, path) from exc
+
     def bench_submit(self, campaign_id: str, count: int) -> Mapping[str, Any]:
         """``POST /v1/bench/campaigns/{id}/submit?count=k``."""
         return self._request(

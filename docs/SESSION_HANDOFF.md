@@ -8,7 +8,7 @@
 >
 > ```
 > Read docs/SESSION_HANDOFF.md §1, then docs/STATUS.md, then the V0.9 section of docs/DEVELOPMENT_ROADMAP.md and docs/briefs/V0.9-benchmark-telemetry.md §5 + D241–D245.
-> V0.9 G4 CLOSED (0.9.5 [x], D245), NOTHING RUNNING, main clean. Next: write the G5 brief (0.9.6 labels + 0.9.7 unattended runner; item 0 = D245 follow-ups; labels must drop bench_role rows per D244; runner: small submit budgets, owner pause → ConditionRunner.stop_all), then implementer → tester → reviewer. Parallel agents OK; fast mode ON (user 2026-10-19).
+> V0.9 G4 CLOSED (0.9.5 [x], D245), NOTHING RUNNING, main clean. Next: write the G5 brief (0.9.6 labels + 0.9.7 unattended runner; item 0 = D245 follow-ups; labels must drop bench_role rows per D244; runner: small submit budgets, owner pause → ConditionRunner.stop_all), then implementer → tester → reviewer. Parallel agents OK; no fast mode.
 > ```
 >
 > Order of truth: `PROJECT_BRIEF → ARCHITECTURE → ROADMAP → STATUS → this file`. If this file
@@ -262,7 +262,17 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
-**2026-10-19 (G5 brief §5f + D246 written) — RUNNING in parallel, FAST MODE ON (user 2026-10-19): G5 lane A (labels, 0.9.6) ∥ lane B (item 0 D245 + runner + owner guard, 0.9.7, migration 0024), separate worktrees; progress docs/briefs/progress/V0.9-G5A.md / G5B.md there. If died: relaunch per §5f from the progress file; per lane tester → reviewer; merge A then B → whole `-m component` once alone → close 0.9.6/0.9.7 → G5c brief (0.9.8).**
+**2026-10-19 (G5 lane B tester r1 FAIL D-1 major + T1-1/T1-2, D250) — RUNNING: lane B fix r1 (D250 + D249 musts incl. merge main) in worktree agent-ad79c28d0eb42322f. If died: relaunch fix r1 there (look for "## Fix round 1" in progress/V0.9-G5B.md); then tester r2 delta → reviewer → merge → whole component alone.**
+
+**2026-10-19 (G5 lane B implementer DONE `055121f`..`65b6167`, D249) — RUNNING: lane B tester r1 (worktree agent-ad79c28d0eb42322f). Next: lane B fix r1 (tester defects + D249 musts: merge main, labels in cluster test, deferral stall, ARCHITECTURE) → tester r2 delta → reviewer → merge → whole `-m component` alone → 0.9.6 + 0.9.7 `[x]`.**
+
+**2026-10-19 (G5 lane A MERGED, D248) — RUNNING: lane B implementer exit gates (worktree agent-ad79c28d0eb42322f, resumed after limit). Next: lane B tester r1 → reviewer (B merges main first; regenerate OpenAPI, D248 N6) → merge → whole `-m component` once alone → 0.9.6 + 0.9.7 `[x]` → G5c brief (0.9.8; item 0 = D248 N2/N5).**
+
+**2026-10-19 (G5 lane A tester r1 PASS `c5a87f9`, no src defects) — RUNNING: lane A reviewer (also re-runs `-m unit` there; tester skipped it after fixing its own test) ∥ lane B implementer. Next: merge A on APPROVE.**
+
+**2026-10-19 (G5 lane A implementer DONE `2fec020`..`ea70070`, D247) — RUNNING: lane A tester r1 (worktree agent-a3dfd12ff045729f1) ∥ lane B implementer (worktree agent-ad79c28d0eb42322f, resumed after limit). If died: relaunch tester r1 in lane A worktree (look for "## Tester r1" in progress/V0.9-G5A.md); resume lane B from its progress file.**
+
+**2026-10-19 (G5 brief §5f + D246 written) — RUNNING in parallel, fast mode OFF (user turned it off again 2026-10-19): G5 lane A (labels, 0.9.6) ∥ lane B (item 0 D245 + runner + owner guard, 0.9.7, migration 0024), separate worktrees; progress docs/briefs/progress/V0.9-G5A.md / G5B.md there. If died: relaunch per §5f from the progress file; per lane tester → reviewer; merge A then B → whole `-m component` once alone → close 0.9.6/0.9.7 → G5c brief (0.9.8).**
 
 **2026-10-18 (session end — team asked to stop) — NOTHING RUNNING. G4 lane A implementer DONE `c30b2fb..fd97c54` (worktree agent-a1db552858a2b544b; unit 14135 exit 0, targeted component green, cluster determinism 2/2; deviations 1–6 + follow-ups in progress/V0.9-G4A.md: OpenAPI v1 text, truncated-stream check). Lane B `448a169..857d703` (worktree agent-af4d3c4fd85bcfa0d) code + docs + cluster test committed; exit gates NOT run, no hand-off. Next: lane A tester r1 ∥ lane B implementer exit gates.**
 

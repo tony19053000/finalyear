@@ -159,6 +159,7 @@ def test_cli_only_is_the_exception() -> None:
         # V0.9 G5: the runner controls - G6's Benchmarks page adds them.
         "bench cancel",
         "bench create",
+        "bench labels",  # V0.9 G5: labels (D218), until G6's campaign detail
         "bench pause",
         "bench plan",
         "bench resume",
