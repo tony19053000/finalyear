@@ -262,6 +262,8 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
+> **UPDATE 2026-10-19 (new session):** G5c and G6 implementers RELAUNCHED in their worktrees (exit gates + hand-off only; G5c also the D255 cool-down test 20×). If this session dies: check each worktree's `docs/briefs/progress/V0.9-G5c.md` / `V0.9-G6.md` for a Hand-off section; if missing, relaunch again with the same instruction.
+
 **2026-10-19 (session end — team asked to stop) — NOTHING RUNNING. G5c implementer stopped after all items + docs (`262e8f3`..`75910b7`, exit gates + Hand-off not run). G6 implementer stopped finishing e2e (`ba903db`..`d024f03` + wip `adf14bd` UNVERIFIED). Next: see cold-start prompt.**
 
 **2026-10-19 (G5 gate done, D255) — RUNNING in parallel (D256): G6 implementer (brief §5h, frontend; progress docs/briefs/progress/V0.9-G6.md in its worktree) ∥ G5c implementer (brief §5g, own agent worktree — newest in `git worktree list`; progress docs/briefs/progress/V0.9-G5c.md there; if died relaunch from it). 0.9.6 `[x]`. 0.9.7 `[~]`: runner cool-down missed under load (test_v09_g5b_runner.py:207, 0.034 s vs 1 s; green 3/3 alone) → treated as real race, G5c item 0.0. Next: launch G5c implementer (brief §5g) in a worktree → tester → reviewer → merge → whole component alone → 0.9.7 + 0.9.8 `[x]`.**
