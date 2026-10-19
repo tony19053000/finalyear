@@ -822,3 +822,19 @@ def test_same_items_over_different_kinds_never_collide(tmp_path: Path) -> None:
         _res(built, {"list": ["0"]}).digest
         != _res(built, {"range": {"stop": 1}}).digest
     )
+
+
+def test_lead_fix_d1_last_line_over_cap_in_same_block_is_refused() -> None:
+    """Tester r1 D1: an over-cap final line sharing a block with a short one."""
+    import io
+
+    from meshforge.common import split_items as si
+
+    with pytest.raises(si._LongLineError):
+        list(si._records(io.BytesIO(b"a\n" + b"x" * 100), 10))
+    with pytest.raises(si._LongLineError):
+        list(si._records(io.BytesIO(b"a\n" + b"x" * 100 + b"\nb\n"), 10))
+    assert list(si._records(io.BytesIO(b"a\n" + b"x" * 9), 10)) == [
+        (0, 2, False),
+        (2, 9, False),
+    ]

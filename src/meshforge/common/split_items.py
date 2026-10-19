@@ -428,10 +428,14 @@ def _records(fh: IO[bytes], max_record: int) -> Iterator[tuple[int, int, bool]]:
         start = 0
         while (nl := pending.find(b"\n", start)) != -1:
             line = pending[start : nl + 1]
+            if len(line) > max_record:
+                raise _LongLineError
             yield offset, len(line), not line.strip()
             offset += len(line)
             start = nl + 1
         pending = pending[start:]
+    if len(pending) > max_record:
+        raise _LongLineError
     if pending:
         yield offset, len(pending), not pending.strip()
 
