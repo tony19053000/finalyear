@@ -205,10 +205,10 @@ def test_split_presence_changes_the_hash_of_an_otherwise_equal_manifest() -> Non
         "python x.py {parts}",
     ],
 )
-def test_split_placeholders_in_a_plain_job_are_refused(entry: Any) -> None:
-    with pytest.raises(ManifestError) as info:
-        parse_manifest_data({"name": "n", "entrypoint": entry})
-    assert any(p.startswith("entrypoint") for p, _ in info.value.problems)
+def test_split_placeholders_in_a_plain_job_are_literal(entry: Any) -> None:
+    # Lead ruling after G1 review item 1: literal text, not refused.
+    m = parse_manifest_data({"name": "n", "entrypoint": entry})
+    assert m.split is None
 
 
 def test_parts_is_refused_in_a_split_entrypoint_but_out_is_allowed_in_combine() -> None:

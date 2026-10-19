@@ -863,9 +863,9 @@ class Manifest(_Spec):
         if "split" not in info.data:
             return value
         if info.data["split"] is None:
-            _refuse_placeholders(
-                value, _ALL_PLACEHOLDERS, "a split: job (add split:, or remove it)"
-            )
+            # Not a split job: nothing is substituted, so the text is literal
+            # (a job queued before V0.10 keeps running - G1 review item 1).
+            return value
         else:
             _refuse_placeholders(
                 value, ("{parts}",), "split.combine.script, not the entrypoint"

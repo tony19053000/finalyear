@@ -322,7 +322,7 @@ async def test_a_bundle_job_cannot_split(
     assert await _rows(runtime) == []
 
 
-async def test_placeholders_without_split_are_refused(
+async def test_placeholders_without_split_are_literal(
     runtime: ControllerRuntime,
     http: httpx.AsyncClient,
     agent: FakeAgent,
@@ -333,8 +333,8 @@ async def test_placeholders_without_split_are_refused(
     body = _body(built, None)
     del body["manifest"]["split"]
     got = await http.post("/v1/jobs", json=body)
-    assert got.status_code == 400
-    assert "entrypoint" in got.json()["error"]["message"]
+    # G1 review item 1: literal text in a plain job (nothing is substituted).
+    assert got.status_code == 201, got.text
 
 
 async def test_a_plain_job_keeps_null_split_columns(

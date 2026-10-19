@@ -249,11 +249,11 @@ def test_split_must_be_a_mapping() -> None:
 
 
 @pytest.mark.parametrize("token", ["{items_file}", "{chunk_index}", "{out}", "{parts}"])
-def test_placeholders_need_a_split_job(token: str) -> None:
-    with pytest.raises(ManifestError) as info:
-        parse_manifest_data({"name": "x", "entrypoint": ["run", f"--x={token}"]})
-    assert info.value.problems[0][0] == "entrypoint"
-    assert token in info.value.problems[0][1]
+def test_placeholders_are_literal_text_in_a_plain_job(token: str) -> None:
+    # G1 review item 1: nothing is substituted outside a split job, so a job
+    # queued before V0.10 with such text keeps validating and running.
+    m = parse_manifest_data({"name": "x", "entrypoint": ["run", f"--x={token}"]})
+    assert m.entrypoint == ("run", f"--x={token}")
 
 
 def test_parts_is_for_the_combine_script_only() -> None:

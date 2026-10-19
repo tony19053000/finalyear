@@ -101,7 +101,6 @@ def test_dry_run_split_job_makes_zero_connections_and_changes_nothing(
         "entrypoint: python main.py {items_file} {out}\n"
         "split:\n  over: {range: {stop: 9007199254740990}}\n",
         "entrypoint: python main.py {items_file} {out}\nsplit:\n  over: {list_file: missing.txt}\n",
-        "entrypoint: python main.py {out}\n",  # placeholder without split
         "entrypoint: [unbalanced\n",  # bad YAML
     ],
 )
