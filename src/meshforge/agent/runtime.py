@@ -481,6 +481,7 @@ async def serve(
         report=client.send_report,
         resend=client.resend_report,
         log_sink=client.send_log,
+        send_now=client.send_now,
         controller_host=lambda: controller_host(client.controller_target),
         declared_gpus=[gpu.index for gpu in hardware.gpus],
         gc=gc,
