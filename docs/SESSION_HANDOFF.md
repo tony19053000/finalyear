@@ -7,8 +7,8 @@
 > **Cold-start prompt** (paste this as the first message on the new account):
 >
 > ```
-> Read docs/SESSION_HANDOFF.md §1, then docs/STATUS.md, then the V0.9 section of docs/DEVELOPMENT_ROADMAP.md and docs/briefs/V0.9-benchmark-telemetry.md §5 + D241–D245.
-> V0.9 G4 CLOSED (0.9.5 [x], D245), NOTHING RUNNING, main clean. Next: write the G5 brief (0.9.6 labels + 0.9.7 unattended runner; item 0 = D245 follow-ups; labels must drop bench_role rows per D244; runner: small submit budgets, owner pause → ConditionRunner.stop_all), then implementer → tester → reviewer. Parallel agents OK; no fast mode.
+> Read docs/SESSION_HANDOFF.md §1, then docs/STATUS.md, then the V0.9 section of docs/DEVELOPMENT_ROADMAP.md and docs/briefs/V0.9-benchmark-telemetry.md §5f + D246–D252.
+> V0.9 G5: lane A (labels 0.9.6) MERGED on main (D248). Lane B (runner + owner guard 0.9.7) in worktree .claude/worktrees/agent-ad79c28d0eb42322f (branch worktree-agent-ad79c28d0eb42322f), reviewer r2 APPROVE conditional on tester r3 PASS (D252). Tester r3 was STOPPED; its partial tests are committed `3ea8915` as wip UNVERIFIED. NOTHING RUNNING. Next: relaunch tester r3 delta in that worktree (verify/finish the wip files; scope = the r3 prompt in §1) → PASS → merge lane B → `cd frontend && npm run build` → whole `-m component` ONCE alone → 0.9.6 + 0.9.7 [x] + status bar → G5c brief (0.9.8; item 0 = D248 N2/N5 + D252 1–6). Parallel agents OK; no fast mode.
 > ```
 >
 > Order of truth: `PROJECT_BRIEF → ARCHITECTURE → ROADMAP → STATUS → this file`. If this file
@@ -261,6 +261,8 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 - Commits: keep using `git commit -- <paths>` even with one agent — the Lead also commits docs.
 
 ## 1. Where the project is
+
+**2026-10-19 (session end — team asked to stop) — NOTHING RUNNING. Lane A MERGED (D248). Lane B reviewer r2 APPROVE conditional on tester r3 (D252); tester r3 STOPPED mid-run, partial tests `3ea8915` wip UNVERIFIED in the lane B worktree (src clean). Tester r3 scope: B1 retry backoff/30 s cap/reset/no storm under 1000 polls; B2 stop_all raising/cancelled/hanging, `_stop` always runs, `preempt_stopped` vs natural finish; N1 rewritten r2 tests not weakened vs `ecf1043`; cluster runner test must deterministically pre-empt ≥ 1 attempt (test-only; report if a src hook is needed); mutations on B1 + B2; gates incl. whole `-m unit`, cluster test 2×. Then merge B → frontend build → whole component alone → close 0.9.6/0.9.7 → G5c brief.**
 
 **2026-10-19 (G5 lane B fix r2 DONE `f2a7914`, gates exit 0; N2 = OPERATIONS known limit, accepted) — RUNNING in parallel: lane B tester r3 delta ∥ reviewer r2 (full: areas r1 skipped + fix r2). Then merge → whole `-m component` alone → 0.9.6 + 0.9.7 `[x]`.**
 

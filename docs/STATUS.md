@@ -44,6 +44,8 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 
 ## Current Task
 
+- **2026-10-19 (session end): V0.9 G5.** Lane A labels MERGED (D247, D248). Lane B runner + owner guard: tester r1 FAIL → fix r1 → r2 PASS → reviewer r1 REQUEST_CHANGES (D251) → fix r2 → reviewer r2 APPROVE conditional on tester r3 (D252). Tester r3 stopped; partial wip tests `3ea8915` in the lane B worktree. **Next: relaunch tester r3 → merge B → whole component alone → 0.9.6 + 0.9.7 `[x]` → G5c (0.9.8).**
+
 - **2026-10-19: V0.9 G5 started (D246).** Brief §5f written; lane A (0.9.6 labels) ∥ lane B (D245 item 0 + 0.9.7 runner + owner guard, migration 0024) in separate worktrees. 0.9.8 → G5c after merge.
 
 - **2026-10-19: V0.9 G4 CLOSED (D241–D245).** Lane A (item 0, schema v2) merged `a380385`; lane B (0.9.5 conditions) integrated with A in its worktree, reviewer r1 found a finish-vs-apply race (netem could stay installed) → fixed, tester r2 PASS, reviewer r2 APPROVE, merged `701899c`. Whole `-m component` alone: 2564 passed / 1 load flake (V0.7 rotation test, green 9/9 standalone). 0.9.5 `[x]`. 🧑 lab C1–C3 (incl. new C1 step 4 kill -9 recovery) open. **Next: G5 brief (0.9.6 labels — MUST filter `bench_role` rows, D244; 0.9.7 runner — small submit budgets, wire owner pause to `stop_all`).**
