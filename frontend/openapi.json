@@ -3752,6 +3752,17 @@
             ],
             "title": "Job Id"
           },
+          "last_failure": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Failure"
+          },
           "node_id": {
             "title": "Node Id",
             "type": "string"
@@ -3809,6 +3820,11 @@
                 "type": "null"
               }
             ]
+          },
+          "tries": {
+            "default": 0,
+            "title": "Tries",
+            "type": "integer"
           }
         },
         "required": [

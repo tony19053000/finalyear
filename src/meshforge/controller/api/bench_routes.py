@@ -185,6 +185,10 @@ class RunOut(ApiModel):
     detail: str | None = None
     submitted_at: Utc | None = None
     ended_at: Utc | None = None
+    tries: int = 0
+    """V0.9 G6: infrastructure retries spent on this run (the runner's count)."""
+    last_failure: str | None = None
+    """V0.9 G6: the last failure that requeued or failed the run (short text)."""
 
 
 class RunList(ApiModel):
@@ -256,6 +260,8 @@ def _run_out(run: RunRow) -> RunOut:
         detail=run.detail,
         submitted_at=run.submitted_at,
         ended_at=run.ended_at,
+        tries=run.tries,
+        last_failure=run.last_failure,
     )
 
 
