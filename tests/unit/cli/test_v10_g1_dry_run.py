@@ -127,3 +127,27 @@ def test_dry_run_with_follow_is_a_usage_error(tmp_path: Path) -> None:
     code, _, err = _run("--dry-run", "--follow", str(root))
     assert code == 2
     assert "nothing to follow" in err
+
+
+def test_glob_only_inside_a_named_input_is_not_an_error(tmp_path: Path) -> None:
+    root = _project(
+        tmp_path / "p",
+        "entrypoint: python main.py\ninputs:\n  - {ref: ds@1, mount: data}\n"
+        "split:\n  over: 'data/*.jpg'\n",
+        {},
+    )
+    code, out, _ = _run("--dry-run", str(root))
+    assert code == 0
+    assert "0 in the project; named inputs are resolved at submit" in out
+
+
+def test_too_many_items_in_the_project_is_still_an_error(tmp_path: Path) -> None:
+    root = _project(
+        tmp_path / "p",
+        "entrypoint: python main.py\ninputs:\n  - {ref: ds@1, mount: data}\n"
+        "split:\n  over: {range: {stop: 100001}}\n",
+        {},
+    )
+    code, _, err = _run("--dry-run", str(root))
+    assert code == 1
+    assert "more than 100000 items" in err

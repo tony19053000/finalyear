@@ -94,7 +94,7 @@ def _split(manifest: Manifest, built: BuiltTree) -> None:
     try:
         items = resolve(spec, built.tree, {}, _open)
     except ManifestError as exc:
-        if reachable and spec.over.glob is not None:
+        if reachable and exc.problems == [("split.over.glob", "matched no files")]:
             _row("items", "0 in the project; named inputs are resolved at submit")
             return
         cli._die(f"compute.yaml: {exc.message}", CliExit.FAILURE)
