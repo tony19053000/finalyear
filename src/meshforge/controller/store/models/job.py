@@ -220,7 +220,9 @@ class Job(TimestampMixin, Base):
     a job from before 0018, or one submitted with the legacy fabric token
     (admin-only, like every NULL-owner job)."""
     # --- V0.10 G1 (migration 0026, D260): Mode 3 task splitting -------------
-    split: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    split: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB(none_as_null=True), nullable=True
+    )
     """The canonical ``split:`` spec (``SplitSpec``); NULL = the job runs
     whole. Also inside ``manifest``; a column of its own so "is this a split
     job" never parses the manifest."""
