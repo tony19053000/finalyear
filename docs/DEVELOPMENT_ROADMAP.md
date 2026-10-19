@@ -476,8 +476,8 @@ A version is **complete** only when all apply:
 - [x] **0.9.3** Campaign spec (YAML) + samplers (random, Latin hypercube) over params × conditions × strategies × nodes — G3 lane B, D232–D240; whole component 2494 passed / 1 load flake (green 3/3 standalone), D242
 - [x] **0.9.4** Forced-strategy execution via planner override, tagged `benchmark`, randomized order, repetitions — G3 lane B, D232–D240; gate D242
 - [x] **0.9.5** — G4 lanes A (item 0, schema v2) + B merged `a380385`/`701899c`, D241–D245; lane B tester r1/r2 PASS, reviewer r2 APPROVE (r1 race fixed); whole component 2564 passed / 1 load flake (green 9/9 standalone); 🧑 lab C1–C3 (real tc, Windows cpu_load, gpu_load) pending · Condition controllers: CPU/GPU load generators, cache warm/cold, queue pressure, network shaping (Linux), Wi-Fi vs Ethernet sessions, node-unavailable scenarios
-- [~] **0.9.6** (G5 lane A, D246) Automatic labels per group: full measured cost vectors + best measured plan
-- [~] **0.9.7** (G5 lane B, D246) Unattended, resumable, throttled campaign runner; "don't disturb owner" guard
+- [x] **0.9.6** (G5 lane A, D246–D248; whole component 2671 passed / 2 failed — neither in labels, D255) Automatic labels per group: full measured cost vectors + best measured plan
+- [~] **0.9.7** (G5 lane B, D246–D253, merged; **open: cool-down race under load, D255 → G5c item 0.0**) Unattended, resumable, throttled campaign runner; "don't disturb owner" guard
 - [ ] **0.9.8** Data quality report: variance (CV), outliers, missing fields
 - [ ] **0.9.9** Benchmarks page in dashboard
 - [ ] **0.9.10** 🧑 Overnight campaign on the lab

@@ -6,7 +6,7 @@
 
 ## Progress
 ```
-TOTAL   ███████████▒▒░░░░░░░  53%  83/156 done, 17 in progress
+TOTAL   ███████████▒▒░░░░░░░  53%  84/156 done, 16 in progress
 
 V0.1    █████████████████▒▒▒  83%  10/12  Foundations & engineering system
 V0.2    ██▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░░   9%   1/11  Lab setup & feasibility validation
@@ -16,7 +16,7 @@ V0.5    ██████████████████░░  90%  10/11
 V0.6    ███████████████████░  92%  13/14  Scheduling & reliability — Mode 1 complete
 V0.7    ██████████████████░░  91%  11/12  Security & pairing
 V0.8    ██████████████████░░  90%   9/10  Dashboard & CLI v1
-V0.9    ██████████▒▒▒▒░░░░░░  50%   5/10  Benchmark & telemetry system v1
+V0.9    ████████████▒▒░░░░░░  60%   6/10  Benchmark & telemetry system v1
 V0.10   ░░░░░░░░░░░░░░░░░░░░   0%   0/10  Mode 3 Task Splitting
 V0.14   ░░░░░░░░░░░░░░░░░░░░   0%   0/8   Unified planner v2
 V0.15   ░░░░░░░░░░░░░░░░░░░░   0%   0/10  ML planner
@@ -24,10 +24,9 @@ V0.17   ░░░░░░░░░░░░░░░░░░░░   0%   0/8 
 V1.0    ░░░░░░░░░░░░░░░░░░░░   0%   0/8   Release hardening & final evaluation
 ```
 █ done `[x]` · ▒ in progress or waiting on a 🧑 lab step `[~]` · ░ not started
-█ done `[x]` · ▒ in progress or waiting on a 🧑 lab step `[~]` · ░ not started
 
 ## Current Version
-**V0.9 — Benchmark & telemetry v1** · started 2026-10-17 · brief `docs/briefs/V0.9-benchmark-telemetry.md` (D211–D224, approved) · ADR-0018 · **G0, G1, G2 CLOSED** (D226, D231, D225; 0.9.1 + 0.9.2 `[x]`) · **G3 CLOSED** (D242; 0.9.3 + 0.9.4 `[x]`) · **G4 CLOSED** (D241–D245; 0.9.5 `[x]`, 2026-10-19) · **G5 RUNNING** (D246; lanes A labels ∥ B runner + owner guard)
+**V0.9 — Benchmark & telemetry v1** · started 2026-10-17 · brief `docs/briefs/V0.9-benchmark-telemetry.md` (D211–D224, approved) · ADR-0018 · **G0, G1, G2 CLOSED** (D226, D231, D225; 0.9.1 + 0.9.2 `[x]`) · **G3 CLOSED** (D242; 0.9.3 + 0.9.4 `[x]`) · **G4 CLOSED** (D241–D245; 0.9.5 `[x]`, 2026-10-19) · **G5 merged** (D246–D255; 0.9.6 `[x]`; 0.9.7 `[~]` on a load-only cool-down race → G5c item 0.0)
 **V0.8 — Dashboard & CLI v1** · started 2026-10-15 · brief `docs/briefs/V0.8-dashboard-cli.md` (D169–D180, approved) · ADR-0017 · groups G1–G7 sequential · **G1–G7 CLOSED** (G7 2026-10-17, D210) — 0.8.1–0.8.9 `[x]`; agent-side complete; closes on 🧑 0.8.10 (`lab/checklists/V0.8-visual.md`)
 **V0.7 — Security & pairing** · started 2026-10-07 · brief `docs/briefs/V0.7-security-pairing.md` (D144–D162) · **G1–G5 CLOSED** (0.7.1–0.7.9 `[x]`) · **G6 CLOSED** (0.7.10 `[x]`, 2026-10-14) · **G7 CLOSED** (0.7.11 `[x]`, 2026-10-15, D168) · agent-side complete · closes on 🧑 0.7.12 lab
 **V0.6 — Scheduling & reliability** · started 2026-10-05 · brief `docs/briefs/V0.6-scheduling-reliability.md` · **G1 CLOSED** (0.6.9, 0.6.10, 0.6.14 `[x]`) · G1–G4 CLOSED agent-side · closes on 🧑 0.6.13 lab
@@ -43,6 +42,8 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 > V0.10. 129 tasks vs 140–180 capacity → **~1.5 tasks/session**. Needs the other three team members' approval.
 
 ## Current Task
+
+- **2026-10-19: V0.9 G5 gate done (D255).** Lane B tester r3 PASS, merged (D253). Whole component 2671 passed / 2 failed: one old-file load flake; one runner cool-down miss under load (0.034 s vs 1 s) → real race, **0.9.7 stays `[~]`**. 0.9.6 `[x]`. G5c brief §5g + D254 written (item 0.0 = the race).
 
 - **2026-10-19 (session end): V0.9 G5.** Lane A labels MERGED (D247, D248). Lane B runner + owner guard: tester r1 FAIL → fix r1 → r2 PASS → reviewer r1 REQUEST_CHANGES (D251) → fix r2 → reviewer r2 APPROVE conditional on tester r3 (D252). Tester r3 stopped; partial wip tests `3ea8915` in the lane B worktree. **Next: relaunch tester r3 → merge B → whole component alone → 0.9.6 + 0.9.7 `[x]` → G5c (0.9.8).**
 
@@ -213,7 +214,9 @@ Reviewer non-blocking follow-ups (carry into G2/G3): (1) `mint` should carry `pe
 - Windows: not yet run (first real CI run will cover unit + fresh-clone on windows-latest)
 
 ## Next Recommended Task
-**V0.9 G5** — write the G5 brief (0.9.6 automatic labels + 0.9.7 unattended runner; item 0 = D245 follow-ups: log `stopped_while_applying`, `_kill_and_reap` helper). Labels MUST drop `condition_measured->>'bench_role'` rows (D244); runner uses small submit budgets and wires owner pause to `ConditionRunner.stop_all`. 🧑 lab: V0.9 C1–C3, 0.8.10.
+**V0.9 G5c** — implementer in a worktree with brief §5g: item 0.0 cool-down race first (closes 0.9.7 after tester + reviewer), then item 0.1–0.8, then the 0.9.8 quality report. 🧑 lab: V0.9 C1–C3 + R1–R3, 0.8.10.
+
+_Older:_ **V0.9 G5** — write the G5 brief (0.9.6 automatic labels + 0.9.7 unattended runner; item 0 = D245 follow-ups: log `stopped_while_applying`, `_kill_and_reap` helper). Labels MUST drop `condition_measured->>'bench_role'` rows (D244); runner uses small submit budgets and wires owner pause to `ConditionRunner.stop_all`. 🧑 lab: V0.9 C1–C3, 0.8.10.
 
 _Older:_ **🧑 0.8.10** — team runs `lab/checklists/V0.8-visual.md` (steps A–H; fix D210 item 1 clock skew before step E perf). **Agent:** write the V0.9 brief (benchmark & telemetry v1); item 0 = D210 non-blocking list.
 
