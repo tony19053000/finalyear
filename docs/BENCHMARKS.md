@@ -376,3 +376,33 @@ blobs and the run is `condition_failed`, never mislabelled); a pause lives in th
 controller restart ends it early - the record sees that the controller started between the pause and the dispatch,
 `pause_lost`, and the run is `condition_failed`); netem shapes the whole egress of the interface, not only the
 controller's traffic.
+
+## Dashboard: the Benchmarks page (V0.9 G6, D221)
+
+**Benchmarks** in the dashboard's left menu (admins only - a user sees neither the menu entry nor the page; every
+`/v1/bench` route is admin-only). It shows and drives campaigns that exist; a campaign is still created from a
+spec file with `compute bench create` (the browser has no spec editor). Code: `frontend/src/pages/benchmarks/`.
+
+**Campaigns list** (`/benchmarks`): per campaign its name, state, **Done %**, runs ended / planned, **ETA**,
+**infra failures** (the infrastructure failure rate, owner pre-emptions excluded - the same number as
+`compute bench status`), when the runner took it, and the controls its state allows: **Start** (hand it to the
+runner), **Pause**, **Resume**, **Cancel** (asks first: it stops the campaign's running benchmark jobs and skips
+every open run). A refused control (e.g. `409` on a campaign that already finished) shows the server's message
+in a toast. Updates arrive live from the `campaign.progress` event (runner-owned campaigns, at most once a
+second); while the event stream is down, or for an active campaign that is driven by hand
+(`compute bench submit`, which sends no event), the page polls (5 s / 15 s).
+
+**Campaign page** (`/benchmarks/<camp_id>`, the open tab is in the URL `?tab=`):
+
+| Tab | Shows | From |
+|---|---|---|
+| Overview | runs per state, Done %, ETA, median run time; infra failure rate, records, infra failures, owner pre-emptions, retries spent; planned runs, the hour estimate, the spec's `budget`, the throttle (per-node concurrency, cool-down, infra retries), start time and how it finished; groups/configs, session label, nodes, the spec text | `GET .../{id}`, `.../status` |
+| Runs | every run in execution order (state filter, 100 per page): group, configuration, node, strategy, repetition, state, **tries**, **last failure**, its job (link) | `GET .../runs` |
+| Labels | per group: family, parameters, condition, label (`best` / `tie` / `insufficient` / `pending` + reason), best configuration, margin %, planner agrees | `GET .../labels` |
+| Charts | per family: **median total time vs the swept parameter**, one series per node (per node + strategy when both ran), the median's CI as error bars; per group: **strategy comparison** (median + CI per configuration). Each chart has its numbers as a table too. Nothing is recomputed in the browser: the medians and CIs are the labels' | `GET .../labels` |
+| Quality | the data quality report (V0.9 G5c, roadmap 0.9.8): criterion verdicts, failure counts, every configuration with CV / CI / outliers / missing fields, flagged first. A controller without the report says "not available" | `GET .../quality` |
+| Download | the run records and the labels as Parquet, saved as `<camp_id>-records.parquet` / `<camp_id>-labels.parquet` - the same bytes as `compute telemetry export --campaign` / `compute bench labels -o` (a truncated download is refused, never saved) | `GET /v1/telemetry/export?campaign=`, `.../labels?format=parquet` |
+
+A family measured at one parameter point has no runtime-vs-parameter chart (it says so); its strategy
+comparison still shows. A campaign too large to label in one request (`413`) says so on the Labels and Charts
+tabs; the records file is then the way to the data.
