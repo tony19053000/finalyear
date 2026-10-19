@@ -1019,3 +1019,49 @@ async def test_counts_consistency_under_randomised_concurrent_workload(db: Db) -
     if info.state is QueueState.DONE:
         assert (await cnt(db, q)).done == 300
     await check_invariants(db, q)
+
+
+# ------------------------------------------------- Lead fix: renew lock order ----
+
+
+async def test_renew_across_two_queues_does_not_deadlock_with_expire_due(
+    db: Db,
+) -> None:
+    """Reviewer r1 item 1: renew spanning queues must lock queues ascending."""
+    now = dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
+    async with db.sessions() as s:
+        q1 = await store.create_queue(
+            s,
+            kind="t",
+            owner_id="rq1",
+            payloads=[1] * 3,
+            policy=QueuePolicy(visibility_timeout_s=60),
+        )
+        q2 = await store.create_queue(
+            s,
+            kind="t",
+            owner_id="rq2",
+            payloads=[1] * 3,
+            policy=QueuePolicy(visibility_timeout_s=60),
+        )
+        l1 = await store.lease_next(s, q1.id, holder="h", now=now, k=3)
+        l2 = await store.lease_next(s, q2.id, holder="h", now=now, k=3)
+        await s.commit()
+    # Highest item id first: q2's items were created after q1's.
+    keys = [(x.item_id, x.seq) for x in (*l2, *l1)]
+    later = now + dt.timedelta(seconds=1)
+    for _ in range(10):
+
+        async def ren() -> None:
+            async with db.sessions() as s:
+                await store.renew(s, holder="h", leases=keys, now=later)
+                await asyncio.sleep(0.01)
+                await s.commit()
+
+        async def exp() -> None:
+            async with db.sessions() as s:
+                await store.expire_due(s, now=later)
+                await asyncio.sleep(0.01)
+                await s.commit()
+
+        await asyncio.wait_for(asyncio.gather(ren(), exp()), 30)

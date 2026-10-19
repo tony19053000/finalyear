@@ -709,11 +709,21 @@ async def renew(
     Outcomes are in the order of ``leases``."""
     _aware(now, names=(holder,), timeout_s=timeout_s)
     results: dict[tuple[int, int], RenewOutcome] = {}
-    for item_id, seq in sorted(set(leases)):
-        queue_id = await _queue_of(db, item_id)
-        queue = (
-            None if queue_id is None else await _lock_queue(db, queue_id, "key_share")
+    wanted = sorted(set(leases))
+    found = await db.execute(
+        select(work_item.c.id, work_item.c.queue_id).where(
+            work_item.c.id.in_({item_id for item_id, _ in wanted})
         )
+    )
+    queue_of: dict[int, int] = {int(r.id): int(r.queue_id) for r in found}
+    # Lock protocol (I8): queues ascending, each once, then items ascending.
+    wanted.sort(key=lambda key: (queue_of.get(key[0], -1), key))
+    locked: dict[int, Row[Any] | None] = {}
+    for item_id, seq in wanted:
+        queue_id = queue_of.get(item_id)
+        if queue_id is not None and queue_id not in locked:
+            locked[queue_id] = await _lock_queue(db, queue_id, "key_share")
+        queue = None if queue_id is None else locked[queue_id]
         if queue_id is None or queue is None:
             results[(item_id, seq)] = Fenced(item_id, seq, FenceReason.UNKNOWN_LEASE)
             continue
