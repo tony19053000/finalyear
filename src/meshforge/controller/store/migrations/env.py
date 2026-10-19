@@ -3,7 +3,12 @@
 * URL: from ``config.attributes`` (programmatic use, see :mod:`..migrate`) or from
   :class:`StoreSettings` (``MESHFORGE_DATABASE__*`` / TOML ``[database]``). Never
   from ``alembic.ini``.
-* ``target_metadata`` is ``Base.metadata`` after importing the model registry.
+* ``target_metadata`` is ``Base.metadata`` after importing the model registry,
+  plus the work-queue tables (V0.10 D262: :mod:`meshforge.workqueue` imports
+  nothing from the controller, so its tables live on their own metadata). Both
+  are copied into one ``MetaData`` with the shared naming convention: Alembic
+  applies a single target's convention to the names in ``op.drop_constraint``
+  etc., which a *list* of targets would lose.
 * ``compare_type=True`` so column type changes show up in autogenerate / ``check``.
 * Connection failures become :class:`DatabaseUnavailableError` with a masked URL.
 """
@@ -13,10 +18,11 @@ from __future__ import annotations
 import asyncio
 
 from alembic import context
-from sqlalchemy import pool
+from sqlalchemy import MetaData, pool
 from sqlalchemy.engine import Connection
 
 from meshforge.common.logging import configure_logging, get_logger
+from meshforge.controller.store.base import NAMING_CONVENTION
 from meshforge.controller.store.engine import (
     build_url,
     create_engine,
@@ -28,9 +34,21 @@ from meshforge.controller.store.migrate import (
 )
 from meshforge.controller.store.models import Base
 from meshforge.controller.store.settings import DatabaseSettings, StoreSettings
+from meshforge.workqueue.tables import METADATA as WORKQUEUE_METADATA
+
+
+def _target_metadata() -> MetaData:
+    if WORKQUEUE_METADATA.naming_convention != NAMING_CONVENTION:
+        raise RuntimeError("workqueue tables use another naming convention")
+    combined = MetaData(naming_convention=NAMING_CONVENTION)
+    for source in (Base.metadata, WORKQUEUE_METADATA):
+        for table in source.sorted_tables:
+            table.to_metadata(combined)
+    return combined
+
 
 config = context.config
-target_metadata = Base.metadata
+target_metadata = _target_metadata()
 log = get_logger("meshforge.controller.store.migrations")
 
 

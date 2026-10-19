@@ -33,12 +33,13 @@ ROOT_PACKAGE = "meshforge"
 # entries each entry may import. Keep in sync with [tool.importlinter].
 ALLOWED_DEPS: dict[str, frozenset[str]] = {
     "common": frozenset(),
-    "controller": frozenset({"common", "bench"}),  # D232
+    "controller": frozenset({"common", "bench", "workqueue"}),  # D232, D262
     "agent": frozenset({"common"}),
     "gpu_service": frozenset({"common"}),
     "sdk": frozenset({"common"}),
     "cli": frozenset({"common", "sdk", "bench"}),
     "bench": frozenset({"common"}),
+    "workqueue": frozenset({"common"}),  # V0.10 D262
 }
 
 HINT = (
