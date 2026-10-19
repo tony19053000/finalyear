@@ -883,7 +883,6 @@ async def test_huge_payload_and_unicode_roundtrip(db: Db) -> None:
     assert [g.payload for g in got] == [big, uni, "plain", 7, None, [], {}]
 
 
-@pytest.mark.xfail(strict=True, reason="DEFECT D-G2-1: raw DBAPIError leaks (minor)")
 async def test_nul_character_in_payload_is_a_clean_error_not_a_corrupt_queue(
     db: Db,
 ) -> None:
@@ -934,10 +933,7 @@ async def test_duplicate_owner_queue_concurrent_create(db: Db) -> None:
     async with db.sessions() as s:
         assert await s.scalar(select(func.count()).select_from(work_queue)) == 1
     others = {r for r in res if r != "ok"}
-    if others != {"conflict"}:
-        pytest.xfail(
-            f"DEFECT D-G2-2: losers of a create race see {others}, not conflict"
-        )
+    assert others == {"conflict"}, res  # D-G2-2 (fixed: ON CONFLICT DO NOTHING)
 
 
 # -------------------------------------------------------------- counts / soak ----

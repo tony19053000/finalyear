@@ -47,6 +47,7 @@ from dataclasses import dataclass
 from typing import Any, Final
 
 from sqlalchemy import Row, and_, case, func, insert, or_, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from meshforge.common.errors import FailureType, MeshForgeError
@@ -466,6 +467,17 @@ def _check_owner(kind: str, owner_id: str) -> None:
         raise WorkQueueError(f"owner_id must be 1..{MAX_OWNER_CHARS} characters")
 
 
+def _has_nul(value: Any) -> bool:
+    """True when a string (or dict key) anywhere in ``value`` holds U+0000."""
+    if isinstance(value, str):
+        return "\x00" in value
+    if isinstance(value, dict):
+        return any(_has_nul(k) or _has_nul(v) for k, v in value.items())
+    if isinstance(value, (list, tuple)):
+        return any(_has_nul(v) for v in value)
+    return False
+
+
 async def create_queue(
     db: AsyncSession,
     *,
@@ -479,6 +491,8 @@ async def create_queue(
     _check_owner(kind, owner_id)
     if not 1 <= len(payloads) <= MAX_QUEUE_ITEMS:
         raise WorkQueueError(f"a queue holds 1..{MAX_QUEUE_ITEMS} items")
+    if any(_has_nul(p) for p in payloads):
+        raise WorkQueueError("a payload contains U+0000, which JSONB cannot store")
     existing = await db.scalar(
         select(work_queue.c.id).where(
             work_queue.c.kind == kind, work_queue.c.owner_id == owner_id
@@ -490,9 +504,10 @@ async def create_queue(
             failure_type=FailureType.CONFLICT,
             details={"kind": kind, "owner_id": owner_id, "queue_id": existing},
         )
+    # ON CONFLICT: a concurrent create for the same owner loses cleanly.
     row = (
         await db.execute(
-            insert(work_queue)
+            pg_insert(work_queue)
             .values(
                 kind=kind,
                 owner_id=owner_id,
@@ -504,9 +519,16 @@ async def create_queue(
                 speculative_max_frac=policy.speculative_max_frac,
                 item_count=len(payloads),
             )
+            .on_conflict_do_nothing(index_elements=["kind", "owner_id"])
             .returning(work_queue)
         )
-    ).one()
+    ).one_or_none()
+    if row is None:
+        raise WorkQueueError(
+            "the owner already has a queue",
+            failure_type=FailureType.CONFLICT,
+            details={"kind": kind, "owner_id": owner_id},
+        )
     for start in range(0, len(payloads), _ROWS_PER_INSERT):
         await db.execute(
             insert(work_item),
