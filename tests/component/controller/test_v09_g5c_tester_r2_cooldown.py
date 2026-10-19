@@ -29,10 +29,10 @@ from meshforge.controller.jobs.transitions import JobEvent
 pytestmark = [pytest.mark.component, pytest.mark.asyncio, pytest.mark.timeout(240)]
 
 
-async def _age(engine: AsyncEngine, job_id: str, seconds: float) -> None:
+async def _age(eng: AsyncEngine, job_id: str, seconds: float) -> None:
     """Move the job's final transition + updated_at ``seconds`` into the past."""
     old = dt.datetime.now(dt.UTC) - dt.timedelta(seconds=seconds)
-    async with engine.begin() as conn:
+    async with eng.begin() as conn:
         for sql in (
             "UPDATE job SET updated_at = :t WHERE id = :j",
             "UPDATE job_transition SET at = :t WHERE job_id = :j",
@@ -62,9 +62,7 @@ async def test_tester_r2_short_campaign_job_holds_node_for_long_campaign_only(
     assert since_a == {}
 
 
-@pytest.mark.parametrize(
-    "kind", ["run", "run_gen3", "filler", "warmup", "warmup_gen2"]
-)
+@pytest.mark.parametrize("kind", ["run", "run_gen3", "filler", "warmup", "warmup_gen2"])
 async def test_tester_r2_every_bench_job_kind_of_another_campaign_holds(
     engine: AsyncEngine,  # noqa: F811
     kind: str,
@@ -154,7 +152,7 @@ async def test_tester_r2_runner_cooldown_edge_exactly_cooldown_is_free(
 ) -> None:
     """Runner decision: held while gap < cooldown_s. 20 s ago with cooldown 30
     is held; 31 s ago with cooldown 30 is free - another campaign's filler."""
-    store, control, jobs, cid_a = await _setup(engine, cooldown_s=30.0)
+    store, control, jobs, _cid_a = await _setup(engine, cooldown_s=30.0)
     _s, _c, _j, cid_b = await _setup(engine, cooldown_s=30.0)
     # campaign B is not started by anyone; only A is driven
     async with engine.begin() as conn:

@@ -995,6 +995,9 @@ compute bench cancel <camp_id>      # cancel its benchmark jobs, skip the open r
   controller pointed at the same database skips its ticks while the first one runs them (debug log
   `controller.bench.tick_locked_out`), so two controllers never fill a node's slot twice. The lock goes with
   the connection, so a killed controller never leaves it held.
+  The lock keeps one pooled connection in an open transaction for the whole tick: keep the database pool
+  at ≥ 2 connections and do not set PostgreSQL `idle_in_transaction_session_timeout` shorter than a tick
+  (if it fires, the tick fails and the runner retries with backoff - safe, but noisy).
 * `/healthz` says `degraded` (`bench-runner`) when the runner failed 5 ticks in a row; it logs
   `controller.bench.runner_crashed` and retries with back-off.
 
