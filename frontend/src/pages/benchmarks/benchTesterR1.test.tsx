@@ -211,8 +211,8 @@ describe("applyCampaignEvent (pure cache)", () => {
   }
   const ev = (data: Record<string, unknown>) => event("campaign.progress", { campaign_id: A, ...data });
 
-  // DEFECT T-1 (minor): no ordering guard; it.fails flips red once fixed.
-  it.fails("a late/out-of-order 'active' event after 'done' must not resurrect a finished campaign (T-1)", () => {
+  // T-1 (fixed by Lead): stale events after a terminal state are ignored.
+  it("a late/out-of-order 'active' event after 'done' must not resurrect a finished campaign (T-1)", () => {
     const client = seeded();
     applyCampaignEvent(client, ev({ state: "done", finished_reason: "complete", counts: { planned: 0, submitted: 0, done: 9, failed: 1, skipped: 0 } }));
     applyCampaignEvent(client, ev({ state: "active", counts: COUNTS }));
@@ -221,7 +221,7 @@ describe("applyCampaignEvent (pure cache)", () => {
   });
 
   // DEFECT T-1b (minor), same cause.
-  it.fails("counts never move backwards on an older event (T-1b)", () => {
+  it("counts never move backwards on an older event (T-1b)", () => {
     const client = seeded();
     applyCampaignEvent(client, ev({ state: "active", counts: { planned: 1, submitted: 1, done: 8, failed: 0, skipped: 0 } }));
     applyCampaignEvent(client, ev({ state: "active", counts: { planned: 4, submitted: 1, done: 4, failed: 1, skipped: 0 } }));

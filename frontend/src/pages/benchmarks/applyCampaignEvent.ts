@@ -91,11 +91,29 @@ export function parseProgress(data: Record<string, unknown>): CampaignProgress |
   return out;
 }
 
+const TERMINAL = new Set<CampaignStatus["state"]>(["done", "cancelled"]);
+
+function ended(c: RunCounts): number {
+  return c.done + c.failed + c.skipped;
+}
+
+/**
+ * An event older than the cached row (a poll / refetch can land between two
+ * events): a finished campaign never leaves its final state, and runs that
+ * ended never un-end. Such an event changes nothing (tester r1 T-1, T-1b).
+ */
+function isStale(row: { state: CampaignStatus["state"]; counts: RunCounts }, p: CampaignProgress): boolean {
+  if (TERMINAL.has(row.state) && p.state !== row.state) return true;
+  return p.counts !== undefined && isRecord(row.counts) && ended(p.counts) < ended(row.counts);
+}
+
 function patchCampaign<T extends { state: CampaignStatus["state"]; counts: RunCounts }>(row: T, p: CampaignProgress): T {
+  if (isStale(row, p)) return row;
   return { ...row, ...(p.state !== undefined && { state: p.state }), ...(p.counts !== undefined && { counts: p.counts }) };
 }
 
 function patchStatus(status: CampaignStatus, p: CampaignProgress): CampaignStatus {
+  if (isStale(status, p)) return status;
   const next = patchCampaign(status, p);
   if (p.finishedReason !== undefined) next.finished_reason = p.finishedReason;
   if (p.donePercent !== undefined) next.done_percent = p.donePercent;
