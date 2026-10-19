@@ -43,7 +43,7 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 
 ## Current Task
 
-- **2026-10-19 (session end):** G5c and G6 implementers stopped near done (code committed in their worktrees, exit gates not run). Next: relaunch each for exit gates + hand-off → tester → reviewer → merge → whole component alone → close 0.9.7–0.9.9.
+- **2026-10-19 (session end 2):** G5c + G6 tester/reviewer done (D257), both MERGED (`0e63d6b`) + Quality tab integration `c5b77c2` (unit 15874, vitest 618, e2e 14). Whole `-m component` stopped unfinished. Next: whole component alone → close 0.9.7–0.9.9 → G7 brief.
 
 - **2026-10-19: V0.9 G5 gate done (D255).** Lane B tester r3 PASS, merged (D253). Whole component 2671 passed / 2 failed: one old-file load flake; one runner cool-down miss under load (0.034 s vs 1 s) → real race, **0.9.7 stays `[~]`**. 0.9.6 `[x]`. G5c brief §5g + D254 written (item 0.0 = the race).
 
