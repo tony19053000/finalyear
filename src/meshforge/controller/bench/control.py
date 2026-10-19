@@ -14,8 +14,8 @@ Every control is idempotent (the same request twice = the same state);
 a control a finished campaign cannot take is :class:`CampaignStateError`
 (``conflict``).
 
-The runner's reads (:meth:`runner_campaigns`, :meth:`node_bench_load`,
-:meth:`seconds_since_last_end`, :meth:`user_busy_nodes`) and the status
+The runner's reads (:meth:`runner_campaigns`, :meth:`node_slots` = the
+node load and the last end in one snapshot, :meth:`user_busy_nodes`) and the status
 numbers (:meth:`status`) use the database's clock, never the controller's -
 elapsed times survive a restart and a wall-clock step.
 """
@@ -26,7 +26,7 @@ from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Final
 
-from sqlalchemy import Float, cast, func, or_, select, update
+from sqlalchemy import Float, cast, func, or_, select, union_all, update
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from meshforge.common.errors import FailureType, MeshForgeError
@@ -39,7 +39,7 @@ from meshforge.controller.store.models.bench import (
     BenchCampaign,
     BenchRun,
 )
-from meshforge.controller.store.models.job import Attempt, Job
+from meshforge.controller.store.models.job import Attempt, Job, JobTransition
 from meshforge.controller.store.models.telemetry import RunRecord
 
 __all__ = [
@@ -109,6 +109,65 @@ def _bench_key() -> Any:
 
 def _not_bench() -> Any:
     return or_(Job.idempotency_key.is_(None), ~Job.idempotency_key.like(_KEY_LIKE))
+
+
+async def _node_load(db: AsyncSession, node_ids: Collection[str]) -> dict[str, int]:
+    node = Job.placement["node_id"].astext
+    rows = await db.execute(
+        select(node, func.count())
+        .where(
+            _bench_key(),
+            Job.state.not_in(_JOB_TERMINAL),
+            node.in_(sorted(node_ids)),
+        )
+        .group_by(node)
+    )
+    return {str(n): int(c) for n, c in rows}
+
+
+async def _last_end(
+    db: AsyncSession, campaign_id: str, node_ids: Collection[str]
+) -> dict[str, float]:
+    """Seconds (database clock) since the campaign's last run on each node
+    ended. A run ended when ``bench_run.ended_at`` is set (not ``skipped``)
+    **or** - G5c item 0.0 (D255) - when it is still ``submitted`` but its job
+    is already terminal (``sync`` has not settled it yet): that end is the
+    job's final transition time, exactly what ``sync`` will stamp. Without the
+    second source a job that ended after the tick's ``sync`` left its node
+    free (the load no longer counts it) with no end to cool down from."""
+    nodes = sorted(node_ids)
+    final_at = (
+        select(JobTransition.at)
+        .where(JobTransition.job_id == Job.id)
+        .order_by(JobTransition.seq.desc())
+        .limit(1)
+        .scalar_subquery()
+    )
+    ends = union_all(
+        select(BenchRun.node_id.label("node"), BenchRun.ended_at.label("at")).where(
+            BenchRun.campaign_id == campaign_id,
+            BenchRun.node_id.in_(nodes),
+            BenchRun.ended_at.is_not(None),
+            BenchRun.state != "skipped",
+        ),
+        select(
+            BenchRun.node_id.label("node"),
+            func.coalesce(final_at, Job.updated_at).label("at"),
+        )
+        .join(Job, Job.id == BenchRun.job_id)
+        .where(
+            BenchRun.campaign_id == campaign_id,
+            BenchRun.node_id.in_(nodes),
+            BenchRun.state == "submitted",
+            Job.state.in_(_JOB_TERMINAL),
+        ),
+    ).subquery()
+    rows = await db.execute(
+        select(
+            ends.c.node, func.extract("epoch", func.now() - func.max(ends.c.at))
+        ).group_by(ends.c.node)
+    )
+    return {str(n): float(s) for n, s in rows if s is not None}
 
 
 class CampaignControl:
@@ -312,42 +371,40 @@ class CampaignControl:
         to each node."""
         if not node_ids:
             return {}
-        node = Job.placement["node_id"].astext
         async with self._sessions() as db:
-            rows = await db.execute(
-                select(node, func.count())
-                .where(
-                    _bench_key(),
-                    Job.state.not_in(_JOB_TERMINAL),
-                    node.in_(sorted(node_ids)),
-                )
-                .group_by(node)
-            )
-            return {str(n): int(c) for n, c in rows}
+            return await _node_load(db, node_ids)
 
     @_typed
     async def seconds_since_last_end(
         self, campaign_id: str, node_ids: Collection[str]
     ) -> dict[str, float]:
         """Database seconds since the campaign's last run on each node ended
-        (absent = none ended yet)."""
+        (absent = none ended yet) - see :func:`_last_end`."""
         if not node_ids:
             return {}
         async with self._sessions() as db:
-            rows = await db.execute(
-                select(
-                    BenchRun.node_id,
-                    func.extract("epoch", func.now() - func.max(BenchRun.ended_at)),
-                )
-                .where(
-                    BenchRun.campaign_id == campaign_id,
-                    BenchRun.node_id.in_(sorted(node_ids)),
-                    BenchRun.ended_at.is_not(None),
-                    BenchRun.state != "skipped",
-                )
-                .group_by(BenchRun.node_id)
+            return await _last_end(db, campaign_id, node_ids)
+
+    @_typed
+    async def node_slots(
+        self, campaign_id: str, node_ids: Collection[str]
+    ) -> tuple[dict[str, int], dict[str, float]]:
+        """G5c item 0.0 (D255): :meth:`node_bench_load` **and**
+        :meth:`seconds_since_last_end` read in **one** ``REPEATABLE READ``
+        snapshot, so a job that ends while the runner reads is seen either
+        still running (it fills the slot) or ended (cool-down) - never
+        neither. (Two ``READ COMMITTED`` statements could see the job
+        terminal in the load read and not yet ended in the cool-down read.)"""
+        if not node_ids:
+            return {}, {}
+        async with self._sessions() as db:
+            await db.connection(
+                execution_options={"isolation_level": "REPEATABLE READ"}
             )
-            return {str(n): float(s) for n, s in rows if s is not None}
+            load = await _node_load(db, node_ids)
+            since = await _last_end(db, campaign_id, node_ids)
+            await db.rollback()  # read-only
+        return load, since
 
     @_typed
     async def user_busy_nodes(self) -> set[str]:

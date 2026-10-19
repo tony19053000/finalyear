@@ -13,7 +13,12 @@ A supervised task inside the controller (no new service). Every
    each node that still has planned runs gets ``max_concurrent_per_node`` -
    its non-terminal benchmark jobs (any campaign) **free slots**, except a
    node in **cool-down** (its last run of this campaign ended less than
-   ``cooldown_s`` ago), whose **owner guard** is on (paused / owner active),
+   ``cooldown_s`` ago - a run whose job is terminal counts as ended even
+   before ``sync`` settles it, and load + last end come from one snapshot:
+   G5c item 0.0, D255; with ``max_concurrent_per_node > 1`` a sibling job
+   that ends between this read and the submit is not covered - there is no
+   lock on job state - while with the default 1 the running job fills the
+   slot), whose **owner guard** is on (paused / owner active),
    or that has a **user job** running or queued pinned there (checklist 30:
    a benchmark never competes with a user's job);
 3. :meth:`~.submit.BenchSubmitter.submit_next` with ``count`` = the free
@@ -211,8 +216,9 @@ class BenchRunner:
         nodes = await self._control.planned_nodes(campaign.id)
         if not nodes:
             return {}
-        load = await self._control.node_bench_load(nodes)
-        since = await self._control.seconds_since_last_end(campaign.id, nodes)
+        # G5c item 0.0 (D255): load and last end from one snapshot, and a
+        # job that ended after this tick's sync counts as an end (cool-down)
+        load, since = await self._control.node_slots(campaign.id, nodes)
         budget: dict[str, int] = {}
         for node in sorted(nodes):
             if node in user_busy:

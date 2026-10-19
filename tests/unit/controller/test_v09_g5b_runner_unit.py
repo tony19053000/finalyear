@@ -287,6 +287,15 @@ class _Control:
     async def seconds_since_last_end(self, _cid: str, _nodes: Any) -> dict[str, float]:
         return self.since
 
+    async def node_slots(
+        self, cid: str, nodes: Any
+    ) -> tuple[dict[str, int], dict[str, float]]:
+        # G5c item 0.0: the runner reads both in one snapshot
+        return (
+            await self.node_bench_load(nodes),
+            await self.seconds_since_last_end(cid, nodes),
+        )
+
     async def stop_for_budget(self, cid: str, _detail: str) -> int:
         self.budget_stops.append(cid)
         return 0
