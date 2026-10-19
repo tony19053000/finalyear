@@ -1006,13 +1006,17 @@ foreground_cpu_percent = 30 # or: programs that are not the fabric's use > 30 % 
 sustain_s = 10              # ... for 10 s
 clear_after_s = 60          # activity clears only after 60 s quiet
 poll_s = 2
+preempt_revert_timeout_s = 10  # longest wait for conditions to revert when a benchmark is stopped
 ```
 
 * `meshforge-agent bench pause` (= `meshforge-agent policy set pause_benchmarks=true`) pauses benchmark
   jobs on this laptop; `meshforge-agent bench resume` lets them run again. User jobs are not affected.
 * While paused or active: the controller dispatches no benchmark job here; a running one is **stopped**
   (its load generators and network shaping are reverted first) and ends `owner_preempted` - the campaign
-  requeues it, it does not count as a failure.
+  requeues it, it does not count as a failure. A revert that hangs (a `tc` that never returns) is waited
+  for at most `preempt_revert_timeout_s`: the agent logs `agent.bench.revert_timeout`, stops the benchmark
+  anyway (its report says `reverted = false`), keeps retrying the revert in the background and leaves the
+  condition marker, so the next agent start reverts it if it never finished.
 * Input idle time comes from Windows (`GetLastInputInfo`) or Linux logind (`loginctl`; needs a desktop that
   sets the idle hint - GNOME, KDE). Without one the agent logs `agent.bench.idle_source_unknown` and only the
   CPU rule applies. Only idle time and per-process CPU are read - never keystrokes, window titles or what a

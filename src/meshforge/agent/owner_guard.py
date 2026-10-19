@@ -148,10 +148,10 @@ class OwnerGuard:
     async def on_poll(self, _state: ActivityState | None = None) -> None:
         """Every activity poll: retry a pending pre-emption when it is due
         (never raises - the failure is logged by :meth:`_preempt`)."""
-        if self._pending is None or self.preempt is None:
+        if not self._is_pending():
             return  # the common case: no lock taken
         async with self._lock:
-            if self._pending is None:  # the other path finished it meanwhile
+            if not self._is_pending():  # the other path finished it meanwhile
                 return
             now = self.blocked()
             if now is None:
@@ -161,6 +161,11 @@ class OwnerGuard:
                 return
             with contextlib.suppress(Exception):
                 await self._preempt(now)
+
+    def _is_pending(self) -> bool:
+        """A pre-emption failed and waits for its retry (read again after
+        every ``await``: the other path may have finished it)."""
+        return self._pending is not None and self.preempt is not None
 
     async def on_activity(self, _state: ActivityState) -> None:
         await self.refresh()

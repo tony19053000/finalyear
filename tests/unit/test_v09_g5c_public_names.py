@@ -24,9 +24,11 @@ def _private_imports(path: Path) -> list[tuple[str, str]]:
     out: list[tuple[str, str]] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom) and node.module:
-            for alias in node.names:
-                if alias.name.startswith("_") and not alias.name.startswith("__"):
-                    out.append((node.module, alias.name))
+            out.extend(
+                (node.module, alias.name)
+                for alias in node.names
+                if alias.name.startswith("_") and not alias.name.startswith("__")
+            )
     return out
 
 

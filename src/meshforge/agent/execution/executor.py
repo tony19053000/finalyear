@@ -394,6 +394,9 @@ class Executor:
         self.conditions = conditions or ConditionRunner(
             settings.agent.conditions, data_dir=settings.data_dir, kinds=()
         )
+        self.preempt_revert_timeout_s = settings.agent.bench.preempt_revert_timeout_s
+        """G5c item 0.3 (D253 T3-2): bound on the condition revert of a
+        pre-emption (``[agent.bench] preempt_revert_timeout_s``)."""
         self._policy = policy
         self._owner_guard = owner_guard
         self._cpu_threads = cpu_threads or None
@@ -494,7 +497,15 @@ class Executor:
         self._closing = True
         running = [a for a in self._attempts.values() if not a.ended]
         for attempt in running:
-            self._stop(attempt, "agent_shutdown")
+            try:  # one attempt failing to stop never skips the rest (D252.6)
+                self._stop(attempt, "agent_shutdown")
+            except Exception:
+                log.exception(
+                    "agent.execution.stop_failed",
+                    node_id=self._node_id,
+                    job_id=attempt.job_id,
+                    attempt_id=attempt.attempt_id,
+                )
         tasks = [a.task for a in running if a.task is not None]
         if tasks:
             bound = self._cfg.grace_s + _SHUTDOWN_SLACK_S
@@ -1012,26 +1023,94 @@ class Executor:
             attempt.preempt_reason = reason[:64]
         try:
             if running or self.conditions.active:
-                await self.conditions.stop_all("owner_pause")
+                await self._bounded_revert(len(running))
         finally:
-            # whatever stop_all did (raised, was cancelled), the attempts stop
+            # whatever stop_all did (raised, was cancelled, timed out), the
+            # attempts stop - each on its own (G5c item 0.4, D252.6)
             for attempt in running:
-                self._stop(attempt, OWNER_PREEMPTED)
-                attempt.preempt_stopped = True
-                log.warning(
-                    "agent.execution.owner_preempted",
-                    node_id=self._node_id,
-                    job_id=attempt.job_id,
-                    attempt_id=attempt.attempt_id,
-                    reason=attempt.preempt_reason,
-                )
+                self._preempt_one(attempt)
         return len(running)
+
+    async def _bounded_revert(self, attempts: int) -> None:
+        """G5c item 0.3 (D253 T3-2): ``stop_all`` for at most
+        :attr:`preempt_revert_timeout_s`. A hung revert (a ``tc`` that never
+        returns) must not keep the benchmark attempt running nor block the
+        owner-activity poll loop that awaits this. Past the bound it is
+        logged ``agent.bench.revert_timeout`` and the caller stops the
+        attempts anyway; each condition's own revert is shielded
+        (``ActiveCondition.finish``), so it keeps trying in the background and
+        its **marker stays** until it succeeds - the start-up sweep reverts it
+        after a restart."""
+        bound = self.preempt_revert_timeout_s
+        try:
+            await asyncio.wait_for(self.conditions.stop_all("owner_pause"), bound)
+        except TimeoutError:
+            log.warning(
+                "agent.bench.revert_timeout",
+                node_id=self._node_id,
+                timeout_s=bound,
+                attempts=attempts,
+                conditions=len(self.conditions.active),
+            )
+
+    def _preempt_one(self, attempt: _Attempt) -> None:
+        """Stop one pre-empted attempt; a failure is logged and never skips
+        the others (G5c item 0.4, D252.6)."""
+        try:
+            self._stop(attempt, OWNER_PREEMPTED)
+            attempt.preempt_stopped = True
+        except Exception:
+            log.exception(
+                "agent.execution.preempt_stop_failed",
+                node_id=self._node_id,
+                job_id=attempt.job_id,
+                attempt_id=attempt.attempt_id,
+            )
+            return
+        log.warning(
+            "agent.execution.owner_preempted",
+            node_id=self._node_id,
+            job_id=attempt.job_id,
+            attempt_id=attempt.attempt_id,
+            reason=attempt.preempt_reason,
+        )
 
     def _stop(self, attempt: _Attempt, reason: str) -> None:
         if attempt.stop_reason is None:
             attempt.stop_reason = reason
         if attempt.step is not None and not attempt.step.done():
             attempt.step.cancel()
+
+    async def _condition_report(self, attempt: _Attempt) -> agent_pb2.ConditionReport:
+        """The attempt's condition report after its revert. A **pre-empted**
+        attempt waits at most :attr:`preempt_revert_timeout_s` (G5c item 0.3):
+        a hung revert must not hold its terminal report back (the run would
+        never be requeued); the report then says ``reverted = false``,
+        ``revert_timeout``, and the shielded revert carries on, its marker
+        left for the start-up sweep."""
+        condition = attempt.condition
+        assert condition is not None  # noqa: S101 - the caller checked
+        if attempt.stop_reason != OWNER_PREEMPTED:
+            return await condition.finish()
+        try:
+            return await asyncio.wait_for(
+                condition.finish(), self.preempt_revert_timeout_s
+            )
+        except TimeoutError:
+            log.warning(
+                "agent.bench.revert_timeout",
+                node_id=self._node_id,
+                job_id=attempt.job_id,
+                attempt_id=attempt.attempt_id,
+                timeout_s=self.preempt_revert_timeout_s,
+                kind=condition.kind,
+            )
+            return agent_pb2.ConditionReport(
+                spec=condition.spec,
+                verified=False,
+                reason="revert_timeout",
+                reverted=False,
+            )
 
     def _task_done(self, task: asyncio.Task[None]) -> None:
         if task.cancelled():
@@ -2012,7 +2091,7 @@ class Executor:
             status.env_hash = attempt.env_hash  # D116 (empty = none computed)
             if attempt.condition is not None:
                 # V0.9 G4: revert first, then report what held (D217)
-                status.condition.CopyFrom(await attempt.condition.finish())
+                status.condition.CopyFrom(await self._condition_report(attempt))
         attempt.state = state
         if terminal:
             attempt.terminal_status = status

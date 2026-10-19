@@ -1370,6 +1370,17 @@ class BenchSettings(SectionModel):
         le=60.0,
         description="How often idle time and process CPU are sampled.",
     )
+    preempt_revert_timeout_s: float = Field(
+        default=10.0,
+        gt=0.0,
+        le=600.0,
+        description=(
+            "Longest wait for the benchmark conditions to revert when the "
+            "owner guard stops benchmark attempts; past it the attempts are "
+            "stopped anyway and the condition's marker is left for the "
+            "start-up sweep (the revert keeps trying in the background)."
+        ),
+    )
 
 
 class ConditionSettings(SectionModel):

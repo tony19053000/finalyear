@@ -124,16 +124,14 @@ async def test_stop_all_cancelled_midway_still_stops_the_attempts(
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(
-    strict=True,
-    reason="T3-2: no timeout around stop_all - a hanging revert leaves the attempt "
-    "marked owner_preempted but running, and blocks the activity poll loop",
-)
+# G5c item 0.3 (D253 T3-2): was a strict xfail; the revert is now bounded by
+# [agent.bench] preempt_revert_timeout_s (shortened here, default 10 s)
 async def test_a_hanging_stop_all_does_not_leave_the_attempt_running(
     tmp_path: Path,
 ) -> None:
     runtime, reports = GatedRuntime(), Reports()
     executor, digest = _executor(tmp_path, runtime, reports, kinds=set())
+    executor.preempt_revert_timeout_s = 1.0
     await executor.start()
     bench = _bench(_start(digest, None))
     executor.handle(bench)
@@ -148,7 +146,23 @@ async def test_a_hanging_stop_all_does_not_leave_the_attempt_running(
     try:
         # a bounded pre-emption: the poll loop awaits it, it must come back
         await asyncio.wait_for(executor.preempt_benchmarks("paused"), 5)
+        # G5c: the step's cancel is delivered on the next loop turns (a cancel
+        # is asynchronous); bounded, and checked before the runtime is released
+        # so a never-stopped attempt cannot pass by finishing on its own
+        for _ in range(100):
+            if not _leaks(executor):
+                break
+            await asyncio.sleep(0.02)
         assert not _leaks(executor)
+        for _ in range(100):
+            if _state(_final(reports, bench.start_attempt.attempt_id)) == "failed":
+                break
+            await asyncio.sleep(0.02)
+        final = _final(reports, bench.start_attempt.attempt_id)
+        assert (
+            failure_type_from_proto(final.failure.failure_type).value
+            == "owner_preempted"
+        )
     finally:
         executor.conditions._active.clear()
         runtime.release.set()
