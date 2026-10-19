@@ -32,6 +32,7 @@ from meshforge.common.capabilities import (
     EXEC_CAPABILITY,
     EXEC_DOCKER_CAPABILITY,
     EXEC_GPU_CAPABILITY,
+    EXEC_SPLIT_CAPABILITY,
     EXEC_SUBPROCESS_CAPABILITY,
 )
 from meshforge.controller.planner.types import (
@@ -83,6 +84,13 @@ def static_rejection(request: PlanRequest, node: NodeSnapshot) -> Rejection | No
             RejectCode.NOT_EXEC,
             "the node does not accept jobs (its owner has not enabled "
             "[agent.policy] accept_jobs)",
+        )
+    if request.split is not None and EXEC_SPLIT_CAPABILITY not in caps:
+        # V0.10 G4 (D263): an older agent would run a lane as a whole job
+        return Rejection(
+            RejectCode.NO_SPLIT_SUPPORT,
+            "the node's agent cannot run a lane of a split job (no exec-split: "
+            "update it to V0.10)",
         )
     refused = policy_rejection(request, node)
     if refused is not None:

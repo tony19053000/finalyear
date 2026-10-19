@@ -83,6 +83,10 @@ class RejectCode(StrEnum):
     offers the venv runtime (which provides ``python-cpu`` only)."""
     REVOKED = "revoked"
     """The node was revoked from the fabric."""
+    NO_SPLIT_SUPPORT = "no_split_support"
+    """V0.10 G4 (D263): a split job, and the node's agent cannot run a lane
+    (no ``exec-split`` capability: older than V0.10) - it would run the lane
+    as one whole attempt. Split jobs only."""
     # V0.7 G5 (D142): the node owner's policy refuses the job. Static: they
     # depend on what the owner allows, not on the moment - a job every node's
     # policy refuses fails (no_feasible_plan) instead of waiting. The values
@@ -132,6 +136,7 @@ class RejectCode(StrEnum):
 STATIC_CODES: frozenset[RejectCode] = frozenset(
     {
         RejectCode.NOT_EXEC,
+        RejectCode.NO_SPLIT_SUPPORT,
         RejectCode.NO_GPU,
         RejectCode.NO_GPU_RUNTIME,
         RejectCode.NO_GPU_SLOTS,
