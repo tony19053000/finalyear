@@ -108,15 +108,18 @@ function buildUrl(path: string, query: RequestOptions["query"]): string {
   return qs ? `${path}?${qs}` : path;
 }
 
-/** Call the controller; resolve with the parsed JSON body (or undefined for 204). */
-export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
+/**
+ * The one fetch call site: build the URL and headers (CSRF on mutations),
+ * send, and map "no answer" to `NetworkError`. The caller reads the body.
+ */
+async function send(path: string, options: RequestOptions, accept: string): Promise<Response> {
   assertNotSigningOut(path);
   const method = options.method ?? "GET";
   const url = buildUrl(path, options.query); // a bad path is a bug: throw, not NetworkError
   if (options.json !== undefined && options.body !== undefined) {
     throw new Error("apiRequest: pass `json` or `body`, not both");
   }
-  const headers = new Headers({ Accept: "application/json", ...options.headers });
+  const headers = new Headers({ Accept: accept, ...options.headers });
   headers.delete(CSRF_HEADER); // only this client sets it, from the cookie
   if (method !== "GET" && method !== "HEAD") {
     const csrf = readCookie(CSRF_COOKIE);
@@ -131,10 +134,8 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     headers.set("Content-Type", "application/json");
     body = JSON.stringify(options.json);
   }
-
-  let response: Response;
   try {
-    response = await fetch(url, {
+    return await fetch(url, {
       method,
       headers,
       body,
@@ -146,26 +147,45 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     if (err instanceof DOMException && err.name === "AbortError") throw err;
     throw new NetworkError("The controller did not answer.");
   }
+}
 
+function parseJson(text: string): unknown {
+  if (text === "") return undefined;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+}
+
+/** A non-2xx answer: the typed error (and the 401 handler, unless skipped). */
+function failure(response: Response, parsed: unknown, options: RequestOptions): ApiError {
+  const error = errorFromResponse(response.status, response.headers, parsed);
+  if (response.status === 401 && options.skipUnauthorizedHandler !== true) {
+    onUnauthorized?.(error);
+  }
+  return error;
+}
+
+/** Call the controller; resolve with the parsed JSON body (or undefined for 204). */
+export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const response = await send(path, options, "application/json");
   const text = await response.text();
-  let parsed: unknown = undefined;
-  if (text !== "") {
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      parsed = undefined;
-    }
-  }
-
-  if (!response.ok) {
-    const error = errorFromResponse(response.status, response.headers, parsed);
-    if (response.status === 401 && options.skipUnauthorizedHandler !== true) {
-      onUnauthorized?.(error);
-    }
-    throw error;
-  }
+  const parsed = parseJson(text);
+  if (!response.ok) throw failure(response, parsed, options);
   if (text !== "" && parsed === undefined) {
     throw new ApiError(response.status, "invalid_response", "The controller sent a body that is not JSON.");
   }
   return parsed as T;
+}
+
+/**
+ * A binary download (V0.9 G6: Parquet exports) through the same cookie
+ * session, CSRF and error rules as `apiRequest`: resolves with the body as a
+ * Blob; a refusal is the same typed `ApiError` (its JSON envelope parsed).
+ */
+export async function apiDownload(path: string, options: RequestOptions = {}, accept = "*/*"): Promise<Blob> {
+  const response = await send(path, options, accept);
+  if (!response.ok) throw failure(response, parseJson(await response.text()), options);
+  return response.blob();
 }

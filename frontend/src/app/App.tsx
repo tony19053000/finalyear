@@ -32,6 +32,9 @@ const PAGE_LOADERS = {
   submit: () => import("../pages/jobs/submit/SubmitJobPage"),
   // V0.8 G5: Settings (account, tokens, invites, users, secrets, data).
   settings: () => import("../pages/settings/SettingsRoutes"),
+  // V0.9 G6: Benchmarks (admin only; recharts loads with these chunks).
+  benchmarks: () => import("../pages/benchmarks/BenchmarksPage"),
+  campaign: () => import("../pages/benchmarks/CampaignDetailPage"),
 };
 
 const OverviewPage = lazy(() => PAGE_LOADERS.overview().then((m) => ({ default: m.OverviewPage })));
@@ -40,6 +43,8 @@ const NodeDetailPage = lazy(() => PAGE_LOADERS.nodeDetail().then((m) => ({ defau
 const JobsListPage = lazy(() => PAGE_LOADERS.jobs().then((m) => ({ default: m.JobsListPage })));
 const JobDetailPage = lazy(() => PAGE_LOADERS.jobDetail().then((m) => ({ default: m.JobDetailPage })));
 const SubmitJobPage = lazy(() => PAGE_LOADERS.submit().then((m) => ({ default: m.SubmitJobPage })));
+const BenchmarksPage = lazy(() => PAGE_LOADERS.benchmarks().then((m) => ({ default: m.BenchmarksPage })));
+const CampaignDetailPage = lazy(() => PAGE_LOADERS.campaign().then((m) => ({ default: m.CampaignDetailPage })));
 const SettingsRoutes = lazy(() => PAGE_LOADERS.settings().then((m) => ({ default: m.SettingsRoutes })));
 
 /**
@@ -138,6 +143,10 @@ export function AppRoutes({ socketFactory }: AppShellProps) {
         <Route path="jobs/new" element={<Page><SubmitJobPage /></Page>} />
         <Route path="jobs/:jobId" element={<Page><JobDetailPage /></Page>} />
         {/* ---- end V0.8 G4 ---- */}
+        {/* ---- V0.9 G6: Benchmarks (campaigns list, campaign detail) ---- */}
+        <Route path="benchmarks" element={<Page><BenchmarksPage /></Page>} />
+        <Route path="benchmarks/:campaignId" element={<Page><CampaignDetailPage /></Page>} />
+        {/* ---- end V0.9 G6 ---- */}
         {/* ---- V0.8 G5: Settings (nested routes in pages/settings) ---- */}
         <Route path="settings/*" element={<Page><SettingsRoutes /></Page>} />
         {/* ---- end V0.8 G5 ---- */}
