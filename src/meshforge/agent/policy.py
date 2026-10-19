@@ -88,10 +88,17 @@ LIVE_KEYS: Final = (
     "allow_unsandboxed",
     "allow_network",
     "allowed_users",
+    "pause_benchmarks",
 )
 """Keys ``policy set`` may change (``reload_interval_s`` is configuration only)."""
 _BOOLS: Final = frozenset(
-    {"accept_jobs", "accept_gpu_sessions", "allow_unsandboxed", "allow_network"}
+    {
+        "accept_jobs",
+        "accept_gpu_sessions",
+        "allow_unsandboxed",
+        "allow_network",
+        "pause_benchmarks",
+    }
 )
 _INTS: Final = frozenset(
     {

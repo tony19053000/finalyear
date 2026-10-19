@@ -99,6 +99,11 @@ class FailureType(StrEnum):
     """The workload finished but its declared outputs could not be collected or
     uploaded (V0.4 D74: a refused link/escape, over the quota, an upload failure).
     The failure's own ``retryable`` flag says whether a retry may help."""
+    OWNER_PREEMPTED = "owner_preempted"
+    """V0.9 G5 (D219/D246): a **benchmark** attempt was stopped (or refused at
+    start) because the node's owner paused benchmarks or is using the laptop.
+    Never a user job. Not retried by the job; the campaign runner requeues the
+    run without spending an infrastructure retry."""
 
 
 DEFAULT_RETRYABLE: Mapping[FailureType, bool] = {
@@ -125,6 +130,7 @@ DEFAULT_RETRYABLE: Mapping[FailureType, bool] = {
     FailureType.NOT_FOUND: False,
     FailureType.CONFLICT: False,
     FailureType.INTERNAL_ERROR: False,
+    FailureType.OWNER_PREEMPTED: False,  # the campaign runner requeues the run
 }
 
 

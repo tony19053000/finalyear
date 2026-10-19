@@ -104,6 +104,12 @@ class _FailureTypeEnumTypeWrapper(_enum_type_wrapper._EnumTypeWrapper[_FailureTy
     """The workload finished but its declared outputs could not be collected or
     uploaded (V0.4 G5, D74).
     """
+    FAILURE_TYPE_OWNER_PREEMPTED: _FailureType.ValueType  # 24
+    """V0.9 G5 (D219/D246): a benchmark attempt stopped (or refused) because the
+    node's owner paused benchmarks or is using the laptop. Never a user job.
+    The campaign runner requeues the run; not counted as an infrastructure
+    failure in the campaign's infra rate.
+    """
 
 class FailureType(_FailureType, metaclass=_FailureTypeEnumTypeWrapper):
     """Typed failure classes (ARCHITECTURE §13). Retry policy is per failure type.
@@ -157,6 +163,12 @@ FAILURE_TYPE_INTERNAL_ERROR: FailureType.ValueType  # 22
 FAILURE_TYPE_OUTPUT_ERROR: FailureType.ValueType  # 23
 """The workload finished but its declared outputs could not be collected or
 uploaded (V0.4 G5, D74).
+"""
+FAILURE_TYPE_OWNER_PREEMPTED: FailureType.ValueType  # 24
+"""V0.9 G5 (D219/D246): a benchmark attempt stopped (or refused) because the
+node's owner paused benchmarks or is using the laptop. Never a user job.
+The campaign runner requeues the run; not counted as an infrastructure
+failure in the campaign's infra rate.
 """
 Global___FailureType: _TypeAlias = FailureType  # noqa: Y015
 

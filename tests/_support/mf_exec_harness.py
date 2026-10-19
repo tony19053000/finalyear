@@ -39,6 +39,8 @@ from meshforge.agent.gc.service import GcService
 from meshforge.agent.hardware.limits import clip_capabilities
 from meshforge.agent.http_tls import AgentHttpTls, load_http_tls
 from meshforge.agent.identity import load_or_create
+from meshforge.agent.owner_activity import ActivityState
+from meshforge.agent.owner_guard import OwnerGuard
 from meshforge.agent.peer import PeerBlobServer
 from meshforge.agent.peer.probe import ProbeService
 from meshforge.agent.policy import LivePolicy
@@ -75,6 +77,16 @@ def no_docker(config: DockerConfig) -> DockerRuntime:
     return _NoDocker(config)
 
 
+class FakeActivity:
+    """V0.9 G5: owner activity the test sets (quacks like ``OwnerActivity``
+    for :class:`~meshforge.agent.owner_guard.OwnerGuard`)."""
+
+    def __init__(self) -> None:
+        self.state = ActivityState(idle_source="unknown")
+        self.poll_s = 0.5
+        self.on_poll: Any = None
+
+
 class ExecAgent:
     """A running agent process-equivalent (client + executor) in this loop."""
 
@@ -94,7 +106,18 @@ class ExecAgent:
         self.renew_task: asyncio.Task[None] | None = None
         self.policy_task: asyncio.Task[None] | None = None
         self.live_policy: LivePolicy | None = None
+        self.guard: OwnerGuard | None = None
+        self.activity = FakeActivity()
         self.task: asyncio.Task[None] = asyncio.create_task(client.run())
+
+    async def set_owner_active(self, active: bool, reason: str = "idle") -> int:
+        """V0.9 G5: the owner starts / stops using this "laptop" (the heartbeat
+        carries it; turning on pre-empts running benchmark attempts)."""
+        self.activity.state = ActivityState(
+            active=active, reason=reason if active else "", idle_source="unknown"
+        )
+        assert self.guard is not None
+        return await self.guard.refresh()
 
     @classmethod
     async def start(
@@ -173,10 +196,13 @@ class ExecAgent:
             index=lambda: None if gc is None else gc.index,
             controller=lambda: controller_endpoint(client.controller_target),
         )
+        activity = FakeActivity()
+        guard = OwnerGuard(policy=live_policy, activity=activity)  # type: ignore[arg-type]
         executor = Executor(
             settings,
             setup,
             conditions=conditions,
+            owner_guard=guard.blocked,
             cas=cas,
             node_id=client.node_id,
             report=client.send_report,
@@ -190,6 +216,9 @@ class ExecAgent:
             cpu_threads=hardware.cpu_threads or hardware.cpu_cores or None,
         )
         wire_executor(client, executor)
+        # V0.9 G5 (D246): the owner guard, wired as in serve()
+        guard.preempt = executor.preempt_benchmarks
+        client.owner_heartbeat = guard.heartbeat_fields
         preparer = (
             PrepareService(settings, setup, client.send_report, node_id=client.node_id)
             if setup.enabled
@@ -213,7 +242,11 @@ class ExecAgent:
         agent = cls(client, executor, setup)
         agent.http_tls = http_tls
         agent.live_policy = live_policy
-        agent.policy_task = start_policy_watch(settings, client, live_policy)
+        agent.guard = guard
+        agent.activity = activity
+        agent.policy_task = start_policy_watch(
+            settings, client, live_policy, guard=guard
+        )
         if renew:
             agent.renew_task = start_renewer(
                 settings, client, http_tls=http_tls, peer=peer

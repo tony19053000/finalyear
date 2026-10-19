@@ -351,6 +351,9 @@ class AgentSessionClient:
         """``host:port`` for ``Hello.peer_endpoint`` (asked for every Hello)."""
         self.on_hello_ack: Callable[[agent_pb2.HelloAck], None] | None = None
         self.live_policy: LivePolicy | None = None
+        self.owner_heartbeat: Callable[[], tuple[bool, str, str]] | None = None
+        """V0.9 G5 (D246): ``(owner_active, reason, idle_source)`` for every
+        heartbeat (None = the owner guard is not wired: all false/empty)."""
         """V0.7 G5 (D142): the owner's live policy, sent in every Hello."""
         self.revoked = RevokedSerials(node_id=self.node_id)
         """V0.7 G3 (D138): the fabric's revoked certificate serials (every
@@ -1095,6 +1098,11 @@ class AgentSessionClient:
                 self._sequence += 1
                 hb = agent_pb2.Heartbeat(sequence=self._sequence)
                 hb.agent_time.FromDatetime(datetime.now(UTC))
+                if self.owner_heartbeat is not None:
+                    active, reason, source = self.owner_heartbeat()
+                    hb.owner_active = active
+                    hb.owner_active_reason = reason[:32]
+                    hb.idle_source = source[:32]
                 await self._write(agent_pb2.AgentMessage(heartbeat=hb))
                 self.stats.heartbeats_sent += 1
         except (grpc.aio.AioRpcError, grpc.aio.UsageError, asyncio.InvalidStateError):

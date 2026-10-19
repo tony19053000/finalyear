@@ -220,6 +220,7 @@ async def test_marker_says_installed_only_from_right_before_the_replace(
                 "spec": "netem:delay=50ms",
                 "netem": "eth9",
                 "netem_installed": True,
+                "netem_expect": {"delay_ms": 50.0, "loss_pct": 0.0, "rate_mbit": None},
             }
         }
     ]
@@ -274,10 +275,12 @@ async def test_sweep_never_deletes_a_non_netem_root_qdisc(tmp_path: Path) -> Non
 @pytest.mark.asyncio
 async def test_delete_netem_shows_first_and_deletes_only_a_netem() -> None:
     tc = GateTc()
-    assert await delete_netem(tc, "eth9") is None  # the default qdisc: untouched
+    assert (
+        await delete_netem(tc, "eth9", expect=None) is None
+    )  # the default qdisc: untouched
     assert tc.verbs() == ["show"]
     tc.qdisc["eth9"] = "qdisc netem 8001: root refcnt 2 delay 50ms"
-    assert await delete_netem(tc, "eth9") is None
+    assert await delete_netem(tc, "eth9", expect=None) is None
     assert tc.verbs() == ["show", "show", "del"]
     assert "eth9" not in tc.qdisc
 
@@ -293,7 +296,7 @@ async def test_delete_netem_with_a_failing_show_deletes_nothing() -> None:
 
     tc = NoShow()
     tc.qdisc["eth9"] = "qdisc netem 8001: root refcnt 2 delay 50ms"
-    cause = await delete_netem(tc, "eth9")
+    cause = await delete_netem(tc, "eth9", expect=None)
     assert cause is not None and "show" in cause
     assert "del" not in tc.verbs()
 

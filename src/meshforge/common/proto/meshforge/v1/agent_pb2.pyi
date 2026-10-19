@@ -529,6 +529,7 @@ class OwnerPolicy(_message.Message):
     ALLOWED_USERS_FIELD_NUMBER: _builtins.int
     NOT_ENFORCED_FIELD_NUMBER: _builtins.int
     REVISION_FIELD_NUMBER: _builtins.int
+    PAUSE_BENCHMARKS_FIELD_NUMBER: _builtins.int
     accept_jobs: _builtins.bool
     accept_gpu_sessions: _builtins.bool
     """Stored and advertised now; Remote-GPU sessions use it from V0.11."""
@@ -542,6 +543,11 @@ class OwnerPolicy(_message.Message):
     """A job asking `limits.network: on` may get a network (D143)."""
     revision: _builtins.int
     """Agent-local counter, +1 per live change (logs only)."""
+    pause_benchmarks: _builtins.bool
+    """V0.9 G5 (D219/D246): the owner paused benchmark jobs on this node
+    (`meshforge-agent bench pause`). User jobs are not affected. Default
+    false, so an agent from before G5 keeps running benchmarks.
+    """
     @_builtins.property
     def allowed_users(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]:
         """User names whose jobs the node runs; empty = everyone (<= 64 names)."""
@@ -565,10 +571,11 @@ class OwnerPolicy(_message.Message):
         allowed_users: _abc.Iterable[_builtins.str] | None = ...,
         not_enforced: _abc.Iterable[_builtins.str] | None = ...,
         revision: _builtins.int = ...,
+        pause_benchmarks: _builtins.bool = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _typing.Literal["_max_cpu_percent", b"_max_cpu_percent", "_max_ram_bytes", b"_max_ram_bytes", "_max_vram_bytes", b"_max_vram_bytes", "max_cpu_percent", b"max_cpu_percent", "max_ram_bytes", b"max_ram_bytes", "max_vram_bytes", b"max_vram_bytes"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["_max_cpu_percent", b"_max_cpu_percent", "_max_ram_bytes", b"_max_ram_bytes", "_max_vram_bytes", b"_max_vram_bytes", "accept_gpu_sessions", b"accept_gpu_sessions", "accept_jobs", b"accept_jobs", "allow_network", b"allow_network", "allow_unsandboxed", b"allow_unsandboxed", "allowed_users", b"allowed_users", "max_cpu_percent", b"max_cpu_percent", "max_ram_bytes", b"max_ram_bytes", "max_vram_bytes", b"max_vram_bytes", "not_enforced", b"not_enforced", "revision", b"revision"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["_max_cpu_percent", b"_max_cpu_percent", "_max_ram_bytes", b"_max_ram_bytes", "_max_vram_bytes", b"_max_vram_bytes", "accept_gpu_sessions", b"accept_gpu_sessions", "accept_jobs", b"accept_jobs", "allow_network", b"allow_network", "allow_unsandboxed", b"allow_unsandboxed", "allowed_users", b"allowed_users", "max_cpu_percent", b"max_cpu_percent", "max_ram_bytes", b"max_ram_bytes", "max_vram_bytes", b"max_vram_bytes", "not_enforced", b"not_enforced", "pause_benchmarks", b"pause_benchmarks", "revision", b"revision"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     _WhichOneofReturnType__max_cpu_percent: _TypeAlias = _typing.Literal["max_cpu_percent"]  # noqa: Y015
     _WhichOneofArgType__max_cpu_percent: _TypeAlias = _typing.Literal["_max_cpu_percent", b"_max_cpu_percent"]  # noqa: Y015
@@ -966,8 +973,24 @@ class Heartbeat(_message.Message):
 
     SEQUENCE_FIELD_NUMBER: _builtins.int
     AGENT_TIME_FIELD_NUMBER: _builtins.int
+    OWNER_ACTIVE_FIELD_NUMBER: _builtins.int
+    OWNER_ACTIVE_REASON_FIELD_NUMBER: _builtins.int
+    IDLE_SOURCE_FIELD_NUMBER: _builtins.int
     sequence: _builtins.int
     """Monotonic per stream; lets the controller detect gaps."""
+    owner_active: _builtins.bool
+    """V0.9 G5 (D219/D246): the owner is using this laptop (input idle time
+    below [agent.bench] idle_threshold_s, or CPU of non-fabric processes above
+    [agent.bench] foreground_cpu_percent), with hysteresis. Only this bit and
+    a short reason of ours leave the node - never what the owner does. The
+    controller dispatches no benchmark job here while it is set.
+    """
+    owner_active_reason: _builtins.str
+    """"idle" / "cpu" / "" (<= 32 characters)."""
+    idle_source: _builtins.str
+    """Where input idle time came from: "logind", "windows", or "unknown" (then
+    only the CPU rule applies). "" = the monitor is off.
+    """
     @_builtins.property
     def agent_time(self) -> _timestamp_pb2.Timestamp:
         """Agent wall clock when the heartbeat was sent; used only for RTT/clock-skew
@@ -979,10 +1002,13 @@ class Heartbeat(_message.Message):
         *,
         sequence: _builtins.int = ...,
         agent_time: _timestamp_pb2.Timestamp | None = ...,
+        owner_active: _builtins.bool = ...,
+        owner_active_reason: _builtins.str = ...,
+        idle_source: _builtins.str = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _typing.Literal["agent_time", b"agent_time"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["agent_time", b"agent_time", "sequence", b"sequence"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["agent_time", b"agent_time", "idle_source", b"idle_source", "owner_active", b"owner_active", "owner_active_reason", b"owner_active_reason", "sequence", b"sequence"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
@@ -1763,9 +1789,16 @@ class StartAttempt(_message.Message):
     SPEC_FIELD_NUMBER: _builtins.int
     SECRETS_FIELD_NUMBER: _builtins.int
     CONDITION_FIELD_NUMBER: _builtins.int
+    BENCHMARK_FIELD_NUMBER: _builtins.int
     job_id: _builtins.str
     attempt_id: _builtins.str
     fencing_token: _builtins.int
+    benchmark: _builtins.bool
+    """V0.9 G5 (D219/D246): this attempt is a benchmark job (a campaign run, a
+    queue filler or a cache warm-up). The agent refuses it - and stops it if
+    it runs - while the owner paused benchmarks or is using the laptop
+    (failure owner_preempted); it never stops a job without this flag.
+    """
     @_builtins.property
     def spec(self) -> Global___ExecutionSpec: ...
     @_builtins.property
@@ -1799,10 +1832,11 @@ class StartAttempt(_message.Message):
         spec: Global___ExecutionSpec | None = ...,
         secrets: _abc.Iterable[Global___JobSecret] | None = ...,
         condition: Global___BenchCondition | None = ...,
+        benchmark: _builtins.bool = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _typing.Literal["condition", b"condition", "spec", b"spec"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["attempt_id", b"attempt_id", "condition", b"condition", "fencing_token", b"fencing_token", "job_id", b"job_id", "secrets", b"secrets", "spec", b"spec"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["attempt_id", b"attempt_id", "benchmark", b"benchmark", "condition", b"condition", "fencing_token", b"fencing_token", "job_id", b"job_id", "secrets", b"secrets", "spec", b"spec"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 

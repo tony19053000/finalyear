@@ -224,6 +224,10 @@ message OwnerPolicy {
   repeated string not_enforced = 9;
   // Agent-local counter, +1 per live change (logs only).
   uint64 revision = 10;
+  // V0.9 G5 (D219/D246): the owner paused benchmark jobs on this node
+  // (`meshforge-agent bench pause`). User jobs are not affected. Default
+  // false, so an agent from before G5 keeps running benchmarks.
+  bool pause_benchmarks = 11;
 }
 
 // A live policy change (V0.7 G5). Slots travel with it: they are owner
@@ -375,6 +379,17 @@ message Heartbeat {
   // Agent wall clock when the heartbeat was sent; used only for RTT/clock-skew
   // measurement (roadmap 0.3.10), never for liveness (monotonic clock, see header).
   google.protobuf.Timestamp agent_time = 2;
+  // V0.9 G5 (D219/D246): the owner is using this laptop (input idle time
+  // below [agent.bench] idle_threshold_s, or CPU of non-fabric processes above
+  // [agent.bench] foreground_cpu_percent), with hysteresis. Only this bit and
+  // a short reason of ours leave the node - never what the owner does. The
+  // controller dispatches no benchmark job here while it is set.
+  bool owner_active = 3;
+  // "idle" / "cpu" / "" (<= 32 characters).
+  string owner_active_reason = 4;
+  // Where input idle time came from: "logind", "windows", or "unknown" (then
+  // only the CPU rule applies). "" = the monitor is off.
+  string idle_source = 5;
 }
 
 // Dynamic resource usage (roadmap 0.3.5). Sent on change beyond a threshold
@@ -676,6 +691,11 @@ message StartAttempt {
   // swept at the next agent start after a crash). The agent re-validates the
   // string and refuses a kind it did not advertise.
   BenchCondition condition = 6;
+  // V0.9 G5 (D219/D246): this attempt is a benchmark job (a campaign run, a
+  // queue filler or a cache warm-up). The agent refuses it - and stops it if
+  // it runs - while the owner paused benchmarks or is using the laptop
+  // (failure owner_preempted); it never stops a job without this flag.
+  bool benchmark = 7;
 }
 
 // One benchmark condition (V0.9 G4). ``spec`` is the canonical condition

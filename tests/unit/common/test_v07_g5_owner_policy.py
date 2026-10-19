@@ -243,4 +243,8 @@ def test_codes_are_the_planner_reject_codes() -> None:
     from meshforge.controller.planner.types import STATIC_CODES, RejectCode
 
     for code in op.PolicyCode:
+        if code is op.PolicyCode.BENCH_PAUSED:
+            # V0.9 G5 (D246): a pause is a moment - a live rejection on purpose
+            assert RejectCode(code.value) not in STATIC_CODES
+            continue
         assert RejectCode(code.value) in STATIC_CODES

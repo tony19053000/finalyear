@@ -317,7 +317,8 @@ app.add_typer(fabric_app)
 # V0.9 G3: `compute bench plan|create|campaigns|runs|submit` (campaigns, D216);
 # importing the module registers its commands on bench_app.
 # V0.9 G5: `compute bench labels` (D218), registered the same way.
-import meshforge.cli.bench_campaign_commands  # noqa: E402, F401
+import meshforge.cli.bench_campaign_commands  # noqa: E402
+import meshforge.cli.bench_runner_commands  # noqa: E402, F401
 from meshforge.cli import bench_label_commands  # noqa: E402, F401
 from meshforge.cli.bench_commands import bench_app  # noqa: E402
 

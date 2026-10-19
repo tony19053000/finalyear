@@ -202,6 +202,13 @@ LIVE_CASES: list[tuple[RejectCode, dict[str, Any], dict[str, Any]]] = [
     (RejectCode.NODE_CAP, {"live_attempts": 8, "cpu_slots": 9}, {}),
     (RejectCode.SLOTS_FULL, {"used_cpu_slots": 1}, {}),
     (RejectCode.DISK_SHORT, {"disk_free_bytes": 100 * 1024 * 1024 - 1}, {}),
+    # V0.9 G5 (D246): the owner guard, benchmark jobs only
+    (
+        RejectCode.BENCH_PAUSED,
+        {"policy": _OPEN_SUB(pause_benchmarks=True)},
+        {"benchmark": True},
+    ),
+    (RejectCode.BENCH_PAUSED, {"owner_active": True}, {"benchmark": True}),
 ]
 
 

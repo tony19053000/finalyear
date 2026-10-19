@@ -249,6 +249,23 @@ COMPUTE: Final[dict[str, Entry]] = {
         "V0.9 G3: the only campaign driver until G5's runner (D232); G6's "
         "pause/resume controls replace it in the UI."
     ),
+    "bench start": CliOnly(
+        "V0.9 G5: hands a campaign to the controller's runner (admin); the "
+        "Benchmarks page (G6, D221) adds the start control."
+    ),
+    "bench pause": CliOnly(
+        "V0.9 G5: stops a campaign's submissions (admin); G6's pause control."
+    ),
+    "bench resume": CliOnly(
+        "V0.9 G5: resumes a paused campaign (admin); G6's resume control."
+    ),
+    "bench cancel": CliOnly(
+        "V0.9 G5: cancels a campaign's benchmark jobs (admin); G6's cancel control."
+    ),
+    "bench status": CliOnly(
+        "V0.9 G5: a campaign's progress, ETA and infra failure rate (admin); G6's "
+        "campaign list shows the same numbers (campaign.progress events)."
+    ),
     "telemetry export": CliOnly(
         "V0.9 G1: downloads the run-record dataset as a Parquet file for analysis "
         "tools (admin). The Benchmarks page (0.9.9, G6) adds the browser download "

@@ -41,10 +41,19 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from meshforge.common.bench_conditions import ConditionError, parse_condition
-from meshforge.common.errors import InvalidIdError
-from meshforge.common.ids import IdKind, parse_id
 from meshforge.common.logging import get_logger
 from meshforge.common.states import JOB_TERMINAL_STATES
+from meshforge.controller.bench.keys import (
+    FILLER_TAG,
+    KEY_PREFIX,
+    WARMUP_TAG,
+    filler_key,
+    pre_job_role,
+    run_id_of_key,
+    run_key,
+    run_of_key,
+    warmup_key,
+)
 from meshforge.controller.bench.store import campaign_identities
 from meshforge.controller.store.engine import create_session_factory
 from meshforge.controller.store.models.bench import BenchCampaign, BenchRun
@@ -60,60 +69,14 @@ __all__ = [
     "filler_key",
     "pre_job_role",
     "run_id_of_key",
+    "run_key",
+    "run_of_key",
     "warmup_key",
 ]
 
 log = get_logger(__name__)
 
-KEY_PREFIX: Final = "bench:"
-FILLER_TAG: Final = "filler"
-WARMUP_TAG: Final = "warmup"
 _TERMINAL: Final = tuple(sorted(s.value for s in JOB_TERMINAL_STATES))
-
-
-def filler_key(run_id: str, index: int) -> str:
-    return f"{KEY_PREFIX}{run_id}:{FILLER_TAG}:{index}"
-
-
-def warmup_key(run_id: str) -> str:
-    return f"{KEY_PREFIX}{run_id}:{WARMUP_TAG}"
-
-
-def run_id_of_key(key: str | None) -> str | None:
-    """The run id of a run job's own key ``bench:<run_id>`` (None for a
-    filler, a warm-up or any other job)."""
-    if not key or not key.startswith(KEY_PREFIX):
-        return None
-    rest = key.removeprefix(KEY_PREFIX)
-    try:
-        parse_id(rest, IdKind.BENCH_RUN)
-    except InvalidIdError:
-        return None
-    return rest
-
-
-def pre_job_role(key: str | None) -> tuple[str, str] | None:
-    """``(role, run_id)`` of a filler (``bench:<run_id>:filler:<i>``) or a
-    warm-up (``bench:<run_id>:warmup``) key; None for any other key."""
-    if not key or not key.startswith(KEY_PREFIX):
-        return None
-    parts = key.removeprefix(KEY_PREFIX).split(":")
-    if (
-        len(parts) == 3
-        and parts[1] == FILLER_TAG
-        and parts[2].isascii()
-        and parts[2].isdecimal()
-    ):
-        role = FILLER_TAG
-    elif len(parts) == 2 and parts[1] == WARMUP_TAG:
-        role = WARMUP_TAG
-    else:
-        return None
-    try:
-        parse_id(parts[0], IdKind.BENCH_RUN)
-    except InvalidIdError:
-        return None
-    return role, parts[0]
 
 
 async def _pre_job_identities(
@@ -254,28 +217,33 @@ async def _facts(
     if not wanted:
         return {}
     # (a Result has .keys(): dict(result) would treat it as a mapping)
-    created: dict[str, dt.datetime] = dict(
-        list(
-            (
-                await db.execute(
-                    select(Job.id, Job.created_at).where(Job.id.in_(sorted(wanted)))
-                )
-            ).tuples()
+    created: dict[str, tuple[dt.datetime, int]] = {}
+    for job_id, created_at, key in (
+        await db.execute(
+            select(Job.id, Job.created_at, Job.idempotency_key).where(
+                Job.id.in_(sorted(wanted))
+            )
         )
-    )
+    ).tuples():
+        found = run_of_key(key)
+        created[job_id] = (created_at, 0 if found is None else found[1])
     out: dict[str, dict[str, Any]] = {}
     for job_id, condition in wanted.items():
         run_id = str(identities[job_id]["run_id"])
-        queued_at = created.get(job_id)
-        if queued_at is None:
+        if job_id not in created:
             continue
+        queued_at, generation = created[job_id]
         kind = condition.kind.value
         if kind == "queue":
             count = int(getattr(condition, "jobs", 0))
-            out[job_id] = await _queue_facts(db, run_id, count, queued_at)
+            out[job_id] = await _queue_facts(
+                db, run_id, count, queued_at, first=generation * count + 1
+            )
         elif kind == "cache" and getattr(condition, "mode", "") == "warm":
             state = await db.scalar(
-                select(Job.state).where(Job.idempotency_key == warmup_key(run_id))
+                select(Job.state).where(
+                    Job.idempotency_key == warmup_key(run_id, generation)
+                )
             )
             out[job_id] = {"warmup_state": state}
         elif kind == "unavailable":
@@ -298,11 +266,17 @@ async def _facts(
 
 
 async def _queue_facts(
-    db: AsyncSession, run_id: str, count: int, queued_at: dt.datetime
+    db: AsyncSession,
+    run_id: str,
+    count: int,
+    queued_at: dt.datetime,
+    *,
+    first: int = 1,
 ) -> dict[str, Any]:
-    """Fillers of ``run_id`` created before the run job and not yet ended when
-    it was queued (= the queue in front of it). Exact keys, no LIKE."""
-    keys = [filler_key(run_id, i) for i in range(1, count + 1)]
+    """Fillers of ``run_id`` (this generation's: ``first .. first+count-1``)
+    created before the run job and not yet ended when it was queued (= the
+    queue in front of it). Exact keys, no LIKE."""
+    keys = [filler_key(run_id, i) for i in range(first, first + count)]
     fillers = list(
         (
             await db.execute(

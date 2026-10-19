@@ -143,6 +143,8 @@ from meshforge.controller.session.heartbeats import HeartbeatRecorder
 from meshforge.controller.session.hooks import SessionHooks
 from meshforge.controller.session.limits import check_goodbye
 from meshforge.controller.session.live import (
+    IDLE_SOURCES,
+    OWNER_REASONS,
     RTT_EWMA_ALPHA,
     Accepted,
     AdmitResult,
@@ -880,6 +882,24 @@ class SessionManager:
         now = self._clock()
         live.tracker.observe_heartbeat(now)
         live.heartbeats += 1
+        beat = _msg.heartbeat
+        # V0.9 G5 (D219/D246): the owner guard bit (bounded; benchmark jobs only)
+        active = bool(beat.owner_active)
+        reason = beat.owner_active_reason if active else ""
+        live.owner_active_reason = reason if reason in OWNER_REASONS else ""
+        source = beat.idle_source
+        live.idle_source = source if source in IDLE_SOURCES else ""
+        if active != live.owner_active:
+            live.owner_active = active
+            log.info(
+                "controller.session.owner_active",
+                node_id=live.node_id,
+                session_id=live.session_id,
+                owner_active=active,
+                reason=live.owner_active_reason or None,
+                idle_source=live.idle_source or None,
+            )
+            self.wake.set()  # the dispatcher re-plans (bench jobs wait / go)
         if live.state is NodeState.SUSPECT:
             await self.apply_event(live, LivenessEvent.HEARTBEAT, silence_s=0.0)
         self.heartbeats.touch(live, now, force=False)

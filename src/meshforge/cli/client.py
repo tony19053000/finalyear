@@ -267,6 +267,27 @@ class ControllerClient:
             timeout=_TRANSFER_TIMEOUT_S,
         )
 
+    # V0.9 G5 campaign runner controls (D246, admin)
+    def bench_control(
+        self,
+        campaign_id: str,
+        verb: str,
+        body: Mapping[str, Any] | None = None,
+    ) -> Mapping[str, Any]:
+        """``POST /v1/bench/campaigns/{id}/{start|pause|resume|cancel}``."""
+        if verb not in ("start", "pause", "resume", "cancel"):
+            raise ValueError(f"unknown campaign control {verb!r}")
+        kwargs: dict[str, Any] = {}
+        if body:
+            kwargs["json_body"] = dict(body)
+        return self._request(
+            "POST", f"/v1/bench/campaigns/{campaign_id}/{verb}", **kwargs
+        )
+
+    def bench_status(self, campaign_id: str) -> Mapping[str, Any]:
+        """``GET /v1/bench/campaigns/{id}/status``."""
+        return self._get(f"/v1/bench/campaigns/{campaign_id}/status")
+
     def submit_job(
         self, body: Mapping[str, Any], *, idempotency_key: str
     ) -> Mapping[str, Any]:

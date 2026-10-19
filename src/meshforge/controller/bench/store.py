@@ -15,7 +15,14 @@
   A campaign is ``done`` once no run is ``planned`` or ``submitted``.
 * :func:`campaign_identities` is the run-record recorder's lookup (D212):
   ``job_id -> {campaign_id, group_id, config_id, repetition, run_id}`` for a
-  batch of jobs, one indexed query inside the recorder's own transaction.
+  batch of jobs, one indexed query inside the recorder's own transaction. A
+  job of an earlier **generation** of a requeued run (G5: the link moved to the
+  new job) is found by its key ``bench:<run_id>[:<g>]``, checked like
+  :meth:`BenchStore._link_orphans` checks one - so its record keeps the
+  campaign (checklist 29).
+* **Runner-owned campaigns** (V0.9 G5: ``started_at`` set): ``sync`` settles a
+  finished run by :func:`.outcome.settle` instead - ``done``, ``failed``, or
+  back to ``planned`` (infra retry / owner pre-emption, ``generation + 1``).
 
 Callers get frozen records; database errors become :class:`BenchStoreError`
 (``network_error``, retryable).
@@ -25,6 +32,7 @@ from __future__ import annotations
 
 import datetime as dt
 import functools
+import time
 from collections.abc import (
     Awaitable,
     Callable,
@@ -36,7 +44,7 @@ from collections.abc import (
 from dataclasses import dataclass, field
 from typing import Any, Final
 
-from sqlalchemy import case, func, insert, select, update
+from sqlalchemy import String, case, cast, func, insert, or_, select, update
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
@@ -45,8 +53,11 @@ from meshforge.common.errors import FailureType, MeshForgeError
 from meshforge.common.ids import new_bench_run_id
 from meshforge.common.logging import get_logger
 from meshforge.common.states import JOB_TERMINAL_STATES, JobState
+from meshforge.controller.bench.keys import run_key, run_of_key
+from meshforge.controller.bench.outcome import settle
 from meshforge.controller.store.engine import create_session_factory
 from meshforge.controller.store.models.bench import (
+    MAX_LAST_FAILURE_CHARS,
     MAX_RUN_DETAIL_CHARS,
     BenchCampaign,
     BenchRun,
@@ -69,6 +80,9 @@ BENCH_KEY_PREFIX: Final = "bench:"
 """The Idempotency-Key prefix of a forced run's job (``bench:<run_id>``);
 :data:`.submit.IDEMPOTENCY_PREFIX` is this value."""
 _INSERT_CHUNK: Final = 1_000
+_SETTLE_BATCH: Final = 500
+_ORPHAN_REASK_S: Final = 30.0
+_ORPHANS_REMEMBERED: Final = 10_000
 _TERMINAL: Final = tuple(sorted(s.value for s in JOB_TERMINAL_STATES))
 _OPEN_RUN_STATES: Final = ("planned", "submitted")
 RUN_STATE_NAMES: Final = ("planned", "submitted", "done", "failed", "skipped")
@@ -112,6 +126,16 @@ class CampaignRecord:
     created_at: dt.datetime
     counts: Mapping[str, int] = field(default_factory=dict)
     """Runs per state (every state listed, zeros included)."""
+    max_concurrent_per_node: int = 1
+    cooldown_s: float = 5.0
+    max_infra_retries: int = 2
+    started_at: dt.datetime | None = None
+    """Set = the runner owns the campaign (V0.9 G5)."""
+    finished_reason: str | None = None
+
+    @property
+    def runner_owned(self) -> bool:
+        return self.started_at is not None
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,6 +158,14 @@ class RunRow:
     detail: str | None = None
     submitted_at: dt.datetime | None = None
     ended_at: dt.datetime | None = None
+    tries: int = 0
+    generation: int = 0
+    last_failure: str | None = None
+
+    @property
+    def job_key(self) -> str:
+        """This generation's job Idempotency-Key."""
+        return run_key(self.id, self.generation)
 
 
 def _campaign(row: BenchCampaign, counts: Mapping[str, int]) -> CampaignRecord:
@@ -149,6 +181,13 @@ def _campaign(row: BenchCampaign, counts: Mapping[str, int]) -> CampaignRecord:
         created_by=row.created_by,
         created_at=row.created_at,
         counts={state: int(counts.get(state, 0)) for state in RUN_STATE_NAMES},
+        max_concurrent_per_node=int(row.max_concurrent_per_node or 1),
+        cooldown_s=float(row.cooldown_s if row.cooldown_s is not None else 5.0),
+        max_infra_retries=int(
+            row.max_infra_retries if row.max_infra_retries is not None else 2
+        ),
+        started_at=row.started_at,
+        finished_reason=row.finished_reason,
     )
 
 
@@ -172,6 +211,9 @@ def _run(row: BenchRun) -> RunRow:
         detail=row.detail,
         submitted_at=row.submitted_at,
         ended_at=row.ended_at,
+        tries=int(row.tries or 0),
+        generation=int(row.generation or 0),
+        last_failure=row.last_failure,
     )
 
 
@@ -192,7 +234,7 @@ async def campaign_identities(
             BenchRun.id,
         ).where(BenchRun.job_id.in_(sorted(job_ids)))
     )
-    return {
+    out = {
         str(job_id): {
             "campaign_id": campaign_id,
             "group_id": group_id,
@@ -202,6 +244,76 @@ async def campaign_identities(
         }
         for job_id, campaign_id, group_id, config_id, repetition, run_id in rows
     }
+    rest = [j for j in job_ids if j not in out]
+    if rest:
+        out.update(await _earlier_generations(db, rest))
+    return out
+
+
+async def _earlier_generations(
+    db: AsyncSession, job_ids: Collection[str]
+) -> dict[str, dict[str, Any]]:
+    """V0.9 G5: jobs of a requeued run's earlier generations (the run's link
+    moved on). Found by key and accepted only when the job **is** that run's
+    (same checks as ``_link_orphans``: owner = the campaign's creator,
+    submitted from the run's origin, pinned to its node)."""
+    jobs = list(
+        (
+            await db.execute(
+                select(
+                    Job.id,
+                    Job.idempotency_key,
+                    Job.owner_user_id,
+                    Job.submitter_node_id,
+                    Job.placement,
+                ).where(
+                    Job.id.in_(sorted(job_ids)),
+                    Job.idempotency_key.like(f"{BENCH_KEY_PREFIX}%"),
+                )
+            )
+        ).tuples()
+    )
+    by_run: dict[str, list[tuple[str, str | None, str | None, Any]]] = {}
+    for job_id, key, owner, submitter, placement in jobs:
+        found = run_of_key(key)
+        if found is not None:
+            by_run.setdefault(found[0], []).append(
+                (job_id, owner, submitter, placement)
+            )
+    if not by_run:
+        return {}
+    rows = await db.execute(
+        select(
+            BenchRun.id,
+            BenchRun.campaign_id,
+            BenchRun.group_id,
+            BenchRun.config_id,
+            BenchRun.repetition,
+            BenchRun.node_id,
+            BenchRun.origin_node_id,
+            BenchCampaign.created_by,
+        )
+        .join(BenchCampaign, BenchCampaign.id == BenchRun.campaign_id)
+        .where(BenchRun.id.in_(sorted(by_run)))
+    )
+    out: dict[str, dict[str, Any]] = {}
+    for run_id, cid, group, config, rep, node, origin, creator in rows:
+        for job_id, owner, submitter, placement in by_run.get(run_id, ()):
+            pinned = (
+                (placement or {}).get("node_id")
+                if isinstance(placement, dict)
+                else None
+            )
+            if owner != creator or submitter != origin or pinned != node:
+                continue
+            out[str(job_id)] = {
+                "campaign_id": cid,
+                "group_id": group,
+                "config_id": config,
+                "repetition": int(rep),
+                "run_id": run_id,
+            }
+    return out
 
 
 class BenchStore:
@@ -211,6 +323,10 @@ class BenchStore:
         self._sessions: async_sessionmaker[AsyncSession] = create_session_factory(
             engine
         )
+        self.cancel_job: Callable[[str], Awaitable[object]] | None = None
+        """Fix r1 (D250 D-1): the dispatcher's ``cancel`` - set by the server;
+        :meth:`sync` uses it to cancel orphan benchmark jobs (None = off)."""
+        self._orphans_asked: dict[str, float] = {}
 
     # ------------------------------------------------------------ campaigns
 
@@ -338,6 +454,7 @@ class BenchStore:
         after_seq: int = 0,
         limit: int = 100,
         exclude_nodes: Collection[str] = (),
+        only_nodes: Collection[str] | None = None,
     ) -> list[RunRow]:
         """Runs in ``seq`` order, after ``after_seq`` (keyset paging), except
         those on ``exclude_nodes`` (the submitter's passed-over nodes)."""
@@ -352,6 +469,8 @@ class BenchStore:
             query = query.where(BenchRun.state == state)
         if exclude_nodes:
             query = query.where(BenchRun.node_id.not_in(sorted(exclude_nodes)))
+        if only_nodes is not None:  # V0.9 G5: the runner's per-node budget
+            query = query.where(BenchRun.node_id.in_(sorted(only_nodes)))
         async with self._sessions() as db:
             return [_run(r) for r in await db.scalars(query)]
 
@@ -363,13 +482,24 @@ class BenchStore:
             return await campaign_identities(db, job_ids)
 
     @_typed
-    async def mark_submitted(self, run_id: str, job_id: str) -> bool:
+    async def mark_submitted(
+        self, run_id: str, job_id: str, *, generation: int | None = None
+    ) -> bool:
         """``planned -> submitted`` with ``job_id``; False = the run had already
-        moved on (another submit won)."""
+        moved on (another submit won). ``generation`` (G5): only while the run
+        is still at that generation (the job's key was built from it)."""
         async with self._sessions() as db, db.begin():
             done = await db.execute(
                 update(BenchRun)
-                .where(BenchRun.id == run_id, BenchRun.state == "planned")
+                .where(
+                    BenchRun.id == run_id,
+                    BenchRun.state == "planned",
+                    *(
+                        ()
+                        if generation is None
+                        else (BenchRun.generation == generation,)
+                    ),
+                )
                 .values(state="submitted", job_id=job_id, submitted_at=func.now())
                 .execution_options(synchronize_session=False)
             )
@@ -401,6 +531,7 @@ class BenchStore:
         with no open run. The runs moved to ``done`` / ``failed``."""
         async with self._sessions() as db, db.begin():
             await self._link_orphans(db, campaign_id)
+            settled = await self._settle_runner_runs(db, campaign_id)
             final_at = (
                 select(JobTransition.at)
                 .where(JobTransition.job_id == Job.id)
@@ -414,6 +545,9 @@ class BenchStore:
                     BenchRun.state == "submitted",
                     BenchRun.job_id == Job.id,
                     Job.state.in_(_TERMINAL),
+                    # G3 manual campaigns; a runner-owned one was settled above
+                    BenchCampaign.id == BenchRun.campaign_id,
+                    BenchCampaign.started_at.is_(None),
                     *(
                         ()
                         if campaign_id is None
@@ -440,7 +574,7 @@ class BenchStore:
                 )
                 .execution_options(synchronize_session=False)
             )
-            count = int(getattr(moved, "rowcount", 0) or 0)
+            count = int(getattr(moved, "rowcount", 0) or 0) + settled
             still_open = (
                 select(BenchRun.id)
                 .where(
@@ -452,7 +586,7 @@ class BenchStore:
             await db.execute(
                 update(BenchCampaign)
                 .where(
-                    BenchCampaign.state == "active",
+                    BenchCampaign.state.in_(("active", "paused")),
                     ~still_open,
                     *(
                         ()
@@ -460,14 +594,194 @@ class BenchStore:
                         else (BenchCampaign.id == campaign_id,)
                     ),
                 )
-                .values(state="done")
+                .values(
+                    state="done",
+                    finished_reason=case(
+                        (
+                            BenchCampaign.started_at.is_(None),
+                            BenchCampaign.finished_reason,
+                        ),
+                        else_=func.coalesce(BenchCampaign.finished_reason, "complete"),
+                    ),
+                )
                 .execution_options(synchronize_session=False)
             )
         if count:
             log.info(
                 "controller.bench.runs_ended", count=count, campaign_id=campaign_id
             )
+        if self.cancel_job is not None:
+            await self._cancel_orphans(campaign_id)
         return count
+
+    async def orphan_jobs(self, campaign_id: str | None = None) -> list[str]:
+        """Fix r1 (D250 D-1) backstop: non-terminal benchmark jobs (any
+        generation, fillers, warm-ups) of a run that is ``skipped`` or of a
+        ``cancelled`` campaign - jobs a racing submission created after the
+        cancel. Only jobs owned by the campaign's creator (a user cannot make
+        the controller cancel a job by naming it ``bench:<run_id>``... nor have
+        their own job cancelled for it)."""
+        run_of_job = func.split_part(
+            func.substr(Job.idempotency_key, len(BENCH_KEY_PREFIX) + 1), ":", 1
+        )
+        async with self._sessions() as db:
+            return [
+                str(j)
+                for j in await db.scalars(
+                    select(Job.id)
+                    .join(BenchRun, BenchRun.id == run_of_job)
+                    .join(BenchCampaign, BenchCampaign.id == BenchRun.campaign_id)
+                    .where(
+                        Job.idempotency_key.like(f"{BENCH_KEY_PREFIX}%"),
+                        Job.state.not_in(_TERMINAL),
+                        Job.owner_user_id.is_not_distinct_from(
+                            BenchCampaign.created_by
+                        ),
+                        or_(
+                            BenchRun.state == "skipped",
+                            BenchCampaign.state == "cancelled",
+                        ),
+                        *(
+                            ()
+                            if campaign_id is None
+                            else (BenchRun.campaign_id == campaign_id,)
+                        ),
+                    )
+                    .order_by(Job.id)
+                    .limit(_SETTLE_BATCH)
+                )
+            ]
+
+    async def _cancel_orphans(self, campaign_id: str | None) -> None:
+        cancel = self.cancel_job
+        if cancel is None:
+            return
+        try:
+            orphans = await self.orphan_jobs(campaign_id)
+        except (SQLAlchemyError, OSError, TimeoutError):
+            log.warning("controller.bench.orphan_scan_failed", campaign_id=campaign_id)
+            return
+        now = time.monotonic()
+        for job_id in orphans:
+            asked = self._orphans_asked.get(job_id)
+            if asked is not None and now - asked < _ORPHAN_REASK_S:
+                continue  # its cancel is under way
+            self._orphans_asked[job_id] = now
+            log.warning("controller.bench.orphan_job_cancelled", job_id=job_id)
+            try:
+                await cancel(job_id)
+            except Exception:  # logged; asked again after _ORPHAN_REASK_S
+                log.exception("controller.bench.orphan_cancel_failed", job_id=job_id)
+        if len(self._orphans_asked) > _ORPHANS_REMEMBERED:
+            keep = sorted(self._orphans_asked.items(), key=lambda kv: kv[1])
+            self._orphans_asked = dict(keep[-_ORPHANS_REMEMBERED // 2 :])
+
+    @_typed
+    async def linked_job(self, run_id: str) -> str | None:
+        """The job ``run_id`` is linked to now (None = none)."""
+        async with self._sessions() as db:
+            job = await db.scalar(select(BenchRun.job_id).where(BenchRun.id == run_id))
+        return None if job is None else str(job)
+
+    async def _settle_runner_runs(
+        self, db: AsyncSession, campaign_id: str | None
+    ) -> int:
+        """V0.9 G5: finished runs of runner-owned campaigns, by
+        :func:`.outcome.settle` (rows locked; a concurrent sync skips them).
+        The runs moved."""
+        final_at = (
+            select(JobTransition.at)
+            .where(JobTransition.job_id == Job.id)
+            .order_by(JobTransition.seq.desc())
+            .limit(1)
+            .scalar_subquery()
+        )
+        rows = list(
+            (
+                await db.execute(
+                    select(
+                        BenchRun.id,
+                        BenchRun.job_id,
+                        BenchRun.tries,
+                        BenchRun.generation,
+                        Job.state,
+                        Job.failure_type,
+                        func.coalesce(final_at, Job.updated_at),
+                        BenchCampaign.max_infra_retries,
+                        BenchCampaign.finished_reason,
+                    )
+                    .join(Job, Job.id == BenchRun.job_id)
+                    .join(BenchCampaign, BenchCampaign.id == BenchRun.campaign_id)
+                    .where(
+                        BenchRun.state == "submitted",
+                        Job.state.in_(_TERMINAL),
+                        BenchCampaign.started_at.is_not(None),
+                        *(
+                            ()
+                            if campaign_id is None
+                            else (BenchRun.campaign_id == campaign_id,)
+                        ),
+                    )
+                    .order_by(BenchRun.id)
+                    .limit(_SETTLE_BATCH)
+                    .with_for_update(of=BenchRun, skip_locked=True)
+                )
+            ).tuples()
+        )
+        moved = 0
+        for (
+            run_id,
+            job_id,
+            tries,
+            generation,
+            state,
+            ftype,
+            ended,
+            retries,
+            fin,
+        ) in rows:
+            out = settle(
+                state,
+                ftype,
+                tries=int(tries),
+                max_infra_retries=int(retries),
+                stopped=fin is not None,
+            )
+            values: dict[str, Any] = {
+                "state": out.state,
+                "tries": out.tries,
+                "last_failure": None
+                if out.last_failure is None
+                else out.last_failure[:MAX_LAST_FAILURE_CHARS],
+                "detail": None
+                if out.detail is None
+                else out.detail[:MAX_RUN_DETAIL_CHARS],
+                "ended_at": ended,
+            }
+            if out.requeued:
+                values |= {"job_id": None, "generation": int(generation) + 1}
+            done = await db.execute(
+                update(BenchRun)
+                .where(
+                    BenchRun.id == run_id,
+                    BenchRun.state == "submitted",
+                    BenchRun.job_id == job_id,
+                )
+                .values(**values)
+                .execution_options(synchronize_session=False)
+            )
+            if getattr(done, "rowcount", 0):
+                moved += 1
+                log.info(
+                    "controller.bench.run_settled",
+                    run_id=run_id,
+                    job_id=job_id,
+                    state=out.state,
+                    tries=out.tries,
+                    failure_type=ftype,
+                    generation=int(generation) + (1 if out.requeued else 0),
+                )
+        return moved
 
     async def _link_orphans(self, db: AsyncSession, campaign_id: str | None) -> int:
         """G4 item 0.6 (D239.2): a crash between the job's commit and the run's
@@ -483,7 +797,20 @@ class BenchStore:
             .where(
                 BenchRun.state == "planned",
                 BenchRun.job_id.is_(None),
-                Job.idempotency_key == func.concat(BENCH_KEY_PREFIX, BenchRun.id),
+                # this generation's key (G5: bench:<run_id>[:<generation>])
+                Job.idempotency_key
+                == case(
+                    (
+                        BenchRun.generation == 0,
+                        func.concat(BENCH_KEY_PREFIX, BenchRun.id),
+                    ),
+                    else_=func.concat(
+                        BENCH_KEY_PREFIX,
+                        BenchRun.id,
+                        ":",
+                        cast(BenchRun.generation, String),
+                    ),
+                ),
                 BenchCampaign.id == BenchRun.campaign_id,
                 Job.owner_user_id.is_not_distinct_from(BenchCampaign.created_by),
                 Job.submitter_node_id == BenchRun.origin_node_id,

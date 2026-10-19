@@ -32,7 +32,11 @@ from typing import Any, ClassVar, Final
 
 import psutil  # type: ignore[import-untyped]
 
-from meshforge.agent.conditions.base import ConditionController, ConditionFailedError
+from meshforge.agent.conditions.base import (
+    ConditionController,
+    ConditionFailedError,
+    kill_and_reap,
+)
 from meshforge.agent.conditions.marker import BURNER_MODULE
 from meshforge.common.logging import get_logger
 
@@ -139,11 +143,7 @@ class LoadProcesses:
             try:
                 await asyncio.wait_for(proc.wait(), _KILL_GRACE_S)
             except TimeoutError:
-                with contextlib.suppress(ProcessLookupError):
-                    proc.kill()
-                try:
-                    await asyncio.wait_for(proc.wait(), _KILL_GRACE_S)
-                except TimeoutError:
+                if not await kill_and_reap(proc, timeout_s=_KILL_GRACE_S):
                     gone = False
         self.reverted = gone
         return gone

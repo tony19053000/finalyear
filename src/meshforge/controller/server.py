@@ -38,7 +38,7 @@ import functools
 import ipaddress
 import signal
 import socket
-from collections.abc import Coroutine, Iterator
+from collections.abc import Coroutine, Iterator, Mapping
 from datetime import UTC, datetime, timedelta
 from types import TracebackType
 from typing import Any
@@ -70,6 +70,8 @@ from meshforge.controller.bench.conditions import (
     NodePauses,
     bench_identities,
 )
+from meshforge.controller.bench.control import CampaignControl
+from meshforge.controller.bench.runner import BenchRunner, RunnerSettings
 from meshforge.controller.bench.store import BenchStore
 from meshforge.controller.bench.submit import BenchSubmitter
 from meshforge.controller.blobs import BlobStore, FetchTokens
@@ -558,7 +560,36 @@ class ControllerRuntime:
             wake=self.dispatcher.wake,
             pauses=self.node_pauses,
         )
+        # V0.9 G5 fix r1 (D250 D-1): orphan benchmark jobs are cancelled
+        self.bench.cancel_job = self.dispatcher.cancel
+        self.bench_submitter.cancel_job = self.dispatcher.cancel
         self._spawn(self.recorder.run(), "telemetry-recorder")
+        # V0.9 G5 (D219/D246): the unattended campaign runner (supervised)
+        self.bench_control = CampaignControl(engine)
+        events = self.events
+
+        def campaign_progress(data: Mapping[str, Any]) -> None:
+            if events is not None:
+                events.publish(
+                    EventType.CAMPAIGN_PROGRESS, data, audience=Audience.ADMIN
+                )
+
+        bench_cfg = cfg.bench
+        self.bench_runner = BenchRunner(
+            store=self.bench,
+            control=self.bench_control,
+            submitter=self.bench_submitter,
+            settings=RunnerSettings(
+                tick_s=bench_cfg.tick_s,
+                max_submit_per_tick=bench_cfg.max_submit_per_tick,
+                max_examine_per_tick=bench_cfg.max_examine_per_tick,
+            ),
+            sessions=manager,
+            publish=campaign_progress,
+            clock=loop.time,
+        )
+        if bench_cfg.runner:
+            self._spawn(self.bench_runner.run(), "bench-runner")
         # V0.5 G5 (D92): the pinned named inputs go to every agent after its
         # Reconcile (chained behind the dispatcher's hook) and on every change.
         self.pins = PinBroadcaster(self.inputs, manager)
@@ -711,7 +742,12 @@ class ControllerRuntime:
                 engine, max_rows=self.settings.controller.telemetry.export_max_rows
             ),
             bench=BenchApi(
-                store=self.bench, submitter=self.bench_submitter, registry=registry
+                store=self.bench,
+                submitter=self.bench_submitter,
+                registry=registry,
+                control=self.bench_control,
+                runner=self.bench_runner,
+                cancel_job=self.dispatcher.cancel,
             ),
         )
         http_config = uvicorn.Config(

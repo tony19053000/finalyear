@@ -230,6 +230,7 @@ class DispatchPlanner:
             busy_gpus=fabric.busy_gpus(row.node_id),
             cached_envs=envs,
             policy=None if live is None else live.policy,
+            owner_active=bool(getattr(live, "owner_active", False)),
         )
 
     def snapshot(self, fabric: FabricRows) -> ClusterSnapshot:
@@ -337,6 +338,8 @@ class DispatchPlanner:
             owner_name=None
             if job.owner_user_id is None
             else fabric.owner_names.get(job.owner_user_id),
+            # V0.9 G5 (D246): a bench job waits while the owner guard is on
+            benchmark=is_benchmark_key(job.idempotency_key),
         )
         snapshot = self._for_job(self.snapshot(fabric), key)
         past = fabric.past_failures.get(job.id, ())
@@ -402,6 +405,9 @@ class DispatchPlanner:
             request = dataclasses.replace(
                 plan_job,
                 pinned_node_id=None,
+                # the owner guard is a moment, like slot occupancy: the
+                # preference label ignores it (V0.9 G5)
+                benchmark=False,
                 excluded=exclusions(
                     past,
                     snapshot.nodes,

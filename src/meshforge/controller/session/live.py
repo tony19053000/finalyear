@@ -26,7 +26,9 @@ from meshforge.controller.session.clocks import NodeClock
 from meshforge.controller.session.writer import WriteChain
 
 __all__ = [
+    "IDLE_SOURCES",
     "MAX_AWAITING_ACK",
+    "OWNER_REASONS",
     "RTT_EWMA_ALPHA",
     "Accepted",
     "AdmitResult",
@@ -132,6 +134,11 @@ class SeenIds:
         return len(self._set)
 
 
+OWNER_REASONS: Final = frozenset({"", "idle", "cpu", "idle+cpu"})
+"""What a heartbeat's ``owner_active_reason`` may say (anything else is "")."""
+IDLE_SOURCES: Final = frozenset({"", "logind", "windows", "unknown"})
+
+
 @dataclass(eq=False, slots=True)
 class LiveSession:
     """In-memory state of one accepted stream. Owned by the ``SessionManager``."""
@@ -189,6 +196,13 @@ class LiveSession:
     policy_slots: tuple[int | None, int | None] | None = None
     """Slots from the newest PolicyUpdate (override the Hello's); None = none
     received in this session."""
+    owner_active: bool = False
+    """V0.9 G5 (D219/D246): the newest heartbeat says the node's owner is using
+    it (benchmark jobs wait; user jobs are not affected)."""
+    owner_active_reason: str = ""
+    """``idle`` / ``cpu`` / "" - bounded to :data:`OWNER_REASONS`."""
+    idle_source: str = ""
+    """``logind`` / ``windows`` / ``unknown`` / "" - bounded to :data:`IDLE_SOURCES`."""
     declared_gpus: frozenset[int] = frozenset()
     """``Hello.hardware.gpus[].index`` of this session: the only GPU indices its
     score reports may name (D39)."""

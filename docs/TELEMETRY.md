@@ -47,7 +47,7 @@ reads the current state of those tables.
 |---|---|
 | `ok` | the attempt finished (`done`) |
 | `workload` | the workload failed: crash / non-zero exit, OOM, its own time limit, benchmark self-check failed (exit 4) or bad parameters (exit 2) |
-| `infrastructure` | the fabric failed it: node lost, fenced by a retry, transfer, environment build, disk, internal |
+| `infrastructure` | the fabric failed it: node lost, fenced by a retry, transfer, environment build, disk, internal. Also `failure_type = owner_preempted` (V0.9 G5: the owner guard stopped a benchmark attempt; no schema bump) - the campaign runner requeues those and the campaign's infrastructure failure rate (criterion 1, `compute bench status`) **excludes** them; filter with `failure_type IS DISTINCT FROM 'owner_preempted'` |
 | `condition_failed` | a benchmark condition could not be applied or verified (V0.9 G4) |
 | `unavailable` | could not run here (benchmark exit 3, e.g. no CUDA) or was cancelled — no measurement |
 

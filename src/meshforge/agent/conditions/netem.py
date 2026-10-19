@@ -28,6 +28,15 @@ SYN). Measured: interface, RTT before/after, the qdisc line.
 
 **Reverted always**: at the attempt's end, and - via the marker - at the next
 agent start after a crash. A failed delete keeps the marker entry.
+
+**Only our own netem is deleted** (G5 item 0.3, D244 residual): the marker
+entry also stores the **expected parameters** (``netem_expect``: delay, loss,
+rate); revert and the start-up sweep delete a root netem only when ``tc qdisc
+show`` lists one whose parameters match them (:func:`netem_matches`, with the
+rounding ``tc`` prints). A foreign netem installed after a crash, with other
+parameters, survives. An entry without ``netem_expect`` (written by a G4 agent
+before an upgrade) keeps the G4 rule: any root netem, when the installed bit
+is set (logged).
 """
 
 from __future__ import annotations
@@ -35,6 +44,8 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import ipaddress
+import math
+import re
 import socket
 import statistics
 import time
@@ -43,7 +54,11 @@ from typing import Any, ClassVar, Final
 
 import psutil  # type: ignore[import-untyped]
 
-from meshforge.agent.conditions.base import ConditionController, ConditionFailedError
+from meshforge.agent.conditions.base import (
+    ConditionController,
+    ConditionFailedError,
+    kill_and_reap,
+)
 from meshforge.common.bench_conditions import Netem
 from meshforge.common.logging import get_logger
 
@@ -54,7 +69,11 @@ __all__ = [
     "TcRunner",
     "delete_netem",
     "egress_interface",
+    "expected_params",
     "is_loopback_interface",
+    "netem_matches",
+    "parse_netem_line",
+    "valid_expect",
 ]
 
 log = get_logger(__name__)
@@ -101,19 +120,13 @@ class TcRunner:
         try:
             out, err = await asyncio.wait_for(proc.communicate(), self._timeout_s)
         except TimeoutError:
-            with contextlib.suppress(ProcessLookupError):
-                proc.kill()
-            await proc.wait()
+            await kill_and_reap(proc)
             raise TcError(f"tc timed out after {self._timeout_s:g} s") from None
         except asyncio.CancelledError:
             # stopped (finish() cancels a running apply): the tc process must
             # be gone before the caller reverts, else its change lands after
-            with contextlib.suppress(ProcessLookupError):
-                proc.kill()
-            reaped = asyncio.ensure_future(proc.wait())
-            while not reaped.done():  # a second cancel must not skip this
-                with contextlib.suppress(asyncio.CancelledError):
-                    await asyncio.shield(reaped)
+            # (a second cancel cannot skip the reap: kill_and_reap holds it)
+            await kill_and_reap(proc)
             raise
         if proc.returncode != 0:
             first = err.decode("utf-8", "replace").strip().splitlines()[:1]
@@ -196,6 +209,130 @@ async def median_rtt_ms(
     return statistics.median(values) if values else None
 
 
+type NetemParams = Mapping[str, float | None]
+"""``{"delay_ms": x, "loss_pct": y, "rate_mbit": z | None}`` (0 / None = not set)."""
+
+_NUM: Final = r"(\d+(?:\.\d+)?(?:e[+-]?\d+)?)"
+_TIME_RE: Final = re.compile(_NUM + r"(ns|us|usec|ms|msec|s|sec|secs)?")
+_TIME_MS: Final = {
+    "ns": 1e-6,
+    "us": 1e-3,
+    "usec": 1e-3,
+    "ms": 1.0,
+    "msec": 1.0,
+    "": 1.0,
+    "s": 1000.0,
+    "sec": 1000.0,
+    "secs": 1000.0,
+}
+_PERCENT_RE: Final = re.compile(_NUM + "%")
+_RATE_RE: Final = re.compile(_NUM + r"([kmgt]?)(bit|bps)")
+_RATE_SCALE: Final = {"": 1.0, "k": 1e3, "m": 1e6, "g": 1e9, "t": 1e12}
+_REL_TOLERANCE: Final = 0.01
+"""``tc`` prints times with 3 significant digits (``1.23ms``) and rates in
+whole units (``1500Kbit``): 1 % covers its rounding, not another netem."""
+_PARAM_KEYS: Final = ("delay_ms", "loss_pct", "rate_mbit")
+_VALUED_WORDS: Final = frozenset({"refcnt", "limit", "seed", "parent", "dev"})
+"""Words of a ``tc qdisc show`` line (with one value) that are not netem
+parameters of ours."""
+
+
+def expected_params(netem: Netem) -> dict[str, float | None]:
+    """What :func:`netem_matches` compares (stored in the marker entry)."""
+    return {
+        "delay_ms": float(netem.delay_ms),
+        "loss_pct": float(netem.loss_pct),
+        "rate_mbit": None if netem.rate_mbit is None else float(netem.rate_mbit),
+    }
+
+
+def _ms(token: str) -> float | None:
+    found = _TIME_RE.fullmatch(token.lower())
+    return None if found is None else float(found[1]) * _TIME_MS[found[2] or ""]
+
+
+def parse_netem_line(line: str) -> dict[str, float | None] | None:
+    """The delay / loss / rate of a ``tc qdisc show`` netem line (None = not
+    a netem line, or one this agent never installs: with a jitter, a
+    correlation, or **any word it does not know** - duplicate, reorder,
+    corrupt, slot... - which our ``tc_args`` never set; fix r1 T1-2)."""
+    words = line.split()
+    if "netem" not in words:
+        return None
+    out: dict[str, float | None] = {"delay_ms": 0.0, "loss_pct": 0.0, "rate_mbit": None}
+    i = first = words.index("netem") + 1
+    while i < len(words):
+        key = words[i]
+        value = words[i + 1] if i + 1 < len(words) else ""
+        after = words[i + 2] if i + 2 < len(words) else ""
+        if key == "delay":
+            delay = _ms(value)
+            if delay is None or _ms(after) is not None:
+                return None  # unreadable, or a jitter: not ours
+            out["delay_ms"] = delay
+            i += 2
+        elif key == "loss":
+            found = _PERCENT_RE.fullmatch(value)
+            if found is None or _PERCENT_RE.fullmatch(after):
+                return None  # a loss model / a correlation: not ours
+            out["loss_pct"] = float(found[1])
+            i += 2
+        elif key == "rate":
+            rate = _RATE_RE.fullmatch(value.lower())
+            if rate is None:
+                return None
+            bits = float(rate[1]) * _RATE_SCALE[rate[2]]
+            out["rate_mbit"] = bits * (8.0 if rate[3] == "bps" else 1.0) / 1e6
+            i += 2
+        elif key in _VALUED_WORDS and value:
+            i += 2  # refcnt / limit / seed / parent / dev: never parameters of ours
+        elif key == "root" or (i == first and key.endswith(":")):
+            i += 1  # the root flag / the qdisc handle
+        else:
+            return None  # duplicate / reorder / corrupt / slot / ...: not ours
+    return out
+
+
+def _number(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    number = float(value)
+    return number if math.isfinite(number) else None
+
+
+def _close(seen: float | None, want: float | None) -> bool:
+    if not want:
+        return not seen
+    if seen is None:
+        return False
+    return abs(seen - want) <= max(_REL_TOLERANCE * abs(want), 1e-9)
+
+
+def netem_matches(line: str, expect: NetemParams) -> bool:
+    """``line`` is a netem with exactly the parameters ``expect`` names."""
+    seen = parse_netem_line(line)
+    if seen is None:
+        return False
+    return all(_close(seen[key], _number(expect.get(key))) for key in _PARAM_KEYS)
+
+
+def valid_expect(value: object) -> bool:
+    """A marker's ``netem_expect`` is well formed: exactly the three keys,
+    finite non-negative numbers (``rate_mbit`` may be null), one of them set."""
+    if not isinstance(value, dict) or set(value) != set(_PARAM_KEYS):
+        return False
+    numbers: list[float] = []
+    for key in _PARAM_KEYS:
+        raw = value[key]
+        if raw is None and key == "rate_mbit":
+            continue
+        number = _number(raw)
+        if number is None or number < 0:
+            return False
+        numbers.append(number)
+    return any(numbers)
+
+
 def _netem_line(show: str) -> str | None:
     for line in show.splitlines():
         if " netem " in f" {line} " and " root " in f" {line} ":
@@ -233,7 +370,10 @@ class NetemController(ConditionController):
         # ``netem_installed`` only once ``tc replace`` may have run: the sweep
         # deletes nothing for an entry without it (a refused pre-check, a
         # foreign netem, a crash before the replace)
-        entry: dict[str, Any] = {"netem": self.interface}
+        entry: dict[str, Any] = {
+            "netem": self.interface,
+            "netem_expect": expected_params(self.netem),
+        }
         if self._applied:
             entry["netem_installed"] = True
         return entry
@@ -299,7 +439,9 @@ class NetemController(ConditionController):
     async def revert(self) -> bool:
         if not self._applied:
             return True
-        cause = await delete_netem(self._tc, self.interface)
+        cause = await delete_netem(
+            self._tc, self.interface, expect=expected_params(self.netem)
+        )
         if cause is not None:
             log.error(
                 "agent.conditions.netem_revert_failed",
@@ -311,11 +453,16 @@ class NetemController(ConditionController):
         return True
 
 
-async def delete_netem(tc: TcRunner, iface: str) -> str | None:
-    """Delete the root qdisc of ``iface`` **only if it is a netem**; None = no
-    netem is left there (also when there was nothing to delete), else why it
-    could not. ``tc qdisc show`` runs first: a non-netem root qdisc (the
-    system's default, someone's fq / htb) is never deleted.
+async def delete_netem(
+    tc: TcRunner, iface: str, *, expect: NetemParams | None
+) -> str | None:
+    """Delete the root qdisc of ``iface`` **only if it is a netem** with the
+    parameters ``expect`` (G5 item 0.3; ``None`` = a G4 marker entry without
+    them: any root netem); None = no netem of ours is left there (also when
+    there was nothing to delete, or the netem there is someone else's), else
+    why it could not. ``tc qdisc show`` runs first: a non-netem root qdisc
+    (the system's default, someone's fq / htb) is never deleted, nor a netem
+    with other parameters.
 
     Callers delete only a netem the agent itself installed (the controller's
     ``_applied`` / the marker's ``netem_installed``); a foreign netem is
@@ -327,6 +474,11 @@ async def delete_netem(tc: TcRunner, iface: str) -> str | None:
         return f"tc qdisc show failed: {str(exc)[:200]}"
     if before is None:
         return None  # nothing of ours to delete
+    if expect is not None and not netem_matches(before, expect):
+        log.warning(
+            "agent.conditions.netem_not_ours", interface=iface, qdisc=before[:200]
+        )
+        return None  # a foreign netem (other parameters): left alone
     try:
         await tc.delete(iface)
     except TcError as exc:

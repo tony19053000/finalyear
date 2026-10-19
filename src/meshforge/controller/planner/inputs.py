@@ -166,6 +166,7 @@ def node_snapshot(
     busy_gpus: Iterable[int] = (),
     cached_envs: Mapping[str, int] | None = None,
     policy: OwnerPolicy | None = None,
+    owner_active: bool = False,
 ) -> NodeSnapshot:
     caps = capabilities_of(hardware)
     vram = gpu_vram_of(hardware)
@@ -204,6 +205,7 @@ def node_snapshot(
         known_bad_envs=frozenset(known_bad_envs),
         cached_envs=dict(sorted((cached_envs or {}).items())),
         policy=policy,
+        owner_active=owner_active,
     )
 
 
@@ -237,6 +239,7 @@ def plan_request(
     fingerprint: str | None = None,
     history: History | None = None,
     owner_name: str | None = None,
+    benchmark: bool = False,
 ) -> PlanRequest:
     resources = manifest.resources
     return PlanRequest(
@@ -261,4 +264,5 @@ def plan_request(
         history=history or History(),
         owner_name=owner_name,
         network=manifest.limits.wants_network,
+        benchmark=benchmark,
     )

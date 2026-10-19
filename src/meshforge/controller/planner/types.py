@@ -106,6 +106,12 @@ class RejectCode(StrEnum):
     GPU no larger than the one that ran out of VRAM). Auto jobs only; lifted
     by the D129 rule (:mod:`.retry_exclusion`) when no other node could ever
     run the job."""
+    BENCH_PAUSED = "policy_bench_paused"
+    """V0.9 G5 (D219/D246): a **benchmark** job, and the node's owner paused
+    benchmarks or is using the laptop (the heartbeat's ``owner_active``). Live
+    on purpose - it is a moment, not a limit: the bench job waits, never fails
+    ``no_feasible_plan``. A user job is never refused for it. The value is
+    :attr:`~meshforge.common.owner_policy.PolicyCode.BENCH_PAUSED`'s."""
 
 
 STATIC_CODES: frozenset[RejectCode] = frozenset(
@@ -214,6 +220,9 @@ class PlanRequest:
     ``allowed_users``); None = unknown (legacy fabric-token job)."""
     network: bool = False
     """V0.7 G5 (D143): the manifest asks ``limits.network: on``."""
+    benchmark: bool = False
+    """V0.9 G5 (D246): a benchmark job (``bench:`` identity, D237): refused
+    live where the owner guard is on (:attr:`RejectCode.BENCH_PAUSED`)."""
 
     @property
     def is_gpu_job(self) -> bool:
@@ -264,6 +273,9 @@ class NodeSnapshot:
     """V0.7 G5 (D142): the owner policy the node advertises on its live session;
     None = not connected or an agent from before G5 (no owner restriction is
     assumed here - that agent still enforces its own opt-ins)."""
+    owner_active: bool = False
+    """V0.9 G5 (D246): the node's last heartbeat says its owner is using it
+    (benchmark jobs only wait for it)."""
 
     @property
     def free_cpu_slots(self) -> int:

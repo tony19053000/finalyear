@@ -48,6 +48,7 @@ __all__ = [
     "PYTHON_CPU_IMAGE",
     "AgentSection",
     "AgentSettings",
+    "BenchSettings",
     "CacheSettings",
     "CertSettings",
     "DiscoverySettings",
@@ -793,6 +794,14 @@ class PolicySettings(SectionModel):
         max_length=owner_policy.MAX_ALLOWED_USERS,
         description="User names whose jobs this node runs; empty = everyone.",
     )
+    pause_benchmarks: bool = Field(
+        default=False,
+        description=(
+            "Pause benchmark jobs on this node (V0.9 G5): none starts, a running "
+            "one is stopped (owner_preempted) and its run requeued. User jobs "
+            "are not affected. Live: `meshforge-agent bench pause|resume`."
+        ),
+    )
     reload_interval_s: float = Field(
         default=1.0,
         ge=0.1,
@@ -831,6 +840,7 @@ class PolicySettings(SectionModel):
                 allowed_users=tuple(self.allowed_users),
                 not_enforced=not_enforced,
                 revision=revision,
+                pause_benchmarks=self.pause_benchmarks,
             )
         )
 
@@ -1299,6 +1309,69 @@ class CertSettings(SectionModel):
 _IFACE_RE: Final = re.compile(r"[A-Za-z0-9][A-Za-z0-9._@:-]{0,14}")
 
 
+class BenchSettings(SectionModel):
+    """``[agent.bench]`` - the owner guard of benchmark jobs (V0.9 G5, D219/D246).
+
+    While the owner is **using this laptop** the agent reports ``owner_active``
+    in its heartbeat (the controller then dispatches no benchmark job here)
+    and stops a running benchmark attempt (``owner_preempted``, the run is
+    requeued). User jobs are never affected. "Using" = the input idle time is
+    below ``idle_threshold_s``, or processes that are not the fabric's (the
+    agent's own tree, its jobs and load generators excluded) use more than
+    ``foreground_cpu_percent`` of the machine for ``sustain_s``; it clears
+    only after ``clear_after_s`` quiet (hysteresis). Only idle time and
+    per-process CPU are read - never keystrokes, window titles or content -
+    and only the bit and a short reason leave the node. Input idle time comes
+    from Windows ``GetLastInputInfo`` or Linux logind (``loginctl``); where
+    neither answers, only the CPU rule applies and ``idle_source`` says
+    ``unknown``.
+    """
+
+    activity: bool = Field(
+        default=True,
+        description=(
+            "Watch for owner activity (idle time + non-fabric CPU). Off = only "
+            "the manual `meshforge-agent bench pause` switch guards benchmarks."
+        ),
+    )
+    idle_threshold_s: float = Field(
+        default=300.0,
+        ge=0.0,
+        le=86_400.0,
+        description=(
+            "Input idle time below this = the owner is active (0 = ignore the "
+            "idle time, CPU rule only)."
+        ),
+    )
+    foreground_cpu_percent: float = Field(
+        default=30.0,
+        gt=0.0,
+        le=100.0,
+        description=(
+            "CPU (percent of the whole machine) of processes that are not the "
+            "fabric's above which the owner counts as active."
+        ),
+    )
+    sustain_s: float = Field(
+        default=10.0,
+        ge=0.0,
+        le=600.0,
+        description="The CPU rule must hold this long before it counts.",
+    )
+    clear_after_s: float = Field(
+        default=60.0,
+        ge=0.0,
+        le=3_600.0,
+        description="Owner activity clears only after this long without it.",
+    )
+    poll_s: float = Field(
+        default=2.0,
+        ge=0.1,
+        le=60.0,
+        description="How often idle time and process CPU are sampled.",
+    )
+
+
 class ConditionSettings(SectionModel):
     """``[agent.conditions]`` - benchmark conditions (V0.9 G4, D217).
 
@@ -1456,6 +1529,7 @@ class AgentSection(SectionModel):
     gc: GcSettings = Field(default_factory=GcSettings)
     cert: CertSettings = Field(default_factory=CertSettings)
     conditions: ConditionSettings = Field(default_factory=ConditionSettings)
+    bench: BenchSettings = Field(default_factory=BenchSettings)
     hello_timeout_s: float = Field(
         default=3.0,
         gt=0,

@@ -13,6 +13,13 @@ Examples::
     meshforge-agent policy set allowed_users=alice,bob allow_network=false
     meshforge-agent policy set max_ram_bytes=none      # remove a limit
     meshforge-agent policy reset                       # back to the configuration
+    meshforge-agent bench pause                        # = policy set pause_benchmarks=true
+    meshforge-agent bench resume
+
+``bench pause|resume`` (V0.9 G5, D219/D246) is the owner's switch for
+**benchmark** jobs only: while paused none starts here and a running one is
+stopped (``owner_preempted``; the campaign requeues the run). User jobs are not
+affected.
 """
 
 from __future__ import annotations
@@ -28,11 +35,18 @@ from meshforge.common.exit_codes import ExitCode
 if TYPE_CHECKING:
     from meshforge.agent.settings import AgentSettings, PolicySettings
 
-__all__ = ["policy_app"]
+__all__ = ["bench_app", "policy_app"]
 
 policy_app = typer.Typer(
     name="policy",
     help="Show or change what this laptop's owner allows (live, no restart).",
+    add_completion=False,
+    no_args_is_help=True,
+)
+
+bench_app = typer.Typer(
+    name="bench",
+    help="Pause or resume benchmark jobs on this laptop (user jobs unaffected).",
     add_completion=False,
     no_args_is_help=True,
 )
@@ -134,6 +148,10 @@ def set_(
     config: _ConfigOption = None,
 ) -> None:
     """Change the policy live; the running agent applies it within seconds."""
+    _apply(config, assignments)
+
+
+def _apply(config: Path | None, assignments: list[str]) -> None:
     from meshforge.agent.policy import (
         effective_settings,
         parse_assignments,
@@ -183,6 +201,18 @@ def set_(
                 f"{what} yet - restart it once (the restart reads this policy)"
             )
     raise typer.Exit(ExitCode.OK)
+
+
+@bench_app.command("pause")
+def bench_pause(config: _ConfigOption = None) -> None:
+    """Pause benchmark jobs here: none starts, a running one is stopped."""
+    _apply(config, ["pause_benchmarks=true"])
+
+
+@bench_app.command("resume")
+def bench_resume(config: _ConfigOption = None) -> None:
+    """Let benchmark jobs run here again."""
+    _apply(config, ["pause_benchmarks=false"])
 
 
 @policy_app.command("reset")

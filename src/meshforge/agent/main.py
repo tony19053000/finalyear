@@ -65,9 +65,10 @@ app.add_typer(hardware_app, name="hardware")
 
 
 def _add_policy_app() -> None:
-    from meshforge.agent.policy_cli import policy_app
+    from meshforge.agent.policy_cli import bench_app, policy_app
 
     app.add_typer(policy_app, name="policy")
+    app.add_typer(bench_app, name="bench")  # V0.9 G5: owner's benchmark switch
 
 
 _add_policy_app()

@@ -73,6 +73,11 @@ enum FailureType {
   // The workload finished but its declared outputs could not be collected or
   // uploaded (V0.4 G5, D74).
   FAILURE_TYPE_OUTPUT_ERROR = 23;
+  // V0.9 G5 (D219/D246): a benchmark attempt stopped (or refused) because the
+  // node's owner paused benchmarks or is using the laptop. Never a user job.
+  // The campaign runner requeues the run; not counted as an infrastructure
+  // failure in the campaign's infra rate.
+  FAILURE_TYPE_OWNER_PREEMPTED = 24;
 }
 
 // Attempt lifecycle (ARCHITECTURE §12.2).
