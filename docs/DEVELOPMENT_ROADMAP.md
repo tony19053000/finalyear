@@ -477,9 +477,9 @@ A version is **complete** only when all apply:
 - [x] **0.9.4** Forced-strategy execution via planner override, tagged `benchmark`, randomized order, repetitions — G3 lane B, D232–D240; gate D242
 - [x] **0.9.5** — G4 lanes A (item 0, schema v2) + B merged `a380385`/`701899c`, D241–D245; lane B tester r1/r2 PASS, reviewer r2 APPROVE (r1 race fixed); whole component 2564 passed / 1 load flake (green 9/9 standalone); 🧑 lab C1–C3 (real tc, Windows cpu_load, gpu_load) pending · Condition controllers: CPU/GPU load generators, cache warm/cold, queue pressure, network shaping (Linux), Wi-Fi vs Ethernet sessions, node-unavailable scenarios
 - [x] **0.9.6** (G5 lane A, D246–D248; whole component 2671 passed / 2 failed — neither in labels, D255) Automatic labels per group: full measured cost vectors + best measured plan
-- [~] **0.9.7** (G5 lane B, D246–D253, merged; **open: cool-down race under load, D255 → G5c item 0.0**) Unattended, resumable, throttled campaign runner; "don't disturb owner" guard
-- [ ] **0.9.8** Data quality report: variance (CV), outliers, missing fields
-- [ ] **0.9.9** Benchmarks page in dashboard
+- [x] **0.9.7** (G5 lane B D246–D253 + G5c item 0.0 race fix D257, merged) Unattended, resumable, throttled campaign runner; "don't disturb owner" guard — evidence: whole `-m component` alone on main 22742c1, 2026-10-19: 2722 passed / 22 skipped / 1 failed (1:40); the failure (V0.5 `test_snapshot_of_many_pages_replaces_exactly`, fake node lease missed under load) green 3/3 standalone + file 10/10 (D258)
+- [x] **0.9.8** Data quality report: variance (CV), outliers, missing fields (G5c, D254–D257; same gate D258)
+- [x] **0.9.9** Benchmarks page in dashboard (G6, D256–D257; vitest 618, e2e 14; same gate D258)
 - [ ] **0.9.10** 🧑 Overnight campaign on the lab
 
 *Carried from V0.8 G1 (D181/D184):* agent-side live-log redaction still runs on the agent's event loop (THREAT_MODEL RE-D2 residual) — move it off the loop with the telemetry/agent work here, without reopening the T-14 drain/cancel race.
