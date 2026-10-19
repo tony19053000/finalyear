@@ -984,6 +984,11 @@ compute bench cancel <camp_id>      # cancel its benchmark jobs, skip the open r
   After a tick that submitted its budget the scan starts at the head again, so such a head costs a capped
   walk every other tick (submission throughput about halves while it lasts). The cursor deliberately does not
   keep scanning past the cap within one tick: the cap is what keeps a tick short however large the campaign.
+* **Before using a campaign's data:** `compute bench report <camp_id> --strict` exits 1 unless criteria 1
+  (infrastructure failures < 2 %) and 3 (every configuration >= 3 repetitions with a CV) are met. Flagged
+  configurations (CV above `[controller.bench] quality_cv_threshold`, default 0.10; too few repetitions; a
+  required field missing) are listed first. **Limit:** the report is recomputed on every request over every
+  record of the campaign (streamed, not cached; 10 000 records take well under a second of statistics).
 * **One active runner per database.** Each tick takes a PostgreSQL advisory transaction lock; a second
   controller pointed at the same database skips its ticks while the first one runs them (debug log
   `controller.bench.tick_locked_out`), so two controllers never fill a node's slot twice. The lock goes with
@@ -997,6 +1002,8 @@ runner = true               # off = only manual `compute bench submit`
 tick_s = 2.0
 max_submit_per_tick = 4
 max_examine_per_tick = 32
+orphan_scan_s = 30          # orphan-job backstop scan at most this often (a cancel triggers one at once)
+quality_cv_threshold = 0.10 # `compute bench report` flags a configuration above this CV
 ```
 
 **What the laptop owner sees and controls (the owner guard).** A benchmark never runs while the owner is

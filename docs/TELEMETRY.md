@@ -301,3 +301,61 @@ per metric above). Same writer options and determinism rules as the record expor
 metadata is `meshforge.labels.version`. The columns are pinned by a fingerprint
 (`labels_export.LABEL_FINGERPRINTS`); a shape change bumps `labels_version`. Streamed like the record export
 (chunked, no `Content-Length`); more matching records (retries included, counted before the latest-per-repetition rule) than `[controller.telemetry] export_max_rows` -> 413. The labels table (one row per config) is built in memory before streaming, bounded by the same cap.
+
+## Quality report (V0.9 G5c, roadmap 0.9.8, D220/D254)
+
+Before a campaign's records feed labels or planner training, the **quality report** says whether they are
+fit for it: enough repetitions, low enough noise, nothing missing, few infrastructure failures. Like the
+labels it is **derived on demand** (nothing stored, `quality_version` 1) and deterministic: the same records
+give the same JSON, byte for byte (configurations sorted by `group_id`, `config_id`).
+
+`GET /v1/bench/campaigns/{id}/quality` (admin) and `compute bench report CAMPAIGN_ID [--json] [--strict]`
+(summary first, then configurations - flagged ones first; exit 0, `--strict` exits 1 unless both criteria are
+met, a campaign still running counting as not met). Code: `bench/quality.py` (the pure report),
+`controller/telemetry/quality_store.py` (the streamed read).
+
+**What it reads.** Every run record of the campaign - unlike the labels it must see failures - streamed in
+batches of 1 000 with only the columns it needs. Each record is classified once:
+
+* `condition_measured->>'bench_role'` set (queue fillers, cache warm-ups, D244): counted in
+  `bench_role_records` and **nowhere else**. They are scaffolding for another run's condition; a filler's
+  `total_ms` measures the filler, so letting it into a median would describe a run that never happened.
+* passes the **labels' row filter** (above; evaluated in the same SQL as a column, never re-implemented): an
+  ok measurement. After the same latest-attempt-per-repetition rule these are the statistics' input - exactly
+  the labels' input, so the report's medians **are** the labels' medians.
+* anything else is a failure, counted by kind.
+
+**Per configuration** (within its group):
+
+| number | definition |
+|---|---|
+| `planned` / `done` | the configuration's `bench_run` rows / those in state `done` |
+| `n` | distinct repetitions with an ok record (latest attempt each) |
+| `total_ms`, `compute_per_iter_ns` | n, median, mean, std, CV, the median's CI and MAD outlier count - the labels' statistics (`bench/stats.py`) over the kept records |
+| `outlier_attempt_ids` | the attempts whose `total_ms` is more than 3.5 x 1.4826 x MAD from the median |
+| `cv_flag` | the `total_ms` CV is above `[controller.bench] quality_cv_threshold` (default **0.10**); a null CV (n < 2, or mean 0) never flags |
+| `reps_flag` | `n < 3` (criterion 3) |
+| `records_checked`, `missing` | the ok records looked at (retries included) and, per required field, how many have it null |
+| `flagged` | any of the three above |
+
+**Required fields** (`bench.quality.REQUIRED_FIELDS`; a unit test holds every name to this schema's columns):
+`total_ms`, `compute_ns`, `compute_iterations`, `bytes_in`, `bytes_out` (the costs), `queue_ms`, `run_ms` (the
+phases every forced run has; `stage_ms` / `env_ms` / `collect_ms` are legitimately null when skipped),
+`node_state`, `node_cpu_percent` (the start snapshot) and `planner_node_id` - the last only where the run was
+**unpinned** (`placement_mode = auto`): a pinned run's shadow preference is null when no node was feasible.
+
+A configuration whose runs were all stored `skipped` as unsupported is reported `state: unsupported`, never
+flagged, and left out of criterion 3 (as in the labels).
+
+**Campaign summary.** `runs_by_state`; `records` (fillers / warm-ups excluded); `infra_failures`,
+`owner_preempted` and `infra_failure_rate` = infrastructure failures / (records - pre-emptions) - computed by
+**the same** query and helper as `compute bench status` (`control.record_failure_counts` +
+`bench.quality.infra_failure_rate`), so the two never disagree; `condition_failures` (`condition_failed`
+records by condition); `workload_failures` (by family). Verdicts:
+
+| verdict | true when |
+|---|---|
+| `crit1_infra_ok` | `infra_failure_rate` < 2 % (no records = not proven = false) |
+| `crit3_reps_ok` | every measured configuration has `n >= 3` and a `total_ms` CV (no configuration = false) |
+
+While the campaign is open (`active` / `paused`) `pending` is true and both verdicts are null.
