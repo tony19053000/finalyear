@@ -552,3 +552,16 @@ def test_next_pending_prefers_items_not_failed_here() -> None:
     assert [x.id for x in core.next_pending(items, site="n1", k=5)] == [2, 4, 1]
     assert [x.id for x in core.next_pending(items, site="n2", k=1)] == [1]
     assert core.next_pending(items, site="n2", k=0) == []
+
+
+def test_an_item_that_already_had_a_copy_stays_eligible_when_the_budget_is_spent() -> (
+    None
+):
+    item, _ = leased()
+    item = speculated(item)
+    item, _ = core.release(item, holder="h2", seq=2)  # the copy ended
+    fresh, _ = leased(Item(id=2, idx=1))
+    got = core.speculation_candidates(
+        [item, fresh], holder="h3", site="n3", pending=0, budget=0
+    )
+    assert [x.id for x in got] == [1]

@@ -177,9 +177,9 @@ class Model:
             speculated_items=self.speculated_count,
             max_frac=self.policy.speculative_max_frac,
         )
-        if budget <= 0:
-            return core.SpeculationRefusal.BUDGET_SPENT
         item = self.items[item_id]
+        if item.speculations == 0 and budget <= 0:
+            return core.SpeculationRefusal.BUDGET_SPENT
         new, out = core.speculate(
             item, holder=holder, site=site, now=now, policy=self.policy
         )

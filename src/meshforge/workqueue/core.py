@@ -661,14 +661,19 @@ def speculation_candidates(
 ) -> list[Item]:
     """Items an idle ``holder`` at ``site`` may duplicate, oldest live lease first.
 
-    Empty while any item is still pending (D266: speculate only at the tail) or
-    when the budget is spent. Choosing *which* candidate is worth a copy (its
-    predicted remaining time) is the caller's policy.
+    Empty while any item is still pending (D266: speculate only at the tail).
+    With the budget spent, only items that already had a copy (whose copy has
+    ended) remain eligible: the budget counts items, not copies. Choosing
+    *which* candidate is worth a copy (its predicted remaining time) is the
+    caller's policy.
     """
-    if pending > 0 or budget <= 0:
+    if pending > 0:
         return []
     eligible = [
-        x for x in items if speculation_refusal(x, holder=holder, site=site) is None
+        x
+        for x in items
+        if speculation_refusal(x, holder=holder, site=site) is None
+        and (budget > 0 or x.speculations > 0)
     ]
     eligible.sort(key=lambda x: (x.live_leases[0].leased_at, x.idx))
     return eligible

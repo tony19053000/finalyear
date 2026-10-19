@@ -486,6 +486,33 @@ async def test_release_one_lease(db: Db) -> None:
     assert (await _counts(db, qid)).pending == 1
 
 
+async def test_a_second_copy_of_the_same_item_does_not_spend_more_budget(
+    db: Db,
+) -> None:
+    qid = await _queue(db, 2, policy=QueuePolicy(speculative_max_frac=0.5))
+    a, b = await _lease(db, qid, "h1", k=2, site="n1")
+    async with db.sessions() as s, s.begin():
+        copy = await store.speculate(
+            s, item_id=a.item_id, holder="h2", site="n2", now=at(1)
+        )
+        assert isinstance(copy, store.Grant)
+        released = await store.release(
+            s, item_id=a.item_id, seq=copy.seq, holder="h2", now=at(2)
+        )
+        assert released is not None
+        again = await store.speculate(
+            s, item_id=a.item_id, holder="h3", site="n3", now=at(3)
+        )
+        other = await store.speculate(
+            s, item_id=b.item_id, holder="h3", site="n3", now=at(3)
+        )
+    assert isinstance(again, store.Grant) and again.seq == 3
+    assert other is SpeculationRefusal.BUDGET_SPENT  # ceil(0.5 * 2) = 1 item
+    async with db.sessions() as s:
+        info = await store.get_queue(s, qid)
+    assert info is not None and info.speculated_count == 1
+
+
 # --- restart safety ---------------------------------------------------------------
 
 

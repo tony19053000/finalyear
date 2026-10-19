@@ -940,7 +940,7 @@ async def speculation_candidates(
 ) -> list[Item]:
     """Leased items ``holder`` at ``site`` may duplicate now, oldest lease first
     (:func:`.core.speculation_candidates`); read-only, no locks. ``[]`` while
-    items are pending, when the budget is spent or the queue is closed."""
+    items are pending or the queue is closed."""
     site = holder if site is None else site
     queue = await get_queue(db, queue_id)
     if queue is None or queue.state is not QueueState.OPEN:
@@ -951,7 +951,7 @@ async def speculation_candidates(
         max_frac=queue.policy.speculative_max_frac,
     )
     pending = await _pending_left(db, queue_id)
-    if pending or budget <= 0:
+    if pending:
         return []
     rows = (
         await db.execute(
@@ -1003,16 +1003,14 @@ async def speculate(
     if await _pending_left(db, queue_id):
         return SpeculationRefusal.PENDING_LEFT
     policy = _policy(queue)
-    if (
-        core.speculation_budget(
-            total_items=queue.item_count,
-            speculated_items=queue.speculated_count,
-            max_frac=policy.speculative_max_frac,
-        )
-        <= 0
-    ):
-        return SpeculationRefusal.BUDGET_SPENT
     _row, item = (await _load_items(db, [item_id]))[item_id]
+    budget = core.speculation_budget(
+        total_items=queue.item_count,
+        speculated_items=queue.speculated_count,
+        max_frac=policy.speculative_max_frac,
+    )
+    if item.speculations == 0 and budget <= 0:
+        return SpeculationRefusal.BUDGET_SPENT  # the budget counts items
     new, out = core.speculate(
         item, holder=holder, site=site, now=now, policy=policy, timeout_s=timeout_s
     )
