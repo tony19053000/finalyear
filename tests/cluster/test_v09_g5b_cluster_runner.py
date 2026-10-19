@@ -152,6 +152,22 @@ def _db_rows(pg_settings: Any, sql: str, **params: Any) -> list[tuple[Any, ...]]
     return asyncio.run(go())
 
 
+def _wait_bench_attempt_running(pg_settings: Any, node_id: str, within: float) -> None:
+    deadline = time.monotonic() + within
+    while True:
+        n = _db_rows(
+            pg_settings,
+            "SELECT count(*) FROM attempt a JOIN job j ON j.id = a.job_id "
+            "WHERE a.node_id = :n AND a.state = 'running' "
+            "AND j.idempotency_key LIKE 'bench:%'",
+            n=node_id,
+        )[0][0]
+        if n:
+            return
+        assert time.monotonic() < deadline, "no benchmark attempt ever ran on B"
+        time.sleep(0.05)
+
+
 def _db_now(pg_settings: Any) -> Any:
     return _db_rows(pg_settings, "SELECT now()")[0][0]
 
@@ -200,11 +216,35 @@ def test_runner_survives_a_controller_sigkill_and_an_owner_pause(
     fabric.restart_controller(graceful=False)
     _wait_runs(fabric, cid, _done(12), within=300)
 
-    # 2. B's owner pauses benchmarks for 20 s (what `bench pause` writes)
+    # 2. B's owner pauses benchmarks for 20 s (what `bench pause` writes) - tester
+    # r3: timed so a benchmark attempt is RUNNING on B at that moment, so the
+    # pre-emption path is proven at cluster level (not left to luck)
     overlay = b.data_dir / "policy.toml"
-    write_overlay(overlay, {"pause_benchmarks": True})
-    time.sleep(3.0)  # the agent reloads (1 s) and the controller hears of it
-    window_start = _db_now(pg_settings)
+    preempted_now = 0
+    window_start = None
+    for _try in range(8):
+        _wait_bench_attempt_running(pg_settings, b.node_id, within=240)
+        write_overlay(overlay, {"pause_benchmarks": True})
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            preempted_now = _db_rows(
+                pg_settings,
+                "SELECT count(*) FROM attempt a JOIN job j ON j.id = a.job_id "
+                "WHERE a.node_id = :b AND j.idempotency_key LIKE 'bench:%' "
+                "AND a.failure_type = 'owner_preempted'",
+                b=b.node_id,
+            )[0][0]
+            if preempted_now:
+                break
+            time.sleep(0.2)
+        if preempted_now:
+            window_start = _db_now(pg_settings)
+            break
+        # the attempt ended before the agent saw the file: resume and try again
+        write_overlay(overlay, {"pause_benchmarks": False})
+        time.sleep(2.0)
+    assert preempted_now >= 1, "no running benchmark attempt was pre-empted"
+    assert window_start is not None
     time.sleep(PAUSE_S - 3.0)
     window_end = _db_now(pg_settings)
     write_overlay(overlay, {"pause_benchmarks": False})
@@ -262,6 +302,7 @@ def test_runner_survives_a_controller_sigkill_and_an_owner_pause(
         "SELECT j.id, j.idempotency_key FROM job j "
         "WHERE j.failure_type = 'owner_preempted' AND j.idempotency_key LIKE 'bench:%'",
     )
+    assert len(preempted) >= 1, "the pre-emption path was not exercised"
     for _job, key in preempted:
         found = run_of_key(key)
         assert found is not None and rows[found[0]][1] > found[1]  # requeued
