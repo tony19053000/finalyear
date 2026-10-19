@@ -128,17 +128,40 @@ async def _node_load(db: AsyncSession, node_ids: Collection[str]) -> dict[str, i
     return {str(n): int(c) for n, c in rows}
 
 
+COOLDOWN_LOOKBACK_MARGIN_S: Final = 60.0
+"""Ends older than the campaign's ``cooldown_s`` plus this margin cannot hold a
+node; :func:`_last_end` does not look further back (bounded read per tick)."""
+
+
+async def _lookback_s(db: AsyncSession, campaign_id: str) -> float:
+    cooldown = await db.scalar(
+        select(BenchCampaign.cooldown_s).where(BenchCampaign.id == campaign_id)
+    )
+    return float(cooldown or 0.0) + COOLDOWN_LOOKBACK_MARGIN_S
+
+
 async def _last_end(
-    db: AsyncSession, campaign_id: str, node_ids: Collection[str]
+    db: AsyncSession, node_ids: Collection[str], lookback_s: float
 ) -> dict[str, float]:
-    """Seconds (database clock) since the campaign's last run on each node
-    ended. A run ended when ``bench_run.ended_at`` is set (not ``skipped``)
-    **or** - G5c item 0.0 (D255) - when it is still ``submitted`` but its job
-    is already terminal (``sync`` has not settled it yet): that end is the
-    job's final transition time, exactly what ``sync`` will stamp. Without the
-    second source a job that ended after the tick's ``sync`` left its node
-    free (the load no longer counts it) with no end to cool down from."""
+    """Seconds (database clock) since the last **benchmark job of any
+    campaign** on each node reached terminal - G5c fix r1 (tester T-2): the
+    cool-down is per **node**, not per campaign (brief 5g 0.0: a node is never
+    submitted to < ``cooldown_s`` after *any* bench job on it ended). Two
+    sources, both across campaigns:
+
+    * ``bench_run.ended_at`` (not ``skipped``) - what ``sync`` stamped;
+    * every terminal job with a ``bench:`` key pinned to the node (run jobs of
+      every generation, queue fillers, cache warm-ups) at its final transition
+      time (``coalesce(last job_transition.at, job.updated_at)`` - exactly what
+      ``sync`` stamps) - G5c item 0.0 (D255): a job that ended after the
+      tick's ``sync`` counts before its run is settled.
+
+    Only ends within ``lookback_s`` are read (``job.updated_at`` /
+    ``ended_at`` window; ``updated_at`` is never before the final transition's
+    transaction start, the margin covers the rest): an older end cannot hold a
+    node, so absent = no end in the window."""
     nodes = sorted(node_ids)
+    since = func.now() - func.make_interval(0, 0, 0, 0, 0, 0, lookback_s)
     final_at = (
         select(JobTransition.at)
         .where(JobTransition.job_id == Job.id)
@@ -146,23 +169,21 @@ async def _last_end(
         .limit(1)
         .scalar_subquery()
     )
+    pinned = Job.placement["node_id"].astext
     ends = union_all(
         select(BenchRun.node_id.label("node"), BenchRun.ended_at.label("at")).where(
-            BenchRun.campaign_id == campaign_id,
             BenchRun.node_id.in_(nodes),
-            BenchRun.ended_at.is_not(None),
+            BenchRun.ended_at >= since,
             BenchRun.state != "skipped",
         ),
         select(
-            BenchRun.node_id.label("node"),
+            pinned.label("node"),
             func.coalesce(final_at, Job.updated_at).label("at"),
-        )
-        .join(Job, Job.id == BenchRun.job_id)
-        .where(
-            BenchRun.campaign_id == campaign_id,
-            BenchRun.node_id.in_(nodes),
-            BenchRun.state == "submitted",
+        ).where(
+            _bench_key(),
             Job.state.in_(_JOB_TERMINAL),
+            pinned.in_(nodes),
+            Job.updated_at >= since,
         ),
     ).subquery()
     rows = await db.execute(
@@ -418,12 +439,13 @@ class CampaignControl:
     async def seconds_since_last_end(
         self, campaign_id: str, node_ids: Collection[str]
     ) -> dict[str, float]:
-        """Database seconds since the campaign's last run on each node ended
-        (absent = none ended yet) - see :func:`_last_end`."""
+        """Database seconds since the last benchmark job (**any** campaign)
+        on each node reached terminal; ``campaign_id`` only sets the window
+        (its ``cooldown_s``): absent = no end in it - see :func:`_last_end`."""
         if not node_ids:
             return {}
         async with self._sessions() as db:
-            return await _last_end(db, campaign_id, node_ids)
+            return await _last_end(db, node_ids, await _lookback_s(db, campaign_id))
 
     @_typed
     async def node_slots(
@@ -442,7 +464,7 @@ class CampaignControl:
                 execution_options={"isolation_level": "REPEATABLE READ"}
             )
             load = await _node_load(db, node_ids)
-            since = await _last_end(db, campaign_id, node_ids)
+            since = await _last_end(db, node_ids, await _lookback_s(db, campaign_id))
             await db.rollback()  # read-only
         return load, since
 

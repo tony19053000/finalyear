@@ -202,12 +202,6 @@ async def test_a_requeued_run_keeps_its_previous_end_for_the_cool_down(
     assert runs[run.id].state in {"failed", "planned", "done"}
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="tester r1 T-2: the cool-down is read per campaign "
-    "(_last_end filters BenchRun.campaign_id), so another campaign's job that "
-    "just ended on the node does not hold it",
-)
 async def test_cool_down_also_holds_after_another_campaign_ended_on_the_node(
     engines: tuple[AsyncEngine, AsyncEngine],
 ) -> None:

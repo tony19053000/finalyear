@@ -229,3 +229,78 @@ async def test_node_slots_sees_a_job_running_or_ended_never_neither(
     await jobs.transition_job(job_id, JobEvent.CANCEL, expected=JobState.QUEUED)
     load, since = await control.node_slots(cid, {"node_a", "node_b"})
     assert load == {} and set(since) == {"node_a"} and since["node_a"] < 30.0
+
+
+# --- G5c fix r1 (tester T-2): the cool-down is per node, across campaigns ----
+
+
+async def _bench_job(jobs: JobStore, node: str, key: str) -> str:
+    job_id = str(new_job_id())
+    await jobs.create_queued_job(
+        job_id=job_id,
+        name="bench",
+        manifest={"name": "bench", "entrypoint": ["python", "x.py"]},
+        bundle_digest="sha256:" + "0" * 64,
+        placement={"mode": "offload", "node_id": node},
+        request_hash="h" * 64,
+        idempotency_key=key,
+        scheduling=JobScheduling(submitter_node_id=node),
+    )
+    return job_id
+
+
+async def test_another_campaigns_filler_ending_on_the_node_holds_the_cool_down(
+    engine: AsyncEngine,
+) -> None:
+    """A queue filler (no ``bench_run`` row of its own) of campaign B ends on
+    node_a: campaign A's runner leaves node_a alone for A's ``cooldown_s``."""
+    store, control, jobs, cid_a = await _setup(engine, cooldown_s=30.0)
+    _store_b, _control_b, _jobs_b, cid_b = await _setup(engine, cooldown_s=30.0)
+    run_b = await _first_run(store, cid_b, "node_a")
+    filler = await _bench_job(
+        jobs, "node_a", f"{IDEMPOTENCY_PREFIX}{run_b.id}:filler:1"
+    )
+    load, since = await control.node_slots(cid_a, {"node_a", "node_b"})
+    assert load == {"node_a": 1} and since == {}
+    await jobs.transition_job(filler, JobEvent.CANCEL, expected=JobState.QUEUED)
+    load, since = await control.node_slots(cid_a, {"node_a", "node_b"})
+    assert load == {} and set(since) == {"node_a"} and since["node_a"] < 30.0
+    assert set(await control.seconds_since_last_end(cid_a, {"node_a"})) == {"node_a"}
+
+
+async def test_a_non_bench_job_ending_on_the_node_is_no_cool_down(
+    engine: AsyncEngine,
+) -> None:
+    _store, control, jobs, cid = await _setup(engine, cooldown_s=30.0)
+    user_job = await _bench_job(jobs, "node_a", "user-key-1")
+    await jobs.transition_job(user_job, JobEvent.CANCEL, expected=JobState.QUEUED)
+    _load, since = await control.node_slots(cid, {"node_a"})
+    assert since == {}
+
+
+async def test_ends_older_than_the_lookback_are_not_read(engine: AsyncEngine) -> None:
+    """The read is bounded to ``cooldown_s`` + margin: an end before it cannot
+    hold a node, so it is absent (the same decision as an old end)."""
+    store, control, jobs, cid = await _setup(engine, cooldown_s=1.0)
+    run = await _first_run(store, cid, "node_a")
+    job_id = await _submit(jobs, store, run)
+    await jobs.transition_job(job_id, JobEvent.CANCEL, expected=JobState.QUEUED)
+    await store.sync(cid)
+    _load, since = await control.node_slots(cid, {"node_a"})
+    assert set(since) == {"node_a"}
+    old = dt.datetime.now(dt.UTC) - dt.timedelta(minutes=10)
+    async with engine.begin() as conn:
+        await conn.execute(
+            text("UPDATE job SET updated_at = :t WHERE id = :j"),
+            {"t": old, "j": job_id},
+        )
+        await conn.execute(
+            text("UPDATE job_transition SET at = :t WHERE job_id = :j"),
+            {"t": old, "j": job_id},
+        )
+        await conn.execute(
+            text("UPDATE bench_run SET ended_at = :t WHERE id = :r"),
+            {"t": old, "r": run.id},
+        )
+    _load, since = await control.node_slots(cid, {"node_a"})
+    assert since == {}

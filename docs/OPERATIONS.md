@@ -968,7 +968,9 @@ compute bench cancel <camp_id>      # cancel its benchmark jobs, skip the open r
 ```
 
 * **Throttle:** at most `--per-node` benchmark jobs at once per node (all campaigns together), and
-  `--cooldown` seconds after a node's run ends before its next one. Each tick (`[controller.bench] tick_s`,
+  `--cooldown` seconds after **any** benchmark job on a node (any campaign, fillers and warm-ups included)
+  reached its end before that campaign submits there again - the cool-down is per node, so a second campaign
+  cannot start right after another one's run on the same machine. Each tick (`[controller.bench] tick_s`,
   2 s) submits at most `max_submit_per_tick` (4) runs and examines at most `max_examine_per_tick` (32).
 * **Retries:** an infrastructure failure (node lost, transfer error, timeout, env build...) puts the run back
   in the queue up to `--retries` times; a workload failure, an unverified condition, a cancel are final.

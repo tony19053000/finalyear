@@ -12,13 +12,15 @@ A supervised task inside the controller (no new service). Every
    submitting (:meth:`~.control.CampaignControl.stop_for_budget`); otherwise
    each node that still has planned runs gets ``max_concurrent_per_node`` -
    its non-terminal benchmark jobs (any campaign) **free slots**, except a
-   node in **cool-down** (its last run of this campaign ended less than
-   ``cooldown_s`` ago - a run whose job is terminal counts as ended even
-   before ``sync`` settles it, and load + last end come from one snapshot:
-   G5c item 0.0, D255; with ``max_concurrent_per_node > 1`` a sibling job
-   that ends between this read and the submit is not covered - there is no
-   lock on job state - while with the default 1 the running job fills the
-   slot), whose **owner guard** is on (paused / owner active),
+   node in **cool-down** (the last benchmark job on it - of **any** campaign,
+   fillers and warm-ups included - reached terminal less than this
+   campaign's ``cooldown_s`` ago: the cool-down is per node, G5c fix r1; a
+   job that is terminal counts as ended even before ``sync`` settles its
+   run, and load + last end come from one snapshot: G5c item 0.0, D255; with
+   ``max_concurrent_per_node > 1`` a sibling job that ends between this read
+   and the submit is not covered - there is no lock on job state - while
+   with the default 1 the running job fills the slot), whose **owner guard**
+   is on (paused / owner active),
    or that has a **user job** running or queued pinned there (checklist 30:
    a benchmark never competes with a user's job);
 3. :meth:`~.submit.BenchSubmitter.submit_next` with ``count`` = the free
