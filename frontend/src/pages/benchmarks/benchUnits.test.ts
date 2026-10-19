@@ -311,6 +311,58 @@ describe("quality report (G5c §5g contract)", () => {
     expect(result.report.configs).toEqual([]);
   });
 
+  it("reads the shape G5c's endpoint sends (threshold in summary, fillers by role, outliers in the metric)", () => {
+    const result = parseQuality({
+      campaign_id: "camp_1",
+      quality_version: 1,
+      summary: {
+        campaign_state: "finished",
+        pending: false,
+        runs_by_state: { planned: 0, submitted: 0, done: 4, failed: 0, skipped: 0 },
+        bench_role_records: { filler: 2, warmup: 1 },
+        owner_preempted: 0,
+        infra_failure_rate: 0,
+        condition_failures: {},
+        workload_failures: {},
+        crit1_infra_ok: true,
+        crit3_reps_ok: true,
+        cv_threshold: 0.15,
+      },
+      configs: [
+        {
+          group_id: "grp_1",
+          config_id: "cfg_a",
+          total_ms: { n: 4, median: 900, mean: 910, std: 9, cv: 0.01, ci_low: 880, ci_high: 950, ci_coverage: 0.94, outliers: 1 },
+          compute_per_iter_ns: null,
+          outlier_attempt_ids: ["att_9"],
+          cv_flag: false,
+          reps_flag: false,
+          missing: { total_ms: 0, bytes_in: 0 },
+        },
+        { group_id: "grp_1", config_id: "cfg_b", total_ms: null, outlier_attempt_ids: [], cv_flag: false, reps_flag: true },
+      ],
+    });
+    if (result.kind !== "report") throw new Error(result.kind);
+    expect(result.report.cv_threshold).toBe(0.15);
+    expect(result.report.summary.fillers).toBe(3);
+    expect(result.report.configs[0]?.outliers).toBe(1);
+    expect(result.report.configs[1]?.outliers).toBe(0); // from the (empty) id list, not invented
+    expect(result.report.configs[0]?.missing).toEqual({});
+  });
+
+  it("a 404 'no such campaign' is an error, not 'controller too old'", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve(new Response(JSON.stringify({ error: { code: "not_found", message: "no such campaign" } }), { status: 404 }))),
+    );
+    await expect(getQuality("camp_gone")).rejects.toBeInstanceOf(ApiError);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve(new Response(JSON.stringify({ error: { code: "not_found", message: "Not Found" } }), { status: 404 }))),
+    );
+    await expect(getQuality("camp_1")).resolves.toEqual({ kind: "unavailable" });
+  });
+
   it("404 from the controller = unavailable; other errors throw", async () => {
     vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(new Response('{"detail":"Not Found"}', { status: 404 }))));
     await expect(getQuality("camp_1")).resolves.toEqual({ kind: "unavailable" });

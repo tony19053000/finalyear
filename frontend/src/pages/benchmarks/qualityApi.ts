@@ -114,6 +114,12 @@ function counts(value: unknown): Record<string, number> {
   return out;
 }
 
+/** Sum of a `{name: count}` object; null when it is not one. */
+function sumCounts(value: unknown): number | null {
+  if (!isObj(value)) return null;
+  return Object.values(counts(value)).reduce((a, b) => a + b, 0);
+}
+
 function metric(value: unknown): QualityMetric | null {
   if (!isObj(value)) return null;
   // The CI may come flat (ci_low/ci_high) or as a pair (`ci: [low, high]`).
@@ -144,7 +150,13 @@ function config(value: unknown): QualityConfig | null {
     n: num(value.n),
     total_ms: metric(value.total_ms),
     compute_per_iter_ns: metric(value.compute_per_iter_ns),
-    outliers: num(value.outliers) ?? num(value.outlier_count),
+    // G5c sends the count inside the metric (`total_ms.outliers`, bench.stats)
+    // plus the attempt ids; a flat count is read first if a controller sends one.
+    outliers:
+      num(value.outliers) ??
+      num(value.outlier_count) ??
+      (isObj(value.total_ms) ? num(value.total_ms.outliers) : null) ??
+      (Array.isArray(value.outlier_attempt_ids) ? ids.length : null),
     outlier_attempt_ids: ids.filter((id): id is string => typeof id === "string"),
     cv_flag: value.cv_flag === true,
     reps_flag: value.reps_flag === true,
@@ -160,7 +172,8 @@ function summary(value: unknown): QualitySummary {
     owner_preempted: num(s.owner_preempted),
     condition_failures: counts(s.condition_failures),
     workload_failures: counts(s.workload_failures),
-    fillers: num(s.fillers),
+    // G5c sends filler / warm-up records by role (`bench_role_records`); the tab shows their total.
+    fillers: num(s.fillers) ?? sumCounts(s.bench_role_records),
     crit1_infra_ok: bool(s.crit1_infra_ok),
     crit3_reps_ok: bool(s.crit3_reps_ok),
     pending: s.pending === true,
@@ -179,7 +192,8 @@ export function parseQuality(body: unknown): QualityResult {
     report: {
       campaign_id: str(body.campaign_id) ?? "",
       quality_version: QUALITY_VERSION,
-      cv_threshold: num(body.cv_threshold),
+      // G5c puts the threshold in the summary; a top-level one is read first.
+      cv_threshold: num(body.cv_threshold) ?? (isObj(body.summary) ? num(body.summary.cv_threshold) : null),
       summary: summary(body.summary),
       configs,
     },
@@ -193,13 +207,20 @@ export function flaggedFirst(configs: readonly QualityConfig[]): QualityConfig[]
   return [...flagged, ...clean];
 }
 
-/** `GET .../quality`; a controller without the route (404) is `unavailable`. */
+/** The controller's 404 for an unknown campaign (`ApiError.not_found("campaign")`). */
+const NO_SUCH_CAMPAIGN = "no such campaign";
+
+/**
+ * `GET .../quality`; a controller without the route (404 on an unmatched path)
+ * is `unavailable`. A 404 "no such campaign" from a controller that HAS the
+ * route is a real error (the campaign is gone), not "update the controller".
+ */
 export async function getQuality(campaignId: string, signal?: AbortSignal): Promise<QualityResult> {
   try {
     const body = await apiRequest<unknown>(`/v1/bench/campaigns/${encodeURIComponent(campaignId)}/quality`, { signal });
     return parseQuality(body);
   } catch (err) {
-    if (err instanceof ApiError && err.status === 404) return { kind: "unavailable" };
+    if (err instanceof ApiError && err.status === 404 && err.message !== NO_SUCH_CAMPAIGN) return { kind: "unavailable" };
     throw err;
   }
 }
