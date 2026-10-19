@@ -262,7 +262,7 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
-> **UPDATE 2026-10-19 (new session):** G6 exit gates PASS + hand-off done (HEAD 2612335; fixed qualityApi shape to match G5c QualityOut) → G6 tester r1 PASS (T-1/T-1b minor, Lead-fixed `154915e` in G6 worktree) → **G6 reviewer r1 running**. G5c implementer exit-gate run still running. If this session dies: check `docs/briefs/progress/V0.9-G5c.md` for a Hand-off section; G6 → relaunch reviewer r1 on HEAD 154915e.
+> **UPDATE 2026-10-19 (new session):** G6 exit gates PASS + hand-off done (HEAD 2612335; fixed qualityApi shape to match G5c QualityOut) → G6 tester r1 PASS (T-1/T-1b minor, Lead-fixed `154915e` in G6 worktree) → G6 reviewer r1 **APPROVE** (5 non-blocking: 404 message-text match → fix at merge with generated type; RunOut tries/last_failure in bench_routes.py may conflict with G5c). **G6 ready to merge AFTER G5c.** G5c implementer exit-gate run still running; if this session dies check `docs/briefs/progress/V0.9-G5c.md` for a Hand-off section.
 
 **2026-10-19 (session end — team asked to stop) — NOTHING RUNNING. G5c implementer stopped after all items + docs (`262e8f3`..`75910b7`, exit gates + Hand-off not run). G6 implementer stopped finishing e2e (`ba903db`..`d024f03` + wip `adf14bd` UNVERIFIED). Next: see cold-start prompt.**
 
