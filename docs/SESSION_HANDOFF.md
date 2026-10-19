@@ -262,6 +262,8 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
+**2026-10-19 (G5 lane B tester r3 PASS `0e948d3`, MERGED into main, D253; frontend rebuilt) — RUNNING: whole `-m component` ONCE alone on main (scratchpad g5_component.log). If died: rerun `uv run python scripts/pytest_exit_guard.py -m component -q -rs` alone; green → 0.9.6 + 0.9.7 `[x]` + status bar + STATUS → G5c brief (0.9.8; item 0 = D248 N2/N5 + D252 1–6 + D253 T3-1/T3-2).**
+
 **2026-10-19 (session end — team asked to stop) — NOTHING RUNNING. Lane A MERGED (D248). Lane B reviewer r2 APPROVE conditional on tester r3 (D252); tester r3 STOPPED mid-run, partial tests `3ea8915` wip UNVERIFIED in the lane B worktree (src clean). Tester r3 scope: B1 retry backoff/30 s cap/reset/no storm under 1000 polls; B2 stop_all raising/cancelled/hanging, `_stop` always runs, `preempt_stopped` vs natural finish; N1 rewritten r2 tests not weakened vs `ecf1043`; cluster runner test must deterministically pre-empt ≥ 1 attempt (test-only; report if a src hook is needed); mutations on B1 + B2; gates incl. whole `-m unit`, cluster test 2×. Then merge B → frontend build → whole component alone → close 0.9.6/0.9.7 → G5c brief.**
 
 **2026-10-19 (G5 lane B fix r2 DONE `f2a7914`, gates exit 0; N2 = OPERATIONS known limit, accepted) — RUNNING in parallel: lane B tester r3 delta ∥ reviewer r2 (full: areas r1 skipped + fix r2). Then merge → whole `-m component` alone → 0.9.6 + 0.9.7 `[x]`.**
