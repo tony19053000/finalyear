@@ -301,7 +301,10 @@ async def test_gpu_job_on_a_gpu_node(
     [
         (lambda b: {**b, "extra": 1}, "extra"),
         (lambda b: {**b, "bundle_digest": "sha256:XYZ"}, "bundle_digest"),
-        (lambda b: {**b, "manifest": {**b["manifest"], "split": {}}}, "V0.10"),
+        (
+            lambda b: {**b, "manifest": {**b["manifest"], "split": {}}},
+            "split.over",
+        ),  # V0.10 G1: split is accepted; an empty one is invalid
         (
             lambda b: {**b, "manifest": {**b["manifest"], "resources": {"gpus": 1}}},
             "resources.gpus",
