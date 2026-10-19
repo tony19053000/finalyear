@@ -629,7 +629,9 @@ class SplitOver(_Spec):
     order they are written in and must not repeat an item."""
 
     glob: str | None = Field(default=None, min_length=1, max_length=MAX_PATH_CHARS)
-    list: tuple[str, ...] | None = Field(default=None, max_length=MAX_SPLIT_LIST)
+    list: tuple[str, ...] | None = Field(
+        default=None, min_length=1, max_length=MAX_SPLIT_LIST
+    )
     list_file: str | None = Field(default=None, min_length=1, max_length=MAX_PATH_CHARS)
     range: SplitRange | None = None
     lines: str | None = Field(default=None, min_length=1, max_length=MAX_PATH_CHARS)

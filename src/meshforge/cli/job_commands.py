@@ -6,7 +6,9 @@ the leaf module :mod:`meshforge.cli.shared` and is looked up there at call time
 (the tests patch ``shared._client``); :mod:`meshforge.cli.app` imports these
 functions at its end and registers them on the one Typer application.
 
-``compute run [PATH] [--node ID | --local] [--policy P] [--priority N] [-f]``
+``compute run [PATH] [--node ID | --local] [--policy P] [--priority N] [-f]
+[--dry-run]`` (V0.10 G1: ``--dry-run`` prints the job and a ``split:`` job's
+resolved items, uploads and submits nothing - :mod:`.dry_run`)
 (V0.6: without --node/--local the controller's planner places the job; this
 laptop's own enrolled agent, if any, is sent as ``submitter_node_id`` - the
 Local candidate):
@@ -157,6 +159,14 @@ def run(
             help="Re-submit safely: the same key returns the same job.",
         ),
     ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option(
+            "--dry-run",
+            help="Print what would be submitted (for a split: job its items and "
+            "chunking) without uploading or submitting anything.",
+        ),
+    ] = False,
 ) -> None:
     """Submit a project as a job (and optionally follow it).
 
@@ -178,6 +188,13 @@ def run(
         cli._die("give at most one of --node NODE_ID and --local", CliExit.USAGE_ERROR)
     if policy is not None and policy not in POLICIES:
         cli._die("--policy must be one of " + ", ".join(POLICIES), CliExit.USAGE_ERROR)
+    if dry_run:
+        if follow:
+            cli._die("--dry-run submits nothing to follow", CliExit.USAGE_ERROR)
+        from meshforge.cli.dry_run import dry_run as preview
+
+        preview(path.resolve(), name)
+        return
     settings = cli._settings()
     own_node = _own_node_id(settings.data_dir, required=local)
     node_id = own_node if local else cli._checked_node_id(node)

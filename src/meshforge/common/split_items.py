@@ -294,6 +294,10 @@ def _follow(view: _View, entry: TreeEntry, yaml_path: str, shown: str) -> TreeEn
             raise ManifestError.one(yaml_path, f"{shown}: symlink leaves its tree")
         nxt = view.by_path.get(target)
         if nxt is None:
+            below = target + "/"
+            if any(path.startswith(below) for path in view.by_path):
+                # a folder with files is implied by them (no entry of its own)
+                raise ManifestError.one(yaml_path, f"{shown}: is a folder, not a file")
             raise ManifestError.one(
                 yaml_path, f"{shown}: symlink target is not in the tree"
             )
@@ -307,8 +311,11 @@ def _find(views: Sequence[_View], path: str, yaml_path: str) -> tuple[_View, Tre
     for view in reversed(views):  # inputs first: their prefixes are exact
         if view.prefix and not path.startswith(view.prefix):
             continue
-        entry = view.by_path.get(path[len(view.prefix) :])
+        rel = path[len(view.prefix) :]
+        entry = view.by_path.get(rel)
         if entry is None:
+            if any(p.startswith(rel + "/") for p in view.by_path):
+                raise ManifestError.one(yaml_path, "is a folder, not a file")
             break
         return view, _follow(view, entry, yaml_path, "the file")
     raise ManifestError.one(
