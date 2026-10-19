@@ -319,6 +319,22 @@ outliers, missing fields per configuration, the infrastructure failure rate and 
 is `compute bench report CAMPAIGN_ID [--strict]` (admin); every number is defined in
 [TELEMETRY.md](TELEMETRY.md) "Quality report".
 
+**Verified on the harness (V0.9 G7).** `tests/cluster/test_v09_g7_campaign_e2e.py` runs success criteria 1-3 at
+harness scale on one host: a controller and 3 agents as processes, a **204-run** campaign (`cpu.primes` +
+`cpu.zlib`, 2 parameter points each, `local` on the origin + `mode1` pinned to the two other nodes, 17
+repetitions) driven only through the CLI (`bench plan` -> `create` -> `start`). At ~30 % done the controller is
+**SIGKILLed** and restarted and the runner resumes alone; node C's owner pauses benchmarks while one of its runs
+is executing. Asserted: every run ends `done` with **exactly one** ok record (the 1-3 runs in flight at the kill
+included), every benchmark job key once, `bench status` = `bench runs` = the records, infrastructure failure rate
+< 2 % from `status` and recomputed from the records (the pre-empted attempt counted apart), `bench report` n >= 3
+with a CV for all 12 configurations (`--strict` exit 0), labels for all 4 groups, and two
+`compute telemetry export --campaign` files byte-identical across one more controller SIGKILL and equal to
+`GET /v1/telemetry/export?campaign=`. Three consecutive runs (2026-10-19): campaign 428 s / 421 s / 419 s (pytest 7 min 22 s / 7 min 13 s / 7 min 11 s); 205 records
+each (204 ok + 1 `owner_preempted`), **0** infrastructure failures, 0 retries; CV of `total_ms` per
+configuration 0.03-0.21 (median ~0.15 - three agents and the test's CLI share one 16-thread host, so most
+configurations carry `cv_flag` and every group is a `tie`; that is the harness, not the lab). The lab version
+of these steps, at >= 1,000 runs on four laptops, is `lab/checklists/V0.9-campaign.md` part O.
+
 ## Conditions
 
 A **condition** is the state a run is measured under (V0.9 G4, D217/D241). The spec lists conditions as a sweep
