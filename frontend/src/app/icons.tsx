@@ -47,6 +47,13 @@ export const JobsIcon = () => (
   </Icon>
 );
 
+export const BenchmarksIcon = () => (
+  <Icon>
+    <path d="M2.5 13.5h11" />
+    <path d="M4 13.5V9M7 13.5V5.5M10 13.5V7.5M13 13.5V3" />
+  </Icon>
+);
+
 export const SettingsIcon = () => (
   <Icon>
     <circle cx="8" cy="8" r="2.25" />

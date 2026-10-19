@@ -151,30 +151,18 @@ def test_cli_only_is_the_exception() -> None:
     cli_only = sorted(
         c for c, e in PARITY.COMPUTE.items() if isinstance(e, PARITY.CliOnly)
     )
-    # V0.9 G2 adds `bench workloads` (local library listing, not a Mode 1
-    # operation); the Benchmarks page (G6) may move it to InUi.
+    # V0.9 G6: the Benchmarks page (D221) took campaigns, runs, labels, the
+    # runner controls, status and the records download. Left CLI-only:
+    # local-file previews/creation, the manual driver, the local library.
     assert cli_only == [
-        # V0.9 G3: campaigns - CLI-only until the Benchmarks page (G6, D221).
-        "bench campaigns",
-        # V0.9 G5: the runner controls - G6's Benchmarks page adds them.
-        "bench cancel",
-        "bench create",
-        "bench labels",  # V0.9 G5: labels (D218), until G6's campaign detail
-        "bench pause",
-        "bench plan",
-        "bench report",  # V0.9 G5c: the quality report (D220), until G6
-        "bench resume",
-        "bench runs",
-        "bench start",
-        "bench status",
-        "bench submit",
-        "bench workloads",
+        "bench create",  # a local spec file; no browser spec editor in D221
+        "bench plan",  # previews a local spec file
+        "bench submit",  # the manual driver; the browser starts the runner
+        "bench workloads",  # this laptop's library, no controller call
         "data push",
         "fabric join",
         "node gc",
         "node prepare",
-        # V0.9 G1: the Parquet dataset download; G6's Benchmarks page adds it.
-        "telemetry export",
     ]
 
 

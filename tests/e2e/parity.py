@@ -46,6 +46,11 @@ G4_T1 = "test_v08_g4_tester_r1.py"
 G5 = "test_v08_g5_settings.py"
 G5_T1 = "test_v08_g5_tester_r1_e2e.py"
 G7 = "test_v08_g7_mode1_flows.py"
+G6 = "test_v09_g6_benchmarks.py"
+BENCH_FLOW = f"{G6}::test_seeded_campaign_list_detail_pause_resume_labels_download"
+BENCH_REFUSED = (
+    f"{G6}::test_controls_follow_state_refusals_toast_and_users_see_no_benchmarks"
+)
 LIFE_CYCLE = (
     f"{G7}::test_mode1_job_life_cycle_in_the_browser_matches_the_api_and_the_cli"
 )
@@ -222,58 +227,75 @@ COMPUTE: Final[dict[str, Entry]] = {
     # ------------------------------------------------------------ benchmarks (V0.9)
     "bench workloads": CliOnly(
         "V0.9 G2: lists the benchmark workload library on this laptop (no "
-        "controller call). The Benchmarks page (0.9.9, G6) is where campaigns are "
-        "shown; G6 decides whether it lists the families too and moves this entry."
+        "controller call - nothing a browser could show from the controller). "
+        "The Benchmarks page (G6) shows the families a campaign measured."
     ),
-    # V0.9 G3 campaigns (D216). The Benchmarks page (0.9.9, G6) shows and drives
-    # campaigns (D221) and moves these entries to UI mappings then.
     "bench plan": CliOnly(
         "V0.9 G3: expands a campaign spec file on this laptop before anything is "
         "stored - a preview of a YAML file the operator is editing locally."
     ),
     "bench create": CliOnly(
-        "V0.9 G3: stores a campaign from a local spec file (admin); the "
-        "Benchmarks page (G6, D221) adds the browser form."
+        "V0.9 G3: stores a campaign from a local spec file (admin). G6 (D221) "
+        "shows and drives stored campaigns; a browser spec editor is not in "
+        "D221's scope (follow-up)."
     ),
-    "bench campaigns": CliOnly(
-        "V0.9 G3: lists campaigns (admin); the Benchmarks page (G6, D221) is their UI."
+    "bench campaigns": InUi(
+        "/benchmarks",
+        "campaigns list (state, done %, ETA, infra failure rate); a name opens "
+        "/benchmarks/:campaignId (Overview with the spec)",
+        (BENCH_FLOW,),
     ),
-    "bench runs": CliOnly(
-        "V0.9 G3: a campaign's run list (admin); G6's campaign detail shows it."
+    "bench runs": InUi(
+        "/benchmarks/:campaignId",
+        "Runs tab: runs in execution order (state filter, tries, last failure)",
+        (BENCH_FLOW,),
     ),
-    "bench labels": CliOnly(
-        "V0.9 G5: a campaign's per-group labels (admin) and their Parquet "
-        "download; G6's campaign detail (D221) shows them."
+    "bench labels": InUi(
+        "/benchmarks/:campaignId",
+        "Labels tab (per-group labels); Download tab: Download labels (Parquet)",
+        (BENCH_FLOW,),
     ),
-    "bench report": CliOnly(
-        "V0.9 G5c: a campaign's data quality report (admin, D220); G6's "
-        "campaign detail (D221) shows it."
+    "bench report": InUi(
+        "/benchmarks/:campaignId",
+        "Quality tab: the campaign's data quality report (D220)",
+        (BENCH_FLOW,),
     ),
     "bench submit": CliOnly(
-        "V0.9 G3: the only campaign driver until G5's runner (D232); G6's "
-        "pause/resume controls replace it in the UI."
+        "V0.9 G3: the manual campaign driver (D232); in the browser a campaign is "
+        "started and the runner submits (Start / Pause / Resume, G6)."
     ),
-    "bench start": CliOnly(
-        "V0.9 G5: hands a campaign to the controller's runner (admin); the "
-        "Benchmarks page (G6, D221) adds the start control."
+    "bench start": InUi(
+        "/benchmarks",
+        "Start on the campaign's row (or its page header)",
+        (BENCH_FLOW, BENCH_REFUSED),
     ),
-    "bench pause": CliOnly(
-        "V0.9 G5: stops a campaign's submissions (admin); G6's pause control."
+    "bench pause": InUi(
+        "/benchmarks/:campaignId",
+        "Pause in the page header (or on the list row)",
+        (BENCH_FLOW,),
     ),
-    "bench resume": CliOnly(
-        "V0.9 G5: resumes a paused campaign (admin); G6's resume control."
+    "bench resume": InUi(
+        "/benchmarks/:campaignId",
+        "Resume in the page header (or on the list row)",
+        (BENCH_FLOW,),
     ),
-    "bench cancel": CliOnly(
-        "V0.9 G5: cancels a campaign's benchmark jobs (admin); G6's cancel control."
+    "bench cancel": InUi(
+        "/benchmarks",
+        "Cancel on the row -> confirm (Cancel campaign)",
+        (BENCH_REFUSED,),
     ),
-    "bench status": CliOnly(
-        "V0.9 G5: a campaign's progress, ETA and infra failure rate (admin); G6's "
-        "campaign list shows the same numbers (campaign.progress events)."
+    "bench status": InUi(
+        "/benchmarks/:campaignId",
+        "Overview tab: counts, done %, ETA, infra failure rate, budget, throttle "
+        "(the list row shows the same numbers, live from campaign.progress)",
+        (BENCH_FLOW,),
     ),
-    "telemetry export": CliOnly(
-        "V0.9 G1: downloads the run-record dataset as a Parquet file for analysis "
-        "tools (admin). The Benchmarks page (0.9.9, G6) adds the browser download "
-        "(D221) and moves this entry to a UI mapping then."
+    "telemetry export": InUi(
+        "/benchmarks/:campaignId",
+        "Download tab: Download records (Parquet) - one campaign's records, the "
+        "same bytes as the API export (the CLI's --since without a campaign stays "
+        "CLI-only)",
+        (BENCH_FLOW,),
     ),
 }
 

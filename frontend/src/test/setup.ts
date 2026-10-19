@@ -16,6 +16,8 @@ await Promise.all([
   import("../pages/jobs/JobDetailPage"),
   import("../pages/jobs/submit/SubmitJobPage"),
   import("../pages/settings/SettingsRoutes"),
+  import("../pages/benchmarks/BenchmarksPage"),
+  import("../pages/benchmarks/CampaignDetailPage"),
 ]);
 
 afterEach(() => {

@@ -26,4 +26,7 @@ export const queryKeys = {
   tokensAll: ["settings", "tokens"] as const,
   secrets: ["settings", "secrets"] as const,
   inputs: ["settings", "inputs"] as const,
+  // --- V0.9 G6 (Benchmarks; admin only) -----------------------------------
+  /** Prefix of every campaign entry (pages/benchmarks/benchKeys.ts). */
+  bench: ["bench"] as const,
 };

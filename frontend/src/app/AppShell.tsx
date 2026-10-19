@@ -6,6 +6,7 @@ import { setUnauthorizedHandler } from "../api/client";
 import { LOGOUT_MUTATION_KEY } from "../api/hooks";
 import { queryKeys } from "../api/queryKeys";
 import { EVENT_APPLIERS } from "../events/appliers";
+import { StreamStatusContext } from "../events/streamStatus";
 import { useEventStream, type UseEventStreamOptions } from "../events/useEventStream";
 import type { LoginState } from "../pages/loginMessages";
 import { Header } from "./Header";
@@ -80,7 +81,9 @@ export function AppShell({ socketFactory }: AppShellProps) {
       <div className="flex min-w-0 flex-1 flex-col">
         <Header streamStatus={streamStatus} onSigningOut={markSigningOut} />
         <main id="main" tabIndex={-1} className="flex-1 px-6 py-5 outline-none">
-          <Outlet />
+          <StreamStatusContext.Provider value={streamStatus}>
+            <Outlet />
+          </StreamStatusContext.Provider>
         </main>
       </div>
     </div>
