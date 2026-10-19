@@ -206,7 +206,8 @@ def test_guard_flags_contract_not_forbidding_new_sibling(tmp_path: Path) -> None
 
     assert not any("meshforge.planner exists" in p for p in problems), problems
     assert any(
-        "contract for meshforge.controller permits ['bench', 'common', 'planner']" in p
+        "contract for meshforge.controller permits ['bench', 'common', 'planner', 'workqueue']"
+        in p
         for p in problems
     ), problems
 

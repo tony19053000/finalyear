@@ -45,3 +45,14 @@ model documented); − fixed node set per job in V0.10 (re-plan only when all la
 New tables `work_queue`/`work_item`/`work_lease` (migration 0025) and split/lane/chunk-record fields; proto chunk
 messages; telemetry schema v3 with `chunk_record`; ARCHITECTURE §6.1, §7, §9, §12.2, §13 amended as groups land;
 THREAT_MODEL gains a Mode 3 section; V0.12 (Mode 4 inference) reuses `meshforge.workqueue` without changes.
+
+## Addendum (G2 review, 2026-10-19): work-queue lock protocol — binding for Mode 3 and Mode 4
+
+- Every work-queue operation locks **queue rows in ascending `queue_id`, each once, then item rows in ascending `id`**.
+- Queue row mode: `lease_next`/`renew`/`release` = FOR KEY SHARE (items via SKIP LOCKED — pulls never wait);
+  `complete`/`speculate`/`release_holder` = FOR NO KEY UPDATE (serialises one queue's commits so the last
+  commit sees `queue_done`); `fail`/`expire_due`/`cancel` = FOR UPDATE (no lease granted while closing).
+- **Cross-module order:** a caller that also locks controller rows (job, attempt) in the same transaction locks
+  **controller rows first, work-queue rows second** — e.g. node loss: attempt rows, then `release_holder`.
+- Tables live in their own MetaData (same naming convention); `migrations/env.py` merges them for Alembic.
+- Keep result transactions short: commits within one queue serialise on its row.

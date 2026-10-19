@@ -12,11 +12,10 @@ tests fails on drift).
 Downgrade drops the columns (development only).
 
 **Merge note (V0.10 G1 ∥ G2):** the brief reserves 0025 for G2's work queue.
-This branch was cut before 0025 existed, so it chains from 0024; whoever merges
-second sets ``down_revision = "0025"`` (the two touch different tables).
+Rebased onto 0025 at the G1/G2 merge (the two touch different tables).
 
 Revision ID: 0026
-Revises: 0024
+Revises: 0025
 Create Date: 2026-10-19
 """
 
@@ -29,7 +28,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "0026"
-down_revision: str | Sequence[str] | None = "0024"
+down_revision: str | Sequence[str] | None = "0025"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

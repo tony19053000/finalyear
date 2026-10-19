@@ -84,8 +84,6 @@ async def _snapshot(settings: DatabaseSettings) -> tuple[set[str], list[str]]:
 
 
 HEAD = "0026"  # bump with every new migration; the chain must stay linear
-# V0.10 G1 branch: 0026 chains from 0024; at the G1/G2 merge 0025 (G2) goes in
-# between - add "0025" to the chain and make 0026 revise it.
 
 
 def test_single_linear_head() -> None:
@@ -94,6 +92,7 @@ def test_single_linear_head() -> None:
     chain = [r.revision for r in script.walk_revisions()]
     assert chain == [
         "0026",
+        "0025",
         "0024",
         "0023",
         "0022",
@@ -124,7 +123,7 @@ def test_single_linear_head() -> None:
     assert base.down_revision is None
     head = script.get_revision(HEAD)
     assert head is not None
-    assert head.down_revision == "0024"
+    assert head.down_revision == "0025"
 
 
 def test_upgrade_check_downgrade_on_clean_database(
