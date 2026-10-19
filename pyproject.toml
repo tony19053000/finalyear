@@ -211,6 +211,7 @@ forbidden_modules = [
     "meshforge.sdk",
     "meshforge.cli",
     "meshforge.bench",
+    "meshforge.workqueue",
 ]
 
 [[tool.importlinter.contracts]]
@@ -240,6 +241,7 @@ forbidden_modules = [
     "meshforge.sdk",
     "meshforge.cli",
     "meshforge.bench",
+    "meshforge.workqueue",
 ]
 
 [[tool.importlinter.contracts]]
@@ -253,6 +255,7 @@ forbidden_modules = [
     "meshforge.sdk",
     "meshforge.cli",
     "meshforge.bench",
+    "meshforge.workqueue",
 ]
 
 [[tool.importlinter.contracts]]
@@ -266,6 +269,7 @@ forbidden_modules = [
     "meshforge.gpu_service",
     "meshforge.cli",
     "meshforge.bench",
+    "meshforge.workqueue",
 ]
 
 [[tool.importlinter.contracts]]
@@ -277,6 +281,7 @@ forbidden_modules = [
     "meshforge.controller",
     "meshforge.agent",
     "meshforge.gpu_service",
+    "meshforge.workqueue",
 ]
 
 # V0.9 G2 (D214): the benchmark workload library. It imports only common - never
@@ -294,6 +299,26 @@ forbidden_modules = [
     "meshforge.gpu_service",
     "meshforge.sdk",
     "meshforge.cli",
+    "meshforge.workqueue",
+]
+
+# V0.10 G2 (D262): the shared leased work queue (Mode 3 chunks, Mode 4 batches).
+# Mode-agnostic: it imports only common - never the controller's jobs/planner/
+# split code nor anything else - and its tables live on their own metadata. Only
+# the controller imports it (agent, gpu_service, sdk, cli, bench and common
+# forbid it).
+[[tool.importlinter.contracts]]
+id = "workqueue-imports-common-only"
+name = "workqueue imports only common"
+type = "forbidden"
+source_modules = ["meshforge.workqueue"]
+forbidden_modules = [
+    "meshforge.controller",
+    "meshforge.agent",
+    "meshforge.gpu_service",
+    "meshforge.sdk",
+    "meshforge.cli",
+    "meshforge.bench",
 ]
 
 # ---------------------------------------------------------------------------
@@ -402,7 +427,12 @@ warn_required_dynamic_aliases = true
 # The roadmap's hard requirement: these three packages must stay strict. Restated
 # explicitly so relaxing the global default later cannot silently weaken them.
 [[tool.mypy.overrides]]
-module = ["meshforge.common.*", "meshforge.controller.*", "meshforge.agent.*"]
+module = [
+    "meshforge.common.*",
+    "meshforge.controller.*",
+    "meshforge.agent.*",
+    "meshforge.workqueue.*",
+]
 strict = true
 
 # Generated protobuf/gRPC code: types come from the generated .pyi stubs.
