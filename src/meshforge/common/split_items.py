@@ -106,11 +106,20 @@ class SplitLimits:
     max_chunks: int = MAX_SPLIT_CHUNKS
     max_list_file_bytes: int = 64 * 1024 * 1024
     """A ``list_file`` larger than this is refused (it is read whole)."""
-    max_lines_file_bytes: int = 2 * 1024**3
-    """A ``lines`` file larger than this is refused (it is streamed once)."""
+    max_lines_file_bytes: int = 256 * 1024 * 1024
+    """A ``lines`` file larger than this is refused (it is streamed once).
+    V0.10 G3 (D278): 256 MiB, down from 2 GiB - the controller scans it while
+    it holds the blob store's GC guard, and a waiting GC pass holds back every
+    other submission meanwhile; 100 000 records (``max_items``) of up to
+    2.6 KiB each still fit."""
     max_record_bytes: int = 16 * 1024 * 1024
     """A ``lines`` record (one line) longer than this is refused: the scan
     holds at most one record plus one read block in memory."""
+    max_list_bytes: int = 64 * 1024 * 1024
+    """V0.10 G3 (D278): the item-list blob (:meth:`ResolvedItems.blob`) may be
+    at most this big. Counted **while** resolving - item by item, at its JSON
+    size - so 100 000 long ``list_file`` lines are refused before hundreds of
+    megabytes of JSON are built."""
 
     def __post_init__(self) -> None:
         if not 1 <= self.max_items <= MAX_SPLIT_ITEMS:
@@ -122,6 +131,7 @@ class SplitLimits:
                 self.max_list_file_bytes,
                 self.max_lines_file_bytes,
                 self.max_record_bytes,
+                self.max_list_bytes,
             )
             < 1
         ):
@@ -326,6 +336,46 @@ def _find(views: Sequence[_View], path: str, yaml_path: str) -> tuple[_View, Tre
 # -------------------------------------------------------------------- sources
 
 
+_BLOB_FIXED: Final = 256
+"""Bytes of the item-list blob that are not items (version, kind, count,
+``source`` without its path, ``header``) - rounded up, so the running count is
+never below the real blob size."""
+_FILE_ENTRY: Final = 70
+"""``["<64 hex>",`` + ``],`` of a glob item's ``files`` entry, without the
+size digits."""
+
+
+def _json_size(item: str | int) -> int:
+    """Bytes ``item`` takes in the canonical blob, with its comma."""
+    if isinstance(item, int):
+        return len(str(item)) + 1
+    return len(json.dumps(item, ensure_ascii=False).encode("utf-8")) + 1
+
+
+class _ListBudget:
+    """D278: counts the item-list blob as items are found and refuses the job
+    as soon as it would pass ``max_list_bytes`` - before the JSON is built."""
+
+    __slots__ = ("_cap", "_used", "_yaml_path")
+
+    def __init__(
+        self, yaml_path: str, limits: SplitLimits, *, source: str | None = None
+    ) -> None:
+        self._yaml_path = yaml_path
+        self._cap = limits.max_list_bytes
+        # the source file's path is written once into ``source``
+        self._used = _BLOB_FIXED + (0 if source is None else _json_size(source))
+
+    def add(self, size: int) -> None:
+        self._used += size
+        if self._used > self._cap:
+            raise ManifestError.one(
+                self._yaml_path,
+                f"the item list would be larger than {self._cap} bytes (the "
+                "controller's limit); use fewer or shorter items",
+            )
+
+
 def _too_many(yaml_path: str, limits: SplitLimits) -> ManifestError:
     return ManifestError.one(
         yaml_path,
@@ -337,6 +387,7 @@ def _glob(pattern: str, views: Sequence[_View], limits: SplitLimits) -> Resolved
     yaml_path = "split.over.glob"
     parts = glob_parts(pattern)
     found: dict[str, ItemFile] = {}
+    budget = _ListBudget(yaml_path, limits)
     for view in views:
         if view.prefix and not may_enter(parts, view.prefix.rstrip("/")):
             continue
@@ -350,6 +401,7 @@ def _glob(pattern: str, views: Sequence[_View], limits: SplitLimits) -> Resolved
             found[path] = ItemFile(path, target.sha256, target.size)
             if len(found) > limits.max_items:
                 raise _too_many(yaml_path, limits)
+            budget.add(_json_size(path) + _FILE_ENTRY + len(str(target.size)))
     if not found:
         raise ManifestError.one(yaml_path, "matched no files")
     order = sorted(found, key=lambda p: p.encode("utf-8"))
@@ -383,6 +435,7 @@ def _list_file(
         raise ManifestError.one(yaml_path, "the file is not UTF-8 text") from None
     items: list[str] = []
     seen: set[str] = set()
+    budget = _ListBudget(yaml_path, limits, source=path)
     for number, line in enumerate(text.split("\n"), start=1):
         item = line.removesuffix("\r")
         if not item.strip():
@@ -400,6 +453,7 @@ def _list_file(
         items.append(item)
         if len(items) > limits.max_items:
             raise _too_many(yaml_path, limits)
+        budget.add(_json_size(item))
     if not items:
         raise ManifestError.one(yaml_path, "the file lists no items")
     return ResolvedItems(
@@ -455,6 +509,7 @@ def _lines(
         )
     records: list[tuple[int, int]] = []
     head: tuple[int, int] | None = None
+    budget = _ListBudget(yaml_path, limits, source=path)
     with open_blob(entry.sha256) as fh:
         scan = _records(fh, limits.max_record_bytes)
         try:
@@ -467,6 +522,13 @@ def _lines(
                 records.append((offset, length))
                 if len(records) > limits.max_items:
                     raise _too_many(yaml_path, limits)
+                # the item (its index) + its [offset,length] record
+                budget.add(
+                    _json_size(len(records) - 1)
+                    + len(str(offset))
+                    + len(str(length))
+                    + 4
+                )
         except _LongLineError:
             raise ManifestError.one(
                 yaml_path,
@@ -487,6 +549,14 @@ def _lines(
 
 
 # ----------------------------------------------------------------------- API
+
+
+def _check_budget(
+    yaml_path: str, items: Sequence[str | int], limits: SplitLimits
+) -> None:
+    budget = _ListBudget(yaml_path, limits)
+    for item in items:
+        budget.add(_json_size(item))
 
 
 def chunk_count(items: int, per_chunk: int) -> int:
@@ -516,6 +586,7 @@ def resolve(
         if not over.list:
             raise ManifestError.one("split.over.list", "the list is empty")
         resolved = ResolvedItems(over="list", items=tuple(over.list))
+        _check_budget("split.over.list", resolved.items, limits)
     elif over.list_file is not None:
         resolved = _list_file(over.list_file, views, open_blob, limits)
     elif over.range is not None:
@@ -528,6 +599,7 @@ def resolve(
             over="range",
             items=tuple(range(over.range.start, over.range.stop, over.range.step)),
         )
+        _check_budget("split.over.range", resolved.items, limits)
     else:
         assert over.lines is not None  # noqa: S101 - SplitOver validated one source
         resolved = _lines(over.lines, over.header, views, open_blob, limits)

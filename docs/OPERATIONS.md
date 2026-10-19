@@ -1195,7 +1195,9 @@ compute get <JOB_ID>               # outputs -> ./outputs/<JOB_ID>/ (--dest, --f
   (`not_supported_yet: split execution arrives in G4`) - never run whole by
   accident. Caps (`[controller.split]`): `max_items` (100 000) items and
   `max_chunks` (10 000) chunks per job; `list_file` up to 64 MiB, `lines` files
-  up to 2 GiB with lines up to 16 MiB.
+  up to 256 MiB with lines up to 16 MiB (the file is scanned while blob GC
+  waits), and the stored item list up to 64 MiB (counted while the items are
+  resolved; never above `[controller.blobs] max_blob_bytes`).
 
 ---
 

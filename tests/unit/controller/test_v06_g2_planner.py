@@ -229,6 +229,9 @@ def test_every_reject_code_has_a_case() -> None:
     # V0.6 G3: retry_excluded is soft (lifted on a one-node fabric), so its
     # cases need two nodes - tests/unit/controller/test_v06_g3_retry_planner.py
     covered |= {RejectCode.RETRY_EXCLUDED}
+    # V0.10 G3: the two split codes reject a Mode 3 *set*, never a node -
+    # their cases are in tests/unit/controller/test_v10_g3_split_planner.py
+    covered |= {RejectCode.SPLIT_TOO_SMALL, RejectCode.SPLIT_TOO_FEW_NODES}
     assert covered == set(RejectCode)
     assert {c for c, _, _ in STATIC_CASES} == STATIC_CODES
 

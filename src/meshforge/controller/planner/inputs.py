@@ -25,12 +25,13 @@ from collections.abc import Iterable, Mapping, Sequence
 from typing import Any, Final
 
 from meshforge.common.capabilities import EXEC_GPU_CAPABILITY
-from meshforge.common.manifest import Manifest
+from meshforge.common.manifest import Manifest, SplitSpec
 from meshforge.common.owner_policy import OwnerPolicy
 from meshforge.controller.planner.types import (
     History,
     NodeSnapshot,
     PlanRequest,
+    SplitInfo,
     TreeNeed,
 )
 
@@ -43,6 +44,7 @@ __all__ = [
     "node_snapshot",
     "plan_request",
     "scores_of",
+    "split_info",
     "workload_fingerprint",
 ]
 
@@ -226,6 +228,55 @@ def workload_fingerprint(
     return hashlib.sha256(data.encode("utf-8")).hexdigest()
 
 
+def _items_path(spec: SplitSpec) -> str | None:
+    """The path whose folder holds the items' bytes, None for data-less items."""
+    over = spec.over
+    if over.glob is not None:
+        return over.glob
+    if over.lines is not None:
+        return over.lines
+    return None
+
+
+def split_info(
+    manifest: Manifest,
+    *,
+    item_count: int,
+    item_bytes: int | None,
+    project_tree: str | None,
+    input_trees: Mapping[str, str] | None = None,
+) -> SplitInfo | None:
+    """V0.10 G3 (D265): the planner's view of a split job - ``item_count`` /
+    ``item_bytes`` as resolved at submit (``job.split_item_count`` /
+    ``split_item_bytes``, or the remainder on a re-plan) and the manifest's
+    chunk and node bounds. ``input_trees`` maps each named input's **mount**
+    to its tree id. None = not a split job.
+
+    The items' tree is the named input whose mount the ``glob`` / ``lines``
+    path starts with, else the project tree. A ``glob`` matching files of both
+    (``**/*.jpg`` with a mounted input) is costed as the project's (an
+    approximation: only the per-item fetch bandwidth depends on it)."""
+    spec = manifest.split
+    if spec is None:
+        return None
+    path = _items_path(spec)
+    tree: str | None = None
+    if path is not None and item_bytes:
+        tree = project_tree
+        for mount, input_tree in sorted((input_trees or {}).items()):
+            if path == mount or path.startswith(mount.rstrip("/") + "/"):
+                tree = input_tree
+                break
+    return SplitInfo(
+        items=max(0, item_count),
+        item_bytes=item_bytes,
+        items_tree=tree,
+        chunk_items=spec.chunk.items,
+        min_nodes=spec.min_nodes,
+        max_nodes=spec.max_nodes,
+    )
+
+
 def plan_request(
     manifest: Manifest,
     *,
@@ -240,6 +291,7 @@ def plan_request(
     history: History | None = None,
     owner_name: str | None = None,
     benchmark: bool = False,
+    split: SplitInfo | None = None,
 ) -> PlanRequest:
     resources = manifest.resources
     return PlanRequest(
@@ -265,4 +317,5 @@ def plan_request(
         owner_name=owner_name,
         network=manifest.limits.wants_network,
         benchmark=benchmark,
+        split=split,
     )

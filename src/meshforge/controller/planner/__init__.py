@@ -6,6 +6,8 @@ policy, as a pure function of ``(request, snapshot, policy, now)``.
 * :mod:`.estimator` - predicted completion time (estimator v0, V0.6 G4);
 * :mod:`.policies` - the seven ranking policies (D107);
 * :mod:`.plan` - the pipeline;
+* :mod:`.split` / :mod:`.split_plan` - Mode 3: item rates, chunk size, node
+  sets, the "don't split" margin test (V0.10 G3, D265);
 * :mod:`.retry_exclusion` - which nodes a retry avoids (V0.6 G3, D110);
 * :mod:`.decision_json` - a :class:`~.types.Decision` as the JSON rows of
   ``plan_decision.candidates``.
@@ -23,11 +25,16 @@ from meshforge.controller.planner.types import (
     Estimate,
     EstimateTerm,
     History,
+    LanePlan,
+    MarginTest,
     NodeSnapshot,
     PlannerConfig,
     PlanRequest,
     RejectCode,
     Rejection,
+    SplitConfig,
+    SplitInfo,
+    SplitPlan,
     TermSource,
     TreeNeed,
 )
@@ -39,12 +46,17 @@ __all__ = [
     "Estimate",
     "EstimateTerm",
     "History",
+    "LanePlan",
+    "MarginTest",
     "NodeSnapshot",
     "PastFailure",
     "PlanRequest",
     "PlannerConfig",
     "RejectCode",
     "Rejection",
+    "SplitConfig",
+    "SplitInfo",
+    "SplitPlan",
     "TermSource",
     "TreeNeed",
     "candidates",

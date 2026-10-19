@@ -11,6 +11,12 @@ assumed reads as measured); and, once the attempt ran, predicted vs actual
 (``transfer``~``stage``, ``env``~``env``, ``compute``~``run``,
 ``output``~``collect``, ``queue``~``queue``).
 
+A **split job** (V0.10 G3, D265) also gets a split table: every candidate's
+node set (a Mode 3 row is named ``<fastest node> +N``), its chunking, each
+node's predicted item rate with its source, and the margin test - with a
+title saying in one sentence why the job was or was not split. Its predicted
+terms add ``items_fetch``, ``chunk_overhead``, ``tail`` and ``combine``.
+
 Every string from the controller goes through :func:`~.render._cell` (control
 characters flattened). ``--json`` prints the API answer + ``schema_version`` (docs/CLI.md).
 """
@@ -29,6 +35,9 @@ from meshforge.cli import shared as cli
 __all__ = ["decision_tables", "explain"]
 
 _TERMS: Final = ("queue", "transfer", "env", "compute", "output")
+_SPLIT_TERMS: Final = ("items_fetch", "chunk_overhead", "tail", "combine")
+"""V0.10 G3: the terms only a split job's candidates have."""
+_MAX_SET_NODES: Final = 6
 _ACTUAL_PHASE: Final = {
     "queue": "queue",
     "transfer": "stage",
@@ -161,7 +170,7 @@ def _candidates_table(decision: Mapping[str, Any]) -> Table:
         )
         table.add_row(
             _cell(c.get("rank")),
-            _cell(c.get("node_id")),
+            _cell(_node_label(c)),
             _cell(c.get("mode")),
             _cell(c.get("slot")),
             _score_cell(c.get("score")),
@@ -182,17 +191,165 @@ def _terms_table(decision: Mapping[str, Any]) -> Table | None:
     ]
     if not ranked:
         return None
+    split = any(_node_set(c) for c in ranked)
+    names = (
+        *_TERMS,
+        *(t for t in _SPLIT_TERMS if any(_has_term(c, t) for c in ranked)),
+    )
+    heads = ("NODE", "MODE") if split else ("NODE",)
     table = render.table(
-        "NODE", *(t.upper() for t in _TERMS), "TOTAL", title="predicted"
+        *heads, *(t.upper() for t in names), "TOTAL", title="predicted"
     )
     for c in ranked:
         estimate = c["estimate"]
         terms = estimate.get("terms") if isinstance(estimate, Mapping) else None
         terms = terms if isinstance(terms, Mapping) else {}
+        lead = (_cell(_node_label(c)), _cell(c.get("mode")))
         table.add_row(
-            _cell(c.get("node_id")),
-            *(_cell(_term_cell(terms.get(t))) for t in _TERMS),
+            *lead[: len(heads)],
+            *(_cell(_term_cell(terms.get(t))) for t in names),
             _seconds(estimate.get("total_s")),
+        )
+    return table
+
+
+def _has_term(candidate: Mapping[str, Any], name: str) -> bool:
+    estimate = candidate.get("estimate")
+    terms = estimate.get("terms") if isinstance(estimate, Mapping) else None
+    return isinstance(terms, Mapping) and name in terms
+
+
+def _node_set(candidate: Mapping[str, Any]) -> list[str]:
+    nodes = candidate.get("node_set")
+    return [str(n) for n in nodes] if isinstance(nodes, list) else []
+
+
+def _node_label(candidate: Mapping[str, Any]) -> Any:
+    """A Mode 3 set row is named by its first (fastest) node and how many
+    more (``node_a +2``); every other row by its node."""
+    nodes = _node_set(candidate)
+    if candidate.get("mode") == "split" and len(nodes) > 1:
+        return f"{candidate.get('node_id')} +{len(nodes) - 1}"
+    return candidate.get("node_id")
+
+
+def _nodes_cell(candidate: Mapping[str, Any]) -> str:
+    nodes = _node_set(candidate)
+    shown = nodes[:_MAX_SET_NODES]
+    more = len(nodes) - len(shown)
+    inactive = candidate.get("inactive")
+    idle = {str(n) for n in inactive} if isinstance(inactive, list) else set()
+    text = ", ".join(f"{n} (idle)" if n in idle else n for n in shown)
+    return text + (f" + {more} more" if more else "")
+
+
+def _chunks_cell(candidate: Mapping[str, Any]) -> str:
+    from meshforge.cli.render import _num
+
+    size, count = _num(candidate.get("chunk_items")), _num(candidate.get("chunks"))
+    if size is None or count is None:
+        return _DASH
+    return f"{count:g} x {size:g} items"
+
+
+def _rate_cell(candidate: Mapping[str, Any]) -> str:
+    from meshforge.cli.render import _num
+
+    rate = _num(candidate.get("rate_items_s"))
+    if rate is None:
+        return _DASH
+    return f"{rate:.4g}/s ({candidate.get('rate_source')})"
+
+
+def _margin_cell(candidate: Mapping[str, Any]) -> str:
+    """``pass: 120.88s <= 272.70s`` for a set row; the code of a rejected one."""
+    if candidate.get("reject_code"):
+        return str(candidate.get("reject_code"))
+    test = candidate.get("margin_test")
+    if not isinstance(test, Mapping):
+        return _DASH
+    verdict = "pass" if test.get("passed") is True else "fail"
+    sign = "<=" if test.get("passed") is True else ">"
+    return (
+        f"{verdict}: {_seconds(test.get('set_s'))} {sign} "
+        f"{_seconds(test.get('threshold_s'))}"
+    )
+
+
+def _split_verdict(rows: list[Mapping[str, Any]]) -> str:
+    """One sentence: why the job was (not) split (D265 margin test)."""
+    from meshforge.cli.render import _num
+
+    chosen = next((c for c in rows if c.get("rank") == 1), None)
+    tests = [
+        c.get("margin_test")
+        for c in rows
+        if c.get("mode") == "split" and isinstance(c.get("margin_test"), Mapping)
+    ]
+    refused = next(
+        (c for c in rows if c.get("mode") == "split" and c.get("reject_code")), None
+    )
+
+    def margin(test: Mapping[str, Any]) -> str:
+        number = _num(test.get("margin"))
+        return _DASH if number is None else f"{number:g}"
+
+    if chosen is not None and chosen.get("mode") == "split":
+        test = chosen.get("margin_test")
+        test = test if isinstance(test, Mapping) else {}
+        return (
+            f"split over {len(_node_set(chosen))} nodes: "
+            f"{_seconds(test.get('set_s'))} <= (1 - {margin(test)}) x "
+            f"{_seconds(test.get('best_single_s'))} "
+            f"(best single node {test.get('best_single_node_id')})"
+        )
+    if refused is not None:
+        return f"not split: {refused.get('reject_text')}"
+    best = tests[0] if tests else None
+    if isinstance(best, Mapping):
+        return (
+            f"not split: the best set {_seconds(best.get('set_s'))} is above "
+            f"{_seconds(best.get('threshold_s'))} = (1 - {margin(best)}) x "
+            f"{_seconds(best.get('best_single_s'))} "
+            f"(best single node {best.get('best_single_node_id')})"
+        )
+    return "not split: the job is pinned to one node"
+
+
+def _split_table(decision: Mapping[str, Any]) -> Table | None:
+    """V0.10 G3 (D265): a split job's candidates - node sets, chunking, each
+    node's item rate and its source, the margin test."""
+    from meshforge.cli.render import _cell
+
+    candidates = decision.get("candidates")
+    rows = [
+        c
+        for c in (candidates if isinstance(candidates, list) else [])
+        if isinstance(c, Mapping) and _node_set(c)
+    ]
+    if not rows:
+        return None
+    table = render.table(
+        "RANK",
+        "MODE",
+        "NODES",
+        "CHUNKS",
+        "RATE",
+        "PREDICTED",
+        "MARGIN TEST",
+        title=_cell(_split_verdict(rows)),
+    )
+    for c in rows:
+        estimate = c.get("estimate")
+        total = estimate.get("total_s") if isinstance(estimate, Mapping) else None
+        table.add_row(
+            _cell(c.get("rank")),
+            _cell(c.get("mode")),
+            _cell(_nodes_cell(c)),
+            _cell(_chunks_cell(c)),
+            _cell(_rate_cell(c)),
+            _seconds(total),
+            _cell(_margin_cell(c)),
         )
     return table
 
@@ -251,7 +408,11 @@ def decision_tables(payload: Mapping[str, Any]) -> list[Table]:
         if not isinstance(decision, Mapping):
             continue
         tables.append(_candidates_table(decision))
-        extras = (_terms_table(decision), _actual_table(decision))
+        extras = (
+            _split_table(decision),
+            _terms_table(decision),
+            _actual_table(decision),
+        )
         tables.extend(t for t in extras if t is not None)
     return tables
 
