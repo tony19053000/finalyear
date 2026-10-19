@@ -88,10 +88,12 @@ from meshforge.controller.resources import ResourceTracker
 from meshforge.controller.session.manager import SessionManager
 from meshforge.controller.settings import JobApiSettings, PlannerSettings
 
-__all__ = ["DispatchPlanner", "decision_record"]
+__all__ = ["SPLIT_NOT_SUPPORTED_YET", "DispatchPlanner", "decision_record"]
 
 log = get_logger(__name__)
 
+SPLIT_NOT_SUPPORTED_YET: Final = "not_supported_yet: split execution arrives in G4"
+"""V0.10 G1: the failure detail of a split job until lanes exist (G4)."""
 _JOB_IS_BAD: Final = (ValidationError, ManifestError, InvalidIdError)
 """Errors that mean the stored job itself is unusable (reviewer N-1): only
 these fail the job; any other planning error leaves it queued."""
@@ -315,6 +317,13 @@ class DispatchPlanner:
 
     def _decide(self, job: JobRecord, fabric: FabricRows) -> DispatchDecision:
         manifest = Manifest.model_validate(dict(job.manifest))
+        if manifest.split is not None or job.split is not None:
+            # V0.10 G1: a split job is accepted and its items stored, but lanes
+            # arrive with G4 - refuse it typed rather than run it whole.
+            return DispatchFailure(
+                FailureType.NO_FEASIBLE_PLAN,
+                SPLIT_NOT_SUPPORTED_YET,
+            )
         pinned = str(job.placement.get("node_id") or "") or None
         if pinned is not None:
             early = self._pinned_gone(job, pinned, fabric)

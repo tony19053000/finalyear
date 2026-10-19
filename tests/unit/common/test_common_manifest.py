@@ -125,16 +125,16 @@ def test_unknown_top_level_key_and_list_index_paths() -> None:
     assert "outputs" in paths
 
 
-@pytest.mark.parametrize(("key", "version"), [("split", "V0.10")])
-def test_split_and_inputs_are_recognised_and_refused(key: str, version: str) -> None:
-    with pytest.raises(ManifestError) as info:
-        _parse(**{key: {"over": "data/*"}})
-    assert _paths(info) == [key]
-    assert version in info.value.message
+def test_split_is_accepted_since_v0_10() -> None:
+    # Refused with "V0.10" until V0.10 G1 (D260); the spec itself is tested in
+    # test_v10_g1_split_spec.py.
+    manifest = _parse(split={"over": "data/*"})
+    assert manifest.split is not None
+    assert manifest.split.over.glob == "data/*"
 
 
-def test_refused_future_key_also_through_model_validate() -> None:
-    with pytest.raises(ValueError, match=r"V0\.10"):
+def test_an_incomplete_split_is_refused_through_model_validate_too() -> None:
+    with pytest.raises(ValueError, match=r"split\.over"):
         Manifest.model_validate({**BASE, "name": "x", "split": {}})
 
 

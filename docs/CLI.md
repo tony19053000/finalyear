@@ -37,6 +37,7 @@ codes and shell completion. Unit tests keep it in step with the code (`tests/uni
 | `compute telemetry export -o FILE [--campaign ID] [--since TIME]` | the telemetry dataset (run records) as one Parquet file, admin only; never overwrites FILE ([TELEMETRY.md](TELEMETRY.md)) | yes |
 | `compute logs JOB_ID [-f] [--stream S]` | the job's own output, byte for byte | no - it is the workload's bytes |
 | `compute run [PATH] [--node ID / --local] [-f] ...` | submit a project (prints the job id) | no - stdout is the job id |
+| `compute run [PATH] --dry-run` | what would be submitted: job, project size, a `split:` job's items (count, first/last, chunking); uploads and submits nothing | no |
 | `compute cancel JOB_ID` | cancel a job | no |
 | `compute get JOB_ID [--dest DIR] [--force]` | download and unpack a job's outputs | no |
 | `compute login` / `logout` | log in (API token kept privately) / revoke it | no |

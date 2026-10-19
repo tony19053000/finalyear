@@ -26,7 +26,7 @@ from meshforge.common.cas import DEFAULT_MAX_RESUMABLE, DEFAULT_MAX_RESUMABLE_PE
 from meshforge.common.config import MeshForgeSettings, SectionModel
 from meshforge.common.errors import ConfigError
 from meshforge.common.fabric_token import CONTROLLER_DIR_NAME, default_token_path
-from meshforge.common.manifest import PolicyName
+from meshforge.common.manifest import MAX_SPLIT_CHUNKS, MAX_SPLIT_ITEMS, PolicyName
 from meshforge.common.netaddr import is_loopback_host, parse_bind
 from meshforge.common.pki import PkiError, validate_san_host
 from meshforge.controller.fabric_ca import (
@@ -1381,6 +1381,30 @@ class BenchSettings(SectionModel):
     )
 
 
+class SplitSettings(SectionModel):
+    """``[controller.split]`` - Mode 3 task splitting (V0.10, D275). G1 uses the
+    item caps; later V0.10 groups add the planner/queue knobs here."""
+
+    max_items: int = Field(
+        default=MAX_SPLIT_ITEMS,
+        ge=1,
+        le=MAX_SPLIT_ITEMS,
+        description=(
+            "Most items one split job may resolve to (split.over); more is "
+            "refused at submit as invalid_input."
+        ),
+    )
+    max_chunks: int = Field(
+        default=MAX_SPLIT_CHUNKS,
+        ge=1,
+        le=MAX_SPLIT_CHUNKS,
+        description=(
+            "Most chunks one split job may have; a fixed split.chunk.items that "
+            "makes more is refused at submit."
+        ),
+    )
+
+
 class ControllerSection(SectionModel):
     """``[controller]`` section."""
 
@@ -1509,6 +1533,7 @@ class ControllerSection(SectionModel):
     http: HttpSettings = Field(default_factory=HttpSettings)
     telemetry: TelemetrySettings = Field(default_factory=TelemetrySettings)
     bench: BenchSettings = Field(default_factory=BenchSettings)
+    split: SplitSettings = Field(default_factory=SplitSettings)
 
     @field_validator("grpc_bind", "http_bind")
     @classmethod

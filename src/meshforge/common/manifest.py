@@ -33,6 +33,13 @@ V0.4 subset::
     secrets:                             # V0.7 G6 (D144): YOUR secrets (compute secret set)
       - API_KEY                          # file /run/secrets/API_KEY (or $MESHFORGE_SECRETS_DIR)
       - {name: DB_PASS, as_env: true}    # ... and also the env var DB_PASS
+    split:                               # V0.10 (D260): Mode 3 task splitting
+      over: {glob: "images/*.jpg"}       # exactly one of glob | list | list_file | range | lines
+      chunk: auto                        # or {items: 50}
+      combine: concat                    # concat | merge-csv | merge-json | {script: [argv]}
+      min_nodes: 2                       # 2..64; max_nodes: absent = every suitable node
+      speculative: true                  # tail copies of slow chunks (D266)
+      deterministic: true                # copies of one chunk must give equal bytes (D269)
 
 Rules:
 
@@ -40,8 +47,17 @@ Rules:
   argv list; the list is executed directly. No shell is ever involved, so ``|``,
   ``;``, ``&&``, ``$VAR`` and globs reach the program as literal arguments.
 * Unknown keys are refused with their YAML path (``resources.gpus: unknown key``).
-  ``split:`` is *recognised and refused* with the version that brings it - a job
-  that asked for splitting must never quietly run whole.
+* ``split`` (V0.10, D260; refused before V0.10 so a job that asked for splitting
+  never quietly ran whole): ``over`` names the items - ``glob`` (files of the
+  project tree or of a named input's mount; a bare string is a glob),
+  ``list`` (at most :data:`MAX_SPLIT_LIST` strings, unique), ``list_file`` (one
+  item per line), ``range`` (``{start, stop, step}`` integers) or ``lines``
+  (the records of a text/CSV file, ``header: true`` keeps the first line out of
+  the items and repeats it into every chunk). The controller resolves the items
+  **once, at submit** (:mod:`meshforge.common.split_items`). Only a split job's
+  ``entrypoint`` may use the placeholders ``{items_file}``, ``{chunk_index}`` and
+  ``{out}``; ``combine.script`` may use ``{parts}`` and ``{out}``. ``split`` is
+  left out of the canonical form when absent (older jobs keep their hash).
 * ``inputs`` (V0.5 G5, D92): each ``ref`` names a registered dataset/model
   (``compute data push``) by ``name@<version>`` or ``name@sha256:<tree id>``;
   ``mount`` is a plain relative folder (no ``..``, no glob, not under
@@ -80,8 +96,11 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    SerializerFunctionWrapHandler,
     ValidationError,
+    ValidationInfo,
     field_validator,
+    model_serializer,
     model_validator,
 )
 
@@ -114,20 +133,34 @@ __all__ = [
     "MAX_PRIORITY",
     "MAX_RAM_GB",
     "MAX_SECRETS",
+    "MAX_SPLIT_CHUNKS",
+    "MAX_SPLIT_ITEMS",
+    "MAX_SPLIT_ITEM_CHARS",
+    "MAX_SPLIT_LIST",
+    "MAX_SPLIT_NODES",
     "MAX_TIMEOUT_S",
     "MAX_VRAM_GB",
     "MIN_PRIORITY",
     "MIN_TIMEOUT_S",
     "POLICIES",
+    "SPLIT_COMBINE_BUILTINS",
+    "SPLIT_COMBINE_PLACEHOLDERS",
+    "SPLIT_ENTRYPOINT_PLACEHOLDERS",
+    "ChunkSpec",
+    "CombineSpec",
     "EnvSpec",
     "InputSpec",
     "LimitsSpec",
     "Manifest",
     "ManifestError",
+    "OverKind",
     "PolicyName",
     "ResourcesSpec",
     "RetrySpec",
     "SecretSpec",
+    "SplitOver",
+    "SplitRange",
+    "SplitSpec",
     "check_mount",
     "infer_entrypoint",
     "load_manifest",
@@ -194,10 +227,27 @@ controller's ``default_policy`` and ``plan_decision.policy``."""
 INFERRED_ENTRYPOINTS: Final = ("main.py", "__main__.py")
 """Looked for, in this order, when the manifest gives no ``entrypoint``."""
 
-_REJECTED_KEYS: Final[dict[str, str]] = {
-    "split": "task splitting (Mode 3) arrives in V0.10; this job would otherwise "
-    "run whole on one node",
-}
+MAX_SPLIT_ITEMS: Final = 100_000
+"""Hard ceiling on the items of one split job (D260); the controller's
+``[controller.split] max_items`` may only lower it."""
+MAX_SPLIT_CHUNKS: Final = 10_000
+"""Hard ceiling on the chunks of one split job (``[controller.split] max_chunks``)."""
+MAX_SPLIT_LIST: Final = 10_000
+"""Most strings an inline ``split.over.list`` may hold."""
+MAX_SPLIT_ITEM_CHARS: Final = 1024
+"""Longest ``list`` / ``list_file`` item (characters)."""
+MAX_SPLIT_NODES: Final = 64
+MAX_SAFE_INT: Final = 2**53 - 1
+"""``range`` bounds: integers a JSON reader in any language reads exactly."""
+SPLIT_ENTRYPOINT_PLACEHOLDERS: Final = ("{items_file}", "{chunk_index}", "{out}")
+"""Substituted per chunk in a split job's ``entrypoint`` (D260)."""
+SPLIT_COMBINE_PLACEHOLDERS: Final = ("{parts}", "{out}")
+"""Substituted in ``split.combine.script`` (D268)."""
+SPLIT_COMBINE_BUILTINS: Final = ("concat", "merge-csv", "merge-json")
+_ALL_PLACEHOLDERS: Final = ("{items_file}", "{chunk_index}", "{out}", "{parts}")
+_REJECTED_KEYS: Final[dict[str, str]] = {}
+"""Keys recognised and refused with the version that brings them (empty since
+V0.10 accepted ``split``; kept for the next one)."""
 _NAME_RE: Final = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 _PYTHON_RE: Final = re.compile(r"3\.\d{1,2}")
 _DURATION_RE: Final = re.compile(
@@ -296,6 +346,41 @@ def _check_arg(value: object) -> str:
     if "\x00" in value:
         raise ValueError("an argument must not contain a NUL byte")
     return value
+
+
+def _to_argv(value: object, what: str) -> object:
+    """A string is split with POSIX shell rules (never run by a shell); a list
+    is checked item by item. Anything else is left for the type check."""
+    if isinstance(value, str):
+        if len(value) > MAX_ARG_CHARS * 4:
+            raise ValueError(f"{what} string is too long")
+        try:
+            value = shlex.split(value, comments=False, posix=True)
+        except ValueError:
+            raise ValueError(
+                f"cannot split the {what} (unbalanced quotes or a trailing backslash)"
+            ) from None
+        if not value:
+            raise ValueError(f"{what} is empty")
+    if isinstance(value, (list, tuple)):
+        if len(value) > MAX_ARGV_ITEMS:
+            raise ValueError(f"at most {MAX_ARGV_ITEMS} arguments")
+        argv = tuple(_check_arg(item) for item in value)
+        if argv and not argv[0]:
+            raise ValueError("the program (first argument) must not be empty")
+        return argv
+    return value
+
+
+def _refuse_placeholders(
+    argv: tuple[str, ...], placeholders: tuple[str, ...], where: str
+) -> None:
+    for item in argv:
+        for name in placeholders:
+            if name in item:
+                raise ValueError(
+                    f"the placeholder {name} is only substituted in {where}"
+                )
 
 
 # ------------------------------------------------------------------- models
@@ -482,10 +567,249 @@ def mounts_overlap(a: str, b: str) -> bool:
     return pa[:shorter] == pb[:shorter]
 
 
+class SplitRange(_Spec):
+    """``split.over.range``: the integers ``start, start+step, ...`` before
+    ``stop`` (Python ``range`` rules; ``step`` may be negative, never 0)."""
+
+    start: int = Field(default=0, ge=-MAX_SAFE_INT, le=MAX_SAFE_INT, strict=True)
+    stop: int = Field(ge=-MAX_SAFE_INT, le=MAX_SAFE_INT, strict=True)
+    step: int = Field(default=1, ge=-MAX_SAFE_INT, le=MAX_SAFE_INT, strict=True)
+
+    @field_validator("step")
+    @classmethod
+    def _nonzero(cls, value: int) -> int:
+        if value == 0:
+            raise ValueError("must not be 0")
+        return value
+
+    @property
+    def count(self) -> int:
+        """How many items, computed without building them."""
+        return len(range(self.start, self.stop, self.step))
+
+
+type OverKind = Literal["glob", "list", "list_file", "range", "lines"]
+_OVER_KINDS: Final[tuple[OverKind, ...]] = (
+    "glob",
+    "list",
+    "list_file",
+    "range",
+    "lines",
+)
+
+
+def _check_split_path(value: str, *, allow_glob: bool) -> str:
+    _check_relative_path(value, allow_glob=allow_glob)
+    if any(part in ("", ".") for part in value.split("/")):
+        raise ValueError(
+            "name files with a plain path (no empty or '.' parts, no trailing '/'; "
+            "a whole folder is folder/**)"
+        )
+    return value
+
+
+def _check_item_text(value: str) -> str:
+    if not value or not value.strip():
+        raise ValueError("an item must not be empty or blank")
+    if len(value) > MAX_SPLIT_ITEM_CHARS:
+        raise ValueError(f"an item is at most {MAX_SPLIT_ITEM_CHARS} characters")
+    if "\x00" in value:
+        raise ValueError("an item must not contain a NUL byte")
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        raise ValueError("an item must be valid UTF-8 text") from None
+    return value
+
+
+class SplitOver(_Spec):
+    """``split.over``: exactly one source of items (D260). A bare string is a
+    ``glob``. Items from ``glob`` are the matching **files** (relative POSIX
+    paths, sorted by their UTF-8 bytes); ``list`` and ``list_file`` keep the
+    order they are written in and must not repeat an item."""
+
+    glob: str | None = Field(default=None, min_length=1, max_length=MAX_PATH_CHARS)
+    list: tuple[str, ...] | None = Field(
+        default=None, min_length=1, max_length=MAX_SPLIT_LIST
+    )
+    list_file: str | None = Field(default=None, min_length=1, max_length=MAX_PATH_CHARS)
+    range: SplitRange | None = None
+    lines: str | None = Field(default=None, min_length=1, max_length=MAX_PATH_CHARS)
+    header: bool = Field(default=False, strict=True)
+    """``lines`` only: the first line is a header, not an item."""
+
+    @model_validator(mode="before")
+    @classmethod
+    def _bare_glob(cls, data: object) -> object:
+        return {"glob": data} if isinstance(data, str) else data
+
+    @field_validator("glob")
+    @classmethod
+    def _glob(cls, value: str | None) -> str | None:
+        return None if value is None else _check_split_path(value, allow_glob=True)
+
+    @field_validator("list_file", "lines")
+    @classmethod
+    def _file(cls, value: str | None) -> str | None:
+        return None if value is None else _check_split_path(value, allow_glob=False)
+
+    @field_validator("list")
+    @classmethod
+    def _items(cls, value: tuple[str, ...] | None) -> tuple[str, ...] | None:
+        if value is None:
+            return None
+        seen: set[str] = set()
+        for index, item in enumerate(value):
+            _check_item_text(item)
+            if item in seen:
+                raise ValueError(f"item [{index}] repeats an earlier item")
+            seen.add(item)
+        return value
+
+    @model_validator(mode="after")
+    def _exactly_one(self) -> Self:
+        given = [kind for kind in _OVER_KINDS if getattr(self, kind) is not None]
+        if len(given) != 1:
+            raise ValueError(
+                "give exactly one of "
+                + ", ".join(_OVER_KINDS)
+                + (f" (got {', '.join(given)})" if given else "")
+            )
+        if self.header and self.kind != "lines":
+            raise ValueError("header applies to lines only")
+        return self
+
+    @property
+    def kind(self) -> OverKind:
+        for kind in _OVER_KINDS:
+            if getattr(self, kind) is not None:
+                return kind
+        raise AssertionError("validated SplitOver has a source")  # pragma: no cover
+
+    @model_serializer(mode="wrap")
+    def _compact(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        """Only the given source (and ``header`` for ``lines``): the canonical
+        form names what was asked, nothing else."""
+        data: dict[str, Any] = handler(self)
+        out: dict[str, Any] = {
+            k: v for k, v in data.items() if k in _OVER_KINDS and v is not None
+        }
+        if self.kind == "lines":
+            out["header"] = self.header
+        return out
+
+
+class ChunkSpec(_Spec):
+    """``split.chunk``: ``auto`` (the planner sizes chunks, D265) or
+    ``{items: N}``. Serialised back as ``"auto"`` / ``{"items": N}``."""
+
+    items: int | None = Field(default=None, ge=1, le=MAX_SPLIT_ITEMS, strict=True)
+    """None = auto."""
+
+    @model_validator(mode="before")
+    @classmethod
+    def _word(cls, data: object) -> object:
+        if isinstance(data, str):
+            if data != "auto":
+                raise ValueError("must be auto or {items: N}")
+            return {}
+        if isinstance(data, Mapping) and "items" in data and data["items"] is None:
+            raise ValueError("must be auto or {items: N}")
+        return data
+
+    @property
+    def auto(self) -> bool:
+        return self.items is None
+
+    @model_serializer(mode="plain")
+    def _canonical(self) -> str | dict[str, int]:
+        return "auto" if self.items is None else {"items": self.items}
+
+
+class CombineSpec(_Spec):
+    """``split.combine``: a built-in (``concat``, ``merge-csv``, ``merge-json``)
+    written as a word, or ``{script: [argv]}`` (a string is split like the
+    entrypoint) run with ``{parts}`` and ``{out}`` substituted (D268)."""
+
+    builtin: Literal["concat", "merge-csv", "merge-json"] | None = None
+    script: tuple[str, ...] | None = Field(
+        default=None, min_length=1, max_length=MAX_ARGV_ITEMS
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _word(cls, data: object) -> object:
+        if isinstance(data, str):
+            if data not in SPLIT_COMBINE_BUILTINS:
+                raise ValueError(
+                    "must be "
+                    + ", ".join(SPLIT_COMBINE_BUILTINS)
+                    + " or {script: [argv]}"
+                )
+            return {"builtin": data}
+        if isinstance(data, Mapping) and "builtin" in data:
+            raise ValueError("write a built-in combine as a word: combine: concat")
+        return data
+
+    @field_validator("script", mode="before")
+    @classmethod
+    def _argv(cls, value: object) -> object:
+        return None if value is None else _to_argv(value, "script")
+
+    @field_validator("script")
+    @classmethod
+    def _placeholders(cls, value: tuple[str, ...] | None) -> tuple[str, ...] | None:
+        if value is not None:
+            _refuse_placeholders(
+                value,
+                ("{items_file}", "{chunk_index}"),
+                "the entrypoint, not split.combine.script",
+            )
+        return value
+
+    @model_validator(mode="after")
+    def _one(self) -> Self:
+        if (self.builtin is None) == (self.script is None):
+            raise ValueError("give a built-in word or {script: [argv]}")
+        return self
+
+    @model_serializer(mode="plain")
+    def _canonical(self) -> str | dict[str, list[str]]:
+        if self.builtin is not None:
+            return self.builtin
+        return {"script": list(self.script or ())}
+
+
+class SplitSpec(_Spec):
+    """``split:`` (V0.10, D260) - see the module docstring."""
+
+    over: SplitOver
+    chunk: ChunkSpec = Field(default_factory=ChunkSpec)
+    combine: CombineSpec = Field(
+        default_factory=lambda: CombineSpec.model_validate("concat")
+    )
+    min_nodes: int = Field(default=2, ge=2, le=MAX_SPLIT_NODES, strict=True)
+    """The smallest node set worth splitting over (fewer = run it unsplit)."""
+    max_nodes: int | None = Field(default=None, ge=2, le=MAX_SPLIT_NODES, strict=True)
+    """None = every suitable node."""
+    speculative: bool = Field(default=True, strict=True)
+    deterministic: bool = Field(default=True, strict=True)
+
+    @model_validator(mode="after")
+    def _node_bounds(self) -> Self:
+        if self.max_nodes is not None and self.max_nodes < self.min_nodes:
+            raise ValueError("max_nodes must be at least min_nodes")
+        return self
+
+
 class Manifest(_Spec):
     """A validated V0.4 manifest (see module docstring)."""
 
     name: str = Field(min_length=1, max_length=MAX_NAME_CHARS)
+    split: SplitSpec | None = None
+    """V0.10 (D260): Mode 3 task splitting; None = the job runs whole. Declared
+    before ``entrypoint`` on purpose: the entrypoint's placeholder check reads
+    it. Omitted from the canonical form when None."""
     entrypoint: tuple[str, ...] = Field(min_length=1, max_length=MAX_ARGV_ITEMS)
     """The argv to execute - already split, never passed to a shell."""
     env: EnvSpec = Field(default_factory=EnvSpec)
@@ -527,25 +851,25 @@ class Manifest(_Spec):
     @field_validator("entrypoint", mode="before")
     @classmethod
     def _argv(cls, value: object) -> object:
-        if isinstance(value, str):
-            if len(value) > MAX_ARG_CHARS * 4:
-                raise ValueError("entrypoint string is too long")
-            try:
-                value = shlex.split(value, comments=False, posix=True)
-            except ValueError:
-                raise ValueError(
-                    "cannot split the entrypoint (unbalanced quotes or a trailing "
-                    "backslash)"
-                ) from None
-            if not value:
-                raise ValueError("entrypoint is empty")
-        if isinstance(value, (list, tuple)):
-            if len(value) > MAX_ARGV_ITEMS:
-                raise ValueError(f"at most {MAX_ARGV_ITEMS} arguments")
-            argv = tuple(_check_arg(item) for item in value)
-            if argv and not argv[0]:
-                raise ValueError("the program (first argument) must not be empty")
-            return argv
+        return _to_argv(value, "entrypoint")
+
+    @field_validator("entrypoint")
+    @classmethod
+    def _placeholders(
+        cls, value: tuple[str, ...], info: ValidationInfo
+    ) -> tuple[str, ...]:
+        # ``split`` is declared before ``entrypoint``, so it is in ``info.data``
+        # when it validated (absent = it failed and reports its own problem).
+        if "split" not in info.data:
+            return value
+        if info.data["split"] is None:
+            # Not a split job: nothing is substituted, so the text is literal
+            # (a job queued before V0.10 keeps running - G1 review item 1).
+            return value
+        else:
+            _refuse_placeholders(
+                value, ("{parts}",), "split.combine.script, not the entrypoint"
+            )
         return value
 
     @field_validator("outputs", mode="before")
@@ -586,7 +910,8 @@ class Manifest(_Spec):
 
     def canonical_dict(self) -> dict[str, Any]:
         """Every field, defaults filled in, JSON types only - except the
-        V0.5/V0.6 additions (``inputs``, ``priority``, ``policy``, ``retry``),
+        V0.5-V0.10 additions (``inputs``, ``priority``, ``policy``, ``retry``,
+        ``secrets``, ``split``),
         which appear only when they differ from their defaults (see the module
         docstring: an older manifest keeps its request hash)."""
         exclude: set[str] = set()
@@ -600,6 +925,8 @@ class Manifest(_Spec):
             exclude.add("retry")
         if not self.secrets:
             exclude.add("secrets")
+        if self.split is None:
+            exclude.add("split")
         return self.model_dump(mode="json", exclude=exclude or None)
 
     def canonical_json(self) -> str:

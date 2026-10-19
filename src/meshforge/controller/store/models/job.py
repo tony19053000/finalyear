@@ -41,6 +41,7 @@ from meshforge.common.manifest import (
     MAX_ATTEMPTS,
     MAX_BACKOFF_S,
     MAX_PRIORITY,
+    MAX_SPLIT_ITEMS,
     MIN_PRIORITY,
     POLICIES,
 )
@@ -117,6 +118,18 @@ class Job(TimestampMixin, Base):
             name="retry_backoff_s",
         ),
         uint64_check("input_bytes", name="input_bytes"),
+        CheckConstraint(
+            _digest_check("split_items_digest", nullable=True),
+            name="split_items_digest",
+        ),
+        CheckConstraint(
+            "(split IS NULL AND split_items_digest IS NULL "
+            "AND split_item_count IS NULL AND split_item_bytes IS NULL) OR "
+            "(split IS NOT NULL AND split_items_digest IS NOT NULL "
+            f"AND split_item_count >= 1 AND split_item_count <= {MAX_SPLIT_ITEMS} "
+            "AND (split_item_bytes IS NULL OR split_item_bytes >= 0))",
+            name="split_shape",
+        ),
         UniqueConstraint("idempotency_key"),
         Index("ix_job_created_at", "created_at"),
         Index("ix_job_state", "state"),
@@ -206,6 +219,22 @@ class Job(TimestampMixin, Base):
     sees, cancels and downloads only their own jobs, an admin every job. NULL =
     a job from before 0018, or one submitted with the legacy fabric token
     (admin-only, like every NULL-owner job)."""
+    # --- V0.10 G1 (migration 0026, D260): Mode 3 task splitting -------------
+    split: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB(none_as_null=True), nullable=True
+    )
+    """The canonical ``split:`` spec (``SplitSpec``); NULL = the job runs
+    whole. Also inside ``manifest``; a column of its own so "is this a split
+    job" never parses the manifest."""
+    split_items_digest: Mapped[str | None] = mapped_column(
+        String(DIGEST_LENGTH), nullable=True
+    )
+    """The item list resolved at submit, stored as a CAS blob (canonical JSON,
+    ``meshforge.common.split_items``); every later step reads this one list."""
+    split_item_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    split_item_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    """Bytes the items stand for (glob files / lines records); NULL for list,
+    list_file and range items."""
 
 
 class JobTransition(Base):

@@ -1184,6 +1184,18 @@ compute get <JOB_ID>               # outputs -> ./outputs/<JOB_ID>/ (--dest, --f
 - Live logs are best effort (a flood is dropped and the gap recorded); the stored log
   becomes the complete one when the job ends. A follower that reads too slowly is
   disconnected (`slow_consumer`); `compute logs <JOB_ID>` then prints the stored log.
+- **Split jobs (V0.10, Mode 3 - in progress).** A manifest with `split:` names its
+  items (`over: {glob | list | list_file | range | lines}`, see
+  `meshforge.common.manifest`). The controller resolves them **once, at submit**
+  (bytewise-sorted paths for a `glob`), stores the list and refuses a bad one with
+  `400 invalid_input` naming the YAML path (`split.over.glob: matched no files`).
+  `compute run --dry-run` prints the job and the items it would resolve (count,
+  first/last, chunking) without uploading or submitting anything. **Until V0.10
+  G4 a split job is accepted but not run:** it fails `no_feasible_plan`
+  (`not_supported_yet: split execution arrives in G4`) - never run whole by
+  accident. Caps (`[controller.split]`): `max_items` (100 000) items and
+  `max_chunks` (10 000) chunks per job; `list_file` up to 64 MiB, `lines` files
+  up to 2 GiB with lines up to 16 MiB.
 
 ---
 
