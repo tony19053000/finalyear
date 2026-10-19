@@ -22,11 +22,15 @@ Order is always **queue row, then item rows in ascending id**:
 * ``renew`` and ``release`` (one item each) take ``FOR KEY SHARE`` on the
   queue, then the one item.
 * Everything that changes queue counters or locks several items -
-  ``complete``, ``fail``, ``speculate``, ``expire_due``, ``release_holder`` -
-  takes ``FOR NO KEY UPDATE`` on the queue (several queues: ascending id), so
-  multi-item lockers of one queue are serialised and single-item lockers never
-  hold more than one item. ``cancel`` takes ``FOR UPDATE`` (it also waits for
-  pullers).
+  ``complete``, ``speculate``, ``release_holder`` - takes ``FOR NO KEY
+  UPDATE`` on the queue (several queues: ascending id), so multi-item lockers
+  of one queue are serialised and single-item lockers never hold more than
+  one item.
+* What may **close** the queue as failed or cancelled - ``fail``,
+  ``expire_due``, ``cancel`` - takes ``FOR UPDATE``, which also conflicts with
+  the pullers' ``FOR KEY SHARE``: no lease can be granted by a transaction
+  that overlaps the close, so a closed queue never gains a live lease.
+  (``complete`` closes a queue only as ``done``, when nothing is pending.)
 
 Completions of one queue therefore serialise on the queue row for the length of
 the caller's transaction; that is what lets the last commit see
@@ -826,9 +830,7 @@ async def fail(
     every other live lease is released (D267c: no partial result)."""
     _aware(now)
     queue_id = await _queue_of(db, item_id)
-    queue = (
-        None if queue_id is None else await _lock_queue(db, queue_id, "no_key_update")
-    )
+    queue = None if queue_id is None else await _lock_queue(db, queue_id, "update")
     if queue_id is None or queue is None:
         outcome: FailOutcome = Fenced(item_id, seq, FenceReason.UNKNOWN_LEASE)
         _log_fenced(outcome, queue_id=queue_id, op="fail")
@@ -891,7 +893,7 @@ async def expire_due(
     failed_queues: list[int] = []
     released: list[Lease] = []
     for queue_id in sorted(by_queue):
-        queue = await _lock_queue(db, queue_id, "no_key_update")
+        queue = await _lock_queue(db, queue_id, "update")
         if queue is None:
             continue
         policy = _policy(queue)

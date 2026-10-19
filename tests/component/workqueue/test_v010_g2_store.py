@@ -434,6 +434,41 @@ async def test_failure_on_two_sites_fails_the_queue_and_releases_everyone(
     assert (c.failed, c.live_leases, c.done) == (1, 0, 0)
 
 
+async def test_a_close_waits_for_an_open_pull_so_no_live_lease_survives_it(
+    db: Db,
+) -> None:
+    """A puller's lease transaction is still open when another item fails for
+    good: the close waits for it and then releases the new lease as well."""
+    qid = await _queue(db, 3)
+    (g,) = await _lease(db, qid, "h1")
+    async with db.sessions() as a:
+        tx = await a.begin()
+        pulled = await store.lease_next(a, qid, holder="h2", now=at(1))
+        assert [x.idx for x in pulled] == [1]
+
+        async def close() -> store.FailResult:
+            async with db.sessions() as b, b.begin():
+                return await store.fail(
+                    b,
+                    item_id=g.item_id,
+                    seq=g.seq,
+                    holder="h1",
+                    kind="user_error",
+                    retryable=False,
+                    now=at(2),
+                )
+
+        closing = asyncio.create_task(close())
+        await asyncio.sleep(0.5)
+        assert not closing.done()  # blocked by the open pull
+        await tx.commit()
+        result = await asyncio.wait_for(closing, timeout=10)
+    assert result.queue_failed
+    assert [x.item_id for x in result.released] == [pulled[0].item_id]
+    c = await _counts(db, qid)
+    assert (c.live_leases, c.failed) == (0, 1)
+
+
 async def test_non_retryable_failure_fails_immediately(db: Db) -> None:
     qid = await _queue(db, 1)
     (g,) = await _lease(db, qid, "h1")
