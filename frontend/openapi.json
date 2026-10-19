@@ -833,6 +833,28 @@
       },
       "CandidateOut": {
         "properties": {
+          "chunk_items": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chunk Items"
+          },
+          "chunks": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chunks"
+          },
           "estimate": {
             "anyOf": [
               {
@@ -847,10 +869,35 @@
             "title": "Feasible",
             "type": "boolean"
           },
+          "inactive": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inactive"
+          },
+          "margin_test": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MarginTestOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "mode": {
             "enum": [
               "local",
-              "offload"
+              "offload",
+              "split"
             ],
             "title": "Mode",
             "type": "string"
@@ -858,6 +905,20 @@
           "node_id": {
             "title": "Node Id",
             "type": "string"
+          },
+          "node_set": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Node Set"
           },
           "rank": {
             "anyOf": [
@@ -869,6 +930,34 @@
               }
             ],
             "title": "Rank"
+          },
+          "rate_items_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate Items S"
+          },
+          "rate_source": {
+            "anyOf": [
+              {
+                "enum": [
+                  "measured",
+                  "history",
+                  "scaled",
+                  "assumed"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate Source"
           },
           "reject_code": {
             "anyOf": [
@@ -917,6 +1006,17 @@
               }
             ],
             "title": "Slot"
+          },
+          "start_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start S"
           }
         },
         "required": [
@@ -2583,6 +2683,80 @@
           "logged_out"
         ],
         "title": "LogoutOut",
+        "type": "object"
+      },
+      "MarginTestOut": {
+        "description": "V0.10 G3 (D265): split only when ``set_s <= threshold_s``.",
+        "properties": {
+          "best_single_node_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Single Node Id"
+          },
+          "best_single_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Single S"
+          },
+          "forced": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Forced"
+          },
+          "margin": {
+            "title": "Margin",
+            "type": "number"
+          },
+          "passed": {
+            "title": "Passed",
+            "type": "boolean"
+          },
+          "set_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Set S"
+          },
+          "threshold_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Threshold S"
+          }
+        },
+        "required": [
+          "margin",
+          "passed"
+        ],
+        "title": "MarginTestOut",
         "type": "object"
       },
       "MetricPoint": {

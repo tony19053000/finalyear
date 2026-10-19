@@ -55,9 +55,23 @@ class EstimateOut(_Stored):
     terms: dict[str, TermOut]
 
 
+class MarginTestOut(_Stored):
+    """V0.10 G3 (D265): split only when ``set_s <= threshold_s``."""
+
+    set_s: float | None = None
+    best_single_s: float | None = None
+    best_single_node_id: str | None = None
+    margin: float
+    threshold_s: float | None = None
+    passed: bool
+    forced: str | None = None
+    """Why no set was compared: pinned, split_too_small, split_too_few_nodes."""
+
+
 class CandidateOut(_Stored):
     node_id: str
-    mode: Literal["local", "offload"]
+    """For a ``split`` row: the first (fastest) node of ``node_set``."""
+    mode: Literal["local", "offload", "split"]
     feasible: bool
     slot: Literal["cpu", "gpu"] | None = None
     reject_code: str | None = None
@@ -65,6 +79,19 @@ class CandidateOut(_Stored):
     estimate: EstimateOut | None = None
     score: float | None = None
     rank: int | None = None
+    # V0.10 G3 - split jobs only (absent for a job that runs whole)
+    node_set: tuple[str, ...] | None = None
+    """The lanes' nodes, fastest first."""
+    chunk_items: int | None = None
+    chunks: int | None = None
+    rate_items_s: float | None = None
+    """Local / offload rows of a split job: the node's predicted items/s."""
+    rate_source: Literal["measured", "history", "scaled", "assumed"] | None = None
+    start_s: float | None = None
+    """Predicted stage + env seconds before the node's first chunk."""
+    inactive: tuple[str, ...] | None = None
+    """``split`` rows: nodes of the set predicted to get no chunk."""
+    margin_test: MarginTestOut | None = None
 
 
 class ActualOut(ApiModel):
