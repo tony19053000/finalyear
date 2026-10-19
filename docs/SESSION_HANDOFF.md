@@ -262,7 +262,7 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
-> **UPDATE 2026-10-19 (new session):** G5c and G6 implementers RELAUNCHED in their worktrees (exit gates + hand-off only; G5c also the D255 cool-down test 20×). If this session dies: check each worktree's `docs/briefs/progress/V0.9-G5c.md` / `V0.9-G6.md` for a Hand-off section; if missing, relaunch again with the same instruction.
+> **UPDATE 2026-10-19 (new session):** G6 exit gates PASS + hand-off done (HEAD 2612335; fixed qualityApi shape to match G5c QualityOut) → **G6 tester r1 running**. G5c implementer exit-gate run still running. If this session dies: check `docs/briefs/progress/V0.9-G5c.md` for a Hand-off section; G6 → relaunch tester r1.
 
 **2026-10-19 (session end — team asked to stop) — NOTHING RUNNING. G5c implementer stopped after all items + docs (`262e8f3`..`75910b7`, exit gates + Hand-off not run). G6 implementer stopped finishing e2e (`ba903db`..`d024f03` + wip `adf14bd` UNVERIFIED). Next: see cold-start prompt.**
 
