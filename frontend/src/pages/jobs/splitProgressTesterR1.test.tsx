@@ -389,12 +389,9 @@ describe("Chunks tab with odd numbers", () => {
   // `Lanes` throws (TypeError reading node_id), unmounting the page. Verified by
   // rendering it by hand (tester r1). Remove `.fails` when the parser validates
   // the lane entries (and `current`).
-  it.fails(
-    "DEFECT T-1: an event with a malformed lane entry is rejected by the parser",
-    () => {
-      const hostile = wire(base({ computed_at: at(500) }));
-      hostile.lanes = [null, 7, { node_id: 3 }];
-      expect(parseSplitEvent(hostile)).toBeUndefined();
-    },
-  );
+  it("T-1 (fixed): an event with a malformed lane entry is rejected by the parser", () => {
+    const hostile = wire(base({ computed_at: at(500) }));
+    hostile.lanes = [null, 7, { node_id: 3 }];
+    expect(parseSplitEvent(hostile)).toBeUndefined();
+  });
 });

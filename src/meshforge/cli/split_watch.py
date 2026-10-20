@@ -21,6 +21,7 @@ Pure rendering (:func:`progress_lines`) is separate from the loop
 
 from __future__ import annotations
 
+import math
 import time
 from collections.abc import Callable, Mapping
 from typing import Any, Final
@@ -56,7 +57,7 @@ def _num(value: object) -> float | None:
 def format_duration(seconds: object) -> str:
     """``42s``, ``3m05s``, ``1h02m``; ``-`` when unknown."""
     value = _num(seconds)
-    if value is None or value < 0:
+    if value is None or not math.isfinite(value) or value < 0:
         return "-"
     total = round(value)
     if total < 60:
@@ -68,7 +69,7 @@ def format_duration(seconds: object) -> str:
 
 def bar(done: int, total: int, *, width: int = BAR_WIDTH) -> str:
     """``[#######-----------------]``; an empty total is an empty bar."""
-    filled = 0 if total <= 0 else min(width, done * width // total)
+    filled = 0 if total <= 0 else max(0, min(width, done * width // total))
     return "[" + "#" * filled + "-" * (width - filled) + "]"
 
 

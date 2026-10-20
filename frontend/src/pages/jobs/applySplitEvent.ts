@@ -37,7 +37,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function count(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : undefined;
+  return typeof value === "number" && Number.isInteger(value) && value >= 0
+    ? value
+    : undefined;
 }
 
 /** All five chunk counts as non-negative integers, or undefined. */
@@ -63,36 +65,75 @@ function time(value: unknown): number | undefined {
  * the job, a known job state, valid counts, items and a `computed_at`; the
  * rest of the fields keep the server's types (checked where they are shown).
  */
-export function parseSplitEvent(data: Record<string, unknown>): SplitProgress | undefined {
+export function parseSplitEvent(
+  data: Record<string, unknown>,
+): SplitProgress | undefined {
   const jobId = data.job_id;
   if (typeof jobId !== "string" || jobId === "") return undefined;
   if (!isJobState(data.job_state)) return undefined;
   const chunks = parseChunkCounts(data.chunks);
   if (chunks === undefined) return undefined;
-  if (count(data.items_done) === undefined || count(data.items_total) === undefined) return undefined;
+  if (
+    count(data.items_done) === undefined ||
+    count(data.items_total) === undefined
+  )
+    return undefined;
   if (time(data.computed_at) === undefined) return undefined;
-  if (!Array.isArray(data.lanes) || !Array.isArray(data.warnings)) return undefined;
+  if (!Array.isArray(data.lanes) || !Array.isArray(data.warnings))
+    return undefined;
+  if (!data.lanes.every(isLane)) return undefined;
   return { ...(data as unknown as SplitProgress), chunks };
+}
+
+/** A lane entry the Lanes table can render (tester r1 T-1). */
+function isLane(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.attempt_id === "string" &&
+    typeof value.node_id === "string" &&
+    typeof value.state === "string" &&
+    count(value.chunks_done) !== undefined &&
+    count(value.items_done) !== undefined &&
+    Array.isArray(value.current) &&
+    value.current.every(
+      (c) => isRecord(c) && count(c.chunk_index) !== undefined,
+    )
+  );
 }
 
 /** The cached summary is newer than the event (tester r1 T-1 rule of D257). */
 export function isStale(cached: SplitProgress, event: SplitProgress): boolean {
-  if (TERMINAL_JOB_STATES.has(cached.job_state) && event.job_state !== cached.job_state) return true;
-  if (event.chunks.done < cached.chunks.done || event.items_done < cached.items_done) return true;
+  if (
+    TERMINAL_JOB_STATES.has(cached.job_state) &&
+    event.job_state !== cached.job_state
+  )
+    return true;
+  if (
+    event.chunks.done < cached.chunks.done ||
+    event.items_done < cached.items_done
+  )
+    return true;
   const cachedAt = time(cached.computed_at);
   const eventAt = time(event.computed_at);
   return cachedAt !== undefined && eventAt !== undefined && eventAt < cachedAt;
 }
 
 function isSummary(value: unknown): value is SplitProgress {
-  return isRecord(value) && typeof value.job_id === "string" && parseChunkCounts(value.chunks) !== undefined;
+  return (
+    isRecord(value) &&
+    typeof value.job_id === "string" &&
+    parseChunkCounts(value.chunks) !== undefined
+  );
 }
 
 function sameCounts(a: ChunkCounts, b: ChunkCounts): boolean {
   return COUNT_KEYS.every((key) => a[key] === b[key]);
 }
 
-export function applySplitEvent(client: QueryClient, event: FabricEvent): boolean {
+export function applySplitEvent(
+  client: QueryClient,
+  event: FabricEvent,
+): boolean {
   if (event.type !== SPLIT_PROGRESS) return false;
   const progress = parseSplitEvent(event.data);
   if (progress === undefined) return true;
@@ -100,8 +141,14 @@ export function applySplitEvent(client: QueryClient, event: FabricEvent): boolea
   const cached = client.getQueryData(key);
   if (!isSummary(cached)) return true; // nobody shows this job's chunks
   if (isStale(cached, progress)) return true;
-  client.setQueryData<SplitProgress>(key, { ...progress, chunk_map: cached.chunk_map ?? null });
-  if (!sameCounts(cached.chunks, progress.chunks) || cached.job_state !== progress.job_state) {
+  client.setQueryData<SplitProgress>(key, {
+    ...progress,
+    chunk_map: cached.chunk_map ?? null,
+  });
+  if (
+    !sameCounts(cached.chunks, progress.chunks) ||
+    cached.job_state !== progress.job_state
+  ) {
     void client.invalidateQueries({ queryKey: key, exact: true });
   }
   return true;

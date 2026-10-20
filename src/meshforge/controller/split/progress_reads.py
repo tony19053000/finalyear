@@ -168,6 +168,10 @@ class ProgressReads:
         chunk queue yet (not dispatched). The caller checked the job is a split
         job the user may see."""
         async with self._sessions() as db:
+            # one snapshot: list_items reads items then leases (reviewer N2)
+            await db.connection(
+                execution_options={"isolation_level": "REPEATABLE READ"}
+            )
             queue_id = await db.scalar(
                 select(work_queue.c.id).where(
                     work_queue.c.kind == QUEUE_KIND, work_queue.c.owner_id == job_id

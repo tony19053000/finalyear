@@ -975,8 +975,9 @@ class ControllerRuntime:
         if self.split_progress is not None:
             # V0.10 G7: a lane / combine / split job changed state (Mode 1
             # jobs are recognised and ignored by the tracker)
-            for job_id in {str(n.data.get("job_id")) for n in notes}:
-                self.split_progress.touch(job_id)
+            for job_id in {n.data.get("job_id") for n in notes}:
+                if job_id:  # a note without a job is not a split change
+                    self.split_progress.touch(str(job_id))
         if self.events is None:
             return
         for note in notes:

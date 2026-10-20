@@ -278,22 +278,10 @@ def test_durations_of_odd_finite_values() -> None:
     assert split_watch.format_duration(3599.6) in ("1h00m", "60m00s")
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=(ValueError, OverflowError),
-    reason="DEFECT T-2 (minor): format_duration(NaN / inf) raises instead of '-' "
-    "(python's json.loads accepts NaN / Infinity from a hostile controller; the "
-    "real server never sends them). Remove the xfail when it is hardened.",
-)
 @pytest.mark.parametrize("bad", [float("nan"), float("inf")])
 def test_durations_never_crash_on_nan_or_infinity(bad: float) -> None:
     assert split_watch.format_duration(bad) == "-"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT T-3 (trivial): bar(done<0) is wider than BAR_WIDTH (the filled "
-    "count goes negative); the server never sends a negative done.",
-)
 def test_bar_with_a_negative_count_keeps_its_width() -> None:
     assert len(split_watch.bar(-3, 10)) == split_watch.BAR_WIDTH + 2
