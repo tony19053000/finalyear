@@ -1041,6 +1041,243 @@
         "title": "CandidateOut",
         "type": "object"
       },
+      "ChunkCountsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "done": {
+            "title": "Done",
+            "type": "integer"
+          },
+          "failed": {
+            "title": "Failed",
+            "type": "integer"
+          },
+          "leased": {
+            "title": "Leased",
+            "type": "integer"
+          },
+          "pending": {
+            "title": "Pending",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total",
+          "pending",
+          "leased",
+          "done",
+          "failed"
+        ],
+        "title": "ChunkCountsOut",
+        "type": "object"
+      },
+      "ChunkLeaseOut": {
+        "additionalProperties": false,
+        "properties": {
+          "attempt_id": {
+            "title": "Attempt Id",
+            "type": "string"
+          },
+          "deadline": {
+            "$ref": "#/components/schemas/Utc"
+          },
+          "lease_seq": {
+            "title": "Lease Seq",
+            "type": "integer"
+          },
+          "leased_at": {
+            "$ref": "#/components/schemas/Utc"
+          },
+          "node_id": {
+            "title": "Node Id",
+            "type": "string"
+          },
+          "speculative": {
+            "title": "Speculative",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "attempt_id",
+          "node_id",
+          "lease_seq",
+          "speculative",
+          "leased_at",
+          "deadline"
+        ],
+        "title": "ChunkLeaseOut",
+        "type": "object"
+      },
+      "ChunkList": {
+        "additionalProperties": false,
+        "properties": {
+          "chunks": {
+            "items": {
+              "$ref": "#/components/schemas/ChunkOut"
+            },
+            "title": "Chunks",
+            "type": "array"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "job_id",
+          "chunks",
+          "count",
+          "next_cursor"
+        ],
+        "title": "ChunkList",
+        "type": "object"
+      },
+      "ChunkOut": {
+        "additionalProperties": false,
+        "properties": {
+          "attempt_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attempt Id"
+          },
+          "attempts": {
+            "title": "Attempts",
+            "type": "integer"
+          },
+          "chunk_index": {
+            "title": "Chunk Index",
+            "type": "integer"
+          },
+          "done_at": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Utc"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "failed_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failed Kind"
+          },
+          "failed_nodes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Failed Nodes",
+            "type": "array"
+          },
+          "first_item": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Item"
+          },
+          "item_count": {
+            "title": "Item Count",
+            "type": "integer"
+          },
+          "leases": {
+            "items": {
+              "$ref": "#/components/schemas/ChunkLeaseOut"
+            },
+            "title": "Leases",
+            "type": "array"
+          },
+          "node_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Node Id"
+          },
+          "result_digest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result Digest"
+          },
+          "speculations": {
+            "title": "Speculations",
+            "type": "integer"
+          },
+          "state": {
+            "enum": [
+              "pending",
+              "leased",
+              "done",
+              "failed"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "chunk_index",
+          "state",
+          "first_item",
+          "item_count",
+          "attempts",
+          "speculations",
+          "node_id",
+          "attempt_id",
+          "result_digest",
+          "done_at",
+          "failed_kind",
+          "failed_nodes",
+          "leases"
+        ],
+        "title": "ChunkOut",
+        "type": "object"
+      },
       "ConfigLabelOut": {
         "additionalProperties": false,
         "properties": {
@@ -1282,6 +1519,34 @@
           "age_s"
         ],
         "title": "ControllerLinkOut",
+        "type": "object"
+      },
+      "CurrentChunkOut": {
+        "additionalProperties": false,
+        "properties": {
+          "chunk_index": {
+            "title": "Chunk Index",
+            "type": "integer"
+          },
+          "lease_seq": {
+            "title": "Lease Seq",
+            "type": "integer"
+          },
+          "leased_at": {
+            "$ref": "#/components/schemas/Utc"
+          },
+          "speculative": {
+            "title": "Speculative",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "chunk_index",
+          "lease_seq",
+          "speculative",
+          "leased_at"
+        ],
+        "title": "CurrentChunkOut",
         "type": "object"
       },
       "DecisionList": {
@@ -2645,6 +2910,114 @@
           "groups"
         ],
         "title": "LabelsOut",
+        "type": "object"
+      },
+      "LaneOut": {
+        "additionalProperties": false,
+        "properties": {
+          "attempt_id": {
+            "title": "Attempt Id",
+            "type": "string"
+          },
+          "chunks_done": {
+            "title": "Chunks Done",
+            "type": "integer"
+          },
+          "current": {
+            "items": {
+              "$ref": "#/components/schemas/CurrentChunkOut"
+            },
+            "title": "Current",
+            "type": "array"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Utc"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "failed_tries": {
+            "title": "Failed Tries",
+            "type": "integer"
+          },
+          "first_lease_at": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Utc"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "items_done": {
+            "title": "Items Done",
+            "type": "integer"
+          },
+          "last_commit_at": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Utc"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "live": {
+            "title": "Live",
+            "type": "boolean"
+          },
+          "node_id": {
+            "title": "Node Id",
+            "type": "string"
+          },
+          "rate_items_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate Items S"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Utc"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "attempt_id",
+          "node_id",
+          "state",
+          "live",
+          "chunks_done",
+          "items_done",
+          "failed_tries",
+          "current",
+          "rate_items_s",
+          "started_at",
+          "first_lease_at",
+          "last_commit_at",
+          "ended_at"
+        ],
+        "title": "LaneOut",
         "type": "object"
       },
       "LinkOut": {
@@ -4955,6 +5328,220 @@
           "role"
         ],
         "title": "SessionUser",
+        "type": "object"
+      },
+      "SplitProgressOut": {
+        "additionalProperties": false,
+        "properties": {
+          "chunk_items": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chunk Items"
+          },
+          "chunk_map": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chunk Map"
+          },
+          "chunks": {
+            "$ref": "#/components/schemas/ChunkCountsOut"
+          },
+          "combine_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Combine Ms"
+          },
+          "computed_at": {
+            "$ref": "#/components/schemas/Utc"
+          },
+          "elapsed_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Elapsed S"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Utc"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "eta_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Eta S"
+          },
+          "items_done": {
+            "title": "Items Done",
+            "type": "integer"
+          },
+          "items_total": {
+            "title": "Items Total",
+            "type": "integer"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "job_state": {
+            "$ref": "#/components/schemas/JobState"
+          },
+          "lanes": {
+            "items": {
+              "$ref": "#/components/schemas/LaneOut"
+            },
+            "title": "Lanes",
+            "type": "array"
+          },
+          "lanes_total": {
+            "title": "Lanes Total",
+            "type": "integer"
+          },
+          "live_leases": {
+            "title": "Live Leases",
+            "type": "integer"
+          },
+          "predicted_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Predicted S"
+          },
+          "queue_state": {
+            "anyOf": [
+              {
+                "enum": [
+                  "open",
+                  "done",
+                  "failed",
+                  "cancelled"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Queue State"
+          },
+          "rate_items_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate Items S"
+          },
+          "speculated": {
+            "title": "Speculated",
+            "type": "integer"
+          },
+          "speculative_live": {
+            "title": "Speculative Live",
+            "type": "integer"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Utc"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/SplitWarningOut"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "job_id",
+          "job_state",
+          "queue_state",
+          "items_total",
+          "chunk_items",
+          "chunks",
+          "items_done",
+          "live_leases",
+          "speculative_live",
+          "speculated",
+          "lanes",
+          "lanes_total",
+          "rate_items_s",
+          "eta_s",
+          "started_at",
+          "ended_at",
+          "elapsed_s",
+          "predicted_s",
+          "combine_ms",
+          "warnings",
+          "computed_at"
+        ],
+        "title": "SplitProgressOut",
+        "type": "object"
+      },
+      "SplitWarningOut": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "code",
+          "count"
+        ],
+        "title": "SplitWarningOut",
         "type": "object"
       },
       "StartBody": {
@@ -10066,6 +10653,198 @@
         ]
       }
     },
+    "/v1/jobs/{job_id}/chunks": {
+      "get": {
+        "operationId": "split_chunks_v1_jobs__job_id__chunks_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "maxLength": 40,
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Chunks per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "description": "Chunks per page.",
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Only chunks in this state (repeat for several).",
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "enum": [
+                      "pending",
+                      "leased",
+                      "done",
+                      "failed"
+                    ],
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only chunks in this state (repeat for several).",
+              "title": "State"
+            }
+          },
+          {
+            "description": "Only chunks this node holds now or whose committed result came from it.",
+            "in": "query",
+            "name": "node",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 40,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only chunks this node holds now or whose committed result came from it.",
+              "title": "Node"
+            }
+          },
+          {
+            "description": "The previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 40,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChunkList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid input (`invalid_input`)"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No, or no longer a valid, credential (`unauthorized`)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not allowed: admin only, CSRF, foreign origin (`unauthorized`)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found - also another user's object (`not_found`)"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict (`conflict`, `no_feasible_plan`)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid parameters (`invalid_input`)"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Rate limited; see Retry-After (`resource_busy`)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A dependency (the database) is unavailable; retry (`network_error`)"
+          }
+        },
+        "summary": "A split job's chunks in index order - keyset pages and filters",
+        "tags": [
+          "jobs"
+        ]
+      }
+    },
     "/v1/jobs/{job_id}/decisions": {
       "get": {
         "operationId": "job_decisions_v1_jobs__job_id__decisions_get",
@@ -10351,6 +11130,131 @@
         "summary": "The job's persisted logs (plain bytes)",
         "tags": [
           "logs"
+        ]
+      }
+    },
+    "/v1/jobs/{job_id}/split": {
+      "get": {
+        "operationId": "split_progress_v1_jobs__job_id__split_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "maxLength": 40,
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Add chunk_map: one state character per chunk (p pending, l leased, s leased + speculative copy, d done, f failed).",
+            "in": "query",
+            "name": "map",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Add chunk_map: one state character per chunk (p pending, l leased, s leased + speculative copy, d done, f failed).",
+              "title": "Map",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SplitProgressOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid input (`invalid_input`)"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No, or no longer a valid, credential (`unauthorized`)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not allowed: admin only, CSRF, foreign origin (`unauthorized`)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found - also another user's object (`not_found`)"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict (`conflict`, `no_feasible_plan`)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid parameters (`invalid_input`)"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Rate limited; see Retry-After (`resource_busy`)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A dependency (the database) is unavailable; retry (`network_error`)"
+          }
+        },
+        "summary": "A split job's progress: chunks by state, lanes per node, ETA",
+        "tags": [
+          "jobs"
         ]
       }
     },
