@@ -152,7 +152,7 @@ class SplitProgress:
     def terminal(self) -> bool:
         return self.job_state in JOB_TERMINAL_STATES
 
-    def signature(self) -> tuple[Any, ...]:
+    def comparable(self) -> tuple[Any, ...]:
         """What makes two reads "the same progress" (time-only fields left
         out: an unchanged job publishes no new event)."""
         return (

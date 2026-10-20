@@ -11,9 +11,9 @@ every request - checklist 37) every ``[cli] progress_interval_s`` and show:
 
 On a terminal the block is redrawn in place on **stderr** (stdout stays for
 the command's result); in a pipe one bar line is printed when it changes.
-``--json`` prints one JSON document per change on stdout (NDJSON, each with
-``schema_version``) and nothing else. Every value from the network is
-flattened before it is printed (no escape sequence reaches the terminal).
+(``compute watch --json`` does not loop: it prints the summary once, like
+every ``--json`` read.) Every value from the network is flattened before it
+is printed (no escape sequence reaches the terminal).
 
 Pure rendering (:func:`progress_lines`) is separate from the loop
 (:func:`watch_split`) so it is unit-tested without a controller.
@@ -144,7 +144,7 @@ def progress_lines(summary: Mapping[str, Any]) -> list[str]:
     return lines
 
 
-def _signature(summary: Mapping[str, Any]) -> tuple[Any, ...]:
+def _comparable(summary: Mapping[str, Any]) -> tuple[Any, ...]:
     """What makes two polls different for the pipe / JSON output."""
     chunks = summary.get("chunks")
     return (
@@ -161,7 +161,6 @@ def watch_split(
     fetch: Callable[[], Mapping[str, Any]],
     *,
     interval_s: float,
-    json_output: bool = False,
     is_terminal: bool | None = None,
     sleep: Callable[[float], None] | None = None,
     transient: Callable[[Exception], bool] = lambda _: False,
@@ -173,7 +172,7 @@ def watch_split(
     console = render.console(stderr=True)
     tty = console.is_terminal if is_terminal is None else is_terminal
     live = None
-    if tty and not json_output:
+    if tty:
         from rich.live import Live
         from rich.text import Text
 
@@ -192,14 +191,11 @@ def watch_split(
                     raise
                 pause(interval_s)
                 continue
-            signature = _signature(summary)
-            changed = signature != last
-            last = signature
+            comparable = _comparable(summary)
+            changed = comparable != last
+            last = comparable
             done = str(summary.get("job_state")) in TERMINAL_STATES
-            if json_output:
-                if changed:
-                    render.emit_json(summary)
-            elif live is not None:
+            if live is not None:
                 from rich.text import Text
 
                 live.update(Text("\n".join(progress_lines(summary))), refresh=True)

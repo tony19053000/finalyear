@@ -3,8 +3,10 @@ D270); also what ``compute run -f`` shows for a ``split:`` job unless
 ``--no-progress``. Rendering and the poll loop: :mod:`.split_watch`.
 
 Exit code = the job's outcome (:func:`meshforge.cli.exits.job_exit_code`),
-like ``compute run -f``. Ctrl-C only detaches (the job keeps running). A job
-that is not a split job is refused (``compute logs -f`` follows those).
+like ``compute run -f``. ``--json`` prints the progress once and exits 0 (the
+``--json`` contract of every read command: one request, one line). Ctrl-C
+only detaches (the job keeps running). A job that is not a split job is
+refused (``compute logs -f`` follows those).
 """
 
 from __future__ import annotations
@@ -21,9 +23,7 @@ from meshforge.cli.exits import CliExit
 __all__ = ["watch", "watch_to_exit"]
 
 
-def watch_to_exit(
-    client: Any, job_id: str, *, interval_s: float, json_output: bool = False
-) -> None:
+def watch_to_exit(client: Any, job_id: str, *, interval_s: float) -> None:
     """Show the progress until the job ends, then exit with its outcome."""
     from meshforge.cli.client import ControllerError, exit_code_for
     from meshforge.cli.exits import job_exit_code
@@ -33,7 +33,6 @@ def watch_to_exit(
         final = watch_split(
             lambda: client.split_progress(job_id),
             interval_s=interval_s,
-            json_output=json_output,
             transient=_transient,
         )
     except KeyboardInterrupt:
@@ -52,14 +51,13 @@ def watch_to_exit(
     detail = _detail(client, job_id)
     state = str(final.get("job_state"))
     failure = detail.get("failure_type")
-    if not json_output:
-        if state != "succeeded":
-            render.note(
-                f"{render.echo(job_id)} {render.flat(state)}"
-                + (f" ({render.echo(failure)})" if failure else "")
-            )
-        for text in render.warning_lines(detail):
-            render.note(f"warning: {render.flat(text)}")
+    if state != "succeeded":
+        render.note(
+            f"{render.echo(job_id)} {render.flat(state)}"
+            + (f" ({render.echo(failure)})" if failure else "")
+        )
+    for text in render.warning_lines(detail):
+        render.note(f"warning: {render.flat(text)}")
     raise typer.Exit(
         job_exit_code(state, None if failure is None else str(failure), None)
     )
@@ -103,16 +101,19 @@ def watch(
         ),
     ] = None,
 ) -> None:
-    """Watch a split job's progress per chunk and per node until it ends."""
+    """Watch a split job's progress per chunk and per node until it ends
+    (--json: print the progress once, for scripts)."""
     from meshforge.cli.job_commands import _checked_job_id
 
     checked = _checked_job_id(job_id)
     settings = cli._settings()
     with cli._client(settings) as client:
-        cli._fetch(lambda: client.split_progress(checked))  # 404 = not split
+        first = cli._fetch(lambda: client.split_progress(checked))  # 404: not split
+        if json_output:
+            cli._echo_json(first)
+            return
         watch_to_exit(
             client,
             checked,
             interval_s=interval or settings.cli.progress_interval_s,
-            json_output=json_output,
         )

@@ -15,7 +15,7 @@ codes and shell completion. Unit tests keep it in step with the code (`tests/uni
 | `compute nodes [NODE_ID] [--watch]` | the node table, or one node's detail and hardware scores | yes |
 | `compute jobs [JOB_ID] [--state S] [--limit N]` | recent jobs, or one job (attempts, inputs, transfers) | yes |
 | `compute explain JOB_ID [--attempt N]` | why the planner placed the job where it did | yes |
-| `compute watch JOB_ID [--interval S]` | a split job's progress until it ends: a bar (items, chunks, failed tries, ETA, elapsed vs predicted) and one line per node (state, chunks / items committed, measured items/s, chunks held now); exits with the job's outcome like `run -f` (V0.10 G7) | yes - one document per change (NDJSON) |
+| `compute watch JOB_ID [--interval S]` | a split job's progress until it ends: a bar (items, chunks, failed tries, ETA, elapsed vs predicted) and one line per node (state, chunks / items committed, measured items/s, chunks held now); exits with the job's outcome like `run -f` (V0.10 G7); `--json` prints the progress once | yes |
 | `compute network` | measured bandwidth/RTT between nodes | yes |
 | `compute whoami` | who you are logged in as | yes |
 | `compute tokens list [--all]` | your API tokens and browser sessions | yes |
@@ -88,7 +88,7 @@ Guaranteed fields per command (`a[].b` = field `b` of every item of list `a`; `a
 | `compute nodes NODE_ID` | `GET /v1/nodes/{node_id}` | `node_id`, `hostname`, `os`, `platform`, `state`, `connected`, `last_seen_at`, `sample_age_s`, `agent_version`, `hardware`, `scores`, `owner_policy`, `not_enforced` |
 | `compute jobs` | `GET /v1/jobs` | `jobs`, `count`, `next_cursor`, `jobs[].job_id`, `jobs[].name`, `jobs[].state`, `jobs[].placement`, `jobs[].failure_type`, `jobs[].created_at` |
 | `compute jobs JOB_ID` | `GET /v1/jobs/{job_id}` | `job_id`, `name`, `state`, `failure_type`, `failure_detail`, `placement`, `created_at`, `updated_at`, `attempts`, `inputs`, `transitions` |
-| `compute watch JOB_ID` | `GET /v1/jobs/{job_id}/split` (one line per change) | `job_id`, `job_state`, `queue_state`, `items_total`, `items_done`, `chunks.total`, `chunks.pending`, `chunks.leased`, `chunks.done`, `chunks.failed`, `lanes[].node_id`, `lanes[].state`, `lanes[].chunks_done`, `lanes[].items_done`, `lanes[].rate_items_s`, `lanes[].current`, `eta_s`, `elapsed_s`, `predicted_s`, `warnings` |
+| `compute watch JOB_ID` | `GET /v1/jobs/{job_id}/split` | `job_id`, `job_state`, `queue_state`, `items_total`, `items_done`, `chunks.total`, `chunks.pending`, `chunks.leased`, `chunks.done`, `chunks.failed`, `lanes[].node_id`, `lanes[].state`, `lanes[].chunks_done`, `lanes[].items_done`, `lanes[].rate_items_s`, `lanes[].current`, `eta_s`, `elapsed_s`, `predicted_s`, `warnings` |
 | `compute explain JOB_ID` | `GET /v1/jobs/{job_id}/decisions` | `job_id`, `decisions`, `count`, `decisions[].policy`, `decisions[].outcome`, `decisions[].chosen_node_id`, `decisions[].candidates`, `decisions[].actual` |
 | `compute network` | `GET /v1/network` | `now`, `stale_after_s`, `links`, `controller_links`, `failures`, `prober` |
 | `compute whoami` | `GET /v1/auth/whoami` | `user`, `user.name`, `user.role`, `legacy`, `token_id`, `token_expires_at` |

@@ -16,12 +16,14 @@ import { JobArtifacts } from "../../components/jobs/JobArtifacts";
 import { JobLogPanel } from "../../components/jobs/JobLogPanel";
 import { JobTimeline } from "../../components/jobs/JobTimeline";
 import { PlanTable } from "../../components/jobs/PlanTable";
+import { SplitProgressPanel } from "../../components/jobs/SplitProgressPanel";
 import { formatTime } from "../../components/jobs/format";
 import type { SocketLike } from "../../events/eventStream";
 import { jobTone } from "../../lib/status";
 import { PageHeader } from "../PageHeader";
 import { jobKeys } from "./jobKeys";
 import { TERMINAL_JOB_STATES, getDecisions, getJob, logDownloadUrl, type JobDetail } from "./jobsApi";
+import { isSplitJob } from "./splitApi";
 import { LOG_MAX_LINES, useJobLogs } from "./useJobLogs";
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
@@ -205,6 +207,16 @@ export function JobDetailPage({ logSocketFactory }: JobDetailPageProps) {
           label="Job details"
           defaultValue="logs"
           items={[
+            // V0.10 G7: a split job's progress per chunk and node
+            ...(isSplitJob(data.manifest)
+              ? [
+                  {
+                    value: "chunks",
+                    label: "Chunks",
+                    content: <SplitProgressPanel jobId={data.job_id} terminal={terminal} />,
+                  },
+                ]
+              : []),
             {
               value: "logs",
               label: "Logs",

@@ -13,7 +13,7 @@ counts anything itself - it decides *when* to re-read the rows:
   from the job table and marked dirty: a job nobody touched (e.g. right after a
   controller restart - the "rebuild": the first pass reads every running split
   job and publishes its state) is still read; an unchanged job publishes
-  nothing (its :meth:`~.progress.SplitProgress.signature` is compared).
+  nothing (its :meth:`~.progress.SplitProgress.comparable` is compared).
 
 **Rate bound.** A job is read at most ``progress_event_hz`` times a second;
 touches in between coalesce into its next read, which always happens (the last
@@ -23,7 +23,7 @@ most 2 events a second.
 
 **Bounded memory.** The dirty set holds at most ``4 x progress_max_jobs`` ids
 (more touches are dropped, counted and caught by the next resync); the last
-published signature of at most ``progress_max_jobs`` jobs (LRU); a bounded
+published ``comparable()`` of at most ``progress_max_jobs`` jobs (LRU); a bounded
 cache of which job ids are split jobs at all (Mode 1 jobs' state changes are
 touches too - one batched lookup, then ignored).
 
@@ -86,7 +86,7 @@ class ProgressStats:
 
 @dataclass(slots=True)
 class _Seen:
-    signature: tuple[Any, ...]
+    comparable: tuple[Any, ...]
     terminal: bool
 
 
@@ -261,13 +261,13 @@ class ProgressTracker:
         self.stats.reads += 1
         if progress is None:
             return
-        signature = progress.signature()
+        comparable = progress.comparable()
         seen = self._seen.get(job_id)
-        if seen is not None and seen.signature == signature:
+        if seen is not None and seen.comparable == comparable:
             self.stats.unchanged += 1
             self._seen.move_to_end(job_id)
             return
-        self._seen[job_id] = _Seen(signature, progress.terminal)
+        self._seen[job_id] = _Seen(comparable, progress.terminal)
         self._seen.move_to_end(job_id)
         while len(self._seen) > self._max_jobs:
             self._seen.popitem(last=False)

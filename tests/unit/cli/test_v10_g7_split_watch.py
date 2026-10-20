@@ -157,22 +157,6 @@ def test_pipe_prints_one_line_per_change_until_the_end(
     assert sleeps == [0.5, 0.5, 0.5]
 
 
-def test_json_prints_one_document_per_change_on_stdout(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    split_watch.watch_split(
-        _fetcher(_polls(summary(10), summary(10), summary(60, "failed"))),
-        interval_s=1,
-        json_output=True,
-        sleep=lambda _: None,
-    )
-    out = capsys.readouterr()
-    docs = [json.loads(line) for line in out.out.splitlines()]
-    assert [d["chunks"]["done"] for d in docs] == [10, 60]
-    assert all(d["schema_version"] for d in docs)
-    assert out.err == ""
-
-
 def test_transient_errors_are_retried_a_bounded_number_of_times() -> None:
     blip = ControllerError("down", failure_type=FailureType.NETWORK_ERROR)
     final = split_watch.watch_split(
@@ -286,9 +270,12 @@ def test_watch_exits_with_the_jobs_outcome(
 def test_watch_json_and_refusals(
     capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    running = FakeClient([summary(10)], {})
+    code, out, _ = run_main(["watch", JOB, "--json"], capsys, monkeypatch, running)
+    # one snapshot, one request, exit 0 (the --json contract of read commands)
+    assert code == CliExit.OK and json.loads(out)["chunks"]["done"] == 10
+    assert running.calls == [JOB]
     ok = FakeClient([summary(60, "succeeded")], {})
-    code, out, _ = run_main(["watch", JOB, "--json"], capsys, monkeypatch, ok)
-    assert code == CliExit.OK and json.loads(out)["job_state"] == "succeeded"
     missing = FakeClient(
         [ControllerError("no such split job", failure_type=FailureType.NOT_FOUND)],
         {},
