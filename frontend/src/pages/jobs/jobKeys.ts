@@ -14,4 +14,8 @@ export const jobKeys = {
   list: (filters: JobFilters) => [...queryKeys.jobs, "list", filters] as const,
   detail: (jobId: string) => queryKeys.job(jobId),
   decisions: (jobId: string) => [...queryKeys.job(jobId), "decisions"] as const,
+  /** V0.10 G7: a split job's progress summary (with its chunk map). */
+  split: (jobId: string) => [...queryKeys.job(jobId), "split"] as const,
+  /** V0.10 G7: one chunk's detail. */
+  chunk: (jobId: string, index: number) => [...queryKeys.job(jobId), "chunk", index] as const,
 };

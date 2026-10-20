@@ -99,6 +99,9 @@ class FakeLane:
     results_sent: list[str] = field(default_factory=list)
     hold_results: bool = False
     """True = run chunks but never send their results (a hung lane)."""
+    gate: asyncio.Event | None = None
+    """V0.10 G7: when set, a finished chunk's result waits until the event is
+    set (clear it to freeze the job's rows, set it to go on)."""
     combine_of: Callable[[Sequence[bytes]], bytes] = b"".join
     """V0.10 G5: the fake combine's output from the part blobs (chunk order)."""
     combine_fail: tuple[FailureType, str, bool] | None = None
@@ -444,6 +447,8 @@ class FakeLane:
         self.ledger.append((chunk.chunk_index, chunk.lease_seq))
         if self.hold_results:
             await asyncio.Event().wait()
+        if self.gate is not None:
+            await self.gate.wait()
         if self.delay_first_result_s and not self._delayed:
             self._delayed = True
             await asyncio.sleep(self.delay_first_result_s)

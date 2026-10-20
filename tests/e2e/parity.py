@@ -47,6 +47,7 @@ G5 = "test_v08_g5_settings.py"
 G5_T1 = "test_v08_g5_tester_r1_e2e.py"
 G7 = "test_v08_g7_mode1_flows.py"
 G6 = "test_v09_g6_benchmarks.py"
+G10_SPLIT = "test_v10_g7_chunks.py"
 BENCH_FLOW = f"{G6}::test_seeded_campaign_list_detail_pause_resume_labels_download"
 BENCH_REFUSED = (
     f"{G6}::test_controls_follow_state_refusals_toast_and_users_see_no_benchmarks"
@@ -84,6 +85,12 @@ COMPUTE: Final[dict[str, Entry]] = {
         "/jobs/:jobId",
         "Cancel job -> confirm",
         (LIFE_CYCLE, f"{G4}::test_keyboard_only_submit_and_cancel_a_running_job"),
+    ),
+    "watch": InUi(
+        "/jobs/:jobId",
+        "Chunks tab of a split job: progress bar, chunk grid by state, one row "
+        "per node (chunks, items, rate, running now), ETA, elapsed vs predicted",
+        (f"{G10_SPLIT}::test_split_job_chunks_tab_matches_the_api_and_the_cli",),
     ),
     "explain": InUi(
         "/jobs/:jobId",

@@ -18,6 +18,8 @@ Modules:
 * :mod:`.store` - PostgreSQL operations on a **caller-owned** session, so a
   caller can commit a lease change together with its own rows in one
   transaction (V0.10 checklist 35/36).
+* :mod:`.reads` - read-only, paged views of the rows (``list_items``; never
+  locks or writes).
 
 Import policy (``pyproject.toml`` ``[tool.importlinter]``): this package imports
 only :mod:`meshforge.common`; the controller imports it. This ``__init__``

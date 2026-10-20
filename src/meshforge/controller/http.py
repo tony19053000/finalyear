@@ -73,6 +73,7 @@ from meshforge.controller.api.revocation_routes import (
 )
 from meshforge.controller.api.secret_routes import SECRETS_STATE_KEY, secret_router
 from meshforge.controller.api.session_routes import session_router
+from meshforge.controller.api.split_routes import split_router
 from meshforge.controller.api.telemetry_routes import (
     TELEMETRY_STATE_KEY,
     TelemetryExport,
@@ -215,6 +216,7 @@ def create_http_app(
         setattr(app.state, JOBS_STATE_KEY, jobs)
         app.include_router(job_router)
         app.include_router(decision_router)  # V0.6 G2 plan decisions
+        app.include_router(split_router)  # V0.10 G7 split progress + chunks
         app.include_router(log_router)
         if jobs.inputs is not None:
             app.include_router(data_router)  # V0.5 G5 named inputs

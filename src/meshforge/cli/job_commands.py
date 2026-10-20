@@ -26,7 +26,9 @@ Local candidate):
    network error can pass it back and get the same job, not a second one;
 4. with ``--follow``: stream the logs until the job ends and exit with the job's
    outcome (:mod:`.outcome`). Ctrl-C only detaches: the job keeps running and the
-   ``compute cancel`` command is printed.
+   ``compute cancel`` command is printed. A ``split:`` job (V0.10 G7) shows its
+   progress per chunk and node instead (:mod:`.watch_commands`;
+   ``--no-progress`` streams the logs as before).
 
 ``compute get JOB`` downloads the outputs archive, checks its SHA-256 and
 unpacks it hostile-input-safe into ``./outputs/<job_id>/`` (``--dest``); a
@@ -157,6 +159,14 @@ def run(
             help="Re-submit safely: the same key returns the same job.",
         ),
     ] = None,
+    no_progress: Annotated[
+        bool,
+        typer.Option(
+            "--no-progress",
+            help="With -f on a split: job, stream the logs instead of showing "
+            "the progress per chunk and node (for scripts).",
+        ),
+    ] = False,
     dry_run: Annotated[
         bool,
         typer.Option(
@@ -265,6 +275,11 @@ def run(
         render.line(render.echo(job_id))
         if not follow:
             return
+        if manifest.split is not None and not no_progress:
+            # V0.10 G7 (D270): a split job's bar + one line per node
+            from meshforge.cli.watch_commands import watch_to_exit
+
+            watch_to_exit(client, job_id, interval_s=settings.cli.progress_interval_s)
         _follow_to_exit(client, job_id, settings.cli.timeout_s)
 
 

@@ -120,6 +120,17 @@ class CliSection(SectionModel):
         ),
     )
 
+    progress_interval_s: float = Field(
+        default=1.0,
+        ge=0.5,
+        le=60.0,
+        description=(
+            "V0.10 G7: how often `compute watch` and `compute run -f` (split "
+            "jobs) re-read the job's progress. Floored at 0.5 s. Env: "
+            "MESHFORGE_CLI__PROGRESS_INTERVAL_S."
+        ),
+    )
+
     token: SecretStr | None = Field(
         default=None,
         description=(

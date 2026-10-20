@@ -1268,6 +1268,25 @@ compute get <JOB_ID>               # outputs -> ./outputs/<JOB_ID>/ (--dest, --f
   up to 256 MiB with lines up to 16 MiB (the file is scanned while blob GC
   waits), and the stored item list up to 64 MiB (counted while the items are
   resolved; never above `[controller.blobs] max_blob_bytes`).
+- **Progress (V0.10 G7, D270).** `compute watch <JOB_ID>` (and `compute run -f`
+  for a split job; `--no-progress` streams the logs instead) shows a bar and one
+  line per node; the dashboard's job page has a **Chunks** tab (a grid of every
+  chunk coloured by state, a per-node table, ETA, elapsed vs predicted).
+  `GET /v1/jobs/{id}/split[?map=true]` is the summary and
+  `GET /v1/jobs/{id}/chunks?state=&node=&cursor=&limit=` the chunks themselves
+  (keyset pages of at most 500, index order); both read the rows on every
+  request, so what they show equals the database (owner or admin only, like
+  every job read). The event `split.progress` (WebSocket `/v1/events/ws`, the
+  job's owner and admins) carries the same summary: the controller re-reads a
+  split job when its chunks, lanes or state change, at most
+  `[controller.split] progress_event_hz` (2) times a second per job - changes in
+  between are merged into the next event, the last state is always sent - and
+  re-reads every running split job every `progress_resync_s` (5 s; also the
+  rebuild after a restart). A lane's items/s is measured over its last
+  `progress_rate_window` (8) committed chunks; the ETA is the remaining items
+  over the live lanes' measured rates and stays empty until a lane has
+  committed (nothing assumed). `progress_max_jobs` (1 000) bounds the jobs whose
+  last event is remembered. The CLI polls every `[cli] progress_interval_s` (1 s).
 
 ---
 

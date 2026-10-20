@@ -140,6 +140,9 @@ from meshforge.controller.session.servicer import AgentControlServicer
 from meshforge.controller.settings import LOOPBACK_PLAIN_HOSTS, ControllerSettings
 from meshforge.controller.snapshots import SnapshotFlusher
 from meshforge.controller.split.combine import CombineBusy
+from meshforge.controller.split.progress import SplitProgress
+from meshforge.controller.split.progress_events import ProgressTracker
+from meshforge.controller.split.progress_reads import ProgressReads
 from meshforge.controller.store.engine import check_connection, create_engine
 from meshforge.controller.store.migrate import upgrade_to_head
 from meshforge.controller.telemetry.recorder import RunRecorder
@@ -226,6 +229,8 @@ class ControllerRuntime:
         self.server_tls: ServerTls | None = None
         self.events: EventBus | None = None
         """V0.8 G1 (D172): the dashboard's event bus."""
+        self.split_progress: ProgressTracker | None = None
+        """V0.10 G7 (D270): ``split.progress`` events (re-reads on change)."""
         self.node_watcher: NodeWatcher | None = None
         self._watcher_task: asyncio.Task[None] | None = None
         self.blob_port = BlobPortSecurity(blob_port_is_tls=False)
@@ -411,6 +416,16 @@ class ControllerRuntime:
             max_subscribers=ev.max_subscribers,
         )
         changes.attach(engine, self._publish_changes)
+        # V0.10 G7 (D270): split jobs' progress, read from their rows when
+        # they change (chunk messages, state changes, expiry) and on a resync.
+        progress_reads = ProgressReads(
+            engine, rate_window=cfg.split.progress_rate_window
+        )
+        tracker = ProgressTracker(
+            progress_reads, publish=self._publish_split_progress, settings=cfg.split
+        )
+        self.split_progress = tracker
+        self._spawn(tracker.run(), "split-progress")
         self.inputs = NamedInputStore(engine)
         # V0.7 G6 (D144): job secrets; the master key is loaded on first use.
         self.secrets = SecretStore(engine, self.settings.secrets_key_path)
@@ -537,6 +552,7 @@ class ControllerRuntime:
             node_paused=self.node_pauses.paused,
             blobs=self.blobs,
             split=cfg.split,
+            on_split_change=tracker.touch,
             on_integrity_failure=(
                 functools.partial(
                     self.scrubber.suspect_tree_soon, why="attempt_integrity_error"
@@ -740,6 +756,7 @@ class ControllerRuntime:
                 split_limits=SplitLimits(
                     max_items=cfg.split.max_items, max_chunks=cfg.split.max_chunks
                 ),
+                split_progress=progress_reads,
             ),
             network=NetworkApi(store=network_store, prober=network),
             invites=InviteApi(
@@ -955,6 +972,12 @@ class ControllerRuntime:
         """Committed job/attempt changes -> bus events (D172; owner-scoped)."""
         if self.recorder is not None and any(n.kind != "job" for n in notes):
             self.recorder.nudge()  # an attempt changed: maybe it just ended
+        if self.split_progress is not None:
+            # V0.10 G7: a lane / combine / split job changed state (Mode 1
+            # jobs are recognised and ignored by the tracker)
+            for job_id in {n.data.get("job_id") for n in notes}:
+                if job_id:  # a note without a job is not a split change
+                    self.split_progress.touch(str(job_id))
         if self.events is None:
             return
         for note in notes:
@@ -963,6 +986,16 @@ class ControllerRuntime:
                 note.data,
                 audience=Audience.OWNER,
                 owner_user_id=note.owner_user_id,
+            )
+
+    def _publish_split_progress(self, progress: SplitProgress) -> None:
+        """V0.10 G7 (D270): ``split.progress`` for the job's owner and admins."""
+        if self.events is not None:
+            self.events.publish(
+                EventType.SPLIT_PROGRESS,
+                progress.to_data(),
+                audience=Audience.OWNER,
+                owner_user_id=progress.owner_user_id,
             )
 
     def _publish_alert(self, data: dict[str, str]) -> None:
@@ -1066,6 +1099,9 @@ class ControllerRuntime:
         if self._watcher_task is not None and not self._watcher_task.done():
             self._watcher_task.cancel()  # forever by design; nothing to drain
             await asyncio.gather(self._watcher_task, return_exceptions=True)
+        if self.split_progress is not None:
+            # V0.10 G7: ends after its current read (never cancelled mid-query)
+            self.split_progress.request_stop()
         if self._flusher_task is not None and not self._flusher_task.done():
             # Stop the periodic loop first, then write the closed buckets once -
             # inside the shared deadline, so history never delays the drain.

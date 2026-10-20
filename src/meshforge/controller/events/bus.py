@@ -15,7 +15,10 @@ One process-wide stream of typed events the dashboard follows over
 * ``alert`` ``{kind, ...}`` - a security refusal an operator should see
   (D180; the ``audit_event`` row stays the source of truth);
 * ``campaign.progress`` ``{campaign_id, state, counts, done_percent, eta_s,
-  ...}`` - a runner-owned benchmark campaign moved (V0.9 G5; admins only).
+  ...}`` - a runner-owned benchmark campaign moved (V0.9 G5; admins only);
+* ``split.progress`` ``{job_id, job_state, chunks, items_done, lanes, eta_s,
+  ...}`` - a split job's progress, read from its rows (V0.10 G7,
+  :mod:`meshforge.controller.split.progress`; the job's owner and admins).
 
 **Order and resume.** Every event gets the next ``seq`` (1, 2, ...) of this
 bus; the bus also has an ``epoch`` (random per controller process). The last
@@ -82,6 +85,9 @@ class EventType(StrEnum):
     CAMPAIGN_PROGRESS = "campaign.progress"
     """V0.9 G5 (D246): a runner-owned campaign's counts / ETA (admins only;
     at most once a second per campaign)."""
+    SPLIT_PROGRESS = "split.progress"
+    """V0.10 G7 (D270): a split job's chunk / lane progress (its owner and
+    admins; at most ``[controller.split] progress_event_hz`` per job)."""
 
 
 class Audience(StrEnum):

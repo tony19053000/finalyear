@@ -207,8 +207,12 @@ class Dispatcher(RecoverySteps):
         node_paused: Callable[[str], bool] | None = None,
         blobs: BlobStore | None = None,
         split: SplitSettings | None = None,
+        on_split_change: Callable[[str | None], None] | None = None,
     ) -> None:
         self._store = store
+        self._on_split_change = on_split_change
+        """V0.10 G7 (D270): a split job's chunk rows may have changed (job id;
+        None = any job's - a lease expiry). The progress tracker re-reads."""
         self._split_settings = split or SplitSettings()
         self._bench_condition = bench_condition
         """V0.9 G4 (D217): a benchmark run job's agent condition, by its
@@ -515,6 +519,8 @@ class Dispatcher(RecoverySteps):
         elif isinstance(item, ChunkWork):
             if self._split is not None:
                 await self._split.handle(item)
+                if self._on_split_change is not None:
+                    self._on_split_change(item.body.lane.job_id)
         else:
             await self._offline(item)
 
@@ -525,8 +531,11 @@ class Dispatcher(RecoverySteps):
 
     async def _periodic(self, _: object) -> None:
         await self._dispatch()
-        if self._split is not None:
-            await self._split.expire()  # V0.10 G4 (D267b): visibility timeout
+        # V0.10 G4 (D267b): visibility timeout; G7: expired leases went back
+        # to pending - the progress of any split job may have changed
+        expired = 0 if self._split is None else await self._split.expire()
+        if expired and self._on_split_change is not None:
+            self._on_split_change(None)
         await self._backstop()
         # One read of the live attempts for both sweeps. An attempt the first
         # one ends is still listed for the second: ending it again is a no-op

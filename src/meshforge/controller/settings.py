@@ -1527,6 +1527,46 @@ class SplitSettings(SectionModel):
             "no deadline of its own that would end an endless refusal)."
         ),
     )
+    # --- V0.10 G7 (D270): progress per chunk / node ------------------------
+    progress_event_hz: float = Field(
+        default=2.0,
+        ge=0.1,
+        le=20.0,
+        description=(
+            "Most split.progress events per second per split job (changes in "
+            "between are coalesced into the next one; the last state is always "
+            "sent)."
+        ),
+    )
+    progress_resync_s: float = Field(
+        default=5.0,
+        ge=0.5,
+        le=300.0,
+        description=(
+            "Every this many seconds the progress of every running split job is "
+            "re-read even without a chunk message (catches lease expiry and any "
+            "change that sent no notice); an unchanged job publishes nothing."
+        ),
+    )
+    progress_rate_window: int = Field(
+        default=8,
+        ge=2,
+        le=64,
+        description=(
+            "A lane's items/s is measured over its last this-many committed "
+            "chunks (the ETA divides the remaining items by the live lanes' sum)."
+        ),
+    )
+    progress_max_jobs: int = Field(
+        default=1_000,
+        ge=1,
+        le=100_000,
+        description=(
+            "Most split jobs whose last published progress is kept in memory "
+            "(running jobs; least recently changed dropped first - a dropped job "
+            "is simply re-read on its next change)."
+        ),
+    )
 
 
 class ControllerSection(SectionModel):
