@@ -7,8 +7,8 @@
 > **Cold-start prompt** (paste this as the first message on the new account):
 >
 > ```
-> Read docs/SESSION_HANDOFF.md §1, then docs/STATUS.md, then the V0.10 section of docs/DEVELOPMENT_ROADMAP.md and docs/briefs/V0.10-task-splitting.md (§2 + Lead rulings log D277–D283, §5e G5).
-> V0.9 agent-side COMPLETE (🧑 0.9.10 lab open). V0.10: G1–G4 MERGED + gate clean (D282: component 2853/0) → 0.10.1–0.10.4, 0.10.6 [x]. G5 combine (0.10.7): implementer DONE, exit gates green (unit 16595, V0.10 comp/cluster 96, ruff, mypy); tester r1 FAIL (T2 major slice_digest memo, T1 hardlink) + reviewer r1 REQUEST_CHANGES (B1 resource_busy counted); fix round 1 DONE (433e1ed3, gates green; Lead accepted combine_busy_max=100); reviewer r2 APPROVE (nit fixed 324f459f); tester r2 STOPPED by session end — partial tests committed as wip, UNVERIFIED (session ended 2026-10-20). All work committed on branch worktree-agent-a8628bd2c45109889 (worktree .claude/worktrees/agent-a8628bd2c45109889, head = branch tip (see git log); design pins D283; deviations I1–I13 + log in that worktree's docs/briefs/progress/V0.10-G5.md). Next: RE-RUN tester r2 (scope: verify B1/T2/T1/N2/N6 + fix one-process GC/heartbeat flake in G5 component fixtures, tests only; review/keep its wip tests) → if PASS: gates → merge → G6 (stragglers) ∥ G7 (progress) → G8 → G9 → 🧑 0.10.10. Team: V0.10 brief + ADR-0019 still Proposed — review them (esp. D274 criteria calibration). Parallel agents OK; no fast mode.
+> Read docs/SESSION_HANDOFF.md §1, then docs/STATUS.md, then the V0.10 section of docs/DEVELOPMENT_ROADMAP.md and docs/briefs/V0.10-task-splitting.md (§2 + Lead rulings D277–D284, §5f G6, §5g G7).
+> V0.10: G1–G5 MERGED → 0.10.1–0.10.4, 0.10.6, 0.10.7 [x] (D284, main fa01272c). G6 stragglers (0.10.5) ∥ G7 progress (0.10.8) implementers launched 2026-10-20 in separate agent worktrees (.claude/worktrees/agent-*; progress logs docs/briefs/progress/V0.10-G6.md / -G7.md on their branches). If a session ended mid-run: check `git worktree list` + those logs, resume or relaunch. Next per group: tester ∥ reviewer → fixes → merge → [x] + status bar; then G8 → G9 → 🧑 0.10.10. Gate mypy = `uv run mypy src` (bare mypy is pre-existing broken). Team: V0.10 brief + ADR-0019 still Proposed. Parallel agents OK; no fast mode.
 > ```
 >
 > Order of truth: `PROJECT_BRIEF → ARCHITECTURE → ROADMAP → STATUS → this file`. If this file
@@ -28,7 +28,7 @@
 > throughput measurements and the reasoning; if you think the arithmetic or the trade is wrong,
 > **say so to the team before building on it.** Do not silently re-expand the scope either.
 
-**Last updated:** 2026-10-19 (**V0.9 G4 CLOSED, D245; next G5 brief**) · older: 2026-10-11 (**V0.7 G3 fix round 1 in flight** — see §1) · older: 2026-10-07 (**V0.6 G4 CLOSED + reviewer follow-ups done `1f037f2`; next: V0.7 brief; 0.6.13 🧑 lab open** · older: **V0.6 G1–G3 CLOSED; G4 fix round 1 stopped during its exit list — see §2 top UPDATE**; older note: **V0.5 CLOSED agent-side** (🧑 0.5.11 lab open) · **V0.6 started**: brief + ADR-0015 written (`94b8b64`), 4 sequential groups G1–G4, **G1 + G2 CLOSED**; **next: G3 implementer** (brief §5c + N-1) — see §2 "V0.6 state") · **Updated by:** Lead session
+**Last updated:** 2026-10-20 (**V0.10 G5 CLOSED D284; G6 ∥ G7 implementers running**) · older: 2026-10-19 (V0.9 G4 CLOSED, D245) · older: 2026-10-11 (**V0.7 G3 fix round 1 in flight** — see §1) · older: 2026-10-07 (**V0.6 G4 CLOSED + reviewer follow-ups done `1f037f2`; next: V0.7 brief; 0.6.13 🧑 lab open** · older: **V0.6 G1–G3 CLOSED; G4 fix round 1 stopped during its exit list — see §2 top UPDATE**; older note: **V0.5 CLOSED agent-side** (🧑 0.5.11 lab open) · **V0.6 started**: brief + ADR-0015 written (`94b8b64`), 4 sequential groups G1–G4, **G1 + G2 CLOSED**; **next: G3 implementer** (brief §5c + N-1) — see §2 "V0.6 state") · **Updated by:** Lead session
 
 ---
 
