@@ -7,8 +7,8 @@
 > **Cold-start prompt** (paste this as the first message on the new account):
 >
 > ```
-> Read docs/SESSION_HANDOFF.md §1, then docs/STATUS.md, then the V0.10 section of docs/DEVELOPMENT_ROADMAP.md and docs/briefs/V0.10-task-splitting.md (§2 + Lead rulings log D277–D280, §5d G4, §5e+).
-> V0.9 agent-side COMPLETE (🧑 0.9.10 lab open). V0.10: G1+G2 CLOSED (0.10.1/0.10.2 [x]), G3 MERGED (0.10.3 [x] waits for the next whole-component gate). G4 (lanes, 0.10.4+0.10.6) in worktree .claude/worktrees/agent-a32439c2c773f949a: fix round 2 DONE + rerun green (HEAD fe77b7bc). Next: tester r3 (hostile-chunk / symlink focus) ∥ reviewer r2 → merge G4 into main → whole `-m component` alone → 0.10.3/0.10.4/0.10.6 [x] + status bar + STATUS + D281 → G5 (combine). Team said: keep going on V0.10 while away (brief + ADR-0019 still Proposed). Parallel agents OK; no fast mode.
+> Read docs/SESSION_HANDOFF.md §1, then docs/STATUS.md, then the V0.10 section of docs/DEVELOPMENT_ROADMAP.md and docs/briefs/V0.10-task-splitting.md (§2 + Lead rulings log D277–D282, §5e G5).
+> V0.9 agent-side COMPLETE (🧑 0.9.10 lab open). V0.10: G1–G4 MERGED + gate clean (D282: component 2853/0) → 0.10.1–0.10.4, 0.10.6 [x]. NOTHING RUNNING. Next: G5 combine (0.10.7, §5e; read D281 for G4's design — the last chunk commit currently writes a parts index and ends the job SUCCEEDED as a combine stub; combine must follow the B1 folder-safety rules and be excluded from history) → tester → reviewer → merge → G6 (stragglers) ∥ G7 (progress) → G8 → G9 → 🧑 0.10.10. Team: V0.10 brief + ADR-0019 still Proposed — review them (esp. D274 criteria calibration). Parallel agents OK; no fast mode.
 > ```
 >
 > Order of truth: `PROJECT_BRIEF → ARCHITECTURE → ROADMAP → STATUS → this file`. If this file
@@ -262,7 +262,7 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
-**2026-10-20 (session 3) — V0.10 G1–G4 MERGED on main (G4 `325c83cc`, D281). Gate PASSED clean (D282: 2853/0). 0.10.3, 0.10.4, 0.10.6 `[x]`. RUNNING: G5 implementer (combine, §5e) in an agent worktree (newest in `git worktree list`; progress docs/briefs/progress/V0.10-G5.md there; if died relaunch/resume from it).**
+**2026-10-20 (session 3 END — team returned, asked to stop) — NOTHING RUNNING.** V0.10 G1–G4 merged (G4 `325c83cc`, D281); gate clean D282 (2853 passed / 0 failed); 0.10.1–0.10.4, 0.10.6 `[x]`, V0.10 5/10, total 58%. G5 implementer was started then STOPPED while still reading (no code written, nothing to recover). Next: launch G5 per §5e. 🧑 pending: V0.9 0.9.10 overnight campaign (checklist part O); V0.10 0.10.10 lab incl. a hostile-symlink Docker chunk (D281); team review of the V0.10 brief + ADR-0019 (Proposed).
 
 > **UPDATE 2026-10-19 (new session):** G6 exit gates PASS + hand-off done (HEAD 2612335; fixed qualityApi shape to match G5c QualityOut) → G6 tester r1 PASS (T-1/T-1b minor, Lead-fixed `154915e` in G6 worktree) → G6 reviewer r1 **APPROVE** (5 non-blocking: 404 message-text match → fix at merge with generated type; RunOut tries/last_failure in bench_routes.py may conflict with G5c). **G6 ready to merge AFTER G5c.** G5c exit gates PASS + hand-off done (HEAD c411f17; D255 test 20/20 under load) → G5c tester r1 PASS w/ 3 minor (D257) → G5c fix r1 done (HEAD 484da34; quality summary gains measured_records, rejected_ok, other_failures → G6 qualityApi at merge) → G5c tester r2 PASS (04d9ef4) → G5c reviewer r1 APPROVE after Lead lint fix `edd7ad0` → **G5c merged, G6 merged `0e63d6b`** (schema regenerated; `bench report` now InUi). Integration done `c5b77c2` (generated QualityOut, 404 by `error.reason=unknown_campaign`, all buckets shown; unit 15874, vitest 618, e2e 14, build OK). **Whole `-m component` was STOPPED unfinished at session end (user) — rerun it alone.** NOTHING RUNNING. Then: whole `-m component` ONCE alone → 0.9.7/0.9.8/0.9.9 `[x]` + status bar → G7 brief.
 

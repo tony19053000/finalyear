@@ -512,7 +512,7 @@ A version is **complete** only when all apply:
 - [x] **0.10.4** Per-node worker: one env prep, many chunks; chunk-level input staging (only needed files) — evidence: D281 (3 fix rounds; tester r3 + reviewer r2); gate D282
 - [ ] **0.10.5** Stragglers: speculative duplicates of tail chunks; first result wins, idempotent
 - [x] **0.10.6** Lost node → chunk leases expire → re-queued — evidence: D281 (kill -9 / controller restart / lease expiry / re-plan tests); gate D282
-- [~] **0.10.7** Ordered, deterministic combine step
+- [ ] **0.10.7** Ordered, deterministic combine step
 - [ ] **0.10.8** Progress per chunk/node (CLI progress bar, dashboard page)
 - [ ] **0.10.9** Mode 3 benchmark families
 - [ ] **0.10.10** 🧑 Lab: heterogeneous 3–4 laptop runs with a node killed mid-way

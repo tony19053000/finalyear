@@ -44,7 +44,7 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 
 ## Current Task
 
-- **2026-10-20:** V0.10 G3 (planner) + G4 (lanes: dispatch, pull, failures) merged and closed; G4 needed 3 fix rounds (livelock D1, **symlink escape B1**, races D3/D4). Gate: component 2853 passed / 0 failed (D282). Next: G5 combine (§5e).
+- **2026-10-20:** V0.10 G3 (planner) + G4 (lanes: dispatch, pull, failures) merged and closed; G4 needed 3 fix rounds (livelock D1, **symlink escape B1**, races D3/D4). Gate: component 2853 passed / 0 failed (D282). Next: G5 combine (§5e). Session ended (team returned); nothing running.
 
 - **2026-10-20:** V0.10 G1 (`split:` spec) + G2 (work queue) merged and closed (D277–D279); gate: unit 16226 green, component 2832 / 3 failed (1 stale test fixed, 2 load flakes green standalone). Next: G3 (planner) ∥ G4 (lanes).
 
