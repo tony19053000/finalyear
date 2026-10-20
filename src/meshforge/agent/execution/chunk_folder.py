@@ -48,6 +48,7 @@ __all__ = [
     "ITEMS_LINES",
     "ChunkFolder",
     "ChunkFolderSwappedError",
+    "pack_folder",
 ]
 
 CONTAINER_CHUNK_IN: Final = "/meshforge/in"
@@ -72,6 +73,46 @@ def _ident(path: Path) -> tuple[int, int]:
             retryable=False,
         )
     return info.st_dev, info.st_ino
+
+
+def pack_folder(
+    out: Path, dest: Path, max_bytes: int, *, what: str, limit: str
+) -> tuple[Digest, int]:
+    """Pack every regular file of ``out`` into ``dest`` (the deterministic
+    bundle of V0.4 outputs; an empty folder is an empty bundle), at most
+    ``max_bytes`` packed. ``what`` names the folder in errors (``chunk`` /
+    ``combine``), ``limit`` the setting behind ``max_bytes``. Shared by the
+    chunk and combine control folders (V0.10 G5); the caller checks the
+    folder's identity before and after."""
+    dest.unlink(missing_ok=True)
+    try:
+        files, _missing = expand_outputs(out, ("**",))
+        with dest.open("xb") as fh:
+            packed = pack_files(
+                out, files, fh, limits=BundleLimits(max_total_bytes=max_bytes)
+            )
+    except BundleError as exc:
+        dest.unlink(missing_ok=True)
+        raise OutputError(
+            f"cannot pack the {what}'s output: {exc.message}", retryable=False
+        ) from None
+    except OSError as exc:
+        # out/ changed under the packer (a process outliving its run deleted
+        # or renamed an entry): never a raw error (tester r3 D3)
+        dest.unlink(missing_ok=True)
+        raise OutputError(
+            f"{what}_output_swapped: the {what}'s output changed while it was "
+            f"packed ({type(exc).__name__}); its output is not used",
+            retryable=False,
+        ) from None
+    if packed.compressed_bytes > max_bytes:
+        dest.unlink(missing_ok=True)
+        raise OutputError(
+            f"output_limit: the {what}'s packed output is "
+            f"{packed.compressed_bytes} bytes, more than {limit} ({max_bytes})",
+            retryable=False,
+        )
+    return packed.digest, packed.compressed_bytes
 
 
 class ChunkFolder:
@@ -150,41 +191,19 @@ class ChunkFolder:
         V0.4 outputs; an empty folder is an empty bundle), refusing a swapped
         folder before and after."""
         self.verify()
-        dest.unlink(missing_ok=True)
-        try:
-            files, _missing = expand_outputs(self.out, ("**",))
-            with dest.open("xb") as fh:
-                packed = pack_files(
-                    self.out, files, fh, limits=BundleLimits(max_total_bytes=max_bytes)
-                )
-        except BundleError as exc:
-            dest.unlink(missing_ok=True)
-            raise OutputError(
-                f"cannot pack the chunk's output: {exc.message}", retryable=False
-            ) from None
-        except OSError as exc:
-            # out/ changed under the packer (a process outliving the chunk
-            # deleted or renamed an entry): never a raw error (tester r3 D3)
-            dest.unlink(missing_ok=True)
-            raise OutputError(
-                "chunk_output_swapped: the chunk's output changed while it was "
-                f"packed ({type(exc).__name__}); its output is not used",
-                retryable=False,
-            ) from None
+        digest, size = pack_folder(
+            self.out,
+            dest,
+            max_bytes,
+            what="chunk",
+            limit="split.max_chunk_output_bytes",
+        )
         try:
             self.verify()
         except ChunkFolderSwappedError:
             dest.unlink(missing_ok=True)
             raise
-        if packed.compressed_bytes > max_bytes:
-            dest.unlink(missing_ok=True)
-            raise OutputError(
-                f"output_limit: the chunk's packed output is "
-                f"{packed.compressed_bytes} bytes, more than "
-                f"split.max_chunk_output_bytes ({max_bytes})",
-                retryable=False,
-            )
-        return packed.digest, packed.compressed_bytes
+        return digest, size
 
     # ------------------------------------------------------------ remove
 

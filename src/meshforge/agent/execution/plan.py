@@ -96,6 +96,7 @@ __all__ = [
     "PlanError",
     "PlannedInput",
     "plan_attempt",
+    "runtime_argv",
     "workload_env",
 ]
 
@@ -220,8 +221,14 @@ def _manifest(text: str) -> Manifest:
 
 
 def _argv(manifest: Manifest, runtime: str) -> tuple[str, ...]:
-    argv = manifest.entrypoint
-    if runtime == "subprocess" and argv[0] in _PYTHONS:
+    return runtime_argv(manifest.entrypoint, runtime)
+
+
+def runtime_argv(argv: tuple[str, ...], runtime: str) -> tuple[str, ...]:
+    """``argv`` as ``runtime`` runs it (module docstring, "Interpreter"): the
+    subprocess runtime maps a leading ``python``/``python3`` to the agent's
+    interpreter. Also used for a split job's combine script (V0.10 G5)."""
+    if runtime == "subprocess" and argv and argv[0] in _PYTHONS:
         return (sys.executable, *argv[1:])
     return argv
 
