@@ -309,3 +309,36 @@ def test_kill9_of_a_lane_agent_mid_run_gives_the_same_output_once(
     _digest, labels, _seen = _parts(fabric, pg_settings, job_id)
     assert labels == _expected(files)
     assert io.BytesIO(labels).getvalue().count(b"\n") == ITEMS
+
+
+def test_controller_restart_mid_run_resumes_from_postgres(
+    make_fabric: Callable[..., Fabric], tmp_path: Path, pg_settings: Any
+) -> None:
+    """The controller is killed and restarted while the lanes run: the queue,
+    leases and committed chunks are in PostgreSQL; the agents reconnect, their
+    buffered results are replayed (a result whose upload the new process cannot
+    verify is run again - never committed unverified), their lanes ask again,
+    and the job ends with the same output, every chunk committed once."""
+    fabric = _fabric(make_fabric)
+    files = _project(tmp_path / "project", delay_s=0.1)
+    tree = _upload(fabric, tmp_path / "project")
+    job_id = _submit(fabric, tree)
+    deadline = time.monotonic() + 180
+    while time.monotonic() < deadline:
+        done = _sql(
+            pg_settings,
+            "SELECT count(*) AS n FROM work_item i JOIN work_queue q "
+            "ON q.id = i.queue_id WHERE q.owner_id = :job AND i.state = 'done'",
+            job=job_id,
+        )[0].n
+        if done >= 3:
+            break
+        time.sleep(0.05)
+    else:
+        fabric.fail("no chunk was committed before the restart")
+    fabric.restart_controller(graceful=False)
+    job = _wait(fabric, job_id, 300)
+    assert job["state"] == "succeeded", (job["failure_type"], job["failure_detail"])
+    _ledger(pg_settings, job_id)
+    _digest, labels, _seen = _parts(fabric, pg_settings, job_id)
+    assert labels == _expected(files)
