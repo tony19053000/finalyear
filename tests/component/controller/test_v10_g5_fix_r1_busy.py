@@ -50,6 +50,7 @@ def _settings(pg_settings: DatabaseSettings, **split: Any) -> Any:
     return g2_settings(
         pg_settings,
         jobs={"dispatch_interval_s": 0.1},
+        admission_timeout_s=1.2,  # default 0.5 s follows the lease; GC pauses reach 0.75 s
         split={
             "visibility_timeout_s": 5.0,
             "wait_retry_s": 0.2,

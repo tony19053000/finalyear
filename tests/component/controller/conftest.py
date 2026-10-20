@@ -62,6 +62,18 @@ def _no_meshforge_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdg-data"))
 
 
+@pytest.fixture(autouse=True)
+def _no_long_gc_pauses() -> None:
+    """In a one-process V0.10 run the heap grows across the session and gen-2 GC
+    pauses reach ~0.75 s - longer than the 0.2-0.5 s heartbeat/admission windows
+    these tests use, so fake nodes drop OFFLINE. Freezing what already exists
+    keeps full collections cheap (assertions and timings are unchanged)."""
+    import gc
+
+    gc.collect()
+    gc.freeze()
+
+
 @pytest.fixture
 def settings(pg_settings: DatabaseSettings) -> ControllerSettings:
     return make_settings(pg_settings)
