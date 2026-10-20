@@ -14,7 +14,8 @@ job``.
 * ``/chunks`` - the chunks themselves, index order, keyset pages
   (``limit``, ``cursor`` = the previous page's ``next_cursor``), filters
   ``state`` (repeatable) and ``node`` (chunks that node holds now or whose
-  committed result came from it).
+  committed result came from it); ``start=N`` begins at chunk N (the
+  dashboard's "this chunk" panel: ``?start=N&limit=1``).
 
 Both are read **from the rows on every request** (one ``REPEATABLE READ``
 snapshot for the summary): the numbers shown equal the rows (checklist 37).
@@ -368,13 +369,26 @@ async def split_chunks(
             description="The previous page's next_cursor.",
         ),
     ] = None,
+    start: Annotated[
+        int | None,
+        Query(
+            ge=0,
+            lt=MAX_SPLIT_CHUNKS,
+            description="Start at this chunk index (instead of a cursor): "
+            "one chunk is ?start=N&limit=1.",
+        ),
+    ] = None,
 ) -> ChunkList:
     reads = _reads(jobs)
     try:
         node_id = None if node is None else str(validate_node_id(node))
     except InvalidIdError:
         raise ApiError.invalid("node is not a canonical node_<ULID>") from None
+    if cursor is not None and start is not None:
+        raise ApiError.invalid("give cursor or start, not both")
     after = None if cursor is None else decode_chunk_cursor(cursor)
+    if start is not None:
+        after = start - 1
     job = await _split_job(user, jobs, job_id)
     rows = await reads.chunk_page(
         job.id,

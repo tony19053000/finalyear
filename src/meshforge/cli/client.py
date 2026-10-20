@@ -349,6 +349,10 @@ class ControllerClient:
     def job(self, job_id: str) -> Mapping[str, Any]:
         return self._get(f"/v1/jobs/{job_id}")
 
+    def split_progress(self, job_id: str) -> Mapping[str, Any]:
+        """V0.10 G7: ``GET /v1/jobs/{id}/split`` (a split job's progress)."""
+        return self._get(f"/v1/jobs/{job_id}/split")
+
     def cancel(self, job_id: str) -> Mapping[str, Any]:
         return self._request("POST", f"/v1/jobs/{job_id}/cancel")
 

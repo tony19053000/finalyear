@@ -504,6 +504,18 @@ async def test_rest_access_paging_and_filters(
             await as_alice.get(f"/v1/jobs/{job_id}/chunks", params={"limit": 500})
         ).json()["chunks"][-1]
         assert last["item_count"] == 5 and last["first_item"] == 90
+        one = (
+            await as_alice.get(
+                f"/v1/jobs/{job_id}/chunks", params={"start": 4, "limit": 1}
+            )
+        ).json()
+        assert [c["chunk_index"] for c in one["chunks"]] == [4]
+        assert one["next_cursor"] is not None
+        both = await as_alice.get(
+            f"/v1/jobs/{job_id}/chunks",
+            params={"start": 1, "cursor": one["next_cursor"]},
+        )
+        assert both.status_code == 400
         for bad in (
             {"cursor": "nope"},
             {"cursor": "djF8Y2h1bmt8LTE"},  # v1|chunk|-1

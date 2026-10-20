@@ -10745,6 +10745,26 @@
               "description": "The previous page's next_cursor.",
               "title": "Cursor"
             }
+          },
+          {
+            "description": "Start at this chunk index (instead of a cursor): one chunk is ?start=N&limit=1.",
+            "in": "query",
+            "name": "start",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "exclusiveMaximum": 10000,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Start at this chunk index (instead of a cursor): one chunk is ?start=N&limit=1.",
+              "title": "Start"
+            }
           }
         ],
         "responses": {

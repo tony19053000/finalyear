@@ -280,6 +280,11 @@ from meshforge.cli.job_commands import cancel, get, jobs, logs, run  # noqa: E40
 for _command in (run, jobs, logs, cancel, get):
     app.command()(_command)
 
+# V0.10 G7: `compute watch` (a split job's progress per chunk / node).
+from meshforge.cli.watch_commands import watch  # noqa: E402
+
+app.command()(watch)
+
 # V0.6 G2: `compute explain` (planner decisions).
 from meshforge.cli.explain_commands import explain  # noqa: E402
 
