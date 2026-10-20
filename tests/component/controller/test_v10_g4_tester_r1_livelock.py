@@ -49,14 +49,18 @@ async def test_all_lanes_name_digests_they_never_uploaded_job_must_end(
     _liar(monkeypatch)
     async with _lanes(runtime, [0.01, 0.01]) as lanes:
         job_id = await _submit(runtime, http, tmp_path, items=20, chunk=5)
-        await asyncio.sleep(15)
-        job = await runtime.jobs.get_job(job_id)  # type: ignore[union-attr]
-        ran = sum(len(lane.ledger) for lane in lanes)
-        assert job is not None
-        assert job.state in (JobState.FAILED, JobState.CANCELLED), (
-            f"LIVELOCK: job still {job.state} after 15 s and {ran} chunk runs "
-            f"for 4 chunks (stats={runtime.dispatcher.split.stats})"  # type: ignore[union-attr]
-        )
+        job = await _wait_job(runtime, job_id, within=60)
+        assert job.state is JobState.FAILED, (job.state, job.failure_type)
+        stats = runtime.dispatcher.split.stats  # type: ignore[union-attr]
+        # bounded, and not a hot loop (r1 saw ~65 grants/s): 4 chunks x
+        # (2 uncounted + counted) x a few nodes/attempts is far below 100
+        assert stats.grants < 100, stats
+        assert stats.unverified_failures >= 1, stats
+        assert stats.committed == 0
+        assert "chunk_unverified" in (job.failure_detail or ""), job.failure_detail
+        await asyncio.sleep(2)  # nothing keeps granting after the end
+        again = runtime.dispatcher.split.stats.grants  # type: ignore[union-attr]
+        assert again <= stats.grants + 2
 
 
 async def test_one_lying_lane_does_not_stop_honest_lanes_finishing(
