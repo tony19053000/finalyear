@@ -6,7 +6,7 @@
 
 ## Progress
 ```
-TOTAL   ████████████▒▒░░░░░░  58%  92/156 done, 15 in progress
+TOTAL   ████████████▒▒░░░░░░  59%  93/156 done, 15 in progress
 
 V0.1    █████████████████▒▒▒  83%  10/12  Foundations & engineering system
 V0.2    ██▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░░   9%   1/11  Lab setup & feasibility validation
@@ -17,7 +17,7 @@ V0.6    ███████████████████░  92%  13/14
 V0.7    ██████████████████░░  91%  11/12  Security & pairing
 V0.8    ██████████████████░░  90%   9/10  Dashboard & CLI v1
 V0.9    ██████████████████░░  90%   9/10  Benchmark & telemetry system v1
-V0.10   ██████████░░░░░░░░░░  50%   5/10  Mode 3 Task Splitting
+V0.10   ████████████░░░░░░░░  60%   6/10  Mode 3 Task Splitting
 V0.14   ░░░░░░░░░░░░░░░░░░░░   0%   0/8   Unified planner v2
 V0.15   ░░░░░░░░░░░░░░░░░░░░   0%   0/10  ML planner
 V0.17   ░░░░░░░░░░░░░░░░░░░░   0%   0/8   Productization
@@ -26,7 +26,7 @@ V1.0    ░░░░░░░░░░░░░░░░░░░░   0%   0/8 
 █ done `[x]` · ▒ in progress or waiting on a 🧑 lab step `[~]` · ░ not started
 
 ## Current Version
-**V0.10 — Mode 3 Task Splitting** · started 2026-10-19 (team: proceed while away) · brief `docs/briefs/V0.10-task-splitting.md` (DRAFT, D259–D276) · ADR-0019 Proposed · **G1–G4 CLOSED** (D277–D282; 0.10.1–0.10.4, 0.10.6 `[x]`) · next G5 (combine)
+**V0.10 — Mode 3 Task Splitting** · started 2026-10-19 (team: proceed while away) · brief `docs/briefs/V0.10-task-splitting.md` (DRAFT, D259–D276) · ADR-0019 Proposed · **G1–G5 CLOSED** (D277–D283; 0.10.1–0.10.4, 0.10.6, 0.10.7 `[x]`) · next G6 (stragglers) ∥ G7 (progress)
 **V0.9 — Benchmark & telemetry v1** · started 2026-10-17 · brief `docs/briefs/V0.9-benchmark-telemetry.md` (D211–D224, approved) · ADR-0018 · **G0, G1, G2 CLOSED** (D226, D231, D225; 0.9.1 + 0.9.2 `[x]`) · **G3 CLOSED** (D242; 0.9.3 + 0.9.4 `[x]`) · **G4 CLOSED** (D241–D245; 0.9.5 `[x]`, 2026-10-19) · **G5, G5c, G6 CLOSED** (D246–D258; 0.9.6–0.9.9 `[x]`) · **G7 CLOSED** (`c35ff3d`) · **agent-side complete**; closes on 🧑 0.9.10 (checklist part O)
 **V0.8 — Dashboard & CLI v1** · started 2026-10-15 · brief `docs/briefs/V0.8-dashboard-cli.md` (D169–D180, approved) · ADR-0017 · groups G1–G7 sequential · **G1–G7 CLOSED** (G7 2026-10-17, D210) — 0.8.1–0.8.9 `[x]`; agent-side complete; closes on 🧑 0.8.10 (`lab/checklists/V0.8-visual.md`)
 **V0.7 — Security & pairing** · started 2026-10-07 · brief `docs/briefs/V0.7-security-pairing.md` (D144–D162) · **G1–G5 CLOSED** (0.7.1–0.7.9 `[x]`) · **G6 CLOSED** (0.7.10 `[x]`, 2026-10-14) · **G7 CLOSED** (0.7.11 `[x]`, 2026-10-15, D168) · agent-side complete · closes on 🧑 0.7.12 lab
@@ -43,6 +43,8 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 > V0.10. 129 tasks vs 140–180 capacity → **~1.5 tasks/session**. Needs the other three team members' approval.
 
 ## Current Task
+
+- **2026-10-20 (later):** V0.10 G5 combine MERGED → **0.10.7 `[x]`**. Tester r2 PASS (`d892881b`): unit 16700 passed; all V0.10 component+cluster in one process 121 passed ×3 (GC flake fixed in fixtures: `admission_timeout_s=1.2`, autouse `gc.freeze()` in controller conftest); ruff clean; `mypy src` 422 clean. Reviewer r2 APPROVE. Next: G6 ∥ G7 briefs/implementers.
 
 - **2026-10-20:** V0.10 G3 (planner) + G4 (lanes: dispatch, pull, failures) merged and closed; G4 needed 3 fix rounds (livelock D1, **symlink escape B1**, races D3/D4). Gate: component 2853 passed / 0 failed (D282). Next: G5 combine (§5e). Session ended (team returned); nothing running.
 
@@ -200,6 +202,7 @@ Reviewer non-blocking follow-ups (carry into G2/G3): (1) `mint` should carry `pe
 - Fixed this session: secret leak + O(n²) in log scrubber; duplicate IDs after fork; plain-`uv sync` test collection crash; CRLF-dependent codegen output.
 
 ## Technical Debt
+- **Bare `uv run mypy` (pyproject says it checks src+tests+lab) exits 2:** duplicate module `main` (lab/workloads/v06-ledger vs log-ticker) and ~900 test-file errors. Gate in use is `mypy src` (clean). Fix or narrow the config comment. Watch: one unreproduced setup ERROR in `tests/cluster/test_v10_g4_tester_r1_failures.py::test_chunk_output_over_the_cap_fails_the_job_without_retrying` (one-process run).
 - **V0.8 G7 (D210):** `ui_perf.py` heartbeat lag ignores cross-machine clock skew (fix before the 0.8.10 lab perf step); SecretsPage file input not reset (same file can't be re-picked); `ui_perf.py` 840 lines; T-8b retry revisits; kept leak-gate limits T-2b/T-6b/T-6c/T-7d-g (strict xfails); MIN_KNOWN_CHARS=8 → THREAT_MODEL note.
 - **V0.6 G2:** estimator v0 is a stub until G4 (env/output terms assumed, default bw, env key = request key); `submitter_node_id` spoofable by any token holder (V0.7); CLI-seeded CAS files may have wrong owner under a service-user agent; `disk_short` uses largest free disk (optimistic); agent CAS byte counter unaware of seeded bytes until restart.
 - **V0.5 G2:** the V0.4 per-job `setup_argv` install path is kept only for the runtime-contract tests — remove once every runtime has an env builder; env_hash/env_cache reach the controller in wave 2 G4.
@@ -223,7 +226,9 @@ Reviewer non-blocking follow-ups (carry into G2/G3): (1) `mint` should carry `pe
 - Windows: not yet run (first real CI run will cover unit + fresh-clone on windows-latest)
 
 ## Next Recommended Task
-**V0.9 G5c** — implementer in a worktree with brief §5g: item 0.0 cool-down race first (closes 0.9.7 after tester + reviewer), then item 0.1–0.8, then the 0.9.8 quality report. 🧑 lab: V0.9 C1–C3 + R1–R3, 0.8.10.
+**V0.10 G6 (stragglers, 0.10.5) ∥ G7 (progress, 0.10.8)** — brief §5f/§5g (write if missing), implementers in separate worktrees → tester → reviewer → merge; then G8 (0.10.9 benchmarks) → G9 → 🧑 0.10.10.
+
+_Older:_ **V0.9 G5c** — implementer in a worktree with brief §5g: item 0.0 cool-down race first (closes 0.9.7 after tester + reviewer), then item 0.1–0.8, then the 0.9.8 quality report. 🧑 lab: V0.9 C1–C3 + R1–R3, 0.8.10.
 
 _Older:_ **V0.9 G5** — write the G5 brief (0.9.6 automatic labels + 0.9.7 unattended runner; item 0 = D245 follow-ups: log `stopped_while_applying`, `_kill_and_reap` helper). Labels MUST drop `condition_measured->>'bench_role'` rows (D244); runner uses small submit budgets and wires owner pause to `ConditionRunner.stop_all`. 🧑 lab: V0.9 C1–C3, 0.8.10.
 
