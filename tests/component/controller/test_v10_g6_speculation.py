@@ -284,6 +284,7 @@ async def test_a_lane_slowed_at_the_tail_is_overtaken_by_a_copy(
         slow_chunks = [k for k in starts if k[0] >= CHUNKS - 4]
         assert len(slow_chunks) == 1, slow.timeline
         straggler = slow_chunks[0]
+        await _until(lambda: slow.cancelled)  # the fake reads its inbox every 10 ms
         assert slow.cancelled == [straggler]  # CancelChunk stopped it
         assert [c for c, _ in fast.speculative] == [straggler[0]]
         copy = fast.speculative[0]
