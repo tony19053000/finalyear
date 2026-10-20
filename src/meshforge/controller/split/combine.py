@@ -39,12 +39,21 @@ that ends it:
   the dispatcher places a new combine (the failed node is avoided, softly);
   no retry = the job ``FAILED`` with that failure. The chunk results stay
   pinned (GC) while the job is not terminal.
+* ``FAILED(resource_busy)`` (not lost) - the node refused the combine because
+  it was still at its attempt limit (the job's own lanes draining, ADR-0019
+  addendum I12) - is **not a failure of the combine**: it is not counted
+  against ``retry.max_attempts`` (:func:`_combines_used`), does not exclude
+  the node (:func:`combine_failures`), and the combine is placed again after
+  the fixed :attr:`CombineBusy.backoff_s`. :attr:`CombineBusy.max_free` such
+  refusals per job are free; later ones count like any retryable failure
+  (the job has no deadline of its own that would end an endless refusal).
 """
 
 from __future__ import annotations
 
 import datetime as dt
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final
 
 from sqlalchemy import DateTime, and_, func, literal, or_, select
@@ -79,6 +88,7 @@ if TYPE_CHECKING:
     from meshforge.controller.jobs.execution_store import CombineStart
 
 __all__ = [
+    "CombineBusy",
     "combine_done",
     "combine_ended",
     "combine_failures",
@@ -92,6 +102,16 @@ log = get_logger(__name__)
 
 _LIVE: Final = tuple(s.value for s in AttemptState if s not in ATTEMPT_TERMINAL_STATES)
 _MAX_SITES: Final = 1000
+_BUSY: Final = FailureType.RESOURCE_BUSY.value
+
+
+@dataclass(frozen=True, slots=True)
+class CombineBusy:
+    """How a combine refused ``resource_busy`` is re-placed (module docstring;
+    ``[controller.split] combine_busy_backoff_s`` / ``combine_busy_max``)."""
+
+    backoff_s: float = 1.0
+    max_free: int = 100
 
 
 def _now(now: dt.datetime) -> object:
@@ -206,6 +226,11 @@ async def combine_failures(
             Attempt.role == AttemptRole.COMBINE.value,
             Attempt.state.in_((AttemptState.FAILED.value, AttemptState.LOST.value)),
             Attempt.failure_type.is_not(None),
+            # a busy refusal says nothing against the node (module docstring)
+            or_(
+                Attempt.state == AttemptState.LOST.value,
+                Attempt.failure_type != _BUSY,
+            ),
         )
         .order_by(Attempt.job_id, Attempt.fencing_token)
         .limit(64 * len(job_ids))
@@ -218,13 +243,31 @@ async def combine_failures(
     return {k: tuple(v) for k, v in out.items()}
 
 
-async def _combines_used(db: AsyncSession, job_id: str) -> int:
+async def _busy_refusals(db: AsyncSession, job_id: str) -> int:
+    """The job's combine attempts that ended ``FAILED(resource_busy)``."""
+    busy = await db.scalar(
+        select(func.count())
+        .select_from(Attempt)
+        .where(
+            Attempt.job_id == job_id,
+            Attempt.role == AttemptRole.COMBINE.value,
+            Attempt.state == AttemptState.FAILED.value,
+            Attempt.failure_type == _BUSY,
+        )
+    )
+    return int(busy or 0)
+
+
+async def _combines_used(db: AsyncSession, job_id: str, *, max_free_busy: int) -> int:
+    """The job's combine attempts that count against ``retry.max_attempts``:
+    all of them but the first ``max_free_busy`` busy refusals."""
     used = await db.scalar(
         select(func.count())
         .select_from(Attempt)
         .where(Attempt.job_id == job_id, Attempt.role == AttemptRole.COMBINE.value)
     )
-    return int(used or 0)
+    free = min(await _busy_refusals(db, job_id), max(0, max_free_busy))
+    return max(0, int(used or 0) - free)
 
 
 # ------------------------------------------------------------------ create
@@ -297,6 +340,7 @@ async def combine_ended(
     retryable: bool | None,
     lost: bool,
     move_job: MoveJob,
+    busy: CombineBusy | None = None,
 ) -> RetryVerdict | None:
     """The combine ended without its output (module docstring). Returns the
     verdict when it decided the job's fate (``retry`` = a new combine)."""
@@ -314,7 +358,29 @@ async def combine_ended(
             node_id=attempt.node_id,
         )
         return RetryVerdict(RetryReason.NOT_RETRYABLE)
-    used = await _combines_used(db, job.id)
+    busy = busy if busy is not None else CombineBusy()
+    if (
+        failure_type is FailureType.RESOURCE_BUSY
+        and not lost
+        and job.cancel_requested_at is None
+    ):
+        refusals = await _busy_refusals(db, job.id)  # this one included
+        if refusals <= busy.max_free:
+            backoff = max(0.0, float(busy.backoff_s))
+            job.not_before = func.clock_timestamp() + func.make_interval(
+                0, 0, 0, 0, 0, 0, backoff
+            )
+            log.info(
+                "controller.split.combine_busy",
+                job_id=job.id,
+                attempt_id=attempt.id,
+                node_id=attempt.node_id,
+                busy_refusals=refusals,
+                max_free=busy.max_free,
+                backoff_s=backoff,
+            )
+            return RetryVerdict(RetryReason.RETRY, backoff)
+    used = await _combines_used(db, job.id, max_free_busy=busy.max_free)
     verdict = retry_verdict(
         failure_type=failure_type,
         retryable=retryable,

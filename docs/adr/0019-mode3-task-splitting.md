@@ -56,3 +56,34 @@ THREAT_MODEL gains a Mode 3 section; V0.12 (Mode 4 inference) reuses `meshforge.
   **controller rows first, work-queue rows second** — e.g. node loss: attempt rows, then `release_holder`.
 - Tables live in their own MetaData (same naming convention); `migrations/env.py` merges them for Alembic.
 - Keep result transactions short: commits within one queue serialise on its row.
+
+## Addendum (G5 review, 2026-10-20): the combine attempt — owed, placed, refused
+
+- **I1 "combine owed" (D283 pin 1 refined).** The last chunk commit writes the parts index and moves the job
+  `RUNNING -> COLLECTING`, but does **not** insert the combine attempt: placement belongs to the dispatcher
+  (feasibility, owner policies, waiting when nothing fits — pin 2), and `attempt.node_id` is NOT NULL. The
+  durable fact is "COLLECTING + parts index + no live `role='combine'` attempt" = the job owes a combine
+  (`split/combine.py::owed_jobs`); the dispatch tick creates it under its advisory lock with the next fencing
+  token. A crash, a lost combine or a retry all lead back to the same query; the service wakes the dispatcher
+  in the commit handler so the gap is milliseconds.
+- **I12 own draining lanes free their slots for the job's combine.** Every chunk is committed when the combine
+  is owed, so the job's still-live lanes only drain. Placement (planner snapshot) and the tick's defensive
+  over-booking check treat the slots of *that job's* live lanes as free — **only lanes of the combine's own slot
+  kind** (a combine needs no GPU; a draining GPU lane frees no CPU slot and stays in `live_attempts`).
+- **B1 a combine refused `resource_busy` is not a combine failure.** The agent may still count the draining
+  lane against `max_concurrent_attempts` and refuse. Such a refusal (FAILED, not LOST) is **not counted** against
+  `retry.max_attempts`, is **not** a soft exclusion of the node (`combine_failures`), and the combine is placed
+  again after the fixed `[controller.split] combine_busy_backoff_s` (1 s), one `controller.split.combine_busy`
+  log per refusal. A job has no deadline of its own, so the free refusals are bounded by
+  `combine_busy_max` (100) per job; later refusals count like any retryable failure. A cancel request still
+  wins over a busy re-placement.
+- **N1 the parts-index blob is written inside the result transaction.** `ChunkStore._finish` stores the parts
+  index in the controller CAS before the transaction commits (it must exist before any combine can read it).
+  A rollback after the write leaves an unreferenced, content-addressed blob that GC reclaims; a retry of the
+  same commit writes the same bytes (same digest). The blob write is small (one line per chunk, <= 10 000) and
+  is the only file I/O in that transaction.
+- **N3 brief over-booking with a stale-lease process.** I12 frees a draining lane's slot at once; if that lane's
+  chunk process outlived its lease (a hung chunk the visibility timeout fenced, still being killed), the node can
+  briefly run that process and the combine together — one slot over its advertised count until the lane ends.
+  Accepted: bounded by the lane's end (its kill path), never more than one extra process per job, and the agent's
+  own `max_concurrent_attempts` check (refused `resource_busy`, handled above) is the hard limit.

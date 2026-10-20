@@ -566,12 +566,16 @@ def _output_failure(exc: OutputError | FetchError) -> tuple[FailureType, str, bo
 
 def _read_result(combine: CombineState) -> str | None:
     """The built-in's refusal (``<reason>: <message>``) from its result file;
-    None when there is none (then it counts as a crash)."""
+    None when there is none (then it counts as a crash). **Built-ins only**:
+    a combine script's result is its exit code (``script_failed``) - a file
+    a script left there is never read (it must not be able to word its own
+    ``combine_error``). The file is opened without following a link."""
     folder = combine.folder
-    if folder is None:
+    if folder is None or combine.script is not None:
         return None
     try:
-        with folder.result.open("rb") as fh:
+        fd = os.open(folder.result, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        with os.fdopen(fd, "rb") as fh:
             data = fh.read(_RESULT_MAX_BYTES + 1)
         doc = json.loads(data[:_RESULT_MAX_BYTES])
     except (OSError, ValueError):

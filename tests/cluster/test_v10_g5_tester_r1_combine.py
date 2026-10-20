@@ -220,7 +220,7 @@ def test_one_chunk_path_goes_through_the_same_combine_and_matches_golden(
     make_fabric: Callable[..., Fabric], tmp_path: Path
 ) -> None:
     """Pin 3: "don't split" (one chunk) uses the one combine path. Alone on
-    its fabric (see the T2 xfail below); the golden bytes are the many-chunk
+    its fabric (T2, fixed in fix r1: see the test below); the golden bytes are the many-chunk
     output other tests assert (merge-csv over 0..ITEMS)."""
     fabric = _fabric(make_fabric)
     _project(tmp_path / "p")
@@ -235,12 +235,6 @@ def test_one_chunk_path_goes_through_the_same_combine_and_matches_golden(
     assert (got / "labels.csv").read_bytes() == _expected_csv()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT T2 (major, G4 origin, present at a8efd722): a second split job "
-    "over the same tree and items but another chunk size fails chunk 0 with "
-    "integrity_error 'the granted chunk does not match this lane's item list'",
-)
 def test_same_tree_same_items_other_chunk_size_runs(
     make_fabric: Callable[..., Fabric], tmp_path: Path
 ) -> None:

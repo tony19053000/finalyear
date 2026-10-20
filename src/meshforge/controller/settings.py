@@ -1483,6 +1483,28 @@ class SplitSettings(SectionModel):
             "(D267c); retry.max_attempts bounds the tries of one chunk too."
         ),
     )
+    # --- V0.10 G5 fix r1 (B1): a combine refused resource_busy ---------------
+    combine_busy_backoff_s: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=60.0,
+        description=(
+            "A combine the node refused resource_busy (still at its attempt "
+            "limit, e.g. the job's own lanes ending) is placed again after this "
+            "fixed wait; the refusal is not counted against retry.max_attempts "
+            "and does not steer the combine away from that node."
+        ),
+    )
+    combine_busy_max: int = Field(
+        default=100,
+        ge=0,
+        le=10_000,
+        description=(
+            "Free resource_busy refusals of one job's combine; later ones count "
+            "against retry.max_attempts like any retryable failure (a job has "
+            "no deadline of its own that would end an endless refusal)."
+        ),
+    )
 
 
 class ControllerSection(SectionModel):

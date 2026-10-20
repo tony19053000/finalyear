@@ -136,21 +136,32 @@ def _idle(snapshot: ClusterSnapshot) -> ClusterSnapshot:
 
 
 def _without_draining(
-    snapshot: ClusterSnapshot, lanes: Mapping[str, tuple[int, int]]
+    snapshot: ClusterSnapshot,
+    lanes: Mapping[str, tuple[int, int]],
+    *,
+    gpu: bool = False,
 ) -> ClusterSnapshot:
     """V0.10 G5: ``snapshot`` with the slots of a split job's draining lanes
-    free - its combine takes their place (every chunk is committed)."""
+    free - its combine takes their place (every chunk is committed). Only
+    lanes of the combine's own slot kind are freed (fix r1 N2): a combine
+    needs no GPU (``gpu=False``), and a draining GPU lane frees no CPU slot -
+    it still counts in the node's live attempts until it ends."""
     if not lanes:
         return snapshot
     nodes = []
     for node in snapshot.nodes:
-        cpu, gpu = lanes.get(node.node_id, (0, 0))
-        if cpu or gpu:
+        cpu, gpus = lanes.get(node.node_id, (0, 0))
+        if gpu and gpus:
+            node = dataclasses.replace(
+                node,
+                used_gpu_slots=max(0, node.used_gpu_slots - gpus),
+                live_attempts=max(0, node.live_attempts - gpus),
+            )
+        elif not gpu and cpu:
             node = dataclasses.replace(
                 node,
                 used_cpu_slots=max(0, node.used_cpu_slots - cpu),
-                used_gpu_slots=max(0, node.used_gpu_slots - gpu),
-                live_attempts=max(0, node.live_attempts - cpu - gpu),
+                live_attempts=max(0, node.live_attempts - cpu),
             )
         nodes.append(node)
     return dataclasses.replace(snapshot, nodes=tuple(nodes))

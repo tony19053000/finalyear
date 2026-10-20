@@ -106,6 +106,10 @@ __all__ = [
 log = get_logger(__name__)
 
 _ITEM_LIST_CACHE: Final = 8
+_SLICE_MEMO_MAX: Final = 4 * 10_000
+"""Most memoised chunk digests per cached item list (fix r1 T2: jobs sharing
+one list with different chunk sizes each add their own (first, count) keys;
+past this the list's memo starts again - it is only a cache)."""
 """Item lists kept parsed (one per running split job; bounded)."""
 
 
@@ -129,7 +133,9 @@ class ItemLists:
     def __init__(self, blobs: BlobStore | None, *, entries: int = _ITEM_LIST_CACHE):
         self._blobs = blobs
         self._entries = entries
-        self._cache: OrderedDict[str, tuple[ItemList, dict[int, str]]] = OrderedDict()
+        self._cache: OrderedDict[str, tuple[ItemList, dict[tuple[int, int], str]]] = (
+            OrderedDict()
+        )
         self._lock = asyncio.Lock()
 
     async def get(self, digest: str) -> ItemList:
@@ -155,15 +161,17 @@ class ItemLists:
             return parsed
 
     def slice_digest(self, digest: str, items: ItemList, first: int, count: int) -> str:
-        """The digest of one chunk's items, memoised per list and (first, count).
-
-        Jobs sharing an item list may use different chunk sizes, so `first` alone is not a key.
-        """
+        """The digest of one chunk's items, memoised per list and
+        ``(first, count)`` - jobs sharing an item list may use different chunk
+        sizes, so ``first`` alone is not a key (fix r1 T2)."""
         memo = self._cache.get(digest, (items, {}))[1]
-        found = memo.get((first, count))
+        key = (first, count)
+        found = memo.get(key)
         if found is None:
             found = str(chunk_items_digest(items.items[first : first + count]))
-            memo[(first, count)] = found
+            if len(memo) >= _SLICE_MEMO_MAX:
+                memo.clear()
+            memo[key] = found
         return found
 
 

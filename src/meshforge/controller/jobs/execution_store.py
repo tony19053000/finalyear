@@ -373,10 +373,18 @@ class CancelOutcome:
 class ExecutionStore(DecisionReads):
     """:class:`JobStore` plus the dispatch-time writes (see module docstring)."""
 
-    def __init__(self, engine: AsyncEngine) -> None:
+    def __init__(
+        self,
+        engine: AsyncEngine,
+        *,
+        combine_busy: split_combine.CombineBusy | None = None,
+    ) -> None:
         super().__init__(engine)
         self.engine = engine
         """V0.10 G4: the chunk store (``controller.split``) shares it."""
+        self.combine_busy = combine_busy or split_combine.CombineBusy()
+        """V0.10 G5 fix r1 (B1): how a combine refused ``resource_busy`` is
+        re-placed (:mod:`meshforge.controller.split.combine`)."""
         # job id -> reason key of a ``waiting`` row the database refused; kept
         # across ticks so the same refused row is not retried every tick
         # (``fabric.last_reason`` is re-read from the table each tick).
@@ -664,7 +672,10 @@ class ExecutionStore(DecisionReads):
         if not isinstance(decision, CombineStart):
             return None
         node_id = decision.node_id
-        draining = sum(fabric.combine_lanes.get(row.id, {}).get(node_id, (0, 0)))
+        # only the draining lanes of the combine's own slot kind make room
+        # for it (fix r1 N2; planning._without_draining frees the same)
+        cpu_lanes, gpu_lanes = fabric.combine_lanes.get(row.id, {}).get(node_id, (0, 0))
+        draining = gpu_lanes if decision.slot == "gpu" else cpu_lanes
         if node_id not in fabric.nodes or (
             sum(fabric.used_slots(node_id)) - draining >= max_per_node
         ):
@@ -793,7 +804,9 @@ class ExecutionStore(DecisionReads):
             if row.role == AttemptRole.LANE.value:
                 return await _apply_lane_status(db, row, job, report, path)
             if row.role == AttemptRole.COMBINE.value:
-                return await _apply_combine_status(db, row, job, report, path)
+                return await _apply_combine_status(
+                    db, row, job, report, path, busy=self.combine_busy
+                )
             if int(row.fencing_token) != int(job.attempt_epoch):
                 # D110/ADR-0015: only the job's current attempt may move it. A
                 # retry ends the old attempt in the transaction that creates
@@ -897,6 +910,7 @@ class ExecutionStore(DecisionReads):
                     retryable=retryable,
                     lost=event is AttemptEvent.LOSE,
                     move_job=_move_job,
+                    busy=self.combine_busy,
                 )
             elif int(row.fencing_token) == int(job.attempt_epoch):
                 verdict = await _fail_or_retry(
@@ -1282,6 +1296,8 @@ async def _apply_combine_status(
     job: Job,
     report: StatusReport,
     path: Sequence[tuple[AttemptEvent, AttemptState]],
+    *,
+    busy: split_combine.CombineBusy,
 ) -> StatusOutcome:
     """V0.10 G5: a split job's combine reports. The job is already
     ``COLLECTING`` and moves only when the combine ends
@@ -1314,6 +1330,7 @@ async def _apply_combine_status(
                 retryable=report.retryable,
                 lost=False,
                 move_job=_move_job,
+                busy=busy,
             )
     await _fresh(db, row, job)
     return StatusOutcome(

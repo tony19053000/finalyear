@@ -22,6 +22,10 @@ agent's lane runner does - the wire protocol only, no staging or processes:
   (``combine_of(parts)``: the part blobs concatenated in chunk order) uploaded
   under its grant, ``DONE`` with its digest; ``combine_fail`` reports a
   failure instead, ``combine_hold`` never finishes (a node to kill).
+* G5 fix r1 (B1): ``busy_while_lanes_live`` refuses a combine
+  ``FAILED(resource_busy)`` at once (like the real agent at its
+  ``max_concurrent_attempts``) while a lane of this node is still live;
+  ``drain_delay_s`` keeps a drained lane live that long before its ``DONE``.
 
 ``speed_s`` is the time one chunk "takes"; ``ledger`` records every chunk this
 lane ran ((chunk_index, lease_seq)).
@@ -98,6 +102,13 @@ class FakeLane:
     """V0.10 G5: the first chunk's result is sent this much later (past its
     lease's visibility timeout: a late, second result of that chunk)."""
     _delayed: bool = False
+    busy_while_lanes_live: bool = False
+    """G5 fix r1: refuse a combine resource_busy while a lane here is live."""
+    drain_delay_s: float = 0.0
+    """G5 fix r1: a drained lane waits this long before it reports DONE."""
+    busy_refusals: list[str] = field(default_factory=list)
+    """Combine attempts refused resource_busy (attempt ids)."""
+    _live_lanes: set[str] = field(default_factory=set)
     combines: list[str] = field(default_factory=list)
     """Combine attempts this node started (attempt ids)."""
     combine_parts: dict[str, list[bytes]] = field(default_factory=dict)
@@ -231,6 +242,18 @@ class FakeLane:
 
     async def _combine(self, start: agent_pb2.StartAttempt) -> None:
         """V0.10 G5: the wire side of a combine (module docstring)."""
+        if self.busy_while_lanes_live and self._live_lanes:
+            self.busy_refusals.append(start.attempt_id)
+            await self._status(
+                start,
+                AttemptState.FAILED,
+                (
+                    FailureType.RESOURCE_BUSY,
+                    "this node already runs its maximum number of attempts",
+                ),
+                retryable=True,
+            )
+            return
         self.combines.append(start.attempt_id)
         await self._status(start, AttemptState.STAGING)
         client = await self._http()
@@ -278,6 +301,13 @@ class FakeLane:
         await self._status(start, AttemptState.DONE, output_digest=str(digest))
 
     async def _lane(self, start: agent_pb2.StartAttempt) -> None:
+        self._live_lanes.add(start.attempt_id)
+        try:
+            await self._lane_run(start)
+        finally:
+            self._live_lanes.discard(start.attempt_id)
+
+    async def _lane_run(self, start: agent_pb2.StartAttempt) -> None:
         attempt_id = start.attempt_id
         box = self._inbox[attempt_id]
         for state in (
@@ -320,6 +350,8 @@ class FakeLane:
                     await asyncio.sleep(max(0.05, reply.no_work.retry_after_s))
                     continue
                 if reason == agent_pb2.NoWork.REASON_DRAINED:
+                    if self.drain_delay_s > 0:
+                        await asyncio.sleep(self.drain_delay_s)
                     self.stopped[attempt_id] = "done"
                     await self._status(start, AttemptState.DONE)
                     return

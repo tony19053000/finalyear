@@ -43,6 +43,7 @@ from meshforge.agent.execution.outputs import OutputError
 from meshforge.agent.execution.runtime import ExtraMount
 from meshforge.common.errors import FailureType
 from meshforge.common.hashing import Digest
+from meshforge.common.logging import get_logger
 
 __all__ = [
     "CONTAINER_COMBINE_OUT",
@@ -57,6 +58,8 @@ __all__ = [
 CONTAINER_PARTS: Final = "/meshforge/parts"
 CONTAINER_COMBINE_OUT: Final = "/meshforge/out"
 _PLACEHOLDER: Final = re.compile(r"\{(parts|out)\}")
+
+log = get_logger(__name__)
 
 
 class CombineFolderSwappedError(OutputError):
@@ -220,7 +223,15 @@ class CombineFolder:
                 path.unlink()
                 return
             if os.path.realpath(path.parent) != os.path.realpath(self.work_root):
-                return  # pragma: no cover - the work root itself was moved
+                # the work root itself was moved or replaced: never delete
+                # through it; the folder is left for the operator
+                log.warning(
+                    "agent.combine.folder_left",
+                    path=str(path),
+                    work_root=str(self.work_root),
+                    reason="work_root_moved",
+                )
+                return
             with contextlib.suppress(OSError):
                 remove_tree(path)
             if os.path.lexists(path):

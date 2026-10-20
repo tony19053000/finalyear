@@ -1209,11 +1209,21 @@ compute get <JOB_ID>               # outputs -> ./outputs/<JOB_ID>/ (--dest, --f
   `combine_error: header_mismatch`; other files concatenated), `merge-json`
   (`*.json`: arrays concatenated / objects merged, a duplicate key, mixed types,
   invalid JSON or a file over `[agent.split] combine_json_max_bytes` (256 MiB) is
-  a `combine_error`), or `{script: [argv]}` (your program, in the job's runtime,
+  a `combine_error`; merge-json parses one part file at a time, and its peak
+  memory is about **3-8x that file's size** - measured 2.9x for an array of
+  100-byte strings, 6x for integers, 8x for small objects - so at the 256 MiB
+  default plan for up to ~2 GiB of RAM on the combine node, or lower the cap),
+  or `{script: [argv]}` (your program, in the job's runtime,
   with `{parts}` / `{out}` and `MESHFORGE_COMBINE_PARTS/OUT`; a non-zero exit is
   `combine_error: script_failed`). A `combine_error` fails the job and is never
   retried (the same parts fail the same way anywhere); a lost combine node or a
-  transfer failure is retried on another node under `retry.max_attempts`. The
+  transfer failure is retried on another node under `retry.max_attempts`. A
+  combine the node refuses `resource_busy` (it is still at its attempt limit,
+  typically while the job's own lane ends) is no failure: it is placed again
+  after `[controller.split] combine_busy_backoff_s` (1 s), on the same preferred
+  node, without using a retry; only after `combine_busy_max` (100) such
+  refusals of one job do they count against `retry.max_attempts` (log
+  `controller.split.combine_busy` per refusal). The
   output is then the job's: `compute get <JOB_ID>` downloads it and
   `GET /v1/jobs/{id}` shows it as `output_digest`. A chunk that returned two
   different results (a late or duplicate copy) while `split.deterministic` is

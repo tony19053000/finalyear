@@ -488,11 +488,6 @@ def test_unix_socket_is_refused(tmp_path: Path) -> None:
 
 
 @POSIX
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT T1 (minor, defence in depth): the built-in accepts a regular "
-    "file with st_nlink > 1; unpack() is the only barrier",
-)
 def test_hardlink_to_a_file_outside_the_parts_is_refused(tmp_path: Path) -> None:
     """D283 pin 4 / the brief: a hard link in a part is unsafe (a regular
     file whose inode is shared with something outside the parts)."""

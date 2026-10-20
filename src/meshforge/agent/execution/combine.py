@@ -32,7 +32,9 @@ some chunks wrote is fine), in chunk order:
   compactly (``,`` / ``:`` separators, UTF-8, a final ``\\n``).
 
 **Refused parts** (``unsafe_part``): a part folder or anything inside it that is
-a symlink, or anything that is neither a regular file nor a folder - checked for
+a symlink, a regular file with more than one hard link (its inode may be shared
+with a file outside the parts), or anything that is neither a regular file nor
+a folder - checked for
 every part before a byte is written (``lstat``, never following a link), and
 every file is opened ``O_NOFOLLOW``. A path that is a file in one part and a
 folder in another is ``type_mismatch``. More than ``max_output_bytes`` written
@@ -169,6 +171,11 @@ def _walk(root: Path, prefix: str = "") -> Iterator[tuple[str, bool]]:
             yield rel, True
             yield from _walk(Path(entry.path), rel + "/")
         elif stat.S_ISREG(info.st_mode):
+            if info.st_nlink > 1:
+                raise CombineError(
+                    "unsafe_part",
+                    f"{_shown(rel)} in {root.name}: a hard link in a part",
+                )
             yield rel, False
         else:
             kind = "a symlink" if stat.S_ISLNK(info.st_mode) else "not a regular file"
@@ -212,7 +219,8 @@ def _open_part(path: Path) -> IO[bytes]:
         raise CombineError(
             "unsafe_part", f"{_shown(path.name)} cannot be read ({exc.strerror})"
         ) from None
-    if not stat.S_ISREG(os.fstat(fd).st_mode):
+    info = os.fstat(fd)
+    if not stat.S_ISREG(info.st_mode) or info.st_nlink > 1:
         os.close(fd)
         raise unsafe
     return os.fdopen(fd, "rb", buffering=0)
