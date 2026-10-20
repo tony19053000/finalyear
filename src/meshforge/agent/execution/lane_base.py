@@ -4,6 +4,7 @@ G4; split out of :mod:`.lane` in fix round 2)."""
 from __future__ import annotations
 
 import asyncio
+from collections import OrderedDict
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -50,6 +51,11 @@ CHUNK_FAILURE_NOT_RETRYABLE: Final = frozenset(
 controller's queue bounds the tries (``retry.max_attempts``, two nodes)."""
 
 
+MAX_EARLY_CANCELS: Final = 64
+"""Most not-yet-started cancelled leases a lane remembers (a lane holds at
+most a few leases; older entries can only be stale)."""
+
+
 class LaneStopError(Exception):
     """The controller said ``NoWork(stop)``: the lane ends ``cancelled``."""
 
@@ -72,6 +78,12 @@ class LaneState:
     current: tuple[int, int] | None = None
     cancelled_chunk: tuple[int, int] | None = None
     """``CancelChunk`` asked to stop the running chunk."""
+    cancelled_early: OrderedDict[tuple[int, int], None] = field(
+        default_factory=OrderedDict
+    )
+    """V0.10 G6: ``CancelChunk`` for a lease that has not started here yet
+    (the copy lost while its grant was still on the way): skipped when its
+    turn comes, no result sent. Bounded (:data:`MAX_EARLY_CANCELS`)."""
     run_task: asyncio.Future[Any] | None = None
     pending: dict[str, agent_pb2.ChunkResult] = field(default_factory=dict)
     """message_id -> ChunkResult not acked yet (re-sent until acked)."""

@@ -50,7 +50,7 @@ retryable, or when it has failed at ``max_failed_sites`` distinct sites.
 from __future__ import annotations
 
 import math
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Collection, Iterable, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from enum import StrEnum
@@ -80,12 +80,15 @@ __all__ = [
     "RenewOutcome",
     "Renewed",
     "Retried",
+    "SpeculationPick",
     "SpeculationRefusal",
     "complete",
     "expire",
     "fail",
     "lease",
     "next_pending",
+    "pick_speculation",
+    "predicted_remaining_s",
     "release",
     "release_all",
     "renew",
@@ -677,3 +680,80 @@ def speculation_candidates(
     ]
     eligible.sort(key=lambda x: (x.live_leases[0].leased_at, x.idx))
     return eligible
+
+
+@dataclass(frozen=True, slots=True)
+class SpeculationPick:
+    """The candidate an idle holder should duplicate, and why (for logs)."""
+
+    item: Item
+    original: Lease
+    """The live ordinary lease being duplicated."""
+    elapsed_s: float
+    expected_s: float
+    """What the original's site was expected to need for the item."""
+    remaining_s: float
+    """:func:`predicted_remaining_s` of the original."""
+    copy_s: float
+    """What the idle site is expected to need for the item."""
+
+
+def predicted_remaining_s(expected_s: float, elapsed_s: float) -> float:
+    """Predicted seconds until a running lease finishes, without a progress signal.
+
+    On schedule (``elapsed <= expected``) it is ``expected - elapsed``. Overdue,
+    the expectation has been proven wrong by ``elapsed - expected`` seconds and
+    nothing says how much is left, so the overdue time itself is the estimate:
+    the longer a lease is late, the longer it is predicted to stay late. Both
+    halves meet at 0 when ``elapsed == expected`` (``|expected - elapsed|``).
+    """
+    return abs(expected_s - elapsed_s)
+
+
+def pick_speculation(
+    candidates: Iterable[Item],
+    *,
+    site: str,
+    now: datetime,
+    copy_s: Callable[[Item], float | None],
+    expected_s: Callable[[Item, Lease], float | None],
+    factor: float,
+    exclude: Collection[int] = (),
+) -> SpeculationPick | None:
+    """Which of ``candidates`` (from :func:`speculation_candidates`) an idle
+    holder at ``site`` should duplicate now, or ``None``.
+
+    For each candidate's live ordinary lease: its predicted remaining time
+    (:func:`predicted_remaining_s` of ``expected_s(item, lease)`` and the
+    time since it was leased) is compared with ``copy_s(item)``, the idle
+    site's expected time for the item. A copy is worth it only when
+    ``remaining > factor * copy`` (the copy is clearly predicted to finish
+    first); among those the largest remaining time wins (ties: lower ``idx``).
+    Skipped: items in ``exclude``, items that already failed at ``site`` (a
+    copy there is the least likely to succeed), and items whose times are
+    unknown (``None``) - no estimate, no duplicate work.
+    """
+    if not (math.isfinite(factor) and factor >= 1.0):
+        raise ValueError("factor must be a finite number >= 1")
+    best: SpeculationPick | None = None
+    for item in candidates:
+        live = item.live_leases
+        if item.id in exclude or site in item.failed_sites or len(live) != 1:
+            continue
+        original = live[0]
+        if original.speculative or original.site == site:
+            continue
+        expected = expected_s(item, original)
+        copy = copy_s(item)
+        if expected is None or copy is None:
+            continue
+        if not (math.isfinite(expected) and math.isfinite(copy)) or copy < 0:
+            continue
+        elapsed = max(0.0, (now - original.leased_at).total_seconds())
+        remaining = predicted_remaining_s(expected, elapsed)
+        if remaining <= factor * copy:
+            continue
+        pick = SpeculationPick(item, original, elapsed, expected, remaining, copy)
+        if best is None or (remaining, -item.idx) > (best.remaining_s, -best.item.idx):
+            best = pick
+    return best

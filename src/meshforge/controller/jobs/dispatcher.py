@@ -133,6 +133,7 @@ from meshforge.controller.settings import (
     SplitSettings,
 )
 from meshforge.controller.split.service import ChunkWork, SplitService
+from meshforge.controller.split.speculation import SpeculationConfig
 from meshforge.controller.split.store import ChunkStore
 from meshforge.controller.upload_grants import UploadGrants
 
@@ -281,7 +282,14 @@ class Dispatcher(RecoverySteps):
             None
             if engine is None
             else SplitService(
-                store=ChunkStore(engine, blobs=blobs),
+                store=ChunkStore(
+                    engine,
+                    blobs=blobs,
+                    speculation=SpeculationConfig(
+                        factor=self._split_settings.speculation_factor,
+                        overhead_s=self._split_settings.chunk_overhead_s,
+                    ),
+                ),
                 manager=manager,
                 grants=upload_grants,
                 settings=self._split_settings,
