@@ -8,7 +8,7 @@
 >
 > ```
 > Read docs/SESSION_HANDOFF.md §1, then docs/STATUS.md, then the V0.10 section of docs/DEVELOPMENT_ROADMAP.md and docs/briefs/V0.10-task-splitting.md (§2 + Lead rulings D277–D284, §5f G6, §5g G7).
-> V0.10: G1–G6 MERGED → 0.10.1–0.10.7 [x] (D285, main ec01774a+). G7 progress (0.10.8): implementer DONE (branch worktree-agent-a91019c442e198405, head bb55ac88+, log docs/briefs/progress/V0.10-G7.md I1–I14), reviewer r1 APPROVE (Lead fixes at merge: N2 `progress_reads.chunk_page` → REPEATABLE READ; N3 skip notes without job_id in server `_publish_changes`; record I1/I4/I11 as D-entry; mark D281 stderr tail open under G8); tester r1 RUNNING (relaunch if session ended). Then G8 → G9 → 🧑 0.10.10. Gate mypy = `uv run mypy src` (bare mypy is pre-existing broken). Team: V0.10 brief + ADR-0019 still Proposed. Parallel agents OK; no fast mode.
+> V0.10: G1–G6 MERGED → 0.10.1–0.10.7 [x] (D285). G7 progress MERGED into main (b47bc074, Lead fixes N2/N3/T-1..T-3, D286) — post-merge gates (unit + all V0.10 comp/cluster one process + ruff + mypy src) were RUNNING at last update; if green → 0.10.8 [x] + status bar; if not, fix on main. Then G8 (0.10.9, brief §5h + carry-overs) → G9 → 🧑 0.10.10. Gate mypy = `uv run mypy src` (bare mypy is pre-existing broken). Team: V0.10 brief + ADR-0019 still Proposed. Parallel agents OK; no fast mode.
 > ```
 >
 > Order of truth: `PROJECT_BRIEF → ARCHITECTURE → ROADMAP → STATUS → this file`. If this file
