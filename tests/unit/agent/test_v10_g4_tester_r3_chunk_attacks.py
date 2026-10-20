@@ -60,10 +60,8 @@ def test_symlinked_inner_folder_is_refused_or_skipped_never_followed(
     folder, secret = _setup(tmp_path)
     os.symlink(secret, folder.out / "sub")
     (folder.out / "ok.txt").write_text("fine")
-    try:
+    with contextlib.suppress(OutputError):  # refusing is also acceptable
         assert not _packed_has_secret(folder, tmp_path)
-    except OutputError:
-        pass  # refusing is also acceptable
 
 
 def test_fifo_does_not_hang_the_agent_and_is_refused(tmp_path: Path) -> None:
@@ -185,7 +183,7 @@ def test_racing_inner_folder_swap_while_packing_never_leaks(tmp_path: Path) -> N
             target = tmp_path / f"u{i}"
             try:
                 unpack(dest, target)
-            except Exception:
+            except Exception:  # noqa: BLE001, S112
                 continue
             leaks += sum(
                 SECRET in p.read_bytes() for p in target.rglob("*") if p.is_file()
