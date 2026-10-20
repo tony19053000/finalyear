@@ -31,6 +31,7 @@ import contextlib
 import os
 import shutil
 import stat
+import uuid
 from pathlib import Path, PurePosixPath
 from typing import Final
 
@@ -161,6 +162,15 @@ class ChunkFolder:
             raise OutputError(
                 f"cannot pack the chunk's output: {exc.message}", retryable=False
             ) from None
+        except OSError as exc:
+            # out/ changed under the packer (a process outliving the chunk
+            # deleted or renamed an entry): never a raw error (tester r3 D3)
+            dest.unlink(missing_ok=True)
+            raise OutputError(
+                "chunk_output_swapped: the chunk's output changed while it was "
+                f"packed ({type(exc).__name__}); its output is not used",
+                retryable=False,
+            ) from None
         try:
             self.verify()
         except ChunkFolderSwappedError:
@@ -191,4 +201,12 @@ class ChunkFolder:
             if os.path.realpath(path.parent) != os.path.realpath(self.work_root):
                 return  # pragma: no cover - the work root itself was moved
             shutil.rmtree(path, ignore_errors=True)
+            if os.path.lexists(path):
+                # Something still writes into it (a process that outlived its
+                # chunk): move it aside so the next chunk gets a fresh folder
+                # at this path, and try again later (tester r3 D4).
+                aside = path.with_name(f"{path.name}.stale-{uuid.uuid4().hex}")
+                with contextlib.suppress(OSError):
+                    path.rename(aside)
+                    shutil.rmtree(aside, ignore_errors=True)
         self._idents.clear()

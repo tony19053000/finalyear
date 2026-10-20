@@ -113,3 +113,7 @@ def test_background_churn_in_out_never_leaks_and_the_lanes_survive(
     # the lane's NEXT chunk fails "transfer_error: [Errno 17] File exists
     # ...<attempt>.chunk" (create() does not retry/clean again). Allowed here
     # only because it is the hostile job hurting itself; see report.
+    # Lead fix (D4): remove() now moves a still-busy folder aside, so the next
+    # chunk always gets a fresh folder - no "File exists" staging failure.
+    exists = [r for r in lanes if r.detail and "File exists" in r.detail]
+    assert not exists, f"D4 regression: {exists}"
