@@ -254,14 +254,24 @@ async def test_three_lanes_uneven_speeds_commit_every_chunk_once(
 async def test_killed_lane_is_lost_and_its_leases_go_back_in_the_same_tx(
     runtime: ControllerRuntime, http: httpx.AsyncClient, tmp_path: Path
 ) -> None:
-    async with _lanes(runtime, [0.02, 0.02, 0.2]) as lanes:
+    # the victim's chunk takes 30 s: once it holds a live lease it is still
+    # holding it when it is killed (fix r2 B2: no race with its completion)
+    async with _lanes(runtime, [0.02, 0.02, 30.0]) as lanes:
         job_id = await _submit(runtime, http, tmp_path)
         victim = lanes[2]
-        for _ in range(400):
-            if victim.ledger:
+        held: list[Any] = []
+        for _ in range(800):
+            held = await _sql(
+                runtime,
+                "SELECT l.id FROM work_lease l JOIN attempt a ON a.id = l.holder "
+                "WHERE a.job_id = :job AND a.node_id = :node AND l.state = 'live'",
+                job=job_id,
+                node=victim.agent.node_id,
+            )
+            if held:
                 break
             await asyncio.sleep(0.01)
-        assert victim.ledger, "the slow lane never got a chunk"
+        assert held, "the slow lane never held a chunk"
         await victim.kill()
         job = await _wait_job(runtime, job_id)
         assert job.state is JobState.SUCCEEDED, (job.failure_type, job.failure_detail)
