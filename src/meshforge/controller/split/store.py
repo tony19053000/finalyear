@@ -14,9 +14,12 @@ these rows, so no deadlock.
   ``wait``: the rest is leased elsewhere and may come back; ``stop``: the lane
   or its job ended).
 * :meth:`ChunkStore.result` - a chunk's outcome: ``done`` commits it (first
-  committed result wins; a later one is ``already_done``); the job's **last**
-  commit writes the parts index blob and ends the job ``SUCCEEDED`` in the same
-  transaction (checklist 35: commit + bookkeeping + lease release together).
+  committed result wins; a later one is ``already_done`` - with another digest
+  while ``split.deterministic`` is on, the job's ``nondeterministic_chunk``
+  warning, V0.10 G5); the job's **last** commit writes the parts index blob and
+  moves the job ``RUNNING -> COLLECTING`` in the same transaction (checklist
+  35: commit + bookkeeping + lease release together) - the job then owes its
+  combine (:mod:`.combine`, V0.10 G5).
   ``failed`` counts a try; the chunk failing for good (``max_attempts`` /
   ``max_failed_nodes``, or a non-retryable failure) fails the job with the
   chunk named and closes the queue - **no partial output** (checklist 32).
