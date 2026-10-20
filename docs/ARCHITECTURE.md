@@ -352,6 +352,8 @@ flowchart TB
 
 **Why pull-based chunks, not fixed shares:** a faster laptop simply pulls more chunks, so heterogeneity and stragglers balance automatically; the planner's share estimate sets *chunk size and participants*, not a brittle static split. Each node prepares its environment **once** and then runs many chunks.
 
+**Stragglers (V0.10 G6, D285):** when an idle lane asks for work and nothing is pending, the controller copies the leased chunk with the largest predicted remaining time (`|expected − elapsed|`, from this job's per-node p50 seconds/item, planner rate as fallback) if it exceeds 1.5× the idle node's expected time — never on the holder's node or a node where the chunk failed, one copy at a time, budget `ceil(speculative_max_frac × chunks)`. First commit wins; the loser gets `CancelChunk`, a late loser result is `already_done`, a differing digest raises `nondeterministic_chunk`.
+
 ---
 
 ## 10. Mode 2 — Remote GPU flow

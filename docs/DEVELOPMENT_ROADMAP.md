@@ -510,7 +510,7 @@ A version is **complete** only when all apply:
 - [x] **0.10.2** **Shared work-queue module** (chunks, leases, visibility timeout, idempotent completion) — reused by Mode 4 — evidence: D277/D278/D279 (V0.10 brief); tester PASS + reviewer APPROVE; gate on main 2026-10-20: unit 16226 passed, component 2832 passed / 3 failed → 1 stale V0.5-era test (expected split refused) fixed, 2 load flakes green 3/3 standalone
 - [x] **0.10.3** Planner: Mode 3 candidates (node sets), rate estimates, chunk size, "don't split" comparison — evidence: D280 (tester PASS, reviewer APPROVE); gate D282
 - [x] **0.10.4** Per-node worker: one env prep, many chunks; chunk-level input staging (only needed files) — evidence: D281 (3 fix rounds; tester r3 + reviewer r2); gate D282
-- [ ] **0.10.5** Stragglers: speculative duplicates of tail chunks; first result wins, idempotent
+- [x] **0.10.5** Stragglers: speculative duplicates of tail chunks; first result wins, idempotent — G6 merged a006c894 (2026-10-21); tester r1 PASS (unit 16756; V0.10 comp+cluster 133 exit 0; workqueue comp 74), reviewer r1 APPROVE, F1 flake fixed (D285)
 - [x] **0.10.6** Lost node → chunk leases expire → re-queued — evidence: D281 (kill -9 / controller restart / lease expiry / re-plan tests); gate D282
 - [x] **0.10.7** Ordered, deterministic combine step — G5 merged 2026-10-20; tester r2 PASS (d892881b: unit 16700 passed, V0.10 comp+cluster one-process 121 passed ×3, ruff clean, mypy src 422 clean), reviewer r2 APPROVE
 - [ ] **0.10.8** Progress per chunk/node (CLI progress bar, dashboard page)
