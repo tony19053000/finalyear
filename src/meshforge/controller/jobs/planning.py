@@ -104,9 +104,6 @@ __all__ = ["DispatchPlanner", "decision_record"]
 
 log = get_logger(__name__)
 
-SPECULATIVE_MAX_FRAC: Final = 0.10
-"""D266 default share of a job's chunks that may get a speculative copy (G6
-uses it; 0 when ``split.speculative`` is false)."""
 _JOB_IS_BAD: Final = (ValidationError, ManifestError, InvalidIdError)
 """Errors that mean the stored job itself is unusable (reviewer N-1): only
 these fail the job; any other planning error leaves it queued."""
@@ -643,7 +640,9 @@ class DispatchPlanner:
             max_attempts=max(1, job.scheduling.max_attempts),
             max_failed_sites=self._split.max_failed_nodes,
             count_expiry=False,
-            speculative_max_frac=SPECULATIVE_MAX_FRAC if spec.speculative else 0.0,
+            speculative_max_frac=(
+                self._split.speculative_max_frac if spec.speculative else 0.0
+            ),
         )
 
     def _start(

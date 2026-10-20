@@ -72,6 +72,11 @@ from meshforge.controller.jobs.execution_store import _fresh, _move_job
 from meshforge.controller.jobs.store import clean_detail, typed_store_call
 from meshforge.controller.jobs.transitions import JobEvent
 from meshforge.controller.split.lanes import QUEUE_KIND, LiveLane, live_lanes
+from meshforge.controller.split.speculation import (
+    Speculated,
+    SpeculationConfig,
+    speculate_for,
+)
 from meshforge.controller.split.warnings import (
     NONDETERMINISTIC_CHUNK,
     add_chunk_warning,
@@ -197,6 +202,8 @@ class ChunkGrantOut:
     chunk_cap: int
     """The job's ``split.max_chunk_output_bytes`` (the lane's grant grows by
     it per new chunk)."""
+    speculated: Speculated | None = None
+    """V0.10 G6 (D266): the one chunk granted is a speculative copy."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -233,6 +240,10 @@ class ResultOutcome:
     combine_owed: bool = False
     """V0.10 G5: this was the last commit - the job is COLLECTING and owes a
     combine (the dispatcher places it; wake it)."""
+    copy_won: bool | None = None
+    """V0.10 G6 (D266): this commit beat another live lease of the chunk -
+    True = the speculative copy won, False = the original did; None = no
+    race (nothing superseded)."""
     nondeterministic: bool = False
     """V0.10 G5 (D269): an ``already_done`` result whose digest differs from
     the committed one while ``split.deterministic`` is on - recorded as the
@@ -258,7 +269,10 @@ class ChunkStore:
         *,
         blobs: BlobStore | None,
         items: ItemLists | None = None,
+        speculation: SpeculationConfig | None = None,
     ) -> None:
+        """``speculation`` None = no speculative copies at all (V0.10 G6)."""
+        self._speculation = speculation
         self._sessions: async_sessionmaker[AsyncSession] = create_session_factory(
             engine
         )
@@ -378,6 +392,31 @@ class ChunkStore:
             counts = await wq.counts(db, queue.id)
             if counts.pending == 0 and counts.leased == 0:
                 return NoWorkOut("drained")
+            if counts.pending == 0 and k > 0 and self._speculation is not None:
+                # V0.10 G6 (D266): an idle lane at the tail - a copy of the
+                # chunk predicted to finish last, if one is worth it
+                spec = await speculate_for(
+                    db,
+                    queue=queue,
+                    job_id=job.id,
+                    attempt_id=attempt_id,
+                    node_id=node_id,
+                    now=now,
+                    config=self._speculation,
+                    avoid=skip,
+                )
+                if isinstance(spec, Speculated):
+                    g = spec.grant
+                    copy = self._grant_out(
+                        digest,
+                        items,
+                        idx=g.idx,
+                        item_id=g.item_id,
+                        seq=g.seq,
+                        payload=g.payload,
+                        speculative=True,
+                    )
+                    return ChunkGrantOut((copy,), 0, _chunk_cap(job), spec)
             return NoWorkOut("wait")
 
     def _grant_out(
@@ -469,12 +508,24 @@ class ChunkStore:
                     ResultKind.ALREADY_DONE, None, job.id, nondeterministic=mismatch
                 )
             cancel = await _lanes_of(db, got.superseded)
+            copy_won = (
+                None
+                if not got.superseded
+                else bool(
+                    await db.scalar(
+                        select(work_lease.c.speculative).where(
+                            work_lease.c.item_id == item_id, work_lease.c.seq == seq
+                        )
+                    )
+                )
+            )
             if not done.queue_done:
                 return ResultOutcome(
                     ResultKind.COMMITTED,
                     job_id=job.id,
                     cancel_chunks=cancel,
                     late=got.late,
+                    copy_won=copy_won,
                 )
             parts = await self._finish(db, job, queue.id)
             return ResultOutcome(
@@ -484,6 +535,7 @@ class ChunkStore:
                 cancel_lanes=tuple(await live_lanes(db, job.id)),
                 parts_digest=parts,
                 late=got.late,
+                copy_won=copy_won,
                 combine_owed=JobState(job.state) is JobState.COLLECTING,
             )
 

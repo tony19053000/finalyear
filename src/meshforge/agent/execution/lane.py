@@ -35,7 +35,9 @@ controller's dispatcher steps) adds what differs:
 4. ``ChunkResult`` is a **report** (buffered, replayed after a reconnect,
    re-sent until acked); ``LeaseRenew`` goes out every third of the lease
    timeout for the leases the lane holds; ``CancelChunk`` kills that chunk's
-   process and drops its result.
+   process and drops its result (a chunk cancelled before it started here -
+   a speculative copy or original that lost while its grant was on the way,
+   V0.10 G6 - is skipped: no process, no result).
 
 Code: :mod:`.lane_base` (state, constants, the executor surface the steps
 use), :mod:`.lane_staging` (a chunk's inputs), :mod:`.lane_chunk` (one chunk
@@ -62,6 +64,7 @@ from meshforge.agent.execution.fetch import (
 )
 from meshforge.agent.execution.lane_base import (
     ASK_TIMEOUT_S,
+    MAX_EARLY_CANCELS,
     RESULT_ACK_WAIT_S,
     LaneState,
     LaneStopError,
@@ -121,6 +124,11 @@ class LaneSteps(ChunkRunSteps):
                 lane.cancelled_chunk = key
                 if lane.run_task is not None and not lane.run_task.done():
                     lane.run_task.cancel()
+            elif key not in lane.finished:
+                # V0.10 G6: not started here yet (a grant still in the inbox)
+                lane.cancelled_early[key] = None
+                while len(lane.cancelled_early) > MAX_EARLY_CANCELS:
+                    lane.cancelled_early.popitem(last=False)
             log.info(
                 "agent.lane.chunk_cancel",
                 node_id=self._node_id,

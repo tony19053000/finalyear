@@ -59,6 +59,21 @@ class ChunkRunSteps(ChunkStagingSteps):
         assert lane is not None  # noqa: S101
         assert lane.items is not None  # noqa: S101
         assert workdir is not None  # noqa: S101
+        key = (int(chunk.item_id), int(chunk.lease_seq))
+        if key in lane.cancelled_early:
+            # V0.10 G6: it lost (CancelChunk) before its turn here - the
+            # controller already superseded the lease; nothing to run or send
+            del lane.cancelled_early[key]
+            log.info(
+                "agent.lane.chunk_skipped",
+                node_id=self._node_id,
+                job_id=attempt.job_id,
+                attempt_id=attempt.attempt_id,
+                chunk=int(chunk.chunk_index),
+                lease_seq=key[1],
+                reason="cancelled",
+            )
+            return
         result = agent_pb2.ChunkResult(
             job_id=attempt.job_id,
             attempt_id=attempt.attempt_id,
@@ -181,6 +196,8 @@ class ChunkRunSteps(ChunkStagingSteps):
         workdir = attempt.workdir
         assert lane is not None  # noqa: S101
         assert workdir is not None  # noqa: S101
+        if lane.cancelled_chunk is not None and lane.cancelled_chunk == lane.current:
+            return None  # cancelled while its inputs were staged: never started
         values = {
             "items_file": folder.seen_items,
             "chunk_index": str(int(chunk.chunk_index)),

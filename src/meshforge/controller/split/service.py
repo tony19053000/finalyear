@@ -7,12 +7,15 @@ calls :meth:`SplitService.handle`, which runs :class:`~.store.ChunkStore` and
 then talks back to the lane:
 
 * ``ChunkRequest`` -> ``ChunkGrant`` (the lane's upload grant grows by
-  ``split.max_chunk_output_bytes`` per new chunk, D261) or ``NoWork``;
+  ``split.max_chunk_output_bytes`` per new chunk, D261) or ``NoWork``; an
+  idle lane at the tail may get a **speculative copy** of a straggling chunk
+  (V0.10 G6, D266, :mod:`.speculation`);
 * ``ChunkResult`` (a report) -> a ``done`` digest counts only if the lane's own
   upload grant stored and verified that blob (the V0.4 D71/D73 rule) -
   otherwise the lease is released uncounted (the chunk runs again; nothing
   unverified is ever committed); then it is applied and **acked only once
-  stored**. A lease that lost to the commit gets ``CancelChunk``; a job that
+  stored**. A lease that lost to the commit (the original or the speculative
+  copy of a straggling chunk, V0.10 G6) gets ``CancelChunk``; a job that
   failed (a chunk failed for good) gets ``CancelAttempt`` for every live lane;
 * ``LeaseRenew`` -> the lane's leases extended.
 
@@ -104,6 +107,12 @@ class SplitStats:
     nondeterministic: int = 0
     """V0.10 G5 (D269): second results of a committed chunk with another
     digest (the job's ``nondeterministic_chunk`` warning)."""
+    speculated: int = 0
+    """V0.10 G6 (D266): speculative copies granted to idle lanes."""
+    copies_won: int = 0
+    """Commits where the speculative copy beat the original lease."""
+    originals_won: int = 0
+    """Commits where the original beat its live speculative copy."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -265,6 +274,7 @@ class SplitService:
         fresh = len(got.chunks) - got.regranted
         self.stats.grants += fresh
         self.stats.regrants += got.regranted
+        self.stats.speculated += int(got.speculated is not None)
         if self._grants is not None and fresh:
             # D261: room for the new chunks' outputs under the lane's grant
             self._grants.raise_quota(
@@ -302,6 +312,7 @@ class SplitService:
             node_id=live.node_id,
             chunks=[c.chunk_index for c in got.chunks],
             regranted=got.regranted,
+            speculative=got.speculated is not None,
             sent=sent is not None,
         )
 
@@ -422,6 +433,19 @@ class SplitService:
         if kind is ResultKind.COMMITTED:
             self.stats.committed += 1
             self.stats.late_commits += int(got.late)
+            if got.copy_won is not None:
+                self.stats.copies_won += int(got.copy_won)
+                self.stats.originals_won += int(not got.copy_won)
+                log.info(
+                    "controller.split.speculation_resolved",
+                    job_id=lane.job_id,
+                    attempt_id=lane.attempt_id,
+                    node_id=live.node_id,
+                    chunk=body.chunk_index,
+                    lease_seq=body.lease_seq,
+                    winner="copy" if got.copy_won else "original",
+                    losers=len(got.cancel_chunks),
+                )
             if got.combine_owed:
                 self.stats.jobs_done += 1
         elif kind is ResultKind.ALREADY_DONE:

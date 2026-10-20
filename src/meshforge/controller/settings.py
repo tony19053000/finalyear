@@ -1483,6 +1483,28 @@ class SplitSettings(SectionModel):
             "(D267c); retry.max_attempts bounds the tries of one chunk too."
         ),
     )
+    # --- V0.10 G6 (D266): speculative copies of straggling chunks -----------
+    speculative_max_frac: float = Field(
+        default=0.10,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "At most this share of a split job's chunks ever get a speculative "
+            "copy (counted in chunks, not copies; 0 = never). Fixed when the "
+            "job's chunk queue is created; split.speculative: false turns it "
+            "off per job."
+        ),
+    )
+    speculation_factor: float = Field(
+        default=1.5,
+        ge=1.0,
+        le=100.0,
+        description=(
+            "An idle lane copies a straggling chunk only when the chunk's "
+            "predicted remaining time on its node exceeds this many times the "
+            "idle node's expected time for it."
+        ),
+    )
     # --- V0.10 G5 fix r1 (B1): a combine refused resource_busy ---------------
     combine_busy_backoff_s: float = Field(
         default=1.0,
