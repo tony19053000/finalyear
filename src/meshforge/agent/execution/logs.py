@@ -157,6 +157,23 @@ class AttemptLogs:
     def path(self, stream: Stream) -> Path:
         return self.directory / f"{stream.value}.log"
 
+    def unchanged(self, stream: Stream) -> bool:
+        """The log file at :meth:`path` is still the one this object writes
+        (V0.10 G4 fix r2): neither it nor its folder was swapped for a link by
+        the job (the folder is inside its workdir) - else the final upload
+        would read whatever the link points at."""
+        handle = self._files.get(stream)
+        if handle is None:
+            return False
+        try:
+            if os.path.islink(self.directory) or os.path.islink(self.path(stream)):
+                return False
+            now = os.lstat(self.path(stream))
+            mine = os.fstat(handle.fileno())
+        except (OSError, ValueError):
+            return False
+        return (now.st_dev, now.st_ino) == (mine.st_dev, mine.st_ino)
+
     def write(self, stream: Stream, data: bytes) -> list[Chunk]:
         """Keep ``data`` (up to the cap); return the live chunks ready now."""
         if self.truncated[stream] or not data:

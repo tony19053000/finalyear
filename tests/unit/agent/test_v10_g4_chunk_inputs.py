@@ -11,7 +11,6 @@ from pathlib import Path
 import pytest
 
 from meshforge.agent.execution.chunk_inputs import (
-    ChunkPaths,
     chunk_env,
     split_view_path,
     substitute,
@@ -71,15 +70,6 @@ def test_lines_chunk_is_header_plus_records_byte_for_byte(tmp_path: Path) -> Non
         write_lines_chunk(
             tmp_path / "x.txt", io.BytesIO(data), header=None, records=[(20, 99)]
         )
-
-
-def test_chunk_paths_host_and_container(tmp_path: Path) -> None:
-    host = ChunkPaths(tmp_path, lines=False, container_root=None)
-    assert host.host_items == tmp_path / ".meshforge" / "chunk" / "items.json"
-    assert host.seen_out == str(tmp_path / ".meshforge" / "chunk" / "out")
-    docker = ChunkPaths(tmp_path, lines=True, container_root="/work")
-    assert docker.seen_items == "/work/.meshforge/chunk/items.txt"
-    assert docker.seen_out == "/work/.meshforge/chunk/out"
 
 
 def test_split_view_path() -> None:

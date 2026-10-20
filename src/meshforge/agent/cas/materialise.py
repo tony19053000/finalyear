@@ -366,10 +366,19 @@ def materialise_subset(
 
 def remove_subset(paths: Sequence[Path], dest: Path) -> int:
     """Remove the files :func:`materialise_subset` placed (best effort);
-    returns how many were removed."""
+    returns how many were removed. A file whose folder the job replaced by a
+    link (its real folder is not where it was placed any more, or not inside
+    ``dest``) is left alone - an unlink never goes through a link the job
+    made (fix r2 B1)."""
     root = Path(os.path.realpath(dest))
     removed = 0
     for path in paths:
+        try:
+            expected = root / path.parent.relative_to(dest)
+        except ValueError:
+            continue  # not placed under dest
+        if Path(os.path.realpath(path.parent)) != expected or path.is_symlink():
+            continue  # a folder on the way became a link: not ours to follow
         with contextlib.suppress(OSError), _writable(path.parent, root):
             path.unlink()
             removed += 1

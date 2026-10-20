@@ -1779,6 +1779,17 @@ class Executor(LaneSteps):
             path = logs.path(stream)
             if not plan.upload_token:
                 continue
+            if not logs.unchanged(stream):
+                # the job swapped its log file or folder (they live in its
+                # workdir): never upload what a link points at
+                log.warning(
+                    "agent.execution.log_swapped",
+                    node_id=self._node_id,
+                    job_id=attempt.job_id,
+                    attempt_id=attempt.attempt_id,
+                    stream=stream.value,
+                )
+                continue
             try:
                 digest, size = await asyncio.to_thread(file_sha256, path)
                 if size == 0:

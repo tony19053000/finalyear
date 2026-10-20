@@ -1,10 +1,11 @@
 """What one chunk's process sees (V0.10 G4, D260/D264/D278). Pure + small
 blocking file writers (run them in a thread).
 
-**The chunk folder.** Each chunk gets a fresh ``<workdir>/.meshforge/chunk/``
-holding the items file and an empty ``out/`` folder; the project (staged once
-per lane) is the working directory, exactly as for a whole-job run. The folder
-is removed after the chunk (its ``out/`` packed first).
+**The chunk folder.** Each chunk gets a fresh agent-owned control folder
+outside the workdir (:mod:`.chunk_folder`) holding the items file and an empty
+``out/`` folder; the project (staged once per lane) is the working directory,
+exactly as for a whole-job run. The folder is removed after the chunk (its
+``out/`` packed first).
 
 **``{items_file}`` / ``MESHFORGE_CHUNK_ITEMS``** - the chunk's items, never in
 argv or a shell (D278: an item is opaque data):
@@ -23,7 +24,8 @@ argv or a shell (D278: an item is opaque data):
 item-list order). **``{out}`` / ``MESHFORGE_CHUNK_OUT``** - the empty folder
 whose files are the chunk's result (packed, uploaded and later combined in
 chunk order). Paths are the ones the process sees: absolute host paths for the
-subprocess / venv runtimes, ``/work/...`` inside the Docker sandbox.
+subprocess / venv runtimes, ``/meshforge/in/...`` and ``/meshforge/out``
+inside the Docker sandbox.
 
 Placeholders are replaced **once**, left to right, inside any argv item
 (``--in={items_file}`` works); a value is never scanned again, so a path that
@@ -37,14 +39,10 @@ import json
 import os
 import re
 from collections.abc import Mapping, Sequence
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import BinaryIO, Final
 
 __all__ = [
-    "CHUNK_DIR",
-    "ITEMS_JSON",
-    "ITEMS_LINES",
-    "ChunkPaths",
     "chunk_env",
     "split_view_path",
     "substitute",
@@ -52,30 +50,8 @@ __all__ = [
     "write_lines_chunk",
 ]
 
-CHUNK_DIR: Final = ".meshforge/chunk"
-ITEMS_JSON: Final = "items.json"
-ITEMS_LINES: Final = "items.txt"
 _PLACEHOLDER: Final = re.compile(r"\{(items_file|chunk_index|out)\}")
 _COPY: Final = 1024 * 1024
-
-
-class ChunkPaths:
-    """Host and in-process paths of one chunk's folder."""
-
-    __slots__ = ("host_dir", "host_items", "host_out", "seen_items", "seen_out")
-
-    def __init__(self, workdir: Path, *, lines: bool, container_root: str | None):
-        self.host_dir = workdir.joinpath(*CHUNK_DIR.split("/"))
-        name = ITEMS_LINES if lines else ITEMS_JSON
-        self.host_items = self.host_dir / name
-        self.host_out = self.host_dir / "out"
-        if container_root is None:
-            self.seen_items = str(self.host_items)
-            self.seen_out = str(self.host_out)
-        else:
-            base = PurePosixPath(container_root, CHUNK_DIR)
-            self.seen_items = str(base / name)
-            self.seen_out = str(base / "out")
 
 
 def substitute(argv: Sequence[str], values: Mapping[str, str]) -> tuple[str, ...]:
