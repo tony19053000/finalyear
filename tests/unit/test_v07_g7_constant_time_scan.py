@@ -97,8 +97,11 @@ ALLOWED: dict[tuple[str, str], str] = {
         "agent bookkeeping (as above)"
     ),
     # V0.10 G4: a lane's own token bookkeeping and the lane's epoch check
-    ("agent/execution/lane.py", "attempt.fetch_token == used"): (
+    ("agent/execution/lane_staging.py", "attempt.fetch_token == used"): (
         "agent bookkeeping: which of its own fetch tokens a chunk staging used"
+    ),
+    ("agent/cas/materialise.py", "Path(os.path.realpath(path.parent)) != expected"): (
+        "a filesystem path compare (a folder became a link), no credential"
     ),
     ("agent/execution/lane.py", "attempt.token != inner.fencing_token"): _EPOCH,
     ("controller/split/store.py", "int(attempt.fencing_token) != token"): _EPOCH,
