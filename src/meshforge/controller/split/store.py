@@ -37,6 +37,7 @@ lane's own node with the lane's own token and digest verified under its grant.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import datetime as dt
 from collections import OrderedDict
 from collections.abc import AsyncIterator, Collection, Sequence
@@ -72,7 +73,14 @@ from meshforge.controller.jobs.execution_store import _fresh, _move_job
 from meshforge.controller.jobs.store import clean_detail, typed_store_call
 from meshforge.controller.jobs.transitions import JobEvent
 from meshforge.controller.split.lanes import QUEUE_KIND, LiveLane, live_lanes
+from meshforge.controller.split.records import (
+    ChunkReport,
+    StderrLimits,
+    record_commit,
+    record_try,
+)
 from meshforge.controller.split.speculation import (
+    SiteTimesCache,
     Speculated,
     SpeculationConfig,
     speculate_for,
@@ -270,9 +278,18 @@ class ChunkStore:
         blobs: BlobStore | None,
         items: ItemLists | None = None,
         speculation: SpeculationConfig | None = None,
+        stderr: StderrLimits | None = None,
     ) -> None:
-        """``speculation`` None = no speculative copies at all (V0.10 G6)."""
+        """``speculation`` None = no speculative copies at all (V0.10 G6).
+        ``stderr``: how much of a try's stderr tail its chunk record keeps
+        (V0.10 G8)."""
         self._speculation = speculation
+        self._times = SiteTimesCache(
+            ttl_s=0.0 if speculation is None else speculation.cache_s,
+            entries=1 if speculation is None else speculation.cache_jobs,
+        )
+        """V0.10 G8 (D285): per-queue chunk times for the idle-lane check."""
+        self._stderr = stderr or StderrLimits()
         self._sessions: async_sessionmaker[AsyncSession] = create_session_factory(
             engine
         )
@@ -404,6 +421,8 @@ class ChunkStore:
                     now=now,
                     config=self._speculation,
                     avoid=skip,
+                    cache=self._times,
+                    done=counts.done,
                 )
                 if isinstance(spec, Speculated):
                     g = spec.grant
@@ -457,12 +476,18 @@ class ChunkStore:
         failure: tuple[FailureType, str, bool] | None,
         now: dt.datetime,
         size: int | None = None,
+        report: ChunkReport | None = None,
     ) -> ResultOutcome:
         """``outcome`` = ``done`` (``digest`` verified by the caller under the
         lane's grant, ``size`` = the bytes that grant stored for it),
         ``failed`` (``failure`` = type, detail, retryable) or ``released``. A
         done chunk over ``split.max_chunk_output_bytes`` fails ``output_error``
-        (not retried: it would be as large anywhere)."""
+        (not retried: it would be as large anywhere).
+
+        V0.10 G8 (D271, checklist 35): the try's chunk record (``report`` =
+        what the agent measured) is written in this same transaction
+        (:mod:`.records`)."""
+        measured = report or ChunkReport()
         async with self._sessions() as db, db.begin():
             lane = await self._lane(
                 db, node_id=node_id, attempt_id=attempt_id, token=token, lock_job=True
@@ -493,7 +518,15 @@ class ChunkStore:
                     ),
                 )
             if outcome == "failed":
-                return await self._failed(db, lane, item_id, seq, failure, now)
+                return await self._failed(
+                    db,
+                    lane,
+                    item_id,
+                    seq,
+                    failure,
+                    now,
+                    dataclasses.replace(measured, digest=None, output_bytes=None),
+                )
             if digest is None:  # pragma: no cover - the caller checked
                 raise ValueError("a done result needs a digest")
             done = await wq.complete(
@@ -502,11 +535,36 @@ class ChunkStore:
             got = done.outcome
             if isinstance(got, Fenced):
                 return ResultOutcome(ResultKind.FENCED, got.reason.value, job.id)
+            measured = dataclasses.replace(measured, digest=digest, output_bytes=size)
+            item_count = int(job.split_item_count or 0)
             if isinstance(got, AlreadyDone):
                 mismatch = await _check_determinism(db, job, got, digest)
+                if not got.own:  # a replay of the winner's report has its row
+                    await record_try(
+                        db,
+                        job_id=job.id,
+                        item_count=item_count,
+                        item_id=item_id,
+                        seq=seq,
+                        outcome="lost",
+                        report=measured,
+                        failure_type=None,
+                        limits=self._stderr,
+                        now=now,
+                    )
                 return ResultOutcome(
                     ResultKind.ALREADY_DONE, None, job.id, nondeterministic=mismatch
                 )
+            await record_commit(
+                db,
+                job_id=job.id,
+                item_count=item_count,
+                item_id=item_id,
+                seq=seq,
+                report=measured,
+                limits=self._stderr,
+                now=now,
+            )
             cancel = await _lanes_of(db, got.superseded)
             copy_won = (
                 None
@@ -547,6 +605,7 @@ class ChunkStore:
         seq: int,
         failure: tuple[FailureType, str, bool] | None,
         now: dt.datetime,
+        report: ChunkReport,
     ) -> ResultOutcome:
         kind, text, retryable = failure or (
             FailureType.INTERNAL_ERROR,
@@ -566,6 +625,18 @@ class ChunkStore:
         got = res.outcome
         if isinstance(got, Fenced):
             return ResultOutcome(ResultKind.FENCED, got.reason.value, job.id)
+        await record_try(  # V0.10 G8 (D271): the failed try, same transaction
+            db,
+            job_id=job.id,
+            item_count=int(job.split_item_count or 0),
+            item_id=item_id,
+            seq=seq,
+            outcome="failed",
+            report=report,
+            failure_type=kind.value,
+            limits=self._stderr,
+            now=now,
+        )
         if isinstance(got, AlreadyDone):
             return ResultOutcome(ResultKind.ALREADY_DONE, None, job.id)
         if not isinstance(got, ItemFailed):

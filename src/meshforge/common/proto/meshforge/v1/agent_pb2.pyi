@@ -3111,6 +3111,8 @@ class ChunkResult(_message.Message):
     FAILURE_FIELD_NUMBER: _builtins.int
     PHASES_FIELD_NUMBER: _builtins.int
     SIGNAL_FIELD_NUMBER: _builtins.int
+    INPUT_BYTES_FIELD_NUMBER: _builtins.int
+    STDERR_TAIL_FIELD_NUMBER: _builtins.int
     job_id: _builtins.str
     attempt_id: _builtins.str
     fencing_token: _builtins.int
@@ -3123,6 +3125,15 @@ class ChunkResult(_message.Message):
     result_bytes: _builtins.int
     exit_code: _builtins.int
     signal: _builtins.int
+    input_bytes: _builtins.int
+    """V0.10 G8 (D271): bytes the agent placed as this chunk's inputs (its item
+    files + the items file); unset = not measured.
+    """
+    stderr_tail: _builtins.bytes
+    """V0.10 G8 (D261): the last bytes of the chunk process's stderr, already
+    redacted of the job's secret values on the agent, at most 64 KiB
+    ([agent.split] chunk_stderr_tail_bytes); empty = none.
+    """
     @_builtins.property
     def failure(self) -> _common_pb2.Failure: ...
     @_builtins.property
@@ -3143,17 +3154,23 @@ class ChunkResult(_message.Message):
         failure: _common_pb2.Failure | None = ...,
         phases: Global___ChunkPhases | None = ...,
         signal: _builtins.int | None = ...,
+        input_bytes: _builtins.int | None = ...,
+        stderr_tail: _builtins.bytes = ...,
     ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _typing.Literal["_exit_code", b"_exit_code", "_signal", b"_signal", "exit_code", b"exit_code", "failure", b"failure", "phases", b"phases", "signal", b"signal"]  # noqa: Y015
+    _HasFieldArgType: _TypeAlias = _typing.Literal["_exit_code", b"_exit_code", "_input_bytes", b"_input_bytes", "_signal", b"_signal", "exit_code", b"exit_code", "failure", b"failure", "input_bytes", b"input_bytes", "phases", b"phases", "signal", b"signal"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["_exit_code", b"_exit_code", "_signal", b"_signal", "attempt_id", b"attempt_id", "chunk_index", b"chunk_index", "exit_code", b"exit_code", "failure", b"failure", "fencing_token", b"fencing_token", "item_id", b"item_id", "job_id", b"job_id", "lease_seq", b"lease_seq", "outcome", b"outcome", "phases", b"phases", "result_bytes", b"result_bytes", "result_digest", b"result_digest", "signal", b"signal"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["_exit_code", b"_exit_code", "_input_bytes", b"_input_bytes", "_signal", b"_signal", "attempt_id", b"attempt_id", "chunk_index", b"chunk_index", "exit_code", b"exit_code", "failure", b"failure", "fencing_token", b"fencing_token", "input_bytes", b"input_bytes", "item_id", b"item_id", "job_id", b"job_id", "lease_seq", b"lease_seq", "outcome", b"outcome", "phases", b"phases", "result_bytes", b"result_bytes", "result_digest", b"result_digest", "signal", b"signal", "stderr_tail", b"stderr_tail"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     _WhichOneofReturnType__exit_code: _TypeAlias = _typing.Literal["exit_code"]  # noqa: Y015
     _WhichOneofArgType__exit_code: _TypeAlias = _typing.Literal["_exit_code", b"_exit_code"]  # noqa: Y015
+    _WhichOneofReturnType__input_bytes: _TypeAlias = _typing.Literal["input_bytes"]  # noqa: Y015
+    _WhichOneofArgType__input_bytes: _TypeAlias = _typing.Literal["_input_bytes", b"_input_bytes"]  # noqa: Y015
     _WhichOneofReturnType__signal: _TypeAlias = _typing.Literal["signal"]  # noqa: Y015
     _WhichOneofArgType__signal: _TypeAlias = _typing.Literal["_signal", b"_signal"]  # noqa: Y015
     @_typing.overload
     def WhichOneof(self, oneof_group: _WhichOneofArgType__exit_code) -> _WhichOneofReturnType__exit_code | None: ...
+    @_typing.overload
+    def WhichOneof(self, oneof_group: _WhichOneofArgType__input_bytes) -> _WhichOneofReturnType__input_bytes | None: ...
     @_typing.overload
     def WhichOneof(self, oneof_group: _WhichOneofArgType__signal) -> _WhichOneofReturnType__signal | None: ...
 

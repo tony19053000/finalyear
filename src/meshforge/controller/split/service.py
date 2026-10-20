@@ -51,6 +51,7 @@ from meshforge.controller.split.messages import (
     parse_chunk_result,
     parse_lease_renew,
 )
+from meshforge.controller.split.records import ChunkReport
 from meshforge.controller.split.store import (
     ChunkGrantOut,
     ChunkStore,
@@ -376,6 +377,12 @@ class SplitService:
             failure=failure,
             size=size,
             now=self._wall(),
+            report=ChunkReport(
+                phases=body.phases,
+                exit_code=body.exit_code,
+                input_bytes=body.input_bytes,
+                stderr_tail=body.stderr_tail,
+            ),
         )
         if unverified and got.kind is ResultKind.RELEASED:
             self._note_unverified(key)

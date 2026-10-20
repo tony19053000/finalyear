@@ -104,3 +104,10 @@ class PlanDecision(Base):
     side-effect-free shadow plan); None = not pinned, or no node feasible."""
     shadow_estimate_s: Mapped[float | None] = mapped_column(Float, nullable=True)
     """The shadow choice's estimated total seconds."""
+    shadow_node_set: Mapped[list[str] | None] = mapped_column(
+        JSONB(none_as_null=True), nullable=True
+    )
+    """V0.10 G8 (D271, migration 0029): a forced **split** benchmark job's
+    shadow pick when it is a Mode 3 set - its nodes, fastest first (the
+    head is ``shadow_chosen_node_id``); None = the shadow ran one lane (or
+    there is no shadow)."""

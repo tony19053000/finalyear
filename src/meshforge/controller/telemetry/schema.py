@@ -1,5 +1,5 @@
-"""Telemetry schema v2: the columns of a run record (V0.9 G1, D212, ADR-0018;
-v2 = V0.9 G4, D233.3/D241).
+"""Telemetry schema v3: the columns of a run record and of a chunk record
+(V0.9 G1, D212, ADR-0018; v2 = V0.9 G4, D233.3/D241; v3 = V0.10 G8, D271).
 
 A **run record** is one attempt plus everything known at its start and its end,
 written once when the attempt is terminal (:mod:`.recorder`). This module is
@@ -24,6 +24,22 @@ verified, D217). All three are nullable: a v1 row (written before 0023) keeps
 ``schema_version`` 1 and nulls there, so one export can hold both - a reader
 goes by each row's ``schema_version``.
 
+**v3** (V0.10 G8, migration 0029, D271) - Mode 3:
+
+* the run record gains ``attempt_role`` (``run`` / ``lane`` / ``combine``),
+  ``planner_strategy`` + ``planner_node_set`` (the planner's pick as a
+  strategy, D215 extended to sets) and the ``split_*`` columns of a split
+  job (its first plan, and - on the **job row**, the record of the combine
+  attempt that ended the job - its measured makespan, job time, combine time
+  and ideal bound); ``strategy`` gains ``mode3``. Every v3 column is
+  nullable: a v1/v2 row keeps nulls there (null role = a whole run).
+* a second table, the **chunk record** (:data:`CHUNK_COLUMNS`, the dataset's
+  ``chunks.parquet``): one row per chunk lease that ended with a result, plus
+  the other leases of a committed chunk (a lost speculative copy, an expired
+  or released try) - written in the transaction that applied the result
+  (checklist 35). Its columns are versioned with the same
+  :data:`SCHEMA_VERSION` (:data:`CHUNK_FINGERPRINTS`).
+
 Types (:class:`Kind`): ``text``, ``int64``, ``float64``, ``bool``, ``json``
 (JSONB in PostgreSQL; canonical JSON text in Parquet - sorted keys, compact) and
 ``timestamp`` (UTC, microseconds). Timestamps are the controller's clock and
@@ -40,6 +56,11 @@ from enum import StrEnum
 from typing import Final
 
 __all__ = [
+    "ATTEMPT_ROLES",
+    "CHUNK_COLUMNS",
+    "CHUNK_COLUMN_NAMES",
+    "CHUNK_FINGERPRINTS",
+    "CHUNK_OUTCOMES",
     "COLUMNS",
     "COLUMN_NAMES",
     "FAILURE_CLASSES",
@@ -52,7 +73,7 @@ __all__ = [
     "fingerprint",
 ]
 
-SCHEMA_VERSION: Final = 2
+SCHEMA_VERSION: Final = 3
 
 
 class Kind(StrEnum):
@@ -80,8 +101,12 @@ class FailureClass(StrEnum):
 
 
 FAILURE_CLASSES: Final = tuple(c.value for c in FailureClass)
-STRATEGIES: Final = ("local", "mode1")
-"""V0.9 strategies (D215): the submitter's own node, or Mode 1 on another."""
+STRATEGIES: Final = ("local", "mode1", "mode3")
+"""V0.9 strategies (D215): the submitter's own node, or Mode 1 on another;
+V0.10 G8 (D271): ``mode3`` = a split job run over a node set. A split job run
+on one lane ("don't split") is ``local`` / ``mode1`` by its plan."""
+ATTEMPT_ROLES: Final = ("run", "lane", "combine")
+"""``attempt.role`` (V0.10 D259): a whole run, a split job's lane, its combine."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,6 +136,12 @@ COLUMNS: Final[tuple[Column, ...]] = (
     _c("attempt_id", _T, "The attempt (primary key).", nullable=False),
     _c("job_id", _T, "The job the attempt belongs to.", nullable=False),
     _c("attempt_no", _I, "The attempt's fencing token (1 = first).", nullable=False),
+    _c(
+        "attempt_role",
+        _T,
+        "run / lane / combine (v3); the combine that ended a split job is the "
+        "job row; null = written before v3 (a whole run).",
+    ),
     _c("campaign_id", _T, "Benchmark campaign (V0.9 G3); null = not a benchmark."),
     _c("group_id", _T, "Label group: same workload + params + conditions (D218)."),
     _c("config_id", _T, "Campaign configuration (group x strategy)."),
@@ -122,7 +153,8 @@ COLUMNS: Final[tuple[Column, ...]] = (
     _c(
         "strategy",
         _T,
-        "local = ran on the submitter's node; mode1 = elsewhere.",
+        "local = ran on the submitter's node; mode1 = elsewhere; mode3 = a "
+        "split job run over a node set (v3).",
         nullable=False,
     ),
     _c(
@@ -138,7 +170,23 @@ COLUMNS: Final[tuple[Column, ...]] = (
         "Node the planner chose (auto) or prefers unpinned (pinned: D215/D235 "
         "shadow plan, slot occupancy ignored); null = none feasible / older.",
     ),
-    _c("planner_estimate_s", _F, "The planner's estimate for the node used (s)."),
+    _c(
+        "planner_estimate_s",
+        _F,
+        "The planner's estimate for the node used (s); split jobs: for the "
+        "candidate of the job's strategy (its predicted makespan).",
+    ),
+    _c(
+        "planner_strategy",
+        _T,
+        "local / mode1 / mode3 the planner chose (auto) or would have chosen "
+        "(pinned / forced, D215) (v3); null = none feasible / older.",
+    ),
+    _c(
+        "planner_node_set",
+        _J,
+        "mode3 pick: the planner's node set, fastest first (v3); null otherwise.",
+    ),
     # --- workload ---------------------------------------------------------
     _c(
         "workload_family",
@@ -177,6 +225,34 @@ COLUMNS: Final[tuple[Column, ...]] = (
         "condition_measured",
         _J,
         "What was measured when the condition was applied and verified.",
+    ),
+    # --- split job (v3, V0.10 G8, D271/D274) --------------------------------
+    _c(
+        "split_node_set",
+        _J,
+        "Split jobs: the lanes' nodes of the job's first plan, fastest first.",
+    ),
+    _c("split_items", _I, "Split jobs: items the job resolved to."),
+    _c("split_chunk_items", _I, "Split jobs: items per chunk (first plan)."),
+    _c("split_chunks", _I, "Split jobs: chunks (first plan)."),
+    _c("split_predicted_s", _F, "Split jobs: the first plan's predicted makespan (s)."),
+    _c(
+        "split_makespan_ms",
+        _I,
+        "Job row: first lane RUNNING -> job end (controller clock, D274 C2).",
+    ),
+    _c(
+        "split_job_ms",
+        _I,
+        "Job row: first lane dispatched -> job end (controller clock): lane "
+        "staging, every chunk and the combine - the split job's cost.",
+    ),
+    _c("split_combine_ms", _I, "Job row: the combine's run time, on its agent."),
+    _c(
+        "split_ideal_bound_s",
+        _F,
+        "Job row: items / sum of the lanes' measured items/s + the slowest "
+        "lane's stage + env + the combine (D274, from this job's own chunks).",
     ),
     # --- start snapshot (at dispatch) -------------------------------------
     _c("node_state", _T, "Node liveness state at dispatch."),
@@ -261,5 +337,80 @@ def fingerprint(columns: tuple[Column, ...] = COLUMNS) -> str:
 SCHEMA_FINGERPRINTS: Final[dict[int, str]] = {
     1: "69e443de70cbb8bbd25fb04662510910c649b812ad16000ede6d092948df723a",
     2: "6cdab4d3e019c82bf7f1f8d08cfc6b8543a234b642bdc68c1c8f3135d2c02882",
+    3: "V3_RUN",
 }
 """Published versions -> their column fingerprint. Never edit a published entry."""
+
+# ------------------------------------------------------------ chunk record
+
+CHUNK_OUTCOMES: Final = (
+    "committed",
+    "lost",
+    "failed",
+    "superseded",
+    "released",
+    "expired",
+)
+"""How a chunk lease ended: ``committed`` (its result won), ``lost`` (it
+finished, another result of the chunk had won), ``failed`` (the chunk failed
+there), ``superseded`` (stopped: another copy won first; no result),
+``released`` (given back unrun - lane lost or stopping, owner pre-emption) and
+``expired`` (its visibility timeout passed)."""
+
+CHUNK_COLUMNS: Final[tuple[Column, ...]] = (
+    _c("schema_version", _I, "Telemetry schema version of this row.", nullable=False),
+    _c("job_id", _T, "The split job.", nullable=False),
+    _c("chunk_index", _I, "The chunk (0-based, in item order).", nullable=False),
+    _c(
+        "lease_seq",
+        _I,
+        "The lease's sequence number for this chunk (1 = first try).",
+        nullable=False,
+    ),
+    _c("lane_attempt_id", _T, "The lane attempt that held the lease.", nullable=False),
+    _c("node_id", _T, "The lane's node.", nullable=False),
+    _c("first_item", _I, "Index of the chunk's first item.", nullable=False),
+    _c("items", _I, "Items in the chunk.", nullable=False),
+    _c("speculative", _B, "The lease was a speculative copy (D266).", nullable=False),
+    _c("won", _B, "This lease's result is the committed one.", nullable=False),
+    _c(
+        "outcome",
+        _T,
+        "committed / lost / failed / superseded / released / expired.",
+        nullable=False,
+    ),
+    _c("failure_type", _T, "Typed failure of a failed try."),
+    _c(
+        "failure_class",
+        _T,
+        "ok / workload / infrastructure / unavailable (as the run record).",
+        nullable=False,
+    ),
+    _c("exit_code", _I, "The chunk process's exit code."),
+    _c("result_digest", _T, "Digest of the chunk's packed output (done tries)."),
+    _c("bytes_in", _I, "Bytes the agent placed as the chunk's inputs."),
+    _c("bytes_out", _I, "Bytes of the packed output the lane's grant stored."),
+    _c("stage_ms", _I, "Agent: the chunk's input staging (monotonic)."),
+    _c("env_ms", _I, "Agent: environment work for this chunk (monotonic)."),
+    _c("run_ms", _I, "Agent: the chunk process, start to exit (monotonic)."),
+    _c("upload_ms", _I, "Agent: pack + upload of the output (monotonic)."),
+    _c(
+        "leased_at",
+        _TS,
+        "Lease granted (controller clock, ordering only).",
+        nullable=False,
+    ),
+    _c("ended_at", _TS, "Lease ended (controller clock, ordering only)."),
+    _c("recorded_at", _TS, "When this record was written.", nullable=False),
+)
+"""The chunk record's dataset columns (``chunks.parquet``, D271), in export
+order. The table also holds ``stderr_tail`` (the try's redacted stderr tail,
+for the API, D261) - operational, never exported."""
+
+CHUNK_COLUMN_NAMES: Final = tuple(c.name for c in CHUNK_COLUMNS)
+
+CHUNK_FINGERPRINTS: Final[dict[int, str]] = {
+    3: "V3_CHUNK",
+}
+"""Telemetry schema version -> the chunk columns' fingerprint (introduced in
+v3). Never edit a published entry; a change bumps :data:`SCHEMA_VERSION`."""
