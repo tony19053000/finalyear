@@ -155,12 +155,15 @@ class ItemLists:
             return parsed
 
     def slice_digest(self, digest: str, items: ItemList, first: int, count: int) -> str:
-        """The digest of one chunk's items, memoised per list."""
+        """The digest of one chunk's items, memoised per list and (first, count).
+
+        Jobs sharing an item list may use different chunk sizes, so `first` alone is not a key.
+        """
         memo = self._cache.get(digest, (items, {}))[1]
-        found = memo.get(first)
+        found = memo.get((first, count))
         if found is None:
             found = str(chunk_items_digest(items.items[first : first + count]))
-            memo[first] = found
+            memo[(first, count)] = found
         return found
 
 
