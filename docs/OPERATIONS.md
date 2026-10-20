@@ -1190,10 +1190,27 @@ compute get <JOB_ID>               # outputs -> ./outputs/<JOB_ID>/ (--dest, --f
   (bytewise-sorted paths for a `glob`), stores the list and refuses a bad one with
   `400 invalid_input` naming the YAML path (`split.over.glob: matched no files`).
   `compute run --dry-run` prints the job and the items it would resolve (count,
-  first/last, chunking) without uploading or submitting anything. **Until V0.10
-  G4 a split job is accepted but not run:** it fails `no_feasible_plan`
-  (`not_supported_yet: split execution arrives in G4`) - never run whole by
-  accident. Caps (`[controller.split]`): `max_items` (100 000) items and
+  first/last, chunking) without uploading or submitting anything.
+  **Running (V0.10 G4, D259-D267):** the planner picks a node set and a chunk
+  size (`compute explain`); each node runs one **lane** that stages the project
+  once (minus the `glob` item files), then pulls chunks and runs the entrypoint
+  once per chunk with `{items_file}` (a JSON array of the chunk's items; for
+  `lines` the header + the chunk's records), `{chunk_index}` and `{out}` (also
+  `MESHFORGE_CHUNK_ITEMS/INDEX/OUT`). Each chunk's `out/` is packed (at most
+  `split.max_chunk_output_bytes`, default 256 MiB) and committed once; when the
+  last chunk commits the job ends `succeeded` with its parts index
+  (`job.split_parts_digest`; the combined output arrives with G5). Only agents
+  with the `exec-split` capability (V0.10+) get a lane (`no_split_support`
+  otherwise). A lane whose node is lost gives its chunks back at once; a chunk
+  leased by a hung or partitioned lane goes back after `visibility_timeout_s`
+  (60 s; the lane renews every third of it); a chunk failing on
+  `max_failed_nodes` (2) nodes or `retry.max_attempts` times fails the job
+  (`chunk_failed: chunk N ...`, no partial output); with no lane left the job is
+  re-planned for the remaining chunks (bounded by `retry.max_attempts` rounds).
+  Planner knobs: `split_margin` (0.10), `target_chunk_s` (20),
+  `max_overhead_frac` (0.05), `min_chunks_per_node` (4), `chunk_overhead_s`
+  (1.5), `tail_frac` (0.5); `wait_retry_s` (2) is how long an idle lane waits
+  while the rest is leased elsewhere. Caps (`[controller.split]`): `max_items` (100 000) items and
   `max_chunks` (10 000) chunks per job; `list_file` up to 64 MiB, `lines` files
   up to 256 MiB with lines up to 16 MiB (the file is scanned while blob GC
   waits), and the stored item list up to 64 MiB (counted while the items are
