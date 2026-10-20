@@ -62,7 +62,8 @@ __all__ = ["ChunkWork", "SplitService", "SplitStats"]
 log = get_logger(__name__)
 
 _MAX_TRACKED: Final = 100_000
-"""Bound on the (lane, chunk) unverified counters and cool-downs kept."""
+"""Bound on the (lane, chunk) unverified counters kept (live lanes only; a
+new pair with no room is counted as a failure - fail safe, never a reset)."""
 _NO_WORK: Final = {
     "drained": agent_pb2.NoWork.REASON_DRAINED,
     "wait": agent_pb2.NoWork.REASON_WAIT,
@@ -86,6 +87,8 @@ class SplitStats:
     released: int = 0
     not_uploaded: int = 0
     """Done results whose digest the lane's grant did not store."""
+    unverified_late: int = 0
+    """Unverified results of a lease that had already ended (nothing done)."""
     unverified_failures: int = 0
     """Of those, the ones past ``max_unverified_results``: counted failures."""
     renewed: int = 0
@@ -134,6 +137,7 @@ class SplitService:
         so far. In memory: a controller restart resets it (the 2-node and
         ``retry.max_attempts`` rules still bound the job)."""
         self._cooldown: OrderedDict[tuple[str, int], float] = OrderedDict()
+        self._tracked_lanes: set[str] = set()
         """(lane, chunk) -> monotonic time before which that lane does not get
         that chunk again (after an unverified result)."""
         manager.dispatch.register("chunk_request", self._on_request)
@@ -323,7 +327,13 @@ class SplitService:
                     times=seen + 1,
                 )
                 digest = None
-                if seen >= self._settings.max_unverified_results:
+                full = key not in self._unverified and (
+                    len(self._unverified) >= _MAX_TRACKED
+                )
+                if full or seen >= self._settings.max_unverified_results:
+                    # past the limit - or no room to count it (only live
+                    # lanes' counters are kept): fail safe, counted
+
                     self._unverified.pop(key, None)
                     self.stats.unverified_failures += 1
                     outcome = "failed"
@@ -351,12 +361,37 @@ class SplitService:
         if unverified and got.kind is ResultKind.RELEASED:
             self._note_unverified(key)
         self._manager.ack_message(live, message_id)  # stored (or never will be)
-        self._count(live, body, got)
+        if (
+            unverified
+            and got.kind is ResultKind.FENCED
+            and got.fence == "lease_not_live"
+        ):
+            # a late unverified result: the lease had already ended (expired,
+            # released, lane lost) - nothing to put back, nothing committed
+            self.stats.unverified_late += 1
+            log.warning(
+                "controller.split.result_unverified_late",
+                job_id=lane.job_id,
+                attempt_id=lane.attempt_id,
+                node_id=live.node_id,
+                chunk=body.chunk_index,
+                lease_seq=body.lease_seq,
+            )
+        else:
+            self._count(live, body, got)
         for holder, item_id, seq in got.cancel_chunks:
             self._cancel_chunk(holder, lane.job_id, item_id, seq, "superseded")
         if got.job_ended is JobState.FAILED:
             for other in got.cancel_lanes:
                 self._cancel_lane(other, "chunk_failed")
+        elif got.job_ended is JobState.SUCCEEDED:
+            # Every chunk is committed: tell the other lanes now (a NoWork
+            # waits in their inbox and answers their next ask), so they end
+            # DONE at once instead of after their wait - and their
+            # credentials close with them.
+            for other in got.cancel_lanes:
+                if other.attempt_id != lane.attempt_id:
+                    self._drained(other, lane.job_id)
 
     def _count(
         self, live: LiveSession, body: ChunkResultIn, got: ResultOutcome
@@ -430,16 +465,38 @@ class SplitService:
             fencing_token=lane.fencing_token,
         )
 
+    def _drained(self, lane: LiveLane, job_id: str) -> None:
+        self._manager.send_command(
+            lane.node_id,
+            "no_work",
+            agent_pb2.NoWork(
+                job_id=job_id,
+                attempt_id=lane.attempt_id,
+                fencing_token=lane.fencing_token,
+                reason=agent_pb2.NoWork.REASON_DRAINED,
+            ),
+            attempt_id=lane.attempt_id,
+            fencing_token=lane.fencing_token,
+        )
+
     def _note_unverified(self, key: tuple[str, int]) -> None:
         """Count one tolerated unverified result of (lane, chunk) and keep that
-        chunk away from that lane for ``wait_retry_s`` (no hot loop)."""
+        chunk away from that lane for ``wait_retry_s`` (no hot loop). Never
+        evicted while the lane lives (:meth:`forget_lane` drops a lane's
+        entries when it ends); with no room the caller fails safe."""
         self._unverified[key] = self._unverified.get(key, 0) + 1
-        self._unverified.move_to_end(key)
+        self._tracked_lanes.add(key[0])
         self._cooldown[key] = self._clock() + self._settings.wait_retry_s
-        while len(self._unverified) > _MAX_TRACKED:
-            self._unverified.popitem(last=False)
-        while len(self._cooldown) > _MAX_TRACKED:
-            self._cooldown.popitem(last=False)
+
+    def forget_lane(self, attempt_id: str) -> None:
+        """The lane ended: its unverified counters and cool-downs go."""
+        if attempt_id not in self._tracked_lanes:
+            return
+        self._tracked_lanes.discard(attempt_id)
+        for key in [k for k in self._unverified if k[0] == attempt_id]:
+            del self._unverified[key]
+        for key in [k for k in self._cooldown if k[0] == attempt_id]:
+            del self._cooldown[key]
 
     def _avoid(self, attempt_id: str) -> frozenset[int]:
         """Chunks (item ids) this lane must not get again yet."""

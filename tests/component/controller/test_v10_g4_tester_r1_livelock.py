@@ -47,7 +47,7 @@ async def test_all_lanes_name_digests_they_never_uploaded_job_must_end(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _liar(monkeypatch)
-    async with _lanes(runtime, [0.01, 0.01]) as lanes:
+    async with _lanes(runtime, [0.01, 0.01]):
         job_id = await _submit(runtime, http, tmp_path, items=20, chunk=5)
         job = await _wait_job(runtime, job_id, within=60)
         assert job.state is JobState.FAILED, (job.state, job.failure_type)

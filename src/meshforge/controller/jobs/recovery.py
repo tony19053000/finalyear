@@ -116,7 +116,7 @@ class RecoverySteps(DispatchSteps):
                     continue
                 may_fetch = attempt.state in _MAY_FETCH or (
                     # V0.10 G4: a lane fetches its chunks' items while it runs
-                    getattr(attempt, "role", AttemptRole.RUN) is AttemptRole.LANE
+                    attempt.role is AttemptRole.LANE
                 )
                 if may_fetch and not self._tokens.has(attempt.id):
                     await self._refresh_fetch_token(job, attempt)
@@ -232,6 +232,8 @@ class RecoverySteps(DispatchSteps):
         self._grant_unacked.pop(attempt.id, None)
         if self._grants is not None:
             self._grants.close(attempt.id)
+        if self._split is not None:
+            self._split.forget_lane(attempt.id)
         if self._logs is not None and outcome.kind is StatusKind.APPLIED:
             self._logs.finalize(attempt.id, None)
         self._note_retry(outcome)

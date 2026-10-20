@@ -144,13 +144,13 @@ async def _matcher(values: Mapping[str, bytes]) -> SecretMatcher | None:
 
 
 def _is_lane(attempt: AttemptRecord) -> bool:
-    """V0.10 G4: a Mode 3 lane (older records / fakes without a role run whole)."""
-    return getattr(attempt, "role", AttemptRole.RUN) is AttemptRole.LANE
+    """V0.10 G4: a Mode 3 lane attempt."""
+    return attempt.role is AttemptRole.LANE
 
 
 def chunk_cap(job: JobRecord) -> int:
     """A split job's ``split.max_chunk_output_bytes`` (V0.10 G4, D261)."""
-    split = getattr(job, "split", None)  # fakes of older tests have none
+    split = job.split
     value = None if split is None else split.spec.get("max_chunk_output_bytes")
     if isinstance(value, int) and not isinstance(value, bool) and value > 0:
         return value
@@ -655,6 +655,8 @@ class DispatchSteps:
         self._tokens.expire_after(attempt_id, grace)
         if self._grants is not None:
             self._grants.close(attempt_id, grace)
+        if self._split is not None:
+            self._split.forget_lane(attempt_id)  # V0.10 G4: its counters go
 
     # ------------------------------------------------------------ retries
 

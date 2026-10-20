@@ -193,11 +193,8 @@ async def test_counters_reset_by_controller_restart_stay_bounded_by_restarts(
         assert svc.stats.grants < 200
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="D2 (minor): the LRU cap forgets counters of live chunks once more "
-    "than _MAX_TRACKED (lane, chunk) pairs cycle (needs > 100k at the real cap)",
-)
+# D2 fixed (fix round 2): counters of live lanes are never evicted; a pair that
+# finds no room is counted as a failure (fail safe), so the job still ends.
 async def test_counter_cap_eviction_must_not_reset_a_live_job(
     runtime: ControllerRuntime,  # noqa: F811
     http: httpx.AsyncClient,  # noqa: F811
