@@ -83,7 +83,7 @@ async def _snapshot(settings: DatabaseSettings) -> tuple[set[str], list[str]]:
         await engine.dispose()
 
 
-HEAD = "0027"  # bump with every new migration; the chain must stay linear
+HEAD = "0028"  # bump with every new migration; the chain must stay linear
 
 
 def test_single_linear_head() -> None:
@@ -91,6 +91,7 @@ def test_single_linear_head() -> None:
     assert script.get_heads() == [HEAD]
     chain = [r.revision for r in script.walk_revisions()]
     assert chain == [
+        "0028",
         "0027",
         "0026",
         "0025",
