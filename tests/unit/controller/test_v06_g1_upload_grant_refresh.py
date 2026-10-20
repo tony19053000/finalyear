@@ -21,7 +21,7 @@ import pytest
 
 from meshforge.common.hashing import sha256_bytes
 from meshforge.common.ids import new_attempt_id, new_command_id, new_job_id, new_node_id
-from meshforge.common.states import AttemptState
+from meshforge.common.states import AttemptRole, AttemptState
 from meshforge.controller.blobs import FetchTokens
 from meshforge.controller.jobs.dispatcher import Dispatcher, _Reconcile
 from meshforge.controller.session.live import PendingCommand
@@ -75,12 +75,14 @@ def _entry(node_id: str, state: AttemptState, *, cancel: bool = False) -> Any:
         bundle_digest=DIGEST,
         tree_id=None,
         cancel_requested_at=object() if cancel else None,
+        split=None,
     )
     attempt = SimpleNamespace(
         id=str(new_attempt_id()),
         job_id=job.id,
         node_id=node_id,
         fencing_token=7,
+        role=AttemptRole.RUN,  # V0.10 G4: never inferred
         state=state,
         start_acked_at=object(),
     )

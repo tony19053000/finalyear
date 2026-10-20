@@ -33,9 +33,15 @@ from meshforge.common.hashing import Digest
 from meshforge.common.proto.meshforge.v1 import agent_pb2
 from meshforge.common.states import JobState
 from meshforge.common.tree import BuiltTree, build_tree
-from meshforge.controller.jobs.planning import SPLIT_NOT_SUPPORTED_YET
 from meshforge.controller.server import ControllerRuntime
 from meshforge.controller.store.settings import DatabaseSettings
+
+# V0.10 G4: the fake agent advertises no ``exec-split``, so the planner gives
+# it no lane (``no_split_support``, static) - the job still never runs whole.
+SPLIT_NOT_SUPPORTED_YET = (
+    "no node of the fabric can run this job (see compute explain)",
+    "node_rejected_no_split_support",
+)
 
 pytestmark = [pytest.mark.component, pytest.mark.asyncio, pytest.mark.timeout(240)]
 
@@ -408,7 +414,7 @@ async def test_a_split_job_is_never_run_whole_auto_or_pinned(
         ended.failure_type is not None
         and ended.failure_type.value == "no_feasible_plan"
     )
-    assert ended.failure_detail == SPLIT_NOT_SUPPORTED_YET
+    assert ended.failure_detail in SPLIT_NOT_SUPPORTED_YET
     assert runtime.jobs is not None
     assert await runtime.jobs.list_attempts(got.json()["job_id"]) == []
     await asyncio.sleep(0.6)  # more dispatch ticks: still nothing sent to the node
@@ -436,7 +442,7 @@ async def test_a_plain_job_next_to_a_split_job_is_not_affected_by_the_refusal(
     )
     assert split.status_code == 201 and plain.status_code == 201, plain.text
     ended = await _wait_terminal(runtime, split.json()["job_id"])
-    assert ended.failure_detail == SPLIT_NOT_SUPPORTED_YET
+    assert ended.failure_detail in SPLIT_NOT_SUPPORTED_YET
     plain_row = next(
         r for r in await _rows(runtime) if r["id"] == plain.json()["job_id"]
     )

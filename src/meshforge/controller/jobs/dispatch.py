@@ -29,9 +29,10 @@ from pydantic import SecretStr
 from meshforge.common.errors import FailureType
 from meshforge.common.hashing import Digest
 from meshforge.common.logging import get_logger
+from meshforge.common.manifest import DEFAULT_CHUNK_OUTPUT_BYTES
 from meshforge.common.proto.meshforge.v1 import agent_pb2
 from meshforge.common.secret_redaction import SecretMatcher
-from meshforge.common.states import AttemptState
+from meshforge.common.states import AttemptRole, AttemptState
 from meshforge.controller.blobs import MAX_FETCH_TOKEN_TTL_S, FetchTokens
 from meshforge.controller.jobs.execution_store import (
     ExecutionStore,
@@ -66,10 +67,14 @@ from meshforge.controller.settings import (
     JobApiSettings,
     NetworkSettings,
     PlannerSettings,
+    SplitSettings,
 )
 from meshforge.controller.upload_grants import UploadGrants
 
-__all__ = ["DispatchSteps", "DispatcherStats", "fetch_scope"]
+if TYPE_CHECKING:
+    from meshforge.controller.split.service import SplitService
+
+__all__ = ["DispatchSteps", "DispatcherStats", "chunk_cap", "fetch_scope"]
 
 log = get_logger(__name__)
 
@@ -110,14 +115,19 @@ class DispatcherStats:
     after the job was retried - a possible overlapping execution."""
 
 
-def fetch_scope(job: JobRecord, inputs: Sequence[str] = ()) -> list[Digest]:
+def fetch_scope(
+    job: JobRecord, inputs: Sequence[str] = (), *, lane: bool = False
+) -> list[Digest]:
     """What an attempt's controller fetch token may read: the tree (its manifest
     plus every member, :class:`~meshforge.controller.blobs.FetchTokens`) for a
     tree job, plus every named input tree of the job (V0.5 G5, D92); the
     bundle for a V0.4 bundle job. The same for StartAttempt and every
-    RefreshFetchToken (D95)."""
+    RefreshFetchToken (D95). A split job's **lane** (V0.10 G4) may also read
+    the job's item list blob (``LaneSpec.items_digest``)."""
     if job.tree_id:
         extra = [Digest.parse(t) for t in dict.fromkeys(inputs) if t != job.tree_id]
+        if lane and job.split is not None:
+            extra.append(Digest.parse(job.split.items_digest))
         return [Digest.parse(job.tree_id), *extra]
     if not job.bundle_digest:
         raise ValueError(f"job {job.id} has neither a tree nor a bundle")
@@ -131,6 +141,20 @@ async def _matcher(values: Mapping[str, bytes]) -> SecretMatcher | None:
     if not values:
         return None
     return await asyncio.to_thread(SecretMatcher, values)
+
+
+def _is_lane(attempt: AttemptRecord) -> bool:
+    """V0.10 G4: a Mode 3 lane attempt."""
+    return attempt.role is AttemptRole.LANE
+
+
+def chunk_cap(job: JobRecord) -> int:
+    """A split job's ``split.max_chunk_output_bytes`` (V0.10 G4, D261)."""
+    split = job.split
+    value = None if split is None else split.spec.get("max_chunk_output_bytes")
+    if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+        return value
+    return DEFAULT_CHUNK_OUTPUT_BYTES
 
 
 class DispatchSteps:
@@ -159,6 +183,8 @@ class DispatchSteps:
     _secrets: SecretStore | None
     _insecure_secrets: bool
     _bench_condition: Callable[[str | None], Awaitable[str | None]] | None
+    _split_settings: SplitSettings
+    _split: SplitService | None
     stats: DispatcherStats
 
     if TYPE_CHECKING:  # the dispatcher's (never shadowed at run time)
@@ -183,9 +209,11 @@ class DispatchSteps:
             ),
         )
         for result in results:
-            if result.attempt is not None:
+            for attempt in result.lanes or (
+                () if result.attempt is None else (result.attempt,)
+            ):
                 self.stats.dispatched += 1
-                await self._send_start(result.job, result.attempt, resend=False)
+                await self._send_start(result.job, attempt, resend=False)
 
     # ------------------------------------------------------------ sources
 
@@ -365,7 +393,8 @@ class DispatchSteps:
         )
         if self._grants is not None:
             # D73: the only credential that may upload for this attempt; a
-            # re-send keeps what the previous grant already stored.
+            # re-send keeps what the previous grant already stored. A lane's
+            # grant grows by one chunk's output per chunk granted (D261).
             grant = self._grants.mint(
                 attempt.id,
                 ttl_s=ttl,
@@ -389,6 +418,16 @@ class DispatchSteps:
         if condition is not None:
             # V0.9 G4 (D217): the agent applies + verifies it before staging
             start.condition.spec = condition
+        if _is_lane(attempt) and job.split is not None:
+            # V0.10 G4 (D259): this attempt pulls chunks instead of running once
+            start.lane.CopyFrom(
+                agent_pb2.LaneSpec(
+                    items_digest=job.split.items_digest,
+                    item_count=job.split.item_count,
+                    max_chunk_output_bytes=chunk_cap(job),
+                    lease_timeout_s=self._split_settings.visibility_timeout_s,
+                )
+            )
         # V0.9 G5 (D246): the agent's owner guard stops only benchmark jobs
         start.benchmark = is_benchmark_key(getattr(job, "idempotency_key", None))
         message_id = self._manager.send_command(
@@ -438,10 +477,14 @@ class DispatchSteps:
         Scope (:func:`fetch_scope`) = the tree for a tree job (which grants
         exactly that tree's blobs), the bundle for a V0.4 bundle job."""
         self._tokens.revoke(attempt.id)
-        ttl = self._token_ttl(job)
+        ttl = self._token_ttl(job, attempt)
         token = self._tokens.mint(
             attempt.id,
-            fetch_scope(job, [i.tree_id for i in inputs]),
+            fetch_scope(
+                job,
+                [i.tree_id for i in inputs],
+                lane=_is_lane(attempt),
+            ),
             ttl_s=ttl,
             node_id=attempt.node_id,
         )
@@ -504,7 +547,8 @@ class DispatchSteps:
         staging = {
             entry.attempt.id: entry
             for entry in live
-            if entry.attempt.state in _FETCHING and entry.job.tree_id
+            if (entry.attempt.state in _FETCHING or _is_lane(entry.attempt))
+            and entry.job.tree_id
         }
         for attempt_id in [a for a in self._peer_minted if a not in staging]:
             del self._peer_minted[attempt_id]
@@ -551,11 +595,16 @@ class DispatchSteps:
         it with where this controller serves blobs now."""
         if self._grants is None:
             return
+        held = 0
+        if _is_lane(attempt) and self._split is not None:
+            # V0.10 G4 (D261): room for the chunks the lane still holds (a
+            # restarted controller forgot the grown quota)
+            held = await self._split.held_leases(attempt.id)
         grant = self._grants.mint(
             attempt.id,
-            ttl_s=self._token_ttl(job),
-            max_blobs=self._settings.max_output_blobs,
-            max_bytes=self._settings.max_output_bytes,
+            ttl_s=self._token_ttl(job, attempt),
+            max_blobs=self._settings.max_output_blobs + held,
+            max_bytes=self._settings.max_output_bytes + held * chunk_cap(job),
             node_id=attempt.node_id,
         )
         sent = self._manager.send_command(
@@ -586,8 +635,12 @@ class DispatchSteps:
             node_id=attempt.node_id,
         )
 
-    def _token_ttl(self, job: JobRecord) -> float:
-        """Lifetime of an attempt's fetch token and upload grant."""
+    def _token_ttl(self, job: JobRecord, attempt: AttemptRecord | None = None) -> float:
+        """Lifetime of an attempt's fetch token and upload grant. A lane runs
+        chunk after chunk (each within ``limits.timeout``), so its credentials
+        live as long as any may (V0.10 G4); they end with the lane."""
+        if attempt is not None and _is_lane(attempt):
+            return float(MAX_FETCH_TOKEN_TTL_S)
         return min(
             float(job.manifest.get("limits", {}).get("timeout", 0))
             + self._settings.fetch_token_grace_s,
@@ -602,6 +655,8 @@ class DispatchSteps:
         self._tokens.expire_after(attempt_id, grace)
         if self._grants is not None:
             self._grants.close(attempt_id, grace)
+        if self._split is not None:
+            self._split.forget_lane(attempt_id)  # V0.10 G4: its counters go
 
     # ------------------------------------------------------------ retries
 

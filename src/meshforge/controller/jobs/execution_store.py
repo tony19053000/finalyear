@@ -60,6 +60,7 @@ from meshforge.common.errors import FailureType
 from meshforge.common.logging import get_logger
 from meshforge.common.states import (
     ATTEMPT_TERMINAL_STATES,
+    AttemptRole,
     AttemptState,
     JobState,
 )
@@ -103,6 +104,7 @@ from meshforge.controller.jobs.transitions import (
     next_attempt_state,
     next_job_state,
 )
+from meshforge.controller.split import lanes as split_lanes
 from meshforge.controller.store.models.data import TransferEvent
 from meshforge.controller.store.models.enrollment import AuditAction
 from meshforge.controller.store.models.job import (
@@ -115,14 +117,17 @@ from meshforge.controller.store.models.plan import (
     MAX_DECISION_CANDIDATES,
     PlanDecision,
 )
+from meshforge.workqueue.core import QueuePolicy
 
 __all__ = [
     "CancelOutcome",
     "DecisionRecord",
     "Dispatch",
     "DispatchFailure",
+    "DispatchLanes",
     "DispatchResult",
     "ExecutionStore",
+    "LaneStart",
     "LiveAttempt",
     "NodeView",
     "StatusKind",
@@ -197,6 +202,30 @@ class Dispatch:
 
 
 @dataclass(frozen=True, slots=True)
+class LaneStart:
+    """One lane of a split job's dispatch (V0.10 G4, D259)."""
+
+    attempt_id: str
+    node_id: str
+    slot: str
+    start_snapshot: Mapping[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
+class DispatchLanes:
+    """A split job's dispatch (V0.10 G4, D259): its chunk queue (created now,
+    or kept from an earlier round) and one lane attempt per node, in one
+    transaction (:mod:`meshforge.controller.split.lanes`)."""
+
+    lanes: tuple[LaneStart, ...]
+    chunk_items: int
+    """Items per chunk when the queue is created now (a kept queue keeps its
+    own)."""
+    queue_policy: QueuePolicy
+    record: DecisionRecord | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class DispatchFailure:
     failure_type: FailureType
     detail: str
@@ -212,7 +241,7 @@ class Wait:
     record: DecisionRecord | None = None
 
 
-type DispatchDecision = Dispatch | DispatchFailure | Wait | None
+type DispatchDecision = Dispatch | DispatchLanes | DispatchFailure | Wait | None
 """``None`` / :class:`Wait` = leave the job queued (try again on a later tick)."""
 
 type Decide = Callable[[JobRecord, NodeView | None], DispatchDecision]
@@ -228,6 +257,8 @@ class DispatchResult:
     attempt: AttemptRecord | None
     """Set when an attempt was created (the caller now sends StartAttempt)."""
     failure: DispatchFailure | None = None
+    lanes: tuple[AttemptRecord, ...] = ()
+    """V0.10 G4: a split job's lanes (``attempt`` is the first of them)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -307,6 +338,8 @@ class CancelOutcome:
     """The live attempt the caller must send ``CancelAttempt`` for, if any."""
     cancelled_now: bool
     """The job went to CANCELLED in this call (it had no live attempt)."""
+    others: tuple[AttemptRecord, ...] = ()
+    """V0.10 G4: the other live lanes of a split job (cancel each)."""
 
 
 # -------------------------------------------------------------------- store
@@ -317,6 +350,8 @@ class ExecutionStore(DecisionReads):
 
     def __init__(self, engine: AsyncEngine) -> None:
         super().__init__(engine)
+        self.engine = engine
+        """V0.10 G4: the chunk store (``controller.split``) shares it."""
         # job id -> reason key of a ``waiting`` row the database refused; kept
         # across ticks so the same refused row is not retried every tick
         # (``fabric.last_reason`` is re-read from the table each tick).
@@ -386,6 +421,31 @@ class ExecutionStore(DecisionReads):
                             )
                     await _fresh(db, row)
                     results.append(DispatchResult(job=job_record(row), attempt=attempt))
+                elif isinstance(decision, DispatchLanes):
+                    result = await self._dispatch_lanes(
+                        db, row, decision, fabric, max_per_node=max_per_node
+                    )
+                    if result is None or result.attempt is None:
+                        continue
+                    results.append(result)
+                    if decision.record is not None:
+                        fabric.last_reason[job.id] = decision.record.reason_key
+                        if await _record_decision(
+                            db,
+                            job.id,
+                            result.attempt.fencing_token,
+                            "dispatched",
+                            decision.record,
+                            attempt_id=result.attempt.id,
+                        ):
+                            recorded.append(
+                                (
+                                    job.id,
+                                    result.attempt.id,
+                                    "dispatched",
+                                    decision.record,
+                                )
+                            )
                 elif isinstance(decision, DispatchFailure):
                     why: str | None = decision.detail
                     if int(row.attempt_epoch) > 0:  # a retried job: keep the root cause
@@ -485,6 +545,34 @@ class ExecutionStore(DecisionReads):
             max_per_node=max_per_node,
             now=dt.datetime.now(dt.UTC),
             aging_s=_DEFAULT_AGING_S,
+        )
+
+    async def _dispatch_lanes(
+        self,
+        db: AsyncSession,
+        row: Job,
+        decision: DispatchLanes,
+        fabric: FabricRows,
+        *,
+        max_per_node: int,
+    ) -> DispatchResult | None:
+        """V0.10 G4: queue + lanes (:func:`meshforge.controller.split.lanes.
+        dispatch`); a lane whose node is gone or full in this tick is dropped
+        (the decider must not over-book; defensive), none left = no dispatch."""
+        usable = [
+            lane
+            for lane in decision.lanes
+            if lane.node_id in fabric.nodes
+            and sum(fabric.used_slots(lane.node_id)) < max_per_node
+        ]
+        if not usable:
+            return None
+        created = await split_lanes.dispatch(db, row, decision, usable, _move_job)
+        for lane in usable:
+            fabric.took(lane.node_id, lane.slot, _gpu_indices(lane.start_snapshot))
+        await _fresh(db, row)
+        return DispatchResult(
+            job=job_record(row), attempt=created[0], lanes=tuple(created)
         )
 
     async def _create_dispatched(
@@ -603,6 +691,8 @@ class ExecutionStore(DecisionReads):
             if not path:
                 return StatusOutcome(StatusKind.DUPLICATE, attempt=attempt_record(row))
             job = await db.get_one(Job, row.job_id, with_for_update=True)
+            if row.role == AttemptRole.LANE.value:
+                return await _apply_lane_status(db, row, job, report, path)
             if int(row.fencing_token) != int(job.attempt_epoch):
                 # D110/ADR-0015: only the job's current attempt may move it. A
                 # retry ends the old attempt in the transaction that creates
@@ -686,7 +776,17 @@ class ExecutionStore(DecisionReads):
             await _move_attempt(db, row, event, report)
             await _write_phases(db, row, None)  # before a retry's new QUEUED
             verdict: RetryVerdict | None = None
-            if int(row.fencing_token) == int(job.attempt_epoch):
+            if row.role == AttemptRole.LANE.value:
+                verdict = await _lane_ended(
+                    db,
+                    job,
+                    row,
+                    failure_type=failure_type,
+                    detail=detail,
+                    retryable=retryable,
+                    lost=event is AttemptEvent.LOSE,
+                )
+            elif int(row.fencing_token) == int(job.attempt_epoch):
                 verdict = await _fail_or_retry(
                     db,
                     job,
@@ -728,6 +828,10 @@ class ExecutionStore(DecisionReads):
             .join(Job, Job.id == Attempt.job_id)
             .where(
                 Attempt.state == AttemptState.RUNNING.value,
+                # V0.10 G4: a lane runs many chunks; each chunk's limit is
+                # enforced on the agent, and a hung lane loses its leases by
+                # their visibility timeout - no whole-lane deadline.
+                Attempt.role != AttemptRole.LANE.value,
                 Attempt.started_at.is_not(None),
                 Attempt.started_at
                 + func.make_interval(0, 0, 0, 0, 0, 0, limit_s + grace_s)
@@ -756,20 +860,23 @@ class ExecutionStore(DecisionReads):
             if state in _CANCEL_VIA_AGENT:
                 if job.cancel_requested_at is None:
                     job.cancel_requested_at = dt.datetime.now(dt.UTC)
-                attempt = await db.scalar(
-                    select(Attempt)
-                    .where(
-                        Attempt.job_id == job_id,
-                        Attempt.state.in_(LIVE_ATTEMPT_STATES),
+                live = list(
+                    await db.scalars(
+                        select(Attempt)
+                        .where(
+                            Attempt.job_id == job_id,
+                            Attempt.state.in_(LIVE_ATTEMPT_STATES),
+                        )
+                        .order_by(Attempt.fencing_token.desc())
                     )
-                    .order_by(Attempt.fencing_token.desc())
-                    .limit(1)
                 )
                 await _fresh(db, job)
                 return CancelOutcome(
                     job_record(job),
-                    None if attempt is None else attempt_record(attempt),
+                    attempt_record(live[0]) if live else None,
                     cancelled_now=False,
+                    # V0.10 G4: every live lane of a split job is stopped
+                    others=tuple(attempt_record(a) for a in live[1:]),
                 )
             return CancelOutcome(job_record(job), None, cancelled_now=False)
 
@@ -979,6 +1086,71 @@ async def _fail_or_retry(
         db, job, JobEvent.FAIL, failure_type=failure_type, detail=detail, soft=True
     )
     return verdict
+
+
+async def _lane_ended(
+    db: AsyncSession,
+    job: Job,
+    lane: Attempt,
+    *,
+    failure_type: FailureType | None,
+    detail: str | None,
+    retryable: bool | None,
+    lost: bool,
+) -> RetryVerdict | None:
+    """V0.10 G4 (D267a/e): a lane reached a terminal state in this
+    transaction - :func:`meshforge.controller.split.lanes.lane_gone`."""
+    end = await split_lanes.lane_gone(
+        db,
+        job,
+        lane,
+        failure_type=failure_type,
+        detail=detail,
+        retryable=retryable,
+        lost=lost,
+        move_job=_move_job,
+    )
+    return end.verdict
+
+
+async def _apply_lane_status(
+    db: AsyncSession,
+    row: Attempt,
+    job: Job,
+    report: StatusReport,
+    path: Sequence[tuple[AttemptEvent, AttemptState]],
+) -> StatusOutcome:
+    """V0.10 G4: a lane's own report (:mod:`meshforge.controller.split.lanes`):
+    every lane of the job's round is current; reaching RUNNING starts the job,
+    nothing a lane reports ends it."""
+    for event, _ in path:
+        await _move_attempt(db, row, event, report)
+        if AttemptState(row.state) is AttemptState.RUNNING:
+            await _move_job(db, job, JobEvent.STARTED, soft=True)
+    ended = AttemptState(row.state) in ATTEMPT_TERMINAL_STATES
+    verdict: RetryVerdict | None = None
+    if ended:
+        await _write_phases(db, row, report.phases)
+        await _write_transfers(db, row, report.transfers)
+        verdict = await _lane_ended(
+            db,
+            job,
+            row,
+            failure_type=None
+            if AttemptState(row.state) is AttemptState.DONE
+            else report.failure_type or FailureType.INTERNAL_ERROR,
+            detail=report.detail,
+            retryable=report.retryable,
+            lost=False,
+        )
+    await _fresh(db, row, job)
+    return StatusOutcome(
+        StatusKind.APPLIED,
+        attempt=attempt_record(row),
+        job=job_record(job),
+        ended=ended,
+        retry=verdict,
+    )
 
 
 async def _first_failure_type(db: AsyncSession, job_id: str) -> str | None:

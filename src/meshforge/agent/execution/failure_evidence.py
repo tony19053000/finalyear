@@ -91,6 +91,10 @@ class OutputTail:
     def data(self) -> bytes:
         return bytes(self._buf)
 
+    def clear(self) -> None:
+        """Forget what was kept (V0.10 G4: a lane's next chunk starts afresh)."""
+        self._buf.clear()
+
 
 def _last_line(data: bytes) -> bytes:
     for line in reversed(data.splitlines()):

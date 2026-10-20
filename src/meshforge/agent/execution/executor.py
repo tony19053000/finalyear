@@ -133,6 +133,7 @@ from meshforge.agent.execution.fetch import (
     token_ok,
     tree_sources,
 )
+from meshforge.agent.execution.lane import LaneState, LaneSteps
 from meshforge.agent.execution.live_redaction import LiveRedaction
 from meshforge.agent.execution.logs import AttemptLogs, Chunk, file_sha256
 from meshforge.agent.execution.offer import ExecutionSetup
@@ -345,6 +346,11 @@ class _Attempt:
     preempt_reason: str = ""
     preempt_stopped: bool = False
     """Its step was cancelled by :meth:`Executor.preempt_benchmarks` (fix r2)."""
+    lane: LaneState | None = None
+    """V0.10 G4 (D259): set when this attempt is a Mode 3 lane
+    (``StartAttempt.lane``) - :mod:`.lane`."""
+    start_spec: agent_pb2.ExecutionSpec | None = None
+    """The StartAttempt's spec (a lane stages chunk files with its sources)."""
 
     @property
     def ended(self) -> bool:
@@ -365,8 +371,8 @@ class _Observer(RunObserver):
         self.started.set()
 
 
-class Executor:
-    """See module docstring."""
+class Executor(LaneSteps):
+    """See module docstring (lanes: :class:`~.lane.LaneSteps`)."""
 
     def __init__(
         self,
@@ -389,6 +395,7 @@ class Executor:
         cpu_threads: int | None = None,
         conditions: ConditionRunner | None = None,
         owner_guard: Callable[[], str | None] | None = None,
+        send_now: Callable[[str, Any], Awaitable[bool]] | None = None,
     ) -> None:
         """``owner_guard`` (V0.9 G5): why benchmark jobs may not run here now
         (None = they may); a benchmark StartAttempt is refused
@@ -409,6 +416,9 @@ class Executor:
         pre-emption (``[agent.bench] preempt_revert_timeout_s``)."""
         self._policy = policy
         self._owner_guard = owner_guard
+        self._send_now = send_now
+        """V0.10 G4: the session's unbuffered write (a lane's ChunkRequest /
+        LeaseRenew); None = no lane can pull (tests of other rules)."""
         self._cpu_threads = cpu_threads or None
         self._http_tls = http_tls
         self._scheme = "https" if http_tls is not None else "http"
@@ -561,6 +571,8 @@ class Executor:
             self._refresh_grant(msg.refresh_upload_grant)
         elif which == "refresh_peer_tokens":
             self._refresh_peer_tokens(msg.refresh_peer_tokens)
+        elif which in ("chunk_grant", "no_work", "cancel_chunk"):
+            self._lane_command(msg)  # V0.10 G4 (D263)
 
     def held(self) -> list[agent_pb2.AttemptStatus]:
         """Every attempt this process holds, for ``Reconcile`` (D66): running ones
@@ -579,6 +591,7 @@ class Executor:
         """A report was acked; a terminal one releases its attempt."""
         attempt_id = self._by_terminal_message.pop(message_id, None)
         if attempt_id is None:
+            self._lane_result_acked(message_id)  # V0.10 G4: a ChunkResult
             return
         attempt = self._attempts.get(attempt_id)
         if attempt is not None:
@@ -704,6 +717,8 @@ class Executor:
             attempt_id=attempt_id,
             token=token,
             benchmark=bool(msg.benchmark),
+            lane=LaneState(spec=msg.lane) if msg.HasField("lane") else None,
+            start_spec=msg.spec,
         )
         self._attempts[attempt_id] = attempt
         running = sum(1 for a in self._attempts.values() if not a.ended)
@@ -1085,6 +1100,17 @@ class Executor:
             reason=attempt.preempt_reason,
         )
 
+    def _stopped_error(self) -> Exception:
+        """The purposeful-stop signal (for :mod:`.lane`)."""
+        return _StoppedError()
+
+    def _current_spec(self, attempt: _Attempt) -> agent_pb2.ExecutionSpec:
+        """The StartAttempt's spec with the newest fetch token, blob location
+        and sources (RefreshFetchToken, D95/D98) - a lane fetches chunk files
+        long after its start."""
+        spec = attempt.start_spec or agent_pb2.ExecutionSpec()
+        return _refreshed(spec, attempt, attempt.fetch_token or spec.fetch_token)
+
     def _stop(self, attempt: _Attempt, reason: str) -> None:
         if attempt.stop_reason is None:
             attempt.stop_reason = reason
@@ -1273,6 +1299,9 @@ class Executor:
             await self._step(attempt, attempt.condition.apply())
         await self._send(attempt, AttemptState.STAGING)
         stage_started = self._clock()
+        if attempt.lane is not None:
+            # V0.10 G4 (D264): the item list first - it decides what to stage
+            await self._lane_prepare(attempt, plan, msg.spec)
         await self._stage(attempt, plan, workdir, msg.spec)
         attempt.phases["stage_s"] = self._clock() - stage_started
         if attempt.condition is not None:
@@ -1514,6 +1543,7 @@ class Executor:
                 ),
                 on_tree=leases.tree if leases is not None else None,
                 token_for=self._token_lookup(attempt, spec.tree_id),
+                skip=self._lane_skip(attempt, None),
                 **self._transport(),
             ),
         )
@@ -1584,6 +1614,7 @@ class Executor:
                     tuning=self._tuning(),
                     on_tree=leases.tree if leases is not None else None,
                     token_for=self._token_lookup(attempt, item.tree_id),
+                    skip=self._lane_skip(attempt, mount),
                     **self._transport(),
                 ),
             )
@@ -1695,8 +1726,10 @@ class Executor:
             name=f"attempt-logs:{attempt.attempt_id}",
         )
         flusher.add_done_callback(self._task_done)
+        # V0.10 G4: a lane runs one process per chunk (:mod:`.lane`)
+        body = self._run_lane if attempt.lane is not None else self._run_workload
         try:
-            await self._run_workload(
+            await body(
                 attempt, plan, logs, runtime, observer, on_output, stderr_tail, drain
             )
         finally:
@@ -1745,6 +1778,17 @@ class Executor:
             result[stream] = final
             path = logs.path(stream)
             if not plan.upload_token:
+                continue
+            if not logs.unchanged(stream):
+                # the job swapped its log file or folder (they live in its
+                # workdir): never upload what a link points at
+                log.warning(
+                    "agent.execution.log_swapped",
+                    node_id=self._node_id,
+                    job_id=attempt.job_id,
+                    attempt_id=attempt.attempt_id,
+                    stream=stream.value,
+                )
                 continue
             try:
                 digest, size = await asyncio.to_thread(file_sha256, path)

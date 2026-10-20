@@ -1,7 +1,8 @@
-"""V0.10 G1: a split job is accepted and stored, but until lanes exist (G4) the
-dispatch planner refuses it typed - it must never run whole by accident
-(``no_feasible_plan``, ``not_supported_yet: split execution arrives in G4``),
-even with a perfectly good node online and even when pinned."""
+"""V0.10 G4 (was G1's refusal test): a split job is dispatched as LANES - never
+as a whole-job ``Dispatch``. A node whose agent has no ``exec-split`` never gets
+a lane (``no_split_support``, static -> ``no_feasible_plan`` when no node can);
+a pinned split job runs one lane on its node; a job row whose manifest lost its
+``split:`` (stored-data fault) is failed, never run whole."""
 
 from __future__ import annotations
 
@@ -12,8 +13,12 @@ from typing import Any
 from meshforge.common.errors import FailureType
 from meshforge.common.ids import new_job_id, new_node_id
 from meshforge.common.states import JobState
-from meshforge.controller.jobs.execution_store import Dispatch, DispatchFailure
-from meshforge.controller.jobs.planning import SPLIT_NOT_SUPPORTED_YET, DispatchPlanner
+from meshforge.controller.jobs.execution_store import (
+    Dispatch,
+    DispatchFailure,
+    DispatchLanes,
+)
+from meshforge.controller.jobs.planning import DispatchPlanner
 from meshforge.controller.jobs.queue_reads import FabricRows, NodeRow
 from meshforge.controller.jobs.store import JobRecord, SplitRecord
 from meshforge.controller.liveness import NodeState
@@ -81,13 +86,13 @@ def _job(
     )
 
 
-def _fabric(node_id: str) -> FabricRows:
+def _fabric(node_id: str, caps: list[str] | None = None) -> FabricRows:
     return FabricRows(
         nodes={
             node_id: NodeRow(
                 node_id=node_id,
                 state="online",
-                hardware={"capabilities": CAPS},
+                hardware={"capabilities": caps or CAPS},
                 hardware_scores=None,
                 cpu_slots=1,
                 gpu_slots=0,
@@ -101,27 +106,45 @@ def test_the_same_job_without_split_would_dispatch() -> None:
     assert isinstance(_planner(node).decide(_job(PLAIN), _fabric(node)), Dispatch)
 
 
-def test_an_auto_split_job_is_refused_typed() -> None:
+RECORD = SplitRecord(
+    spec={"over": {"glob": "data/*"}}, items_digest="sha256:" + "b" * 64, item_count=8
+)
+
+
+def test_an_agent_without_exec_split_never_gets_a_lane() -> None:
     node = str(new_node_id())
-    decision = _planner(node).decide(_job(SPLIT), _fabric(node))
+    decision = _planner(node).decide(_job(SPLIT, split=RECORD), _fabric(node))
     assert isinstance(decision, DispatchFailure)
     assert decision.failure_type is FailureType.NO_FEASIBLE_PLAN
-    assert decision.detail == SPLIT_NOT_SUPPORTED_YET
-    assert SPLIT_NOT_SUPPORTED_YET.startswith("not_supported_yet: ")
+    assert decision.record is not None
+    codes = {c.get("reject_code") for c in decision.record.candidates}
+    assert "no_split_support" in codes
 
 
-def test_a_pinned_split_job_is_refused_too() -> None:
+def test_an_auto_split_job_runs_as_lanes() -> None:
     node = str(new_node_id())
-    decision = _planner(node).decide(_job(SPLIT, node_id=node), _fabric(node))
-    assert isinstance(decision, DispatchFailure)
-    assert decision.detail == SPLIT_NOT_SUPPORTED_YET
-
-
-def test_the_split_column_alone_is_enough() -> None:
-    node = str(new_node_id())
-    record = SplitRecord(
-        spec={"over": {"glob": "x"}}, items_digest="sha256:" + "b" * 64, item_count=3
+    decision = _planner(node).decide(
+        _job(SPLIT, split=RECORD), _fabric(node, [*CAPS, "exec-split"])
     )
-    decision = _planner(node).decide(_job(PLAIN, split=record), _fabric(node))
+    assert isinstance(decision, DispatchLanes), decision
+    assert [lane.node_id for lane in decision.lanes] == [node]  # one node: one lane
+    assert 1 <= decision.chunk_items <= 8
+    assert decision.queue_policy.max_failed_sites == 2
+
+
+def test_a_pinned_split_job_is_one_lane_on_its_node() -> None:
+    node = str(new_node_id())
+    decision = _planner(node).decide(
+        _job(SPLIT, node_id=node, split=RECORD), _fabric(node, [*CAPS, "exec-split"])
+    )
+    assert isinstance(decision, DispatchLanes), decision
+    assert [lane.node_id for lane in decision.lanes] == [node]
+
+
+def test_the_split_column_alone_never_runs_whole() -> None:
+    node = str(new_node_id())
+    decision = _planner(node).decide(
+        _job(PLAIN, split=RECORD), _fabric(node, [*CAPS, "exec-split"])
+    )
     assert isinstance(decision, DispatchFailure)
-    assert decision.detail == SPLIT_NOT_SUPPORTED_YET
+    assert decision.failure_type is FailureType.INTERNAL_ERROR

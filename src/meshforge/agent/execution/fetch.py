@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import dataclasses
 import hashlib
 import hmac
 import os
@@ -64,6 +65,7 @@ from meshforge.agent.cas import (
     materialise,
 )
 from meshforge.agent.cas.fetcher import FetchError, FetchTuning, SourceStats
+from meshforge.agent.cas.materialise import materialise_subset
 from meshforge.agent.cas.sources import TokenLookup
 from meshforge.agent.cas.store import DEFAULT_FREE_DISK_FLOOR_BYTES
 from meshforge.agent.execution.failure_evidence import DISK_FULL_ERRNOS
@@ -72,17 +74,19 @@ from meshforge.common.errors import FailureType, MeshForgeError
 from meshforge.common.hashing import Digest
 from meshforge.common.logging import get_logger
 from meshforge.common.proto.meshforge.v1 import agent_pb2
-from meshforge.common.tree import Tree
+from meshforge.common.tree import Tree, TreeEntry
 
 __all__ = [
     "DEFAULT_MAX_BUNDLE_BYTES",
     "MAX_SOURCES",
+    "EntriesReport",
     "FetchError",
     "StageReport",
     "UploadError",
     "blob_base_url",
     "blob_url_ok",
     "fetch_bundle",
+    "stage_entries",
     "stage_tree",
     "token_ok",
     "tree_sources",
@@ -323,6 +327,93 @@ def token_ok(token: str) -> bool:
     )
 
 
+@dataclass(frozen=True, slots=True)
+class EntriesReport:
+    """What placing one chunk's files cost (V0.10 G4)."""
+
+    placed: tuple[Path, ...]
+    blobs_hit: int
+    blobs_fetched: int
+    bytes_fetched: int
+    duration_s: float
+
+
+async def stage_entries(
+    cas: AgentCas,
+    *,
+    tree: Tree,
+    paths: Sequence[str],
+    sources: Sequence[BlobSource],
+    dest: Path,
+    timeout_s: float = 60.0,
+    transport: httpx.AsyncBaseTransport | None = None,
+    free_disk_floor_bytes: int = DEFAULT_FREE_DISK_FLOOR_BYTES,
+    clock: Callable[[], float] = time.monotonic,
+    tuning: FetchTuning | None = None,
+    token_for: TokenLookup | None = None,
+) -> EntriesReport:
+    """V0.10 G4 (D264): fetch only the blobs of ``paths`` (file entries of the
+    verified ``tree``) into the cache - verified chunk by chunk, from the
+    controller and peers like any staging - and place them read-only at their
+    own paths inside the existing workdir ``dest``
+    (:func:`~meshforge.agent.cas.materialise.materialise_subset`). Blobs
+    already cached are not fetched again (a retry or a speculative copy on the
+    same node costs nothing)."""
+    by_path = {e.path: e for e in tree.entries}
+    entries: list[TreeEntry] = []
+    for path in paths:
+        entry = by_path.get(path)
+        if entry is None or entry.kind != "file":
+            raise FetchError(
+                "a chunk item is not a file of the staged tree",
+                failure_type=FailureType.INVALID_INPUT,
+            )
+        entries.append(entry)
+    started = clock()
+    await cas.prepare()
+    sub = dataclasses.replace(tree, entries=tuple(entries))
+    refetches = 0
+    async with httpx.AsyncClient(
+        timeout=httpx.Timeout(timeout_s), transport=transport, trust_env=False
+    ) as client:
+        fetcher = BlobFetcher(
+            cas, sources, client, tuning=tuning, clock=clock, token_for=token_for
+        )
+        await fetcher.ensure_all(sub)
+        while True:
+            try:
+                placed = await uninterrupted(
+                    asyncio.to_thread(
+                        materialise_subset,
+                        cas.store,
+                        entries,
+                        dest,
+                        free_disk_floor_bytes=free_disk_floor_bytes,
+                    )
+                )
+                break
+            except CorruptBlobError as exc:
+                refetches += 1
+                if not fetcher.allow_refetch(exc.digest):
+                    raise FetchError(
+                        f"blob {exc.digest} is corrupt and its re-fetch budget is "
+                        "spent; it was not used",
+                        failure_type=FailureType.INTEGRITY_ERROR,
+                    ) from None
+                entry = next(e for e in entries if e.sha256 == exc.digest.hex)
+                await fetcher.ensure(entry, tree.chunk_size)
+            except MaterialiseError as exc:
+                raise FetchError(exc.message, failure_type=exc.failure_type) from None
+    stats = fetcher.stats
+    return EntriesReport(
+        placed=tuple(placed),
+        blobs_hit=stats.blobs_hit,
+        blobs_fetched=stats.blobs_fetched,
+        bytes_fetched=stats.bytes_fetched,
+        duration_s=clock() - started,
+    )
+
+
 def tree_sources(
     spec: agent_pb2.ExecutionSpec,
     controller_host: str | None,
@@ -383,6 +474,9 @@ class StageReport:
     """Bytes / request time / units per source (V0.5 D89; telemetry in G5)."""
     bytes_hit: int = 0
     manifest_hit: bool = False
+    skipped: frozenset[str] = frozenset()
+    """V0.10 G4 (D264): file paths left out of this staging (a lane's split
+    items: each chunk fetches and places only its own)."""
 
     def to_proto(self) -> agent_pb2.TransferSummary:
         """The transfer telemetry of this tree (V0.5 G5, D93): bounded - at
@@ -425,13 +519,18 @@ async def stage_tree(
     tuning: FetchTuning | None = None,
     on_tree: Callable[[Tree], Awaitable[None]] | None = None,
     token_for: TokenLookup | None = None,
+    skip: Callable[[Tree], frozenset[str]] | None = None,
 ) -> StageReport:
     """Fetch ``tree_id`` into the cache and copy it into ``dest``.
 
     ``on_tree`` runs once the manifest is verified and before any blob is
     looked at (V0.5 G5: the GC lease records the tree's members there).
     ``token_for`` (V0.7 G3, D147): the newest peer token per source, asked at
-    every request (:class:`~meshforge.agent.cas.sources.TokenLookup`)."""
+    every request (:class:`~meshforge.agent.cas.sources.TokenLookup`).
+    ``skip`` (V0.10 G4, D264): given the verified tree, the **file** paths to
+    leave out - neither fetched nor copied (a lane's split items; each chunk
+    places its own with :func:`stage_entries`). A staging that skipped files
+    does not mark the tree complete in the cache."""
     try:
         digest = Digest.parse(tree_id)
     except ValueError:
@@ -448,9 +547,21 @@ async def stage_tree(
         fetcher = BlobFetcher(
             cas, sources, client, tuning=tuning, clock=clock, token_for=token_for
         )
-        tree = await fetcher.tree(digest)
+        full = await fetcher.tree(digest)
         if on_tree is not None:
-            await on_tree(tree)
+            await on_tree(full)
+        skipped = (
+            frozenset(skip(full)) & {e.path for e in full.files()}
+            if skip is not None
+            else frozenset()
+        )
+        tree = (
+            dataclasses.replace(
+                full, entries=tuple(e for e in full.entries if e.path not in skipped)
+            )
+            if skipped
+            else full
+        )
         await fetcher.ensure_all(tree)
         while True:
             try:
@@ -479,11 +590,13 @@ async def stage_tree(
                 await fetcher.ensure(entry, tree.chunk_size)
             except MaterialiseError as exc:
                 raise FetchError(exc.message, failure_type=exc.failure_type) from None
-    # Every member was just verified while copying: the tree is complete here.
-    cas.tree_staged(tree)
+    if not skipped:
+        # Every member was just verified while copying: the tree is complete.
+        cas.tree_staged(tree)
     stats = fetcher.stats
     return StageReport(
-        tree=tree,
+        tree=full,
+        skipped=skipped,
         blobs_hit=stats.blobs_hit,
         blobs_fetched=stats.blobs_fetched,
         bytes_fetched=stats.bytes_fetched,

@@ -26,7 +26,9 @@ from meshforge.controller.planner.decision_json import candidates_json
 
 pytestmark = pytest.mark.unit
 
-EXEC = frozenset({"exec", "exec-subprocess"})
+EXEC = frozenset(
+    {"exec", "exec-subprocess", "exec-split"}
+)  # V0.10 G4: lanes need exec-split
 
 
 def _node(node_id: str, **kw: Any) -> NodeSnapshot:

@@ -3,8 +3,9 @@
 **GC.** The same LRU-under-quota pass as the agents (one shared index module,
 :mod:`meshforge.common.gc_index`, at ``<data dir>/controller/gc/gc.sqlite``), with the
 controller's own protection: before every pass the pins are recomputed from
-PostgreSQL - the tree, bundle, split item list (V0.10), outputs and final logs
-of every **non-terminal** job, the input trees of those jobs, and every
+PostgreSQL - the tree, bundle, split item list (V0.10), committed chunk
+results and parts index (V0.10 G4), outputs and final logs of every
+**non-terminal** job, the input trees of those jobs, and every
 **pinned named input**. A tree pin protects its manifest and every member
 (members recorded from the stored manifest). Blobs used within ``min_age_s``
 (an upload, a ``have`` answer, a download) are never evicted, which covers
@@ -45,9 +46,11 @@ from meshforge.common.hashing import Digest
 from meshforge.common.logging import get_logger
 from meshforge.common.states import JOB_TERMINAL_STATES
 from meshforge.controller.blobs import BlobStore
+from meshforge.controller.split.lanes import QUEUE_KIND as SPLIT_QUEUE_KIND
 from meshforge.controller.store.engine import create_session_factory
 from meshforge.controller.store.models.data import JobInput, NamedInput
 from meshforge.controller.store.models.job import Attempt, Job
+from meshforge.workqueue.tables import work_item, work_queue
 
 __all__ = ["BlobScrubber", "ControllerGc", "GcPassReport", "Protected"]
 
@@ -173,17 +176,33 @@ class ControllerGc:
         async with self._sessions() as db:
             live_jobs = select(Job.id).where(Job.state.not_in(_TERMINAL))
             rows = await db.execute(
-                select(Job.tree_id, Job.bundle_digest, Job.split_items_digest).where(
-                    Job.state.not_in(_TERMINAL)
-                )
+                select(
+                    Job.tree_id,
+                    Job.bundle_digest,
+                    Job.split_items_digest,
+                    Job.split_parts_digest,
+                ).where(Job.state.not_in(_TERMINAL))
             )
-            for tree_id, bundle, split_items in rows.all():
+            for tree_id, bundle, split_items, split_parts in rows.all():
                 if (h := _hex(tree_id)) is not None:
                     out.trees.add(h)
                 if (h := _hex(bundle)) is not None:
                     out.blobs.add(h)
                 if (h := _hex(split_items)) is not None:  # V0.10 G1 item list
                     out.blobs.add(h)
+                if (h := _hex(split_parts)) is not None:  # V0.10 G4 parts index
+                    out.blobs.add(h)
+            # V0.10 G4 (D261): the committed chunk results of live split jobs
+            chunks = await db.execute(
+                select(work_item.c.result_digest)
+                .join(work_queue, work_queue.c.id == work_item.c.queue_id)
+                .where(
+                    work_queue.c.kind == SPLIT_QUEUE_KIND,
+                    work_queue.c.owner_id.in_(live_jobs),
+                    work_item.c.result_digest.is_not(None),
+                )
+            )
+            out.blobs.update(h for (d,) in chunks.all() if (h := _hex(d)) is not None)
             inputs = await db.execute(
                 select(JobInput.tree_id).where(JobInput.job_id.in_(live_jobs))
             )

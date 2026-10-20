@@ -161,8 +161,14 @@ _COMMAND_PAYLOADS: Final = frozenset(
         "gc",
         "prepare_env",
         "probe_request",
+        # V0.10 G4 (D263): a lane's chunk commands
+        "chunk_grant",
+        "no_work",
+        "cancel_chunk",
     }
 )
+_UNBUFFERED_PAYLOADS: Final = frozenset({"chunk_request", "lease_renew"})
+"""V0.10 G4: agent payloads :meth:`AgentSessionClient.send_now` may write."""
 GOODBYE_DETAIL: Final = "agent stop requested"
 """``Goodbye.detail`` on a requested stop (well inside the controller's bound)."""
 #: Bounds on the controller-owned heartbeat interval. Below the minimum the
@@ -1194,6 +1200,23 @@ class AgentSessionClient:
             await self._write(msg)
             self.stats.reports_sent += 1
         return msg.message_id
+
+    async def send_now(self, payload_name: str, payload: Any) -> bool:
+        """V0.10 G4 (D263): write a message that is **never buffered or
+        replayed** (a lane's ``chunk_request`` / ``lease_renew``: a lost one is
+        simply sent again). False = not written (not ONLINE, or the stream
+        ended); the caller retries on its own schedule."""
+        if payload_name not in _UNBUFFERED_PAYLOADS:
+            raise ValueError(f"{payload_name!r} may not be sent unbuffered")
+        if await self._wait_for_stream() is None:
+            return False
+        msg = agent_pb2.AgentMessage(message_id=new_command_id())
+        getattr(msg, payload_name).CopyFrom(payload)
+        try:
+            await self._write(msg)
+        except (grpc.aio.AioRpcError, grpc.aio.UsageError, asyncio.InvalidStateError):
+            return False
+        return True
 
     async def resend_report(self, message_id: str) -> bool:
         """Write the buffered report ``message_id`` again, same ``message_id`` (the

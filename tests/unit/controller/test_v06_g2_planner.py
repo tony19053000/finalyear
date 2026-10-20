@@ -36,7 +36,7 @@ from meshforge.controller.planner.feasibility import (
     live_rejection,
     static_rejection,
 )
-from meshforge.controller.planner.types import STATIC_CODES
+from meshforge.controller.planner.types import STATIC_CODES, SplitInfo
 
 pytestmark = pytest.mark.unit
 
@@ -113,6 +113,8 @@ _GPU_KW: dict[str, Any] = {
 STATIC_CASES: list[tuple[RejectCode, dict[str, Any], dict[str, Any]]] = [
     (RejectCode.REVOKED, {"state": "revoked"}, {}),
     (RejectCode.NOT_EXEC, {"capabilities": frozenset({"docker"})}, {}),
+    # V0.10 G4 (D263): a split job on an agent without exec-split
+    (RejectCode.NO_SPLIT_SUPPORT, {}, {"split": SplitInfo(items=10)}),
     (RejectCode.NO_GPU, {}, {"gpu": "required"}),
     (
         RejectCode.NO_GPU_RUNTIME,

@@ -32,7 +32,7 @@ import hmac
 import os
 import shutil
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
@@ -47,6 +47,8 @@ __all__ = [
     "MaterialiseError",
     "MaterialiseStats",
     "materialise",
+    "materialise_subset",
+    "remove_subset",
 ]
 
 _COPY: Final = 1024 * 1024
@@ -272,3 +274,112 @@ def materialise(
             failure_type=FailureType.ENV_ERROR,
         ) from None
     return stats
+
+
+# ------------------------------------------------------------- subsets (V0.10)
+
+
+@contextlib.contextmanager
+def _writable(folder: Path, root: Path) -> Iterator[None]:
+    """Let the agent create a file in ``folder`` (a read-only named-input
+    folder of the workdir) for the duration of the block, then restore its
+    mode. Only folders inside ``root``; POSIX only (Windows ignores it)."""
+    real = Path(os.path.realpath(folder))
+    if os.name != "posix" or not real.is_relative_to(root) or not real.is_dir():
+        yield
+        return
+    mode = os.lstat(real).st_mode & 0o7777
+    if mode & 0o200:
+        yield
+        return
+    os.chmod(real, mode | 0o200)
+    try:
+        yield
+    finally:
+        os.chmod(real, mode)
+
+
+def materialise_subset(
+    store: CasStore,
+    entries: Sequence[TreeEntry],
+    dest: Path,
+    *,
+    free_disk_floor_bytes: int = 0,
+    disk_free: Callable[[Path], int] | None = None,
+) -> list[Path]:
+    """V0.10 G4 (D264): copy the file ``entries`` (one chunk's items) from
+    ``store`` into the **existing** workdir ``dest`` at their own paths, hashed
+    while copying (a corrupt blob raises :class:`CorruptBlobError` and is
+    evicted, like :func:`materialise`), each file read-only (``0o444``).
+
+    Every path is created with ``O_EXCL | O_NOFOLLOW`` under real folders of
+    ``dest`` (``_place`` refuses a folder that resolves outside it), so a file
+    the chunk's job left in the way is refused (``invalid_input``), never
+    overwritten or followed. Returns the files placed; on any failure the files
+    this call placed are removed again. Blocking: run it in a thread."""
+    dest = Path(dest)
+    for entry in entries:
+        if entry.kind != "file":
+            raise MaterialiseError(
+                "a chunk item is not a file",
+                failure_type=FailureType.INVALID_INPUT,
+                details={"path": entry.path[:200]},
+            )
+    needed = sum(e.size for e in entries)
+    free = (disk_free or _disk_free)(dest)
+    if free - needed < free_disk_floor_bytes:
+        raise MaterialiseError(
+            f"not enough disk for the chunk's files ({needed} bytes, keeping "
+            f"{free_disk_floor_bytes} free)",
+            failure_type=FailureType.DISK_FULL,
+        )
+    root = Path(os.path.realpath(dest))
+    stats = MaterialiseStats()
+    placed: list[Path] = []
+    try:
+        for entry in entries:
+            # a missing folder under a read-only input folder: open the
+            # deepest existing one while the missing ones are made
+            parent = dest.joinpath(*entry.path.split("/")[:-1])
+            existing = parent
+            while not existing.exists() and existing != dest:
+                existing = existing.parent
+            with _writable(existing, root):
+                path = _place(dest, entry.path)
+            with _writable(path.parent, root):
+                try:
+                    _copy_file(store, entry, path, stats)
+                except FileExistsError:
+                    raise MaterialiseError(
+                        "a chunk item's path is already taken in the workdir",
+                        failure_type=FailureType.INVALID_INPUT,
+                        details={"path": entry.path[:200]},
+                    ) from None
+                placed.append(path)
+                if os.name == "posix":
+                    os.chmod(path, 0o444)
+    except BaseException:
+        remove_subset(placed, dest)
+        raise
+    return placed
+
+
+def remove_subset(paths: Sequence[Path], dest: Path) -> int:
+    """Remove the files :func:`materialise_subset` placed (best effort);
+    returns how many were removed. A file whose folder the job replaced by a
+    link (its real folder is not where it was placed any more, or not inside
+    ``dest``) is left alone - an unlink never goes through a link the job
+    made (fix r2 B1)."""
+    root = Path(os.path.realpath(dest))
+    removed = 0
+    for path in paths:
+        try:
+            expected = root / path.parent.relative_to(dest)
+        except ValueError:
+            continue  # not placed under dest
+        if Path(os.path.realpath(path.parent)) != expected or path.is_symlink():
+            continue  # a folder on the way became a link: not ours to follow
+        with contextlib.suppress(OSError), _writable(path.parent, root):
+            path.unlink()
+            removed += 1
+    return removed

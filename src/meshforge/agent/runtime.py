@@ -123,7 +123,10 @@ from meshforge.agent.session.tls import JOIN_HINT, SessionTlsError
 from meshforge.agent.settings import AgentSettings, parse_controller_address
 from meshforge.common import owner_policy
 from meshforge.common.bench_conditions import capability_tag
-from meshforge.common.capabilities import HARDWARE_SCORES_CAPABILITY
+from meshforge.common.capabilities import (
+    EXEC_SPLIT_CAPABILITY,
+    HARDWARE_SCORES_CAPABILITY,
+)
 from meshforge.common.config import INSECURE_DEV_BANNER
 from meshforge.common.errors import ExitCode, MeshForgeError
 from meshforge.common.gc_index import GcIndex, GcIndexBusyError
@@ -402,8 +405,13 @@ async def serve(
         settings, node_id=node_id, host_has_nvidia_gpu=bool(hardware.gpus)
     )
     if execution.offer.capabilities:
+        # V0.10 G4 (D263): an executing node runs Mode 3 lanes too
         hardware.capabilities[:] = clip_capabilities(
-            [*hardware.capabilities, *execution.offer.capabilities]
+            [
+                *hardware.capabilities,
+                *execution.offer.capabilities,
+                EXEC_SPLIT_CAPABILITY,
+            ]
         )
     # V0.9 G4 (D217): the benchmark conditions this node can apply, one tag.
     condition_kinds = (
@@ -473,6 +481,7 @@ async def serve(
         report=client.send_report,
         resend=client.resend_report,
         log_sink=client.send_log,
+        send_now=client.send_now,
         controller_host=lambda: controller_host(client.controller_target),
         declared_gpus=[gpu.index for gpu in hardware.gpus],
         gc=gc,

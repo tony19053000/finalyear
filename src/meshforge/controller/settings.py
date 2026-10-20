@@ -1403,6 +1403,86 @@ class SplitSettings(SectionModel):
             "makes more is refused at submit."
         ),
     )
+    # --- V0.10 G3/G4 (D265/D275): the planner's Mode 3 knobs ---------------
+    split_margin: float = Field(
+        default=0.10,
+        ge=0.0,
+        lt=1.0,
+        description=(
+            "Split only when the best node set is predicted at least this "
+            "fraction faster than the best single node."
+        ),
+    )
+    target_chunk_s: float = Field(
+        default=20.0,
+        gt=0.0,
+        le=3600.0,
+        description="Auto chunk size: about this many seconds on the fastest node.",
+    )
+    max_overhead_frac: float = Field(
+        default=0.05,
+        gt=0.0,
+        lt=1.0,
+        description="Auto chunks grow until per-chunk overhead is at most this share.",
+    )
+    min_chunks_per_node: int = Field(
+        default=4,
+        ge=1,
+        le=1000,
+        description="Auto chunks shrink until there are this many per lane.",
+    )
+    chunk_overhead_s: float = Field(
+        default=1.5,
+        ge=0.0,
+        le=600.0,
+        description="Assumed per-chunk overhead until chunk history measures it.",
+    )
+    tail_frac: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="Expected tail of a set: this share of its longest chunk.",
+    )
+    # --- V0.10 G4 (D263/D267): lanes and chunk leases ----------------------
+    visibility_timeout_s: float = Field(
+        default=60.0,
+        ge=5.0,
+        le=86_400.0,
+        description=(
+            "A chunk lease expires this long after it was granted or last "
+            "renewed (the lane renews every third of it); an expired chunk goes "
+            "back to pending - a partitioned or hung lane cannot hold it."
+        ),
+    )
+    wait_retry_s: float = Field(
+        default=2.0,
+        gt=0.0,
+        le=60.0,
+        description=(
+            "NoWork(wait): how long an idle lane waits before asking again "
+            "while every remaining chunk is leased elsewhere."
+        ),
+    )
+    max_unverified_results: int = Field(
+        default=2,
+        ge=0,
+        le=100,
+        description=(
+            "Done results of one chunk whose digest the lane's upload grant "
+            "never stored, tolerated per (chunk, lane) without counting (a "
+            "controller restart forgets grant history); the next one is a "
+            "counted, retryable chunk failure (chunk_unverified)."
+        ),
+    )
+    max_failed_nodes: int = Field(
+        default=2,
+        ge=1,
+        le=64,
+        description=(
+            "A chunk that failed on this many different nodes fails the job "
+            "(D267c); retry.max_attempts bounds the tries of one chunk too."
+        ),
+    )
 
 
 class ControllerSection(SectionModel):

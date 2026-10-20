@@ -28,7 +28,7 @@ from meshforge.common.peer_token import (
     sign_peer_token,
     verify_peer_token,
 )
-from meshforge.common.states import AttemptState
+from meshforge.common.states import AttemptRole, AttemptState
 from meshforge.controller.blobs import FetchTokens
 from meshforge.controller.jobs.dispatcher import Dispatcher
 from meshforge.controller.jobs.peers import PeerSources
@@ -158,6 +158,7 @@ def _job(*, tree: bool = True) -> Any:
         bundle_digest=None if tree else "sha256:" + "cd" * 32,
         tree_id=TREE if tree else None,
         cancel_requested_at=None,
+        split=None,
     )
 
 
@@ -167,6 +168,7 @@ def _attempt(job: Any, node_id: str, state: AttemptState) -> Any:
         job_id=job.id,
         node_id=node_id,
         fencing_token=7,
+        role=AttemptRole.RUN,  # V0.10 G4: never inferred
         state=state,
         start_acked_at=object(),
         start_snapshot={},

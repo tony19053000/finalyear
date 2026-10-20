@@ -750,6 +750,9 @@ class DockerRuntime:
         """Owner-only workdir the workload's uid can write (module docstring)."""
         try:
             prepare_workdir(spec.workdir, self._user)
+            for extra in spec.extra_mounts:  # V0.10 G4: a chunk's out/ folder
+                if not extra.read_only:
+                    prepare_workdir(extra.host, self._user)
         except _WorkdirError as exc:
             raise _FaultError(FailureType.CONFIG_ERROR, exc.reason, str(exc)) from None
 
@@ -1210,6 +1213,17 @@ class DockerRuntime:
                     read_only=True,
                 )
             )
+        if role == "run":
+            # V0.10 G4 (fix r2 B1): a lane chunk's control folder, outside /work
+            for extra in spec.extra_mounts:
+                kwargs["mounts"].append(
+                    docker.types.Mount(
+                        target=extra.container,
+                        source=str(extra.host),
+                        type="bind",
+                        read_only=extra.read_only,
+                    )
+                )
         if limits.cpus is not None:
             kwargs["nano_cpus"] = nano_cpus_for(limits.cpus)
         if device_requests:
@@ -1497,6 +1511,11 @@ def _expected_mounts(
                 ExpectedMount(
                     _host_path(str(spec.secrets_dir)), CONTAINER_SECRETS_DIR, True
                 )
+            )
+        if role == "run":
+            expected.extend(
+                ExpectedMount(_host_path(str(m.host)), m.container, m.read_only)
+                for m in spec.extra_mounts
             )
         return expected
     out = []

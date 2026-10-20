@@ -41,6 +41,7 @@ from meshforge.common.logging import get_logger
 from meshforge.common.states import (
     ATTEMPT_TERMINAL_STATES,
     JOB_TERMINAL_STATES,
+    AttemptRole,
     AttemptState,
     JobState,
 )
@@ -113,7 +114,11 @@ class RecoverySteps(DispatchSteps):
                 if job.cancel_requested_at is not None:
                     self._send_cancel(attempt, "cancelled by request")
                     continue
-                if attempt.state in _MAY_FETCH and not self._tokens.has(attempt.id):
+                may_fetch = attempt.state in _MAY_FETCH or (
+                    # V0.10 G4: a lane fetches its chunks' items while it runs
+                    attempt.role is AttemptRole.LANE
+                )
+                if may_fetch and not self._tokens.has(attempt.id):
                     await self._refresh_fetch_token(job, attempt)
                 if self._grants is not None and (
                     not self._grants.has(attempt.id)
@@ -227,6 +232,8 @@ class RecoverySteps(DispatchSteps):
         self._grant_unacked.pop(attempt.id, None)
         if self._grants is not None:
             self._grants.close(attempt.id)
+        if self._split is not None:
+            self._split.forget_lane(attempt.id)
         if self._logs is not None and outcome.kind is StatusKind.APPLIED:
             self._logs.finalize(attempt.id, None)
         self._note_retry(outcome)

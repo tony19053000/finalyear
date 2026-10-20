@@ -72,6 +72,7 @@ __all__ = [
     "MAX_ENV_VALUE_LENGTH",
     "MAX_GPU_INDEX",
     "EnvRequest",
+    "ExtraMount",
     "OutputCallback",
     "Phase",
     "RunLimits",
@@ -177,6 +178,28 @@ class RunLimits:
 
 
 @dataclass(frozen=True, slots=True)
+class ExtraMount:
+    """V0.10 G4 (fix r2 B1): one more host folder bound into the Docker run
+    container (a lane's per-chunk control folder: items read-only, ``out``
+    read-write); ignored by the unsandboxed runtimes (they use host paths)."""
+
+    host: Path
+    container: str
+    read_only: bool
+
+    def __post_init__(self) -> None:
+        if not self.host.is_absolute():
+            raise ValueError("an extra mount's host path must be absolute")
+        target = self.container
+        if (
+            not target.startswith("/meshforge/")
+            or ".." in target.split("/")
+            or "\x00" in target
+        ):
+            raise ValueError("an extra mount's target must be under /meshforge/")
+
+
+@dataclass(frozen=True, slots=True)
 class EnvRequest:
     """What the job's environment must contain (manifest ``env``; V0.5 D85).
 
@@ -223,6 +246,9 @@ class RunSpec:
     Docker runtime bind-mounts it read-only at ``/run/secrets`` for the run
     container only; the unsandboxed runtimes are told its path in
     ``MESHFORGE_SECRETS_DIR`` (set by the executor in ``env``)."""
+    extra_mounts: tuple[ExtraMount, ...] = ()
+    """V0.10 G4: more binds for the Docker *run* container (a chunk's control
+    folder, :mod:`.chunk_folder`)."""
 
     def __post_init__(self) -> None:
         validate_attempt_id(self.attempt_id)

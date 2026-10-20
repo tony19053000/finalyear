@@ -20,7 +20,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from meshforge.common.hashing import Digest
 from meshforge.common.ids import new_attempt_id, new_command_id, new_job_id, new_node_id
 from meshforge.common.peer_token import load_public_key, verify_peer_token
-from meshforge.common.states import AttemptState
+from meshforge.common.states import AttemptRole, AttemptState
 from meshforge.controller.blobs import FetchTokens
 from meshforge.controller.cache_index import CacheIndex, NodeCacheState, Phase
 from meshforge.controller.jobs.dispatcher import Dispatcher, _Reconcile, fetch_scope
@@ -111,6 +111,7 @@ def _job(*, tree: bool) -> Any:
         bundle_digest=None if tree else BUNDLE,
         tree_id=TREE if tree else None,
         cancel_requested_at=None,
+        split=None,
     )
 
 
@@ -120,6 +121,7 @@ def _attempt(job: Any, node_id: str, state: AttemptState) -> Any:
         job_id=job.id,
         node_id=node_id,
         fencing_token=7,
+        role=AttemptRole.RUN,  # V0.10 G4: never inferred
         state=state,
         start_acked_at=object(),
         start_snapshot={},

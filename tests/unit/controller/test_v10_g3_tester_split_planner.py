@@ -38,7 +38,9 @@ from meshforge.controller.planner.types import ControllerLinkStat
 
 pytestmark = pytest.mark.unit
 
-EXEC = frozenset({"exec", "exec-subprocess"})
+EXEC = frozenset(
+    {"exec", "exec-subprocess", "exec-split"}
+)  # V0.10 G4: lanes need exec-split
 PROJECT = "sha256:" + "a" * 64
 MB = 1_000_000
 NOW = dt.datetime(2026, 10, 20, 12, 0, tzinfo=dt.UTC)

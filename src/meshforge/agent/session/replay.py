@@ -41,6 +41,7 @@ REPORT_PAYLOADS: Final[frozenset[str]] = frozenset(
         "log_chunk",
         "prepare_env_status",  # V0.5 G5 (0.5.8)
         "policy_update",  # V0.7 G5 (0.7.8, D142)
+        "chunk_result",  # V0.10 G4 (D263): a lane's chunk outcome
     }
 )
 """``AgentMessage`` payload names that are reports (buffered + replayed)."""

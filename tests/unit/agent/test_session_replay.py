@@ -29,9 +29,19 @@ def test_report_payload_set_is_exactly_the_reports() -> None:
         "log_chunk",
         "prepare_env_status",  # V0.5 G5: acked, replayed
         "policy_update",  # V0.7 G5 (D142): acked, replayed
+        "chunk_result",  # V0.10 G4 (D263): acked once stored, replayed
     } == REPORT_PAYLOADS
-    # never buffered: heartbeat, pong, ack, hello, reconcile
-    for name in ("heartbeat", "pong", "ack", "hello", "reconcile"):
+    # never buffered: heartbeat, pong, ack, hello, reconcile; V0.10 G4: a
+    # lane's chunk_request / lease_renew are simply sent again
+    for name in (
+        "heartbeat",
+        "pong",
+        "ack",
+        "hello",
+        "reconcile",
+        "chunk_request",
+        "lease_renew",
+    ):
         assert name not in REPORT_PAYLOADS
 
 

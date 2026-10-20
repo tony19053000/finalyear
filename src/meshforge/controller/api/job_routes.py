@@ -34,8 +34,8 @@ for existing callers:
    stored trees (:mod:`~meshforge.controller.jobs.split_items`): 0 items, too
    many items/chunks, a missing ``list_file``/``lines`` file -> ``400
    invalid_input`` naming the YAML path; the item list is stored as a blob and
-   its digest/count go on the job row. Until V0.10 G4 the dispatcher refuses
-   to run a split job (``no_feasible_plan``, ``not_supported_yet``) - it never
+   its digest/count go on the job row. Since V0.10 G4 the dispatcher runs
+   a split job as lanes on nodes advertising ``exec-split`` - it never
    runs whole by accident;
 5. only then is the job written: ``SUBMITTED -> PLANNING -> QUEUED``, each arrow
    recorded with its time (``PLANNING`` is a pass-through: the live planner runs

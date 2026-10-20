@@ -49,7 +49,9 @@ pytestmark = [pytest.mark.component, pytest.mark.asyncio]
 
 DIGEST = "sha256:" + "ab" * 32
 MANIFEST = {"name": "demo", "entrypoint": ["python", "main.py"]}
-EXEC = frozenset({"exec", "exec-subprocess"})
+EXEC = frozenset(
+    {"exec", "exec-subprocess", "exec-split"}
+)  # V0.10 G4: lanes need exec-split
 
 
 @pytest_asyncio.fixture

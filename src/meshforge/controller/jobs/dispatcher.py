@@ -105,7 +105,7 @@ from meshforge.common.errors import FailureType
 from meshforge.common.logging import get_logger
 from meshforge.common.proto.meshforge.v1 import agent_pb2
 from meshforge.common.states import ATTEMPT_TERMINAL_STATES, AttemptState
-from meshforge.controller.blobs import FetchTokens
+from meshforge.controller.blobs import BlobStore, FetchTokens
 from meshforge.controller.jobs.dispatch import DispatcherStats, fetch_scope
 from meshforge.controller.jobs.env_health import KnownBadEnvs, env_key
 from meshforge.controller.jobs.execution_store import (
@@ -130,7 +130,10 @@ from meshforge.controller.settings import (
     JobApiSettings,
     NetworkSettings,
     PlannerSettings,
+    SplitSettings,
 )
+from meshforge.controller.split.service import ChunkWork, SplitService
+from meshforge.controller.split.store import ChunkStore
 from meshforge.controller.upload_grants import UploadGrants
 
 __all__ = [
@@ -169,7 +172,7 @@ class _Acked:
     message_id: str = ""
 
 
-type _Item = _Status | _Acked | _Reconcile | _Offline
+type _Item = _Status | _Acked | _Reconcile | _Offline | ChunkWork
 
 
 class Dispatcher(RecoverySteps):
@@ -201,8 +204,11 @@ class Dispatcher(RecoverySteps):
         on_alert: Callable[[dict[str, str]], None] | None = None,
         bench_condition: Callable[[str | None], Awaitable[str | None]] | None = None,
         node_paused: Callable[[str], bool] | None = None,
+        blobs: BlobStore | None = None,
+        split: SplitSettings | None = None,
     ) -> None:
         self._store = store
+        self._split_settings = split or SplitSettings()
         self._bench_condition = bench_condition
         """V0.9 G4 (D217): a benchmark run job's agent condition, by its
         Idempotency-Key (``controller.bench.conditions``); sent in StartAttempt."""
@@ -267,8 +273,24 @@ class Dispatcher(RecoverySteps):
             link_stale_after_s=self._network_settings.stale_after_s,
             min_bw_bytes_s=self._network_settings.min_bw_bytes_s,
             node_paused=node_paused,
+            split=self._split_settings,
         )
         """V0.6 G2 (D102): builds the tick's snapshot and decides per job."""
+        engine = getattr(store, "engine", None)
+        self._split: SplitService | None = (
+            None
+            if engine is None
+            else SplitService(
+                store=ChunkStore(engine, blobs=blobs),
+                manager=manager,
+                grants=upload_grants,
+                settings=self._split_settings,
+                wall_clock=self._wall,
+                put=self._put,
+            )
+        )
+        """V0.10 G4 (D263): a lane's chunk messages, handled in this task.
+        None only for a store without a database engine (unit-test fakes)."""
         manager.dispatch.register("attempt_status", self._on_status_message)
         manager.defer_ack("attempt_status")
         hooks = manager.hooks
@@ -296,6 +318,13 @@ class Dispatcher(RecoverySteps):
     def stopping(self) -> bool:
         return self._stopping
 
+    @property
+    def split(self) -> SplitService:
+        """V0.10 G4: the chunk protocol's counters and handlers."""
+        if self._split is None:
+            raise RuntimeError("this dispatcher runs no split jobs (no database)")
+        return self._split
+
     async def run(self) -> None:
         """Until :meth:`request_stop`: work items, then the periodic steps."""
         interval = self._settings.dispatch_interval_s
@@ -321,6 +350,8 @@ class Dispatcher(RecoverySteps):
             return None
         if outcome.attempt is not None:
             self._send_cancel(outcome.attempt, "cancelled by request")
+        for lane in outcome.others:  # V0.10 G4: every lane of a split job
+            self._send_cancel(lane, "cancelled by request")
         return outcome.job
 
     # ------------------------------------------------------------ hooks
@@ -472,6 +503,9 @@ class Dispatcher(RecoverySteps):
                 await self._store.mark_start_acked(item.attempt_id, item.fencing_token)
         elif isinstance(item, _Reconcile):
             await self._reconcile(item)
+        elif isinstance(item, ChunkWork):
+            if self._split is not None:
+                await self._split.handle(item)
         else:
             await self._offline(item)
 
@@ -482,6 +516,8 @@ class Dispatcher(RecoverySteps):
 
     async def _periodic(self, _: object) -> None:
         await self._dispatch()
+        if self._split is not None:
+            await self._split.expire()  # V0.10 G4 (D267b): visibility timeout
         await self._backstop()
         # One read of the live attempts for both sweeps. An attempt the first
         # one ends is still listed for the second: ending it again is a no-op
