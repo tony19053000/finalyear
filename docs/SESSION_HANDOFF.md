@@ -8,7 +8,7 @@
 >
 > ```
 > Read docs/SESSION_HANDOFF.md §1, then docs/STATUS.md, then the V0.10 section of docs/DEVELOPMENT_ROADMAP.md and docs/briefs/V0.10-task-splitting.md (§2 + Lead rulings D277–D284, §5f G6, §5g G7).
-> V0.10: G1–G5 MERGED → 0.10.1–0.10.4, 0.10.6, 0.10.7 [x] (D284, main fa01272c). G6 stragglers (0.10.5) ∥ G7 progress (0.10.8) implementers launched 2026-10-20 in separate agent worktrees (.claude/worktrees/agent-*; progress logs docs/briefs/progress/V0.10-G6.md / -G7.md on their branches). If a session ended mid-run: check `git worktree list` + those logs, resume or relaunch. Next per group: tester ∥ reviewer → fixes → merge → [x] + status bar; then G8 → G9 → 🧑 0.10.10. Gate mypy = `uv run mypy src` (bare mypy is pre-existing broken). Team: V0.10 brief + ADR-0019 still Proposed. Parallel agents OK; no fast mode.
+> V0.10: G1–G5 MERGED → 0.10.1–0.10.4, 0.10.6, 0.10.7 [x] (D284, main fa01272c). G6 stragglers (0.10.5): implementer DONE, gates green (branch worktree-agent-adc2c5460b1564342, head c74262e8, log docs/briefs/progress/V0.10-G6.md I1–I10); tester r1 ∥ reviewer r1 RUNNING. G7 progress (0.10.8): implementer finishing gates (branch worktree-agent-a91019c442e198405, head ≥9bd75b75, log V0.10-G7.md). If a session ended mid-run: check those logs, resume or relaunch. Next per group: tester ∥ reviewer → fixes → merge → [x] + status bar; then G8 → G9 → 🧑 0.10.10. Gate mypy = `uv run mypy src` (bare mypy is pre-existing broken). Team: V0.10 brief + ADR-0019 still Proposed. Parallel agents OK; no fast mode.
 > ```
 >
 > Order of truth: `PROJECT_BRIEF → ARCHITECTURE → ROADMAP → STATUS → this file`. If this file
