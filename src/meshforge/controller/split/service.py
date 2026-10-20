@@ -25,10 +25,13 @@ returns overdue leases to ``pending`` (visibility timeout, D267b).
 from __future__ import annotations
 
 import datetime as dt
+import time
+from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Final
 
+from meshforge.common.errors import FailureType
 from meshforge.common.logging import get_logger
 from meshforge.common.proto.meshforge.v1 import agent_pb2
 from meshforge.common.states import JobState
@@ -58,6 +61,8 @@ __all__ = ["ChunkWork", "SplitService", "SplitStats"]
 
 log = get_logger(__name__)
 
+_MAX_TRACKED: Final = 100_000
+"""Bound on the (lane, chunk) unverified counters and cool-downs kept."""
 _NO_WORK: Final = {
     "drained": agent_pb2.NoWork.REASON_DRAINED,
     "wait": agent_pb2.NoWork.REASON_WAIT,
@@ -80,7 +85,9 @@ class SplitStats:
     chunks_failed: int = 0
     released: int = 0
     not_uploaded: int = 0
-    """Done results whose digest the lane's grant did not store (released)."""
+    """Done results whose digest the lane's grant did not store."""
+    unverified_failures: int = 0
+    """Of those, the ones past ``max_unverified_results``: counted failures."""
     renewed: int = 0
     renew_refused: int = 0
     expired: int = 0
@@ -112,6 +119,7 @@ class SplitService:
         settings: SplitSettings,
         wall_clock: Callable[[], dt.datetime],
         put: Callable[[ChunkWork], bool],
+        clock: Callable[[], float] | None = None,
     ) -> None:
         self._store = store
         self._manager = manager
@@ -120,6 +128,14 @@ class SplitService:
         self._wall = wall_clock
         self._put = put
         self.stats = SplitStats()
+        self._clock = clock or time.monotonic
+        self._unverified: OrderedDict[tuple[str, int], int] = OrderedDict()
+        """(lane attempt, chunk item id) -> unverified ``done`` results tolerated
+        so far. In memory: a controller restart resets it (the 2-node and
+        ``retry.max_attempts`` rules still bound the job)."""
+        self._cooldown: OrderedDict[tuple[str, int], float] = OrderedDict()
+        """(lane, chunk) -> monotonic time before which that lane does not get
+        that chunk again (after an unverified result)."""
         manager.dispatch.register("chunk_request", self._on_request)
         manager.dispatch.register("chunk_result", self._on_result)
         manager.dispatch.register("lease_renew", self._on_renew)
@@ -204,6 +220,7 @@ class SplitService:
             want=body.want,
             held=body.held,
             now=self._wall(),
+            avoid=self._avoid(lane.attempt_id),
         )
         if isinstance(got, FenceCause):
             self._fenced(live, "chunk_request", got.value, lane.attempt_id)
@@ -281,6 +298,9 @@ class SplitService:
     ) -> None:
         lane = body.lane
         outcome, digest, size = body.outcome, body.result_digest, None
+        failure = body.failure
+        key = (lane.attempt_id, body.item_id)
+        unverified = False
         if outcome == "done" and digest is not None:
             size = (
                 None
@@ -288,16 +308,34 @@ class SplitService:
                 else self._grants.uploaded_size(lane.attempt_id, digest)
             )
             if size is None:
-                # D261: a digest merely named proves nothing - run it again
+                # D261: a digest merely named proves nothing. A few are
+                # tolerated uncounted (a controller restart forgets what a
+                # grant stored); past the limit the chunk fails, counted.
+                unverified = True
                 self.stats.not_uploaded += 1
+                seen = self._unverified.get(key, 0)
                 log.warning(
                     "controller.split.result_not_uploaded",
                     job_id=lane.job_id,
                     attempt_id=lane.attempt_id,
                     node_id=live.node_id,
                     chunk=body.chunk_index,
+                    times=seen + 1,
                 )
-                outcome, digest = "released", None
+                digest = None
+                if seen >= self._settings.max_unverified_results:
+                    self._unverified.pop(key, None)
+                    self.stats.unverified_failures += 1
+                    outcome = "failed"
+                    failure = (
+                        FailureType.OUTPUT_ERROR,
+                        f"chunk_unverified: chunk {body.chunk_index}: the lane "
+                        f"reported {seen + 1} results its upload grant never "
+                        "stored",
+                        True,
+                    )
+                else:
+                    outcome = "released"
         got = await self._store.result(
             node_id=live.node_id,
             attempt_id=lane.attempt_id,
@@ -306,10 +344,12 @@ class SplitService:
             seq=body.lease_seq,
             outcome=outcome,
             digest=digest,
-            failure=body.failure,
+            failure=failure,
             size=size,
             now=self._wall(),
         )
+        if unverified and got.kind is ResultKind.RELEASED:
+            self._note_unverified(key)
         self._manager.ack_message(live, message_id)  # stored (or never will be)
         self._count(live, body, got)
         for holder, item_id, seq in got.cancel_chunks:
@@ -389,6 +429,24 @@ class SplitService:
             attempt_id=lane.attempt_id,
             fencing_token=lane.fencing_token,
         )
+
+    def _note_unverified(self, key: tuple[str, int]) -> None:
+        """Count one tolerated unverified result of (lane, chunk) and keep that
+        chunk away from that lane for ``wait_retry_s`` (no hot loop)."""
+        self._unverified[key] = self._unverified.get(key, 0) + 1
+        self._unverified.move_to_end(key)
+        self._cooldown[key] = self._clock() + self._settings.wait_retry_s
+        while len(self._unverified) > _MAX_TRACKED:
+            self._unverified.popitem(last=False)
+        while len(self._cooldown) > _MAX_TRACKED:
+            self._cooldown.popitem(last=False)
+
+    def _avoid(self, attempt_id: str) -> frozenset[int]:
+        """Chunks (item ids) this lane must not get again yet."""
+        now = self._clock()
+        for key in [k for k, until in self._cooldown.items() if until <= now]:
+            del self._cooldown[key]
+        return frozenset(i for (a, i) in self._cooldown if a == attempt_id)
 
     async def _renew(self, live: LiveSession, body: LeaseRenewIn) -> None:
         lane = body.lane

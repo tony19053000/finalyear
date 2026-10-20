@@ -1207,6 +1207,14 @@ compute get <JOB_ID>               # outputs -> ./outputs/<JOB_ID>/ (--dest, --f
   `max_failed_nodes` (2) nodes or `retry.max_attempts` times fails the job
   (`chunk_failed: chunk N ...`, no partial output); with no lane left the job is
   re-planned for the remaining chunks (bounded by `retry.max_attempts` rounds).
+  A `done` result whose digest the lane's own upload grant never stored is not
+  committed: the first `max_unverified_results` (2) per (chunk, lane) are put
+  back uncounted (a controller restart forgets what grants stored) and that
+  lane does not get that chunk again for `wait_retry_s`; the next one is a
+  counted, retryable failure (`output_error`, `chunk_unverified: chunk N ...`)
+  under the same two-node / `retry.max_attempts` rules - so lanes that never
+  really upload end the job `failed` in bounded time. The counters live in the
+  controller process (a restart resets them; the job stays bounded).
   Planner knobs: `split_margin` (0.10), `target_chunk_s` (20),
   `max_overhead_frac` (0.05), `min_chunks_per_node` (4), `chunk_overhead_s`
   (1.5), `tail_frac` (0.5); `wait_retry_s` (2) is how long an idle lane waits

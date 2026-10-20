@@ -274,7 +274,10 @@ class ChunkStore:
         want: int,
         held: Collection[tuple[int, int]],
         now: dt.datetime,
+        avoid: Collection[int] = (),
     ) -> RequestOutcome:
+        """``avoid``: chunk item ids this lane must not get now (a cool-down
+        after its unverified result); they are left pending for other lanes."""
         async with self._sessions() as db, db.begin():
             lane = await self._lane(
                 db, node_id=node_id, attempt_id=attempt_id, token=token, lock_job=False
@@ -306,13 +309,29 @@ class ChunkStore:
                 if (row.item_id, row.seq) not in held_set
             ]
             k = max(0, min(want, wq.MAX_LEASES_PER_PULL) - len(lost))
-            fresh = (
+            skip = set(avoid)
+            pulled = (
                 await wq.lease_next(
-                    db, queue.id, holder=attempt_id, site=node_id, k=k, now=now
+                    db,
+                    queue.id,
+                    holder=attempt_id,
+                    site=node_id,
+                    k=min(wq.MAX_LEASES_PER_PULL, k + len(skip)),
+                    now=now,
                 )
                 if k > 0
                 else []
             )
+            fresh = [g for g in pulled if g.item_id not in skip][:k]
+            for grant in pulled:
+                if grant not in fresh:  # cooling down for this lane, or extra
+                    await wq.release(
+                        db,
+                        item_id=grant.item_id,
+                        seq=grant.seq,
+                        holder=attempt_id,
+                        now=now,
+                    )
             out = [
                 self._grant_out(
                     digest,

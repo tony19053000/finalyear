@@ -1463,6 +1463,17 @@ class SplitSettings(SectionModel):
             "while every remaining chunk is leased elsewhere."
         ),
     )
+    max_unverified_results: int = Field(
+        default=2,
+        ge=0,
+        le=100,
+        description=(
+            "Done results of one chunk whose digest the lane's upload grant "
+            "never stored, tolerated per (chunk, lane) without counting (a "
+            "controller restart forgets grant history); the next one is a "
+            "counted, retryable chunk failure (chunk_unverified)."
+        ),
+    )
     max_failed_nodes: int = Field(
         default=2,
         ge=1,
