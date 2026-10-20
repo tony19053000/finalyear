@@ -211,7 +211,18 @@ async def test_three_lanes_uneven_speeds_commit_every_chunk_once(
     runtime: ControllerRuntime, http: httpx.AsyncClient, tmp_path: Path
 ) -> None:
     async with _lanes(runtime, [0.005, 0.05, 0.05]) as lanes:
-        job_id = await _submit(runtime, http, tmp_path)
+        # G6 speculation off: the fast lane would rightly copy a tail chunk,
+        # and this test counts each chunk run exactly once
+        job_id = await _submit(
+            runtime,
+            http,
+            tmp_path,
+            split={
+                "over": {"range": {"stop": 300}},
+                "chunk": {"items": 10},
+                "speculative": False,
+            },
+        )
         job = await _wait_job(runtime, job_id)
         assert job.state is JobState.SUCCEEDED, (job.failure_type, job.failure_detail)
         await _ledger_check(runtime, job_id, 30)
