@@ -7,6 +7,7 @@ inner folder while the agent packs, a folder swapped and swapped back.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import stat
 import sys
