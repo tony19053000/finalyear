@@ -93,6 +93,7 @@ function detail(state: JobSummary["state"]): JobDetail {
     transitions: [{ seq: 1, from_state: null, to_state: "queued", at: "2026-10-16T08:00:00Z" }],
     attempts: [],
     inputs: [],
+    warnings: [],
   };
 }
 class Sock implements SocketLike {

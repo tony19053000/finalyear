@@ -67,6 +67,30 @@ function Summary({ job }: { job: JobDetail }) {
             {job.failure_detail != null && <span className="block text-fg-muted">{job.failure_detail}</span>}
           </Field>
         )}
+        {job.output_digest != null && (
+          <Field label="Output">
+            <span className="font-mono text-2xs break-all">{job.output_digest}</span>
+          </Field>
+        )}
+        {job.warnings.length > 0 && (
+          <Field label="Warnings">
+            <ul aria-label="Job warnings">
+              {job.warnings.map((w) => (
+                <li key={w.code} className="text-xs">
+                  <span className="font-mono text-status-degraded">{w.code}</span> ×{w.count}
+                  {(w.chunks ?? []).length > 0 && (
+                    <span className="text-fg-muted">
+                      {" "}
+                      (chunks {(w.chunks ?? []).slice(0, 16).join(", ")}
+                      {(w.chunks ?? []).length > 16 ? ", …" : ""})
+                    </span>
+                  )}
+                  <span className="block text-fg-muted">{w.detail}</span>
+                </li>
+              ))}
+            </ul>
+          </Field>
+        )}
         {job.inputs.length > 0 && (
           <Field label="Named inputs">
             <ul>

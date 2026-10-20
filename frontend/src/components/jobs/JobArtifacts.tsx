@@ -33,7 +33,8 @@ export function JobArtifacts({ jobId, attempts, terminal }: { jobId: string; att
             <li key={a.attempt_id} className="flex flex-col gap-1 rounded-md border border-border p-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="text-sm">
-                  Attempt {a.fencing_token} on <span className="font-mono">{a.node_id}</span> ({a.state})
+                  Attempt {a.fencing_token}
+                  {a.role === "combine" ? " (combined output)" : ""} on <span className="font-mono">{a.node_id}</span> ({a.state})
                 </span>
                 <a
                   href={blobUrl(digest)}

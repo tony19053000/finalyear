@@ -16,6 +16,12 @@ const ATTEMPT_TONES: Record<string, StatusTone> = {
   fenced: "degraded",
 };
 
+/** V0.10: what a non-``run`` attempt does for its split job. */
+const ROLE_HELP: Record<string, string> = {
+  lane: "one node's share of a split job (it ran chunks)",
+  combine: "combined the chunks' results into the job's output",
+};
+
 function attemptTone(state: string): StatusTone {
   return ATTEMPT_TONES[state] ?? "unknown";
 }
@@ -48,7 +54,14 @@ export function AttemptsTable({ attempts }: { attempts: readonly AttemptSummary[
             {ordered.map((a) => (
               <tr key={a.attempt_id} className="border-b border-border last:border-b-0 align-top">
                 <td className="px-3 py-2 font-mono text-xs tabular-nums">{a.fencing_token}</td>
-                <td className="px-3 py-2 font-mono text-xs whitespace-nowrap">{a.attempt_id}</td>
+                <td className="px-3 py-2 font-mono text-xs whitespace-nowrap">
+                  {a.attempt_id}
+                  {a.role !== "run" && (
+                    <div className="mt-0.5 text-2xs text-fg-muted" title={ROLE_HELP[a.role]}>
+                      {a.role}
+                    </div>
+                  )}
+                </td>
                 <td className="px-3 py-2 font-mono text-xs whitespace-nowrap">{a.node_id}</td>
                 <td className="px-3 py-2">
                   <Badge tone={attemptTone(a.state)}>{a.state}</Badge>
