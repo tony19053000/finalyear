@@ -27,6 +27,14 @@ agent's lane runner does - the wire protocol only, no staging or processes:
   ``max_concurrent_attempts``) while a lane of this node is still live;
   ``drain_delay_s`` keeps a drained lane live that long before its ``DONE``.
 
+* V0.10 G6: ``chunk_speed(grant)`` overrides ``speed_s`` per chunk (a lane
+  that slows down at the tail; a slow speculative copy); a ``CancelChunk`` for
+  the chunk being "worked" stops it there - no upload, no result
+  (``cancelled``) - unless ``honour_cancel`` is off (the loser finishes and
+  reports late); a ``CancelChunk`` that arrives before its chunk starts skips
+  it. ``speculative`` records the copies this lane was granted; ``timeline``
+  the (event, loop time, chunk_index, lease_seq) of starts / results.
+
 ``speed_s`` is the time one chunk "takes"; ``ledger`` records every chunk this
 lane ran ((chunk_index, lease_seq)).
 """
@@ -124,6 +132,19 @@ class FakeLane:
     _client_cm: Any = None
     stopped: dict[str, str] = field(default_factory=dict)
     """attempt_id -> how the lane ended (done / cancelled / stop)."""
+    chunk_speed: Callable[[agent_pb2.GrantedChunk], float] | None = None
+    """V0.10 G6: seconds one granted chunk "takes" (default ``speed_s``)."""
+    honour_cancel: bool = True
+    """V0.10 G6: a CancelChunk stops the chunk being worked (no result)."""
+    cancelled: list[tuple[int, int]] = field(default_factory=list)
+    """V0.10 G6: (chunk_index, lease_seq) stopped or skipped by CancelChunk."""
+    speculative: list[tuple[int, int]] = field(default_factory=list)
+    """V0.10 G6: (chunk_index, lease_seq) of the speculative copies granted."""
+    timeline: list[tuple[str, float, int, int]] = field(default_factory=list)
+    """V0.10 G6: ("start" | "result", loop time, chunk_index, lease_seq)."""
+    _cancels: dict[tuple[int, int], asyncio.Event] = field(default_factory=dict)
+    _stops: dict[str, asyncio.Event] = field(default_factory=dict)
+    """attempt_id -> set by a CancelAttempt (the running chunk is killed)."""
 
     # ------------------------------------------------------------ wiring
 
@@ -167,6 +188,12 @@ class FakeLane:
                     )
                     continue
                 inner = getattr(msg, which)
+                if which == "cancel_attempt":
+                    self._stops.setdefault(inner.attempt_id, asyncio.Event()).set()
+                if which == "cancel_chunk":
+                    key = (int(inner.item_id), int(inner.lease_seq))
+                    self._cancels.setdefault(key, asyncio.Event()).set()
+                    continue
                 box = self._inbox.get(getattr(inner, "attempt_id", ""))
                 if box is not None:
                     await box.put(msg)
@@ -387,8 +414,33 @@ class FakeLane:
         span = ChunkSpan(chunk.first_item, chunk.item_count)
         mine = items.chunk(span)
         assert str(chunk_items_digest(mine)) == chunk.items_digest
-        if self.speed_s:
-            await asyncio.sleep(self.speed_s)
+        loop = asyncio.get_running_loop()
+        ref = (chunk.chunk_index, chunk.lease_seq)
+        if chunk.speculative:
+            self.speculative.append(ref)
+        cancel = self._cancels.setdefault(
+            (int(chunk.item_id), int(chunk.lease_seq)), asyncio.Event()
+        )
+        if cancel.is_set() and self.honour_cancel:
+            self.cancelled.append(ref)  # lost before it started: skipped
+            return
+        self.timeline.append(("start", loop.time(), *ref))
+        speed = self.speed_s if self.chunk_speed is None else self.chunk_speed(chunk)
+        stop = self._stops.setdefault(start.attempt_id, asyncio.Event())
+        if speed:
+            waits = [asyncio.ensure_future(stop.wait())]
+            if self.honour_cancel:
+                waits.append(asyncio.ensure_future(cancel.wait()))
+            try:
+                await asyncio.wait(waits, timeout=speed)
+            finally:
+                for w in waits:
+                    w.cancel()
+            if stop.is_set():
+                return  # CancelAttempt: the chunk is killed with the lane
+            if cancel.is_set() and self.honour_cancel:
+                self.cancelled.append(ref)  # CancelChunk: killed, no result
+                return
         self.ledger.append((chunk.chunk_index, chunk.lease_seq))
         if self.hold_results:
             await asyncio.Event().wait()
@@ -423,6 +475,7 @@ class FakeLane:
             result.result_bytes = len(data)
             result.exit_code = 0
         self.results_sent.append(await self._write(chunk_result=result))
+        self.timeline.append(("result", loop.time(), *ref))
 
 
 def expect_json(resp: httpx.Response) -> Any:
