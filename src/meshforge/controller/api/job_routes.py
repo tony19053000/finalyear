@@ -155,6 +155,7 @@ from meshforge.controller.secret_store import (
     SecretStore,
     SecretStoreError,
 )
+from meshforge.controller.split.progress import ProgressReads
 
 __all__ = [
     "DEFAULT_JOB_LIMIT",
@@ -205,8 +206,12 @@ class JobApi:
         max_job_secret_bytes: int | None = None,
         bench: BenchLinks | None = None,
         split_limits: SplitLimits | None = None,
+        split_progress: ProgressReads | None = None,
     ) -> None:
         self.store = store
+        self.split_progress = split_progress
+        """V0.10 G7 (D270): split jobs' progress and chunk pages, read from
+        the rows; None = ``/split`` and ``/chunks`` answer config_error."""
         self.split_limits = split_limits or SplitLimits()
         """V0.10 G1 (D260/D275): ``[controller.split]`` item and chunk caps."""
         self.bench = bench
