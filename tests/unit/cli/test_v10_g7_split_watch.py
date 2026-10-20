@@ -25,9 +25,7 @@ pytestmark = pytest.mark.unit
 JOB = "job_01J0000000000000000000CCCC"
 
 
-def summary(
-    done: int = 30, state: str = "running", **extra: Any
-) -> dict[str, Any]:
+def summary(done: int = 30, state: str = "running", **extra: Any) -> dict[str, Any]:
     out: dict[str, Any] = {
         "job_id": JOB,
         "job_state": state,
@@ -204,7 +202,9 @@ def test_transient_errors_are_retried_a_bounded_number_of_times() -> None:
         )
 
 
-def test_terminal_redraws_in_place_and_stops(capsys: pytest.CaptureFixture[str]) -> None:
+def test_terminal_redraws_in_place_and_stops(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     split_watch.watch_split(
         _fetcher(_polls(summary(10), summary(60, "succeeded"))),
         interval_s=1,
@@ -297,9 +297,7 @@ def test_watch_json_and_refusals(
     assert code == CliExit.NOT_FOUND and "no such split job" in err
     code, _, _ = run_main(["watch", "not-a-job"], capsys, monkeypatch, ok)
     assert code == CliExit.USAGE_ERROR
-    code, _, _ = run_main(
-        ["watch", JOB, "--interval", "0.1"], capsys, monkeypatch, ok
-    )
+    code, _, _ = run_main(["watch", JOB, "--interval", "0.1"], capsys, monkeypatch, ok)
     assert code == CliExit.USAGE_ERROR
 
 
