@@ -83,7 +83,9 @@ def _submit(
         **extra,
     }
     r = fabric.call(
-        "POST", "/v1/jobs", json={"manifest": manifest, "tree_id": tree, "placement": {}}
+        "POST",
+        "/v1/jobs",
+        json={"manifest": manifest, "tree_id": tree, "placement": {}},
     )
     assert r.status_code == 201, r.text
     return str(r.json()["job_id"])
@@ -130,7 +132,7 @@ HOSTILE = [
     "a && touch pwned",
     "--help",
     "ünï😀 ключ 文字",
-    "it's \"quoted\" {out} {items_file}",
+    'it\'s "quoted" {out} {items_file}',
     "C:\\Windows\\System32 | calc",
     "   spaces   ",
 ]
@@ -174,7 +176,9 @@ def test_cancel_during_run_stops_every_lane_and_leaves_no_output(
     assert fabric.call("POST", f"/v1/jobs/{job_id}/cancel").status_code == 202
     job = _wait(fabric, job_id, 120)
     assert job["state"] == "cancelled", job
-    (row,) = _sql(pg_settings, "SELECT split_parts_digest FROM job WHERE id=:j", j=job_id)
+    (row,) = _sql(
+        pg_settings, "SELECT split_parts_digest FROM job WHERE id=:j", j=job_id
+    )
     assert row.split_parts_digest is None
     time.sleep(3)
     live = _sql(
@@ -217,7 +221,9 @@ def test_chunk_output_over_the_cap_fails_the_job_without_retrying(
     job = _wait(fabric, job_id, 240)
     assert job["state"] == "failed", job
     assert job["failure_type"] == "output_error", job
-    (row,) = _sql(pg_settings, "SELECT split_parts_digest FROM job WHERE id=:j", j=job_id)
+    (row,) = _sql(
+        pg_settings, "SELECT split_parts_digest FROM job WHERE id=:j", j=job_id
+    )
     assert row.split_parts_digest is None
     leases = _sql(
         pg_settings,
@@ -253,7 +259,9 @@ def test_chunk_failing_on_every_node_fails_the_job_naming_the_chunk(
     job = _wait(fabric, job_id, 240)
     assert job["state"] == "failed", job
     assert "chunk 1" in (job["failure_detail"] or ""), job
-    (row,) = _sql(pg_settings, "SELECT split_parts_digest FROM job WHERE id=:j", j=job_id)
+    (row,) = _sql(
+        pg_settings, "SELECT split_parts_digest FROM job WHERE id=:j", j=job_id
+    )
     assert row.split_parts_digest is None
 
 

@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import Any
 
 import httpx
 import pytest
@@ -18,7 +17,6 @@ from mf_fake_lanes import _Upload  # type: ignore[attr-defined]
 from test_v10_g4_lanes import (  # type: ignore[import-not-found]
     _lanes,
     _ledger_check,
-    _sql,
     _submit,
     _wait_job,
     http,  # noqa: F401
