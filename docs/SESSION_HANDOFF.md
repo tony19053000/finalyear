@@ -8,7 +8,7 @@
 >
 > ```
 > Read docs/SESSION_HANDOFF.md §1, then docs/STATUS.md, then the V0.10 section of docs/DEVELOPMENT_ROADMAP.md and docs/briefs/V0.10-task-splitting.md (§2 + Lead rulings log D277–D282, §5e G5).
-> V0.9 agent-side COMPLETE (🧑 0.9.10 lab open). V0.10: G1–G4 MERGED + gate clean (D282: component 2853/0) → 0.10.1–0.10.4, 0.10.6 [x]. NOTHING RUNNING. Next: G5 combine (0.10.7, §5e; read D281 for G4's design — the last chunk commit currently writes a parts index and ends the job SUCCEEDED as a combine stub; combine must follow the B1 folder-safety rules and be excluded from history) → tester → reviewer → merge → G6 (stragglers) ∥ G7 (progress) → G8 → G9 → 🧑 0.10.10. Team: V0.10 brief + ADR-0019 still Proposed — review them (esp. D274 criteria calibration). Parallel agents OK; no fast mode.
+> V0.9 agent-side COMPLETE (🧑 0.9.10 lab open). V0.10: G1–G4 MERGED + gate clean (D282: component 2853/0) → 0.10.1–0.10.4, 0.10.6 [x]. G5 combine (0.10.7) IMPLEMENTER RUNNING in a worktree since 2026-10-20 (design pins D283; progress log docs/briefs/progress/V0.10-G5.md — if the session died, resume from that log in the newest worktree) → tester → reviewer → merge → G6 (stragglers) ∥ G7 (progress) → G8 → G9 → 🧑 0.10.10. Team: V0.10 brief + ADR-0019 still Proposed — review them (esp. D274 criteria calibration). Parallel agents OK; no fast mode.
 > ```
 >
 > Order of truth: `PROJECT_BRIEF → ARCHITECTURE → ROADMAP → STATUS → this file`. If this file
