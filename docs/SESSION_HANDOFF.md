@@ -8,7 +8,7 @@
 >
 > ```
 > Read docs/SESSION_HANDOFF.md §1, then docs/STATUS.md, then the V0.10 section of docs/DEVELOPMENT_ROADMAP.md and docs/briefs/V0.10-task-splitting.md (§2 + Lead rulings D277–D284, §5f G6, §5g G7).
-> V0.10: G1–G6 MERGED → 0.10.1–0.10.7 [x] (D285). G7 progress MERGED into main (b47bc074, Lead fixes N2/N3/T-1..T-3, D286) — post-merge gates (unit + all V0.10 comp/cluster one process + ruff + mypy src) were RUNNING at last update; if green → 0.10.8 [x] + status bar; if not, fix on main. Then G8 (0.10.9, brief §5h + carry-overs) → G9 → 🧑 0.10.10. Gate mypy = `uv run mypy src` (bare mypy is pre-existing broken). Team: V0.10 brief + ADR-0019 still Proposed. Parallel agents OK; no fast mode.
+> V0.10: G1–G7 MERGED → 0.10.1–0.10.8 [x] (D277–D286; main post-merge gates green). Next: G8 (0.10.9) implementer in a worktree — brief §5h + 'G8 carry-overs' paragraph — then tester ∥ reviewer → merge; then G9 → 🧑 0.10.10. Gate mypy = `uv run mypy src` (bare mypy is pre-existing broken). Team: V0.10 brief + ADR-0019 still Proposed. Parallel agents OK; no fast mode.
 > ```
 >
 > Order of truth: `PROJECT_BRIEF → ARCHITECTURE → ROADMAP → STATUS → this file`. If this file

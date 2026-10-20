@@ -513,7 +513,7 @@ A version is **complete** only when all apply:
 - [x] **0.10.5** Stragglers: speculative duplicates of tail chunks; first result wins, idempotent — G6 merged a006c894 (2026-10-21); tester r1 PASS (unit 16756; V0.10 comp+cluster 133 exit 0; workqueue comp 74), reviewer r1 APPROVE, F1 flake fixed (D285)
 - [x] **0.10.6** Lost node → chunk leases expire → re-queued — evidence: D281 (kill -9 / controller restart / lease expiry / re-plan tests); gate D282
 - [x] **0.10.7** Ordered, deterministic combine step — G5 merged 2026-10-20; tester r2 PASS (d892881b: unit 16700 passed, V0.10 comp+cluster one-process 121 passed ×3, ruff clean, mypy src 422 clean), reviewer r2 APPROVE
-- [ ] **0.10.8** Progress per chunk/node (CLI progress bar, dashboard page)
+- [x] **0.10.8** Progress per chunk/node (CLI progress bar, dashboard page) — G7 merged b47bc074 (2026-10-21); tester r1 PASS, reviewer r1 APPROVE, Lead fixes N2/N3/T-1..T-3 (D286); post-merge main (G6+G7): unit 16860, V0.10 comp+cluster+workqueue one process 228 passed, ruff + mypy src clean
 - [ ] **0.10.9** Mode 3 benchmark families
 - [ ] **0.10.10** 🧑 Lab: heterogeneous 3–4 laptop runs with a node killed mid-way
 
