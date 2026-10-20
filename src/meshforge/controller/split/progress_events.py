@@ -216,11 +216,18 @@ class ProgressTracker:
         due = [j for j in self._dirty if self._due_at(j) <= now][:MAX_READS_PER_STEP]
         for job_id in due:
             self._dirty.pop(job_id, None)
-            self._last_read[job_id] = self._clock()
-            self._last_read.move_to_end(job_id)
-            while len(self._last_read) > self._max_jobs:
-                self._last_read.popitem(last=False)
-            await self._read_one(job_id)
+            try:
+                await self._read_one(job_id)
+            except BaseException:
+                self._mark(job_id)  # not lost: read again after the back-off
+                raise
+            finally:
+                # measured from the END of the read (= its publish): the next
+                # event of this job is at least one interval after this one
+                self._last_read[job_id] = self._clock()
+                self._last_read.move_to_end(job_id)
+                while len(self._last_read) > self._max_jobs:
+                    self._last_read.popitem(last=False)
         later = [self._due_at(j) for j in self._dirty]
         nxt = min([*later, self._next_resync])
         return max(0.0, nxt - self._clock())

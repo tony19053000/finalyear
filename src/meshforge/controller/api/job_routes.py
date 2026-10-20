@@ -155,7 +155,7 @@ from meshforge.controller.secret_store import (
     SecretStore,
     SecretStoreError,
 )
-from meshforge.controller.split.progress import ProgressReads
+from meshforge.controller.split.progress_reads import ProgressReads
 
 __all__ = [
     "DEFAULT_JOB_LIMIT",

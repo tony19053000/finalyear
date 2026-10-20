@@ -140,8 +140,9 @@ from meshforge.controller.session.servicer import AgentControlServicer
 from meshforge.controller.settings import LOOPBACK_PLAIN_HOSTS, ControllerSettings
 from meshforge.controller.snapshots import SnapshotFlusher
 from meshforge.controller.split.combine import CombineBusy
-from meshforge.controller.split.progress import ProgressReads, SplitProgress
+from meshforge.controller.split.progress import SplitProgress
 from meshforge.controller.split.progress_events import ProgressTracker
+from meshforge.controller.split.progress_reads import ProgressReads
 from meshforge.controller.store.engine import check_connection, create_engine
 from meshforge.controller.store.migrate import upgrade_to_head
 from meshforge.controller.telemetry.recorder import RunRecorder

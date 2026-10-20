@@ -38,12 +38,8 @@ from meshforge.controller.api.errors import ApiError
 from meshforge.controller.api.job_routes import JobApi, Jobs
 from meshforge.controller.api.models import ApiModel, Utc
 from meshforge.controller.jobs.store import JobRecord
-from meshforge.controller.split.progress import (
-    ChunkRow,
-    LaneProgress,
-    ProgressReads,
-    SplitProgress,
-)
+from meshforge.controller.split.progress import LaneProgress, SplitProgress
+from meshforge.controller.split.progress_reads import ChunkRow, ProgressReads
 from meshforge.workqueue.core import ItemState
 
 __all__ = [
