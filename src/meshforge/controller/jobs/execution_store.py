@@ -429,6 +429,7 @@ class ExecutionStore(DecisionReads):
                 ids = [row.id for row in owed]
                 fabric.combine_sites = await split_combine.result_sites(db, ids)
                 fabric.combine_failures = await split_combine.combine_failures(db, ids)
+                fabric.combine_lanes = await split_combine.draining_lanes(db, ids)
                 for row in owed:
                     placed = await self._dispatch_combine(
                         db, row, decide_combine, fabric, max_per_node=max_per_node
@@ -663,8 +664,9 @@ class ExecutionStore(DecisionReads):
         if not isinstance(decision, CombineStart):
             return None
         node_id = decision.node_id
+        draining = sum(fabric.combine_lanes.get(row.id, {}).get(node_id, (0, 0)))
         if node_id not in fabric.nodes or (
-            sum(fabric.used_slots(node_id)) >= max_per_node
+            sum(fabric.used_slots(node_id)) - draining >= max_per_node
         ):
             return None  # the decider must not over-book; defensive
         attempt = await split_combine.create_combine(db, row, decision)

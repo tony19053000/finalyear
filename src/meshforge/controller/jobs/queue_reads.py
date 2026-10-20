@@ -156,6 +156,9 @@ class FabricRows:
     combine_failures: dict[str, tuple[PastFailure, ...]] = field(default_factory=dict)
     """V0.10 G5: job_id -> its failed / lost combine attempts (a new combine
     avoids those nodes, softly)."""
+    combine_lanes: dict[str, dict[str, tuple[int, int]]] = field(default_factory=dict)
+    """V0.10 G5: job_id -> {node_id: (cpu, gpu) slots of its draining lanes} -
+    free for that job's combine."""
     snapshot: ClusterSnapshot | None = None
     """The planner snapshot built from these rows (the dispatcher's, cached
     for the tick and patched by :meth:`took`)."""

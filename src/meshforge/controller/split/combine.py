@@ -83,6 +83,7 @@ __all__ = [
     "combine_ended",
     "combine_failures",
     "create_combine",
+    "draining_lanes",
     "owed_jobs",
     "result_sites",
 ]
@@ -159,6 +160,35 @@ async def result_sites(
     out: dict[str, dict[str, int]] = {}
     for owner, site, count in rows.all():
         out.setdefault(str(owner), {})[str(site)] = int(count)
+    return out
+
+
+async def draining_lanes(
+    db: AsyncSession, job_ids: Sequence[str]
+) -> dict[str, dict[str, tuple[int, int]]]:
+    """job_id -> {node_id: (cpu, gpu) slots its still-live lanes hold}. Every
+    chunk of these jobs is committed, so their lanes are only draining (they
+    run nothing more); the combine may take their place (D283 pin 2: the
+    submitter's node must not look busy because of the job's own lane)."""
+    if not job_ids:
+        return {}
+    rows = await db.execute(
+        select(
+            Attempt.job_id,
+            Attempt.node_id,
+            func.count().filter(Attempt.slot == "gpu"),
+            func.count().filter(or_(Attempt.slot.is_(None), Attempt.slot != "gpu")),
+        )
+        .where(
+            Attempt.job_id.in_(list(job_ids)),
+            Attempt.role == AttemptRole.LANE.value,
+            Attempt.state.in_(_LIVE),
+        )
+        .group_by(Attempt.job_id, Attempt.node_id)
+    )
+    out: dict[str, dict[str, tuple[int, int]]] = {}
+    for job_id, node_id, gpu, cpu in rows.all():
+        out.setdefault(str(job_id), {})[str(node_id)] = (int(cpu), int(gpu))
     return out
 
 

@@ -40,7 +40,7 @@ from __future__ import annotations
 import dataclasses
 import datetime as dt
 from collections import OrderedDict
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Final
 
 from pydantic import ValidationError
@@ -133,6 +133,27 @@ def _idle(snapshot: ClusterSnapshot) -> ClusterSnapshot:
             for n in snapshot.nodes
         ),
     )
+
+
+def _without_draining(
+    snapshot: ClusterSnapshot, lanes: Mapping[str, tuple[int, int]]
+) -> ClusterSnapshot:
+    """V0.10 G5: ``snapshot`` with the slots of a split job's draining lanes
+    free - its combine takes their place (every chunk is committed)."""
+    if not lanes:
+        return snapshot
+    nodes = []
+    for node in snapshot.nodes:
+        cpu, gpu = lanes.get(node.node_id, (0, 0))
+        if cpu or gpu:
+            node = dataclasses.replace(
+                node,
+                used_cpu_slots=max(0, node.used_cpu_slots - cpu),
+                used_gpu_slots=max(0, node.used_gpu_slots - gpu),
+                live_attempts=max(0, node.live_attempts - cpu - gpu),
+            )
+        nodes.append(node)
+    return dataclasses.replace(snapshot, nodes=tuple(nodes))
 
 
 def decision_record(decision: Decision) -> DecisionRecord:
@@ -547,7 +568,9 @@ class DispatchPlanner:
             else fabric.owner_names.get(job.owner_user_id),
             benchmark=is_benchmark_key(job.idempotency_key),
         )
-        cluster = self.snapshot(fabric)
+        cluster = _without_draining(
+            self.snapshot(fabric), fabric.combine_lanes.get(job.id, {})
+        )
         if script:
             cluster = self._for_job(cluster, key)
         past = fabric.combine_failures.get(job.id, ())

@@ -87,6 +87,13 @@ def pack_folder(
     dest.unlink(missing_ok=True)
     try:
         files, _missing = expand_outputs(out, ("**",))
+        raw = sum(os.lstat(out / rel).st_size for rel in files)
+        if raw > max_bytes:
+            raise OutputError(
+                f"output_limit: the {what}'s output is {raw} bytes, more than "
+                f"{limit} ({max_bytes})",
+                retryable=False,
+            )
         with dest.open("xb") as fh:
             packed = pack_files(
                 out, files, fh, limits=BundleLimits(max_total_bytes=max_bytes)

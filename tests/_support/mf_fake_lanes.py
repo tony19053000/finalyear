@@ -92,7 +92,12 @@ class FakeLane:
     combine_fail: tuple[FailureType, str, bool] | None = None
     """V0.10 G5: report the combine failed (type, detail, retryable)."""
     combine_hold: bool = False
-    """V0.10 G5: the combine stages, then never finishes."""
+    """V0.10 G5: the combine stages, then waits - until a ``CancelAttempt``
+    (-> ``FAILED(cancelled)``) or the node is killed."""
+    delay_first_result_s: float = 0.0
+    """V0.10 G5: the first chunk's result is sent this much later (past its
+    lease's visibility timeout: a late, second result of that chunk)."""
+    _delayed: bool = False
     combines: list[str] = field(default_factory=list)
     """Combine attempts this node started (attempt ids)."""
     combine_parts: dict[str, list[bytes]] = field(default_factory=dict)
@@ -246,7 +251,12 @@ class FakeLane:
             parts.append(part.content)
         self.combine_parts[start.attempt_id] = parts
         if self.combine_hold:
-            await asyncio.Event().wait()
+            box = self._inbox[start.attempt_id]
+            await self._next(box, ("cancel_attempt",))
+            await self._status(
+                start, AttemptState.FAILED, (FailureType.CANCELLED, "cancelled")
+            )
+            return
         for state in (AttemptState.ENV_READY, AttemptState.RUNNING):
             await self._status(start, state)
         if self.combine_fail is not None:
@@ -350,6 +360,9 @@ class FakeLane:
         self.ledger.append((chunk.chunk_index, chunk.lease_seq))
         if self.hold_results:
             await asyncio.Event().wait()
+        if self.delay_first_result_s and not self._delayed:
+            self._delayed = True
+            await asyncio.sleep(self.delay_first_result_s)
         result = agent_pb2.ChunkResult(
             job_id=start.job_id,
             attempt_id=start.attempt_id,
