@@ -65,6 +65,7 @@ __all__ = [
     "ReconnectSettings",
     "ResourceSettings",
     "ScoreSettings",
+    "SplitSettings",
     "parse_controller_address",
 ]
 
@@ -1383,6 +1384,26 @@ class BenchSettings(SectionModel):
     )
 
 
+class SplitSettings(SectionModel):
+    """``[agent.split]`` - Mode 3 on this node (V0.10 G5, D268/D283).
+
+    The built-in combines (``concat``, ``merge-csv``, ``merge-json``) stream
+    their parts; ``merge-json`` must parse one part's file at a time, so it is
+    bounded per file: a larger file fails the job ``combine_error``
+    (``too_large``) - never a truncated result.
+    """
+
+    combine_json_max_bytes: int = Field(
+        default=256 * 1024 * 1024,
+        ge=1024,
+        le=4 * 1024**3,
+        description=(
+            "Largest single part file merge-json parses; larger fails the "
+            "combine (too_large), never truncated."
+        ),
+    )
+
+
 class ConditionSettings(SectionModel):
     """``[agent.conditions]`` - benchmark conditions (V0.9 G4, D217).
 
@@ -1541,6 +1562,7 @@ class AgentSection(SectionModel):
     cert: CertSettings = Field(default_factory=CertSettings)
     conditions: ConditionSettings = Field(default_factory=ConditionSettings)
     bench: BenchSettings = Field(default_factory=BenchSettings)
+    split: SplitSettings = Field(default_factory=SplitSettings)
     hello_timeout_s: float = Field(
         default=3.0,
         gt=0,

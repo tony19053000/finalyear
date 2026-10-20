@@ -182,6 +182,10 @@ ALLOWED: dict[tuple[str, str], str] = {
         _CODE
     ),
     ("controller/jobs/planning.py", "refused.code in _GPU_GONE"): _CODE,
+    (
+        "agent/execution/combine_steps.py",
+        "result.exit_code == EXIT_COMBINE_ERROR",
+    ): "a process exit status (the built-in combine's refusal), public",
     ("controller/planner/types.py", "self.code in STATIC_CODES"): _CODE,
 }
 

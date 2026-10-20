@@ -90,7 +90,12 @@ from meshforge.common.manifest import (
     parse_manifest_data,
 )
 from meshforge.common.split_items import SplitLimits
-from meshforge.common.states import JOB_TERMINAL_STATES, JobState
+from meshforge.common.states import (
+    JOB_TERMINAL_STATES,
+    AttemptRole,
+    AttemptState,
+    JobState,
+)
 from meshforge.common.tree import Tree, TreeError
 from meshforge.controller.api.auth import CurrentUser
 from meshforge.controller.api.context import FabricView, get_fabric
@@ -106,6 +111,7 @@ from meshforge.controller.api.job_models import (
     JobList,
     JobSubmission,
     JobSummary,
+    JobWarning,
     Placement,
     TransferOut,
     TransitionOut,
@@ -364,6 +370,7 @@ def _attempt(record: AttemptRecord) -> AttemptSummary:
         node_id=record.node_id,
         fencing_token=record.fencing_token,
         state=record.state,
+        role=record.role,
         failure_type=record.failure_type,
         detail=record.detail,
         exit_code=record.exit_code,
@@ -425,7 +432,20 @@ async def _detail(
             )
             for i in used
         ),
+        warnings=tuple(JobWarning.model_validate(dict(w)) for w in job.warnings),
+        output_digest=_job_output(job, attempts),
     )
+
+
+def _job_output(job: JobRecord, attempts: Sequence[AttemptRecord]) -> str | None:
+    """V0.10 G5: a SUCCEEDED job's output digest - its final (highest-token)
+    attempt's; for a split job that is the combine (never a lane's)."""
+    if job.state is not JobState.SUCCEEDED or not attempts:
+        return None
+    final = max(attempts, key=lambda a: a.fencing_token)
+    if final.state is not AttemptState.DONE or final.role is AttemptRole.LANE:
+        return None
+    return final.output_digest
 
 
 def _replay(

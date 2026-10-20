@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from meshforge.common.errors import FailureType
 from meshforge.common.manifest import PolicyName
-from meshforge.common.states import AttemptState, JobState
+from meshforge.common.states import AttemptRole, AttemptState, JobState
 from meshforge.controller.api.models import ApiModel, Utc
 
 __all__ = [
@@ -26,6 +26,7 @@ __all__ = [
     "JobList",
     "JobSubmission",
     "JobSummary",
+    "JobWarning",
     "Placement",
     "PlacementRequest",
     "TransitionOut",
@@ -167,6 +168,9 @@ class AttemptSummary(ApiModel):
     node_id: str
     fencing_token: int
     state: AttemptState
+    role: AttemptRole = AttemptRole.RUN
+    """V0.10: ``run`` (a whole job), ``lane`` (one node's share of a split
+    job) or ``combine`` (a split job's combine - its output is the job's)."""
     failure_type: FailureType | None = None
     detail: str | None = None
     exit_code: int | None = None
@@ -210,11 +214,29 @@ class JobSummary(ApiModel):
     """V0.9 G3: set when the job is a benchmark campaign's forced run."""
 
 
+class JobWarning(ApiModel):
+    """V0.10 G5 (D269): something the user should know that did not fail the
+    job - ``nondeterministic_chunk``: a chunk gave two different results
+    while ``split.deterministic`` was on (the first committed one was kept)."""
+
+    code: Literal["nondeterministic_chunk"]
+    count: int
+    """Occurrences in total."""
+    chunks: list[int] = Field(default_factory=list)
+    """The chunk indices concerned (at most the first 64)."""
+    detail: str
+
+
 class JobDetail(JobSummary):
     manifest: dict[str, Any]
     transitions: tuple[TransitionOut, ...]
     attempts: tuple[AttemptSummary, ...]
     inputs: tuple[InputOut, ...] = ()
+    warnings: tuple[JobWarning, ...] = ()
+    """V0.10 G5: warnings that did not fail the job (empty for most jobs)."""
+    output_digest: str | None = None
+    """V0.10 G5: the job's output (``compute get``) once it SUCCEEDED - the
+    final attempt's packed outputs (a split job: its combine's)."""
 
 
 class JobList(ApiModel):

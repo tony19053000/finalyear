@@ -139,6 +139,7 @@ from meshforge.controller.session.peer_cert import NodeCertInterceptor, peer_cer
 from meshforge.controller.session.servicer import AgentControlServicer
 from meshforge.controller.settings import LOOPBACK_PLAIN_HOSTS, ControllerSettings
 from meshforge.controller.snapshots import SnapshotFlusher
+from meshforge.controller.split.combine import CombineBusy
 from meshforge.controller.store.engine import check_connection, create_engine
 from meshforge.controller.store.migrate import upgrade_to_head
 from meshforge.controller.telemetry.recorder import RunRecorder
@@ -394,7 +395,13 @@ class ControllerRuntime:
         registry = Registry(engine)
         self.registry = registry
         self.cache_index = CacheIndex(CacheLocationStore(engine))
-        self.jobs = ExecutionStore(engine)
+        self.jobs = ExecutionStore(
+            engine,
+            combine_busy=CombineBusy(
+                backoff_s=cfg.split.combine_busy_backoff_s,
+                max_free=cfg.split.combine_busy_max,
+            ),
+        )
         # V0.8 G1 (D172): the dashboard's event bus; job/attempt changes are
         # published once their transaction commits (events.changes).
         ev = cfg.events

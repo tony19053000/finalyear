@@ -16,6 +16,16 @@ agent's lane runner does - the wire protocol only, no staging or processes:
   ``drained`` ends the lane ``DONE``, ``stop`` ends it ``FAILED(cancelled)``;
 * a ``CancelAttempt`` stops the lane (``FAILED(cancelled)``); ``kill()`` drops
   the stream with no Goodbye (the node goes SUSPECT -> OFFLINE).
+* V0.10 G5: a ``StartAttempt`` with ``combine`` -> ``STAGING``, the parts
+  index and every part downloaded with the attempt's fetch token (checks its
+  scope) and verified, ``ENV_READY``, ``RUNNING``, ``UPLOADING``, the output
+  (``combine_of(parts)``: the part blobs concatenated in chunk order) uploaded
+  under its grant, ``DONE`` with its digest; ``combine_fail`` reports a
+  failure instead, ``combine_hold`` never finishes (a node to kill).
+* G5 fix r1 (B1): ``busy_while_lanes_live`` refuses a combine
+  ``FAILED(resource_busy)`` at once (like the real agent at its
+  ``max_concurrent_attempts``) while a lane of this node is still live;
+  ``drain_delay_s`` keeps a drained lane live that long before its ``DONE``.
 
 ``speed_s`` is the time one chunk "takes"; ``ledger`` records every chunk this
 lane ran ((chunk_index, lease_seq)).
@@ -44,6 +54,7 @@ from meshforge.common.split_chunks import (
     ItemList,
     chunk_items_digest,
     parse_item_list,
+    parse_parts_index,
 )
 from meshforge.common.states import AttemptState
 
@@ -80,6 +91,28 @@ class FakeLane:
     results_sent: list[str] = field(default_factory=list)
     hold_results: bool = False
     """True = run chunks but never send their results (a hung lane)."""
+    combine_of: Callable[[Sequence[bytes]], bytes] = b"".join
+    """V0.10 G5: the fake combine's output from the part blobs (chunk order)."""
+    combine_fail: tuple[FailureType, str, bool] | None = None
+    """V0.10 G5: report the combine failed (type, detail, retryable)."""
+    combine_hold: bool = False
+    """V0.10 G5: the combine stages, then waits - until a ``CancelAttempt``
+    (-> ``FAILED(cancelled)``) or the node is killed."""
+    delay_first_result_s: float = 0.0
+    """V0.10 G5: the first chunk's result is sent this much later (past its
+    lease's visibility timeout: a late, second result of that chunk)."""
+    _delayed: bool = False
+    busy_while_lanes_live: bool = False
+    """G5 fix r1: refuse a combine resource_busy while a lane here is live."""
+    drain_delay_s: float = 0.0
+    """G5 fix r1: a drained lane waits this long before it reports DONE."""
+    busy_refusals: list[str] = field(default_factory=list)
+    """Combine attempts refused resource_busy (attempt ids)."""
+    _live_lanes: set[str] = field(default_factory=set)
+    combines: list[str] = field(default_factory=list)
+    """Combine attempts this node started (attempt ids)."""
+    combine_parts: dict[str, list[bytes]] = field(default_factory=dict)
+    """attempt_id -> the part blobs its combine downloaded (chunk order)."""
     _seen: int = 0
     _tasks: list[asyncio.Task[None]] = field(default_factory=list)
     _inbox: dict[str, asyncio.Queue[agent_pb2.ControllerMessage]] = field(
@@ -117,6 +150,14 @@ class FakeLane:
                 if which in ("ack", "ping", "hello_ack", None):
                     continue
                 await self._ack(msg)
+                if which == "start_attempt" and msg.start_attempt.HasField("combine"):
+                    if msg.start_attempt.attempt_id in self._inbox:
+                        continue
+                    self._inbox[msg.start_attempt.attempt_id] = asyncio.Queue()
+                    self._tasks.append(
+                        asyncio.create_task(self._combine(msg.start_attempt))
+                    )
+                    continue
                 if which == "start_attempt" and msg.start_attempt.HasField("lane"):
                     if msg.start_attempt.attempt_id in self._inbox:
                         continue  # a re-sent start: already running
@@ -173,6 +214,9 @@ class FakeLane:
         start: agent_pb2.StartAttempt,
         state: AttemptState,
         failure: tuple[FailureType, str] | None = None,
+        *,
+        retryable: bool = False,
+        output_digest: str = "",
     ) -> None:
         status = agent_pb2.AttemptStatus(
             job_id=start.job_id,
@@ -180,18 +224,90 @@ class FakeLane:
             fencing_token=start.fencing_token,
             state=attempt_state_to_proto(state),
             runtime="subprocess",
+            output_digest=output_digest,
         )
         if failure is not None:
             status.failure.CopyFrom(
                 common_pb2.Failure(
                     failure_type=failure_type_to_proto(failure[0]),
                     message=failure[1],
-                    retryable=False,
+                    retryable=retryable,
                 )
             )
+        if state in (AttemptState.DONE, AttemptState.FAILED):
+            status.phases.run_s = 0.25
         await self._write(attempt_status=status)
 
+    # ------------------------------------------------------------ combine
+
+    async def _combine(self, start: agent_pb2.StartAttempt) -> None:
+        """V0.10 G5: the wire side of a combine (module docstring)."""
+        if self.busy_while_lanes_live and self._live_lanes:
+            self.busy_refusals.append(start.attempt_id)
+            await self._status(
+                start,
+                AttemptState.FAILED,
+                (
+                    FailureType.RESOURCE_BUSY,
+                    "this node already runs its maximum number of attempts",
+                ),
+                retryable=True,
+            )
+            return
+        self.combines.append(start.attempt_id)
+        await self._status(start, AttemptState.STAGING)
+        client = await self._http()
+        token = _bearer(start.spec.fetch_token)
+        index_hex = start.combine.parts_digest.removeprefix("sha256:")
+        got = await client.get(f"/v1/blobs/{index_hex}", headers=token)
+        assert got.status_code == 200, got.text
+        assert str(sha256_bytes(got.content)) == start.combine.parts_digest
+        index = parse_parts_index(got.content)
+        assert len(index.chunks) == start.combine.chunk_count
+        parts: list[bytes] = []
+        for _first, _count, digest in index.chunks:
+            part = await client.get(
+                f"/v1/blobs/{digest.removeprefix('sha256:')}", headers=token
+            )
+            assert part.status_code == 200, part.text
+            assert str(sha256_bytes(part.content)) == digest
+            parts.append(part.content)
+        self.combine_parts[start.attempt_id] = parts
+        if self.combine_hold:
+            box = self._inbox[start.attempt_id]
+            await self._next(box, ("cancel_attempt",))
+            await self._status(
+                start, AttemptState.FAILED, (FailureType.CANCELLED, "cancelled")
+            )
+            return
+        for state in (AttemptState.ENV_READY, AttemptState.RUNNING):
+            await self._status(start, state)
+        if self.combine_fail is not None:
+            kind, detail, retryable = self.combine_fail
+            await self._status(
+                start, AttemptState.FAILED, (kind, detail), retryable=retryable
+            )
+            return
+        await self._status(start, AttemptState.UPLOADING)
+        data = self.combine_of(parts)
+        digest = sha256_bytes(data)
+        # not through _Upload (tests patch it to make LANES lie about uploads)
+        put = await client.put(
+            f"/v1/blobs/{digest.hex}",
+            content=data,
+            headers=_bearer(start.spec.upload_token),
+        )
+        assert put.status_code in (200, 201), put.text
+        await self._status(start, AttemptState.DONE, output_digest=str(digest))
+
     async def _lane(self, start: agent_pb2.StartAttempt) -> None:
+        self._live_lanes.add(start.attempt_id)
+        try:
+            await self._lane_run(start)
+        finally:
+            self._live_lanes.discard(start.attempt_id)
+
+    async def _lane_run(self, start: agent_pb2.StartAttempt) -> None:
         attempt_id = start.attempt_id
         box = self._inbox[attempt_id]
         for state in (
@@ -234,6 +350,8 @@ class FakeLane:
                     await asyncio.sleep(max(0.05, reply.no_work.retry_after_s))
                     continue
                 if reason == agent_pb2.NoWork.REASON_DRAINED:
+                    if self.drain_delay_s > 0:
+                        await asyncio.sleep(self.drain_delay_s)
                     self.stopped[attempt_id] = "done"
                     await self._status(start, AttemptState.DONE)
                     return
@@ -274,6 +392,9 @@ class FakeLane:
         self.ledger.append((chunk.chunk_index, chunk.lease_seq))
         if self.hold_results:
             await asyncio.Event().wait()
+        if self.delay_first_result_s and not self._delayed:
+            self._delayed = True
+            await asyncio.sleep(self.delay_first_result_s)
         result = agent_pb2.ChunkResult(
             job_id=start.job_id,
             attempt_id=start.attempt_id,

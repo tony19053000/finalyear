@@ -40,17 +40,20 @@ from __future__ import annotations
 import dataclasses
 import datetime as dt
 from collections import OrderedDict
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Final
 
 from pydantic import ValidationError
 
+from meshforge.common.capabilities import EXEC_SPLIT_CAPABILITY
 from meshforge.common.errors import FailureType, InvalidIdError
 from meshforge.common.ids import new_attempt_id
 from meshforge.common.logging import get_logger
 from meshforge.common.manifest import Manifest, ManifestError, SplitSpec
 from meshforge.controller.jobs.env_health import KnownBadEnvs, env_key
 from meshforge.controller.jobs.execution_store import (
+    CombineDecision,
+    CombineStart,
     DecisionRecord,
     Dispatch,
     DispatchDecision,
@@ -66,6 +69,7 @@ from meshforge.controller.jobs.queue_reads import (
 )
 from meshforge.controller.jobs.spec import (
     choose_gpus,
+    combine_manifest,
     start_snapshot,
     start_telemetry,
 )
@@ -129,6 +133,38 @@ def _idle(snapshot: ClusterSnapshot) -> ClusterSnapshot:
             for n in snapshot.nodes
         ),
     )
+
+
+def _without_draining(
+    snapshot: ClusterSnapshot,
+    lanes: Mapping[str, tuple[int, int]],
+    *,
+    gpu: bool = False,
+) -> ClusterSnapshot:
+    """V0.10 G5: ``snapshot`` with the slots of a split job's draining lanes
+    free - its combine takes their place (every chunk is committed). Only
+    lanes of the combine's own slot kind are freed (fix r1 N2): a combine
+    needs no GPU (``gpu=False``), and a draining GPU lane frees no CPU slot -
+    it still counts in the node's live attempts until it ends."""
+    if not lanes:
+        return snapshot
+    nodes = []
+    for node in snapshot.nodes:
+        cpu, gpus = lanes.get(node.node_id, (0, 0))
+        if gpu and gpus:
+            node = dataclasses.replace(
+                node,
+                used_gpu_slots=max(0, node.used_gpu_slots - gpus),
+                live_attempts=max(0, node.live_attempts - gpus),
+            )
+        elif not gpu and cpu:
+            node = dataclasses.replace(
+                node,
+                used_cpu_slots=max(0, node.used_cpu_slots - cpu),
+                live_attempts=max(0, node.live_attempts - cpu),
+            )
+        nodes.append(node)
+    return dataclasses.replace(snapshot, nodes=tuple(nodes))
 
 
 def decision_record(decision: Decision) -> DecisionRecord:
@@ -486,6 +522,116 @@ class DispatchPlanner:
             chunk_items=lanes.chunk_items,
             queue_policy=self.queue_policy(job, spec),
             record=dataclasses.replace(record, chosen_node_id=starts[0].node_id),
+        )
+
+    # ------------------------------------------------------------ combine
+
+    def decide_combine(self, job: JobRecord, fabric: FabricRows) -> CombineDecision:
+        """V0.10 G5 (D268/D283 pin 2): where a split job's combine runs, or
+        why it waits. Errors are ours, not the job's: it waits (counted and
+        logged once, like :meth:`decide`)."""
+        try:
+            return self._decide_combine(job, fabric)
+        except Exception as exc:  # our fault: keep it waiting
+            self.planning_errors += 1
+            key = (job.id, f"combine:{type(exc).__name__}")
+            if key not in self._errors_logged:
+                self._errors_logged[key] = None
+                while len(self._errors_logged) > _ERRORS_LOGGED_MAX:
+                    self._errors_logged.popitem(last=False)
+                log.exception(
+                    "controller.split.combine_planning_error",
+                    job_id=job.id,
+                    error_type=type(exc).__name__,
+                )
+            return Wait()
+
+    def _decide_combine(self, job: JobRecord, fabric: FabricRows) -> CombineDecision:
+        """Feasible = the planner's own rules (liveness, owner policy, slots,
+        runtime) for the job **without its GPU need**
+        (:func:`~.spec.combine_manifest`) on nodes that speak Mode 3
+        (``exec-split``); then the submitter's node, else the node holding
+        the most committed chunk results, else the planner's best. A failed
+        combine's node is avoided (softly, like a retry). Nothing feasible:
+        the job waits; no node that could ever run it: it fails
+        ``no_feasible_plan``."""
+        manifest = combine_manifest(Manifest.model_validate(dict(job.manifest)))
+        pinned = str(job.placement.get("node_id") or "") or None
+        script = (
+            manifest.split is not None and manifest.split.combine.script is not None
+        )
+        key = env_key(
+            job.manifest, tree_id=job.tree_id, bundle_digest=job.bundle_digest
+        )
+        # a built-in reads only the parts; a script needs the project + env
+        trees = self._trees(job, fabric) if script else ()
+        request = plan_request(
+            manifest,
+            job_id=job.id,
+            attempt_no=job.attempt_epoch + 1,
+            env_key=key,
+            trees=trees,
+            pinned_node_id=pinned,
+            submitter_node_id=job.scheduling.submitter_node_id,
+            seeded=job.scheduling.submitter_seeded,
+            owner_name=None
+            if job.owner_user_id is None
+            else fabric.owner_names.get(job.owner_user_id),
+            benchmark=is_benchmark_key(job.idempotency_key),
+        )
+        cluster = _without_draining(
+            self.snapshot(fabric), fabric.combine_lanes.get(job.id, {})
+        )
+        if script:
+            cluster = self._for_job(cluster, key)
+        past = fabric.combine_failures.get(job.id, ())
+        if past and pinned is None:
+            request = dataclasses.replace(
+                request,
+                excluded=exclusions(
+                    past,
+                    cluster.nodes,
+                    now=self._wall(),
+                    exclude_s=self._planner.retry_exclude_s,
+                ),
+            )
+        decision = plan(request, cluster, self.policy_of(job), self._wall())
+
+        def speaks_mode3(node_id: str) -> bool:
+            row = fabric.nodes.get(node_id)
+            caps = () if row is None else row.hardware.get("capabilities") or ()
+            return EXEC_SPLIT_CAPABILITY in caps
+
+        able = [c for c in decision.candidates if speaks_mode3(c.node_id)]
+        feasible = sorted(
+            (c for c in able if c.feasible and c.slot is not None),
+            key=lambda c: (c.rank if c.rank is not None else 1 << 30, c.node_id),
+        )
+        if not feasible:
+            if all(c.rejection is not None and c.rejection.static for c in able):
+                return DispatchFailure(
+                    FailureType.NO_FEASIBLE_PLAN,
+                    "no node of the fabric can run this split job's combine "
+                    "(see compute explain)",
+                )
+            return Wait()
+        sites = fabric.combine_sites.get(job.id, {})
+        submitter = job.scheduling.submitter_node_id
+        by_id = {c.node_id: c for c in feasible}
+        if submitter is not None and submitter in by_id:
+            chosen, reason = by_id[submitter], "submitter"
+        else:
+            chosen = min(feasible, key=lambda c: -sites.get(c.node_id, 0))
+            reason = "most_results" if sites.get(chosen.node_id) else "planner"
+        row = fabric.nodes[chosen.node_id]
+        return CombineStart(
+            attempt_id=str(new_attempt_id()),
+            node_id=chosen.node_id,
+            slot=chosen.slot or "cpu",
+            start_snapshot=self._start_snapshot(
+                job, chosen.node_id, row, (), fabric, trees, cluster
+            ),
+            reason=reason,
         )
 
     def queue_policy(self, job: JobRecord, spec: SplitSpec) -> QueuePolicy:

@@ -71,6 +71,7 @@ from meshforge.controller.jobs.transitions import (
     next_attempt_state,
     next_job_state,
 )
+from meshforge.controller.split.warnings import parse_warnings
 from meshforge.controller.store.engine import create_session_factory
 from meshforge.controller.store.models.data import JobInput, TransferEvent
 from meshforge.controller.store.models.job import (
@@ -178,6 +179,9 @@ class JobRecord:
     split: SplitRecord | None = None
     """V0.10 G1 (D260, migration 0026): the items resolved at submit; None =
     the job runs whole."""
+    warnings: tuple[Mapping[str, Any], ...] = ()
+    """V0.10 G5 (D269, migration 0028): warnings that did not fail the job
+    (``controller.split.warnings``: code, count, chunks, detail)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -195,6 +199,8 @@ class SplitRecord:
     parts_digest: str | None = None
     """V0.10 G4 (migration 0027): the parts index, once every chunk is
     committed (``controller.split.parts``)."""
+    combine_ms: int | None = None
+    """V0.10 G5 (migration 0028): the combine's run time, once SUCCEEDED."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -310,7 +316,11 @@ def job_record(row: Job) -> JobRecord:
             if row.split_item_bytes is None
             else int(row.split_item_bytes),
             parts_digest=row.split_parts_digest,
+            combine_ms=None
+            if row.split_combine_ms is None
+            else int(row.split_combine_ms),
         ),
+        warnings=tuple(parse_warnings(row.warnings)),
     )
 
 

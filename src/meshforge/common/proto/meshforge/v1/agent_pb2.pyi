@@ -1826,6 +1826,7 @@ class StartAttempt(_message.Message):
     CONDITION_FIELD_NUMBER: _builtins.int
     BENCHMARK_FIELD_NUMBER: _builtins.int
     LANE_FIELD_NUMBER: _builtins.int
+    COMBINE_FIELD_NUMBER: _builtins.int
     job_id: _builtins.str
     attempt_id: _builtins.str
     fencing_token: _builtins.int
@@ -1868,6 +1869,19 @@ class StartAttempt(_message.Message):
         lanes only on nodes advertising the "exec-split" capability.
         """
 
+    @_builtins.property
+    def combine(self) -> Global___CombineSpec:
+        """V0.10 G5 (D268/D283): present = this attempt is the COMBINE of a split
+        job: it fetches every chunk's committed result (the parts index, chunk
+        order), unpacks them read-only as parts/NNNNN in an agent-owned folder
+        outside any workdir, runs the built-in (concat, merge-csv, merge-json:
+        trusted agent code in its own process) or the user's combine script
+        (sandboxed like any job, project staged), and reports the packed out/
+        folder as the attempt's (= the job's) output. Placed only on nodes that
+        advertise "exec-split" (agents of this version run both lanes and
+        combines).
+        """
+
     def __init__(
         self,
         *,
@@ -1879,14 +1893,44 @@ class StartAttempt(_message.Message):
         condition: Global___BenchCondition | None = ...,
         benchmark: _builtins.bool = ...,
         lane: Global___LaneSpec | None = ...,
+        combine: Global___CombineSpec | None = ...,
     ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _typing.Literal["condition", b"condition", "lane", b"lane", "spec", b"spec"]  # noqa: Y015
+    _HasFieldArgType: _TypeAlias = _typing.Literal["combine", b"combine", "condition", b"condition", "lane", b"lane", "spec", b"spec"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["attempt_id", b"attempt_id", "benchmark", b"benchmark", "condition", b"condition", "fencing_token", b"fencing_token", "job_id", b"job_id", "lane", b"lane", "secrets", b"secrets", "spec", b"spec"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["attempt_id", b"attempt_id", "benchmark", b"benchmark", "combine", b"combine", "condition", b"condition", "fencing_token", b"fencing_token", "job_id", b"job_id", "lane", b"lane", "secrets", b"secrets", "spec", b"spec"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___StartAttempt: _TypeAlias = StartAttempt  # noqa: Y015
+
+@_typing.final
+class CombineSpec(_message.Message):
+    """A split job's combine (V0.10 G5, D268)."""
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    PARTS_DIGEST_FIELD_NUMBER: _builtins.int
+    CHUNK_COUNT_FIELD_NUMBER: _builtins.int
+    parts_digest: _builtins.str
+    """"sha256:<64 hex>" of the parts index blob (common/split_chunks.py:
+    every chunk's result digest in chunk order). The attempt's fetch token
+    may read it and every part it names; the agent verifies every digest.
+    """
+    chunk_count: _builtins.int
+    """Chunks in the index (the agent checks the index has exactly these)."""
+    def __init__(
+        self,
+        *,
+        parts_digest: _builtins.str = ...,
+        chunk_count: _builtins.int = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["chunk_count", b"chunk_count", "parts_digest", b"parts_digest"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___CombineSpec: _TypeAlias = CombineSpec  # noqa: Y015
 
 @_typing.final
 class LaneSpec(_message.Message):

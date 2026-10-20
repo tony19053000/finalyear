@@ -287,6 +287,7 @@ class Dispatcher(RecoverySteps):
                 settings=self._split_settings,
                 wall_clock=self._wall,
                 put=self._put,
+                wake=self._wake_soon,
             )
         )
         """V0.10 G4 (D263): a lane's chunk messages, handled in this task.

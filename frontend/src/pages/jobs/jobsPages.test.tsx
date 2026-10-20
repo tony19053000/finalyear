@@ -223,6 +223,7 @@ function detail(overrides: Partial<JobDetail> = {}): JobDetail {
         attempt_id: "att_1",
         node_id: "node_A",
         fencing_token: 1,
+        role: "run",
         state: "running",
         exit_code: null,
         output_digest: null,
@@ -234,6 +235,7 @@ function detail(overrides: Partial<JobDetail> = {}): JobDetail {
       },
     ],
     inputs: [],
+    warnings: [],
     ...overrides,
   };
 }
@@ -376,6 +378,7 @@ describe("Job detail (0.8.5, D176)", () => {
           attempt_id: "att_1",
           node_id: "node_A",
           fencing_token: 1,
+          role: "run",
           state: "done",
           exit_code: 0,
           output_digest: DIGEST,
@@ -396,6 +399,59 @@ describe("Job detail (0.8.5, D176)", () => {
     expect(link.getAttribute("download")).toBe("job_01J0007-attempt1-outputs.tar.zst");
     expect(screen.getByText(DIGEST)).toBeTruthy();
     expect(screen.getByText(/Declared but not found: plots\//)).toBeTruthy();
+  });
+
+  it("a split job (V0.10 G5): its output, a nondeterministic_chunk warning, lane and combine attempts", async () => {
+    const attempt = (n: number, role: "lane" | "combine", output: string | null) => ({
+      attempt_id: `att_${String(n)}`,
+      node_id: `node_${String(n)}`,
+      fencing_token: n,
+      role,
+      state: "done" as const,
+      exit_code: 0,
+      output_digest: output,
+      missing_outputs: [],
+      logs: {},
+      started_at: "2026-10-16T08:00:12Z",
+      ended_at: "2026-10-16T08:01:12Z",
+      transfers: [],
+    });
+    const done = detail({
+      state: "succeeded",
+      output_digest: DIGEST,
+      warnings: [
+        {
+          code: "nondeterministic_chunk",
+          count: 2,
+          chunks: [4, 17],
+          detail: "a chunk gave two different results (split.deterministic is on); the first committed result was kept",
+        },
+      ],
+      attempts: [attempt(1, "lane", null), attempt(2, "lane", null), attempt(3, "combine", DIGEST)],
+    });
+    renderDetail(done);
+    await screen.findByRole("heading", { level: 1 });
+    const summaryCard = screen.getByRole("region", { name: "Summary" });
+    expect(summaryCard.textContent).toContain(DIGEST);
+    const warnings = within(summaryCard).getByRole("list", { name: "Job warnings" });
+    expect(warnings.textContent).toContain("nondeterministic_chunk");
+    expect(warnings.textContent).toContain("×2");
+    expect(warnings.textContent).toContain("chunks 4, 17");
+    expect(warnings.textContent).toContain("first committed result was kept");
+    await userEvent.click(screen.getByRole("tab", { name: "Attempts (3)" }));
+    const attempts = await screen.findByRole("table", { name: /attempts/i });
+    expect(attempts.textContent).toContain("combine");
+    expect(attempts.textContent).toContain("lane");
+    await userEvent.click(screen.getByRole("tab", { name: "Outputs" }));
+    const links = await screen.findAllByRole("link", { name: "Download outputs" });
+    expect(links).toHaveLength(1); // the combine's - lanes have no output of their own
+    expect(screen.getByText(/combined output/)).toBeTruthy();
+  });
+
+  it("a job without warnings shows no warnings field", async () => {
+    renderDetail(detail());
+    await screen.findByRole("heading", { level: 1 });
+    expect(screen.queryByRole("list", { name: "Job warnings" })).toBeNull();
   });
 
   it("an unknown job (or another user's) says so; other failures offer a retry", async () => {

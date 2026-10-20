@@ -175,7 +175,7 @@ async def _authorize(
     grant = None if auth.fetch_tokens is None else auth.fetch_tokens.grant(token)
     if grant is None or not agent_credential_ok(request, auth, grant.node_id):
         raise unauthorized()
-    if digest.hex in grant.digests:
+    if grant.may_read_blob(digest.hex):
         return "fetch"
     for root in grant.digests:
         if digest.hex in await store.tree_members(Digest(root)):

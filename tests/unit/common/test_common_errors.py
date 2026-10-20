@@ -51,6 +51,7 @@ _EXPECTED_RETRYABLE: dict[str, bool] = {
     "INTERNAL_ERROR": False,
     "OUTPUT_ERROR": False,  # V0.4 G5, D74 (per-instance retryable on the wire)
     "OWNER_PREEMPTED": False,  # V0.9 G5, D246 (the campaign runner requeues)
+    "COMBINE_ERROR": False,  # V0.10 G5, D283 (a data error: same parts, same refusal)
 }
 
 

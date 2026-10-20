@@ -32,6 +32,7 @@ from meshforge.common.logging import get_logger
 from meshforge.common.manifest import DEFAULT_CHUNK_OUTPUT_BYTES
 from meshforge.common.proto.meshforge.v1 import agent_pb2
 from meshforge.common.secret_redaction import SecretMatcher
+from meshforge.common.split_chunks import PartsIndex
 from meshforge.common.states import AttemptRole, AttemptState
 from meshforge.controller.blobs import MAX_FETCH_TOKEN_TTL_S, FetchTokens
 from meshforge.controller.jobs.execution_store import (
@@ -74,7 +75,13 @@ from meshforge.controller.upload_grants import UploadGrants
 if TYPE_CHECKING:
     from meshforge.controller.split.service import SplitService
 
-__all__ = ["DispatchSteps", "DispatcherStats", "chunk_cap", "fetch_scope"]
+__all__ = [
+    "CombineScope",
+    "DispatchSteps",
+    "DispatcherStats",
+    "chunk_cap",
+    "fetch_scope",
+]
 
 log = get_logger(__name__)
 
@@ -116,14 +123,23 @@ class DispatcherStats:
 
 
 def fetch_scope(
-    job: JobRecord, inputs: Sequence[str] = (), *, lane: bool = False
+    job: JobRecord,
+    inputs: Sequence[str] = (),
+    *,
+    lane: bool = False,
+    combine: CombineScope | None = None,
 ) -> list[Digest]:
     """What an attempt's controller fetch token may read: the tree (its manifest
     plus every member, :class:`~meshforge.controller.blobs.FetchTokens`) for a
     tree job, plus every named input tree of the job (V0.5 G5, D92); the
     bundle for a V0.4 bundle job. The same for StartAttempt and every
     RefreshFetchToken (D95). A split job's **lane** (V0.10 G4) may also read
-    the job's item list blob (``LaneSpec.items_digest``)."""
+    the job's item list blob (``LaneSpec.items_digest``). A **combine**
+    (V0.10 G5) reads its parts index and the parts as plain blobs
+    (:attr:`CombineScope.blobs`); here only the trees: none for a built-in
+    (it reads nothing else), the project and inputs for a script."""
+    if combine is not None and not combine.script:
+        return []
     if job.tree_id:
         extra = [Digest.parse(t) for t in dict.fromkeys(inputs) if t != job.tree_id]
         if lane and job.split is not None:
@@ -141,6 +157,31 @@ async def _matcher(values: Mapping[str, bytes]) -> SecretMatcher | None:
     if not values:
         return None
     return await asyncio.to_thread(SecretMatcher, values)
+
+
+@dataclass(frozen=True, slots=True)
+class CombineScope:
+    """V0.10 G5: what a combine attempt reads besides the trees."""
+
+    parts_digest: str
+    parts: tuple[str, ...]
+    """Every chunk's result digest, in chunk order."""
+    script: bool
+    """A user combine script (stages the project) - else a built-in."""
+
+    @property
+    def blobs(self) -> list[Digest]:
+        return [Digest.parse(self.parts_digest), *(Digest.parse(p) for p in self.parts)]
+
+
+def _is_combine(attempt: AttemptRecord) -> bool:
+    """V0.10 G5: a split job's combine attempt."""
+    return attempt.role is AttemptRole.COMBINE
+
+
+def _combine_is_script(job: JobRecord) -> bool:
+    spec = None if job.split is None else job.split.spec.get("combine")
+    return isinstance(spec, dict) and "script" in spec
 
 
 def _is_lane(attempt: AttemptRecord) -> bool:
@@ -207,6 +248,10 @@ class DispatchSteps:
                 transfer_min_bytes=self._network_settings.transfer_min_bytes,
                 transfer_history=self._network_settings.transfer_history,
             ),
+            # V0.10 G5: split jobs that owe their combine are placed too
+            decide_combine=None
+            if self._split is None
+            else self._planner.decide_combine,
         )
         for result in results:
             for attempt in result.lanes or (
@@ -377,9 +422,14 @@ class DispatchSteps:
                 return
         # D162 (T-8): one matcher per attempt, compiled off the event loop.
         matcher = await _matcher(secrets)
+        combine: CombineScope | None = None
+        if _is_combine(attempt):
+            combine = await self._combine_scope(job, attempt)
+            if combine is None:
+                return  # ended before anything reached the node
         peers = await self._peer_sources(job, attempt)
         inputs = await self._job_inputs(job)
-        token, ttl = self._mint_fetch_token(job, attempt, inputs)
+        token, ttl = self._mint_fetch_token(job, attempt, inputs, combine=combine)
         spec = execution_spec(
             job,
             attempt,
@@ -428,6 +478,14 @@ class DispatchSteps:
                     lease_timeout_s=self._split_settings.visibility_timeout_s,
                 )
             )
+        if combine is not None:
+            # V0.10 G5 (D268): this attempt combines the job's chunk results
+            start.combine.CopyFrom(
+                agent_pb2.CombineSpec(
+                    parts_digest=combine.parts_digest,
+                    chunk_count=len(combine.parts),
+                )
+            )
         # V0.9 G5 (D246): the agent's owner guard stops only benchmark jobs
         start.benchmark = is_benchmark_key(getattr(job, "idempotency_key", None))
         message_id = self._manager.send_command(
@@ -464,11 +522,48 @@ class DispatchSteps:
         else:
             self.stats.start_sent += 1
 
+    async def _combine_scope(
+        self, job: JobRecord, attempt: AttemptRecord
+    ) -> CombineScope | None:
+        """V0.10 G5: a combine's parts (from the job's parts index). The index
+        unreadable (a controller-side fault) ends the attempt - retried by the
+        combine rules - rather than sending a combine that cannot read its
+        input. None = it was ended."""
+        digest = None if job.split is None else job.split.parts_digest
+        index: PartsIndex | None = None
+        cause = "no_parts_index"
+        if digest is not None and self._split is not None:
+            try:
+                index = await self._split.parts_index(digest)
+            except (LookupError, ValueError, OSError) as exc:
+                cause = type(exc).__name__
+        if digest is not None and index is not None:
+            return CombineScope(digest, index.digests, _combine_is_script(job))
+        outcome = await self._store.end_attempt(
+            attempt.id,
+            attempt.fencing_token,
+            event=AttemptEvent.FAIL,
+            failure_type=FailureType.INTERNAL_ERROR,
+            detail=f"the job's parts index cannot be read ({cause})",
+            retryable=True,
+        )
+        self._after(outcome)
+        self._note_retry(outcome)
+        log.error(
+            "controller.split.parts_index_unreadable",
+            job_id=job.id,
+            attempt_id=attempt.id,
+            cause=cause,
+        )
+        return None
+
     def _mint_fetch_token(
         self,
         job: JobRecord,
         attempt: AttemptRecord,
         inputs: Sequence[ResolvedInput] = (),
+        *,
+        combine: CombineScope | None = None,
     ) -> tuple[SecretStr, float]:
         """A new download-only token for ``attempt`` (D73) and its TTL; every
         older token of the attempt is revoked. One token per send: a re-send or
@@ -484,9 +579,11 @@ class DispatchSteps:
                 job,
                 [i.tree_id for i in inputs],
                 lane=_is_lane(attempt),
+                combine=combine,
             ),
             ttl_s=ttl,
             node_id=attempt.node_id,
+            blobs=() if combine is None else combine.blobs,
         )
         return token, ttl
 
@@ -497,9 +594,14 @@ class DispatchSteps:
         this process (the controller restarted): mint one, send it - with the
         whole source list re-minted (D98: fresh peer tokens; the controller
         first, carrying the new fetch token)."""
+        combine: CombineScope | None = None
+        if _is_combine(attempt):
+            combine = await self._combine_scope(job, attempt)
+            if combine is None:
+                return
         peers = await self._peer_sources(job, attempt)
         inputs = await self._job_inputs(job)
-        token, _ttl = self._mint_fetch_token(job, attempt, inputs)
+        token, _ttl = self._mint_fetch_token(job, attempt, inputs, combine=combine)
         secret = token.get_secret_value()
         sources = (
             [agent_pb2.BlobSource(url=self._blob_url, token=secret, node_id="")]

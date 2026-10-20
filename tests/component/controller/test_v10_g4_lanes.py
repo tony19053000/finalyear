@@ -230,7 +230,8 @@ async def test_three_lanes_uneven_speeds_commit_every_chunk_once(
             "SELECT role, state FROM attempt WHERE job_id = :job",
             job=job_id,
         )
-        assert sorted(r.role for r in lane_rows) == ["lane", "lane", "lane"]
+        # V0.10 G5: the three lanes, then the job's combine
+        assert sorted(r.role for r in lane_rows) == ["combine", "lane", "lane", "lane"]
         # the lanes drained and ended DONE once the queue was done
         for _ in range(100):
             states = {

@@ -116,6 +116,7 @@ from meshforge.agent.envs.fsutil import (
     remove_tree,
     remove_tree_quietly,
 )
+from meshforge.agent.execution.combine_steps import CombineState, CombineSteps
 from meshforge.agent.execution.failure_evidence import (
     STDERR_TAIL_BYTES,
     OutputTail,
@@ -133,7 +134,7 @@ from meshforge.agent.execution.fetch import (
     token_ok,
     tree_sources,
 )
-from meshforge.agent.execution.lane import LaneState, LaneSteps
+from meshforge.agent.execution.lane import LaneState
 from meshforge.agent.execution.live_redaction import LiveRedaction
 from meshforge.agent.execution.logs import AttemptLogs, Chunk, file_sha256
 from meshforge.agent.execution.offer import ExecutionSetup
@@ -156,6 +157,7 @@ from meshforge.agent.execution.secret_files import (
     default_root,
     secret_env,
 )
+from meshforge.agent.execution.subprocess_runtime import SubprocessRuntime
 from meshforge.agent.execution.uploader import UploadProgress, upload_parts
 from meshforge.agent.execution.workdir_cap import UNMEASURABLE, WorkdirCap, stop_watch
 from meshforge.agent.execution.workload_result import (
@@ -351,6 +353,9 @@ class _Attempt:
     (``StartAttempt.lane``) - :mod:`.lane`."""
     start_spec: agent_pb2.ExecutionSpec | None = None
     """The StartAttempt's spec (a lane stages chunk files with its sources)."""
+    combine: CombineState | None = None
+    """V0.10 G5 (D268): set when this attempt is a split job's combine
+    (``StartAttempt.combine``) - :mod:`.combine_steps`."""
 
     @property
     def ended(self) -> bool:
@@ -371,8 +376,9 @@ class _Observer(RunObserver):
         self.started.set()
 
 
-class Executor(LaneSteps):
-    """See module docstring (lanes: :class:`~.lane.LaneSteps`)."""
+class Executor(CombineSteps):
+    """See module docstring (lanes: :class:`~.lane.LaneSteps`; combines:
+    :class:`~.combine_steps.CombineSteps`)."""
 
     def __init__(
         self,
@@ -464,6 +470,9 @@ class Executor(LaneSteps):
         )
         """V0.7 G6 (D144): where attempts' secret files live (RAM on Linux)."""
         self._secrets_allowed = settings.security.secrets_allowed
+        self._combine_runtime = SubprocessRuntime(clock=clock)
+        """V0.10 G5: runs the built-in combines (trusted agent code, the
+        agent's interpreter) - whatever runtimes the owner offers to jobs."""
 
     # ------------------------------------------------------------ lifecycle
 
@@ -719,6 +728,7 @@ class Executor(LaneSteps):
             benchmark=bool(msg.benchmark),
             lane=LaneState(spec=msg.lane) if msg.HasField("lane") else None,
             start_spec=msg.spec,
+            combine=CombineState(spec=msg.combine) if msg.HasField("combine") else None,
         )
         self._attempts[attempt_id] = attempt
         running = sum(1 for a in self._attempts.values() if not a.ended)
@@ -731,6 +741,12 @@ class Executor(LaneSteps):
                 attempt,
                 FailureType.UNAUTHORIZED,
                 "execution is disabled on this node ([agent.execution] enabled = false)",
+            )
+        elif attempt.lane is not None and attempt.combine is not None:
+            coro = self._refuse(
+                attempt,
+                FailureType.INVALID_INPUT,
+                "a StartAttempt cannot be both a lane and a combine",
             )
         elif running > self._cfg.max_concurrent_attempts:
             coro = self._refuse(
@@ -1241,6 +1257,9 @@ class Executor(LaneSteps):
             )
         finally:
             await leases.release()
+            if attempt.combine is not None:
+                with contextlib.suppress(OSError):
+                    await asyncio.shield(self._combine_cleanup(attempt))
 
     async def _step[T](self, attempt: _Attempt, awaitable: Awaitable[T]) -> T:
         """Run one cancellable step; a purposeful stop becomes :class:`_StoppedError`."""
@@ -1302,7 +1321,11 @@ class Executor(LaneSteps):
         if attempt.lane is not None:
             # V0.10 G4 (D264): the item list first - it decides what to stage
             await self._lane_prepare(attempt, plan, msg.spec)
-        await self._stage(attempt, plan, workdir, msg.spec)
+        if attempt.combine is not None:
+            # V0.10 G5 (D268): the parts (and, for a script, the project)
+            await self._combine_stage(attempt, plan, workdir, msg.spec)
+        else:
+            await self._stage(attempt, plan, workdir, msg.spec)
         attempt.phases["stage_s"] = self._clock() - stage_started
         if attempt.condition is not None:
             attempt.condition.after_stage(attempt.stages)
@@ -1413,7 +1436,11 @@ class Executor(LaneSteps):
         plan: AttemptPlan,
         workdir: Path,
         spec: agent_pb2.ExecutionSpec,
+        *,
+        once: Callable[[str], Awaitable[None]] | None = None,
     ) -> None:
+        """Stage with the D95 retry rules; ``once(token)`` (V0.10 G5: a
+        combine's parts) replaces the project staging try."""
         await asyncio.to_thread(self._prepare_work_root_only)
         if not attempt.fetch_token:
             attempt.fetch_token = plan.fetch_token
@@ -1423,7 +1450,10 @@ class Executor(LaneSteps):
             used = attempt.fetch_token
             attempt.token_changed.clear()
             try:
-                await self._stage_once(attempt, plan, workdir, spec, used)
+                if once is not None:
+                    await once(used)
+                else:
+                    await self._stage_once(attempt, plan, workdir, spec, used)
             except FetchError as exc:
                 if (
                     exc.failure_type not in _STAGE_RETRYABLE
@@ -1726,8 +1756,15 @@ class Executor(LaneSteps):
             name=f"attempt-logs:{attempt.attempt_id}",
         )
         flusher.add_done_callback(self._task_done)
-        # V0.10 G4: a lane runs one process per chunk (:mod:`.lane`)
-        body = self._run_lane if attempt.lane is not None else self._run_workload
+        # V0.10 G4: a lane runs one process per chunk (:mod:`.lane`); V0.10
+        # G5: a combine runs its built-in or script over the parts
+        body = (
+            self._run_lane
+            if attempt.lane is not None
+            else self._run_combine
+            if attempt.combine is not None
+            else self._run_workload
+        )
         try:
             await body(
                 attempt, plan, logs, runtime, observer, on_output, stderr_tail, drain

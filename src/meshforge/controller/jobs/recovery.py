@@ -333,7 +333,13 @@ class RecoverySteps(DispatchSteps):
         """When the attempt entered UPLOADING: the job's last ``COLLECTING``
         transition (written in the same transaction). Without one (the job arrow
         was skipped) the earliest bound known - the attempt's start - so the
-        deadline can only come sooner, never later."""
+        deadline can only come sooner, never later. A split job's **combine**
+        (V0.10 G5) has no such transition of its own (the job entered
+        COLLECTING at its last chunk commit, before the combine even ran):
+        its upload counts from when this process first sees it UPLOADING (a
+        controller restart restarts the count - later, never sooner)."""
+        if entry.attempt.role is AttemptRole.COMBINE:
+            return self._wall()
         history = await self._store.history(entry.job.id)
         for _from, to_state, at in reversed(history):
             if to_state is JobState.COLLECTING:

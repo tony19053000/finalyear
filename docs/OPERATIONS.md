@@ -1198,8 +1198,37 @@ compute get <JOB_ID>               # outputs -> ./outputs/<JOB_ID>/ (--dest, --f
   `lines` the header + the chunk's records), `{chunk_index}` and `{out}` (also
   `MESHFORGE_CHUNK_ITEMS/INDEX/OUT`). Each chunk's `out/` is packed (at most
   `split.max_chunk_output_bytes`, default 256 MiB) and committed once; when the
-  last chunk commits the job ends `succeeded` with its parts index
-  (`job.split_parts_digest`; the combined output arrives with G5). Only agents
+  last chunk commits the job is `collecting` with its parts index
+  (`job.split_parts_digest`) and owes its **combine** (V0.10 G5, D268): one
+  `combine` attempt on an agent - the submitter's node if it can run it, else the
+  node that produced the most chunk results, else the planner's pick (never the
+  controller) - reads every chunk's result in chunk order as `parts/00000/...`
+  (read-only) and writes the job's output. `split.combine`: `concat` (default;
+  bytes in chunk order), `merge-csv` (`*.csv`: the header once - headers must be
+  byte-identical after a leading BOM and the line ending, else
+  `combine_error: header_mismatch`; other files concatenated), `merge-json`
+  (`*.json`: arrays concatenated / objects merged, a duplicate key, mixed types,
+  invalid JSON or a file over `[agent.split] combine_json_max_bytes` (256 MiB) is
+  a `combine_error`; merge-json parses one part file at a time, and its peak
+  memory is about **3-8x that file's size** - measured 2.9x for an array of
+  100-byte strings, 6x for integers, 8x for small objects - so at the 256 MiB
+  default plan for up to ~2 GiB of RAM on the combine node, or lower the cap),
+  or `{script: [argv]}` (your program, in the job's runtime,
+  with `{parts}` / `{out}` and `MESHFORGE_COMBINE_PARTS/OUT`; a non-zero exit is
+  `combine_error: script_failed`). A `combine_error` fails the job and is never
+  retried (the same parts fail the same way anywhere); a lost combine node or a
+  transfer failure is retried on another node under `retry.max_attempts`. A
+  combine the node refuses `resource_busy` (it is still at its attempt limit,
+  typically while the job's own lane ends) is no failure: it is placed again
+  after `[controller.split] combine_busy_backoff_s` (1 s), on the same preferred
+  node, without using a retry; only after `combine_busy_max` (100) such
+  refusals of one job do they count against `retry.max_attempts` (log
+  `controller.split.combine_busy` per refusal). The
+  output is then the job's: `compute get <JOB_ID>` downloads it and
+  `GET /v1/jobs/{id}` shows it as `output_digest`. A chunk that returned two
+  different results (a late or duplicate copy) while `split.deterministic` is
+  on (the default) is listed as the job warning `nondeterministic_chunk` (CLI,
+  dashboard, API); the first committed result is kept. Only agents
   with the `exec-split` capability (V0.10+) get a lane (`no_split_support`
   otherwise). A lane whose node is lost gives its chunks back at once; a chunk
   leased by a hung or partitioned lane goes back after `visibility_timeout_s`

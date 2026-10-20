@@ -140,6 +140,10 @@ class Job(TimestampMixin, Base):
             "AND split_parts_digest ~ '^sha256:[0-9a-f]{64}$')",
             name="split_parts_digest",
         ),
+        CheckConstraint(
+            "split_combine_ms IS NULL OR split_combine_ms >= 0",
+            name="split_combine_ms",
+        ),
         UniqueConstraint("idempotency_key"),
         Index("ix_job_created_at", "created_at"),
         Index("ix_job_state", "state"),
@@ -251,6 +255,15 @@ class Job(TimestampMixin, Base):
     """V0.10 G4 (migration 0027): the parts index - every chunk's committed
     result digest in chunk order (canonical JSON CAS blob, ``controller.split.
     parts``) - written in the transaction of the job's last chunk commit."""
+    split_combine_ms: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    """V0.10 G5 (migration 0028): the combine attempt's ``run`` phase (agent
+    clock) once the job SUCCEEDED - the combine term of Mode 3 records (G8)."""
+    warnings: Mapped[list[dict[str, Any]] | None] = mapped_column(
+        JSONB(none_as_null=True), nullable=True
+    )
+    """V0.10 G5 (migration 0028, D269): warnings that do not fail the job -
+    ``[{"code": "nondeterministic_chunk", "count": n, "chunks": [...]}]``
+    (bounded by :mod:`meshforge.controller.split.warnings`)."""
 
 
 class JobTransition(Base):

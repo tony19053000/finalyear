@@ -715,6 +715,26 @@ message StartAttempt {
   // that does not know this field never gets a lane: the controller places
   // lanes only on nodes advertising the "exec-split" capability.
   LaneSpec lane = 8;
+  // V0.10 G5 (D268/D283): present = this attempt is the COMBINE of a split
+  // job: it fetches every chunk's committed result (the parts index, chunk
+  // order), unpacks them read-only as parts/NNNNN in an agent-owned folder
+  // outside any workdir, runs the built-in (concat, merge-csv, merge-json:
+  // trusted agent code in its own process) or the user's combine script
+  // (sandboxed like any job, project staged), and reports the packed out/
+  // folder as the attempt's (= the job's) output. Placed only on nodes that
+  // advertise "exec-split" (agents of this version run both lanes and
+  // combines).
+  CombineSpec combine = 9;
+}
+
+// A split job's combine (V0.10 G5, D268).
+message CombineSpec {
+  // "sha256:<64 hex>" of the parts index blob (common/split_chunks.py:
+  // every chunk's result digest in chunk order). The attempt's fetch token
+  // may read it and every part it names; the agent verifies every digest.
+  string parts_digest = 1;
+  // Chunks in the index (the agent checks the index has exactly these).
+  uint32 chunk_count = 2;
 }
 
 // A lane's chunk source (V0.10 G4, D259/D263/D264).

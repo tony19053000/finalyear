@@ -106,6 +106,13 @@ class FailureType(StrEnum):
     run without spending an infrastructure retry. Sent only for attempts the
     controller flagged ``StartAttempt.benchmark`` - so never to (or from) a
     peer from before G5, which could not decode number 24 (G5c item 0.8)."""
+    COMBINE_ERROR = "combine_error"
+    """V0.10 G5 (D268/D283): a split job's combine refused its parts (the detail
+    starts with ``header_mismatch`` / ``duplicate_key`` / ``type_mismatch`` /
+    ``unsafe_part`` / ``too_large`` / ``invalid_json``) or the user's combine
+    script failed (``script_failed``). A data error: every node would refuse the
+    same parts, so it is never retried. Only a combine attempt reports it (only a
+    V0.10 G5 controller sends one)."""
 
 
 DEFAULT_RETRYABLE: Mapping[FailureType, bool] = {
@@ -133,6 +140,7 @@ DEFAULT_RETRYABLE: Mapping[FailureType, bool] = {
     FailureType.CONFLICT: False,
     FailureType.INTERNAL_ERROR: False,
     FailureType.OWNER_PREEMPTED: False,  # the campaign runner requeues the run
+    FailureType.COMBINE_ERROR: False,  # the same parts fail the same way anywhere
 }
 
 
