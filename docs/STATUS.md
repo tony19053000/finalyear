@@ -2,11 +2,11 @@
 
 > Concise current state. Long-term plan: [`DEVELOPMENT_ROADMAP.md`](DEVELOPMENT_ROADMAP.md). Update at the end of every work session.
 
-**Last updated:** 2026-10-20
+**Last updated:** 2026-10-21
 
 ## Progress
 ```
-TOTAL   ████████████▒▒░░░░░░  59%  93/156 done, 15 in progress
+TOTAL   ████████████▒▒░░░░░░  60%  94/156 done, 15 in progress
 
 V0.1    █████████████████▒▒▒  83%  10/12  Foundations & engineering system
 V0.2    ██▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░░   9%   1/11  Lab setup & feasibility validation
@@ -17,7 +17,7 @@ V0.6    ███████████████████░  92%  13/14
 V0.7    ██████████████████░░  91%  11/12  Security & pairing
 V0.8    ██████████████████░░  90%   9/10  Dashboard & CLI v1
 V0.9    ██████████████████░░  90%   9/10  Benchmark & telemetry system v1
-V0.10   ████████████░░░░░░░░  60%   6/10  Mode 3 Task Splitting
+V0.10   ██████████████░░░░░░  70%   7/10  Mode 3 Task Splitting
 V0.14   ░░░░░░░░░░░░░░░░░░░░   0%   0/8   Unified planner v2
 V0.15   ░░░░░░░░░░░░░░░░░░░░   0%   0/10  ML planner
 V0.17   ░░░░░░░░░░░░░░░░░░░░   0%   0/8   Productization
@@ -26,7 +26,7 @@ V1.0    ░░░░░░░░░░░░░░░░░░░░   0%   0/8 
 █ done `[x]` · ▒ in progress or waiting on a 🧑 lab step `[~]` · ░ not started
 
 ## Current Version
-**V0.10 — Mode 3 Task Splitting** · started 2026-10-19 (team: proceed while away) · brief `docs/briefs/V0.10-task-splitting.md` (DRAFT, D259–D276) · ADR-0019 Proposed · **G1–G5 CLOSED** (D277–D283; 0.10.1–0.10.4, 0.10.6, 0.10.7 `[x]`) · next G6 (stragglers) ∥ G7 (progress)
+**V0.10 — Mode 3 Task Splitting** · started 2026-10-19 (team: proceed while away) · brief `docs/briefs/V0.10-task-splitting.md` (DRAFT, D259–D276) · ADR-0019 Proposed · **G1–G6 CLOSED** (D277–D285; 0.10.1–0.10.7 `[x]`) · G7 (progress) in tester r1 · then G8 → G9
 **V0.9 — Benchmark & telemetry v1** · started 2026-10-17 · brief `docs/briefs/V0.9-benchmark-telemetry.md` (D211–D224, approved) · ADR-0018 · **G0, G1, G2 CLOSED** (D226, D231, D225; 0.9.1 + 0.9.2 `[x]`) · **G3 CLOSED** (D242; 0.9.3 + 0.9.4 `[x]`) · **G4 CLOSED** (D241–D245; 0.9.5 `[x]`, 2026-10-19) · **G5, G5c, G6 CLOSED** (D246–D258; 0.9.6–0.9.9 `[x]`) · **G7 CLOSED** (`c35ff3d`) · **agent-side complete**; closes on 🧑 0.9.10 (checklist part O)
 **V0.8 — Dashboard & CLI v1** · started 2026-10-15 · brief `docs/briefs/V0.8-dashboard-cli.md` (D169–D180, approved) · ADR-0017 · groups G1–G7 sequential · **G1–G7 CLOSED** (G7 2026-10-17, D210) — 0.8.1–0.8.9 `[x]`; agent-side complete; closes on 🧑 0.8.10 (`lab/checklists/V0.8-visual.md`)
 **V0.7 — Security & pairing** · started 2026-10-07 · brief `docs/briefs/V0.7-security-pairing.md` (D144–D162) · **G1–G5 CLOSED** (0.7.1–0.7.9 `[x]`) · **G6 CLOSED** (0.7.10 `[x]`, 2026-10-14) · **G7 CLOSED** (0.7.11 `[x]`, 2026-10-15, D168) · agent-side complete · closes on 🧑 0.7.12 lab
@@ -43,6 +43,8 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 > V0.10. 129 tasks vs 140–180 capacity → **~1.5 tasks/session**. Needs the other three team members' approval.
 
 ## Current Task
+
+- **2026-10-21:** V0.10 G6 stragglers MERGED (`a006c894`) → **0.10.5 `[x]`** (D285; tester r1 PASS, reviewer APPROVE, F1 G4-test flake fixed). G7 progress: implementer done (gates green), reviewer r1 APPROVE (Lead to fix N2 chunk_page snapshot + N3 job_id None at merge), tester r1 running.
 
 - **2026-10-20 (later):** V0.10 G5 combine MERGED → **0.10.7 `[x]`**. Tester r2 PASS (`d892881b`): unit 16700 passed; all V0.10 component+cluster in one process 121 passed ×3 (GC flake fixed in fixtures: `admission_timeout_s=1.2`, autouse `gc.freeze()` in controller conftest); ruff clean; `mypy src` 422 clean. Reviewer r2 APPROVE. Next: G6 ∥ G7 briefs/implementers.
 
@@ -226,7 +228,7 @@ Reviewer non-blocking follow-ups (carry into G2/G3): (1) `mint` should carry `pe
 - Windows: not yet run (first real CI run will cover unit + fresh-clone on windows-latest)
 
 ## Next Recommended Task
-**V0.10 G6 (stragglers, 0.10.5) ∥ G7 (progress, 0.10.8)** — brief §5f/§5g (write if missing), implementers in separate worktrees → tester → reviewer → merge; then G8 (0.10.9 benchmarks) → G9 → 🧑 0.10.10.
+**V0.10 G7 close** (tester r1 → Lead fixes N2/N3 → merge → 0.10.8 `[x]`), then **G8** (0.10.9: chunk_record, benchmarks; also chunk stderr tail from D281/G7-I9, `_history` cache) → G9 → 🧑 0.10.10.
 
 _Older:_ **V0.9 G5c** — implementer in a worktree with brief §5g: item 0.0 cool-down race first (closes 0.9.7 after tester + reviewer), then item 0.1–0.8, then the 0.9.8 quality report. 🧑 lab: V0.9 C1–C3 + R1–R3, 0.8.10.
 
