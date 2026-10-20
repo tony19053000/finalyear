@@ -110,6 +110,14 @@ class _FailureTypeEnumTypeWrapper(_enum_type_wrapper._EnumTypeWrapper[_FailureTy
     The campaign runner requeues the run; not counted as an infrastructure
     failure in the campaign's infra rate.
     """
+    FAILURE_TYPE_COMBINE_ERROR: _FailureType.ValueType  # 25
+    """V0.10 G5 (D268/D283): the combine of a split job refused its parts - a
+    data error (header_mismatch, duplicate_key, type_mismatch, unsafe_part,
+    too_large, invalid_json) or a user combine script that failed
+    (script_failed). Not retried: every node would refuse the same parts.
+    Sent only for a combine attempt (StartAttempt.combine), which only a
+    controller of this version sends.
+    """
 
 class FailureType(_FailureType, metaclass=_FailureTypeEnumTypeWrapper):
     """Typed failure classes (ARCHITECTURE §13). Retry policy is per failure type.
@@ -169,6 +177,14 @@ FAILURE_TYPE_OWNER_PREEMPTED: FailureType.ValueType  # 24
 node's owner paused benchmarks or is using the laptop. Never a user job.
 The campaign runner requeues the run; not counted as an infrastructure
 failure in the campaign's infra rate.
+"""
+FAILURE_TYPE_COMBINE_ERROR: FailureType.ValueType  # 25
+"""V0.10 G5 (D268/D283): the combine of a split job refused its parts - a
+data error (header_mismatch, duplicate_key, type_mismatch, unsafe_part,
+too_large, invalid_json) or a user combine script that failed
+(script_failed). Not retried: every node would refuse the same parts.
+Sent only for a combine attempt (StartAttempt.combine), which only a
+controller of this version sends.
 """
 Global___FailureType: _TypeAlias = FailureType  # noqa: Y015
 

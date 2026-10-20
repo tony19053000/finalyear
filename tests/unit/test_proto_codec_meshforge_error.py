@@ -36,10 +36,11 @@ def _failure_from_error(error: MeshForgeError) -> common_pb2.Failure:
     )
 
 
-def test_failure_type_cardinality_is_24_non_unspecified_values() -> None:
+def test_failure_type_cardinality_is_25_non_unspecified_values() -> None:
+    # V0.10 G5 added combine_error (25)
     non_zero = [v for v in common_pb2.FailureType.DESCRIPTOR.values if v.number != 0]
-    assert len(non_zero) == 24
-    assert len(FailureType) == 24
+    assert len(non_zero) == 25
+    assert len(FailureType) == 25
 
 
 @pytest.mark.parametrize("member", list(FailureType), ids=lambda m: m.name)
