@@ -137,9 +137,9 @@ compute jobs --state running --json | jq -r '.jobs[].job_id'
 | 4 | CONFIG_ERROR | the local configuration is unusable (`config.toml`, the token file, the CA file, the credentials folder) |
 | 6 | UNAVAILABLE | the controller could not be reached, did not answer in time, or cannot answer right now (503) - retrying later may work |
 | 8 | NOT_FOUND | the job, node, token, secret, input or invite does not exist |
-| 126 | JOB_FAILED | `run -f`: the fabric could not run or finish the job (stderr names the failure type) |
-| 128 | JOB_CANCELLED | `run -f`: the job was cancelled |
-| 130 | INTERRUPTED | Ctrl-C while following (`run -f`, `logs -f`): the job keeps running |
+| 126 | JOB_FAILED | `run -f`, `watch`: the fabric could not run or finish the job (stderr names the failure type) |
+| 128 | JOB_CANCELLED | `run -f`, `watch`: the job was cancelled |
+| 130 | INTERRUPTED | Ctrl-C while following (`run -f`, `logs -f`, `watch`): the job keeps running |
 | 1-125 | (workload) | `run -f`: the job's own program exited with this code (clamped to 125) |
 
 `compute fabric join` runs the agent's `join` and exits with the agent's code (same table: 4 configuration,
