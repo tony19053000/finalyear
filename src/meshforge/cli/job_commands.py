@@ -43,8 +43,9 @@ import re
 import shutil
 import sys
 import tempfile
+from collections.abc import Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import Annotated, Any
 
 import typer
 
@@ -56,9 +57,6 @@ from meshforge.common.errors import FailureType
 _WORD = re.compile(r"[a-z_]{1,32}")
 """A failure type / state name from the controller, printed as is; anything
 else (it comes from the network) is shown as ``?``."""
-
-if TYPE_CHECKING:
-    from collections.abc import Mapping
 
 __all__ = ["cancel", "get", "jobs", "logs", "run"]
 
@@ -389,6 +387,7 @@ def _follow_to_exit(client: Any, job_id: str, timeout_s: float) -> None:
         raise typer.Exit(exit_code_for(exc)) from None
     state = str(end.get("state"))
     failure = end.get("failure_type")
+    _print_warnings(client, job_id)
     code = job_exit_code(
         state,
         None if failure is None else str(failure),
@@ -405,6 +404,21 @@ def _follow_to_exit(client: Any, job_id: str, timeout_s: float) -> None:
             )
         )
     raise typer.Exit(code)
+
+
+def _print_warnings(client: Any, job_id: str) -> None:
+    """V0.10 G5 (D269): the ended job's warnings (``nondeterministic_chunk``),
+    best effort - a failed read only skips them."""
+    from meshforge.cli.client import ControllerError
+
+    try:
+        detail = client.job(job_id)
+    except (ControllerError, OSError):
+        return
+    if not isinstance(detail, Mapping):
+        return
+    for text in render.warning_lines(detail):
+        render.note(f"warning: {render.flat(text)}")
 
 
 # ------------------------------------------------------------------ jobs
@@ -560,7 +574,11 @@ def get(
     with cli._client(settings) as client:
         job = cli._fetch(lambda: client.job(checked))
         attempt = _latest_attempt(job)
-        digest = None if attempt is None else attempt.get("output_digest")
+        # V0.10 G5: the job's own output (a split job: its combine's); a
+        # controller from before G5 has none - the latest attempt's then
+        digest = job.get("output_digest") or (
+            None if attempt is None else attempt.get("output_digest")
+        )
         if not isinstance(digest, str) or not digest.startswith("sha256:"):
             cli._die(
                 f"{checked} has no outputs (state {job.get('state')})", CliExit.FAILURE

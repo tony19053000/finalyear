@@ -29,6 +29,7 @@ from meshforge.common.clock_offset import ClockOffset, round_up
 from meshforge.common.manifest import Manifest
 from meshforge.common.owner_policy import OwnerPolicy
 from meshforge.common.proto.meshforge.v1 import agent_pb2
+from meshforge.common.states import AttemptRole
 from meshforge.controller.jobs.store import AttemptRecord, JobRecord
 from meshforge.controller.planner.inputs import gpu_indices_of, gpu_vram_of
 from meshforge.controller.planner.types import (
@@ -45,6 +46,7 @@ __all__ = [
     "SNAPSHOT_VERSION",
     "TELEMETRY_VERSION",
     "choose_gpus",
+    "combine_manifest",
     "execution_spec",
     "start_snapshot",
     "start_telemetry",
@@ -222,6 +224,14 @@ def start_telemetry(
     }
 
 
+def combine_manifest(manifest: Manifest) -> Manifest:
+    """V0.10 G5 (D268): what a split job's **combine** asks of a node - the
+    job's manifest without its GPU need (combining files needs no GPU; the
+    lanes had it). Everything else (owner, env base, network, limits) holds."""
+    resources = manifest.resources.model_copy(update={"gpu": "none", "vram_gb": None})
+    return manifest.model_copy(update={"resources": resources})
+
+
 def execution_spec(
     job: JobRecord,
     attempt: AttemptRecord,
@@ -230,8 +240,11 @@ def execution_spec(
     blob_url: str,
     blob_port: int,
 ) -> agent_pb2.ExecutionSpec:
-    """The ``ExecutionSpec`` of ``attempt`` (see module docstring)."""
+    """The ``ExecutionSpec`` of ``attempt`` (see module docstring; a
+    combine attempt gets :func:`combine_manifest`)."""
     manifest = Manifest.model_validate(dict(job.manifest))
+    if attempt.role is AttemptRole.COMBINE:
+        manifest = combine_manifest(manifest)
     snapshot = attempt.start_snapshot or {}
     gpus = snapshot.get("gpu_indices") or []
     resources = manifest.resources

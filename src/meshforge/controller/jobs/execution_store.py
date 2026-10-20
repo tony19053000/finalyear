@@ -104,6 +104,7 @@ from meshforge.controller.jobs.transitions import (
     next_attempt_state,
     next_job_state,
 )
+from meshforge.controller.split import combine as split_combine
 from meshforge.controller.split import lanes as split_lanes
 from meshforge.controller.store.models.data import TransferEvent
 from meshforge.controller.store.models.enrollment import AuditAction
@@ -121,6 +122,9 @@ from meshforge.workqueue.core import QueuePolicy
 
 __all__ = [
     "CancelOutcome",
+    "CombineDecision",
+    "CombineStart",
+    "DecideCombine",
     "DecisionRecord",
     "Dispatch",
     "DispatchFailure",
@@ -226,6 +230,25 @@ class DispatchLanes:
 
 
 @dataclass(frozen=True, slots=True)
+class CombineStart:
+    """A split job's combine attempt (V0.10 G5, D268/D283): where it runs and
+    why there (``submitter`` / ``most_results`` / ``planner``)."""
+
+    attempt_id: str
+    node_id: str
+    slot: str
+    start_snapshot: Mapping[str, Any]
+    reason: str
+
+
+type CombineDecision = CombineStart | DispatchFailure | Wait | None
+"""The combine decider's answer: place it, fail the job (no node could ever
+run it), or let the job wait (COLLECTING)."""
+
+type DecideCombine = Callable[[JobRecord, FabricRows], CombineDecision]
+
+
+@dataclass(frozen=True, slots=True)
 class DispatchFailure:
     failure_type: FailureType
     detail: str
@@ -259,6 +282,8 @@ class DispatchResult:
     failure: DispatchFailure | None = None
     lanes: tuple[AttemptRecord, ...] = ()
     """V0.10 G4: a split job's lanes (``attempt`` is the first of them)."""
+    combine: bool = False
+    """V0.10 G5: ``attempt`` is the job's combine."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -368,27 +393,48 @@ class ExecutionStore(DecisionReads):
         aging_s: float,
         history_runs: int = 20,
         network: NetworkReads | None = None,
+        decide_combine: DecideCombine | None = None,
     ) -> list[DispatchResult]:
         """One pass over the queue in priority order (D106; see module
         docstring and :mod:`.queue_reads`). Per job the decider's answer is
         applied in this transaction: an attempt (+ its ``dispatched``
         decision), a FAIL arrow (+ ``failed`` decision), or nothing (+ a
         ``waiting`` decision when the reasons changed). A job that cannot be
-        placed never blocks the jobs behind it (no head-of-line blocking)."""
+        placed never blocks the jobs behind it (no head-of-line blocking).
+
+        V0.10 G5: with ``decide_combine``, split jobs that owe a combine
+        (:mod:`meshforge.controller.split.combine`) are placed first, in the
+        same transaction and with the same fabric view - they hold finished
+        work and are one step from done."""
         results: list[DispatchResult] = []
         recorded: list[tuple[str, str | None, str, DecisionRecord]] = []
         async with self._sessions() as db, db.begin():
             await db.execute(_DISPATCH_LOCK)
             jobs = await queued_jobs(db, limit=limit, now=now, aging_s=aging_s)
-            if not jobs:
+            owed = (
+                []
+                if decide_combine is None
+                else await split_combine.owed_jobs(db, limit=limit, now=now)
+            )
+            if not jobs and not owed:
                 return results
             fabric = await read_fabric(
                 db,
-                jobs,
+                [*owed, *jobs],
                 history_runs=history_runs,
                 keys_of=_project_keys,
                 network=network,
             )
+            if owed and decide_combine is not None:
+                ids = [row.id for row in owed]
+                fabric.combine_sites = await split_combine.result_sites(db, ids)
+                fabric.combine_failures = await split_combine.combine_failures(db, ids)
+                for row in owed:
+                    placed = await self._dispatch_combine(
+                        db, row, decide_combine, fabric, max_per_node=max_per_node
+                    )
+                    if placed is not None:
+                        results.append(placed)
             for row in jobs:
                 try:
                     job = job_record(row)
@@ -575,6 +621,57 @@ class ExecutionStore(DecisionReads):
             job=job_record(row), attempt=created[0], lanes=tuple(created)
         )
 
+    async def _dispatch_combine(
+        self,
+        db: AsyncSession,
+        row: Job,
+        decide: DecideCombine,
+        fabric: FabricRows,
+        *,
+        max_per_node: int,
+    ) -> DispatchResult | None:
+        """V0.10 G5: one job that owes a combine - cancelled now if a cancel
+        was asked (nothing runs for it any more), else placed by ``decide``
+        (None / :class:`Wait` = it waits, still COLLECTING)."""
+        try:
+            job = job_record(row)
+        except Exception as exc:  # noqa: BLE001 - one bad row only (G2 fix D-1)
+            await _fail_unreadable(db, row, exc)
+            return None
+        if row.cancel_requested_at is not None:
+            await _move_job(
+                db,
+                row,
+                JobEvent.CANCEL,
+                detail="cancelled by request (before its combine ran)",
+                soft=True,
+            )
+            await _fresh(db, row)
+            return DispatchResult(job=job_record(row), attempt=None)
+        decision = decide(job, fabric)
+        if isinstance(decision, DispatchFailure):
+            await _move_job(
+                db,
+                row,
+                JobEvent.FAIL,
+                failure_type=decision.failure_type,
+                detail=decision.detail,
+                soft=True,
+            )
+            await _fresh(db, row)
+            return DispatchResult(job=job_record(row), attempt=None, failure=decision)
+        if not isinstance(decision, CombineStart):
+            return None
+        node_id = decision.node_id
+        if node_id not in fabric.nodes or (
+            sum(fabric.used_slots(node_id)) >= max_per_node
+        ):
+            return None  # the decider must not over-book; defensive
+        attempt = await split_combine.create_combine(db, row, decision)
+        fabric.took(node_id, decision.slot, ())
+        await _fresh(db, row)
+        return DispatchResult(job=job_record(row), attempt=attempt, combine=True)
+
     async def _create_dispatched(
         self, db: AsyncSession, row: Job, node_id: str, decision: Dispatch
     ) -> AttemptRecord:
@@ -693,6 +790,8 @@ class ExecutionStore(DecisionReads):
             job = await db.get_one(Job, row.job_id, with_for_update=True)
             if row.role == AttemptRole.LANE.value:
                 return await _apply_lane_status(db, row, job, report, path)
+            if row.role == AttemptRole.COMBINE.value:
+                return await _apply_combine_status(db, row, job, report, path)
             if int(row.fencing_token) != int(job.attempt_epoch):
                 # D110/ADR-0015: only the job's current attempt may move it. A
                 # retry ends the old attempt in the transaction that creates
@@ -786,6 +885,17 @@ class ExecutionStore(DecisionReads):
                     retryable=retryable,
                     lost=event is AttemptEvent.LOSE,
                 )
+            elif row.role == AttemptRole.COMBINE.value:
+                verdict = await split_combine.combine_ended(
+                    db,
+                    job,
+                    row,
+                    failure_type=failure_type,
+                    detail=detail,
+                    retryable=retryable,
+                    lost=event is AttemptEvent.LOSE,
+                    move_job=_move_job,
+                )
             elif int(row.fencing_token) == int(job.attempt_epoch):
                 verdict = await _fail_or_retry(
                     db,
@@ -870,6 +980,17 @@ class ExecutionStore(DecisionReads):
                         .order_by(Attempt.fencing_token.desc())
                     )
                 )
+                if not live and state is JobState.COLLECTING and job.split is not None:
+                    # V0.10 G5: a split job between its last chunk and its
+                    # combine has nothing running that could end it
+                    await _move_job(db, job, JobEvent.CANCEL)
+                    await _fresh(db, job)
+                    log.info(
+                        "controller.jobs.cancelled",
+                        job_id=job_id,
+                        from_state=state.value,
+                    )
+                    return CancelOutcome(job_record(job), None, cancelled_now=True)
                 await _fresh(db, job)
                 return CancelOutcome(
                     job_record(job),
@@ -1143,6 +1264,55 @@ async def _apply_lane_status(
             retryable=report.retryable,
             lost=False,
         )
+    await _fresh(db, row, job)
+    return StatusOutcome(
+        StatusKind.APPLIED,
+        attempt=attempt_record(row),
+        job=job_record(job),
+        ended=ended,
+        retry=verdict,
+    )
+
+
+async def _apply_combine_status(
+    db: AsyncSession,
+    row: Attempt,
+    job: Job,
+    report: StatusReport,
+    path: Sequence[tuple[AttemptEvent, AttemptState]],
+) -> StatusOutcome:
+    """V0.10 G5: a split job's combine reports. The job is already
+    ``COLLECTING`` and moves only when the combine ends
+    (:mod:`meshforge.controller.split.combine`): DONE -> SUCCEEDED, a
+    combine_error -> FAILED (never retried), anything else -> a new combine
+    or FAILED by the retry rules."""
+    for event, _ in path:
+        await _move_attempt(db, row, event, report)
+    state = AttemptState(row.state)
+    ended = state in ATTEMPT_TERMINAL_STATES
+    verdict: RetryVerdict | None = None
+    if ended:
+        await _write_phases(db, row, report.phases)
+        await _write_transfers(db, row, report.transfers)
+        if state is AttemptState.DONE:
+            await split_combine.combine_done(
+                db,
+                job,
+                row,
+                run_s=None if report.phases is None else report.phases.run_s,
+                move_job=_move_job,
+            )
+        else:
+            verdict = await split_combine.combine_ended(
+                db,
+                job,
+                row,
+                failure_type=report.failure_type or FailureType.INTERNAL_ERROR,
+                detail=report.detail,
+                retryable=report.retryable,
+                lost=False,
+                move_job=_move_job,
+            )
     await _fresh(db, row, job)
     return StatusOutcome(
         StatusKind.APPLIED,

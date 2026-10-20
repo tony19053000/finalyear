@@ -50,9 +50,11 @@ from meshforge.common.logging import get_logger
 from meshforge.common.manifest import DEFAULT_CHUNK_OUTPUT_BYTES
 from meshforge.common.split_chunks import (
     ItemList,
+    PartsIndex,
     chunk_items_digest,
     chunk_span,
     parse_item_list,
+    parse_parts_index,
     parts_index_blob,
 )
 from meshforge.common.states import (
@@ -67,6 +69,10 @@ from meshforge.controller.jobs.execution_store import _fresh, _move_job
 from meshforge.controller.jobs.store import clean_detail, typed_store_call
 from meshforge.controller.jobs.transitions import JobEvent
 from meshforge.controller.split.lanes import QUEUE_KIND, LiveLane, live_lanes
+from meshforge.controller.split.warnings import (
+    NONDETERMINISTIC_CHUNK,
+    add_chunk_warning,
+)
 from meshforge.controller.store.engine import create_session_factory
 from meshforge.controller.store.models.job import Attempt, Job
 from meshforge.workqueue import store as wq
@@ -210,6 +216,13 @@ class ResultOutcome:
     """Lanes to stop because the job ended."""
     parts_digest: str | None = None
     late: bool = False
+    combine_owed: bool = False
+    """V0.10 G5: this was the last commit - the job is COLLECTING and owes a
+    combine (the dispatcher places it; wake it)."""
+    nondeterministic: bool = False
+    """V0.10 G5 (D269): an ``already_done`` result whose digest differs from
+    the committed one while ``split.deterministic`` is on - recorded as the
+    job's ``nondeterministic_chunk`` warning in this transaction."""
 
 
 # ------------------------------------------------------------------ the store
@@ -237,6 +250,7 @@ class ChunkStore:
         )
         self._blobs = blobs
         self.items = items or ItemLists(blobs)
+        self._parts: OrderedDict[str, PartsIndex] = OrderedDict()
 
     async def _lane(
         self,
@@ -436,7 +450,10 @@ class ChunkStore:
             if isinstance(got, Fenced):
                 return ResultOutcome(ResultKind.FENCED, got.reason.value, job.id)
             if isinstance(got, AlreadyDone):
-                return ResultOutcome(ResultKind.ALREADY_DONE, None, job.id)
+                mismatch = await _check_determinism(db, job, got, digest)
+                return ResultOutcome(
+                    ResultKind.ALREADY_DONE, None, job.id, nondeterministic=mismatch
+                )
             cancel = await _lanes_of(db, got.superseded)
             if not done.queue_done:
                 return ResultOutcome(
@@ -449,11 +466,11 @@ class ChunkStore:
             return ResultOutcome(
                 ResultKind.COMMITTED,
                 job_id=job.id,
-                job_ended=JobState(job.state),
                 cancel_chunks=cancel,
                 cancel_lanes=tuple(await live_lanes(db, job.id)),
                 parts_digest=parts,
                 late=got.late,
+                combine_owed=JobState(job.state) is JobState.COLLECTING,
             )
 
     async def _failed(
@@ -516,9 +533,13 @@ class ChunkStore:
         )
 
     async def _finish(self, db: AsyncSession, job: Job, queue_id: int) -> str | None:
-        """The last chunk committed: write the parts index (chunk order) and
-        end the job SUCCEEDED - in the committing transaction. G5 replaces
-        the end with a combine attempt; the parts index stays its input."""
+        """The last chunk committed: write the parts index (chunk order - the
+        combine's ordered input) and move the job ``RUNNING -> COLLECTING``,
+        in the committing transaction (V0.10 G5, D283 pin 1). A COLLECTING
+        split job with a parts index and no live combine attempt **owes a
+        combine**: the dispatcher places it on its next tick (woken by the
+        caller) - the durable fact is this commit, so a controller crash right
+        after it loses nothing (:mod:`.combine`)."""
         rows = (
             await db.execute(
                 select(work_item.c.idx, work_item.c.payload, work_item.c.result_digest)
@@ -551,16 +572,41 @@ class ChunkStore:
         if state is JobState.PREPARING:
             await _move_job(db, job, JobEvent.STARTED, soft=True)
         await _move_job(db, job, JobEvent.EXITED, soft=True)
-        await _move_job(db, job, JobEvent.COLLECTED, soft=True)
         await _fresh(db, job)
         log.info(
-            "controller.split.job_done",
+            "controller.split.chunks_done",
             job_id=job.id,
             chunks=len(rows),
             parts_digest=str(digest),
             state=job.state,
         )
         return str(digest)
+
+    # ------------------------------------------------------------ combine
+
+    async def parts_index(self, digest: str) -> PartsIndex:
+        """V0.10 G5: a job's parts index from the controller's CAS (verified,
+        parsed in a worker thread; a few kept). Raises ``LookupError`` /
+        ``ValueError`` when it is missing or broken."""
+        hit = self._parts.get(digest)
+        if hit is not None:
+            self._parts.move_to_end(digest)
+            return hit
+        if self._blobs is None:
+            raise LookupError("no blob store: the parts index cannot be read")
+        path = self._blobs.open_path(Digest.parse(digest))
+
+        def load() -> PartsIndex:
+            data = path.read_bytes()
+            if sha256_bytes(data) != Digest.parse(digest):
+                raise ValueError("the stored parts index does not match its digest")
+            return parse_parts_index(data)
+
+        parsed = await asyncio.to_thread(load)
+        self._parts[digest] = parsed
+        while len(self._parts) > _ITEM_LIST_CACHE:
+            self._parts.popitem(last=False)
+        return parsed
 
     # ------------------------------------------------------------ renew/expire
 
@@ -647,6 +693,32 @@ async def _live_leases_of(db: AsyncSession, queue_id: int, holder: str) -> list[
             )
         ).all()
     )
+
+
+async def _check_determinism(
+    db: AsyncSession, job: Job, done: AlreadyDone, digest: str
+) -> bool:
+    """D269 hook (V0.10 G5): a second, *verified* result of a committed chunk
+    with another digest, while the job asked for deterministic chunks ->
+    the job's ``nondeterministic_chunk`` warning (the job row is locked by the
+    caller). A replay of the winner's own report is not a second result."""
+    if done.own or done.winner_digest == digest:
+        return False
+    if not bool((job.split or {}).get("deterministic", True)):
+        return False
+    idx = await db.scalar(select(work_item.c.idx).where(work_item.c.id == done.item_id))
+    chunk = int(idx) if idx is not None else -1
+    job.warnings, _fresh_chunk = add_chunk_warning(
+        job.warnings, NONDETERMINISTIC_CHUNK, max(chunk, 0)
+    )
+    log.warning(
+        "controller.split.nondeterministic_chunk",
+        job_id=job.id,
+        chunk=chunk,
+        winner_seq=done.winner_seq,
+        lease_seq=done.seq,
+    )
+    return True
 
 
 async def _failed_sites(db: AsyncSession, item_id: int) -> list[str]:

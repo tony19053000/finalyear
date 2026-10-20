@@ -150,6 +150,12 @@ class FabricRows:
     owner_names: dict[str, str] = field(default_factory=dict)
     """V0.7 G5 (D142): user id -> user name of the batch's job owners (owner
     policies' ``allowed_users``)."""
+    combine_sites: dict[str, dict[str, int]] = field(default_factory=dict)
+    """V0.10 G5: job_id -> {node_id: committed chunk results it produced} for
+    the tick's jobs that owe a combine (placement affinity, D268)."""
+    combine_failures: dict[str, tuple[PastFailure, ...]] = field(default_factory=dict)
+    """V0.10 G5: job_id -> its failed / lost combine attempts (a new combine
+    avoids those nodes, softly)."""
     snapshot: ClusterSnapshot | None = None
     """The planner snapshot built from these rows (the dispatcher's, cached
     for the tick and patched by :meth:`took`)."""

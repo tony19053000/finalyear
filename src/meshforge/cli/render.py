@@ -676,6 +676,10 @@ def job_detail_table(payload: Mapping[str, Any]) -> Table:
     table = _table("FIELD", "VALUE", title="Job")
     for key in ("job_id", "name", "state", "failure_type", "failure_detail"):
         table.add_row(_cell(key), _cell(payload.get(key)))
+    if payload.get("output_digest"):
+        table.add_row(_cell("output"), _cell(payload.get("output_digest")))
+    for text in warning_lines(payload):
+        table.add_row(_cell("warning"), _cell(text))
     attempts = payload.get("attempts")
     for attempt in attempts if isinstance(attempts, list) else []:
         if not isinstance(attempt, Mapping):
@@ -686,8 +690,9 @@ def job_detail_table(payload: Mapping[str, Any]) -> Table:
             if isinstance(missing, list) and missing
             else DASH
         )
+        role = attempt.get("role")
         table.add_row(
-            _cell("attempt"),
+            _cell("attempt" if role in (None, "run") else f"attempt ({role})"),
             _cell(
                 f"{attempt.get('attempt_id')} on {attempt.get('node_id')}: "
                 f"{attempt.get('state')} exit={attempt.get('exit_code')} "
@@ -709,6 +714,29 @@ def job_detail_table(payload: Mapping[str, Any]) -> Table:
                 ),
             )
     return table
+
+
+def warning_lines(payload: Mapping[str, Any]) -> list[str]:
+    """V0.10 G5 (D269): one line per job warning (``nondeterministic_chunk``:
+    how often, which chunks). Untrusted values are flattened by the caller."""
+    out: list[str] = []
+    warnings = payload.get("warnings")
+    for item in warnings if isinstance(warnings, list) else []:
+        if not isinstance(item, Mapping):
+            continue
+        chunks = item.get("chunks")
+        listed = (
+            ", ".join(str(c) for c in chunks[:16] if isinstance(c, int))
+            if isinstance(chunks, list)
+            else ""
+        )
+        more = "" if not isinstance(chunks, list) or len(chunks) <= 16 else ", ..."
+        out.append(
+            f"{item.get('code')} x{item.get('count')}"
+            + (f" (chunks {listed}{more})" if listed else "")
+            + (f": {item.get('detail')}" if item.get("detail") else "")
+        )
+    return out
 
 
 def _transfer_text(row: Mapping[str, Any]) -> str:

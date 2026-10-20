@@ -34,6 +34,7 @@ from typing import Any, Final
 from meshforge.common.errors import FailureType
 from meshforge.common.logging import get_logger
 from meshforge.common.proto.meshforge.v1 import agent_pb2
+from meshforge.common.split_chunks import PartsIndex
 from meshforge.common.states import JobState
 from meshforge.controller.session.live import LiveSession
 from meshforge.controller.session.manager import SessionManager
@@ -99,6 +100,10 @@ class SplitStats:
     fenced: dict[str, int] = field(default_factory=dict)
     """Cause -> count of chunk messages not applied (checklist 34)."""
     jobs_done: int = 0
+    """Split jobs whose every chunk is committed (they then owe a combine)."""
+    nondeterministic: int = 0
+    """V0.10 G5 (D269): second results of a committed chunk with another
+    digest (the job's ``nondeterministic_chunk`` warning)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,8 +128,11 @@ class SplitService:
         wall_clock: Callable[[], dt.datetime],
         put: Callable[[ChunkWork], bool],
         clock: Callable[[], float] | None = None,
+        wake: Callable[[], None] | None = None,
     ) -> None:
         self._store = store
+        self._wake = wake
+        """V0.10 G5: run a dispatch pass soon (a job now owes its combine)."""
         self._manager = manager
         self._grants = grants
         self._settings = settings
@@ -384,14 +392,17 @@ class SplitService:
         if got.job_ended is JobState.FAILED:
             for other in got.cancel_lanes:
                 self._cancel_lane(other, "chunk_failed")
-        elif got.job_ended is JobState.SUCCEEDED:
+        elif got.combine_owed:
             # Every chunk is committed: tell the other lanes now (a NoWork
             # waits in their inbox and answers their next ask), so they end
             # DONE at once instead of after their wait - and their
-            # credentials close with them.
+            # credentials close with them. The job now owes its combine
+            # (V0.10 G5): the dispatcher places it on the tick this wakes.
             for other in got.cancel_lanes:
                 if other.attempt_id != lane.attempt_id:
                     self._drained(other, lane.job_id)
+            if self._wake is not None:
+                self._wake()
 
     def _count(
         self, live: LiveSession, body: ChunkResultIn, got: ResultOutcome
@@ -411,10 +422,11 @@ class SplitService:
         if kind is ResultKind.COMMITTED:
             self.stats.committed += 1
             self.stats.late_commits += int(got.late)
-            if got.job_ended is JobState.SUCCEEDED:
+            if got.combine_owed:
                 self.stats.jobs_done += 1
         elif kind is ResultKind.ALREADY_DONE:
             self.stats.already_done += 1
+            self.stats.nondeterministic += int(got.nondeterministic)
         elif kind is ResultKind.RETRIED:
             self.stats.retried += 1
         elif kind is ResultKind.CHUNK_FAILED:
@@ -528,6 +540,10 @@ class SplitService:
                 node_id=live.node_id,
                 refused=got[1],
             )
+
+    async def parts_index(self, digest: str) -> PartsIndex:
+        """V0.10 G5: a job's parts index (the combine's input and fetch scope)."""
+        return await self._store.parts_index(digest)
 
     async def held_leases(self, attempt_id: str) -> int:
         """Live leases of one lane (its upload grant's refresh quota)."""

@@ -12,7 +12,11 @@ none is left. Modules:
 * :mod:`.store` - the chunk protocol's database side: grants, results (commit
   + the job's completion in one transaction), renewals, expiry;
 * :mod:`.service` - the dispatcher-side handling of the chunk messages
-  (fencing checks, upload-grant verification, replies, counters).
+  (fencing checks, upload-grant verification, replies, counters);
+* :mod:`.combine` (V0.10 G5) - the combine attempt: which jobs owe one, its
+  creation in the dispatch transaction, its end (SUCCEEDED / combine_error /
+  a retry elsewhere);
+* :mod:`.warnings` (V0.10 G5) - job warnings such as ``nondeterministic_chunk``.
 
 Nothing here runs user code or reads chunk *contents*: the controller only
 moves digests.

@@ -38,14 +38,17 @@ from meshforge.common.manifest import MAX_SPLIT_CHUNKS, MAX_SPLIT_ITEMS
 
 __all__ = [
     "MAX_ITEM_LIST_BYTES",
+    "MAX_PARTS_INDEX_BYTES",
     "PARTS_INDEX_VERSION",
     "ChunkSpan",
     "ItemList",
     "ItemListError",
+    "PartsIndex",
     "chunk_items_digest",
     "chunk_payloads",
     "chunk_span",
     "parse_item_list",
+    "parse_parts_index",
     "parts_index_blob",
 ]
 
@@ -228,6 +231,62 @@ def parse_item_list(data: bytes) -> ItemList:
         records=records,
         header=header,
     )
+
+
+MAX_PARTS_INDEX_BYTES: Final = 4 * 1024 * 1024
+"""Largest parts index anyone reads (10 000 chunks x ~100 bytes + JSON)."""
+
+
+@dataclass(frozen=True, slots=True)
+class PartsIndex:
+    """A parsed parts index (V0.10 G5): the combine's ordered input."""
+
+    items_digest: str
+    chunk_items: int
+    chunks: tuple[tuple[int, int, str], ...]
+    """``(first, count, result digest)`` in chunk order."""
+
+    @property
+    def digests(self) -> tuple[str, ...]:
+        return tuple(d for _, _, d in self.chunks)
+
+
+def parse_parts_index(data: bytes) -> PartsIndex:
+    """Parse and check a parts index blob (:func:`parts_index_blob`): read by
+    the combine node from the network (verified by digest first) - bounded,
+    every field type-checked, the chunks consecutive from item 0."""
+    if len(data) > MAX_PARTS_INDEX_BYTES:
+        raise ItemListError("the parts index is too large")
+    try:
+        doc = json.loads(data.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError, RecursionError):
+        raise ItemListError("the parts index is not UTF-8 JSON") from None
+    if not isinstance(doc, dict) or doc.get("v") != PARTS_INDEX_VERSION:
+        raise ItemListError("not a parts index of version 1")
+    items_digest = doc.get("items_digest")
+    if not isinstance(items_digest, str) or not items_digest.startswith("sha256:"):
+        raise ItemListError("the parts index names no item list")
+    _hex(items_digest.removeprefix("sha256:"), "items_digest")
+    chunk_items = _uint(doc.get("chunk_items"), "chunk_items")
+    raw = doc.get("chunks")
+    if not isinstance(raw, list) or not 1 <= len(raw) <= MAX_SPLIT_CHUNKS:
+        raise ItemListError("the parts index has no chunks")
+    chunks: list[tuple[int, int, str]] = []
+    expect = 0
+    for entry in raw:
+        if not isinstance(entry, list) or len(entry) != 3:
+            raise ItemListError("a parts index entry is not [first, count, digest]")
+        first = _uint(entry[0], "first")
+        count = _uint(entry[1], "count")
+        digest = entry[2]
+        if first != expect or count < 1:
+            raise ItemListError("the parts index chunks are not consecutive")
+        if not isinstance(digest, str) or not digest.startswith("sha256:"):
+            raise ItemListError("a part digest is not sha256:<hex>")
+        _hex(digest.removeprefix("sha256:"), "part digest")
+        chunks.append((first, count, digest))
+        expect = first + count
+    return PartsIndex(items_digest, chunk_items, tuple(chunks))
 
 
 def parts_index_blob(

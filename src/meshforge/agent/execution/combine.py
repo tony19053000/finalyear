@@ -98,11 +98,11 @@ CODES: Final = frozenset(
 class CombineError(Exception):
     """The parts cannot be combined (``code`` is one of :data:`CODES`)."""
 
-    def __init__(self, code: str, message: str) -> None:
-        if code not in CODES:  # pragma: no cover - a programming error
-            raise ValueError(f"unknown combine error code {code!r}")
+    def __init__(self, reason: str, message: str) -> None:
+        if reason not in CODES:  # pragma: no cover - a programming error
+            raise ValueError(f"unknown combine error code {reason!r}")
         super().__init__(message)
-        self.code = code
+        self.code = reason
         self.message = _clip(message)
 
     def __str__(self) -> str:

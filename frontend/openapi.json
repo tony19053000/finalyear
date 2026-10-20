@@ -129,6 +129,16 @@
         "title": "AlertOut",
         "type": "object"
       },
+      "AttemptRole": {
+        "description": "What an attempt does for its job (V0.10 G4, D259; ``attempt.role``).",
+        "enum": [
+          "run",
+          "lane",
+          "combine"
+        ],
+        "title": "AttemptRole",
+        "type": "string"
+      },
       "AttemptState": {
         "description": "\u00a712.2: one execution of a job (or chunk) on one node.",
         "enum": [
@@ -226,6 +236,10 @@
               }
             ],
             "title": "Output Digest"
+          },
+          "role": {
+            "$ref": "#/components/schemas/AttemptRole",
+            "default": "run"
           },
           "started_at": {
             "anyOf": [
@@ -1594,7 +1608,8 @@
           "conflict",
           "internal_error",
           "output_error",
-          "owner_preempted"
+          "owner_preempted",
+          "combine_error"
         ],
         "title": "FailureType",
         "type": "string"
@@ -2300,6 +2315,17 @@
             "title": "Name",
             "type": "string"
           },
+          "output_digest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Digest"
+          },
           "placement": {
             "$ref": "#/components/schemas/Placement"
           },
@@ -2342,6 +2368,14 @@
           },
           "updated_at": {
             "$ref": "#/components/schemas/Utc"
+          },
+          "warnings": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/JobWarning"
+            },
+            "title": "Warnings",
+            "type": "array"
           }
         },
         "required": [
@@ -2510,6 +2544,39 @@
           "updated_at"
         ],
         "title": "JobSummary",
+        "type": "object"
+      },
+      "JobWarning": {
+        "additionalProperties": false,
+        "description": "V0.10 G5 (D269): something the user should know that did not fail the\njob - ``nondeterministic_chunk``: a chunk gave two different results\nwhile ``split.deterministic`` was on (the first committed one was kept).",
+        "properties": {
+          "chunks": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Chunks",
+            "type": "array"
+          },
+          "code": {
+            "const": "nondeterministic_chunk",
+            "title": "Code",
+            "type": "string"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "count",
+          "detail"
+        ],
+        "title": "JobWarning",
         "type": "object"
       },
       "LabelCounts": {

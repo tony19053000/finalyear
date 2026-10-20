@@ -77,9 +77,11 @@ from meshforge.common.cas import (
 from meshforge.common.errors import FailureType, MeshForgeError
 from meshforge.common.hashing import Digest
 from meshforge.common.logging import get_logger
+from meshforge.common.manifest import MAX_SPLIT_CHUNKS
 from meshforge.common.tree import Tree, TreeError, TreeLimits, parse_tree
 
 __all__ = [
+    "MAX_FETCH_TOKEN_BLOBS",
     "MAX_FETCH_TOKEN_DIGESTS",
     "MAX_FETCH_TOKEN_TTL_S",
     "MAX_HAVE_DIGESTS",
@@ -100,6 +102,9 @@ log = get_logger(__name__)
 MAX_FETCH_TOKEN_TTL_S: Final = 7 * 24 * 3600 + 3600
 """The longest job limit (7 days) plus an hour of grace."""
 MAX_FETCH_TOKEN_DIGESTS: Final = 1024
+MAX_FETCH_TOKEN_BLOBS: Final = MAX_SPLIT_CHUNKS + 1
+"""V0.10 G5: plain blobs one token may name (a combine: every chunk's result
+of a job with at most 10 000 chunks, plus its parts index)."""
 MAX_HAVE_DIGESTS: Final = 10_000
 """Digests one have/need call may ask about (the client batches above this)."""
 DEFAULT_TREE_CACHE_ENTRIES: Final = 500_000
@@ -670,6 +675,14 @@ class FetchGrant:
     node_id: str | None = None
     """V0.7 G3 (D139): the node the token was sent to; in mtls mode only that
     node's TLS client certificate may use it."""
+    blobs: frozenset[str] = frozenset()
+    """V0.10 G5: more digest hex strings this token may read as plain blobs
+    (a combine's chunk results) - never treated as tree roots, so a refused
+    read stays O(roots), not O(parts)."""
+
+    def may_read_blob(self, hex_digest: str) -> bool:
+        """``hex_digest`` is named by this grant (a root or a plain blob)."""
+        return hex_digest in self.digests or hex_digest in self.blobs
 
 
 class FetchTokens:
@@ -702,13 +715,21 @@ class FetchTokens:
         *,
         ttl_s: float,
         node_id: str | None = None,
+        blobs: Iterable[Digest] = (),
     ) -> SecretStr:
-        """A new token for ``attempt_id`` that may GET/HEAD exactly ``digests``."""
+        """A new token for ``attempt_id`` that may GET/HEAD exactly ``digests``
+        (and a tree's members when one is a tree). ``blobs`` (V0.10 G5): plain
+        blobs it may also read - a split job's combine reads every chunk's
+        result (up to ``MAX_SPLIT_CHUNKS``), so they have their own bound and
+        are never looked at as trees."""
         if not 0 < ttl_s <= MAX_FETCH_TOKEN_TTL_S:
             raise ValueError(f"ttl_s must be in (0, {MAX_FETCH_TOKEN_TTL_S}]")
         allowed = frozenset(d.hex for d in digests)
         if len(allowed) > MAX_FETCH_TOKEN_DIGESTS:
             raise ValueError(f"at most {MAX_FETCH_TOKEN_DIGESTS} digests per token")
+        plain = frozenset(d.hex for d in blobs) - allowed
+        if len(plain) > MAX_FETCH_TOKEN_BLOBS:
+            raise ValueError(f"at most {MAX_FETCH_TOKEN_BLOBS} plain blobs per token")
         now = self._clock()
         self._prune(now)
         token = secrets.token_urlsafe(32)
@@ -717,6 +738,7 @@ class FetchTokens:
             digests=allowed,
             expires_at=now + ttl_s,
             node_id=node_id,
+            blobs=plain,
         )
         while len(self._grants) > self._capacity:
             self._grants.popitem(last=False)
@@ -746,7 +768,7 @@ class FetchTokens:
         if grant.expires_at <= self._clock():
             self._grants.pop(self._key(token), None)
             return False
-        return digest.hex in grant.digests
+        return grant.may_read_blob(digest.hex)
 
     def has(self, attempt_id: str) -> bool:
         """True when ``attempt_id`` holds at least one live (unexpired) token."""
@@ -767,6 +789,7 @@ class FetchTokens:
                     digests=grant.digests,
                     expires_at=deadline,
                     node_id=grant.node_id,
+                    blobs=grant.blobs,
                 )
                 changed += 1
         return changed
