@@ -106,11 +106,11 @@ __all__ = [
 log = get_logger(__name__)
 
 _ITEM_LIST_CACHE: Final = 8
+"""Item lists kept parsed (one per running split job; bounded)."""
 _SLICE_MEMO_MAX: Final = 4 * 10_000
 """Most memoised chunk digests per cached item list (fix r1 T2: jobs sharing
 one list with different chunk sizes each add their own (first, count) keys;
 past this the list's memo starts again - it is only a cache)."""
-"""Item lists kept parsed (one per running split job; bounded)."""
 
 
 class FenceCause(StrEnum):
