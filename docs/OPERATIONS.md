@@ -1236,6 +1236,22 @@ compute get <JOB_ID>               # outputs -> ./outputs/<JOB_ID>/ (--dest, --f
   `max_failed_nodes` (2) nodes or `retry.max_attempts` times fails the job
   (`chunk_failed: chunk N ...`, no partial output); with no lane left the job is
   re-planned for the remaining chunks (bounded by `retry.max_attempts` rounds).
+  **Stragglers (V0.10 G6, D266):** once no chunk is pending, a lane that asks
+  for work may get a **speculative copy** of a chunk still running on another
+  node - the one predicted to finish last - when its predicted remaining time
+  is more than `speculation_factor` (1.5) x the idle node's expected time for
+  it. Expected times come from this job's committed chunks on each node (p50 of
+  seconds per item), else from the planner's predicted rate plus
+  `chunk_overhead_s`; a node with neither gets no copy. A copy never runs on the
+  node that holds the original, nor on a node where that chunk already failed;
+  at most `speculative_max_frac` (0.10) of a job's chunks ever get one
+  (`split.speculative: false` turns it off for a job). The first committed result
+  wins; the other copy gets `CancelChunk` (its process is killed, its upload is
+  never referenced); a late result of the loser is ignored (`already_done`) and,
+  if its bytes differ, raises the `nondeterministic_chunk` warning. Logs:
+  `controller.split.speculated` (with elapsed / expected / remaining / copy
+  seconds and their sources) and `controller.split.speculation_resolved`
+  (`winner`: `copy` | `original`).
   A `done` result whose digest the lane's own upload grant never stored is not
   committed: the first `max_unverified_results` (2) per (chunk, lane) are put
   back uncounted (a controller restart forgets what grants stored) and that
