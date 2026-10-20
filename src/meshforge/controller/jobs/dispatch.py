@@ -143,9 +143,15 @@ async def _matcher(values: Mapping[str, bytes]) -> SecretMatcher | None:
     return await asyncio.to_thread(SecretMatcher, values)
 
 
+def _is_lane(attempt: AttemptRecord) -> bool:
+    """V0.10 G4: a Mode 3 lane (older records / fakes without a role run whole)."""
+    return getattr(attempt, "role", AttemptRole.RUN) is AttemptRole.LANE
+
+
 def chunk_cap(job: JobRecord) -> int:
     """A split job's ``split.max_chunk_output_bytes`` (V0.10 G4, D261)."""
-    value = None if job.split is None else job.split.spec.get("max_chunk_output_bytes")
+    split = getattr(job, "split", None)  # fakes of older tests have none
+    value = None if split is None else split.spec.get("max_chunk_output_bytes")
     if isinstance(value, int) and not isinstance(value, bool) and value > 0:
         return value
     return DEFAULT_CHUNK_OUTPUT_BYTES
@@ -178,7 +184,7 @@ class DispatchSteps:
     _insecure_secrets: bool
     _bench_condition: Callable[[str | None], Awaitable[str | None]] | None
     _split_settings: SplitSettings
-    _split: SplitService
+    _split: SplitService | None
     stats: DispatcherStats
 
     if TYPE_CHECKING:  # the dispatcher's (never shadowed at run time)
@@ -412,7 +418,7 @@ class DispatchSteps:
         if condition is not None:
             # V0.9 G4 (D217): the agent applies + verifies it before staging
             start.condition.spec = condition
-        if attempt.role is AttemptRole.LANE and job.split is not None:
+        if _is_lane(attempt) and job.split is not None:
             # V0.10 G4 (D259): this attempt pulls chunks instead of running once
             start.lane.CopyFrom(
                 agent_pb2.LaneSpec(
@@ -477,7 +483,7 @@ class DispatchSteps:
             fetch_scope(
                 job,
                 [i.tree_id for i in inputs],
-                lane=attempt.role is AttemptRole.LANE,
+                lane=_is_lane(attempt),
             ),
             ttl_s=ttl,
             node_id=attempt.node_id,
@@ -541,7 +547,8 @@ class DispatchSteps:
         staging = {
             entry.attempt.id: entry
             for entry in live
-            if entry.attempt.state in _FETCHING and entry.job.tree_id
+            if (entry.attempt.state in _FETCHING or _is_lane(entry.attempt))
+            and entry.job.tree_id
         }
         for attempt_id in [a for a in self._peer_minted if a not in staging]:
             del self._peer_minted[attempt_id]
@@ -589,7 +596,7 @@ class DispatchSteps:
         if self._grants is None:
             return
         held = 0
-        if attempt.role is AttemptRole.LANE:
+        if _is_lane(attempt) and self._split is not None:
             # V0.10 G4 (D261): room for the chunks the lane still holds (a
             # restarted controller forgot the grown quota)
             held = await self._split.held_leases(attempt.id)
@@ -632,7 +639,7 @@ class DispatchSteps:
         """Lifetime of an attempt's fetch token and upload grant. A lane runs
         chunk after chunk (each within ``limits.timeout``), so its credentials
         live as long as any may (V0.10 G4); they end with the lane."""
-        if attempt is not None and attempt.role is AttemptRole.LANE:
+        if attempt is not None and _is_lane(attempt):
             return float(MAX_FETCH_TOKEN_TTL_S)
         return min(
             float(job.manifest.get("limits", {}).get("timeout", 0))

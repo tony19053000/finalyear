@@ -276,15 +276,21 @@ class Dispatcher(RecoverySteps):
             split=self._split_settings,
         )
         """V0.6 G2 (D102): builds the tick's snapshot and decides per job."""
-        self._split = SplitService(
-            store=ChunkStore(store.engine, blobs=blobs),
-            manager=manager,
-            grants=upload_grants,
-            settings=self._split_settings,
-            wall_clock=self._wall,
-            put=self._put,
+        engine = getattr(store, "engine", None)
+        self._split: SplitService | None = (
+            None
+            if engine is None
+            else SplitService(
+                store=ChunkStore(engine, blobs=blobs),
+                manager=manager,
+                grants=upload_grants,
+                settings=self._split_settings,
+                wall_clock=self._wall,
+                put=self._put,
+            )
         )
-        """V0.10 G4 (D263): a lane's chunk messages, handled in this task."""
+        """V0.10 G4 (D263): a lane's chunk messages, handled in this task.
+        None only for a store without a database engine (unit-test fakes)."""
         manager.dispatch.register("attempt_status", self._on_status_message)
         manager.defer_ack("attempt_status")
         hooks = manager.hooks
@@ -315,6 +321,8 @@ class Dispatcher(RecoverySteps):
     @property
     def split(self) -> SplitService:
         """V0.10 G4: the chunk protocol's counters and handlers."""
+        if self._split is None:
+            raise RuntimeError("this dispatcher runs no split jobs (no database)")
         return self._split
 
     async def run(self) -> None:
@@ -496,7 +504,8 @@ class Dispatcher(RecoverySteps):
         elif isinstance(item, _Reconcile):
             await self._reconcile(item)
         elif isinstance(item, ChunkWork):
-            await self._split.handle(item)
+            if self._split is not None:
+                await self._split.handle(item)
         else:
             await self._offline(item)
 
@@ -507,7 +516,8 @@ class Dispatcher(RecoverySteps):
 
     async def _periodic(self, _: object) -> None:
         await self._dispatch()
-        await self._split.expire()  # V0.10 G4 (D267b): visibility timeout
+        if self._split is not None:
+            await self._split.expire()  # V0.10 G4 (D267b): visibility timeout
         await self._backstop()
         # One read of the live attempts for both sweeps. An attempt the first
         # one ends is still listed for the second: ending it again is a no-op

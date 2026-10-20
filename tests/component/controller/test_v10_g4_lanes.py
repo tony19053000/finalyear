@@ -103,8 +103,10 @@ async def _lanes(
         finally:
             for lane in lanes:
                 await lane.close()
+                if lane.killed:
+                    continue  # its call is already cancelled
                 with contextlib.suppress(Exception):
-                    await lane.agent.close()
+                    await asyncio.wait_for(lane.agent.close(), 10)
 
 
 def _tree(root: Path) -> BuiltTree:
@@ -291,7 +293,9 @@ async def test_chunk_failing_on_two_nodes_fails_the_job_with_no_output(
     runtime: ControllerRuntime, http: httpx.AsyncClient, tmp_path: Path
 ) -> None:
     async with _lanes(runtime, [0.01, 0.01, 0.01], fail={7}) as lanes:
-        job_id = await _submit(runtime, http, tmp_path)
+        # many tries allowed: the job must fail by the two-node rule (D267c),
+        # not because one lane retried the chunk max_attempts times
+        job_id = await _submit(runtime, http, tmp_path, retry={"max_attempts": 10})
         job = await _wait_job(runtime, job_id)
         assert job.state is JobState.FAILED
         assert job.failure_type is not None and job.failure_type.value == "user_error"
@@ -391,7 +395,7 @@ async def test_fencing_expiry_and_a_late_result_commit_once(
             agents.append(fake)
         try:
             job_id = await _submit(
-                runtime, http, tmp_path, items=2, chunk=1, retry={"max_attempts": 5}
+                runtime, http, tmp_path, items=4, chunk=1, retry={"max_attempts": 5}
             )
 
             async def start_of(fake: FakeAgent) -> agent_pb2.StartAttempt:

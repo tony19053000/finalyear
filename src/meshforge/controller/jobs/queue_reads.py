@@ -53,7 +53,7 @@ from sqlalchemy import DateTime, Float, and_, case, cast, func, literal, or_, se
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from meshforge.common.manifest import MAX_PRIORITY
-from meshforge.common.states import AttemptPhase, AttemptState, JobState
+from meshforge.common.states import AttemptPhase, AttemptRole, AttemptState, JobState
 from meshforge.controller.network.store import controller_links, read_links
 from meshforge.controller.planner.retry_exclusion import PastFailure
 from meshforge.controller.planner.types import (
@@ -70,6 +70,7 @@ from meshforge.controller.store.models.data import JobInput, NamedInput
 from meshforge.controller.store.models.job import Attempt, AttemptPhaseRow, Job
 from meshforge.controller.store.models.node import Node
 from meshforge.controller.store.models.plan import PlanDecision
+from meshforge.workqueue.tables import work_item, work_queue
 
 __all__ = [
     "ENV_BUILD_MIN_MS",
@@ -126,6 +127,12 @@ class FabricRows:
     """node_id -> the batch's tree ids / digests it holds whole."""
     input_trees: dict[str, tuple[tuple[str, int], ...]] = field(default_factory=dict)
     """job_id -> ((tree_id, size), ...) of its named inputs."""
+    input_mounts: dict[str, dict[str, str]] = field(default_factory=dict)
+    """V0.10 G4: job_id -> {mount: tree_id} of its named inputs (split jobs:
+    which tree the items live in, ``planner.inputs.split_info``)."""
+    split_left: dict[str, int] = field(default_factory=dict)
+    """V0.10 G4 (D267e): split job id -> items not yet committed, for jobs
+    whose chunk queue exists (a re-plan plans the remainder only)."""
     history: dict[str, History] = field(default_factory=dict)
     """fingerprint -> past run times."""
     last_reason: dict[str, str] = field(default_factory=dict)
@@ -250,6 +257,26 @@ def _median(values: Sequence[float]) -> float:
     return float(statistics.median(values))
 
 
+async def _split_left(db: AsyncSession, job_ids: Sequence[str]) -> dict[str, int]:
+    """V0.10 G4: items of the not-yet-done chunks of these split jobs' queues
+    (one statement; jobs without a queue are absent)."""
+    left = func.coalesce(
+        func.sum(work_item.c.payload["count"].as_integer()).filter(
+            work_item.c.state != "done"
+        ),
+        0,
+    )
+    rows = await db.execute(
+        select(work_queue.c.owner_id, left)
+        .select_from(
+            work_queue.join(work_item, work_item.c.queue_id == work_queue.c.id)
+        )
+        .where(work_queue.c.kind == "mode3", work_queue.c.owner_id.in_(job_ids))
+        .group_by(work_queue.c.owner_id)
+    )
+    return {str(owner): int(n) for owner, n in rows.all()}
+
+
 async def _history(
     db: AsyncSession, fingerprints: Sequence[str], runs: int
 ) -> dict[str, History]:
@@ -272,6 +299,8 @@ async def _history(
         .where(
             Job.fingerprint.in_(fingerprints[:MAX_HISTORY_FINGERPRINTS]),
             Attempt.state == AttemptState.DONE.value,
+            # V0.10 G4 (D280): a lane's run is many chunks, not one whole run
+            Attempt.role == AttemptRole.RUN.value,
             AttemptPhaseRow.phase == AttemptPhase.RUN.value,
             AttemptPhaseRow.skipped.is_(False),
         )
@@ -320,6 +349,7 @@ async def _output_history(
         .where(
             Job.fingerprint.in_(fingerprints[:MAX_HISTORY_FINGERPRINTS]),
             Attempt.state == AttemptState.DONE.value,
+            Attempt.role == AttemptRole.RUN.value,
             Attempt.output_bytes.is_not(None),
         )
         .subquery()
@@ -373,6 +403,7 @@ async def _env_builds(
         .join(AttemptPhaseRow, AttemptPhaseRow.attempt_id == Attempt.id)
         .where(
             base.in_(sorted(bases)),
+            Attempt.role == AttemptRole.RUN.value,  # a lane's env = its chunks'
             AttemptPhaseRow.phase == AttemptPhase.ENV.value,
             AttemptPhaseRow.skipped.is_(False),
             AttemptPhaseRow.duration_ms >= ENV_BUILD_MIN_MS,
@@ -476,7 +507,7 @@ async def read_fabric(
     if not job_ids:
         return fabric
     inputs = await db.execute(
-        select(JobInput.job_id, JobInput.tree_id, NamedInput.size)
+        select(JobInput.job_id, JobInput.tree_id, NamedInput.size, JobInput.mount)
         .join(
             NamedInput,
             and_(
@@ -488,9 +519,13 @@ async def read_fabric(
         .order_by(JobInput.job_id, JobInput.mount)
     )
     per_job: dict[str, list[tuple[str, int]]] = {}
-    for job_id, tree_id, size in inputs.all():
+    for job_id, tree_id, size, mount in inputs.all():
         per_job.setdefault(str(job_id), []).append((str(tree_id), int(size)))
+        fabric.input_mounts.setdefault(str(job_id), {})[str(mount)] = str(tree_id)
     fabric.input_trees = {k: tuple(v) for k, v in per_job.items()}
+    split_ids = [j.id for j in jobs if j.split is not None]
+    if split_ids:
+        fabric.split_left = await _split_left(db, split_ids)
     keys = {k for job in jobs for k in keys_of(job)}
     keys |= {tree for trees in per_job.values() for tree, _ in trees}
     if keys:

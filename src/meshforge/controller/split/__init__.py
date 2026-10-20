@@ -5,8 +5,7 @@ stages the project once and pulls **chunks** (work-queue items of
 :mod:`meshforge.workqueue`, one per ``chunk_items`` consecutive items) until
 none is left. Modules:
 
-* :mod:`.placement` - the node set and chunk size (placeholder for G3's planner
-  Mode 3 - the seam);
+* the node set and chunk size come from the planner (``Decision.split``, G3);
 * :mod:`.lanes` - lane rows inside the dispatcher's transactions: queue +
   lanes at dispatch, a lane's end (its leases released in the same
   transaction, D267a), re-plan of the remainder when no lane is left (D267e);

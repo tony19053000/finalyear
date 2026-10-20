@@ -50,6 +50,19 @@ from meshforge.common.states import AttemptState
 __all__ = ["FakeLane", "default_output"]
 
 
+def _bearer(token: str) -> dict[str, str]:
+    return {"authorization": f"Bearer {token}"}
+
+
+@dataclass
+class _Upload:
+    client: httpx.AsyncClient
+    token: str
+
+    async def put(self, path: str, *, content: bytes) -> httpx.Response:
+        return await self.client.put(path, content=content, headers=_bearer(self.token))
+
+
 def default_output(items: Sequence[str | int]) -> bytes:
     """A deterministic chunk output: the items, one per line, upper-cased."""
     return "".join(f"{str(i).upper()}\n" for i in items).encode()
@@ -73,6 +86,9 @@ class FakeLane:
         default_factory=dict
     )
     _pump: asyncio.Task[None] | None = None
+    killed: bool = False
+    _client: httpx.AsyncClient | None = None
+    _client_cm: Any = None
     stopped: dict[str, str] = field(default_factory=dict)
     """attempt_id -> how the lane ended (done / cancelled / stop)."""
 
@@ -117,6 +133,7 @@ class FakeLane:
 
     async def kill(self) -> None:
         """Drop the stream with no Goodbye (like kill -9 of the agent)."""
+        self.killed = True
         for task in self._tasks:
             task.cancel()
         if self._pump is not None:
@@ -124,7 +141,20 @@ class FakeLane:
         await asyncio.gather(*self._tasks, return_exceptions=True)
         await self.agent.abort()
 
+    async def _http(self) -> httpx.AsyncClient:
+        """One HTTPS client per fake node (its mTLS certificate), closed by
+        :meth:`close` - never left to a cancelled task to close."""
+        if self._client is None:
+            self._client_cm = api_client(self.runtime, node_id=self.agent.node_id)
+            self._client = await self._client_cm.__aenter__()
+        return self._client
+
     async def close(self) -> None:
+        # Lanes that are ending (a status write, an HTTP client closing) get a
+        # moment to finish: a cancel mid-request can leave a socket unclosed.
+        live = [t for t in self._tasks if not t.done()]
+        if live:
+            await asyncio.wait(live, timeout=2.0)
         for task in self._tasks:
             task.cancel()
         if self._pump is not None:
@@ -132,6 +162,9 @@ class FakeLane:
         await asyncio.gather(
             *self._tasks, *([self._pump] if self._pump else []), return_exceptions=True
         )
+        if self._client_cm is not None:
+            await self._client_cm.__aexit__(None, None, None)
+            self._client_cm = self._client = None
 
     # ------------------------------------------------------------ one lane
 
@@ -167,61 +200,55 @@ class FakeLane:
             AttemptState.RUNNING,
         ):
             await self._status(start, state)
-        fetch = api_client(
-            self.runtime, token=start.spec.fetch_token, node_id=self.agent.node_id
+        client = await self._http()
+        hex_ = start.lane.items_digest.removeprefix("sha256:")
+        got = await client.get(
+            f"/v1/blobs/{hex_}", headers=_bearer(start.spec.fetch_token)
         )
-        async with fetch as client:
-            hex_ = start.lane.items_digest.removeprefix("sha256:")
-            got = await client.get(f"/v1/blobs/{hex_}")
-            assert got.status_code == 200, got.text
-            assert str(sha256_bytes(got.content)) == start.lane.items_digest
-            items = parse_item_list(got.content)
-        upload = api_client(
-            self.runtime, token=start.spec.upload_token, node_id=self.agent.node_id
-        )
+        assert got.status_code == 200, got.text
+        assert str(sha256_bytes(got.content)) == start.lane.items_digest
+        items = parse_item_list(got.content)
+        up = _Upload(client, start.spec.upload_token)
         held: list[agent_pb2.ChunkLeaseRef] = []
-        async with upload as up:
-            while True:
-                await self._write(
-                    chunk_request=agent_pb2.ChunkRequest(
-                        job_id=start.job_id,
-                        attempt_id=attempt_id,
-                        fencing_token=start.fencing_token,
-                        want=1,
-                        held=held,
-                    )
+        while True:
+            await self._write(
+                chunk_request=agent_pb2.ChunkRequest(
+                    job_id=start.job_id,
+                    attempt_id=attempt_id,
+                    fencing_token=start.fencing_token,
+                    want=1,
+                    held=held,
                 )
-                reply = await self._next(
-                    box, ("chunk_grant", "no_work", "cancel_attempt")
+            )
+            reply = await self._next(box, ("chunk_grant", "no_work", "cancel_attempt"))
+            which = reply.WhichOneof("payload")
+            if which == "cancel_attempt":
+                self.stopped[attempt_id] = "cancelled"
+                await self._status(
+                    start, AttemptState.FAILED, (FailureType.CANCELLED, "cancelled")
                 )
-                which = reply.WhichOneof("payload")
-                if which == "cancel_attempt":
-                    self.stopped[attempt_id] = "cancelled"
-                    await self._status(
-                        start, AttemptState.FAILED, (FailureType.CANCELLED, "cancelled")
-                    )
+                return
+            if which == "no_work":
+                reason = reply.no_work.reason
+                if reason == agent_pb2.NoWork.REASON_WAIT:
+                    await asyncio.sleep(max(0.05, reply.no_work.retry_after_s))
+                    continue
+                if reason == agent_pb2.NoWork.REASON_DRAINED:
+                    self.stopped[attempt_id] = "done"
+                    await self._status(start, AttemptState.DONE)
                     return
-                if which == "no_work":
-                    reason = reply.no_work.reason
-                    if reason == agent_pb2.NoWork.REASON_WAIT:
-                        await asyncio.sleep(max(0.05, reply.no_work.retry_after_s))
-                        continue
-                    if reason == agent_pb2.NoWork.REASON_DRAINED:
-                        self.stopped[attempt_id] = "done"
-                        await self._status(start, AttemptState.DONE)
-                        return
-                    self.stopped[attempt_id] = "stop"
-                    await self._status(
-                        start, AttemptState.FAILED, (FailureType.CANCELLED, "stopped")
-                    )
-                    return
-                for chunk in reply.chunk_grant.chunks:
-                    ref = agent_pb2.ChunkLeaseRef(
-                        item_id=chunk.item_id, lease_seq=chunk.lease_seq
-                    )
-                    held.append(ref)
-                    await self._run_chunk(start, up, items, chunk, box)
-                    held.remove(ref)
+                self.stopped[attempt_id] = "stop"
+                await self._status(
+                    start, AttemptState.FAILED, (FailureType.CANCELLED, "stopped")
+                )
+                return
+            for chunk in reply.chunk_grant.chunks:
+                ref = agent_pb2.ChunkLeaseRef(
+                    item_id=chunk.item_id, lease_seq=chunk.lease_seq
+                )
+                held.append(ref)
+                await self._run_chunk(start, up, items, chunk, box)
+                held.remove(ref)
 
     async def _next(
         self, box: asyncio.Queue[agent_pb2.ControllerMessage], kinds: tuple[str, ...]
@@ -234,7 +261,7 @@ class FakeLane:
     async def _run_chunk(
         self,
         start: agent_pb2.StartAttempt,
-        up: httpx.AsyncClient,
+        up: _Upload,
         items: ItemList,
         chunk: agent_pb2.GrantedChunk,
         box: asyncio.Queue[agent_pb2.ControllerMessage],

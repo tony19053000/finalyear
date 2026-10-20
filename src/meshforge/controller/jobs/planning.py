@@ -45,7 +45,6 @@ from typing import Final
 
 from pydantic import ValidationError
 
-from meshforge.common.capabilities import EXEC_SPLIT_CAPABILITY
 from meshforge.common.errors import FailureType, InvalidIdError
 from meshforge.common.ids import new_attempt_id
 from meshforge.common.logging import get_logger
@@ -81,12 +80,13 @@ from meshforge.controller.planner import (
     PlannerConfig,
     PlanRequest,
     RejectCode,
+    SplitConfig,
     TreeNeed,
     exclusions,
     plan,
 )
 from meshforge.controller.planner.decision_json import candidates_json
-from meshforge.controller.planner.inputs import node_snapshot, plan_request
+from meshforge.controller.planner.inputs import node_snapshot, plan_request, split_info
 from meshforge.controller.resources import ResourceTracker
 from meshforge.controller.session.manager import SessionManager
 from meshforge.controller.settings import (
@@ -94,19 +94,12 @@ from meshforge.controller.settings import (
     PlannerSettings,
     SplitSettings,
 )
-from meshforge.controller.split.placement import plan_lanes
 from meshforge.workqueue.core import QueuePolicy
 
-__all__ = ["NO_SPLIT_SUPPORT", "DispatchPlanner", "decision_record"]
+__all__ = ["DispatchPlanner", "decision_record"]
 
 log = get_logger(__name__)
 
-NO_SPLIT_SUPPORT: Final = (
-    "no_split_support: no node of the fabric runs Mode 3 lanes (exec-split); "
-    "update the agents to V0.10"
-)
-"""V0.10 G4: a split job no node can run as lanes is failed typed - it never
-runs whole on an older agent."""
 SPECULATIVE_MAX_FRAC: Final = 0.10
 """D266 default share of a job's chunks that may get a speculative copy (G6
 uses it; 0 when ``split.speculative`` is false)."""
@@ -197,6 +190,15 @@ class DispatchPlanner:
             resource_weights=planner.resource_weights,
             link_stale_after_s=link_stale_after_s,
             min_bw_bytes_s=min_bw_bytes_s,
+            split=SplitConfig(  # V0.10 G4: [controller.split] -> the planner (D275)
+                split_margin=self._split.split_margin,
+                target_chunk_s=self._split.target_chunk_s,
+                max_overhead_frac=self._split.max_overhead_frac,
+                min_chunks_per_node=self._split.min_chunks_per_node,
+                max_chunks=self._split.max_chunks,
+                chunk_overhead_s=self._split.chunk_overhead_s,
+                tail_frac=self._split.tail_frac,
+            ),
         )
 
     # ------------------------------------------------------------ snapshot
@@ -400,6 +402,17 @@ class DispatchPlanner:
             else fabric.owner_names.get(job.owner_user_id),
             # V0.9 G5 (D246): a bench job waits while the owner guard is on
             benchmark=is_benchmark_key(job.idempotency_key),
+            # V0.10 G3/G4 (D265/D267e): a split job's items - the remainder
+            # once its chunk queue exists (a re-plan runs only what is left)
+            split=None
+            if job.split is None
+            else split_info(
+                manifest,
+                item_count=fabric.split_left.get(job.id, job.split.item_count),
+                item_bytes=job.split.item_bytes,
+                project_tree=job.tree_id,
+                input_trees=fabric.input_mounts.get(job.id, {}),
+            ),
         )
         snapshot = self._for_job(self.snapshot(fabric), key)
         past = fabric.past_failures.get(job.id, ())
@@ -419,9 +432,11 @@ class DispatchPlanner:
     def _decide_split(
         self, job: JobRecord, manifest: Manifest, fabric: FabricRows
     ) -> DispatchDecision:
-        """V0.10 G4 (D259): the planner's ordinary decision, then the lanes of
-        :func:`~meshforge.controller.split.placement.plan_lanes` (the G3 seam)
-        - one lane per node, each with its own slot and start snapshot."""
+        """V0.10 G4 (D259): the planner's Mode 3 plan (``Decision.split``, G3)
+        becomes one lane per node of its set - each with its own slot, GPUs
+        and start snapshot - over the job's chunk queue. "Don't split" is one
+        lane on the same path (D269). A node whose agent cannot run a lane is
+        rejected by the planner (``no_split_support``, static)."""
         spec = manifest.split
         if spec is None or job.split is None or not job.tree_id:
             # the job row and its manifest disagree: a stored-data fault
@@ -437,20 +452,8 @@ class DispatchPlanner:
         trees, plan_job, snapshot, _past = self._request(job, manifest, fabric, pinned)
         decision = plan(plan_job, snapshot, self.policy_of(job), self._wall())
         record = decision_record(decision)
-        lanes = plan_lanes(
-            decision,
-            snapshot,
-            spec=spec,
-            item_count=job.split.item_count,
-            max_chunks=self._split.max_chunks,
-        )
-        if lanes is None:
-            if not any(
-                EXEC_SPLIT_CAPABILITY in n.capabilities for n in snapshot.nodes
-            ) and any(c.feasible for c in decision.candidates):
-                return DispatchFailure(
-                    FailureType.NO_FEASIBLE_PLAN, NO_SPLIT_SUPPORT, record
-                )
+        lanes = decision.split if decision.chosen is not None else None
+        if lanes is None or not lanes.lanes:
             if pinned is not None:
                 return self._pinned_refused(decision, record)
             if decision.all_static_rejections:
@@ -461,9 +464,9 @@ class DispatchPlanner:
                 )
             return Wait(record)
         starts: list[LaneStart] = []
-        for cand in lanes.lanes:
+        for lane in lanes.lanes:
             started = self._start(
-                job, manifest, cand.node_id, cand.slot or "cpu", fabric, trees, snapshot
+                job, manifest, lane.node_id, lane.slot, fabric, trees, snapshot
             )
             if started is not None:
                 starts.append(started)
@@ -474,8 +477,9 @@ class DispatchPlanner:
             job_id=job.id,
             lanes=len(starts),
             chunk_items=lanes.chunk_items,
+            chunks=lanes.chunks,
             split=lanes.split,
-            reason=lanes.reason,
+            predicted_s=round(lanes.predicted_makespan_s, 3),
         )
         return DispatchLanes(
             lanes=tuple(starts),
