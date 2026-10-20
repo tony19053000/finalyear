@@ -49,7 +49,9 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.timeout(240)]
 
 GIB = 1024**3
 ENTRY = "python main.py {items_file} {out}"
-HB_S = 0.2
+HB_S = (
+    0.5  # lease 1.5 s: survives the ~0.75 s gen-2 GC pauses of a one-process V0.10 run
+)
 ITEMS = 120
 CHUNK = 10
 CHUNKS = ITEMS // CHUNK

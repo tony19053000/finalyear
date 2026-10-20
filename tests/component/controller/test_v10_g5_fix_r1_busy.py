@@ -39,7 +39,9 @@ from meshforge.controller.store.settings import DatabaseSettings
 pytestmark = [pytest.mark.asyncio, pytest.mark.timeout(240)]
 
 GIB = 1024**3
-HB_S = 0.2
+HB_S = (
+    0.5  # lease 1.5 s: survives the ~0.75 s gen-2 GC pauses of a one-process V0.10 run
+)
 DRAIN_S = 1.5
 BACKOFF_S = 0.2
 
