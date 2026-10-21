@@ -149,7 +149,65 @@ export function applySplitEvent(
     !sameCounts(cached.chunks, progress.chunks) ||
     cached.job_state !== progress.job_state
   ) {
-    void client.invalidateQueries({ queryKey: key, exact: true });
+    const ended = TERMINAL_JOB_STATES.has(progress.job_state);
+    refetchMap(client, progress.job_id, ended);
   }
   return true;
+}
+
+/**
+ * V0.10 G8 (D286 carry-over): the `?map=true` summary is refetched at most
+ * once per `MAP_REFETCH_MIN_MS` per job - a 10 000-chunk map is ~12 KB and the
+ * events come at up to 2/s per job, per open tab. A change inside the window
+ * schedules ONE trailing refetch at its end, so the map always catches up; the
+ * job's end refetches at once (the final map is never late). Bounded: at most
+ * `MAP_REFETCH_MAX_JOBS` jobs are remembered.
+ */
+export const MAP_REFETCH_MIN_MS = 2_000;
+const MAP_REFETCH_MAX_JOBS = 256;
+const lastMapRefetch = new Map<string, number>();
+const trailingRefetch = new Map<string, ReturnType<typeof setTimeout>>();
+
+function forget(jobId: string): void {
+  const timer = trailingRefetch.get(jobId);
+  if (timer !== undefined) clearTimeout(timer);
+  trailingRefetch.delete(jobId);
+  lastMapRefetch.delete(jobId);
+}
+
+function refetchNow(client: QueryClient, jobId: string): void {
+  lastMapRefetch.delete(jobId); // re-inserted last: the Map stays in LRU order
+  lastMapRefetch.set(jobId, Date.now());
+  while (lastMapRefetch.size > MAP_REFETCH_MAX_JOBS) {
+    const oldest = lastMapRefetch.keys().next().value;
+    if (oldest === undefined) break;
+    forget(oldest);
+  }
+  void client.invalidateQueries({ queryKey: jobKeys.split(jobId), exact: true });
+}
+
+function refetchMap(client: QueryClient, jobId: string, ended: boolean): void {
+  const last = lastMapRefetch.get(jobId);
+  const wait = last === undefined ? 0 : last + MAP_REFETCH_MIN_MS - Date.now();
+  if (ended || wait <= 0) {
+    const timer = trailingRefetch.get(jobId);
+    if (timer !== undefined) clearTimeout(timer);
+    trailingRefetch.delete(jobId);
+    refetchNow(client, jobId);
+    if (ended) lastMapRefetch.delete(jobId);
+    return;
+  }
+  if (trailingRefetch.has(jobId)) return; // one trailing refetch is enough
+  trailingRefetch.set(
+    jobId,
+    setTimeout(() => {
+      trailingRefetch.delete(jobId);
+      refetchNow(client, jobId);
+    }, wait),
+  );
+}
+
+/** Tests: forget every job's refetch timing (and cancel trailing refetches). */
+export function resetMapRefetchThrottle(): void {
+  for (const jobId of [...trailingRefetch.keys(), ...lastMapRefetch.keys()]) forget(jobId);
 }

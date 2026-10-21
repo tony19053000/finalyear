@@ -24,6 +24,7 @@ import { jobKeys } from "../../pages/jobs/jobKeys";
 import {
   CHUNK_STATE_LABEL,
   getChunk,
+  getChunkTries,
   getSplit,
   type ChunkMapChar,
   type SplitLane,
@@ -229,6 +230,66 @@ function ChunkDetail({ jobId, index }: { jobId: string; index: number }) {
   );
 }
 
+function ms(value: number | null | undefined): string {
+  return value == null ? "—" : formatDuration(value / 1000);
+}
+
+/**
+ * V0.10 G8 (D261/D271): the chunk's recorded tries - which node ran it, how
+ * it ended, its measured phases and the end of its stderr (redacted on the
+ * agent; shown as plain text, never as markup).
+ */
+function ChunkTriesList({ jobId, index }: { jobId: string; index: number }) {
+  const tries = useQuery({
+    queryKey: jobKeys.chunkTries(jobId, index),
+    queryFn: ({ signal }) => getChunkTries(jobId, index, signal),
+  });
+  if (tries.isPending) {
+    return (
+      <p role="status" className="text-sm text-fg-muted">
+        Loading tries…
+      </p>
+    );
+  }
+  if (tries.isError) {
+    return (
+      <ErrorState
+        title={`Could not load the tries of chunk ${String(index)}`}
+        error={tries.error}
+        onRetry={() => {
+          void tries.refetch();
+        }}
+      />
+    );
+  }
+  if (tries.data.tries.length === 0) {
+    return <p className="text-sm text-fg-muted">No recorded try yet.</p>;
+  }
+  return (
+    <ol aria-label={`Tries of chunk ${String(index)}`} className="mt-3 space-y-3 text-sm">
+      {tries.data.tries.map((t) => (
+        <li key={t.lease_seq} data-field="chunk-try" className="rounded border border-border p-2">
+          <p className="font-mono text-xs">
+            try {t.lease_seq} · {t.node_id} · {t.outcome}
+            {t.won ? " (won)" : ""}
+            {t.speculative ? " · speculative" : ""}
+            {t.failure_type != null ? ` · ${t.failure_type}` : ""}
+            {t.exit_code != null ? ` · exit ${String(t.exit_code)}` : ""}
+          </p>
+          <p className="text-xs text-fg-muted">
+            stage {ms(t.stage_ms)} · run {ms(t.run_ms)} · upload {ms(t.upload_ms)}
+          </p>
+          {t.stderr_tail != null && (
+            <pre data-field="chunk-stderr" className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-all font-mono text-xs">
+              {t.stderr_tail}
+            </pre>
+          )}
+        </li>
+      ))}
+    </ol>
+  );
+}
+
 function Chunks({ jobId, progress }: { jobId: string; progress: SplitProgress }) {
   const [selected, setSelected] = useState<number | null>(null);
   const inputId = useId();
@@ -262,6 +323,7 @@ function Chunks({ jobId, progress }: { jobId: string; progress: SplitProgress })
           {selected != null && (
             <div className="mt-3 border-t border-border pt-3">
               <ChunkDetail key={`${String(selected)}:${String(progress.chunks.done)}`} jobId={jobId} index={selected} />
+              <ChunkTriesList key={`tries:${String(selected)}:${String(progress.chunks.done)}:${String(progress.chunks.failed)}`} jobId={jobId} index={selected} />
             </div>
           )}
         </>

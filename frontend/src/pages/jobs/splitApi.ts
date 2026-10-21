@@ -38,6 +38,20 @@ export function getSplit(jobId: string, signal?: AbortSignal): Promise<SplitProg
   });
 }
 
+export type ChunkTries = Schemas["ChunkTries"];
+export type ChunkTry = Schemas["ChunkTryOut"];
+
+/**
+ * V0.10 G8 (D261/D271): one chunk's recorded tries - node, outcome, timings
+ * and each try's stderr tail (redacted on the agent).
+ */
+export function getChunkTries(jobId: string, index: number, signal?: AbortSignal): Promise<ChunkTries> {
+  return apiRequest<ChunkTries>(
+    `/v1/jobs/${encodeURIComponent(jobId)}/chunks/${String(index)}/tries`,
+    { signal },
+  );
+}
+
 /** One chunk (`?start=N&limit=1`), or null when the job has no such chunk. */
 export async function getChunk(jobId: string, index: number, signal?: AbortSignal): Promise<ChunkOut | null> {
   const page = await apiRequest<ChunkList>(`/v1/jobs/${encodeURIComponent(jobId)}/chunks`, {

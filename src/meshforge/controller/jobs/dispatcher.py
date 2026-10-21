@@ -132,6 +132,7 @@ from meshforge.controller.settings import (
     PlannerSettings,
     SplitSettings,
 )
+from meshforge.controller.split.records import StderrLimits
 from meshforge.controller.split.service import ChunkWork, SplitService
 from meshforge.controller.split.speculation import SpeculationConfig
 from meshforge.controller.split.store import ChunkStore
@@ -292,6 +293,12 @@ class Dispatcher(RecoverySteps):
                     speculation=SpeculationConfig(
                         factor=self._split_settings.speculation_factor,
                         overhead_s=self._split_settings.chunk_overhead_s,
+                        cache_s=self._split_settings.speculation_cache_s,
+                        cache_jobs=self._split_settings.speculation_cache_jobs,
+                    ),
+                    stderr=StderrLimits(
+                        failed=self._split_settings.chunk_stderr_tail_bytes,
+                        ok=self._split_settings.chunk_stderr_ok_bytes,
                     ),
                 ),
                 manager=manager,

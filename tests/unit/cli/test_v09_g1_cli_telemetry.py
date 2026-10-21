@@ -30,6 +30,7 @@ def test_export_writes_the_file_and_passes_the_filters(
             headers={
                 "content-type": "application/vnd.apache.parquet",
                 "x-meshforge-telemetry-rows": "7",
+                "x-meshforge-telemetry-schema": "3",
             },
         )
 
@@ -56,6 +57,8 @@ def test_export_writes_the_file_and_passes_the_filters(
         "bytes": len(BODY),
         "rows": 7,
         "schema_version": 1,
+        "telemetry_schema": 3,  # V0.10 G8: as the server says
+        "table": "runs",
     }
     (request,) = seen
     assert request.url.path == "/v1/telemetry/export"

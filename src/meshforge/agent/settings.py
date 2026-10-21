@@ -1402,6 +1402,16 @@ class SplitSettings(SectionModel):
             "combine (too_large), never truncated."
         ),
     )
+    chunk_stderr_tail_bytes: int = Field(
+        default=16_384,
+        ge=0,
+        le=65_536,
+        description=(
+            "Most bytes of each chunk process's stderr (its end, redacted of "
+            "the job's secrets like every log byte) sent with the chunk's "
+            "result (V0.10 G8, D261); 0 = send none."
+        ),
+    )
 
 
 class ConditionSettings(SectionModel):

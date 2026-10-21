@@ -92,6 +92,9 @@ class LaneState:
     env_s: float = 0.0
     capped: int | None = None
     """Bytes written when the per-chunk output cap stopped the chunk."""
+    tail: Any = None
+    """V0.10 G8: the running chunk's stderr tail (``OutputTail``, redacted
+    bytes, cleared per chunk) - its end goes with the chunk's result."""
 
 
 class LaneHost:
@@ -100,6 +103,7 @@ class LaneHost:
 
     _clock: Callable[[], float]
     _cfg: Any
+    _settings: Any
     _fetch_cfg: Any
     _node_id: str
     _scheme: str

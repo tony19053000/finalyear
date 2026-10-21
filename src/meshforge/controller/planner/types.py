@@ -281,6 +281,11 @@ class PlanRequest:
     live where the owner guard is on (:attr:`RejectCode.BENCH_PAUSED`)."""
     split: SplitInfo | None = None
     """V0.10 G3 (D265): a split job's items; None = the job runs whole."""
+    node_set: tuple[str, ...] = ()
+    """V0.10 G8 (D271, D215 extended): a campaign's forced ``mode3`` run - the
+    candidates are exactly these nodes and the job is split over **all** of
+    them (whatever the margin test says; the test is still recorded). Empty =
+    not forced. Like a pinned job, never excluded on retry."""
 
     @property
     def is_gpu_job(self) -> bool:
@@ -538,7 +543,9 @@ class MarginTest:
     """True = splitting is worth it."""
     forced: str | None = None
     """Why no set was compared: ``pinned``, ``split_too_small`` or
-    ``split_too_few_nodes``; None = the test ran."""
+    ``split_too_few_nodes``; ``node_set`` (V0.10 G8) = a benchmark forced the
+    set: the test ran and is shown, the set runs whatever it says; None = the
+    test ran and decided."""
 
 
 @dataclass(frozen=True, slots=True)

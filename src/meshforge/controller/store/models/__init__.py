@@ -39,7 +39,7 @@ from meshforge.controller.store.models.plan import PlanDecision
 from meshforge.controller.store.models.resource import ResourceSnapshot
 from meshforge.controller.store.models.revocation import RevokedCert
 from meshforge.controller.store.models.secret import Secret
-from meshforge.controller.store.models.telemetry import RunRecord
+from meshforge.controller.store.models.telemetry import ChunkRecord, RunRecord
 
 __all__ = [
     "ApiToken",
@@ -52,6 +52,7 @@ __all__ = [
     "BenchCampaign",
     "BenchRun",
     "CacheLocation",
+    "ChunkRecord",
     "Job",
     "JobInput",
     "JobTransition",

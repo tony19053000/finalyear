@@ -292,6 +292,7 @@ def plan_request(
     owner_name: str | None = None,
     benchmark: bool = False,
     split: SplitInfo | None = None,
+    node_set: Sequence[str] = (),
 ) -> PlanRequest:
     resources = manifest.resources
     return PlanRequest(
@@ -318,4 +319,5 @@ def plan_request(
         network=manifest.limits.wants_network,
         benchmark=benchmark,
         split=split,
+        node_set=tuple(sorted(set(node_set))),
     )

@@ -1163,6 +1163,13 @@ message ChunkResult {
   Failure failure = 11;
   ChunkPhases phases = 12;
   optional int32 signal = 13;
+  // V0.10 G8 (D271): bytes the agent placed as this chunk's inputs (its item
+  // files + the items file); unset = not measured.
+  optional uint64 input_bytes = 14;
+  // V0.10 G8 (D261): the last bytes of the chunk process's stderr, already
+  // redacted of the job's secret values on the agent, at most 64 KiB
+  // ([agent.split] chunk_stderr_tail_bytes); empty = none.
+  bytes stderr_tail = 15;
 }
 
 // Agent -> controller every lease_timeout_s / 3: extend these leases.

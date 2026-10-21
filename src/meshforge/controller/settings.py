@@ -1567,6 +1567,42 @@ class SplitSettings(SectionModel):
             "is simply re-read on its next change)."
         ),
     )
+    # --- V0.10 G8 (D261/D271/D285): chunk records and caches ----------------
+    chunk_stderr_tail_bytes: int = Field(
+        default=16_384,
+        ge=0,
+        le=65_536,
+        description=(
+            "Most bytes of a failed chunk try's stderr tail kept with its chunk "
+            "record (the agent sends at most [agent.split] "
+            "chunk_stderr_tail_bytes, already redacted); 0 = keep none."
+        ),
+    )
+    chunk_stderr_ok_bytes: int = Field(
+        default=2_048,
+        ge=0,
+        le=65_536,
+        description=(
+            "Most bytes of a successful chunk try's stderr tail kept (a job of "
+            "10 000 chunks keeps at most 10 000 x this); 0 = keep none."
+        ),
+    )
+    speculation_cache_s: float = Field(
+        default=5.0,
+        ge=0.0,
+        le=60.0,
+        description=(
+            "An idle lane's speculation check reuses a split job's per-node "
+            "chunk times for up to this long while no chunk of the job "
+            "committed (a commit always invalidates them); 0 = read every time."
+        ),
+    )
+    speculation_cache_jobs: int = Field(
+        default=256,
+        ge=1,
+        le=100_000,
+        description="Most split jobs whose per-node chunk times are cached.",
+    )
 
 
 class ControllerSection(SectionModel):

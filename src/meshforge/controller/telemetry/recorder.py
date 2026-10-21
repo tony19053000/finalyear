@@ -90,6 +90,7 @@ from meshforge.controller.telemetry.record import (
     TransferRow,
     build_record,
 )
+from meshforge.controller.telemetry.split_facts import split_facts
 
 __all__ = [
     "DEFAULT_BATCH",
@@ -525,6 +526,8 @@ async def _sources(
     ):
         transfers[event.attempt_id].append(TransferRow(event.source, int(event.bytes)))
     campaigns = {} if campaign_of is None else await campaign_of(db, job_ids)
+    # V0.10 G8 (D271): a split job's first plan + its job row's numbers
+    splits = await split_facts(db, attempts, jobs)
     sources: list[RecordSource | _Skip] = []
     for attempt in attempts:
         job = jobs.get(attempt.job_id)
@@ -564,6 +567,8 @@ async def _sources(
                 if decision is None
                 else decision.shadow_chosen_node_id,
                 campaign=identity,
+                role=attempt.role,
+                split=splits.get(attempt.job_id),
             )
         )
     return sources

@@ -18,4 +18,7 @@ export const jobKeys = {
   split: (jobId: string) => [...queryKeys.job(jobId), "split"] as const,
   /** V0.10 G7: one chunk's detail. */
   chunk: (jobId: string, index: number) => [...queryKeys.job(jobId), "chunk", index] as const,
+  /** V0.10 G8: one chunk's recorded tries (with stderr tails). */
+  chunkTries: (jobId: string, index: number) =>
+    [...queryKeys.job(jobId), "chunk", index, "tries"] as const,
 };

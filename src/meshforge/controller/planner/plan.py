@@ -61,6 +61,9 @@ def candidates(
     nodes = sorted(snapshot.nodes, key=lambda n: n.node_id)
     if request.pinned_node_id is not None:
         nodes = [n for n in nodes if n.node_id == request.pinned_node_id]
+    elif request.node_set:  # V0.10 G8: a forced mode3 run - exactly its set
+        wanted = set(request.node_set)
+        nodes = [n for n in nodes if n.node_id in wanted]
     return [(n, n.node_id == request.submitter_node_id) for n in nodes]
 
 
@@ -130,7 +133,7 @@ def _with_exclusion(request: PlanRequest, snapshot: ClusterSnapshot) -> PlanRequ
     Deterministic: tiers in a fixed order, nodes in node-id order."""
     if not request.excluded:
         return request
-    if request.pinned_node_id is not None:
+    if request.pinned_node_id is not None or request.node_set:
         return replace(request, excluded={})
     pairs = candidates(request, snapshot)
     elsewhere = any(

@@ -177,10 +177,16 @@ class CampaignSpecError(MeshForgeError, ValueError):
 
 class Strategy(StrEnum):
     """V0.9 strategies (D215): the submitter's own node, or Mode 1 elsewhere.
-    V0.10 adds Mode 3 strategies here."""
+    V0.10 G8 (D271): ``mode3`` - a split family run over a node set
+    (``mode3_sets``; every selected node when none is given). For a split
+    family ``local`` / ``mode1`` mean "don't split" on that node."""
 
     LOCAL = "local"
     MODE1 = "mode1"
+    MODE3 = "mode3"
+
+
+MAX_MODE3_SETS: Final = 16
 
 
 class Sampler(StrEnum):
@@ -279,6 +285,15 @@ class CampaignSpec(BaseModel):
         default_factory=lambda: [Strategy.LOCAL]
     )
     nodes: Literal["all"] | Annotated[list[StrictStr], Field(min_length=1)] = "all"
+    mode3_sets: (
+        Annotated[
+            list[Annotated[list[StrictStr], Field(min_length=2, max_length=64)]],
+            Field(min_length=1, max_length=MAX_MODE3_SETS),
+        ]
+        | None
+    ) = None
+    """V0.10 G8: the node sets a ``mode3`` run is forced onto (ids or names,
+    each a subset of ``nodes``); None = one set of every selected node."""
     origin: StrictStr | None = None
     on_unsupported: Literal["error", "skip"] = "error"
     """G4: a node x condition the node cannot do - an error, or skipped runs."""
@@ -321,11 +336,41 @@ class CampaignSpec(BaseModel):
             problems.append("strategies: listed twice")
         if isinstance(self.nodes, list) and len(set(self.nodes)) != len(self.nodes):
             problems.append("nodes: listed twice")
+        problems.extend(self._mode3_problems(canonical))
         for index, sweep in enumerate(self.families):
             problems.extend(_sweep_problems(index, sweep, self.sampler))
         if problems:
             raise ValueError(" | ".join(problems))
         return self
+
+    def _mode3_problems(self, conditions: list[str]) -> list[str]:
+        """V0.10 G8 rules for split families and ``mode3`` (D271)."""
+        problems: list[str] = []
+        mode3 = Strategy.MODE3 in self.strategies
+        if self.mode3_sets is not None and not mode3:
+            problems.append("mode3_sets: only with strategy mode3")
+        for index, group in enumerate(self.mode3_sets or ()):
+            if len(set(group)) != len(group):
+                problems.append(f"mode3_sets[{index}]: a node is listed twice")
+        split = [s.family for s in self.families if _is_split_family(s.family) is True]
+        if mode3 and not split:
+            problems.append(
+                "strategies: mode3 needs a split family (split.*) in families"
+            )
+        if split and any(c != "none" for c in conditions):
+            problems.append(
+                "conditions: split families run under condition none only "
+                "(V0.10; conditions on lanes are not defined yet)"
+            )
+        return problems
+
+
+def _is_split_family(name: str) -> bool | None:
+    """None = no such family (reported by ``_sweep_problems``)."""
+    try:
+        return bool(get_family(name).split)
+    except UnknownFamilyError:
+        return None
 
 
 def _sweep_problems(index: int, sweep: FamilySweep, sampler: Sampler) -> list[str]:
@@ -402,7 +447,11 @@ def spec_digest(spec: CampaignSpec) -> str:
     """``sha256:`` of the spec's canonical JSON: two specs with the same digest
     expand identically against the same nodes (comments and key order in the
     YAML do not count)."""
-    body = _canonical(spec.model_dump(mode="json", by_alias=True))
+    data = spec.model_dump(mode="json", by_alias=True)
+    if data.get("mode3_sets") is None:
+        # V0.10 G8: absent = the pre-V0.10 spec's digest, unchanged
+        data.pop("mode3_sets", None)
+    body = _canonical(data)
     return "sha256:" + hashlib.sha256(body.encode()).hexdigest()
 
 
@@ -486,6 +535,9 @@ class PlannedRun:
     skip_reason: str | None = None
     """G4, ``on_unsupported: skip``: why the node cannot run this condition
     (the run is stored ``skipped``); None = a normal run."""
+    node_set: tuple[str, ...] = ()
+    """V0.10 G8: a ``mode3`` run's node set (sorted ids; ``node_id`` is its
+    first); empty for ``local`` / ``mode1``."""
 
     @property
     def condition(self) -> str:
@@ -520,6 +572,8 @@ class _Group:
     seed: int
     expected_s: float
     condition: Condition
+    split: bool = False
+    """V0.10 G8: a split family (its configurations may include mode3)."""
 
 
 def _digest(prefix: str, value: object) -> str:
@@ -657,6 +711,7 @@ def _groups(
                         seed=family.check_seed(seed),
                         expected_s=expected,
                         condition=condition,
+                        split=bool(family.split),
                     )
                 )
     return groups, dropped, duplicates, problems
@@ -664,8 +719,10 @@ def _groups(
 
 def _resolve(
     spec: CampaignSpec, nodes: Sequence[NodeRef]
-) -> tuple[list[str], str | None]:
-    """(selected node ids sorted, origin id or None)."""
+) -> tuple[list[str], str | None, list[tuple[str, ...]]]:
+    """(selected node ids sorted, origin id or None, the ``mode3`` node sets -
+    each sorted, duplicates merged; every selected node when the spec names
+    none)."""
     by_id = {n.node_id: n for n in nodes}
     by_name: dict[str, list[str]] = {}
     for n in nodes:
@@ -697,48 +754,80 @@ def _resolve(
         problems.append(f"origin: {spec.origin!r} is not one of the campaign's nodes")
     if not selected and not problems:
         problems.append("nodes: no node to run on")
+    sets: set[tuple[str, ...]] = set()
+    if Strategy.MODE3 in spec.strategies:
+        if spec.mode3_sets is None:
+            if len(selected) >= 2:
+                sets.add(tuple(selected))
+            else:
+                problems.append("strategies: mode3 needs at least two nodes")
+        for i, group in enumerate(spec.mode3_sets or ()):
+            found = [one(ref, f"mode3_sets[{i}][{j}]") for j, ref in enumerate(group)]
+            ids = sorted({f for f in found if f is not None})
+            outside = [n for n in ids if n not in selected]
+            if outside:
+                problems.append(
+                    f"mode3_sets[{i}]: {', '.join(outside)} is not one of the "
+                    "campaign's nodes"
+                )
+            elif len(ids) < 2 and None not in found:
+                problems.append(f"mode3_sets[{i}]: a set needs two different nodes")
+            elif None not in found:
+                sets.add(tuple(ids))
     if problems:
         raise CampaignSpecError(problems)
-    return selected, origin
+    return selected, origin, sorted(sets)
+
+
+type _Config = tuple[str, str, str, tuple[str, ...]]
+"""``(strategy, node, origin, node_set)``; ``node_set`` empty except mode3
+(whose ``node`` is the set's first id)."""
 
 
 def _configs(
-    spec: CampaignSpec, selected: list[str], origin: str | None
-) -> list[tuple[str, str, str]]:
-    """``(strategy, node, origin)`` triples, sorted."""
+    spec: CampaignSpec,
+    selected: list[str],
+    origin: str | None,
+    sets: Sequence[tuple[str, ...]] = (),
+) -> list[_Config]:
+    """The configurations' placements, sorted."""
     origins = [origin] if origin is not None else selected
-    out: set[tuple[str, str, str]] = set()
+    out: set[_Config] = set()
     for src in origins:
         for strategy in spec.strategies:
             if strategy is Strategy.LOCAL:
-                out.add((strategy.value, src, src))
+                out.add((strategy.value, src, src, ()))
+            elif strategy is Strategy.MODE3:
+                out.update((strategy.value, s[0], src, s) for s in sets)
             else:
-                out.update((strategy.value, n, src) for n in selected if n != src)
+                out.update((strategy.value, n, src, ()) for n in selected if n != src)
     return sorted(out)
+
+
+def _config_id(group: _Group, t: _Config) -> str:
+    identity: dict[str, Any] = {
+        "group": group.group_id,
+        "strategy": t[0],
+        "node": t[1],
+        "origin": t[2],
+    }
+    if t[3]:  # V0.10 G8: only mode3 names a set (older config ids unchanged)
+        identity["node_set"] = list(t[3])
+    return _digest("cfg_", identity)
 
 
 def expand(spec: CampaignSpec, nodes: Sequence[NodeRef]) -> Expansion:
     """The campaign's runs, in execution order (see the module docstring).
     Raises :class:`CampaignSpecError`."""
-    selected, origin = _resolve(spec, nodes)
+    selected, origin, sets = _resolve(spec, nodes)
     groups, dropped, duplicates, problems = _groups(spec)
-    triples = _configs(spec, selected, origin)
-    configs: list[tuple[str, _Group, tuple[str, str, str]]] = [
-        (
-            _digest(
-                "cfg_",
-                {
-                    "group": g.group_id,
-                    "strategy": t[0],
-                    "node": t[1],
-                    "origin": t[2],
-                },
-            ),
-            g,
-            t,
-        )
+    triples = _configs(spec, selected, origin, sets)
+    configs: list[tuple[str, _Group, _Config]] = [
+        (_config_id(g, t), g, t)
         for g in groups
         for t in triples
+        # V0.10 G8: mode3 splits; only a split family can be split
+        if t[0] != Strategy.MODE3.value or g.split
     ]
     configs.sort(key=lambda c: c[0])
     skips = _support(spec, configs, {n.node_id: n for n in nodes})
@@ -780,7 +869,7 @@ def expand(spec: CampaignSpec, nodes: Sequence[NodeRef]) -> Expansion:
     for repetition in range(1, spec.repetitions + 1):
         order = list(configs)
         Stream("order", spec.seed, repetition).shuffle(order)
-        for config_id, group, (strategy, node, src) in order:
+        for config_id, group, (strategy, node, src, node_set) in order:
             runs.append(
                 PlannedRun(
                     seq=len(runs) + 1,
@@ -796,6 +885,7 @@ def expand(spec: CampaignSpec, nodes: Sequence[NodeRef]) -> Expansion:
                     origin_node_id=src,
                     expected_s=round(group.expected_s, 3),
                     skip_reason=skips.get(config_id),
+                    node_set=node_set,
                 )
             )
     return Expansion(
@@ -812,7 +902,7 @@ def expand(spec: CampaignSpec, nodes: Sequence[NodeRef]) -> Expansion:
 
 def _support(
     spec: CampaignSpec,
-    configs: Sequence[tuple[str, _Group, tuple[str, str, str]]],
+    configs: Sequence[tuple[str, _Group, _Config]],
     nodes: Mapping[str, NodeRef],
 ) -> dict[str, str]:
     """``config_id -> reason`` of the configurations whose node cannot do
@@ -820,7 +910,7 @@ def _support(
     :class:`CampaignSpecError` listing every node x condition otherwise."""
     reasons: dict[str, str] = {}
     listed: dict[tuple[str, str], str] = {}
-    for config_id, group, (strategy, node, _src) in configs:
+    for config_id, group, (strategy, node, _src, _set) in configs:
         ref = nodes.get(node)
         reason = unsupported_reason(
             group.condition,
@@ -850,6 +940,11 @@ def _support(
 def run_dict(run: PlannedRun) -> dict[str, Any]:
     out = asdict(run)
     out["conditions"] = list(run.conditions)
+    if run.node_set:
+        out["node_set"] = list(run.node_set)
+    else:
+        # V0.10 G8: absent for local / mode1 - the pre-V0.10 run JSON is unchanged
+        del out["node_set"]
     if run.skip_reason is None:
         # G4: absent for a normal run - the pre-G4 run JSON is unchanged
         del out["skip_reason"]

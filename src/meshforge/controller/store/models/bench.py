@@ -64,7 +64,7 @@ CAMPAIGN_STATES: Final = ("active", "paused", "done", "cancelled")
 FINISHED_REASONS: Final = ("complete", "budget", "cancelled")
 MAX_LAST_FAILURE_CHARS: Final = 128
 RUN_STATES: Final = ("planned", "submitted", "done", "failed", "skipped")
-RUN_STRATEGIES: Final = ("local", "mode1")
+RUN_STRATEGIES: Final = ("local", "mode1", "mode3")
 """Literal copy of ``meshforge.bench.campaign.Strategy`` (the store imports
 nothing above it; a unit test holds them equal)."""
 MAX_RUN_DETAIL_CHARS: Final = 512
@@ -144,6 +144,9 @@ class BenchRun(Base):
         ),
         CheckConstraint("tries >= 0", name="tries"),
         CheckConstraint("generation >= 0", name="generation"),
+        CheckConstraint(
+            "(strategy = 'mode3') = (node_set IS NOT NULL)", name="node_set"
+        ),
         UniqueConstraint("campaign_id", "seq"),
         UniqueConstraint("job_id"),
         Index("ix_bench_run_campaign_state_seq", "campaign_id", "state", "seq"),
@@ -167,6 +170,11 @@ class BenchRun(Base):
     strategy: Mapped[str] = mapped_column(String(16), nullable=False)
     node_id: Mapped[str] = mapped_column(String(ID_MAX_LENGTH), nullable=False)
     origin_node_id: Mapped[str] = mapped_column(String(ID_MAX_LENGTH), nullable=False)
+    node_set: Mapped[list[str] | None] = mapped_column(
+        JSONB(none_as_null=True), nullable=True
+    )
+    """V0.10 G8 (D271): a ``mode3`` run's forced node set (sorted ids;
+    ``node_id`` is its first); NULL for ``local`` / ``mode1``."""
     state: Mapped[str] = mapped_column(String(16), nullable=False)
     job_id: Mapped[str | None] = mapped_column(String(ID_MAX_LENGTH), nullable=True)
     detail: Mapped[str | None] = mapped_column(

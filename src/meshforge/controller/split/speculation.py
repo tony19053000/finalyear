@@ -35,7 +35,9 @@ from __future__ import annotations
 
 import datetime as dt
 import math
-from collections.abc import Collection, Mapping
+import time
+from collections import OrderedDict
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass
 from typing import Any, Final
 
@@ -59,6 +61,7 @@ __all__ = [
     "HISTORY",
     "PLANNER",
     "SiteTime",
+    "SiteTimesCache",
     "Speculated",
     "SpeculationConfig",
     "site_times",
@@ -83,12 +86,21 @@ class SpeculationConfig:
     """Duplicate only when remaining(holder) > factor x expected(idle node)."""
     overhead_s: float = 1.5
     """Assumed per-chunk overhead added to a planner-rate estimate."""
+    cache_s: float = 5.0
+    """V0.10 G8 (D285): how long a queue's chunk times are reused while no
+    chunk of it committed (:class:`SiteTimesCache`); 0 = never cached."""
+    cache_jobs: int = 256
+    """Most queues whose chunk times are cached (LRU)."""
 
     def __post_init__(self) -> None:
         if not (math.isfinite(self.factor) and self.factor >= 1.0):
             raise ValueError("speculation factor must be a finite number >= 1")
         if not (math.isfinite(self.overhead_s) and self.overhead_s >= 0):
             raise ValueError("overhead_s must be a finite number >= 0")
+        if not (math.isfinite(self.cache_s) and self.cache_s >= 0):
+            raise ValueError("cache_s must be a finite number >= 0")
+        if self.cache_jobs < 1:
+            raise ValueError("cache_jobs must be >= 1")
 
 
 @dataclass(frozen=True, slots=True)
@@ -190,6 +202,85 @@ async def _planner(db: AsyncSession, job_id: str) -> dict[str, float]:
     return planner_rates(candidates)
 
 
+@dataclass(slots=True)
+class _Times:
+    done: int
+    at: float
+    history: dict[str, SiteTime]
+    planner: dict[str, float] | None = None
+
+
+class SiteTimesCache:
+    """Per-queue chunk times for the idle-lane check (V0.10 G8, D285).
+
+    Without it every idle lane's ``ChunkRequest`` at the tail ran the
+    ``percentile_cont`` history query (and the planner-rate read) - one per
+    lane per ``wait_retry_s``. The history only changes when a chunk of the
+    queue **commits**, so an entry is keyed by the queue's committed count
+    read in the same request: a commit makes the next request read again
+    (never a stale p50 after a commit). Bounded twice: an entry lives at most
+    ``ttl_s`` (the planner's rates can change on a re-plan without a commit)
+    and at most ``entries`` queues are kept (least recently used dropped).
+    ``ttl_s`` 0 disables it. One per controller (the dispatcher's one
+    ``ChunkStore``); not shared across processes - each controller would read
+    its own (there is one controller, ADR-0001)."""
+
+    def __init__(
+        self,
+        *,
+        ttl_s: float,
+        entries: int,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        if not (math.isfinite(ttl_s) and ttl_s >= 0) or entries < 1:
+            raise ValueError("ttl_s must be >= 0 and entries >= 1")
+        self._ttl_s = ttl_s
+        self._entries = entries
+        self._clock = clock
+        self._data: OrderedDict[int, _Times] = OrderedDict()
+        self.reads = 0
+        """History queries run (cache misses) - tests, metrics."""
+        self.hits = 0
+
+    def __len__(self) -> int:
+        return len(self._data)
+
+    def _get(self, queue_id: int, done: int | None) -> _Times | None:
+        if self._ttl_s <= 0 or done is None:
+            return None
+        hit = self._data.get(queue_id)
+        if hit is None:
+            return None
+        if hit.done != done or self._clock() - hit.at > self._ttl_s:
+            del self._data[queue_id]
+            return None
+        self._data.move_to_end(queue_id)
+        return hit
+
+    def _put(self, queue_id: int, entry: _Times) -> None:
+        if self._ttl_s <= 0:
+            return
+        self._data[queue_id] = entry
+        self._data.move_to_end(queue_id)
+        while len(self._data) > self._entries:
+            self._data.popitem(last=False)
+
+    async def history(
+        self, db: AsyncSession, queue_id: int, done: int | None
+    ) -> tuple[dict[str, SiteTime], _Times | None]:
+        hit = self._get(queue_id, done)
+        if hit is not None:
+            self.hits += 1
+            return dict(hit.history), hit
+        self.reads += 1
+        found = await _history(db, queue_id)
+        entry = None
+        if done is not None and self._ttl_s > 0:
+            entry = _Times(done=done, at=self._clock(), history=dict(found))
+            self._put(queue_id, entry)
+        return found, entry
+
+
 async def site_times(
     db: AsyncSession,
     *,
@@ -197,13 +288,26 @@ async def site_times(
     job_id: str,
     sites: Collection[str],
     overhead_s: float,
+    cache: SiteTimesCache | None = None,
+    done: int | None = None,
 ) -> dict[str, SiteTime]:
     """Expected chunk time per node of ``sites`` (module docstring, step 2);
-    a node with neither history nor a planner rate is absent."""
-    found = await _history(db, queue_id)
+    a node with neither history nor a planner rate is absent. ``cache`` +
+    ``done`` (the queue's committed chunks, read in this transaction) reuse
+    the queue's last answer while nothing committed (:class:`SiteTimesCache`)."""
+    entry: _Times | None = None
+    if cache is None:
+        found = await _history(db, queue_id)
+    else:
+        found, entry = await cache.history(db, queue_id, done)
     missing = [s for s in sites if s not in found]
     if missing:
-        rates = await _planner(db, job_id)
+        if entry is not None and entry.planner is not None:
+            rates = dict(entry.planner)
+        else:
+            rates = await _planner(db, job_id)
+            if entry is not None:
+                entry.planner = rates
         for site in missing:
             rate = rates.get(site)
             if rate is not None:
@@ -240,6 +344,8 @@ async def speculate_for(
     now: dt.datetime,
     config: SpeculationConfig,
     avoid: Collection[int] = (),
+    cache: SiteTimesCache | None = None,
+    done: int | None = None,
 ) -> Speculated | SpeculationRefusal | None:
     """Issue a speculative copy to the idle lane ``attempt_id`` on ``node_id``
     (module docstring), in the caller's transaction. ``None`` = nothing worth
@@ -259,6 +365,8 @@ async def speculate_for(
         job_id=job_id,
         sites=sites,
         overhead_s=config.overhead_s,
+        cache=cache,
+        done=done,
     )
     mine = times.get(node_id)
     if mine is None:

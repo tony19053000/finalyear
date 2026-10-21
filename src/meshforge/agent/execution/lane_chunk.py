@@ -6,10 +6,12 @@ folder), uploaded under the lane's grant and reported as a ``ChunkResult``."""
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import dataclasses
+import os
 from collections.abc import Awaitable, Callable, Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final
 
 from meshforge.agent.cas.materialise import remove_subset
 from meshforge.agent.execution.chunk_folder import ChunkFolder
@@ -82,6 +84,11 @@ class ChunkRunSteps(ChunkStagingSteps):
             item_id=chunk.item_id,
             lease_seq=chunk.lease_seq,
         )
+        if stderr_tail is not None:
+            # V0.10 G8: this chunk's tail only (a staging failure must not
+            # report the previous chunk's stderr)
+            stderr_tail.clear()
+        lane.tail = stderr_tail
         started = self._clock()
         items = lane.items
         try:
@@ -125,6 +132,7 @@ class ChunkRunSteps(ChunkStagingSteps):
                 )
                 return
             stage_s = self._clock() - started
+            result.input_bytes = await asyncio.to_thread(_input_bytes, folder, placed)
             await on_output(
                 Stream.STDOUT,
                 f"\n===== meshforge: chunk {chunk.chunk_index} "
@@ -343,6 +351,10 @@ class ChunkRunSteps(ChunkStagingSteps):
     ) -> None:
         lane = attempt.lane
         assert lane is not None  # noqa: S101
+        if result.outcome in _WITH_TAIL:
+            result.stderr_tail = _tail_of(
+                lane.tail, int(self._settings.agent.split.chunk_stderr_tail_bytes)
+            )
         message_id = await self._report("chunk_result", result)
         lane.pending[message_id] = result
         log.info(
@@ -373,6 +385,35 @@ def _run_failure(run: RunResult, capped: int | None) -> tuple[FailureType, bool]
         )
     kind = run.failure_type or FailureType.INTERNAL_ERROR
     return kind, kind not in CHUNK_FAILURE_NOT_RETRYABLE
+
+
+_WITH_TAIL: Final = frozenset(
+    {agent_pb2.ChunkResult.OUTCOME_DONE, agent_pb2.ChunkResult.OUTCOME_FAILED}
+)
+MAX_STDERR_TAIL_BYTES: Final = 64 * 1024
+"""The proto's bound (``ChunkResult.stderr_tail``): the controller refuses more."""
+
+
+def _tail_of(tail: OutputTail | None, limit: int) -> bytes:
+    """The last ``limit`` bytes (at most :data:`MAX_STDERR_TAIL_BYTES`) of the
+    chunk's stderr. They passed the attempt's live redaction before they were
+    kept (``Executor._execute.on_output``): bytes the redactor still holds back
+    (a possible start of a secret) are not in it yet - so a secret is never
+    sent, at worst the last few bytes are missing (D261)."""
+    if tail is None or limit <= 0:
+        return b""
+    return tail.data[-min(limit, MAX_STDERR_TAIL_BYTES) :]
+
+
+def _input_bytes(folder: ChunkFolder, placed: list[Path]) -> int:
+    """Bytes placed as the chunk's inputs: its items file + the item files
+    fetched / linked for it (items already staged with the lane are not
+    counted - they cost this chunk nothing)."""
+    total = 0
+    for path in (folder.items, *placed):
+        with contextlib.suppress(OSError):
+            total += os.lstat(path).st_size
+    return total
 
 
 def _phases(result: agent_pb2.ChunkResult, **values: float) -> None:

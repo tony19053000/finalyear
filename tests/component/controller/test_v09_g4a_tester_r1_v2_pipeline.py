@@ -84,7 +84,7 @@ async def test_recorder_stores_condition_and_measured_for_good_values(
     await recorder.sweep()
     rows = await _rows(engine)
     first, second = rows[made[0][1]], rows[made[1][1]]
-    assert first["schema_version"] == SCHEMA_VERSION == 2
+    assert first["schema_version"] == SCHEMA_VERSION == 3
     # after the G4 A x B merge condition_outcome is the columns' one writer
     assert first["condition"] == "queue:2"
     assert first["condition_measured"] == {
@@ -201,7 +201,7 @@ async def test_alembic_has_one_head_0023(pg_settings: DatabaseSettings) -> None:
     from alembic.script import ScriptDirectory
 
     script = ScriptDirectory.from_config(alembic_config(pg_settings))
-    assert script.get_heads() == ["0027"]  # V0.10 G4: migration 0027 (after G1 0026)
+    assert script.get_heads() == ["0029"]  # V0.10 G8: migration 0029
 
 
 async def test_recorder_run_resweeps_with_an_injected_clock_without_real_waits(

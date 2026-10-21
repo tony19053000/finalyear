@@ -138,6 +138,8 @@ ROW_FIELDS: Final = (
     "condition",
     "placement_mode",
     "workload_status",
+    "attempt_role",
+    "split_job_ms",
     *REQUIRED_FIELDS,
 )
 """Record columns a row passed to :meth:`QualityInput.add` must carry, plus

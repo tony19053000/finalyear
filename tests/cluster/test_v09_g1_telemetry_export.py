@@ -205,7 +205,7 @@ def test_three_real_jobs_export_twice_to_identical_parquet(
     assert bench["compute_ns"] is not None and bench["compute_ns"] > 0
     assert bench["compute_ns"] <= bench["run_ms"] * 1_000_000
     for record in rows.values():
-        assert record["schema_version"] == 2 and record["node_id"] == node.node_id
+        assert record["schema_version"] == 3 and record["node_id"] == node.node_id
         assert record["clock_offset_ms"] is not None, record
         # One host, one clock: ~0 within the bound (+1 ms for rounding).
         assert abs(record["clock_offset_ms"]) <= record["clock_offset_bound_ms"] + 1.0

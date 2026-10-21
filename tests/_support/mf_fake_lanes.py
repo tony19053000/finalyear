@@ -145,6 +145,13 @@ class FakeLane:
     """V0.10 G6: (chunk_index, lease_seq) of the speculative copies granted."""
     timeline: list[tuple[str, float, int, int]] = field(default_factory=list)
     """V0.10 G6: ("start" | "result", loop time, chunk_index, lease_seq)."""
+    stderr_of: Callable[[agent_pb2.GrantedChunk], bytes] | None = None
+    """V0.10 G8: the chunk's ``stderr_tail`` (done and failed results)."""
+    fail_once: bool = False
+    """V0.10 G8: a chunk in ``fail`` fails on this lane only the first time."""
+    measured: bool = False
+    """V0.10 G8: send ``phases`` (stage 0.01 s, run = the chunk's speed) and
+    ``input_bytes`` (the items' text) like the real agent."""
     _cancels: dict[tuple[int, int], asyncio.Event] = field(default_factory=dict)
     _stops: dict[str, asyncio.Event] = field(default_factory=dict)
     """attempt_id -> set by a CancelAttempt (the running chunk is killed)."""
@@ -461,6 +468,8 @@ class FakeLane:
             lease_seq=chunk.lease_seq,
         )
         if chunk.chunk_index in self.fail:
+            if self.fail_once:  # V0.10 G8: fails here once, then works
+                self.fail.discard(chunk.chunk_index)
             result.outcome = agent_pb2.ChunkResult.OUTCOME_FAILED
             result.exit_code = 3
             result.failure.CopyFrom(
@@ -479,6 +488,13 @@ class FakeLane:
             result.result_digest = str(digest)
             result.result_bytes = len(data)
             result.exit_code = 0
+        if self.stderr_of is not None:
+            result.stderr_tail = self.stderr_of(chunk)
+        if self.measured:
+            result.input_bytes = len("".join(f"{i}\n" for i in mine).encode())
+            result.phases.stage_s = 0.01
+            result.phases.run_s = float(speed)
+            result.phases.upload_s = 0.002
         self.results_sent.append(await self._write(chunk_result=result))
         self.timeline.append(("result", loop.time(), *ref))
 

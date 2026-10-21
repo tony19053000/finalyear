@@ -24,6 +24,7 @@ from meshforge.controller.session.limits import first_non_printable
 
 __all__ = [
     "MAX_HELD_LEASES",
+    "MAX_STDERR_TAIL_BYTES",
     "MAX_WANT",
     "ChunkRequestIn",
     "ChunkResultIn",
@@ -37,6 +38,10 @@ __all__ = [
 MAX_WANT: Final = 2
 """D263: prefetch window 1 - one chunk running, one staging."""
 MAX_HELD_LEASES: Final = 64
+MAX_STDERR_TAIL_BYTES: Final = 64 * 1024
+"""V0.10 G8 (D261): the largest ``ChunkResult.stderr_tail`` accepted (the
+agent sends at most this; more is a broken or hostile agent: refused)."""
+_MAX_INPUT_BYTES: Final = 2**62
 _MAX_ID: Final = 2**63 - 1
 _MAX_PHASE_S: Final = 30 * 86_400.0
 _DIGEST: Final = re.compile(r"sha256:[0-9a-f]{64}")
@@ -73,6 +78,11 @@ class ChunkResultIn:
     failure: tuple[FailureType, str, bool] | None
     exit_code: int | None
     phases: dict[str, float]
+    input_bytes: int | None = None
+    """V0.10 G8: bytes the agent placed as the chunk's inputs."""
+    stderr_tail: bytes = b""
+    """V0.10 G8 (D261): the chunk process's stderr tail, redacted on the agent
+    (raw bytes: decoded and bounded again where it is stored)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -167,6 +177,15 @@ def parse_chunk_result(msg: agent_pb2.ChunkResult) -> ChunkResultIn | str:
                 if not (math.isfinite(value) and 0 <= value <= _MAX_PHASE_S):
                     return f"ChunkResult.phases.{name} is not a finite duration"
                 phases[name] = float(value)
+    if len(msg.stderr_tail) > MAX_STDERR_TAIL_BYTES:
+        return f"ChunkResult.stderr_tail is over {MAX_STDERR_TAIL_BYTES} bytes"
+    if msg.stderr_tail and outcome == "released":
+        return "ChunkResult.stderr_tail is set but the outcome is released"
+    input_bytes: int | None = None
+    if msg.HasField("input_bytes"):
+        if msg.input_bytes > _MAX_INPUT_BYTES:
+            return "ChunkResult.input_bytes is outside [0, 2^62]"
+        input_bytes = int(msg.input_bytes)
     return ChunkResultIn(
         lane=lane,
         chunk_index=int(msg.chunk_index),
@@ -177,4 +196,6 @@ def parse_chunk_result(msg: agent_pb2.ChunkResult) -> ChunkResultIn | str:
         failure=failure,
         exit_code=msg.exit_code if msg.HasField("exit_code") else None,
         phases=phases,
+        input_bytes=input_bytes,
+        stderr_tail=bytes(msg.stderr_tail),
     )

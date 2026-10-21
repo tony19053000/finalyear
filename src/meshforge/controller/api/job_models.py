@@ -101,6 +101,10 @@ class Placement(ApiModel):
     """The policy asked for at submit; left out when none was (the manifest's
     or the controller's default applies) - a pinned V0.4 job's placement reads
     exactly as before."""
+    node_set: list[str] | None = Field(default=None, exclude_if=lambda v: v is None)
+    """V0.10 G8 (D271): a benchmark campaign's forced ``mode3`` run - the split
+    job runs over exactly these nodes (``mode`` is ``auto``); left out
+    otherwise. Only the campaign runner sets it (not ``POST /v1/jobs``)."""
 
 
 class JobCreated(ApiModel):

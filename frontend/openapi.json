@@ -1278,6 +1278,226 @@
         "title": "ChunkOut",
         "type": "object"
       },
+      "ChunkTries": {
+        "additionalProperties": false,
+        "properties": {
+          "chunk_index": {
+            "title": "Chunk Index",
+            "type": "integer"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "tries": {
+            "items": {
+              "$ref": "#/components/schemas/ChunkTryOut"
+            },
+            "title": "Tries",
+            "type": "array"
+          }
+        },
+        "required": [
+          "job_id",
+          "chunk_index",
+          "tries",
+          "count"
+        ],
+        "title": "ChunkTries",
+        "type": "object"
+      },
+      "ChunkTryOut": {
+        "additionalProperties": false,
+        "description": "One recorded try of a chunk (its chunk record, V0.10 G8, D271).",
+        "properties": {
+          "attempt_id": {
+            "title": "Attempt Id",
+            "type": "string"
+          },
+          "bytes_in": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bytes In"
+          },
+          "bytes_out": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bytes Out"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Utc"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "env_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Env Ms"
+          },
+          "exit_code": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exit Code"
+          },
+          "failure_class": {
+            "title": "Failure Class",
+            "type": "string"
+          },
+          "failure_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Type"
+          },
+          "lease_seq": {
+            "title": "Lease Seq",
+            "type": "integer"
+          },
+          "leased_at": {
+            "$ref": "#/components/schemas/Utc"
+          },
+          "node_id": {
+            "title": "Node Id",
+            "type": "string"
+          },
+          "outcome": {
+            "enum": [
+              "committed",
+              "lost",
+              "failed",
+              "superseded",
+              "released",
+              "expired"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "result_digest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result Digest"
+          },
+          "run_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Ms"
+          },
+          "speculative": {
+            "title": "Speculative",
+            "type": "boolean"
+          },
+          "stage_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stage Ms"
+          },
+          "stderr_tail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stderr Tail"
+          },
+          "upload_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Upload Ms"
+          },
+          "won": {
+            "title": "Won",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "lease_seq",
+          "attempt_id",
+          "node_id",
+          "speculative",
+          "won",
+          "outcome",
+          "failure_type",
+          "failure_class",
+          "exit_code",
+          "result_digest",
+          "bytes_in",
+          "bytes_out",
+          "stage_ms",
+          "env_ms",
+          "run_ms",
+          "upload_ms",
+          "leased_at",
+          "ended_at",
+          "stderr_tail"
+        ],
+        "title": "ChunkTryOut",
+        "type": "object"
+      },
       "ConfigLabelOut": {
         "additionalProperties": false,
         "properties": {
@@ -4185,6 +4405,20 @@
             ],
             "title": "Node Id"
           },
+          "node_set": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Node Set"
+          },
           "policy": {
             "anyOf": [
               {
@@ -4721,6 +4955,20 @@
             "title": "Node Id",
             "type": "string"
           },
+          "node_set": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Node Set"
+          },
           "origin_node_id": {
             "title": "Origin Node Id",
             "type": "string"
@@ -4760,7 +5008,8 @@
           "strategy": {
             "enum": [
               "local",
-              "mode1"
+              "mode1",
+              "mode3"
             ],
             "title": "Strategy",
             "type": "string"
@@ -10865,6 +11114,145 @@
         ]
       }
     },
+    "/v1/jobs/{job_id}/chunks/{chunk_index}/tries": {
+      "get": {
+        "description": "V0.10 G8 (D261/D271): the chunk records of one chunk - every try that\nended with a result, plus the other leases of a committed chunk (a lost\nspeculative copy, an expired try) - with each try's stderr tail. A chunk\nwith no recorded try (not run yet, or still running) has none.",
+        "operationId": "split_chunk_tries_v1_jobs__job_id__chunks__chunk_index__tries_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "maxLength": 40,
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "chunk_index",
+            "required": true,
+            "schema": {
+              "exclusiveMaximum": 10000,
+              "minimum": 0,
+              "title": "Chunk Index",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The latest this many tries.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "description": "The latest this many tries.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChunkTries"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid input (`invalid_input`)"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No, or no longer a valid, credential (`unauthorized`)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not allowed: admin only, CSRF, foreign origin (`unauthorized`)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found - also another user's object (`not_found`)"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict (`conflict`, `no_feasible_plan`)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid parameters (`invalid_input`)"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Rate limited; see Retry-After (`resource_busy`)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A dependency (the database) is unavailable; retry (`network_error`)"
+          }
+        },
+        "summary": "One chunk's recorded tries: node, outcome, timings, stderr tail",
+        "tags": [
+          "jobs"
+        ]
+      }
+    },
     "/v1/jobs/{job_id}/decisions": {
       "get": {
         "operationId": "job_decisions_v1_jobs__job_id__decisions_get",
@@ -13179,6 +13567,22 @@
               "description": "Only attempts created at or after this time (ISO 8601).",
               "title": "Since"
             }
+          },
+          {
+            "description": "runs = the run records; chunks = the chunk records (chunks.parquet, V0.10 G8: a campaign's = its jobs' chunks; since = leases granted at or after).",
+            "in": "query",
+            "name": "table",
+            "required": false,
+            "schema": {
+              "default": "runs",
+              "description": "runs = the run records; chunks = the chunk records (chunks.parquet, V0.10 G8: a campaign's = its jobs' chunks; since = leases granted at or after).",
+              "enum": [
+                "runs",
+                "chunks"
+              ],
+              "title": "Table",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -13187,7 +13591,7 @@
               "application/octet-stream": {},
               "application/vnd.apache.parquet": {}
             },
-            "description": "The Parquet file (telemetry schema v2, docs/TELEMETRY.md)"
+            "description": "The Parquet file (telemetry schema v3, docs/TELEMETRY.md)"
           },
           "400": {
             "content": {

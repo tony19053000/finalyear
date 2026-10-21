@@ -54,9 +54,9 @@ def test_arrow_data_is_built_one_row_group_at_a_time(
     sizes: list[int] = []
     real = export._rows_table
 
-    def spy(rows: Any, schema: Any) -> Any:
+    def spy(rows: Any, schema: Any, *rest: Any) -> Any:
         sizes.append(len(rows))
-        return real(rows, schema)
+        return real(rows, schema, *rest)
 
     monkeypatch.setattr(export, "_rows_table", spy)
     buffer = io.BytesIO()
