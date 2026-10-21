@@ -193,6 +193,15 @@ class DecisionRecord:
     shadow_node_set: tuple[str, ...] = ()
     """V0.10 G8 (D271): a forced split benchmark job's shadow pick when it
     is a Mode 3 set (its nodes; empty = the shadow ran one lane)."""
+    replay: Mapping[str, Any] | None = None
+    """V0.14 G1 (D292): the decision's replay snapshot (planner inputs); None
+    = over the size cap, or not built (a decider without the planner)."""
+    replay_version: int | None = None
+    """Set exactly when ``replay`` is (the migration 0030 check)."""
+    objective: str | None = None
+    """V0.14 D295: the objective the decision ranked by."""
+    calibration_version: int | None = None
+    """V0.14 D293: the calibration it was scaled by (None = uncalibrated)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -1105,6 +1114,14 @@ async def _record_decision(
                     candidates=[dict(c) for c in record.candidates][
                         :MAX_DECISION_CANDIDATES
                     ],
+                    # V0.14 G1 (D292): in the same savepoint - a refused
+                    # replay drops this row alone, never the dispatch
+                    replay=None if record.replay is None else dict(record.replay),
+                    replay_version=None
+                    if record.replay is None
+                    else record.replay_version,
+                    objective=record.objective,
+                    calibration_version=record.calibration_version,
                 )
             )
     except SQLAlchemyError as exc:

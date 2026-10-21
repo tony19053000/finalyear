@@ -548,6 +548,18 @@ class PlannerSettings(SectionModel):
         le=86_400.0,
         description="How often unbound_scores_max_age_s is applied while running.",
     )
+    replay_max_bytes: int = Field(
+        default=65_536,
+        ge=1024,
+        le=1_048_576,
+        description=(
+            "V0.14 D292: every plan_decision row stores a replay snapshot (the "
+            "planner's exact inputs, so the decision can be re-run with any "
+            "policy). A replay larger than this many bytes of canonical JSON "
+            "is not stored (replay = null; counted and logged as "
+            "controller.jobs.replay_over_cap) - it never fails a dispatch."
+        ),
+    )
 
     @field_validator("resource_weights")
     @classmethod

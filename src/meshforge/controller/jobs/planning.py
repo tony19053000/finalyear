@@ -91,6 +91,12 @@ from meshforge.controller.planner import (
 )
 from meshforge.controller.planner.decision_json import candidates_json
 from meshforge.controller.planner.inputs import node_snapshot, plan_request, split_info
+from meshforge.controller.planner.replay import (
+    REPLAY_VERSION,
+    bounded_replay,
+    idle_snapshot,
+    project,
+)
 from meshforge.controller.resources import ResourceTracker
 from meshforge.controller.session.manager import SessionManager
 from meshforge.controller.settings import (
@@ -108,6 +114,10 @@ _JOB_IS_BAD: Final = (ValidationError, ManifestError, InvalidIdError)
 """Errors that mean the stored job itself is unusable (reviewer N-1): only
 these fail the job; any other planning error leaves it queued."""
 _ERRORS_LOGGED_MAX: Final = 1024
+
+DEFAULT_OBJECTIVE: Final = "min_time"
+"""V0.14 D295: what every decision ranks by until G3 adds ``min_network`` and
+``prefer_local`` (stored as ``plan_decision.objective``)."""
 
 _GPU_GONE: Final = frozenset(
     {RejectCode.NO_GPU, RejectCode.NO_GPU_RUNTIME, RejectCode.NO_GPU_SLOTS}
@@ -134,20 +144,9 @@ def forced_set(job: JobRecord) -> tuple[str, ...]:
 
 def _idle(snapshot: ClusterSnapshot) -> ClusterSnapshot:
     """``snapshot`` with no slot, GPU or attempt in use on any node (the shadow
-    plan's view, D235)."""
-    return dataclasses.replace(
-        snapshot,
-        nodes=tuple(
-            dataclasses.replace(
-                n,
-                used_cpu_slots=0,
-                used_gpu_slots=0,
-                live_attempts=0,
-                busy_gpus=frozenset(),
-            )
-            for n in snapshot.nodes
-        ),
-    )
+    plan's view, D235): :func:`~meshforge.controller.planner.replay.
+    idle_snapshot`, the one a shadow replay rebuilds it with."""
+    return idle_snapshot(snapshot)
 
 
 def _without_draining(
@@ -189,6 +188,7 @@ def decision_record(decision: Decision) -> DecisionRecord:
         reason_key=decision.reason_key,
         candidates=candidates_json(decision),
         chosen_node_id=None if decision.chosen is None else decision.chosen.node_id,
+        objective=DEFAULT_OBJECTIVE,
     )
 
 
@@ -233,6 +233,12 @@ class DispatchPlanner:
         error that is not the job's fault (the metric; see :meth:`decide`)."""
         self._errors_logged: OrderedDict[tuple[str, str], None] = OrderedDict()
         """D107: the node ``round_robin`` chose last (memory only)."""
+        self.replays_over_cap = 0
+        """V0.14 D292: decisions stored without a replay because it was larger
+        than ``[controller.planner] replay_max_bytes``."""
+        self.replay_failures = 0
+        """V0.14 D292: decisions stored without a replay because building it
+        raised (a bug: logged with its traceback, never fails the dispatch)."""
         self.config = PlannerConfig(
             default_bw_bytes_s=planner.default_bw_bytes_s,
             default_compute_s=planner.default_compute_s,
@@ -398,8 +404,11 @@ class DispatchPlanner:
             if early is not None:
                 return early
         trees, plan_job, snapshot, past = self._request(job, manifest, fabric, pinned)
-        decision = plan(plan_job, snapshot, self.policy_of(job), self._wall())
+        now = self._wall()
+        view = project(plan_job, snapshot)  # V0.14 G1: what the replay stores
+        decision = plan(plan_job, view, self.policy_of(job), now)
         record = decision_record(decision)
+        shadow: PlanRequest | None = None
         if (
             decision.chosen is not None
             and pinned is not None
@@ -407,7 +416,8 @@ class DispatchPlanner:
         ):
             # D215 + G4 item 0.8 (D239.4): only a campaign's forced run needs the
             # would-have-chosen label; a user's pinned job skips the extra plan
-            record = self._with_shadow(record, plan_job, snapshot, job, past)
+            record, shadow = self._with_shadow(record, plan_job, view, job, past, now)
+        record = self._with_replay(record, job, plan_job, view, now, shadow)
         if decision.chosen is not None:
             return self._dispatch(
                 job, manifest, decision, fabric, record, trees=trees, cluster=snapshot
@@ -504,8 +514,11 @@ class DispatchPlanner:
             if early is not None:
                 return early
         trees, plan_job, snapshot, past = self._request(job, manifest, fabric, pinned)
-        decision = plan(plan_job, snapshot, self.policy_of(job), self._wall())
+        now = self._wall()
+        view = project(plan_job, snapshot)  # V0.14 G1: what the replay stores
+        decision = plan(plan_job, view, self.policy_of(job), now)
         record = decision_record(decision)
+        shadow: PlanRequest | None = None
         if (
             decision.chosen is not None
             and (pinned is not None or forced)
@@ -513,7 +526,8 @@ class DispatchPlanner:
         ):
             # D215 extended (V0.10 G8): the would-have-chosen plan of a
             # campaign's forced split run - a node, or a Mode 3 set
-            record = self._with_shadow(record, plan_job, snapshot, job, past)
+            record, shadow = self._with_shadow(record, plan_job, view, job, past, now)
+        record = self._with_replay(record, job, plan_job, view, now, shadow)
         lanes = decision.split if decision.chosen is not None else None
         if lanes is None or not lanes.lanes:
             if forced:
@@ -752,8 +766,9 @@ class DispatchPlanner:
         plan_job: PlanRequest,
         snapshot: ClusterSnapshot,
         job: JobRecord,
-        past: Sequence[PastFailure] = (),
-    ) -> DecisionRecord:
+        past: Sequence[PastFailure],
+        now: dt.datetime,
+    ) -> tuple[DecisionRecord, PlanRequest | None]:
         """V0.9 G3 (D215, fix r1 D235): the node the planner **prefers** for
         this pinned **benchmark** job (G4 item 0.8: a user's pinned job has
         no shadow - its record's ``planner_node_id`` is null) - the same
@@ -768,7 +783,10 @@ class DispatchPlanner:
 
         Pure (no reservation, no round-robin pointer moved, no row of its own);
         it only adds the node and its estimate to the dispatched decision. A
-        failure here never blocks the pinned dispatch."""
+        failure here never blocks the pinned dispatch. V0.14 G1 (D292): it
+        plans at the dispatch's ``now`` and also returns its request, which
+        the row's replay stores (``replay.shadow_from_replay`` re-runs it);
+        None = it failed."""
         try:
             request = dataclasses.replace(
                 plan_job,
@@ -780,33 +798,78 @@ class DispatchPlanner:
                 excluded=exclusions(
                     past,
                     snapshot.nodes,
-                    now=self._wall(),
+                    now=now,
                     exclude_s=self._planner.retry_exclude_s,
                 )
                 if past
                 else {},
             )
-            shadow = plan(request, _idle(snapshot), self.policy_of(job), self._wall())
+            shadow = plan(request, _idle(snapshot), self.policy_of(job), now)
         except Exception as exc:  # the shadow is telemetry, never a condition
             log.exception(
                 "controller.jobs.shadow_plan_failed",
                 job_id=job.id,
                 error_type=type(exc).__name__,
             )
-            return record
+            return record, None
         chosen = shadow.chosen
         if chosen is None:
-            return record
+            return record, request
         split = shadow.split
-        return dataclasses.replace(
-            record,
-            shadow_chosen_node_id=chosen.node_id,
-            shadow_estimate_s=None
-            if chosen.estimate is None
-            else round(chosen.estimate.total_s, 6),
-            # V0.10 G8: a split job's preference may be a Mode 3 set
-            shadow_node_set=split.node_ids if split is not None and split.split else (),
+        return (
+            dataclasses.replace(
+                record,
+                shadow_chosen_node_id=chosen.node_id,
+                shadow_estimate_s=None
+                if chosen.estimate is None
+                else round(chosen.estimate.total_s, 6),
+                # V0.10 G8: a split job's preference may be a Mode 3 set
+                shadow_node_set=split.node_ids
+                if split is not None and split.split
+                else (),
+            ),
+            request,
         )
+
+    def _with_replay(
+        self,
+        record: DecisionRecord,
+        job: JobRecord,
+        plan_job: PlanRequest,
+        snapshot: ClusterSnapshot,
+        now: dt.datetime,
+        shadow: PlanRequest | None,
+    ) -> DecisionRecord:
+        """V0.14 G1 (D292): the record with its replay snapshot - or without
+        one, counted and logged, when it is over ``replay_max_bytes`` or could
+        not be built. The replay explains the decision; it is never a
+        condition of the dispatch."""
+        try:
+            replay, size = bounded_replay(
+                plan_job,
+                snapshot,
+                now,
+                max_bytes=self._planner.replay_max_bytes,
+                shadow=shadow,
+            )
+        except Exception as exc:  # a bug in the codec: keep dispatching
+            self.replay_failures += 1
+            log.exception(
+                "controller.jobs.replay_failed",
+                job_id=job.id,
+                error_type=type(exc).__name__,
+            )
+            return record
+        if replay is None:
+            self.replays_over_cap += 1
+            log.warning(
+                "controller.jobs.replay_over_cap",
+                job_id=job.id,
+                replay_bytes=size,
+                replay_max_bytes=self._planner.replay_max_bytes,
+            )
+            return record
+        return dataclasses.replace(record, replay=replay, replay_version=REPLAY_VERSION)
 
     @staticmethod
     def _forced_refused(decision: Decision, record: DecisionRecord) -> DispatchDecision:
