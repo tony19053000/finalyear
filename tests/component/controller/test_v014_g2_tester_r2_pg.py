@@ -1,3 +1,4 @@
+# ruff: noqa: F811, PERF401  (pytest fixtures imported from the r1 module)
 """V0.14 G2 tester round 2 - verify fix round 1 on a real PostgreSQL.
 
 * restored strength: concurrent refreshes that *each* must write (different
@@ -16,13 +17,6 @@ import threading
 from typing import Any
 
 import pytest
-
-from meshforge.controller import calibration_store
-from meshforge.controller.calibration_store import CalibrationStore
-from meshforge.controller.planner.calibration import CalibrationConfig
-from meshforge.controller.store.engine import create_engine
-from meshforge.controller.store.settings import DatabaseSettings
-
 from test_v014_g2_tester_r1_pg import (  # noqa: F401  (fixtures)
     CFG,
     Manager,
@@ -36,6 +30,12 @@ from test_v014_g2_tester_r1_pg import (  # noqa: F401  (fixtures)
     statuses,
     store,
 )
+
+from meshforge.controller import calibration_store
+from meshforge.controller.calibration_store import CalibrationStore
+from meshforge.controller.planner.calibration import CalibrationConfig
+from meshforge.controller.store.engine import create_engine
+from meshforge.controller.store.settings import DatabaseSettings
 
 pytestmark = [pytest.mark.component, pytest.mark.asyncio]
 
@@ -245,7 +245,9 @@ async def test_concurrent_refreshes_with_new_runs_between_rounds(
             await e.dispose()
     rows = await statuses(pg_settings)
     assert [s for _v, s in rows].count("active") == 1
-    fp = await sql(pg_settings, "SELECT fit_inputs->>'runs_digest' AS d FROM planner_calibration")
+    fp = await sql(
+        pg_settings, "SELECT fit_inputs->>'runs_digest' AS d FROM planner_calibration"
+    )
     digests = [r.d for r in fp]
     assert len(digests) == len(set(digests)), "duplicate row for one run set"
     assert (await calibrations.refresh(CFG)).skipped in ("no_new_runs", None)
