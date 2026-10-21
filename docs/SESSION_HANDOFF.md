@@ -262,7 +262,7 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
-**2026-10-21 (resumed):** Lead running TD1 exit gates in the worktree (ruff/format/mypy green; unit + V0.10 cluster running). Then Hand-off → tester → reviewer → merge.
+**2026-10-21 (resumed):** TD1 exit gates GREEN (ruff/format/mypy clean; unit 17128 passed; V0.10 cluster 34 passed, 0 skipped) + Hand-off committed in worktree (3b14251c). Tester and reviewer running in parallel. Next: fix rounds if any → merge → STATUS + status bar.
 
 **2026-10-21 (session end, user stop) — NOTHING RUNNING.** V0.10 tech-debt task **V0.10-TD1** (D288 items: shared split-cluster helpers, `check_exactly_once` flags leftover `live` lease, offline numpy wheelhouse for test_v010_mode3, controller strips terminal controls from chunk stderr tail — CR→\n deviation) implemented in worktree `.claude/worktrees/agent-aa9c83b4b0b65d858`, branch `worktree-agent-aa9c83b4b0b65d858`, head `6dec9677` (5 commits, NOT merged). Implementer stopped during its exit gates — **gates NOT run, no Hand-off**. Progress: `docs/briefs/progress/V0.10-TD1.md` in that worktree. Next: run exit gates there (ruff, format, `mypy src`, `scripts/pytest_exit_guard.py -m unit`, tests/cluster/test_v010_*.py) + Hand-off → tester → reviewer → merge. Out of scope still open: C5 FaultLink bw, I8/I12/I13.
 
