@@ -239,14 +239,18 @@ def project(request: PlanRequest, snapshot: ClusterSnapshot) -> ClusterSnapshot:
     keys = {tree.key for tree in request.trees}
     if request.split is not None and request.split.items_tree is not None:
         keys.add(request.split.items_tree)
-    hashes = set(request.history.env_hash_by_node.values())
+    wanted_envs = set(request.history.env_hash_by_node.values())
     bad = {request.env_key}
     nodes = tuple(
         dataclasses.replace(
             node,
             cached=frozenset(node.cached & keys),
             known_bad_envs=frozenset(node.known_bad_envs & bad),
-            cached_envs={h: b for h, b in node.cached_envs.items() if h in hashes},
+            cached_envs={
+                env: size
+                for env, size in node.cached_envs.items()
+                if env in wanted_envs
+            },
         )
         for node in snapshot.nodes
     )
