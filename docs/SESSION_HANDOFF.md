@@ -8,7 +8,7 @@
 >
 > ```
 > Read docs/SESSION_HANDOFF.md §1, then docs/STATUS.md, then the V0.14 section of docs/DEVELOPMENT_ROADMAP.md.
-> V0.14 started (brief docs/briefs/V0.14-unified-planner-v2.md APPROVED, ADR-0020). G1 stopped mid-run in worktree .claude/worktrees/agent-a0a1e95c1ee7384ec (head 38ae5529, not merged, gates NOT run) — finish ARCHITECTURE §7 amendment, run exit gates + Hand-off (docs/briefs/progress/V0.14-G1.md) → tester ∥ reviewer → merge → 0.14.1 [x]. V0.10 closes on 🧑 0.10.10. Parallel agents OK; no fast mode. Don't delete anything without asking.
+> V0.14 G1 CLOSED (0.14.1 [x], merge f72681c0). Next: write/launch G2 (brief §5b) ∥ G3 (§5c) in separate worktrees; fold G1 reviewer non-blocking items (STATUS Current Task) into G3. V0.10 closes on 🧑 0.10.10. Parallel agents OK; no fast mode. Don't delete anything without asking.
 > ```
 >
 > Order of truth: `PROJECT_BRIEF → ARCHITECTURE → ROADMAP → STATUS → this file`. If this file
@@ -261,6 +261,8 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 - Commits: keep using `git commit -- <paths>` even with one agent — the Lead also commits docs.
 
 ## 1. Where the project is
+
+**2026-10-21 (G1 CLOSED) — NOTHING RUNNING.** V0.14 G1 merged `f72681c0`, 0.14.1 `[x]`. G1 worktree `.claude/worktrees/agent-a0a1e95c1ee7384ec` merged — removable with user OK. Next: G2 (calibration, brief §5b) ∥ G3 (risk/objectives/pruning, §5c); fold reviewer non-blocking N1/N2/N4 (STATUS Current Task) into G3.
 
 **2026-10-21 (G1 gates green) — RUNNING: G1 tester r1 ∥ reviewer r1** in worktree `.claude/worktrees/agent-a0a1e95c1ee7384ec` (head `fc0c862b`). Gates: ruff/format/mypy clean; unit 18423 passed; component planner+jobs+migration 136 passed after a stale 0029 migration test was fixed (`check` now runs at head); cluster test_v010_mode3 4 passed. Hand-off in `docs/briefs/progress/V0.14-G1.md`. If the session dies: relaunch the tester and reviewer from that note → merge → 0.14.1 `[x]` + status bar.
 

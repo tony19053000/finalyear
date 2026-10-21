@@ -647,7 +647,7 @@ A version is **complete** only when all apply:
 **Prerequisites:** V0.9, V0.10 (V0.13 dropped by ADR-0012). Brief: `docs/briefs/V0.14-unified-planner-v2.md` (D290–D303) · ADR-0020.
 
 **Tasks**
-- [~] **0.14.1** Unified candidate generation: JobRequest (Local, M1 × nodes, M3 × node-sets); AcceleratorRequest = typed "not supported in this build" (D290) · + replayable decisions (D292)
+- [x] **0.14.1** Unified candidate generation: JobRequest (Local, M1 × nodes, M3 × node-sets); AcceleratorRequest = typed "not supported in this build" (D290) · + replayable decisions (D292) — **done 2026-10-21** merge `f72681c0`: tester r1 PASS (4200 decisions byte-identical vs pre-refactor planner; savepoint isolation ×8 real PG), reviewer APPROVE; unit 18423, component planner/jobs/migration 149, cluster test_v010_mode3 4 passed
 - [ ] **0.14.2** Pruning (dominated sets, infeasible links) keeping decision latency low
 - [ ] **0.14.3** Analytical cost models per ARCHITECTURE §7, parameters calibrated from telemetry
 - [ ] **0.14.4** Reliability-based risk penalty
