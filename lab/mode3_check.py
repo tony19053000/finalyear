@@ -21,9 +21,10 @@ check a split job's output, and compute criteria 2-3. The procedure is
         [--table chunks]``): per-node items/s, ideal bound, makespan ratio,
         speedup and the verdicts (``lab/_mode3/analysis.py``).
 
-Exit codes: 0 done (verify: OK; report: no criterion FAIL); 2 usage error;
-3 verify found problems / report has a FAIL; 4 report INCONCLUSIVE (an input
-is missing - never a pass).
+Exit codes: 0 done (verify: OK; report: no criterion FAIL); 2 usage error
+(incl. report: an export file missing, empty or not a parquet file - one line
+on stderr); 3 verify found problems / report has a FAIL; 4 report INCONCLUSIVE
+(an input is missing or implausible - never a pass).
 """
 
 from __future__ import annotations
@@ -132,6 +133,24 @@ def verify(family: str, outdir: Path, params: dict[str, Any], seed: int) -> int:
     return EXIT_PROBLEMS
 
 
+def _read_export(path: Path) -> list[dict[str, Any]] | None:
+    """The rows of one ``compute telemetry export`` parquet file, or ``None``
+    after a one-line error (missing / empty / not parquet)."""
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    if not path.is_file():
+        print(f"{path}: no such file (compute telemetry export)", file=sys.stderr)
+        return None
+    try:
+        rows: list[dict[str, Any]] = pq.read_table(path).to_pylist()
+    except (OSError, ValueError, pa.ArrowException) as exc:
+        reason = str(exc).splitlines()[0] if str(exc) else type(exc).__name__
+        print(f"{path}: not a readable parquet export: {reason}", file=sys.stderr)
+        return None
+    return rows
+
+
 def report(
     runs_file: Path,
     chunks_file: Path,
@@ -139,10 +158,10 @@ def report(
     singles: Sequence[str],
     out: Path | None,
 ) -> int:
-    import pyarrow.parquet as pq
-
-    runs = pq.read_table(runs_file).to_pylist()
-    chunks = pq.read_table(chunks_file).to_pylist()
+    tables = [_read_export(path) for path in (runs_file, chunks_file)]
+    if tables[0] is None or tables[1] is None:
+        return EXIT_USAGE
+    runs, chunks = tables[0], tables[1]
     numbers = evaluate(runs, chunks, split_job_id=split, single_job_ids=singles)
     doc = numbers.as_json()
     for key, value in doc.items():

@@ -17,10 +17,6 @@ from test_mode3_check import SPLIT, _rows
 from _mode3.analysis import PASS, evaluate
 from mode3_check import main
 
-D2 = "DEFECT G9-D2: zero/negative makespan, items or combine time yields c2 PASS"
-D3 = "DEFECT G9-D3: a garbage split_job_ms row still gets a c2 PASS"
-D1 = "DEFECT G9-D1: a missing/garbled export is a traceback (exit 1), not a clean error"
-
 
 def _good() -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[str]]:
     return _rows(single_s=400, split_s=150, makespan_s=140, rates=[10.0, 10.0, 5.0])
@@ -44,26 +40,14 @@ def _split_row(runs: list[dict[str, Any]]) -> dict[str, Any]:
 @pytest.mark.parametrize(
     ("field", "value"),
     [
-        pytest.param(
-            "split_makespan_ms", 0, marks=pytest.mark.xfail(strict=True, reason=D2)
-        ),
-        pytest.param(
-            "split_makespan_ms",
-            -140000,
-            marks=pytest.mark.xfail(strict=True, reason=D2),
-        ),
+        ("split_makespan_ms", 0),
+        ("split_makespan_ms", -140000),
         ("split_makespan_ms", None),
         ("split_makespan_ms", float("nan")),
         ("split_items", 0),
-        pytest.param(
-            "split_items", -3000, marks=pytest.mark.xfail(strict=True, reason=D2)
-        ),
+        ("split_items", -3000),
         ("split_items", None),
-        pytest.param(
-            "split_combine_ms",
-            -10_000_000,
-            marks=pytest.mark.xfail(strict=True, reason=D2),
-        ),
+        ("split_combine_ms", -10_000_000),
     ],
 )
 def test_garbled_c2_inputs_never_pass_c2(field: str, value: Any) -> None:
@@ -81,11 +65,10 @@ def test_garbled_split_job_time_never_passes_c3(value: Any) -> None:
     assert got.c3 != PASS, (value, got)
 
 
-@pytest.mark.xfail(strict=True, reason=D3)
 @pytest.mark.parametrize("value", [0, -150000, float("nan")])
 def test_garbled_split_job_time_does_not_pass_c2_either(value: Any) -> None:
-    """A row whose job time is garbage is not a trustworthy row; C2 is judged
-    from makespan only today, so it stays PASS (DEFECT G9-D2, minor)."""
+    """A row whose job time is garbage is not a trustworthy row (G9-D3, fixed
+    in fix round 1)."""
     runs, chunks, singles = copy.deepcopy(_good())
     _split_row(runs)["split_job_ms"] = value
     assert _ev(runs, chunks, singles).c2 != PASS
@@ -173,15 +156,15 @@ def test_report_cli_missing_or_garbled_parquet_is_not_a_pass(tmp_path: Path) -> 
         assert code != 0, runs
 
 
-@pytest.mark.xfail(strict=True, raises=Exception, reason=D1)
 def test_report_cli_missing_file_reports_a_clean_error(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """DEFECT G9-D1 (minor): a missing/garbled export should be a one-line error
-    with a documented exit code (2 usage / 4 inconclusive), not a traceback."""
+    """G9-D1 (fixed in fix round 1): a missing/garbled export is a one-line
+    error with a documented exit code (2 usage / 4 inconclusive), not a
+    traceback."""
     argv = ["report", str(tmp_path / "no.parquet"), str(tmp_path / "no2.parquet")]
     argv += ["--split", "j", "--single", "s"]
-    code = main(argv)  # raises today
+    code = main(argv)
     assert code in (2, 4)
 
 

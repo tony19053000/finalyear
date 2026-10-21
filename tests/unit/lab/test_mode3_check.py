@@ -253,3 +253,90 @@ def test_report_reads_the_two_exports(
     doc = json.loads((tmp_path / "r.json").read_text())
     assert doc["c3"] == PASS and doc["node_set"] == NODES
     assert main(argv[:-2]) == 4  # one single-node run left out: INCONCLUSIVE
+
+
+# ---- fix round 1 (G9 tester D1-D3, reviewer N1/N2) ------------------------
+
+
+def _good() -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[str]]:
+    return _rows(single_s=400, split_s=150, makespan_s=140, rates=[10.0, 10.0, 5.0])
+
+
+def test_a_single_job_whose_chunks_span_two_nodes_is_inconclusive() -> None:
+    """N1: a ``--single`` job that committed chunks on two nodes is a split, not
+    a single-node baseline - its time and node must not be trusted."""
+    runs, chunks, singles = _good()
+    chunks.append(_chunk(singles[0], "n_b", 10, 1000))  # a second won node
+    got = evaluate(runs, chunks, split_job_id=SPLIT, single_job_ids=singles)
+    assert (got.c2, got.c3) == (INCONCLUSIVE, INCONCLUSIVE)
+    assert any(singles[0] in p and "2 nodes" in p for p in got.problems), got
+
+
+def test_a_single_job_with_no_committed_chunk_is_inconclusive() -> None:
+    runs, chunks, singles = _good()
+    chunks = [c for c in chunks if c["job_id"] != singles[0] or not c["won"]]
+    got = evaluate(runs, chunks, split_job_id=SPLIT, single_job_ids=singles)
+    assert (got.c2, got.c3) == (INCONCLUSIVE, INCONCLUSIVE)
+    assert any("no committed chunk" in p for p in got.problems), got
+
+
+def test_losing_chunks_on_other_nodes_do_not_count_as_a_second_node() -> None:
+    runs, chunks, singles = _good()  # every single job has a won=False row on n_x
+    got = evaluate(runs, chunks, split_job_id=SPLIT, single_job_ids=singles)
+    assert got.problems == () and (got.c2, got.c3) == (PASS, PASS)
+
+
+@pytest.mark.parametrize("key", ["stage_ms", "env_ms"])
+@pytest.mark.parametrize("value", [-5000, float("nan"), "3"])
+def test_a_bad_lane_start_time_is_inconclusive(key: str, value: Any) -> None:
+    runs, chunks, singles = _good()
+    next(r for r in runs if r["attempt_role"] == "lane")[key] = value
+    got = evaluate(runs, chunks, split_job_id=SPLIT, single_job_ids=singles)
+    assert (got.c2, got.c3) == (INCONCLUSIVE, INCONCLUSIVE), got
+
+
+@pytest.mark.parametrize("value", [float("inf"), float("-inf")])
+def test_an_infinite_job_time_is_inconclusive(value: float) -> None:
+    for job_index in (0, 1):  # the split job's row, then a single job's row
+        runs, chunks, singles = _good()
+        target = SPLIT if job_index == 0 else singles[0]
+        next(r for r in runs if r["job_id"] == target)["split_job_ms"] = value
+        got = evaluate(runs, chunks, split_job_id=SPLIT, single_job_ids=singles)
+        assert (got.c2, got.c3) == (INCONCLUSIVE, INCONCLUSIVE), (target, got)
+
+
+def test_a_missing_combine_time_counts_as_zero_and_still_judges() -> None:
+    runs, chunks, singles = _good()
+    del runs[0]["split_combine_ms"]
+    got = evaluate(runs, chunks, split_job_id=SPLIT, single_job_ids=singles)
+    assert got.problems == () and got.ideal_bound_s == pytest.approx(124.0)
+
+
+@pytest.mark.parametrize("content", [None, b"", b"garbage", b"PAR1" + b"\0" * 16])
+def test_report_bad_export_is_one_line_usage_error(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], content: bytes | None
+) -> None:
+    """D1: missing / empty / not-parquet export -> exit 2 and one stderr line."""
+    pa = pytest.importorskip("pyarrow")
+    pq = pytest.importorskip("pyarrow.parquet")
+    good = tmp_path / "good.parquet"
+    pq.write_table(pa.table({"x": [1]}), good)
+    bad = tmp_path / "bad.parquet"
+    if content is not None:
+        bad.write_bytes(content)
+    for argv in ([str(bad), str(good)], [str(good), str(bad)]):
+        code = main(["report", *argv, "--split", "j", "--single", "s"])
+        captured = capsys.readouterr()
+        assert code == 2
+        lines = captured.err.strip().splitlines()
+        assert len(lines) == 1 and str(bad) in lines[0], captured.err
+        assert "Traceback" not in captured.err and captured.out == ""
+
+
+def test_report_valid_but_empty_exports_are_inconclusive(tmp_path: Path) -> None:
+    pa = pytest.importorskip("pyarrow")
+    pq = pytest.importorskip("pyarrow.parquet")
+    for name in ("r.parquet", "c.parquet"):
+        pq.write_table(pa.table({"job_id": pa.array([], pa.string())}), tmp_path / name)
+    argv = ["report", str(tmp_path / "r.parquet"), str(tmp_path / "c.parquet")]
+    assert main([*argv, "--split", "j", "--single", "s"]) == 4

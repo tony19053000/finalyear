@@ -23,13 +23,18 @@ measured in the same session.
   split could gain. Pass when speedup >= 0.8 x rate_ratio, **and** on exactly
   3 nodes with rate_ratio >= 2.5 also speedup >= 2.0 (D274).
 
-A missing input (no single-node run for a node of the set, no job row, no
-committed chunk) is ``INCONCLUSIVE`` with the reason - never a pass.
+A missing or implausible input is ``INCONCLUSIVE`` with the reason - never a
+pass: no single-node run for a node of the set, no job row, no committed chunk;
+a non-finite (NaN / inf) or non-positive ``split_makespan_ms``,
+``split_job_ms`` (split or single-node job) or ``split_items``; a negative
+``split_combine_ms`` / lane ``stage_ms`` / ``env_ms``; a ``--single`` job whose
+committed chunks ran on more than one node (it is not a single-node run).
 """
 
 from __future__ import annotations
 
 import json
+import math
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -114,9 +119,36 @@ def _job_row(
 
 
 def _num(value: Any) -> float | None:
+    """A finite number, else ``None`` (bool, text, NaN and +-inf are not)."""
     if isinstance(value, bool) or not isinstance(value, int | float):
         return None
-    return float(value)
+    out = float(value)
+    return out if math.isfinite(out) else None
+
+
+def _positive(
+    row: Mapping[str, Any], key: str, problems: list[str], what: str
+) -> float | None:
+    """``row[key]`` when finite and > 0; otherwise a problem and ``None``."""
+    value = _num(row.get(key))
+    if value is None or value <= 0:
+        problems.append(f"{what} has no positive finite {key}: {row.get(key)!r}")
+        return None
+    return value
+
+
+def _non_negative(
+    row: Mapping[str, Any], key: str, problems: list[str], what: str
+) -> float:
+    """``row[key]`` (absent = 0); a NaN / inf / negative value is a problem."""
+    raw = row.get(key)
+    if raw is None:
+        return 0.0
+    value = _num(raw)
+    if value is None or value < 0:
+        problems.append(f"{what} has a bad {key}: {raw!r}")
+        return 0.0
+    return value
 
 
 def _rates(
@@ -137,6 +169,43 @@ def _rates(
     return {n: items[n] / seconds[n] for n in sorted(items) if seconds[n] > 0}
 
 
+def _singles(
+    runs: Sequence[Mapping[str, Any]],
+    chunks: Sequence[Mapping[str, Any]],
+    single_job_ids: Sequence[str],
+    problems: list[str],
+) -> list[tuple[float, str]]:
+    """(job seconds, lane node) of every usable ``--single`` job; a job with no
+    ok row, no positive finite ``split_job_ms``, or committed chunks on zero or
+    several nodes is a problem (it is not a measured single-node run)."""
+    out: list[tuple[float, str]] = []
+    for sid in single_job_ids:
+        r = _job_row(runs, sid)
+        if r is None:
+            problems.append(f"single-node job {sid} has no ok job row")
+            continue
+        seconds = _positive(r, "split_job_ms", problems, f"single-node job {sid}")
+        nodes = sorted(
+            {
+                str(c.get("node_id"))
+                for c in chunks
+                if c.get("job_id") == sid and c.get("won")
+            }
+        )  # the lane's node (its combine may run elsewhere)
+        if not nodes:
+            problems.append(f"single-node job {sid} has no committed chunk")
+            continue
+        if len(nodes) > 1:
+            problems.append(
+                f"single-node job {sid} committed chunks on {len(nodes)} nodes "
+                f"{nodes}: not a single-node run"
+            )
+            continue
+        if seconds is not None:
+            out.append((seconds / 1000.0, nodes[0]))
+    return out
+
+
 def evaluate(
     runs: Sequence[Mapping[str, Any]],
     chunks: Sequence[Mapping[str, Any]],
@@ -155,7 +224,8 @@ def evaluate(
             problems=(f"no ok job row (combine record) for {split_job_id}",),
         )
     node_set = _node_set(row.get("split_node_set"))
-    items_value = _num(row.get("split_items"))
+    what = f"split job {split_job_id}"
+    items_value = _positive(row, "split_items", problems, what)
     items = None if items_value is None else int(items_value)
     if len(node_set) < 2:
         problems.append(f"{split_job_id} is not a split over >= 2 nodes: {node_set}")
@@ -169,37 +239,33 @@ def evaluate(
         if r.get("job_id") == split_job_id and r.get("attempt_role") == "lane"
     ]
     starts = [
-        ((_num(r.get("stage_ms")) or 0.0) + (_num(r.get("env_ms")) or 0.0)) / 1000.0
+        (
+            _non_negative(r, "stage_ms", problems, f"lane on {r.get('node_id')}")
+            + _non_negative(r, "env_ms", problems, f"lane on {r.get('node_id')}")
+        )
+        / 1000.0
         for r in lanes
     ]
-    combine_s = (_num(row.get("split_combine_ms")) or 0.0) / 1000.0
-    makespan_ms = _num(row.get("split_makespan_ms"))
-    job_ms = _num(row.get("split_job_ms"))
-    if makespan_ms is None or job_ms is None:
-        problems.append("the job row has no split_makespan_ms / split_job_ms")
-    lane_node = {
-        str(c.get("job_id")): str(c.get("node_id")) for c in chunks if c.get("won")
-    }  # a single-node job's lane node (its combine may run elsewhere)
-    singles = [
-        (s / 1000.0, lane_node.get(sid, str(r.get("node_id"))))
-        for sid in single_job_ids
-        if (r := _job_row(runs, sid)) is not None
-        and (s := _num(r.get("split_job_ms"))) is not None
-    ]
-    if len(singles) < len(single_job_ids):
-        problems.append("a single-node job id has no ok job row with split_job_ms")
+    combine_s = _non_negative(row, "split_combine_ms", problems, what) / 1000.0
+    makespan_ms = _positive(row, "split_makespan_ms", problems, what)
+    job_ms = _positive(row, "split_job_ms", problems, what)
+    singles = _singles(runs, chunks, single_job_ids, problems)
     best = min(singles) if singles else None
 
     used = [rates[n] for n in node_set if n in rates]
     sum_rate = sum(used) if used and not missing else None
-    rate_ratio = None if sum_rate is None else sum_rate / max(used)
+    rate_ratio = None
+    if sum_rate is not None and sum_rate > 0:
+        rate_ratio = sum_rate / max(used)
     bound = None
-    if sum_rate and items is not None:
+    if sum_rate is not None and sum_rate > 0 and items is not None:
         bound = items / sum_rate + (max(starts) if starts else 0.0) + combine_s
     makespan_s = None if makespan_ms is None else makespan_ms / 1000.0
     ratio = None if bound is None or makespan_s is None else makespan_s / bound
     split_s = None if job_ms is None else job_ms / 1000.0
-    speedup = None if best is None or not split_s else best[0] / split_s
+    speedup = None
+    if best is not None and split_s is not None and split_s > 0:
+        speedup = best[0] / split_s
 
     c2 = INCONCLUSIVE
     if ratio is not None and best is not None and not problems:
