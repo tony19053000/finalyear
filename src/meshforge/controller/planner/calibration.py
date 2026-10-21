@@ -394,9 +394,9 @@ def _factor_from(data: Any) -> Factor:
 def calibration_from_json(version: int, data: Any) -> Calibration:
     """:func:`calibration_json` back; :class:`CalibrationError` when it cannot
     be read (never a partly read calibration)."""
+    if not isinstance(data, Mapping) or data.get("format") != CALIBRATION_FORMAT:
+        raise CalibrationError("unsupported calibration format")
     try:
-        if not isinstance(data, Mapping) or data.get("format") != CALIBRATION_FORMAT:
-            raise CalibrationError("unsupported calibration format")
         terms: dict[str, TermFactors] = {}
         for name, table in dict(data["terms"]).items():
             raw_global = table["global"]

@@ -770,13 +770,13 @@ def calibration_from_replay(replay: Mapping[str, Any]) -> Calibration | None:
     block = replay.get("calibration")
     if block is None:
         return None
+    if not isinstance(block, Mapping):
+        raise ReplayError("the replay's calibration block is not an object")
+    version = block.get("version")
+    if isinstance(version, bool) or not isinstance(version, int) or version < 0:
+        raise ReplayError("the replay's calibration version is not a count")
     try:
-        version = block["version"]
-        if isinstance(version, bool) or not isinstance(version, int) or version < 0:
-            raise ReplayError("the replay's calibration version is not a count")
         return calibration_from_json(version, block["factors"])
-    except ReplayError:
-        raise
     except CalibrationError as exc:
         raise ReplayError(f"malformed calibration block ({exc})") from None
     except (KeyError, TypeError, ValueError, AttributeError) as exc:
