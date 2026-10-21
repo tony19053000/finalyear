@@ -41,6 +41,7 @@ drops are one ``str.translate``.
 from __future__ import annotations
 
 import re
+import unicodedata
 from typing import Final
 
 __all__ = ["strip_terminal_controls"]
@@ -72,6 +73,16 @@ _ZERO_WIDTH: Final = (
     0x2060,  # WORD JOINER
     0xFEFF,  # ZWNBSP / BOM
 )
+# Every other invisible format character (Unicode category Cf: tag characters
+# U+E0000-E007F used for "ASCII smuggling", invisible math operators, Mongolian
+# vowel separator, ...) - TD2 review N1. The soft hyphen (U+00AD) is kept: it is
+# a legitimate hyphenation hint and shows as nothing worse than "-". Cf lives
+# only in the BMP and planes 1 and 14; the scan runs once at import (~20 ms).
+_FORMAT_CHARS: Final = tuple(
+    point
+    for point in (*range(0x30000), *range(0xE0000, 0xE1000))
+    if point != 0x00AD and unicodedata.category(chr(point)) == "Cf"
+)
 _DROP: Final = {
     point: None
     for point in (
@@ -80,6 +91,7 @@ _DROP: Final = {
         *range(0x80, 0xA0),
         *_BIDI_CONTROLS,
         *_ZERO_WIDTH,
+        *_FORMAT_CHARS,
     )
     if point not in (0x09, 0x0A)
 }

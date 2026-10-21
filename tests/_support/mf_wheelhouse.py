@@ -186,7 +186,13 @@ def _download(url: str, dest: Path) -> None:
 
 def _only_the_wheel(folder: Path, wheel: LockedWheel) -> None:
     """Make ``folder`` hold exactly ``wheel.filename`` (module docstring):
-    stray files and links are removed; a stray directory is a skip reason."""
+    stray files and links are removed; a stray directory is a skip reason.
+    A ``folder`` that is itself a symlink is refused (iterating it would delete
+    files outside the cache - TD2 review N2)."""
+    if folder.is_symlink():
+        raise WheelhouseUnavailableError(
+            f"the wheelhouse folder {folder} is a symlink; remove it"
+        )
     for entry in folder.iterdir():
         if entry.name == wheel.filename:
             continue

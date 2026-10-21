@@ -110,3 +110,18 @@ def test_idempotent_with_spoofing_mixed_in() -> None:
     raw = "\x1b[31m\u202eA\r\n\u200bB\x1b]0;t\x07\ufeff\x9d\u2066"
     once = strip_terminal_controls(raw)
     assert strip_terminal_controls(once) == once
+
+
+def test_every_invisible_format_character_is_dropped_except_soft_hyphen() -> None:
+    """TD2 review N1: tag characters and other Cf code points were kept."""
+    import sys
+    import unicodedata
+
+    cf = [
+        chr(p)
+        for p in range(sys.maxunicode + 1)
+        if unicodedata.category(chr(p)) == "Cf"
+    ]
+    out = strip_terminal_controls("a" + "".join(cf) + "b")
+    assert out == "a­b"
+    assert strip_terminal_controls("x\U000e0041\U000e0042y") == "xy"

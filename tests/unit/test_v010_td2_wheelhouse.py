@@ -175,3 +175,22 @@ def test_a_corrupt_cache_and_a_bad_download_is_a_hard_failure_and_keeps_nothing_
         ensure_wheel(wheel, tmp_path, download=_serve(b"also wrong"))
     assert _files(tmp_path) == [f"{wheel.sha256[:16]}/{wheel.filename}"]
     assert (folder / wheel.filename).read_bytes() == b"corrupt"
+
+
+def test_a_symlinked_wheel_folder_is_refused_and_its_target_untouched(
+    tmp_path: Path,
+) -> None:
+    """TD2 review N2: iterating a symlinked folder deleted files outside it."""
+    import mf_wheelhouse as wh
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "keep.txt").write_text("x")
+    link = tmp_path / "folder"
+    link.symlink_to(outside, target_is_directory=True)
+    wheel = wh.LockedWheel(
+        url="https://x/numpy-0-py3-none-any.whl", sha256="0" * 64, size=1
+    )
+    with pytest.raises(wh.WheelhouseUnavailableError, match="symlink"):
+        wh._only_the_wheel(link, wheel)
+    assert (outside / "keep.txt").exists()
