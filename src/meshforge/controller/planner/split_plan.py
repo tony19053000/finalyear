@@ -207,10 +207,10 @@ def _objective_set(
     by_node: dict[str, SetEstimate],
     ranked: Sequence[Ranked],
     margin: float,
-) -> tuple[SetEstimate | None, bool, bool]:
-    """D295 for a split job's sets: ``(the set to run if any, use it?, did
-    the objective change the min_time choice?)``. ``sets`` are in time order,
-    ``ranked`` the singles under the objective (rank 1 first)."""
+) -> tuple[SetEstimate | None, bool]:
+    """D295 for a split job's sets: ``(the set to run if any, use it?)``.
+    ``sets`` are in time order, ``ranked`` the singles under the objective
+    (rank 1 first)."""
     best_single = min(singles, key=lambda s: (s.total_s, s.node_ids), default=None)
     by_time = sets[0] if sets else None
     time_uses_set = by_time is not None and _margin(by_time, best_single, margin).passed
@@ -221,20 +221,24 @@ def _objective_set(
         def key(item: SetEstimate) -> tuple[float, float]:
             return (set_bytes_moved(item, request), item.total_s)
 
-        if not eligible or not ranked:
-            return by_time, False, time_uses_set
+        if not eligible:
+            return by_time, False
         pick = min(eligible, key=lambda s: (*key(s), len(s.lanes), s.node_ids))
-        head = by_node[ranked[0].node_id]
-        use = key(pick) < key(head)
-        changed = use != time_uses_set or (use and pick is not by_time)
-        return pick, use, changed
+        if not ranked:
+            return pick, True
+        return pick, key(pick) < key(by_node[ranked[0].node_id])
     if objective == "prefer_local" and time_uses_set and by_time is not None:
         local = next((s for s in singles if s.lanes[0].local), None)
         if local is not None and prefer_local_wins(
             local.total_s, by_time.total_s, snapshot.config.prefer_local_margin
         ):
-            return by_time, False, True
-    return by_time, time_uses_set, False
+            return by_time, False
+    return by_time, time_uses_set
+
+
+def _pick_key(item: SetEstimate | None, is_set: bool) -> tuple[bool, tuple[str, ...]]:
+    """What a split decision runs, as a comparable key."""
+    return (is_set, () if item is None else item.node_ids)
 
 
 # --- end V0.14 G3 ---------------------------------------------------------------
@@ -305,7 +309,7 @@ def decide_split(
     )
     changed = False
     if reads_objective:
-        ranked, changed = rank_singles(
+        ranked, _ = rank_singles(
             objective,
             scored,
             prefer_local_margin=snapshot.config.prefer_local_margin,
@@ -320,10 +324,18 @@ def decide_split(
     use_set = best_set is not None and (overall.passed or forced == FORCED_SET)
     chosen_set = best_set
     if reads_objective:
-        chosen_set, use_set, set_changed = _objective_set(
+        time_pick = _pick_key(best_set if use_set else best_single, use_set)
+        chosen_set, use_set = _objective_set(
             objective, request, snapshot, sets, singles, by_node, ranked, margin
         )
-        changed = changed or set_changed
+        final = (
+            chosen_set
+            if use_set
+            else by_node.get(ranked[0].node_id)
+            if ranked
+            else None
+        )
+        changed = _pick_key(final, use_set) != time_pick
         if chosen_set is not None and use_set:
             overall = _margin(chosen_set, best_single, margin, forced)
             sets = [chosen_set, *(s for s in sets if s is not chosen_set)]

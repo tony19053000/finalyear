@@ -265,3 +265,26 @@ def test_a_split_job_under_prefer_local_keeps_local_unless_clearly_faster(
             flips += timed.chosen.mode != "local"
     if margin == 0.9:  # 4 laptops are never 10x one: Local keeps every job
         assert flips == 20
+
+
+def test_a_split_reason_key_names_the_objective_only_when_the_pick_changed() -> None:
+    changed = same = 0
+    for seed in range(20):
+        request, snapshot, now = synthetic_fabric(4, split=True, seed=seed)
+        timed = plan(request, snapshot, "cost_model", now)
+        for objective in ("min_network", "prefer_local"):
+            other = plan(
+                dataclasses.replace(request, objective=objective),
+                snapshot,
+                "cost_model",
+                now,
+            )
+            assert timed.split is not None and other.split is not None
+            picked = (other.split.split, other.split.node_ids)
+            if picked == (timed.split.split, timed.split.node_ids):
+                assert other.reason_key == timed.reason_key, (seed, objective)
+                same += 1
+            else:
+                assert other.reason_key != timed.reason_key, (seed, objective)
+                changed += 1
+    assert changed and same, (changed, same)
