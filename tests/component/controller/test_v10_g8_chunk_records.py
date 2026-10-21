@@ -336,13 +336,15 @@ async def test_both_speculative_copies_are_rows_and_a_late_loser_fills_its_row(
     last = CHUNKS - 1
 
     def slow_tail(grant: agent_pb2.GrantedChunk) -> float:
-        return 4.0 if grant.chunk_index == last else FAST
+        # whoever holds the last chunk is slow; its speculative copy is fast
+        slow = grant.chunk_index == last and not grant.speculative
+        return 4.0 if slow else FAST
 
     async with _lanes(
         runtime,
         [
             {"chunk_speed": slow_tail, "honour_cancel": False},
-            {},
+            {"chunk_speed": slow_tail, "honour_cancel": False},
         ],
     ) as lanes:
         job_id = await _submit(runtime, http, tmp_path)
@@ -350,7 +352,7 @@ async def test_both_speculative_copies_are_rows_and_a_late_loser_fills_its_row(
         assert job.state is JobState.SUCCEEDED, job.failure_detail
         copies = [ref for lane in lanes for ref in lane.speculative]
         if not copies:
-            pytest.skip("no speculative copy was issued on this run")
+            raise AssertionError("no speculative copy was issued")
         # the slow original (honour_cancel off) reports late: lost
         rows = await _until(
             lambda: _lost(runtime, job_id),

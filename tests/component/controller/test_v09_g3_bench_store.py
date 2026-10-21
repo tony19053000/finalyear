@@ -117,6 +117,10 @@ async def test_submit_skip_sync_and_identities(engine: AsyncEngine) -> None:
             "config_id": first.config_id,
             "repetition": first.repetition,
             "run_id": first.id,
+            # V0.10 G8: the run's own identity (split families' records)
+            "family": first.family,
+            "params": dict(first.params),
+            "seed": first.seed,
         }
     }
     assert await store.sync(campaign_id) == 0  # job still queued
