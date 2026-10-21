@@ -644,10 +644,10 @@ A version is **complete** only when all apply:
 **Objective:** one planner comparing **every mode this build ships** (Local, Mode 1, Mode 3) with calibrated analytical cost models and clear explanations.
 
 **Concepts introduced:** unified candidate spaces · set enumeration with pruning · model calibration from telemetry · risk-adjusted cost · decision regret · oracle comparison.
-**Prerequisites:** V0.9, V0.10, V0.13.
+**Prerequisites:** V0.9, V0.10 (V0.13 dropped by ADR-0012). Brief: `docs/briefs/V0.14-unified-planner-v2.md` (D290–D303) · ADR-0020.
 
 **Tasks**
-- [ ] **0.14.1** Unified candidate generation: JobRequest (Local, M1 × nodes, M3 × node-sets) and AcceleratorRequest (local, M2 × GPUs, M4 × GPU-sets)
+- [~] **0.14.1** Unified candidate generation: JobRequest (Local, M1 × nodes, M3 × node-sets); AcceleratorRequest = typed "not supported in this build" (D290) · + replayable decisions (D292)
 - [ ] **0.14.2** Pruning (dominated sets, infeasible links) keeping decision latency low
 - [ ] **0.14.3** Analytical cost models per ARCHITECTURE §7, parameters calibrated from telemetry
 - [ ] **0.14.4** Reliability-based risk penalty

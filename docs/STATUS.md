@@ -5,7 +5,7 @@
 **Last updated:** 2026-10-21
 
 ```
-TOTAL   ████████████▒▒░░░░░░  61%  96/156 done, 15 in progress
+TOTAL   ████████████▒▒░░░░░░  61%  96/156 done, 16 in progress
 
 V0.1    █████████████████▒▒▒  83%  10/12  Foundations & engineering system
 V0.2    ██▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░░   9%   1/11  Lab setup & feasibility validation
@@ -17,14 +17,16 @@ V0.7    ██████████████████░░  91%  11/12
 V0.8    ██████████████████░░  90%   9/10  Dashboard & CLI v1
 V0.9    ██████████████████░░  90%   9/10  Benchmark & telemetry system v1
 V0.10   ██████████████████░░  90%   9/10  Mode 3 Task Splitting
-V0.14   ░░░░░░░░░░░░░░░░░░░░   0%   0/8   Unified planner v2
+V0.14   ▒▒░░░░░░░░░░░░░░░░░░   0%   0/8   Unified planner v2
 V0.15   ░░░░░░░░░░░░░░░░░░░░   0%   0/10  ML planner
 V0.17   ░░░░░░░░░░░░░░░░░░░░   0%   0/8   Productization
 V1.0    ░░░░░░░░░░░░░░░░░░░░   0%   0/8   Release hardening & final evaluation
 ```
 █ done `[x]` · ▒ in progress or waiting on a 🧑 lab step `[~]` · ░ not started
+█ done `[x]` · ▒ in progress or waiting on a 🧑 lab step `[~]` · ░ not started
 
 ## Current Version
+**V0.14 — Unified planner v2** · started 2026-10-21 (team: "start V0.14", §7 on Lead recommendations) · brief `docs/briefs/V0.14-unified-planner-v2.md` (D290–D303) · ADR-0020 Proposed · G1 (0.14.1 replay + unified candidates) implementer running
 **V0.10 — Mode 3 Task Splitting** · started 2026-10-19 (team: proceed while away) · brief `docs/briefs/V0.10-task-splitting.md` (DRAFT, D259–D276) · ADR-0019 Proposed · **G1–G9 CLOSED** (D277–D288; 0.10.1–0.10.9 `[x]`) · **agent-side complete** · closes on 🧑 0.10.10 (`lab/checklists/V0.10-mode3.md`)
 **V0.9 — Benchmark & telemetry v1** · started 2026-10-17 · brief `docs/briefs/V0.9-benchmark-telemetry.md` (D211–D224, approved) · ADR-0018 · **G0, G1, G2 CLOSED** (D226, D231, D225; 0.9.1 + 0.9.2 `[x]`) · **G3 CLOSED** (D242; 0.9.3 + 0.9.4 `[x]`) · **G4 CLOSED** (D241–D245; 0.9.5 `[x]`, 2026-10-19) · **G5, G5c, G6 CLOSED** (D246–D258; 0.9.6–0.9.9 `[x]`) · **G7 CLOSED** (`c35ff3d`) · **agent-side complete**; closes on 🧑 0.9.10 (checklist part O)
 **V0.8 — Dashboard & CLI v1** · started 2026-10-15 · brief `docs/briefs/V0.8-dashboard-cli.md` (D169–D180, approved) · ADR-0017 · groups G1–G7 sequential · **G1–G7 CLOSED** (G7 2026-10-17, D210) — 0.8.1–0.8.9 `[x]`; agent-side complete; closes on 🧑 0.8.10 (`lab/checklists/V0.8-visual.md`)
@@ -43,7 +45,7 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 
 ## Current Task
 
-- **2026-10-21 (latest):** **V0.10-TD2 MERGED** (`15d515e0`, D304; reviewer APPROVE, tester PASS). Post-merge main: ruff + `mypy src` clean; unit 17578 passed; V0.10 cluster + TD1/TD2 component + owner-route 13 passed, exit 0. **V0.14 brief DRAFT** `docs/briefs/V0.14-unified-planner-v2.md` (D290–D303) awaiting team answers to §7 Q1–Q8. Next: team approves V0.14 → G1 (replay snapshot + unified candidates); 🧑 0.10.10 lab.
+- **2026-10-21 (latest):** **V0.10-TD2 MERGED** (`15d515e0`, D304; reviewer APPROVE, tester PASS). Post-merge main: ruff + `mypy src` clean; unit 17578 passed; V0.10 cluster + TD1/TD2 component + owner-route 13 passed, exit 0. V0.14 brief APPROVED (team: start; Q1–Q8 on recommendations); ADR-0020 written; **G1 implementer running**. TD worktrees removed (user OK).
 
 - **2026-10-21 (latest):** **V0.10-TD1 MERGED** (`ae1d0bbd`, D289; tester PASS, reviewer r1 B1 ReDoS fixed `acb90f4f`, r2 APPROVE). Post-merge main: ruff + `mypy src` clean; unit 17276 passed; V0.10 cluster + TD1 tries-API component 36 passed, exit 0. No roadmap checkbox changed (tech debt). Next: 🧑 0.10.10 lab; agent-side: remaining TD (see Technical Debt) or V0.14 brief (team to choose).
 
