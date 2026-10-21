@@ -262,6 +262,8 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
+**2026-10-21 (G2 ∥ G3 gates resumed) — RUNNING: G2 and G3 implementers finishing exit gates + Hand-off** in their worktrees (G2 `agent-aef81b3f80ac578c8` from `806665c8`, G3 `agent-a485a40c89a558f22` from `39e52ba3`). If the session dies: check each worktree's head + progress note Hand-off; rerun missing gates; then tester ∥ reviewer → merge G2 then G3 (REPLAY_VERSION→2).
+
 **2026-10-21 (G2 ∥ G3 STOPPED by user) — NOTHING RUNNING.** Brief §5a′/§5b/§5c committed `7d1e86a7` (D305–D308). Both implementers hit a usage limit, were resumed, then stopped by the user; code committed, trees clean, **no Hand-off yet**. G2 `.claude/worktrees/agent-aef81b3f80ac578c8` head `806665c8` (migration 0031, calibration fit/store/refresh/gate, CLI+API, explain, tests, OPERATIONS/ARCH §7) — unit gate green, rest of gates not run. G3 `.claude/worktrees/agent-a485a40c89a558f22` head `39e52ba3` (N1/N2/N4, risk, objectives, link_infeasible, pruning, latency bench, tests, explain, docs) — gates not run. Next: finish gates + Hand-off per group → tester ∥ reviewer → merge G2 then G3 (REPLAY_VERSION→2, D307). Normal mode.
 
 **2026-10-21 (G1 CLOSED) — NOTHING RUNNING.** V0.14 G1 merged `f72681c0`, 0.14.1 `[x]`. G1 worktree `.claude/worktrees/agent-a0a1e95c1ee7384ec` merged — removable with user OK. Next: write brief §5b (G2) + §5c (G3) — not written yet — then G2 ∥ G3; fold reviewer non-blocking N1/N2/N4 (STATUS Current Task) into G3.
