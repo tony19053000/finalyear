@@ -1173,6 +1173,16 @@ compute get <JOB_ID>               # outputs -> ./outputs/<JOB_ID>/ (--dest, --f
   bandwidth and an unknown run time; G4 measures links), the reason for each
   rejected node, and - once it ran - the actual phase times next to the
   prediction (`GET /v1/jobs/<id>/decisions`, `--json`).
+- **Replayable decisions (V0.14 G1, D292).** Every stored decision also keeps
+  the planner's exact inputs (`plan_decision.replay`: the job, and the nodes,
+  links and history the planner read for it - JSON, `replay_version` 1), so
+  the decision can be re-run later, with the same or another policy, and gives
+  the same answer (the V0.14 planner evaluator uses this). A replay larger
+  than `[controller.planner] replay_max_bytes` (65 536 bytes; 1 KiB - 1 MiB) is
+  not kept: the row has `replay = null`, the controller logs
+  `controller.jobs.replay_over_cap` with the size, and the job is placed
+  normally - a replay never delays or fails a job. Typical sizes: a few KiB
+  for a 4-laptop fabric.
 - `run -f` streams the logs and exits like the job: `0` succeeded; the workload's own
   exit code (1-125) when it failed; `126` when the fabric failed it (the failure type
   is printed: `node_lost`, `deadline_exceeded`, `output_error` …); `128` cancelled.

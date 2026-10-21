@@ -234,6 +234,9 @@ def test_every_reject_code_has_a_case() -> None:
     # V0.10 G3: the two split codes reject a Mode 3 *set*, never a node -
     # their cases are in tests/unit/controller/test_v10_g3_split_planner.py
     covered |= {RejectCode.SPLIT_TOO_SMALL, RejectCode.SPLIT_TOO_FEW_NODES}
+    # V0.14 G1 (D290): refuses a request kind, never a node - its case is in
+    # tests/unit/planner/test_v014_g1_candidates.py
+    covered |= {RejectCode.NOT_SUPPORTED_IN_BUILD}
     assert covered == set(RejectCode)
     assert {c for c, _, _ in STATIC_CASES} == STATIC_CODES
 
