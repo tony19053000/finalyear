@@ -335,3 +335,8 @@ app.add_typer(bench_app)
 from meshforge.cli.telemetry_commands import telemetry_app  # noqa: E402
 
 app.add_typer(telemetry_app)
+
+# V0.14 G2: `compute planner calibrate|calibration` (D293).
+from meshforge.cli.planner_commands import planner_app  # noqa: E402
+
+app.add_typer(planner_app)
