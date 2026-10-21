@@ -265,7 +265,11 @@ async def test_fit_activate_dispatch_with_it_and_replay_from_postgres(
     first = await calibrations.refresh(CFG)
     assert first.row is not None and first.matched_runs == 10
     row = first.row
-    assert row.status == "active" and row.reason is None
+    # V0.14 G4 (D319): no labelled benchmark group among these runs, so the
+    # regret check is skipped and says so in the row (the error check decided)
+    assert row.status == "active"
+    assert row.reason == "regret check skipped (too_few_groups: 0 < 10)"
+    assert row.fit_inputs["regret_check"] == "skipped"
     assert row.fit_inputs["pairs"] == 8 and row.fit_inputs["held_out"] == 2
     assert row.holdout_error_new is not None and row.holdout_error_active is not None
     assert row.holdout_error_new < row.holdout_error_active  # beats uncalibrated
