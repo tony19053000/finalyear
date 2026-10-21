@@ -467,7 +467,12 @@ def to_replay(
     """The replay of ``plan(request, snapshot, policy, now)`` (module
     docstring). ``projected=False`` keeps the whole snapshot (tests that
     compare digests with an unprojected plan). ``shadow`` = the shadow
-    plan's request (planned on :func:`idle_snapshot` at the same ``now``)."""
+    plan's request (planned on :func:`idle_snapshot` at the same ``now``).
+    :class:`ReplayError` for a naive (timezone-less) ``now``."""
+    # V0.14 G3 (G1 review N4): a naive ``now`` would be stored without its
+    # zone and replay against links measured in UTC - never write one
+    if now is not None and (now.tzinfo is None or now.utcoffset() is None):
+        raise ReplayError("a replay's now must be timezone-aware")
     view = project(request, snapshot) if projected else snapshot
     out: dict[str, Any] = {
         "replay_version": REPLAY_VERSION,
@@ -522,9 +527,42 @@ def _dnum(value: Any) -> Any:
         if not isinstance(tagged, str) or len(value) != 1:
             raise ReplayError("a number in the replay is malformed")
         return float(tagged)
-    if value is not None and not isinstance(value, int | float):
+    # V0.14 G3 (G1 review N2): ``True`` is an ``int`` to Python, never a number here
+    if value is not None and (
+        isinstance(value, bool) or not isinstance(value, int | float)
+    ):
         raise ReplayError("a number in the replay is not a number")
     return value
+
+
+# --- V0.14 G3 (G1 review N2): strict integer / boolean fields ---------------
+
+
+def _int(value: Any) -> int:
+    """An integer field: an ``int`` that is not a ``bool`` (``int("5")`` and
+    ``int(True)`` would silently accept a corrupt replay)."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ReplayError("an integer in the replay is not an integer")
+    return value
+
+
+def _int_or_none(value: Any) -> int | None:
+    return None if value is None else _int(value)
+
+
+def _ints(values: Any) -> tuple[int, ...]:
+    if not isinstance(values, list):
+        raise ReplayError("a list of integers in the replay is not a list")
+    return tuple(_int(v) for v in values)
+
+
+def _bool(value: Any) -> bool:
+    if not isinstance(value, bool):
+        raise ReplayError("a boolean in the replay is not a boolean")
+    return value
+
+
+# --- end V0.14 G3 (N2) -------------------------------------------------------
 
 
 def _dnums(values: Any) -> dict[str, Any]:
@@ -544,12 +582,12 @@ def _from_history(data: Mapping[str, Any]) -> History:
         by_node_s=_dnums(data["by_node_s"]),
         samples_by_node=_dnums(data["samples_by_node"]),
         output_bytes=_dnum(data["output_bytes"]),
-        output_samples=int(data["output_samples"]),
+        output_samples=_int(data["output_samples"]),
         env_hash_by_node={str(k): str(v) for k, v in data["env_hash_by_node"].items()},
         item_rate_by_node=_dnums(data["item_rate_by_node"]),
         item_rate_samples_by_node=_dnums(data["item_rate_samples_by_node"]),
         chunk_overhead_s=_dnum(data["chunk_overhead_s"]),
-        chunk_overhead_samples=int(data["chunk_overhead_samples"]),
+        chunk_overhead_samples=_int(data["chunk_overhead_samples"]),
     )
 
 
@@ -557,35 +595,35 @@ def _from_split(data: Mapping[str, Any] | None) -> SplitInfo | None:
     if data is None:
         return None
     return SplitInfo(
-        items=int(data["items"]),
-        item_bytes=data["item_bytes"],
+        items=_int(data["items"]),
+        item_bytes=_int_or_none(data["item_bytes"]),
         items_tree=_str_or_none(data["items_tree"]),
-        chunk_items=data["chunk_items"],
-        min_nodes=int(data["min_nodes"]),
-        max_nodes=data["max_nodes"],
+        chunk_items=_int_or_none(data["chunk_items"]),
+        min_nodes=_int(data["min_nodes"]),
+        max_nodes=_int_or_none(data["max_nodes"]),
     )
 
 
 def _from_request(data: Mapping[str, Any]) -> PlanRequest:
     return PlanRequest(
         job_id=str(data["job_id"]),
-        attempt_no=int(data["attempt_no"]),
+        attempt_no=_int(data["attempt_no"]),
         gpu=cast("GpuNeed", str(data["gpu"])),
-        vram_bytes=data["vram_bytes"],
-        ram_bytes=data["ram_bytes"],
+        vram_bytes=_int_or_none(data["vram_bytes"]),
+        ram_bytes=_int_or_none(data["ram_bytes"]),
         cpus=_dnum(data["cpus"]),
         base=str(data["base"]),
         env_key=str(data["env_key"]),
-        trees=tuple(TreeNeed(str(t["key"]), int(t["size"])) for t in data["trees"]),
+        trees=tuple(TreeNeed(str(t["key"]), _int(t["size"])) for t in data["trees"]),
         pinned_node_id=_str_or_none(data["pinned_node_id"]),
         submitter_node_id=_str_or_none(data["submitter_node_id"]),
-        seeded=bool(data["seeded"]),
+        seeded=_bool(data["seeded"]),
         fingerprint=_str_or_none(data["fingerprint"]),
         history=_from_history(data["history"]),
         excluded={str(k): str(v) for k, v in data["excluded"].items()},
         owner_name=_str_or_none(data["owner_name"]),
-        network=bool(data["network"]),
-        benchmark=bool(data["benchmark"]),
+        network=_bool(data["network"]),
+        benchmark=_bool(data["benchmark"]),
         split=_from_split(data["split"]),
         node_set=tuple(str(n) for n in data["node_set"]),
     )
@@ -595,17 +633,17 @@ def _from_policy(data: Mapping[str, Any] | None) -> OwnerPolicy | None:
     if data is None:
         return None
     return OwnerPolicy(
-        accept_jobs=bool(data["accept_jobs"]),
-        accept_gpu_sessions=bool(data["accept_gpu_sessions"]),
-        max_ram_bytes=data["max_ram_bytes"],
-        max_cpu_percent=data["max_cpu_percent"],
-        max_vram_bytes=data["max_vram_bytes"],
-        allow_unsandboxed=bool(data["allow_unsandboxed"]),
-        allow_network=bool(data["allow_network"]),
+        accept_jobs=_bool(data["accept_jobs"]),
+        accept_gpu_sessions=_bool(data["accept_gpu_sessions"]),
+        max_ram_bytes=_int_or_none(data["max_ram_bytes"]),
+        max_cpu_percent=_int_or_none(data["max_cpu_percent"]),
+        max_vram_bytes=_int_or_none(data["max_vram_bytes"]),
+        allow_unsandboxed=_bool(data["allow_unsandboxed"]),
+        allow_network=_bool(data["allow_network"]),
         allowed_users=tuple(str(u) for u in data["allowed_users"]),
         not_enforced=tuple(str(u) for u in data["not_enforced"]),
-        revision=int(data["revision"]),
-        pause_benchmarks=bool(data["pause_benchmarks"]),
+        revision=_int(data["revision"]),
+        pause_benchmarks=_bool(data["pause_benchmarks"]),
     )
 
 
@@ -613,28 +651,28 @@ def _from_node(data: Mapping[str, Any]) -> NodeSnapshot:
     return NodeSnapshot(
         node_id=str(data["node_id"]),
         state=str(data["state"]),
-        connected=bool(data["connected"]),
+        connected=_bool(data["connected"]),
         capabilities=frozenset(str(c) for c in data["capabilities"]),
-        ram_bytes=data["ram_bytes"],
-        cpu_threads=data["cpu_threads"],
-        gpu_vram_bytes=tuple(data["gpu_vram_bytes"]),
-        gpu_indices=tuple(data["gpu_indices"]),
-        busy_gpus=frozenset(data["busy_gpus"]),
-        cpu_slots=int(data["cpu_slots"]),
-        gpu_slots=int(data["gpu_slots"]),
-        used_cpu_slots=int(data["used_cpu_slots"]),
-        used_gpu_slots=int(data["used_gpu_slots"]),
-        live_attempts=int(data["live_attempts"]),
+        ram_bytes=_int_or_none(data["ram_bytes"]),
+        cpu_threads=_int_or_none(data["cpu_threads"]),
+        gpu_vram_bytes=_ints(data["gpu_vram_bytes"]),
+        gpu_indices=_ints(data["gpu_indices"]),
+        busy_gpus=frozenset(_ints(data["busy_gpus"])),
+        cpu_slots=_int(data["cpu_slots"]),
+        gpu_slots=_int(data["gpu_slots"]),
+        used_cpu_slots=_int(data["used_cpu_slots"]),
+        used_gpu_slots=_int(data["used_gpu_slots"]),
+        live_attempts=_int(data["live_attempts"]),
         cpu_percent=_dnum(data["cpu_percent"]),
-        ram_free_bytes=data["ram_free_bytes"],
-        disk_free_bytes=data["disk_free_bytes"],
+        ram_free_bytes=_int_or_none(data["ram_free_bytes"]),
+        disk_free_bytes=_int_or_none(data["disk_free_bytes"]),
         cpu_score=_dnum(data["cpu_score"]),
         gpu_score=_dnum(data["gpu_score"]),
         cached=frozenset(str(k) for k in data["cached"]),
         known_bad_envs=frozenset(str(k) for k in data["known_bad_envs"]),
-        cached_envs={str(k): v for k, v in data["cached_envs"].items()},
+        cached_envs={str(k): _int(v) for k, v in data["cached_envs"].items()},
         policy=_from_policy(data["policy"]),
-        owner_active=bool(data["owner_active"]),
+        owner_active=_bool(data["owner_active"]),
     )
 
 
@@ -645,7 +683,7 @@ def _from_config(data: Mapping[str, Any]) -> PlannerConfig:
         default_bw_bytes_s=_dnum(data["default_bw_bytes_s"]),
         default_compute_s=_dnum(data["default_compute_s"]),
         default_env_s=_dnum(data["default_env_s"]),
-        max_attempts_per_node=int(data["max_attempts_per_node"]),
+        max_attempts_per_node=_int(data["max_attempts_per_node"]),
         resource_weights=(w_ram, w_slots, w_score),
         link_stale_after_s=_dnum(data["link_stale_after_s"]),
         min_bw_bytes_s=_dnum(data["min_bw_bytes_s"]),
@@ -653,8 +691,8 @@ def _from_config(data: Mapping[str, Any]) -> PlannerConfig:
             split_margin=_dnum(split["split_margin"]),
             target_chunk_s=_dnum(split["target_chunk_s"]),
             max_overhead_frac=_dnum(split["max_overhead_frac"]),
-            min_chunks_per_node=int(split["min_chunks_per_node"]),
-            max_chunks=int(split["max_chunks"]),
+            min_chunks_per_node=_int(split["min_chunks_per_node"]),
+            max_chunks=_int(split["max_chunks"]),
             chunk_overhead_s=_dnum(split["chunk_overhead_s"]),
             tail_frac=_dnum(split["tail_frac"]),
         ),
@@ -670,7 +708,7 @@ def _from_snapshot(data: Mapping[str, Any]) -> ClusterSnapshot:
             (str(row["src"]), str(row["dst"])): LinkStat(
                 bw_bytes_s=_dnum(row["bw_bytes_s"]),
                 rtt_ms=_dnum(row["rtt_ms"]),
-                samples=int(row["samples"]),
+                samples=_int(row["samples"]),
                 measured_at=cast("dt.datetime", _dwhen(row["measured_at"])),
             )
             for row in data["links"]
@@ -678,14 +716,14 @@ def _from_snapshot(data: Mapping[str, Any]) -> ClusterSnapshot:
         controller_links={
             str(node_id): ControllerLinkStat(
                 bw_bytes_s=_dnum(row["bw_bytes_s"]),
-                samples=int(row["samples"]),
+                samples=_int(row["samples"]),
                 last_at=_dwhen(row["last_at"]),
             )
             for node_id, row in data["controller_links"].items()
         },
         env_builds={
             str(base): EnvBuildStat(
-                median_s=_dnum(row["median_s"]), samples=int(row["samples"])
+                median_s=_dnum(row["median_s"]), samples=_int(row["samples"])
             )
             for base, row in data["env_builds"].items()
         },

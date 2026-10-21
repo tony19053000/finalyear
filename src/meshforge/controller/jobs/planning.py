@@ -417,7 +417,24 @@ class DispatchPlanner:
             # D215 + G4 item 0.8 (D239.4): only a campaign's forced run needs the
             # would-have-chosen label; a user's pinned job skips the extra plan
             record, shadow = self._with_shadow(record, plan_job, view, job, past, now)
-        record = self._with_replay(record, job, plan_job, view, now, shadow)
+        outcome = self._whole_outcome(
+            job, manifest, decision, fabric, record, trees, snapshot, pinned
+        )
+        # V0.14 G3 (G1 review N1): the replay only for a row that is written
+        return self._attach_replay(outcome, job, fabric, plan_job, view, now, shadow)
+
+    def _whole_outcome(
+        self,
+        job: JobRecord,
+        manifest: Manifest,
+        decision: Decision,
+        fabric: FabricRows,
+        record: DecisionRecord,
+        trees: tuple[TreeNeed, ...],
+        snapshot: ClusterSnapshot,
+        pinned: str | None,
+    ) -> DispatchDecision:
+        """A whole job's decision as the store's answer (without the replay)."""
         if decision.chosen is not None:
             return self._dispatch(
                 job, manifest, decision, fabric, record, trees=trees, cluster=snapshot
@@ -527,7 +544,35 @@ class DispatchPlanner:
             # D215 extended (V0.10 G8): the would-have-chosen plan of a
             # campaign's forced split run - a node, or a Mode 3 set
             record, shadow = self._with_shadow(record, plan_job, view, job, past, now)
-        record = self._with_replay(record, job, plan_job, view, now, shadow)
+        outcome = self._split_outcome(
+            job,
+            manifest,
+            spec,
+            decision,
+            fabric,
+            record,
+            trees,
+            snapshot,
+            pinned,
+            forced,
+        )
+        # V0.14 G3 (G1 review N1): the replay only for a row that is written
+        return self._attach_replay(outcome, job, fabric, plan_job, view, now, shadow)
+
+    def _split_outcome(
+        self,
+        job: JobRecord,
+        manifest: Manifest,
+        spec: SplitSpec,
+        decision: Decision,
+        fabric: FabricRows,
+        record: DecisionRecord,
+        trees: tuple[TreeNeed, ...],
+        snapshot: ClusterSnapshot,
+        pinned: str | None,
+        forced: tuple[str, ...],
+    ) -> DispatchDecision:
+        """A split job's decision as the store's answer (without the replay)."""
         lanes = decision.split if decision.chosen is not None else None
         if lanes is None or not lanes.lanes:
             if forced:
@@ -831,6 +876,32 @@ class DispatchPlanner:
             request,
         )
 
+    def _attach_replay(
+        self,
+        outcome: DispatchDecision,
+        job: JobRecord,
+        fabric: FabricRows,
+        plan_job: PlanRequest,
+        snapshot: ClusterSnapshot,
+        now: dt.datetime,
+        shadow: PlanRequest | None,
+    ) -> DispatchDecision:
+        """V0.14 G3 (G1 review N1): ``outcome`` with its record's replay - built
+        only when the store will write the row: always for a dispatch or a
+        failure, for a :class:`Wait` only when its reason key differs from
+        the job's latest decision (D104; the store's own rule). A waiting job
+        re-planned every tick with the same reasons builds no replay."""
+        record = None if outcome is None else outcome.record
+        if outcome is None or record is None:
+            return outcome
+        if (
+            isinstance(outcome, Wait)
+            and fabric.last_reason.get(job.id) == record.reason_key
+        ):
+            return outcome
+        with_replay = self._with_replay(record, job, plan_job, snapshot, now, shadow)
+        return dataclasses.replace(outcome, record=with_replay)
+
     def _with_replay(
         self,
         record: DecisionRecord,
@@ -862,14 +933,26 @@ class DispatchPlanner:
             return record
         if replay is None:
             self.replays_over_cap += 1
-            log.warning(
-                "controller.jobs.replay_over_cap",
-                job_id=job.id,
-                replay_bytes=size,
-                replay_max_bytes=self._planner.replay_max_bytes,
-            )
+            # V0.14 G3 (G1 review N1): logged once per (job, reason key)
+            if self._first_time((job.id, f"over_cap:{record.reason_key}")):
+                log.warning(
+                    "controller.jobs.replay_over_cap",
+                    job_id=job.id,
+                    replay_bytes=size,
+                    replay_max_bytes=self._planner.replay_max_bytes,
+                )
             return record
         return dataclasses.replace(record, replay=replay, replay_version=REPLAY_VERSION)
+
+    def _first_time(self, key: tuple[str, str]) -> bool:
+        """True the first time ``key`` is seen (bounded memory, shared with the
+        planning-error log)."""
+        if key in self._errors_logged:
+            return False
+        self._errors_logged[key] = None
+        while len(self._errors_logged) > _ERRORS_LOGGED_MAX:
+            self._errors_logged.popitem(last=False)
+        return True
 
     @staticmethod
     def _forced_refused(decision: Decision, record: DecisionRecord) -> DispatchDecision:
