@@ -397,6 +397,12 @@ def _obj(value: Any) -> Mapping[str, Any]:
     return value
 
 
+def _text(value: Any) -> str:
+    if not isinstance(value, str):
+        raise CalibrationError("a family is not a string")
+    return value
+
+
 def calibration_from_json(version: int, data: Any) -> Calibration:
     """:func:`calibration_json` back; :class:`CalibrationError` when it cannot
     be read (never a partly read calibration)."""
@@ -415,11 +421,10 @@ def calibration_from_json(version: int, data: Any) -> Calibration:
                     for node_id, by in _obj(table["node_family"]).items()
                 },
             )
-        families: dict[str, str] = {}
-        for fingerprint, family in _obj(data["families"]).items():
-            if not isinstance(family, str):
-                raise CalibrationError("a family is not a string")
-            families[str(fingerprint)] = family
+        families = {
+            str(fingerprint): _text(family)
+            for fingerprint, family in _obj(data["families"]).items()
+        }
     except CalibrationError:
         raise
     except (KeyError, TypeError, ValueError, AttributeError) as exc:
