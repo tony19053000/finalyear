@@ -422,6 +422,40 @@
         "title": "BlobStored",
         "type": "object"
       },
+      "BootstrapCIOut": {
+        "additionalProperties": false,
+        "description": "Percentile bootstrap CI of a mean (None = no counted group).",
+        "properties": {
+          "high": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "High"
+          },
+          "low": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Low"
+          }
+        },
+        "required": [
+          "low",
+          "high"
+        ],
+        "title": "BootstrapCIOut",
+        "type": "object"
+      },
       "CacheCount": {
         "additionalProperties": false,
         "description": "Items of one kind in a node's caches (V0.5 D101).",
@@ -638,6 +672,69 @@
           "reason"
         ],
         "title": "CalibrationSummaryOut",
+        "type": "object"
+      },
+      "CalibrationUsedOut": {
+        "additionalProperties": false,
+        "properties": {
+          "digest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Digest"
+          },
+          "excluded_runs": {
+            "title": "Excluded Runs",
+            "type": "integer"
+          },
+          "factors": {
+            "title": "Factors",
+            "type": "integer"
+          },
+          "family": {
+            "title": "Family",
+            "type": "string"
+          },
+          "fitted_runs": {
+            "title": "Fitted Runs",
+            "type": "integer"
+          },
+          "source": {
+            "enum": [
+              "refit",
+              "active",
+              "none"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          }
+        },
+        "required": [
+          "family",
+          "source",
+          "version",
+          "fitted_runs",
+          "excluded_runs",
+          "factors",
+          "digest"
+        ],
+        "title": "CalibrationUsedOut",
         "type": "object"
       },
       "CalibrationViewOut": {
@@ -2274,6 +2371,423 @@
         "title": "EstimateOut",
         "type": "object"
       },
+      "EvalConfigOut": {
+        "additionalProperties": false,
+        "description": "One measured (or unsupported) configuration of a group.",
+        "properties": {
+          "config_id": {
+            "title": "Config Id",
+            "type": "string"
+          },
+          "median_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Median Ms"
+          },
+          "node_id": {
+            "title": "Node Id",
+            "type": "string"
+          },
+          "node_set": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Node Set",
+            "type": "array"
+          },
+          "origin_node_id": {
+            "title": "Origin Node Id",
+            "type": "string"
+          },
+          "repetitions": {
+            "title": "Repetitions",
+            "type": "integer"
+          },
+          "state": {
+            "enum": [
+              "measured",
+              "unsupported"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "strategy": {
+            "title": "Strategy",
+            "type": "string"
+          }
+        },
+        "required": [
+          "config_id",
+          "strategy",
+          "node_id",
+          "origin_node_id",
+          "node_set",
+          "state",
+          "median_ms",
+          "repetitions"
+        ],
+        "title": "EvalConfigOut",
+        "type": "object"
+      },
+      "EvalCountsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "evaluated_groups": {
+            "title": "Evaluated Groups",
+            "type": "integer"
+          },
+          "groups": {
+            "title": "Groups",
+            "type": "integer"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Labels",
+            "type": "object"
+          },
+          "no_replay_groups": {
+            "title": "No Replay Groups",
+            "type": "integer"
+          },
+          "records": {
+            "title": "Records",
+            "type": "integer"
+          },
+          "records_skipped": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Records Skipped",
+            "type": "object"
+          },
+          "records_used": {
+            "title": "Records Used",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "groups",
+          "evaluated_groups",
+          "labels",
+          "no_replay_groups",
+          "records",
+          "records_used",
+          "records_skipped"
+        ],
+        "title": "EvalCountsOut",
+        "type": "object"
+      },
+      "EvalReportListOut": {
+        "additionalProperties": false,
+        "properties": {
+          "reports": {
+            "items": {
+              "$ref": "#/components/schemas/EvalReportSummaryOut"
+            },
+            "title": "Reports",
+            "type": "array"
+          }
+        },
+        "required": [
+          "reports"
+        ],
+        "title": "EvalReportListOut",
+        "type": "object"
+      },
+      "EvalReportOut": {
+        "additionalProperties": false,
+        "description": "``planner_eval_report.report`` (``eval_version`` 1).",
+        "properties": {
+          "calibrations": {
+            "items": {
+              "$ref": "#/components/schemas/CalibrationUsedOut"
+            },
+            "title": "Calibrations",
+            "type": "array"
+          },
+          "campaign_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Campaign Ids",
+            "type": "array"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/EvalCountsOut"
+          },
+          "eval_version": {
+            "title": "Eval Version",
+            "type": "integer"
+          },
+          "families": {
+            "items": {
+              "$ref": "#/components/schemas/FamilyResultOut"
+            },
+            "title": "Families",
+            "type": "array"
+          },
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/GroupResultOut"
+            },
+            "title": "Groups",
+            "type": "array"
+          },
+          "holdout": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Holdout"
+          },
+          "leaked": {
+            "title": "Leaked",
+            "type": "boolean"
+          },
+          "policies": {
+            "items": {
+              "$ref": "#/components/schemas/PolicyResultOut"
+            },
+            "title": "Policies",
+            "type": "array"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/EvalSettingsOut"
+          },
+          "verdicts": {
+            "items": {
+              "$ref": "#/components/schemas/VerdictOut"
+            },
+            "title": "Verdicts",
+            "type": "array"
+          }
+        },
+        "required": [
+          "eval_version",
+          "campaign_ids",
+          "holdout",
+          "leaked",
+          "settings",
+          "counts",
+          "verdicts",
+          "policies",
+          "families",
+          "calibrations",
+          "groups"
+        ],
+        "title": "EvalReportOut",
+        "type": "object"
+      },
+      "EvalReportRecordOut": {
+        "additionalProperties": false,
+        "description": "One stored report (``GET /v1/planner/eval-reports/{id}``, and what\n``POST`` answers).",
+        "properties": {
+          "campaign_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Campaign Ids",
+            "type": "array"
+          },
+          "created_at": {
+            "$ref": "#/components/schemas/Utc"
+          },
+          "holdout": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Holdout"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "leaked": {
+            "title": "Leaked",
+            "type": "boolean"
+          },
+          "report": {
+            "$ref": "#/components/schemas/EvalReportOut"
+          }
+        },
+        "required": [
+          "id",
+          "created_at",
+          "campaign_ids",
+          "holdout",
+          "leaked",
+          "report"
+        ],
+        "title": "EvalReportRecordOut",
+        "type": "object"
+      },
+      "EvalReportSummaryOut": {
+        "additionalProperties": false,
+        "description": "One stored report in the list (no groups).",
+        "properties": {
+          "campaign_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Campaign Ids",
+            "type": "array"
+          },
+          "created_at": {
+            "$ref": "#/components/schemas/Utc"
+          },
+          "eval_version": {
+            "title": "Eval Version",
+            "type": "integer"
+          },
+          "evaluated_groups": {
+            "title": "Evaluated Groups",
+            "type": "integer"
+          },
+          "holdout": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Holdout"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "leaked": {
+            "title": "Leaked",
+            "type": "boolean"
+          },
+          "verdicts": {
+            "items": {
+              "$ref": "#/components/schemas/VerdictOut"
+            },
+            "title": "Verdicts",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "created_at",
+          "campaign_ids",
+          "holdout",
+          "leaked",
+          "eval_version",
+          "evaluated_groups",
+          "verdicts"
+        ],
+        "title": "EvalReportSummaryOut",
+        "type": "object"
+      },
+      "EvalRequestIn": {
+        "additionalProperties": false,
+        "description": "``POST /v1/planner/eval-reports`` (admin): evaluate and store.",
+        "properties": {
+          "allow_leak": {
+            "default": false,
+            "description": "Debugging only: use the live calibration instead of held-out refits; every verdict is stamped 'leaked'.",
+            "title": "Allow Leak",
+            "type": "boolean"
+          },
+          "campaign_ids": {
+            "description": "The benchmark campaigns to evaluate (their labelled groups).",
+            "items": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Campaign Ids",
+            "type": "array"
+          },
+          "holdout": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Evaluate only this workload family (held out of the calibration refit).",
+            "title": "Holdout"
+          }
+        },
+        "required": [
+          "campaign_ids"
+        ],
+        "title": "EvalRequestIn",
+        "type": "object"
+      },
+      "EvalSettingsOut": {
+        "additionalProperties": false,
+        "description": "The fixed numbers a report was computed with (all in the report, so\nit can be recomputed byte for byte).",
+        "properties": {
+          "bootstrap_resamples": {
+            "title": "Bootstrap Resamples",
+            "type": "integer"
+          },
+          "bootstrap_seed": {
+            "title": "Bootstrap Seed",
+            "type": "integer"
+          },
+          "ci_level": {
+            "title": "Ci Level",
+            "type": "number"
+          },
+          "criterion_policy": {
+            "title": "Criterion Policy",
+            "type": "string"
+          },
+          "min_groups": {
+            "title": "Min Groups",
+            "type": "integer"
+          },
+          "regret_threshold_pct": {
+            "title": "Regret Threshold Pct",
+            "type": "number"
+          },
+          "within_target_pct": {
+            "title": "Within Target Pct",
+            "type": "number"
+          }
+        },
+        "required": [
+          "regret_threshold_pct",
+          "within_target_pct",
+          "min_groups",
+          "bootstrap_resamples",
+          "bootstrap_seed",
+          "ci_level",
+          "criterion_policy"
+        ],
+        "title": "EvalSettingsOut",
+        "type": "object"
+      },
       "ExpansionSummary": {
         "additionalProperties": false,
         "properties": {
@@ -2439,6 +2953,76 @@
         ],
         "title": "FailureType",
         "type": "string"
+      },
+      "FamilyResultOut": {
+        "additionalProperties": false,
+        "properties": {
+          "counted_groups": {
+            "title": "Counted Groups",
+            "type": "integer"
+          },
+          "family": {
+            "title": "Family",
+            "type": "string"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "mean_regret_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mean Regret Ms"
+          },
+          "mean_regret_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mean Regret Pct"
+          },
+          "no_replay_groups": {
+            "title": "No Replay Groups",
+            "type": "integer"
+          },
+          "unmeasured_groups": {
+            "title": "Unmeasured Groups",
+            "type": "integer"
+          },
+          "within_threshold_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Within Threshold Pct"
+          }
+        },
+        "required": [
+          "family",
+          "key",
+          "counted_groups",
+          "unmeasured_groups",
+          "no_replay_groups",
+          "mean_regret_pct",
+          "mean_regret_ms",
+          "within_threshold_pct"
+        ],
+        "title": "FamilyResultOut",
+        "type": "object"
       },
       "FinalLogSummary": {
         "additionalProperties": false,
@@ -2686,6 +3270,190 @@
         ],
         "title": "GroupLabelOut",
         "type": "object"
+      },
+      "GroupPickOut": {
+        "additionalProperties": false,
+        "properties": {
+          "config_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Config Id"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "regret_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Regret Ms"
+          },
+          "regret_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Regret Pct"
+          },
+          "status": {
+            "$ref": "#/components/schemas/PickStatus"
+          },
+          "votes": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Votes",
+            "type": "object"
+          }
+        },
+        "required": [
+          "key",
+          "status",
+          "config_id",
+          "regret_pct",
+          "regret_ms",
+          "votes"
+        ],
+        "title": "GroupPickOut",
+        "type": "object"
+      },
+      "GroupResultOut": {
+        "additionalProperties": false,
+        "properties": {
+          "best_config_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Config Id"
+          },
+          "best_median_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Median Ms"
+          },
+          "campaign_id": {
+            "title": "Campaign Id",
+            "type": "string"
+          },
+          "condition": {
+            "title": "Condition",
+            "type": "string"
+          },
+          "configs": {
+            "items": {
+              "$ref": "#/components/schemas/EvalConfigOut"
+            },
+            "title": "Configs",
+            "type": "array"
+          },
+          "excluded_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Excluded Reason"
+          },
+          "family": {
+            "title": "Family",
+            "type": "string"
+          },
+          "group_id": {
+            "title": "Group Id",
+            "type": "string"
+          },
+          "label": {
+            "enum": [
+              "best",
+              "tie",
+              "insufficient",
+              "pending"
+            ],
+            "title": "Label",
+            "type": "string"
+          },
+          "picks": {
+            "items": {
+              "$ref": "#/components/schemas/GroupPickOut"
+            },
+            "title": "Picks",
+            "type": "array"
+          },
+          "records": {
+            "title": "Records",
+            "type": "integer"
+          },
+          "records_used": {
+            "title": "Records Used",
+            "type": "integer"
+          },
+          "status": {
+            "$ref": "#/components/schemas/GroupStatus"
+          },
+          "tied_config_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tied Config Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "campaign_id",
+          "group_id",
+          "family",
+          "condition",
+          "label",
+          "best_config_id",
+          "tied_config_ids",
+          "best_median_ms",
+          "status",
+          "excluded_reason",
+          "records",
+          "records_used",
+          "configs",
+          "picks"
+        ],
+        "title": "GroupResultOut",
+        "type": "object"
+      },
+      "GroupStatus": {
+        "enum": [
+          "evaluated",
+          "excluded",
+          "no_replay"
+        ],
+        "type": "string"
       },
       "Health": {
         "description": "``GET /healthz``: ``ok`` or ``degraded`` (still 200).",
@@ -4769,6 +5537,14 @@
         "title": "PairFailureOut",
         "type": "object"
       },
+      "PickStatus": {
+        "enum": [
+          "counted",
+          "unmeasured",
+          "no_replay"
+        ],
+        "type": "string"
+      },
       "Placement": {
         "additionalProperties": false,
         "properties": {
@@ -4833,6 +5609,14 @@
         "title": "Placement",
         "type": "object"
       },
+      "PolicyKind": {
+        "enum": [
+          "rule",
+          "cost_model",
+          "oracle"
+        ],
+        "type": "string"
+      },
       "PolicyName": {
         "enum": [
           "random",
@@ -4844,6 +5628,113 @@
           "cost_model"
         ],
         "type": "string"
+      },
+      "PolicyResultOut": {
+        "additionalProperties": false,
+        "properties": {
+          "calibrated": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Calibrated"
+          },
+          "ci_pct": {
+            "$ref": "#/components/schemas/BootstrapCIOut"
+          },
+          "counted_groups": {
+            "title": "Counted Groups",
+            "type": "integer"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/PolicyKind"
+          },
+          "mean_regret_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mean Regret Ms"
+          },
+          "mean_regret_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mean Regret Pct"
+          },
+          "no_replay_groups": {
+            "title": "No Replay Groups",
+            "type": "integer"
+          },
+          "objective": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Objective"
+          },
+          "policy": {
+            "title": "Policy",
+            "type": "string"
+          },
+          "unmeasured_groups": {
+            "title": "Unmeasured Groups",
+            "type": "integer"
+          },
+          "within_threshold_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Within Threshold Pct"
+          },
+          "zero_regret_groups": {
+            "title": "Zero Regret Groups",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "key",
+          "policy",
+          "kind",
+          "calibrated",
+          "objective",
+          "counted_groups",
+          "unmeasured_groups",
+          "no_replay_groups",
+          "mean_regret_pct",
+          "ci_pct",
+          "mean_regret_ms",
+          "within_threshold_pct",
+          "zero_regret_groups"
+        ],
+        "title": "PolicyResultOut",
+        "type": "object"
       },
       "PrepareStarted": {
         "additionalProperties": false,
@@ -6708,6 +7599,83 @@
         "type": "object"
       },
       "Utc": {
+        "type": "string"
+      },
+      "VerdictOut": {
+        "additionalProperties": false,
+        "properties": {
+          "counted_groups": {
+            "title": "Counted Groups",
+            "type": "integer"
+          },
+          "criterion": {
+            "enum": [
+              1,
+              2
+            ],
+            "title": "Criterion",
+            "type": "integer"
+          },
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/VerdictStatus"
+          },
+          "threshold": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Threshold"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "would_be": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VerdictStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "criterion",
+          "status",
+          "would_be",
+          "value",
+          "threshold",
+          "counted_groups",
+          "detail"
+        ],
+        "title": "VerdictOut",
+        "type": "object"
+      },
+      "VerdictStatus": {
+        "enum": [
+          "PASS",
+          "FAIL",
+          "not_separable",
+          "too_few_groups",
+          "leaked"
+        ],
         "type": "string"
       },
       "WhoAmI": {
@@ -13404,6 +14372,362 @@
           }
         },
         "summary": "Get Calibration",
+        "tags": [
+          "planner"
+        ]
+      }
+    },
+    "/v1/planner/eval-reports": {
+      "get": {
+        "operationId": "list_eval_reports_v1_planner_eval_reports_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvalReportListOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid input (`invalid_input`)"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No, or no longer a valid, credential (`unauthorized`)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not allowed: admin only, CSRF, foreign origin (`unauthorized`)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found - also another user's object (`not_found`)"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict (`conflict`, `no_feasible_plan`)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid parameters (`invalid_input`)"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Rate limited; see Retry-After (`resource_busy`)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A dependency (the database) is unavailable; retry (`network_error`)"
+          }
+        },
+        "summary": "The newest planner evaluation reports (summaries)",
+        "tags": [
+          "planner"
+        ]
+      },
+      "post": {
+        "description": "Evaluate and store a report (module docstring).",
+        "operationId": "create_eval_report_v1_planner_eval_reports_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EvalRequestIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvalReportRecordOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid input (`invalid_input`)"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No, or no longer a valid, credential (`unauthorized`)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not allowed: admin only, CSRF, foreign origin (`unauthorized`)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found - also another user's object (`not_found`)"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict (`conflict`, `no_feasible_plan`)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid parameters (`invalid_input`)"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Rate limited; see Retry-After (`resource_busy`)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A dependency (the database) is unavailable; retry (`network_error`)"
+          }
+        },
+        "summary": "Evaluate benchmark campaigns: regret of every policy (admin)",
+        "tags": [
+          "planner"
+        ]
+      }
+    },
+    "/v1/planner/eval-reports/{report_id}": {
+      "get": {
+        "operationId": "get_eval_report_v1_planner_eval_reports__report_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "report_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Report Id",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "json (default) or markdown.",
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "json",
+              "description": "json (default) or markdown.",
+              "enum": [
+                "json",
+                "markdown"
+              ],
+              "title": "Format",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvalReportRecordOut"
+                }
+              },
+              "text/markdown; charset=utf-8": {}
+            },
+            "description": "JSON (default) or, with format=markdown, the report rendered as Markdown"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid input (`invalid_input`)"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No, or no longer a valid, credential (`unauthorized`)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not allowed: admin only, CSRF, foreign origin (`unauthorized`)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found - also another user's object (`not_found`)"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict (`conflict`, `no_feasible_plan`)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid parameters (`invalid_input`)"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Rate limited; see Retry-After (`resource_busy`)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A dependency (the database) is unavailable; retry (`network_error`)"
+          }
+        },
+        "summary": "One planner evaluation report (JSON or Markdown)",
         "tags": [
           "planner"
         ]
