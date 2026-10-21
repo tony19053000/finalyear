@@ -379,9 +379,8 @@ def placed_as_run(placement: object, node_id: str, node_set: object) -> bool:
     if not isinstance(placement, dict):
         return False
     if node_set is not None:
-        return placement.get("node_id") is None and placement.get("node_set") == list(
-            node_set
-        )
+        wanted = list(node_set) if isinstance(node_set, list | tuple) else None
+        return placement.get("node_id") is None and placement.get("node_set") == wanted
     return placement.get("node_id") == node_id
 
 

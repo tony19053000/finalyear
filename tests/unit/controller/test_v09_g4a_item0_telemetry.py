@@ -96,7 +96,7 @@ def _bench(params: dict[str, Any], **workload: Any) -> RecordSource:
 
 
 def test_schema_is_v2_with_the_three_new_columns() -> None:
-    assert SCHEMA_VERSION == 2
+    assert SCHEMA_VERSION == 3  # V0.10 G8
     assert set(SCHEMA_FINGERPRINTS) == {1, 2}
     assert SCHEMA_FINGERPRINTS[1] == (
         "69e443de70cbb8bbd25fb04662510910c649b812ad16000ede6d092948df723a"
@@ -125,7 +125,7 @@ def test_the_condition_width_matches_the_model() -> None:
 
 def test_builder_writes_v2_and_fills_the_condition_columns() -> None:
     record = build_record(_run("cpu_load:2", {"cpu_busy_cores": 1.93, "window_s": 2.0}))
-    assert record["schema_version"] == 2
+    assert record["schema_version"] == 3
     assert record["condition"] == "cpu_load:2"
     assert record["condition_measured"]["agent"] == {
         "cpu_busy_cores": 1.93,
@@ -219,7 +219,7 @@ def test_export_carries_the_v2_columns_and_v1_rows_side_by_side() -> None:
     assert table.schema.names == list(COLUMN_NAMES)
     assert table.schema.metadata[b"meshforge.telemetry.schema_version"] == b"2"
     rows = {r["attempt_id"]: r for r in table.to_pylist()}
-    assert rows["att_b"]["schema_version"] == 2
+    assert rows["att_b"]["schema_version"] == 3
     assert rows["att_b"]["result_schema_version"] == 1
     assert rows["att_b"]["condition"] == "queue:2"
     assert rows["att_b"]["condition_measured"] == '{"queue_depth":3}'

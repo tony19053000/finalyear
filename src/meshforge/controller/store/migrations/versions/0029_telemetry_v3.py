@@ -30,6 +30,7 @@ Create Date: 2026-10-21
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import Any
 
 import sqlalchemy as sa
 from alembic import op
@@ -66,7 +67,7 @@ def _strategy_check(values: str) -> None:
 
 def upgrade() -> None:
     _strategy_check(STRATEGIES_0029)
-    columns: list[sa.Column[object]] = [
+    columns: list[sa.Column[Any]] = [
         sa.Column("attempt_role", sa.String(length=_SHORT), nullable=True),
         sa.Column("planner_strategy", sa.String(length=_SHORT), nullable=True),
         sa.Column("planner_node_set", _JSONB, nullable=True),

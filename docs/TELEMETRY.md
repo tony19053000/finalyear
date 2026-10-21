@@ -1,7 +1,7 @@
 # Telemetry — run records and the dataset (V0.9, ADR-0018)
 
 The planner learns from recorded runs (V0.14 planner v2, V0.15 ML planner). This page is the human copy of
-**telemetry schema version 2** (v1 + three columns, V0.9 G4) — the code is `src/meshforge/controller/telemetry/schema.py`, and a unit test
+**telemetry schema version 3** (v2 + the Mode 3 columns and the chunk records, V0.10 G8) — the code is `src/meshforge/controller/telemetry/schema.py`, and a unit test
 fails if this table, the `run_record` table, the export and the declaration drift apart.
 
 ## Two layers (D211)
@@ -102,6 +102,7 @@ skipped the same way (`error_type` `job_missing`) instead of failing the sweep.
 |---|---|---|
 | 1 | first published shape (V0.9 G1) | 0021 |
 | 2 | adds `result_schema_version`, `condition`, `condition_measured` (V0.9 G4, D233.3/D241) | 0023 |
+| 3 | adds `attempt_role`, `planner_strategy`, `planner_node_set`, the `split_*` columns and the `chunk_record` table (`chunks.parquet`); `strategy` gains `mode3` (V0.10 G8, D271) | 0029 |
 
 A row keeps the version it was written under: v1 rows (written before 0023) have `schema_version` 1 and null
 in the three v2 columns; the file metadata names the version the export was written with (2). Read each
@@ -136,7 +137,7 @@ A campaign's **queue filler** / **cache warm-up** job (no campaign identity) has
 `condition_measured = {"bench_role": "filler" | "warmup", "run_id": "<bench run>"}` (and none of the keys above).
 Labels and planner-training queries must exclude rows where `condition_measured->>'bench_role'` is set.
 
-## Columns — schema version 2
+## Columns — schema version 3
 
 Types: `text`, `int64`, `float64`, `bool`, `json` (JSONB / canonical JSON text in Parquet), `timestamp`
 (UTC, µs). "null" = the value was not measured or does not apply — never an invented 0.
@@ -147,6 +148,7 @@ Types: `text`, `int64`, `float64`, `bool`, `json` (JSONB / canonical JSON text i
 | `attempt_id` | text | no | The attempt (primary key). |
 | `job_id` | text | no | The job the attempt belongs to. |
 | `attempt_no` | int64 | no | The attempt's fencing token (1 = first). |
+| `attempt_role` | text | yes | run / lane / combine (v3); the combine that ended a split job is the job row; null = written before v3 (a whole run). |
 | `campaign_id` | text | yes | Benchmark campaign (V0.9 G3); null = not a benchmark. |
 | `group_id` | text | yes | Label group: same workload + params + conditions (D218). |
 | `config_id` | text | yes | Campaign configuration (group x strategy). |
@@ -154,11 +156,13 @@ Types: `text`, `int64`, `float64`, `bool`, `json` (JSONB / canonical JSON text i
 | `fingerprint` | text | yes | D108 workload fingerprint (64 hex). |
 | `node_id` | text | no | The node that ran the attempt. |
 | `submitter_node_id` | text | yes | The submitting laptop's own node, if known. |
-| `strategy` | text | no | local = ran on the submitter's node; mode1 = elsewhere. |
+| `strategy` | text | no | local = ran on the submitter's node; mode1 = elsewhere; mode3 = a split job run over a node set (v3). |
 | `placement_mode` | text | no | pinned (forced node) or auto (planner chose). |
 | `policy` | text | yes | Placement policy the planner used. |
-| `planner_node_id` | text | yes | Auto jobs: the node the planner chose. Pinned jobs (V0.9 G3 shadow plan, D215/D235, `plan_decision.shadow_chosen_node_id`): the node the planner **prefers** - the same request unpinned with slot occupancy ignored (every slot of a healthy node counted free) but feasibility, health and retry exclusions kept; a *preference* label, not "what would have run that second". Only benchmark (campaign) jobs get the shadow plan (G4 item 0.8): a user's pinned job has null. Null also = no node feasible, or a decision from before G3. |
-| `planner_estimate_s` | float64 | yes | The planner's estimate for the node used (s). |
+| `planner_node_id` | text | yes | Node the planner chose (auto) or prefers unpinned (pinned: D215/D235 shadow plan, slot occupancy ignored); null = none feasible / older. |
+| `planner_estimate_s` | float64 | yes | The planner's estimate for the node used (s); split jobs: for the candidate of the job's strategy (its predicted makespan). |
+| `planner_strategy` | text | yes | local / mode1 / mode3 the planner chose (auto) or would have chosen (pinned / forced, D215) (v3); null = none feasible / older. |
+| `planner_node_set` | json | yes | mode3 pick: the planner's node set, fastest first (v3); null otherwise. |
 | `workload_family` | text | yes | Benchmark family (results/workload.json); null = not a benchmark. |
 | `workload_params` | json | yes | Benchmark parameters as the workload reported them. |
 | `workload_seed` | int64 | yes | Benchmark seed. |
@@ -166,7 +170,7 @@ Types: `text`, `int64`, `float64`, `bool`, `json` (JSONB / canonical JSON text i
 | `workload_device` | text | yes | cpu / cuda as the workload reported it. |
 | `result_schema_version` | int64 | yes | schema_version of the workload's results/workload.json (v2). |
 | `p_n` | int64 | yes | Flattened parameter n. |
-| `p_repeats` | int64 | yes | Flattened parameter repeats (compute_ns covers all repeats). |
+| `p_repeats` | int64 | yes | Flattened parameter repeats. |
 | `p_size_mb` | int64 | yes | Flattened parameter size_mb. |
 | `p_size` | int64 | yes | Flattened parameter size. |
 | `p_batch` | int64 | yes | Flattened parameter batch. |
@@ -179,6 +183,15 @@ Types: `text`, `int64`, `float64`, `bool`, `json` (JSONB / canonical JSON text i
 | `runtime` | text | yes | docker / venv / subprocess as the agent reported it. |
 | `condition` | text | yes | The run's benchmark condition, canonical name[:arg] (none = baseline); null = not a benchmark / older. |
 | `condition_measured` | json | yes | What was measured when the condition was applied and verified. |
+| `split_node_set` | json | yes | Split jobs: the lanes' nodes of the job's first plan, fastest first. |
+| `split_items` | int64 | yes | Split jobs: items the job resolved to. |
+| `split_chunk_items` | int64 | yes | Split jobs: items per chunk (first plan). |
+| `split_chunks` | int64 | yes | Split jobs: chunks (first plan). |
+| `split_predicted_s` | float64 | yes | Split jobs: the first plan's predicted makespan (s). |
+| `split_makespan_ms` | int64 | yes | Job row: first lane RUNNING -> job end (controller clock, D274 C2). |
+| `split_job_ms` | int64 | yes | Job row: first lane dispatched -> job end (controller clock): lane staging, every chunk and the combine - the split job's cost. |
+| `split_combine_ms` | int64 | yes | Job row: the combine's run time, on its agent. |
+| `split_ideal_bound_s` | float64 | yes | Job row: items / sum of the lanes' measured items/s + the slowest lane's stage + env + the combine (D274, from this job's own chunks). |
 | `node_state` | text | yes | Node liveness state at dispatch. |
 | `node_rtt_ms` | float64 | yes | Controller <-> node RTT EWMA at dispatch (ms). |
 | `node_cpu_percent` | float64 | yes | Node CPU utilisation at dispatch (%). |
@@ -220,6 +233,45 @@ Types: `text`, `int64`, `float64`, `bool`, `json` (JSONB / canonical JSON text i
 | `attempt_ended_at` | timestamp | yes | When the attempt ended (controller clock). |
 | `recorded_at` | timestamp | no | When this record was written. |
 
+## Chunk records — `chunk_record` / `chunks.parquet` (schema version 3, V0.10 G8, D271)
+
+One row per chunk lease of a split job that ended with an applied result (committed, lost, failed),
+plus the other leases of a committed chunk (a speculative copy that lost - `superseded` - and tries that
+`expired` or were `released`), written **in the transaction that applied the result** (checklist 35).
+Leases of a chunk that never committed (the job failed or was cancelled) have rows only for their failed
+tries. Durations are the agent's monotonic measurements. The table also keeps each try's `stderr_tail`
+(redacted on the agent, bounded by `[controller.split] chunk_stderr_tail_bytes` / `chunk_stderr_ok_bytes`)
+for `GET /v1/jobs/{id}/chunks/{index}/tries` - it is **never exported**.
+Export: `compute telemetry export --table chunks [--campaign ID] [--since TIME] -o chunks.parquet`
+(`GET /v1/telemetry/export?table=chunks`; a campaign's = the chunks of the jobs its run records name;
+rows ordered by `(job_id, chunk_index, lease_seq)`, same pinned writer options, D222).
+
+| column | type | null | meaning |
+|---|---|---|---|
+| `schema_version` | int64 | no | Telemetry schema version of this row. |
+| `job_id` | text | no | The split job. |
+| `chunk_index` | int64 | no | The chunk (0-based, in item order). |
+| `lease_seq` | int64 | no | The lease's sequence number for this chunk (1 = first try). |
+| `lane_attempt_id` | text | no | The lane attempt that held the lease. |
+| `node_id` | text | no | The lane's node. |
+| `first_item` | int64 | no | Index of the chunk's first item. |
+| `items` | int64 | no | Items in the chunk. |
+| `speculative` | bool | no | The lease was a speculative copy (D266). |
+| `won` | bool | no | This lease's result is the committed one. |
+| `outcome` | text | no | committed / lost / failed / superseded / released / expired. |
+| `failure_type` | text | yes | Typed failure of a failed try. |
+| `failure_class` | text | no | ok / workload / infrastructure / unavailable (as the run record). |
+| `exit_code` | int64 | yes | The chunk process's exit code. |
+| `result_digest` | text | yes | Digest of the chunk's packed output (done tries). |
+| `bytes_in` | int64 | yes | Bytes the agent placed as the chunk's inputs. |
+| `bytes_out` | int64 | yes | Bytes of the packed output the lane's grant stored. |
+| `stage_ms` | int64 | yes | Agent: the chunk's input staging (monotonic). |
+| `env_ms` | int64 | yes | Agent: environment work for this chunk (monotonic). |
+| `run_ms` | int64 | yes | Agent: the chunk process, start to exit (monotonic). |
+| `upload_ms` | int64 | yes | Agent: pack + upload of the output (monotonic). |
+| `leased_at` | timestamp | no | Lease granted (controller clock, ordering only). |
+| `ended_at` | timestamp | yes | Lease ended (controller clock, ordering only). |
+| `recorded_at` | timestamp | no | When this record was written. |
 ## Changing the schema
 
 Bump `SCHEMA_VERSION`, add the new column fingerprint to `SCHEMA_FINGERPRINTS` (never edit a published one),

@@ -52,11 +52,12 @@ job what it needs, the library refuses the params - the run becomes
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass
-from typing import Final, Literal
+from typing import Any, Final, Literal
 
 import yaml
 from sqlalchemy import select
@@ -85,6 +86,7 @@ from meshforge.common.manifest import (
     parse_manifest_data,
 )
 from meshforge.common.owner_policy import BENCH_PAUSED_REFUSAL, OWNER_ACTIVE_REFUSAL
+from meshforge.common.split_items import SplitLimits
 from meshforge.common.tree import Tree, TreeEntry, TreeError, canonical_bytes
 from meshforge.controller.bench.conditions import NodePauses, filler_key, warmup_key
 from meshforge.controller.bench.keys import run_key
@@ -97,11 +99,13 @@ from meshforge.controller.bench.store import (
 from meshforge.controller.blobs import BlobError, BlobStore
 from meshforge.controller.jobs.env_health import env_key
 from meshforge.controller.jobs.placement import PlacementError, check_placement
+from meshforge.controller.jobs.split_items import resolve_split
 from meshforge.controller.jobs.store import (
     IdempotencyConflictError,
     JobRecord,
     JobScheduling,
     JobStore,
+    SplitRecord,
 )
 from meshforge.controller.planner.inputs import workload_fingerprint
 from meshforge.controller.planner.types import RejectCode
@@ -117,6 +121,7 @@ __all__ = [
     "RunOutcome",
     "bench_tree",
     "owner_guarded",
+    "run_placement",
 ]
 
 log = get_logger(__name__)
@@ -216,6 +221,19 @@ def bench_tree(family: str, params: dict[str, object], seed: int) -> BuiltTree:
     return BuiltTree(tree=tree, manifest_bytes=body, blobs=blobs, manifest=manifest)
 
 
+def run_placement(run: RunRow) -> dict[str, Any]:
+    """The job placement of a run: pinned to its node (``local`` /
+    ``mode1``; for a split family that means "don't split" there) or - V0.10
+    G8 - forced onto its node set (``mode3``: ``auto`` + ``node_set``, the
+    planner splits over exactly those nodes)."""
+    if run.node_set:
+        return {"mode": "auto", "node_set": list(run.node_set)}
+    return {
+        "mode": "local" if run.node_id == run.origin_node_id else "offload",
+        "node_id": run.node_id,
+    }
+
+
 def owner_guarded(live: object) -> str | None:
     """V0.9 G5 (D246): the live session says benchmarks may not run there."""
     if live is None:
@@ -257,7 +275,7 @@ def _request_hash(
     run: RunRow,
     manifest: dict[str, object],
     tree_id: str,
-    placement: dict[str, str],
+    placement: dict[str, Any],
     *,
     key: str,
 ) -> str:
@@ -293,7 +311,10 @@ class BenchSubmitter:
         engine: AsyncEngine,
         wake: Callable[[], None] | None = None,
         pauses: NodePauses | None = None,
+        split_limits: SplitLimits | None = None,
     ) -> None:
+        self._split_limits = split_limits or SplitLimits()
+        """V0.10 G8 (D278): a split family's items resolve under these caps."""
         self._pauses = pauses
         """V0.9 G4: where ``unavailable:T`` pauses a run's origin."""
         self._store = store
@@ -429,41 +450,60 @@ class BenchSubmitter:
         self, campaign: CampaignRecord, run: RunRow, *, owner_name: str | None
     ) -> RunOutcome:
         try:
-            built = bench_tree(run.family, dict(run.params), run.seed)
+            # V0.10 G8: a split family's tree carries its generated data (up to
+            # 64 MiB): built off the event loop
+            built = await asyncio.to_thread(
+                bench_tree, run.family, dict(run.params), run.seed
+            )
         except (ParamsError, UnknownFamilyError, ManifestError, TreeError) as exc:
             return await self._skip(run, f"the workload library refuses it: {exc}")
         try:
             condition = parse_condition(run.conditions[0] if run.conditions else "none")
         except ConditionError as exc:  # pragma: no cover - stored from a parsed spec
             return await self._skip(run, f"its condition is invalid: {exc}")
-        placement = {
-            "mode": "local" if run.node_id == run.origin_node_id else "offload",
-            "node_id": run.node_id,
-        }
+        placement = run_placement(run)
+        split: SplitRecord | None = None
         try:
             async with self._blobs.gc_guard.shared():
                 await self._store_tree(built)
-                node = await self._registry.get_node(run.node_id)
-                live = self._manager.get(run.node_id)
-                guarded = owner_guarded(live)
-                if guarded is not None:
-                    return _guard_deferral(run, guarded)
-                try:
-                    check_placement(
-                        built.manifest,
-                        node,
-                        connected=live is not None,
-                        policy=None if live is None else live.policy,
-                        owner_name=owner_name,
-                    )
-                except PlacementError as exc:
-                    return await self._refused(run, exc)
+                # V0.10 G8: a mode3 run needs every node of its set
+                for node_id in run.node_set or (run.node_id,):
+                    node = await self._registry.get_node(node_id)
+                    live = self._manager.get(node_id)
+                    guarded = owner_guarded(live)
+                    if guarded is not None:
+                        return _guard_deferral(run, guarded)
+                    try:
+                        check_placement(
+                            built.manifest,
+                            node,
+                            connected=live is not None,
+                            policy=None if live is None else live.policy,
+                            owner_name=owner_name,
+                        )
+                    except PlacementError as exc:
+                        return await self._refused(run, exc)
+                if built.manifest.split is not None:
+                    # D278: a split family resolves its items like any split
+                    # job - the same resolver, caps and stored item list
+                    try:
+                        split, _items = await resolve_split(
+                            built.manifest,
+                            project=built.tree,
+                            inputs={},
+                            blobs=self._blobs,
+                            limits=self._split_limits,
+                        )
+                    except ManifestError as exc:
+                        return await self._skip(
+                            run, f"its split items do not resolve: {exc.message}"
+                        )
                 # V0.9 G4 (D217): the controller's own conditions come first -
                 # fillers / a warm-up queued ahead of the run, the origin paused
                 for key in _pre_jobs(run.id, condition, run.generation):
                     await self._create(
                         campaign, run, built, key=key, placement=placement
-                    )
+                    )  # (fillers / warm-ups: only whole-run families have conditions)
                 if isinstance(condition, Unavailable):
                     if self._pauses is None:
                         return await self._skip(
@@ -476,6 +516,7 @@ class BenchSubmitter:
                     built,
                     key=run_key(run.id, run.generation),
                     placement=placement,
+                    split=split,
                 )
         except IdempotencyConflictError:
             # Only a request for another run (or a hand-made one) can hold this
@@ -541,7 +582,8 @@ class BenchSubmitter:
         built: BuiltTree,
         *,
         key: str,
-        placement: dict[str, str],
+        placement: dict[str, Any],
+        split: SplitRecord | None = None,
     ) -> tuple[JobRecord, bool]:
         """One job of ``run``'s workload under ``key`` (the run job itself, a
         filler or a warm-up - the same path, the same lowest priority)."""
@@ -572,6 +614,7 @@ class BenchSubmitter:
                 ),
             ),
             owner_user_id=campaign.created_by,
+            split=split,
         )
 
     async def _store_tree(self, built: BuiltTree) -> None:

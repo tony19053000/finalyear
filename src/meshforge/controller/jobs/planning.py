@@ -805,9 +805,7 @@ class DispatchPlanner:
             if chosen.estimate is None
             else round(chosen.estimate.total_s, 6),
             # V0.10 G8: a split job's preference may be a Mode 3 set
-            shadow_node_set=split.node_ids
-            if split is not None and split.split
-            else (),
+            shadow_node_set=split.node_ids if split is not None and split.split else (),
         )
 
     @staticmethod

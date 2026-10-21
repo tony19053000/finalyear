@@ -337,7 +337,7 @@ def fingerprint(columns: tuple[Column, ...] = COLUMNS) -> str:
 SCHEMA_FINGERPRINTS: Final[dict[int, str]] = {
     1: "69e443de70cbb8bbd25fb04662510910c649b812ad16000ede6d092948df723a",
     2: "6cdab4d3e019c82bf7f1f8d08cfc6b8543a234b642bdc68c1c8f3135d2c02882",
-    3: "V3_RUN",
+    3: "9411a6f6d8c2fc541d4f9bf834cb34cce5c3eacf7e3efb64daef039934458078",
 }
 """Published versions -> their column fingerprint. Never edit a published entry."""
 
@@ -410,7 +410,7 @@ for the API, D261) - operational, never exported."""
 CHUNK_COLUMN_NAMES: Final = tuple(c.name for c in CHUNK_COLUMNS)
 
 CHUNK_FINGERPRINTS: Final[dict[int, str]] = {
-    3: "V3_CHUNK",
+    3: "080d144e7d8fbd1cf0948004eff2df91dfb53d82db79e20f8f13bf8c1c29fd83",
 }
 """Telemetry schema version -> the chunk columns' fingerprint (introduced in
 v3). Never edit a published entry; a change bumps :data:`SCHEMA_VERSION`."""

@@ -122,7 +122,7 @@ def test_every_column_is_documented_in_telemetry_md() -> None:
 
 
 def test_new_record_is_stamped_with_current_version() -> None:
-    assert build_record(_src())["schema_version"] == SCHEMA_VERSION == 2
+    assert build_record(_src())["schema_version"] == SCHEMA_VERSION == 3
 
 
 # --------------------------------------------- hostile v2 field values (record)
