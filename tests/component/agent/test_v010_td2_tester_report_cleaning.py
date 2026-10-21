@@ -107,8 +107,7 @@ def _flatten_strings(doc: Any) -> list[str]:
 
 def _display_safe(value: str) -> bool:
     return not any(
-        ord(c) < 0x20
-        and c not in "\n\t"
+        (ord(c) < 0x20 and c not in "\n\t")
         or 0x7F <= ord(c) <= 0x9F
         or c in "\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069"
         or c in "\u200b\u200c\u200d\u200e\u200f\u2060\ufeff\u061c"
@@ -211,7 +210,9 @@ async def test_clean_report_params_arrive_unchanged(
     tmp_path: Path,
     pg_settings: Any,
 ) -> None:
-    job, exported, stored = await _run(alice, grpc_target, tmp_path, pg_settings, CLEAN)
+    _job, exported, stored = await _run(
+        alice, grpc_target, tmp_path, pg_settings, CLEAN
+    )
     assert json.loads(stored)["params"] == CLEAN
     assert exported == {"dtype": "float32", "n": 200000}, exported
     assert json.loads(stored)["params"] == CLEAN
