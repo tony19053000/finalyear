@@ -51,7 +51,8 @@ def _table(header: Sequence[str], rows: Sequence[Sequence[str]]) -> list[str]:
         "| " + " | ".join(header) + " |",
         "|" + "|".join("---" for _ in header) + "|",
     ]
-    lines.extend("| " + " | ".join(_cell(c) for c in row) + " |" for row in rows)
+    # every cell is already escaped by its producer (_cell or a number)
+    lines.extend("| " + " | ".join(row) + " |" for row in rows)
     return lines
 
 
@@ -94,8 +95,8 @@ def render_markdown(report: Mapping[str, Any]) -> str:
         ("criterion", "status", "would be", "value", "threshold", "groups", "detail"),
         [
             (
-                str(v.get("criterion")),
-                str(v.get("status")),
+                _cell(v.get("criterion")),
+                _cell(v.get("status")),
                 _cell(v.get("would_be")),
                 _num(v.get("value")),
                 _num(v.get("threshold")),
