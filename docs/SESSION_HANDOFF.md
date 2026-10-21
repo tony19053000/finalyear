@@ -7,8 +7,8 @@
 > **Cold-start prompt** (paste this as the first message on the new account):
 >
 > ```
-> Read docs/SESSION_HANDOFF.md §1, then docs/STATUS.md, then the V0.10 section of docs/DEVELOPMENT_ROADMAP.md and docs/briefs/V0.10-task-splitting.md (§2 + Lead rulings D277–D286, §5h G8 + "G8 carry-overs").
-> V0.10: G1–G8 MERGED → 0.10.1–0.10.9 [x] (D277–D287; main post-merge gates green: unit 16860, V0.10 comp/cluster/workqueue 228). G8 MERGED `33f8e97e` → 0.10.9 [x] (D287). G9 implementer DONE (branch worktree-agent-a9b49e8aaff6d119e head 2799f05b, gates green, no src change); tester ∥ reviewer launched (relaunch if session died) → G9 (§5i) → 🧑 0.10.10. Gate mypy = `uv run mypy src` (bare mypy is pre-existing broken). Team: V0.10 brief + ADR-0019 still Proposed. Parallel agents OK; no fast mode.
+> Read docs/SESSION_HANDOFF.md §1, then docs/STATUS.md, then the V0.10 section of docs/DEVELOPMENT_ROADMAP.md and docs/briefs/V0.10-task-splitting.md (Lead rulings D287–D288).
+> V0.10: G1–G9 MERGED (G8 `33f8e97e` → 0.10.9 [x]; G9 `38112816`, D288: cluster e2e tests/cluster/test_v010_mode3.py + lab kit lab/mode3_check.py + lab/checklists/V0.10-mode3.md; tester PASS + fix round 1, reviewer APPROVE). V0.10 agent-side complete; closes on 🧑 0.10.10 lab run. G9 POST-MERGE GATES NOT RUN (stopped by user): on main run `uv run python scripts/pytest_exit_guard.py tests/unit -q`, then all V0.10 comp+cluster+workqueue in ONE process (`tests/component/*/test_v10_*.py tests/component/workqueue tests/cluster/test_v10_*.py tests/cluster/test_v010_*.py`), ruff, `uv run mypy src`. If green: STATUS Current Task entry + status bar (scripts/status_bars.py) + remove G9 worktree/branch worktree-agent-a9b49e8aaff6d119e. Then: team runs 0.10.10; agent-side next = V0.10 tech debt (STATUS) or next roadmap version. Team: V0.10 brief + ADR-0019 still Proposed. Parallel agents OK; no fast mode.
 > ```
 >
 > Order of truth: `PROJECT_BRIEF → ARCHITECTURE → ROADMAP → STATUS → this file`. If this file
@@ -28,7 +28,7 @@
 > throughput measurements and the reasoning; if you think the arithmetic or the trade is wrong,
 > **say so to the team before building on it.** Do not silently re-expand the scope either.
 
-**Last updated:** 2026-10-21 (**V0.10 G6+G7 CLOSED D285/D286; G8 implementer stopped before gates**) · older: 2026-10-20 (V0.10 G5 CLOSED D284) · older: 2026-10-19 (V0.9 G4 CLOSED, D245) · older: 2026-10-11 (**V0.7 G3 fix round 1 in flight** — see §1) · older: 2026-10-07 (**V0.6 G4 CLOSED + reviewer follow-ups done `1f037f2`; next: V0.7 brief; 0.6.13 🧑 lab open** · older: **V0.6 G1–G3 CLOSED; G4 fix round 1 stopped during its exit list — see §2 top UPDATE**; older note: **V0.5 CLOSED agent-side** (🧑 0.5.11 lab open) · **V0.6 started**: brief + ADR-0015 written (`94b8b64`), 4 sequential groups G1–G4, **G1 + G2 CLOSED**; **next: G3 implementer** (brief §5c + N-1) — see §2 "V0.6 state") · **Updated by:** Lead session
+**Last updated:** 2026-10-21 (**V0.10 G8+G9 merged; G9 post-merge gates pending**) · older: (**V0.10 G6+G7 CLOSED D285/D286; G8 implementer stopped before gates**) · older: 2026-10-20 (V0.10 G5 CLOSED D284) · older: 2026-10-19 (V0.9 G4 CLOSED, D245) · older: 2026-10-11 (**V0.7 G3 fix round 1 in flight** — see §1) · older: 2026-10-07 (**V0.6 G4 CLOSED + reviewer follow-ups done `1f037f2`; next: V0.7 brief; 0.6.13 🧑 lab open** · older: **V0.6 G1–G3 CLOSED; G4 fix round 1 stopped during its exit list — see §2 top UPDATE**; older note: **V0.5 CLOSED agent-side** (🧑 0.5.11 lab open) · **V0.6 started**: brief + ADR-0015 written (`94b8b64`), 4 sequential groups G1–G4, **G1 + G2 CLOSED**; **next: G3 implementer** (brief §5c + N-1) — see §2 "V0.6 state") · **Updated by:** Lead session
 
 ---
 
