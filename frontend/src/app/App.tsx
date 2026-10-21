@@ -35,6 +35,8 @@ const PAGE_LOADERS = {
   // V0.9 G6: Benchmarks (admin only; recharts loads with these chunks).
   benchmarks: () => import("../pages/benchmarks/BenchmarksPage"),
   campaign: () => import("../pages/benchmarks/CampaignDetailPage"),
+  // V0.14 G5: Planner (calibration + evaluation reports; recharts like Benchmarks).
+  planner: () => import("../pages/planner/PlannerPage"),
 };
 
 const OverviewPage = lazy(() => PAGE_LOADERS.overview().then((m) => ({ default: m.OverviewPage })));
@@ -45,6 +47,7 @@ const JobDetailPage = lazy(() => PAGE_LOADERS.jobDetail().then((m) => ({ default
 const SubmitJobPage = lazy(() => PAGE_LOADERS.submit().then((m) => ({ default: m.SubmitJobPage })));
 const BenchmarksPage = lazy(() => PAGE_LOADERS.benchmarks().then((m) => ({ default: m.BenchmarksPage })));
 const CampaignDetailPage = lazy(() => PAGE_LOADERS.campaign().then((m) => ({ default: m.CampaignDetailPage })));
+const PlannerPage = lazy(() => PAGE_LOADERS.planner().then((m) => ({ default: m.PlannerPage })));
 const SettingsRoutes = lazy(() => PAGE_LOADERS.settings().then((m) => ({ default: m.SettingsRoutes })));
 
 /**
@@ -147,6 +150,8 @@ export function AppRoutes({ socketFactory }: AppShellProps) {
         <Route path="benchmarks" element={<Page><BenchmarksPage /></Page>} />
         <Route path="benchmarks/:campaignId" element={<Page><CampaignDetailPage /></Page>} />
         {/* ---- end V0.9 G6 ---- */}
+        {/* ---- V0.14 G5: Planner (calibration, evaluation reports) ---- */}
+        <Route path="planner" element={<Page><PlannerPage /></Page>} />
         {/* ---- V0.8 G5: Settings (nested routes in pages/settings) ---- */}
         <Route path="settings/*" element={<Page><SettingsRoutes /></Page>} />
         {/* ---- end V0.8 G5 ---- */}

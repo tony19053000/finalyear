@@ -4,7 +4,7 @@ import { NavLink } from "react-router-dom";
 import { PRODUCT_NAME } from "../config";
 import { cn } from "../lib/cn";
 import { useSession } from "../api/hooks";
-import { BenchmarksIcon, JobsIcon, LogoMark, NodesIcon, OverviewIcon, SettingsIcon } from "./icons";
+import { BenchmarksIcon, JobsIcon, LogoMark, NodesIcon, OverviewIcon, PlannerIcon, SettingsIcon } from "./icons";
 
 interface NavItem {
   to: string;
@@ -21,6 +21,8 @@ const NAV_ITEMS: readonly NavItem[] = [
   { to: "/nodes", label: "Nodes", icon: <NodesIcon /> },
   { to: "/jobs", label: "Jobs", icon: <JobsIcon /> },
   { to: "/benchmarks", label: "Benchmarks", icon: <BenchmarksIcon />, adminOnly: true },
+  // V0.14 G5 (D300): calibration + offline evaluation (every signed-in user may read them)
+  { to: "/planner", label: "Planner", icon: <PlannerIcon /> },
   { to: "/settings", label: "Settings", icon: <SettingsIcon /> },
 ];
 

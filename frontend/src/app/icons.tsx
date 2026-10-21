@@ -61,6 +61,15 @@ export const SettingsIcon = () => (
   </Icon>
 );
 
+/** V0.14 G5: the Planner page (a gauge: how good the planner's choices are). */
+export const PlannerIcon = () => (
+  <Icon>
+    <path d="M2.5 11.5a5.5 5.5 0 0 1 11 0" />
+    <path d="M8 11.5l3-4" />
+    <path d="M2 13.5h12" />
+  </Icon>
+);
+
 export const LogoMark = () => (
   <svg aria-hidden="true" viewBox="0 0 16 16" width="18" height="18" className="shrink-0 text-accent">
     <g fill="currentColor">
