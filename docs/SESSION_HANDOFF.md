@@ -8,7 +8,7 @@
 >
 > ```
 > Read docs/SESSION_HANDOFF.md §1, then docs/STATUS.md, then the V0.10 section of docs/DEVELOPMENT_ROADMAP.md and docs/briefs/V0.10-task-splitting.md (§2 + Lead rulings D277–D286, §5h G8 + "G8 carry-overs").
-> V0.10: G1–G8 MERGED → 0.10.1–0.10.9 [x] (D277–D287; main post-merge gates green: unit 16860, V0.10 comp/cluster/workqueue 228). G8 MERGED `33f8e97e` → 0.10.9 [x] (D287; main post-merge: unit 16991, V0.10 comp/cluster/workqueue 238). Next: write/launch G9 implementer (brief §5i) → G9 (§5i) → 🧑 0.10.10. Gate mypy = `uv run mypy src` (bare mypy is pre-existing broken). Team: V0.10 brief + ADR-0019 still Proposed. Parallel agents OK; no fast mode.
+> V0.10: G1–G8 MERGED → 0.10.1–0.10.9 [x] (D277–D287; main post-merge gates green: unit 16860, V0.10 comp/cluster/workqueue 228). G8 MERGED `33f8e97e` → 0.10.9 [x] (D287). G9 implementer LAUNCHED 2026-10-21 in a worktree (progress log docs/briefs/progress/V0.10-G9.md; if session died, find its worktree under .claude/worktrees and resume) → G9 (§5i) → 🧑 0.10.10. Gate mypy = `uv run mypy src` (bare mypy is pre-existing broken). Team: V0.10 brief + ADR-0019 still Proposed. Parallel agents OK; no fast mode.
 > ```
 >
 > Order of truth: `PROJECT_BRIEF → ARCHITECTURE → ROADMAP → STATUS → this file`. If this file
