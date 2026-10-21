@@ -35,8 +35,9 @@ from mf_jobs_harness import api_client, g2_settings, running_controller, token_o
 from mf_session_client import FakeAgent
 
 pytest.importorskip("sqlalchemy", reason="needs the controller extra")
-pq = pytest.importorskip("pyarrow.parquet", reason="needs the controller extra")
+pytest.importorskip("pyarrow", reason="needs the controller extra")
 
+import pyarrow.parquet as pq
 from sqlalchemy import event, text
 
 from meshforge.common.proto.meshforge.v1 import agent_pb2
@@ -164,7 +165,9 @@ async def _submit(
     return str(got.json()["job_id"])
 
 
-async def _wait_job(runtime: ControllerRuntime, job_id: str, within: float = 120) -> Any:
+async def _wait_job(
+    runtime: ControllerRuntime, job_id: str, within: float = 120
+) -> Any:
     assert runtime.jobs is not None
     loop = asyncio.get_running_loop()
     deadline = loop.time() + within
@@ -231,7 +234,9 @@ async def test_chunk_records_tries_and_stderr_tails(
     committed = [r for r in rows if r.outcome == "committed"]
     assert sorted(r.chunk_index for r in committed) == list(range(CHUNKS))
     assert all(r.won and r.failure_class == "ok" for r in committed)
-    assert all(r.items == CHUNK and r.first_item == r.chunk_index * CHUNK for r in committed)
+    assert all(
+        r.items == CHUNK and r.first_item == r.chunk_index * CHUNK for r in committed
+    )
     # the agent's measurements and the verified output size are kept
     assert all(r.run_ms is not None and r.stage_ms == 10 for r in committed)
     assert all(r.bytes_in and r.bytes_out and r.result_digest for r in committed)
@@ -283,11 +288,15 @@ async def test_chunk_records_tries_and_stderr_tails(
     # bounds and access
     assert (await http.get(f"/v1/jobs/{job_id}/chunks/10000/tries")).status_code == 400
     assert (await http.get(f"/v1/jobs/{job_id}/chunks/-1/tries")).status_code == 400
-    assert (await http.get(f"/v1/jobs/{job_id}/chunks/{bad}/tries?limit=101")).status_code == 400
+    assert (
+        await http.get(f"/v1/jobs/{job_id}/chunks/{bad}/tries?limit=101")
+    ).status_code == 400
     none = (await http.get(f"/v1/jobs/{job_id}/chunks/{CHUNKS + 5}/tries")).json()
     assert none["tries"] == []
     async with api_client(runtime, token=None) as anon:
-        assert (await anon.get(f"/v1/jobs/{job_id}/chunks/{bad}/tries")).status_code == 401
+        assert (
+            await anon.get(f"/v1/jobs/{job_id}/chunks/{bad}/tries")
+        ).status_code == 401
     missing = "job_01J00000000000000000000000"
     assert (await http.get(f"/v1/jobs/{missing}/chunks/0/tries")).status_code == 404
 
@@ -425,13 +434,11 @@ async def test_idle_lane_speculation_reads_history_once_per_commit(
 
     try:
         async with _lanes(runtime, [{"chunk_speed": held}] * 3):
-            job_id = await _submit(
-                runtime, http, tmp_path, split={"speculative": True}
-            )
+            job_id = await _submit(runtime, http, tmp_path, split={"speculative": True})
             # a factor so high no copy is ever worth it: lanes stay idle
             assert runtime.dispatcher is not None
-            store = runtime.dispatcher.split._store  # noqa: SLF001
-            store._speculation = type(store._speculation)(  # noqa: SLF001
+            store = runtime.dispatcher.split._store
+            store._speculation = type(store._speculation)(
                 factor=100.0, overhead_s=1.5, cache_s=30.0, cache_jobs=8
             )
             requests_before = runtime.dispatcher.split.stats.requests
@@ -441,7 +448,7 @@ async def test_idle_lane_speculation_reads_history_once_per_commit(
     finally:
         event.remove(runtime._engine.sync_engine, "before_cursor_execute", count)
         hold.set()
-    cache = store._times  # noqa: SLF001
+    cache = store._times
     # many idle asks at the tail, the history read at most once per commit
     assert asked > 3 * CHUNKS, asked
     assert len(statements) == cache.reads

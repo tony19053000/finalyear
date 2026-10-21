@@ -183,9 +183,12 @@ class RunOut(ApiModel):
     params: dict[str, Any]
     seed: int
     conditions: tuple[str, ...]
-    strategy: Literal["local", "mode1"]
+    strategy: Literal["local", "mode1", "mode3"]
     node_id: str
+    """Where the run is pinned (``mode3``: the first node of its set)."""
     origin_node_id: str
+    node_set: list[str] | None = Field(default=None, exclude_if=lambda v: v is None)
+    """V0.10 G8: a ``mode3`` run's forced node set; left out otherwise."""
     state: RunStateName
     job_id: str | None = None
     detail: str | None = None
@@ -261,6 +264,7 @@ def _run_out(run: RunRow) -> RunOut:
         strategy=run.strategy,  # type: ignore[arg-type]  # CHECK-constrained
         node_id=run.node_id,
         origin_node_id=run.origin_node_id,
+        node_set=list(run.node_set) if run.node_set else None,
         state=run.state,  # type: ignore[arg-type]  # CHECK-constrained
         job_id=run.job_id,
         detail=run.detail,

@@ -10,7 +10,12 @@ import { formatParams } from "./chartData";
 
 function bestConfig(g: GroupLabel): string {
   if (g.best_config_id == null) return g.label === "tie" ? `tie: ${String(g.tied_config_ids.length)} configs` : "—";
-  const how = g.best_strategy === "local" ? "local on" : `${g.best_strategy ?? "?"} →`;
+  const how =
+    g.best_strategy === "local"
+      ? "local on"
+      : g.best_strategy === "mode3"
+        ? "mode3, the set led by"
+        : `${g.best_strategy ?? "?"} →`;
   return `${how} ${g.best_node_id ?? "?"}`;
 }
 

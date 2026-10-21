@@ -125,7 +125,21 @@ async def _node_load(db: AsyncSession, node_ids: Collection[str]) -> dict[str, i
         )
         .group_by(node)
     )
-    return {str(n): int(c) for n, c in rows}
+    load = {str(n): int(c) for n, c in rows}
+    # V0.10 G8 (D271): a forced mode3 run occupies every node of its set
+    wanted = set(node_ids)
+    for node_set in await db.scalars(
+        select(Job.placement["node_set"]).where(
+            _bench_key(),
+            Job.state.not_in(_JOB_TERMINAL),
+            Job.placement["node_set"].is_not(None),
+        )
+    ):
+        if not isinstance(node_set, list):
+            continue
+        for member in {str(n) for n in node_set} & wanted:
+            load[member] = load.get(member, 0) + 1
+    return load
 
 
 COOLDOWN_LOOKBACK_MARGIN_S: Final = 60.0
@@ -412,9 +426,10 @@ class CampaignControl:
 
     @_typed
     async def planned_nodes(self, campaign_id: str) -> set[str]:
-        """Nodes that still have a planned run in the campaign."""
+        """Nodes that still have a planned run in the campaign - V0.10 G8: every
+        node of a planned mode3 run's set (it needs all of them free)."""
         async with self._sessions() as db:
-            return {
+            nodes = {
                 str(n)
                 for n in await db.scalars(
                     select(BenchRun.node_id)
@@ -425,6 +440,18 @@ class CampaignControl:
                     .distinct()
                 )
             }
+            for node_set in await db.scalars(
+                select(BenchRun.node_set)
+                .where(
+                    BenchRun.campaign_id == campaign_id,
+                    BenchRun.state == "planned",
+                    BenchRun.node_set.is_not(None),
+                )
+                .distinct()
+            ):
+                if isinstance(node_set, list):
+                    nodes.update(str(n) for n in node_set)
+            return nodes
 
     @_typed
     async def node_bench_load(self, node_ids: Collection[str]) -> dict[str, int]:

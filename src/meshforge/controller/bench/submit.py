@@ -414,6 +414,10 @@ class BenchSubmitter:
                         continue  # deferred earlier on this page
                     if budget is not None and budget.get(run.node_id, 0) <= 0:
                         continue  # not a node of this call
+                    if budget is not None and any(
+                        budget.get(n, 0) <= 0 for n in run.node_set
+                    ):
+                        continue  # V0.10 G8: a mode3 run needs its whole set free
                     examined += 1
                     last_seq = run.seq
                     outcome = await self.submit_run(
@@ -423,9 +427,11 @@ class BenchSubmitter:
                     if outcome.outcome == "submitted":
                         submitted += 1
                         if budget is not None:
-                            budget[run.node_id] -= 1
-                            if budget[run.node_id] <= 0:
-                                passed_over.add(run.node_id)
+                            # V0.10 G8: a mode3 run takes every node of its set
+                            for used in run.node_set or (run.node_id,):
+                                budget[used] = budget.get(used, 0) - 1
+                                if budget[used] <= 0:
+                                    passed_over.add(used)
                         if submitted >= count:
                             break
                     elif outcome.outcome == "already" and outcome.job_id:

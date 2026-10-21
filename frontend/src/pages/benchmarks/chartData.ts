@@ -203,7 +203,12 @@ export function strategyChart(group: GroupLabel): StrategyChart {
     if (measured === null) continue;
     bars.push({
       configId: c.config_id,
-      label: c.strategy === "local" ? `local on ${c.node_id}` : `${c.strategy} → ${c.node_id}`,
+      label:
+        c.strategy === "local"
+          ? `local on ${c.node_id}`
+          : c.strategy === "mode3"
+            ? `mode3 (set led by ${c.node_id})`
+            : `${c.strategy} → ${c.node_id}`,
       strategy: c.strategy,
       nodeId: c.node_id,
       originNodeId: c.origin_node_id,

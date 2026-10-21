@@ -24,7 +24,9 @@ from typing import Any
 
 import pytest
 
-np = pytest.importorskip("numpy", reason="the image / monte carlo kernels need numpy")
+pytest.importorskip("numpy", reason="the image / monte carlo kernels need numpy")
+
+import numpy as np
 
 from meshforge.bench.workloads import get_family
 from meshforge.bench.workloads.base import (
@@ -92,7 +94,9 @@ def _chunks(name: str, size: int) -> list[bytes]:
             for i in range(0, len(records), size)
         ]
     items = json.loads(data)
-    return [json.dumps(items[i : i + size]).encode() for i in range(0, len(items), size)]
+    return [
+        json.dumps(items[i : i + size]).encode() for i in range(0, len(items), size)
+    ]
 
 
 def _combine(name: str, parts: list[dict[str, bytes]]) -> dict[str, bytes]:
@@ -173,7 +177,8 @@ def test_inputs_are_bounded(name: str) -> None:
 @pytest.mark.parametrize("name", NAMES)
 def test_job_folder_is_a_split_job_and_byte_identical(name: str) -> None:
     fam = _family(name)
-    params = fam.parse_params({}) if name != "split.image_classify" else fam.parse_params({"images": 1500})
+    smallest = {"images": 1500} if name == "split.image_classify" else {}
+    params = fam.parse_params(smallest)
     one = job_files(fam, params, SEED)
     two = job_files(fam, params, SEED)
     assert one == two
@@ -196,9 +201,12 @@ def test_job_folder_is_a_split_job_and_byte_identical(name: str) -> None:
 def test_kernels_are_standard_library_at_import() -> None:
     source = Path(kernel.__file__).read_text()
     assert "import numpy" not in source.split("def require_numpy")[0]
-    assert "meshforge" not in source.replace("meshforge.split|", "").replace(
-        "meshforge.image_classify", ""
-    ).split('"""', 2)[2]
+    assert (
+        "meshforge"
+        not in source.replace("meshforge.split|", "")
+        .replace("meshforge.image_classify", "")
+        .split('"""', 2)[2]
+    )
 
 
 # --------------------------------------------------------------- self-checks
@@ -210,7 +218,9 @@ def test_whole_output_check_accepts_the_real_output_and_refuses_changes(
 ) -> None:
     fam = _family(name)
     in_tree(name)
-    files, problem, ns = kernel.run_items(name, fam.params_dict(_params(name)), SEED, _items(name))
+    files, problem, ns = kernel.run_items(
+        name, fam.params_dict(_params(name)), SEED, _items(name)
+    )
     assert problem is None and ns > 0
     assert set(files) == {fam.output_file}
     assert fam.verify_output(files, _params(name), SEED).ok
@@ -260,7 +270,9 @@ def test_the_chunk_check_refuses_a_wrong_chunk_output(
     assert run.check(params, SEED, items, {fam.output_file: shorter}) is not None
 
 
-def test_a_wrong_cnn_is_caught_by_the_independent_path(in_tree: Callable[[str], Path]) -> None:
+def test_a_wrong_cnn_is_caught_by_the_independent_path(
+    in_tree: Callable[[str], Path],
+) -> None:
     name = "split.image_classify"
     in_tree(name)
     params = _params(name)
@@ -300,13 +312,17 @@ def test_any_chunking_combined_equals_the_one_chunk_output(
         parts.append(out)
     combined = _combine(name, parts)
     if fam.combine == "merge-json":
-        assert json.loads(combined[fam.output_file]) == json.loads(whole[fam.output_file])
+        assert json.loads(combined[fam.output_file]) == json.loads(
+            whole[fam.output_file]
+        )
     else:
         assert combined == whole  # byte-identical (criterion 1's mechanism)
     assert fam.verify_output(combined, _params(name), SEED).ok
 
 
-def test_outputs_are_identical_across_runs_and_processes(in_tree: Callable[[str], Path]) -> None:
+def test_outputs_are_identical_across_runs_and_processes(
+    in_tree: Callable[[str], Path],
+) -> None:
     name = "split.image_classify"
     in_tree(name)
     params = _family(name).params_dict(_params(name))
@@ -327,7 +343,9 @@ def test_main_writes_the_chunk_and_exits_by_outcome(
     root = in_tree(name)
     fam = _family(name)
     (root / "workload_params.json").write_text(
-        json.dumps({"family": name, "params": fam.params_dict(_params(name)), "seed": SEED})
+        json.dumps(
+            {"family": name, "params": fam.params_dict(_params(name)), "seed": SEED}
+        )
     )
     items = root / "items.json"
     items.write_bytes(_chunks(name, 4)[0])
@@ -353,7 +371,9 @@ def test_main_exits_4_when_the_chunk_check_fails(
     root = in_tree(name)
     fam = _family(name)
     (root / "workload_params.json").write_text(
-        json.dumps({"family": name, "params": fam.params_dict(_params(name)), "seed": SEED})
+        json.dumps(
+            {"family": name, "params": fam.params_dict(_params(name)), "seed": SEED}
+        )
     )
     items = root / "items.json"
     items.write_bytes(_chunks(name, 4)[0])
@@ -364,7 +384,9 @@ def test_main_exits_4_when_the_chunk_check_fails(
         items_label="file",
     )
     monkeypatch.setitem(kernel.SPLIT_KERNELS, name, broken)
-    assert kernel.main([str(items), "0", str(tmp_path / "o")]) == kernel.EXIT_CHECK_FAILED
+    assert (
+        kernel.main([str(items), "0", str(tmp_path / "o")]) == kernel.EXIT_CHECK_FAILED
+    )
 
 
 def test_in_process_run_is_checked_and_restores_the_working_directory() -> None:

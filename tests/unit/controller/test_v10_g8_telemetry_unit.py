@@ -36,7 +36,15 @@ from meshforge.bench.campaign import (
 )
 from meshforge.bench.records import metric_value
 from meshforge.common.proto.meshforge.v1 import agent_pb2
-from meshforge.controller.planner import History, plan
+from meshforge.controller.planner import (
+    ClusterSnapshot,
+    History,
+    NodeSnapshot,
+    PlanRequest,
+    SplitInfo,
+    TreeNeed,
+    plan,
+)
 from meshforge.controller.planner.split_plan import FORCED_SET
 from meshforge.controller.split.messages import (
     MAX_STDERR_TAIL_BYTES,
@@ -58,14 +66,6 @@ from meshforge.controller.telemetry.split_facts import (
     SplitFacts,
     chosen_row,
     ideal_bound_s,
-)
-
-from meshforge.controller.planner import (
-    ClusterSnapshot,
-    NodeSnapshot,
-    PlanRequest,
-    SplitInfo,
-    TreeNeed,
 )
 
 pytestmark = pytest.mark.unit
@@ -106,6 +106,7 @@ def request(items: int = 3000, **kw: Any) -> PlanRequest:
 
 def trio() -> ClusterSnapshot:
     return ClusterSnapshot(nodes=(node("n1"), node("n2"), node("n3")))
+
 
 T0 = dt.datetime(2026, 10, 21, 10, 0, tzinfo=dt.UTC)
 JOB = "job_01J00000000000000000000G8X"
@@ -526,7 +527,9 @@ def test_chunk_result_tail_and_input_bytes_are_bounded() -> None:
     plain = parse_chunk_result(_result())
     assert not isinstance(plain, str)
     assert plain.stderr_tail == b"" and plain.input_bytes is None
-    too_big = parse_chunk_result(_result(stderr_tail=b"x" * (MAX_STDERR_TAIL_BYTES + 1)))
+    too_big = parse_chunk_result(
+        _result(stderr_tail=b"x" * (MAX_STDERR_TAIL_BYTES + 1))
+    )
     assert isinstance(too_big, str) and "stderr_tail" in too_big
     huge = parse_chunk_result(_result(input_bytes=2**63))
     assert isinstance(huge, str) and "input_bytes" in huge

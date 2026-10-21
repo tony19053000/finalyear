@@ -4955,6 +4955,20 @@
             "title": "Node Id",
             "type": "string"
           },
+          "node_set": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Node Set"
+          },
           "origin_node_id": {
             "title": "Origin Node Id",
             "type": "string"
@@ -4994,7 +5008,8 @@
           "strategy": {
             "enum": [
               "local",
-              "mode1"
+              "mode1",
+              "mode3"
             ],
             "title": "Strategy",
             "type": "string"
