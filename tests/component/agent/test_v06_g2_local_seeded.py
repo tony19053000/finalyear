@@ -136,11 +136,16 @@ async def test_seeded_local_runs_on_the_submitters_own_agent(
     chosen = next(c for c in decision["candidates"] if c["rank"] == 1)
     assert chosen["node_id"] == local.node_id and chosen["mode"] == "local"
     transfer = chosen["estimate"]["terms"]["transfer"]
-    assert transfer == {
+    stored = {k: transfer[k] for k in ("seconds", "source", "detail")}
+    assert stored == {
         "seconds": 0.0,
         "source": "measured",
         "detail": {"missing_bytes": 0},
     }
+    # V0.14 G5 (D320): the answer adds the measured stage time and no ratio
+    # for a 0 s prediction; a measured term is never calibrated
+    assert transfer["calibration"] is None and transfer["ratio"] is None
+    assert transfer["actual_s"] is not None and transfer["actual_s"] >= 0.0
     remote = next(c for c in decision["candidates"] if c["node_id"] != local.node_id)
     assert remote["mode"] == "offload"
     assert remote["estimate"]["terms"]["transfer"]["source"] == "assumed"
