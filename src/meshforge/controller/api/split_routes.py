@@ -46,6 +46,8 @@ from meshforge.workqueue.core import ItemState
 __all__ = [
     "ChunkList",
     "ChunkOut",
+    "ChunkTries",
+    "ChunkTryOut",
     "SplitProgressOut",
     "decode_chunk_cursor",
     "encode_chunk_cursor",
@@ -168,6 +170,47 @@ class ChunkList(ApiModel):
     chunks: tuple[ChunkOut, ...]
     count: int
     next_cursor: str | None
+
+
+ChunkOutcome = Literal[
+    "committed", "lost", "failed", "superseded", "released", "expired"
+]
+
+
+class ChunkTryOut(ApiModel):
+    """One recorded try of a chunk (its chunk record, V0.10 G8, D271)."""
+
+    lease_seq: int
+    attempt_id: str
+    """The lane attempt that ran it."""
+    node_id: str
+    speculative: bool
+    won: bool
+    outcome: ChunkOutcome
+    failure_type: str | None
+    failure_class: str
+    exit_code: int | None
+    result_digest: str | None
+    bytes_in: int | None
+    bytes_out: int | None
+    stage_ms: int | None
+    env_ms: int | None
+    run_ms: int | None
+    upload_ms: int | None
+    leased_at: Utc
+    ended_at: Utc | None
+    stderr_tail: str | None
+    """The end of the chunk process's stderr (redacted of the job's secrets
+    on the agent; at most ``[controller.split] chunk_stderr_tail_bytes`` for a
+    failed try, ``chunk_stderr_ok_bytes`` for a done one); null = none kept."""
+
+
+class ChunkTries(ApiModel):
+    job_id: str
+    chunk_index: int
+    tries: tuple[ChunkTryOut, ...]
+    """In lease order; the latest ``limit`` of them."""
+    count: int
 
 
 # ------------------------------------------------------------------ cursors
@@ -408,4 +451,59 @@ async def split_chunks(
         next_cursor=encode_chunk_cursor(page[-1].chunk_index)
         if page and more
         else None,
+    )
+
+
+DEFAULT_TRY_LIMIT: Final = 20
+MAX_TRY_LIMIT: Final = 100
+
+
+@split_router.get(
+    "/{job_id}/chunks/{chunk_index}/tries",
+    response_model=ChunkTries,
+    summary="One chunk's recorded tries: node, outcome, timings, stderr tail",
+)
+async def split_chunk_tries(
+    user: CurrentUser,
+    jobs: Jobs,
+    job_id: Annotated[str, Path(max_length=_JOB_ID_MAX)],
+    chunk_index: Annotated[int, Path(ge=0, lt=MAX_SPLIT_CHUNKS)],
+    limit: Annotated[
+        int,
+        Query(ge=1, le=MAX_TRY_LIMIT, description="The latest this many tries."),
+    ] = DEFAULT_TRY_LIMIT,
+) -> ChunkTries:
+    """V0.10 G8 (D261/D271): the chunk records of one chunk - every try that
+    ended with a result, plus the other leases of a committed chunk (a lost
+    speculative copy, an expired try) - with each try's stderr tail. A chunk
+    with no recorded try (not run yet, or still running) has none."""
+    reads = _reads(jobs)
+    job = await _split_job(user, jobs, job_id)
+    rows = await reads.chunk_tries(job.id, chunk_index, limit=limit)
+    tries = tuple(
+        ChunkTryOut(
+            lease_seq=int(r.lease_seq),
+            attempt_id=r.lane_attempt_id,
+            node_id=r.node_id,
+            speculative=bool(r.speculative),
+            won=bool(r.won),
+            outcome=r.outcome,  # type: ignore[arg-type]  # CHECK-constrained
+            failure_type=r.failure_type,
+            failure_class=r.failure_class,
+            exit_code=r.exit_code,
+            result_digest=r.result_digest,
+            bytes_in=r.bytes_in,
+            bytes_out=r.bytes_out,
+            stage_ms=r.stage_ms,
+            env_ms=r.env_ms,
+            run_ms=r.run_ms,
+            upload_ms=r.upload_ms,
+            leased_at=r.leased_at,
+            ended_at=r.ended_at,
+            stderr_tail=r.stderr_tail,
+        )
+        for r in rows
+    )
+    return ChunkTries(
+        job_id=job.id, chunk_index=chunk_index, tries=tries, count=len(tries)
     )

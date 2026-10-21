@@ -47,6 +47,7 @@ from typing import Any, Final
 from sqlalchemy import (
     ColumnElement,
     String,
+    and_,
     case,
     cast,
     func,
@@ -82,6 +83,7 @@ __all__ = [
     "CampaignRecord",
     "RunRow",
     "campaign_identities",
+    "placed_as_run",
     "runs_own_job",
 ]
 
@@ -174,6 +176,8 @@ class RunRow:
     tries: int = 0
     generation: int = 0
     last_failure: str | None = None
+    node_set: tuple[str, ...] = ()
+    """V0.10 G8: a ``mode3`` run's forced node set (empty otherwise)."""
 
     @property
     def job_key(self) -> str:
@@ -227,14 +231,18 @@ def _run(row: BenchRun) -> RunRow:
         tries=int(row.tries or 0),
         generation=int(row.generation or 0),
         last_failure=row.last_failure,
+        node_set=tuple(row.node_set) if row.node_set is not None else (),
     )
 
 
 async def campaign_identities(
     db: AsyncSession, job_ids: Collection[str]
 ) -> dict[str, dict[str, Any]]:
-    """``job_id -> {campaign_id, group_id, config_id, repetition, run_id}`` for
-    the benchmark jobs among ``job_ids`` (the others are absent)."""
+    """``job_id -> {campaign_id, group_id, config_id, repetition, run_id,
+    family, params, seed}`` for the benchmark jobs among ``job_ids`` (the
+    others are absent). V0.10 G8: ``family`` / ``params`` / ``seed`` are the
+    run's own (the controller made the job from them) - the identity of a
+    split family's records, whose chunks write no workload report."""
     if not job_ids:
         return {}
     rows = await db.execute(
@@ -245,6 +253,9 @@ async def campaign_identities(
             BenchRun.config_id,
             BenchRun.repetition,
             BenchRun.id,
+            BenchRun.family,
+            BenchRun.params,
+            BenchRun.seed,
         ).where(BenchRun.job_id.in_(sorted(job_ids)))
     )
     out = {
@@ -254,8 +265,21 @@ async def campaign_identities(
             "config_id": config_id,
             "repetition": int(repetition),
             "run_id": run_id,
+            "family": family,
+            "params": params,
+            "seed": int(seed),
         }
-        for job_id, campaign_id, group_id, config_id, repetition, run_id in rows
+        for (
+            job_id,
+            campaign_id,
+            group_id,
+            config_id,
+            repetition,
+            run_id,
+            family,
+            params,
+            seed,
+        ) in rows
     }
     rest = [j for j in job_ids if j not in out]
     if rest:
@@ -305,19 +329,35 @@ async def _earlier_generations(
             BenchRun.node_id,
             BenchRun.origin_node_id,
             BenchCampaign.created_by,
+            BenchRun.node_set,
+            BenchRun.family,
+            BenchRun.params,
+            BenchRun.seed,
         )
         .join(BenchCampaign, BenchCampaign.id == BenchRun.campaign_id)
         .where(BenchRun.id.in_(sorted(by_run)))
     )
     out: dict[str, dict[str, Any]] = {}
-    for run_id, cid, group, config, rep, node, origin, creator in rows:
+    for (
+        run_id,
+        cid,
+        group,
+        config,
+        rep,
+        node,
+        origin,
+        creator,
+        node_set,
+        family,
+        params,
+        seed,
+    ) in rows:
         for job_id, owner, submitter, placement in by_run.get(run_id, ()):
-            pinned = (
-                (placement or {}).get("node_id")
-                if isinstance(placement, dict)
-                else None
-            )
-            if owner != creator or submitter != origin or pinned != node:
+            if (
+                owner != creator
+                or submitter != origin
+                or not placed_as_run(placement, node, node_set)
+            ):
                 continue
             out[str(job_id)] = {
                 "campaign_id": cid,
@@ -325,8 +365,24 @@ async def _earlier_generations(
                 "config_id": config,
                 "repetition": int(rep),
                 "run_id": run_id,
+                "family": family,
+                "params": params,
+                "seed": int(seed),
             }
     return out
+
+
+def placed_as_run(placement: object, node_id: str, node_set: object) -> bool:
+    """A job's stored placement is the run's: pinned to its node (``local`` /
+    ``mode1``) or, for a ``mode3`` run (V0.10 G8), forced onto its exact node
+    set (``placement.node_set``, never pinned)."""
+    if not isinstance(placement, dict):
+        return False
+    if node_set is not None:
+        return placement.get("node_id") is None and placement.get("node_set") == list(
+            node_set
+        )
+    return placement.get("node_id") == node_id
 
 
 def runs_own_job() -> list[ColumnElement[bool]]:
@@ -341,7 +397,18 @@ def runs_own_job() -> list[ColumnElement[bool]]:
     return [
         Job.owner_user_id.is_not_distinct_from(BenchCampaign.created_by),
         Job.submitter_node_id == BenchRun.origin_node_id,
-        Job.placement["node_id"].astext == BenchRun.node_id,
+        or_(
+            and_(
+                BenchRun.node_set.is_(None),
+                Job.placement["node_id"].astext == BenchRun.node_id,
+            ),
+            # V0.10 G8: a mode3 run's job is forced onto its exact node set
+            and_(
+                BenchRun.node_set.is_not(None),
+                Job.placement["node_id"].astext.is_(None),
+                Job.placement["node_set"] == BenchRun.node_set,
+            ),
+        ),
     ]
 
 
@@ -425,6 +492,7 @@ class BenchStore:
                         "strategy": data["strategy"],
                         "node_id": data["node_id"],
                         "origin_node_id": data["origin_node_id"],
+                        "node_set": data.get("node_set"),
                         # V0.9 G4: on_unsupported: skip -> stored skipped
                         "state": "skipped" if skipped else "planned",
                         "detail": None

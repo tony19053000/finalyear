@@ -14,6 +14,8 @@ tests fails on drift).
   lease_seq)``; no foreign keys (a record outlives the queue rows).
   ``stderr_tail`` is the try's redacted stderr tail for the API (D261), never
   exported.
+* ``bench_run.node_set`` + ``strategy`` ``mode3``: a campaign run forced onto
+  a node set (D271); ``(strategy = 'mode3') = (node_set IS NOT NULL)``.
 * ``plan_decision.shadow_node_set``: a forced split benchmark job's shadow
   pick when it is a Mode 3 set (D215 extended).
 
@@ -153,9 +155,28 @@ def upgrade() -> None:
         ["recorded_at"],
         unique=False,
     )
+    # bench_run: a mode3 run's forced node set
+    op.add_column("bench_run", sa.Column("node_set", _JSONB, nullable=True))
+    _bench_strategy_check(STRATEGIES_0029)
+    op.create_check_constraint(
+        op.f("ck_bench_run_node_set"),
+        "bench_run",
+        "(strategy = 'mode3') = (node_set IS NOT NULL)",
+    )
+
+
+def _bench_strategy_check(values: str) -> None:
+    op.drop_constraint(op.f("ck_bench_run_strategy"), "bench_run", type_="check")
+    op.create_check_constraint(
+        op.f("ck_bench_run_strategy"), "bench_run", f"strategy IN ({values})"
+    )
 
 
 def downgrade() -> None:
+    op.drop_constraint(op.f("ck_bench_run_node_set"), "bench_run", type_="check")
+    op.execute("DELETE FROM bench_run WHERE strategy = 'mode3'")
+    _bench_strategy_check(STRATEGIES_0021)
+    op.drop_column("bench_run", "node_set")
     op.drop_index(op.f("ix_chunk_record_recorded_at"), table_name="chunk_record")
     op.drop_table("chunk_record")
     op.drop_column("plan_decision", "shadow_node_set")

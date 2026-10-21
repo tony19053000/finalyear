@@ -241,6 +241,9 @@ class Family[P: Params](ABC):
     params_model: ClassVar[type[Params]]
     size_params: ClassVar[tuple[str, ...]]
     needs_numpy: ClassVar[bool] = False
+    split: ClassVar[bool] = False
+    """V0.10 G8 (D272): a Mode 3 family (``split.*``, :mod:`.split`) - its job
+    has a ``split:`` spec and runs as lanes + a combine."""
 
     # ------------------------------------------------------------ cost model
 
@@ -413,28 +416,39 @@ class Family[P: Params](ABC):
 
 
 _REGISTRY: dict[str, Family[Any]] = {}
+_SPLIT_REGISTRY: dict[str, Family[Any]] = {}
+"""V0.10 G8: the Mode 3 families (:mod:`.split`). Kept apart so the V0.9
+"whole run" listing (:func:`list_families`, its job-side kernel table) is
+unchanged; :func:`get_family` finds both."""
 
 
 def register(family: Family[Any]) -> Family[Any]:
-    """Add ``family`` to the registry (names are unique)."""
-    if family.name in _REGISTRY:
+    """Add ``family`` to the registry (names are unique across both)."""
+    registry = _SPLIT_REGISTRY if family.split else _REGISTRY
+    if family.name in _REGISTRY or family.name in _SPLIT_REGISTRY:
         raise ValueError(f"workload family {family.name!r} is registered twice")
-    _REGISTRY[family.name] = family
+    registry[family.name] = family
     return family
 
 
 def get_family(name: str) -> Family[Any]:
     _load()
-    try:
-        return _REGISTRY[name]
-    except KeyError:
-        raise UnknownFamilyError(name) from None
+    found = _REGISTRY.get(name) or _SPLIT_REGISTRY.get(name)
+    if found is None:
+        raise UnknownFamilyError(name)
+    return found
 
 
 def list_families() -> list[Family[Any]]:
-    """Every registered family, sorted by name."""
+    """Every registered whole-run family (V0.9), sorted by name."""
     _load()
     return [_REGISTRY[name] for name in sorted(_REGISTRY)]
+
+
+def list_split_families() -> list[Family[Any]]:
+    """Every Mode 3 family (V0.10 G8), sorted by name."""
+    _load()
+    return [_SPLIT_REGISTRY[name] for name in sorted(_SPLIT_REGISTRY)]
 
 
 def iter_names() -> Iterator[str]:
@@ -445,7 +459,7 @@ def iter_names() -> Iterator[str]:
 def _load() -> None:
     # The family modules register themselves on import (not at this module's
     # import: they import this one).
-    from . import cpu, gpu, memory, ml  # noqa: F401
+    from . import cpu, gpu, memory, ml, split  # noqa: F401
 
 
 def round_up_gb(value: float) -> float:

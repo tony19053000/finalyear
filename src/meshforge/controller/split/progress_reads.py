@@ -23,6 +23,7 @@ from meshforge.controller.split.progress import (
 )
 from meshforge.controller.store.engine import create_session_factory
 from meshforge.controller.store.models.job import Job
+from meshforge.controller.store.models.telemetry import ChunkRecord
 from meshforge.workqueue.core import ItemState
 from meshforge.workqueue.reads import ItemView, list_items
 from meshforge.workqueue.tables import work_queue
@@ -189,3 +190,25 @@ class ProgressReads:
             )
             await db.rollback()
         return [chunk_row(v) for v in views]
+
+    @typed_store_call
+    async def chunk_tries(
+        self, job_id: str, chunk_index: int, *, limit: int
+    ) -> list[ChunkRecord]:
+        """V0.10 G8 (D261/D271): the chunk's recorded tries (its chunk
+        records, with their stderr tails), the latest ``limit`` of them in
+        lease order. Empty = no try of it ended with a result yet."""
+        async with self._sessions() as db:
+            rows = list(
+                await db.scalars(
+                    select(ChunkRecord)
+                    .where(
+                        ChunkRecord.job_id == job_id,
+                        ChunkRecord.chunk_index == chunk_index,
+                    )
+                    .order_by(ChunkRecord.lease_seq.desc())
+                    .limit(limit)
+                )
+            )
+        rows.reverse()
+        return rows
