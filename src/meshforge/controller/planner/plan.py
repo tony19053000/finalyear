@@ -33,6 +33,12 @@ import json
 from dataclasses import asdict, replace
 from typing import Any
 
+# V0.14 G2 (D293): calibration factors
+from meshforge.controller.planner.calibration import (
+    Calibration,
+    calibrate_estimate,
+    calibration_json,
+)
 from meshforge.controller.planner.candidates import STORED_MODE, candidates
 from meshforge.controller.planner.estimator import estimate
 from meshforge.controller.planner.feasibility import (
@@ -82,12 +88,23 @@ def _jsonable(value: Any) -> Any:
     return value
 
 
-def snapshot_digest(request: PlanRequest, snapshot: ClusterSnapshot) -> str:
+def snapshot_digest(
+    request: PlanRequest,
+    snapshot: ClusterSnapshot,
+    calibration: Calibration | None = None,
+) -> str:
     """SHA-256 of the canonical (request, snapshot) pair."""
-    data = {
+    data: dict[str, Any] = {
         "request": _jsonable(asdict(request)),
         "snapshot": _jsonable(asdict(snapshot)),
     }
+    # V0.14 G2 (D293): a calibrated decision saw its factors too (None ->
+    # the digest of every decision before G2, unchanged)
+    if calibration is not None:
+        data["calibration"] = {
+            "version": calibration.version,
+            **calibration_json(calibration),
+        }
     text = json.dumps(data, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
@@ -166,11 +183,20 @@ def plan(
     snapshot: ClusterSnapshot,
     policy: str,
     now: dt.datetime | None = None,
+    *,
+    calibration: Calibration | None = None,
 ) -> Decision:
     """See module docstring. ``now`` judges the age of network-matrix links
-    (V0.6 G4, D111); without it no link counts as fresh."""
+    (V0.6 G4, D111); without it no link counts as fresh.
+
+    V0.14 G2 (D293): ``calibration`` scales each candidate's non-``measured``
+    terms by its fitted factors (:mod:`.calibration`) before the policy, the
+    margin test and the ranking see them; None = uncalibrated (bit-identical
+    to the planner before G2)."""
     config = snapshot.config
     request = _with_exclusion(request, snapshot)
+    # V0.14 G2: the request's workload family, as the calibration knows it
+    family = None if calibration is None else calibration.family_of(request.fingerprint)
     evals: list[CandidateEval] = []
     scored: list[Scored] = []
     feasible: list[tuple[NodeSnapshot, bool, Slot]] = []
@@ -194,13 +220,17 @@ def plan(
             feasible.append((node, local, slot))
             continue
         guess = estimate(request, node, slot, snapshot, local=local, now=now)
+        if calibration is not None:  # V0.14 G2 (D293)
+            guess = calibrate_estimate(
+                guess, calibration, node_id=node.node_id, family=family
+            )
         scored.append(Scored(node=node, slot=slot, local=local, estimate=guess))
         evals.append(
             CandidateEval(node.node_id, mode, feasible=True, slot=slot, estimate=guess)
         )
     if request.split is not None:
         rows, picked, split_plan = decide_split(
-            request, snapshot, policy, feasible, now=now
+            request, snapshot, policy, feasible, now=now, calibration=calibration
         )
         rows = [*rows, *evals]
         rows.sort(key=lambda c: (c.rank is None, c.rank or 0, c.node_id))
@@ -208,7 +238,7 @@ def plan(
             policy=policy,
             candidates=tuple(rows),
             chosen=picked,
-            snapshot_digest=snapshot_digest(request, snapshot),
+            snapshot_digest=snapshot_digest(request, snapshot, calibration),
             reason_key=_reason_key(rows),
             split=split_plan,
         )
@@ -227,6 +257,6 @@ def plan(
         policy=policy,
         candidates=tuple(final),
         chosen=chosen,
-        snapshot_digest=snapshot_digest(request, snapshot),
+        snapshot_digest=snapshot_digest(request, snapshot, calibration),
         reason_key=_reason_key(final),
     )

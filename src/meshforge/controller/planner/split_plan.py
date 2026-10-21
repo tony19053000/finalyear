@@ -34,6 +34,8 @@ from collections.abc import Sequence
 from dataclasses import replace
 from typing import Final
 
+# V0.14 G2 (D293): a lane's stage + env are calibrated per node
+from meshforge.controller.planner.calibration import Calibration, calibrate_lane
 from meshforge.controller.planner.candidates import FORCED_SET, Candidate, candidates
 from meshforge.controller.planner.policies import Scored, rank
 from meshforge.controller.planner.split import (
@@ -162,6 +164,7 @@ def decide_split(
     feasible: Sequence[tuple[NodeSnapshot, bool, Slot]],
     *,
     now: dt.datetime | None = None,
+    calibration: Calibration | None = None,
 ) -> SplitOutcome:
     """The split job's feasible rows (singles + sets) ranked, its rejected
     ``split`` row if any, the chosen candidate and its plan (module
@@ -175,6 +178,11 @@ def decide_split(
         lane(request, node, slot, snapshot, local=local, now=now)
         for node, local, slot in feasible
     ]
+    # V0.14 G2 (D293): each lane's stage + env x its node's factors, before
+    # the sets are generated and costed (start times, water filling, margin)
+    if calibration is not None:
+        family = calibration.family_of(request.fingerprint)
+        lanes = [calibrate_lane(item, calibration, family=family) for item in lanes]
     generated = candidates(request, snapshot, lanes=lanes)
     by_lane = {item.node_id: item for item in lanes}
     singles = [
