@@ -43,6 +43,8 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 
 ## Current Task
 
+- **2026-10-21 (later):** G9 post-merge gates GREEN. Disk freed (80%, 38 GB free, no repo deletions by the agent); `uv run pytest tests/cluster/test_v010_mode3.py -q` → **4 passed** (c1, c4, c5, owner_guard; 162 s) — the earlier 4 failures were disk-full only. With unit 17068 / ruff / `mypy src` clean, V0.10 is **agent-side complete and gated**. Next: 🧑 0.10.10 lab (`lab/checklists/V0.10-mode3.md`); agent-side: V0.10 tech debt (D287/D288) or next roadmap version.
+
 - **2026-10-21:** V0.10 G8 MERGED (`33f8e97e`) → **0.10.9 `[x]`** (D287; tester PASS 62 new tests, reviewer APPROVE). Post-merge main: unit 16991 passed; V0.10 comp+cluster+workqueue (+0029 migration test) 238 passed one process. Next: **G9** (brief §5i: cluster harness + `lab/checklists/V0.10-mode3.md`) → 🧑 0.10.10.
 
 - **2026-10-21 (session end):** G8 (0.10.9) implementer stopped with code/tests/docs written but exit gates not run — branch worktree-agent-a87c8a801a83f7de2 head c66deb09. Next: resume G8 gates → tester ∥ reviewer → merge.
@@ -235,7 +237,9 @@ Reviewer non-blocking follow-ups (carry into G2/G3): (1) `mint` should carry `pe
 - Windows: not yet run (first real CI run will cover unit + fresh-clone on windows-latest)
 
 ## Next Recommended Task
-**V0.10 G8** (0.10.9; brief §5h + G8 carry-overs: stderr tail, `_history` cache, chunk_record reads speculative copies, map refetch throttle) → G9 (cluster harness + `lab/checklists/V0.10-mode3.md`) → 🧑 0.10.10.
+🧑 **0.10.10** Mode 3 lab run (`lab/checklists/V0.10-mode3.md`). Agent-side: V0.10 tech debt (D287/D288 list under Technical Debt) or V0.14 Unified planner v2 brief (team to choose).
+
+_Older:_ **V0.10 G8** (0.10.9; brief §5h + G8 carry-overs: stderr tail, `_history` cache, chunk_record reads speculative copies, map refetch throttle) → G9 (cluster harness + `lab/checklists/V0.10-mode3.md`) → 🧑 0.10.10.
 
 _Older:_ **V0.9 G5c** — implementer in a worktree with brief §5g: item 0.0 cool-down race first (closes 0.9.7 after tester + reviewer), then item 0.1–0.8, then the 0.9.8 quality report. 🧑 lab: V0.9 C1–C3 + R1–R3, 0.8.10.
 
