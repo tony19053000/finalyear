@@ -1205,8 +1205,9 @@ compute get <JOB_ID>               # outputs -> ./outputs/<JOB_ID>/ (--dest, --f
     mean `|ln(predicted / actual)|` there is at most **1.05 x** the active
     version's (or no calibration's); otherwise it is stored `rejected` with the
     reason. At most one row is ever `active` (a unique index; refreshes run one
-    at a time under a database lock). Fewer than 2 matched runs, or nothing to
-    fit, writes nothing.
+    at a time under a database lock). Fewer than 2 matched runs, nothing to
+    fit, or the same matched runs and settings as the newest version
+    (`no_new_runs`: a refit would only duplicate it) writes nothing.
   - **Refresh:** every `calibration_refresh_s` (1800 s, first one interval
     after start) and on demand: `compute planner calibrate` (admin) prints the
     new version or why nothing was written; `compute planner calibration
@@ -1219,7 +1220,11 @@ compute get <JOB_ID>               # outputs -> ./outputs/<JOB_ID>/ (--dest, --f
   - **`[controller.planner] calibration`**: `"auto"` (default: the active
     version), `"off"` (no calibration, no refresh task), or a version number
     such as `"7"` to **pin** it - the controller refuses to start if that
-    version does not exist or cannot be read (never a silent fallback). With
+    version does not exist, cannot be read, or is `rejected` (a rejected fit
+    failed the gate and is never used; `superseded` versions can be pinned)
+    - never a silent fallback. An active version whose factors cannot be
+    read is logged once (`controller.planner.calibration_unreadable`) and
+    the planner plans uncalibrated until a new version is active. With
     `off` or a pin, `compute planner calibrate` still fits and gates, but the
     planner keeps what the setting says. `calibration_window_runs` 1-1000,
     `calibration_shrink_k` > 0, `calibration_clamp` 0 < low < 1 < high <= 1000,

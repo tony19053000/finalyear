@@ -96,13 +96,7 @@ def test_bad_version_values_are_usage_errors(
     "version",
     [
         5,
-        pytest.param(
-            "\x1b[31mV",
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="DEFECT T2: factor_table title interpolates version unscrubbed",
-            ),
-        ),
+        "\x1b[31mV",  # T2 (fixed in G2 fix round 1): the title is scrubbed
     ],
 )
 def test_odd_documents_do_not_crash_the_renderer(

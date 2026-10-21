@@ -20,6 +20,7 @@ names it on the decision row and stores it in the replay.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import datetime as dt
 import json
 from types import SimpleNamespace
@@ -334,6 +335,48 @@ def test_a_pin_is_checked_at_startup_and_used_without_reads() -> None:
     cal = asyncio.run(source.refresh())
     assert cal is not None and cal.version == 5
     assert store.version_reads == 0
+
+
+def test_an_unreadable_active_version_is_logged_once_and_not_reread() -> None:
+    """Fix round 1 NB3: a bad active version is remembered by id (planned
+    uncalibrated), not loaded again every tick; a new active id is loaded."""
+    store = _Store()
+    store.rows = {3: _row(3, None), 4: _row(4, _calibration(4))}
+    store.active = 3
+    source = _source(store, "auto")
+
+    async def ticks() -> list[int | None]:
+        seen: list[int | None] = []
+        for active in (3, 3, 3, 4, 3):
+            store.active = active
+            cal = await source.refresh()
+            seen.append(None if cal is None else cal.version)
+        return seen
+
+    assert asyncio.run(ticks()) == [None, None, None, 4, None]
+    # 3 once, 4 once; back to 3: still known bad, not re-read
+    assert store.loads == 2
+
+
+def test_a_rejected_version_cannot_be_pinned() -> None:
+    """Fix round 1 R1: a rejected row is never used - pinning it is a
+    ConfigError at startup; unchecked, the source plans without it."""
+    store = _Store()
+    rejected = _row(6, _calibration(6))
+    store.rows = {6: dataclasses.replace(rejected, status="rejected")}
+    with pytest.raises(ConfigError, match="rejected"):
+        asyncio.run(_source(store, "6").check())
+    unchecked = _source(store, "6")
+    assert asyncio.run(unchecked.refresh()) is None
+
+
+def test_a_superseded_version_can_still_be_pinned() -> None:
+    store = _Store()
+    old = _row(2, _calibration(2))
+    store.rows = {2: dataclasses.replace(old, status="superseded")}
+    source = _source(store, "2")
+    asyncio.run(source.check())
+    assert source.current is not None and source.current.version == 2
 
 
 def test_parse_mode() -> None:

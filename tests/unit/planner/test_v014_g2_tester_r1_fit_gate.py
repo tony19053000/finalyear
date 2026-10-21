@@ -437,16 +437,8 @@ def _mutations() -> list[Any]:
 
 
 def _params() -> list[Any]:
-    out: list[Any] = []
-    for d in _mutations():
-        marks = []
-        if isinstance(d, dict) and d.get("format") is True:
-            # DEFECT T1 (minor): JSON `true` passes `data.get("format") != 1`
-            marks = [
-                pytest.mark.xfail(strict=True, reason="DEFECT T1: bool format accepted")
-            ]
-        out.append(pytest.param(d, marks=marks, id=json.dumps(d, default=str)[:60]))
-    return out
+    # T1 (fixed in G2 fix round 1): JSON `true` for `format` is refused too
+    return [pytest.param(d, id=json.dumps(d, default=str)[:60]) for d in _mutations()]
 
 
 @pytest.mark.parametrize("data", _params())

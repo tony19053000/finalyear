@@ -66,7 +66,7 @@ def factor_table(calibration: Mapping[str, Any]) -> Table:
         "FACTOR",
         "N",
         "MEDIAN",
-        title=f"calibration v{calibration.get('version')} factors",
+        title=f"calibration v{render.echo(calibration.get('version'))} factors",
     )
     for row in calibration.get("factors") or []:
         if not isinstance(row, Mapping):

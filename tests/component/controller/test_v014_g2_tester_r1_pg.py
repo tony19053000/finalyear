@@ -307,11 +307,13 @@ async def test_a_clearly_worse_fit_is_rejected_active_untouched(
     src = CalibrationSource(calibrations, "auto")
     used = await src.refresh()
     assert used is not None and used.version == v1
-    # repeated refreshes of the same bad data keep rejecting, never activate
+    # repeated refreshes of the same bad data write nothing (no_new_runs,
+    # fix round 1 NB1), never activate, never duplicate the rejected row
     for _ in range(3):
         again = await calibrations.refresh(CFG)
-        assert again.row is not None and again.row.status == "rejected"
+        assert again.row is None and again.skipped == "no_new_runs"
     assert (await calibrations.active_version()) == v1
+    assert len(await statuses(pg_settings)) == 2
 
 
 async def test_first_version_gate_uses_uncalibrated_baseline(
@@ -349,12 +351,20 @@ async def test_many_concurrent_refreshes_one_active(
     engines = [create_engine(pg_settings, pool_size=2) for _ in range(8)]
     try:
         stores = [CalibrationStore(e) for e in engines]
-        for _round in range(3):
+        for round_ in range(3):
+            if round_ or not first_ever:  # new runs: else every refresh skips
+                await seed(
+                    pg_settings, store, planner, [120.0] * 2, start=100 + 10 * round_
+                )
             results = await asyncio.gather(
                 *(s.refresh(CFG) for s in stores), return_exceptions=True
             )
             errors = [r for r in results if isinstance(r, BaseException)]
             assert errors == []
+            # one fit per new run set; the other seven see it and skip (NB1)
+            done = [r for r in results if not isinstance(r, BaseException)]
+            assert len([r for r in done if r.row is not None]) == 1
+            assert all(r.skipped == "no_new_runs" for r in done if r.row is None)
             active = await sql(
                 pg_settings,
                 "SELECT count(*) AS n FROM planner_calibration WHERE status = 'active'",
@@ -366,7 +376,7 @@ async def test_many_concurrent_refreshes_one_active(
     rows = await statuses(pg_settings)
     assert [s for _v, s in rows].count("active") == 1
     assert [s for _v, s in rows][-1] == "active"  # newest accepted one is the active
-    assert len(rows) == (24 if first_ever else 25)
+    assert len(rows) == (3 if first_ever else 4)
     assert all(s in ("active", "superseded", "rejected") for _v, s in rows)
     # versions strictly increasing and unique
     vs = [v for v, _s in rows]
@@ -443,22 +453,24 @@ async def test_pin_to_corrupt_row_is_config_error_and_pin_survives_new_active(
     assert got2 is not None and got2.version == second.row.version
 
 
-async def test_pinning_a_rejected_version_is_accepted_by_check(
+async def test_pinning_a_rejected_version_is_refused_by_check(
     pg_settings: DatabaseSettings, store: ExecutionStore, calibrations: CalibrationStore
 ) -> None:
-    """Observation (see report): the model docstring says a rejected row is
-    'never used', but an operator pin on it passes the startup check."""
+    """R1 (fix round 1): a rejected row is 'never used' - pinning it is a
+    ConfigError at startup, and a source that skipped ``check`` never plans
+    with it either."""
     node = await new_node(pg_settings)
     planner = planner_for(Manager([node]))
     await seed(pg_settings, store, planner, [180.0] * 8 + [60.0] * 2)
     r = await calibrations.refresh(CFG)
     assert r.row is not None and r.row.status == "rejected"
     src = CalibrationSource(calibrations, str(r.row.version))
-    try:
+    with pytest.raises(ConfigError, match="rejected"):
         await src.check()
-    except ConfigError:
-        return  # a stricter implementation is fine too
-    assert src.current is not None and src.current.version == r.row.version
+    assert src.current is None
+    unchecked = CalibrationSource(calibrations, str(r.row.version))
+    assert await unchecked.refresh() is None
+    assert await unchecked.refresh() is None  # remembered, not re-read
 
 
 async def test_modes_write_the_right_calibration_version_on_decisions(

@@ -406,7 +406,11 @@ def _text(value: Any) -> str:
 def calibration_from_json(version: int, data: Any) -> Calibration:
     """:func:`calibration_json` back; :class:`CalibrationError` when it cannot
     be read (never a partly read calibration)."""
-    if not isinstance(data, Mapping) or data.get("format") != CALIBRATION_FORMAT:
+    if not isinstance(data, Mapping):
+        raise CalibrationError("unsupported calibration format")
+    fmt = data.get("format")
+    # ``type(...) is int``: JSON ``true`` is a bool, and ``True == 1`` in Python
+    if type(fmt) is not int or fmt != CALIBRATION_FORMAT:
         raise CalibrationError("unsupported calibration format")
     try:
         terms: dict[str, TermFactors] = {}

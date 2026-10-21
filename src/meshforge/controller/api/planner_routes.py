@@ -3,7 +3,8 @@
 * ``POST /v1/planner/calibrate`` (**admin**): fit a new version now, gate it
   against the active one on the held-out runs (D306) and store it as
   ``active`` or ``rejected``; answers what was written (``created`` null and
-  ``skipped`` = ``too_few_runs`` / ``nothing_to_fit`` when nothing was).
+  ``skipped`` = ``too_few_runs`` / ``nothing_to_fit`` / ``no_new_runs``
+  when nothing was).
   ``compute planner calibrate``.
 * ``GET /v1/planner/calibration[?version=N]`` (any signed-in user): one
   version's factors (default: the active one), each with ``n`` and its key

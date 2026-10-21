@@ -13,16 +13,24 @@
     serialised by the lock - the second gates against what the first
     activated - and the partial unique index guarantees at most one
     ``active`` row whatever happens. Too few runs, or nothing to fit, writes
-    nothing.
+    nothing; so does a refresh whose matched runs and fit settings are those
+    of the newest row (``no_new_runs``: the fit is deterministic, so it would
+    only duplicate that row; an unreadable newest row is refitted). The pure
+    match/fit/gate runs in a worker thread (``asyncio.to_thread``) so a large
+    fit never stalls the event loop while the transaction and its lock are
+    held.
   - :meth:`~CalibrationStore.load`, :meth:`~CalibrationStore.active_version`,
     :meth:`~CalibrationStore.row`, :meth:`~CalibrationStore.recent`.
 
 * :class:`CalibrationSource` - what the dispatcher plans with, once per tick:
   ``off`` -> None; a pinned version -> that version (loaded once; startup
-  refuses a pin that does not exist, :meth:`CalibrationSource.check`);
-  ``auto`` -> the active version, re-read by id every tick and loaded only
-  when the id changed. A failed read keeps the version it had (logged once
-  per failure streak): a database hiccup never blocks or changes dispatch.
+  refuses a pin that does not exist, cannot be read or is ``rejected``,
+  :meth:`CalibrationSource.check`); ``auto`` -> the active version, re-read
+  by id every tick and loaded only when the id changed. A failed read keeps
+  the version it had (logged once per failure streak): a database hiccup
+  never blocks or changes dispatch. A version whose factors cannot be read
+  is remembered (logged once, planned without calibration) and not re-read
+  every tick.
 
 **The matched runs** (one bounded read): ``dispatched`` decisions joined to
 their attempt (``done``, ``ended_at`` set), the attempt's run record (workload
@@ -33,7 +41,10 @@ yet), newest first; then their phases in one ``IN`` read. The pure
 
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
+import hashlib
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Final, Literal
 
@@ -49,6 +60,7 @@ from meshforge.controller.planner.calibration import (
     CalibrationConfig,
     CalibrationError,
     DecisionOutcome,
+    MatchedRun,
     Refit,
     calibration_from_json,
     calibration_json,
@@ -125,9 +137,46 @@ class RefreshResult:
     matched_runs: int
     row: CalibrationRow | None
     skipped: str | None = None
-    """``too_few_runs`` | ``nothing_to_fit`` (no row written)."""
+    """``too_few_runs`` | ``nothing_to_fit`` | ``no_new_runs`` (no row
+    written)."""
     superseded: int | None = None
     """The version this one replaced as ``active``."""
+
+
+_RUN_SET_KEYS: Final = (
+    "matched_runs",
+    "newest_decision_id",
+    "runs_digest",
+    "window",
+    "k",
+    "clamp",
+)
+"""The ``fit_inputs`` keys that identify what a fit was computed from: the
+matched-run set (count, newest decision id, digest of every decision id) and
+the fit settings. Equal to the newest row's -> ``no_new_runs``."""
+
+
+def run_set(runs: Sequence[MatchedRun]) -> dict[str, Any]:
+    """The matched-run set of one refresh, as stored in ``fit_inputs``."""
+    ids = sorted(run.decision_id for run in runs)
+    digest = hashlib.sha256(",".join(map(str, ids)).encode()).hexdigest()[:32]
+    return {
+        "matched_runs": len(ids),
+        "newest_decision_id": ids[-1] if ids else None,
+        "runs_digest": digest,
+    }
+
+
+def _same_inputs(previous: Mapping[str, Any], current: Mapping[str, Any]) -> bool:
+    """Same matched runs and settings (a row from before these keys never
+    matches)."""
+    return all(
+        key in previous and previous[key] == current.get(key) for key in _RUN_SET_KEYS
+    )
+
+
+def _match_all(outcomes: Sequence[DecisionOutcome]) -> list[MatchedRun]:
+    return [m for o in outcomes if (m := match(o)) is not None]
 
 
 def _row(item: PlannerCalibration) -> CalibrationRow:
@@ -222,7 +271,30 @@ class CalibrationStore:
             async with self._sessions() as db, db.begin():
                 await db.execute(_LOCK)
                 outcomes = await _outcomes(db, max(1, limit))
-                runs = [m for o in outcomes if (m := match(o)) is not None]
+                # pure CPU work off the event loop; the lock stays held (the
+                # transaction is this coroutine's), nothing else uses ``db``
+                runs = await asyncio.to_thread(_match_all, outcomes)
+                inputs = {
+                    **run_set(runs),
+                    "window": config.window_runs,
+                    "k": config.shrink_k,
+                    "clamp": list(config.clamp),
+                }
+                newest = (
+                    await db.scalars(
+                        select(PlannerCalibration)
+                        .order_by(PlannerCalibration.version.desc())
+                        .limit(1)
+                    )
+                ).first()
+                if (
+                    newest is not None
+                    and _same_inputs(newest.fit_inputs, inputs)
+                    and _row(newest).calibration is not None  # unreadable: refit
+                ):
+                    return RefreshResult(
+                        matched_runs=len(runs), row=None, skipped="no_new_runs"
+                    )
                 current = (
                     await db.scalars(
                         select(PlannerCalibration)
@@ -231,7 +303,7 @@ class CalibrationStore:
                     )
                 ).first()
                 active = None if current is None else _row(current).calibration
-                result = refit(runs, config, active)
+                result = await asyncio.to_thread(refit, runs, config, active)
                 if result is None:
                     skipped = (
                         "too_few_runs" if len(runs) < MIN_RUNS else "nothing_to_fit"
@@ -239,7 +311,7 @@ class CalibrationStore:
                     return RefreshResult(
                         matched_runs=len(runs), row=None, skipped=skipped
                     )
-                return await self._store(db, result, current, len(runs))
+                return await self._store(db, result, current, len(runs), inputs)
         except _DB_ERRORS as exc:
             raise CalibrationStoreError(
                 "the calibration refresh failed in the database",
@@ -252,6 +324,7 @@ class CalibrationStore:
         result: Refit,
         current: PlannerCalibration | None,
         matched: int,
+        inputs: Mapping[str, Any],
     ) -> RefreshResult:
         accepted = result.gate.accepted
         superseded: int | None = None
@@ -263,7 +336,7 @@ class CalibrationStore:
         item = PlannerCalibration(
             status="active" if accepted else "rejected",
             factors=calibration_json(result.calibration),
-            fit_inputs=dict(result.fit_inputs),
+            fit_inputs={**result.fit_inputs, **inputs},
             holdout_error_new=result.holdout_error_new,
             holdout_error_active=result.holdout_error_active,
             reason=None if reason is None else reason[:MAX_CALIBRATION_REASON_CHARS],
@@ -360,10 +433,13 @@ class CalibrationSource:
         self.failures = 0
         """Reads that failed (the version in use was kept)."""
         self._failing = False
+        self._unreadable: int | None = None
+        """A version whose factors could not be read (not re-read per tick)."""
 
     async def check(self) -> None:
-        """Startup (D301): a pinned version must exist and be readable -
-        :class:`ConfigError` otherwise, never a silent fallback."""
+        """Startup (D301): a pinned version must exist, be readable and not
+        be ``rejected`` (a rejected fit failed the holdout gate and is never
+        used) - :class:`ConfigError` otherwise, never a silent fallback."""
         if self.mode != "pinned" or self.pinned is None:
             return
         found = await self._store.row(self.pinned)
@@ -377,6 +453,12 @@ class CalibrationSource:
                 f"[controller.planner] calibration = {self.pinned}: that "
                 "version's factors cannot be read"
             )
+        if found.status == "rejected":
+            raise ConfigError(
+                f"[controller.planner] calibration = {self.pinned}: that "
+                "version was rejected by the holdout gate and is never used "
+                "(pin an active or superseded version)"
+            )
         self.current = found.calibration
 
     async def refresh(self) -> Calibration | None:
@@ -385,19 +467,22 @@ class CalibrationSource:
             return None
         try:
             if self.mode == "pinned":
-                if self.current is None and self.pinned is not None:
-                    self.current = await self._store.load(self.pinned)
+                if (
+                    self.current is None
+                    and self.pinned is not None
+                    and self._unreadable != self.pinned
+                ):
+                    self.current = await self._pinned(self.pinned)
             else:
                 version = await self._store.active_version()
                 if version is None:
                     self.current = None
+                elif version == self._unreadable:
+                    self.current = None  # known bad: logged once, not re-read
                 elif self.current is None or self.current.version != version:
                     loaded = await self._store.load(version)
                     if loaded is None:
-                        log.error(
-                            "controller.planner.calibration_unreadable",
-                            calibration_version=version,
-                        )
+                        self._mark_unreadable(version)
                     self.current = loaded
         except CalibrationStoreError as exc:
             self.failures += 1
@@ -420,6 +505,23 @@ class CalibrationSource:
             return self.current
         self._failing = False
         return self.current
+
+    async def _pinned(self, version: int) -> Calibration | None:
+        """The pinned version (when :meth:`check` did not load it): never a
+        missing, unreadable or ``rejected`` one."""
+        found = await self._store.row(version)
+        if found is None or found.calibration is None or found.status == "rejected":
+            self._mark_unreadable(version)
+            return None
+        return found.calibration
+
+    def _mark_unreadable(self, version: int) -> None:
+        if self._unreadable != version:
+            log.error(
+                "controller.planner.calibration_unreadable",
+                calibration_version=version,
+            )
+        self._unreadable = version
 
 
 def row_summary(row: CalibrationRow) -> dict[str, Any]:

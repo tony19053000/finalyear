@@ -23,6 +23,7 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 import json
+import threading
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from types import SimpleNamespace
@@ -38,6 +39,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
 from meshforge.common.ids import new_job_id, new_node_id, new_session_id
+from meshforge.controller import calibration_store
 from meshforge.controller.calibration_store import (
     CalibrationSource,
     CalibrationStore,
@@ -387,11 +389,20 @@ async def test_two_concurrent_refreshes_leave_one_active_row(
     other_engine = create_engine(pg_settings, pool_size=2)
     try:
         other = CalibrationStore(other_engine)
-        for _round in range(3):
+        for round_ in range(3):
+            if round_:  # new runs: a refresh with none writes nothing (NB1)
+                await _seed(
+                    pg_settings,
+                    store,
+                    _planner(Manager([node])),
+                    [90.0] * 2,
+                    start=100 + 10 * round_,
+                )
             results = await asyncio.gather(
                 calibrations.refresh(CFG), other.refresh(CFG)
             )
-            assert all(r.row is not None for r in results)
+            # serialised by the lock: the second sees the first's run set
+            assert sorted(str(r.skipped) for r in results) == ["None", "no_new_runs"]
             rows = await _sql(
                 pg_settings,
                 "SELECT count(*) AS n FROM planner_calibration WHERE status = 'active'",
@@ -400,9 +411,61 @@ async def test_two_concurrent_refreshes_leave_one_active_row(
     finally:
         await other_engine.dispose()
     statuses = await _statuses(pg_settings)
-    assert len(statuses) == 6
+    assert len(statuses) == 3
     assert [s for _v, s in statuses].count("active") == 1
     assert statuses[-1][1] in ("active", "superseded", "rejected")
+
+
+async def test_a_refresh_without_new_runs_writes_nothing(
+    pg_settings: DatabaseSettings,
+    store: ExecutionStore,
+    calibrations: CalibrationStore,
+) -> None:
+    """NB1: the same matched runs and settings -> ``no_new_runs``, no row; a
+    new run or a changed setting refits."""
+    node = await _node(pg_settings)
+    planner = _planner(Manager([node]))
+    await _seed(pg_settings, store, planner, [90.0] * 10)
+    first = await calibrations.refresh(CFG)
+    assert first.row is not None
+    inputs = first.row.fit_inputs
+    assert inputs["matched_runs"] == 10
+    assert isinstance(inputs["newest_decision_id"], int)
+    assert isinstance(inputs["runs_digest"], str) and len(inputs["runs_digest"]) == 32
+    again = await calibrations.refresh(CFG)
+    assert again.row is None and again.skipped == "no_new_runs"
+    assert again.matched_runs == 10
+    assert len(await _statuses(pg_settings)) == 1
+    other_k = CalibrationConfig(shrink_k=CFG.shrink_k + 1)
+    changed = await calibrations.refresh(other_k)
+    assert changed.row is not None  # a changed setting is a new fit
+    await _seed(pg_settings, store, planner, [90.0], start=50)
+    newer = await calibrations.refresh(CFG)
+    assert newer.row is not None and newer.row.fit_inputs["matched_runs"] == 11
+    assert len(await _statuses(pg_settings)) == 3
+
+
+async def test_the_fit_runs_off_the_event_loop(
+    pg_settings: DatabaseSettings,
+    store: ExecutionStore,
+    calibrations: CalibrationStore,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """NB2: match + refit (pure CPU) run in a worker thread while the
+    transaction and its advisory lock are held; the result is the same."""
+    node = await _node(pg_settings)
+    await _seed(pg_settings, store, _planner(Manager([node])), [90.0] * 10)
+    threads: list[str] = []
+    real_refit = calibration_store.refit
+
+    def spy(*args: Any, **kwargs: Any) -> Any:
+        threads.append(threading.current_thread().name)
+        return real_refit(*args, **kwargs)
+
+    monkeypatch.setattr(calibration_store, "refit", spy)
+    result = await calibrations.refresh(CFG)
+    assert result.row is not None and result.row.status == "active"
+    assert threads and threads[0] != threading.main_thread().name
 
 
 async def test_the_index_refuses_a_second_active_row(
