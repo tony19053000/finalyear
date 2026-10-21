@@ -163,6 +163,9 @@ def test_cli_only_is_the_exception() -> None:
         "fabric join",
         "node gc",
         "node prepare",
+        # V0.14 G2: until the Planner page (V0.14 G5, D300) exists
+        "planner calibrate",
+        "planner calibration",
     ]
 
 

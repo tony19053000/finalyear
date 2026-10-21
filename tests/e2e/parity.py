@@ -304,6 +304,17 @@ COMPUTE: Final[dict[str, Entry]] = {
         "CLI-only)",
         (BENCH_FLOW,),
     ),
+    # ------------------------------------------------------------ planner (V0.14)
+    "planner calibrate": CliOnly(
+        "V0.14 G2 (D293): refits the planner calibration now (admin). The "
+        "dashboard's Planner page (V0.14 G5, D300) shows calibration versions "
+        "and factors; until it exists this stays CLI-only."
+    ),
+    "planner calibration": CliOnly(
+        "V0.14 G2 (D293): shows a calibration version's factors. The Planner "
+        "page arrives with V0.14 G5 (D300, calibration factors per node/term "
+        "with n); until then CLI-only."
+    ),
 }
 
 #: ``meshforge-controller user ...`` (D176 "users (admin)").
