@@ -44,6 +44,8 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 
 ## Current Task
 
+- **2026-10-21 (session end):** G8 (0.10.9) implementer stopped with code/tests/docs written but exit gates not run — branch worktree-agent-a87c8a801a83f7de2 head c66deb09. Next: resume G8 gates → tester ∥ reviewer → merge.
+
 - **2026-10-21:** V0.10 G7 progress MERGED (`b47bc074`) → **0.10.8 `[x]`** (D286). Post-merge main gates (G6+G7): unit 16860 passed; all V0.10 component+cluster+workqueue in one process 228 passed exit 0; ruff + `mypy src` clean. Next: G8.
 
 - **2026-10-21:** V0.10 G6 stragglers MERGED (`a006c894`) → **0.10.5 `[x]`** (D285; tester r1 PASS, reviewer APPROVE, F1 G4-test flake fixed). G7 progress: implementer done (gates green), reviewer r1 APPROVE (Lead to fix N2 chunk_page snapshot + N3 job_id None at merge), tester r1 running.
