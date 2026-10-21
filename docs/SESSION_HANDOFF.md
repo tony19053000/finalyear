@@ -7,9 +7,9 @@
 > **Cold-start prompt** (paste this as the first message on the new account):
 >
 > ```
-> Read docs/SESSION_HANDOFF.md §1, then docs/STATUS.md, then the V0.14 section of docs/DEVELOPMENT_ROADMAP.md.
-> V0.14 G2 ∥ G3 implementers were launched (brief §5b/§5c, D305–D308, commit 7d1e86a7). Check their worktrees' progress notes; finish gates → tester ∥ reviewer → merge G2 then G3 (REPLAY_VERSION→2 at second merge). G1 worktree agent-a0a1e95c1ee7384ec is merged; remove only with user OK. V0.10 closes on 🧑 0.10.10. Parallel agents OK; no fast mode (user, 2026-10-21). Don't delete anything without asking.
-> ```
+Read docs/SESSION_HANDOFF.md §1, then docs/STATUS.md, then the V0.14 section of docs/DEVELOPMENT_ROADMAP.md.
+V0.14 G2 ∥ G3 implementers were STOPPED by the user before exit gates (code committed, clean trees). G2 (calibration, brief §5b): worktree .claude/worktrees/agent-aef81b3f80ac578c8 head 806665c8 — unit gate was green; still to run: ruff/format/mypy, planner+jobs+migration component, tests/cluster/test_v010_mode3.py, then Hand-off in docs/briefs/progress/V0.14-G2.md. G3 (risk/objectives/pruning, brief §5c): worktree .claude/worktrees/agent-a485a40c89a558f22 head 39e52ba3 — no gates run; run all gates incl. perf latency, then Hand-off (list changed goldens) in docs/briefs/progress/V0.14-G3.md. Then tester ∥ reviewer per group → merge G2 then G3 (Lead bumps REPLAY_VERSION to 2 at the second merge, D307) → 0.14.2–0.14.5 [x] + status bar. G1 worktree agent-a0a1e95c1ee7384ec merged; remove only with user OK. Normal mode (no fast mode). Parallel agents OK. Don't delete anything without asking.
+```
 >
 > Order of truth: `PROJECT_BRIEF → ARCHITECTURE → ROADMAP → STATUS → this file`. If this file
 > disagrees with the roadmap, the roadmap wins and this file is stale — fix it.
@@ -262,7 +262,7 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
-**2026-10-21 (G2 ∥ G3 RUNNING, normal mode, fast OFF).** Brief §5a′ (D305–D308), §5b (G2), §5c (G3) committed `7d1e86a7`. G2 (calibration, migration 0031) and G3 (risk/objectives/link_infeasible/pruning/latency + G1 reviewer N1/N2/N4) implementers running in separate `.claude/worktrees/agent-*` worktrees. If the session dies: check each worktree's `docs/briefs/progress/V0.14-G2.md` / `-G3.md`, resume gates → tester ∥ reviewer → merge G2 then G3 (Lead bumps REPLAY_VERSION to 2 at the second merge, D307) → 0.14.2–0.14.5 `[x]` + status bar.
+**2026-10-21 (G2 ∥ G3 STOPPED by user) — NOTHING RUNNING.** Brief §5a′/§5b/§5c committed `7d1e86a7` (D305–D308). Both implementers hit a usage limit, were resumed, then stopped by the user; code committed, trees clean, **no Hand-off yet**. G2 `.claude/worktrees/agent-aef81b3f80ac578c8` head `806665c8` (migration 0031, calibration fit/store/refresh/gate, CLI+API, explain, tests, OPERATIONS/ARCH §7) — unit gate green, rest of gates not run. G3 `.claude/worktrees/agent-a485a40c89a558f22` head `39e52ba3` (N1/N2/N4, risk, objectives, link_infeasible, pruning, latency bench, tests, explain, docs) — gates not run. Next: finish gates + Hand-off per group → tester ∥ reviewer → merge G2 then G3 (REPLAY_VERSION→2, D307). Normal mode.
 
 **2026-10-21 (G1 CLOSED) — NOTHING RUNNING.** V0.14 G1 merged `f72681c0`, 0.14.1 `[x]`. G1 worktree `.claude/worktrees/agent-a0a1e95c1ee7384ec` merged — removable with user OK. Next: write brief §5b (G2) + §5c (G3) — not written yet — then G2 ∥ G3; fold reviewer non-blocking N1/N2/N4 (STATUS Current Task) into G3.
 
