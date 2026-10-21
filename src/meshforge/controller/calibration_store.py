@@ -89,6 +89,9 @@ _LOCK: Final = text(
     "SELECT pg_advisory_xact_lock(hashtextextended('meshforge.planner_calibration', 0))"
 )
 _PHASE_BATCH: Final = 5_000
+_DB_ERRORS: Final = (SQLAlchemyError, OSError, TimeoutError)
+"""A database that refuses, drops or never answers (asyncpg raises
+``OSError`` for a refused connection, outside SQLAlchemy's wrapping)."""
 
 type CalibrationMode = Literal["auto", "off", "pinned"]
 
@@ -237,7 +240,7 @@ class CalibrationStore:
                         matched_runs=len(runs), row=None, skipped=skipped
                     )
                 return await self._store(db, result, current, len(runs))
-        except SQLAlchemyError as exc:
+        except _DB_ERRORS as exc:
             raise CalibrationStoreError(
                 "the calibration refresh failed in the database",
                 details={"cause": type(exc).__name__},
@@ -277,7 +280,7 @@ class CalibrationStore:
             async with self._sessions() as db:
                 found: PlannerCalibration | None = (await db.scalars(query)).first()
                 return found
-        except SQLAlchemyError as exc:
+        except _DB_ERRORS as exc:
             raise CalibrationStoreError(
                 "the calibration read failed in the database",
                 details={"cause": type(exc).__name__},
@@ -305,7 +308,7 @@ class CalibrationStore:
                         )
                     )
                 ).first()
-        except SQLAlchemyError as exc:
+        except _DB_ERRORS as exc:
             raise CalibrationStoreError(
                 "the calibration read failed in the database",
                 details={"cause": type(exc).__name__},
@@ -328,7 +331,7 @@ class CalibrationStore:
                         .limit(max(1, min(limit, 200)))
                     )
                 )
-        except SQLAlchemyError as exc:
+        except _DB_ERRORS as exc:
             raise CalibrationStoreError(
                 "the calibration read failed in the database",
                 details={"cause": type(exc).__name__},
