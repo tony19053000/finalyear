@@ -121,8 +121,10 @@ def numpy_wheelhouse() -> Path:
     from the cache, else downloaded once (URL + sha256 from ``uv.lock``). Pass
     it to ``mf_split_cluster.split_fabric(wheelhouse=...)`` so the agents
     install offline. Skips with the reason when there is neither a cached
-    wheel nor a network."""
+    wheel nor a network; **fails** when a fresh download is not the locked
+    wheel (V0.10 TD2)."""
     from mf_wheelhouse import (
+        WheelDownloadMismatchError,
         WheelhouseUnavailableError,
         ensure_wheel,
         locked_wheels,
@@ -139,6 +141,8 @@ def numpy_wheelhouse() -> Path:
         return ensure_wheel(wheel)
     except WheelhouseUnavailableError as exc:
         pytest.skip(str(exc))
+    except WheelDownloadMismatchError as exc:  # V0.10 TD2: never a skip
+        pytest.fail(str(exc), pytrace=False)
 
 
 @pytest.fixture(autouse=True)

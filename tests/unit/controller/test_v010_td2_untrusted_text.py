@@ -18,15 +18,15 @@ from meshforge.controller.store.models.job import MAX_DETAIL_CHARS
 
 pytestmark = pytest.mark.unit
 
-HOSTILE = "\x1b]0;owned\x07\x1b[2J\x1b[31mred\x1b[0m ‮exe.txt​\r\nnext\x9b1m"
+HOSTILE = "\x1b]0;owned\x07\x1b[2J\x1b[31mred\x1b[0m \u202eexe.txt\u200b\r\nnext\x9b1m"
 
 
 def _is_display_safe(text: str) -> bool:
     return not any(
         ord(c) < 0x20
         or 0x7F <= ord(c) <= 0x9F
-        or c in "‪‫‬‭‮⁦⁧⁨⁩"
-        or c in "​‌‍‎‏⁠﻿؜"
+        or c in "\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069"
+        or c in "\u200b\u200c\u200d\u200e\u200f\u2060\ufeff\u061c"
         for c in text
     )
 
@@ -44,8 +44,8 @@ def test_clean_detail_removes_sequences_whole_and_keeps_one_line() -> None:
         ("exit code 1", "exit code 1"),
         ("a\nb\tc", "a b c"),
         ("\x1b[31mValueError\x1b[0m: bad", "ValueError: bad"),
-        ("x⁧y⁩z", "xyz"),
-        ("日本語", "日本語"),
+        ("x\u2067y\u2069z", "xyz"),
+        ("\u65e5\u672c\u8a9e", "\u65e5\u672c\u8a9e"),
     ],
 )
 def test_clean_detail_exact(raw: str | None, expected: str | None) -> None:
@@ -61,7 +61,7 @@ def test_clean_detail_cuts_after_cleaning_so_no_half_sequence_survives() -> None
 
 
 def test_clean_detail_is_bounded_on_64_kib_of_hostile_text() -> None:
-    raw = ("\x1b]" + "‮​\x9d") * (65_536 // 5)
+    raw = ("\x1b]" + "\u202e\u200b\x9d") * (65_536 // 5)
     start = time.perf_counter()
     got = clean_detail(raw)
     assert time.perf_counter() - start < 0.5
@@ -93,12 +93,15 @@ def _strings(value: object) -> list[str]:
 
 def test_job_written_workload_params_are_cleaned_not_refused() -> None:
     params = {
-        "model\x1b[31m": "resnet‮18",
+        "model\x1b[31m": "resnet\u202e18",
         "n": 3,
         "ok": True,
         "none": None,
         "f": 1.5,
-        "nested": {"title": "\x1b]0;owned\x07t", "list": ["a​b", 1, {"k": "\x9b2J"}]},
+        "nested": {
+            "title": "\x1b]0;owned\x07t",
+            "list": ["a\u200bb", 1, {"k": "\x9b2J"}],
+        },
     }
     report = parse_status(_done(params_json=json.dumps(params)))
     assert not isinstance(report, str), report
@@ -141,7 +144,7 @@ def test_condition_measured_strings_are_cleaned() -> None:
         agent_pb2.ConditionReport(
             spec="cpu_load:2",
             verified=True,
-            measured_json=json.dumps({"cores": 2, "note‮": "\x1b[2Jbusy"}),
+            measured_json=json.dumps({"cores": 2, "note\u202e": "\x1b[2Jbusy"}),
             reverted=True,
         )
     )
@@ -163,7 +166,7 @@ def test_failure_message_with_escape_is_still_refused_at_ingress() -> None:
     status.failure.CopyFrom(
         common_pb2.Failure(
             failure_type=common_pb2.FAILURE_TYPE_USER_ERROR,
-            message="exit 1 ‮",
+            message="exit 1 \u202e",
         )
     )
     assert isinstance(parse_status(status), str)
