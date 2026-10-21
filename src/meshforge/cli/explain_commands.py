@@ -124,11 +124,13 @@ def _int_text(value: Any) -> str | None:
 
 
 def _facts_note(decision: Mapping[str, Any]) -> str:
-    """V0.14 G5 (D300): calibration version, replay, when, snapshot digest and
-    a pinned job's shadow pick - the Plan tab's header."""
+    """V0.14 G5 (D300): the chosen node, calibration version, replay, when,
+    snapshot digest and a pinned job's shadow pick - the Plan tab's header."""
     calibration = _int_text(decision.get("calibration_version"))
     replay = _int_text(decision.get("replay_version"))
+    chosen = decision.get("chosen_node_id")
     parts = [
+        f"chosen {chosen}" if isinstance(chosen, str) and chosen else "none chosen",
         f"calibration v{calibration}" if calibration else "uncalibrated",
         f"replay v{replay}" if replay else "no replay",
     ]
@@ -155,6 +157,7 @@ def _candidates_table(decision: Mapping[str, Any]) -> Table:
         "NODE",
         "MODE",
         "SLOT",
+        "FEASIBLE",
         "SCORE",
         "PREDICTED",
         "REASON",
@@ -183,11 +186,16 @@ def _candidates_table(decision: Mapping[str, Any]) -> Table:
             _cell(_node_label(c)),
             _cell(c.get("mode")),
             _cell(c.get("slot")),
+            _cell(_yes_no(c.get("feasible"))),
             _score_cell(c.get("score")),
             _seconds(total),
             _cell(reason),
         )
     return table
+
+
+def _yes_no(value: Any) -> str:
+    return "yes" if value is True else "no" if value is False else _DASH
 
 
 def _terms_table(decision: Mapping[str, Any]) -> Table | None:
@@ -272,11 +280,18 @@ def _rate_cell(candidate: Mapping[str, Any]) -> str:
     rate = _num(candidate.get("rate_items_s"))
     if rate is None:
         return _DASH
-    return f"{rate:.4g}/s ({candidate.get('rate_source')})"
+    start = _num(candidate.get("start_s"))
+    return f"{rate:.4g}/s ({candidate.get('rate_source')})" + (
+        f", first chunk at {_seconds(start)}" if start is not None else ""
+    )
 
 
 def _margin_cell(candidate: Mapping[str, Any]) -> str:
-    """``pass: 120.88s <= 272.70s`` for a set row; the code of a rejected one."""
+    """``pass: 41.00s <= 46.80s = (1 - 0.1) x 52.00s (node_a)`` for a set row
+    (``, forced: <why>`` when no set was compared, D265); the code of a
+    rejected one."""
+    from meshforge.cli.render import _num
+
     if candidate.get("reject_code"):
         return str(candidate.get("reject_code"))
     test = candidate.get("margin_test")
@@ -284,9 +299,14 @@ def _margin_cell(candidate: Mapping[str, Any]) -> str:
         return _DASH
     verdict = "pass" if test.get("passed") is True else "fail"
     sign = "<=" if test.get("passed") is True else ">"
+    margin = _num(test.get("margin"))
+    forced = test.get("forced")
     return (
         f"{verdict}: {_seconds(test.get('set_s'))} {sign} "
-        f"{_seconds(test.get('threshold_s'))}"
+        f"{_seconds(test.get('threshold_s'))} = (1 - "
+        f"{_DASH if margin is None else f'{margin:g}'}) x "
+        f"{_seconds(test.get('best_single_s'))} ({test.get('best_single_node_id')})"
+        + (f", forced: {forced}" if isinstance(forced, str) and forced else "")
     )
 
 
