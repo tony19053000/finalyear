@@ -1229,6 +1229,29 @@ compute get <JOB_ID>               # outputs -> ./outputs/<JOB_ID>/ (--dest, --f
     planner keeps what the setting says. `calibration_window_runs` 1-1000,
     `calibration_shrink_k` > 0, `calibration_clamp` 0 < low < 1 < high <= 1000,
     `calibration_refresh_s` 10 s - 7 days.
+- **Risk, objectives, hopeless links (V0.14 G3).** Each estimate may end with
+  a `risk` term: the chance the node fails the attempt - from its own
+  node-caused attempt ends (lost, `node_lost`, `owner_preempted`, `disk_full`,
+  `env_error`, `transfer_error`; never the job's own failures) over
+  `[controller.planner] risk_window_days` (7; 0 = no risk term), smoothed by
+  `risk_prior` ([1, 19]: a new laptop is assumed to fail 5 % of attempts) -
+  times what a failure would cost. A job may say what the `cost_model` policy
+  optimises: manifest `objective:` or `compute run --objective`
+  (`min_time` - fastest, the default; `min_network` - fewest bytes over the
+  network; `prefer_local` - stay on the submitting laptop unless another is
+  predicted `prefer_local_margin` (25 %) faster); `[controller.planner]
+  default_objective` applies otherwise, and `plan_decision.objective` records
+  it. A laptop whose freshly measured link would carry more than
+  `min_useful_bytes` (64 MiB) at less than `min_useful_bw_bytes_s` (1 MB/s) is
+  skipped for that job (`link_infeasible`, the job waits for a better link
+  rather than crawling); a stale or unmeasured link never causes it, and a job
+  pinned to a node never gets it. A split job's decision lists laptops whose
+  sets were not costed because one faster laptop would finish everything before
+  they could start, so adding them changes nothing (`pruned`; the chosen plan is
+  always the one without pruning). `compute explain` names the job's objective
+  next to the policy. A decision slower than
+  `decision_latency_budget_ms` (100) is logged as
+  `controller.jobs.decision_over_budget` (once per job).
 - `run -f` streams the logs and exits like the job: `0` succeeded; the workload's own
   exit code (1-125) when it failed; `126` when the fabric failed it (the failure type
   is printed: `node_lost`, `deadline_exceeded`, `output_error` …); `128` cancelled.

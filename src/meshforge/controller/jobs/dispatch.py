@@ -260,6 +260,8 @@ class DispatchSteps:
             decide_combine=None
             if self._split is None
             else self._planner.decide_combine,
+            # V0.14 G3 (D296): the nodes' reliability for the risk term
+            risk_window_s=self._planner_settings.risk_window_days * 86_400.0,
         )
         for result in results:
             for attempt in result.lanes or (

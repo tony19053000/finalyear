@@ -654,7 +654,10 @@ async def submit_job(
     else:
         mode = "local" if submission.placement.local else "offload"
     placement = Placement(
-        mode=mode, node_id=node_id, policy=submission.placement.policy
+        mode=mode,
+        node_id=node_id,
+        policy=submission.placement.policy,
+        objective=submission.placement.objective,  # V0.14 G3 (D295)
     )
     canonical_manifest = manifest.canonical_dict()
     try:

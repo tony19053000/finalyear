@@ -27,7 +27,12 @@ from meshforge.common.cas import DEFAULT_MAX_RESUMABLE, DEFAULT_MAX_RESUMABLE_PE
 from meshforge.common.config import MeshForgeSettings, SectionModel
 from meshforge.common.errors import ConfigError
 from meshforge.common.fabric_token import CONTROLLER_DIR_NAME, default_token_path
-from meshforge.common.manifest import MAX_SPLIT_CHUNKS, MAX_SPLIT_ITEMS, PolicyName
+from meshforge.common.manifest import (
+    MAX_SPLIT_CHUNKS,
+    MAX_SPLIT_ITEMS,
+    ObjectiveName,
+    PolicyName,
+)
 from meshforge.common.netaddr import is_loopback_host, parse_bind
 from meshforge.common.pki import PkiError, validate_san_host
 from meshforge.controller.fabric_ca import (
@@ -639,6 +644,83 @@ class PlannerSettings(SectionModel):
         return value
 
     # ------------------------------------------------ end V0.14 G2
+
+    # --- V0.14 G3 (D294-D296, D302): risk, objectives, links, latency ----------
+    default_objective: ObjectiveName = Field(
+        default="min_time",
+        description=(
+            "D295: what the cost_model policy ranks by for a job that names no "
+            "objective (manifest `objective:` or POST placement.objective "
+            "override it): min_time (fastest predicted completion), min_network "
+            "(fewest bytes moved; time breaks ties) or prefer_local (the "
+            "submitter's own node unless another is clearly faster). Rule "
+            "policies ignore it."
+        ),
+    )
+    prefer_local_margin: float = Field(
+        default=0.25,
+        ge=0.0,
+        le=0.95,
+        description=(
+            "D295 prefer_local: another candidate takes the job from the Local "
+            "node only when predicted at least this fraction faster."
+        ),
+    )
+    risk_window_days: float = Field(
+        default=7.0,
+        ge=0.0,
+        le=365.0,
+        description=(
+            "D296: node-caused attempt ends (lost, node_lost, owner_preempted, "
+            "disk_full, env_error, transfer_error - never a job's own failure) "
+            "over this many days set each node's failure probability and so "
+            "the risk term of its estimates. 0 = no risk term."
+        ),
+    )
+    risk_prior: tuple[float, float] = Field(
+        default=(1.0, 19.0),
+        description=(
+            "D296: Beta prior (a, b) of the failure probability "
+            "(a + failures) / (a + b + attempts): a node with no history is "
+            "assumed to fail a/(a+b) of its attempts (5 %). Each 0.01-1000."
+        ),
+    )
+    min_useful_bw_bytes_s: float = Field(
+        default=1e6,
+        ge=0.0,
+        le=1e11,
+        description=(
+            "D294 link_infeasible: a candidate that would fetch more than "
+            "min_useful_bytes over a freshly measured link slower than this "
+            "(bytes/s) is rejected before costing. Stale or unmeasured links "
+            "never reject. 0 = off."
+        ),
+    )
+    min_useful_bytes: int = Field(
+        default=64 * 1024 * 1024,
+        ge=0,
+        le=1 << 50,
+        description="D294: see min_useful_bw_bytes_s (bytes).",
+    )
+    decision_latency_budget_ms: float = Field(
+        default=100.0,
+        gt=0.0,
+        le=60_000.0,
+        description=(
+            "D294 / criterion 3: a dispatch decision (snapshot cut, plan, "
+            "replay) that takes longer than this is logged "
+            "(controller.jobs.decision_over_budget) and counted."
+        ),
+    )
+    # --- end V0.14 G3 ------------------------------------------------------------
+
+    @field_validator("risk_prior")
+    @classmethod
+    def _risk_prior(cls, value: tuple[float, float]) -> tuple[float, float]:
+        """V0.14 G3: both Beta parameters positive and bounded."""
+        if any(not 0.01 <= p <= 1000.0 for p in value):
+            raise ValueError("each risk_prior value must be between 0.01 and 1000")
+        return value
 
     @field_validator("resource_weights")
     @classmethod

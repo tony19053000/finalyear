@@ -25,11 +25,28 @@ equals ``plan(request, snapshot)`` in every field but ``snapshot_digest`` (a
 property test pins it). The dispatcher plans on the projection, so the
 digest it stores is the digest of exactly what the replay holds.
 
-**Format** (``replay_version`` 1, :data:`REPLAY_VERSION`): one JSON object
-with ``replay_version`` (1), ``now`` (ISO 8601 or null), ``request`` and
+**Format** (``replay_version`` 2, :data:`REPLAY_VERSION`; 1 is still read,
+:data:`READABLE_VERSIONS`): one JSON object with ``replay_version``,
+``now`` (ISO 8601 or null), ``request`` and
 ``snapshot`` (the dataclasses' fields, :data:`REPLAY_FIELDS`; links as a
 sorted list of ``{src, dst, ...}`` rows) and - only with a shadow plan (D215)
 - ``shadow: {request}``.
+
+**V0.14 G3 optional keys (D307).** ``request.objective``, each node's
+``reliability`` and the configuration's ``risk``, ``prefer_local_margin``,
+``min_useful_bw_bytes_s``, ``min_useful_bytes`` and ``prune_dominated`` are
+always written, and read when present; a replay stored before G3 lacks them
+and decodes to the pre-G3 planner (``min_time``, no risk term, no link
+rejection, no pruning - the :class:`~.types.PlannerConfig` defaults), so it
+still reproduces its stored decision exactly.
+
+**Version 2 (the V0.14 G2 + G3 merge, D307).** Written since both groups'
+optional keys exist: the G2 ``calibration`` block and the G3 keys above. The
+layout is version 1's plus those keys, so the decoder reads 1 and 2 alike -
+either may carry any of them (a v1 row written by a G2-only or G3-only build)
+and an absent key always decodes to the uncalibrated / pre-G3 planner. The
+bump marks "written by a planner that knows every V0.14 key"; it changes no
+byte of what a v1 replay decodes to.
 
 Canonical: sorted keys, no whitespace, no ``NaN``/``Infinity`` literals. A
 float that is not finite, or so large that PostgreSQL's ``jsonb`` (which keeps
@@ -80,12 +97,15 @@ from meshforge.controller.planner.types import (
     NodeSnapshot,
     PlannerConfig,
     PlanRequest,
+    Reliability,
+    RiskConfig,
     SplitConfig,
     SplitInfo,
     TreeNeed,
 )
 
 __all__ = [
+    "READABLE_VERSIONS",
     "REPLAY_FIELDS",
     "REPLAY_VERSION",
     "ReplayError",
@@ -100,8 +120,11 @@ __all__ = [
     "to_replay",
 ]
 
-REPLAY_VERSION: Final = 1
-"""Bump on any change of the format; old versions stay readable."""
+REPLAY_VERSION: Final = 2
+"""Bump on any change of the format; old versions stay readable. V0.14 G2+G3
+merge (D307): 2."""
+READABLE_VERSIONS: Final = frozenset({1, 2})
+"""Every ``replay_version`` :func:`from_replay` decodes (module docstring)."""
 
 _BIG: Final = 1e15
 """Floats at least this large are tagged: ``jsonb`` prints them without a
@@ -130,6 +153,7 @@ REPLAY_FIELDS: Final[Mapping[type, frozenset[str]]] = {
             "benchmark",
             "split",
             "node_set",
+            "objective",  # V0.14 G3 (D307: optional - absent = min_time)
         }
     ),
     History: frozenset(
@@ -175,6 +199,7 @@ REPLAY_FIELDS: Final[Mapping[type, frozenset[str]]] = {
             "cached_envs",
             "policy",
             "owner_active",
+            "reliability",  # V0.14 G3 (D307: optional - absent = no risk)
         }
     ),
     ClusterSnapshot: frozenset(
@@ -197,6 +222,12 @@ REPLAY_FIELDS: Final[Mapping[type, frozenset[str]]] = {
             "link_stale_after_s",
             "min_bw_bytes_s",
             "split",
+            # V0.14 G3 (D307: optional - absent = the pre-G3 behaviour)
+            "risk",
+            "prefer_local_margin",
+            "min_useful_bw_bytes_s",
+            "min_useful_bytes",
+            "prune_dominated",
         }
     ),
     SplitConfig: frozenset(
@@ -213,6 +244,8 @@ REPLAY_FIELDS: Final[Mapping[type, frozenset[str]]] = {
     LinkStat: frozenset({"bw_bytes_s", "rtt_ms", "samples", "measured_at"}),
     ControllerLinkStat: frozenset({"bw_bytes_s", "samples", "last_at"}),
     EnvBuildStat: frozenset({"median_s", "samples"}),
+    Reliability: frozenset({"failures", "total", "window_days"}),  # V0.14 G3
+    RiskConfig: frozenset({"prior", "lease_release_s"}),  # V0.14 G3
     OwnerPolicy: frozenset(
         {
             "accept_jobs",
@@ -375,11 +408,23 @@ def _request(request: PlanRequest) -> dict[str, Any]:
         "benchmark": request.benchmark,
         "split": _split_info(request.split),
         "node_set": list(request.node_set),
+        "objective": request.objective,  # V0.14 G3
     }
 
 
 def _policy(policy: OwnerPolicy | None) -> dict[str, Any] | None:
     return None if policy is None else policy.as_dict()
+
+
+def _reliability(value: Reliability | None) -> dict[str, Any] | None:
+    """V0.14 G3 (D296)."""
+    if value is None:
+        return None
+    return {
+        "failures": value.failures,
+        "total": value.total,
+        "window_days": _num(value.window_days),
+    }
 
 
 def _node(node: NodeSnapshot) -> dict[str, Any]:
@@ -408,6 +453,7 @@ def _node(node: NodeSnapshot) -> dict[str, Any]:
         "cached_envs": dict(node.cached_envs),
         "policy": _policy(node.policy),
         "owner_active": node.owner_active,
+        "reliability": _reliability(node.reliability),  # V0.14 G3
     }
 
 
@@ -430,6 +476,15 @@ def _config(config: PlannerConfig) -> dict[str, Any]:
             "chunk_overhead_s": _num(split.chunk_overhead_s),
             "tail_frac": _num(split.tail_frac),
         },
+        # V0.14 G3 (D294-D296)
+        "risk": {
+            "prior": [_num(p) for p in config.risk.prior],
+            "lease_release_s": _num(config.risk.lease_release_s),
+        },
+        "prefer_local_margin": _num(config.prefer_local_margin),
+        "min_useful_bw_bytes_s": _num(config.min_useful_bw_bytes_s),
+        "min_useful_bytes": config.min_useful_bytes,
+        "prune_dominated": config.prune_dominated,
     }
 
 
@@ -480,7 +535,12 @@ def to_replay(
     plan's request (planned on :func:`idle_snapshot` at the same ``now``).
     ``calibration`` (V0.14 G2) = the factors the decision was planned with,
     stored as given (the caller projects it,
-    :func:`~.calibration.project_calibration`)."""
+    :func:`~.calibration.project_calibration`).
+    :class:`ReplayError` for a naive (timezone-less) ``now``."""
+    # V0.14 G3 (G1 review N4): a naive ``now`` would be stored without its
+    # zone and replay against links measured in UTC - never write one
+    if now is not None and (now.tzinfo is None or now.utcoffset() is None):
+        raise ReplayError("a replay's now must be timezone-aware")
     view = project(request, snapshot) if projected else snapshot
     out: dict[str, Any] = {
         "replay_version": REPLAY_VERSION,
@@ -492,7 +552,7 @@ def to_replay(
         out["shadow"] = {"request": _request(shadow)}
     # ------------------------------------------------ V0.14 G2 (D293, D307)
     # An optional key: absent = uncalibrated (every replay before G2), so
-    # REPLAY_VERSION stays 1 and old replays reproduce unchanged.
+    # old replays reproduce unchanged (read under replay_version 1 and 2).
     if calibration is not None:
         out["calibration"] = {
             "version": calibration.version,
@@ -544,9 +604,42 @@ def _dnum(value: Any) -> Any:
         if not isinstance(tagged, str) or len(value) != 1:
             raise ReplayError("a number in the replay is malformed")
         return float(tagged)
-    if value is not None and not isinstance(value, int | float):
+    # V0.14 G3 (G1 review N2): ``True`` is an ``int`` to Python, never a number here
+    if value is not None and (
+        isinstance(value, bool) or not isinstance(value, int | float)
+    ):
         raise ReplayError("a number in the replay is not a number")
     return value
+
+
+# --- V0.14 G3 (G1 review N2): strict integer / boolean fields ---------------
+
+
+def _int(value: Any) -> int:
+    """An integer field: an ``int`` that is not a ``bool`` (``int("5")`` and
+    ``int(True)`` would silently accept a corrupt replay)."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ReplayError("an integer in the replay is not an integer")
+    return value
+
+
+def _int_or_none(value: Any) -> int | None:
+    return None if value is None else _int(value)
+
+
+def _ints(values: Any) -> tuple[int, ...]:
+    if not isinstance(values, list):
+        raise ReplayError("a list of integers in the replay is not a list")
+    return tuple(_int(v) for v in values)
+
+
+def _bool(value: Any) -> bool:
+    if not isinstance(value, bool):
+        raise ReplayError("a boolean in the replay is not a boolean")
+    return value
+
+
+# --- end V0.14 G3 (N2) -------------------------------------------------------
 
 
 def _dnums(values: Any) -> dict[str, Any]:
@@ -566,12 +659,12 @@ def _from_history(data: Mapping[str, Any]) -> History:
         by_node_s=_dnums(data["by_node_s"]),
         samples_by_node=_dnums(data["samples_by_node"]),
         output_bytes=_dnum(data["output_bytes"]),
-        output_samples=int(data["output_samples"]),
+        output_samples=_int(data["output_samples"]),
         env_hash_by_node={str(k): str(v) for k, v in data["env_hash_by_node"].items()},
         item_rate_by_node=_dnums(data["item_rate_by_node"]),
         item_rate_samples_by_node=_dnums(data["item_rate_samples_by_node"]),
         chunk_overhead_s=_dnum(data["chunk_overhead_s"]),
-        chunk_overhead_samples=int(data["chunk_overhead_samples"]),
+        chunk_overhead_samples=_int(data["chunk_overhead_samples"]),
     )
 
 
@@ -579,37 +672,38 @@ def _from_split(data: Mapping[str, Any] | None) -> SplitInfo | None:
     if data is None:
         return None
     return SplitInfo(
-        items=int(data["items"]),
-        item_bytes=data["item_bytes"],
+        items=_int(data["items"]),
+        item_bytes=_int_or_none(data["item_bytes"]),
         items_tree=_str_or_none(data["items_tree"]),
-        chunk_items=data["chunk_items"],
-        min_nodes=int(data["min_nodes"]),
-        max_nodes=data["max_nodes"],
+        chunk_items=_int_or_none(data["chunk_items"]),
+        min_nodes=_int(data["min_nodes"]),
+        max_nodes=_int_or_none(data["max_nodes"]),
     )
 
 
 def _from_request(data: Mapping[str, Any]) -> PlanRequest:
     return PlanRequest(
         job_id=str(data["job_id"]),
-        attempt_no=int(data["attempt_no"]),
+        attempt_no=_int(data["attempt_no"]),
         gpu=cast("GpuNeed", str(data["gpu"])),
-        vram_bytes=data["vram_bytes"],
-        ram_bytes=data["ram_bytes"],
+        vram_bytes=_int_or_none(data["vram_bytes"]),
+        ram_bytes=_int_or_none(data["ram_bytes"]),
         cpus=_dnum(data["cpus"]),
         base=str(data["base"]),
         env_key=str(data["env_key"]),
-        trees=tuple(TreeNeed(str(t["key"]), int(t["size"])) for t in data["trees"]),
+        trees=tuple(TreeNeed(str(t["key"]), _int(t["size"])) for t in data["trees"]),
         pinned_node_id=_str_or_none(data["pinned_node_id"]),
         submitter_node_id=_str_or_none(data["submitter_node_id"]),
-        seeded=bool(data["seeded"]),
+        seeded=_bool(data["seeded"]),
         fingerprint=_str_or_none(data["fingerprint"]),
         history=_from_history(data["history"]),
         excluded={str(k): str(v) for k, v in data["excluded"].items()},
         owner_name=_str_or_none(data["owner_name"]),
-        network=bool(data["network"]),
-        benchmark=bool(data["benchmark"]),
+        network=_bool(data["network"]),
+        benchmark=_bool(data["benchmark"]),
         split=_from_split(data["split"]),
         node_set=tuple(str(n) for n in data["node_set"]),
+        objective=_objective(data.get("objective")),  # V0.14 G3: optional
     )
 
 
@@ -617,46 +711,94 @@ def _from_policy(data: Mapping[str, Any] | None) -> OwnerPolicy | None:
     if data is None:
         return None
     return OwnerPolicy(
-        accept_jobs=bool(data["accept_jobs"]),
-        accept_gpu_sessions=bool(data["accept_gpu_sessions"]),
-        max_ram_bytes=data["max_ram_bytes"],
-        max_cpu_percent=data["max_cpu_percent"],
-        max_vram_bytes=data["max_vram_bytes"],
-        allow_unsandboxed=bool(data["allow_unsandboxed"]),
-        allow_network=bool(data["allow_network"]),
+        accept_jobs=_bool(data["accept_jobs"]),
+        accept_gpu_sessions=_bool(data["accept_gpu_sessions"]),
+        max_ram_bytes=_int_or_none(data["max_ram_bytes"]),
+        max_cpu_percent=_int_or_none(data["max_cpu_percent"]),
+        max_vram_bytes=_int_or_none(data["max_vram_bytes"]),
+        allow_unsandboxed=_bool(data["allow_unsandboxed"]),
+        allow_network=_bool(data["allow_network"]),
         allowed_users=tuple(str(u) for u in data["allowed_users"]),
         not_enforced=tuple(str(u) for u in data["not_enforced"]),
-        revision=int(data["revision"]),
-        pause_benchmarks=bool(data["pause_benchmarks"]),
+        revision=_int(data["revision"]),
+        pause_benchmarks=_bool(data["pause_benchmarks"]),
     )
+
+
+# --- V0.14 G3 (D307): optional keys - absent = the pre-G3 behaviour ---------
+
+
+def _objective(value: Any) -> Any:
+    """The request's objective as stored (None = ``min_time``); ``plan()``
+    refuses a value it does not know - the decoder only checks the type."""
+    if value is not None and not isinstance(value, str):
+        raise ReplayError("the replay's objective is not a string")
+    return value
+
+
+def _from_reliability(data: Any) -> Reliability | None:
+    if data is None:
+        return None
+    if not isinstance(data, Mapping):
+        raise ReplayError("a node's reliability in the replay is not an object")
+    return Reliability(
+        failures=_int(data["failures"]),
+        total=_int(data["total"]),
+        window_days=_dnum(data["window_days"]),
+    )
+
+
+def _g3_config(data: Mapping[str, Any]) -> dict[str, Any]:
+    """The G3 :class:`PlannerConfig` fields a replay stored; the missing ones
+    keep the dataclass defaults, which are the pre-G3 behaviour (no link
+    rejection, no pruning)."""
+    out: dict[str, Any] = {}
+    risk = data.get("risk")
+    if risk is not None:
+        a, b = (_dnum(p) for p in risk["prior"])
+        out["risk"] = RiskConfig(
+            prior=(a, b), lease_release_s=_dnum(risk["lease_release_s"])
+        )
+    for name in ("prefer_local_margin", "min_useful_bw_bytes_s"):
+        if name in data:
+            out[name] = _dnum(data[name])
+    if "min_useful_bytes" in data:
+        out["min_useful_bytes"] = _int(data["min_useful_bytes"])
+    if "prune_dominated" in data:
+        out["prune_dominated"] = _bool(data["prune_dominated"])
+    return out
+
+
+# --- end V0.14 G3 -------------------------------------------------------------
 
 
 def _from_node(data: Mapping[str, Any]) -> NodeSnapshot:
     return NodeSnapshot(
         node_id=str(data["node_id"]),
         state=str(data["state"]),
-        connected=bool(data["connected"]),
+        connected=_bool(data["connected"]),
         capabilities=frozenset(str(c) for c in data["capabilities"]),
-        ram_bytes=data["ram_bytes"],
-        cpu_threads=data["cpu_threads"],
-        gpu_vram_bytes=tuple(data["gpu_vram_bytes"]),
-        gpu_indices=tuple(data["gpu_indices"]),
-        busy_gpus=frozenset(data["busy_gpus"]),
-        cpu_slots=int(data["cpu_slots"]),
-        gpu_slots=int(data["gpu_slots"]),
-        used_cpu_slots=int(data["used_cpu_slots"]),
-        used_gpu_slots=int(data["used_gpu_slots"]),
-        live_attempts=int(data["live_attempts"]),
+        ram_bytes=_int_or_none(data["ram_bytes"]),
+        cpu_threads=_int_or_none(data["cpu_threads"]),
+        gpu_vram_bytes=_ints(data["gpu_vram_bytes"]),
+        gpu_indices=_ints(data["gpu_indices"]),
+        busy_gpus=frozenset(_ints(data["busy_gpus"])),
+        cpu_slots=_int(data["cpu_slots"]),
+        gpu_slots=_int(data["gpu_slots"]),
+        used_cpu_slots=_int(data["used_cpu_slots"]),
+        used_gpu_slots=_int(data["used_gpu_slots"]),
+        live_attempts=_int(data["live_attempts"]),
         cpu_percent=_dnum(data["cpu_percent"]),
-        ram_free_bytes=data["ram_free_bytes"],
-        disk_free_bytes=data["disk_free_bytes"],
+        ram_free_bytes=_int_or_none(data["ram_free_bytes"]),
+        disk_free_bytes=_int_or_none(data["disk_free_bytes"]),
         cpu_score=_dnum(data["cpu_score"]),
         gpu_score=_dnum(data["gpu_score"]),
         cached=frozenset(str(k) for k in data["cached"]),
         known_bad_envs=frozenset(str(k) for k in data["known_bad_envs"]),
-        cached_envs={str(k): v for k, v in data["cached_envs"].items()},
+        cached_envs={str(k): _int(v) for k, v in data["cached_envs"].items()},
         policy=_from_policy(data["policy"]),
-        owner_active=bool(data["owner_active"]),
+        owner_active=_bool(data["owner_active"]),
+        reliability=_from_reliability(data.get("reliability")),  # V0.14 G3
     )
 
 
@@ -667,7 +809,7 @@ def _from_config(data: Mapping[str, Any]) -> PlannerConfig:
         default_bw_bytes_s=_dnum(data["default_bw_bytes_s"]),
         default_compute_s=_dnum(data["default_compute_s"]),
         default_env_s=_dnum(data["default_env_s"]),
-        max_attempts_per_node=int(data["max_attempts_per_node"]),
+        max_attempts_per_node=_int(data["max_attempts_per_node"]),
         resource_weights=(w_ram, w_slots, w_score),
         link_stale_after_s=_dnum(data["link_stale_after_s"]),
         min_bw_bytes_s=_dnum(data["min_bw_bytes_s"]),
@@ -675,11 +817,12 @@ def _from_config(data: Mapping[str, Any]) -> PlannerConfig:
             split_margin=_dnum(split["split_margin"]),
             target_chunk_s=_dnum(split["target_chunk_s"]),
             max_overhead_frac=_dnum(split["max_overhead_frac"]),
-            min_chunks_per_node=int(split["min_chunks_per_node"]),
-            max_chunks=int(split["max_chunks"]),
+            min_chunks_per_node=_int(split["min_chunks_per_node"]),
+            max_chunks=_int(split["max_chunks"]),
             chunk_overhead_s=_dnum(split["chunk_overhead_s"]),
             tail_frac=_dnum(split["tail_frac"]),
         ),
+        **_g3_config(data),
     )
 
 
@@ -692,7 +835,7 @@ def _from_snapshot(data: Mapping[str, Any]) -> ClusterSnapshot:
             (str(row["src"]), str(row["dst"])): LinkStat(
                 bw_bytes_s=_dnum(row["bw_bytes_s"]),
                 rtt_ms=_dnum(row["rtt_ms"]),
-                samples=int(row["samples"]),
+                samples=_int(row["samples"]),
                 measured_at=cast("dt.datetime", _dwhen(row["measured_at"])),
             )
             for row in data["links"]
@@ -700,14 +843,14 @@ def _from_snapshot(data: Mapping[str, Any]) -> ClusterSnapshot:
         controller_links={
             str(node_id): ControllerLinkStat(
                 bw_bytes_s=_dnum(row["bw_bytes_s"]),
-                samples=int(row["samples"]),
+                samples=_int(row["samples"]),
                 last_at=_dwhen(row["last_at"]),
             )
             for node_id, row in data["controller_links"].items()
         },
         env_builds={
             str(base): EnvBuildStat(
-                median_s=_dnum(row["median_s"]), samples=int(row["samples"])
+                median_s=_dnum(row["median_s"]), samples=_int(row["samples"])
             )
             for base, row in data["env_builds"].items()
         },
@@ -718,7 +861,8 @@ def _version(replay: Mapping[str, Any]) -> None:
     if not isinstance(replay, Mapping):
         raise ReplayError("a replay is a JSON object")
     version = replay.get("replay_version")
-    if version != REPLAY_VERSION:
+    # ``type(...) is int``: JSON ``true`` is a bool, and ``True == 1`` in Python
+    if type(version) is not int or version not in READABLE_VERSIONS:
         raise ReplayError(f"unsupported replay_version {version!r}")
 
 

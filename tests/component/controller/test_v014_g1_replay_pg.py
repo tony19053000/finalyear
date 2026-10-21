@@ -199,7 +199,7 @@ async def _rows(pg: DatabaseSettings, job_id: str) -> list[Any]:
 
 def _replay_row(row: Any) -> None:
     """The row read back from PostgreSQL replays to itself."""
-    assert row.replay_version == 1 and row.objective == "min_time"
+    assert row.replay_version == 2 and row.objective == "min_time"
     assert row.calibration_version is None
     replay = row.replay if isinstance(row.replay, dict) else json.loads(row.replay)
     request, snapshot, now = from_replay(replay)

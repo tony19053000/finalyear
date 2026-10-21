@@ -32,6 +32,15 @@ auto job (V0.6 G3, D110) carries the nodes its earlier attempts failed on as
 ``PlanRequest.excluded`` (:func:`~meshforge.controller.planner.exclusions`);
 a pinned job retries on its own node only.
 
+**V0.14 G3.** The job's objective (D295) is ``placement.objective`` (POST
+/v1/jobs) > the manifest's ``objective:`` > ``[controller.planner]
+default_objective``; each node carries its reliability over
+``risk_window_days`` (D296, read once per tick by :func:`~.queue_reads.
+read_fabric`); the planner configuration carries the risk prior, the
+``prefer_local`` margin, the ``link_infeasible`` floor and turns dominance
+pruning on (D294). A decision slower than ``decision_latency_budget_ms`` is
+logged and counted (:attr:`DispatchPlanner.decisions_over_budget`).
+
 The planner itself stays pure; everything impure is read here, once.
 """
 
@@ -39,6 +48,7 @@ from __future__ import annotations
 
 import dataclasses
 import datetime as dt
+import time
 from collections import OrderedDict
 from collections.abc import Callable, Mapping, Sequence
 from typing import Final
@@ -49,7 +59,7 @@ from meshforge.common.capabilities import EXEC_SPLIT_CAPABILITY
 from meshforge.common.errors import FailureType, InvalidIdError
 from meshforge.common.ids import new_attempt_id
 from meshforge.common.logging import get_logger
-from meshforge.common.manifest import Manifest, ManifestError, SplitSpec
+from meshforge.common.manifest import OBJECTIVES, Manifest, ManifestError, SplitSpec
 from meshforge.controller.jobs.env_health import KnownBadEnvs, env_key
 from meshforge.controller.jobs.execution_store import (
     CombineDecision,
@@ -100,6 +110,7 @@ from meshforge.controller.planner.replay import (
     idle_snapshot,
     project,
 )
+from meshforge.controller.planner.types import Objective, Reliability, RiskConfig
 from meshforge.controller.resources import ResourceTracker
 from meshforge.controller.session.manager import SessionManager
 from meshforge.controller.settings import (
@@ -119,8 +130,8 @@ these fail the job; any other planning error leaves it queued."""
 _ERRORS_LOGGED_MAX: Final = 1024
 
 DEFAULT_OBJECTIVE: Final = "min_time"
-"""V0.14 D295: what every decision ranks by until G3 adds ``min_network`` and
-``prefer_local`` (stored as ``plan_decision.objective``)."""
+"""V0.14 D295: what a decision whose request named no objective ranked by
+(``plan_decision.objective``; e.g. a combine's placement)."""
 
 _GPU_GONE: Final = frozenset(
     {RejectCode.NO_GPU, RejectCode.NO_GPU_RUNTIME, RejectCode.NO_GPU_SLOTS}
@@ -191,8 +202,25 @@ def decision_record(decision: Decision) -> DecisionRecord:
         reason_key=decision.reason_key,
         candidates=candidates_json(decision),
         chosen_node_id=None if decision.chosen is None else decision.chosen.node_id,
-        objective=DEFAULT_OBJECTIVE,
+        objective=decision.objective or DEFAULT_OBJECTIVE,  # V0.14 G3
     )
+
+
+# --- V0.14 G3 (D295) -------------------------------------------------------------
+
+
+def job_objective(job: JobRecord, manifest: Manifest, default: str) -> Objective:
+    """``placement.objective`` (POST /v1/jobs, validated there) > the
+    manifest's ``objective:`` > ``default``. A stored placement value that is
+    not an objective (never written by this controller) is ignored."""
+    asked = job.placement.get("objective")
+    for value in (asked, manifest.objective, default):
+        if isinstance(value, str) and value in OBJECTIVES:
+            return value  # type: ignore[return-value]  # checked against OBJECTIVES
+    return DEFAULT_OBJECTIVE
+
+
+# --- end V0.14 G3 ------------------------------------------------------------------
 
 
 class DispatchPlanner:
@@ -242,6 +270,9 @@ class DispatchPlanner:
         self.replay_failures = 0
         """V0.14 D292: decisions stored without a replay because building it
         raised (a bug: logged with its traceback, never fails the dispatch)."""
+        self.decisions_over_budget = 0
+        """V0.14 G3 (D294): decisions slower than ``[controller.planner]
+        decision_latency_budget_ms``."""
         # ------------------------------------------------ V0.14 G2 (D293)
         self.calibration: Calibration | None = None
         """The calibration this tick plans with (the dispatcher sets it once
@@ -266,6 +297,16 @@ class DispatchPlanner:
                 chunk_overhead_s=self._split.chunk_overhead_s,
                 tail_frac=self._split.tail_frac,
             ),
+            # V0.14 G3 (D294-D296)
+            risk=RiskConfig(
+                prior=planner.risk_prior,
+                # a lost lane's chunk comes back when its lease expires
+                lease_release_s=self._split.visibility_timeout_s,
+            ),
+            prefer_local_margin=planner.prefer_local_margin,
+            min_useful_bw_bytes_s=planner.min_useful_bw_bytes_s,
+            min_useful_bytes=planner.min_useful_bytes,
+            prune_dominated=True,
         )
 
     # ------------------------------------------------------------ snapshot
@@ -298,7 +339,7 @@ class DispatchPlanner:
         cpu_slots, gpu_slots = row.cpu_slots, row.gpu_slots
         if live is not None and live.policy_slots is not None:
             cpu_slots, gpu_slots = live.policy_slots  # V0.7 G5: a live change
-        return node_snapshot(
+        built = node_snapshot(
             row.node_id,
             state=state,
             connected=live is not None,
@@ -322,6 +363,16 @@ class DispatchPlanner:
             policy=None if live is None else live.policy,
             owner_active=bool(getattr(live, "owner_active", False)),
         )
+        return dataclasses.replace(built, reliability=self._reliability(row, fabric))
+
+    def _reliability(self, row: NodeRow, fabric: FabricRows) -> Reliability | None:
+        """V0.14 G3 (D296): the node's ended attempts over the risk window
+        (the tick's one query); None = risk off (``risk_window_days`` 0)."""
+        window = self._planner.risk_window_days
+        if window <= 0.0:
+            return None
+        failures, total = fabric.reliability.get(row.node_id, (0, 0))
+        return Reliability(failures=failures, total=total, window_days=window)
 
     def snapshot(self, fabric: FabricRows) -> ClusterSnapshot:
         """The tick's snapshot (built once, cached on ``fabric``)."""
@@ -376,6 +427,7 @@ class DispatchPlanner:
           ``(job, error type)`` is logged with its traceback - so a planner bug
           can never wipe the queue, and the rest of the batch still plans.
         """
+        started = time.perf_counter()
         try:
             return self._decide(job, fabric)
         except _JOB_IS_BAD as exc:
@@ -402,6 +454,23 @@ class DispatchPlanner:
                     error_type=type(exc).__name__,
                 )
             return Wait()
+        finally:
+            self._timed(job, (time.perf_counter() - started) * 1000.0)
+
+    def _timed(self, job: JobRecord, took_ms: float) -> None:
+        """V0.14 G3 (D294, criterion 3): count a decision over the budget, and
+        log it once per job."""
+        budget = self._planner.decision_latency_budget_ms
+        if took_ms <= budget:
+            return
+        self.decisions_over_budget += 1
+        if self._first_time((job.id, "over_budget")):
+            log.warning(
+                "controller.jobs.decision_over_budget",
+                job_id=job.id,
+                decision_ms=round(took_ms, 3),
+                budget_ms=budget,
+            )
 
     def _decide(self, job: JobRecord, fabric: FabricRows) -> DispatchDecision:
         manifest = Manifest.model_validate(dict(job.manifest))
@@ -432,9 +501,33 @@ class DispatchPlanner:
             record, shadow = self._with_shadow(
                 record, plan_job, view, job, past, now, calibration=calibration
             )
-        record = self._with_replay(
-            record, job, plan_job, view, now, shadow, calibration=calibration
+        outcome = self._whole_outcome(
+            job, manifest, decision, fabric, record, trees, snapshot, pinned
         )
+        # V0.14 G3 (G1 review N1): the replay only for a row that is written
+        return self._attach_replay(
+            outcome,
+            job,
+            fabric,
+            plan_job,
+            view,
+            now,
+            shadow,
+            calibration=calibration,  # V0.14 G2
+        )
+
+    def _whole_outcome(
+        self,
+        job: JobRecord,
+        manifest: Manifest,
+        decision: Decision,
+        fabric: FabricRows,
+        record: DecisionRecord,
+        trees: tuple[TreeNeed, ...],
+        snapshot: ClusterSnapshot,
+        pinned: str | None,
+    ) -> DispatchDecision:
+        """A whole job's decision as the store's answer (without the replay)."""
         if decision.chosen is not None:
             return self._dispatch(
                 job, manifest, decision, fabric, record, trees=trees, cluster=snapshot
@@ -494,6 +587,11 @@ class DispatchPlanner:
             # V0.10 G8 (D271): a campaign's forced mode3 run
             node_set=forced_set(job),
         )
+        # V0.14 G3 (D295): the objective the job ranks by
+        plan_job = dataclasses.replace(
+            plan_job,
+            objective=job_objective(job, manifest, self._planner.default_objective),
+        )
         snapshot = self._for_job(self.snapshot(fabric), key)
         past = fabric.past_failures.get(job.id, ())
         if past and pinned is None:
@@ -549,9 +647,44 @@ class DispatchPlanner:
             record, shadow = self._with_shadow(
                 record, plan_job, view, job, past, now, calibration=calibration
             )
-        record = self._with_replay(
-            record, job, plan_job, view, now, shadow, calibration=calibration
+        outcome = self._split_outcome(
+            job,
+            manifest,
+            spec,
+            decision,
+            fabric,
+            record,
+            trees,
+            snapshot,
+            pinned,
+            forced,
         )
+        # V0.14 G3 (G1 review N1): the replay only for a row that is written
+        return self._attach_replay(
+            outcome,
+            job,
+            fabric,
+            plan_job,
+            view,
+            now,
+            shadow,
+            calibration=calibration,  # V0.14 G2
+        )
+
+    def _split_outcome(
+        self,
+        job: JobRecord,
+        manifest: Manifest,
+        spec: SplitSpec,
+        decision: Decision,
+        fabric: FabricRows,
+        record: DecisionRecord,
+        trees: tuple[TreeNeed, ...],
+        snapshot: ClusterSnapshot,
+        pinned: str | None,
+        forced: tuple[str, ...],
+    ) -> DispatchDecision:
+        """A split job's decision as the store's answer (without the replay)."""
         lanes = decision.split if decision.chosen is not None else None
         if lanes is None or not lanes.lanes:
             if forced:
@@ -863,6 +996,36 @@ class DispatchPlanner:
             request,
         )
 
+    def _attach_replay(
+        self,
+        outcome: DispatchDecision,
+        job: JobRecord,
+        fabric: FabricRows,
+        plan_job: PlanRequest,
+        snapshot: ClusterSnapshot,
+        now: dt.datetime,
+        shadow: PlanRequest | None,
+        *,
+        calibration: Calibration | None = None,
+    ) -> DispatchDecision:
+        """V0.14 G3 (G1 review N1): ``outcome`` with its record's replay - built
+        only when the store will write the row: always for a dispatch or a
+        failure, for a :class:`Wait` only when its reason key differs from
+        the job's latest decision (D104; the store's own rule). A waiting job
+        re-planned every tick with the same reasons builds no replay."""
+        record = None if outcome is None else outcome.record
+        if outcome is None or record is None:
+            return outcome
+        if (
+            isinstance(outcome, Wait)
+            and fabric.last_reason.get(job.id) == record.reason_key
+        ):
+            return outcome
+        with_replay = self._with_replay(
+            record, job, plan_job, snapshot, now, shadow, calibration=calibration
+        )
+        return dataclasses.replace(outcome, record=with_replay)
+
     def _with_replay(
         self,
         record: DecisionRecord,
@@ -897,14 +1060,26 @@ class DispatchPlanner:
             return record
         if replay is None:
             self.replays_over_cap += 1
-            log.warning(
-                "controller.jobs.replay_over_cap",
-                job_id=job.id,
-                replay_bytes=size,
-                replay_max_bytes=self._planner.replay_max_bytes,
-            )
+            # V0.14 G3 (G1 review N1): logged once per (job, reason key)
+            if self._first_time((job.id, f"over_cap:{record.reason_key}")):
+                log.warning(
+                    "controller.jobs.replay_over_cap",
+                    job_id=job.id,
+                    replay_bytes=size,
+                    replay_max_bytes=self._planner.replay_max_bytes,
+                )
             return record
         return dataclasses.replace(record, replay=replay, replay_version=REPLAY_VERSION)
+
+    def _first_time(self, key: tuple[str, str]) -> bool:
+        """True the first time ``key`` is seen (bounded memory, shared with the
+        planning-error log)."""
+        if key in self._errors_logged:
+            return False
+        self._errors_logged[key] = None
+        while len(self._errors_logged) > _ERRORS_LOGGED_MAX:
+            self._errors_logged.popitem(last=False)
+        return True
 
     def _job_calibration(
         self, plan_job: PlanRequest, view: ClusterSnapshot

@@ -37,6 +37,8 @@ __all__ = ["decision_tables", "explain"]
 _TERMS: Final = ("queue", "transfer", "env", "compute", "output")
 _SPLIT_TERMS: Final = ("items_fetch", "chunk_overhead", "tail", "combine")
 """V0.10 G3: the terms only a split job's candidates have."""
+_RISK_TERMS: Final = ("risk",)
+"""V0.14 G3 (D296): shown when a decision's candidates carry it."""
 _MAX_SET_NODES: Final = 6
 _ACTUAL_PHASE: Final = {
     "queue": "queue",
@@ -157,6 +159,12 @@ def _score_cell(score: Any) -> Any:
     return _cell(score) if number is None else _cell(f"{number:g}")
 
 
+def _objective_note(decision: Mapping[str, Any]) -> str:
+    """V0.14 G3 (D295): the job's resolved objective (absent on older rows)."""
+    objective = decision.get("objective")
+    return f", objective {objective}" if isinstance(objective, str) else ""
+
+
 def _candidates_table(decision: Mapping[str, Any]) -> Table:
     from meshforge.cli.render import _cell
 
@@ -171,6 +179,7 @@ def _candidates_table(decision: Mapping[str, Any]) -> Table:
         title=_cell(
             f"decision {decision.get('id')} - attempt {decision.get('attempt_no')}: "
             f"{decision.get('outcome')} (policy {decision.get('policy')})"
+            + _objective_note(decision)
         ),
     )
     candidates = decision.get("candidates")
@@ -212,7 +221,11 @@ def _terms_table(decision: Mapping[str, Any]) -> Table | None:
     split = any(_node_set(c) for c in ranked)
     names = (
         *_TERMS,
-        *(t for t in _SPLIT_TERMS if any(_has_term(c, t) for c in ranked)),
+        *(
+            t
+            for t in (*_SPLIT_TERMS, *_RISK_TERMS)
+            if any(_has_term(c, t) for c in ranked)
+        ),
     )
     heads = ("NODE", "MODE") if split else ("NODE",)
     table = render.table(
@@ -324,6 +337,12 @@ def _split_verdict(rows: list[Mapping[str, Any]]) -> str:
     if refused is not None:
         return f"not split: {refused.get('reject_text')}"
     best = tests[0] if tests else None
+    if isinstance(best, Mapping) and best.get("passed") is True:
+        # V0.14 G3 (D295): the margin test passed; the job's objective did not
+        return (
+            f"not split: the best set {_seconds(best.get('set_s'))} passed the "
+            "margin test, but the job's objective ranked one node first"
+        )
     if isinstance(best, Mapping):
         return (
             f"not split: the best set {_seconds(best.get('set_s'))} is above "
@@ -332,6 +351,23 @@ def _split_verdict(rows: list[Mapping[str, Any]]) -> str:
             f"(best single node {best.get('best_single_node_id')})"
         )
     return "not split: the job is pinned to one node"
+
+
+def _pruned_sentence(rows: list[Mapping[str, Any]]) -> str:
+    """V0.14 G3 (D294): which idle nodes sets were skipped for, and why."""
+    pruned = next((c.get("pruned") for c in rows if c.get("pruned")), None)
+    if not isinstance(pruned, list) or not pruned:
+        return ""
+    parts = [
+        f"{p.get('node_id')} (by {p.get('by')})"
+        for p in pruned
+        if isinstance(p, Mapping)
+    ]
+    return (
+        "; sets that only add an idle node were not costed: "
+        + ", ".join(parts)
+        + " - the faster node would finish every item before it could start"
+    )
 
 
 def _split_table(decision: Mapping[str, Any]) -> Table | None:
@@ -355,7 +391,7 @@ def _split_table(decision: Mapping[str, Any]) -> Table | None:
         "RATE",
         "PREDICTED",
         "MARGIN TEST",
-        title=_cell(_split_verdict(rows)),
+        title=_cell(_split_verdict(rows) + _pruned_sentence(rows)),
     )
     for c in rows:
         estimate = c.get("estimate")

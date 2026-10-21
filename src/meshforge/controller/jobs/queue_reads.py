@@ -56,6 +56,7 @@ from meshforge.common.manifest import MAX_PRIORITY
 from meshforge.common.states import AttemptPhase, AttemptRole, AttemptState, JobState
 from meshforge.controller.network.store import controller_links, read_links
 from meshforge.controller.planner.retry_exclusion import PastFailure
+from meshforge.controller.planner.risk import EndClass, failure_types_of
 from meshforge.controller.planner.types import (
     ClusterSnapshot,
     ControllerLinkStat,
@@ -159,6 +160,10 @@ class FabricRows:
     combine_lanes: dict[str, dict[str, tuple[int, int]]] = field(default_factory=dict)
     """V0.10 G5: job_id -> {node_id: (cpu, gpu) slots of its draining lanes} -
     free for that job's combine."""
+    reliability: dict[str, tuple[int, int]] = field(default_factory=dict)
+    """V0.14 G3 (D296): node_id -> (node-caused ends, counted ends) of its
+    attempts that ended in the risk window (:func:`_reliability`); empty =
+    not read (risk off) or no ended attempt."""
     snapshot: ClusterSnapshot | None = None
     """The planner snapshot built from these rows (the dispatcher's, cached
     for the tick and patched by :meth:`took`)."""
@@ -482,9 +487,12 @@ async def read_fabric(
     history_runs: int,
     keys_of: Callable[[Job], Sequence[str]],
     network: NetworkReads | None = None,
+    risk_since: dt.datetime | None = None,
 ) -> FabricRows:
     """See module docstring. ``keys_of(job)`` = the job's project tree (or
-    bundle) key; its named inputs are added here."""
+    bundle) key; its named inputs are added here. ``risk_since`` (V0.14 G3) =
+    the start of the risk window: given, every node's attempt ends since then
+    are counted (one query)."""
     node_rows = await db.scalars(select(Node).order_by(Node.node_id).limit(MAX_NODES))
     fabric = FabricRows(
         nodes={
@@ -512,6 +520,8 @@ async def read_fabric(
     for node_id, gpu, cpu in usage.all():
         fabric.used[str(node_id)] = [int(cpu), int(gpu)]
     fabric.gpus_held = await _gpus_held(db, live_states)
+    if risk_since is not None:  # V0.14 G3 (D296)
+        fabric.reliability = await _reliability(db, risk_since, list(fabric.nodes))
     job_ids = [j.id for j in jobs]
     if not job_ids:
         return fabric
@@ -583,6 +593,56 @@ async def read_fabric(
         )
         fabric.owner_names = {str(i): str(n) for i, n in names.all()}
     return fabric
+
+
+# --- V0.14 G3 (D296) -------------------------------------------------------------
+
+_NODE_CAUSED: Final = failure_types_of(EndClass.NODE)
+_CLEAN_FAILURES: Final = failure_types_of(EndClass.CLEAN)
+
+
+async def _reliability(
+    db: AsyncSession, since: dt.datetime, node_ids: Sequence[str]
+) -> dict[str, tuple[int, int]]:
+    """node_id -> (node-caused, counted) attempt ends since ``since``, by the
+    planner's classification (:func:`~meshforge.controller.planner.risk.
+    classify_end`): ``lost`` and node-caused failure types are failures;
+    ``done`` and workload failures count only in the total; the rest
+    (``fenced``, ``cancelled`` ...) not at all. One grouped query (no N+1),
+    over exactly ``node_ids`` - the snapshot's nodes (already bounded by
+    ``MAX_NODES``), so no row cap can drop a node the planner sees (G3
+    review N3)."""
+    if not node_ids:
+        return {}
+    lost = Attempt.state == AttemptState.LOST.value
+    failed = Attempt.state == AttemptState.FAILED.value
+    node_caused = or_(lost, and_(failed, Attempt.failure_type.in_(_NODE_CAUSED)))
+    counted = or_(
+        node_caused,
+        Attempt.state == AttemptState.DONE.value,
+        and_(failed, Attempt.failure_type.in_(_CLEAN_FAILURES)),
+    )
+    rows = await db.execute(
+        select(
+            Attempt.node_id,
+            func.count().filter(node_caused),
+            func.count().filter(counted),
+        )
+        .where(
+            Attempt.node_id.in_(sorted(node_ids)),
+            Attempt.ended_at.is_not(None),
+            Attempt.ended_at >= _now(since),
+        )
+        .group_by(Attempt.node_id)
+    )
+    return {
+        str(node_id): (int(failures), int(total))
+        for node_id, failures, total in rows.all()
+        if total
+    }
+
+
+# --- end V0.14 G3 ------------------------------------------------------------------
 
 
 def _base_of(job: Job) -> str:

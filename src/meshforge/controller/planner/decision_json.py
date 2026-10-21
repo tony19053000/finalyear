@@ -25,6 +25,12 @@ by ``node_id``), the estimate has the extra terms ``items_fetch``,
 A rejected ``split`` row (``split_too_small`` / ``split_too_few_nodes``) has
 ``node_set`` and no estimate. Rows of a job that runs whole are unchanged.
 
+**V0.14 G3.** A candidate's estimate may end with a ``risk`` term (D296), a
+node may be rejected ``link_infeasible`` (D294), and when the Mode 3 set
+generator pruned dominated nodes every row of the split job adds
+``"pruned": [{"node_id", "by"}]`` (absent when nothing was pruned, so older
+rows stay byte-identical).
+
 **Never a non-finite number (D131).** PostgreSQL's ``jsonb`` refuses
 ``Infinity``/``NaN``, and one refused row would undo the whole dispatch
 tick's transaction. :func:`json_safe` therefore replaces any non-finite float
@@ -165,6 +171,12 @@ def _candidate(item: CandidateEval) -> dict[str, Any]:
 
 def candidates_json(decision: Decision) -> list[dict[str, Any]]:
     """The bounded JSON list (see module docstring)."""
-    return [
+    rows = [
         json_safe(_candidate(c)) for c in decision.candidates[:MAX_DECISION_CANDIDATES]
     ]
+    if decision.pruned:  # V0.14 G3 (D294)
+        dominated = [{"node_id": p.node_id, "by": p.by} for p in decision.pruned]
+        for row in rows:
+            if "node_set" in row:
+                row["pruned"] = dominated
+    return rows

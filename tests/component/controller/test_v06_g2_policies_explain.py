@@ -317,7 +317,9 @@ async def test_decisions_show_every_candidate_and_explain_prints_them(
     assert [c["rank"] for c in ranked] == [1, 2, 3, 4, 5]
     for c in ranked:
         terms = c["estimate"]["terms"]
-        assert set(terms) == {"queue", "transfer", "env", "compute", "output"}
+        # V0.14 G3 (D296): the controller adds a risk term (prior-only here)
+        assert set(terms) == {"queue", "transfer", "env", "compute", "output", "risk"}
+        assert terms["risk"]["source"] == "assumed"
         assert all(
             t["source"] in {"measured", "history", "scaled", "assumed"}
             for t in terms.values()

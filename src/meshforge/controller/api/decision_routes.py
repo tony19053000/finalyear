@@ -68,6 +68,14 @@ class MarginTestOut(_Stored):
     """Why no set was compared: pinned, split_too_small, split_too_few_nodes."""
 
 
+class PrunedOut(_Stored):
+    """V0.14 G3 (D294): an idle node some Mode 3 sets were skipped for."""
+
+    node_id: str
+    by: str
+    """The node that would finish every item before it could start."""
+
+
 class CandidateOut(_Stored):
     node_id: str
     """For a ``split`` row: the first (fastest) node of ``node_set``."""
@@ -92,6 +100,9 @@ class CandidateOut(_Stored):
     inactive: tuple[str, ...] | None = None
     """``split`` rows: nodes of the set predicted to get no chunk."""
     margin_test: MarginTestOut | None = None
+    pruned: tuple[PrunedOut, ...] | None = None
+    """V0.14 G3 (D294): split-job rows - idle nodes whose sets were skipped
+    as strictly dominated (absent when none was)."""
 
 
 class ActualOut(ApiModel):
@@ -118,6 +129,10 @@ class DecisionOut(ApiModel):
     """V0.9 G3 (D215): for a pinned job, the node the planner would have chosen
     unpinned on the same snapshot; null = not pinned / none feasible."""
     shadow_estimate_s: float | None = None
+    objective: str | None = None
+    """V0.14 G3 (D295): the job's resolved objective the decision ranked by
+    (``placement.objective`` > manifest > ``default_objective``); read only by
+    ``cost_model``. Null for a decision recorded before V0.14."""
 
 
 class DecisionList(ApiModel):
@@ -149,6 +164,7 @@ def _out(record: DecisionRecordOut) -> DecisionOut:
         ),
         shadow_chosen_node_id=record.shadow_chosen_node_id,
         shadow_estimate_s=record.shadow_estimate_s,
+        objective=record.objective,
     )
 
 

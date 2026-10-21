@@ -1192,6 +1192,20 @@
             ],
             "title": "Node Set"
           },
+          "pruned": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/PrunedOut"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pruned"
+          },
           "rank": {
             "anyOf": [
               {
@@ -2106,6 +2120,17 @@
           "id": {
             "title": "Id",
             "type": "integer"
+          },
+          "objective": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Objective"
           },
           "outcome": {
             "enum": [
@@ -4708,6 +4733,14 @@
         "title": "NodeSummary",
         "type": "object"
       },
+      "ObjectiveName": {
+        "enum": [
+          "min_time",
+          "min_network",
+          "prefer_local"
+        ],
+        "type": "string"
+      },
       "PairFailureOut": {
         "additionalProperties": false,
         "properties": {
@@ -4772,6 +4805,16 @@
               }
             ],
             "title": "Node Set"
+          },
+          "objective": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ObjectiveName"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "policy": {
             "anyOf": [
@@ -4887,6 +4930,25 @@
           "items"
         ],
         "title": "PrepareStatus",
+        "type": "object"
+      },
+      "PrunedOut": {
+        "description": "V0.14 G3 (D294): an idle node some Mode 3 sets were skipped for.",
+        "properties": {
+          "by": {
+            "title": "By",
+            "type": "string"
+          },
+          "node_id": {
+            "title": "Node Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "node_id",
+          "by"
+        ],
+        "title": "PrunedOut",
         "type": "object"
       },
       "QualityOut": {

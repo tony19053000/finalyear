@@ -126,7 +126,7 @@ def _fabric(caps: list[str] = CAPS) -> FabricRows:
 
 
 def _replays_to(record: Any) -> None:
-    assert record.replay is not None and record.replay_version == 1
+    assert record.replay is not None and record.replay_version == 2  # V0.14 G2+G3 merge
     assert record.objective == "min_time" and record.calibration_version is None
     stored = json.loads(canonical_json(record.replay))  # as jsonb hands it back
     request, snapshot, now = from_replay(stored)

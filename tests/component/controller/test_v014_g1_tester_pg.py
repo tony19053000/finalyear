@@ -241,7 +241,7 @@ async def test_the_replay_read_back_replays_to_the_stored_candidates(
     planner = _planner(Manager([local, remote]))
     await _tick(store, planner.decide)
     (row,) = await _rows(pg_settings, job.id)
-    assert row.replay_version == 1 and row.objective == "min_time"
+    assert row.replay_version == 2 and row.objective == "min_time"
     request, snapshot, now = from_replay(_as_obj(row.replay))
     again = plan(request, snapshot, row.policy, now)
     assert candidates_json(again) == row.candidates
@@ -298,7 +298,7 @@ async def test_a_refused_row_is_dropped_alone_in_its_savepoint(
     assert dispatched == {bad.id, good.id}, name
     assert await _rows(pg_settings, bad.id) == [], name
     (row,) = await _rows(pg_settings, good.id)
-    assert row.replay_version == 1 and row.replay is not None
+    assert row.replay_version == 2 and row.replay is not None
     # the bad job's attempt row really committed (the savepoint, not the tx)
     attempts = await _sql(
         pg_settings,
@@ -328,4 +328,4 @@ async def test_a_refused_row_does_not_break_the_next_tick(
     await _tick(store, planner.decide)
     assert await _rows(pg_settings, first.id) == []
     (row,) = await _rows(pg_settings, second.id)
-    assert row.replay_version == 1
+    assert row.replay_version == 2

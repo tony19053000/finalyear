@@ -31,13 +31,21 @@ from __future__ import annotations
 
 import datetime as dt
 from collections.abc import Sequence
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import Final
 
 # V0.14 G2 (D293): a lane's stage + env are calibrated per node
 from meshforge.controller.planner.calibration import Calibration, calibrate_lane
 from meshforge.controller.planner.candidates import FORCED_SET, Candidate, candidates
-from meshforge.controller.planner.policies import Scored, rank
+from meshforge.controller.planner.objectives import (
+    COST_MODEL,
+    objective_of,
+    prefer_local_wins,
+    rank_singles,
+    set_bytes_moved,
+)
+from meshforge.controller.planner.policies import Ranked, Scored, rank
+from meshforge.controller.planner.risk import lane_risk, with_risk
 from meshforge.controller.planner.split import (
     ChunkChoice,
     Lane,
@@ -46,6 +54,7 @@ from meshforge.controller.planner.split import (
     chunk_overhead,
     estimate_split,
     lane,
+    set_chunk,
 )
 from meshforge.controller.planner.types import (
     CandidateEval,
@@ -53,7 +62,9 @@ from meshforge.controller.planner.types import (
     MarginTest,
     Mode,
     NodeSnapshot,
+    Objective,
     PlanRequest,
+    Pruned,
     Slot,
     SplitInfo,
     SplitPlan,
@@ -66,8 +77,20 @@ MAX_MARGIN: Final = 0.95
 a hand-built config cannot make splitting impossible by accident)."""
 _ROUND: Final = 6
 
-type SplitOutcome = tuple[list[CandidateEval], CandidateEval | None, SplitPlan | None]
-"""(ranked + rejected set rows, the chosen candidate, what to run)."""
+
+@dataclass(frozen=True, slots=True)
+class SplitOutcome:
+    """What :func:`decide_split` decided (V0.14 G3: a value, was a tuple)."""
+
+    rows: list[CandidateEval]
+    """Ranked + rejected set rows."""
+    chosen: CandidateEval | None
+    plan: SplitPlan | None
+    """What to run."""
+    objective_changed: bool = False
+    """V0.14 G3: the job's objective changed the pick (vs ``min_time``)."""
+    pruned: tuple[Pruned, ...] = ()
+    """V0.14 G3 (D294): nodes no Mode 3 set was extended with."""
 
 
 def _single_chunk(
@@ -80,23 +103,6 @@ def _single_chunk(
         split.items,
         fastest_per_item_s=lone.per_item_s,
         lanes=1,
-        overhead_s=overhead.seconds,
-        config=snapshot.config.split,
-        fixed=split.chunk_items,
-    )
-
-
-def _set_chunk(
-    split: SplitInfo,
-    group: Sequence[Lane],
-    request: PlanRequest,
-    snapshot: ClusterSnapshot,
-) -> ChunkChoice:
-    overhead = chunk_overhead(request, snapshot.config.split)
-    return choose_chunk_items(
-        split.items,
-        fastest_per_item_s=min(item.per_item_s for item in group),
-        lanes=len(group),
         overhead_s=overhead.seconds,
         config=snapshot.config.split,
         fixed=split.chunk_items,
@@ -157,6 +163,73 @@ def _refused_row(candidate: Candidate) -> CandidateEval:
     )
 
 
+# --- V0.14 G3 (D296) -----------------------------------------------------------
+
+
+def _risked(
+    item: SetEstimate, request: PlanRequest, snapshot: ClusterSnapshot
+) -> SetEstimate:
+    """``item`` with its risk term: a lost lane re-runs only the chunk it had
+    leased (D267), so each active lane costs ``p_fail x (its chunk time +
+    lease release)`` (:func:`~.risk.lane_risk`)."""
+    overhead = chunk_overhead(request, snapshot.config.split).seconds
+    lanes = [
+        (lane_.node, item.chunk.items * lane_.per_item_s + overhead)
+        for lane_ in item.lanes
+        if lane_.node_id in item.active
+    ]
+    term = lane_risk(lanes, snapshot.config.risk)
+    if term is None:
+        return item
+    return replace(item, estimate=with_risk(item.estimate, term))
+
+
+def _objective_set(
+    objective: Objective,
+    request: PlanRequest,
+    snapshot: ClusterSnapshot,
+    sets: Sequence[SetEstimate],
+    singles: Sequence[SetEstimate],
+    by_node: dict[str, SetEstimate],
+    ranked: Sequence[Ranked],
+    margin: float,
+) -> tuple[SetEstimate | None, bool]:
+    """D295 for a split job's sets: ``(the set to run if any, use it?)``.
+    ``sets`` are in time order, ``ranked`` the singles under the objective
+    (rank 1 first)."""
+    best_single = min(singles, key=lambda s: (s.total_s, s.node_ids), default=None)
+    by_time = sets[0] if sets else None
+    time_uses_set = by_time is not None and _margin(by_time, best_single, margin).passed
+    if objective == "min_network":
+        # a set must pass its own margin test, then move fewer bytes
+        eligible = [s for s in sets if _margin(s, best_single, margin).passed]
+
+        def key(item: SetEstimate) -> tuple[float, float]:
+            return (set_bytes_moved(item, request), item.total_s)
+
+        if not eligible:
+            return by_time, False
+        pick = min(eligible, key=lambda s: (*key(s), len(s.lanes), s.node_ids))
+        if not ranked:
+            return pick, True
+        return pick, key(pick) < key(by_node[ranked[0].node_id])
+    if objective == "prefer_local" and time_uses_set and by_time is not None:
+        local = next((s for s in singles if s.lanes[0].local), None)
+        if local is not None and prefer_local_wins(
+            local.total_s, by_time.total_s, snapshot.config.prefer_local_margin
+        ):
+            return by_time, False
+    return by_time, time_uses_set
+
+
+def _pick_key(item: SetEstimate | None, is_set: bool) -> tuple[bool, tuple[str, ...]]:
+    """What a split decision runs, as a comparable key."""
+    return (is_set, () if item is None else item.node_ids)
+
+
+# --- end V0.14 G3 ---------------------------------------------------------------
+
+
 def decide_split(
     request: PlanRequest,
     snapshot: ClusterSnapshot,
@@ -199,9 +272,12 @@ def decide_split(
     sets: list[SetEstimate] = []
     for candidate in generated.sets:
         members = [by_lane[node_id] for node_id in candidate.node_set]
-        chunk = _set_chunk(split, members, request, snapshot)
+        chunk = set_chunk(request, members, snapshot)  # V0.14 G3: shared rule
         sets.append(estimate_split(request, members, snapshot, chunk, now=now))
     forced_row = next((_refused_row(c) for c in generated.refused_sets), None)
+    # V0.14 G3 (D296): the risk term - the margin test compares risked totals
+    singles = [_risked(s, request, snapshot) for s in singles]
+    sets = [_risked(s, request, snapshot) for s in sets]
 
     best_single = min(singles, key=lambda s: (s.total_s, s.node_ids), default=None)
     sets.sort(key=lambda s: (s.total_s, len(s.lanes), s.node_ids))
@@ -209,24 +285,52 @@ def decide_split(
     overall = _margin(best_set, best_single, margin, forced)
 
     by_node = {s.node_ids[0]: s for s in singles}
-    ranked = rank(
-        policy,
-        request,
-        snapshot,
-        [
-            Scored(
-                node=s.lanes[0].node,
-                slot=s.lanes[0].slot,
-                local=s.lanes[0].local,
-                estimate=s.estimate,
-            )
-            for s in singles
-        ],
+    scored = [
+        Scored(
+            node=s.lanes[0].node,
+            slot=s.lanes[0].slot,
+            local=s.lanes[0].local,
+            estimate=s.estimate,
+        )
+        for s in singles
+    ]
+    # V0.14 G3 (D295): cost_model ranks by the job's objective
+    objective = objective_of(request.objective)
+    reads_objective = (
+        policy == COST_MODEL and objective != "min_time" and forced != FORCED_SET
     )
+    changed = False
+    if reads_objective:
+        ranked, _ = rank_singles(
+            objective,
+            scored,
+            prefer_local_margin=snapshot.config.prefer_local_margin,
+            bytes_of=lambda item: set_bytes_moved(by_node[item.node.node_id], request),
+        )
+    else:
+        ranked = rank(policy, request, snapshot, scored)
     modes = {c.node_id: c.stored_mode for c in generated.singles}
     single_rows = [
         _row(by_node[r.node_id], modes[r.node_id], score=r.score) for r in ranked
     ]
+    use_set = best_set is not None and (overall.passed or forced == FORCED_SET)
+    chosen_set = best_set
+    if reads_objective:
+        time_pick = _pick_key(best_set if use_set else best_single, use_set)
+        chosen_set, use_set = _objective_set(
+            objective, request, snapshot, sets, singles, by_node, ranked, margin
+        )
+        final = (
+            chosen_set
+            if use_set
+            else by_node.get(ranked[0].node_id)
+            if ranked
+            else None
+        )
+        changed = _pick_key(final, use_set) != time_pick
+        if chosen_set is not None and use_set:
+            overall = _margin(chosen_set, best_single, margin, forced)
+            sets = [chosen_set, *(s for s in sets if s is not chosen_set)]
     set_rows = [
         _row(
             s,
@@ -236,7 +340,6 @@ def decide_split(
         )
         for s in sets
     ]
-    use_set = best_set is not None and (overall.passed or forced == FORCED_SET)
     ordered = [*set_rows, *single_rows] if use_set else [*single_rows, *set_rows]
     if forced == FORCED_SET and not use_set:
         ordered = []  # the forced set cannot run now: wait, never something else
@@ -249,7 +352,9 @@ def decide_split(
     plan: SplitPlan | None = None
     if chosen is not None:
         picked = (
-            best_set if use_set and best_set is not None else by_node[chosen.node_id]
+            chosen_set
+            if use_set and chosen_set is not None
+            else by_node[chosen.node_id]
         )
         plan = SplitPlan(
             split=chosen.mode == "split",
@@ -264,4 +369,10 @@ def decide_split(
             predicted_makespan_s=round(picked.total_s, _ROUND),
             margin=overall,
         )
-    return rows, chosen, plan
+    return SplitOutcome(
+        rows,
+        chosen,
+        plan,
+        objective_changed=changed and chosen is not None,
+        pruned=generated.pruned,
+    )

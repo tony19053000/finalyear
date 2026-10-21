@@ -43,11 +43,19 @@ from meshforge.controller.planner.candidates import STORED_MODE, candidates
 from meshforge.controller.planner.estimator import estimate
 from meshforge.controller.planner.feasibility import (
     choose_slot,
+    link_rejection,
     rejection,
     static_rejection,
 )
+from meshforge.controller.planner.objectives import (
+    COST_MODEL,
+    objective_of,
+    rank_singles,
+    reason_suffix,
+)
 from meshforge.controller.planner.policies import Scored, rank
 from meshforge.controller.planner.retry_exclusion import LIFT_ORDER
+from meshforge.controller.planner.risk import risked_singles
 from meshforge.controller.planner.split_plan import decide_split
 from meshforge.controller.planner.types import (
     CandidateEval,
@@ -55,6 +63,8 @@ from meshforge.controller.planner.types import (
     Decision,
     Mode,
     NodeSnapshot,
+    Objective,
+    PlannerConfig,
     PlanRequest,
     Slot,
 )
@@ -88,16 +98,49 @@ def _jsonable(value: Any) -> Any:
     return value
 
 
+# --- V0.14 G3: inputs added by G3 enter the digest only when they are set, so
+# a pre-G3 (request, snapshot) - e.g. a stored replay - keeps its digest.
+_G3_CONFIG_DEFAULTS: dict[str, Any] = {
+    name: _jsonable(asdict(PlannerConfig())).get(name)
+    for name in (
+        "risk",
+        "prefer_local_margin",
+        "min_useful_bw_bytes_s",
+        "min_useful_bytes",
+        "prune_dominated",
+    )
+}
+
+
+def _without_unset_g3(data: dict[str, Any]) -> dict[str, Any]:
+    if data["request"].get("objective") is None:
+        data["request"].pop("objective", None)
+    snapshot = data["snapshot"]
+    for node in snapshot["nodes"]:
+        if node.get("reliability") is None:
+            node.pop("reliability", None)
+    config = snapshot["config"]
+    for name, default in _G3_CONFIG_DEFAULTS.items():
+        if config.get(name) == default:
+            config.pop(name, None)
+    return data
+
+
+# --- end V0.14 G3 -------------------------------------------------------------
+
+
 def snapshot_digest(
     request: PlanRequest,
     snapshot: ClusterSnapshot,
     calibration: Calibration | None = None,
 ) -> str:
     """SHA-256 of the canonical (request, snapshot) pair."""
-    data: dict[str, Any] = {
-        "request": _jsonable(asdict(request)),
-        "snapshot": _jsonable(asdict(snapshot)),
-    }
+    data = _without_unset_g3(  # V0.14 G3
+        {
+            "request": _jsonable(asdict(request)),
+            "snapshot": _jsonable(asdict(snapshot)),
+        }
+    )
     # V0.14 G2 (D293): a calibrated decision saw its factors too (None ->
     # the digest of every decision before G2, unchanged)
     if calibration is not None:
@@ -109,13 +152,15 @@ def snapshot_digest(
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def _reason_key(evals: list[CandidateEval]) -> str:
+def _reason_key(evals: list[CandidateEval], objective: Objective | None = None) -> str:
     # a Mode 3 set row is keyed by its mode, not its head node (V0.10 G3)
     parts = sorted(
         f"{'split' if c.mode == 'split' else c.node_id}:"
         f"{c.rejection.code.value if c.rejection else 'ok'}"
         for c in evals
     )
+    if objective is not None:  # V0.14 G3 (D295): the objective changed the pick
+        parts.append(reason_suffix(objective))
     return hashlib.sha256("\n".join(parts).encode("ascii")).hexdigest()
 
 
@@ -194,6 +239,7 @@ def plan(
     margin test and the ranking see them; None = uncalibrated (bit-identical
     to the planner before G2)."""
     config = snapshot.config
+    objective = objective_of(request.objective)  # V0.14 G3: unknown -> ValueError
     request = _with_exclusion(request, snapshot)
     # V0.14 G2: the request's workload family, as the calibration knows it
     family = None if calibration is None else calibration.family_of(request.fingerprint)
@@ -216,6 +262,13 @@ def plan(
         slot = choose_slot(request, node)
         if slot is None:  # pragma: no cover - live_rejection already said slots_full
             raise AssertionError("a feasible candidate without a slot")
+        # V0.14 G3 (D294): a hopeless fresh link is refused before costing
+        hopeless = link_rejection(request, node, snapshot, local=local, now=now)
+        if hopeless is not None:
+            evals.append(
+                CandidateEval(node.node_id, mode, feasible=False, rejection=hopeless)
+            )
+            continue
         if request.split is not None:
             feasible.append((node, local, slot))
             continue
@@ -228,21 +281,44 @@ def plan(
         evals.append(
             CandidateEval(node.node_id, mode, feasible=True, slot=slot, estimate=guess)
         )
+    # V0.14 G3 (D296): the risk term, once every single is costed - from the
+    # calibrated terms (V0.14 G2 above), added after them and never scaled
+    if scored:
+        risked = risked_singles(
+            [(item.node, item.estimate) for item in scored], config.risk
+        )
+        scored = [replace(i, estimate=e) for i, e in zip(scored, risked, strict=True)]
+        by_node = {item.node.node_id: item.estimate for item in scored}
+        evals = [
+            replace(e, estimate=by_node[e.node_id]) if e.feasible else e for e in evals
+        ]
     if request.split is not None:
-        rows, picked, split_plan = decide_split(
+        outcome = decide_split(
             request, snapshot, policy, feasible, now=now, calibration=calibration
         )
-        rows = [*rows, *evals]
+        rows = [*outcome.rows, *evals]
         rows.sort(key=lambda c: (c.rank is None, c.rank or 0, c.node_id))
         return Decision(
             policy=policy,
             candidates=tuple(rows),
-            chosen=picked,
+            chosen=outcome.chosen,
             snapshot_digest=snapshot_digest(request, snapshot, calibration),
-            reason_key=_reason_key(rows),
-            split=split_plan,
+            reason_key=_reason_key(
+                rows, objective if outcome.objective_changed else None
+            ),
+            split=outcome.plan,
+            objective=request.objective,
+            pruned=outcome.pruned,
         )
-    ranking = {r.node_id: r for r in rank(policy, request, snapshot, scored)}
+    # V0.14 G3 (D295): cost_model ranks by the objective (min_time = as before)
+    changed = False
+    if policy == COST_MODEL and objective != "min_time":
+        ranked, changed = rank_singles(
+            objective, scored, prefer_local_margin=config.prefer_local_margin
+        )
+    else:
+        ranked = rank(policy, request, snapshot, scored)
+    ranking = {r.node_id: r for r in ranked}
     final: list[CandidateEval] = []
     chosen: CandidateEval | None = None
     for item in evals:
@@ -258,5 +334,6 @@ def plan(
         candidates=tuple(final),
         chosen=chosen,
         snapshot_digest=snapshot_digest(request, snapshot, calibration),
-        reason_key=_reason_key(final),
+        reason_key=_reason_key(final, objective if changed and chosen else None),
+        objective=request.objective,
     )

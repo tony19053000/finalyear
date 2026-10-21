@@ -36,11 +36,15 @@ __all__ = [
     "MarginTest",
     "Mode",
     "NodeSnapshot",
+    "Objective",
     "PlanRequest",
     "PlannerConfig",
+    "Pruned",
     "RejectCode",
     "Rejection",
+    "Reliability",
     "RequestKind",
+    "RiskConfig",
     "Slot",
     "SplitConfig",
     "SplitInfo",
@@ -51,6 +55,8 @@ __all__ = [
 
 type Slot = Literal["cpu", "gpu"]
 type GpuNeed = Literal["required", "preferred", "none"]
+type Objective = Literal["min_time", "min_network", "prefer_local"]
+"""V0.14 G3 (D295): what ``cost_model`` ranks by (:mod:`.objectives`)."""
 type Mode = Literal["local", "offload", "split"]
 """``local`` / ``offload`` = one node runs the job (for a split job: one lane,
 "don't split"); ``split`` = Mode 3 over a node set (V0.10 G3, D265)."""
@@ -138,6 +144,13 @@ class RejectCode(StrEnum):
     """An :class:`AcceleratorRequest` (Mode 2 Remote GPU / Mode 4 Combined GPU):
     deferred by ADR-0012, so this build generates no candidate for it. Like the
     split codes, not in :data:`STATIC_CODES` (it rejects no node)."""
+    # --- V0.14 G3 (D294): a hopeless link, judged before costing -------------
+    LINK_INFEASIBLE = "link_infeasible"
+    """Live: the bytes the node would fetch come over a **fresh** measured
+    link slower than ``[controller.planner] min_useful_bw_bytes_s`` and are
+    more than ``min_useful_bytes`` (:func:`~.feasibility.link_rejection`).
+    A stale or unmeasured link never rejects. Not for a pinned job or a
+    forced node set (the user / campaign named the nodes)."""
 
 
 STATIC_CODES: frozenset[RejectCode] = frozenset(
@@ -293,6 +306,10 @@ class PlanRequest:
     candidates are exactly these nodes and the job is split over **all** of
     them (whatever the margin test says; the test is still recorded). Empty =
     not forced. Like a pinned job, never excluded on retry."""
+    # V0.14 G3 (D295)
+    objective: Objective | None = None
+    """What ``cost_model`` ranks by; None = ``min_time`` (a request from before
+    G3, or a hand-built one). Rule policies ignore it."""
 
     @property
     def is_gpu_job(self) -> bool:
@@ -368,6 +385,11 @@ class NodeSnapshot:
     owner_active: bool = False
     """V0.9 G5 (D246): the node's last heartbeat says its owner is using it
     (benchmark jobs only wait for it)."""
+    # V0.14 G3 (D296)
+    reliability: Reliability | None = None
+    """Node-caused attempt ends over the risk window (:mod:`.risk`); None =
+    not read (a snapshot or replay from before G3, risk off): **no** risk
+    term for this node - a missing input is never held against it."""
 
     @property
     def free_cpu_slots(self) -> int:
@@ -452,6 +474,38 @@ class SplitConfig:
     lanes do not finish together; pulling keeps it under one chunk)."""
 
 
+# --- V0.14 G3 (D296): reliability inputs and the risk configuration ---------
+
+
+@dataclass(frozen=True, slots=True)
+class Reliability:
+    """A node's attempt ends over the risk window (D296): how many were
+    **node-caused** (:data:`~.risk.END_CLASS`) out of all that are counted.
+    Built by the snapshot builder in one query per tick."""
+
+    failures: int
+    """Node-caused ends (lost, node_lost, owner_preempted, disk_full ...)."""
+    total: int
+    """Counted ends: successes + node-caused + workload failures."""
+    window_days: float
+    """The window the counts cover (``[controller.planner] risk_window_days``)."""
+
+
+@dataclass(frozen=True, slots=True)
+class RiskConfig:
+    """D296 values the risk term needs."""
+
+    prior: tuple[float, float] = (1.0, 19.0)
+    """Beta prior ``(a, b)``: a node with no history fails with ``a/(a+b)``
+    (5 %)."""
+    lease_release_s: float = 60.0
+    """Mode 3: how long a lost lane's chunk lease takes to come back
+    (``[controller.split] visibility_timeout_s``)."""
+
+
+# --- end V0.14 G3 -------------------------------------------------------------
+
+
 @dataclass(frozen=True, slots=True)
 class PlannerConfig:
     """``[controller.planner]`` values the pure planner needs."""
@@ -469,6 +523,22 @@ class PlannerConfig:
     a bandwidth below this, so every estimate is finite."""
     split: SplitConfig = field(default_factory=SplitConfig)
     """V0.10 G3 (D275)."""
+    # --- V0.14 G3 (D294-D296). The defaults are the **pre-G3** behaviour (a
+    # hand-built config, a replay stored before G3): no link rejection, no
+    # pruning; the dispatcher sets the configured values. ---------------------
+    risk: RiskConfig = field(default_factory=RiskConfig)
+    """D296: the risk term's prior and Mode 3 lease release."""
+    prefer_local_margin: float = 0.25
+    """D295 ``prefer_local``: another candidate wins only when predicted at
+    least this fraction faster than Local."""
+    min_useful_bw_bytes_s: float = 0.0
+    """D294 ``link_infeasible``: a fresh link slower than this (bytes/s) ...
+    (0 = never reject)."""
+    min_useful_bytes: int = 64 * 1024 * 1024
+    """... carrying more than this many bytes rejects the candidate."""
+    prune_dominated: bool = False
+    """D294: Mode 3 sets skip a node that can never get a chunk
+    (:func:`~.candidates.dominated_lanes`); False = every prefix set."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -625,6 +695,20 @@ class CandidateEval:
 
 
 @dataclass(frozen=True, slots=True)
+class Pruned:
+    """V0.14 G3 (D294): an idle-dominated node at least one Mode 3 set was
+    skipped for - the set with it predicts exactly the set without it (same
+    chunking, the node gets no chunk), so only that strictly dominated set
+    was not costed (:mod:`~.candidates`)."""
+
+    node_id: str
+    by: str
+    """The node that dominates it (in every set this one is in, no worse on
+    every lane term and able to finish all items before this one could
+    start)."""
+
+
+@dataclass(frozen=True, slots=True)
 class Decision:
     policy: str
     candidates: tuple[CandidateEval, ...]
@@ -634,6 +718,11 @@ class Decision:
     split: SplitPlan | None = None
     """V0.10 G3: what to run for a split job (None = not a split job, or
     nothing chosen)."""
+    # V0.14 G3 (D295, D294)
+    objective: Objective | None = None
+    """The request's objective (None = ``min_time``, not named)."""
+    pruned: tuple[Pruned, ...] = ()
+    """Nodes the Mode 3 set generator did not extend sets with, and why."""
 
     @property
     def all_static_rejections(self) -> bool:

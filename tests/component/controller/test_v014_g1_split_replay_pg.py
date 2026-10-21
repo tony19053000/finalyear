@@ -148,7 +148,7 @@ async def test_split_decision_read_back_replays_to_the_same_plan(
     )
     assert rows, "no dispatched decision"
     row = rows[0]
-    assert row.replay_version == 1 and row.objective == "min_time"
+    assert row.replay_version == 2 and row.objective == "min_time"
     replay = row.replay if isinstance(row.replay, dict) else json.loads(row.replay)
     request, snapshot, now = from_replay(replay)
     assert request.split is not None and request.split.items == 300
