@@ -124,7 +124,25 @@ def _term_cell(term: Any) -> str:
     stale = detail.get("stale_links_ignored")
     if isinstance(stale, list) and stale:
         extra += f", {len(stale)} stale probe(s) ignored"
+    extra += _calibration_note(detail)  # V0.14 G2 (D293)
     return f"{_seconds(term.get('seconds'))} ({term.get('source')}{extra})"
+
+
+def _calibration_note(detail: Mapping[str, Any]) -> str:
+    """V0.14 G2 (D293): ``, x1.30 calibrated (n=14, node)`` for a term the
+    planner scaled by a calibration factor; empty otherwise."""
+    calibration = detail.get("calibration")
+    if not isinstance(calibration, Mapping):
+        return ""
+    factor = calibration.get("factor")
+    if isinstance(factor, bool) or not isinstance(factor, int | float):
+        return ""
+    n = calibration.get("n")
+    level = calibration.get("key_level")
+    return (
+        f", x{factor:.2f} calibrated (n={n if isinstance(n, int) else '?'}, "
+        f"{level if isinstance(level, str) else '?'})"
+    )
 
 
 def _score_cell(score: Any) -> Any:

@@ -210,3 +210,31 @@ def test_errors_are_one_stderr_line_with_the_exit_code(
     assert result.stdout == ""
     result = runner.invoke(cli_app.app, ["planner", "calibration", "--version", "0"])
     assert result.exit_code == 2  # usage: --version >= 1
+
+
+def test_explain_shows_a_calibrated_term_with_its_factor() -> None:
+    from meshforge.cli.explain_commands import _term_cell
+
+    term = {
+        "seconds": 15.0,
+        "source": "history",
+        "detail": {
+            "samples": 5,
+            "calibration": {
+                "factor": 1.5,
+                "n": 14,
+                "key_level": "node",
+                "version": 3,
+                "raw_s": 10.0,
+            },
+        },
+    }
+    assert _term_cell(term) == "15.00s (history, x1.50 calibrated (n=14, node))"
+    plain = {"seconds": 1.0, "source": "assumed", "detail": {}}
+    assert _term_cell(plain) == "1.00s (assumed)"
+    odd = {
+        "seconds": 1.0,
+        "source": "history",
+        "detail": {"calibration": {"factor": "x"}},
+    }
+    assert _term_cell(odd) == "1.00s (history)"
