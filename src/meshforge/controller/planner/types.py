@@ -21,6 +21,7 @@ from meshforge.common.owner_policy import OwnerPolicy
 
 __all__ = [
     "STATIC_CODES",
+    "AcceleratorRequest",
     "CandidateEval",
     "ClusterSnapshot",
     "ControllerLinkStat",
@@ -39,6 +40,7 @@ __all__ = [
     "PlannerConfig",
     "RejectCode",
     "Rejection",
+    "RequestKind",
     "Slot",
     "SplitConfig",
     "SplitInfo",
@@ -131,6 +133,11 @@ class RejectCode(StrEnum):
     on purpose - it is a moment, not a limit: the bench job waits, never fails
     ``no_feasible_plan``. A user job is never refused for it. The value is
     :attr:`~meshforge.common.owner_policy.PolicyCode.BENCH_PAUSED`'s."""
+    # --- V0.14 G1 (D290): the request as a whole, not a node ------------------
+    NOT_SUPPORTED_IN_BUILD = "not_supported_in_build"
+    """An :class:`AcceleratorRequest` (Mode 2 Remote GPU / Mode 4 Combined GPU):
+    deferred by ADR-0012, so this build generates no candidate for it. Like the
+    split codes, not in :data:`STATIC_CODES` (it rejects no node)."""
 
 
 STATIC_CODES: frozenset[RejectCode] = frozenset(
@@ -290,6 +297,28 @@ class PlanRequest:
     @property
     def is_gpu_job(self) -> bool:
         return self.gpu != "none"
+
+
+class RequestKind(StrEnum):
+    """What the candidate generator is asked to place (V0.14 G1, D290)."""
+
+    JOB = "job"
+    """A job that runs whole: Local and Mode 1 candidates."""
+    SPLIT = "split"
+    """A split job (:attr:`PlanRequest.split`): one-lane Local / Mode 1
+    candidates ("don't split", D269) and Mode 3 node sets."""
+    ACCELERATOR = "accelerator"
+    """Mode 2 / Mode 4 (an :class:`AcceleratorRequest`): not in this build."""
+
+
+@dataclass(frozen=True, slots=True)
+class AcceleratorRequest:
+    """**Typed stub** (V0.14 G1, D290): a Mode 2 Remote GPU / Mode 4 Combined
+    GPU placement request. ADR-0012 defers both modes; the candidate generator
+    answers it with no candidate and :attr:`RejectCode.NOT_SUPPORTED_IN_BUILD`,
+    so when V0.11+ define its fields no caller of the generator changes."""
+
+    request_id: str
 
 
 @dataclass(frozen=True, slots=True)

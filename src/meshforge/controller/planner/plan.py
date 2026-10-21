@@ -3,8 +3,9 @@
 Pure and synchronous: no database, no asyncio, no clock. Stages exactly as
 ADR-0007:
 
-1. :func:`candidates` - **Local** (the submitter's own node, ARCHITECTURE §5:
-   a baseline candidate, never a separate code path) and **Mode 1** on every
+1. :func:`~.candidates.candidates` (V0.14 G1: the one generator for every
+   request kind) - **Local** (the submitter's own node, ARCHITECTURE §5: a
+   baseline candidate, never a separate code path) and **Mode 1** on every
    other node; a *pinned* job (D103) has the candidate set of its one node.
 2. feasibility (:mod:`.feasibility`) - static, then live; each rejection is
    ``(node_id, code, text)``.
@@ -12,9 +13,10 @@ ADR-0007:
 4. :func:`~.policies.rank` by the policy; rank 1 is chosen.
 
 A **split job** (V0.10 G3, ``request.split``) shares stages 1-2; stages 3-4
-are :func:`~.split_plan.decide_split`: every feasible node as one lane
-("don't split") plus the Mode 3 node sets, the margin test, and
-:attr:`~.types.Decision.split` - what the dispatcher runs.
+are :func:`~.split_plan.decide_split`: the generator's split candidates over
+the feasible lanes (every lane alone - "don't split" - plus the Mode 3 node
+sets), the margin test, and :attr:`~.types.Decision.split` - what the
+dispatcher runs.
 
 The :class:`~.types.Decision` lists **every** candidate - chosen, ranked and
 rejected - which is what ``plan_decision`` stores and ``compute explain``
@@ -31,6 +33,7 @@ import json
 from dataclasses import asdict, replace
 from typing import Any
 
+from meshforge.controller.planner.candidates import STORED_MODE, candidates
 from meshforge.controller.planner.estimator import estimate
 from meshforge.controller.planner.feasibility import (
     choose_slot,
@@ -50,21 +53,21 @@ from meshforge.controller.planner.types import (
     Slot,
 )
 
-__all__ = ["candidates", "plan", "snapshot_digest"]
+__all__ = ["plan", "snapshot_digest"]
 
 
-def candidates(
+def _node_candidates(
     request: PlanRequest, snapshot: ClusterSnapshot
 ) -> list[tuple[NodeSnapshot, bool]]:
-    """``(node, is_local)`` in node-id order; one entry for a pinned job (none
-    when the pinned node is not in the snapshot)."""
-    nodes = sorted(snapshot.nodes, key=lambda n: n.node_id)
-    if request.pinned_node_id is not None:
-        nodes = [n for n in nodes if n.node_id == request.pinned_node_id]
-    elif request.node_set:  # V0.10 G8: a forced mode3 run - exactly its set
-        wanted = set(request.node_set)
-        nodes = [n for n in nodes if n.node_id in wanted]
-    return [(n, n.node_id == request.submitter_node_id) for n in nodes]
+    """The generator's node candidates as ``(node, is_local)``, in its order
+    (node-id order; one for a pinned job, none when its node is unknown)."""
+    nodes: dict[str, NodeSnapshot] = {}
+    for node in snapshot.nodes:
+        nodes.setdefault(node.node_id, node)
+    return [
+        (nodes[c.node_id], c.mode == "local")
+        for c in candidates(request, snapshot).candidates
+    ]
 
 
 def _jsonable(value: Any) -> Any:
@@ -135,7 +138,7 @@ def _with_exclusion(request: PlanRequest, snapshot: ClusterSnapshot) -> PlanRequ
         return request
     if request.pinned_node_id is not None or request.node_set:
         return replace(request, excluded={})
-    pairs = candidates(request, snapshot)
+    pairs = _node_candidates(request, snapshot)
     elsewhere = any(
         node.node_id not in request.excluded and static_rejection(request, node) is None
         for node, _local in pairs
@@ -171,8 +174,8 @@ def plan(
     evals: list[CandidateEval] = []
     scored: list[Scored] = []
     feasible: list[tuple[NodeSnapshot, bool, Slot]] = []
-    for node, local in candidates(request, snapshot):
-        mode: Mode = "local" if local else "offload"
+    for node, local in _node_candidates(request, snapshot):
+        mode: Mode = STORED_MODE["local" if local else "mode1"]
         refused = rejection(
             request,
             node,

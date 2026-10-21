@@ -1,8 +1,9 @@
 """Stage 3 + 4 for a split job: singles vs Mode 3 sets, the margin test
 (V0.10 G3, D265; ADR-0019 decision 5).
 
-Called by :func:`~.plan.plan` with the nodes that passed feasibility. The
-candidates of a split job are
+Called by :func:`~.plan.plan` with the nodes that passed feasibility, costed
+as lanes; the candidates come from the one generator
+(:func:`~.candidates.candidates` with ``lanes``, V0.14 G1). They are
 
 * **Local** and **Mode 1 per node** - one lane runs every item: "don't split"
   (one chunk with all items for ``chunk: auto``; the user's chunks, one after
@@ -33,6 +34,7 @@ from collections.abc import Sequence
 from dataclasses import replace
 from typing import Final
 
+from meshforge.controller.planner.candidates import FORCED_SET, Candidate, candidates
 from meshforge.controller.planner.policies import Scored, rank
 from meshforge.controller.planner.split import (
     ChunkChoice,
@@ -42,7 +44,6 @@ from meshforge.controller.planner.split import (
     chunk_overhead,
     estimate_split,
     lane,
-    prefix_sets,
 )
 from meshforge.controller.planner.types import (
     CandidateEval,
@@ -51,8 +52,6 @@ from meshforge.controller.planner.types import (
     Mode,
     NodeSnapshot,
     PlanRequest,
-    RejectCode,
-    Rejection,
     Slot,
     SplitInfo,
     SplitPlan,
@@ -60,8 +59,6 @@ from meshforge.controller.planner.types import (
 
 __all__ = ["FORCED_SET", "MAX_MARGIN", "SplitOutcome", "decide_split"]
 
-FORCED_SET: Final = "node_set"
-"""``MarginTest.forced`` of a campaign's forced ``mode3`` run (V0.10 G8)."""
 MAX_MARGIN: Final = 0.95
 """``split_margin`` is read inside ``[0, MAX_MARGIN]`` (settings validate it;
 a hand-built config cannot make splitting impossible by accident)."""
@@ -147,19 +144,14 @@ def _row(
     )
 
 
-def _forced_row(
-    code: RejectCode, text: str, lanes: Sequence[Lane], size: int
-) -> CandidateEval | None:
-    ordered = sorted(lanes, key=lambda item: (item.per_item_s, item.node_id))
-    if not ordered:
-        return None
-    group = ordered[: max(1, size)]
+def _refused_row(candidate: Candidate) -> CandidateEval:
+    """A ``mode3`` set the generator refused, as its stored row."""
     return CandidateEval(
-        node_id=group[0].node_id,
-        mode="split",
+        node_id=candidate.node_id,
+        mode=candidate.stored_mode,
         feasible=False,
-        rejection=Rejection(code, text),
-        node_set=tuple(item.node_id for item in group),
+        rejection=candidate.rejection,
+        node_set=candidate.node_set,
     )
 
 
@@ -183,6 +175,8 @@ def decide_split(
         lane(request, node, slot, snapshot, local=local, now=now)
         for node, local, slot in feasible
     ]
+    generated = candidates(request, snapshot, lanes=lanes)
+    by_lane = {item.node_id: item for item in lanes}
     singles = [
         estimate_split(
             request,
@@ -191,58 +185,15 @@ def decide_split(
             _single_chunk(split, lone, request, snapshot),
             now=now,
         )
-        for lone in lanes
+        for lone in (by_lane[c.node_id] for c in generated.singles)
     ]
-    forced: str | None = None
-    forced_row: CandidateEval | None = None
+    forced = generated.forced
     sets: list[SetEstimate] = []
-    if request.pinned_node_id is not None:
-        forced = "pinned"
-    elif request.node_set:
-        # V0.10 G8 (D271): a campaign's forced mode3 run - every node of its
-        # set, or nothing (never a different set, never "don't split")
-        forced = FORCED_SET
-        wanted = set(request.node_set)
-        if {item.node_id for item in lanes} == wanted and len(lanes) >= 2:
-            members = sorted(lanes, key=lambda item: (item.per_item_s, item.node_id))
-            chunk = _set_chunk(split, members, request, snapshot)
-            sets.append(estimate_split(request, members, snapshot, chunk, now=now))
-        else:
-            ready = len(wanted & {item.node_id for item in lanes})
-            forced_row = _forced_row(
-                RejectCode.SPLIT_TOO_FEW_NODES,
-                f"the forced node set: {ready} of {len(wanted)} node(s) can take a "
-                "lane now",
-                lanes,
-                len(lanes),
-            )
-    elif split.items < 2 * split.min_nodes:
-        forced = RejectCode.SPLIT_TOO_SMALL.value
-        forced_row = _forced_row(
-            RejectCode.SPLIT_TOO_SMALL,
-            f"{split.items} item(s) are fewer than 2 x split.min_nodes "
-            f"({split.min_nodes}): the job runs unsplit",
-            lanes,
-            split.min_nodes,
-        )
-    elif len(lanes) < split.min_nodes:
-        forced = RejectCode.SPLIT_TOO_FEW_NODES.value
-        forced_row = _forced_row(
-            RejectCode.SPLIT_TOO_FEW_NODES,
-            f"only {len(lanes)} node(s) can take a lane now; split.min_nodes is "
-            f"{split.min_nodes}",
-            lanes,
-            len(lanes),
-        )
-    else:
-        for group in prefix_sets(
-            lanes,
-            items=split.items,
-            min_nodes=split.min_nodes,
-            max_nodes=split.max_nodes,
-        ):
-            chunk = _set_chunk(split, group, request, snapshot)
-            sets.append(estimate_split(request, group, snapshot, chunk, now=now))
+    for candidate in generated.sets:
+        members = [by_lane[node_id] for node_id in candidate.node_set]
+        chunk = _set_chunk(split, members, request, snapshot)
+        sets.append(estimate_split(request, members, snapshot, chunk, now=now))
+    forced_row = next((_refused_row(c) for c in generated.refused_sets), None)
 
     best_single = min(singles, key=lambda s: (s.total_s, s.node_ids), default=None)
     sets.sort(key=lambda s: (s.total_s, len(s.lanes), s.node_ids))
@@ -264,13 +215,9 @@ def decide_split(
             for s in singles
         ],
     )
+    modes = {c.node_id: c.stored_mode for c in generated.singles}
     single_rows = [
-        _row(
-            by_node[r.node_id],
-            "local" if by_node[r.node_id].lanes[0].local else "offload",
-            score=r.score,
-        )
-        for r in ranked
+        _row(by_node[r.node_id], modes[r.node_id], score=r.score) for r in ranked
     ]
     set_rows = [
         _row(
