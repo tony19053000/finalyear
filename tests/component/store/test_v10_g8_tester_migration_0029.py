@@ -269,6 +269,7 @@ def test_0029_up_keeps_old_rows_enforces_constraints_and_down_up_round_trips(
         )
     ), "node_set on mode1"
 
+    command.upgrade(cfg, "head")  # later migrations (0030+) exist
     command.check(cfg)  # models == migrations
 
     # --- down: documented data loss only
