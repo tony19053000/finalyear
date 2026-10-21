@@ -147,7 +147,7 @@ is the record of the combine that ended the job `done`; only it carries the meas
 `split_makespan_ms` (first lane `running` -> the end, D274 C2), `split_job_ms` (lanes dispatched -> the end:
 staging, every chunk and the combine - the cost the labels compare), `split_combine_ms` and
 `split_ideal_bound_s` = items / the sum of the lanes' measured compute rates (each node's committed items over
-its chunks' `run_ms`) + the slowest lane's stage + env + the combine. The two job times are differences of two
+its chunks' `run_ms`) + the slowest lane's stage + env + the combine (from this job's own chunks — NOT the D274 single-node-run bound, which stays the lab C2 method; D287). The two job times are differences of two
 controller timestamps (one clock); every per-chunk duration is the agent's monotonic measurement
 (`chunks.parquet`). A split **benchmark** job's records take family / params / seed from its campaign run;
 its job row's `workload_status` is `ok` (every chunk passed its own self-check, BENCHMARKS.md). Labels and
