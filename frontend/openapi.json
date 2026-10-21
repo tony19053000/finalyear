@@ -442,6 +442,264 @@
         "title": "CacheCount",
         "type": "object"
       },
+      "CalibrateOut": {
+        "additionalProperties": false,
+        "properties": {
+          "created": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CalibrationOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "in_use": {
+            "$ref": "#/components/schemas/InUseOut"
+          },
+          "matched_runs": {
+            "title": "Matched Runs",
+            "type": "integer"
+          },
+          "skipped": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Skipped"
+          },
+          "superseded_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Superseded Version"
+          }
+        },
+        "required": [
+          "matched_runs",
+          "created",
+          "skipped",
+          "superseded_version",
+          "in_use"
+        ],
+        "title": "CalibrateOut",
+        "type": "object"
+      },
+      "CalibrationOut": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "$ref": "#/components/schemas/Utc"
+          },
+          "factors": {
+            "items": {
+              "$ref": "#/components/schemas/FactorOut"
+            },
+            "title": "Factors",
+            "type": "array"
+          },
+          "families": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Families",
+            "type": "object"
+          },
+          "fit_inputs": {
+            "additionalProperties": true,
+            "title": "Fit Inputs",
+            "type": "object"
+          },
+          "holdout_error_active": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Holdout Error Active"
+          },
+          "holdout_error_new": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Holdout Error New"
+          },
+          "readable": {
+            "title": "Readable",
+            "type": "boolean"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "created_at",
+          "status",
+          "holdout_error_new",
+          "holdout_error_active",
+          "reason",
+          "fit_inputs",
+          "readable",
+          "factors",
+          "families"
+        ],
+        "title": "CalibrationOut",
+        "type": "object"
+      },
+      "CalibrationSummaryOut": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "$ref": "#/components/schemas/Utc"
+          },
+          "holdout_error_active": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Holdout Error Active"
+          },
+          "holdout_error_new": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Holdout Error New"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "created_at",
+          "status",
+          "holdout_error_new",
+          "holdout_error_active",
+          "reason"
+        ],
+        "title": "CalibrationSummaryOut",
+        "type": "object"
+      },
+      "CalibrationViewOut": {
+        "additionalProperties": false,
+        "properties": {
+          "active_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Version"
+          },
+          "calibration": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CalibrationOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "in_use": {
+            "$ref": "#/components/schemas/InUseOut"
+          },
+          "not_calibrated": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Not Calibrated",
+            "type": "object"
+          },
+          "recent": {
+            "items": {
+              "$ref": "#/components/schemas/CalibrationSummaryOut"
+            },
+            "title": "Recent",
+            "type": "array"
+          },
+          "term_phase": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Term Phase",
+            "type": "object"
+          }
+        },
+        "required": [
+          "in_use",
+          "active_version",
+          "calibration",
+          "term_phase",
+          "not_calibrated",
+          "recent"
+        ],
+        "title": "CalibrationViewOut",
+        "type": "object"
+      },
       "CampaignControlOut": {
         "additionalProperties": false,
         "properties": {
@@ -2074,6 +2332,64 @@
         "title": "ExpansionSummary",
         "type": "object"
       },
+      "FactorOut": {
+        "additionalProperties": false,
+        "properties": {
+          "factor": {
+            "title": "Factor",
+            "type": "number"
+          },
+          "family": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Family"
+          },
+          "key_level": {
+            "title": "Key Level",
+            "type": "string"
+          },
+          "median": {
+            "title": "Median",
+            "type": "number"
+          },
+          "n": {
+            "title": "N",
+            "type": "integer"
+          },
+          "node_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Node Id"
+          },
+          "term": {
+            "title": "Term",
+            "type": "string"
+          }
+        },
+        "required": [
+          "term",
+          "key_level",
+          "node_id",
+          "family",
+          "factor",
+          "n",
+          "median"
+        ],
+        "title": "FactorOut",
+        "type": "object"
+      },
       "FailureOut": {
         "additionalProperties": false,
         "properties": {
@@ -2402,6 +2718,44 @@
           "sessions"
         ],
         "title": "Health",
+        "type": "object"
+      },
+      "InUseOut": {
+        "additionalProperties": false,
+        "properties": {
+          "in_use_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "In Use Version"
+          },
+          "mode": {
+            "title": "Mode",
+            "type": "string"
+          },
+          "pinned_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pinned Version"
+          }
+        },
+        "required": [
+          "mode",
+          "pinned_version",
+          "in_use_version"
+        ],
+        "title": "InUseOut",
         "type": "object"
       },
       "InputList": {
@@ -12826,6 +13180,232 @@
         "summary": "Revoke Node",
         "tags": [
           "nodes"
+        ]
+      }
+    },
+    "/v1/planner/calibrate": {
+      "post": {
+        "description": "Fit, gate and store a new calibration version now (admin).",
+        "operationId": "calibrate_v1_planner_calibrate_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CalibrateOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid input (`invalid_input`)"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No, or no longer a valid, credential (`unauthorized`)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not allowed: admin only, CSRF, foreign origin (`unauthorized`)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found - also another user's object (`not_found`)"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict (`conflict`, `no_feasible_plan`)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid parameters (`invalid_input`)"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Rate limited; see Retry-After (`resource_busy`)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A dependency (the database) is unavailable; retry (`network_error`)"
+          }
+        },
+        "summary": "Calibrate",
+        "tags": [
+          "planner"
+        ]
+      }
+    },
+    "/v1/planner/calibration": {
+      "get": {
+        "description": "One calibration version's factors and what the planner uses now.",
+        "operationId": "get_calibration_v1_planner_calibration_get",
+        "parameters": [
+          {
+            "description": "This version (default: the active one).",
+            "in": "query",
+            "name": "version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 9223372036854775807,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "This version (default: the active one).",
+              "title": "Version"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CalibrationViewOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid input (`invalid_input`)"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No, or no longer a valid, credential (`unauthorized`)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not allowed: admin only, CSRF, foreign origin (`unauthorized`)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found - also another user's object (`not_found`)"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict (`conflict`, `no_feasible_plan`)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid parameters (`invalid_input`)"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Rate limited; see Retry-After (`resource_busy`)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A dependency (the database) is unavailable; retry (`network_error`)"
+          }
+        },
+        "summary": "Get Calibration",
+        "tags": [
+          "planner"
         ]
       }
     },

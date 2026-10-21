@@ -99,6 +99,9 @@ from meshforge.controller.planner import (
     exclusions,
     plan,
 )
+
+# V0.14 G2 (D293): the tick's calibration
+from meshforge.controller.planner.calibration import Calibration, project_calibration
 from meshforge.controller.planner.decision_json import candidates_json
 from meshforge.controller.planner.inputs import node_snapshot, plan_request, split_info
 from meshforge.controller.planner.replay import (
@@ -270,6 +273,13 @@ class DispatchPlanner:
         self.decisions_over_budget = 0
         """V0.14 G3 (D294): decisions slower than ``[controller.planner]
         decision_latency_budget_ms``."""
+        # ------------------------------------------------ V0.14 G2 (D293)
+        self.calibration: Calibration | None = None
+        """The calibration this tick plans with (the dispatcher sets it once
+        per tick from :class:`~meshforge.controller.calibration_store.
+        CalibrationSource`); None = uncalibrated. Its version is written as
+        ``plan_decision.calibration_version`` and its factors (cut to the
+        job) as the replay's ``calibration`` block."""
         self.config = PlannerConfig(
             default_bw_bytes_s=planner.default_bw_bytes_s,
             default_compute_s=planner.default_compute_s,
@@ -475,8 +485,11 @@ class DispatchPlanner:
         trees, plan_job, snapshot, past = self._request(job, manifest, fabric, pinned)
         now = self._wall()
         view = project(plan_job, snapshot)  # V0.14 G1: what the replay stores
-        decision = plan(plan_job, view, self.policy_of(job), now)
-        record = decision_record(decision)
+        calibration = self._job_calibration(plan_job, view)  # V0.14 G2
+        decision = plan(
+            plan_job, view, self.policy_of(job), now, calibration=calibration
+        )
+        record = self._calibrated(decision_record(decision), calibration)
         shadow: PlanRequest | None = None
         if (
             decision.chosen is not None
@@ -485,12 +498,23 @@ class DispatchPlanner:
         ):
             # D215 + G4 item 0.8 (D239.4): only a campaign's forced run needs the
             # would-have-chosen label; a user's pinned job skips the extra plan
-            record, shadow = self._with_shadow(record, plan_job, view, job, past, now)
+            record, shadow = self._with_shadow(
+                record, plan_job, view, job, past, now, calibration=calibration
+            )
         outcome = self._whole_outcome(
             job, manifest, decision, fabric, record, trees, snapshot, pinned
         )
         # V0.14 G3 (G1 review N1): the replay only for a row that is written
-        return self._attach_replay(outcome, job, fabric, plan_job, view, now, shadow)
+        return self._attach_replay(
+            outcome,
+            job,
+            fabric,
+            plan_job,
+            view,
+            now,
+            shadow,
+            calibration=calibration,  # V0.14 G2
+        )
 
     def _whole_outcome(
         self,
@@ -607,8 +631,11 @@ class DispatchPlanner:
         trees, plan_job, snapshot, past = self._request(job, manifest, fabric, pinned)
         now = self._wall()
         view = project(plan_job, snapshot)  # V0.14 G1: what the replay stores
-        decision = plan(plan_job, view, self.policy_of(job), now)
-        record = decision_record(decision)
+        calibration = self._job_calibration(plan_job, view)  # V0.14 G2
+        decision = plan(
+            plan_job, view, self.policy_of(job), now, calibration=calibration
+        )
+        record = self._calibrated(decision_record(decision), calibration)
         shadow: PlanRequest | None = None
         if (
             decision.chosen is not None
@@ -617,7 +644,9 @@ class DispatchPlanner:
         ):
             # D215 extended (V0.10 G8): the would-have-chosen plan of a
             # campaign's forced split run - a node, or a Mode 3 set
-            record, shadow = self._with_shadow(record, plan_job, view, job, past, now)
+            record, shadow = self._with_shadow(
+                record, plan_job, view, job, past, now, calibration=calibration
+            )
         outcome = self._split_outcome(
             job,
             manifest,
@@ -631,7 +660,16 @@ class DispatchPlanner:
             forced,
         )
         # V0.14 G3 (G1 review N1): the replay only for a row that is written
-        return self._attach_replay(outcome, job, fabric, plan_job, view, now, shadow)
+        return self._attach_replay(
+            outcome,
+            job,
+            fabric,
+            plan_job,
+            view,
+            now,
+            shadow,
+            calibration=calibration,  # V0.14 G2
+        )
 
     def _split_outcome(
         self,
@@ -887,6 +925,8 @@ class DispatchPlanner:
         job: JobRecord,
         past: Sequence[PastFailure],
         now: dt.datetime,
+        *,
+        calibration: Calibration | None = None,
     ) -> tuple[DecisionRecord, PlanRequest | None]:
         """V0.9 G3 (D215, fix r1 D235): the node the planner **prefers** for
         this pinned **benchmark** job (G4 item 0.8: a user's pinned job has
@@ -923,7 +963,13 @@ class DispatchPlanner:
                 if past
                 else {},
             )
-            shadow = plan(request, _idle(snapshot), self.policy_of(job), now)
+            shadow = plan(
+                request,
+                _idle(snapshot),
+                self.policy_of(job),
+                now,
+                calibration=calibration,  # V0.14 G2: as the decision itself
+            )
         except Exception as exc:  # the shadow is telemetry, never a condition
             log.exception(
                 "controller.jobs.shadow_plan_failed",
@@ -959,6 +1005,8 @@ class DispatchPlanner:
         snapshot: ClusterSnapshot,
         now: dt.datetime,
         shadow: PlanRequest | None,
+        *,
+        calibration: Calibration | None = None,
     ) -> DispatchDecision:
         """V0.14 G3 (G1 review N1): ``outcome`` with its record's replay - built
         only when the store will write the row: always for a dispatch or a
@@ -973,7 +1021,9 @@ class DispatchPlanner:
             and fabric.last_reason.get(job.id) == record.reason_key
         ):
             return outcome
-        with_replay = self._with_replay(record, job, plan_job, snapshot, now, shadow)
+        with_replay = self._with_replay(
+            record, job, plan_job, snapshot, now, shadow, calibration=calibration
+        )
         return dataclasses.replace(outcome, record=with_replay)
 
     def _with_replay(
@@ -984,6 +1034,8 @@ class DispatchPlanner:
         snapshot: ClusterSnapshot,
         now: dt.datetime,
         shadow: PlanRequest | None,
+        *,
+        calibration: Calibration | None = None,
     ) -> DecisionRecord:
         """V0.14 G1 (D292): the record with its replay snapshot - or without
         one, counted and logged, when it is over ``replay_max_bytes`` or could
@@ -996,6 +1048,7 @@ class DispatchPlanner:
                 now,
                 max_bytes=self._planner.replay_max_bytes,
                 shadow=shadow,
+                calibration=calibration,  # V0.14 G2 (D307): already cut to the job
             )
         except Exception as exc:  # a bug in the codec: keep dispatching
             self.replay_failures += 1
@@ -1027,6 +1080,27 @@ class DispatchPlanner:
         while len(self._errors_logged) > _ERRORS_LOGGED_MAX:
             self._errors_logged.popitem(last=False)
         return True
+
+    def _job_calibration(
+        self, plan_job: PlanRequest, view: ClusterSnapshot
+    ) -> Calibration | None:
+        """V0.14 G2 (D293/D307): the tick's calibration cut to what this job
+        can look up - the job is planned **and** replayed with exactly this,
+        so the stored digest and the replay agree (like the snapshot's
+        projection, G1)."""
+        if self.calibration is None:
+            return None
+        return project_calibration(self.calibration, plan_job, view)
+
+    @staticmethod
+    def _calibrated(
+        record: DecisionRecord, calibration: Calibration | None
+    ) -> DecisionRecord:
+        """V0.14 G2 (D293): the record names the calibration it was planned
+        with (``plan_decision.calibration_version``; None = uncalibrated)."""
+        if calibration is None:
+            return record
+        return dataclasses.replace(record, calibration_version=calibration.version)
 
     @staticmethod
     def _forced_refused(decision: Decision, record: DecisionRecord) -> DispatchDecision:

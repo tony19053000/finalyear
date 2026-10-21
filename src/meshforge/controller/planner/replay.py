@@ -70,6 +70,14 @@ from collections.abc import Mapping
 from typing import Any, Final, cast
 
 from meshforge.common.owner_policy import OwnerPolicy
+
+# V0.14 G2 (D293, D307): the optional ``calibration`` block
+from meshforge.controller.planner.calibration import (
+    Calibration,
+    CalibrationError,
+    calibration_from_json,
+    calibration_json,
+)
 from meshforge.controller.planner.types import (
     ClusterSnapshot,
     ControllerLinkStat,
@@ -92,6 +100,7 @@ __all__ = [
     "REPLAY_VERSION",
     "ReplayError",
     "bounded_replay",
+    "calibration_from_replay",
     "canonical_json",
     "from_replay",
     "idle_snapshot",
@@ -505,11 +514,15 @@ def to_replay(
     *,
     shadow: PlanRequest | None = None,
     projected: bool = True,
+    calibration: Calibration | None = None,
 ) -> dict[str, Any]:
     """The replay of ``plan(request, snapshot, policy, now)`` (module
     docstring). ``projected=False`` keeps the whole snapshot (tests that
     compare digests with an unprojected plan). ``shadow`` = the shadow
     plan's request (planned on :func:`idle_snapshot` at the same ``now``).
+    ``calibration`` (V0.14 G2) = the factors the decision was planned with,
+    stored as given (the caller projects it,
+    :func:`~.calibration.project_calibration`).
     :class:`ReplayError` for a naive (timezone-less) ``now``."""
     # V0.14 G3 (G1 review N4): a naive ``now`` would be stored without its
     # zone and replay against links measured in UTC - never write one
@@ -524,6 +537,14 @@ def to_replay(
     }
     if shadow is not None:
         out["shadow"] = {"request": _request(shadow)}
+    # ------------------------------------------------ V0.14 G2 (D293, D307)
+    # An optional key: absent = uncalibrated (every replay before G2), so
+    # REPLAY_VERSION stays 1 and old replays reproduce unchanged.
+    if calibration is not None:
+        out["calibration"] = {
+            "version": calibration.version,
+            "factors": calibration_json(calibration),
+        }
     return out
 
 
@@ -550,10 +571,11 @@ def bounded_replay(
     *,
     max_bytes: int,
     shadow: PlanRequest | None = None,
+    calibration: Calibration | None = None,
 ) -> tuple[dict[str, Any] | None, int]:
     """``(replay, size)``; the replay is None when it is larger than
     ``max_bytes`` (the caller counts and logs it, never fails on it)."""
-    replay = to_replay(request, snapshot, now, shadow=shadow)
+    replay = to_replay(request, snapshot, now, shadow=shadow, calibration=calibration)
     size = replay_size(replay)
     if size > max_bytes:
         return None, size
@@ -863,3 +885,31 @@ def shadow_from_replay(
     except (KeyError, TypeError, ValueError, AttributeError) as exc:
         raise ReplayError(f"malformed shadow replay ({type(exc).__name__})") from None
     return request, idle_snapshot(snapshot), now
+
+
+# ------------------------------------------------------- V0.14 G2 (D293, D307)
+
+
+def calibration_from_replay(replay: Mapping[str, Any]) -> Calibration | None:
+    """The calibration a stored decision was planned with; None = the replay
+    has no ``calibration`` block (uncalibrated - every replay before G2).
+    ``plan(*from_replay(r), policy, calibration=calibration_from_replay(r))``
+    reproduces the decision. :class:`ReplayError` when the block is
+    malformed."""
+    _version(replay)
+    block = replay.get("calibration")
+    if block is None:
+        return None
+    if not isinstance(block, Mapping):
+        raise ReplayError("the replay's calibration block is not an object")
+    version = block.get("version")
+    if isinstance(version, bool) or not isinstance(version, int) or version < 0:
+        raise ReplayError("the replay's calibration version is not a count")
+    try:
+        return calibration_from_json(version, block["factors"])
+    except CalibrationError as exc:
+        raise ReplayError(f"malformed calibration block ({exc})") from None
+    except (KeyError, TypeError, ValueError, AttributeError) as exc:
+        raise ReplayError(
+            f"malformed calibration block ({type(exc).__name__})"
+        ) from None

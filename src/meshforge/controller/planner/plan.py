@@ -33,6 +33,12 @@ import json
 from dataclasses import asdict, replace
 from typing import Any
 
+# V0.14 G2 (D293): calibration factors
+from meshforge.controller.planner.calibration import (
+    Calibration,
+    calibrate_estimate,
+    calibration_json,
+)
 from meshforge.controller.planner.candidates import STORED_MODE, candidates
 from meshforge.controller.planner.estimator import estimate
 from meshforge.controller.planner.feasibility import (
@@ -123,7 +129,11 @@ def _without_unset_g3(data: dict[str, Any]) -> dict[str, Any]:
 # --- end V0.14 G3 -------------------------------------------------------------
 
 
-def snapshot_digest(request: PlanRequest, snapshot: ClusterSnapshot) -> str:
+def snapshot_digest(
+    request: PlanRequest,
+    snapshot: ClusterSnapshot,
+    calibration: Calibration | None = None,
+) -> str:
     """SHA-256 of the canonical (request, snapshot) pair."""
     data = _without_unset_g3(  # V0.14 G3
         {
@@ -131,6 +141,13 @@ def snapshot_digest(request: PlanRequest, snapshot: ClusterSnapshot) -> str:
             "snapshot": _jsonable(asdict(snapshot)),
         }
     )
+    # V0.14 G2 (D293): a calibrated decision saw its factors too (None ->
+    # the digest of every decision before G2, unchanged)
+    if calibration is not None:
+        data["calibration"] = {
+            "version": calibration.version,
+            **calibration_json(calibration),
+        }
     text = json.dumps(data, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
@@ -211,12 +228,21 @@ def plan(
     snapshot: ClusterSnapshot,
     policy: str,
     now: dt.datetime | None = None,
+    *,
+    calibration: Calibration | None = None,
 ) -> Decision:
     """See module docstring. ``now`` judges the age of network-matrix links
-    (V0.6 G4, D111); without it no link counts as fresh."""
+    (V0.6 G4, D111); without it no link counts as fresh.
+
+    V0.14 G2 (D293): ``calibration`` scales each candidate's non-``measured``
+    terms by its fitted factors (:mod:`.calibration`) before the policy, the
+    margin test and the ranking see them; None = uncalibrated (bit-identical
+    to the planner before G2)."""
     config = snapshot.config
     objective = objective_of(request.objective)  # V0.14 G3: unknown -> ValueError
     request = _with_exclusion(request, snapshot)
+    # V0.14 G2: the request's workload family, as the calibration knows it
+    family = None if calibration is None else calibration.family_of(request.fingerprint)
     evals: list[CandidateEval] = []
     scored: list[Scored] = []
     feasible: list[tuple[NodeSnapshot, bool, Slot]] = []
@@ -247,11 +273,16 @@ def plan(
             feasible.append((node, local, slot))
             continue
         guess = estimate(request, node, slot, snapshot, local=local, now=now)
+        if calibration is not None:  # V0.14 G2 (D293)
+            guess = calibrate_estimate(
+                guess, calibration, node_id=node.node_id, family=family
+            )
         scored.append(Scored(node=node, slot=slot, local=local, estimate=guess))
         evals.append(
             CandidateEval(node.node_id, mode, feasible=True, slot=slot, estimate=guess)
         )
-    # V0.14 G3 (D296): the risk term, once every single is costed
+    # V0.14 G3 (D296): the risk term, once every single is costed - from the
+    # calibrated terms (V0.14 G2 above), added after them and never scaled
     if scored:
         risked = risked_singles(
             [(item.node, item.estimate) for item in scored], config.risk
@@ -262,14 +293,16 @@ def plan(
             replace(e, estimate=by_node[e.node_id]) if e.feasible else e for e in evals
         ]
     if request.split is not None:
-        outcome = decide_split(request, snapshot, policy, feasible, now=now)
+        outcome = decide_split(
+            request, snapshot, policy, feasible, now=now, calibration=calibration
+        )
         rows = [*outcome.rows, *evals]
         rows.sort(key=lambda c: (c.rank is None, c.rank or 0, c.node_id))
         return Decision(
             policy=policy,
             candidates=tuple(rows),
             chosen=outcome.chosen,
-            snapshot_digest=snapshot_digest(request, snapshot),
+            snapshot_digest=snapshot_digest(request, snapshot, calibration),
             reason_key=_reason_key(
                 rows, objective if outcome.objective_changed else None
             ),
@@ -300,7 +333,7 @@ def plan(
         policy=policy,
         candidates=tuple(final),
         chosen=chosen,
-        snapshot_digest=snapshot_digest(request, snapshot),
+        snapshot_digest=snapshot_digest(request, snapshot, calibration),
         reason_key=_reason_key(final, objective if changed and chosen else None),
         objective=request.objective,
     )

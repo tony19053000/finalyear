@@ -16,6 +16,7 @@ works on a base install.
 
 from __future__ import annotations
 
+import math
 import re
 from pathlib import Path
 from typing import Any, Final
@@ -565,6 +566,85 @@ class PlannerSettings(SectionModel):
             "controller.jobs.replay_over_cap) - it never fails a dispatch."
         ),
     )
+    # ------------------------------------------------ V0.14 G2 (D293, D301, D302)
+    calibration: str = Field(
+        default="auto",
+        description=(
+            "V0.14 D293/D301: what the planner scales its estimates by. auto = "
+            "the active planner_calibration version (refreshed every "
+            "calibration_refresh_s; a new version goes live only if it is no "
+            "more than 5 % worse than the active one on held-out runs); off = "
+            'no calibration; a version number (e.g. "7") = pin that version '
+            "(the controller refuses to start if it does not exist)."
+        ),
+    )
+    calibration_window_runs: int = Field(
+        default=200,
+        ge=1,
+        le=1000,
+        description=(
+            "V0.14 D293: a factor is the median actual/predicted ratio of at "
+            "most this many most recent runs of its key (node + workload "
+            "family, node, or global)."
+        ),
+    )
+    calibration_shrink_k: float = Field(
+        default=5.0,
+        gt=0.0,
+        le=1000.0,
+        description=(
+            "V0.14 D293: shrinkage toward 1 - a factor fitted on n runs moves "
+            "n / (n + k) of the way from 1 to the median ratio, so one odd run "
+            "cannot swing the planner."
+        ),
+    )
+    calibration_clamp: tuple[float, float] = Field(
+        default=(0.2, 5.0),
+        description=(
+            "V0.14 D293: [low, high] bounds of every factor (low < 1 < high)."
+        ),
+    )
+    calibration_refresh_s: float = Field(
+        default=1800.0,
+        ge=10.0,
+        le=7 * 86_400.0,
+        description=(
+            "V0.14 D293: how often the controller refits the calibration "
+            "(calibration = auto only; compute planner calibrate refits now)."
+        ),
+    )
+
+    @field_validator("calibration", mode="before")
+    @classmethod
+    def _calibration(cls, value: object) -> str:
+        # pydantic reports a ValueError as a validation error (not TypeError)
+        if isinstance(value, bool) or not isinstance(value, int | str):
+            raise ValueError('calibration must be "auto", "off" or a version number')  # noqa: TRY004
+        if isinstance(value, int):
+            value = str(value)
+        value = value.strip()
+        if value in ("auto", "off"):
+            return value
+        if not value.isascii() or not value.isdigit() or int(value) < 1:
+            raise ValueError(
+                'calibration must be "auto", "off" or a version number >= 1'
+            )
+        if int(value) >= 2**63:
+            raise ValueError("calibration version is too large")
+        return str(int(value))
+
+    @field_validator("calibration_clamp")
+    @classmethod
+    def _clamp(cls, value: tuple[float, float]) -> tuple[float, float]:
+        low, high = value
+        if not (0.0 < low < 1.0 < high) or not math.isfinite(high) or high > 1000.0:
+            raise ValueError(
+                "calibration_clamp must be [low, high] with 0 < low < 1 < high <= 1000"
+            )
+        return value
+
+    # ------------------------------------------------ end V0.14 G2
+
     # --- V0.14 G3 (D294-D296, D302): risk, objectives, links, latency ----------
     default_objective: ObjectiveName = Field(
         default="min_time",
