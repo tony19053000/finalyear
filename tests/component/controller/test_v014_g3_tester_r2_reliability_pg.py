@@ -21,7 +21,7 @@ pytestmark = [pytest.mark.component, pytest.mark.asyncio]
 
 async def test_v014_g3_tester_r2_reliability_with_more_nodes_than_the_cap(
     pg_settings,
-    store,
+    store,  # noqa: F811
     monkeypatch,  # type: ignore[no-untyped-def]
 ) -> None:
     nodes = [await _node(pg_settings, 50.0 + i) for i in range(7)]
