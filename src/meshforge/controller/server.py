@@ -61,6 +61,7 @@ from meshforge.controller.api.bench_routes import BenchApi
 from meshforge.controller.api.fabric_routes import InviteApi
 from meshforge.controller.api.job_routes import JobApi
 from meshforge.controller.api.network_routes import NetworkApi
+from meshforge.controller.api.planner_eval_routes import PlannerEvalApi
 from meshforge.controller.api.planner_routes import PlannerApi
 from meshforge.controller.api.telemetry_routes import TelemetryExport
 from meshforge.controller.auth.live_streams import LiveStreams
@@ -126,7 +127,14 @@ from meshforge.controller.peer_signing import (
     load_or_create_signing_key,
     public_key_fingerprint,
 )
-from meshforge.controller.planner_calibration_task import CalibrationRefresher
+from meshforge.controller.planner_calibration_task import (
+    CalibrationRefresher,
+    calibration_config,
+)
+
+# V0.14 G4 (D297/D318): the offline evaluator
+from meshforge.controller.planner_eval.service import EvalService
+from meshforge.controller.planner_eval.store import EvalReportStore
 from meshforge.controller.prepare import PrepareTracker
 from meshforge.controller.registry import Registry, SessionEndReason
 from meshforge.controller.resources import ResourceTracker
@@ -531,7 +539,10 @@ class ControllerRuntime:
         self.node_pauses = NodePauses(loop.time)
         # V0.14 G2 (D293/D301): the planner calibration. A pinned version
         # that does not exist stops the start (never a silent fallback).
-        calibration_store = CalibrationStore(engine)
+        calibration_store = CalibrationStore(
+            engine,
+            max_label_rows=self.settings.controller.telemetry.export_max_rows,
+        )
         self.calibration = CalibrationSource(calibration_store, cfg.planner.calibration)
         await self.calibration.check()
         self.calibration_refresher = CalibrationRefresher(
@@ -810,6 +821,15 @@ class ControllerRuntime:
                 store=calibration_store,
                 source=self.calibration,
                 refresher=self.calibration_refresher,
+            ),
+            planner_eval=PlannerEvalApi(
+                service=EvalService(
+                    engine,
+                    calibration_store,
+                    EvalReportStore(engine),
+                    calibration_config(cfg.planner),
+                    max_rows=self.settings.controller.telemetry.export_max_rows,
+                )
             ),
         )
         http_config = uvicorn.Config(

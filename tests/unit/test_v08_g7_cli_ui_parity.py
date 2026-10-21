@@ -166,6 +166,7 @@ def test_cli_only_is_the_exception() -> None:
         # V0.14 G2: until the Planner page (V0.14 G5, D300) exists
         "planner calibrate",
         "planner calibration",
+        "planner eval",  # V0.14 G4: until the Planner page (G5) lists reports
     ]
 
 

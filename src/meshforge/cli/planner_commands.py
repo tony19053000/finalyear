@@ -11,6 +11,13 @@ calibration (V0.14 G2, D293/D301/D306).
   family, node, global) the factor, ``n`` and the raw median ratio - and what
   the planner plans with now (``auto`` / ``off`` / ``pinned``).
 
+* ``eval --campaign ID [--campaign ID ...] [--holdout FAMILY] [--allow-leak]
+  [--md PATH]`` (**admin**, V0.14 G4, ``POST /v1/planner/eval-reports``):
+  evaluate the campaigns' labelled groups - every policy replayed on what the
+  planner saw, regret vs the best measured configuration, calibrated rows on
+  leave-one-family-out refits - store the report and print the verdicts and
+  the per-policy table; ``--md`` also writes the stored report's Markdown.
+
 ``--json`` prints the API document (docs/CLI.md section 3). Every value from
 the controller goes through the renderer's cell / echo scrubbing.
 """
@@ -18,6 +25,7 @@ the controller goes through the renderer's cell / echo scrubbing.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Annotated, Any, Final
 
 import typer
@@ -25,12 +33,19 @@ from rich.table import Table
 
 from meshforge.cli import render
 from meshforge.cli import shared as cli
+from meshforge.cli.exits import CliExit
 
-__all__ = ["calibration_lines", "factor_table", "planner_app"]
+__all__ = [
+    "calibration_lines",
+    "eval_lines",
+    "eval_table",
+    "factor_table",
+    "planner_app",
+]
 
 planner_app = typer.Typer(
     name="planner",
-    help="The planner's calibration: fit a new version, show factors (V0.14).",
+    help="The planner's calibration and offline evaluation (V0.14).",
     no_args_is_help=True,
     rich_markup_mode=None,
 )
@@ -121,7 +136,9 @@ def calibration_lines(calibration: Mapping[str, Any]) -> list[str]:
         ),
     ]
     if calibration.get("reason"):
-        lines.append(f"rejected: {render.echo(calibration.get('reason'))}")
+        # V0.14 G4 (D319): an accepted row may carry a note (regret check skipped)
+        label = "rejected" if calibration.get("status") == "rejected" else "note"
+        lines.append(f"{label}: {render.echo(calibration.get('reason'))}")
     if calibration.get("readable") is False:
         lines.append("its factors cannot be read: never used for planning")
     return lines
@@ -192,3 +209,141 @@ def calibration(
             )
         )
     render.line(_in_use(doc))
+
+
+# ------------------------------------------------- V0.14 G4: compute planner eval
+
+
+def _ci(row: Mapping[str, Any]) -> str:
+    ci = row.get("ci_pct")
+    if not isinstance(ci, Mapping) or ci.get("low") is None:
+        return _DASH
+    return f"[{_num(ci.get('low'), 2)}, {_num(ci.get('high'), 2)}]"
+
+
+def eval_table(report: Mapping[str, Any]) -> Table:
+    """The per-policy regret table of one report (pure; tests read it)."""
+    table = render.table(
+        "POLICY",
+        "COUNTED",
+        "MEAN REGRET %",
+        "95% CI",
+        "MEAN MS",
+        "WITHIN %",
+        "UNMEASURED",
+        "NO REPLAY",
+        title="regret vs the best measured configuration",
+    )
+    for row in report.get("policies") or []:
+        if not isinstance(row, Mapping):
+            continue
+        table.add_row(
+            render.cell(row.get("key")),
+            render.cell(row.get("counted_groups")),
+            _num(row.get("mean_regret_pct"), 2),
+            _ci(row),
+            _num(row.get("mean_regret_ms"), 1),
+            _num(row.get("within_threshold_pct"), 1),
+            render.cell(row.get("unmeasured_groups")),
+            render.cell(row.get("no_replay_groups")),
+        )
+    return table
+
+
+def eval_lines(record: Mapping[str, Any]) -> list[str]:
+    """The header and verdict lines of one stored report (pure)."""
+    report = record.get("report")
+    report = report if isinstance(report, Mapping) else {}
+    counts = report.get("counts")
+    counts = counts if isinstance(counts, Mapping) else {}
+    lines: list[str] = []
+    if report.get("leaked"):
+        lines.append(
+            "LEAKED: --allow-leak used the live calibration, which may have seen "
+            "these runs; no verdict is a claim"
+        )
+    campaigns = ", ".join(render.echo(c) for c in report.get("campaign_ids") or ())
+    lines += [
+        f"report {render.echo(record.get('id'))}: campaigns {campaigns}; "
+        f"held-out family {render.echo(report.get('holdout') or 'each (leave-one-out)')}",
+        f"groups {render.echo(counts.get('groups'))}: evaluated "
+        f"{render.echo(counts.get('evaluated_groups'))}, no replay "
+        f"{render.echo(counts.get('no_replay_groups'))}; records "
+        f"{render.echo(counts.get('records_used'))} of "
+        f"{render.echo(counts.get('records'))} replayed",
+    ]
+    for verdict in report.get("verdicts") or []:
+        if not isinstance(verdict, Mapping):
+            continue
+        status = render.echo(verdict.get("status"))
+        if verdict.get("would_be") is not None:
+            status += f" (would be {render.echo(verdict.get('would_be'))})"
+        lines.append(
+            f"criterion {render.echo(verdict.get('criterion'))}: {status} - "
+            f"{render.echo(verdict.get('detail'))}"
+        )
+    return lines
+
+
+@planner_app.command("eval")
+def evaluate(
+    campaign: Annotated[
+        list[str],
+        typer.Option("--campaign", help="A campaign to evaluate (repeat for several)."),
+    ],
+    holdout: Annotated[
+        str | None,
+        typer.Option(
+            "--holdout", help="Evaluate only this workload family (held out)."
+        ),
+    ] = None,
+    allow_leak: Annotated[
+        bool,
+        typer.Option(
+            "--allow-leak",
+            help="Debugging: use the live calibration (every verdict 'leaked').",
+        ),
+    ] = False,
+    md: Annotated[
+        Path | None,
+        typer.Option("--md", help="Also write the report as Markdown to this file."),
+    ] = None,
+    json_output: cli.JsonOption = False,
+) -> None:
+    """Evaluate benchmark campaigns: every policy's regret vs the oracle (admin)."""
+    ids = [cli._checked_campaign_id(c) for c in campaign]
+    if md is not None and md.exists():
+        cli._die(f"{md} exists; choose a new file", CliExit.USAGE_ERROR)
+    settings = cli._settings()
+    with cli._client(settings) as client:
+        doc = cli._fetch(
+            lambda: client.planner_eval(
+                campaign_ids=ids, holdout=holdout, allow_leak=allow_leak
+            )
+        )
+        text = None
+        if md is not None:
+            report_id = doc.get("id")
+            if isinstance(report_id, int) and not isinstance(report_id, bool):
+                text = cli._fetch(lambda: client.planner_eval_markdown(report_id))
+    if md is not None and text is not None:
+        try:
+            with md.open("x", encoding="utf-8") as handle:
+                handle.write(text)
+        except FileExistsError:
+            cli._die(f"{md} exists; choose a new file", CliExit.USAGE_ERROR)
+        except OSError as exc:
+            cli._die(
+                f"cannot write {md}: {exc.strerror or type(exc).__name__}",
+                CliExit.FAILURE,
+            )
+    if json_output:
+        cli._echo_json(doc)
+        return
+    for line in eval_lines(doc):
+        render.line(line)
+    report = doc.get("report")
+    if isinstance(report, Mapping):
+        render.show(eval_table(report))
+    if md is not None and text is not None:
+        render.line(f"wrote {md}")

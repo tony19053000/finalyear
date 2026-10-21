@@ -65,6 +65,13 @@ from meshforge.controller.api.network_routes import (
     NetworkApi,
     network_router,
 )
+
+# V0.14 G4 (D318): the offline evaluator's reports
+from meshforge.controller.api.planner_eval_routes import (
+    PLANNER_EVAL_STATE_KEY,
+    PlannerEvalApi,
+    planner_eval_router,
+)
 from meshforge.controller.api.planner_routes import (
     PLANNER_STATE_KEY,
     PlannerApi,
@@ -144,6 +151,7 @@ def create_http_app(
     telemetry: TelemetryExport | None = None,
     bench: BenchApi | None = None,
     planner: PlannerApi | None = None,
+    planner_eval: PlannerEvalApi | None = None,
     web_dist: Path | None = DEFAULT_DIST,
     wall_clock: Callable[[], float] = time.time,
 ) -> FastAPI:
@@ -260,6 +268,9 @@ def create_http_app(
     if planner is not None:
         setattr(app.state, PLANNER_STATE_KEY, planner)
         app.include_router(planner_router)  # V0.14 G2 calibration (D293)
+    if planner_eval is not None:
+        setattr(app.state, PLANNER_EVAL_STATE_KEY, planner_eval)
+        app.include_router(planner_eval_router)  # V0.14 G4 eval reports (D318)
     return app
 
 
@@ -291,6 +302,7 @@ def openapi_document() -> dict[str, Any]:
         telemetry=inert(),
         bench=inert(),
         planner=inert(),
+        planner_eval=inert(),
         web_dist=None,
     )
     return app.openapi()
