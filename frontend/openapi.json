@@ -4354,6 +4354,14 @@
         "title": "NodeSummary",
         "type": "object"
       },
+      "ObjectiveName": {
+        "enum": [
+          "min_time",
+          "min_network",
+          "prefer_local"
+        ],
+        "type": "string"
+      },
       "PairFailureOut": {
         "additionalProperties": false,
         "properties": {
@@ -4418,6 +4426,16 @@
               }
             ],
             "title": "Node Set"
+          },
+          "objective": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ObjectiveName"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "policy": {
             "anyOf": [

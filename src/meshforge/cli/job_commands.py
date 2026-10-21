@@ -6,8 +6,8 @@ the leaf module :mod:`meshforge.cli.shared` and is looked up there at call time
 (the tests patch ``shared._client``); :mod:`meshforge.cli.app` imports these
 functions at its end and registers them on the one Typer application.
 
-``compute run [PATH] [--node ID | --local] [--policy P] [--priority N] [-f]
-[--dry-run]`` (V0.10 G1: ``--dry-run`` prints the job and a ``split:`` job's
+``compute run [PATH] [--node ID | --local] [--policy P] [--objective O]
+[--priority N] [-f] [--dry-run]`` (V0.10 G1: ``--dry-run`` prints the job and a ``split:`` job's
 resolved items, uploads and submits nothing - :mod:`.dry_run`)
 (V0.6: without --node/--local the controller's planner places the job; this
 laptop's own enrolled agent, if any, is sent as ``submitter_node_id`` - the
@@ -134,6 +134,15 @@ def run(
             "cost_model (default: the manifest's, else the controller's).",
         ),
     ] = None,
+    objective: Annotated[
+        str | None,
+        typer.Option(
+            "--objective",
+            help="What the cost_model policy optimises (V0.14): min_time, "
+            "min_network, prefer_local (default: the manifest's, else the "
+            "controller's).",
+        ),
+    ] = None,
     priority: Annotated[
         int | None,
         typer.Option(
@@ -185,6 +194,7 @@ def run(
     from meshforge.cli.transfer import TransferError, upload_tree
     from meshforge.common.errors import FailureType
     from meshforge.common.manifest import (
+        OBJECTIVES,
         POLICIES,
         ManifestError,
         load_manifest,
@@ -196,6 +206,10 @@ def run(
         cli._die("give at most one of --node NODE_ID and --local", CliExit.USAGE_ERROR)
     if policy is not None and policy not in POLICIES:
         cli._die("--policy must be one of " + ", ".join(POLICIES), CliExit.USAGE_ERROR)
+    if objective is not None and objective not in OBJECTIVES:
+        cli._die(
+            "--objective must be one of " + ", ".join(OBJECTIVES), CliExit.USAGE_ERROR
+        )
     if dry_run:
         if follow:
             cli._die("--dry-run submits nothing to follow", CliExit.USAGE_ERROR)
@@ -232,6 +246,8 @@ def run(
         placement = {"node_id": node_id, "local": local}
     if policy is not None:
         placement["policy"] = policy
+    if objective is not None:
+        placement["objective"] = objective
     body: dict[str, Any] = {
         "manifest": body_manifest,
         "tree_id": str(built.tree.tree_id),

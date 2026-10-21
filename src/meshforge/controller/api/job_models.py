@@ -13,7 +13,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from meshforge.common.errors import FailureType
-from meshforge.common.manifest import PolicyName
+from meshforge.common.manifest import ObjectiveName, PolicyName
 from meshforge.common.states import AttemptRole, AttemptState, JobState
 from meshforge.controller.api.models import ApiModel, Utc
 
@@ -52,11 +52,15 @@ class PlacementRequest(_Request):
       Local candidate).
     * ``policy`` (D107) overrides the manifest's ``policy`` and the
       controller's ``[controller.planner] default_policy``.
+    * ``objective`` (V0.14 G3, D295) overrides the manifest's ``objective``
+      and ``[controller.planner] default_objective``; an unknown name is a
+      422 like an unknown policy.
     """
 
     node_id: str | None = Field(default=None, min_length=1, max_length=40)
     local: bool = False
     policy: PolicyName | None = None
+    objective: ObjectiveName | None = None
 
     @model_validator(mode="after")
     def _local_needs_node(self) -> PlacementRequest:
@@ -105,6 +109,12 @@ class Placement(ApiModel):
     """V0.10 G8 (D271): a benchmark campaign's forced ``mode3`` run - the split
     job runs over exactly these nodes (``mode`` is ``auto``); left out
     otherwise. Only the campaign runner sets it (not ``POST /v1/jobs``)."""
+    objective: ObjectiveName | None = Field(
+        default=None, exclude_if=lambda v: v is None
+    )
+    """V0.14 G3 (D295): the objective asked for at submit; left out when none
+    was (the manifest's or the controller's default applies) - an older job's
+    placement and request hash are unchanged."""
 
 
 class JobCreated(ApiModel):

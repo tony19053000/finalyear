@@ -414,6 +414,7 @@ class ExecutionStore(DecisionReads):
         history_runs: int = 20,
         network: NetworkReads | None = None,
         decide_combine: DecideCombine | None = None,
+        risk_window_s: float = 0.0,
     ) -> list[DispatchResult]:
         """One pass over the queue in priority order (D106; see module
         docstring and :mod:`.queue_reads`). Per job the decider's answer is
@@ -425,7 +426,10 @@ class ExecutionStore(DecisionReads):
         V0.10 G5: with ``decide_combine``, split jobs that owe a combine
         (:mod:`meshforge.controller.split.combine`) are placed first, in the
         same transaction and with the same fabric view - they hold finished
-        work and are one step from done."""
+        work and are one step from done.
+
+        V0.14 G3 (D296): ``risk_window_s`` > 0 reads every node's attempt ends
+        over that window for the planner's risk term (one query)."""
         results: list[DispatchResult] = []
         recorded: list[tuple[str, str | None, str, DecisionRecord]] = []
         async with self._sessions() as db, db.begin():
@@ -444,6 +448,9 @@ class ExecutionStore(DecisionReads):
                 history_runs=history_runs,
                 keys_of=_project_keys,
                 network=network,
+                risk_since=now - dt.timedelta(seconds=risk_window_s)
+                if risk_window_s > 0.0
+                else None,
             )
             if owed and decide_combine is not None:
                 ids = [row.id for row in owed]
