@@ -20,7 +20,8 @@ tests fails on drift).
   pick when it is a Mode 3 set (D215 extended).
 
 Downgrade drops the new table and columns and narrows ``strategy`` again
-(``mode3`` rows become ``mode1``; development only).
+(``run_record`` ``mode3`` rows become ``mode1``; ``bench_run`` ``mode3``
+rows are deleted; development only).
 
 Revision ID: 0029
 Revises: 0028

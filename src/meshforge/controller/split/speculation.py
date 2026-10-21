@@ -303,7 +303,7 @@ async def site_times(
     missing = [s for s in sites if s not in found]
     if missing:
         if entry is not None and entry.planner is not None:
-            rates = entry.planner
+            rates = dict(entry.planner)
         else:
             rates = await _planner(db, job_id)
             if entry is not None:

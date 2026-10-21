@@ -18,7 +18,6 @@
 from __future__ import annotations
 
 import datetime as dt
-import json
 from typing import Any
 
 import pytest
@@ -443,7 +442,6 @@ def test_mode3_applies_to_split_families_only_and_old_ids_are_unchanged() -> Non
     }
     # a pre-V0.10 spec: same digest and config ids as before (no node_set key)
     old = parse_spec(_spec(families=[{"family": "cpu.primes"}], strategies=["mode1"]))
-    assert "mode3_sets" not in json.dumps(old.model_dump(mode="json")) or True
     first = expand(old, NODES).runs[0]
     assert "node_set" not in run_dict(first)
     assert spec_digest(old).startswith("sha256:")

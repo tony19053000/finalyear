@@ -14,7 +14,9 @@ rolled-back result leaves none:
   won). If its lease already has a ``superseded`` row (written by the winner's
   commit, before this late report), that row is **completed** with the
   measurements the agent sent - the one update a record ever gets, and only of
-  fields that were null (``run_ms IS NULL``);
+  fields that were null (``run_ms IS NULL``). A late report for a lease already
+  recorded as ``expired`` / ``released`` is dropped on purpose: that try's
+  lease had ended, so its numbers are not trusted;
 * a **failed** try -> ``failed`` with its failure type and stderr tail;
 * a fenced message -> nothing (it was not applied); a ``released`` result ->
   nothing now (the lease's row is written when the chunk commits).
