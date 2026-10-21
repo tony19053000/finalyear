@@ -8,7 +8,7 @@
 >
 > ```
 > Read docs/SESSION_HANDOFF.md §1, then docs/STATUS.md, then the V0.10 section of docs/DEVELOPMENT_ROADMAP.md.
-> V0.10 G1–G9 MERGED; agent-side complete; closes on 🧑 0.10.10. G9 post-merge gates: unit 17068 passed, ruff + `mypy src` clean; V0.10 comp+cluster+workqueue rerun 241 passed / 4 FAILED — all 4 in tests/cluster/test_v010_mode3.py (c1, c4, c5, owner_guard), cause = DISK FULL (98%, 3.6 GB free; agents refuse chunks under `[agent.envs] free_disk_floor_mb` 2048), not code. BLOCKED on user: audited, safe-to-delete candidates awaiting user OK — 30 worktrees in .claude/worktrees (all clean, 0 unmerged commits, only caches/web dist ignored; ~14 GB) + /tmp/pytest-of-aayush (7.4 GB test scratch). DO NOT delete without the user's explicit yes. After space is freed: rerun `uv run pytest tests/cluster/test_v010_mode3.py -q`; green → STATUS Current Task entry + status bar (scripts/status_bars.py). Then team runs 0.10.10; agent-side next = V0.10 tech debt or next roadmap version. Parallel agents OK; no fast mode.
+> V0.10 agent-side complete; tech debt TD1 merged (D289), post-merge gates green. Closes on 🧑 0.10.10. Next agent-side: remaining V0.10 TD (STATUS Technical Debt) or V0.14 Unified planner v2 brief — ask the team which. Parallel agents OK; no fast mode. Don't delete anything without asking.
 > ```
 >
 > Order of truth: `PROJECT_BRIEF → ARCHITECTURE → ROADMAP → STATUS → this file`. If this file
