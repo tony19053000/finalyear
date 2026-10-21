@@ -49,6 +49,7 @@ from meshforge.controller.planner.types import (
     Decision,
     Mode,
     NodeSnapshot,
+    PlannerConfig,
     PlanRequest,
     Slot,
 )
@@ -82,12 +83,45 @@ def _jsonable(value: Any) -> Any:
     return value
 
 
+# --- V0.14 G3: inputs added by G3 enter the digest only when they are set, so
+# a pre-G3 (request, snapshot) - e.g. a stored replay - keeps its digest.
+_G3_CONFIG_DEFAULTS: dict[str, Any] = {
+    name: _jsonable(asdict(PlannerConfig())).get(name)
+    for name in (
+        "risk",
+        "prefer_local_margin",
+        "min_useful_bw_bytes_s",
+        "min_useful_bytes",
+        "prune_dominated",
+    )
+}
+
+
+def _without_unset_g3(data: dict[str, Any]) -> dict[str, Any]:
+    if data["request"].get("objective") is None:
+        data["request"].pop("objective", None)
+    snapshot = data["snapshot"]
+    for node in snapshot["nodes"]:
+        if node.get("reliability") is None:
+            node.pop("reliability", None)
+    config = snapshot["config"]
+    for name, default in _G3_CONFIG_DEFAULTS.items():
+        if config.get(name) == default:
+            config.pop(name, None)
+    return data
+
+
+# --- end V0.14 G3 -------------------------------------------------------------
+
+
 def snapshot_digest(request: PlanRequest, snapshot: ClusterSnapshot) -> str:
     """SHA-256 of the canonical (request, snapshot) pair."""
-    data = {
-        "request": _jsonable(asdict(request)),
-        "snapshot": _jsonable(asdict(snapshot)),
-    }
+    data = _without_unset_g3(  # V0.14 G3
+        {
+            "request": _jsonable(asdict(request)),
+            "snapshot": _jsonable(asdict(snapshot)),
+        }
+    )
     text = json.dumps(data, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 

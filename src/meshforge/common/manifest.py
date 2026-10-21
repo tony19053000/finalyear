@@ -26,6 +26,7 @@ V0.4 subset::
       network: none                      # none (= default) | on (needs the owner's allow_network)
     priority: 0                          # V0.6 D106: -10 (last) .. 10 (first)
     policy: cost_model                   # V0.6 D107: placement policy (empty = fabric default)
+    objective: min_time                  # V0.14 D295: min_time | min_network | prefer_local
     retry:                               # V0.6 D110 (retries run from V0.6 G3)
       max_attempts: 3                    # 1-10 attempts in total
       backoff_s: 5                       # 0-300 s before the 2nd attempt, doubling
@@ -70,7 +71,10 @@ Rules:
   canonical form while they hold their defaults, so a job that does not use them
   hashes exactly as before V0.6. ``policy`` names one of :data:`POLICIES`; the
   controller's ``[controller.planner] default_policy`` applies when it is absent
-  and the submit request's ``placement.policy`` overrides it.
+  and the submit request's ``placement.policy`` overrides it. ``objective``
+  (V0.14 D295) is the same kind of request: one of :data:`OBJECTIVES`, read by
+  the ``cost_model`` policy only; ``placement.objective`` overrides it and
+  ``[controller.planner] default_objective`` applies when both are absent.
 * No manifest, or a manifest without ``entrypoint``: the entrypoint is inferred -
   ``main.py``, else ``__main__.py``, else an ``invalid_input`` naming both.
 * The file is read with ``yaml.safe_load`` semantics (no Python tags), at most
@@ -145,6 +149,7 @@ __all__ = [
     "MAX_VRAM_GB",
     "MIN_PRIORITY",
     "MIN_TIMEOUT_S",
+    "OBJECTIVES",
     "POLICIES",
     "SPLIT_COMBINE_BUILTINS",
     "SPLIT_COMBINE_PLACEHOLDERS",
@@ -156,6 +161,7 @@ __all__ = [
     "LimitsSpec",
     "Manifest",
     "ManifestError",
+    "ObjectiveName",
     "OverKind",
     "PolicyName",
     "ResourcesSpec",
@@ -227,6 +233,16 @@ POLICIES: Final[tuple[str, ...]] = (
 """Placement policies (V0.6 D107), the wire spelling everywhere: manifest,
 ``POST /v1/jobs`` ``placement.policy``, ``compute run --policy``, the
 controller's ``default_policy`` and ``plan_decision.policy``."""
+# --- V0.14 G3 (D295): planner objectives ------------------------------------
+type ObjectiveName = Literal["min_time", "min_network", "prefer_local"]
+OBJECTIVES: Final[tuple[str, ...]] = ("min_time", "min_network", "prefer_local")
+"""What the ``cost_model`` policy ranks by (V0.14 D295), the wire spelling
+everywhere: manifest ``objective:``, ``POST /v1/jobs`` ``placement.objective``,
+``[controller.planner] default_objective`` and ``plan_decision.objective``.
+``min_time`` = the fastest predicted completion (the default); ``min_network`` =
+the fewest predicted bytes moved (time breaks ties); ``prefer_local`` = the
+submitter's own node unless another candidate is predicted clearly faster."""
+# --- end V0.14 G3 -------------------------------------------------------------
 INFERRED_ENTRYPOINTS: Final = ("main.py", "__main__.py")
 """Looked for, in this order, when the manifest gives no ``entrypoint``."""
 
@@ -847,6 +863,10 @@ class Manifest(_Spec):
     """Queue priority (V0.6 D106); higher runs first, waiting ages it upwards."""
     policy: PolicyName | None = None
     """Placement policy for this job (V0.6 D107); None = the fabric default."""
+    objective: ObjectiveName | None = None
+    """V0.14 G3 (D295): what ``cost_model`` ranks by for this job; None = the
+    fabric default (``[controller.planner] default_objective``). Omitted from
+    the canonical form when None (an older job keeps its hash)."""
     retry: RetrySpec = Field(default_factory=RetrySpec)
     """V0.6 D110."""
     secrets: tuple[SecretSpec, ...] = Field(default=(), max_length=MAX_SECRETS)
@@ -934,8 +954,8 @@ class Manifest(_Spec):
 
     def canonical_dict(self) -> dict[str, Any]:
         """Every field, defaults filled in, JSON types only - except the
-        V0.5-V0.10 additions (``inputs``, ``priority``, ``policy``, ``retry``,
-        ``secrets``, ``split``),
+        V0.5-V0.14 additions (``inputs``, ``priority``, ``policy``, ``retry``,
+        ``secrets``, ``split``, ``objective``),
         which appear only when they differ from their defaults (see the module
         docstring: an older manifest keeps its request hash)."""
         exclude: set[str] = set()
@@ -945,6 +965,8 @@ class Manifest(_Spec):
             exclude.add("priority")
         if self.policy is None:
             exclude.add("policy")
+        if self.objective is None:  # V0.14 G3
+            exclude.add("objective")
         if self.retry == RetrySpec():
             exclude.add("retry")
         if not self.secrets:

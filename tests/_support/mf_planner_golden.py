@@ -69,7 +69,13 @@ def fields_text(decision: Decision) -> str:
             return [typed(v) for v in value]
         return value
 
-    return canonical(typed(_walk(dataclasses.asdict(decision))))
+    fields = dataclasses.asdict(decision)
+    # V0.14 G3: fields added after the corpus was recorded count only when
+    # set - at their default they are the pre-G3 decision exactly
+    for name, unset in (("objective", None), ("pruned", ())):
+        if fields.get(name) == unset:
+            fields.pop(name, None)
+    return canonical(typed(_walk(fields)))
 
 
 def decision_view(decision: Decision) -> dict[str, Any]:

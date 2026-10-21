@@ -72,6 +72,8 @@ from meshforge.controller.planner.types import (
     NodeSnapshot,
     PlannerConfig,
     PlanRequest,
+    Reliability,
+    RiskConfig,
     SplitConfig,
     SplitInfo,
     TreeNeed,
@@ -121,6 +123,7 @@ REPLAY_FIELDS: Final[Mapping[type, frozenset[str]]] = {
             "benchmark",
             "split",
             "node_set",
+            "objective",  # V0.14 G3 (D307: optional - absent = min_time)
         }
     ),
     History: frozenset(
@@ -166,6 +169,7 @@ REPLAY_FIELDS: Final[Mapping[type, frozenset[str]]] = {
             "cached_envs",
             "policy",
             "owner_active",
+            "reliability",  # V0.14 G3 (D307: optional - absent = no risk)
         }
     ),
     ClusterSnapshot: frozenset(
@@ -188,6 +192,12 @@ REPLAY_FIELDS: Final[Mapping[type, frozenset[str]]] = {
             "link_stale_after_s",
             "min_bw_bytes_s",
             "split",
+            # V0.14 G3 (D307: optional - absent = the pre-G3 behaviour)
+            "risk",
+            "prefer_local_margin",
+            "min_useful_bw_bytes_s",
+            "min_useful_bytes",
+            "prune_dominated",
         }
     ),
     SplitConfig: frozenset(
@@ -204,6 +214,8 @@ REPLAY_FIELDS: Final[Mapping[type, frozenset[str]]] = {
     LinkStat: frozenset({"bw_bytes_s", "rtt_ms", "samples", "measured_at"}),
     ControllerLinkStat: frozenset({"bw_bytes_s", "samples", "last_at"}),
     EnvBuildStat: frozenset({"median_s", "samples"}),
+    Reliability: frozenset({"failures", "total", "window_days"}),  # V0.14 G3
+    RiskConfig: frozenset({"prior", "lease_release_s"}),  # V0.14 G3
     OwnerPolicy: frozenset(
         {
             "accept_jobs",
@@ -366,11 +378,23 @@ def _request(request: PlanRequest) -> dict[str, Any]:
         "benchmark": request.benchmark,
         "split": _split_info(request.split),
         "node_set": list(request.node_set),
+        "objective": request.objective,  # V0.14 G3
     }
 
 
 def _policy(policy: OwnerPolicy | None) -> dict[str, Any] | None:
     return None if policy is None else policy.as_dict()
+
+
+def _reliability(value: Reliability | None) -> dict[str, Any] | None:
+    """V0.14 G3 (D296)."""
+    if value is None:
+        return None
+    return {
+        "failures": value.failures,
+        "total": value.total,
+        "window_days": _num(value.window_days),
+    }
 
 
 def _node(node: NodeSnapshot) -> dict[str, Any]:
@@ -399,6 +423,7 @@ def _node(node: NodeSnapshot) -> dict[str, Any]:
         "cached_envs": dict(node.cached_envs),
         "policy": _policy(node.policy),
         "owner_active": node.owner_active,
+        "reliability": _reliability(node.reliability),  # V0.14 G3
     }
 
 
@@ -421,6 +446,15 @@ def _config(config: PlannerConfig) -> dict[str, Any]:
             "chunk_overhead_s": _num(split.chunk_overhead_s),
             "tail_frac": _num(split.tail_frac),
         },
+        # V0.14 G3 (D294-D296)
+        "risk": {
+            "prior": [_num(p) for p in config.risk.prior],
+            "lease_release_s": _num(config.risk.lease_release_s),
+        },
+        "prefer_local_margin": _num(config.prefer_local_margin),
+        "min_useful_bw_bytes_s": _num(config.min_useful_bw_bytes_s),
+        "min_useful_bytes": config.min_useful_bytes,
+        "prune_dominated": config.prune_dominated,
     }
 
 
@@ -626,6 +660,7 @@ def _from_request(data: Mapping[str, Any]) -> PlanRequest:
         benchmark=_bool(data["benchmark"]),
         split=_from_split(data["split"]),
         node_set=tuple(str(n) for n in data["node_set"]),
+        objective=_objective(data.get("objective")),  # V0.14 G3: optional
     )
 
 
@@ -645,6 +680,53 @@ def _from_policy(data: Mapping[str, Any] | None) -> OwnerPolicy | None:
         revision=_int(data["revision"]),
         pause_benchmarks=_bool(data["pause_benchmarks"]),
     )
+
+
+# --- V0.14 G3 (D307): optional keys - absent = the pre-G3 behaviour ---------
+
+
+def _objective(value: Any) -> Any:
+    """The request's objective as stored (None = ``min_time``); ``plan()``
+    refuses a value it does not know - the decoder only checks the type."""
+    if value is not None and not isinstance(value, str):
+        raise ReplayError("the replay's objective is not a string")
+    return value
+
+
+def _from_reliability(data: Any) -> Reliability | None:
+    if data is None:
+        return None
+    if not isinstance(data, Mapping):
+        raise ReplayError("a node's reliability in the replay is not an object")
+    return Reliability(
+        failures=_int(data["failures"]),
+        total=_int(data["total"]),
+        window_days=_dnum(data["window_days"]),
+    )
+
+
+def _g3_config(data: Mapping[str, Any]) -> dict[str, Any]:
+    """The G3 :class:`PlannerConfig` fields a replay stored; the missing ones
+    keep the dataclass defaults, which are the pre-G3 behaviour (no link
+    rejection, no pruning)."""
+    out: dict[str, Any] = {}
+    risk = data.get("risk")
+    if risk is not None:
+        a, b = (_dnum(p) for p in risk["prior"])
+        out["risk"] = RiskConfig(
+            prior=(a, b), lease_release_s=_dnum(risk["lease_release_s"])
+        )
+    for name in ("prefer_local_margin", "min_useful_bw_bytes_s"):
+        if name in data:
+            out[name] = _dnum(data[name])
+    if "min_useful_bytes" in data:
+        out["min_useful_bytes"] = _int(data["min_useful_bytes"])
+    if "prune_dominated" in data:
+        out["prune_dominated"] = _bool(data["prune_dominated"])
+    return out
+
+
+# --- end V0.14 G3 -------------------------------------------------------------
 
 
 def _from_node(data: Mapping[str, Any]) -> NodeSnapshot:
@@ -673,6 +755,7 @@ def _from_node(data: Mapping[str, Any]) -> NodeSnapshot:
         cached_envs={str(k): _int(v) for k, v in data["cached_envs"].items()},
         policy=_from_policy(data["policy"]),
         owner_active=_bool(data["owner_active"]),
+        reliability=_from_reliability(data.get("reliability")),  # V0.14 G3
     )
 
 
@@ -696,6 +779,7 @@ def _from_config(data: Mapping[str, Any]) -> PlannerConfig:
             chunk_overhead_s=_dnum(split["chunk_overhead_s"]),
             tail_frac=_dnum(split["tail_frac"]),
         ),
+        **_g3_config(data),
     )
 
 
