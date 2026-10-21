@@ -48,6 +48,8 @@ from typing import Any, ClassVar, Final, Literal
 
 from pydantic import Field
 
+from meshforge.common.cas import DEFAULT_CHUNK_SIZE
+
 from .base import (
     Family,
     Kind,
@@ -73,6 +75,9 @@ __all__ = [
 MAX_INPUT_BYTES: Final = 64 * 1024 * 1024
 """Most bytes of generated input one split job carries (built in memory on the
 controller at submit; a larger point is refused by ``combination_problems``)."""
+MAX_FILE_BYTES: Final = DEFAULT_CHUNK_SIZE
+"""Most bytes of one generated file: the controller builds a benchmark job's
+tree in memory as one content chunk per file."""
 _METRIC: Final[Metric] = "cpu_fp32_gflops_1t"
 
 
@@ -114,14 +119,25 @@ class SplitFamily[P: Params](Family[P]):
         del params
         return 0
 
+    def largest_file_bytes(self, params: P) -> int:
+        """The largest single generated file (bytes)."""
+        return self.input_bytes(params)
+
     def combination_problems(self, params: P) -> list[str]:
+        problems: list[str] = []
         size = self.input_bytes(params)
         if size > MAX_INPUT_BYTES:
-            return [
+            problems.append(
                 f"{', '.join(self.size_params)}: the input data would be {size} "
                 f"bytes, more than {MAX_INPUT_BYTES}"
-            ]
-        return []
+            )
+        largest = self.largest_file_bytes(params)
+        if largest > MAX_FILE_BYTES:
+            problems.append(
+                f"{', '.join(self.size_params)}: one input file would be {largest} "
+                f"bytes, more than {MAX_FILE_BYTES} (one content chunk)"
+            )
+        return problems
 
     # ------------------------------------------------------------ in-process
 
@@ -301,6 +317,9 @@ class ImageClassifyFamily(SplitFamily[ImageClassifyParams]):
         header = len(f"P6\n{params.size} {params.size}\n255\n")
         return params.images * (header + params.size * params.size * 3)
 
+    def largest_file_bytes(self, params: ImageClassifyParams) -> int:
+        return self.input_bytes(params) // params.images
+
     def input_files(
         self, params: ImageClassifyParams | Mapping[str, Any], seed: int
     ) -> dict[str, bytes]:
@@ -356,6 +375,9 @@ class HashFilesFamily(SplitFamily[HashFilesParams]):
 
     def input_bytes(self, params: HashFilesParams) -> int:
         return params.files * params.size_kb * 1024
+
+    def largest_file_bytes(self, params: HashFilesParams) -> int:
+        return params.size_kb * 1024
 
     def input_files(
         self, params: HashFilesParams | Mapping[str, Any], seed: int

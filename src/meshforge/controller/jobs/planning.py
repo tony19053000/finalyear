@@ -114,6 +114,24 @@ _GPU_GONE: Final = frozenset(
 )
 
 
+MAX_FORCED_SET: Final = 64
+"""Most nodes a stored ``placement.node_set`` may name (a campaign set is a
+handful of laptops; anything else is not a set this controller wrote)."""
+
+
+def forced_set(job: JobRecord) -> tuple[str, ...]:
+    """V0.10 G8 (D271): a campaign's forced ``mode3`` run's node set
+    (``placement.node_set``, written only by the benchmark submitter) -
+    sorted, deduplicated; () = not forced (or a malformed value: never
+    trusted into a set)."""
+    raw = job.placement.get("node_set")
+    if not isinstance(raw, list) or not raw or len(raw) > MAX_FORCED_SET:
+        return ()
+    if not all(isinstance(n, str) and n for n in raw):
+        return ()
+    return tuple(sorted(set(raw)))
+
+
 def _idle(snapshot: ClusterSnapshot) -> ClusterSnapshot:
     """``snapshot`` with no slot, GPU or attempt in use on any node (the shadow
     plan's view, D235)."""
@@ -446,6 +464,8 @@ class DispatchPlanner:
                 project_tree=job.tree_id,
                 input_trees=fabric.input_mounts.get(job.id, {}),
             ),
+            # V0.10 G8 (D271): a campaign's forced mode3 run
+            node_set=forced_set(job),
         )
         snapshot = self._for_job(self.snapshot(fabric), key)
         past = fabric.past_failures.get(job.id, ())
@@ -478,15 +498,26 @@ class DispatchPlanner:
                 "the stored split job has no resolved items; submit it again",
             )
         pinned = str(job.placement.get("node_id") or "") or None
-        if pinned is not None:
-            early = self._pinned_gone(job, pinned, fabric)
+        forced = forced_set(job)
+        for node_id in [*([pinned] if pinned is not None else []), *forced]:
+            early = self._pinned_gone(job, node_id, fabric)
             if early is not None:
                 return early
-        trees, plan_job, snapshot, _past = self._request(job, manifest, fabric, pinned)
+        trees, plan_job, snapshot, past = self._request(job, manifest, fabric, pinned)
         decision = plan(plan_job, snapshot, self.policy_of(job), self._wall())
         record = decision_record(decision)
+        if (
+            decision.chosen is not None
+            and (pinned is not None or forced)
+            and is_benchmark_key(job.idempotency_key)
+        ):
+            # D215 extended (V0.10 G8): the would-have-chosen plan of a
+            # campaign's forced split run - a node, or a Mode 3 set
+            record = self._with_shadow(record, plan_job, snapshot, job, past)
         lanes = decision.split if decision.chosen is not None else None
         if lanes is None or not lanes.lanes:
+            if forced:
+                return self._forced_refused(decision, record)
             if pinned is not None:
                 return self._pinned_refused(decision, record)
             if decision.all_static_rejections:
@@ -742,6 +773,7 @@ class DispatchPlanner:
             request = dataclasses.replace(
                 plan_job,
                 pinned_node_id=None,
+                node_set=(),  # V0.10 G8: a forced set is not a preference
                 # the owner guard is a moment, like slot occupancy: the
                 # preference label ignores it (V0.9 G5)
                 benchmark=False,
@@ -765,13 +797,38 @@ class DispatchPlanner:
         chosen = shadow.chosen
         if chosen is None:
             return record
+        split = shadow.split
         return dataclasses.replace(
             record,
             shadow_chosen_node_id=chosen.node_id,
             shadow_estimate_s=None
             if chosen.estimate is None
             else round(chosen.estimate.total_s, 6),
+            # V0.10 G8: a split job's preference may be a Mode 3 set
+            shadow_node_set=split.node_ids
+            if split is not None and split.split
+            else (),
         )
+
+    @staticmethod
+    def _forced_refused(decision: Decision, record: DecisionRecord) -> DispatchDecision:
+        """V0.10 G8: a forced mode3 run whose set cannot run now. A node of
+        the set refused for good (static) fails it - the campaign skips or
+        retries the run; otherwise it waits like a pinned job."""
+        refused = [
+            c
+            for c in decision.candidates
+            if c.mode != "split" and c.rejection is not None and c.rejection.static
+        ]
+        if refused:
+            first = refused[0]
+            assert first.rejection is not None  # noqa: S101 - filtered above
+            return DispatchFailure(
+                FailureType.NO_FEASIBLE_PLAN,
+                f"node_rejected_{first.rejection.code.value}",
+                record,
+            )
+        return Wait(record)
 
     def _pinned_gone(
         self, job: JobRecord, node_id: str, fabric: FabricRows

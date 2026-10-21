@@ -585,6 +585,11 @@ class ControllerRuntime:
             engine=engine,
             wake=self.dispatcher.wake,
             pauses=self.node_pauses,
+            # V0.10 G8 (D278): split families resolve their items like any
+            # split job, under the same [controller.split] caps
+            split_limits=SplitLimits(
+                max_items=cfg.split.max_items, max_chunks=cfg.split.max_chunks
+            ),
         )
         # V0.9 G5 fix r1 (D250 D-1): orphan benchmark jobs are cancelled
         self.bench.cancel_job = self.dispatcher.cancel

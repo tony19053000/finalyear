@@ -35,7 +35,7 @@ shared). :func:`parquet_bytes` (tests, scripts) still returns the whole file.
 from __future__ import annotations
 
 import datetime as dt
-from collections.abc import Generator, Iterable, Mapping, Sequence
+from collections.abc import Callable, Generator, Iterable, Mapping, Sequence
 from typing import IO, Any, Final
 
 import pyarrow as pa
@@ -45,10 +45,12 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from meshforge.controller.store.engine import create_session_factory
-from meshforge.controller.store.models.telemetry import RunRecord
+from meshforge.controller.store.models.telemetry import ChunkRecord, RunRecord
 from meshforge.controller.telemetry.record import canonical_json
 from meshforge.controller.telemetry.recorder import TelemetryStoreError
 from meshforge.controller.telemetry.schema import (
+    CHUNK_COLUMN_NAMES,
+    CHUNK_COLUMNS,
     COLUMN_NAMES,
     COLUMNS,
     SCHEMA_VERSION,
@@ -63,7 +65,12 @@ __all__ = [
     "WRITER_OPTIONS",
     "Chunks",
     "arrow_schema",
+    "chunk_parquet_bytes",
+    "chunk_sort_key",
+    "chunks_table",
+    "fetch_chunk_records",
     "fetch_records",
+    "iter_chunk_parquet",
     "iter_parquet",
     "parquet_bytes",
     "records_table",
@@ -102,13 +109,24 @@ ARROW_TYPES: Final[dict[Kind, pa.DataType]] = {  # public: labels_export reuses 
 SCHEMA_METADATA_KEY: Final = b"meshforge.telemetry.schema_version"
 
 
-def arrow_schema() -> pa.Schema:
-    """The export's Arrow schema, derived from :data:`~.schema.COLUMNS`."""
+def arrow_schema(columns: tuple[Column, ...] = COLUMNS) -> pa.Schema:
+    """The export's Arrow schema, derived from :data:`~.schema.COLUMNS` (or,
+    V0.10 G8, :data:`~.schema.CHUNK_COLUMNS` for ``chunks.parquet``)."""
     fields = [
-        pa.field(c.name, ARROW_TYPES[c.kind], nullable=c.nullable) for c in COLUMNS
+        pa.field(c.name, ARROW_TYPES[c.kind], nullable=c.nullable) for c in columns
     ]
     return pa.schema(
         fields, metadata={SCHEMA_METADATA_KEY: str(SCHEMA_VERSION).encode()}
+    )
+
+
+def chunk_sort_key(record: Mapping[str, Any]) -> tuple[Any, ...]:
+    """``chunks.parquet`` order: (job_id, chunk_index, lease_seq) - the
+    primary key, so a total order."""
+    return (
+        str(record.get("job_id")),
+        int(record.get("chunk_index") or 0),
+        int(record.get("lease_seq") or 0),
     )
 
 
@@ -132,10 +150,24 @@ def records_table(records: Iterable[Mapping[str, Any]]) -> pa.Table:
     return _rows_table(sorted(records, key=sort_key), arrow_schema())
 
 
-def _rows_table(rows: Sequence[Mapping[str, Any]], schema: pa.Schema) -> pa.Table:
+def chunks_table(records: Iterable[Mapping[str, Any]]) -> pa.Table:
+    """V0.10 G8: chunk records as one Arrow table, in export order. Pure."""
+    return _rows_table(
+        sorted(records, key=chunk_sort_key),
+        arrow_schema(CHUNK_COLUMNS),
+        CHUNK_COLUMNS,
+    )
+
+
+def _rows_table(
+    rows: Sequence[Mapping[str, Any]],
+    schema: pa.Schema,
+    declared: tuple[Column, ...] = COLUMNS,
+) -> pa.Table:
     """``rows`` (already in export order) as an Arrow table."""
     columns = [
-        pa.array([_cell(c, r) for r in rows], type=ARROW_TYPES[c.kind]) for c in COLUMNS
+        pa.array([_cell(c, r) for r in rows], type=ARROW_TYPES[c.kind])
+        for c in declared
     ]
     return pa.Table.from_arrays(columns, schema=schema)
 
@@ -201,12 +233,15 @@ class Chunks:
 
 
 def _ordered(
-    records: Iterable[Mapping[str, Any]], *, in_place: bool
+    records: Iterable[Mapping[str, Any]],
+    *,
+    in_place: bool,
+    key: Callable[[Mapping[str, Any]], tuple[Any, ...]] = sort_key,
 ) -> Sequence[Mapping[str, Any]]:
     if in_place and isinstance(records, list):
-        records.sort(key=sort_key)
+        records.sort(key=key)
         return records
-    return sorted(records, key=sort_key)
+    return sorted(records, key=key)
 
 
 def iter_parquet(
@@ -219,14 +254,37 @@ def iter_parquet(
     ``sort_in_place`` sorts a ``list`` argument in place (it is reordered)
     instead of sorting a copy."""
     rows = _ordered(records, in_place=sort_in_place)
-    schema = arrow_schema()
+    return _iter_rows(rows, COLUMNS)
+
+
+def iter_chunk_parquet(
+    records: Iterable[Mapping[str, Any]], *, sort_in_place: bool = False
+) -> Generator[bytes, None, None]:
+    """V0.10 G8 (D271): ``chunks.parquet`` - :func:`iter_parquet`'s rules
+    (pinned writer options, streamed row groups, no export-time value; D222)
+    over chunk records in :func:`chunk_sort_key` order."""
+    rows = _ordered(records, in_place=sort_in_place, key=chunk_sort_key)
+    return _iter_rows(rows, CHUNK_COLUMNS)
+
+
+def chunk_parquet_bytes(records: Iterable[Mapping[str, Any]]) -> bytes:
+    """The whole ``chunks.parquet`` as bytes (tests, scripts)."""
+    return b"".join(iter_chunk_parquet(records))
+
+
+def _iter_rows(
+    rows: Sequence[Mapping[str, Any]], declared: tuple[Column, ...]
+) -> Generator[bytes, None, None]:
+    schema = arrow_schema(declared)
     sink = Chunks()
     writer = pq.ParquetWriter(sink, schema, **WRITER_OPTIONS)
     try:
         if not rows:
-            writer.write_table(_rows_table([], schema), row_group_size=ROW_GROUP_SIZE)
+            writer.write_table(
+                _rows_table([], schema, declared), row_group_size=ROW_GROUP_SIZE
+            )
         for start in range(0, len(rows), ROW_GROUP_SIZE):
-            group = _rows_table(rows[start : start + ROW_GROUP_SIZE], schema)
+            group = _rows_table(rows[start : start + ROW_GROUP_SIZE], schema, declared)
             writer.write_table(group, row_group_size=ROW_GROUP_SIZE)
             del group
             piece = sink.take()
@@ -286,3 +344,41 @@ async def fetch_records(
             details={"cause": type(exc).__name__},
         ) from exc
     return [{name: getattr(row, name) for name in COLUMN_NAMES} for row in rows]
+
+
+async def fetch_chunk_records(
+    engine: AsyncEngine,
+    *,
+    campaign_id: str | None = None,
+    since: dt.datetime | None = None,
+    limit: int = MAX_EXPORT_ROWS,
+) -> list[dict[str, Any]]:
+    """V0.10 G8: the stored chunk records - of one campaign's jobs (the jobs
+    its run records name), or of leases granted at or after ``since`` - as
+    column -> value mappings of :data:`~.schema.CHUNK_COLUMNS` (never the
+    stderr tail), in export order. Raises :class:`~.recorder.TelemetryStoreError`."""
+    columns = [getattr(ChunkRecord, name) for name in CHUNK_COLUMN_NAMES]
+    query = select(*columns)
+    if campaign_id is not None:
+        jobs = (
+            select(RunRecord.job_id)
+            .where(RunRecord.campaign_id == campaign_id)
+            .distinct()
+            .scalar_subquery()
+        )
+        query = query.where(ChunkRecord.job_id.in_(jobs))
+    if since is not None:
+        query = query.where(ChunkRecord.leased_at >= since)
+    query = query.order_by(
+        ChunkRecord.job_id, ChunkRecord.chunk_index, ChunkRecord.lease_seq
+    ).limit(limit)
+    sessions = create_session_factory(engine)
+    try:
+        async with sessions() as db:
+            rows = (await db.execute(query)).all()
+    except SQLAlchemyError as exc:
+        raise TelemetryStoreError(
+            "the database refused the telemetry export",
+            details={"cause": type(exc).__name__},
+        ) from exc
+    return [dict(zip(CHUNK_COLUMN_NAMES, row, strict=True)) for row in rows]

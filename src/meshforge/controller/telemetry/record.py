@@ -66,10 +66,12 @@ from meshforge.controller.telemetry.conditions import (
     condition_outcome,
 )
 from meshforge.controller.telemetry.schema import (
+    ATTEMPT_ROLES,
     COLUMN_NAMES,
     SCHEMA_VERSION,
     FailureClass,
 )
+from meshforge.controller.telemetry.split_facts import SplitFacts
 
 __all__ = [
     "BENCH_EXIT_CHECK_FAILED",
@@ -169,7 +171,13 @@ class RecordSource:
     transfers: Sequence[TransferRow] = ()
     campaign: Mapping[str, Any] | None = None
     """Campaign identity (V0.9 G3 fills it): campaign_id, group_id, config_id,
-    repetition; V0.9 G4 adds condition, session_label, condition_facts."""
+    repetition; V0.9 G4 adds condition, session_label, condition_facts;
+    V0.10 G8 adds the run's family, params and seed."""
+    role: str | None = None
+    """V0.10 G8: ``attempt.role`` (run / lane / combine)."""
+    split: SplitFacts | None = None
+    """V0.10 G8: the split job's facts (:mod:`.split_facts`); None = the job
+    runs whole."""
 
 
 def failure_class(
@@ -207,29 +215,39 @@ def build_record(source: RecordSource) -> dict[str, Any]:
     ``recorded_at`` (the database stamps it)."""
     snapshot = source.start_snapshot or {}
     telemetry = _mapping(snapshot.get("telemetry"))
-    pinned = bool(source.placement.get("node_id"))
-    workload = source.workload
+    # V0.10 G8: a campaign's mode3 run is forced onto a node set (D271)
+    pinned = bool(source.placement.get("node_id")) or bool(
+        source.placement.get("node_set")
+    )
+    facts = source.split
+    workload = source.workload if facts is None else _split_workload(source, facts)
     condition = condition_outcome(
         campaign=source.campaign, workload=workload, state=source.state
     )
+    decision = _decision_of(source)
+    planner_node = decision.shadow if pinned else decision.chosen
+    planner_strategy, planner_set = _planner_pick(source, decision, pinned)
     record: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "attempt_id": source.attempt_id,
         "job_id": source.job_id,
         "attempt_no": int(source.attempt_no),
+        "attempt_role": source.role if source.role in ATTEMPT_ROLES else None,
         **_campaign(source.campaign),
         "fingerprint": source.fingerprint,
         "node_id": source.node_id,
         "submitter_node_id": source.submitter_node_id,
-        "strategy": "local"
-        if source.submitter_node_id is not None
-        and source.submitter_node_id == source.node_id
-        else "mode1",
+        "strategy": _strategy(source, facts),
         "placement_mode": "pinned" if pinned else "auto",
-        "policy": source.decision_policy or source.job_policy,
+        "policy": decision.policy or source.job_policy,
         # D215: what the planner chose (auto) or would have chosen (pinned)
-        "planner_node_id": source.decision_shadow if pinned else source.decision_chosen,
-        "planner_estimate_s": _estimate_for(source.decision_candidates, source.node_id),
+        "planner_node_id": planner_node,
+        "planner_estimate_s": facts.predicted_s
+        if facts is not None
+        else _estimate_for(decision.candidates, source.node_id),
+        "planner_strategy": planner_strategy,
+        "planner_node_set": planner_set,
+        **_split_columns(source.attempt_id, facts),
         **_workload(workload),
         **_manifest(source.manifest),
         "runtime": _short(source.runtime),
@@ -569,11 +587,114 @@ def _clock(telemetry: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+@dataclass(frozen=True, slots=True)
+class _Decision:
+    policy: str | None
+    chosen: str | None
+    candidates: Sequence[Mapping[str, Any]]
+    shadow: str | None
+    shadow_set: tuple[str, ...]
+
+
+def _decision_of(source: RecordSource) -> _Decision:
+    """The plan decision a record is built from: the attempt's own (a whole
+    run), or - V0.10 G8 - the split job's first dispatched decision for every
+    one of its records (lanes after the first and the combine have none of
+    their own)."""
+    facts = source.split
+    if facts is not None:
+        return _Decision(
+            facts.decision_policy,
+            facts.decision_chosen,
+            facts.decision_candidates,
+            facts.decision_shadow,
+            facts.decision_shadow_set,
+        )
+    return _Decision(
+        source.decision_policy,
+        source.decision_chosen,
+        source.decision_candidates,
+        source.decision_shadow,
+        (),
+    )
+
+
+def _strategy(source: RecordSource, facts: SplitFacts | None) -> str:
+    """A whole run: ``local`` on the submitter's node, else ``mode1``. A
+    split job: its first plan's (``mode3`` when it split; "don't split" is
+    ``local`` / ``mode1`` by its lane), for every one of its records."""
+    if facts is not None and facts.strategy is not None:
+        return facts.strategy
+    local = (
+        source.submitter_node_id is not None
+        and source.submitter_node_id == source.node_id
+    )
+    return "local" if local else "mode1"
+
+
+def _planner_pick(
+    source: RecordSource, decision: _Decision, pinned: bool
+) -> tuple[str | None, list[str] | None]:
+    """(planner_strategy, planner_node_set): what the planner chose (auto)
+    or would have chosen (pinned / forced: the shadow plan, D215)."""
+    facts = source.split
+    if facts is not None and not pinned:
+        strategy = facts.strategy
+        return strategy, list(facts.node_set) if strategy == "mode3" else None
+    node = decision.shadow if pinned else decision.chosen
+    if node is None:
+        return None, None
+    if decision.shadow_set and pinned:
+        return "mode3", list(decision.shadow_set)
+    local = source.submitter_node_id is not None and node == source.submitter_node_id
+    return ("local" if local else "mode1"), None
+
+
+def _split_columns(attempt_id: str, facts: SplitFacts | None) -> dict[str, Any]:
+    times = None if facts is None else facts.times.get(attempt_id)
+    return {
+        "split_node_set": None
+        if facts is None or not facts.node_set
+        else list(facts.node_set),
+        "split_items": None if facts is None else facts.items,
+        "split_chunk_items": None if facts is None else facts.chunk_items,
+        "split_chunks": None if facts is None else facts.chunks,
+        "split_predicted_s": None if facts is None else facts.predicted_s,
+        "split_makespan_ms": None if times is None else times.makespan_ms,
+        "split_job_ms": None if times is None else times.job_ms,
+        "split_combine_ms": None if times is None else times.combine_ms,
+        "split_ideal_bound_s": None if times is None else times.ideal_bound_s,
+    }
+
+
+def _split_workload(
+    source: RecordSource, facts: SplitFacts
+) -> Mapping[str, Any] | None:
+    """A split benchmark job's workload identity (V0.10 G8): its chunks write
+    no ``workload.json``, so family / params / seed come from the campaign
+    run that made the job (the controller's own rows). ``status`` is ``ok``
+    on the **job row** only - the combine that ended the job DONE, which
+    every chunk's own self-check passed (a failed check fails the chunk,
+    then the job)."""
+    campaign = source.campaign or {}
+    family = campaign.get("family")
+    if not isinstance(family, str):
+        return source.workload
+    return {
+        "family": family,
+        "params": campaign.get("params"),
+        "seed": campaign.get("seed"),
+        "status": "ok" if source.attempt_id in facts.times else None,
+    }
+
+
 def _estimate_for(
     candidates: Sequence[Mapping[str, Any]], node_id: str
 ) -> float | None:
+    """The estimate of ``node_id``'s whole-run row (a split row - mode
+    ``split`` - is a set, never "the node used"; D280)."""
     for candidate in candidates:
-        if candidate.get("node_id") != node_id:
+        if candidate.get("node_id") != node_id or candidate.get("mode") == "split":
             continue
         estimate = _mapping(candidate.get("estimate"))
         return _float(estimate.get("total_s"))

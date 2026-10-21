@@ -9,7 +9,9 @@ labels module re-exports them unchanged.
 
 A *row* is a mapping of run-record column names (docs/TELEMETRY.md) to values.
 
-* :func:`metric_value` - one cost of one record: ``total_ms``;
+* :func:`metric_value` - one cost of one record: ``total_ms`` (V0.10 G8: on a
+  split job's job row - ``attempt_role`` ``combine`` - the job's
+  ``split_job_ms``: lanes, chunks and combine, D271);
   ``compute_per_iter_ns`` = ``compute_ns / compute_iterations`` (D225.3; null
   when either is null or iterations <= 0); ``bytes`` = ``bytes_in +
   bytes_out`` (null when either is null);
@@ -39,6 +41,10 @@ and criterion 3."""
 def metric_value(row: Mapping[str, Any], metric: str) -> float | int | None:
     """One cost of one record (module docstring); None = not measured."""
     if metric == "total_ms":
+        if row.get("attempt_role") == "combine":
+            # V0.10 G8: a split job's cost is the whole job (lanes + chunks +
+            # combine) - the job row's split_job_ms, not the combine's phases
+            return _int(row.get("split_job_ms"))
         return _int(row.get("total_ms"))
     if metric == "compute_per_iter_ns":
         ns, iterations = (

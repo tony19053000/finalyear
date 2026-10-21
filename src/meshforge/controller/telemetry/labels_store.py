@@ -11,6 +11,9 @@ counts only if all of these hold (:func:`label_filter`):
   are not measurements of the configuration;
 * ``workload_status = 'ok'`` - the benchmark's own self-check passed (a wrong
   answer computed fast is not fast);
+* ``attempt_role`` null, ``run`` or ``combine`` - **V0.10 G8**: a split job is
+  one run; its record is the **job row** (the combine that ended it DONE,
+  whose ``workload_status`` is ``ok``), never its lanes;
 * ``condition_measured->>'bench_role' IS NULL`` - **D244**: a campaign's queue
   fillers and cache warm-ups get ordinary records tagged ``bench_role``; they
   are scaffolding for another run's condition and must never count, even if
@@ -72,6 +75,12 @@ def label_filter(campaign_id: str) -> list[ColumnElement[bool]]:
         RunRecord.campaign_id == campaign_id,
         RunRecord.failure_class == _OK,
         RunRecord.workload_status == "ok",
+        # V0.10 G8 (D271): a split job counts once - its job row (the
+        # combine that ended it); its lanes are parts of that run
+        or_(
+            RunRecord.attempt_role.is_(None),
+            RunRecord.attempt_role.in_(("run", "combine")),
+        ),
         # D244: fillers / warm-ups never count
         measured["bench_role"].astext.is_(None),
         or_(

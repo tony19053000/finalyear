@@ -99,6 +99,8 @@ class ControllerClient:
         self.controller_url = controller_url.rstrip("/")
         self.ssl_context = ssl_context
         self.timeout_s = timeout_s
+        self.last_telemetry_schema: int | None = None
+        """V0.10 G8: the telemetry schema of the last export (its header)."""
         headers = {"accept": "application/json"}
         if token is not None:
             # D44: the header only - never a query parameter, never logged
@@ -189,13 +191,22 @@ class ControllerClient:
             raise self._transport_error(exc, path) from exc
 
     def export_telemetry(
-        self, dest: Path, *, campaign: str | None = None, since: str | None = None
+        self,
+        dest: Path,
+        *,
+        campaign: str | None = None,
+        since: str | None = None,
+        table: str | None = None,
     ) -> tuple[int, int | None]:
         """V0.9 G1: stream ``GET /v1/telemetry/export`` into ``dest`` (created,
-        never overwritten); ``(bytes, rows)``."""
+        never overwritten); ``(bytes, rows)``. V0.10 G8: ``table`` ``chunks``
+        = the chunk records; :attr:`last_telemetry_schema` = the server's
+        telemetry schema version of the file (None = not said)."""
         path = "/v1/telemetry/export"
         params = {
-            k: v for k, v in (("campaign", campaign), ("since", since)) if v is not None
+            k: v
+            for k, v in (("campaign", campaign), ("since", since), ("table", table))
+            if v is not None
         }
         try:
             with self._client.stream(
@@ -205,6 +216,10 @@ class ControllerClient:
                     response.read()
                     raise self._envelope_error(response, _json_or_none(response), path)
                 rows = response.headers.get("x-meshforge-telemetry-rows")
+                schema = response.headers.get("x-meshforge-telemetry-schema", "")
+                self.last_telemetry_schema = (
+                    int(schema) if schema.isdigit() and len(schema) < 6 else None
+                )
                 size = _download_new_file(response, dest)
                 return size, int(rows) if rows and rows.isdigit() else None
         except httpx.HTTPError as exc:

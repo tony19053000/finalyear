@@ -5,7 +5,9 @@ benchmark parameters (never a secret value - the agent drops a workload report
 field that contains one, and no other column can hold one; THREAT_MODEL RE-I6).
 
 Query: ``campaign`` (one campaign's records) and ``since`` (records of attempts
-created at or after this ISO-8601 time, with an offset). The body is the
+created at or after this ISO-8601 time, with an offset); V0.10 G8 ``table``:
+``runs`` (default) or ``chunks`` (the chunk records - ``chunks.parquet``,
+D271). The body is the
 Parquet file of :mod:`meshforge.controller.telemetry.export`, **streamed**
 (G4 item 0.4, D233.4): the matching records are loaded first (so the size cap
 and a database failure are still answered with a status), then each row group
@@ -26,7 +28,7 @@ import datetime as dt
 import re
 from collections.abc import AsyncIterator, Generator
 from dataclasses import dataclass
-from typing import Annotated, Final
+from typing import Annotated, Final, Literal
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
@@ -132,7 +134,7 @@ def _close(pieces: Generator[bytes, None, None]) -> None:
     responses={
         200: {
             "content": {PARQUET_MEDIA_TYPE: {}, "application/octet-stream": {}},
-            "description": "The Parquet file (telemetry schema v2, docs/TELEMETRY.md)",
+            "description": "The Parquet file (telemetry schema v3, docs/TELEMETRY.md)",
         }
     },
 )
@@ -146,16 +148,31 @@ async def export_telemetry(
         dt.datetime | None,
         Query(description="Only attempts created at or after this time (ISO 8601)."),
     ] = None,
+    table: Annotated[
+        Literal["runs", "chunks"],
+        Query(
+            description="runs = the run records; chunks = the chunk records "
+            "(chunks.parquet, V0.10 G8: a campaign's = its jobs' chunks; since = "
+            "leases granted at or after)."
+        ),
+    ] = "runs",
 ) -> StreamingResponse:
-    from meshforge.controller.telemetry.export import fetch_records, iter_parquet
+    from meshforge.controller.telemetry.export import (
+        fetch_chunk_records,
+        fetch_records,
+        iter_chunk_parquet,
+        iter_parquet,
+    )
     from meshforge.controller.telemetry.recorder import TelemetryStoreError
+    from meshforge.controller.telemetry.schema import SCHEMA_VERSION
 
     if campaign is not None and not _CAMPAIGN.fullmatch(campaign):
         raise ApiError.invalid("campaign is not a campaign id")
     if since is not None and since.tzinfo is None:
         raise ApiError.invalid("since needs a UTC offset (e.g. 2026-10-17T00:00:00Z)")
+    fetch = fetch_chunk_records if table == "chunks" else fetch_records
     try:
-        records = await fetch_records(
+        records = await fetch(
             export.engine,
             campaign_id=campaign,
             since=since,
@@ -174,19 +191,21 @@ async def export_telemetry(
             "(campaign / since)",
             http_status=413,
         )
-    name = f"meshforge-telemetry{'-' + campaign if campaign else ''}.parquet"
+    stem = "meshforge-telemetry" if table == "runs" else "meshforge-chunks"
+    name = f"{stem}{'-' + campaign if campaign else ''}.parquet"
     rows = len(records)
+    pieces = (
+        iter_chunk_parquet(records, sort_in_place=True)
+        if table == "chunks"
+        else iter_parquet(records, sort_in_place=True)
+    )
     return StreamingResponse(
-        _stream(
-            iter_parquet(records, sort_in_place=True),
-            rows=rows,
-            campaign=campaign,
-            user_id=admin.user_id,
-        ),
+        _stream(pieces, rows=rows, campaign=campaign, user_id=admin.user_id),
         media_type=PARQUET_MEDIA_TYPE,
         headers={
             "Content-Disposition": f'attachment; filename="{name}"',
             "Cache-Control": "no-store",
             "X-MeshForge-Telemetry-Rows": str(rows),
+            "X-MeshForge-Telemetry-Schema": str(SCHEMA_VERSION),
         },
     )

@@ -58,8 +58,10 @@ from meshforge.controller.planner.types import (
     SplitPlan,
 )
 
-__all__ = ["MAX_MARGIN", "SplitOutcome", "decide_split"]
+__all__ = ["FORCED_SET", "MAX_MARGIN", "SplitOutcome", "decide_split"]
 
+FORCED_SET: Final = "node_set"
+"""``MarginTest.forced`` of a campaign's forced ``mode3`` run (V0.10 G8)."""
 MAX_MARGIN: Final = 0.95
 """``split_margin`` is read inside ``[0, MAX_MARGIN]`` (settings validate it;
 a hand-built config cannot make splitting impossible by accident)."""
@@ -196,6 +198,24 @@ def decide_split(
     sets: list[SetEstimate] = []
     if request.pinned_node_id is not None:
         forced = "pinned"
+    elif request.node_set:
+        # V0.10 G8 (D271): a campaign's forced mode3 run - every node of its
+        # set, or nothing (never a different set, never "don't split")
+        forced = FORCED_SET
+        wanted = set(request.node_set)
+        if {item.node_id for item in lanes} == wanted and len(lanes) >= 2:
+            members = sorted(lanes, key=lambda item: (item.per_item_s, item.node_id))
+            chunk = _set_chunk(split, members, request, snapshot)
+            sets.append(estimate_split(request, members, snapshot, chunk, now=now))
+        else:
+            ready = len(wanted & {item.node_id for item in lanes})
+            forced_row = _forced_row(
+                RejectCode.SPLIT_TOO_FEW_NODES,
+                f"the forced node set: {ready} of {len(wanted)} node(s) can take a "
+                "lane now",
+                lanes,
+                len(lanes),
+            )
     elif split.items < 2 * split.min_nodes:
         forced = RejectCode.SPLIT_TOO_SMALL.value
         forced_row = _forced_row(
@@ -261,21 +281,29 @@ def decide_split(
         )
         for s in sets
     ]
-    ordered = [*set_rows, *single_rows] if overall.passed else [*single_rows, *set_rows]
+    use_set = best_set is not None and (overall.passed or forced == FORCED_SET)
+    ordered = [*set_rows, *single_rows] if use_set else [*single_rows, *set_rows]
+    if forced == FORCED_SET and not use_set:
+        ordered = []  # the forced set cannot run now: wait, never something else
     rows = [replace(row, rank=index + 1) for index, row in enumerate(ordered)]
+    if forced == FORCED_SET and not use_set:
+        rows = [*set_rows, *single_rows]  # shown, unranked
     if forced_row is not None:
         rows.append(forced_row)
     chosen = rows[0] if ordered else None
     plan: SplitPlan | None = None
     if chosen is not None:
         picked = (
-            best_set
-            if overall.passed and best_set is not None
-            else by_node[chosen.node_id]
+            best_set if use_set and best_set is not None else by_node[chosen.node_id]
         )
         plan = SplitPlan(
             split=chosen.mode == "split",
-            lanes=tuple(p for p in picked.lane_plans() if p.active),
+            # a forced set runs on every node of it, even one predicted idle
+            lanes=tuple(
+                p
+                for p in picked.lane_plans()
+                if p.active or (forced == FORCED_SET and use_set)
+            ),
             chunk_items=picked.chunk.items,
             chunks=picked.chunk.chunks,
             predicted_makespan_s=round(picked.total_s, _ROUND),

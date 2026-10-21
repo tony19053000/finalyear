@@ -190,6 +190,9 @@ class DecisionRecord:
     shadow_chosen_node_id: str | None = None
     """V0.9 G3 (D215): a pinned job's would-have-chosen node (shadow plan)."""
     shadow_estimate_s: float | None = None
+    shadow_node_set: tuple[str, ...] = ()
+    """V0.10 G8 (D271): a forced split benchmark job's shadow pick when it
+    is a Mode 3 set (its nodes; empty = the shadow ran one lane)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -1094,6 +1097,9 @@ async def _record_decision(
                     chosen_node_id=record.chosen_node_id,
                     shadow_chosen_node_id=record.shadow_chosen_node_id,
                     shadow_estimate_s=record.shadow_estimate_s,
+                    shadow_node_set=list(record.shadow_node_set)
+                    if record.shadow_node_set
+                    else None,
                     snapshot_digest=record.snapshot_digest,
                     reason_key=record.reason_key,
                     candidates=[dict(c) for c in record.candidates][
