@@ -421,7 +421,7 @@ def test_a_malformed_float_box_is_a_replay_error_not_a_crash(bad: Any) -> None:
         lambda r: r.pop("snapshot"),
         lambda r: r.pop("request"),
         lambda r: r.update(now="not-a-date"),
-        lambda r: r.update(replay_version=2),
+        lambda r: r.update(replay_version=3),
         lambda r: r.update(replay_version="1"),
         lambda r: r.update(replay_version=None),
         lambda r: r["snapshot"].pop("nodes"),
@@ -498,4 +498,4 @@ def test_accelerator_request_is_not_supported_in_build() -> None:
 
 
 def test_replay_version_constant() -> None:
-    assert REPLAY_VERSION == 1
+    assert REPLAY_VERSION == 2  # V0.14 G2+G3 merge (D307)

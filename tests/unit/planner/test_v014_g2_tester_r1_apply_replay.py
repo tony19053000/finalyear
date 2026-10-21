@@ -130,7 +130,7 @@ def _good_block() -> dict[str, Any]:
 
 
 def test_replay_version_unchanged_and_block_optional() -> None:
-    assert REPLAY_VERSION == 1
+    assert REPLAY_VERSION == 2  # V0.14 G2+G3 merge (D307)
     r = _good_block()
     assert r["v"] == 1 if "v" in r else True
     r.pop("calibration")

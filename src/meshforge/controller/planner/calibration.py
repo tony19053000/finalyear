@@ -30,6 +30,10 @@ term               phase          why
                                   chunk history when it exists, D265)
 ``tail``           -              ``no_phase``: a property of the set, not a phase
 ``combine``        -              ``no_phase``: a separate attempt, not this one
+``risk``           -              ``derived``: V0.14 G3's ``p_fail x (...)`` term
+                                  (``Estimate.extra``), computed **from** the
+                                  calibrated terms after they are scaled; scaling
+                                  it again would apply a factor twice
 =================  =============  ===================================================
 
 A split job's **lane** ``run`` phase covers compute + item fetches + chunk
@@ -48,7 +52,9 @@ blends of several lanes and no single phase measures them. Per term: a
 or one predicted under :data:`MIN_PREDICTED_S` is kept for the totals but not
 fitted (D293). The prediction is the **uncalibrated** one
 (``detail.calibration.raw_s`` when the decision was already calibrated), so a
-factor never compounds.
+factor never compounds; and it is the per-term prediction, never a total that
+holds the ``risk`` term (``planner_estimate_s``, ``predicted_makespan_s``), so
+risk on or off fits the same factors (V0.14 G2+G3 merge).
 
 **Fit** (:func:`fit`): per term, per key with the fallback chain
 **node + family -> node -> global** (family = the workload family of the
@@ -144,6 +150,7 @@ NOT_CALIBRATED: Final[Mapping[str, str]] = {
     "chunk_overhead": "no_phase",
     "tail": "no_phase",
     "combine": "no_phase",
+    "risk": "derived",  # V0.14 G2+G3 merge (M2): from the calibrated terms
 }
 """Terms that are never scaled, and why (shown by ``compute planner
 calibration``)."""

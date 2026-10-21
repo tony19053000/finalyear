@@ -42,7 +42,7 @@ def test_every_planner_input_field_is_in_replay_v1() -> None:
     assert set(replay["request"]) == REPLAY_FIELDS[type(request)]
     assert set(replay["snapshot"]) == REPLAY_FIELDS[ClusterSnapshot]
     assert set(replay["snapshot"]["nodes"][0]) == REPLAY_FIELDS[NodeSnapshot]
-    assert replay["replay_version"] == REPLAY_VERSION == 1
+    assert replay["replay_version"] == REPLAY_VERSION == 2  # V0.14 G2+G3 merge
 
 
 def test_canonical_json_is_sorted_compact_and_has_no_non_finite_literal() -> None:
@@ -180,7 +180,7 @@ def test_a_four_node_fabric_is_far_below_the_cap() -> None:
 @pytest.mark.parametrize(
     "mutate",
     [
-        lambda r: r.update(replay_version=2),
+        lambda r: r.update(replay_version=3),
         lambda r: r.pop("replay_version"),
         lambda r: r.pop("request"),
         lambda r: r["snapshot"].pop("nodes"),

@@ -25,8 +25,9 @@ equals ``plan(request, snapshot)`` in every field but ``snapshot_digest`` (a
 property test pins it). The dispatcher plans on the projection, so the
 digest it stores is the digest of exactly what the replay holds.
 
-**Format** (``replay_version`` 1, :data:`REPLAY_VERSION`): one JSON object
-with ``replay_version`` (1), ``now`` (ISO 8601 or null), ``request`` and
+**Format** (``replay_version`` 2, :data:`REPLAY_VERSION`; 1 is still read,
+:data:`READABLE_VERSIONS`): one JSON object with ``replay_version``,
+``now`` (ISO 8601 or null), ``request`` and
 ``snapshot`` (the dataclasses' fields, :data:`REPLAY_FIELDS`; links as a
 sorted list of ``{src, dst, ...}`` rows) and - only with a shadow plan (D215)
 - ``shadow: {request}``.
@@ -37,7 +38,15 @@ sorted list of ``{src, dst, ...}`` rows) and - only with a shadow plan (D215)
 always written, and read when present; a replay stored before G3 lacks them
 and decodes to the pre-G3 planner (``min_time``, no risk term, no link
 rejection, no pruning - the :class:`~.types.PlannerConfig` defaults), so it
-still reproduces its stored decision exactly. The version stays 1.
+still reproduces its stored decision exactly.
+
+**Version 2 (the V0.14 G2 + G3 merge, D307).** Written since both groups'
+optional keys exist: the G2 ``calibration`` block and the G3 keys above. The
+layout is version 1's plus those keys, so the decoder reads 1 and 2 alike -
+either may carry any of them (a v1 row written by a G2-only or G3-only build)
+and an absent key always decodes to the uncalibrated / pre-G3 planner. The
+bump marks "written by a planner that knows every V0.14 key"; it changes no
+byte of what a v1 replay decodes to.
 
 Canonical: sorted keys, no whitespace, no ``NaN``/``Infinity`` literals. A
 float that is not finite, or so large that PostgreSQL's ``jsonb`` (which keeps
@@ -96,6 +105,7 @@ from meshforge.controller.planner.types import (
 )
 
 __all__ = [
+    "READABLE_VERSIONS",
     "REPLAY_FIELDS",
     "REPLAY_VERSION",
     "ReplayError",
@@ -110,8 +120,11 @@ __all__ = [
     "to_replay",
 ]
 
-REPLAY_VERSION: Final = 1
-"""Bump on any change of the format; old versions stay readable."""
+REPLAY_VERSION: Final = 2
+"""Bump on any change of the format; old versions stay readable. V0.14 G2+G3
+merge (D307): 2."""
+READABLE_VERSIONS: Final = frozenset({1, 2})
+"""Every ``replay_version`` :func:`from_replay` decodes (module docstring)."""
 
 _BIG: Final = 1e15
 """Floats at least this large are tagged: ``jsonb`` prints them without a
@@ -539,7 +552,7 @@ def to_replay(
         out["shadow"] = {"request": _request(shadow)}
     # ------------------------------------------------ V0.14 G2 (D293, D307)
     # An optional key: absent = uncalibrated (every replay before G2), so
-    # REPLAY_VERSION stays 1 and old replays reproduce unchanged.
+    # old replays reproduce unchanged (read under replay_version 1 and 2).
     if calibration is not None:
         out["calibration"] = {
             "version": calibration.version,
@@ -848,7 +861,8 @@ def _version(replay: Mapping[str, Any]) -> None:
     if not isinstance(replay, Mapping):
         raise ReplayError("a replay is a JSON object")
     version = replay.get("replay_version")
-    if version != REPLAY_VERSION:
+    # ``type(...) is int``: JSON ``true`` is a bool, and ``True == 1`` in Python
+    if type(version) is not int or version not in READABLE_VERSIONS:
         raise ReplayError(f"unsupported replay_version {version!r}")
 
 

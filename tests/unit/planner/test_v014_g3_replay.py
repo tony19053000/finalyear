@@ -5,7 +5,7 @@
 * a replay stored before G3 (no ``objective``, no ``reliability``, none of the
   G3 config keys) decodes to the pre-G3 behaviour: min_time, no risk term,
   no link rejection, no pruning - and keeps its digest;
-* ``REPLAY_VERSION`` is still 1.
+* ``REPLAY_VERSION`` is 2 since the G2+G3 merge (1 still reads).
 """
 
 from __future__ import annotations
@@ -145,7 +145,7 @@ def test_a_replay_without_the_g3_keys_is_the_pre_g3_planner() -> None:
     request, snapshot, now = synthetic_fabric(6, split=True, seed=2)
     request, snapshot = _with_g3(11, request, snapshot)
     old = _pre_g3(to_replay(request, snapshot, now))
-    assert old["replay_version"] == REPLAY_VERSION == 1
+    assert old["replay_version"] == REPLAY_VERSION == 2  # V0.14 G2+G3 merge
     got_request, got_snapshot, _ = from_replay(old)
     assert got_request.objective is None
     assert all(n.reliability is None for n in got_snapshot.nodes)
