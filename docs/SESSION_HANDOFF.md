@@ -262,7 +262,7 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
-**2026-10-22 (§5d drafted) — NOTHING RUNNING.** Brief §5d committed `bc531806`: G4 (0.14.7 evaluator, migration 0032, D319 regret gate) ∥ G5 (0.14.6 Plan tab + Planner page), decisions D313–D320, team questions Q9–Q12. **Waiting for team approval** — no G4/G5 code until then. On OK: launch G4 and G5 implementers in separate worktrees (merge G4 first).
+**2026-10-22 (§5d drafted) — NOTHING RUNNING.** Brief §5d committed `bc531806`: G4 (0.14.7 evaluator, migration 0032, D319 regret gate) ∥ G5 (0.14.6 Plan tab + Planner page), decisions D313–D320, team questions Q9–Q12. **APPROVED 2026-10-22**; RUNNING: G4 and G5 implementers in separate worktrees (merge G4 first).
 
 **2026-10-22 (G2 + G3 CLOSED) — NOTHING RUNNING.** G2 merged `092b60c7` (0.14.3 `[x]`), G3 merged `3392fe49` (0.14.2/0.14.4/0.14.5 `[x]`, REPLAY_VERSION 2). Post-merge main: ruff/format/mypy clean, unit 19511, cluster test_v010_mode3 4. Decisions D309–D312 in the V0.14 brief; new tech debt in STATUS. Worktrees G1/G2/G3 merged — removable with user OK. Next: write brief §5d (G4: 0.14.6 + 0.14.7).
 
