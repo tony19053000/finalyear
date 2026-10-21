@@ -202,7 +202,8 @@ class ChunkTryOut(ApiModel):
     stderr_tail: str | None
     """The end of the chunk process's stderr (redacted of the job's secrets
     on the agent; at most ``[controller.split] chunk_stderr_tail_bytes`` for a
-    failed try, ``chunk_stderr_ok_bytes`` for a done one); null = none kept."""
+    failed try, ``chunk_stderr_ok_bytes`` for a done one; no terminal escape
+    sequence or control character but ``\\n`` / ``\\t``); null = none kept."""
 
 
 class ChunkTries(ApiModel):

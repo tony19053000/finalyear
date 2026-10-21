@@ -23,10 +23,14 @@ rolled-back result leaves none:
 
 Leases of a chunk that never commits (the job failed or was cancelled) have
 rows only for their failed tries. ``stderr_tail`` is decoded (UTF-8, invalid
-bytes replaced, NUL dropped) and cut to its last ``[controller.split]
+bytes replaced) and cut to its last ``[controller.split]
 chunk_stderr_tail_bytes`` (failed tries) / ``chunk_stderr_ok_bytes`` (done
-tries) at a character boundary - it was already redacted of the job's secret
-values on the agent (D261), and it is never exported in the dataset.
+tries) at a character boundary, then stripped of terminal escape sequences
+and control characters except ``\\n`` / ``\\t`` (carriage returns become line
+breaks; :func:`~meshforge.common.terminal_text.strip_terminal_controls`, V0.10
+TD1) - so no API, CLI or log view of it can act on a terminal. It was already
+redacted of the job's secret values on the agent (D261), and it is never
+exported in the dataset.
 
 Durations come from the agent's monotonic clock (D213): ``stage_ms`` /
 ``env_ms`` / ``run_ms`` / ``upload_ms``; ``leased_at`` / ``ended_at`` are the
@@ -47,6 +51,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from meshforge.common.errors import FailureType
 from meshforge.common.split_chunks import chunk_span
+from meshforge.common.terminal_text import strip_terminal_controls
 from meshforge.controller.store.models.telemetry import STDERR_TAIL_CHARS, ChunkRecord
 from meshforge.controller.telemetry.record import WORKLOAD_FAILURES
 from meshforge.controller.telemetry.schema import SCHEMA_VERSION, FailureClass
@@ -101,10 +106,11 @@ def clean_tail(data: bytes, limit: int) -> str | None:
     if limit <= 0 or not data:
         return None
     cut = data[-min(limit, STDERR_TAIL_CHARS) :]
-    text = cut.decode("utf-8", errors="replace").replace("\x00", "")
+    text = cut.decode("utf-8", errors="replace")
     if len(cut) < len(data) and text.startswith("�"):
         text = text.lstrip("�")  # a character cut in half by the limit
-    text = text[-STDERR_TAIL_CHARS:]
+    # the job wrote these bytes: no terminal control survives to a later view
+    text = strip_terminal_controls(text)[-STDERR_TAIL_CHARS:]
     return text or None
 
 

@@ -26,12 +26,8 @@ pytest.importorskip("psutil", reason="the cluster harness needs the agent extra"
 pytest.importorskip("sqlalchemy", reason="needs the controller extra")
 
 from mf_cluster import Fabric
-from test_v10_g4_lanes_cluster import (  # type: ignore[import-not-found]
-    _fabric,
-    _job,
-    _upload,
-    _wait,
-)
+from mf_split_cluster import job as job_view
+from mf_split_cluster import split_fabric, upload_folder, wait_job
 
 pytestmark = [pytest.mark.cluster, pytest.mark.timeout(600)]
 
@@ -70,7 +66,7 @@ def _hostile(fabric: Fabric, tmp_path: Path, attack: str) -> tuple[str, Path, by
     )
     for i in range(20):
         (root / "images" / f"{i:04d}.bin").write_bytes(f"{attack}-{i}".encode())
-    tree = _upload(fabric, root)
+    tree = upload_folder(fabric, root)
     resp = fabric.call(
         "POST",
         "/v1/jobs",
@@ -102,9 +98,9 @@ def _not_uploaded(fabric: Fabric, data: bytes) -> None:
 def test_a_chunk_swapping_its_control_folder_for_a_link_gets_nothing_out(
     make_fabric: Callable[..., Fabric], tmp_path: Path, attack: str
 ) -> None:
-    fabric = _fabric(make_fabric)
+    fabric = split_fabric(make_fabric, lease_s=10.0)
     job_id, secret, data = _hostile(fabric, tmp_path, attack)
-    job = _wait(fabric, job_id, 180)
+    job = wait_job(fabric, job_id, 180)
     assert job["state"] == "failed", job
     assert job["failure_type"] == "output_error", job
     assert "chunk_output_swapped" in (job["failure_detail"] or ""), job
@@ -117,13 +113,13 @@ def test_a_chunk_swapping_its_control_folder_for_a_link_gets_nothing_out(
 def test_a_chunk_swapping_the_workdir_log_folder_gets_no_log_out(
     make_fabric: Callable[..., Fabric], tmp_path: Path
 ) -> None:
-    fabric = _fabric(make_fabric)
+    fabric = split_fabric(make_fabric, lease_s=10.0)
     job_id, secret, data = _hostile(fabric, tmp_path, "meshforge_link")
-    job = _wait(fabric, job_id, 180)
+    job = wait_job(fabric, job_id, 180)
     assert job["state"] == "succeeded", job
     deadline = time.monotonic() + 30
     while time.monotonic() < deadline:  # lanes end (final logs) after the job
-        attempts = _job(fabric, job_id)["attempts"]
+        attempts = job_view(fabric, job_id)["attempts"]
         if all(a["state"] in ("done", "failed", "lost") for a in attempts):
             break
         time.sleep(0.2)

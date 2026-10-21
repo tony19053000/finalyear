@@ -216,12 +216,14 @@ def test_clean_tail_bounds_encoding_and_nul() -> None:
     assert clean_tail(b"x" * 10_000, 16_384) == "x" * 10_000
     # the tail is the END, not the start
     assert clean_tail(b"START" + b"m" * 100 + b"END", 10) == "m" * 7 + "END"
-    # control chars / ANSI survive as text (JSON-safe escape is the API's job)
-    assert clean_tail(b"\x1b[31mred\x1b[0m", 100) == "\x1b[31mred\x1b[0m"
+    # V0.10 TD1: ANSI sequences / control chars are stripped before storing
+    # (was: kept as text); the visible text stays
+    assert clean_tail(b"\x1b[31mred\x1b[0m", 100) == "red"
 
 
 def test_clean_tail_windows_line_endings_and_utf16_garbage() -> None:
-    assert clean_tail(b"a\r\nb\r\n", 100) == "a\r\nb\r\n"
+    # V0.10 TD1: CRLF is stored as LF (a bare CR could overprint a line)
+    assert clean_tail(b"a\r\nb\r\n", 100) == "a\nb\n"
     utf16 = "traceback é".encode("utf-16")
     assert isinstance(clean_tail(utf16, 100), str | None)
 

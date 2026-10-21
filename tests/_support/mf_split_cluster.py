@@ -1,19 +1,24 @@
 """Helpers for Mode 3 (split job) scenarios on the cluster harness (V0.10 G9).
 
-Imported as ``mf_split_cluster`` by ``tests/cluster/test_v010_mode3.py``. Built
-on :mod:`mf_cluster` (the real controller + agent processes) - nothing here
+Imported as ``mf_split_cluster`` by the V0.10 cluster tests (G4, G5, G8, G9;
+V0.10 TD1 folded the G4/G5/G8 files' own copies in here). Built on
+:mod:`mf_cluster` (the real controller + agent processes) - nothing here
 starts a process or fakes a component; these are the REST / SQL / CLI reads a
 split scenario needs, in one place:
 
 * :func:`split_fabric` - a fabric whose agents run split jobs (subprocess
-  runtime, Docker off, the job's pinned ``numpy`` from the package index);
-* :func:`upload_folder`, :func:`submit`, :func:`wait_job`, :func:`output_files`
-  - the user's path (tree upload, ``POST /v1/jobs``, the job's verified output);
+  runtime, Docker off; a job's pinned ``numpy`` from a local wheelhouse when
+  one is given - the ``numpy_wheelhouse`` fixture, :mod:`mf_wheelhouse`);
+* :func:`upload_folder`, :func:`submit`, :func:`wait_job`, :func:`fetch_output`,
+  :func:`output_files` - the user's path (tree upload, ``POST /v1/jobs``, the
+  job's verified output); :func:`job`, :func:`lanes`, :func:`combines` - the
+  job view and its lane / combine attempts;
 * :func:`compute` - the real ``compute`` CLI as a subprocess, as a laptop with an
   enrolled agent runs it (its node is the Local candidate, its cache seeded);
-* :func:`sql` and :func:`check_exactly_once` - the work-queue / chunk-record
-  ledger every split job must satisfy (checklist 32/35: every chunk committed
-  exactly once, every lease accounted for by a chunk record).
+* :func:`sql`, :func:`chunk_counts`, :func:`live_leases` and
+  :func:`check_exactly_once` - the work-queue / chunk-record ledger every split
+  job must satisfy (checklist 32/35: every chunk committed exactly once, every
+  lease accounted for by a chunk record, no lease left live).
 """
 
 from __future__ import annotations
@@ -21,16 +26,15 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import os
-import socket
 import subprocess
 import sys
 import time
-from collections import Counter
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final
 
 from mf_cluster import Fabric, Timing
+from mf_split_ledger import assert_exactly_once
 
 if TYPE_CHECKING:
     from meshforge.bench.workloads.materialise import BuiltJob
@@ -40,11 +44,15 @@ __all__ = [
     "TERMINAL",
     "TIMING",
     "build_split_job",
+    "campaign_runs",
     "check_exactly_once",
+    "chunk_counts",
+    "combines",
     "compute",
-    "index_reachable",
+    "fetch_output",
     "job",
     "lanes",
+    "live_leases",
     "output_files",
     "split_fabric",
     "sql",
@@ -68,43 +76,52 @@ EXEC: Final = {"enabled": True, "allow_unsandboxed": True, "grace_s": 1.0}
 TERMINAL: Final = frozenset({"succeeded", "failed", "cancelled"})
 
 
-def index_reachable() -> bool:
-    """The package index answers (the benchmark families pin ``numpy``)."""
-    try:
-        with socket.create_connection(("pypi.org", 443), timeout=5):
-            return True
-    except OSError:
-        return False
-
-
 def split_fabric(
     make_fabric: Callable[..., Fabric],
     *,
     agents: int = 3,
+    lease_s: float = 20.0,
     controller_extra: Mapping[str, Mapping[str, Any]] | None = None,
+    controller_jobs: Mapping[str, Any] | None = None,
+    agent_extra: Mapping[str, Mapping[str, Any]] | None = None,
+    wheelhouse: Path | None = None,
     **kwargs: Any,
 ) -> Fabric:
     """``agents`` real agents that run split jobs: subprocess runtime, Docker
-    unreachable, short dispatch tick, lease timeouts sized for loopback.
-    ``controller_extra`` tables are merged over the split defaults."""
+    unreachable, short dispatch tick, lease timeouts sized for loopback
+    (``lease_s`` = ``[controller.split] visibility_timeout_s``).
+    ``controller_extra`` tables are merged over the split defaults,
+    ``controller_jobs`` keys over the ``[controller.jobs]`` defaults.
+
+    ``wheelhouse``: the agents install job requirements **only** from that
+    folder (``[agent.envs] find_links`` + ``no_index`` - the product's offline
+    setting), so a job pinning ``numpy`` needs no package index."""
     import certifi
 
     extra: dict[str, dict[str, Any]] = {
-        "split": {"visibility_timeout_s": 20.0, "wait_retry_s": 0.3},
+        "split": {"visibility_timeout_s": lease_s, "wait_retry_s": 0.3},
     }
     for table, values in (controller_extra or {}).items():
         extra.setdefault(table, {}).update(values)
+    agent_tables: dict[str, dict[str, Any]] = {
+        table: dict(values) for table, values in (agent_extra or {}).items()
+    }
+    if wheelhouse is not None:
+        agent_tables.setdefault("envs", {}).update(
+            {"find_links": str(wheelhouse), "no_index": True}
+        )
     return make_fabric(
         agents=agents,
         timing=TIMING,
         agent_execution=EXEC,
-        controller_jobs={"dispatch_interval_s": 0.1},
+        controller_jobs={"dispatch_interval_s": 0.1, **(controller_jobs or {})},
         controller_extra=extra,
+        agent_extra=agent_tables or None,
         agent_env={
             "DOCKER_HOST": "unix:///nonexistent/meshforge-test.sock",
             # The harness points SSL_CERT_FILE at the test fabric CA; the env
             # builder (uv) needs the public roots to reach the package index
-            # for the job's pinned numpy, as on a real laptop.
+            # (a split_fabric without a wheelhouse), as on a real laptop.
             "SSL_CERT_FILE": certifi.where(),
         },
         **kwargs,
@@ -155,17 +172,18 @@ def submit(
     tree: str,
     *,
     node_id: str | None = None,
+    submitter: str | None = None,
 ) -> str:
-    """``POST /v1/jobs`` (auto placement, or pinned to ``node_id``)."""
-    resp = fabric.call(
-        "POST",
-        "/v1/jobs",
-        json={
-            "manifest": dict(manifest),
-            "tree_id": tree,
-            "placement": {"node_id": node_id} if node_id else {},
-        },
-    )
+    """``POST /v1/jobs`` (auto placement, or pinned to ``node_id``;
+    ``submitter`` = the request's ``submitter_node_id``)."""
+    body: dict[str, Any] = {
+        "manifest": dict(manifest),
+        "tree_id": tree,
+        "placement": {"node_id": node_id} if node_id else {},
+    }
+    if submitter is not None:
+        body["submitter_node_id"] = submitter
+    resp = fabric.call("POST", "/v1/jobs", json=body)
     assert resp.status_code == 201, resp.text
     return str(resp.json()["job_id"])
 
@@ -181,6 +199,22 @@ def lanes(view: Mapping[str, Any]) -> list[dict[str, Any]]:
     return [dict(a) for a in view["attempts"] if a.get("role") == "lane"]
 
 
+def combines(view: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """The job's combine attempts (``role == "combine"``), oldest first (by
+    fencing token)."""
+    return sorted(
+        (dict(a) for a in view["attempts"] if a.get("role") == "combine"),
+        key=lambda a: int(a["fencing_token"]),
+    )
+
+
+def campaign_runs(fabric: Fabric, cid: str) -> list[dict[str, Any]]:
+    """A benchmark campaign's planned runs, in sequence order."""
+    resp = fabric.call("GET", f"/v1/bench/campaigns/{cid}/runs", params={"limit": 100})
+    assert resp.status_code == 200, resp.text
+    return list(resp.json()["runs"])
+
+
 def wait_job(fabric: Fabric, job_id: str, within: float) -> dict[str, Any]:
     """Poll until the job is terminal (bounded; fails with every log tail)."""
     deadline = time.monotonic() + within
@@ -193,9 +227,9 @@ def wait_job(fabric: Fabric, job_id: str, within: float) -> dict[str, Any]:
     fabric.fail(f"job {job_id} did not end within {within} s: {view}")
 
 
-def output_files(fabric: Fabric, digest: str, dest: Path) -> dict[str, bytes]:
-    """The job output bundle ``digest`` (hash checked), unpacked under
-    ``dest``: relative POSIX path -> bytes."""
+def fetch_output(fabric: Fabric, digest: str, dest: Path) -> Path:
+    """The bundle ``digest`` (a job output or a chunk part; hash checked),
+    unpacked under ``dest``; returns ``dest``."""
     from meshforge.common.bundle import unpack
 
     data = fabric.call("GET", f"/v1/blobs/{digest.removeprefix('sha256:')}").content
@@ -204,6 +238,13 @@ def output_files(fabric: Fabric, digest: str, dest: Path) -> dict[str, bytes]:
     dest.parent.mkdir(parents=True, exist_ok=True)
     archive.write_bytes(data)
     unpack(archive, dest)
+    return dest
+
+
+def output_files(fabric: Fabric, digest: str, dest: Path) -> dict[str, bytes]:
+    """The job output bundle ``digest`` (hash checked), unpacked under
+    ``dest``: relative POSIX path -> bytes."""
+    fetch_output(fabric, digest, dest)
     return {
         p.relative_to(dest).as_posix(): p.read_bytes()
         for p in sorted(dest.rglob("*"))
@@ -241,16 +282,25 @@ def chunk_counts(pg_settings: Any, job_id: str) -> tuple[int, int]:
     return int(rows[0].done), int(rows[0].total)
 
 
-def check_exactly_once(pg_settings: Any, job_id: str, items: int) -> list[Any]:
-    """The ledger of a SUCCEEDED split job (checklist 32/35, criterion 4):
+def live_leases(pg_settings: Any, job_id: str, node_id: str) -> int:
+    """How many chunk leases the job's lanes on ``node_id`` hold right now."""
+    rows = sql(
+        pg_settings,
+        "SELECT count(*) AS n FROM work_lease l JOIN attempt a ON a.id = l.holder "
+        "WHERE a.job_id = :job AND a.node_id = :node AND l.state = 'live'",
+        job=job_id,
+        node=node_id,
+    )
+    return int(rows[0].n)
 
-    * every chunk of the queue is ``done`` with **exactly one** ``completed``
-      lease, the one the item names (``done_lease_seq``);
-    * the chunk records hold **exactly one** ``committed`` (``won``) row per
-      chunk - that lease, that result digest - and the committed chunks cover
-      items ``0 .. items-1`` once, in order, with no gap or overlap;
-    * **every lease ever granted** for the job has its chunk record (same
-      chunk, same lease seq) and no record names a lease that does not exist.
+
+def check_exactly_once(pg_settings: Any, job_id: str, items: int) -> list[Any]:
+    """The ledger of a SUCCEEDED split job (checklist 32/35, criterion 4),
+    read from the fabric's database and checked by
+    :func:`mf_split_ledger.assert_exactly_once`: every chunk ``done`` with
+    exactly one ``completed`` lease and one ``committed`` chunk record, the
+    committed chunks covering items ``0 .. items-1`` once, a record for every
+    lease ever granted - and **no lease still** ``live``.
 
     Returns the chunk records (for scenario-specific checks)."""
     leases = sql(
@@ -269,39 +319,7 @@ def check_exactly_once(pg_settings: Any, job_id: str, items: int) -> list[Any]:
         "FROM chunk_record WHERE job_id = :job ORDER BY chunk_index, lease_seq",
         job=job_id,
     )
-    chunks = sorted({r.idx for r in leases})
-    assert chunks == list(range(len(chunks))) and chunks, leases
-    assert all(r.item_state == "done" for r in leases), [
-        (r.idx, r.item_state) for r in leases if r.item_state != "done"
-    ]
-    completed = Counter(r.idx for r in leases if r.state == "completed")
-    assert completed == dict.fromkeys(chunks, 1), completed
-    for r in leases:
-        if r.state == "completed":
-            assert r.seq == r.done_lease_seq, r
-
-    committed = [r for r in records if r.outcome == "committed"]
-    assert [r.chunk_index for r in committed] == chunks, [
-        (r.chunk_index, r.lease_seq, r.outcome) for r in records
-    ]
-    assert all(r.won for r in committed), committed
-    assert sum(1 for r in records if r.won) == len(chunks), records
-    item_of = {r.idx: r for r in leases if r.state == "completed"}
-    span = 0
-    for r in committed:
-        winner = item_of[r.chunk_index]
-        assert r.lease_seq == winner.seq, (r, winner)
-        assert r.result_digest == winner.result_digest, (r, winner)
-        assert r.first_item == span and r.items > 0, (r, span)
-        span += r.items
-    assert span == items, (span, items)
-
-    granted = {(r.idx, r.seq) for r in leases if r.seq is not None}
-    recorded = {(r.chunk_index, r.lease_seq) for r in records}
-    assert granted == recorded, {
-        "leases without a record": sorted(granted - recorded),
-        "records without a lease": sorted(recorded - granted),
-    }
+    assert_exactly_once(leases, records, items)
     return records
 
 

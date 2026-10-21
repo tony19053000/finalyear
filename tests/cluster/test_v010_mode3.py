@@ -26,8 +26,10 @@ integer CNN of criterion 1, D287 - in the lane's own ``numpy`` environment).
   the other lanes with a verified output and the run is ``done``.
 
 Waits are bounded and generous (the suite runs under load); no assertion is
-on a duration. Needs the package index for the job's pinned numpy (as
-``test_v09_g2_bench_job.py``); skipped without it.
+on a duration. The job's pinned numpy comes from a local wheelhouse (the
+``numpy_wheelhouse`` fixture: cached, or downloaded once - V0.10 TD1), so the
+agents install it offline; skipped only with neither a cached wheel nor a
+network.
 """
 
 from __future__ import annotations
@@ -46,12 +48,13 @@ import yaml
 from mf_cluster import Fabric
 from mf_split_cluster import (
     build_split_job,
+    campaign_runs,
     check_exactly_once,
     chunk_counts,
     compute,
-    index_reachable,
     job,
     lanes,
+    live_leases,
     output_files,
     split_fabric,
     sql,
@@ -72,12 +75,6 @@ ASSUMED_SLOW: Final = {"planner": {"default_compute_s": 600.0}}
 """No history in a fresh fabric: the planner assumes 600 s for the whole job,
 so it splits (the decision under test in (a)/(b) is the split's correctness,
 not the margin - (c) is) and auto-chunks into about 20 chunks."""
-
-
-@pytest.fixture(autouse=True)
-def _needs_index() -> None:
-    if not index_reachable():
-        pytest.skip("the job's pinned numpy must be installed from the package index")
 
 
 def _built(tmp_path: Path, name: str = "job") -> tuple[Path, dict[str, Any]]:
@@ -115,9 +112,14 @@ def _one_node_digest(fabric: Fabric, manifest: dict[str, Any], tree: str) -> str
 
 
 def test_c1_split_over_three_agents_equals_one_agent_byte_for_byte(
-    make_fabric: Callable[..., Fabric], tmp_path: Path, pg_settings: Any
+    make_fabric: Callable[..., Fabric],
+    tmp_path: Path,
+    pg_settings: Any,
+    numpy_wheelhouse: Path,
 ) -> None:
-    fabric = split_fabric(make_fabric, controller_extra=ASSUMED_SLOW)
+    fabric = split_fabric(
+        make_fabric, controller_extra=ASSUMED_SLOW, wheelhouse=numpy_wheelhouse
+    )
     folder, manifest = _built(tmp_path)
     tree = upload_folder(fabric, folder)
 
@@ -139,9 +141,14 @@ def test_c1_split_over_three_agents_equals_one_agent_byte_for_byte(
 
 
 def test_c4_kill9_of_a_lane_agent_at_half_way_gives_the_same_output_once(
-    make_fabric: Callable[..., Fabric], tmp_path: Path, pg_settings: Any
+    make_fabric: Callable[..., Fabric],
+    tmp_path: Path,
+    pg_settings: Any,
+    numpy_wheelhouse: Path,
 ) -> None:
-    fabric = split_fabric(make_fabric, controller_extra=ASSUMED_SLOW)
+    fabric = split_fabric(
+        make_fabric, controller_extra=ASSUMED_SLOW, wheelhouse=numpy_wheelhouse
+    )
     folder, manifest = _built(tmp_path)
     tree = upload_folder(fabric, folder)
     job_id = submit(fabric, manifest, tree)
@@ -152,13 +159,7 @@ def test_c4_kill9_of_a_lane_agent_at_half_way_gives_the_same_output_once(
     done = total = 0
     while time.monotonic() < deadline:
         done, total = chunk_counts(pg_settings, job_id)
-        held = sql(
-            pg_settings,
-            "SELECT count(*) AS n FROM work_lease l JOIN attempt a ON a.id = l.holder "
-            "WHERE a.job_id = :job AND a.node_id = :node AND l.state = 'live'",
-            job=job_id,
-            node=victim.node_id,
-        )[0].n
+        held = live_leases(pg_settings, job_id, victim.node_id)
         if total and done >= total // 2 and held:
             break
         if job(fabric, job_id)["state"] in ("succeeded", "failed", "cancelled"):
@@ -194,7 +195,10 @@ def test_c4_kill9_of_a_lane_agent_at_half_way_gives_the_same_output_once(
 
 
 def test_c5_slow_link_planner_does_not_split_and_explain_says_why(
-    make_fabric: Callable[..., Fabric], tmp_path: Path, pg_settings: Any
+    make_fabric: Callable[..., Fabric],
+    tmp_path: Path,
+    pg_settings: Any,
+    numpy_wheelhouse: Path,
 ) -> None:
     fabric = split_fabric(
         make_fabric,
@@ -203,6 +207,7 @@ def test_c5_slow_link_planner_does_not_split_and_explain_says_why(
             "planner": {"default_bw_bytes_s": 1000.0, "default_compute_s": 10.0},
             "network": {"enabled": False},
         },
+        wheelhouse=numpy_wheelhouse,
     )
     folder, _manifest = _built(tmp_path)
     local = fabric.nodes[0]
@@ -269,24 +274,6 @@ def _campaign_spec(origin: str) -> str:
     )
 
 
-def _live_leases(pg_settings: Any, job_id: str, node_id: str) -> int:
-    return int(
-        sql(
-            pg_settings,
-            "SELECT count(*) AS n FROM work_lease l JOIN attempt a ON a.id = l.holder "
-            "WHERE a.job_id = :job AND a.node_id = :node AND l.state = 'live'",
-            job=job_id,
-            node=node_id,
-        )[0].n
-    )
-
-
-def _campaign_runs(fabric: Fabric, cid: str) -> list[dict[str, Any]]:
-    resp = fabric.call("GET", f"/v1/bench/campaigns/{cid}/runs")
-    assert resp.status_code == 200, resp.text
-    return list(resp.json()["runs"])
-
-
 def _pause_mid_run(
     fabric: Fabric, pg_settings: Any, cid: str, seq: int, owner: Any
 ) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -295,11 +282,11 @@ def _pause_mid_run(
     resume. Returns (the run, the ended job view)."""
     deadline = time.monotonic() + 420
     while True:
-        run = _campaign_runs(fabric, cid)[seq]
+        run = campaign_runs(fabric, cid)[seq]
         job_id = run.get("job_id")
         if job_id:
             done, _total = chunk_counts(pg_settings, job_id)
-            if done >= 1 and _live_leases(pg_settings, job_id, owner.node_id):
+            if done >= 1 and live_leases(pg_settings, job_id, owner.node_id):
                 break
             view = job(fabric, job_id)
             if view["state"] in ("succeeded", "failed", "cancelled"):
@@ -317,12 +304,16 @@ def _pause_mid_run(
 
 
 def test_owner_guard_on_one_node_mid_run_stops_its_lane_and_the_job_completes(
-    make_fabric: Callable[..., Fabric], tmp_path: Path, pg_settings: Any
+    make_fabric: Callable[..., Fabric],
+    tmp_path: Path,
+    pg_settings: Any,
+    numpy_wheelhouse: Path,
 ) -> None:
     fabric = split_fabric(
         make_fabric,
         controller_extra={"bench": {"tick_s": 0.5}},
         agent_extra={"policy": {"reload_interval_s": 0.2}},
+        wheelhouse=numpy_wheelhouse,
     )
     origin, owner = fabric.nodes[0], fabric.nodes[2]
     created = fabric.call(
@@ -379,7 +370,7 @@ def test_owner_guard_on_one_node_mid_run_stops_its_lane_and_the_job_completes(
     # the campaign counts the run as done with this job (not requeued)
     deadline = time.monotonic() + 120
     while time.monotonic() < deadline:
-        run = _campaign_runs(fabric, cid)[seq]
+        run = campaign_runs(fabric, cid)[seq]
         if run["state"] in ("done", "failed", "skipped"):
             break
         time.sleep(0.5)

@@ -23,7 +23,6 @@ from mf_split_cluster import (
     build_split_job,
     check_exactly_once,
     chunk_counts,
-    index_reachable,
     job,
     lanes,
     output_files,
@@ -44,16 +43,12 @@ SEED: Final = 77
 SLOW: Final = {"planner": {"default_compute_s": 600.0}}
 
 
-@pytest.fixture(autouse=True)
-def _needs_index() -> None:
-    if not index_reachable():
-        pytest.skip("the job's pinned numpy must be installed from the package index")
-
-
 def _prepare(
-    make_fabric: Callable[..., Fabric], tmp_path: Path
+    make_fabric: Callable[..., Fabric], tmp_path: Path, wheelhouse: Path
 ) -> tuple[Fabric, dict[str, Any], str]:
-    fabric = split_fabric(make_fabric, controller_extra=SLOW)
+    """The fabric (numpy installed offline from ``wheelhouse``), the job's
+    manifest and its uploaded tree."""
+    fabric = split_fabric(make_fabric, controller_extra=SLOW, wheelhouse=wheelhouse)
     built = build_split_job(FAMILY, PARAMS, SEED, tmp_path / "job")
     manifest = yaml.safe_load((built.path / "compute.yaml").read_text())
     return fabric, manifest, upload_folder(fabric, built.path)
@@ -104,9 +99,12 @@ def _unsplit_digest(
 
 
 def test_kill9_two_of_three_agents_survivor_finishes_exactly_once(
-    make_fabric: Callable[..., Fabric], tmp_path: Path, pg_settings: Any
+    make_fabric: Callable[..., Fabric],
+    tmp_path: Path,
+    pg_settings: Any,
+    numpy_wheelhouse: Path,
 ) -> None:
-    fabric, manifest, tree = _prepare(make_fabric, tmp_path)
+    fabric, manifest, tree = _prepare(make_fabric, tmp_path, numpy_wheelhouse)
     job_id = submit(fabric, manifest, tree)
     victims = [fabric.nodes[1], fabric.nodes[2]]
     _wait_progress(fabric, pg_settings, job_id, 0.25, victims)
@@ -132,9 +130,12 @@ def test_kill9_two_of_three_agents_survivor_finishes_exactly_once(
 
 
 def test_kill9_during_combine_job_is_correct_or_fails_cleanly(
-    make_fabric: Callable[..., Fabric], tmp_path: Path, pg_settings: Any
+    make_fabric: Callable[..., Fabric],
+    tmp_path: Path,
+    pg_settings: Any,
+    numpy_wheelhouse: Path,
 ) -> None:
-    fabric, manifest, tree = _prepare(make_fabric, tmp_path)
+    fabric, manifest, tree = _prepare(make_fabric, tmp_path, numpy_wheelhouse)
     job_id = submit(fabric, manifest, tree)
     by_id = {n.node_id: n for n in fabric.nodes}
     killed: str | None = None
@@ -185,9 +186,12 @@ def test_kill9_during_combine_job_is_correct_or_fails_cleanly(
 
 
 def test_agent_restart_mid_run_rejoins_and_job_stays_exactly_once(
-    make_fabric: Callable[..., Fabric], tmp_path: Path, pg_settings: Any
+    make_fabric: Callable[..., Fabric],
+    tmp_path: Path,
+    pg_settings: Any,
+    numpy_wheelhouse: Path,
 ) -> None:
-    fabric, manifest, tree = _prepare(make_fabric, tmp_path)
+    fabric, manifest, tree = _prepare(make_fabric, tmp_path, numpy_wheelhouse)
     job_id = submit(fabric, manifest, tree)
     victim = fabric.nodes[2]
     _wait_progress(fabric, pg_settings, job_id, 0.3, [victim])

@@ -22,7 +22,6 @@ chunk), the real merge-csv combine. Checked:
 
 from __future__ import annotations
 
-import hashlib
 import io
 import time
 from collections.abc import Callable
@@ -36,25 +35,14 @@ pytest.importorskip("sqlalchemy", reason="needs the controller extra")
 pytest.importorskip("pyarrow", reason="needs the controller extra")
 
 import pyarrow.parquet as pq
-from mf_cluster import Fabric, Timing
+from mf_cluster import Fabric
+from mf_split_cluster import campaign_runs, output_files, split_fabric
+from mf_split_cluster import job as job_view
 
 from meshforge.bench.workloads import get_family
-from meshforge.common.bundle import unpack
 
 pytestmark = [pytest.mark.cluster, pytest.mark.timeout(1500)]
 
-TIMING = Timing(
-    name="g8-campaign",
-    heartbeat_interval_s=0.5,
-    miss_allowance_s=0.2,
-    lease_multiplier=4,
-    controller_hello_timeout_s=2.0,
-    shutdown_drain_s=2.0,
-    agent_reconnect_base_s=0.1,
-    agent_reconnect_cap_s=2.0,
-    agent_hello_timeout_s=2.0,
-)
-EXEC = {"enabled": True, "allow_unsandboxed": True, "grace_s": 1.0}
 FAMILY = "split.csv_aggregate"
 PARAMS = {"rows": 4000, "cols": 8, "rounds": 7000}
 RUNS = 9
@@ -75,46 +63,16 @@ def _spec(origin: str) -> str:
     )
 
 
-def _runs(fabric: Fabric, cid: str) -> list[dict[str, Any]]:
-    resp = fabric.call("GET", f"/v1/bench/campaigns/{cid}/runs", params={"limit": 100})
-    assert resp.status_code == 200, resp.text
-    return list(resp.json()["runs"])
-
-
-def _job(fabric: Fabric, job_id: str) -> dict[str, Any]:
-    resp = fabric.call("GET", f"/v1/jobs/{job_id}")
-    assert resp.status_code == 200, resp.text
-    return dict(resp.json())
-
-
-def _output(fabric: Fabric, digest: str, dest: Path) -> dict[str, bytes]:
-    data = fabric.call("GET", f"/v1/blobs/{digest.removeprefix('sha256:')}").content
-    assert hashlib.sha256(data).hexdigest() == digest.removeprefix("sha256:")
-    archive = dest.with_suffix(".bundle")
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    archive.write_bytes(data)
-    unpack(archive, dest)
-    return {
-        p.relative_to(dest).as_posix(): p.read_bytes()
-        for p in sorted(dest.rglob("*"))
-        if p.is_file()
-    }
-
-
 def test_a_split_family_campaign_labels_mode1_against_mode3(
     make_fabric: Callable[..., Fabric], tmp_path: Path
 ) -> None:
-    fabric = make_fabric(
-        agents=3,
-        timing=TIMING,
-        agent_execution=EXEC,
-        controller_jobs={"dispatch_interval_s": 0.1},
+    fabric = split_fabric(
+        make_fabric,
+        lease_s=60.0,
         controller_extra={
             "bench": {"tick_s": 0.5},
-            "split": {"visibility_timeout_s": 60.0, "wait_retry_s": 0.3},
             "telemetry": {"record_interval_s": 0.5},
         },
-        agent_env={"DOCKER_HOST": "unix:///nonexistent/meshforge-test.sock"},
     )
     nodes = sorted(n.node_id for n in fabric.nodes)
     origin = fabric.nodes[0].node_id
@@ -132,7 +90,7 @@ def test_a_split_family_campaign_labels_mode1_against_mode3(
     deadline = time.monotonic() + 1200
     runs: list[dict[str, Any]] = []
     while time.monotonic() < deadline:
-        runs = _runs(fabric, cid)
+        runs = campaign_runs(fabric, cid)
         if all(r["state"] in ("done", "failed", "skipped") for r in runs):
             break
         time.sleep(1.0)
@@ -148,7 +106,7 @@ def test_a_split_family_campaign_labels_mode1_against_mode3(
     # every combined output identical and correct
     outputs: set[str] = set()
     for run in runs:
-        job = _job(fabric, run["job_id"])
+        job = job_view(fabric, run["job_id"])
         assert job["state"] == "succeeded", job.get("failure_detail")
         lanes = {a["node_id"] for a in job["attempts"] if a.get("role") == "lane"}
         if run["strategy"] == "mode3":
@@ -160,7 +118,7 @@ def test_a_split_family_campaign_labels_mode1_against_mode3(
             assert lanes == {run["node_id"]}
         outputs.add(job["output_digest"])
     assert len(outputs) == 1, outputs  # split == unsplit, byte for byte
-    files = _output(fabric, outputs.pop(), tmp_path / "out")
+    files = output_files(fabric, outputs.pop(), tmp_path / "out")
     fam = get_family(FAMILY)
     verdict = fam.verify_output(files, PARAMS, mode3[0]["seed"])  # type: ignore[attr-defined]
     assert verdict.ok, verdict.problems

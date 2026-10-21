@@ -19,6 +19,7 @@ pytest.importorskip("psutil", reason="the cluster harness needs the agent extra"
 pytest.importorskip("sqlalchemy", reason="needs the controller extra")
 
 from mf_cluster import Fabric
+from mf_split_cluster import combines, fetch_output, upload_folder, wait_job
 
 sys.path.insert(0, str(Path(__file__).parent))
 import test_v10_g5_tester_r1_combine as r1
@@ -44,10 +45,10 @@ def test_item_list_with_a_sequence_of_chunk_sizes(
 ) -> None:
     fabric = r1._fabric(make_fabric)
     r1._project(tmp_path / "p")
-    tree = r1._upload(fabric, tmp_path / "p")
+    tree = upload_folder(fabric, tmp_path / "p")
     outputs: list[str] = []
     for n, size in enumerate((6, r1.ITEMS, 4, 6)):
-        job = r1._wait(fabric, r1._submit(fabric, tree, chunk=size), 240)
+        job = wait_job(fabric, r1._submit(fabric, tree, chunk=size), 240)
         assert job["state"] == "succeeded", (
             size,
             job["failure_type"],
@@ -55,8 +56,8 @@ def test_item_list_with_a_sequence_of_chunk_sizes(
         )
         lanes = [a for a in job["attempts"] if a.get("role") == "lane"]
         assert lanes, size
-        assert len(r1._combines(job)) == 1
-        got = r1._output(fabric, job, tmp_path / f"o{n}")
+        assert len(combines(job)) == 1
+        got = fetch_output(fabric, job["output_digest"], tmp_path / f"o{n}")
         assert (got / "labels.csv").read_bytes() == r1._expected_csv(), size
         outputs.append(job["output_digest"])
     assert len(set(outputs)) == 1
@@ -70,12 +71,12 @@ def test_script_combine_cannot_forge_the_builtin_result(
     r1._project(root)
     (root / "combine.py").write_text(FORGER)
     script = {"script": ["python", "combine.py", "{parts}", "{out}"]}
-    job = r1._wait(
-        fabric, r1._submit(fabric, r1._upload(fabric, root), combine=script), 240
+    job = wait_job(
+        fabric, r1._submit(fabric, upload_folder(fabric, root), combine=script), 240
     )
     assert job["state"] == "failed", job
     assert job["failure_type"] == "combine_error"
     detail = job["failure_detail"] or ""
     assert detail.startswith("script_failed"), detail
     assert "FORGED" not in detail and "header_mismatch" not in detail
-    assert len(r1._combines(job)) == 1  # not retried
+    assert len(combines(job)) == 1  # not retried
