@@ -57,6 +57,10 @@ JOB_ROUTES = frozenset(
         ("POST", "/v1/jobs/{job_id}/cancel"),
         ("GET", "/v1/jobs/{job_id}/logs"),
         ("GET", "/v1/jobs/{job_id}/decisions"),
+        # V0.10 Mode 3 (G7 / G8 / TD1): the split view, its chunks, a chunk's tries
+        ("GET", "/v1/jobs/{job_id}/split"),
+        ("GET", "/v1/jobs/{job_id}/chunks"),
+        ("GET", "/v1/jobs/{job_id}/chunks/{chunk_index}/tries"),
         ("WS", "/v1/jobs/{job_id}/logs/ws"),
     }
 )
@@ -166,6 +170,10 @@ async def _bob_sees_nothing(
         ("GET", "/v1/jobs/{}/logs", {"attempt": attempt_id}),
         ("GET", "/v1/jobs/{}/decisions", {}),
         ("GET", "/v1/jobs/{}/decisions", {"attempt": "1"}),
+        ("GET", "/v1/jobs/{}/split", {}),
+        ("GET", "/v1/jobs/{}/chunks", {}),
+        ("GET", "/v1/jobs/{}/chunks/0/tries", {}),
+        ("GET", "/v1/jobs/{}/chunks/1/tries", {}),
     ]
     for method, template, params in variants:
         theirs = await bob.request(method, template.format(job_id), params=params)

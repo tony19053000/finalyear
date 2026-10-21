@@ -174,18 +174,38 @@ def test_c4_kill9_of_a_lane_agent_at_half_way_gives_the_same_output_once(
     _succeeded(view)
     dead = [a for a in lanes(view) if a["node_id"] == victim.node_id]
     assert [(a["state"], a["failure_type"]) for a in dead] == [("lost", "node_lost")]
-    released = sql(
+    # The victim's lease(s): a lease the dead lane held is `released` (the
+    # controller took it back), or `superseded` when a speculative copy on
+    # another node committed that chunk first (a race the test cannot
+    # control) - never anything else, and never committed by the victim
+    # after its death. Either way the kill must have left a mark.
+    victim_leases = sql(
         pg_settings,
-        "SELECT l.state FROM work_lease l JOIN attempt a ON a.id = l.holder "
+        "SELECT l.seq, l.state, i.idx FROM work_lease l "
+        "JOIN attempt a ON a.id = l.holder "
+        "JOIN work_item i ON i.id = l.item_id "
         "WHERE a.job_id = :job AND a.node_id = :node",
         job=job_id,
         node=victim.node_id,
     )
-    assert "released" in {r.state for r in released}, released
+    assert {r.state for r in victim_leases} <= {
+        "completed",
+        "released",
+        "superseded",
+    }, victim_leases
+    assert {r.state for r in victim_leases} & {"released", "superseded"}, victim_leases
     records = check_exactly_once(pg_settings, job_id, PARAMS["images"])
-    assert any(
-        r.outcome == "released" and r.node_id == victim.node_id for r in records
-    ), records
+    committed_by = {r.chunk_index: r for r in records if r.outcome == "committed"}
+    for lease in victim_leases:
+        if lease.state == "superseded":
+            winner = committed_by[lease.idx]
+            assert winner.node_id != victim.node_id, (lease, winner)
+            assert winner.lease_seq != lease.seq, (lease, winner)
+    victim_records = [r for r in records if r.node_id == victim.node_id]
+    assert any(r.outcome in ("released", "superseded") for r in victim_records), records
+    for rec in victim_records:
+        if rec.outcome == "superseded":
+            assert committed_by[rec.chunk_index].node_id != victim.node_id, rec
     _verified(fabric, view, tmp_path / "out" / "killed")
     # the same job on one surviving agent: the same bytes
     assert view["output_digest"] == _one_node_digest(fabric, manifest, tree)
