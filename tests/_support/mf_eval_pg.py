@@ -24,6 +24,10 @@ from dataclasses import dataclass, field
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
+
+pytest.importorskip("sqlalchemy", reason="needs the controller extra")
+
 from sqlalchemy import insert, text, update
 from sqlalchemy.ext.asyncio import AsyncEngine
 

@@ -130,6 +130,7 @@ def test_base_metadata_uses_convention_and_registers_every_model() -> None:
         "bench_run",  # V0.9 G3 (0022)
         "chunk_record",  # V0.10 G8 (0029)
         "planner_calibration",  # V0.14 G2 (0031)
+        "planner_eval_report",  # V0.14 G4 (0032)
     }
 
 
