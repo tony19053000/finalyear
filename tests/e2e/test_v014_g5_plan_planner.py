@@ -112,7 +112,9 @@ def _verdicts(status: str) -> list[dict[str, Any]]:
     ]
 
 
-def _policy(key: str, kind: str, mean: float, low: float, high: float) -> dict[str, Any]:
+def _policy(
+    key: str, kind: str, mean: float, low: float, high: float
+) -> dict[str, Any]:
     return {
         "key": key,
         "policy": key.split(":")[0],
@@ -214,7 +216,9 @@ def _stub_eval_reports(page: Page) -> None:
         else:
             route.fulfill(status=404, body="{}", content_type="application/json")
             return
-        route.fulfill(status=200, content_type="application/json", body=json.dumps(body))
+        route.fulfill(
+            status=200, content_type="application/json", body=json.dumps(body)
+        )
 
     page.route(re.compile(r"/v1/planner/eval-reports(/\d+)?(\?.*)?$"), answer)
 
@@ -239,7 +243,9 @@ def test_plan_tab_of_a_split_job_and_the_planner_page(
     assert api["count"] >= 1, api
     last = api["decisions"][-1]
     sentence = last["margin_sentence"]
-    assert isinstance(sentence, str) and sentence.startswith(("split over", "not split"))
+    assert isinstance(sentence, str) and sentence.startswith(
+        ("split over", "not split")
+    )
     assert last["replay_version"] is not None  # every V0.14 decision is replayable
 
     # --- criterion 4: the CLI answers the same fields, prints the same sentence
@@ -256,7 +262,9 @@ def test_plan_tab_of_a_split_job_and_the_planner_page(
     page, _watch = new_page()
     sign_in(page, fabric, path=f"/jobs/{job_id}")
     expect(page.get_by_role("heading", level=1, name="split-plan-e2e")).to_be_visible()
-    page.get_by_role("tablist", name="Job details").get_by_role("tab", name="Plan").click()
+    page.get_by_role("tablist", name="Job details").get_by_role(
+        "tab", name="Plan"
+    ).click()
     section = page.get_by_role("region", name=f"Decision {last['id']}")
     expect(section).to_be_visible()
     expect(section.locator("p", has_text="Margin test:")).to_contain_text(sentence)
