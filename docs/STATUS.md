@@ -43,6 +43,8 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 
 ## Current Task
 
+- **2026-10-21 (latest):** **V0.10-TD2 MERGED** (`15d515e0`, D304; reviewer APPROVE, tester PASS). Post-merge main: ruff + `mypy src` clean; unit 17578 passed; V0.10 cluster + TD1/TD2 component + owner-route 13 passed, exit 0. **V0.14 brief DRAFT** `docs/briefs/V0.14-unified-planner-v2.md` (D290–D303) awaiting team answers to §7 Q1–Q8. Next: team approves V0.14 → G1 (replay snapshot + unified candidates); 🧑 0.10.10 lab.
+
 - **2026-10-21 (latest):** **V0.10-TD1 MERGED** (`ae1d0bbd`, D289; tester PASS, reviewer r1 B1 ReDoS fixed `acb90f4f`, r2 APPROVE). Post-merge main: ruff + `mypy src` clean; unit 17276 passed; V0.10 cluster + TD1 tries-API component 36 passed, exit 0. No roadmap checkbox changed (tech debt). Next: 🧑 0.10.10 lab; agent-side: remaining TD (see Technical Debt) or V0.14 brief (team to choose).
 
 - **2026-10-21 (later):** G9 post-merge gates GREEN. Disk freed (80%, 38 GB free, no repo deletions by the agent); `uv run pytest tests/cluster/test_v010_mode3.py -q` → **4 passed** (c1, c4, c5, owner_guard; 162 s) — the earlier 4 failures were disk-full only. With unit 17068 / ruff / `mypy src` clean, V0.10 is **agent-side complete and gated**. Next: 🧑 0.10.10 lab (`lab/checklists/V0.10-mode3.md`); agent-side: V0.10 tech debt (D287/D288) or next roadmap version.
@@ -213,7 +215,7 @@ Reviewer non-blocking follow-ups (carry into G2/G3): (1) `mint` should carry `pe
 - Fixed this session: secret leak + O(n²) in log scrubber; duplicate IDs after fork; plain-`uv sync` test collection crash; CRLF-dependent codegen output.
 
 ## Technical Debt
-- **V0.10 TD1 (D289):** helpers migrated, live-lease check, wheelhouse, stderr stripping DONE. Left: C5 harness uses configured bw, not a FaultLink-measured link; untrusted-text stripping not yet applied to Mode 1 stderr/log views + bidi/zero-width chars (D-1); wheelhouse folder-content check (D-2), unique `.part` name (D-3), sha mismatch → fail not skip.
+- **V0.10 TD1 (D289):** helpers migrated, live-lease check, wheelhouse, stderr stripping DONE. TD2 (D304) closed the rest. Left: C5 harness uses configured bw, not a FaultLink-measured link; dashboard log view renders raw bidi; open question `compute logs` TTY stripping.
 - **V0.10 G8 (D287):** post-split cool-down only on head node (I12); live-lanes-only `split.progress` event deferred (I13); `image_classify` GPU variant pending (I8).
 - **Bare `uv run mypy` (pyproject says it checks src+tests+lab) exits 2:** duplicate module `main` (lab/workloads/v06-ledger vs log-ticker) and ~900 test-file errors. Gate in use is `mypy src` (clean). Fix or narrow the config comment. Watch: one unreproduced setup ERROR in `tests/cluster/test_v10_g4_tester_r1_failures.py::test_chunk_output_over_the_cap_fails_the_job_without_retrying` (one-process run).
 - **V0.8 G7 (D210):** `ui_perf.py` heartbeat lag ignores cross-machine clock skew (fix before the 0.8.10 lab perf step); SecretsPage file input not reset (same file can't be re-picked); `ui_perf.py` 840 lines; T-8b retry revisits; kept leak-gate limits T-2b/T-6b/T-6c/T-7d-g (strict xfails); MIN_KNOWN_CHARS=8 → THREAT_MODEL note.

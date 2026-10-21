@@ -8,7 +8,7 @@
 >
 > ```
 > Read docs/SESSION_HANDOFF.md §1, then docs/STATUS.md, then the V0.10 section of docs/DEVELOPMENT_ROADMAP.md.
-> V0.10 agent-side complete; tech debt TD1 merged (D289), post-merge gates green. Closes on 🧑 0.10.10. Next agent-side: remaining V0.10 TD (STATUS Technical Debt) or V0.14 Unified planner v2 brief — ask the team which. Parallel agents OK; no fast mode. Don't delete anything without asking.
+> V0.10 agent-side complete; tech debt TD1 (D289) + TD2 (D304) merged, gates green; closes on 🧑 0.10.10. V0.14 brief DRAFT docs/briefs/V0.14-unified-planner-v2.md awaits team answers to §7 Q1–Q8 — get them, then ADR-0020 + G1 (replay snapshot + unified candidates). Parallel agents OK; no fast mode. Don't delete anything without asking.
 > ```
 >
 > Order of truth: `PROJECT_BRIEF → ARCHITECTURE → ROADMAP → STATUS → this file`. If this file
@@ -262,7 +262,7 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
-**2026-10-21 (later) — RUNNING:** (1) V0.10-TD2 implementer DONE in `.claude/worktrees/agent-aae9991b61e8d14ee` (2bad275f..a3aa7bc5; unit 17370, lint/mypy clean; c4 cluster flaked once = speculation race in test). Reviewer APPROVE; Lead fixed its N1 (drop all Cf except soft hyphen) + N2 (symlinked wheel folder refused) in `4b4b7110`. Tester running (also fixing c4 race + owner-route table). At merge: decision-log entry D304 incl. D22 deviation (report JSON cleaned, not refused), TTY-strip open question. Team question from TD2: should `compute logs` strip controls on a TTY (+`--raw`)? Dashboard log view still renders raw bidi. (2) V0.14 brief DRAFT written `docs/briefs/V0.14-unified-planner-v2.md` (D290–D303, Q1–Q8) — **waiting for team approval; no V0.14 code until then.**
+**2026-10-21 (TD2 closed) — NOTHING RUNNING.** V0.10-TD2 merged `15d515e0` (D304); post-merge gates green (unit 17578, cluster+component 13). TD2 worktree `.claude/worktrees/agent-aae9991b61e8d14ee` merged — removable with user OK. V0.14 brief DRAFT `docs/briefs/V0.14-unified-planner-v2.md` waiting for team §7 answers; **no V0.14 code until approved**. Open team question: `compute logs` TTY stripping (+`--raw`).
 
 **2026-10-21 (TD1 closed) — NOTHING RUNNING.** V0.10-TD1 merged `ae1d0bbd` (D289); post-merge gates green (unit 17276, cluster 36, ruff/mypy clean). TD1 worktree + branch removed (user-approved). Next: 🧑 0.10.10; agent-side: leftover TD (STATUS Technical Debt) or V0.14 brief — team chooses.
 
