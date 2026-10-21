@@ -232,6 +232,32 @@ Exit codes: **0** ok, **2** bad parameters, **3** unavailable on this node, **4*
 3. Tests: `tests/unit/bench/` (tiny-size kernel run, a wrong output fails its check) - the registry, monotonic,
    window, materialise and CLI tests pick the new family up by themselves.
 
+### Mode 3 families (V0.10 G8, roadmap 0.10.9, D272)
+
+A **split family**'s job is a split job (`split:` in its `compute.yaml`, entrypoint
+`python run_chunk.py {items_file} {chunk_index} {out}`): its items are resolved at submit, its lanes run
+`bench_kernels/split.py` once per chunk, a built-in combine joins the parts. Data are generated from the seed
+into the job tree (`data/`, SHAKE-256, at most 64 MiB, one file at most 8 MiB); nothing is downloaded.
+
+| family | over | bound by | combine | default (hint on the mid laptop) |
+|---|---|---|---|---|
+| `split.image_classify` | `glob data/img/*.ppm` | CPU: a small **integer** CNN (fixed weights built in code) | `concat` -> `predictions.csv` | 3 000 images 32x32, 32 channels (~11 s) - criterion 1's workload |
+| `split.hash_files` | `glob data/files/*.bin` | bytes moved: chained SHA-256 + zlib | `concat` -> `hashes.csv` | 256 x 256 KiB, 100 rounds (~6 s) |
+| `split.montecarlo_range` | `range 0..items` | CPU, ideal scaling: a PCG64 stream per item | `merge-json` -> `results.json` | 3 000 items x 200 000 points (~13 s) |
+| `split.csv_aggregate` | `lines data/table.csv` (header) | CPU per row: sum/min/max + SHA-256 chain | `merge-csv` -> `aggregates.csv` | 20 000 rows x 16, 1 500 rounds (~9 s) |
+
+* **Output is chunking-independent and machine-independent**: one line / element per item in item order,
+  integer or IEEE-deterministic arithmetic - a split run and a one-chunk run give byte-identical combined
+  output (criterion 1). `image_classify` is CPU-only in V0.10 (a float GPU variant would not be identical
+  across GPUs; follow-up).
+* **Self-checks.** Each chunk checks itself (a second, independent computation of some items - direct
+  convolution vs im2col, the hash fed in pieces, another batch size of the same stream, the first row again -
+  plus the family's invariants); a failed check exits 4: the chunk fails (`user_error`), is retried on another
+  node and fails the job if it fails again - never a wrong output labelled done. `SplitFamily.verify_output`
+  recomputes the **whole** combined output from the seed (tests, lab checks).
+* **Hints** are single-thread rates measured on Laptop 1 (the hint is the whole job on one node).
+* Listing: `list_split_families()`; `get_family` finds both kinds; the V0.9 `list_families()` is unchanged.
+
 ## Campaign spec
 
 A **campaign** measures families x parameters x conditions x strategies x nodes, every configuration repeated
@@ -293,6 +319,18 @@ slot and GPU of a node counts as free - otherwise, with the other laptops busy r
 would collapse onto the forced node) but keeps everything else: feasibility (capabilities, hardware, owner
 policy, a slot kind the node has at all), health (state, live session) and the job's retry exclusions (D235). The run record carries `campaign_id`,
 `group_id`, `config_id` and `repetition` from the `bench_run.job_id` link.
+
+**Mode 3 strategies (V0.10 G8, D271).** `strategies: [mode3]` (with at least one `split.*` family) adds one
+configuration per node set - `mode3_sets: [[a, b], [a, b, c]]`, or every selected node when no set is given;
+each set is at least two nodes of the campaign. A `mode3` run's job is placed `{"mode": "auto", "node_set":
+[...]}`: the planner splits it over **exactly** that set (the margin test still runs and is recorded,
+`margin_test.forced = node_set`), and waits while a node of the set cannot take a lane. For a split family,
+`local` / `mode1` mean "don't split" there (one lane, one chunk - D269's same path). The shadow plan of a forced
+split run may be a set: `plan_decision.shadow_node_set` -> the records' `planner_strategy` /
+`planner_node_set`. The runner counts a `mode3` run against **every** node of its set (`max_concurrent_per_node`)
+and submits it only when the whole set is free; split families run under condition `none` only in V0.10. A
+split family's items are resolved by the same resolver as `POST /v1/jobs` (D278). Labels compare a split job
+by its **job row** (the combine that ended it) and its job time `split_job_ms` (docs/TELEMETRY.md).
 
 `submit` is idempotent per run (the job's Idempotency-Key is `bench:<run_id>`). A run whose node is offline, has
 no session or whose owner currently refuses jobs is **deferred** (stays planned; the next submit tries it again);

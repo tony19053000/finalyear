@@ -105,7 +105,7 @@ skipped the same way (`error_type` `job_missing`) instead of failing the sweep.
 | 3 | adds `attempt_role`, `planner_strategy`, `planner_node_set`, the `split_*` columns and the `chunk_record` table (`chunks.parquet`); `strategy` gains `mode3` (V0.10 G8, D271) | 0029 |
 
 A row keeps the version it was written under: v1 rows (written before 0023) have `schema_version` 1 and null
-in the three v2 columns; the file metadata names the version the export was written with (2). Read each
+in the three v2 columns; the file metadata names the version the export was written with (3). Read each
 row by its own `schema_version`.
 
 **Conditions (v2).** `condition` is the run's benchmark condition as its canonical string (`none`,
@@ -136,6 +136,23 @@ the record itself is always kept.
 A campaign's **queue filler** / **cache warm-up** job (no campaign identity) has `condition` null and
 `condition_measured = {"bench_role": "filler" | "warmup", "run_id": "<bench run>"}` (and none of the keys above).
 Labels and planner-training queries must exclude rows where `condition_measured->>'bench_role'` is set.
+
+## Split jobs (v3, V0.10 G8, D271/D274)
+
+A split job has several attempts - its lanes and its combine - so several run records (`attempt_role`
+`lane` / `combine`). Every one of them carries the job's **first plan** (`split_node_set`, `split_items`,
+`split_chunk_items`, `split_chunks`, `split_predicted_s`) and the job's **strategy**: `mode3` when the plan
+split, else `local` / `mode1` by its single lane ("don't split" runs the same lane path, D269). The **job row**
+is the record of the combine that ended the job `done`; only it carries the measured job numbers:
+`split_makespan_ms` (first lane `running` -> the end, D274 C2), `split_job_ms` (lanes dispatched -> the end:
+staging, every chunk and the combine - the cost the labels compare), `split_combine_ms` and
+`split_ideal_bound_s` = items / the sum of the lanes' measured compute rates (each node's committed items over
+its chunks' `run_ms`) + the slowest lane's stage + env + the combine. The two job times are differences of two
+controller timestamps (one clock); every per-chunk duration is the agent's monotonic measurement
+(`chunks.parquet`). A split **benchmark** job's records take family / params / seed from its campaign run;
+its job row's `workload_status` is `ok` (every chunk passed its own self-check, BENCHMARKS.md). Labels and
+training use the job row only (`attempt_role` null, `run` or `combine`); `planner_strategy` /
+`planner_node_set` say what the planner chose or - for a forced run - would have chosen.
 
 ## Columns — schema version 3
 

@@ -1287,6 +1287,22 @@ compute get <JOB_ID>               # outputs -> ./outputs/<JOB_ID>/ (--dest, --f
   over the live lanes' measured rates and stays empty until a lane has
   committed (nothing assumed). `progress_max_jobs` (1 000) bounds the jobs whose
   last event is remembered. The CLI polls every `[cli] progress_interval_s` (1 s).
+- **Chunk records and tries (V0.10 G8, D271/D261).** Every chunk try that ends
+  with an applied result is a `chunk_record` row, written in the result's own
+  transaction (docs/TELEMETRY.md). The agent sends the end of each chunk
+  process's stderr (already redacted of the job's secrets; at most
+  `[agent.split] chunk_stderr_tail_bytes`, 16 KiB, max 64 KiB) with its result;
+  the controller keeps at most `[controller.split] chunk_stderr_tail_bytes`
+  (16 KiB) of a failed try and `chunk_stderr_ok_bytes` (2 KiB) of a done one.
+  `GET /v1/jobs/{id}/chunks/{n}/tries[?limit=20]` lists a chunk's tries (node,
+  outcome, phases, stderr tail); the dashboard's chunk panel shows them.
+  `compute telemetry export --table chunks -o chunks.parquet` exports the
+  records (never the stderr). The dashboard refetches a job's chunk map at most
+  once every 2 s (one trailing refetch, at once when the job ends).
+- **Speculation reads (V0.10 G8, D285).** An idle lane's speculation check
+  reuses a job's per-node chunk times while none of its chunks committed, at
+  most `[controller.split] speculation_cache_s` (5 s; 0 = off), for at most
+  `speculation_cache_jobs` (256) jobs.
 
 ---
 

@@ -153,7 +153,9 @@ def test_a_split_family_campaign_labels_mode1_against_mode3(
         lanes = {a["node_id"] for a in job["attempts"] if a.get("role") == "lane"}
         if run["strategy"] == "mode3":
             assert lanes == set(nodes), job["attempts"]
-            assert job["placement"] == {"mode": "auto", "node_set": nodes}
+            placed = job["placement"]
+            assert placed["mode"] == "auto" and placed["node_set"] == nodes
+            assert placed.get("node_id") is None
         else:
             assert lanes == {run["node_id"]}
         outputs.add(job["output_digest"])
