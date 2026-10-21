@@ -262,6 +262,8 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
+**2026-10-21 (later) — RUNNING:** (1) implementer V0.10-TD2 in an agent worktree (D289 leftover debt: strip untrusted text on all Mode 1/CLI views + bidi/zero-width, wheelhouse D-2/D-3/sha-fail; progress note docs/briefs/progress/V0.10-TD2.md) → then tester → reviewer → merge. (2) V0.14 brief DRAFT written `docs/briefs/V0.14-unified-planner-v2.md` (D290–D303, Q1–Q8) — **waiting for team approval; no V0.14 code until then.**
+
 **2026-10-21 (TD1 closed) — NOTHING RUNNING.** V0.10-TD1 merged `ae1d0bbd` (D289); post-merge gates green (unit 17276, cluster 36, ruff/mypy clean). TD1 worktree + branch removed (user-approved). Next: 🧑 0.10.10; agent-side: leftover TD (STATUS Technical Debt) or V0.14 brief — team chooses.
 
 **2026-10-21 (session end, user stop) — NOTHING RUNNING.** V0.10 tech-debt task **V0.10-TD1** (D288 items: shared split-cluster helpers, `check_exactly_once` flags leftover `live` lease, offline numpy wheelhouse for test_v010_mode3, controller strips terminal controls from chunk stderr tail — CR→\n deviation) implemented in worktree `.claude/worktrees/agent-aa9c83b4b0b65d858`, branch `worktree-agent-aa9c83b4b0b65d858`, head `6dec9677` (5 commits, NOT merged). Implementer stopped during its exit gates — **gates NOT run, no Hand-off**. Progress: `docs/briefs/progress/V0.10-TD1.md` in that worktree. Next: run exit gates there (ruff, format, `mypy src`, `scripts/pytest_exit_guard.py -m unit`, tests/cluster/test_v010_*.py) + Hand-off → tester → reviewer → merge. Out of scope still open: C5 FaultLink bw, I8/I12/I13.
