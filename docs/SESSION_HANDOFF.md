@@ -8,7 +8,7 @@
 >
 > ```
 > Read docs/SESSION_HANDOFF.md §1, then docs/STATUS.md, then the V0.10 section of docs/DEVELOPMENT_ROADMAP.md and docs/briefs/V0.10-task-splitting.md (§2 + Lead rulings D277–D286, §5h G8 + "G8 carry-overs").
-> V0.10: G1–G7 MERGED → 0.10.1–0.10.8 [x] (D277–D286; main post-merge gates green: unit 16860, V0.10 comp/cluster/workqueue 228). G8 (0.10.9) implementer FINISHED exit gates (branch worktree-agent-a87c8a801a83f7de2 head a7345a13, worktree .claude/worktrees/agent-a87c8a801a83f7de2; unit 16935, V0.10 comp/cluster/workqueue 232, V0.9 set green after v2→v3 test fix, ruff/`mypy src`/frontend 644 green). Tester ∥ reviewer launched 2026-10-21 (if session died: relaunch both) → tester ∥ reviewer → merge → 0.10.9 [x] + status bar → G9 (§5i) → 🧑 0.10.10. Gate mypy = `uv run mypy src` (bare mypy is pre-existing broken). Team: V0.10 brief + ADR-0019 still Proposed. Parallel agents OK; no fast mode.
+> V0.10: G1–G8 MERGED → 0.10.1–0.10.9 [x] (D277–D287; main post-merge gates green: unit 16860, V0.10 comp/cluster/workqueue 228). G8 MERGED `33f8e97e` → 0.10.9 [x] (D287; main post-merge: unit 16991, V0.10 comp/cluster/workqueue 238). Next: write/launch G9 implementer (brief §5i) → G9 (§5i) → 🧑 0.10.10. Gate mypy = `uv run mypy src` (bare mypy is pre-existing broken). Team: V0.10 brief + ADR-0019 still Proposed. Parallel agents OK; no fast mode.
 > ```
 >
 > Order of truth: `PROJECT_BRIEF → ARCHITECTURE → ROADMAP → STATUS → this file`. If this file
