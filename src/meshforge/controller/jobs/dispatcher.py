@@ -106,6 +106,7 @@ from meshforge.common.logging import get_logger
 from meshforge.common.proto.meshforge.v1 import agent_pb2
 from meshforge.common.states import ATTEMPT_TERMINAL_STATES, AttemptState
 from meshforge.controller.blobs import BlobStore, FetchTokens
+from meshforge.controller.calibration_store import CalibrationSource
 from meshforge.controller.jobs.dispatch import DispatcherStats, fetch_scope
 from meshforge.controller.jobs.env_health import KnownBadEnvs, env_key
 from meshforge.controller.jobs.execution_store import (
@@ -209,8 +210,11 @@ class Dispatcher(RecoverySteps):
         blobs: BlobStore | None = None,
         split: SplitSettings | None = None,
         on_split_change: Callable[[str | None], None] | None = None,
+        calibration: CalibrationSource | None = None,
     ) -> None:
         self._store = store
+        self._calibration = calibration
+        """V0.14 G2 (D293): the planner calibration read once per tick."""
         self._on_split_change = on_split_change
         """V0.10 G7 (D270): a split job's chunk rows may have changed (job id;
         None = any job's - a lease expiry). The progress tracker re-reads."""

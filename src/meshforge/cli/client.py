@@ -384,6 +384,16 @@ class ControllerClient:
         """V0.6 G4: ``GET /v1/network`` (the measured network matrix)."""
         return self._get("/v1/network")
 
+    # V0.14 G2 planner calibration (D293)
+    def planner_calibrate(self) -> Mapping[str, Any]:
+        """``POST /v1/planner/calibrate`` (admin): fit + gate a new version."""
+        return self._request("POST", "/v1/planner/calibrate", json_body={})
+
+    def planner_calibration(self, *, version: int | None = None) -> Mapping[str, Any]:
+        """``GET /v1/planner/calibration`` (one version's factors)."""
+        params = {} if version is None else {"version": str(version)}
+        return self._get("/v1/planner/calibration", params=params)
+
     # V0.7 G2 join codes (D135, D151: fabric token = interim admin)
     def create_invite(
         self, *, ttl_s: int | None, replace_node_id: str | None

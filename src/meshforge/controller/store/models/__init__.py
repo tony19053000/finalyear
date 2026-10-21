@@ -14,13 +14,15 @@ G2 D112, :mod:`.plan`), ``network_link`` (V0.6 G4 D111, :mod:`.network`),
 ``revoked_cert`` (V0.7 G3 D138, :mod:`.revocation`), ``app_user``,
 ``api_token`` (V0.7 G4 D141, :mod:`.auth`), ``secret`` (V0.7 G6 D144,
 :mod:`.secret`), ``run_record`` (V0.9 G1 D212, :mod:`.telemetry`),
-``bench_campaign``, ``bench_run`` (V0.9 G3 D216, :mod:`.bench`).
+``bench_campaign``, ``bench_run`` (V0.9 G3 D216, :mod:`.bench`),
+``planner_calibration`` (V0.14 G2 D293, :mod:`.calibration`).
 """
 
 from meshforge.controller.store.base import Base
 from meshforge.controller.store.models.auth import ApiToken, AppUser, UserRole
 from meshforge.controller.store.models.bench import BenchCampaign, BenchRun
 from meshforge.controller.store.models.cache import CacheLocation
+from meshforge.controller.store.models.calibration import PlannerCalibration
 from meshforge.controller.store.models.data import JobInput, NamedInput, TransferEvent
 from meshforge.controller.store.models.enrollment import (
     AuditAction,
@@ -62,6 +64,7 @@ __all__ = [
     "Node",
     "NodeSession",
     "PlanDecision",
+    "PlannerCalibration",
     "ResourceSnapshot",
     "RevokedCert",
     "RunRecord",
