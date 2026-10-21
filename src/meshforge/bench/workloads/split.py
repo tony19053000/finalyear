@@ -176,8 +176,9 @@ class SplitFamily[P: Params](Family[P]):
         p = self._model(params)
         expected = self.expected_output(p, seed, self.input_files(p, seed))
         problems: list[str] = []
-        if sorted(files) != sorted(expected):
-            problems.append(f"files {sorted(files)}, expected {sorted(expected)}")
+        names, wanted = sorted(files), sorted(expected)
+        if names != wanted:
+            problems.append(f"files {names}, expected {wanted}")
         for name, want in expected.items():
             got = files.get(name)
             if got is None:

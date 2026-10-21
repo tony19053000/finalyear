@@ -97,7 +97,7 @@ def _bench(params: dict[str, Any], **workload: Any) -> RecordSource:
 
 def test_schema_is_v2_with_the_three_new_columns() -> None:
     assert SCHEMA_VERSION == 3  # V0.10 G8
-    assert set(SCHEMA_FINGERPRINTS) == {1, 2}
+    assert set(SCHEMA_FINGERPRINTS) == {1, 2, 3}  # V0.10 G8 published v3
     assert SCHEMA_FINGERPRINTS[1] == (
         "69e443de70cbb8bbd25fb04662510910c649b812ad16000ede6d092948df723a"
     ), "a published fingerprint never changes"
@@ -217,7 +217,7 @@ def test_export_carries_the_v2_columns_and_v1_rows_side_by_side() -> None:
     data = export.parquet_bytes([_exportable(v2, "att_b"), _exportable(v1, "att_a")])
     table = pq.read_table(io.BytesIO(data))
     assert table.schema.names == list(COLUMN_NAMES)
-    assert table.schema.metadata[b"meshforge.telemetry.schema_version"] == b"2"
+    assert table.schema.metadata[b"meshforge.telemetry.schema_version"] == b"3"
     rows = {r["attempt_id"]: r for r in table.to_pylist()}
     assert rows["att_b"]["schema_version"] == 3
     assert rows["att_b"]["result_schema_version"] == 1

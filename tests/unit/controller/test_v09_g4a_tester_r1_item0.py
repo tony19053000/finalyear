@@ -97,15 +97,20 @@ def _cond(
 def test_v2_is_exactly_v1_plus_the_three_columns() -> None:
     """Removing the three new columns gives back the published v1 fingerprint
     (so every v1 consumer's column set + order is untouched)."""
-    v1 = tuple(c for c in COLUMNS if c.name not in V2_NEW)
-    assert len(v1) == len(COLUMNS) - 3
+    # V0.10 G8: v3 adds the Mode 3 columns; removing them gives back v2
+    v3_new = {
+        "attempt_role",
+        "planner_strategy",
+        "planner_node_set",
+        *(c.name for c in COLUMNS if c.name.startswith("split_")),
+    }
+    v2 = tuple(c for c in COLUMNS if c.name not in v3_new)
+    v1 = tuple(c for c in v2 if c.name not in V2_NEW)
+    assert len(v1) == len(v2) - 3
     assert fingerprint(v1) == SCHEMA_FINGERPRINTS[1]
-    assert (
-        fingerprint(COLUMNS)
-        == SCHEMA_FINGERPRINTS[SCHEMA_VERSION]
-        == SCHEMA_FINGERPRINTS[2]
-    )
-    assert set(SCHEMA_FINGERPRINTS) == {1, 2}
+    assert fingerprint(v2) == SCHEMA_FINGERPRINTS[2]
+    assert fingerprint(COLUMNS) == SCHEMA_FINGERPRINTS[SCHEMA_VERSION]
+    assert set(SCHEMA_FINGERPRINTS) == {1, 2, 3}
 
 
 def test_new_columns_are_nullable_and_unique() -> None:
@@ -380,7 +385,7 @@ def test_mixed_version_export_is_readable_and_typed(tmp_path: Path) -> None:
     table = pq.read_table(path)
     assert table.column_names == list(COLUMN_NAMES)
     versions = table.column("schema_version").to_pylist()
-    assert set(versions) == {1, 2}
+    assert set(versions) == {1, 3}  # current rows are v3 since V0.10 G8
     for version, cond, meas in zip(
         versions,
         table.column("condition").to_pylist(),
