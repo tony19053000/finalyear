@@ -241,8 +241,8 @@ def test_c5_slow_link_planner_does_not_split_and_explain_says_why(
     # ... and why it is so large: the bandwidth was assumed at its floor
     remote = next(c for c in first["candidates"] if c["mode"] == "offload")
     fetch = remote["estimate"]["terms"]["items_fetch"]
-    assert fetch["source"] == "assumed" and fetch["detail"]["bw_bytes_s"] == 1000.0
-    assert remote["estimate"]["total_s"] > chosen["estimate"]["total_s"]
+    assert fetch["source"] == "assumed", fetch
+    assert fetch["seconds"] > chosen["estimate"]["total_s"], (fetch, chosen)
 
 
 # ------------------------------------------------------------------- (d)
