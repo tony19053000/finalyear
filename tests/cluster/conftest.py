@@ -114,6 +114,33 @@ def make_fabric(
         raise errors[0]
 
 
+@pytest.fixture(scope="session")
+def numpy_wheelhouse() -> Path:
+    """A local folder holding exactly the benchmark jobs' pinned numpy wheel
+    for this interpreter (V0.10 TD1; ``tests/_support/mf_wheelhouse.py``):
+    from the cache, else downloaded once (URL + sha256 from ``uv.lock``). Pass
+    it to ``mf_split_cluster.split_fabric(wheelhouse=...)`` so the agents
+    install offline. Skips with the reason when there is neither a cached
+    wheel nor a network."""
+    from mf_wheelhouse import (
+        WheelhouseUnavailableError,
+        ensure_wheel,
+        locked_wheels,
+        pick_wheel,
+    )
+
+    from meshforge.bench.workloads.materialise import NUMPY_REQUIREMENT
+
+    name, _, version = NUMPY_REQUIREMENT.partition("==")
+    wheel = pick_wheel(locked_wheels(name, version))
+    if wheel is None:
+        pytest.skip(f"uv.lock has no {NUMPY_REQUIREMENT} wheel for this interpreter")
+    try:
+        return ensure_wheel(wheel)
+    except WheelhouseUnavailableError as exc:
+        pytest.skip(str(exc))
+
+
 @pytest.fixture(autouse=True)
 def _trust_the_test_fabric(monkeypatch: pytest.MonkeyPatch) -> None:
     """V0.7 G3: every controller here serves HTTPS with a certificate from the

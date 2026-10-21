@@ -19,12 +19,7 @@ pytest.importorskip("psutil", reason="the cluster harness needs the agent extra"
 pytest.importorskip("sqlalchemy", reason="needs the controller extra")
 
 from mf_cluster import Fabric
-from test_v10_g4_lanes_cluster import (  # type: ignore[import-not-found]
-    _fabric,
-    _sql,
-    _upload,
-    _wait,
-)
+from mf_split_cluster import split_fabric, sql, upload_folder, wait_job
 
 pytestmark = [pytest.mark.cluster, pytest.mark.timeout(600)]
 
@@ -62,7 +57,7 @@ open(os.path.join(out, "ok.txt"), "w").write("x")
 def test_background_churn_in_out_never_leaks_and_the_lanes_survive(
     make_fabric: Callable[..., Fabric], tmp_path: Path, pg_settings: object
 ) -> None:
-    fabric = _fabric(make_fabric)
+    fabric = split_fabric(make_fabric, lease_s=10.0)
     secret = tmp_path / "secret"
     secret.mkdir()
     data = b"agent-private-churn" * 40
@@ -73,7 +68,7 @@ def test_background_churn_in_out_never_leaks_and_the_lanes_survive(
     (root / "config.json").write_text(json.dumps({"secret": str(secret)}))
     for i in range(30):
         (root / "images" / f"{i:04d}.bin").write_bytes(f"x{i}".encode())
-    tree = _upload(fabric, root)
+    tree = upload_folder(fabric, root)
     resp = fabric.call(
         "POST",
         "/v1/jobs",
@@ -91,7 +86,7 @@ def test_background_churn_in_out_never_leaks_and_the_lanes_survive(
     )
     assert resp.status_code == 201, resp.text
     job_id = str(resp.json()["job_id"])
-    job = _wait(fabric, job_id, 240)
+    job = wait_job(fabric, job_id, 240)
     time.sleep(2)
     # whatever the verdict, the private file never reached the controller
     for blob in (data,):
@@ -99,7 +94,7 @@ def test_background_churn_in_out_never_leaks_and_the_lanes_survive(
         assert got.status_code == 404, "LEAK of an agent-private file"
     assert (secret / "key").read_bytes() == data
     # the agents are alive (an unhandled error in a lane must not kill them)
-    lanes = _sql(
+    lanes = sql(
         pg_settings,
         "SELECT state, failure_type, detail FROM attempt WHERE job_id=:j "
         "AND role='lane'",
