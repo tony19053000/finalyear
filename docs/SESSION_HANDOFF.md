@@ -7,7 +7,7 @@
 > **Cold-start prompt** (paste this as the first message on the new account):
 >
 > ```
-> Read docs/SESSION_HANDOFF.md §1, then docs/STATUS.md, then the V0.10 section of docs/DEVELOPMENT_ROADMAP.md.
+> Read docs/SESSION_HANDOFF.md §1, then docs/STATUS.md, then the V0.14 section of docs/DEVELOPMENT_ROADMAP.md.
 > V0.14 started (brief docs/briefs/V0.14-unified-planner-v2.md APPROVED, ADR-0020). G1 stopped mid-run in worktree .claude/worktrees/agent-a0a1e95c1ee7384ec (head 38ae5529, not merged, gates NOT run) — finish ARCHITECTURE §7 amendment, run exit gates + Hand-off (docs/briefs/progress/V0.14-G1.md) → tester ∥ reviewer → merge → 0.14.1 [x]. V0.10 closes on 🧑 0.10.10. Parallel agents OK; no fast mode. Don't delete anything without asking.
 > ```
 >
