@@ -44,9 +44,9 @@ _ESCAPE_SEQUENCE: Final = re.compile(
     + r"|\x1b[ -/]*[0-~]"
 )
 _DROP: Final = {
-    code: None
-    for code in (*range(0x20), 0x7F, *range(0x80, 0xA0))
-    if code not in (0x09, 0x0A)
+    point: None
+    for point in (*range(0x20), 0x7F, *range(0x80, 0xA0))
+    if point not in (0x09, 0x0A)
 }
 
 
