@@ -934,6 +934,20 @@
             ],
             "title": "Node Set"
           },
+          "pruned": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/PrunedOut"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pruned"
+          },
           "rank": {
             "anyOf": [
               {
@@ -4551,6 +4565,25 @@
           "items"
         ],
         "title": "PrepareStatus",
+        "type": "object"
+      },
+      "PrunedOut": {
+        "description": "V0.14 G3 (D294): a node no Mode 3 set was extended with.",
+        "properties": {
+          "by": {
+            "title": "By",
+            "type": "string"
+          },
+          "node_id": {
+            "title": "Node Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "node_id",
+          "by"
+        ],
+        "title": "PrunedOut",
         "type": "object"
       },
       "QualityOut": {

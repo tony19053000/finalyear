@@ -31,6 +31,14 @@ with ``replay_version`` (1), ``now`` (ISO 8601 or null), ``request`` and
 sorted list of ``{src, dst, ...}`` rows) and - only with a shadow plan (D215)
 - ``shadow: {request}``.
 
+**V0.14 G3 optional keys (D307).** ``request.objective``, each node's
+``reliability`` and the configuration's ``risk``, ``prefer_local_margin``,
+``min_useful_bw_bytes_s``, ``min_useful_bytes`` and ``prune_dominated`` are
+always written, and read when present; a replay stored before G3 lacks them
+and decodes to the pre-G3 planner (``min_time``, no risk term, no link
+rejection, no pruning - the :class:`~.types.PlannerConfig` defaults), so it
+still reproduces its stored decision exactly. The version stays 1.
+
 Canonical: sorted keys, no whitespace, no ``NaN``/``Infinity`` literals. A
 float that is not finite, or so large that PostgreSQL's ``jsonb`` (which keeps
 numbers as ``numeric``) would hand it back as an integer, is written

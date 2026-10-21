@@ -68,6 +68,14 @@ class MarginTestOut(_Stored):
     """Why no set was compared: pinned, split_too_small, split_too_few_nodes."""
 
 
+class PrunedOut(_Stored):
+    """V0.14 G3 (D294): a node no Mode 3 set was extended with."""
+
+    node_id: str
+    by: str
+    """The node that would finish every item before it could start."""
+
+
 class CandidateOut(_Stored):
     node_id: str
     """For a ``split`` row: the first (fastest) node of ``node_set``."""
@@ -92,6 +100,9 @@ class CandidateOut(_Stored):
     inactive: tuple[str, ...] | None = None
     """``split`` rows: nodes of the set predicted to get no chunk."""
     margin_test: MarginTestOut | None = None
+    pruned: tuple[PrunedOut, ...] | None = None
+    """V0.14 G3 (D294): split-job rows - nodes left out of every Mode 3 set
+    (absent when none was)."""
 
 
 class ActualOut(ApiModel):

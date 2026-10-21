@@ -1183,6 +1183,27 @@ compute get <JOB_ID>               # outputs -> ./outputs/<JOB_ID>/ (--dest, --f
   `controller.jobs.replay_over_cap` with the size, and the job is placed
   normally - a replay never delays or fails a job. Typical sizes: a few KiB
   for a 4-laptop fabric.
+- **Risk, objectives, hopeless links (V0.14 G3).** Each estimate may end with
+  a `risk` term: the chance the node fails the attempt - from its own
+  node-caused attempt ends (lost, `node_lost`, `owner_preempted`, `disk_full`,
+  `env_error`, `transfer_error`; never the job's own failures) over
+  `[controller.planner] risk_window_days` (7; 0 = no risk term), smoothed by
+  `risk_prior` ([1, 19]: a new laptop is assumed to fail 5 % of attempts) -
+  times what a failure would cost. A job may say what the `cost_model` policy
+  optimises: manifest `objective:` or `compute run --objective`
+  (`min_time` - fastest, the default; `min_network` - fewest bytes over the
+  network; `prefer_local` - stay on the submitting laptop unless another is
+  predicted `prefer_local_margin` (25 %) faster); `[controller.planner]
+  default_objective` applies otherwise, and `plan_decision.objective` records
+  it. A laptop whose freshly measured link would carry more than
+  `min_useful_bytes` (64 MiB) at less than `min_useful_bw_bytes_s` (1 MB/s) is
+  skipped for that job (`link_infeasible`, the job waits for a better link
+  rather than crawling); a stale or unmeasured link never causes it, and a job
+  pinned to a node never gets it. A split job's decision lists laptops it did
+  not split over because one faster laptop would finish everything before they
+  could start (`pruned`). A decision slower than
+  `decision_latency_budget_ms` (100) is logged as
+  `controller.jobs.decision_over_budget` (once per job).
 - `run -f` streams the logs and exits like the job: `0` succeeded; the workload's own
   exit code (1-125) when it failed; `126` when the fabric failed it (the failure type
   is printed: `node_lost`, `deadline_exceeded`, `output_error` …); `128` cancelled.
