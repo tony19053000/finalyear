@@ -15,7 +15,8 @@ G2 D112, :mod:`.plan`), ``network_link`` (V0.6 G4 D111, :mod:`.network`),
 ``api_token`` (V0.7 G4 D141, :mod:`.auth`), ``secret`` (V0.7 G6 D144,
 :mod:`.secret`), ``run_record`` (V0.9 G1 D212, :mod:`.telemetry`),
 ``bench_campaign``, ``bench_run`` (V0.9 G3 D216, :mod:`.bench`),
-``planner_calibration`` (V0.14 G2 D293, :mod:`.calibration`).
+``planner_calibration`` (V0.14 G2 D293, :mod:`.calibration`),
+``planner_eval_report`` (V0.14 G4 D318, :mod:`.planner_eval`).
 """
 
 from meshforge.controller.store.base import Base
@@ -38,6 +39,7 @@ from meshforge.controller.store.models.job import (
 from meshforge.controller.store.models.network import NetworkLink
 from meshforge.controller.store.models.node import Node, NodeSession, SessionEndReason
 from meshforge.controller.store.models.plan import PlanDecision
+from meshforge.controller.store.models.planner_eval import PlannerEvalReport
 from meshforge.controller.store.models.resource import ResourceSnapshot
 from meshforge.controller.store.models.revocation import RevokedCert
 from meshforge.controller.store.models.secret import Secret
@@ -65,6 +67,7 @@ __all__ = [
     "NodeSession",
     "PlanDecision",
     "PlannerCalibration",
+    "PlannerEvalReport",
     "ResourceSnapshot",
     "RevokedCert",
     "RunRecord",
