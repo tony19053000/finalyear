@@ -14,6 +14,9 @@ runtime a base needs, recent env failures and free disk.
   excluded for this retry (V0.6 G3, D110), the environment not known-bad here
   (D116), a free slot of a kind the job can use, under the node cap, enough
   free disk for what it would fetch.
+* :func:`link_rejection` (V0.14 G3, D294) - the node's bytes would come over a
+  **fresh** measured link too slow to be useful (``link_infeasible``), judged
+  before the candidate is costed.
 * :func:`choose_slot` - which slot a job takes (D105): ``gpu: required`` a GPU
   slot; ``preferred`` a GPU slot when one is free and usable, else a CPU slot;
   ``none`` a CPU slot.
@@ -25,6 +28,7 @@ held against it (unknown RAM is not "too little RAM").
 
 from __future__ import annotations
 
+import datetime as dt
 from typing import Final
 
 from meshforge.common import owner_policy
@@ -36,11 +40,13 @@ from meshforge.common.capabilities import (
     EXEC_SUBPROCESS_CAPABILITY,
 )
 from meshforge.controller.planner.types import (
+    ClusterSnapshot,
     NodeSnapshot,
     PlanRequest,
     RejectCode,
     Rejection,
     Slot,
+    TermSource,
     TreeNeed,
 )
 
@@ -48,6 +54,7 @@ __all__ = [
     "EXEC_VENV_CAPABILITY",
     "bench_guard",
     "choose_slot",
+    "link_rejection",
     "live_rejection",
     "missing_bytes",
     "missing_trees",
@@ -316,3 +323,72 @@ def rejection(
     return static_rejection(request, node) or live_rejection(
         request, node, max_attempts_per_node=max_attempts_per_node, local=local
     )
+
+
+# --- V0.14 G3 (D294): link_infeasible ------------------------------------------
+
+_MIB: Final = 1024 * 1024
+
+
+def _fetched(
+    request: PlanRequest, node: NodeSnapshot, *, local: bool
+) -> list[TreeNeed]:
+    """The trees ``node`` would fetch before it runs - a split job's items
+    tree without its items (a lane fetches only its chunks' items, D264)."""
+    split = request.split
+    removed = 0 if split is None else max(0, split.item_bytes or 0)
+    items_tree = None if split is None else split.items_tree
+    out: list[TreeNeed] = []
+    for tree in missing_trees(request, node, local=local):
+        size = tree.size - removed if tree.key == items_tree else tree.size
+        if size > 0:
+            out.append(TreeNeed(tree.key, size))
+    return out
+
+
+def link_rejection(
+    request: PlanRequest,
+    node: NodeSnapshot,
+    snapshot: ClusterSnapshot,
+    *,
+    local: bool,
+    now: dt.datetime | None,
+) -> Rejection | None:
+    """``link_infeasible`` (D294): more than ``min_useful_bytes`` of what the
+    node would fetch would come - by the estimator's own choice of source
+    (:func:`~.estimator.tree_bandwidth`) - over a **fresh** probed link slower
+    than ``min_useful_bw_bytes_s``. A stale or unmeasured link, or the
+    controller's transfer history, never rejects (a missing input is never
+    held against a node); a pinned job or a forced node set is never refused
+    for it (the nodes were named); ``min_useful_bw_bytes_s`` 0 = off."""
+    config = snapshot.config
+    floor = config.min_useful_bw_bytes_s
+    if not floor > 0.0 or request.pinned_node_id is not None or request.node_set:
+        return None
+    # the estimator imports this module (missing_trees): import at call time
+    from meshforge.controller.planner.estimator import tree_bandwidth
+
+    slow_bytes = 0
+    worst: tuple[float, str] | None = None
+    for tree in _fetched(request, node, local=local):
+        bw, source, detail = tree_bandwidth(tree, node, snapshot, now=now)
+        if source is not TermSource.MEASURED or detail.get("bw_source") != "probe":
+            continue
+        if bw >= floor:
+            continue
+        slow_bytes += tree.size
+        holder = str(detail.get("bw_from"))
+        if worst is None or (bw, holder) < worst:
+            worst = (bw, holder)
+    if worst is None or slow_bytes <= config.min_useful_bytes:
+        return None
+    bw, holder = worst
+    return Rejection(
+        RejectCode.LINK_INFEASIBLE,
+        f"the node would fetch {slow_bytes / _MIB:.0f} MiB over a fresh link from "
+        f"{holder} measured at {bw / 1e6:.3f} MB/s (below min_useful_bw_bytes_s "
+        f"{floor / 1e6:.3f} MB/s)",
+    )
+
+
+# --- end V0.14 G3 -----------------------------------------------------------------

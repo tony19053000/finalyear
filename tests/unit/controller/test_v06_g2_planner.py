@@ -237,6 +237,9 @@ def test_every_reject_code_has_a_case() -> None:
     # V0.14 G1 (D290): refuses a request kind, never a node - its case is in
     # tests/unit/planner/test_v014_g1_candidates.py
     covered |= {RejectCode.NOT_SUPPORTED_IN_BUILD}
+    # V0.14 G3 (D294): needs a snapshot (a fresh slow link) - its cases are in
+    # tests/unit/planner/test_v014_g3_link_infeasible.py
+    covered |= {RejectCode.LINK_INFEASIBLE}
     assert covered == set(RejectCode)
     assert {c for c, _, _ in STATIC_CASES} == STATIC_CODES
 

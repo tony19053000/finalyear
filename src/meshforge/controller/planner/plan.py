@@ -37,11 +37,19 @@ from meshforge.controller.planner.candidates import STORED_MODE, candidates
 from meshforge.controller.planner.estimator import estimate
 from meshforge.controller.planner.feasibility import (
     choose_slot,
+    link_rejection,
     rejection,
     static_rejection,
 )
+from meshforge.controller.planner.objectives import (
+    COST_MODEL,
+    objective_of,
+    rank_singles,
+    reason_suffix,
+)
 from meshforge.controller.planner.policies import Scored, rank
 from meshforge.controller.planner.retry_exclusion import LIFT_ORDER
+from meshforge.controller.planner.risk import risked_singles
 from meshforge.controller.planner.split_plan import decide_split
 from meshforge.controller.planner.types import (
     CandidateEval,
@@ -49,6 +57,7 @@ from meshforge.controller.planner.types import (
     Decision,
     Mode,
     NodeSnapshot,
+    Objective,
     PlannerConfig,
     PlanRequest,
     Slot,
@@ -126,13 +135,15 @@ def snapshot_digest(request: PlanRequest, snapshot: ClusterSnapshot) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def _reason_key(evals: list[CandidateEval]) -> str:
+def _reason_key(evals: list[CandidateEval], objective: Objective | None = None) -> str:
     # a Mode 3 set row is keyed by its mode, not its head node (V0.10 G3)
     parts = sorted(
         f"{'split' if c.mode == 'split' else c.node_id}:"
         f"{c.rejection.code.value if c.rejection else 'ok'}"
         for c in evals
     )
+    if objective is not None:  # V0.14 G3 (D295): the objective changed the pick
+        parts.append(reason_suffix(objective))
     return hashlib.sha256("\n".join(parts).encode("ascii")).hexdigest()
 
 
@@ -204,6 +215,7 @@ def plan(
     """See module docstring. ``now`` judges the age of network-matrix links
     (V0.6 G4, D111); without it no link counts as fresh."""
     config = snapshot.config
+    objective = objective_of(request.objective)  # V0.14 G3: unknown -> ValueError
     request = _with_exclusion(request, snapshot)
     evals: list[CandidateEval] = []
     scored: list[Scored] = []
@@ -224,6 +236,13 @@ def plan(
         slot = choose_slot(request, node)
         if slot is None:  # pragma: no cover - live_rejection already said slots_full
             raise AssertionError("a feasible candidate without a slot")
+        # V0.14 G3 (D294): a hopeless fresh link is refused before costing
+        hopeless = link_rejection(request, node, snapshot, local=local, now=now)
+        if hopeless is not None:
+            evals.append(
+                CandidateEval(node.node_id, mode, feasible=False, rejection=hopeless)
+            )
+            continue
         if request.split is not None:
             feasible.append((node, local, slot))
             continue
@@ -232,21 +251,41 @@ def plan(
         evals.append(
             CandidateEval(node.node_id, mode, feasible=True, slot=slot, estimate=guess)
         )
-    if request.split is not None:
-        rows, picked, split_plan = decide_split(
-            request, snapshot, policy, feasible, now=now
+    # V0.14 G3 (D296): the risk term, once every single is costed
+    if scored:
+        risked = risked_singles(
+            [(item.node, item.estimate) for item in scored], config.risk
         )
-        rows = [*rows, *evals]
+        scored = [replace(i, estimate=e) for i, e in zip(scored, risked, strict=True)]
+        by_node = {item.node.node_id: item.estimate for item in scored}
+        evals = [
+            replace(e, estimate=by_node[e.node_id]) if e.feasible else e for e in evals
+        ]
+    if request.split is not None:
+        outcome = decide_split(request, snapshot, policy, feasible, now=now)
+        rows = [*outcome.rows, *evals]
         rows.sort(key=lambda c: (c.rank is None, c.rank or 0, c.node_id))
         return Decision(
             policy=policy,
             candidates=tuple(rows),
-            chosen=picked,
+            chosen=outcome.chosen,
             snapshot_digest=snapshot_digest(request, snapshot),
-            reason_key=_reason_key(rows),
-            split=split_plan,
+            reason_key=_reason_key(
+                rows, objective if outcome.objective_changed else None
+            ),
+            split=outcome.plan,
+            objective=request.objective,
+            pruned=outcome.pruned,
         )
-    ranking = {r.node_id: r for r in rank(policy, request, snapshot, scored)}
+    # V0.14 G3 (D295): cost_model ranks by the objective (min_time = as before)
+    changed = False
+    if policy == COST_MODEL and objective != "min_time":
+        ranked, changed = rank_singles(
+            objective, scored, prefer_local_margin=config.prefer_local_margin
+        )
+    else:
+        ranked = rank(policy, request, snapshot, scored)
+    ranking = {r.node_id: r for r in ranked}
     final: list[CandidateEval] = []
     chosen: CandidateEval | None = None
     for item in evals:
@@ -262,5 +301,6 @@ def plan(
         candidates=tuple(final),
         chosen=chosen,
         snapshot_digest=snapshot_digest(request, snapshot),
-        reason_key=_reason_key(final),
+        reason_key=_reason_key(final, objective if changed and chosen else None),
+        objective=request.objective,
     )
