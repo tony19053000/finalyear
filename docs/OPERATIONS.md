@@ -1183,6 +1183,47 @@ compute get <JOB_ID>               # outputs -> ./outputs/<JOB_ID>/ (--dest, --f
   `controller.jobs.replay_over_cap` with the size, and the job is placed
   normally - a replay never delays or fails a job. Typical sizes: a few KiB
   for a 4-laptop fabric.
+- **Planner calibration (V0.14 G2, D293/D301/D306).** The planner corrects its
+  own predictions from what really happened. For each predicted term with an
+  honest measured phase - `transfer` <-> `stage`, `env` <-> `env`, `compute` <->
+  `run`, `output` <-> `collect` (a split job: only its lanes' `stage` and
+  `env`) - a **factor** is the median `actual / predicted` over the last
+  `calibration_window_runs` (200) finished runs of that key, **node + workload
+  family**, else **node**, else **global**, shrunk toward 1 by `n / (n + k)`
+  (`calibration_shrink_k` 5: one odd run cannot swing it) and clamped to
+  `calibration_clamp` ([0.2, 5]). A term that is `measured` (a cached env, 0 s
+  queue) is never scaled. Only runs that finished `done` on the node their
+  decision chose count (pinned and campaign runs too); a Mode 3 set's blended
+  terms never do. `compute explain` / the stored candidates then show each
+  scaled term with `detail.calibration` (`factor`, `n`, `key_level`,
+  `version`, `raw_s` = the uncalibrated prediction), and
+  `plan_decision.calibration_version` names the version (`plan_decision.replay`
+  carries its factors, so a replay reproduces the decision exactly).
+  - **Versions and safety.** Every fit is a row of `planner_calibration`
+    (`active` / `rejected` / `superseded`). A new fit is judged on the **newest
+    20 %** of matched runs, which it was not fitted on: it goes live only if its
+    mean `|ln(predicted / actual)|` there is at most **1.05 x** the active
+    version's (or no calibration's); otherwise it is stored `rejected` with the
+    reason. At most one row is ever `active` (a unique index; refreshes run one
+    at a time under a database lock). Fewer than 2 matched runs, or nothing to
+    fit, writes nothing.
+  - **Refresh:** every `calibration_refresh_s` (1800 s, first one interval
+    after start) and on demand: `compute planner calibrate` (admin) prints the
+    new version or why nothing was written; `compute planner calibration
+    [--version N]` shows the factors with `n` and key level and what the
+    planner uses now. A failed refresh is logged
+    (`controller.planner.calibration_refresh_failed`) and the active version
+    stays; dispatch never waits for it - the dispatcher re-reads the active
+    version id once per tick and keeps the one it had if that read fails
+    (`controller.planner.calibration_read_failed`).
+  - **`[controller.planner] calibration`**: `"auto"` (default: the active
+    version), `"off"` (no calibration, no refresh task), or a version number
+    such as `"7"` to **pin** it - the controller refuses to start if that
+    version does not exist or cannot be read (never a silent fallback). With
+    `off` or a pin, `compute planner calibrate` still fits and gates, but the
+    planner keeps what the setting says. `calibration_window_runs` 1-1000,
+    `calibration_shrink_k` > 0, `calibration_clamp` 0 < low < 1 < high <= 1000,
+    `calibration_refresh_s` 10 s - 7 days.
 - `run -f` streams the logs and exits like the job: `0` succeeded; the workload's own
   exit code (1-125) when it failed; `126` when the fabric failed it (the failure type
   is printed: `node_lost`, `deadline_exceeded`, `output_error` …); `128` cancelled.
