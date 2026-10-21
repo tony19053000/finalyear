@@ -19,9 +19,23 @@ readable text:
   ``\\r``, as progress bars write, -> ``\\n``), so a later line cannot
   overprint an earlier one and progress updates stay readable;
 * every other **C0** control (``0x00``-``0x1f`` except ``\\t`` and ``\\n``),
-  ``DEL`` and every **C1** control (``0x80``-``0x9f``) is dropped.
+  ``DEL`` and every **C1** control (``0x80``-``0x9f``) is dropped;
+* the invisible **spoofing** characters are dropped too (V0.10 TD2, D-1):
+  bidi embeddings / overrides / isolates / marks (``U+202A``-``U+202E``,
+  ``U+2066``-``U+2069``, ``U+200E``, ``U+200F``, ``U+061C``) - which make a
+  terminal or browser show text in a different order than it is stored
+  (``"harmless\\u202etxt.exe"`` displays as ``harmlessexe.txt``) - and the
+  zero-width characters (``U+200B``-``U+200D``, ``U+2060``, ``U+FEFF``),
+  which hide text inside a word that looks like another. **Trade-off:** the
+  zero-width joiner inside an emoji sequence goes too (a family emoji shows
+  as its separate people) and so does the zero-width non-joiner some scripts
+  (Persian, Indic) use for shaping; the text stays readable, it only
+  renders differently. A stored tail is evidence for an operator, so an
+  unambiguous display wins over the exact glyph.
 
-Pure; linear in the input (no backtracking pattern can be made to blow up).
+Pure; linear in the input: the escape pattern's bodies stop at every
+introducer (no backtracking pattern can be made to blow up) and the character
+drops are one ``str.translate``.
 """
 
 from __future__ import annotations
@@ -46,17 +60,35 @@ _ESCAPE_SEQUENCE: Final = re.compile(
     # any other ESC sequence: intermediates, one final byte
     + r"|\x1b[ -/]*[0-~]"
 )
+_BIDI_CONTROLS: Final = (
+    *range(0x202A, 0x202F),  # LRE RLE PDF LRO RLO
+    *range(0x2066, 0x206A),  # LRI RLI FSI PDI
+    0x200E,  # LRM
+    0x200F,  # RLM
+    0x061C,  # ALM
+)
+_ZERO_WIDTH: Final = (
+    *range(0x200B, 0x200E),  # ZWSP ZWNJ ZWJ
+    0x2060,  # WORD JOINER
+    0xFEFF,  # ZWNBSP / BOM
+)
 _DROP: Final = {
     point: None
-    for point in (*range(0x20), 0x7F, *range(0x80, 0xA0))
+    for point in (
+        *range(0x20),
+        0x7F,
+        *range(0x80, 0xA0),
+        *_BIDI_CONTROLS,
+        *_ZERO_WIDTH,
+    )
     if point not in (0x09, 0x0A)
 }
 
 
 def strip_terminal_controls(text: str) -> str:
-    """``text`` without terminal escape sequences or control characters,
-    keeping ``\\n`` and ``\\t`` (carriage returns become ``\\n``; module
-    docstring)."""
+    """``text`` without terminal escape sequences, control characters or
+    bidi / zero-width spoofing characters, keeping ``\\n`` and ``\\t``
+    (carriage returns become ``\\n``; module docstring)."""
     if not text:
         return text
     text = _ESCAPE_SEQUENCE.sub("", text)

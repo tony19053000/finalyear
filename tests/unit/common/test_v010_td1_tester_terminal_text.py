@@ -138,7 +138,9 @@ def test_sequence_split_by_removal_cannot_be_reassembled() -> None:
     [
         "héllo wörld",
         "\u65e5\u672c\u8a9e\u306e\u30a8\u30e9\u30fc: not found",
-        "emoji \U0001f680\U0001f525 and ZWJ \U0001f469\u200d\U0001f4bb",
+        # V0.10 TD2 (D-1): a ZWJ emoji sequence is no longer kept as-is (the
+        # joiner is a zero-width spoofing character, dropped by design)
+        "emoji \U0001f680\U0001f525 and \U0001f469\U0001f4bb",
         "\u0391\u0392\u0393 \u00a0nbsp \u00e9 \u00ff",  # U+00A0..U+00FF are not C1
         "\u2028\u2029 separators",
         "\U0001d518\U0001d52b",
@@ -156,12 +158,8 @@ def test_c1_as_unicode_codepoints_are_stripped_but_neighbours_kept() -> None:
         )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="OBSERVATION (minor): bidi overrides / zero-width spoofing characters "
-    "are not terminal controls and are kept; listed in the tester report",
-)
 def test_bidi_override_is_removed() -> None:
+    # V0.10 TD2 (D-1): was a strict xfail - bidi / zero-width are now dropped
     assert chr(0x202E) not in strip("harmless" + chr(0x202E) + "txt.exe")  # RLO
 
 

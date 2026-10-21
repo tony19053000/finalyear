@@ -64,6 +64,7 @@ from meshforge.common.states import (
     AttemptState,
     JobState,
 )
+from meshforge.common.terminal_text import strip_terminal_controls
 from meshforge.controller.events import changes
 from meshforge.controller.jobs.transitions import (
     AttemptEvent,
@@ -142,10 +143,18 @@ class IdempotencyConflictError(MeshForgeError):
 
 
 def clean_detail(text: str | None) -> str | None:
-    """Printable, at most ``MAX_DETAIL_CHARS`` characters (it reaches terminals)."""
+    """One printable line of at most ``MAX_DETAIL_CHARS`` characters (it
+    reaches terminals): the single storage chokepoint for every failure /
+    event detail (job, attempt, chunk). Terminal escape sequences and the bidi
+    / zero-width spoofing characters are removed whole first
+    (:func:`~meshforge.common.terminal_text.strip_terminal_controls`, V0.10
+    TD2), so a colour code leaves no ``[31m`` residue; anything else that is
+    not printable (a line break, a tab) becomes a space. Cut after cleaning, so
+    a cut can never split a sequence into a visible half."""
     if text is None:
         return None
-    flat = "".join(ch if ch.isprintable() else " " for ch in text)
+    stripped = strip_terminal_controls(text)
+    flat = "".join(ch if ch.isprintable() else " " for ch in stripped)
     return flat[:MAX_DETAIL_CHARS]
 
 

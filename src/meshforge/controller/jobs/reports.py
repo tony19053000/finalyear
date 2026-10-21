@@ -5,6 +5,16 @@ item 9) and a report that breaks a bound is **refused, never cleaned** (the D22
 rule of the Hello strings): the caller drops it, logs the reason (which never
 echoes the value) and counts it. :func:`parse_status` returns the typed
 :class:`~.execution_store.StatusReport` or the reason string.
+
+One exception (V0.10 TD2): the strings inside the two free-form JSON
+documents - ``workload.params_json`` (written by the **job**) and
+``condition.measured_json`` - are **cleaned**, not refused: every key and
+string value goes through
+:func:`~meshforge.common.terminal_text.strip_terminal_controls`, so the stored
+document (served by the API and the telemetry export, where ``jq -r`` would
+print a string raw) cannot carry an escape sequence or a bidi / zero-width
+spoof. Refusing would drop the attempt's terminal report over a free-form
+benchmark value.
 """
 
 from __future__ import annotations
@@ -24,6 +34,7 @@ from meshforge.common.proto_codec import (
     failure_type_from_proto,
 )
 from meshforge.common.states import AttemptState
+from meshforge.common.terminal_text import strip_terminal_controls
 from meshforge.controller.jobs.execution_store import StatusReport, TransferRow
 from meshforge.controller.jobs.progress import (
     AGENT_REPORTABLE,
@@ -127,7 +138,7 @@ def _workload(
             return "AttemptStatus.workload.params_json is not a JSON object"
         if not _storable_json(parsed):
             return "AttemptStatus.workload.params_json has a NUL or a lone surrogate"
-        params = parsed
+        params = _display_safe(parsed)
     compute_ns = None if phases is None else phases.compute_ns
     iterations: int | None = None
     if w.HasField("compute_iterations"):
@@ -194,7 +205,7 @@ def _condition(
             return "AttemptStatus.condition.measured_json is not a JSON object"
         if not _storable_json(parsed):
             return "AttemptStatus.condition.measured_json has a NUL or a lone surrogate"
-        measured = parsed
+        measured = _display_safe(parsed)
     if c.verified and c.reason:
         return "AttemptStatus.condition is verified with a reason"
     return {
@@ -228,6 +239,38 @@ def _storable_json(value: object) -> bool:
             except UnicodeEncodeError:
                 return False
     return True
+
+
+def _display_safe(document: dict[str, Any]) -> dict[str, Any]:
+    """``document`` with every key and string value passed through
+    :func:`strip_terminal_controls` (module docstring). Iterative - the depth
+    is bounded only by the JSON parser - and a copy: two keys that clean to the
+    same text keep the later value, as a JSON object with a repeated key
+    does."""
+    out: dict[str, Any] = {}
+    stack: list[tuple[Any, dict[str, Any] | list[Any]]] = [(document, out)]
+    while stack:
+        source, target = stack.pop()
+        items = (
+            source.items() if isinstance(source, dict) else ((None, v) for v in source)
+        )
+        for key, value in items:
+            cleaned: Any
+            if isinstance(value, str):
+                cleaned = strip_terminal_controls(value)
+            elif isinstance(value, dict):
+                cleaned = {}
+                stack.append((value, cleaned))
+            elif isinstance(value, list):
+                cleaned = []
+                stack.append((value, cleaned))
+            else:
+                cleaned = value
+            if isinstance(target, dict):
+                target[strip_terminal_controls(str(key))] = cleaned
+            else:
+                target.append(cleaned)
+    return out
 
 
 def _no_constant(name: str) -> Any:
