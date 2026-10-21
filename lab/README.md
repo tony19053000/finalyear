@@ -10,6 +10,8 @@ lab/
   agent_rss.py      V0.3 soak: the agent process's RSS on each laptop (0.3.15)
   sched_check.py    V0.6 scheduling lab: submit the mixed job set, wait, check the ledger (0.6.13)
   _sched/           its verdict (lost / duplicated / partition overlaps), pure
+  mode3_check.py    V0.10 Mode 3 lab: build a split job of any size, verify an output, criteria 2-3 report (0.10.10)
+  _mode3/           its criteria 2-3 arithmetic (D274), pure
   _fabric/          helpers for both (stdlib REST client, timeline maths, checkpoints, reports)
   checklists/       step-by-step human procedures, e.g. V0.3-fabric.md
   spikes/           feasibility spikes S1–S7              (tasks 0.2.5–0.2.11)
