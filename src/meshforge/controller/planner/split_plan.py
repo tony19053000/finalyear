@@ -52,6 +52,7 @@ from meshforge.controller.planner.split import (
     chunk_overhead,
     estimate_split,
     lane,
+    set_chunk,
 )
 from meshforge.controller.planner.types import (
     CandidateEval,
@@ -100,23 +101,6 @@ def _single_chunk(
         split.items,
         fastest_per_item_s=lone.per_item_s,
         lanes=1,
-        overhead_s=overhead.seconds,
-        config=snapshot.config.split,
-        fixed=split.chunk_items,
-    )
-
-
-def _set_chunk(
-    split: SplitInfo,
-    group: Sequence[Lane],
-    request: PlanRequest,
-    snapshot: ClusterSnapshot,
-) -> ChunkChoice:
-    overhead = chunk_overhead(request, snapshot.config.split)
-    return choose_chunk_items(
-        split.items,
-        fastest_per_item_s=min(item.per_item_s for item in group),
-        lanes=len(group),
         overhead_s=overhead.seconds,
         config=snapshot.config.split,
         fixed=split.chunk_items,
@@ -280,7 +264,7 @@ def decide_split(
     sets: list[SetEstimate] = []
     for candidate in generated.sets:
         members = [by_lane[node_id] for node_id in candidate.node_set]
-        chunk = _set_chunk(split, members, request, snapshot)
+        chunk = set_chunk(request, members, snapshot)  # V0.14 G3: shared rule
         sets.append(estimate_split(request, members, snapshot, chunk, now=now))
     forced_row = next((_refused_row(c) for c in generated.refused_sets), None)
     # V0.14 G3 (D296): the risk term - the margin test compares risked totals

@@ -89,7 +89,7 @@ Guaranteed fields per command (`a[].b` = field `b` of every item of list `a`; `a
 | `compute jobs` | `GET /v1/jobs` | `jobs`, `count`, `next_cursor`, `jobs[].job_id`, `jobs[].name`, `jobs[].state`, `jobs[].placement`, `jobs[].failure_type`, `jobs[].created_at` |
 | `compute jobs JOB_ID` | `GET /v1/jobs/{job_id}` | `job_id`, `name`, `state`, `failure_type`, `failure_detail`, `placement`, `created_at`, `updated_at`, `attempts`, `inputs`, `transitions` |
 | `compute watch JOB_ID` | `GET /v1/jobs/{job_id}/split` | `job_id`, `job_state`, `queue_state`, `items_total`, `items_done`, `chunks.total`, `chunks.pending`, `chunks.leased`, `chunks.done`, `chunks.failed`, `lanes[].node_id`, `lanes[].state`, `lanes[].chunks_done`, `lanes[].items_done`, `lanes[].rate_items_s`, `lanes[].current`, `eta_s`, `elapsed_s`, `predicted_s`, `warnings` |
-| `compute explain JOB_ID` | `GET /v1/jobs/{job_id}/decisions` | `job_id`, `decisions`, `count`, `decisions[].policy`, `decisions[].outcome`, `decisions[].chosen_node_id`, `decisions[].candidates`, `decisions[].actual` |
+| `compute explain JOB_ID` | `GET /v1/jobs/{job_id}/decisions` | `job_id`, `decisions`, `count`, `decisions[].policy`, `decisions[].objective` (V0.14; null on older decisions), `decisions[].outcome`, `decisions[].chosen_node_id`, `decisions[].candidates`, `decisions[].actual` |
 | `compute network` | `GET /v1/network` | `now`, `stale_after_s`, `links`, `controller_links`, `failures`, `prober` |
 | `compute whoami` | `GET /v1/auth/whoami` | `user`, `user.name`, `user.role`, `legacy`, `token_id`, `token_expires_at` |
 | `compute tokens list` | `GET /v1/auth/tokens` | `tokens`, `count`, `tokens[].id`, `tokens[].user`, `tokens[].name`, `tokens[].kind`, `tokens[].state`, `tokens[].current`, `tokens[].expires_at` |

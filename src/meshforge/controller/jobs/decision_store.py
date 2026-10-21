@@ -56,6 +56,9 @@ class DecisionRecordOut:
     shadow_chosen_node_id: str | None = None
     """V0.9 G3 (D215): a pinned job's would-have-chosen node."""
     shadow_estimate_s: float | None = None
+    objective: str | None = None
+    """V0.14 G3 (D295): the objective the decision ranked by (``None`` for a
+    row written before migration 0030)."""
 
 
 class DecisionReads(JobStore):
@@ -119,6 +122,7 @@ class DecisionReads(JobStore):
                     actual=None if r.attempt_id is None else actual.get(r.attempt_id),
                     shadow_chosen_node_id=r.shadow_chosen_node_id,
                     shadow_estimate_s=r.shadow_estimate_s,
+                    objective=r.objective,
                 )
                 for r in rows
             ]

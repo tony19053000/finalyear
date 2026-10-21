@@ -1863,6 +1863,17 @@
             "title": "Id",
             "type": "integer"
           },
+          "objective": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Objective"
+          },
           "outcome": {
             "enum": [
               "dispatched",
@@ -4568,7 +4579,7 @@
         "type": "object"
       },
       "PrunedOut": {
-        "description": "V0.14 G3 (D294): a node no Mode 3 set was extended with.",
+        "description": "V0.14 G3 (D294): an idle node some Mode 3 sets were skipped for.",
         "properties": {
           "by": {
             "title": "By",

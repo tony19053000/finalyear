@@ -521,7 +521,7 @@ async def read_fabric(
         fabric.used[str(node_id)] = [int(cpu), int(gpu)]
     fabric.gpus_held = await _gpus_held(db, live_states)
     if risk_since is not None:  # V0.14 G3 (D296)
-        fabric.reliability = await _reliability(db, risk_since)
+        fabric.reliability = await _reliability(db, risk_since, list(fabric.nodes))
     job_ids = [j.id for j in jobs]
     if not job_ids:
         return fabric
@@ -602,13 +602,18 @@ _CLEAN_FAILURES: Final = failure_types_of(EndClass.CLEAN)
 
 
 async def _reliability(
-    db: AsyncSession, since: dt.datetime
+    db: AsyncSession, since: dt.datetime, node_ids: Sequence[str]
 ) -> dict[str, tuple[int, int]]:
     """node_id -> (node-caused, counted) attempt ends since ``since``, by the
     planner's classification (:func:`~meshforge.controller.planner.risk.
     classify_end`): ``lost`` and node-caused failure types are failures;
     ``done`` and workload failures count only in the total; the rest
-    (``fenced``, ``cancelled`` ...) not at all. One grouped query (no N+1)."""
+    (``fenced``, ``cancelled`` ...) not at all. One grouped query (no N+1),
+    over exactly ``node_ids`` - the snapshot's nodes (already bounded by
+    ``MAX_NODES``), so no row cap can drop a node the planner sees (G3
+    review N3)."""
+    if not node_ids:
+        return {}
     lost = Attempt.state == AttemptState.LOST.value
     failed = Attempt.state == AttemptState.FAILED.value
     node_caused = or_(lost, and_(failed, Attempt.failure_type.in_(_NODE_CAUSED)))
@@ -623,9 +628,12 @@ async def _reliability(
             func.count().filter(node_caused),
             func.count().filter(counted),
         )
-        .where(Attempt.ended_at.is_not(None), Attempt.ended_at >= _now(since))
+        .where(
+            Attempt.node_id.in_(sorted(node_ids)),
+            Attempt.ended_at.is_not(None),
+            Attempt.ended_at >= _now(since),
+        )
         .group_by(Attempt.node_id)
-        .limit(MAX_NODES)
     )
     return {
         str(node_id): (int(failures), int(total))

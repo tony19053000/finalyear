@@ -1199,9 +1199,11 @@ compute get <JOB_ID>               # outputs -> ./outputs/<JOB_ID>/ (--dest, --f
   `min_useful_bytes` (64 MiB) at less than `min_useful_bw_bytes_s` (1 MB/s) is
   skipped for that job (`link_infeasible`, the job waits for a better link
   rather than crawling); a stale or unmeasured link never causes it, and a job
-  pinned to a node never gets it. A split job's decision lists laptops it did
-  not split over because one faster laptop would finish everything before they
-  could start (`pruned`). A decision slower than
+  pinned to a node never gets it. A split job's decision lists laptops whose
+  sets were not costed because one faster laptop would finish everything before
+  they could start, so adding them changes nothing (`pruned`; the chosen plan is
+  always the one without pruning). `compute explain` names the job's objective
+  next to the policy. A decision slower than
   `decision_latency_budget_ms` (100) is logged as
   `controller.jobs.decision_over_budget` (once per job).
 - `run -f` streams the logs and exits like the job: `0` succeeded; the workload's own

@@ -141,6 +141,12 @@ def _score_cell(score: Any) -> Any:
     return _cell(score) if number is None else _cell(f"{number:g}")
 
 
+def _objective_note(decision: Mapping[str, Any]) -> str:
+    """V0.14 G3 (D295): the job's resolved objective (absent on older rows)."""
+    objective = decision.get("objective")
+    return f", objective {objective}" if isinstance(objective, str) else ""
+
+
 def _candidates_table(decision: Mapping[str, Any]) -> Table:
     from meshforge.cli.render import _cell
 
@@ -155,6 +161,7 @@ def _candidates_table(decision: Mapping[str, Any]) -> Table:
         title=_cell(
             f"decision {decision.get('id')} - attempt {decision.get('attempt_no')}: "
             f"{decision.get('outcome')} (policy {decision.get('policy')})"
+            + _objective_note(decision)
         ),
     )
     candidates = decision.get("candidates")
@@ -329,7 +336,7 @@ def _split_verdict(rows: list[Mapping[str, Any]]) -> str:
 
 
 def _pruned_sentence(rows: list[Mapping[str, Any]]) -> str:
-    """V0.14 G3 (D294): which nodes no set was extended with, and why."""
+    """V0.14 G3 (D294): which idle nodes sets were skipped for, and why."""
     pruned = next((c.get("pruned") for c in rows if c.get("pruned")), None)
     if not isinstance(pruned, list) or not pruned:
         return ""
@@ -339,7 +346,7 @@ def _pruned_sentence(rows: list[Mapping[str, Any]]) -> str:
         if isinstance(p, Mapping)
     ]
     return (
-        "; left out of every set: "
+        "; sets that only add an idle node were not costed: "
         + ", ".join(parts)
         + " - the faster node would finish every item before it could start"
     )

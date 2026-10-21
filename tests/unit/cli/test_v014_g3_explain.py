@@ -24,7 +24,7 @@ from meshforge.controller.planner.types import Decision, Reliability
 pytestmark = pytest.mark.unit
 
 
-def _payload(decision: Decision) -> dict[str, Any]:
+def _payload(decision: Decision, **extra: Any) -> dict[str, Any]:
     rows = [
         CandidateOut.model_validate(row).model_dump(mode="json", exclude_none=True)
         for row in candidates_json(decision)
@@ -42,15 +42,16 @@ def _payload(decision: Decision) -> dict[str, Any]:
                 "snapshot_digest": decision.snapshot_digest,
                 "candidates": rows,
                 "actual": None,
+                **extra,
             }
         ]
     }
 
 
-def _text(decision: Decision) -> str:
+def _text(decision: Decision, **extra: Any) -> str:
     out = io.StringIO()
     console = Console(file=out, width=400, color_system=None)
-    for table in decision_tables(_payload(decision)):
+    for table in decision_tables(_payload(decision, **extra)):
         console.print(table)
     return out.getvalue()
 
@@ -74,6 +75,10 @@ def test_the_risk_term_is_a_column_with_its_source() -> None:
 
 def test_pruned_nodes_are_named_with_the_node_that_dominates_them() -> None:
     request, snapshot, now = synthetic_fabric(4, split=True, seed=3)
+    # fixed chunks: the chunking ignores the lane count, so the set with the
+    # idle far node is strictly dominated (fix round 1)
+    split = dataclasses.replace(request.split, chunk_items=10)  # type: ignore[type-var]
+    request = dataclasses.replace(request, split=split)
     far = [n.node_id for n in snapshot.nodes if not n.cached][-1]
     slow = dataclasses.replace(
         snapshot,
@@ -93,8 +98,11 @@ def test_pruned_nodes_are_named_with_the_node_that_dominates_them() -> None:
     )
     decision = plan(request, slow, "cost_model", now)
     assert decision.pruned
-    text = _text(decision)
-    assert f"left out of every set: {far} (by {decision.pruned[0].by})" in text
+    text = " ".join(_text(decision).split())  # the title wraps
+    assert (
+        f"sets that only add an idle node were not costed: {far} "
+        f"(by {decision.pruned[0].by})"
+    ) in text
 
 
 def test_a_set_kept_out_by_the_objective_says_so() -> None:
@@ -112,3 +120,22 @@ def test_a_set_kept_out_by_the_objective_says_so() -> None:
     assert "passed the margin test, but the job's objective ranked one node first" in (
         _text(decision)
     )
+
+
+@pytest.mark.parametrize("objective", ["min_time", "min_network", "prefer_local"])
+def test_the_resolved_objective_is_printed(objective: str) -> None:
+    """Fix round 1 (tester r1 O1): the decisions API carries the job's
+    resolved objective and explain names it next to the policy."""
+    request, snapshot, now = synthetic_fabric(3, split=False, seed=1)
+    decision = plan(request, snapshot, "cost_model", now)
+    text = " ".join(_text(decision, objective=objective).split())  # title wraps
+    assert f"dispatched (policy cost_model), objective {objective}" in text
+
+
+def test_a_decision_without_an_objective_prints_as_before() -> None:
+    request, snapshot, now = synthetic_fabric(3, split=False, seed=1)
+    decision = plan(request, snapshot, "cost_model", now)
+    for extra in ({}, {"objective": None}):
+        text = _text(decision, **extra)
+        assert "dispatched (policy cost_model)" in text
+        assert "objective" not in text

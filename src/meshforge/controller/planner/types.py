@@ -696,12 +696,16 @@ class CandidateEval:
 
 @dataclass(frozen=True, slots=True)
 class Pruned:
-    """V0.14 G3 (D294): a node no Mode 3 set was extended with."""
+    """V0.14 G3 (D294): an idle-dominated node at least one Mode 3 set was
+    skipped for - the set with it predicts exactly the set without it (same
+    chunking, the node gets no chunk), so only that strictly dominated set
+    was not costed (:mod:`~.candidates`)."""
 
     node_id: str
     by: str
-    """The node that dominates it (already in every set, faster on every
-    lane term and able to finish all items before this one could start)."""
+    """The node that dominates it (in every set this one is in, no worse on
+    every lane term and able to finish all items before this one could
+    start)."""
 
 
 @dataclass(frozen=True, slots=True)

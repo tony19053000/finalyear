@@ -33,22 +33,28 @@ here without touching a caller.
   - fewer than ``2 x min_nodes`` items -> a rejected set (``split_too_small``);
   - fewer than ``min_nodes`` lanes -> a rejected set (``split_too_few_nodes``);
   - otherwise the fastest-first prefix sets (:func:`~.split.prefix_sets`,
-    O(N): the V0.10 G3 pruning) - over the lanes left after **dominance
-    pruning** (V0.14 G3, D294, :func:`dominated_lanes`).
+    O(N): the V0.10 G3 pruning), less the sets **dominance pruning** proves
+    strictly dominated (V0.14 G3, D294, :func:`dominated_lanes`).
 
-**Dominance pruning** (``PlannerConfig.prune_dominated``). Lane ``B`` is not a
-set extender when an already-included lane ``A`` (earlier in rate order, not
-pruned itself) dominates it - no worse on both lane terms (start =
-stage + env, seconds per item = ``1/r + f``) and better on one - **and** has
-the capacity to take ``B``'s share: ``A`` alone would finish every item before
-``B`` could even start (``start_A + items x per_item_A + chunks x t_o <=
-start_B``, with the most chunks the chunk rules allow). ``B`` would then get no
-chunk in any set it is in (the water filling of :func:`~.split.estimate_split`
-marks it inactive), so a set with ``B`` is the same work as the set without it
-plus an idle lane: every such set is strictly dominated. Equal lanes never
-dominate each other, ``B`` stays a one-lane candidate, and a forced or pinned
-job is never pruned. The decision records each pruned node with the one that
-dominates it (:attr:`~.types.Decision.pruned`).
+**Dominance pruning** (``PlannerConfig.prune_dominated``). It may only skip
+costing a set; it never changes what any other set is, so the chosen plan is
+exactly the unpruned one. Lane ``B`` is *idle-dominated* when an
+already-included lane ``A`` (earlier in rate order, not dominated itself) is
+no worse on both lane terms (start = stage + env, seconds per item =
+``1/r + f``), better on one, **and** alone finishes every item before ``B``
+could even start (``start_A + items x per_item_A + chunks x t_o <= start_B``,
+with the most chunks the chunk rules allow). ``A`` is then in every prefix set
+``B`` is in, and the water filling of :func:`~.split.estimate_split` gives
+``B`` no chunk there. A generated set ``P`` that holds idle-dominated lanes is
+skipped only when ``P'`` = ``P`` without them is generated too **and** has the
+same chunking (:func:`~.split.set_chunk` - the auto chunk size depends on the
+set's lane count, so dropping an idle lane can change it): ``P`` then predicts
+exactly ``P'``'s time on the same active lanes and chunks, and loses the tie
+to the smaller ``P'`` under every ranking, so it is strictly dominated. Equal
+lanes never dominate each other, ``B`` stays a one-lane candidate, and a
+forced or pinned job is never pruned. The decision records each lane at least
+one set was skipped for, with the lane that dominates it
+(:attr:`~.types.Decision.pruned`).
 
   Mode 3 sets need the lanes' rates to be ordered, which is why a split job's
   generator runs on the feasible, costed lanes: the sets are a function of the
@@ -65,7 +71,12 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Final, Literal
 
-from meshforge.controller.planner.split import Lane, chunk_overhead, prefix_sets
+from meshforge.controller.planner.split import (
+    Lane,
+    chunk_overhead,
+    prefix_sets,
+    set_chunk,
+)
 from meshforge.controller.planner.types import (
     AcceleratorRequest,
     ClusterSnapshot,
@@ -144,7 +155,8 @@ class CandidateSet:
     ``pinned``, ``node_set``, ``split_too_small`` or ``split_too_few_nodes``
     (``MarginTest.forced``); None = they are."""
     pruned: tuple[Pruned, ...] = ()
-    """V0.14 G3 (D294): lanes no Mode 3 set was extended with."""
+    """V0.14 G3 (D294): idle-dominated lanes at least one Mode 3 set was
+    skipped for (module docstring)."""
 
     @property
     def singles(self) -> tuple[Candidate, ...]:
@@ -231,7 +243,7 @@ def dominated_lanes(
     overhead_s: float,
     config: SplitConfig,
 ) -> tuple[Pruned, ...]:
-    """The lanes that are no set extender (module docstring), in rate order."""
+    """The idle-dominated lanes (module docstring), in rate order."""
     ordered = sorted(lanes, key=_by_rate)
     chunks = _most_chunks(items, chunk_items, config)
     kept: list[tuple[Lane, float]] = []  # (lane, the time it needs alone)
@@ -252,6 +264,46 @@ def dominated_lanes(
         alone = start_b + max(1, items) * per_b + chunks * max(0.0, overhead_s)
         kept.append((lane_b, alone))
     return tuple(out)
+
+
+def _skip_dominated(
+    groups: Sequence[tuple[Lane, ...]],
+    lanes: Sequence[Lane],
+    request: PlanRequest,
+    snapshot: ClusterSnapshot,
+) -> tuple[list[tuple[Lane, ...]], tuple[Pruned, ...]]:
+    """``groups`` less the strictly dominated sets (module docstring), and the
+    idle-dominated lanes a set was skipped for."""
+    split = request.split
+    if split is None:  # pragma: no cover - _split checked it
+        return list(groups), ()
+    dominated = dominated_lanes(
+        lanes,
+        items=split.items,
+        chunk_items=split.chunk_items,
+        overhead_s=chunk_overhead(request, snapshot.config.split).seconds,
+        config=snapshot.config.split,
+    )
+    if not dominated:
+        return list(groups), ()
+    idle = {p.node_id for p in dominated}
+    by_key = {frozenset(item.node_id for item in group): group for group in groups}
+    kept: list[tuple[Lane, ...]] = []
+    used: set[str] = set()
+    for group in groups:
+        gone = {item.node_id for item in group} & idle
+        rest = by_key.get(frozenset(item.node_id for item in group) - gone)
+        same_chunks = (
+            bool(gone)
+            and rest is not None
+            and set_chunk(request, group, snapshot)
+            == set_chunk(request, rest, snapshot)
+        )
+        if same_chunks:
+            used |= gone
+            continue
+        kept.append(group)
+    return kept, tuple(p for p in dominated if p.node_id in used)
 
 
 # --- end V0.14 G3 --------------------------------------------------------------
@@ -314,25 +366,17 @@ def _split(
             len(lanes),
         )
     else:
-        extenders = list(lanes)
+        groups = prefix_sets(
+            lanes,
+            items=split.items,
+            min_nodes=split.min_nodes,
+            max_nodes=split.max_nodes,
+        )
         if snapshot.config.prune_dominated:  # V0.14 G3 (D294)
-            pruned = dominated_lanes(
-                lanes,
-                items=split.items,
-                chunk_items=split.chunk_items,
-                overhead_s=chunk_overhead(request, snapshot.config.split).seconds,
-                config=snapshot.config.split,
-            )
-            gone = {p.node_id for p in pruned}
-            extenders = [item for item in lanes if item.node_id not in gone]
+            groups, pruned = _skip_dominated(groups, lanes, request, snapshot)
         sets = tuple(
             Candidate("mode3", tuple(item.node_id for item in group))
-            for group in prefix_sets(
-                extenders,
-                items=split.items,
-                min_nodes=split.min_nodes,
-                max_nodes=split.max_nodes,
-            )
+            for group in groups
         )
     return CandidateSet(
         RequestKind.SPLIT, (*singles, *sets), forced=forced, pruned=pruned

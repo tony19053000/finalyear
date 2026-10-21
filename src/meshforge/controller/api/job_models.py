@@ -53,8 +53,8 @@ class PlacementRequest(_Request):
     * ``policy`` (D107) overrides the manifest's ``policy`` and the
       controller's ``[controller.planner] default_policy``.
     * ``objective`` (V0.14 G3, D295) overrides the manifest's ``objective``
-      and ``[controller.planner] default_objective``; an unknown name is a
-      422 like an unknown policy.
+      and ``[controller.planner] default_objective``; an unknown name is
+      ``400 invalid_input``, like an unknown policy.
     """
 
     node_id: str | None = Field(default=None, min_length=1, max_length=40)

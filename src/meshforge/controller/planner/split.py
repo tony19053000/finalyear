@@ -107,6 +107,7 @@ __all__ = [
     "item_rate",
     "lane",
     "prefix_sets",
+    "set_chunk",
 ]
 
 MIN_SECONDS_PER_ITEM: Final = 1e-9
@@ -463,6 +464,32 @@ def choose_chunk_items(
         size, rules = least, [*rules, "max_chunks"]
     size = max(1, min(size, items))
     return ChunkChoice(size, math.ceil(items / size), tuple(rules))
+
+
+# --- V0.14 G3 (D294) -------------------------------------------------------------
+
+
+def set_chunk(
+    request: PlanRequest, group: Sequence[Lane], snapshot: ClusterSnapshot
+) -> ChunkChoice:
+    """The chunking of the Mode 3 set ``group``: the one rule both the costing
+    (:mod:`~.split_plan`) and dominance pruning (:mod:`~.candidates`) use, so
+    pruning never sizes a chunk differently from the unpruned path."""
+    split = request.split
+    if split is None or not group:
+        raise ValueError("set_chunk needs a split job and at least one lane")
+    overhead = chunk_overhead(request, snapshot.config.split)
+    return choose_chunk_items(
+        split.items,
+        fastest_per_item_s=min(item.per_item_s for item in group),
+        lanes=len(group),
+        overhead_s=overhead.seconds,
+        config=snapshot.config.split,
+        fixed=split.chunk_items,
+    )
+
+
+# --- end V0.14 G3 ----------------------------------------------------------------
 
 
 # ------------------------------------------------------------------ estimate

@@ -3,7 +3,8 @@ dispatcher and planner) with hand-driven agent sessions (``FakeAgent``):
 
 * ``placement.objective`` > the manifest's ``objective:`` > ``[controller.
   planner] default_objective``, and the one used reaches
-  ``plan_decision.objective`` and the row's replay;
+  ``plan_decision.objective``, the row's replay and (fix round 1, tester r1
+  O1) ``GET /v1/jobs/{id}/decisions`` - which ``compute explain`` prints;
 * ``prefer_local`` keeps a job on the submitter's node when no other is
   clearly faster;
 * an unknown objective is refused at submit (``400 invalid_input``, the API's
@@ -150,6 +151,18 @@ async def make_fabric(
             await item.__aexit__(None, None, None)
 
 
+def _explain_text(decision: dict[str, Any]) -> str:
+    """What ``compute explain`` prints for one API decision."""
+    from rich.console import Console
+
+    from meshforge.cli.explain_commands import decision_tables
+
+    console = Console(width=400, record=True)
+    for table in decision_tables({"decisions": [decision]}):
+        console.print(table)
+    return console.export_text()
+
+
 def _replays(row: Any) -> None:
     replay = row.replay if isinstance(row.replay, dict) else json.loads(row.replay)
     request, snapshot, now = from_replay(replay)
@@ -179,6 +192,13 @@ async def test_request_over_manifest_over_default_reaches_the_decision(
         assert row.outcome == "dispatched", label
         assert row.objective == want, label
         _replays(row)
+        job_id = created.json()["job_id"]
+        listed = await fabric.http.get(f"/v1/jobs/{job_id}/decisions")
+        assert listed.status_code == 200, listed.text
+        decisions = listed.json()["decisions"]
+        assert [d["objective"] for d in decisions] == [want] * len(decisions), label
+        printed = " ".join(_explain_text(decisions[0]).split())  # titles wrap
+        assert f"(policy {row.policy}), objective {want}" in printed, label
         detail = (await fabric.http.get(f"/v1/jobs/{created.json()['job_id']}")).json()
         if placement:
             assert detail["placement"]["objective"] == placement["objective"]

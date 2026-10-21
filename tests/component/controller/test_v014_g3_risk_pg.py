@@ -280,3 +280,31 @@ async def test_a_dispatch_tick_with_history_records_and_replays_the_risk(
     assert candidates_json(again) == row.candidates
     assert again.snapshot_digest == row.snapshot_digest
     assert again.reason_key == row.reason_key
+
+
+async def test_the_reliability_read_covers_exactly_the_snapshot_nodes(
+    pg_settings: DatabaseSettings,
+    store: ExecutionStore,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """G3 review N3: the grouped read is filtered by the snapshot's node ids,
+    never cut by a row cap - every node the planner sees gets its counts, and
+    no node outside the snapshot is read."""
+    from meshforge.controller.jobs import queue_reads
+
+    a, b, _c = await _seed(pg_settings, store)
+    monkeypatch.setattr(queue_reads, "MAX_NODES", 2)  # the snapshot holds 2 nodes
+    engine = create_engine(pg_settings)
+    try:
+        async with engine.begin() as conn, AsyncSession(bind=conn) as db:
+            since = dt.datetime.now(dt.UTC) - dt.timedelta(days=7)
+            fabric = await read_fabric(
+                db, [], history_runs=20, keys_of=lambda _j: [], risk_since=since
+            )
+            seen = set(fabric.nodes)
+            assert len(seen) == 2
+            assert set(fabric.reliability) <= seen
+            want = {a: (3, 8), b: (0, 5)}
+            assert fabric.reliability == {n: v for n, v in want.items() if n in seen}
+    finally:
+        await engine.dispose()

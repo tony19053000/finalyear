@@ -246,6 +246,8 @@ def lane_risk(
                 "chunk_s": round(bounded(chunk_s), _ROUND),
             }
         )
+        # every lane's reliability comes from the same snapshot read, so one
+        # window serves them all (the last lane's is every lane's)
         window = reliability.window_days
     return EstimateTerm(
         bounded(seconds),

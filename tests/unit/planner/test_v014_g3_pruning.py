@@ -1,11 +1,12 @@
-"""V0.14 G3 (D294, roadmap 0.14.2): dominance pruning of Mode 3 set extenders.
+"""V0.14 G3 (D294, roadmap 0.14.2): dominance pruning of Mode 3 sets.
 
-A lane ``B`` is pruned only when an already-included lane ``A`` is no worse on
-both lane terms, better on one, and alone finishes every item before ``B``
-could start. Equal lanes are never pruned. The key property (soundness): a
-pruned lane would have been **inactive** (no chunk) in every set the
-unpruned generator would have put it in - so pruning only ever removes
-strictly dominated sets.
+A lane ``B`` is idle-dominated only when an already-included lane ``A`` is no
+worse on both lane terms, better on one, and alone finishes every item before
+``B`` could start. Equal lanes never are. Soundness: such a lane is
+**inactive** (no chunk) in every set the generator puts it in. A set holding
+one is skipped only when the set without it is generated too and has the same
+chunking (fix round 1: the auto chunk size depends on the lane count), so the
+chosen plan is always exactly the unpruned one.
 """
 
 from __future__ import annotations
@@ -25,8 +26,8 @@ from meshforge.controller.planner.split import (
     estimate_split,
     lane,
     prefix_sets,
+    set_chunk,
 )
-from meshforge.controller.planner.split_plan import _set_chunk
 from meshforge.controller.planner.types import (
     ClusterSnapshot,
     EstimateTerm,
@@ -129,7 +130,7 @@ def test_soundness_a_pruned_lane_is_inactive_in_every_set_it_was_in(seed: int) -
     for group in prefix_sets(lanes, items=items, min_nodes=2, max_nodes=None):
         if not gone & {item.node_id for item in group}:
             continue
-        chunk = _set_chunk(split, list(group), request, snapshot)
+        chunk = set_chunk(request, list(group), snapshot)
         est = estimate_split(request, list(group), snapshot, chunk, now=now)
         assert not (gone & est.active), (seed, sorted(gone), est.active)
 
@@ -164,8 +165,14 @@ def _slow_far_node(
     )
 
 
+def _fixed_chunks(request: PlanRequest, items: int | None) -> PlanRequest:
+    split = dataclasses.replace(request.split, chunk_items=items)  # type: ignore[type-var]
+    return dataclasses.replace(request, split=split)
+
+
 def test_a_decision_records_what_it_pruned_and_explains_it() -> None:
     request, snapshot, now = synthetic_fabric(4, split=True, seed=3)
+    request = _fixed_chunks(request, 10)  # the chunking ignores the lane count
     far = _far(snapshot)
     on = plan(request, _slow_far_node(request, snapshot, prune=True), "cost_model", now)
     off = plan(
@@ -177,6 +184,7 @@ def test_a_decision_records_what_it_pruned_and_explains_it() -> None:
     sets_off = [c.node_set for c in off.candidates if c.mode == "split"]
     assert all(far not in s for s in sets_on)
     assert any(far in s for s in sets_off)
+    assert set(sets_on) < set(sets_off)  # only skipped, never a new set
     # the far node is still a one-lane candidate
     assert any(c.node_id == far and c.mode != "split" for c in on.candidates)
     rows = candidates_json(on)
@@ -190,6 +198,24 @@ def test_a_decision_records_what_it_pruned_and_explains_it() -> None:
     assert on.chosen is not None and off.chosen is not None
     assert on.split is not None and off.split is not None
     assert far not in {lane_.node_id for lane_ in off.split.lanes if lane_.active}
+    assert on.split == off.split
+
+
+def test_auto_chunks_keep_a_set_whose_idle_lane_changes_the_chunk_size() -> None:
+    """Fix round 1 (tester r1 D1): with ``chunk: auto`` the balance rule sizes
+    chunks by the set's lane count, so the set with the idle far node has
+    smaller chunks than the set without it and is **not** dominated: it is
+    still generated and costed, and nothing is recorded as pruned."""
+    request, snapshot, now = synthetic_fabric(4, split=True, seed=3)
+    assert request.split is not None and request.split.chunk_items is None
+    far = _far(snapshot)
+    on = plan(request, _slow_far_node(request, snapshot, prune=True), "cost_model", now)
+    off = plan(
+        request, _slow_far_node(request, snapshot, prune=False), "cost_model", now
+    )
+    assert on.pruned == ()
+    assert on.candidates == off.candidates and on.split == off.split
+    assert any(far in c.node_set for c in on.candidates if c.mode == "split")
 
 
 def test_pruning_never_applies_to_a_forced_or_pinned_split() -> None:
