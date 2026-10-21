@@ -25,12 +25,12 @@ import socket
 import subprocess
 import sys
 import time
-from collections import Counter
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final
 
 from mf_cluster import Fabric, Timing
+from mf_split_ledger import assert_exactly_once
 
 if TYPE_CHECKING:
     from meshforge.bench.workloads.materialise import BuiltJob
@@ -242,15 +242,12 @@ def chunk_counts(pg_settings: Any, job_id: str) -> tuple[int, int]:
 
 
 def check_exactly_once(pg_settings: Any, job_id: str, items: int) -> list[Any]:
-    """The ledger of a SUCCEEDED split job (checklist 32/35, criterion 4):
-
-    * every chunk of the queue is ``done`` with **exactly one** ``completed``
-      lease, the one the item names (``done_lease_seq``);
-    * the chunk records hold **exactly one** ``committed`` (``won``) row per
-      chunk - that lease, that result digest - and the committed chunks cover
-      items ``0 .. items-1`` once, in order, with no gap or overlap;
-    * **every lease ever granted** for the job has its chunk record (same
-      chunk, same lease seq) and no record names a lease that does not exist.
+    """The ledger of a SUCCEEDED split job (checklist 32/35, criterion 4),
+    read from the fabric's database and checked by
+    :func:`mf_split_ledger.assert_exactly_once`: every chunk ``done`` with
+    exactly one ``completed`` lease and one ``committed`` chunk record, the
+    committed chunks covering items ``0 .. items-1`` once, a record for every
+    lease ever granted - and **no lease still** ``live``.
 
     Returns the chunk records (for scenario-specific checks)."""
     leases = sql(
@@ -269,39 +266,7 @@ def check_exactly_once(pg_settings: Any, job_id: str, items: int) -> list[Any]:
         "FROM chunk_record WHERE job_id = :job ORDER BY chunk_index, lease_seq",
         job=job_id,
     )
-    chunks = sorted({r.idx for r in leases})
-    assert chunks == list(range(len(chunks))) and chunks, leases
-    assert all(r.item_state == "done" for r in leases), [
-        (r.idx, r.item_state) for r in leases if r.item_state != "done"
-    ]
-    completed = Counter(r.idx for r in leases if r.state == "completed")
-    assert completed == dict.fromkeys(chunks, 1), completed
-    for r in leases:
-        if r.state == "completed":
-            assert r.seq == r.done_lease_seq, r
-
-    committed = [r for r in records if r.outcome == "committed"]
-    assert [r.chunk_index for r in committed] == chunks, [
-        (r.chunk_index, r.lease_seq, r.outcome) for r in records
-    ]
-    assert all(r.won for r in committed), committed
-    assert sum(1 for r in records if r.won) == len(chunks), records
-    item_of = {r.idx: r for r in leases if r.state == "completed"}
-    span = 0
-    for r in committed:
-        winner = item_of[r.chunk_index]
-        assert r.lease_seq == winner.seq, (r, winner)
-        assert r.result_digest == winner.result_digest, (r, winner)
-        assert r.first_item == span and r.items > 0, (r, span)
-        span += r.items
-    assert span == items, (span, items)
-
-    granted = {(r.idx, r.seq) for r in leases if r.seq is not None}
-    recorded = {(r.chunk_index, r.lease_seq) for r in records}
-    assert granted == recorded, {
-        "leases without a record": sorted(granted - recorded),
-        "records without a lease": sorted(recorded - granted),
-    }
+    assert_exactly_once(leases, records, items)
     return records
 
 
