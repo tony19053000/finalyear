@@ -7,7 +7,7 @@
 > **Cold-start prompt** (paste this as the first message on the new account):
 >
 > ```
-> Read docs/SESSION_HANDOFF.md §1, then docs/STATUS.md, then the V0.10 section of docs/DEVELOPMENT_ROADMAP.md and docs/briefs/V0.10-task-splitting.md (§2 + Lead rulings D277–D284, §5f G6, §5g G7).
+> Read docs/SESSION_HANDOFF.md §1, then docs/STATUS.md, then the V0.10 section of docs/DEVELOPMENT_ROADMAP.md and docs/briefs/V0.10-task-splitting.md (§2 + Lead rulings D277–D286, §5h G8 + "G8 carry-overs").
 > V0.10: G1–G7 MERGED → 0.10.1–0.10.8 [x] (D277–D286; main post-merge gates green: unit 16860, V0.10 comp/cluster/workqueue 228). G8 (0.10.9) implementer STOPPED at session end with code + tests + docs written, EXIT GATES NOT RUN: branch worktree-agent-a87c8a801a83f7de2 (worktree .claude/worktrees/agent-a87c8a801a83f7de2, head c66deb09 wip; progress log docs/briefs/progress/V0.10-G8.md I1–I16, '## Exit gates' empty; it was running touched V0.9 component/cluster files; migration 0029). Next: relaunch G8 implementer to review wip + run exit gates (unit, all V0.10 comp+cluster+workqueue one process, touched V0.9 files, ruff, `mypy src`, frontend) → tester ∥ reviewer → merge → 0.10.9 [x] + status bar → G9 (§5i) → 🧑 0.10.10. Gate mypy = `uv run mypy src` (bare mypy is pre-existing broken). Team: V0.10 brief + ADR-0019 still Proposed. Parallel agents OK; no fast mode.
 > ```
 >
