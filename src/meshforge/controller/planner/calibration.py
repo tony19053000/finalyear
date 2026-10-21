@@ -391,6 +391,12 @@ def _factor_from(data: Any) -> Factor:
     return Factor(factor=factor, n=_count(data["n"]), median=_real(data["median"]))
 
 
+def _obj(value: Any) -> Mapping[str, Any]:
+    if not isinstance(value, Mapping):
+        raise CalibrationError("a calibration part is not an object")
+    return value
+
+
 def calibration_from_json(version: int, data: Any) -> Calibration:
     """:func:`calibration_json` back; :class:`CalibrationError` when it cannot
     be read (never a partly read calibration)."""
@@ -398,17 +404,22 @@ def calibration_from_json(version: int, data: Any) -> Calibration:
         raise CalibrationError("unsupported calibration format")
     try:
         terms: dict[str, TermFactors] = {}
-        for name, table in dict(data["terms"]).items():
+        for name, raw_table in _obj(data["terms"]).items():
+            table = _obj(raw_table)
             raw_global = table["global"]
             terms[str(name)] = TermFactors(
                 global_=None if raw_global is None else _factor_from(raw_global),
-                node={str(k): _factor_from(v) for k, v in dict(table["node"]).items()},
+                node={str(k): _factor_from(v) for k, v in _obj(table["node"]).items()},
                 node_family={
-                    str(node_id): {str(f): _factor_from(v) for f, v in dict(by).items()}
-                    for node_id, by in dict(table["node_family"]).items()
+                    str(node_id): {str(f): _factor_from(v) for f, v in _obj(by).items()}
+                    for node_id, by in _obj(table["node_family"]).items()
                 },
             )
-        families = {str(k): str(v) for k, v in dict(data["families"]).items()}
+        families: dict[str, str] = {}
+        for fingerprint, family in _obj(data["families"]).items():
+            if not isinstance(family, str):
+                raise CalibrationError("a family is not a string")
+            families[str(fingerprint)] = family
     except CalibrationError:
         raise
     except (KeyError, TypeError, ValueError, AttributeError) as exc:

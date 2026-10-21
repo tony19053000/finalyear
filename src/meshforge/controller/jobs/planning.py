@@ -416,7 +416,7 @@ class DispatchPlanner:
         trees, plan_job, snapshot, past = self._request(job, manifest, fabric, pinned)
         now = self._wall()
         view = project(plan_job, snapshot)  # V0.14 G1: what the replay stores
-        calibration = self.calibration  # V0.14 G2: one value for the whole job
+        calibration = self._job_calibration(plan_job, view)  # V0.14 G2
         decision = plan(
             plan_job, view, self.policy_of(job), now, calibration=calibration
         )
@@ -533,7 +533,7 @@ class DispatchPlanner:
         trees, plan_job, snapshot, past = self._request(job, manifest, fabric, pinned)
         now = self._wall()
         view = project(plan_job, snapshot)  # V0.14 G1: what the replay stores
-        calibration = self.calibration  # V0.14 G2: one value for the whole job
+        calibration = self._job_calibration(plan_job, view)  # V0.14 G2
         decision = plan(
             plan_job, view, self.policy_of(job), now, calibration=calibration
         )
@@ -885,10 +885,7 @@ class DispatchPlanner:
                 now,
                 max_bytes=self._planner.replay_max_bytes,
                 shadow=shadow,
-                # V0.14 G2 (D307): the factors this job could look up
-                calibration=None
-                if calibration is None
-                else project_calibration(calibration, plan_job, snapshot),
+                calibration=calibration,  # V0.14 G2 (D307): already cut to the job
             )
         except Exception as exc:  # a bug in the codec: keep dispatching
             self.replay_failures += 1
@@ -908,6 +905,17 @@ class DispatchPlanner:
             )
             return record
         return dataclasses.replace(record, replay=replay, replay_version=REPLAY_VERSION)
+
+    def _job_calibration(
+        self, plan_job: PlanRequest, view: ClusterSnapshot
+    ) -> Calibration | None:
+        """V0.14 G2 (D293/D307): the tick's calibration cut to what this job
+        can look up - the job is planned **and** replayed with exactly this,
+        so the stored digest and the replay agree (like the snapshot's
+        projection, G1)."""
+        if self.calibration is None:
+            return None
+        return project_calibration(self.calibration, plan_job, view)
 
     @staticmethod
     def _calibrated(
