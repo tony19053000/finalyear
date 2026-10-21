@@ -35,6 +35,7 @@ from meshforge.common.secret_redaction import SecretMatcher
 from meshforge.common.split_chunks import PartsIndex
 from meshforge.common.states import AttemptRole, AttemptState
 from meshforge.controller.blobs import MAX_FETCH_TOKEN_TTL_S, FetchTokens
+from meshforge.controller.calibration_store import CalibrationSource
 from meshforge.controller.jobs.execution_store import (
     ExecutionStore,
     LiveAttempt,
@@ -226,6 +227,8 @@ class DispatchSteps:
     _bench_condition: Callable[[str | None], Awaitable[str | None]] | None
     _split_settings: SplitSettings
     _split: SplitService | None
+    _calibration: CalibrationSource | None
+    """V0.14 G2 (D293): where the tick's calibration comes from (None = none)."""
     stats: DispatcherStats
 
     if TYPE_CHECKING:  # the dispatcher's (never shadowed at run time)
@@ -237,6 +240,11 @@ class DispatchSteps:
     # ------------------------------------------------------------ dispatch
 
     async def _dispatch(self) -> None:
+        if self._calibration is not None:
+            # V0.14 G2 (D293): one read per tick (by version id; factors are
+            # loaded only when the active version changed); a failed read
+            # keeps the version in use - never blocks the dispatch
+            self._planner.calibration = await self._calibration.refresh()
         results = await self._store.dispatch_planned(
             self._planner.decide,
             limit=self._settings.dispatch_batch,

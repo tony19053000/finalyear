@@ -61,6 +61,7 @@ from meshforge.controller.api.bench_routes import BenchApi
 from meshforge.controller.api.fabric_routes import InviteApi
 from meshforge.controller.api.job_routes import JobApi
 from meshforge.controller.api.network_routes import NetworkApi
+from meshforge.controller.api.planner_routes import PlannerApi
 from meshforge.controller.api.telemetry_routes import TelemetryExport
 from meshforge.controller.auth.live_streams import LiveStreams
 from meshforge.controller.auth.login import LoginService, login_policy
@@ -77,6 +78,9 @@ from meshforge.controller.bench.store import BenchStore
 from meshforge.controller.bench.submit import BenchSubmitter
 from meshforge.controller.blobs import BlobStore, FetchTokens
 from meshforge.controller.cache_index import CacheIndex, CacheLocationStore
+
+# V0.14 G2 (D293): planner calibration (store, per-tick source, refresh task)
+from meshforge.controller.calibration_store import CalibrationSource, CalibrationStore
 from meshforge.controller.discovery import ServiceAdvertiser
 from meshforge.controller.enrollment.invites import InviteStore
 from meshforge.controller.enrollment.listener import (
@@ -122,6 +126,7 @@ from meshforge.controller.peer_signing import (
     load_or_create_signing_key,
     public_key_fingerprint,
 )
+from meshforge.controller.planner_calibration_task import CalibrationRefresher
 from meshforge.controller.prepare import PrepareTracker
 from meshforge.controller.registry import Registry, SessionEndReason
 from meshforge.controller.resources import ResourceTracker
@@ -204,6 +209,9 @@ class ControllerRuntime:
         self.flusher: SnapshotFlusher | None = None
         self._engine: AsyncEngine | None = None
         self.recorder: RunRecorder | None = None
+        self.calibration: CalibrationSource | None = None
+        """V0.14 G2 (D293): the calibration the dispatcher plans with."""
+        self.calibration_refresher: CalibrationRefresher | None = None
         self.bench: BenchStore | None = None
         self.bench_submitter: BenchSubmitter | None = None
         """V0.9 G1: the run-record sweep (:mod:`.telemetry.recorder`)."""
@@ -521,6 +529,16 @@ class ControllerRuntime:
         # StartAttempt; an ``unavailable:T`` run pauses its origin here.
         self.bench_conditions = BenchConditions(engine)
         self.node_pauses = NodePauses(loop.time)
+        # V0.14 G2 (D293/D301): the planner calibration. A pinned version
+        # that does not exist stops the start (never a silent fallback).
+        calibration_store = CalibrationStore(engine)
+        self.calibration = CalibrationSource(calibration_store, cfg.planner.calibration)
+        await self.calibration.check()
+        self.calibration_refresher = CalibrationRefresher(
+            calibration_store, cfg.planner
+        )
+        if self.calibration.mode == "auto":
+            self._spawn(self.calibration_refresher.run(), "planner-calibration")
         self.dispatcher = Dispatcher(
             self.jobs,
             manager,
@@ -553,6 +571,7 @@ class ControllerRuntime:
             blobs=self.blobs,
             split=cfg.split,
             on_split_change=tracker.touch,
+            calibration=self.calibration,
             on_integrity_failure=(
                 functools.partial(
                     self.scrubber.suspect_tree_soon, why="attempt_integrity_error"
@@ -786,6 +805,11 @@ class ControllerRuntime:
                 runner=self.bench_runner,
                 cancel_job=self.dispatcher.cancel,
                 quality_cv_threshold=cfg.bench.quality_cv_threshold,
+            ),
+            planner=PlannerApi(
+                store=calibration_store,
+                source=self.calibration,
+                refresher=self.calibration_refresher,
             ),
         )
         http_config = uvicorn.Config(
@@ -1087,6 +1111,8 @@ class ControllerRuntime:
             # with the other owned tasks below, inside the same drain deadline.
             # Items still queued are reports not yet acked: the agents replay them.
             self.dispatcher.request_stop()
+        if self.calibration_refresher is not None:
+            self.calibration_refresher.request_stop()  # V0.14 G2
         if self.manager is not None:
             # Sessions first: their streams end with the reason persisted before the
             # transport is torn down under them.

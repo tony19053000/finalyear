@@ -65,6 +65,11 @@ from meshforge.controller.api.network_routes import (
     NetworkApi,
     network_router,
 )
+from meshforge.controller.api.planner_routes import (
+    PLANNER_STATE_KEY,
+    PlannerApi,
+    planner_router,
+)
 from meshforge.controller.api.prepare_routes import prepare_router
 from meshforge.controller.api.response_models import ERROR_RESPONSES
 from meshforge.controller.api.revocation_routes import (
@@ -138,6 +143,7 @@ def create_http_app(
     alerts: AlertLog | None = None,
     telemetry: TelemetryExport | None = None,
     bench: BenchApi | None = None,
+    planner: PlannerApi | None = None,
     web_dist: Path | None = DEFAULT_DIST,
     wall_clock: Callable[[], float] = time.time,
 ) -> FastAPI:
@@ -251,6 +257,9 @@ def create_http_app(
         setattr(app.state, BENCH_STATE_KEY, bench)
         app.include_router(bench_router)  # V0.9 G3 benchmark campaigns (D216)
         app.include_router(bench_control_router)  # V0.9 G5 runner controls
+    if planner is not None:
+        setattr(app.state, PLANNER_STATE_KEY, planner)
+        app.include_router(planner_router)  # V0.14 G2 calibration (D293)
     return app
 
 
@@ -281,6 +290,7 @@ def openapi_document() -> dict[str, Any]:
         alerts=inert(),
         telemetry=inert(),
         bench=inert(),
+        planner=inert(),
         web_dist=None,
     )
     return app.openapi()
