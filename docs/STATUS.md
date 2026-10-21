@@ -26,7 +26,7 @@ V1.0    ░░░░░░░░░░░░░░░░░░░░   0%   0/8 
 █ done `[x]` · ▒ in progress or waiting on a 🧑 lab step `[~]` · ░ not started
 
 ## Current Version
-**V0.14 — Unified planner v2** · started 2026-10-21 (team: "start V0.14", §7 on Lead recommendations) · brief `docs/briefs/V0.14-unified-planner-v2.md` (D290–D303) · ADR-0020 Proposed · G1 (0.14.1 replay + unified candidates) implementer running
+**V0.14 — Unified planner v2** · started 2026-10-21 (team: "start V0.14", §7 on Lead recommendations) · brief `docs/briefs/V0.14-unified-planner-v2.md` (D290–D303) · ADR-0020 Proposed · G1 (0.14.1) implementer stopped by user before gates — worktree agent-a0a1e95c1ee7384ec head 38ae5529, not merged
 **V0.10 — Mode 3 Task Splitting** · started 2026-10-19 (team: proceed while away) · brief `docs/briefs/V0.10-task-splitting.md` (DRAFT, D259–D276) · ADR-0019 Proposed · **G1–G9 CLOSED** (D277–D288; 0.10.1–0.10.9 `[x]`) · **agent-side complete** · closes on 🧑 0.10.10 (`lab/checklists/V0.10-mode3.md`)
 **V0.9 — Benchmark & telemetry v1** · started 2026-10-17 · brief `docs/briefs/V0.9-benchmark-telemetry.md` (D211–D224, approved) · ADR-0018 · **G0, G1, G2 CLOSED** (D226, D231, D225; 0.9.1 + 0.9.2 `[x]`) · **G3 CLOSED** (D242; 0.9.3 + 0.9.4 `[x]`) · **G4 CLOSED** (D241–D245; 0.9.5 `[x]`, 2026-10-19) · **G5, G5c, G6 CLOSED** (D246–D258; 0.9.6–0.9.9 `[x]`) · **G7 CLOSED** (`c35ff3d`) · **agent-side complete**; closes on 🧑 0.9.10 (checklist part O)
 **V0.8 — Dashboard & CLI v1** · started 2026-10-15 · brief `docs/briefs/V0.8-dashboard-cli.md` (D169–D180, approved) · ADR-0017 · groups G1–G7 sequential · **G1–G7 CLOSED** (G7 2026-10-17, D210) — 0.8.1–0.8.9 `[x]`; agent-side complete; closes on 🧑 0.8.10 (`lab/checklists/V0.8-visual.md`)
@@ -45,7 +45,7 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 
 ## Current Task
 
-- **2026-10-21 (latest):** **V0.10-TD2 MERGED** (`15d515e0`, D304; reviewer APPROVE, tester PASS). Post-merge main: ruff + `mypy src` clean; unit 17578 passed; V0.10 cluster + TD1/TD2 component + owner-route 13 passed, exit 0. V0.14 brief APPROVED (team: start; Q1–Q8 on recommendations); ADR-0020 written; **G1 implementer running**. TD worktrees removed (user OK).
+- **2026-10-21 (latest):** **V0.10-TD2 MERGED** (`15d515e0`, D304; reviewer APPROVE, tester PASS). Post-merge main: ruff + `mypy src` clean; unit 17578 passed; V0.10 cluster + TD1/TD2 component + owner-route 13 passed, exit 0. V0.14 brief APPROVED (team: start; Q1–Q8 on recommendations); ADR-0020 written; G1 implementer stopped before gates (see SESSION_HANDOFF §1). TD worktrees removed (user OK).
 
 - **2026-10-21 (latest):** **V0.10-TD1 MERGED** (`ae1d0bbd`, D289; tester PASS, reviewer r1 B1 ReDoS fixed `acb90f4f`, r2 APPROVE). Post-merge main: ruff + `mypy src` clean; unit 17276 passed; V0.10 cluster + TD1 tries-API component 36 passed, exit 0. No roadmap checkbox changed (tech debt). Next: 🧑 0.10.10 lab; agent-side: remaining TD (see Technical Debt) or V0.14 brief (team to choose).
 

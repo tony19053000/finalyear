@@ -8,7 +8,7 @@
 >
 > ```
 > Read docs/SESSION_HANDOFF.md §1, then docs/STATUS.md, then the V0.10 section of docs/DEVELOPMENT_ROADMAP.md.
-> V0.14 started (brief docs/briefs/V0.14-unified-planner-v2.md APPROVED, ADR-0020). G1 (0.14.1 replay + unified candidates) in flight — see §1 top entry for its worktree/state; continue gates → tester ∥ reviewer → merge, then G2 ∥ G3. V0.10 closes on 🧑 0.10.10. Parallel agents OK; no fast mode. Don't delete anything without asking.
+> V0.14 started (brief docs/briefs/V0.14-unified-planner-v2.md APPROVED, ADR-0020). G1 stopped mid-run in worktree .claude/worktrees/agent-a0a1e95c1ee7384ec (head 38ae5529, not merged, gates NOT run) — finish ARCHITECTURE §7 amendment, run exit gates + Hand-off (docs/briefs/progress/V0.14-G1.md) → tester ∥ reviewer → merge → 0.14.1 [x]. V0.10 closes on 🧑 0.10.10. Parallel agents OK; no fast mode. Don't delete anything without asking.
 > ```
 >
 > Order of truth: `PROJECT_BRIEF → ARCHITECTURE → ROADMAP → STATUS → this file`. If this file
@@ -262,7 +262,7 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
-**2026-10-21 (V0.14 started) — RUNNING:** V0.14 G1 implementer (brief §5a: replay snapshot + migration 0030 + unified candidates) in an agent worktree; progress note `docs/briefs/progress/V0.14-G1.md`. Next: gates → tester ∥ reviewer → merge. Brief approved on Lead recommendations; ADR-0020 Proposed. TD2 worktree removed (user OK).
+**2026-10-21 (session end, user stop) — NOTHING RUNNING.** V0.14 G1 (brief §5a: replay snapshot + migration 0030 + unified candidates) implementer **stopped by user** in worktree `.claude/worktrees/agent-a0a1e95c1ee7384ec`, branch `worktree-agent-a0a1e95c1ee7384ec`, head `38ae5529` (7 wip commits, clean tree, NOT merged). Done per commits: replay codec + golden corpus, `planner/candidates.py` (goldens byte-identical), replay property test, migration 0030 + dispatcher/shadow store replay, component tests through a real dispatch tick, latency scaffold, OPERATIONS. It was mid-way writing the **ARCHITECTURE §7 amendment** (check whether it is in b65f18fb or missing). **Exit gates NOT run, no Hand-off.** Next: finish §7 amendment → run gates (ruff, format, `mypy src`, AST purity, `pytest_exit_guard.py -m unit`, planner/jobs/migration component, tests/cluster/test_v010_mode3.py) → Hand-off in `docs/briefs/progress/V0.14-G1.md` → tester ∥ reviewer → merge → 0.14.1 `[x]` + status bar. Then G2 ∥ G3.
 
 **2026-10-21 (TD2 closed) — NOTHING RUNNING.** V0.10-TD2 merged `15d515e0` (D304); post-merge gates green (unit 17578, cluster+component 13). TD2 worktree `.claude/worktrees/agent-aae9991b61e8d14ee` merged — removable with user OK. V0.14 brief DRAFT `docs/briefs/V0.14-unified-planner-v2.md` waiting for team §7 answers; **no V0.14 code until approved**. Open team question: `compute logs` TTY stripping (+`--raw`).
 
