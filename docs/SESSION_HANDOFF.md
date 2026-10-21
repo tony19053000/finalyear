@@ -262,7 +262,7 @@ the V0.4 brief §3. Larger groups (lever 2) still apply; parallelism does not.
 
 ## 1. Where the project is
 
-**2026-10-21 (later) — RUNNING:** (1) implementer V0.10-TD2 in an agent worktree (D289 leftover debt: strip untrusted text on all Mode 1/CLI views + bidi/zero-width, wheelhouse D-2/D-3/sha-fail; progress note docs/briefs/progress/V0.10-TD2.md) → then tester → reviewer → merge. (2) V0.14 brief DRAFT written `docs/briefs/V0.14-unified-planner-v2.md` (D290–D303, Q1–Q8) — **waiting for team approval; no V0.14 code until then.**
+**2026-10-21 (later) — RUNNING:** (1) V0.10-TD2 implementer DONE in `.claude/worktrees/agent-aae9991b61e8d14ee` (2bad275f..a3aa7bc5; unit 17370, lint/mypy clean; c4 cluster flaked once = speculation race in test). Tester (also fixing c4 race + owner-route table missing 3 split routes) ∥ reviewer running → merge. Team question from TD2: should `compute logs` strip controls on a TTY (+`--raw`)? Dashboard log view still renders raw bidi. (2) V0.14 brief DRAFT written `docs/briefs/V0.14-unified-planner-v2.md` (D290–D303, Q1–Q8) — **waiting for team approval; no V0.14 code until then.**
 
 **2026-10-21 (TD1 closed) — NOTHING RUNNING.** V0.10-TD1 merged `ae1d0bbd` (D289); post-merge gates green (unit 17276, cluster 36, ruff/mypy clean). TD1 worktree + branch removed (user-approved). Next: 🧑 0.10.10; agent-side: leftover TD (STATUS Technical Debt) or V0.14 brief — team chooses.
 
