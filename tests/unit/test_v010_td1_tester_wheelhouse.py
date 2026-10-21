@@ -14,6 +14,7 @@ from typing import Any
 import pytest
 from mf_wheelhouse import (
     LockedWheel,
+    WheelDownloadMismatchError,
     WheelhouseUnavailableError,
     cache_root,
     ensure_wheel,
@@ -116,7 +117,8 @@ def test_download_with_wrong_size_is_refused_and_not_installed(
     def serve(url: str, dest: Path) -> None:
         dest.write_bytes(DATA)
 
-    with pytest.raises(WheelhouseUnavailableError, match="does not match"):
+    # V0.10 TD2: a fresh download that is not the locked wheel fails hard
+    with pytest.raises(WheelDownloadMismatchError, match="does not match"):
         ensure_wheel(wheel, tmp_path, download=serve)
     assert [p for p in tmp_path.rglob("*") if p.is_file()] == []
 
@@ -184,14 +186,10 @@ def test_unwritable_cache_root_is_not_a_traceback_of_a_different_type(
         ensure_wheel(_wheel(), blocker / "sub", download=_boom_as_offline)
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason="OBSERVATION (minor): the .part name is per-pid, so same-process "
-    "concurrent callers share it and one os.replace raises FileNotFoundError",
-)
 def test_concurrent_callers_get_one_good_wheel(tmp_path: Path) -> None:
     """Two threads (same pid) filling an empty cache at once: neither may
-    return a folder whose wheel is corrupt."""
+    return a folder whose wheel is corrupt. (Was a non-strict xfail: the
+    per-pid ``.part`` name was shared; V0.10 TD2 D-3 makes it per call.)"""
     wheel = _wheel()
     gate = threading.Barrier(4)
     results: list[object] = []
@@ -221,11 +219,7 @@ def test_concurrent_callers_get_one_good_wheel(tmp_path: Path) -> None:
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="OBSERVATION (minor): a stray file in the cache folder is returned as "
-    "part of the find_links folder; the docstring promises exactly one wheel",
-)
+# V0.10 TD2 D-2: was a strict xfail - stray files are now removed
 def test_a_stray_second_wheel_in_the_folder_is_not_served_to_agents(
     tmp_path: Path,
 ) -> None:

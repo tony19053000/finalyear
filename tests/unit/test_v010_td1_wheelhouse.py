@@ -13,6 +13,7 @@ import pytest
 from mf_wheelhouse import (
     CACHE_ENV,
     LockedWheel,
+    WheelDownloadMismatchError,
     WheelhouseUnavailableError,
     cache_root,
     ensure_wheel,
@@ -136,7 +137,8 @@ def test_offline_with_an_empty_cache_is_a_skip_reason_and_leaves_nothing(
 
 def test_a_download_that_does_not_match_the_lock_is_refused(tmp_path: Path) -> None:
     wheel = _wheel()
-    with pytest.raises(WheelhouseUnavailableError, match="does not match"):
+    # V0.10 TD2: a hard failure, not a skip reason
+    with pytest.raises(WheelDownloadMismatchError, match="does not match"):
         ensure_wheel(wheel, tmp_path, download=_serve(b"tampered", []))
     assert [p for p in tmp_path.rglob("*") if p.is_file()] == []
 
