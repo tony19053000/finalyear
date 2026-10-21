@@ -163,9 +163,9 @@ def test_cli_only_is_the_exception() -> None:
         "fabric join",
         "node gc",
         "node prepare",
-        # V0.14 G2: until the Planner page (V0.14 G5, D300) exists
+        # V0.14 G2: an operator action; the Planner page (V0.14 G5) shows
+        # every version it writes (`planner calibration` is InUi since G5)
         "planner calibrate",
-        "planner calibration",
     ]
 
 

@@ -48,6 +48,8 @@ G5_T1 = "test_v08_g5_tester_r1_e2e.py"
 G7 = "test_v08_g7_mode1_flows.py"
 G6 = "test_v09_g6_benchmarks.py"
 G10_SPLIT = "test_v10_g7_chunks.py"
+G14_PLANNER = "test_v014_g5_plan_planner.py"
+PLAN_AND_PLANNER = f"{G14_PLANNER}::test_plan_tab_of_a_split_job_and_the_planner_page"
 BENCH_FLOW = f"{G6}::test_seeded_campaign_list_detail_pause_resume_labels_download"
 BENCH_REFUSED = (
     f"{G6}::test_controls_follow_state_refusals_toast_and_users_see_no_benchmarks"
@@ -94,8 +96,10 @@ COMPUTE: Final[dict[str, Entry]] = {
     ),
     "explain": InUi(
         "/jobs/:jobId",
-        "Plan tab: the planner's decision table (every candidate, chosen node)",
-        (LIFE_CYCLE,),
+        "Plan tab: the planner's decision table (every candidate, chosen node; "
+        "V0.14 G5: terms x calibration factor, risk, margin sentence, predicted "
+        "vs actual per term - the same fields, criterion 4)",
+        (LIFE_CYCLE, PLAN_AND_PLANNER),
     ),
     # ------------------------------------------------------------ nodes
     "nodes": InUi(
@@ -306,14 +310,17 @@ COMPUTE: Final[dict[str, Entry]] = {
     ),
     # ------------------------------------------------------------ planner (V0.14)
     "planner calibrate": CliOnly(
-        "V0.14 G2 (D293): refits the planner calibration now (admin). The "
-        "dashboard's Planner page (V0.14 G5, D300) shows calibration versions "
-        "and factors; until it exists this stays CLI-only."
+        "V0.14 G2 (D293): refits the planner calibration now (admin) - an "
+        "operator action; the refresh task does it every 30 min. The Planner "
+        "page (V0.14 G5, D300) shows every version it writes, with its status "
+        "and reason (`planner calibration`)."
     ),
-    "planner calibration": CliOnly(
-        "V0.14 G2 (D293): shows a calibration version's factors. The Planner "
-        "page arrives with V0.14 G5 (D300, calibration factors per node/term "
-        "with n); until then CLI-only."
+    "planner calibration": InUi(
+        "/planner",
+        "Planner page: the calibration in use, the shown version's factors per "
+        "term / key level / node / family with n, the version history with "
+        "status and reason (a version opens its factors)",
+        (PLAN_AND_PLANNER,),
     ),
 }
 

@@ -99,7 +99,7 @@ function CandidateRows({ decision }: { decision: DecisionOut }) {
             return (
               <tr
                 key={`${c.node_id}-${c.mode}-${(c.node_set ?? []).join("+")}`}
-                className={cn("border-b border-border align-top last:border-b-0", chosen && "bg-accent-soft font-medium")}
+                className={cn("border-b border-border align-top last:border-b-0", chosen && "font-medium shadow-[inset_3px_0_0_var(--color-accent)]")}
                 aria-current={chosen ? "true" : undefined}
               >
                 <td className={cn(TD, "font-mono tabular-nums")}>{c.rank ?? "—"}</td>
