@@ -2096,6 +2096,17 @@
             "title": "Attempt No",
             "type": "integer"
           },
+          "calibration_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Calibration Version"
+          },
           "candidates": {
             "items": {
               "$ref": "#/components/schemas/CandidateOut"
@@ -2121,6 +2132,17 @@
             "title": "Id",
             "type": "integer"
           },
+          "margin_sentence": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Margin Sentence"
+          },
           "objective": {
             "anyOf": [
               {
@@ -2144,6 +2166,17 @@
           "policy": {
             "title": "Policy",
             "type": "string"
+          },
+          "replay_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Replay Version"
           },
           "shadow_chosen_node_id": {
             "anyOf": [
@@ -6351,12 +6384,113 @@
         "title": "SubmitResult",
         "type": "object"
       },
+      "TermCalibrationOut": {
+        "description": "V0.14 G2 (D293), shown since G5: the factor a term was scaled by.",
+        "properties": {
+          "factor": {
+            "title": "Factor",
+            "type": "number"
+          },
+          "key_level": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Key Level"
+          },
+          "n": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "N"
+          },
+          "raw_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Raw S"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          }
+        },
+        "required": [
+          "factor"
+        ],
+        "title": "TermCalibrationOut",
+        "type": "object"
+      },
       "TermOut": {
         "properties": {
+          "actual_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actual S"
+          },
+          "calibration": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TermCalibrationOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "detail": {
             "additionalProperties": true,
             "title": "Detail",
             "type": "object"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "ratio": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ratio"
           },
           "seconds": {
             "title": "Seconds",
