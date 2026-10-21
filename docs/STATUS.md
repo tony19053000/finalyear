@@ -25,7 +25,7 @@ V1.0    ░░░░░░░░░░░░░░░░░░░░   0%   0/8 
 █ done `[x]` · ▒ in progress or waiting on a 🧑 lab step `[~]` · ░ not started
 
 ## Current Version
-**V0.10 — Mode 3 Task Splitting** · started 2026-10-19 (team: proceed while away) · brief `docs/briefs/V0.10-task-splitting.md` (DRAFT, D259–D276) · ADR-0019 Proposed · **G1–G8 CLOSED** (D277–D287; 0.10.1–0.10.9 `[x]`) · next G9 (§5i) → 🧑 0.10.10
+**V0.10 — Mode 3 Task Splitting** · started 2026-10-19 (team: proceed while away) · brief `docs/briefs/V0.10-task-splitting.md` (DRAFT, D259–D276) · ADR-0019 Proposed · **G1–G9 CLOSED** (D277–D288; 0.10.1–0.10.9 `[x]`) · **agent-side complete** · closes on 🧑 0.10.10 (`lab/checklists/V0.10-mode3.md`)
 **V0.9 — Benchmark & telemetry v1** · started 2026-10-17 · brief `docs/briefs/V0.9-benchmark-telemetry.md` (D211–D224, approved) · ADR-0018 · **G0, G1, G2 CLOSED** (D226, D231, D225; 0.9.1 + 0.9.2 `[x]`) · **G3 CLOSED** (D242; 0.9.3 + 0.9.4 `[x]`) · **G4 CLOSED** (D241–D245; 0.9.5 `[x]`, 2026-10-19) · **G5, G5c, G6 CLOSED** (D246–D258; 0.9.6–0.9.9 `[x]`) · **G7 CLOSED** (`c35ff3d`) · **agent-side complete**; closes on 🧑 0.9.10 (checklist part O)
 **V0.8 — Dashboard & CLI v1** · started 2026-10-15 · brief `docs/briefs/V0.8-dashboard-cli.md` (D169–D180, approved) · ADR-0017 · groups G1–G7 sequential · **G1–G7 CLOSED** (G7 2026-10-17, D210) — 0.8.1–0.8.9 `[x]`; agent-side complete; closes on 🧑 0.8.10 (`lab/checklists/V0.8-visual.md`)
 **V0.7 — Security & pairing** · started 2026-10-07 · brief `docs/briefs/V0.7-security-pairing.md` (D144–D162) · **G1–G5 CLOSED** (0.7.1–0.7.9 `[x]`) · **G6 CLOSED** (0.7.10 `[x]`, 2026-10-14) · **G7 CLOSED** (0.7.11 `[x]`, 2026-10-15, D168) · agent-side complete · closes on 🧑 0.7.12 lab
@@ -209,6 +209,7 @@ Reviewer non-blocking follow-ups (carry into G2/G3): (1) `mint` should carry `pe
 - Fixed this session: secret leak + O(n²) in log scrubber; duplicate IDs after fork; plain-`uv sync` test collection crash; CRLF-dependent codegen output.
 
 ## Technical Debt
+- **V0.10 G9 (D288):** G4/G5/G8 cluster files duplicate helpers now in `tests/_support/mf_split_cluster.py` (migrate); `test_v010_mode3` needs pypi for numpy per agent (wheelhouse fixture); C5 harness uses configured bw, not a FaultLink-measured link; `check_exactly_once` doesn't itself flag a leftover `live` lease.
 - **V0.10 G8 (D287):** post-split cool-down only on head node (I12); live-lanes-only `split.progress` event deferred (I13); `image_classify` GPU variant pending (I8); optional strip of C0/ANSI from stored stderr tail before any CLI view.
 - **Bare `uv run mypy` (pyproject says it checks src+tests+lab) exits 2:** duplicate module `main` (lab/workloads/v06-ledger vs log-ticker) and ~900 test-file errors. Gate in use is `mypy src` (clean). Fix or narrow the config comment. Watch: one unreproduced setup ERROR in `tests/cluster/test_v10_g4_tester_r1_failures.py::test_chunk_output_over_the_cap_fails_the_job_without_retrying` (one-process run).
 - **V0.8 G7 (D210):** `ui_perf.py` heartbeat lag ignores cross-machine clock skew (fix before the 0.8.10 lab perf step); SecretsPage file input not reset (same file can't be re-picked); `ui_perf.py` 840 lines; T-8b retry revisits; kept leak-gate limits T-2b/T-6b/T-6c/T-7d-g (strict xfails); MIN_KNOWN_CHARS=8 → THREAT_MODEL note.
