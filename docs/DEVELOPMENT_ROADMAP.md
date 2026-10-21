@@ -648,10 +648,10 @@ A version is **complete** only when all apply:
 
 **Tasks**
 - [x] **0.14.1** Unified candidate generation: JobRequest (Local, M1 × nodes, M3 × node-sets); AcceleratorRequest = typed "not supported in this build" (D290) · + replayable decisions (D292) — **done 2026-10-21** merge `f72681c0`: tester r1 PASS (4200 decisions byte-identical vs pre-refactor planner; savepoint isolation ×8 real PG), reviewer APPROVE; unit 18423, component planner/jobs/migration 149, cluster test_v010_mode3 4 passed
-- [ ] **0.14.2** Pruning (dominated sets, infeasible links) keeping decision latency low
+- [x] **0.14.2** Pruning (dominated sets, infeasible links) keeping decision latency low — **done 2026-10-22** merge `3392fe49` (G3): tester r1 FAIL D1 → fix r1 → tester r2 PASS, reviewer r1+r2 APPROVE, merge-integration (M1–M5, REPLAY_VERSION 2) APPROVE; post-merge main: ruff/format/mypy clean, unit 19511 passed, cluster test_v010_mode3 4 passed; D309–D311; p99 16-node split ≤33 ms
 - [x] **0.14.3** Analytical cost models per ARCHITECTURE §7, parameters calibrated from telemetry — **done 2026-10-22** merge `092b60c7`: tester r1 PASS + r2 PASS (fix round 1: format:true, CLI scrub, no-new-runs skip, refit off loop, rejected pin refused), reviewer r1+r2 APPROVE; post-merge main: ruff/format/mypy clean, unit 19182 passed; G2 component 703, cluster test_v010_mode3 4 (worktree)
-- [ ] **0.14.4** Reliability-based risk penalty
-- [ ] **0.14.5** Objectives: min completion time (default), min network usage, prefer-local
+- [x] **0.14.4** Reliability-based risk penalty — **done 2026-10-22** merge `3392fe49` (G3): tester r1 FAIL D1 → fix r1 → tester r2 PASS, reviewer r1+r2 APPROVE, merge-integration (M1–M5, REPLAY_VERSION 2) APPROVE; post-merge main: ruff/format/mypy clean, unit 19511 passed, cluster test_v010_mode3 4 passed; D309–D311
+- [x] **0.14.5** Objectives: min completion time (default), min network usage, prefer-local — **done 2026-10-22** merge `3392fe49` (G3): tester r1 FAIL D1 → fix r1 → tester r2 PASS, reviewer r1+r2 APPROVE, merge-integration (M1–M5, REPLAY_VERSION 2) APPROVE; post-merge main: ruff/format/mypy clean, unit 19511 passed, cluster test_v010_mode3 4 passed; D309–D311
 - [ ] **0.14.6** Scheduler/decision page: candidate table with predicted breakdown vs actual
 - [ ] **0.14.7** Offline evaluator: replay benchmark dataset → regret vs oracle for every policy
 - [ ] **0.14.8** 🧑 Lab validation runs with fresh (unseen) workloads

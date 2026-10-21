@@ -5,7 +5,7 @@
 **Last updated:** 2026-10-22
 
 ```
-TOTAL   █████████████▒▒░░░░░  62%  98/156 done, 15 in progress
+TOTAL   █████████████▒▒░░░░░  64%  101/156 done, 15 in progress
 
 V0.1    █████████████████▒▒▒  83%  10/12  Foundations & engineering system
 V0.2    ██▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░░   9%   1/11  Lab setup & feasibility validation
@@ -17,16 +17,17 @@ V0.7    ██████████████████░░  91%  11/12
 V0.8    ██████████████████░░  90%   9/10  Dashboard & CLI v1
 V0.9    ██████████████████░░  90%   9/10  Benchmark & telemetry system v1
 V0.10   ██████████████████░░  90%   9/10  Mode 3 Task Splitting
-V0.14   █████░░░░░░░░░░░░░░░  25%   2/8   Unified planner v2
+V0.14   ████████████░░░░░░░░  62%   5/8   Unified planner v2
 V0.15   ░░░░░░░░░░░░░░░░░░░░   0%   0/10  ML planner
 V0.17   ░░░░░░░░░░░░░░░░░░░░   0%   0/8   Productization
 V1.0    ░░░░░░░░░░░░░░░░░░░░   0%   0/8   Release hardening & final evaluation
 ```
 █ done `[x]` · ▒ in progress or waiting on a 🧑 lab step `[~]` · ░ not started
 █ done `[x]` · ▒ in progress or waiting on a 🧑 lab step `[~]` · ░ not started
+█ done `[x]` · ▒ in progress or waiting on a 🧑 lab step `[~]` · ░ not started
 
 ## Current Version
-**V0.14 — Unified planner v2** · started 2026-10-21 (team: "start V0.14", §7 on Lead recommendations) · brief `docs/briefs/V0.14-unified-planner-v2.md` (D290–D303) · ADR-0020 Proposed · **G1 CLOSED** (0.14.1 `[x]`, merge `f72681c0`) · **G2 CLOSED** (0.14.3 `[x]`, merge `092b60c7`, 2026-10-22) · G3 (0.14.2/0.14.4/0.14.5) tester r2 pending, reviewer r2 APPROVE
+**V0.14 — Unified planner v2** · started 2026-10-21 (team: "start V0.14", §7 on Lead recommendations) · brief `docs/briefs/V0.14-unified-planner-v2.md` (D290–D303) · ADR-0020 Proposed · **G1 CLOSED** (0.14.1 `[x]`, merge `f72681c0`) · **G2 CLOSED** (0.14.3 `[x]`, merge `092b60c7`, 2026-10-22) · **G3 CLOSED** (0.14.2/0.14.4/0.14.5 `[x]`, merge `3392fe49`, REPLAY_VERSION 2, D309–D312) · next G4 (0.14.6 decision page / 0.14.7 offline evaluator)
 **V0.10 — Mode 3 Task Splitting** · started 2026-10-19 (team: proceed while away) · brief `docs/briefs/V0.10-task-splitting.md` (DRAFT, D259–D276) · ADR-0019 Proposed · **G1–G9 CLOSED** (D277–D288; 0.10.1–0.10.9 `[x]`) · **agent-side complete** · closes on 🧑 0.10.10 (`lab/checklists/V0.10-mode3.md`)
 **V0.9 — Benchmark & telemetry v1** · started 2026-10-17 · brief `docs/briefs/V0.9-benchmark-telemetry.md` (D211–D224, approved) · ADR-0018 · **G0, G1, G2 CLOSED** (D226, D231, D225; 0.9.1 + 0.9.2 `[x]`) · **G3 CLOSED** (D242; 0.9.3 + 0.9.4 `[x]`) · **G4 CLOSED** (D241–D245; 0.9.5 `[x]`, 2026-10-19) · **G5, G5c, G6 CLOSED** (D246–D258; 0.9.6–0.9.9 `[x]`) · **G7 CLOSED** (`c35ff3d`) · **agent-side complete**; closes on 🧑 0.9.10 (checklist part O)
 **V0.8 — Dashboard & CLI v1** · started 2026-10-15 · brief `docs/briefs/V0.8-dashboard-cli.md` (D169–D180, approved) · ADR-0017 · groups G1–G7 sequential · **G1–G7 CLOSED** (G7 2026-10-17, D210) — 0.8.1–0.8.9 `[x]`; agent-side complete; closes on 🧑 0.8.10 (`lab/checklists/V0.8-visual.md`)
@@ -44,6 +45,8 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 > V0.10. 129 tasks vs 140–180 capacity → **~1.5 tasks/session**. Needs the other three team members' approval.
 
 ## Current Task
+
+- **2026-10-22 (latest):** **V0.14 G3 MERGED** (`3392fe49`) → **0.14.2, 0.14.4, 0.14.5 `[x]`**. Tester r1 D1 (pruning changed chunk sizing) fixed; r2 PASS; reviewer r1+r2+integration APPROVE. Post-merge main: ruff/format/mypy clean, unit 19511, cluster test_v010_mode3 4. Decisions D309–D312 in the V0.14 brief. Next: brief for G4 (0.14.6/0.14.7).
 
 - **2026-10-22 (latest):** **V0.14 G2 MERGED** (`092b60c7`) → **0.14.3 `[x]`**. Tester r1+r2 PASS, reviewer r1+r2 APPROVE. Post-merge main: ruff/format/mypy clean (lint fix in tester r2 file), unit 19182 passed. G3 next: merge after tester r2, REPLAY_VERSION→2, merge conditions M1–M5 (SESSION_HANDOFF §1).
 
@@ -221,6 +224,7 @@ Reviewer non-blocking follow-ups (carry into G2/G3): (1) `mint` should carry `pe
 - Fixed this session: secret leak + O(n²) in log scrubber; duplicate IDs after fork; plain-`uv sync` test collection crash; CRLF-dependent codegen output.
 
 ## Technical Debt
+- **V0.14 G2/G3 (D309–D312):** index on `attempt(ended_at)` for the per-tick reliability read (needs next migration); `env_error` counts against the node even when the requirements file is bad (could require "succeeded elsewhere"); `_attach_replay(calibration=)` should be a required kwarg; latency perf test has no calibrated variant; calibration log reason for a pin that turns rejected after startup; split lane chunk time is uncalibrated (no measured phase).
 - **V0.10 TD1 (D289):** helpers migrated, live-lease check, wheelhouse, stderr stripping DONE. TD2 (D304) closed the rest. Left: C5 harness uses configured bw, not a FaultLink-measured link; dashboard log view renders raw bidi; open question `compute logs` TTY stripping.
 - **V0.10 G8 (D287):** post-split cool-down only on head node (I12); live-lanes-only `split.progress` event deferred (I13); `image_classify` GPU variant pending (I8).
 - **Bare `uv run mypy` (pyproject says it checks src+tests+lab) exits 2:** duplicate module `main` (lab/workloads/v06-ledger vs log-ticker) and ~900 test-file errors. Gate in use is `mypy src` (clean). Fix or narrow the config comment. Watch: one unreproduced setup ERROR in `tests/cluster/test_v10_g4_tester_r1_failures.py::test_chunk_output_over_the_cap_fails_the_job_without_retrying` (one-process run).
