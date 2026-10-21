@@ -154,3 +154,35 @@ def test_clean_tail_limits_still_hold_after_stripping() -> None:
         assert tail is not None and _clean(tail)
         assert len(tail.encode()) <= min(limit, STDERR_TAIL_CHARS)
         assert tail.endswith("x\n") or limit < 3
+
+
+@pytest.mark.parametrize(
+    "unit",
+    [
+        "\x9d",
+        "\x90",
+        "\x98",
+        "\x9e",
+        "\x9f",
+        "\x9dab",
+        "\x90ab",
+        "\x1b]ab",
+        "\x1bPab",
+        "\x9d\x90x",
+    ],
+)
+def test_unterminated_8bit_introducer_runs_stay_linear(unit: str) -> None:
+    """TD1 review B1: 64 KiB of unterminated introducers used to take ~10 s."""
+    import time
+
+    big = unit * (65_536 // len(unit))
+    small = big[: len(big) // 4]
+    start = time.perf_counter()
+    strip_terminal_controls(small)
+    t_small = time.perf_counter() - start
+    start = time.perf_counter()
+    out = strip_terminal_controls(big)
+    t_big = time.perf_counter() - start
+    assert t_big < 0.25
+    assert t_big < max(t_small, 0.005) * 12  # 4x input -> ~4x time, not 16x
+    assert not any(0x80 <= ord(c) <= 0x9F or c == "\x1b" for c in out)

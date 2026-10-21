@@ -35,10 +35,13 @@ _ST: Final = r"(?:\x1b\\|\x9c)"
 _ESCAPE_SEQUENCE: Final = re.compile(
     # CSI: parameter bytes, intermediate bytes, one final byte
     r"(?:\x1b\[|\x9b)[0-?]*[ -/]*[@-~]"
-    # OSC: up to BEL or ST (terminated only)
-    r"|(?:\x1b\]|\x9d)[^\x07\x1b\x9c]*(?:\x07|" + _ST + ")"
+    # OSC: up to BEL or ST (terminated only). The string bodies stop at ESC
+    # and at every C1 byte - which covers ST and all 8-bit introducers - so a
+    # run of unterminated introducers cannot make each one rescan to the end
+    # of the text (that was quadratic; TD1 review B1).
+    r"|(?:\x1b\]|\x9d)[^\x07\x1b\x80-\x9f]*(?:\x07|" + _ST + ")"
     # DCS / SOS / PM / APC: up to ST (terminated only)
-    r"|(?:\x1b[PX^_]|[\x90\x98\x9e\x9f])[^\x1b\x9c]*"
+    r"|(?:\x1b[PX^_]|[\x90\x98\x9e\x9f])[^\x1b\x80-\x9f]*"
     + _ST
     # any other ESC sequence: intermediates, one final byte
     + r"|\x1b[ -/]*[0-~]"
