@@ -65,7 +65,8 @@ REPORT: dict[str, Any] = {
 
 
 @pytest.fixture
-def runner() -> CliRunner:
+def runner(monkeypatch: pytest.MonkeyPatch) -> CliRunner:
+    monkeypatch.setenv("COLUMNS", "200")  # one table row per term
     return CliRunner()
 
 
@@ -161,7 +162,7 @@ def test_the_child_gets_this_interpreter_and_every_flag(
     for text in ("compute", "trained", "lightgbm", "better", "90.0%", "75.0%", "0.081"):
         assert text in result.output
     assert "failure classifier: not trained, 3 < 50 events" in result.output
-    assert "insufficient_data" in result.output
+    assert "insufficient data" in result.output  # words wrap, not_x -> not x
 
 
 def test_without_out_the_report_lives_in_a_removed_temporary_directory(

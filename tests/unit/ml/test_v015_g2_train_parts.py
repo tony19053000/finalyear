@@ -375,3 +375,27 @@ def test_settings_are_frozen() -> None:
 
     with pytest.raises(dataclasses.FrozenInstanceError):
         CompareSettings().min_rows = 1  # type: ignore[misc]
+
+
+# ------------------------------------------------------------------ selection
+
+
+def test_conformal_residuals_are_out_of_fold_never_in_sample() -> None:
+    from meshforge.controller.ml.splits import group_kfold
+    from meshforge.controller.ml.train.select import select
+
+    table = _table(families=3, groups_per_family=4, runs_per_group=8, noise=0.3)
+    rows = np.arange(table.n)
+    deep = alg.Config("tree", (("max_depth", 6),), 1)
+    ctx = alg.FitContext(table=table)
+    sel = select(ctx, rows, [deep], inner_k=5, seed=0)
+    # by hand: each row predicted by a tree that never saw its fingerprint
+    expected = np.full(table.n, np.nan)
+    for fold in group_kfold(table.split_rows(rows), 5, 0):
+        train = rows[list(fold.train)]
+        test = rows[list(fold.test)]
+        model = alg.fit_one(deep, ctx, train)
+        expected[test] = np.abs(table.y[test] - model.predict(table.X[test], test))
+    np.testing.assert_array_equal(sel.oof_residuals, expected)
+    in_sample = np.abs(table.y - alg.fit_one(deep, ctx, rows).predict(table.X, rows))
+    assert in_sample.mean() < sel.oof_residuals.mean()  # the two really differ

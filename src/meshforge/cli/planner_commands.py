@@ -669,13 +669,13 @@ _TRAIN_MODULE: Final = "meshforge.controller.ml.train"
 _COMPARE_HEADER: Final = (
     "term",
     "rows",
-    "families",
+    "fam",
     "status",
     "selected",
-    "MALE model",
-    "MALE calib",
-    "vs calib",
-    "coverage",
+    "MALE ml",
+    "MALE cal",
+    "vs cal",
+    "cover",
     "usable",
 )
 
@@ -690,9 +690,15 @@ def _pct(value: Any) -> str:
     return f"{100.0 * value:.1f}%"
 
 
+def _words(value: Any) -> str:
+    """``not_separable`` -> ``not separable`` (wraps by word in a narrow
+    table; ``--json`` keeps the report's own value)."""
+    return _DASH if value is None else render.echo(value).replace("_", " ")
+
+
 def ml_compare_table(doc: Mapping[str, Any]) -> Table:
     """The per-term table of a comparison report (pure; tests read it)."""
-    table = Table(*_COMPARE_HEADER, title="ML vs calibration on held-out families")
+    table = render.table(*_COMPARE_HEADER, title="ML vs calibration, held-out families")
     terms = doc.get("terms")
     for term in terms if isinstance(terms, list) else []:
         if not isinstance(term, Mapping):
@@ -708,11 +714,11 @@ def ml_compare_table(doc: Mapping[str, Any]) -> Table:
             render.cell(term.get("term")),
             render.cell(term.get("rows")),
             render.cell(term.get("families")),
-            render.cell(term.get("status")),
+            _words(term.get("status")),
             render.cell(config.get("name") if isinstance(config, Mapping) else None),
             _num(pooled.get("male_model")),
             _num(pooled.get("male_calibration")),
-            render.cell(verdict.get("verdict")),
+            _words(verdict.get("verdict")),
             _pct(pooled.get("coverage")),
             _pct(pooled.get("usable_rate")),
         )
@@ -729,7 +735,7 @@ def ml_compare_lines(doc: Mapping[str, Any]) -> list[str]:
         f"v{render.echo(dataset.get('dataset_version'))}, features "
         f"v{render.echo(dataset.get('feature_version'))})",
         "held-out = leave one family out; the model is chosen on the other "
-        "families only; 'vs calib' = paired family bootstrap of the log error",
+        "families only; 'vs cal' = paired family bootstrap of the log error",
     ]
     failures = doc.get("failure_classifier")
     if isinstance(failures, Mapping):
