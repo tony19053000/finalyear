@@ -321,7 +321,15 @@ def _check_explain(
     assert all(t["actual_s"] is None for t in chosen["estimate"]["terms"].values())
     sentence = first["margin_sentence"]
     assert isinstance(sentence, str), first
-    assert all(node in sentence for node in chosen["node_set"]), sentence
+    # the set's verdict (D265/D321 wording: the set by its size, the best single
+    # node it was compared with, ending with the threshold); the members are in
+    # the chosen row's node_set, which explain and the Plan tab both show
+    test = chosen["margin_test"]
+    assert sentence.startswith(f"split over {len(chosen['node_set'])} nodes: "), (
+        sentence
+    )
+    assert f"(best single node {test['best_single_node_id']})" in sentence, sentence
+    assert sentence.endswith(f"needs <= {test['threshold_s']:.2f}s"), sentence
     # --- a Mode 1 job: the chosen node's compute term has its actual
     api = fabric.call("GET", f"/v1/jobs/{mode1_job}/decisions").json()
     first = next(d for d in api["decisions"] if d["outcome"] == "dispatched")
