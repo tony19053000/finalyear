@@ -44,6 +44,8 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 
 ## Current Task
 
+- **2026-10-22 (latest):** **V0.14 G6F (G6 follow-ups) MERGED** (`bfea42a1`): **D332** criterion 3 judged on *live* snapshot nodes (online + connected + `exec`, job-independent; counted in SQL; report `judged_on` + `by_live_node_count`, old reports read as `snapshot_nodes`); D329 end-to-end pg test (12 groups judged vs 3 under the old slice); pool-boundary unit test; ARCHITECTURE `decision_ms` = planning time only. Tester r1 PASS (no defects), reviewer APPROVE (4 non-blocking done by Lead). Harness green (563 s). Post-merge main: ruff + mypy clean, **full unit 20027 passed, exit 0**.
+
 - **2026-10-22 (latest):** **V0.14 G6 MERGED** (`dbfe3a59`) → **0.14.8 `[~]`** (agent side done; 🧑 lab open). Gates at `73605853`: ruff/format/mypy clean, unit 19942 passed (+1 known flake `test_multi_source_fetch` endgame, 3/3 alone), component 66 files 373 passed, cluster mode3 + planner harness 5 passed, frontend typecheck/lint/check:api/vitest 734/build, G5 e2e. Tester r1 PASS (76 tests; T1 non-finite `decision_ms` → API 500, fixed `1b7ba732`). Reviewer APPROVE; its D319 finding fixed in G6 on team OK: **D329 stratified held-out slice** (newest 20 % per fingerprint, one-off workloads pooled) `7ebf07db`/`48c566bd`, reviewer pass 2 APPROVE, component g2+g4 67 passed, harness re-run green (518 s). D330 (criterion 3 = snapshots ≥ 4 nodes), D331 (D327 margin-sentence reading) recorded.
 
 - **2026-10-22 (latest):** **V0.14 G4 + G5 MERGED** → **0.14.6, 0.14.7 `[x]`**. G4 tester r2 PASS / reviewer r2 APPROVE + Lead fixes `4480cf9c`; G5 merged `6e014015` (3 conflicts resolved, schema regenerated); post-merge D321 items (generated planner types, split 404, paired criterion-2 table, real-API e2e, `planner reports` InUi, `planner eval` stays CliOnly — D323). Full unit 19905 passed exit 0. Next: brief §5e G6.
@@ -254,7 +256,7 @@ Reviewer non-blocking follow-ups (carry into G2/G3): (1) `mint` should carry `pe
 - Windows: not yet run (first real CI run will cover unit + fresh-clone on windows-latest)
 
 ## Next Recommended Task
-🧑 **0.14.8 lab** (`lab/checklists/V0.14-planner.md`; check part A's regret check is NOT `skipped` — D329). Agent-side: next roadmap version **V0.15 ML planner** brief (team to start), or G6 non-blocking follow-ups (judge criterion 3 on online/eligible snapshot nodes; pg test showing D319 sees ≥ 10 groups end to end; pool-boundary unit test; ARCHITECTURE note that `decision_ms` excludes the DB write). Merged worktrees G1–G6 kept (removal optional, ask first).
+🧑 **0.14.8 lab** (`lab/checklists/V0.14-planner.md`): part A regret check must NOT be `skipped` (D329); part C pastes `by_live_node_count` (D332). Agent-side: **V0.15 ML planner** brief (team: start it). Merged worktrees G1–G6 + G6F kept (removal optional, ask first).
 
 _Older:_ **V0.14 G6** — brief §5e DRAFTED (`d9ead6da`, D324–D328); team to answer Q13–Q16, then implementer (Mode 3 loader path for the evaluator per D322 follow-up, cluster harness campaign proving criteria 1–4, latency evidence), then implementer → tester → reviewer; then 🧑 0.14.8 lab. Optional follow-up: admin "Run evaluation" control (D323). Merged worktrees G1–G5 kept (user: removal optional).
 
