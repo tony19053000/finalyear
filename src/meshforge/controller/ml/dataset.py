@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import datetime as dt
 import hashlib
+import json
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -59,6 +60,7 @@ from meshforge.controller.telemetry.parquet_options import (
 
 __all__ = [
     "COLUMNS",
+    "COLUMN_FINGERPRINTS",
     "COLUMN_NAMES",
     "DATASET_METADATA_KEY",
     "FEATURE_METADATA_KEY",
@@ -67,6 +69,7 @@ __all__ = [
     "Fold",
     "arrow_schema",
     "build",
+    "column_fingerprint",
     "group_kfold",
     "leave_one_family_out",
     "parquet_bytes",
@@ -100,6 +103,22 @@ COLUMNS: Final[tuple[tuple[str, pa.DataType, bool], ...]] = (
 )
 """(name, Arrow type, nullable). A NaN feature is a float value, not a null."""
 COLUMN_NAMES: Final = tuple(name for name, _, _ in COLUMNS)
+
+
+def column_fingerprint() -> str:
+    """SHA-256 of the columns' (name, Arrow type, nullable), in order."""
+    payload = json.dumps(
+        [[name, str(kind), nullable] for name, kind, nullable in COLUMNS],
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+COLUMN_FINGERPRINTS: Final[dict[int, str]] = {
+    1: "a0c68990f8f232c0ea53eba0e5765febf1126f3b070ba7b858e769bc843199b3",
+}
+"""Published :data:`~.schema.DATASET_VERSION` -> :func:`column_fingerprint`.
+Never edit one; a column change needs a version bump (a unit test)."""
 
 
 def arrow_schema() -> pa.Schema:

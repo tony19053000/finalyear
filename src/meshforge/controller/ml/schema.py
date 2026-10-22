@@ -249,6 +249,10 @@ def schema_fingerprint() -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-SCHEMA_FINGERPRINTS: Final[dict[tuple[int, int], str]] = {}
-"""(dataset_version, feature_version) -> :func:`schema_fingerprint`; filled
-in once the schema is final (a test checks the current one is listed)."""
+SCHEMA_FINGERPRINTS: Final[dict[tuple[int, int], str]] = {
+    (1, 1): "8627956ae0cada485b1df97b8e43b611f3ada9bf46d0d6ee4d7ed2d2c7780087",
+}
+"""Published (dataset_version, feature_version) -> :func:`schema_fingerprint`.
+Never edit one: a changed feature or term list needs a version bump (a unit
+test checks the current one is listed). The dataset's own columns are pinned
+by :data:`meshforge.controller.ml.dataset.COLUMN_FINGERPRINTS`."""
