@@ -676,9 +676,9 @@ A version is **complete** only when all apply:
 **Prerequisites:** V0.14 + sufficient telemetry (≥ several thousand runs across families).
 
 **Tasks**
-- [ ] **0.15.1** Dataset builder from telemetry; group splits by workload family
-- [ ] **0.15.2** Feature pipeline (workload, hardware scores, load, network, cache)
-- [ ] **0.15.3** Targets: compute time per node, env time, per-mode overhead residuals, failure probability
+- [~] **0.15.1** Dataset builder from telemetry; group splits by workload family
+- [~] **0.15.2** Feature pipeline (workload, hardware scores, load, network, cache)
+- [~] **0.15.3** Targets: compute time per node, env time, per-mode overhead residuals, failure probability
 - [ ] **0.15.4** Model comparison: linear/ridge, tree, random forest, XGBoost, LightGBM, kNN (+ quantile variants)
 - [ ] **0.15.5** Uncertainty + OOD detection → fallback to analytical
 - [ ] **0.15.6** Planner integration as cost-component predictors; decision records store predictor version
@@ -686,6 +686,7 @@ A version is **complete** only when all apply:
 - [ ] **0.15.8** Evaluation report: MAPE, regret vs analytical/rules/oracle, ablations, feature importance
 - [ ] **0.15.9** Dashboard: predicted vs actual, model versions
 - [ ] **0.15.10** Optional experiment: direct strategy classifier vs cost-regression (for the report)
+- [ ] **0.15.11** 🧑 Lab data collection + validation: overnight unattended campaign on 4 laptops (all Mode 1 + Mode 3 families, ≥ 2 000 records) → train → evaluate on held-out families; criteria pasted (added 2026-10-22, D344)
 
 **Success criteria**
 1. ML-hybrid planner reduces mean regret vs analytical v2 on held-out workload groups, reported with 95 % confidence intervals.

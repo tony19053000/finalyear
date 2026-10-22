@@ -5,7 +5,7 @@
 **Last updated:** 2026-10-22
 
 ```
-TOTAL   █████████████▒▒░░░░░  66%  103/156 done, 16 in progress
+TOTAL   █████████████▒▒░░░░░  65%  103/157 done, 19 in progress
 
 V0.1    █████████████████▒▒▒  83%  10/12  Foundations & engineering system
 V0.2    ██▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░░   9%   1/11  Lab setup & feasibility validation
@@ -18,13 +18,14 @@ V0.8    ██████████████████░░  90%   9/10
 V0.9    ██████████████████░░  90%   9/10  Benchmark & telemetry system v1
 V0.10   ██████████████████░░  90%   9/10  Mode 3 Task Splitting
 V0.14   ██████████████████▒▒  87%   7/8   Unified planner v2
-V0.15   ░░░░░░░░░░░░░░░░░░░░   0%   0/10  ML planner
+V0.15   ▒▒▒▒▒░░░░░░░░░░░░░░░   0%   0/11  ML planner
 V0.17   ░░░░░░░░░░░░░░░░░░░░   0%   0/8   Productization
 V1.0    ░░░░░░░░░░░░░░░░░░░░   0%   0/8   Release hardening & final evaluation
 ```
 █ done `[x]` · ▒ in progress or waiting on a 🧑 lab step `[~]` · ░ not started
 
 ## Current Version
+**V0.15 — ML planner** · started 2026-10-22 (team: approve all, start G1) · brief `docs/briefs/V0.15-ml-planner.md` (D333–D344, APPROVED) · ADR-0021 Proposed · 0.15.11 🧑 lab added (D344) · **G1 implementer running** (0.15.1–0.15.3 `[~]`)
 **V0.14 — Unified planner v2** · started 2026-10-21 (team: "start V0.14", §7 on Lead recommendations) · brief `docs/briefs/V0.14-unified-planner-v2.md` (D290–D303) · ADR-0020 Proposed · **G1 CLOSED** (0.14.1 `[x]`, merge `f72681c0`) · **G2 CLOSED** (0.14.3 `[x]`, merge `092b60c7`, 2026-10-22) · **G3 CLOSED** (0.14.2/0.14.4/0.14.5 `[x]`, merge `3392fe49`, REPLAY_VERSION 2, D309–D312) · **G4+G5 CLOSED** (0.14.6/0.14.7 `[x]`, D321–D323) · **G6 MERGED** (`dbfe3a59`, D324–D331; 0.14.8 `[~]`) · **agent-side complete** · closes on 🧑 0.14.8 (`lab/checklists/V0.14-planner.md`)
 **V0.10 — Mode 3 Task Splitting** · started 2026-10-19 (team: proceed while away) · brief `docs/briefs/V0.10-task-splitting.md` (DRAFT, D259–D276) · ADR-0019 Proposed · **G1–G9 CLOSED** (D277–D288; 0.10.1–0.10.9 `[x]`) · **agent-side complete** · closes on 🧑 0.10.10 (`lab/checklists/V0.10-mode3.md`)
 **V0.9 — Benchmark & telemetry v1** · started 2026-10-17 · brief `docs/briefs/V0.9-benchmark-telemetry.md` (D211–D224, approved) · ADR-0018 · **G0, G1, G2 CLOSED** (D226, D231, D225; 0.9.1 + 0.9.2 `[x]`) · **G3 CLOSED** (D242; 0.9.3 + 0.9.4 `[x]`) · **G4 CLOSED** (D241–D245; 0.9.5 `[x]`, 2026-10-19) · **G5, G5c, G6 CLOSED** (D246–D258; 0.9.6–0.9.9 `[x]`) · **G7 CLOSED** (`c35ff3d`) · **agent-side complete**; closes on 🧑 0.9.10 (checklist part O)
@@ -256,7 +257,7 @@ Reviewer non-blocking follow-ups (carry into G2/G3): (1) `mint` should carry `pe
 - Windows: not yet run (first real CI run will cover unit + fresh-clone on windows-latest)
 
 ## Next Recommended Task
-🧑 **0.14.8 lab** (`lab/checklists/V0.14-planner.md`): part A regret check must NOT be `skipped` (D329); part C pastes `by_live_node_count` (D332). Agent-side: **V0.15 brief DRAFTED** (`docs/briefs/V0.15-ml-planner.md`, D333–D344, ADR-0021 Proposed) — team answers §7 Q1–Q10, then G1 implementer. Merged worktrees G1–G6 + G6F kept (removal optional, ask first).
+🧑 **0.14.8 lab** (`lab/checklists/V0.14-planner.md`): part A regret check must NOT be `skipped` (D329); part C pastes `by_live_node_count` (D332). Agent-side: **V0.15 G1** (brief §5a) implementer → gates → tester → reviewer → merge; then G2. Merged worktrees G1–G6 + G6F kept (removal optional, ask first).
 
 _Older:_ **V0.14 G6** — brief §5e DRAFTED (`d9ead6da`, D324–D328); team to answer Q13–Q16, then implementer (Mode 3 loader path for the evaluator per D322 follow-up, cluster harness campaign proving criteria 1–4, latency evidence), then implementer → tester → reviewer; then 🧑 0.14.8 lab. Optional follow-up: admin "Run evaluation" control (D323). Merged worktrees G1–G5 kept (user: removal optional).
 
