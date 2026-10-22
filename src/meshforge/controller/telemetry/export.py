@@ -46,6 +46,10 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from meshforge.controller.store.engine import create_session_factory
 from meshforge.controller.store.models.telemetry import ChunkRecord, RunRecord
+from meshforge.controller.telemetry.parquet_options import (
+    ROW_GROUP_SIZE,
+    WRITER_OPTIONS,
+)
 from meshforge.controller.telemetry.record import canonical_json
 from meshforge.controller.telemetry.recorder import TelemetryStoreError
 from meshforge.controller.telemetry.schema import (
@@ -84,19 +88,8 @@ MAX_EXPORT_ROWS: Final = 100_000
 campaign is thousands of records, and the records are loaded before the file is
 streamed (module docstring) - ~0.25 GB of record dicts at the cap."""
 
-WRITER_OPTIONS: Final[dict[str, Any]] = {
-    "version": "2.6",
-    "compression": "zstd",
-    "compression_level": 3,
-    "use_dictionary": False,
-    "write_statistics": True,
-    "data_page_version": "1.0",
-    "store_schema": True,
-}
-"""Pinned Parquet writer options (D222): changing one changes the bytes."""
-ROW_GROUP_SIZE: Final = 65_536
-"""Rows per Parquet row group (pinned, D222): the file's layout, and the most
-rows :func:`write_records` holds as Arrow data at once."""
+# WRITER_OPTIONS / ROW_GROUP_SIZE: pinned in .parquet_options (V0.15 G1 - the
+# pure ML dataset encoder shares them without importing this module).
 
 ARROW_TYPES: Final[dict[Kind, pa.DataType]] = {  # public: labels_export reuses it
     Kind.TEXT: pa.string(),

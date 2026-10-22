@@ -123,11 +123,13 @@ __all__ = [
     "calibration_from_json",
     "calibration_json",
     "canonical",
+    "chosen_row",
     "fit",
     "gate",
     "holdout_error",
     "match",
     "project_calibration",
+    "raw_prediction",
     "refit",
     "split_holdout",
 ]
@@ -501,7 +503,10 @@ def _number(value: Any) -> float | None:
     return number if math.isfinite(number) and number >= 0.0 else None
 
 
-def _chosen_row(outcome: DecisionOutcome) -> Mapping[str, Any] | None:
+def chosen_row(outcome: DecisionOutcome) -> Mapping[str, Any] | None:
+    """The stored candidate row the decision chose (rank 1 on the chosen
+    node); None = not found. Public since V0.15 G1: the ML dataset reads the
+    same row (D333)."""
     for row in outcome.candidates:
         if (
             isinstance(row, Mapping)
@@ -512,7 +517,10 @@ def _chosen_row(outcome: DecisionOutcome) -> Mapping[str, Any] | None:
     return None
 
 
-def _predicted(term: Mapping[str, Any]) -> float | None:
+def raw_prediction(term: Mapping[str, Any]) -> float | None:
+    """A stored term's **uncalibrated** seconds (``detail.calibration.raw_s``
+    when the decision was calibrated, else ``seconds``); None = not a finite
+    non-negative number. Public since V0.15 G1 (the ML residual's ``raw``)."""
     detail = term.get("detail")
     if isinstance(detail, Mapping):
         calibrated = detail.get("calibration")
@@ -528,7 +536,7 @@ def match(outcome: DecisionOutcome) -> MatchedRun | None:
         return None
     if outcome.attempt_node_id != outcome.chosen_node_id:
         return None
-    row = _chosen_row(outcome)
+    row = chosen_row(outcome)
     if row is None or row.get("mode") == "split":
         return None
     split = bool(row.get("node_set"))
@@ -546,7 +554,7 @@ def match(outcome: DecisionOutcome) -> MatchedRun | None:
         actual_ms = outcome.phases_ms.get(TERM_PHASE[name])
         if actual_ms is None or isinstance(actual_ms, bool) or actual_ms < 0:
             continue  # skipped or never reported: nothing honest to compare
-        predicted = _predicted(term)
+        predicted = raw_prediction(term)
         if predicted is None:
             continue
         scaled = term.get("source") != TermSource.MEASURED.value
