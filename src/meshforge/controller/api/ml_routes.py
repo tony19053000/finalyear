@@ -63,7 +63,7 @@ def get_ml_api(request: Request) -> MlDatasetApi:
     return api
 
 
-class CountsOut(ApiModel):
+class MlCountsOut(ApiModel):
     runs: int
     """Matched runs read."""
     runs_with_rows: int
@@ -76,7 +76,7 @@ class CountsOut(ApiModel):
     ``unreadable_replay`` / ``unmatched``, terms for the rest)."""
 
 
-class ColumnOut(ApiModel):
+class MlColumnOut(ApiModel):
     name: str
     type: str
     nullable: bool
@@ -84,7 +84,7 @@ class ColumnOut(ApiModel):
     unit: str | None
 
 
-class FeatureOut(ApiModel):
+class MlFeatureOut(ApiModel):
     name: str
     kind: str
     unit: str
@@ -92,7 +92,7 @@ class FeatureOut(ApiModel):
     doc: str
 
 
-class TermOut(ApiModel):
+class MlTermOut(ApiModel):
     name: str
     scope: str
     planner_term: str
@@ -100,11 +100,11 @@ class TermOut(ApiModel):
     actual: str
 
 
-class SchemaOut(ApiModel):
+class MlSchemaOut(ApiModel):
     fingerprint: str
-    columns: list[ColumnOut]
-    features: list[FeatureOut]
-    terms: list[TermOut]
+    columns: list[MlColumnOut]
+    features: list[MlFeatureOut]
+    terms: list[MlTermOut]
 
 
 class MlDatasetSummaryOut(ApiModel):
@@ -119,8 +119,8 @@ class MlDatasetSummaryOut(ApiModel):
     max_runs: int
     truncated: bool
     """Older matched runs exist beyond ``max_runs``."""
-    counts: CountsOut
-    dataset_schema: SchemaOut
+    counts: MlCountsOut
+    dataset_schema: MlSchemaOut
 
 
 @ml_router.get(
