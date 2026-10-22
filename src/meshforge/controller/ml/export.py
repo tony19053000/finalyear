@@ -80,7 +80,7 @@ def summary(built: BuiltDataset) -> dict[str, Any]:
         "max_runs": built.max_runs,
         "truncated": built.truncated,
         "counts": dict(dataset.counts),
-        "schema": {
+        "dataset_schema": {
             "fingerprint": schema_fingerprint(),
             "columns": [
                 {
