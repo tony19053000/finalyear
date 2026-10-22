@@ -52,7 +52,7 @@ def synthetic_rows(
     nan_column: str | None = None,
     constant_y: bool = False,
 ) -> list[dict[str, Any]]:
-    rng = random.Random(seed)
+    rng = random.Random(seed)  # noqa: S311 - reproducible test data
     rows: list[dict[str, Any]] = []
     decision = 0
     names = [f"fam{f:02d}" for f in range(families)]
@@ -131,6 +131,6 @@ def parquet_file(
     ``shuffle_seed`` (a non-canonical file with the same content)."""
     ordered = sorted(rows, key=sort_key)
     if shuffle_seed is not None:
-        random.Random(shuffle_seed).shuffle(ordered)
+        random.Random(shuffle_seed).shuffle(ordered)  # noqa: S311 - test data
     path.write_bytes(parquet_bytes(ordered))
     return path
